@@ -33,8 +33,9 @@ ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
     UV_LINK_MODE=copy
 RUN uv sync --frozen --no-install-project --extra dev
 
-# Install the project itself
+# Install the project itself (hatchling needs README.md to build)
 COPY src/ ./src/
+COPY README.md ./
 RUN uv sync --frozen --extra dev
 
 # ---------------------------------------------------------------------------
