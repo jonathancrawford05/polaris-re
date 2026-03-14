@@ -64,11 +64,11 @@ The goal of Phase 1 is a fully functional, tested, and documented engine capable
 
 ---
 
-### Milestone 1.6 — Integration, Docs & Validation Notebook
-- [ ] Full integration test: InforceBlock → AssumptionSet → TermLife → YRTTreaty → ProfitTester
-- [ ] `notebooks/01_term_life_yrt_pricing.ipynb` — end-to-end deal pricing walkthrough
-- [ ] `README.md` — update feature status table when Phase 1 complete
-- [ ] `make coverage` — ≥ 85% coverage on all Phase 1 modules (threshold set in pyproject.toml)
+### Milestone 1.6 — Integration, Docs & Validation Notebook ✅ COMPLETE
+- [x] Full integration test: InforceBlock → AssumptionSet → TermLife → YRTTreaty → ProfitTester
+- [x] `notebooks/01_term_life_yrt_pricing.ipynb` — end-to-end deal pricing walkthrough
+- [x] `README.md` — update feature status table when Phase 1 complete
+- [x] `make coverage` — ≥ 85% coverage on all Phase 1 modules (actual: 91%)
 - [ ] CI pipeline green on all 4 jobs (lint, test-3.12, test-3.13, docker)
 
 ---
