@@ -1,37 +1,23 @@
 """
 Interpolation utilities for actuarial rate tables.
 
-Mortality tables provide rates at integer ages. For policies with
-fractional ages (which is every real policy), interpolation is required.
-
-Standard actuarial interpolation methods:
-1. UDD (Uniform Distribution of Deaths): linear interpolation of q_x.
-   q_{x+f} = f * q_x  for fractional age f in [0,1).
-   This is the most common assumption and simplest to implement.
-
-2. Constant Force of Mortality: exponential interpolation.
-   μ_{x+f} = -ln(1 - q_x), giving q_{x+f} = 1 - (1-q_x)^f
-   More theoretically defensible but slightly more complex.
-
-3. Balducci (Hyperbolic): less common, not required for Phase 1.
-
-Phase 1 uses UDD throughout. The method is configurable via a flag
-on MortalityTable for future flexibility.
+Standard methods:
+1. UDD (Uniform Distribution of Deaths): linear interpolation — Phase 1 default.
+2. Constant Force of Mortality: q_{x,f} = 1 - (1-q_x)^f — used for monthly conversion.
+3. Balducci (Hyperbolic): not required.
 
 Implementation Notes for Claude Code:
 --------------------------------------
-- `linear_interpolate_rates` handles the UDD case for vectorized lookups.
-- Input: base integer-age rates q[ages] and fractional offsets.
-- Output: interpolated rates at the exact fractional age.
-- Clip output to [0, 1] to prevent numerical issues at old ages (q_x near 1).
+- linear_interpolate_rates: UDD linear blend between q_lower and q_upper.
+  q_{x+f} = (1-f)*q_lower + f*q_upper, clipped to [0, 1].
+- constant_force_interpolate_rates: one-liner — 1 - (1 - q_annual)^fraction.
+  This is the standard conversion from annual to monthly mortality rates.
 
 TODO (Phase 1, Milestone 1.2):
-- Implement linear_interpolate_rates
-- Implement constant_force_interpolate_rates (may be needed for VBT)
-- Add tests verifying UDD: interpolated rate at f=0 == q_x, at f=1 == q_{x+1}
+- Implement both functions (constant_force is a one-liner — do this first)
+- Tests: at fraction=0 → rate=0; at fraction=1 → rate=q_annual;
+         at fraction=1/12 with q=0.012 → ≈ 0.001005
 """
-
-from __future__ import annotations
 
 import numpy as np
 
@@ -44,22 +30,19 @@ def linear_interpolate_rates(
     fractions: np.ndarray,
 ) -> np.ndarray:
     """
-    Interpolate mortality rates under the UDD (Uniform Distribution of Deaths) assumption.
+    Interpolate mortality rates under UDD (linear blend).
 
-    Under UDD: q_{x+f} = f * q_{x+1} + (1-f) * q_x  [NOTE: this is linear interpolation]
-    More precisely for UDD: the force of mortality is constant within each year of age,
-    and q_{x+f} satisfies: (1 - q_{x+f}) = (1 - q_x)^(1-f) ... but for Phase 1,
-    simple linear interpolation is an acceptable approximation.
+    q_{x+f} = (1 - f) * q_lower + f * q_upper
 
     Args:
-        q_lower: Annual mortality rates at floor(age), shape (N,).
-        q_upper: Annual mortality rates at floor(age)+1, shape (N,).
-        fractions: Fractional part of age in [0, 1), shape (N,).
+        q_lower:   Annual q_x at floor(age), shape (N,), dtype float64.
+        q_upper:   Annual q_x at floor(age)+1, shape (N,), dtype float64.
+        fractions: Fractional age in [0, 1), shape (N,), dtype float64.
 
     Returns:
-        Interpolated annual mortality rates, shape (N,), clipped to [0, 1].
+        Interpolated annual rates, shape (N,), clipped to [0, 1].
 
-    TODO: Implement.
+    TODO: Implement — one vectorized expression plus np.clip.
     """
     raise NotImplementedError("linear_interpolate_rates not yet implemented.")
 
@@ -69,24 +52,26 @@ def constant_force_interpolate_rates(
     fraction: float,
 ) -> np.ndarray:
     """
-    Convert annual mortality rates to sub-annual rates under constant force assumption.
+    Convert annual mortality rates to sub-annual via constant force assumption.
 
-    Under constant force of mortality:
         q_{x, fraction} = 1 - (1 - q_x)^fraction
 
-    This is used to convert annual table rates to monthly rates (fraction = 1/12).
+    Used to convert annual table rates to monthly rates (fraction = 1/12).
 
     Args:
-        q_annual: Annual mortality rates, shape (N,), dtype float64.
-        fraction: Sub-annual fraction (e.g. 1/12 for monthly).
+        q_annual: Annual mortality rates, shape (N,), dtype float64. Must be in [0, 1].
+        fraction: Sub-annual fraction, e.g. 1/12 for monthly.
 
     Returns:
-        Sub-annual mortality rates, shape (N,), dtype float64.
+        Sub-annual rates, shape (N,), dtype float64.
 
-    Example:
-        Monthly rate from annual 0.001:
-        q_monthly = 1 - (1 - 0.001)^(1/12) ≈ 0.0000835
+    Examples:
+        constant_force_interpolate_rates(np.array([0.012]), 1/12)
+        → array([0.00100503])   # ≈ 0.001005
 
-    TODO: Implement. This is a one-liner once you know the formula.
+        At fraction=1.0: returns q_annual unchanged.
+        At fraction=0.0: returns zeros.
+
+    TODO: Implement — one vectorized expression: 1.0 - (1.0 - q_annual) ** fraction
     """
     raise NotImplementedError("constant_force_interpolate_rates not yet implemented.")

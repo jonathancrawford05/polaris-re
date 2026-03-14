@@ -1,14 +1,17 @@
 """
-BaseProduct — abstract base class for all Polaris RE product engines.
+BaseProduct — abstract base class for all Polaris RE product projection engines.
 
-All product engines must inherit from BaseProduct and implement the
-`project()` method, which takes the bound InforceBlock, AssumptionSet,
-and ProjectionConfig and returns a CashFlowResult on a GROSS basis.
+All concrete product engines must inherit from BaseProduct and implement:
+  - project()         → CashFlowResult on GROSS basis
+  - compute_reserves() → np.ndarray shape (N, T)
+
+Product engines must NOT apply reinsurance modifications — that is the
+responsibility of the treaty layer (BaseTreaty subclasses).
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
+
+import numpy as np
 
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.core.cashflow import CashFlowResult
@@ -20,16 +23,12 @@ __all__ = ["BaseProduct"]
 
 class BaseProduct(ABC):
     """
-    Abstract base class for all product projection engines.
-
-    Subclasses implement `project()` to produce gross cash flows.
-    They must NOT apply reinsurance modifications — that is the
-    responsibility of the treaty layer.
+    Abstract base for all product projection engines.
 
     Args:
-        inforce: The inforce block to project.
-        assumptions: The assumption set to use.
-        config: Projection configuration (horizon, discount rate, etc.).
+        inforce:     The inforce block to project.
+        assumptions: The assumption set (mortality, lapse, etc.).
+        config:      Projection configuration (horizon, discount rate, time step).
     """
 
     def __init__(
@@ -48,19 +47,20 @@ class BaseProduct(ABC):
         Run the projection and return gross cash flows.
 
         Args:
-            seriatim: If True, populate seriatim arrays (N×T) in CashFlowResult.
-                      Slower but required for policy-level analysis and some treaty calculations.
+            seriatim: If True, populate (N, T) arrays in CashFlowResult.
+                      Required for policy-level analysis and some treaty engines.
 
         Returns:
-            CashFlowResult on a GROSS basis.
+            CashFlowResult on GROSS basis.
         """
 
     @abstractmethod
-    def compute_reserves(self) -> "import numpy as np; np.ndarray":
+    def compute_reserves(self) -> np.ndarray:
         """
         Compute policy reserves for the full projection horizon.
 
-        Returns shape (N, T) array of per-policy reserve balances.
-        Called internally by `project()` and also by treaty engines that need
-        reserves (e.g. YRT NAR calculation, coinsurance reserve transfer).
+        Returns:
+            Reserve array, shape (N, T), dtype float64.
+            Called by project() and by treaty engines that need reserves
+            (YRT NAR calculation, coinsurance reserve transfer).
         """

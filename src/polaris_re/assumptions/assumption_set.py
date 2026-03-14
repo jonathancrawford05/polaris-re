@@ -1,14 +1,10 @@
 """
 AssumptionSet — bundles all actuarial assumptions for a projection run.
 
-The AssumptionSet is the single versioned object passed to projection engines.
-It is immutable (frozen Pydantic model) to ensure assumptions cannot be
-accidentally modified mid-projection.
-
-Every AssumptionSet must carry a version string for audit traceability.
+Immutable (frozen Pydantic model). Every AssumptionSet carries a version
+string for full audit traceability — every projection run is tied to
+an explicit, documented assumption set.
 """
-
-from __future__ import annotations
 
 from datetime import date
 
@@ -25,21 +21,21 @@ class AssumptionSet(PolarisBaseModel):
     """
     A versioned, immutable bundle of all actuarial assumptions for a projection.
 
-    Pass an AssumptionSet to any BaseProduct.project() call. This ensures
-    full traceability — every run is tied to an explicit, auditable assumption set.
+    Pass an AssumptionSet to any BaseProduct.project() call to ensure
+    full traceability across projection runs.
     """
 
-    # --- Required assumptions ---
+    # --- Required ---
     mortality: MortalityTable = Field(description="Base mortality table.")
     lapse: LapseAssumption = Field(description="Voluntary lapse (termination) rates.")
 
-    # --- Optional assumptions (required for Phase 2+) ---
-    # improvement: MortalityImprovement | None = None   # Phase 1: improvement optional
-    # expense: ExpenseAssumption | None = None          # Phase 2
+    # --- Optional (Phase 2+) ---
+    # improvement: MortalityImprovement | None = None
+    # expense: ExpenseAssumption | None = None
 
-    # --- Versioning and audit metadata ---
+    # --- Audit metadata ---
     version: str = Field(
-        description="Version identifier for this assumption set (e.g. 'v1.0', '2025Q1-pricing')."
+        description="Version identifier, e.g. 'v1.0' or '2025Q1-pricing'."
     )
     effective_date: date | None = Field(
         default=None,
@@ -52,7 +48,7 @@ class AssumptionSet(PolarisBaseModel):
 
     @property
     def summary(self) -> str:
-        """Human-readable one-line summary of this assumption set."""
+        """Human-readable one-line summary."""
         return (
             f"AssumptionSet(version={self.version}, "
             f"mortality={self.mortality.source.value}, "

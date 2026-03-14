@@ -1,17 +1,17 @@
 """
 BaseTreaty — abstract base class for all reinsurance treaty engines.
 
-A treaty takes a gross CashFlowResult and returns ceded and net CashFlowResult
-objects. The invariant that must hold for all treaty implementations:
+A treaty transforms a gross CashFlowResult into (net, ceded) pair.
+The invariant that must hold for all implementations:
 
-    net_cashflow + ceded_cashflow == gross_cashflow   (for all cash flow lines)
+    net + ceded == gross   (for every cash flow line)
 
-This is verified in the test suite for every concrete treaty implementation.
+This is verified via verify_additivity() in the test suite.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
+
+import numpy as np
 
 from polaris_re.core.cashflow import CashFlowResult
 
@@ -22,7 +22,7 @@ class BaseTreaty(ABC):
     """
     Abstract base for all reinsurance treaty engines.
 
-    The `apply()` method is the sole public interface. It receives the gross
+    The sole public interface is `apply()`, which receives the gross
     CashFlowResult and returns a (net, ceded) tuple.
     """
 
@@ -35,8 +35,7 @@ class BaseTreaty(ABC):
             gross: CashFlowResult on GROSS basis from a product engine.
 
         Returns:
-            Tuple of (net CashFlowResult, ceded CashFlowResult).
-            net + ceded must equal gross for all cash flow lines.
+            (net, ceded) tuple. net + ceded must equal gross for all lines.
         """
 
     def verify_additivity(
@@ -47,13 +46,13 @@ class BaseTreaty(ABC):
         rtol: float = 1e-5,
     ) -> None:
         """
-        Verify that net + ceded == gross for all cash flow lines.
-        Call in tests to validate treaty implementations.
+        Assert that net + ceded == gross for premiums and claims.
+
+        Call this in tests after apply() to validate treaty implementations.
 
         Raises:
-            AssertionError if additivity fails.
+            AssertionError: If additivity fails for any cash flow line.
         """
-        import numpy as np
         np.testing.assert_allclose(
             net.gross_premiums + ceded.gross_premiums,
             gross.gross_premiums,
@@ -65,4 +64,10 @@ class BaseTreaty(ABC):
             gross.death_claims,
             rtol=rtol,
             err_msg="Claims additivity failed: net + ceded != gross",
+        )
+        np.testing.assert_allclose(
+            net.net_cash_flow + ceded.net_cash_flow,
+            gross.net_cash_flow,
+            rtol=rtol,
+            err_msg="Net cash flow additivity failed: net + ceded != gross",
         )
