@@ -49,11 +49,11 @@ The goal of Phase 1 is a fully functional, tested, and documented engine capable
 
 ---
 
-### Milestone 1.4 — YRT and Coinsurance Treaties
-- [ ] `reinsurance/yrt.py` — `YRTTreaty.apply()` — NAR, ceded premium, ceded claims
-- [ ] `reinsurance/coinsurance.py` — `CoinsuranceTreaty.apply()` — proportional all lines + reserve transfer
-- [ ] Tests: verify net + ceded == gross for all cash flow lines (`verify_additivity`)
-- [ ] Tests: YRT reserves not transferred; coinsurance reserves split proportionally
+### Milestone 1.4 — YRT and Coinsurance Treaties ✅ COMPLETE
+- [x] `reinsurance/yrt.py` — `YRTTreaty.apply()` — NAR, ceded premium, ceded claims
+- [x] `reinsurance/coinsurance.py` — `CoinsuranceTreaty.apply()` — proportional all lines + reserve transfer
+- [x] Tests: verify net + ceded == gross for all cash flow lines (`verify_additivity`)
+- [x] Tests: YRT reserves not transferred; coinsurance reserves split proportionally
 
 ---
 
