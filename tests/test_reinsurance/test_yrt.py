@@ -8,7 +8,6 @@ All monetary assertions use np.testing.assert_allclose(rtol=1e-5).
 """
 
 import pytest
-import numpy as np
 
 pytestmark = pytest.mark.xfail(
     reason="YRTTreaty.apply() not yet implemented.",
@@ -17,7 +16,6 @@ pytestmark = pytest.mark.xfail(
 
 
 class TestYRTTreaty:
-
     def test_additivity_premiums(self):
         """net premiums + ceded premiums must equal gross premiums."""
         pytest.skip("Requires TermLife projection — implement after Milestone 1.3")

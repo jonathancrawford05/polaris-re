@@ -20,17 +20,20 @@ The goal of Phase 1 is a fully functional, tested, and documented engine capable
 
 ---
 
-### Milestone 1.2 — Assumptions & Utilities 🔄 IN PROGRESS
-- [ ] `utils/date_utils.py` — `months_between`, `age_nearest_birthday`, `age_last_birthday`, `projection_date_index`
-- [ ] `utils/interpolation.py` — `constant_force_interpolate_rates`, `linear_interpolate_rates`
-- [ ] `utils/table_io.py` — `load_mortality_csv`, `MortalityTableArray.get_rate_vector`
-- [ ] `assumptions/mortality.py` — `MortalityTable.load`, `get_qx_vector`
-- [ ] `assumptions/lapse.py` — `LapseAssumption.from_duration_table`, `get_lapse_vector`
-- [ ] `assumptions/improvement.py` — `MortalityImprovement.apply_improvement` (Scale AA + NONE)
-- [ ] `assumptions/assumption_set.py` — `AssumptionSet` (depends on above; model is complete, summary property needs lapse loaded)
-- [ ] `tests/fixtures/` — synthetic CSV mortality table fixtures for testing (no licensing required)
-- [ ] `tests/test_assumptions/test_mortality.py` — closed-form rate lookup verification
-- [ ] All rate lookup tests passing including `constant_force` monthly conversion
+### Milestone 1.2 — Assumptions & Utilities ✅ COMPLETE
+- [x] `utils/interpolation.py` — `constant_force_interpolate_rates`, `linear_interpolate_rates`
+- [x] `utils/date_utils.py` — `months_between`, `age_nearest_birthday`, `age_last_birthday`, `projection_date_index`
+- [x] `utils/table_io.py` — `load_mortality_csv`, `MortalityTableArray.get_rate_vector`
+- [x] `assumptions/mortality.py` — `MortalityTable.from_table_array`, `get_qx_vector`, `get_qx_scalar`
+- [x] `assumptions/lapse.py` — `LapseAssumption.from_duration_table`, `get_lapse_vector`
+- [x] `assumptions/improvement.py` — `MortalityImprovement.apply_improvement` (Scale AA + NONE)
+- [x] `assumptions/assumption_set.py` — `AssumptionSet` (model complete, summary property functional)
+- [x] `tests/fixtures/` — synthetic CSV mortality table fixtures (select-and-ultimate + ultimate-only)
+- [x] `tests/test_assumptions/test_mortality.py` — closed-form rate lookup verification
+- [x] `tests/test_assumptions/test_lapse.py` — select/ultimate lapse rate verification
+- [x] `tests/test_assumptions/test_improvement.py` — Scale AA closed-form verification
+- [x] `tests/test_utils/` — interpolation, date_utils, table_io tests (50+ tests)
+- [x] All rate lookup tests passing including `constant_force` monthly conversion
 
 ---
 

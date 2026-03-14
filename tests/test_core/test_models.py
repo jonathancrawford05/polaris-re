@@ -4,10 +4,11 @@ from datetime import date
 
 import numpy as np
 import pytest
+from pydantic import ValidationError
 
+from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
-from polaris_re.core.projection import ProjectionConfig
 
 
 class TestPolicy:
@@ -25,54 +26,77 @@ class TestPolicy:
     def test_remaining_term_months_mid_policy(self):
         p = Policy(
             policy_id="X",
-            issue_age=40, attained_age=45,
-            sex=Sex.MALE, smoker_status=SmokerStatus.NON_SMOKER,
+            issue_age=40,
+            attained_age=45,
+            sex=Sex.MALE,
+            smoker_status=SmokerStatus.NON_SMOKER,
             underwriting_class="STANDARD",
-            face_amount=100_000, annual_premium=500,
-            product_type=ProductType.TERM, policy_term=20,
+            face_amount=100_000,
+            annual_premium=500,
+            product_type=ProductType.TERM,
+            policy_term=20,
             duration_inforce=60,  # 5 years in force
             reinsurance_cession_pct=0.5,
-            issue_date=date(2020, 1, 1), valuation_date=date(2025, 1, 1),
+            issue_date=date(2020, 1, 1),
+            valuation_date=date(2025, 1, 1),
         )
         assert p.remaining_term_months == 180  # 15 years remaining
 
     def test_permanent_policy_has_no_remaining_term(self):
         p = Policy(
             policy_id="WL001",
-            issue_age=40, attained_age=40,
-            sex=Sex.FEMALE, smoker_status=SmokerStatus.NON_SMOKER,
+            issue_age=40,
+            attained_age=40,
+            sex=Sex.FEMALE,
+            smoker_status=SmokerStatus.NON_SMOKER,
             underwriting_class="PREFERRED",
-            face_amount=200_000, annual_premium=2_000,
-            product_type=ProductType.WHOLE_LIFE, policy_term=None,
-            duration_inforce=0, reinsurance_cession_pct=0.5,
-            issue_date=date(2025, 1, 1), valuation_date=date(2025, 1, 1),
+            face_amount=200_000,
+            annual_premium=2_000,
+            product_type=ProductType.WHOLE_LIFE,
+            policy_term=None,
+            duration_inforce=0,
+            reinsurance_cession_pct=0.5,
+            issue_date=date(2025, 1, 1),
+            valuation_date=date(2025, 1, 1),
         )
         assert p.remaining_term_months is None
 
     def test_invalid_negative_face_amount(self):
-        with pytest.raises(Exception):  # Pydantic ValidationError
+        with pytest.raises(ValidationError):  # Pydantic ValidationError
             Policy(
                 policy_id="BAD",
-                issue_age=40, attained_age=40,
-                sex=Sex.MALE, smoker_status=SmokerStatus.NON_SMOKER,
+                issue_age=40,
+                attained_age=40,
+                sex=Sex.MALE,
+                smoker_status=SmokerStatus.NON_SMOKER,
                 underwriting_class="STANDARD",
                 face_amount=-100_000,  # invalid
-                annual_premium=500, product_type=ProductType.TERM, policy_term=20,
-                duration_inforce=0, reinsurance_cession_pct=0.5,
-                issue_date=date(2025, 1, 1), valuation_date=date(2025, 1, 1),
+                annual_premium=500,
+                product_type=ProductType.TERM,
+                policy_term=20,
+                duration_inforce=0,
+                reinsurance_cession_pct=0.5,
+                issue_date=date(2025, 1, 1),
+                valuation_date=date(2025, 1, 1),
             )
 
     def test_invalid_cession_pct_above_one(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             Policy(
                 policy_id="BAD2",
-                issue_age=40, attained_age=40,
-                sex=Sex.MALE, smoker_status=SmokerStatus.NON_SMOKER,
+                issue_age=40,
+                attained_age=40,
+                sex=Sex.MALE,
+                smoker_status=SmokerStatus.NON_SMOKER,
                 underwriting_class="STANDARD",
-                face_amount=100_000, annual_premium=500,
-                product_type=ProductType.TERM, policy_term=20,
-                duration_inforce=0, reinsurance_cession_pct=1.5,  # invalid
-                issue_date=date(2025, 1, 1), valuation_date=date(2025, 1, 1),
+                face_amount=100_000,
+                annual_premium=500,
+                product_type=ProductType.TERM,
+                policy_term=20,
+                duration_inforce=0,
+                reinsurance_cession_pct=1.5,  # invalid
+                issue_date=date(2025, 1, 1),
+                valuation_date=date(2025, 1, 1),
             )
 
 
@@ -101,22 +125,38 @@ class TestInforceBlock:
 
     def test_mixed_valuation_dates_raises(self):
         p1 = Policy(
-            policy_id="P1", issue_age=40, attained_age=40,
-            sex=Sex.MALE, smoker_status=SmokerStatus.NON_SMOKER,
-            underwriting_class="STANDARD", face_amount=100_000, annual_premium=500,
-            product_type=ProductType.TERM, policy_term=20, duration_inforce=0,
+            policy_id="P1",
+            issue_age=40,
+            attained_age=40,
+            sex=Sex.MALE,
+            smoker_status=SmokerStatus.NON_SMOKER,
+            underwriting_class="STANDARD",
+            face_amount=100_000,
+            annual_premium=500,
+            product_type=ProductType.TERM,
+            policy_term=20,
+            duration_inforce=0,
             reinsurance_cession_pct=0.5,
-            issue_date=date(2025, 1, 1), valuation_date=date(2025, 1, 1),
+            issue_date=date(2025, 1, 1),
+            valuation_date=date(2025, 1, 1),
         )
         p2 = Policy(
-            policy_id="P2", issue_age=40, attained_age=40,
-            sex=Sex.MALE, smoker_status=SmokerStatus.NON_SMOKER,
-            underwriting_class="STANDARD", face_amount=100_000, annual_premium=500,
-            product_type=ProductType.TERM, policy_term=20, duration_inforce=0,
+            policy_id="P2",
+            issue_age=40,
+            attained_age=40,
+            sex=Sex.MALE,
+            smoker_status=SmokerStatus.NON_SMOKER,
+            underwriting_class="STANDARD",
+            face_amount=100_000,
+            annual_premium=500,
+            product_type=ProductType.TERM,
+            policy_term=20,
+            duration_inforce=0,
             reinsurance_cession_pct=0.5,
-            issue_date=date(2025, 1, 1), valuation_date=date(2026, 1, 1),  # different date!
+            issue_date=date(2025, 1, 1),
+            valuation_date=date(2026, 1, 1),  # different date!
         )
-        with pytest.raises(Exception):  # PolarisValidationError
+        with pytest.raises(PolarisValidationError):
             InforceBlock(policies=[p1, p2])
 
 

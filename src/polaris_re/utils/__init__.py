@@ -11,8 +11,8 @@ from polaris_re.utils.table_io import load_mortality_csv
 
 __all__ = [
     "age_nearest_birthday",
-    "months_between",
-    "projection_date_index",
     "linear_interpolate_rates",
     "load_mortality_csv",
+    "months_between",
+    "projection_date_index",
 ]

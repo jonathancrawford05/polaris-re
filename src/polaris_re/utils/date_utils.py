@@ -22,7 +22,7 @@ from datetime import date
 
 import numpy as np
 
-__all__ = ["age_nearest_birthday", "age_last_birthday", "months_between", "projection_date_index"]
+__all__ = ["age_last_birthday", "age_nearest_birthday", "months_between", "projection_date_index"]
 
 
 def age_nearest_birthday(birth_date: date, as_of_date: date) -> int:
@@ -45,7 +45,8 @@ def age_nearest_birthday(birth_date: date, as_of_date: date) -> int:
 
     TODO: Implement using months_between.
     """
-    raise NotImplementedError("age_nearest_birthday not yet implemented.")
+    total_months = months_between(birth_date, as_of_date)
+    return (total_months + 6) // 12
 
 
 def age_last_birthday(birth_date: date, as_of_date: date) -> int:
@@ -64,7 +65,8 @@ def age_last_birthday(birth_date: date, as_of_date: date) -> int:
 
     TODO: Implement using months_between.
     """
-    raise NotImplementedError("age_last_birthday not yet implemented.")
+    total_months = months_between(birth_date, as_of_date)
+    return total_months // 12
 
 
 def months_between(start: date, end: date) -> int:
@@ -87,7 +89,12 @@ def months_between(start: date, end: date) -> int:
     TODO: Implement. Formula: (end.year - start.year) * 12 + (end.month - start.month),
           minus 1 if end.day < start.day (incomplete month), clamped to >= 0.
     """
-    raise NotImplementedError("months_between not yet implemented.")
+    if end <= start:
+        return 0
+    months = (end.year - start.year) * 12 + (end.month - start.month)
+    if end.day < start.day:
+        months -= 1
+    return max(0, months)
 
 
 def projection_date_index(start_date: date, n_months: int) -> np.ndarray:
@@ -109,4 +116,5 @@ def projection_date_index(start_date: date, n_months: int) -> np.ndarray:
         base = np.datetime64(start_date, 'M')
         return base + np.arange(1, n_months + 1, dtype='timedelta64[M]')
     """
-    raise NotImplementedError("projection_date_index not yet implemented.")
+    base = np.datetime64(start_date, "M")
+    return base + np.arange(n_months, dtype="timedelta64[M]")

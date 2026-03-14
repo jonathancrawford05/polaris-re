@@ -44,7 +44,7 @@ import numpy as np
 
 from polaris_re.core.cashflow import CashFlowResult
 
-__all__ = ["ProfitTester", "ProfitTestResult"]
+__all__ = ["ProfitTestResult", "ProfitTester"]
 
 
 @dataclass
@@ -58,11 +58,11 @@ class ProfitTestResult:
     hurdle_rate: float
     pv_profits: float
     pv_premiums: float
-    profit_margin: float           # pv_profits / pv_premiums
-    irr: float | None              # None if solver does not converge
-    breakeven_year: int | None     # None if never breaks even
+    profit_margin: float  # pv_profits / pv_premiums
+    irr: float | None  # None if solver does not converge
+    breakeven_year: int | None  # None if never breaks even
     total_undiscounted_profit: float
-    profit_by_year: np.ndarray     # shape (projection_years,)
+    profit_by_year: np.ndarray  # shape (projection_years,)
 
 
 class ProfitTester:
@@ -93,6 +93,5 @@ class ProfitTester:
         TODO: Implement per module docstring.
         """
         raise NotImplementedError(
-            "ProfitTester.run() not yet implemented. "
-            "See module docstring for formulas."
+            "ProfitTester.run() not yet implemented. See module docstring for formulas."
         )

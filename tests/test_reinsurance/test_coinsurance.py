@@ -8,7 +8,6 @@ KEY INVARIANTS:
 """
 
 import pytest
-import numpy as np
 
 pytestmark = pytest.mark.xfail(
     reason="CoinsuranceTreaty.apply() not yet implemented.",
@@ -17,7 +16,6 @@ pytestmark = pytest.mark.xfail(
 
 
 class TestCoinsuranceTreaty:
-
     def test_additivity_all_lines(self):
         """net + ceded == gross for premiums, claims, expenses, reserves."""
         pytest.skip("Requires TermLife projection — implement after Milestone 1.3")

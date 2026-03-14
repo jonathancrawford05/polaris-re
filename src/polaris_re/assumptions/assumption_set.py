@@ -34,9 +34,7 @@ class AssumptionSet(PolarisBaseModel):
     # expense: ExpenseAssumption | None = None
 
     # --- Audit metadata ---
-    version: str = Field(
-        description="Version identifier, e.g. 'v1.0' or '2025Q1-pricing'."
-    )
+    version: str = Field(description="Version identifier, e.g. 'v1.0' or '2025Q1-pricing'.")
     effective_date: date | None = Field(
         default=None,
         description="Date from which these assumptions are effective.",

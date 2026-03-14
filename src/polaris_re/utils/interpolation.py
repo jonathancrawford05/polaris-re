@@ -21,7 +21,7 @@ TODO (Phase 1, Milestone 1.2):
 
 import numpy as np
 
-__all__ = ["linear_interpolate_rates", "constant_force_interpolate_rates"]
+__all__ = ["constant_force_interpolate_rates", "linear_interpolate_rates"]
 
 
 def linear_interpolate_rates(
@@ -44,7 +44,8 @@ def linear_interpolate_rates(
 
     TODO: Implement — one vectorized expression plus np.clip.
     """
-    raise NotImplementedError("linear_interpolate_rates not yet implemented.")
+    result = (1.0 - fractions) * q_lower + fractions * q_upper
+    return np.clip(result, 0.0, 1.0)
 
 
 def constant_force_interpolate_rates(
@@ -74,4 +75,4 @@ def constant_force_interpolate_rates(
 
     TODO: Implement — one vectorized expression: 1.0 - (1.0 - q_annual) ** fraction
     """
-    raise NotImplementedError("constant_force_interpolate_rates not yet implemented.")
+    return 1.0 - (1.0 - q_annual) ** fraction

@@ -8,7 +8,6 @@ Key closed-form tests:
 """
 
 import pytest
-import numpy as np
 
 pytestmark = pytest.mark.xfail(
     reason="ProfitTester.run() not yet implemented.",
@@ -17,7 +16,6 @@ pytestmark = pytest.mark.xfail(
 
 
 class TestProfitTester:
-
     def test_irr_equals_hurdle_when_pv_profits_zero(self):
         """
         CLOSED-FORM: Construct a cash flow vector where PV discounted at 10% = 0.
@@ -35,9 +33,10 @@ class TestProfitTester:
 
     def test_raises_on_gross_basis_input(self):
         """ProfitTester must raise ValueError if given a GROSS basis CashFlowResult."""
+        from datetime import date
+
         from polaris_re.analytics.profit_test import ProfitTester
         from polaris_re.core.cashflow import CashFlowResult
-        from datetime import date
 
         gross_cf = CashFlowResult(
             run_id="test",

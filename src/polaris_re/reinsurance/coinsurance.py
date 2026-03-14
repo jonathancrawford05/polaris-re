@@ -77,6 +77,5 @@ class CoinsuranceTreaty(PolarisBaseModel, BaseTreaty):
         TODO: Implement per module docstring.
         """
         raise NotImplementedError(
-            "CoinsuranceTreaty.apply() not yet implemented. "
-            "See module docstring for mechanics."
+            "CoinsuranceTreaty.apply() not yet implemented. See module docstring for mechanics."
         )

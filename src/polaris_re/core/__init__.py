@@ -13,14 +13,14 @@ from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
 from polaris_re.core.projection import ProjectionConfig
 
 __all__ = [
-    "PolarisBaseModel",
     "CashFlowResult",
+    "InforceBlock",
+    "PolarisBaseModel",
     "PolarisComputationError",
     "PolarisValidationError",
-    "InforceBlock",
     "Policy",
     "ProductType",
+    "ProjectionConfig",
     "Sex",
     "SmokerStatus",
-    "ProjectionConfig",
 ]

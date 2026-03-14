@@ -43,7 +43,6 @@ TODO (Phase 1, Milestone 1.4):
 - Tests: tests/test_reinsurance/test_yrt.py
 """
 
-import numpy as np
 from pydantic import Field
 
 from polaris_re.core.base import PolarisBaseModel
@@ -98,6 +97,5 @@ class YRTTreaty(PolarisBaseModel, BaseTreaty):
         TODO: Implement per module docstring.
         """
         raise NotImplementedError(
-            "YRTTreaty.apply() not yet implemented. "
-            "See module docstring and ARCHITECTURE.md §5."
+            "YRTTreaty.apply() not yet implemented. See module docstring and ARCHITECTURE.md §5."
         )

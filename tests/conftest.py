@@ -8,17 +8,16 @@ from __future__ import annotations
 
 from datetime import date
 
-import numpy as np
 import pytest
 
 from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
 from polaris_re.core.projection import ProjectionConfig
 
-
 # ---------------------------------------------------------------------------
 # Canonical single-policy fixture — used in closed-form verification tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def single_male_ns_term_policy() -> Policy:
@@ -74,13 +73,15 @@ def small_mixed_block() -> InforceBlock:
             issue_date=date(2025 - dur // 12, 1, 1),
             valuation_date=date(2025, 1, 1),
         )
-        for i, (age, dur, sex, smoker, face) in enumerate([
-            (35, 0,  Sex.MALE,   SmokerStatus.NON_SMOKER, 250_000),
-            (45, 24, Sex.FEMALE, SmokerStatus.NON_SMOKER, 500_000),
-            (50, 60, Sex.MALE,   SmokerStatus.SMOKER,     300_000),
-            (38, 12, Sex.FEMALE, SmokerStatus.NON_SMOKER, 750_000),
-            (55, 36, Sex.MALE,   SmokerStatus.NON_SMOKER, 1_000_000),
-        ])
+        for i, (age, dur, sex, smoker, face) in enumerate(
+            [
+                (35, 0, Sex.MALE, SmokerStatus.NON_SMOKER, 250_000),
+                (45, 24, Sex.FEMALE, SmokerStatus.NON_SMOKER, 500_000),
+                (50, 60, Sex.MALE, SmokerStatus.SMOKER, 300_000),
+                (38, 12, Sex.FEMALE, SmokerStatus.NON_SMOKER, 750_000),
+                (55, 36, Sex.MALE, SmokerStatus.NON_SMOKER, 1_000_000),
+            ]
+        )
     ]
     return InforceBlock(policies=policies, block_id="TEST_BLOCK_MIXED")
 

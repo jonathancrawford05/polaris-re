@@ -51,7 +51,6 @@ TODO (Phase 1, Milestone 1.3):
 - Tests: tests/test_products/test_term_life.py (closed-form verification required)
 """
 
-import uuid
 
 import numpy as np
 
@@ -86,7 +85,9 @@ class TermLife(BaseProduct):
 
     def _validate_inputs(self) -> None:
         """Validate the inforce block is compatible with TermLife projection."""
-        non_term = [p.policy_id for p in self.inforce.policies if p.product_type != ProductType.TERM]
+        non_term = [
+            p.policy_id for p in self.inforce.policies if p.product_type != ProductType.TERM
+        ]
         if non_term:
             raise PolarisValidationError(
                 f"TermLife received non-TERM policies: {non_term[:5]}"

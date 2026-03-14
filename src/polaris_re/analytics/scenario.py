@@ -6,8 +6,8 @@ Implementation Notes for Claude Code:
 --------------------------------------
 SCENARIO ADJUSTMENT:
     A ScenarioAdjustment specifies multiplicative changes to a base AssumptionSet.
-    mortality_multiplier=1.10 means all q_x rates × 1.10 (10% adverse mortality).
-    lapse_multiplier=0.80 means all lapse rates × 0.80 (20% lower lapses).
+    mortality_multiplier=1.10 means all q_x rates * 1.10 (10% adverse mortality).
+    lapse_multiplier=0.80 means all lapse rates * 0.80 (20% lower lapses).
 
 HOW TO APPLY A MULTIPLIER:
     The AssumptionSet is frozen (immutable). To apply a scenario:
@@ -34,7 +34,7 @@ from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.projection import ProjectionConfig
 from polaris_re.reinsurance.base_treaty import BaseTreaty
 
-__all__ = ["ScenarioRunner", "ScenarioResult", "ScenarioAdjustment"]
+__all__ = ["ScenarioAdjustment", "ScenarioResult", "ScenarioRunner"]
 
 
 @dataclass
@@ -101,11 +101,11 @@ class ScenarioRunner:
     def standard_stress_scenarios(cls) -> list[ScenarioAdjustment]:
         """Standard North American life reinsurance stress test scenarios."""
         return [
-            ScenarioAdjustment("BASE",              1.00, 1.00, "Base case"),
-            ScenarioAdjustment("MORT_110",          1.10, 1.00, "10% adverse mortality"),
-            ScenarioAdjustment("MORT_90",           0.90, 1.00, "10% favourable mortality"),
-            ScenarioAdjustment("LAPSE_80",          1.00, 0.80, "20% lower lapses (more exposure)"),
-            ScenarioAdjustment("LAPSE_120",         1.00, 1.20, "20% higher lapses"),
+            ScenarioAdjustment("BASE", 1.00, 1.00, "Base case"),
+            ScenarioAdjustment("MORT_110", 1.10, 1.00, "10% adverse mortality"),
+            ScenarioAdjustment("MORT_90", 0.90, 1.00, "10% favourable mortality"),
+            ScenarioAdjustment("LAPSE_80", 1.00, 0.80, "20% lower lapses (more exposure)"),
+            ScenarioAdjustment("LAPSE_120", 1.00, 1.20, "20% higher lapses"),
             ScenarioAdjustment("MORT_110_LAPSE_80", 1.10, 0.80, "Combined adverse scenario"),
         ]
 

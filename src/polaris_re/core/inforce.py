@@ -29,8 +29,12 @@ class InforceBlock(PolarisBaseModel):
     Mixed product-type blocks can be split using `.filter_by_product()`.
     """
 
-    policies: list[Policy] = Field(min_length=1, description="List of policies in the inforce block.")
-    block_id: str | None = Field(default=None, description="Optional identifier for this block (e.g. deal name).")
+    policies: list[Policy] = Field(
+        min_length=1, description="List of policies in the inforce block."
+    )
+    block_id: str | None = Field(
+        default=None, description="Optional identifier for this block (e.g. deal name)."
+    )
 
     @model_validator(mode="after")
     def validate_consistent_valuation_dates(self) -> Self:
@@ -115,8 +119,10 @@ class InforceBlock(PolarisBaseModel):
     def remaining_term_months_vec(self) -> np.ndarray:
         """Remaining coverage term (months), shape (N,), dtype int32. -1 for permanent products."""
         return np.array(
-            [p.remaining_term_months if p.remaining_term_months is not None else -1
-             for p in self.policies],
+            [
+                p.remaining_term_months if p.remaining_term_months is not None else -1
+                for p in self.policies
+            ],
             dtype=np.int32,
         )
 
