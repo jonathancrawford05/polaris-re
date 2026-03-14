@@ -37,13 +37,15 @@ The goal of Phase 1 is a fully functional, tested, and documented engine capable
 
 ---
 
-### Milestone 1.3 — Term Life Product Engine
-- [ ] `products/term_life.py` — `TermLife._build_rate_arrays()` — q and w arrays shape (N, T)
-- [ ] `products/term_life.py` — `TermLife._compute_inforce_factors()` — lx forward recursion
-- [ ] `products/term_life.py` — `TermLife.compute_reserves()` — backward net premium reserve recursion
-- [ ] `products/term_life.py` — `TermLife.project()` — assemble full CashFlowResult (GROSS)
-- [ ] Tests: single policy closed-form verification (premiums, claims, reserves vs hand calculation)
-- [ ] Tests: reserve terminal condition V_T = 0; non-negative throughout; accounting identity
+### Milestone 1.3 — Term Life Product Engine ✅ COMPLETE
+- [x] `products/term_life.py` — `TermLife._build_rate_arrays()` — q and w arrays shape (N, T)
+- [x] `products/term_life.py` — `TermLife._compute_inforce_factors()` — lx forward recursion
+- [x] `products/term_life.py` — `TermLife._compute_net_premiums()` — APV-based level net premium
+- [x] `products/term_life.py` — `TermLife.compute_reserves()` — backward net premium reserve recursion
+- [x] `products/term_life.py` — `TermLife.project()` — assemble full CashFlowResult (GROSS)
+- [x] Tests: single policy closed-form verification (premiums, claims, reserves vs hand calculation)
+- [x] Tests: reserve terminal condition V_T = 0; non-negative throughout; accounting identity
+- [x] Tests: multi-policy projection, seriatim output, input validation
 
 ---
 
