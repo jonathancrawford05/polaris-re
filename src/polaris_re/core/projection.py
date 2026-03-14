@@ -29,8 +29,7 @@ class ProjectionConfig(PolarisBaseModel):
         ge=1,
         le=100,
         description=(
-            "Number of years to project. "
-            "Typically equals remaining policy term for term life."
+            "Number of years to project. Typically equals remaining policy term for term life."
         ),
     )
     discount_rate: float = Field(

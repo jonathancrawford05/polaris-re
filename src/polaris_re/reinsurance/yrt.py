@@ -66,13 +66,9 @@ class YRTTreaty(PolarisBaseModel, BaseTreaty):
             "MVP placeholder - replaced by a full rate table in Phase 2."
         ),
     )
-    treaty_name: str | None = Field(
-        default=None, description="Optional treaty identifier."
-    )
+    treaty_name: str | None = Field(default=None, description="Optional treaty identifier.")
 
-    def apply(
-        self, gross: CashFlowResult
-    ) -> tuple[CashFlowResult, CashFlowResult]:
+    def apply(self, gross: CashFlowResult) -> tuple[CashFlowResult, CashFlowResult]:
         """
         Apply YRT treaty to gross cash flows.
 

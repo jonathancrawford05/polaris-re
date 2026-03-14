@@ -281,12 +281,8 @@ class TestProfitTesterIntegration:
             sex=Sex.MALE,
             smoker_status=SmokerStatus.NON_SMOKER,
         )
-        lapse = LapseAssumption.from_duration_table(
-            {1: 0.08, 2: 0.06, 3: 0.04, "ultimate": 0.03}
-        )
-        assumptions = AssumptionSet(
-            mortality=mortality, lapse=lapse, version="test-v1"
-        )
+        lapse = LapseAssumption.from_duration_table({1: 0.08, 2: 0.06, 3: 0.04, "ultimate": 0.03})
+        assumptions = AssumptionSet(mortality=mortality, lapse=lapse, version="test-v1")
         config = ProjectionConfig(
             valuation_date=date(2025, 1, 1),
             projection_horizon_years=5,

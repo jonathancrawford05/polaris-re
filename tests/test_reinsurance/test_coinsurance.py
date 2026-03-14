@@ -59,9 +59,7 @@ def gross_result():
         sex=Sex.MALE,
         smoker_status=SmokerStatus.NON_SMOKER,
     )
-    lapse = LapseAssumption.from_duration_table(
-        {1: 0.08, 2: 0.06, 3: 0.04, "ultimate": 0.03}
-    )
+    lapse = LapseAssumption.from_duration_table({1: 0.08, 2: 0.06, 3: 0.04, "ultimate": 0.03})
     assumptions = AssumptionSet(mortality=mortality, lapse=lapse, version="test-v1")
     config = ProjectionConfig(
         valuation_date=date(2025, 1, 1),
@@ -231,15 +229,9 @@ class TestCoinsuranceEdgeCases:
         """With cession_pct=0, net == gross and ceded == 0."""
         treaty = CoinsuranceTreaty(cession_pct=0.0)
         net, ceded = treaty.apply(gross_result)
-        np.testing.assert_allclose(
-            net.gross_premiums, gross_result.gross_premiums, rtol=1e-10
-        )
-        np.testing.assert_allclose(
-            net.death_claims, gross_result.death_claims, rtol=1e-10
-        )
-        np.testing.assert_allclose(
-            net.reserve_balance, gross_result.reserve_balance, rtol=1e-10
-        )
+        np.testing.assert_allclose(net.gross_premiums, gross_result.gross_premiums, rtol=1e-10)
+        np.testing.assert_allclose(net.death_claims, gross_result.death_claims, rtol=1e-10)
+        np.testing.assert_allclose(net.reserve_balance, gross_result.reserve_balance, rtol=1e-10)
         np.testing.assert_allclose(ceded.gross_premiums, 0.0, atol=1e-10)
         np.testing.assert_allclose(ceded.death_claims, 0.0, atol=1e-10)
         np.testing.assert_allclose(ceded.reserve_balance, 0.0, atol=1e-10)
@@ -248,15 +240,9 @@ class TestCoinsuranceEdgeCases:
         """With cession_pct=1.0, ceded == gross and net == 0."""
         treaty = CoinsuranceTreaty(cession_pct=1.0)
         net, ceded = treaty.apply(gross_result)
-        np.testing.assert_allclose(
-            ceded.gross_premiums, gross_result.gross_premiums, rtol=1e-10
-        )
-        np.testing.assert_allclose(
-            ceded.death_claims, gross_result.death_claims, rtol=1e-10
-        )
-        np.testing.assert_allclose(
-            ceded.reserve_balance, gross_result.reserve_balance, rtol=1e-10
-        )
+        np.testing.assert_allclose(ceded.gross_premiums, gross_result.gross_premiums, rtol=1e-10)
+        np.testing.assert_allclose(ceded.death_claims, gross_result.death_claims, rtol=1e-10)
+        np.testing.assert_allclose(ceded.reserve_balance, gross_result.reserve_balance, rtol=1e-10)
         np.testing.assert_allclose(net.gross_premiums, 0.0, atol=1e-10)
         np.testing.assert_allclose(net.death_claims, 0.0, atol=1e-10)
         np.testing.assert_allclose(net.reserve_balance, 0.0, atol=1e-10)
@@ -265,9 +251,7 @@ class TestCoinsuranceEdgeCases:
         """Without expense allowance, expenses stay fully with cedant."""
         treaty = CoinsuranceTreaty(cession_pct=0.5, include_expense_allowance=False)
         net, ceded = treaty.apply(gross_result)
-        np.testing.assert_allclose(
-            net.expenses, gross_result.expenses, rtol=1e-10
-        )
+        np.testing.assert_allclose(net.expenses, gross_result.expenses, rtol=1e-10)
         np.testing.assert_allclose(ceded.expenses, 0.0, atol=1e-10)
 
     def test_net_cash_flow_accounting_identity(self, coins_result):
@@ -281,6 +265,4 @@ class TestCoinsuranceEdgeCases:
                 - result.expenses
                 - result.reserve_increase
             )
-            np.testing.assert_allclose(
-                result.net_cash_flow, expected, rtol=1e-10
-            )
+            np.testing.assert_allclose(result.net_cash_flow, expected, rtol=1e-10)

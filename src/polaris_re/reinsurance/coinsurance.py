@@ -48,13 +48,9 @@ class CoinsuranceTreaty(PolarisBaseModel, BaseTreaty):
             "Standard in most coinsurance treaties."
         ),
     )
-    treaty_name: str | None = Field(
-        default=None, description="Optional treaty identifier."
-    )
+    treaty_name: str | None = Field(default=None, description="Optional treaty identifier.")
 
-    def apply(
-        self, gross: CashFlowResult
-    ) -> tuple[CashFlowResult, CashFlowResult]:
+    def apply(self, gross: CashFlowResult) -> tuple[CashFlowResult, CashFlowResult]:
         """
         Apply coinsurance treaty to gross cash flows.
 

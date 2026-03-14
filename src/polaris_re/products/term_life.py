@@ -47,18 +47,14 @@ class TermLife(BaseProduct):
     def _validate_inputs(self) -> None:
         """Validate the inforce block is compatible with TermLife projection."""
         non_term = [
-            p.policy_id
-            for p in self.inforce.policies
-            if p.product_type != ProductType.TERM
+            p.policy_id for p in self.inforce.policies if p.product_type != ProductType.TERM
         ]
         if non_term:
             raise PolarisValidationError(
                 f"TermLife received non-TERM policies: {non_term[:5]}"
                 f"{'...' if len(non_term) > 5 else ''}"
             )
-        missing_term = [
-            p.policy_id for p in self.inforce.policies if p.policy_term is None
-        ]
+        missing_term = [p.policy_id for p in self.inforce.policies if p.policy_term is None]
         if missing_term:
             raise PolarisValidationError(
                 f"Term policies must have policy_term set. Missing on: {missing_term[:5]}"
@@ -126,9 +122,7 @@ class TermLife(BaseProduct):
 
         return q, w
 
-    def _compute_inforce_factors(
-        self, q: np.ndarray, w: np.ndarray
-    ) -> np.ndarray:
+    def _compute_inforce_factors(self, q: np.ndarray, w: np.ndarray) -> np.ndarray:
         """
         Forward recursion for in-force factor lx, shape (N, T).
 
@@ -138,11 +132,7 @@ class TermLife(BaseProduct):
         n, t = q.shape
         lx = np.ones((n, t), dtype=np.float64)
         for month in range(1, t):
-            lx[:, month] = (
-                lx[:, month - 1]
-                * (1.0 - q[:, month - 1])
-                * (1.0 - w[:, month - 1])
-            )
+            lx[:, month] = lx[:, month - 1] * (1.0 - q[:, month - 1]) * (1.0 - w[:, month - 1])
         return lx
 
     def compute_reserves(self) -> np.ndarray:
@@ -174,8 +164,7 @@ class TermLife(BaseProduct):
 
         for month in range(t - 2, -1, -1):
             reserves[:, month] = (
-                q[:, month] * face_vec
-                + (1.0 - q[:, month]) * reserves[:, month + 1]
+                q[:, month] * face_vec + (1.0 - q[:, month]) * reserves[:, month + 1]
             ) * v_monthly - p_net
 
         # Floor reserves at 0 (net premium reserves should not go negative
@@ -184,9 +173,7 @@ class TermLife(BaseProduct):
 
         return reserves
 
-    def _compute_net_premiums(
-        self, q: np.ndarray, v_monthly: float
-    ) -> np.ndarray:
+    def _compute_net_premiums(self, q: np.ndarray, v_monthly: float) -> np.ndarray:
         """
         Compute level net premium for each policy.
 
@@ -281,9 +268,7 @@ class TermLife(BaseProduct):
         agg_net_cf = agg_premiums - agg_claims - agg_lapses - agg_expenses - agg_reserve_inc
 
         # Time index
-        time_idx = projection_date_index(
-            self.config.valuation_date, t
-        )
+        time_idx = projection_date_index(self.config.valuation_date, t)
 
         result = CashFlowResult(
             run_id=str(uuid.uuid4()),

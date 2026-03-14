@@ -59,9 +59,7 @@ def gross_result():
         sex=Sex.MALE,
         smoker_status=SmokerStatus.NON_SMOKER,
     )
-    lapse = LapseAssumption.from_duration_table(
-        {1: 0.08, 2: 0.06, 3: 0.04, "ultimate": 0.03}
-    )
+    lapse = LapseAssumption.from_duration_table({1: 0.08, 2: 0.06, 3: 0.04, "ultimate": 0.03})
     assumptions = AssumptionSet(mortality=mortality, lapse=lapse, version="test-v1")
     config = ProjectionConfig(
         valuation_date=date(2025, 1, 1),
@@ -139,9 +137,7 @@ class TestYRTReserves:
     def test_reserves_not_transferred(self, gross_result, yrt_result):
         """Net reserves == gross reserves (no transfer in YRT)."""
         net, _ceded = yrt_result
-        np.testing.assert_allclose(
-            net.reserve_balance, gross_result.reserve_balance, rtol=1e-10
-        )
+        np.testing.assert_allclose(net.reserve_balance, gross_result.reserve_balance, rtol=1e-10)
 
     def test_ceded_reserves_zero(self, yrt_result):
         """Ceded reserves should be zero in YRT."""
@@ -160,16 +156,12 @@ class TestYRTClaims:
     def test_ceded_claims_proportional(self, gross_result, yrt_result):
         """Ceded claims = gross claims * cession_pct."""
         _, ceded = yrt_result
-        np.testing.assert_allclose(
-            ceded.death_claims, gross_result.death_claims * 0.5, rtol=1e-10
-        )
+        np.testing.assert_allclose(ceded.death_claims, gross_result.death_claims * 0.5, rtol=1e-10)
 
     def test_net_claims_proportional(self, gross_result, yrt_result):
         """Net claims = gross claims * (1 - cession_pct)."""
         net, _ = yrt_result
-        np.testing.assert_allclose(
-            net.death_claims, gross_result.death_claims * 0.5, rtol=1e-10
-        )
+        np.testing.assert_allclose(net.death_claims, gross_result.death_claims * 0.5, rtol=1e-10)
 
 
 class TestYRTNAR:
@@ -240,9 +232,7 @@ class TestYRTEdgeCases:
         net, ceded = treaty.apply(gross_result)
         np.testing.assert_allclose(ceded.death_claims, 0.0, atol=1e-10)
         np.testing.assert_allclose(ceded.gross_premiums, 0.0, atol=1e-10)
-        np.testing.assert_allclose(
-            net.gross_premiums, gross_result.gross_premiums, rtol=1e-10
-        )
+        np.testing.assert_allclose(net.gross_premiums, gross_result.gross_premiums, rtol=1e-10)
 
     def test_full_cession(self, gross_result):
         """With cession_pct=1.0, all claims are ceded."""
@@ -252,9 +242,7 @@ class TestYRTEdgeCases:
             flat_yrt_rate_per_1000=2.5,
         )
         net, ceded = treaty.apply(gross_result)
-        np.testing.assert_allclose(
-            ceded.death_claims, gross_result.death_claims, rtol=1e-10
-        )
+        np.testing.assert_allclose(ceded.death_claims, gross_result.death_claims, rtol=1e-10)
         np.testing.assert_allclose(net.death_claims, 0.0, atol=1e-10)
 
     def test_no_yrt_rate_zero_premiums(self, gross_result):
@@ -265,22 +253,16 @@ class TestYRTEdgeCases:
         )
         net, ceded = treaty.apply(gross_result)
         np.testing.assert_allclose(ceded.gross_premiums, 0.0, atol=1e-10)
-        np.testing.assert_allclose(
-            net.gross_premiums, gross_result.gross_premiums, rtol=1e-10
-        )
+        np.testing.assert_allclose(net.gross_premiums, gross_result.gross_premiums, rtol=1e-10)
 
     def test_expenses_stay_with_cedant(self, gross_result, yrt_result):
         """Expenses should remain fully with the cedant in YRT."""
         net, ceded = yrt_result
-        np.testing.assert_allclose(
-            net.expenses, gross_result.expenses, rtol=1e-10
-        )
+        np.testing.assert_allclose(net.expenses, gross_result.expenses, rtol=1e-10)
         np.testing.assert_allclose(ceded.expenses, 0.0, atol=1e-10)
 
     def test_lapses_stay_with_cedant(self, gross_result, yrt_result):
         """Lapse surrenders should remain fully with the cedant in YRT."""
         net, ceded = yrt_result
-        np.testing.assert_allclose(
-            net.lapse_surrenders, gross_result.lapse_surrenders, rtol=1e-10
-        )
+        np.testing.assert_allclose(net.lapse_surrenders, gross_result.lapse_surrenders, rtol=1e-10)
         np.testing.assert_allclose(ceded.lapse_surrenders, 0.0, atol=1e-10)

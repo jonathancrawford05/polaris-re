@@ -61,9 +61,7 @@ class ScenarioResult:
         return None
 
 
-def _scale_mortality(
-    base_mortality: MortalityTable, multiplier: float
-) -> MortalityTable:
+def _scale_mortality(base_mortality: MortalityTable, multiplier: float) -> MortalityTable:
     """Create a new MortalityTable with scaled rate arrays."""
     if multiplier == 1.0:
         return base_mortality
@@ -95,9 +93,7 @@ def _scale_lapse(base_lapse: LapseAssumption, multiplier: float) -> LapseAssumpt
     if multiplier == 1.0:
         return base_lapse
 
-    scaled_select = tuple(
-        min(r * multiplier, 1.0) for r in base_lapse.select_rates
-    )
+    scaled_select = tuple(min(r * multiplier, 1.0) for r in base_lapse.select_rates)
     scaled_ultimate = min(base_lapse.ultimate_rate * multiplier, 1.0)
 
     return LapseAssumption(
@@ -107,16 +103,10 @@ def _scale_lapse(base_lapse: LapseAssumption, multiplier: float) -> LapseAssumpt
     )
 
 
-def _apply_scenario(
-    base_assumptions: AssumptionSet, scenario: ScenarioAdjustment
-) -> AssumptionSet:
+def _apply_scenario(base_assumptions: AssumptionSet, scenario: ScenarioAdjustment) -> AssumptionSet:
     """Create a new AssumptionSet with scenario adjustments applied."""
-    scaled_mortality = _scale_mortality(
-        base_assumptions.mortality, scenario.mortality_multiplier
-    )
-    scaled_lapse = _scale_lapse(
-        base_assumptions.lapse, scenario.lapse_multiplier
-    )
+    scaled_mortality = _scale_mortality(base_assumptions.mortality, scenario.mortality_multiplier)
+    scaled_lapse = _scale_lapse(base_assumptions.lapse, scenario.lapse_multiplier)
     return AssumptionSet(
         mortality=scaled_mortality,
         lapse=scaled_lapse,

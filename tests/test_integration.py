@@ -105,9 +105,7 @@ def assumptions() -> AssumptionSet:
         sex=Sex.MALE,
         smoker_status=SmokerStatus.NON_SMOKER,
     )
-    lapse = LapseAssumption.from_duration_table(
-        {1: 0.08, 2: 0.06, 3: 0.04, "ultimate": 0.03}
-    )
+    lapse = LapseAssumption.from_duration_table({1: 0.08, 2: 0.06, 3: 0.04, "ultimate": 0.03})
     return AssumptionSet(
         mortality=mortality,
         lapse=lapse,
@@ -168,9 +166,7 @@ class TestFullPipelineYRT:
             flat_yrt_rate_per_1000=2.5,
         )
         net, ceded = treaty.apply(gross_result)
-        np.testing.assert_allclose(
-            net.reserve_balance, gross_result.reserve_balance, rtol=1e-10
-        )
+        np.testing.assert_allclose(net.reserve_balance, gross_result.reserve_balance, rtol=1e-10)
         np.testing.assert_allclose(ceded.reserve_balance, 0.0, atol=1e-10)
 
 
@@ -202,14 +198,10 @@ class TestFullPipelineCoinsurance:
 class TestFullPipelineScenario:
     """End-to-end test with ScenarioRunner."""
 
-    def test_scenario_runner_full_pipeline(
-        self, multi_policy_block, assumptions, config
-    ):
+    def test_scenario_runner_full_pipeline(self, multi_policy_block, assumptions, config):
         """Full pipeline: ScenarioRunner with standard stress scenarios."""
         treaty = CoinsuranceTreaty(cession_pct=0.5)
-        runner = ScenarioRunner(
-            multi_policy_block, assumptions, config, treaty, hurdle_rate=0.10
-        )
+        runner = ScenarioRunner(multi_policy_block, assumptions, config, treaty, hurdle_rate=0.10)
         result = runner.run()
 
         # All 6 scenarios should produce results
@@ -243,9 +235,7 @@ class TestAccountingIdentity:
             - gross_result.expenses
             - gross_result.reserve_increase
         )
-        np.testing.assert_allclose(
-            gross_result.net_cash_flow, expected, rtol=1e-10
-        )
+        np.testing.assert_allclose(gross_result.net_cash_flow, expected, rtol=1e-10)
 
     def test_net_accounting_identity_yrt(self, gross_result):
         """Net (YRT): accounting identity holds."""
@@ -282,9 +272,7 @@ class TestAccountingIdentity:
 class TestMultiPolicyConsistency:
     """Verify multi-policy projections are consistent."""
 
-    def test_seriatim_sums_to_aggregate(
-        self, multi_policy_block, assumptions, config
-    ):
+    def test_seriatim_sums_to_aggregate(self, multi_policy_block, assumptions, config):
         """Seriatim premiums summed should match aggregate premiums."""
         engine = TermLife(multi_policy_block, assumptions, config)
         result = engine.project(seriatim=True)
@@ -295,9 +283,7 @@ class TestMultiPolicyConsistency:
             rtol=1e-10,
         )
 
-    def test_first_month_premium_sum(
-        self, multi_policy_block, assumptions, config
-    ):
+    def test_first_month_premium_sum(self, multi_policy_block, assumptions, config):
         """
         CLOSED-FORM: First month premium = sum of monthly premiums.
         (5000 + 12000 + 9000) / 12 = 2166.67
@@ -307,9 +293,7 @@ class TestMultiPolicyConsistency:
         expected = (5_000.0 + 12_000.0 + 9_000.0) / 12.0
         np.testing.assert_allclose(result.gross_premiums[0], expected, rtol=1e-10)
 
-    def test_three_policies_shape(
-        self, multi_policy_block, assumptions, config
-    ):
+    def test_three_policies_shape(self, multi_policy_block, assumptions, config):
         """Seriatim arrays should have shape (3, 60)."""
         engine = TermLife(multi_policy_block, assumptions, config)
         result = engine.project(seriatim=True)

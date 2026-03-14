@@ -66,12 +66,8 @@ def test_setup():
         sex=Sex.MALE,
         smoker_status=SmokerStatus.NON_SMOKER,
     )
-    lapse = LapseAssumption.from_duration_table(
-        {1: 0.08, 2: 0.06, 3: 0.04, "ultimate": 0.03}
-    )
-    assumptions = AssumptionSet(
-        mortality=mortality, lapse=lapse, version="test-v1"
-    )
+    lapse = LapseAssumption.from_duration_table({1: 0.08, 2: 0.06, 3: 0.04, "ultimate": 0.03})
+    assumptions = AssumptionSet(mortality=mortality, lapse=lapse, version="test-v1")
     config = ProjectionConfig(
         valuation_date=date(2025, 1, 1),
         projection_horizon_years=5,
@@ -99,9 +95,7 @@ class TestScenarioRunnerBasic:
         """run() should return a ScenarioResult."""
         block, assumptions, config, treaty = test_setup
         runner = ScenarioRunner(block, assumptions, config, treaty, hurdle_rate=0.10)
-        result = runner.run(
-            scenarios=[ScenarioAdjustment("BASE", 1.0, 1.0)]
-        )
+        result = runner.run(scenarios=[ScenarioAdjustment("BASE", 1.0, 1.0)])
         assert isinstance(result, ScenarioResult)
         assert len(result.scenarios) == 1
 
@@ -128,17 +122,11 @@ class TestScenarioRunnerConsistency:
 
         # Scenario runner BASE
         runner = ScenarioRunner(block, assumptions, config, treaty, hurdle_rate=0.10)
-        scenario_result = runner.run(
-            scenarios=[ScenarioAdjustment("BASE", 1.0, 1.0)]
-        )
+        scenario_result = runner.run(scenarios=[ScenarioAdjustment("BASE", 1.0, 1.0)])
         base_result = scenario_result.scenarios[0][1]
 
-        np.testing.assert_allclose(
-            base_result.pv_profits, direct_result.pv_profits, rtol=1e-10
-        )
-        np.testing.assert_allclose(
-            base_result.pv_premiums, direct_result.pv_premiums, rtol=1e-10
-        )
+        np.testing.assert_allclose(base_result.pv_profits, direct_result.pv_profits, rtol=1e-10)
+        np.testing.assert_allclose(base_result.pv_premiums, direct_result.pv_premiums, rtol=1e-10)
 
 
 class TestScenarioRunnerSensitivity:

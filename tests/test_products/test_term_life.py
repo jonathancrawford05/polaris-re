@@ -66,9 +66,7 @@ def mortality_table() -> MortalityTable:
 @pytest.fixture()
 def lapse_assumption() -> LapseAssumption:
     """Simple lapse assumption for testing."""
-    return LapseAssumption.from_duration_table(
-        {1: 0.08, 2: 0.06, 3: 0.04, "ultimate": 0.03}
-    )
+    return LapseAssumption.from_duration_table({1: 0.08, 2: 0.06, 3: 0.04, "ultimate": 0.03})
 
 
 @pytest.fixture()
@@ -179,9 +177,7 @@ class TestTermLifeClosedForm:
         q_annual = 0.0026
         q_monthly = 1.0 - (1.0 - q_annual) ** (1.0 / 12.0)
         expected_claim = q_monthly * 1_000_000.0
-        np.testing.assert_allclose(
-            result.death_claims[0], expected_claim, rtol=1e-6
-        )
+        np.testing.assert_allclose(result.death_claims[0], expected_claim, rtol=1e-6)
 
     def test_inforce_decreasing(self, engine: TermLife):
         """In-force factor should be monotonically decreasing."""
@@ -272,9 +268,7 @@ class TestTermLifeSeriatim:
 class TestTermLifeMultiPolicy:
     """Tests with multiple policies."""
 
-    def test_two_policies(
-        self, assumption_set: AssumptionSet, config: ProjectionConfig
-    ):
+    def test_two_policies(self, assumption_set: AssumptionSet, config: ProjectionConfig):
         """Projection works with multiple policies."""
         policies = [
             Policy(
@@ -304,6 +298,4 @@ class TestTermLifeMultiPolicy:
         assert result.seriatim_premiums.shape == (2, 60)
 
         expected_prem = (6_000.0 / 12) + (12_000.0 / 12)
-        np.testing.assert_allclose(
-            result.gross_premiums[0], expected_prem, rtol=1e-10
-        )
+        np.testing.assert_allclose(result.gross_premiums[0], expected_prem, rtol=1e-10)

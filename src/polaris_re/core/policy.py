@@ -95,8 +95,7 @@ class Policy(PolarisBaseModel):
         ge=0.0,
         le=1.0,
         description=(
-            "Proportion of the policy ceded to reinsurer. "
-            "0.0 = retained, 1.0 = fully ceded."
+            "Proportion of the policy ceded to reinsurer. 0.0 = retained, 1.0 = fully ceded."
         ),
     )
 
