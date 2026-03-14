@@ -52,6 +52,7 @@ jobs:
       pull-requests: write    # post review comments
       issues: write           # respond to @claude in issue comments
       id-token: write         # OIDC (may be needed by some auth flows)
+      actions: read           # allow Claude to read CI results on PRs
 
     steps:
       - name: Checkout repository
@@ -96,7 +97,7 @@ jobs:
             Keep the review concise. Flag critical issues clearly with severity.
             If no material issues are found, say so briefly.
 
-          # Cap turns to control API cost per review
+          # Allow enough turns to read CLAUDE.md, REVIEW.md, diff, and write review
           claude_args: |
-            --max-turns 5
+            --max-turns 50
             --model claude-sonnet-4-6
