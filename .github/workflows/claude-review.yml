@@ -7,7 +7,6 @@
 #
 # Prerequisites:
 #   - ANTHROPIC_API_KEY must be set as a repository secret
-#   - (Optional) Claude GitHub App installed at https://github.com/apps/claude
 #
 # Notes:
 #   - Review runs on your GitHub-hosted runner; only API calls leave to Anthropic
@@ -15,6 +14,9 @@
 #   - Fork PRs from external contributors will NOT receive reviews (no secret
 #     access by GitHub's design — this is the safe default for public repos)
 #   - To trigger a review on an existing PR, comment `@claude` on it
+#   - If max-turns is hit, the step is marked continue-on-error so any partial
+#     review already posted to the PR is preserved and the workflow shows a
+#     warning rather than a hard failure
 # =============================================================================
 
 name: Claude Code Review
@@ -62,42 +64,55 @@ jobs:
 
       - name: Run Claude Code Review
         id: claude-review
+        # continue-on-error: if Claude hits max-turns, the workflow shows a
+        # warning (yellow) rather than a hard failure (red). Any partial review
+        # comments already posted to the PR are preserved.
+        continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
           # Automated review prompt — only active on pull_request events.
           # For @claude mentions, Claude uses the comment text as its prompt.
+          #
+          # EFFICIENCY GUIDANCE: Be deliberate with tool calls.
+          #   1. Read the PR diff first (it is already in your context).
+          #   2. Read REVIEW.md and CLAUDE.md once for standards — do not re-read.
+          #   3. Only fetch individual source files if a specific issue requires
+          #      deeper inspection — do not read every changed file in full.
+          #   4. Write the complete review in a single comment when ready.
+          #   This keeps turn usage low and the review focused.
           prompt: |
-            Please review the changes in this PR. This is the Polaris RE project:
-            a Python-native life reinsurance cash flow projection and pricing engine.
+            Please review the changes in this PR for the Polaris RE project
+            (Python-native life reinsurance cash flow projection engine).
 
-            Focus on:
-            - **Actuarial correctness**: projection logic, NAR calculations, treaty
-              cash flow splitting, closed-form verifiability of any numeric results
-            - **Vectorisation**: all projection code must operate on NumPy arrays —
-              flag any loops over policies or time steps that should be vectorised
-            - **Pydantic v2 models**: all data contracts must use PolarisBaseModel,
-              Field(description=...) on every field, no raw dicts passed around
-            - **Python 3.12 typing**: flag Optional[X], List[X], Dict[K,V], Union —
-              these must use X | None, list[X], dict[K,V] and X | Y respectively.
-              Never allow `from __future__ import annotations`
-            - **Test coverage**: every actuarial calculation needs a closed-form
-              verification test; flag any new calculation code without a test
-            - **Error handling**: use PolarisValidationError / PolarisComputationError;
-              no silent exception suppression
-            - **Security**: no hardcoded values, secrets, or assumption constants
-              embedded in product or treaty code
+            ## Approach — follow this order to minimise tool calls:
+            1. Read REVIEW.md — this defines the P0/P1/P2 severity framework
+               and what to flag vs. ignore. Read it once, do not re-read.
+            2. Read the PR diff — focus on changed files only.
+            3. Only open individual source files if a specific finding needs
+               deeper context to confirm. Do not read every file in full.
+            4. Write your complete review as a single PR comment.
 
-            Do NOT comment on:
-            - Pure style nitpicks already enforced by Ruff
-            - Import ordering (Ruff handles this)
-            - Minor docstring formatting
+            ## What to flag:
+            - **[P0]** Actuarial calculation errors, vectorisation violations
+              (loops over policies/time steps instead of NumPy), Pydantic v2
+              contract bypasses, float == comparisons, silent exception suppression,
+              hardcoded assumption values in product/treaty code
+            - **[P1]** Python 3.12 typing violations (Optional[X], List[X] etc.),
+              new actuarial calculations without closed-form tests, wrong error
+              type raised, np.array() without explicit dtype
+            - **[P2]** Optional suggestions — non-blocking
 
-            Keep the review concise. Flag critical issues clearly with severity.
-            If no material issues are found, say so briefly.
+            ## What to ignore:
+            Import order, line length, whitespace — Ruff enforces these automatically.
 
-          # Allow enough turns to read CLAUDE.md, REVIEW.md, diff, and write review
+            ## Format each finding as:
+            **[P0/P1/P2 — Category]** `file.py:line`
+            Brief description and suggested fix.
+
+            If no material issues are found, say so briefly and close the review.
+
           claude_args: |
             --max-turns 50
             --model claude-sonnet-4-6
