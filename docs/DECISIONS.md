@@ -1,6 +1,6 @@
 # Architecture Decision Records — Polaris RE
 
-This document records significant architecture and design decisions made during development. Each entry explains the context, the options considered, and the rationale for the choice made.
+This document records significant architecture and design decisions. Each entry explains the context, options considered, and rationale for the choice made. Claude Code must update this file after completing each milestone with any new decisions made.
 
 ---
 
@@ -9,11 +9,11 @@ This document records significant architecture and design decisions made during 
 **Date:** Project inception  
 **Status:** Accepted
 
-**Context:** Policy data, assumption sets, and cash flow results all require structured validation. Options considered: dataclasses, attrs, Pydantic v1, Pydantic v2.
+**Context:** Policy data, assumption sets, and cash flow results all require structured validation. Options: dataclasses, attrs, Pydantic v1, Pydantic v2.
 
 **Decision:** Pydantic v2 throughout.
 
-**Rationale:** Pydantic v2 (Rust-based core) is significantly faster than v1. The `model_validator` and `field_validator` API is more explicit. JSON serialization is built-in, which matters when results need to be stored or transmitted. The `model_config` system allows enforcing immutability (`frozen=True`) on assumption objects — critical for ensuring assumption sets are not mutated mid-projection.
+**Rationale:** Pydantic v2 (Rust-based core) is significantly faster than v1. The `model_validator` / `field_validator` API is more explicit. JSON serialization is built-in. `model_config = ConfigDict(frozen=True)` enforces immutability on assumption objects — critical for ensuring assumption sets cannot be mutated mid-projection.
 
 ---
 
@@ -22,11 +22,11 @@ This document records significant architecture and design decisions made during 
 **Date:** Project inception  
 **Status:** Accepted
 
-**Context:** Inforce block data manipulations — filtering, grouping, aggregating policy attributes — require a DataFrame abstraction. Options: pandas, Polars, cuDF.
+**Context:** Inforce block data manipulations require a DataFrame abstraction. Options: pandas, Polars, cuDF.
 
-**Decision:** Polars by default; pandas only for interoperability (e.g., reading AXIS output formats, matplotlib integration).
+**Decision:** Polars by default; pandas only for interoperability (e.g. matplotlib, legacy format reading).
 
-**Rationale:** Polars is 5–10x faster than pandas on typical actuarial workloads (group-bys on policy data, rolling aggregations). The lazy evaluation API is valuable for large inforce blocks. The stricter type system catches errors earlier. The main downside is a smaller ecosystem — addressed by providing pandas conversion utilities in `utils/`.
+**Rationale:** Polars is 5–10× faster than pandas on typical actuarial workloads. Lazy evaluation API suits large inforce blocks. Stricter type system catches errors earlier. Pandas conversion utilities provided in `utils/` for interop.
 
 ---
 
@@ -35,11 +35,11 @@ This document records significant architecture and design decisions made during 
 **Date:** Project inception  
 **Status:** Accepted
 
-**Context:** The projection engine needs to run vectorized calculations across N policies × T time steps. Options: nested DataFrames, xarray, numpy arrays, torch tensors.
+**Context:** The projection engine needs vectorized calculations across N policies × T time steps.
 
-**Decision:** Raw NumPy arrays with shape `(N, T)` for all projection intermediates.
+**Decision:** Raw NumPy 2.0+ arrays with shape `(N, T)` for all projection intermediates.
 
-**Rationale:** NumPy is the lowest-overhead option with the most predictable memory layout. `xarray` adds useful labeling but also overhead and complexity that isn't needed for the core projection loop. PyTorch tensors would enable GPU acceleration (a Phase 3 option) but introduce a heavy dependency. The `(N, T)` layout allows efficient column-wise (time-step) operations and row-wise (policy) operations equally.
+**Rationale:** NumPy is the lowest-overhead option with the most predictable memory layout. xarray adds labeling but also overhead. PyTorch tensors would enable GPU (Phase 3 option) but add a heavy dependency now. The `(N, T)` layout allows efficient column-wise (time-step) and row-wise (policy) operations equally.
 
 ---
 
@@ -52,33 +52,33 @@ This document records significant architecture and design decisions made during 
 
 **Decision:** Monthly time step throughout.
 
-**Rationale:** Monthly is the industry standard for individual life reinsurance cash flow modeling. It captures seasonal mortality patterns and mid-year policy anniversary effects that annual models miss. The performance cost of 12× more time steps is negligible given vectorization. Annual summary outputs are trivially produced by summing monthly arrays.
+**Rationale:** Monthly is the industry standard for individual life reinsurance. It captures seasonal mortality and mid-year anniversary effects that annual models miss. The 12× cost is negligible given vectorization. Annual summaries are trivially produced by summing 12-month windows.
 
 ---
 
-## ADR-005: Net premium reserves for Phase 1, not gross premium or IFRS 17
+## ADR-005: Net premium reserves for Phase 1
 
 **Date:** Project inception  
-**Status:** Accepted, reviewed in Phase 3
+**Status:** Accepted; IFRS 17 BBA in Phase 3
 
-**Context:** Multiple reserve bases exist: net premium reserves (NP), gross premium reserves (GP), IFRS 17 BBA/PAA, US GAAP LDTI. IFRS 17 is the regulatory standard for Munich Re and most international reinsurers.
+**Context:** Multiple reserve bases exist: net premium (NP), gross premium (GP), IFRS 17 BBA/PAA, US GAAP LDTI.
 
 **Decision:** Net premium reserves for Phase 1.
 
-**Rationale:** NP reserves are the simplest auditable basis — fully deterministic given a mortality table and valuation interest rate. They are well-understood by any credentialed actuary. The reserve recursion is clean and easy to verify by hand. IFRS 17 (with CSM and RA calculations) is added in Phase 3 once the projection engine is proven correct. The architecture is designed so that reserves are pluggable — the `BaseProduct.compute_reserves()` method can be overridden for different bases.
+**Rationale:** NP reserves are the simplest auditable basis — fully deterministic from mortality table and valuation interest rate. The reserve recursion is clean and hand-verifiable. IFRS 17 added in Phase 3. `BaseProduct.compute_reserves()` is designed to be overridden for different bases without changing projection logic.
 
 ---
 
-## ADR-006: CSV-based mortality table storage (not database)
+## ADR-006: CSV-based mortality table storage
 
 **Date:** Project inception  
 **Status:** Accepted
 
-**Context:** Mortality tables could be stored in SQLite, a dedicated database, binary formats (parquet, HDF5), or CSV.
+**Context:** Mortality tables could be stored in SQLite, binary formats (parquet, HDF5), or CSV.
 
-**Decision:** CSV with a standardized column schema, loaded at `AssumptionSet` construction time.
+**Decision:** CSV with a standardized column schema.
 
-**Rationale:** CSV is auditable — an actuary can open it in Excel and verify values. It has no binary dependencies. Tables change rarely (new industry studies every 5–10 years). The performance cost of CSV loading is amortized by caching the loaded table in the `MortalityTable` object. A future `parquet` option can be added as an alternative loader without changing the API.
+**Rationale:** CSV is auditable — an actuary can open it in Excel and verify values directly. No binary dependencies. Tables change rarely (new industry studies every 5–10 years). CSV load cost is amortized by caching in `MortalityTable`. A parquet loader can be added as an alternative without changing the API.
 
 ---
 
@@ -89,6 +89,45 @@ This document records significant architecture and design decisions made during 
 
 **Context:** Should treaty calculations be embedded in product code, or applied as a post-processing step?
 
-**Decision:** Treaties are transformations applied to `CashFlowResult` objects after projection. Product code knows nothing about treaties.
+**Decision:** Treaties are transformations applied to `CashFlowResult` objects. Product code is treaty-unaware.
 
-**Rationale:** This enables modeling the same inforce block under multiple treaty structures without re-running the projection. It also enables stacking treaties (e.g., a quota share on top of a YRT arrangement). The clean separation makes each component independently testable. The main risk is that some treaty structures (e.g., experience refund arrangements) require access to projected reserves in ways that may need a callback — handled by passing the full `CashFlowResult` including reserves to the treaty `apply()` method.
+**Rationale:** Enables modeling the same inforce block under multiple treaty structures without re-running the projection. Enables stacking treaties. Makes each component independently testable. Treaties receive the full `CashFlowResult` including reserves, so NAR and reserve transfer calculations have everything they need.
+
+---
+
+## ADR-008: Python 3.12+ as the minimum version
+
+**Date:** Project inception  
+**Status:** Accepted
+
+**Context:** Python 3.10/3.11 are still common. Options were to support 3.10+ or require 3.12+.
+
+**Decision:** Python 3.12+ minimum. Tested against 3.12 and 3.13 in CI.
+
+**Rationale:** Python 3.12 eliminates the need for `from __future__ import annotations` (PEP 563 deferred evaluation is native). It enables `X | Y` union syntax, `list[X]` / `dict[K, V]` built-in generics, `type` statement for type aliases, and `Self` from `typing`. These reduce boilerplate and improve readability throughout the codebase. The `UP` ruleset in Ruff enforces 3.12+ style automatically.
+
+---
+
+## ADR-009: uv as the package manager (replacing pip/venv/poetry)
+
+**Date:** Project inception  
+**Status:** Accepted
+
+**Context:** Options were pip+venv, Poetry, PDM, or uv.
+
+**Decision:** uv throughout. `uv sync` to install, `uv run <cmd>` to execute. `uv.lock` committed for reproducible installs.
+
+**Rationale:** uv is 10–100× faster than pip for resolution and installation. It handles both virtualenv creation and lockfile management in a single tool. It is fully `pyproject.toml` native (no secondary config files). `uv.lock` committed to VCS enables `--frozen` installs in CI, guaranteeing every run uses identical dependency versions. The `.python-version` file (pinned to `3.12`) is read automatically by uv.
+
+---
+
+## ADR-010: uv.lock committed to VCS for reproducible CI
+
+**Date:** Initial CI setup  
+**Status:** Accepted
+
+**Context:** `uv.lock` was initially excluded from `.gitignore` (treating Polaris RE as a library). The first CI run failed because `setup-uv@v4` could not find `uv.lock` for cache-dependency-glob.
+
+**Decision:** Commit `uv.lock`. Use `uv sync --frozen` in CI. Cache keyed on `pyproject.toml`.
+
+**Rationale:** Although libraries conventionally omit lock files, the `--frozen` flag in CI provides a meaningful reproducibility guarantee that offsets the maintenance cost. The lock file is updated intentionally via `uv lock` when dependencies change, making dependency updates an explicit, reviewable commit. The `setup-uv@v4` cache is keyed on `pyproject.toml` (always present) rather than `uv.lock` to avoid a chicken-and-egg failure on first run.

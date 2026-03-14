@@ -2,100 +2,91 @@
 
 ---
 
-## Phase 1: MVP — Term Life Reinsurance Pricing (Target: 8 weeks)
+## Phase 1: MVP — Term Life Reinsurance Pricing (Target: 8 weeks from scaffold)
 
-The goal of Phase 1 is a fully functional, tested, and documented engine capable of pricing a YRT or coinsurance reinsurance treaty on a block of term life policies. This is the most common deal type at a life reinsurer and provides the foundation for all subsequent phases.
+The goal of Phase 1 is a fully functional, tested, and documented engine capable of pricing a YRT or coinsurance reinsurance treaty on a block of term life policies.
 
-### Milestone 1.1 — Core Data Models (Week 1)
-- [ ] `core/base.py` — `PolarisBaseModel` with global Pydantic v2 config
-- [ ] `core/exceptions.py` — `PolarisValidationError`, `PolarisComputationError`
-- [ ] `core/policy.py` — `Policy`, `ProductType` enum, `SmokerStatus` enum, `Sex` enum
-- [ ] `core/inforce.py` — `InforceBlock` with vectorized attribute access (`.attained_age_vec`, `.face_amount_vec`, etc.)
-- [ ] `core/projection.py` — `ProjectionConfig` (horizon, time step, discount rate, valuation date)
-- [ ] `core/cashflow.py` — `CashFlowResult` dataclass with all required fields
-- [ ] Tests: `tests/test_core/` — full coverage on all core models
+---
 
-### Milestone 1.2 — Mortality Assumptions (Week 2)
-- [ ] `assumptions/mortality.py` — `MortalityTable` class
-  - Load CIA 2014 from CSV
-  - Load SOA VBT 2015 (select and ultimate) from CSV
-  - `get_qx_vector(ages, sex, smoker, durations)` — returns `np.ndarray[float64]` shape `(N,)`
-  - Sex-distinct rates, smoker/non-smoker distinct rates
-  - Age interpolation (nearest birthday and last birthday)
-- [ ] `assumptions/improvement.py` — `MortalityImprovement`
-  - Scale AA factors
-  - MP-2020 projection scale
-  - `apply_improvement(qx_base, calendar_year, projection_years)` method
-- [ ] `assumptions/lapse.py` — `LapseAssumption`
-  - Duration-based select and ultimate structure
-  - `get_lapse_vector(durations)` — returns `np.ndarray[float64]` shape `(N,)`
-- [ ] `assumptions/assumption_set.py` — `AssumptionSet` (bundles all above with version metadata)
-- [ ] Tests: closed-form verification — single policy, known q_x, verify rates match table values exactly
+### Milestone 1.1 — Core Data Models ✅ COMPLETE
+- [x] `core/base.py` — `PolarisBaseModel` with global Pydantic v2 config
+- [x] `core/exceptions.py` — `PolarisValidationError`, `PolarisComputationError`
+- [x] `core/policy.py` — `Policy`, `ProductType`, `SmokerStatus`, `Sex` enums
+- [x] `core/inforce.py` — `InforceBlock` with vectorized attribute access
+- [x] `core/projection.py` — `ProjectionConfig`
+- [x] `core/cashflow.py` — `CashFlowResult` dataclass
+- [x] `tests/test_core/test_models.py` — core model tests (Policy, InforceBlock, ProjectionConfig)
+- [x] All stubs created: assumptions, products, reinsurance, analytics, utils
 
-### Milestone 1.3 — Term Life Product Engine (Weeks 3–4)
-- [ ] `products/base_product.py` — `BaseProduct` abstract class
-- [ ] `products/term_life.py` — `TermLife`
-  - Monthly projection loop (vectorized over policies)
-  - `lx` in-force factor array `(N, T)` with mortality and lapse decrements
-  - Gross premium calculation
-  - Net premium reserve recursion
-  - `CashFlowResult` output on gross basis
-- [ ] Tests:
-  - Single policy, 10-year term — verify premiums, claims, reserves match hand calculation
-  - Verify `sum(lx * q) == total deaths` is internally consistent
-  - Verify reserves are non-negative and reach 0 at policy expiry
+---
 
-### Milestone 1.4 — YRT and Coinsurance Treaties (Week 5)
-- [ ] `reinsurance/base_treaty.py` — `BaseTreaty` abstract class
-- [ ] `reinsurance/yrt.py` — `YRTTreaty`
-  - NAR calculation from gross reserve
-  - Ceded premium = NAR × YRT rate / 1000
-  - Ceded claims = gross claims × cession %
-  - Returns `CashFlowResult` on ceded and net bases
-- [ ] `reinsurance/coinsurance.py` — `CoinsuranceTreaty`
-  - Proportional share of all cash flow lines
-  - Ceded reserve transfer
-  - Returns net `CashFlowResult`
-- [ ] Tests: verify YRT net + ceded = gross for all cash flow lines
+### Milestone 1.2 — Assumptions & Utilities 🔄 IN PROGRESS
+- [ ] `utils/date_utils.py` — `months_between`, `age_nearest_birthday`, `age_last_birthday`, `projection_date_index`
+- [ ] `utils/interpolation.py` — `constant_force_interpolate_rates`, `linear_interpolate_rates`
+- [ ] `utils/table_io.py` — `load_mortality_csv`, `MortalityTableArray.get_rate_vector`
+- [ ] `assumptions/mortality.py` — `MortalityTable.load`, `get_qx_vector`
+- [ ] `assumptions/lapse.py` — `LapseAssumption.from_duration_table`, `get_lapse_vector`
+- [ ] `assumptions/improvement.py` — `MortalityImprovement.apply_improvement` (Scale AA + NONE)
+- [ ] `assumptions/assumption_set.py` — `AssumptionSet` (depends on above; model is complete, summary property needs lapse loaded)
+- [ ] `tests/fixtures/` — synthetic CSV mortality table fixtures for testing (no licensing required)
+- [ ] `tests/test_assumptions/test_mortality.py` — closed-form rate lookup verification
+- [ ] All rate lookup tests passing including `constant_force` monthly conversion
 
-### Milestone 1.5 — Profit Testing & Analytics (Week 6)
-- [ ] `analytics/profit_test.py` — `ProfitTester`
-  - PV of profits at hurdle rate
-  - IRR computation (`numpy_financial.irr`)
-  - Break-even duration
-  - Profit margin
-- [ ] `analytics/scenario.py` — `ScenarioRunner`
-  - Runs projection under N assumption scenarios
-  - Returns `ScenarioResult` with profit metric distribution
-- [ ] Tests: verify IRR = hurdle rate when PV profits = 0 by construction
+---
 
-### Milestone 1.6 — Integration, Docs & Validation Notebook (Weeks 7–8)
-- [ ] Full integration test: load inforce block → apply assumptions → project term life → apply YRT treaty → profit test
+### Milestone 1.3 — Term Life Product Engine
+- [ ] `products/term_life.py` — `TermLife._build_rate_arrays()` — q and w arrays shape (N, T)
+- [ ] `products/term_life.py` — `TermLife._compute_inforce_factors()` — lx forward recursion
+- [ ] `products/term_life.py` — `TermLife.compute_reserves()` — backward net premium reserve recursion
+- [ ] `products/term_life.py` — `TermLife.project()` — assemble full CashFlowResult (GROSS)
+- [ ] Tests: single policy closed-form verification (premiums, claims, reserves vs hand calculation)
+- [ ] Tests: reserve terminal condition V_T = 0; non-negative throughout; accounting identity
+
+---
+
+### Milestone 1.4 — YRT and Coinsurance Treaties
+- [ ] `reinsurance/yrt.py` — `YRTTreaty.apply()` — NAR, ceded premium, ceded claims
+- [ ] `reinsurance/coinsurance.py` — `CoinsuranceTreaty.apply()` — proportional all lines + reserve transfer
+- [ ] Tests: verify net + ceded == gross for all cash flow lines (`verify_additivity`)
+- [ ] Tests: YRT reserves not transferred; coinsurance reserves split proportionally
+
+---
+
+### Milestone 1.5 — Profit Testing & Scenario Analysis
+- [ ] `analytics/profit_test.py` — `ProfitTester.run()` — PV profits, IRR (scipy brentq), break-even, margin
+- [ ] `analytics/scenario.py` — `ScenarioRunner.run()` — standard stress scenarios
+- [ ] Tests: IRR = hurdle rate when PV profits = 0 by construction; profit margin bounds
+
+---
+
+### Milestone 1.6 — Integration, Docs & Validation Notebook
+- [ ] Full integration test: InforceBlock → AssumptionSet → TermLife → YRTTreaty → ProfitTester
 - [ ] `notebooks/01_term_life_yrt_pricing.ipynb` — end-to-end deal pricing walkthrough
-- [ ] `README.md` complete with quickstart
-- [ ] `ARCHITECTURE.md` complete
-- [ ] `docs/ACTUARIAL_GLOSSARY.md` complete
-- [ ] `make coverage` shows ≥ 90% coverage on all Phase 1 modules
+- [ ] `README.md` — update feature status table when Phase 1 complete
+- [ ] `make coverage` — ≥ 85% coverage on all Phase 1 modules (threshold set in pyproject.toml)
+- [ ] CI pipeline green on all 4 jobs (lint, test-3.12, test-3.13, docker)
 
 ---
 
 ## Phase 2: Whole Life, Modco & Uncertainty Quantification (Target: +8 weeks)
 
-- [ ] `products/whole_life.py` — par and non-par whole life with dividend projections
-- [ ] `products/universal_life.py` — COI charges, account value roll-forward, no-lapse guarantee
+- [ ] `products/whole_life.py` — par and non-par whole life with reserve recursion
+- [ ] `products/universal_life.py` — COI charges, account value roll-forward
 - [ ] `reinsurance/modco.py` — modco adjustment, investment income on ceded reserves
-- [ ] `reinsurance/stop_loss.py` — aggregate stop loss with attachment/exhaustion points
-- [ ] `analytics/uq.py` — Monte Carlo uncertainty quantification
-- [ ] `assumptions/morbidity.py` — CI and disability incidence tables
+- [ ] `reinsurance/stop_loss.py` — aggregate stop loss (attachment/exhaustion points)
+- [ ] `analytics/uq.py` — Monte Carlo UQ (np.random.default_rng, N scenarios)
+- [ ] `assumptions/morbidity.py` — CI and disability incidence/termination tables
 - [ ] `products/disability.py` — DI / CI product cash flows
+- [ ] `assumptions/improvement.py` — MP-2020 and CPM-B improvement scales
 
 ---
 
 ## Phase 3: IFRS 17, Stochastic Rates & API Layer (Target: +12 weeks)
 
 - [ ] IFRS 17 measurement models (BBA, PAA, VFA)
-- [ ] Contractual Service Margin (CSM) amortization
+- [ ] Contractual Service Margin (CSM) amortisation
 - [ ] Stochastic interest rate scenarios (Hull-White, CIR)
 - [ ] FastAPI REST layer for programmatic pricing
 - [ ] Streamlit or Panel dashboard for deal comparison
 - [ ] CLI interface via Typer (`polaris price`, `polaris scenario`)
+- [ ] Codecov badge and full coverage enforcement (≥ 90%)
