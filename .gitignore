@@ -7,9 +7,7 @@ __pycache__/
 
 # uv
 .venv/
-uv.lock          # commit this if you want reproducible installs — remove line to track it
-# Note: for a library, uv.lock is typically NOT committed. For an application/service, commit it.
-# Polaris RE is currently a library — keeping uv.lock out of VCS by default.
+# uv.lock IS committed — required for reproducible CI installs and GitHub Actions caching.
 
 # Legacy venv / pip
 venv/
