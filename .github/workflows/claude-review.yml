@@ -1,0 +1,102 @@
+# =============================================================================
+# Polaris RE — Claude Code Review
+# =============================================================================
+# Triggers:
+#   - Automatically on every PR opened/updated targeting `main`
+#   - On-demand by commenting `@claude` on any PR or issue
+#
+# Prerequisites:
+#   - ANTHROPIC_API_KEY must be set as a repository secret
+#   - (Optional) Claude GitHub App installed at https://github.com/apps/claude
+#
+# Notes:
+#   - Review runs on your GitHub-hosted runner; only API calls leave to Anthropic
+#   - Does NOT approve or merge PRs — advisory comments only
+#   - Fork PRs from external contributors will NOT receive reviews (no secret
+#     access by GitHub's design — this is the safe default for public repos)
+#   - To trigger a review on an existing PR, comment `@claude` on it
+# =============================================================================
+
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+    branches: [main]
+
+  # On-demand: comment @claude on any PR or issue
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+# Cancel in-progress review runs for the same PR on new pushes
+concurrency:
+  group: claude-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  claude-review:
+    name: Claude Code Review
+
+    # Skip draft PRs for automated reviews (on-demand @claude still works)
+    if: >
+      github.event_name == 'issue_comment' ||
+      github.event_name == 'pull_request_review_comment' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read          # read code and CLAUDE.md
+      pull-requests: write    # post review comments
+      issues: write           # respond to @claude in issue comments
+      id-token: write         # OIDC (may be needed by some auth flows)
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code Review
+        id: claude-review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+          # Automated review prompt — only active on pull_request events.
+          # For @claude mentions, Claude uses the comment text as its prompt.
+          prompt: |
+            Please review the changes in this PR. This is the Polaris RE project:
+            a Python-native life reinsurance cash flow projection and pricing engine.
+
+            Focus on:
+            - **Actuarial correctness**: projection logic, NAR calculations, treaty
+              cash flow splitting, closed-form verifiability of any numeric results
+            - **Vectorisation**: all projection code must operate on NumPy arrays —
+              flag any loops over policies or time steps that should be vectorised
+            - **Pydantic v2 models**: all data contracts must use PolarisBaseModel,
+              Field(description=...) on every field, no raw dicts passed around
+            - **Python 3.12 typing**: flag Optional[X], List[X], Dict[K,V], Union —
+              these must use X | None, list[X], dict[K,V] and X | Y respectively.
+              Never allow `from __future__ import annotations`
+            - **Test coverage**: every actuarial calculation needs a closed-form
+              verification test; flag any new calculation code without a test
+            - **Error handling**: use PolarisValidationError / PolarisComputationError;
+              no silent exception suppression
+            - **Security**: no hardcoded values, secrets, or assumption constants
+              embedded in product or treaty code
+
+            Do NOT comment on:
+            - Pure style nitpicks already enforced by Ruff
+            - Import ordering (Ruff handles this)
+            - Minor docstring formatting
+
+            Keep the review concise. Flag critical issues clearly with severity.
+            If no material issues are found, say so briefly.
+
+          # Cap turns to control API cost per review
+          claude_args: |
+            --max-turns 5
+            --model claude-sonnet-4-6
