@@ -1,0 +1,52 @@
+# Patterns to exclude from the Docker build context
+# Keeps the image lean and prevents sensitive files leaking into the build
+
+# Version control
+.git/
+.gitignore
+
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Test / coverage output (not needed in image — run at test time)
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+notebooks/output/
+
+# Environment secrets — never bake .env into image
+.env
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Large data files (mount at runtime via -v flag instead)
+data/
+*.parquet
+*.csv
+
+# CI/CD — not needed inside the container
+.github/
+
+# Documentation source (not needed at runtime)
+docs/

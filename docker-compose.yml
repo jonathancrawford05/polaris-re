@@ -1,0 +1,54 @@
+# docker-compose.yml — Local development convenience
+#
+# Usage:
+#   Start dev shell:    docker compose run --rm dev bash
+#   Run tests:          docker compose run --rm dev uv run pytest tests/
+#   Run lint:           docker compose run --rm dev make lint
+#   Run notebook:       docker compose up notebook   (then open http://localhost:8888)
+
+services:
+
+  # -------------------------------------------------------------------------
+  # dev — interactive development and CI-equivalent local testing
+  # -------------------------------------------------------------------------
+  dev:
+    build:
+      context: .
+      target: dev
+    image: polaris-re:dev
+    volumes:
+      # Live mount source for edit-without-rebuild workflow
+      - ./src:/app/src
+      - ./tests:/app/tests
+      - ./notebooks:/app/notebooks
+      # Mount local actuarial data directory (set POLARIS_DATA_DIR in .env)
+      - ${POLARIS_DATA_DIR:-./data}:/data:ro
+    environment:
+      - POLARIS_DATA_DIR=/data
+      - POLARIS_LOG_LEVEL=${POLARIS_LOG_LEVEL:-INFO}
+    working_dir: /app
+
+  # -------------------------------------------------------------------------
+  # notebook — JupyterLab server for validation notebooks
+  # -------------------------------------------------------------------------
+  notebook:
+    build:
+      context: .
+      target: dev
+    image: polaris-re:dev
+    command: >
+      uv run jupyter lab
+        --ip=0.0.0.0
+        --port=8888
+        --no-browser
+        --NotebookApp.token=''
+        --NotebookApp.password=''
+        notebooks/
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./src:/app/src
+      - ./notebooks:/app/notebooks
+      - ${POLARIS_DATA_DIR:-./data}:/data:ro
+    environment:
+      - POLARIS_DATA_DIR=/data

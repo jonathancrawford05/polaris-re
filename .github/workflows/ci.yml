@@ -1,0 +1,173 @@
+# =============================================================================
+# Polaris RE — CI/CD Pipeline
+# =============================================================================
+# Triggers:
+#   - Every push to `main` or `develop`
+#   - Every pull request targeting `main`
+#
+# Jobs:
+#   1. lint      — Ruff (style + formatting) + mypy (type checking)
+#   2. test      — pytest across Python 3.12 and 3.13, with coverage
+#   3. docker    — Build Docker image and run tests inside it
+#   4. coverage  — Upload coverage report to Codecov (on main only)
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs for the same branch/PR to save CI minutes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: Lint — Ruff + mypy
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint (Ruff + mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run Ruff (linting)
+        run: uv run ruff check src/ tests/
+
+      - name: Run Ruff (formatting check)
+        run: uv run ruff format --check src/ tests/
+
+      - name: Run mypy (type checking)
+        run: uv run mypy src/polaris_re/
+
+  # ---------------------------------------------------------------------------
+  # Job 2: Test — pytest matrix across Python 3.12 and 3.13
+  # ---------------------------------------------------------------------------
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    needs: lint
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run tests (excluding slow)
+        run: uv run pytest -m "not slow" tests/ -v --tb=short
+
+      - name: Run all tests with coverage (Python 3.12 only)
+        if: matrix.python-version == '3.12'
+        run: |
+          uv run pytest tests/ \
+            --cov=polaris_re \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --tb=short
+
+      - name: Upload coverage artifact
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Job 3: Docker — build image and run tests inside container
+  # ---------------------------------------------------------------------------
+  docker:
+    name: Docker build & test
+    runs-on: ubuntu-latest
+    needs: lint
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: polaris-re:ci-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          load: true
+
+      - name: Run tests inside Docker
+        run: |
+          docker run --rm \
+            polaris-re:ci-${{ github.sha }} \
+            python -m pytest tests/ -v --tb=short -m "not slow"
+
+      - name: Smoke test — import check
+        run: |
+          docker run --rm \
+            polaris-re:ci-${{ github.sha }} \
+            python -c "import polaris_re; print('Import OK:', polaris_re.__version__)"
+
+  # ---------------------------------------------------------------------------
+  # Job 4: Coverage report — upload to Codecov (main branch only)
+  # ---------------------------------------------------------------------------
+  coverage:
+    name: Upload coverage
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download coverage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false   # don't fail CI if Codecov is unavailable
+          verbose: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

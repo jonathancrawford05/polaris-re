@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# uv
+.venv/
+uv.lock          # commit this if you want reproducible installs — remove line to track it
+# Note: for a library, uv.lock is typically NOT committed. For an application/service, commit it.
+# Polaris RE is currently a library — keeping uv.lock out of VCS by default.
+
+# Legacy venv / pip
+venv/
+env/
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# Type checking
+.mypy_cache/
+
+# Linting
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+notebooks/output/
+!notebooks/output/.gitkeep
+
+# Environment variables (never commit secrets)
+.env
+!.env.example
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+
+# Data files (actuarial tables, large CSVs) — do not commit
+data/
+!data/.gitkeep
+*.parquet
+
+# Logs
+*.log
+logs/
+
+# Docker
+*.tar
