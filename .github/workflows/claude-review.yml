@@ -71,6 +71,10 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Explicitly pass GITHUB_TOKEN so Claude can post comments back to the PR.
+          # Without this the action falls back to a token with restricted scopes
+          # which causes permission denials when writing PR comments.
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
           # Automated review prompt — only active on pull_request events.
           # For @claude mentions, Claude uses the comment text as its prompt.
