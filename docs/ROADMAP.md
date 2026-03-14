@@ -57,10 +57,10 @@ The goal of Phase 1 is a fully functional, tested, and documented engine capable
 
 ---
 
-### Milestone 1.5 — Profit Testing & Scenario Analysis
-- [ ] `analytics/profit_test.py` — `ProfitTester.run()` — PV profits, IRR (scipy brentq), break-even, margin
-- [ ] `analytics/scenario.py` — `ScenarioRunner.run()` — standard stress scenarios
-- [ ] Tests: IRR = hurdle rate when PV profits = 0 by construction; profit margin bounds
+### Milestone 1.5 — Profit Testing & Scenario Analysis ✅ COMPLETE
+- [x] `analytics/profit_test.py` — `ProfitTester.run()` — PV profits, IRR (scipy brentq), break-even, margin
+- [x] `analytics/scenario.py` — `ScenarioRunner.run()` — standard stress scenarios
+- [x] Tests: IRR = hurdle rate when PV profits = 0 by construction; profit margin bounds
 
 ---
 
