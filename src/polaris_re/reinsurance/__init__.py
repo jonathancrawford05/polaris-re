@@ -8,6 +8,8 @@ and net cash flow splits based on treaty terms.
 
 from polaris_re.reinsurance.base_treaty import BaseTreaty
 from polaris_re.reinsurance.coinsurance import CoinsuranceTreaty
+from polaris_re.reinsurance.modco import ModcoTreaty
+from polaris_re.reinsurance.stop_loss import StopLossTreaty
 from polaris_re.reinsurance.yrt import YRTTreaty
 
-__all__ = ["BaseTreaty", "CoinsuranceTreaty", "YRTTreaty"]
+__all__ = ["BaseTreaty", "CoinsuranceTreaty", "ModcoTreaty", "StopLossTreaty", "YRTTreaty"]

@@ -73,16 +73,16 @@ The goal of Phase 1 is a fully functional, tested, and documented engine capable
 
 ---
 
-## Phase 2: Whole Life, Modco & Uncertainty Quantification (Target: +8 weeks)
+## Phase 2: Whole Life, Modco & Uncertainty Quantification ✅ COMPLETE
 
-- [ ] `products/whole_life.py` — par and non-par whole life with reserve recursion
-- [ ] `products/universal_life.py` — COI charges, account value roll-forward
-- [ ] `reinsurance/modco.py` — modco adjustment, investment income on ceded reserves
-- [ ] `reinsurance/stop_loss.py` — aggregate stop loss (attachment/exhaustion points)
-- [ ] `analytics/uq.py` — Monte Carlo UQ (np.random.default_rng, N scenarios)
-- [ ] `assumptions/morbidity.py` — CI and disability incidence/termination tables
-- [ ] `products/disability.py` — DI / CI product cash flows
-- [ ] `assumptions/improvement.py` — MP-2020 and CPM-B improvement scales
+- [x] `products/whole_life.py` — par and non-par whole life with prospective reserve recursion
+- [x] `products/universal_life.py` — COI charges, account value roll-forward, forced lapse when AV→0
+- [x] `reinsurance/modco.py` — modco adjustment, investment income on ceded reserves, additivity proof
+- [x] `reinsurance/stop_loss.py` — aggregate stop loss (attachment/exhaustion), partial year pro-ration
+- [x] `analytics/uq.py` — Monte Carlo UQ (np.random.default_rng, LogNormal mort/lapse, Normal rate shift)
+- [x] `assumptions/morbidity.py` — CI and DI incidence/termination tables with synthetic constructors
+- [x] `products/disability.py` — DI multi-state model (active↔disabled) and CI single-decrement
+- [x] `assumptions/improvement.py` — MP-2020 (2D age×year) and CPM-B (age-only) improvement scales
 
 ---
 

@@ -62,6 +62,7 @@ class CashFlowResult:
     # --- Reinsurance-specific ---
     nar: np.ndarray | None = None  # Net Amount at Risk, shape (T,)
     yrt_premiums: np.ndarray | None = None  # YRT ceded premiums, shape (T,)
+    modco_interest: np.ndarray | None = None  # Modco interest adjustment, shape (T,)
 
     def __post_init__(self) -> None:
         """Validate array shape consistency after construction."""

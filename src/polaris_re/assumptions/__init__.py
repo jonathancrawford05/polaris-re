@@ -7,11 +7,14 @@ AssumptionSet container that bundles all assumptions for a projection run.
 
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.assumptions.lapse import LapseAssumption
+from polaris_re.assumptions.morbidity import MorbidityTable, MorbidityTableType
 from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
 
 __all__ = [
     "AssumptionSet",
     "LapseAssumption",
+    "MorbidityTable",
+    "MorbidityTableType",
     "MortalityTable",
     "MortalityTableSource",
 ]

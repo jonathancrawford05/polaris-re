@@ -99,6 +99,25 @@ class Policy(PolarisBaseModel):
         ),
     )
 
+    # --- Universal Life specific (optional) ---
+    account_value: float | None = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Current account value at valuation date ($). Required for UL projections. "
+            "None for non-UL products."
+        ),
+    )
+    credited_rate: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Annual credited interest rate for UL account value roll-forward. "
+            "None for non-UL products."
+        ),
+    )
+
     # --- Dates ---
     issue_date: date = Field(description="Policy issue date.")
     valuation_date: date = Field(description="Valuation / projection start date.")
