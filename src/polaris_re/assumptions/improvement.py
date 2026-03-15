@@ -139,13 +139,13 @@ _CPM_B_FACTORS: np.ndarray = np.array(
 def _get_scale_aa_factors(ages: np.ndarray) -> np.ndarray:
     """Look up Scale AA improvement factors for a vector of ages."""
     capped_ages = np.clip(ages, 0, len(_SCALE_AA_FACTORS) - 1).astype(np.int32)
-    return _SCALE_AA_FACTORS[capped_ages].astype(np.float64)  # type: ignore[no-any-return]
+    return _SCALE_AA_FACTORS[capped_ages]  # type: ignore[no-any-return]
 
 
 def _get_cpm_b_factors(ages: np.ndarray) -> np.ndarray:
     """Look up CPM-B improvement factors for a vector of ages."""
     capped_ages = np.clip(ages, 0, len(_CPM_B_FACTORS) - 1).astype(np.int32)
-    return _CPM_B_FACTORS[capped_ages].astype(np.float64)  # type: ignore[no-any-return]
+    return _CPM_B_FACTORS[capped_ages]  # type: ignore[no-any-return]
 
 
 def _get_mp2020_factors_for_year(ages: np.ndarray, calendar_year: int) -> np.ndarray:
@@ -158,7 +158,7 @@ def _get_mp2020_factors_for_year(ages: np.ndarray, calendar_year: int) -> np.nda
     capped_ages = np.clip(ages, 0, 120).astype(np.int32)
     year_offset = calendar_year - _MP2020_BASE_YEAR
     year_offset = int(np.clip(year_offset, 0, _MP2020_FACTORS.shape[1] - 1))
-    return _MP2020_FACTORS[capped_ages, year_offset].astype(np.float64)  # type: ignore[no-any-return]
+    return _MP2020_FACTORS[capped_ages, year_offset]  # type: ignore[no-any-return]
 
 
 class MortalityImprovement(PolarisBaseModel):

@@ -161,11 +161,13 @@ class WholeLife(BaseProduct):
             lx[:, month] = lx[:, month - 1] * (1.0 - q[:, month - 1]) * (1.0 - w[:, month - 1])
         return lx
 
-    def _compute_net_premiums(
+    def _compute_annual_net_premiums(
         self, q: np.ndarray, lx: np.ndarray, v_monthly: float
     ) -> np.ndarray:
         """
-        Compute level net premium for each whole life policy, shape (N,).
+        Compute annual level net premium for each whole life policy, shape (N,).
+
+        Returns the ANNUAL premium amount. The caller must divide by 12 for monthly use.
 
         For whole-life pay:
             P_net = A_x / a_x
@@ -243,7 +245,7 @@ class WholeLife(BaseProduct):
         i_val = self.config.effective_valuation_rate
         v_monthly = (1.0 + i_val) ** (-1.0 / 12.0)
 
-        p_net_annual = self._compute_net_premiums(q, lx, v_monthly)  # (N,)
+        p_net_annual = self._compute_annual_net_premiums(q, lx, v_monthly)  # (N,)
         p_net_monthly = p_net_annual / 12.0  # (N,)
 
         # Terminal reserve at month T (prospective, not zero)

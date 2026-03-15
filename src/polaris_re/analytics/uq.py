@@ -189,27 +189,7 @@ class MonteCarloUQ:
             _net, _ = self.treaty.apply(gross)
             cashflows = _net
         else:
-            # No treaty: treat gross as NET for profit testing (standalone pricing)
             cashflows = gross
-            # Need basis=NET for ProfitTester
-            from polaris_re.core.cashflow import CashFlowResult
-            cashflows = CashFlowResult(
-                run_id=gross.run_id,
-                valuation_date=gross.valuation_date,
-                basis="NET",
-                assumption_set_version=gross.assumption_set_version,
-                product_type=gross.product_type,
-                block_id=gross.block_id,
-                projection_months=gross.projection_months,
-                time_index=gross.time_index,
-                gross_premiums=gross.gross_premiums,
-                death_claims=gross.death_claims,
-                lapse_surrenders=gross.lapse_surrenders,
-                expenses=gross.expenses,
-                reserve_balance=gross.reserve_balance,
-                reserve_increase=gross.reserve_increase,
-                net_cash_flow=gross.net_cash_flow,
-            )
 
         tester = ProfitTester(cashflows=cashflows, hurdle_rate=self.hurdle_rate)
         return tester.run()

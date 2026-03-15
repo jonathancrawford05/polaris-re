@@ -60,8 +60,8 @@ def _make_net_cashflow(
 class TestProfitTesterValidation:
     """Input validation tests."""
 
-    def test_raises_on_gross_basis_input(self):
-        """ProfitTester must raise ValueError if given a GROSS basis CashFlowResult."""
+    def test_accepts_gross_basis_input(self):
+        """ProfitTester should accept GROSS basis for standalone (no-treaty) pricing."""
         gross_cf = CashFlowResult(
             run_id="test",
             valuation_date=date(2025, 1, 1),
@@ -69,8 +69,9 @@ class TestProfitTesterValidation:
             assumption_set_version="v1",
             product_type="TERM",
         )
-        with pytest.raises(ValueError, match="NET"):
-            ProfitTester(cashflows=gross_cf, hurdle_rate=0.10)
+        # Must not raise — GROSS is valid for standalone profit testing
+        tester = ProfitTester(cashflows=gross_cf, hurdle_rate=0.10)
+        assert tester.cashflows.basis == "GROSS"
 
     def test_raises_on_ceded_basis_input(self):
         """ProfitTester must raise ValueError if given a CEDED basis CashFlowResult."""
@@ -81,7 +82,7 @@ class TestProfitTesterValidation:
             assumption_set_version="v1",
             product_type="TERM",
         )
-        with pytest.raises(ValueError, match="NET"):
+        with pytest.raises(ValueError, match="CEDED"):
             ProfitTester(cashflows=ceded_cf, hurdle_rate=0.10)
 
 

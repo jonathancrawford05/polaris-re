@@ -391,8 +391,9 @@ class TestDIProjection:
         )
         result = engine.project()
         # Claims in second year should be higher than first year (disabled pool builds up)
-        assert result.death_claims[1:12].sum() < result.death_claims[12:24].sum() or \
-               result.death_claims[12:24].sum() > 0.0  # some claims must occur
+        year1_claims = result.death_claims[0:12].sum()
+        year2_claims = result.death_claims[12:24].sum()
+        assert year2_claims > year1_claims and year2_claims > 0.0
 
     def test_di_benefit_proportional_to_face(
         self,
