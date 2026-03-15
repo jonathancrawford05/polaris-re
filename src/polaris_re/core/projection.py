@@ -28,7 +28,9 @@ class ProjectionConfig(PolarisBaseModel):
     projection_horizon_years: int = Field(
         ge=1,
         le=100,
-        description="Number of years to project. Typically equals remaining policy term for term life.",
+        description=(
+            "Number of years to project. Typically equals remaining policy term for term life."
+        ),
     )
     discount_rate: float = Field(
         ge=0.0,
@@ -36,7 +38,7 @@ class ProjectionConfig(PolarisBaseModel):
         description=(
             "Annual discount rate for present value calculations. "
             "Used for profit testing and APV computations. "
-            "Typical range: 0.04–0.08 for valuation, 0.08–0.12 for pricing."
+            "Typical range: 0.04-0.08 for valuation, 0.08-0.12 for pricing."
         ),
     )
     valuation_interest_rate: float | None = Field(
@@ -74,5 +76,9 @@ class ProjectionConfig(PolarisBaseModel):
 
     @property
     def effective_valuation_rate(self) -> float:
-        """The interest rate to use for reserve recursion. Falls back to discount_rate if not set."""
-        return self.valuation_interest_rate if self.valuation_interest_rate is not None else self.discount_rate
+        """Interest rate for reserve recursion. Falls back to discount_rate."""
+        return (
+            self.valuation_interest_rate
+            if self.valuation_interest_rate is not None
+            else self.discount_rate
+        )

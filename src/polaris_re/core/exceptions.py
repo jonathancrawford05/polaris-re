@@ -5,7 +5,7 @@ All domain-specific errors inherit from PolarisError, which allows
 callers to catch all Polaris errors with a single except clause.
 """
 
-__all__ = ["PolarisError", "PolarisValidationError", "PolarisComputationError"]
+__all__ = ["PolarisComputationError", "PolarisError", "PolarisValidationError"]
 
 
 class PolarisError(Exception):

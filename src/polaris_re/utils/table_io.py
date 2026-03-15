@@ -41,10 +41,11 @@ TODO (Phase 1, Milestone 1.2):
 from pathlib import Path
 
 import numpy as np
+import polars as pl
 
 from polaris_re.core.exceptions import PolarisValidationError
 
-__all__ = ["load_mortality_csv", "MortalityTableArray"]
+__all__ = ["MortalityTableArray", "load_mortality_csv"]
 
 
 class MortalityTableArray:
@@ -101,7 +102,13 @@ class MortalityTableArray:
             dur_cols = np.minimum(durations_years, self.select_period)
             return self.rates[age_idx, dur_cols]
         """
-        raise NotImplementedError("MortalityTableArray.get_rate_vector() not yet implemented.")
+        age_idx = ages - self.min_age
+        if np.any(age_idx < 0) or np.any(age_idx >= self.rates.shape[0]):
+            raise PolarisValidationError(
+                f"Ages outside table range [{self.min_age}, {self.max_age}]."
+            )
+        dur_cols = np.minimum(durations_years, self.select_period)
+        return self.rates[age_idx, dur_cols]
 
 
 def load_mortality_csv(
@@ -130,7 +137,66 @@ def load_mortality_csv(
     """
     if not path.exists():
         raise FileNotFoundError(f"Mortality table CSV not found: {path}")
-    raise NotImplementedError(
-        "load_mortality_csv not yet implemented. "
-        "See module docstring for CSV schema and validation rules."
+
+    df = pl.read_csv(path)
+
+    # Expect first column to be "age"
+    if df.columns[0] != "age":
+        raise PolarisValidationError(f"First column must be 'age', got '{df.columns[0]}'.")
+
+    # Determine table structure
+    rate_columns = [c for c in df.columns if c != "age"]
+
+    if select_period == 0:
+        # Ultimate-only table: expect a single rate column
+        if len(rate_columns) < 1:
+            raise PolarisValidationError("Ultimate-only table must have at least one rate column.")
+        # Use the first rate column as ultimate
+        rate_col = rate_columns[0]
+        ages_series = df["age"].to_numpy().astype(np.int32)
+        rates_1d = df[rate_col].to_numpy().astype(np.float64)
+        # Reshape to (n_ages, 1) — the single column is the ultimate column
+        rates = rates_1d.reshape(-1, 1)
+    else:
+        # Select-and-ultimate table
+        # Expect dur_1 .. dur_N plus ultimate column
+        expected_cols = [f"dur_{i}" for i in range(1, select_period + 1)] + ["ultimate"]
+        for col in expected_cols:
+            if col not in df.columns:
+                raise PolarisValidationError(
+                    f"Missing expected column '{col}' in {path.name}. "
+                    f"Expected columns: {expected_cols}"
+                )
+        ages_series = df["age"].to_numpy().astype(np.int32)
+        rate_data = df.select(expected_cols).to_numpy().astype(np.float64)
+        rates = rate_data
+
+    # Validate age range
+    actual_min_age = int(ages_series.min())
+    actual_max_age = int(ages_series.max())
+    if actual_min_age > min_age:
+        raise PolarisValidationError(f"Table min age {actual_min_age} > expected {min_age}.")
+    if actual_max_age < max_age:
+        raise PolarisValidationError(f"Table max age {actual_max_age} < expected {max_age}.")
+
+    # Filter to requested age range
+    mask = (ages_series >= min_age) & (ages_series <= max_age)
+    rates = rates[mask]
+
+    # Validate contiguous ages
+    filtered_ages = ages_series[mask]
+    expected_ages = np.arange(min_age, max_age + 1, dtype=np.int32)
+    if len(filtered_ages) != len(expected_ages) or not np.array_equal(filtered_ages, expected_ages):
+        raise PolarisValidationError("Age column must be contiguous integers with no gaps.")
+
+    # Validate rates in [0, 1]
+    if np.any(rates < 0.0) or np.any(rates > 1.0):
+        raise PolarisValidationError("All mortality rates must be in [0.0, 1.0].")
+
+    return MortalityTableArray(
+        rates=rates,
+        min_age=min_age,
+        max_age=max_age,
+        select_period=select_period,
+        source_file=path,
     )

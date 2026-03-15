@@ -7,22 +7,23 @@ assumptions entering the projection.
 """
 
 from datetime import date
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import Field, field_validator
 
 from polaris_re.core.base import PolarisBaseModel
 
-__all__ = ["Policy", "ProductType", "Sex", "SmokerStatus", "UnderwritingClass"]
+__all__ = ["Policy", "ProductType", "Sex", "SmokerStatus"]
 
 
-class Sex(str, Enum):
+class Sex(StrEnum):
     """Biological sex of the insured. Used for sex-distinct mortality table lookups."""
+
     MALE = "M"
     FEMALE = "F"
 
 
-class SmokerStatus(str, Enum):
+class SmokerStatus(StrEnum):
     """
     Tobacco/nicotine use status of the insured at issue.
 
@@ -30,13 +31,15 @@ class SmokerStatus(str, Enum):
     NON_SMOKER: No tobacco use at time of underwriting.
     UNKNOWN:    Status not determined — use aggregate (blended) mortality rates.
     """
+
     SMOKER = "S"
     NON_SMOKER = "NS"
     UNKNOWN = "U"
 
 
-class ProductType(str, Enum):
+class ProductType(StrEnum):
     """Life insurance product type. Determines which product engine is invoked."""
+
     TERM = "TERM"
     WHOLE_LIFE = "WHOLE_LIFE"
     UNIVERSAL_LIFE = "UL"
@@ -60,7 +63,9 @@ class Policy(PolarisBaseModel):
 
     # --- Demographic / underwriting ---
     issue_age: int = Field(ge=0, le=120, description="Age at policy issue (ANB).")
-    attained_age: int = Field(ge=0, le=120, description="Current attained age at valuation date (ANB).")
+    attained_age: int = Field(
+        ge=0, le=120, description="Current attained age at valuation date (ANB)."
+    )
     sex: Sex = Field(description="Sex of the insured for mortality table lookups.")
     smoker_status: SmokerStatus = Field(description="Smoker/non-smoker status at issue.")
     underwriting_class: str = Field(
@@ -70,7 +75,9 @@ class Policy(PolarisBaseModel):
     # --- Coverage ---
     face_amount: float = Field(gt=0, description="Face amount (death benefit) in dollars.")
     annual_premium: float = Field(ge=0, description="Gross annual premium in dollars.")
-    product_type: ProductType = Field(description="Product type driving which projection engine is used.")
+    product_type: ProductType = Field(
+        description="Product type driving which projection engine is used."
+    )
     policy_term: int | None = Field(
         default=None,
         ge=1,
@@ -80,14 +87,16 @@ class Policy(PolarisBaseModel):
     duration_inforce: int = Field(
         ge=0,
         description="Number of months the policy has been in force at the valuation date. "
-                    "Used to determine position in select mortality table.",
+        "Used to determine position in select mortality table.",
     )
 
     # --- Reinsurance ---
     reinsurance_cession_pct: float = Field(
         ge=0.0,
         le=1.0,
-        description="Proportion of the policy ceded to reinsurer. 0.0 = retained, 1.0 = fully ceded.",
+        description=(
+            "Proportion of the policy ceded to reinsurer. 0.0 = retained, 1.0 = fully ceded."
+        ),
     )
 
     # --- Dates ---

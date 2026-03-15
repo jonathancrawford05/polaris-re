@@ -11,8 +11,8 @@ Implementation Notes for Claude Code:
 - Lapse rates are per policy year (annual), not per month.
   Monthly: w_monthly = 1 - (1 - w_annual)^(1/12)
 - Duration measured in policy years from issue (duration_inforce / 12).
-- Select period for lapses is typically 10–20 years.
-- Lapse rates typically 5–15% in year 1, declining to 2–5% ultimate.
+- Select period for lapses is typically 10-20 years.
+- Lapse rates typically 5-15% in year 1, declining to 2-5% ultimate.
 - For reinsurance: lower lapses = more exposure = more adverse for YRT reinsurer.
 
 TODO (Phase 1, Milestone 1.2):
@@ -38,7 +38,7 @@ class LapseAssumption(PolarisBaseModel):
     Implementation is STUBBED. Claude Code must implement per module docstring.
     """
 
-    select_rates: tuple[float, ...]   # annual rates for policy years 1..N
+    select_rates: tuple[float, ...]  # annual rates for policy years 1..N
     ultimate_rate: float
     select_period_years: int
 
@@ -60,7 +60,30 @@ class LapseAssumption(PolarisBaseModel):
         TODO: Implement — extract select rates into a tuple, validate all rates
               are in [0, 1], infer select_period_years from max integer key.
         """
-        raise NotImplementedError("LapseAssumption.from_duration_table() not yet implemented.")
+        if "ultimate" not in table:
+            raise ValueError("Table must contain an 'ultimate' key.")
+
+        ultimate_rate = float(table["ultimate"])
+
+        # Extract integer keys and sort them
+        int_keys = sorted(k for k in table if isinstance(k, int))
+        if not int_keys:
+            raise ValueError("Table must contain at least one integer policy year key.")
+
+        select_rates = tuple(float(table[k]) for k in int_keys)
+        select_period_years = max(int_keys)
+
+        # Validate all rates in [0, 1]
+        all_rates = [*list(select_rates), ultimate_rate]
+        for rate in all_rates:
+            if not (0.0 <= rate <= 1.0):
+                raise ValueError(f"Lapse rate {rate} outside [0, 1].")
+
+        return cls(
+            select_rates=select_rates,
+            ultimate_rate=ultimate_rate,
+            select_period_years=select_period_years,
+        )
 
     def get_lapse_vector(self, durations_months: np.ndarray) -> np.ndarray:
         """
@@ -76,4 +99,19 @@ class LapseAssumption(PolarisBaseModel):
         TODO: Implement — convert months to policy years, look up select or
               ultimate annual rate, convert to monthly.
         """
-        raise NotImplementedError("LapseAssumption.get_lapse_vector() not yet implemented.")
+        # Convert months to policy years (1-based: months 0-11 → year 1)
+        policy_years = durations_months // 12 + 1
+
+        # Build a lookup array: select_rates for years 1..N, then ultimate
+        # Index 0 = year 1, ..., index N-1 = year N, index N = ultimate
+        rate_lookup = np.array([*list(self.select_rates), self.ultimate_rate], dtype=np.float64)
+
+        # Map policy years to lookup indices, capping at select_period_years
+        # Year 1 → index 0, ..., year N → index N-1, year > N → index N (ultimate)
+        lookup_idx = np.minimum(policy_years - 1, self.select_period_years)
+        w_annual = rate_lookup[lookup_idx]
+
+        # Convert annual to monthly: w_monthly = 1 - (1 - w_annual)^(1/12)
+        w_monthly = 1.0 - (1.0 - w_annual) ** (1.0 / 12.0)
+
+        return w_monthly

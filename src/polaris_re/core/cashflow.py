@@ -57,10 +57,10 @@ class CashFlowResult:
     seriatim_premiums: np.ndarray | None = None
     seriatim_claims: np.ndarray | None = None
     seriatim_reserves: np.ndarray | None = None
-    seriatim_lx: np.ndarray | None = None   # in-force factors
+    seriatim_lx: np.ndarray | None = None  # in-force factors
 
     # --- Reinsurance-specific ---
-    nar: np.ndarray | None = None          # Net Amount at Risk, shape (T,)
+    nar: np.ndarray | None = None  # Net Amount at Risk, shape (T,)
     yrt_premiums: np.ndarray | None = None  # YRT ceded premiums, shape (T,)
 
     def __post_init__(self) -> None:
@@ -83,16 +83,16 @@ class CashFlowResult:
 
     def pv_net_cash_flow(self, discount_rate: float) -> float:
         """Present value of net cash flows at the given annual discount rate."""
-        T = len(self.net_cash_flow)
+        n_periods = len(self.net_cash_flow)
         v = (1.0 + discount_rate) ** (-1.0 / 12.0)
-        discount_factors = v ** np.arange(1, T + 1)
+        discount_factors = v ** np.arange(1, n_periods + 1)
         return float(np.dot(self.net_cash_flow, discount_factors))
 
     def pv_premiums(self, discount_rate: float) -> float:
         """Present value of gross premiums at the given annual discount rate."""
-        T = len(self.gross_premiums)
+        n_periods = len(self.gross_premiums)
         v = (1.0 + discount_rate) ** (-1.0 / 12.0)
-        discount_factors = v ** np.arange(1, T + 1)
+        discount_factors = v ** np.arange(1, n_periods + 1)
         return float(np.dot(self.gross_premiums, discount_factors))
 
     def loss_ratio(self) -> float:
