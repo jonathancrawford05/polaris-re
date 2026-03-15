@@ -3,8 +3,7 @@
 # =============================================================================
 # Trigger:
 #   - Manual only: Actions tab → "Claude Code Review" → "Run workflow"
-#     Optionally specify a PR number to review. Leave blank to skip the
-#     automated prompt and rely solely on the @claude comment trigger.
+#     Optionally specify a PR number to review. Leave blank for comment-only use.
 #   - On-demand: comment `@claude <instructions>` on any PR or issue
 #
 # Prerequisites:
@@ -16,6 +15,14 @@
 #   - Each run costs ~$1–2 depending on PR size.
 #   - Manual trigger ensures you only run when you explicitly choose to.
 #   - Monitor spend at console.anthropic.com/settings/billing
+#
+# Visibility:
+#   - --output-format stream-json streams every tool call, reasoning step,
+#     and text output to stdout in real time. Visible in Actions → job logs
+#     under "Run Claude Code Review" regardless of whether PR comment posting
+#     succeeds. This is the primary debugging mechanism.
+#   - For large PRs (many files), pass extra_instructions to scope the review
+#     to specific paths, e.g. "focus only on src/polaris_re/products/"
 # =============================================================================
 
 name: Claude Code Review
@@ -29,7 +36,7 @@ on:
         required: false
         type: string
       extra_instructions:
-        description: "Any extra instructions for this review run (optional)."
+        description: "Scope or focus instructions, e.g. 'focus only on src/polaris_re/products/'. Use this on large PRs to avoid context exhaustion."
         required: false
         type: string
 
@@ -74,19 +81,22 @@ jobs:
           echo "Ref:            ${{ github.ref }}"
           echo "SHA:            ${{ github.sha }}"
           echo "PR number:      ${{ github.event.inputs.pr_number || github.event.issue.number || 'n/a' }}"
-          echo "Extra instructions provided: ${{ github.event.inputs.extra_instructions != '' }}"
+          echo "Extra instructions: ${{ github.event.inputs.extra_instructions || 'none' }}"
           echo "============================================"
 
+      # ------------------------------------------------------------------
+      # Run Claude — stream-json pipes every tool call and text output to
+      # stdout so the full review is visible in this step's log even if
+      # the PR comment posting step fails or context is exhausted.
+      # ------------------------------------------------------------------
       - name: Run Claude Code Review
         id: claude-review
-        # continue-on-error: if Claude hits max-turns the workflow shows a
-        # yellow warning rather than hard red. Any partial review comments
-        # already posted to the PR are preserved.
+        # continue-on-error: workflow shows yellow warning rather than hard
+        # red failure if Claude hits max-turns or context limits.
         continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # Explicit GITHUB_TOKEN gives Claude write access to post PR comments.
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
           prompt: |
@@ -95,13 +105,15 @@ jobs:
             ${{ github.event.inputs.pr_number && format('Focus on PR #{0}.', github.event.inputs.pr_number) || '' }}
             ${{ github.event.inputs.extra_instructions || '' }}
 
-            ## Approach — follow this order to minimise tool calls:
-            1. Read REVIEW.md — defines the P0/P1/P2 severity framework.
-               Read it once, do not re-read.
-            2. Read the PR diff — focus on changed files only.
-            3. Only open individual source files if a specific finding needs
-               deeper context to confirm. Do not read every file in full.
-            4. Write your complete review as a single PR comment.
+            ## IMPORTANT — context budget
+            This is a large codebase. To avoid exhausting your context window:
+            - Read REVIEW.md first (severity framework). Read it once only.
+            - Do NOT read CLAUDE.md in full — it is for interactive sessions.
+            - Read the PR diff summary only — do not fetch full file contents
+              unless a specific finding absolutely requires it.
+            - Write your review after reading the diff. Do not defer.
+            - If the diff is very large, review the highest-risk files first
+              (products/, reinsurance/, analytics/) and note any files skipped.
 
             ## What to flag:
             - **[P0]** Actuarial calculation errors, vectorisation violations
@@ -125,15 +137,22 @@ jobs:
           claude_args: |
             --max-turns 50
             --model claude-sonnet-4-6
+            --output-format stream-json
 
       # ------------------------------------------------------------------
-      # Log outcome — always runs so you can see results even on failure
+      # Log outcome — step status plus session ID for resuming if needed.
+      # The actual review content is visible in the step above via
+      # stream-json. outcome/conclusion are status flags only.
       # ------------------------------------------------------------------
       - name: Log Claude execution result
         if: always()
         run: |
           echo "===== Claude Execution Result ====="
-          echo "Step outcome:   ${{ steps.claude-review.outcome }}"
-          echo "Step result:    ${{ steps.claude-review.result }}"
-          echo "Session ID:     ${{ steps.claude-review.outputs.session_id || 'not available' }}"
+          echo "Step outcome:      ${{ steps.claude-review.outcome }}"
+          echo "Step result:       ${{ steps.claude-review.result }}"
+          echo "Session ID:        ${{ steps.claude-review.outputs.session_id || 'not available' }}"
+          echo ""
+          echo "NOTE: Full review output (tool calls, reasoning, text) is"
+          echo "visible in the 'Run Claude Code Review' step above via"
+          echo "stream-json — expand that step to read the review content."
           echo "==================================="
