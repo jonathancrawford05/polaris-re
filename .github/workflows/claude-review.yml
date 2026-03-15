@@ -1,30 +1,37 @@
 # =============================================================================
 # Polaris RE — Claude Code Review
 # =============================================================================
-# Triggers:
-#   - Automatically on every PR opened/updated targeting `main`
-#   - On-demand by commenting `@claude` on any PR or issue
+# Trigger:
+#   - Manual only: Actions tab → "Claude Code Review" → "Run workflow"
+#     Optionally specify a PR number to review. Leave blank to skip the
+#     automated prompt and rely solely on the @claude comment trigger.
+#   - On-demand: comment `@claude <instructions>` on any PR or issue
 #
 # Prerequisites:
 #   - ANTHROPIC_API_KEY must be set as a repository secret
+#   - Repository default token permissions must allow pull-request writes
+#     (Settings → Actions → General → Workflow permissions → Read and write)
 #
-# Notes:
-#   - Review runs on your GitHub-hosted runner; only API calls leave to Anthropic
-#   - Does NOT approve or merge PRs — advisory comments only
-#   - Fork PRs from external contributors will NOT receive reviews (no secret
-#     access by GitHub's design — this is the safe default for public repos)
-#   - To trigger a review on an existing PR, comment `@claude` on it
-#   - If max-turns is hit, the step is marked continue-on-error so any partial
-#     review already posted to the PR is preserved and the workflow shows a
-#     warning rather than a hard failure
+# Cost guidance:
+#   - Each run costs ~$1–2 depending on PR size.
+#   - Manual trigger ensures you only run when you explicitly choose to.
+#   - Monitor spend at console.anthropic.com/settings/billing
 # =============================================================================
 
 name: Claude Code Review
 
 on:
-  pull_request:
-    types: [opened, synchronize, ready_for_review]
-    branches: [main]
+  # Manual trigger from the Actions tab — primary entry point
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to review (e.g. 1). Leave blank for comment-only use."
+        required: false
+        type: string
+      extra_instructions:
+        description: "Any extra instructions for this review run (optional)."
+        required: false
+        type: string
 
   # On-demand: comment @claude on any PR or issue
   issue_comment:
@@ -32,7 +39,7 @@ on:
   pull_request_review_comment:
     types: [created]
 
-# Cancel in-progress review runs for the same PR on new pushes
+# Cancel in-progress review runs for the same ref on new triggers
 concurrency:
   group: claude-review-${{ github.ref }}
   cancel-in-progress: true
@@ -41,20 +48,14 @@ jobs:
   claude-review:
     name: Claude Code Review
 
-    # Skip draft PRs for automated reviews (on-demand @claude still works)
-    if: >
-      github.event_name == 'issue_comment' ||
-      github.event_name == 'pull_request_review_comment' ||
-      (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-
     runs-on: ubuntu-latest
 
     permissions:
-      contents: read          # read code and CLAUDE.md
-      pull-requests: write    # post review comments
-      issues: write           # respond to @claude in issue comments
-      id-token: write         # OIDC (may be needed by some auth flows)
-      actions: read           # allow Claude to read CI results on PRs
+      contents: read          # read code, CLAUDE.md, REVIEW.md
+      pull-requests: write    # post review comments on PRs
+      issues: write           # respond to @claude in issue/PR comments
+      id-token: write         # OIDC
+      actions: read           # read CI results for context
 
     steps:
       - name: Checkout repository
@@ -62,37 +63,41 @@ jobs:
         with:
           fetch-depth: 1
 
+      # ------------------------------------------------------------------
+      # Log run context — helps diagnose trigger and input issues
+      # ------------------------------------------------------------------
+      - name: Log run context
+        run: |
+          echo "===== Claude Code Review — Run Context ====="
+          echo "Trigger:        ${{ github.event_name }}"
+          echo "Actor:          ${{ github.actor }}"
+          echo "Ref:            ${{ github.ref }}"
+          echo "SHA:            ${{ github.sha }}"
+          echo "PR number:      ${{ github.event.inputs.pr_number || github.event.issue.number || 'n/a' }}"
+          echo "Extra instructions provided: ${{ github.event.inputs.extra_instructions != '' }}"
+          echo "============================================"
+
       - name: Run Claude Code Review
         id: claude-review
-        # continue-on-error: if Claude hits max-turns, the workflow shows a
-        # warning (yellow) rather than a hard failure (red). Any partial review
-        # comments already posted to the PR are preserved.
+        # continue-on-error: if Claude hits max-turns the workflow shows a
+        # yellow warning rather than hard red. Any partial review comments
+        # already posted to the PR are preserved.
         continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # Explicitly pass GITHUB_TOKEN so Claude can post comments back to the PR.
-          # Without this the action falls back to a token with restricted scopes
-          # which causes permission denials when writing PR comments.
+          # Explicit GITHUB_TOKEN gives Claude write access to post PR comments.
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-          # Automated review prompt — only active on pull_request events.
-          # For @claude mentions, Claude uses the comment text as its prompt.
-          #
-          # EFFICIENCY GUIDANCE: Be deliberate with tool calls.
-          #   1. Read the PR diff first (it is already in your context).
-          #   2. Read REVIEW.md and CLAUDE.md once for standards — do not re-read.
-          #   3. Only fetch individual source files if a specific issue requires
-          #      deeper inspection — do not read every changed file in full.
-          #   4. Write the complete review in a single comment when ready.
-          #   This keeps turn usage low and the review focused.
           prompt: |
             Please review the changes in this PR for the Polaris RE project
             (Python-native life reinsurance cash flow projection engine).
+            ${{ github.event.inputs.pr_number && format('Focus on PR #{0}.', github.event.inputs.pr_number) || '' }}
+            ${{ github.event.inputs.extra_instructions || '' }}
 
             ## Approach — follow this order to minimise tool calls:
-            1. Read REVIEW.md — this defines the P0/P1/P2 severity framework
-               and what to flag vs. ignore. Read it once, do not re-read.
+            1. Read REVIEW.md — defines the P0/P1/P2 severity framework.
+               Read it once, do not re-read.
             2. Read the PR diff — focus on changed files only.
             3. Only open individual source files if a specific finding needs
                deeper context to confirm. Do not read every file in full.
@@ -101,15 +106,15 @@ jobs:
             ## What to flag:
             - **[P0]** Actuarial calculation errors, vectorisation violations
               (loops over policies/time steps instead of NumPy), Pydantic v2
-              contract bypasses, float == comparisons, silent exception suppression,
-              hardcoded assumption values in product/treaty code
-            - **[P1]** Python 3.12 typing violations (Optional[X], List[X] etc.),
-              new actuarial calculations without closed-form tests, wrong error
-              type raised, np.array() without explicit dtype
+              contract bypasses, float == comparisons, silent exception
+              suppression, hardcoded assumption values in product/treaty code
+            - **[P1]** Python 3.12 typing violations (Optional[X], List[X]
+              etc.), new actuarial calculations without closed-form tests,
+              wrong error type raised, np.array() without explicit dtype
             - **[P2]** Optional suggestions — non-blocking
 
             ## What to ignore:
-            Import order, line length, whitespace — Ruff enforces these automatically.
+            Import order, line length, whitespace — Ruff enforces these.
 
             ## Format each finding as:
             **[P0/P1/P2 — Category]** `file.py:line`
@@ -120,3 +125,15 @@ jobs:
           claude_args: |
             --max-turns 50
             --model claude-sonnet-4-6
+
+      # ------------------------------------------------------------------
+      # Log outcome — always runs so you can see results even on failure
+      # ------------------------------------------------------------------
+      - name: Log Claude execution result
+        if: always()
+        run: |
+          echo "===== Claude Execution Result ====="
+          echo "Step outcome:   ${{ steps.claude-review.outcome }}"
+          echo "Step result:    ${{ steps.claude-review.result }}"
+          echo "Session ID:     ${{ steps.claude-review.outputs.session_id || 'not available' }}"
+          echo "==================================="
