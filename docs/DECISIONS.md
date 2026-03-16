@@ -339,3 +339,81 @@ This document records significant architecture and design decisions. Each entry 
 **Decision:** Mortality and lapse multipliers drawn from `LogNormal(mu=0, sigma)` so they are strictly positive with E[multiplier] ≈ exp(sigma²/2) ≈ 1. Interest rate shifts drawn from `Normal(0, sigma)` as additive shifts to the annual discount rate (floored at 0%).
 
 **Rationale:** Lognormal multipliers cannot produce negative rates (which would be unphysical) and their mean is approximately 1 for small sigma, preserving the base scenario. The normal additive shift for interest rates is standard in actuarial sensitivity analysis. All sampling uses `np.random.default_rng(seed)` for reproducibility.
+
+---
+
+## ADR-027: IFRS 17 BEL computed via backward recursion (prospective method)
+
+**Date:** Phase 3 (Milestone 3.1)
+**Status:** Accepted
+
+**Context:** BEL = PV of future fulfilment cash flows. Options: (1) forward simulation then PV sum, (2) backward recursion.
+
+**Decision:** Backward recursion: `BEL[T-1] = FCF[T-1] * v`; `BEL[t] = FCF[t] * v + BEL[t+1] * v`.
+
+**Rationale:** The backward recursion is numerically equivalent to the prospective formula `BEL[t] = sum_{s>=t} FCF[s] * v^(s-t+1)` but computes in O(T) instead of O(T^2). It naturally handles the prospective view at every time step, making it easy to produce a full BEL schedule rather than just the initial recognition value.
+
+---
+
+## ADR-028: IFRS 17 CSM stores opening-period balances; end-of-period in csm_schedule
+
+**Date:** Phase 3 (Milestone 3.1)
+**Status:** Accepted
+
+**Context:** The CSM roll-forward produces both opening and end-of-period balances. The `IFRS17Result.csm` field must carry one of these.
+
+**Decision:** `IFRS17Result.csm[t]` = CSM at the START of period t (opening balance, before accretion and release). `_compute_csm_schedule()` returns `csm_schedule[t]` = end-of-period balance (after release), which is the opening of period t+1.
+
+**Rationale:** Opening balances are what appear on the IFRS 17 balance sheet at each period start. The accretion and release in period t are then derived from the opening balance, matching the IASB presentation requirements. Tests verify total CSM released equals initial CSM plus cumulative accretion (not that closing CSM reaches zero — it is zero only at contract expiry, which is csm_schedule[-1]).
+
+---
+
+## ADR-029: Hull-White and CIR both discretised via Euler-Maruyama on monthly steps
+
+**Date:** Phase 3 (Milestone 3.2)
+**Status:** Accepted
+
+**Context:** Stochastic SDE discretisation options include Euler-Maruyama (first-order), Milstein (adds diffusion correction), and exact simulation (for affine models like CIR).
+
+**Decision:** Euler-Maruyama for both models with `dt = 1/12` (monthly). CIR applies a positivity floor `max(r_prev, 0)` in the diffusion term to prevent negative rates in the discrete approximation.
+
+**Rationale:** Euler-Maruyama is straightforward to implement, easy to audit, and sufficiently accurate for monthly steps with typical parameter values. The exact CIR simulation (via non-central chi-squared) adds significant complexity for marginal accuracy gains at monthly granularity. The positivity floor is the standard discrete-time fix for CIR and is equivalent to the full truncation scheme recommended by Lord et al. (2010).
+
+---
+
+## ADR-030: Experience study uses limited-fluctuation credibility with n_full = 1082
+
+**Date:** Phase 3 (Milestone 3.3)
+**Status:** Accepted
+
+**Context:** Credibility weighting requires a choice of method (limited-fluctuation vs. Buhlmann) and the full-credibility threshold.
+
+**Decision:** Limited-fluctuation credibility `Z = min(1, sqrt(n / n_full))` with `n_full = 1082` as the default (standard actuarial value for 90% probability within 5% of true mean for mortality).
+
+**Rationale:** Limited-fluctuation (classical) credibility is the industry standard for experience studies and is required by most pricing actuaries and regulators. Buhlmann credibility requires a prior distribution estimate (`k` parameter) that is difficult to specify without extensive historical data. The 1082 threshold is derived from `(z_{0.95} / 0.05)^2 * p*(1-p) / p^2` at typical mortality rates and is published in the CAS/SOA credibility syllabus. The `n_full_credibility` parameter is configurable so users can adjust for lapse studies (where the full-credibility threshold is lower).
+
+---
+
+## ADR-031: FastAPI as the REST API framework with httpx for test client
+
+**Date:** Phase 3 (Milestone 3.5)
+**Status:** Accepted
+
+**Context:** REST API framework options: Flask, FastAPI, Django REST framework. Test client options: requests-mock, httpx TestClient.
+
+**Decision:** FastAPI with Pydantic v2 request/response models. Tests use `fastapi.testclient.TestClient` (backed by httpx).
+
+**Rationale:** FastAPI is the natural choice given the project already uses Pydantic v2 — FastAPI's request validation and response serialization are built on Pydantic natively. The OpenAPI schema is auto-generated for free. `TestClient` from FastAPI's testclient module provides synchronous test execution without needing a running server, making tests fast and self-contained. FastAPI and httpx added as optional `[api]` dependencies so they don't inflate the base install.
+
+---
+
+## ADR-032: Streamlit dashboard excluded from coverage and as an optional dependency
+
+**Date:** Phase 3 (Milestone 3.6)
+**Status:** Accepted
+
+**Context:** The Streamlit dashboard requires a running browser session to test meaningfully. Unit testing Streamlit apps requires mocking the entire rendering pipeline, which provides low value.
+
+**Decision:** `dashboard/app.py` is excluded from pytest coverage via `omit = ["*/dashboard/app.py"]` in `pyproject.toml`. Streamlit added as an optional dependency under `[project.optional-dependencies] dashboard`.
+
+**Rationale:** Excluding dashboard from coverage prevents the 94%+ coverage on the core analytical modules from being diluted by untestable UI rendering code. The dashboard is a thin presentation layer over already-tested business logic — its correctness is best verified by visual inspection in a running Streamlit session. Users who don't need the dashboard install with `uv sync` (no Streamlit); users who do install with `uv sync --extra dashboard`.
