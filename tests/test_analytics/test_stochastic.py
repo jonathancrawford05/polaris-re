@@ -15,7 +15,7 @@ import warnings
 import numpy as np
 import pytest
 
-from polaris_re.analytics.stochastic import CIRModel, HullWhiteModel, RateScenarios
+from polaris_re.analytics.stochastic import CIRModel, HullWhiteModel
 
 
 class TestHullWhiteModel:

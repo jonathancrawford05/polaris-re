@@ -14,8 +14,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from polaris_re.analytics.experience_study import AEResult, ExperienceStudy
-
+from polaris_re.analytics.experience_study import ExperienceStudy
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -266,9 +265,9 @@ class TestFromProjection:
 
     def test_from_projection_overall_ae(self):
         """from_projection with actual = expected gives A/E = 1.0."""
-        T = 12
-        events = np.full(T, 5.0, dtype=np.float64)
-        exposure = np.full(T, 1000.0, dtype=np.float64)
+        n_per = 12
+        events = np.full(n_per, 5.0, dtype=np.float64)
+        exposure = np.full(n_per, 1000.0, dtype=np.float64)
         study = ExperienceStudy.from_projection(
             actual_deaths=events,
             expected_deaths=events,

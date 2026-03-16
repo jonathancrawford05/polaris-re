@@ -5,7 +5,6 @@ Uses FastAPI's TestClient (built on httpx) to test all endpoints
 without running a live server.
 """
 
-from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient

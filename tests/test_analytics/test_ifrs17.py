@@ -15,16 +15,15 @@ from datetime import date
 import numpy as np
 import pytest
 
-from polaris_re.analytics.ifrs17 import IFRS17Measurement, IFRS17Result
+from polaris_re.analytics.ifrs17 import IFRS17Measurement
 from polaris_re.core.cashflow import CashFlowResult
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 def _make_gross_cashflow(
-    T: int = 24,
+    n_per: int = 24,
     monthly_premium: float = 100.0,
     monthly_claim: float = 10.0,
     monthly_expense: float = 5.0,
@@ -35,21 +34,21 @@ def _make_gross_cashflow(
     """Build a synthetic GROSS CashFlowResult for IFRS 17 testing."""
     if valuation_date is None:
         valuation_date = date(2025, 1, 1)
-    premiums = np.full(T, monthly_premium, dtype=np.float64)
-    claims = np.full(T, monthly_claim, dtype=np.float64)
-    expenses = np.full(T, monthly_expense, dtype=np.float64)
-    lapses = np.full(T, monthly_lapse, dtype=np.float64)
+    premiums = np.full(n_per, monthly_premium, dtype=np.float64)
+    claims = np.full(n_per, monthly_claim, dtype=np.float64)
+    expenses = np.full(n_per, monthly_expense, dtype=np.float64)
+    lapses = np.full(n_per, monthly_lapse, dtype=np.float64)
     net_cf = premiums - claims - lapses - expenses
-    reserves = np.zeros(T, dtype=np.float64)
+    reserves = np.zeros(n_per, dtype=np.float64)
     return CashFlowResult(
         run_id="ifrs17_test",
         valuation_date=valuation_date,
         basis="GROSS",
         assumption_set_version="v1",
         product_type="TERM",
-        projection_months=T,
+        projection_months=n_per,
         time_index=np.arange(
-            np.datetime64("2025-01"), np.datetime64("2025-01") + T, dtype="datetime64[M]"
+            np.datetime64("2025-01"), np.datetime64("2025-01") + n_per, dtype="datetime64[M]"
         ),
         gross_premiums=premiums,
         death_claims=claims,
@@ -80,7 +79,7 @@ class TestIFRS17MeasurementValidation:
             IFRS17Measurement(cashflows=cf, discount_rate=0.04)
 
     def test_raises_on_wrong_coverage_units_length(self):
-        cf = _make_gross_cashflow(T=24)
+        cf = _make_gross_cashflow(n_per=24)
         wrong_cu = np.ones(12, dtype=np.float64)  # wrong length
         with pytest.raises(ValueError, match="coverage_units"):
             IFRS17Measurement(cashflows=cf, discount_rate=0.04, coverage_units=wrong_cu)
@@ -100,7 +99,7 @@ class TestBBA:
         FCF[t] = claims + lapses + expenses - premiums (positive = net liability)
         BEL[0] = sum_{t=0}^{T-1} FCF[t] * v^(t+1)
         """
-        T = 12
+        n_per = 12
         premium = 100.0
         claim = 20.0
         expense = 5.0
@@ -109,10 +108,10 @@ class TestBBA:
 
         fcf_per_period = claim + expense + lapse - premium  # = -72.0 (net asset for insurer)
         v = (1.0 + discount_rate) ** (-1.0 / 12.0)
-        disc = v ** np.arange(1, T + 1, dtype=np.float64)
-        expected_bel = float(np.dot(np.full(T, fcf_per_period), disc))
+        disc = v ** np.arange(1, n_per + 1, dtype=np.float64)
+        expected_bel = float(np.dot(np.full(n_per, fcf_per_period), disc))
 
-        cf = _make_gross_cashflow(T=T, monthly_premium=premium, monthly_claim=claim,
+        cf = _make_gross_cashflow(n_per=n_per, monthly_premium=premium, monthly_claim=claim,
                                    monthly_expense=expense, monthly_lapse=lapse,
                                    discount_rate=discount_rate)
         m = IFRS17Measurement(cashflows=cf, discount_rate=discount_rate, ra_factor=0.0)
@@ -164,8 +163,8 @@ class TestBBA:
         The total CSM released (sum of csm_release) equals initial_csm plus
         all interest accreted. Verify this balance-checks to zero.
         """
-        T = 24
-        cf = _make_gross_cashflow(T=T, monthly_premium=100.0, monthly_claim=10.0,
+        n_per = 24
+        cf = _make_gross_cashflow(n_per=n_per, monthly_premium=100.0, monthly_claim=10.0,
                                    monthly_expense=5.0, monthly_lapse=2.0)
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.04, ra_factor=0.05)
         result = m.measure_bba()
@@ -182,21 +181,21 @@ class TestBBA:
 
     def test_bel_schedule_shape(self):
         """BEL, RA, CSM, insurance_liability arrays should all have shape (T,)."""
-        T = 36
-        cf = _make_gross_cashflow(T=T)
+        n_per = 36
+        cf = _make_gross_cashflow(n_per=n_per)
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.05)
         result = m.measure_bba()
 
-        assert result.bel.shape == (T,)
-        assert result.risk_adjustment.shape == (T,)
-        assert result.csm.shape == (T,)
-        assert result.insurance_liability.shape == (T,)
-        assert result.csm_release.shape == (T,)
-        assert result.insurance_revenue.shape == (T,)
+        assert result.bel.shape == (n_per,)
+        assert result.risk_adjustment.shape == (n_per,)
+        assert result.csm.shape == (n_per,)
+        assert result.insurance_liability.shape == (n_per,)
+        assert result.csm_release.shape == (n_per,)
+        assert result.insurance_revenue.shape == (n_per,)
 
     def test_insurance_liability_equals_bel_plus_ra_plus_csm(self):
         """insurance_liability = BEL + RA + CSM at each period."""
-        cf = _make_gross_cashflow(T=12)
+        cf = _make_gross_cashflow(n_per=12)
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.05, ra_factor=0.05)
         result = m.measure_bba()
 
@@ -209,8 +208,8 @@ class TestBBA:
         plus accumulated interest. Since the CSM accretes and releases fully,
         the total released should equal initial_csm compounded at the discount rate.
         """
-        T = 12
-        cf = _make_gross_cashflow(T=T, monthly_premium=100.0, monthly_claim=10.0,
+        n_per = 12
+        cf = _make_gross_cashflow(n_per=n_per, monthly_premium=100.0, monthly_claim=10.0,
                                    monthly_expense=5.0, monthly_lapse=2.0)
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.06)
         result = m.measure_bba()
@@ -223,7 +222,7 @@ class TestBBA:
 
     def test_ra_non_negative(self):
         """Risk Adjustment must be non-negative (it is compensation for uncertainty)."""
-        cf = _make_gross_cashflow(T=24)
+        cf = _make_gross_cashflow(n_per=24)
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.05, ra_factor=0.05)
         result = m.measure_bba()
         assert (result.risk_adjustment >= 0.0).all()
@@ -243,14 +242,14 @@ class TestBBA:
 
     def test_custom_coverage_units(self):
         """Custom coverage units should not raise and should produce valid output."""
-        T = 12
-        cf = _make_gross_cashflow(T=T)
+        n_per = 12
+        cf = _make_gross_cashflow(n_per=n_per)
         # Uniform coverage units
-        cu = np.ones(T, dtype=np.float64)
+        cu = np.ones(n_per, dtype=np.float64)
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.05, coverage_units=cu)
         result = m.measure_bba()
         assert result.approach == "BBA"
-        assert result.bel.shape == (T,)
+        assert result.bel.shape == (n_per,)
 
     def test_pv_insurance_revenue_positive(self):
         """PV of insurance revenue should be positive for a profitable contract."""
@@ -269,14 +268,14 @@ class TestPAA:
 
     def test_lrc_at_inception_equals_total_premiums(self):
         """PAA: LRC at t=0 should equal the total premiums over the coverage period."""
-        T = 12
+        n_per = 12
         monthly_premium = 100.0
-        cf = _make_gross_cashflow(T=T, monthly_premium=monthly_premium)
+        cf = _make_gross_cashflow(n_per=n_per, monthly_premium=monthly_premium)
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.04)
         result = m.measure_paa()
 
         assert result.lrc is not None
-        expected_lrc_0 = monthly_premium * T  # total premiums = 1200
+        expected_lrc_0 = monthly_premium * n_per  # total premiums = 1200
         np.testing.assert_allclose(result.lrc[0], expected_lrc_0, rtol=1e-6)
 
     def test_lrc_declines_monotonically(self):
@@ -288,9 +287,9 @@ class TestPAA:
         The final value LRC[T-1] is one period's worth of unearned premium
         (the last period is earned during period T-1, not before it).
         """
-        T = 12
+        n_per = 12
         monthly_premium = 100.0
-        cf = _make_gross_cashflow(T=T, monthly_premium=monthly_premium)
+        cf = _make_gross_cashflow(n_per=n_per, monthly_premium=monthly_premium)
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.04)
         result = m.measure_paa()
 
@@ -298,22 +297,22 @@ class TestPAA:
         # LRC should be monotonically non-increasing
         assert (np.diff(result.lrc) <= 1e-9).all(), "LRC must be non-increasing"
         # LRC[0] is the total unearned (all premiums); LRC[-1] = one period unearned
-        np.testing.assert_allclose(result.lrc[0], monthly_premium * T, rtol=1e-6)
+        np.testing.assert_allclose(result.lrc[0], monthly_premium * n_per, rtol=1e-6)
         # LRC declines by monthly_premium per period (flat premium assumption)
         np.testing.assert_allclose(result.lrc[-1], monthly_premium, rtol=1e-6)
 
     def test_paa_shape(self):
-        """PAA output arrays should have shape (T,)."""
-        T = 24
-        cf = _make_gross_cashflow(T=T)
+        """PAA output arrays should have shape (n_per,)."""
+        n_per = 24
+        cf = _make_gross_cashflow(n_per=n_per)
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.04)
         result = m.measure_paa()
 
         assert result.lrc is not None
         assert result.lic is not None
-        assert result.lrc.shape == (T,)
-        assert result.lic.shape == (T,)
-        assert result.insurance_liability.shape == (T,)
+        assert result.lrc.shape == (n_per,)
+        assert result.lic.shape == (n_per,)
+        assert result.insurance_liability.shape == (n_per,)
 
     def test_paa_approach_label(self):
         """PAA result should have approach == 'PAA'."""
@@ -335,14 +334,14 @@ class TestPAA:
         PAA insurance revenue across all periods should sum to total premiums
         (unearned premium fully earned by end of coverage).
         """
-        T = 12
+        n_per = 12
         monthly_premium = 100.0
-        cf = _make_gross_cashflow(T=T, monthly_premium=monthly_premium)
+        cf = _make_gross_cashflow(n_per=n_per, monthly_premium=monthly_premium)
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.04)
         result = m.measure_paa()
 
         total_earned = float(result.insurance_revenue.sum())
-        total_premiums = monthly_premium * T
+        total_premiums = monthly_premium * n_per
         np.testing.assert_allclose(total_earned, total_premiums, rtol=1e-6)
 
 
@@ -354,20 +353,20 @@ class TestVFA:
 
     def test_vfa_produces_result(self):
         """VFA measurement should produce a valid IFRS17Result."""
-        T = 24
-        cf = _make_gross_cashflow(T=T, monthly_premium=100.0, monthly_claim=15.0,
+        n_per = 24
+        cf = _make_gross_cashflow(n_per=n_per, monthly_premium=100.0, monthly_claim=15.0,
                                    monthly_expense=5.0, monthly_lapse=2.0)
-        underlying = np.linspace(10_000, 8_000, T)  # declining AV
+        underlying = np.linspace(10_000, 8_000, n_per)  # declining AV
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.04)
         result = m.measure_vfa(underlying_items_fair_value=underlying, variable_fee_rate=0.01)
 
         assert result.approach == "VFA"
-        assert result.bel.shape == (T,)
-        assert result.csm.shape == (T,)
+        assert result.bel.shape == (n_per,)
+        assert result.csm.shape == (n_per,)
 
     def test_vfa_raises_on_wrong_length(self):
         """VFA should raise if underlying_items_fair_value has wrong length."""
-        cf = _make_gross_cashflow(T=24)
+        cf = _make_gross_cashflow(n_per=24)
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.04)
         wrong_length = np.ones(12, dtype=np.float64)  # wrong length
         with pytest.raises(ValueError, match="underlying_items_fair_value"):
@@ -375,10 +374,10 @@ class TestVFA:
 
     def test_vfa_csm_fully_amortised(self):
         """VFA: Total CSM released should equal initial CSM plus all accretions."""
-        T = 12
-        cf = _make_gross_cashflow(T=T, monthly_premium=50.0, monthly_claim=5.0,
+        n_per = 12
+        cf = _make_gross_cashflow(n_per=n_per, monthly_premium=50.0, monthly_claim=5.0,
                                    monthly_expense=3.0, monthly_lapse=1.0)
-        underlying = np.linspace(5_000, 4_000, T)
+        underlying = np.linspace(5_000, 4_000, n_per)
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.04)
         result = m.measure_vfa(underlying, variable_fee_rate=0.02)
 

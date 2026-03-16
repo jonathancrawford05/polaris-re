@@ -58,7 +58,7 @@ def _build_assumptions(
     flat_qx: float,
     flat_lapse: float,
     valuation_date: date,
-) -> "tuple":
+) -> tuple:
     """Build minimal AssumptionSet for dashboard."""
     from pathlib import Path
 
@@ -85,7 +85,9 @@ def _build_assumptions(
         sex=Sex.MALE,
         smoker_status=SmokerStatus.UNKNOWN,
     )
-    lapse = LapseAssumption.from_duration_table({1: flat_lapse, 2: flat_lapse, 3: flat_lapse, "ultimate": flat_lapse})
+    lapse = LapseAssumption.from_duration_table(
+        {1: flat_lapse, 2: flat_lapse, 3: flat_lapse, "ultimate": flat_lapse}
+    )
     return AssumptionSet(
         mortality=mortality,
         lapse=lapse,
@@ -101,7 +103,7 @@ def _build_policy_block(
     annual_premium: float,
     term_years: int,
     valuation_date: date,
-) -> "tuple":
+) -> tuple:
     """Build InforceBlock and ProjectionConfig for dashboard."""
     from polaris_re.core.inforce import InforceBlock
     from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
@@ -134,7 +136,7 @@ def _run_pricing_pipeline(
     config: object,
     treaty: object,
     hurdle_rate: float,
-) -> "tuple":
+) -> tuple:
     from polaris_re.analytics.profit_test import ProfitTester
     from polaris_re.products.term_life import TermLife
 
@@ -153,7 +155,7 @@ def _run_pricing_pipeline(
 def _cashflow_waterfall(
     profit_by_year: np.ndarray,
     title: str = "Annual Profit Waterfall",
-) -> "plt.Figure":
+) -> plt.Figure:
     """Stacked waterfall chart of annual profits."""
     fig, ax = plt.subplots(figsize=(10, 5))
     years = np.arange(1, len(profit_by_year) + 1)
@@ -174,13 +176,16 @@ def _uq_histogram(
     cvar_95: float,
     base_pv_profit: float,
     title: str = "Monte Carlo PV Profit Distribution",
-) -> "plt.Figure":
+) -> plt.Figure:
     """Histogram of simulated PV profits with VaR/CVaR markers."""
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.hist(pv_profits, bins=40, color="#3498db", edgecolor="white", linewidth=0.5, alpha=0.8)
-    ax.axvline(var_95, color="#e74c3c", linestyle="--", linewidth=1.5, label=f"VaR 95%: ${var_95:,.0f}")
-    ax.axvline(cvar_95, color="#c0392b", linestyle=":", linewidth=1.5, label=f"CVaR 95%: ${cvar_95:,.0f}")
-    ax.axvline(base_pv_profit, color="#2ecc71", linestyle="-", linewidth=1.5, label=f"Base: ${base_pv_profit:,.0f}")
+    ax.axvline(var_95, color="#e74c3c", linestyle="--", linewidth=1.5,
+               label=f"VaR 95%: ${var_95:,.0f}")
+    ax.axvline(cvar_95, color="#c0392b", linestyle=":", linewidth=1.5,
+               label=f"CVaR 95%: ${cvar_95:,.0f}")
+    ax.axvline(base_pv_profit, color="#2ecc71", linestyle="-", linewidth=1.5,
+               label=f"Base: ${base_pv_profit:,.0f}")
     ax.set_xlabel("PV Profit ($)")
     ax.set_ylabel("Frequency")
     ax.set_title(title)
@@ -194,13 +199,13 @@ def _scenario_tornado(
     scenario_results: dict,
     base_pv: float,
     title: str = "Scenario Sensitivity (PV Profit)",
-) -> "plt.Figure":
+) -> plt.Figure:
     """Tornado chart showing PV profit deviation from base for each scenario."""
     names = list(scenario_results.keys())
     deviations = [scenario_results[n].pv_profits - base_pv for n in names]
 
     # Sort by absolute deviation
-    pairs = sorted(zip(deviations, names), key=lambda x: abs(x[0]))
+    pairs = sorted(zip(deviations, names, strict=False), key=lambda x: abs(x[0]))
     deviations_sorted = [p[0] for p in pairs]
     names_sorted = [p[1] for p in pairs]
 
@@ -229,11 +234,17 @@ def _page_pricing() -> None:
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        n_policies = int(st.number_input("Number of Policies", min_value=1, max_value=10000, value=100, step=10))
+        n_policies = int(st.number_input(
+            "Number of Policies", min_value=1, max_value=10000, value=100, step=10
+        ))
         attained_age = int(st.slider("Attained Age", 25, 65, 40))
-        face_amount = float(st.number_input("Face Amount ($)", min_value=50_000, max_value=5_000_000, value=500_000, step=50_000))
+        face_amount = float(st.number_input(
+            "Face Amount ($)", min_value=50_000, max_value=5_000_000, value=500_000, step=50_000
+        ))
     with col2:
-        annual_premium = float(st.number_input("Annual Premium ($)", min_value=100, max_value=50_000, value=1_200, step=100))
+        annual_premium = float(st.number_input(
+            "Annual Premium ($)", min_value=100, max_value=50_000, value=1_200, step=100
+        ))
         term_years = int(st.slider("Term (years)", 5, 30, 20))
         hurdle_rate = float(st.slider("Hurdle Rate (%)", 5, 20, 10)) / 100.0
     with col3:
@@ -248,7 +259,9 @@ def _page_pricing() -> None:
 
         with st.spinner("Running projection..."):
             valuation_date = date.today()
-            inforce = _build_policy_block(n_policies, attained_age, face_amount, annual_premium, term_years, valuation_date)
+            inforce = _build_policy_block(
+                n_policies, attained_age, face_amount, annual_premium, term_years, valuation_date
+            )
             assumptions = _build_assumptions(flat_qx, flat_lapse, valuation_date)
             config = ProjectionConfig(
                 valuation_date=valuation_date,
@@ -260,7 +273,7 @@ def _page_pricing() -> None:
                 cession_pct=cession_pct,
                 total_face_amount=face_amount,
             )
-            gross, net, ceded, result = _run_pricing_pipeline(
+            _gross, _net, _ceded, result = _run_pricing_pipeline(
                 inforce, assumptions, config, treaty, hurdle_rate
             )
 
@@ -268,7 +281,8 @@ def _page_pricing() -> None:
         col_a.metric("PV Profits", f"${result.pv_profits:,.0f}")
         col_b.metric("Profit Margin", f"{result.profit_margin:.2%}")
         col_c.metric("IRR", f"{result.irr:.2%}" if result.irr else "N/A")
-        col_d.metric("Break-even Year", str(result.breakeven_year) if result.breakeven_year else "Never")
+        bey = str(result.breakeven_year) if result.breakeven_year else "Never"
+        col_d.metric("Break-even Year", bey)
 
         st.pyplot(_cashflow_waterfall(result.profit_by_year))
 
@@ -279,7 +293,9 @@ def _page_scenario() -> None:
 
     col1, col2 = st.columns(2)
     with col1:
-        n_policies = int(st.number_input("Number of Policies", min_value=1, max_value=1000, value=50, step=10))
+        n_policies = int(st.number_input(
+            "Number of Policies", min_value=1, max_value=1000, value=50, step=10
+        ))
         attained_age = int(st.slider("Attained Age", 25, 65, 40))
         face_amount = float(st.number_input("Face Amount ($)", value=500_000, step=50_000))
     with col2:
@@ -294,14 +310,18 @@ def _page_scenario() -> None:
 
         with st.spinner("Running scenario analysis..."):
             valuation_date = date.today()
-            inforce = _build_policy_block(n_policies, attained_age, face_amount, annual_premium, term_years, valuation_date)
+            inforce = _build_policy_block(
+                n_policies, attained_age, face_amount, annual_premium, term_years, valuation_date
+            )
             assumptions = _build_assumptions(0.001, 0.05, valuation_date)
             config = ProjectionConfig(
                 valuation_date=valuation_date,
                 projection_horizon_years=term_years,
                 discount_rate=0.06,
             )
-            treaty = YRTTreaty(treaty_id="YRT-SCENARIO", cession_pct=0.90, total_face_amount=face_amount)
+            treaty = YRTTreaty(
+                treaty_id="YRT-SCENARIO", cession_pct=0.90, total_face_amount=face_amount
+            )
             runner = ScenarioRunner(
                 inforce=inforce,
                 base_assumptions=assumptions,
@@ -316,8 +336,11 @@ def _page_scenario() -> None:
         base_pv = base_case.pv_profits if base_case else results.scenarios[0][1].pv_profits
         st.pyplot(_scenario_tornado(results_dict, base_pv))
 
-        rows = [{"Scenario": k, "PV Profit": f"${v.pv_profits:,.0f}", "IRR": f"{v.irr:.2%}" if v.irr else "N/A"}
-                for k, v in results_dict.items()]
+        irr_str = {k: f"{v.irr:.2%}" if v.irr else "N/A" for k, v in results_dict.items()}
+        rows = [
+            {"Scenario": k, "PV Profit": f"${v.pv_profits:,.0f}", "IRR": irr_str[k]}
+            for k, v in results_dict.items()
+        ]
         st.table(rows)
 
 
@@ -330,10 +353,10 @@ def _page_uq() -> None:
         n_scenarios = int(st.slider("Monte Carlo Scenarios", 50, 1000, 200, step=50))
         seed = int(st.number_input("Random Seed", value=42, min_value=0))
     with col2:
-        mort_sigma = float(st.slider("Mortality σ (%)", 5, 30, 10)) / 100.0
-        lapse_sigma = float(st.slider("Lapse σ (%)", 5, 30, 15)) / 100.0
+        mort_sigma = float(st.slider("Mortality vol (%)", 5, 30, 10)) / 100.0
+        lapse_sigma = float(st.slider("Lapse vol (%)", 5, 30, 15)) / 100.0
     with col3:
-        rate_sigma = float(st.slider("Rate σ (bps)", 10, 200, 50)) / 10_000.0
+        rate_sigma = float(st.slider("Rate vol (bps)", 10, 200, 50)) / 10_000.0
         hurdle_rate = float(st.slider("Hurdle Rate (%)", 5, 20, 10)) / 100.0
 
     if st.button("Run Monte Carlo", type="primary"):
@@ -345,7 +368,9 @@ def _page_uq() -> None:
             valuation_date = date.today()
             inforce = _build_policy_block(50, 40, 500_000, 1_200, 20, valuation_date)
             assumptions = _build_assumptions(0.001, 0.05, valuation_date)
-            config = ProjectionConfig(valuation_date=valuation_date, projection_horizon_years=20, discount_rate=0.06)
+            config = ProjectionConfig(
+                valuation_date=valuation_date, projection_horizon_years=20, discount_rate=0.06
+            )
             treaty = YRTTreaty(treaty_id="YRT-UQ", cession_pct=0.90, total_face_amount=500_000)
             uq = MonteCarloUQ(
                 inforce=inforce,
@@ -368,7 +393,9 @@ def _page_uq() -> None:
         col_b.metric("CVaR 95%", f"${result.cvar(0.95):,.0f}")
         col_c.metric("Base PV Profit", f"${result.base_pv_profit:,.0f}")
 
-        st.pyplot(_uq_histogram(result.pv_profits, result.var(0.95), result.cvar(0.95), result.base_pv_profit))
+        st.pyplot(_uq_histogram(
+            result.pv_profits, result.var(0.95), result.cvar(0.95), result.base_pv_profit
+        ))
 
 
 # ---------------------------------------------------------------------------
