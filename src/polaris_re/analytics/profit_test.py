@@ -38,18 +38,21 @@ class ProfitTestResult:
 
 class ProfitTester:
     """
-    Computes reinsurance deal profitability metrics from a NET CashFlowResult.
+    Computes reinsurance deal profitability metrics from a NET or GROSS CashFlowResult.
+
+    Accepts NET basis (post-treaty) or GROSS basis (standalone / no-treaty pricing).
+    Rejects CEDED basis — it is meaningless to profit-test the ceded portion alone.
 
     Args:
-        cashflows: NET basis CashFlowResult (after treaty application).
+        cashflows: NET or GROSS basis CashFlowResult.
         hurdle_rate: Annual hurdle rate, e.g. 0.10 for 10%.
     """
 
     def __init__(self, cashflows: CashFlowResult, hurdle_rate: float) -> None:
-        if cashflows.basis != "NET":
+        if cashflows.basis == "CEDED":
             raise ValueError(
-                f"ProfitTester requires NET basis CashFlowResult, got '{cashflows.basis}'. "
-                "Apply a treaty to gross cash flows first."
+                "ProfitTester does not accept CEDED basis CashFlowResult. "
+                "Pass NET (post-treaty) or GROSS (standalone) cash flows."
             )
         self.cashflows = cashflows
         self.hurdle_rate = hurdle_rate

@@ -26,21 +26,25 @@ Polaris RE provides:
 
 | Feature | Status |
 |---|---|
-| Core data models (`Policy`, `InforceBlock`, `ProjectionConfig`, `CashFlowResult`) | ✅ Complete |
-| Mortality table loading & vectorized lookup | ✅ Complete |
-| Duration-based lapse assumptions | ✅ Complete |
-| Mortality improvement (Scale AA) | ✅ Complete |
-| Interpolation & date utilities | ✅ Complete |
-| Term Life cash flow projection (monthly, vectorized) | ✅ Complete |
-| Net premium reserve recursion | ✅ Complete |
-| YRT reinsurance treaty (NAR-based premiums) | ✅ Complete |
-| Coinsurance treaty (proportional, reserve transfer) | ✅ Complete |
-| Profit testing (IRR, PV profits, break-even, margin) | ✅ Complete |
-| Scenario analysis (6 standard stress scenarios) | ✅ Complete |
-| Integration tests & validation notebook | ✅ Complete |
-| Test coverage >= 85% (actual: 91%) | ✅ Complete |
-| Whole Life, UL, Modco, Monte Carlo UQ | 📅 Phase 2 |
-| IFRS 17, stochastic rates, REST API | 📅 Phase 3 |
+| **Core Data Models** (`Policy`, `InforceBlock`, `ProjectionConfig`, `CashFlowResult`) | ✅ Complete |
+| **Mortality & Lapse Assumptions** — table loading, vectorized lookup, duration-based lapse | ✅ Complete |
+| **Mortality Improvement** — Scale AA, MP-2020 (2D age×year), CPM-B (age-only) | ✅ Complete |
+| **Morbidity Assumptions** — CI incidence, DI incidence + termination tables | ✅ Complete |
+| **Interpolation & Date Utilities** | ✅ Complete |
+| **Term Life** — monthly vectorized projection, net premium reserves | ✅ Complete |
+| **Whole Life** — par/non-par, limited pay, prospective reserve recursion | ✅ Complete |
+| **Universal Life** — COI charges, AV roll-forward, forced lapse | ✅ Complete |
+| **Disability / Critical Illness** — DI multi-state model, CI single-decrement | ✅ Complete |
+| **YRT Treaty** — NAR-based premiums, ceded claims | ✅ Complete |
+| **Coinsurance Treaty** — proportional split, reserve transfer | ✅ Complete |
+| **Modco Treaty** — cedant retains assets, modco interest on ceded reserves | ✅ Complete |
+| **Stop Loss Treaty** — aggregate cover, attachment/exhaustion, partial-year pro-ration | ✅ Complete |
+| **Profit Testing** — IRR, PV profits, break-even, margin | ✅ Complete |
+| **Scenario Analysis** — 6 standard stress scenarios | ✅ Complete |
+| **Monte Carlo UQ** — LogNormal/Normal sampling, VaR, CVaR, reproducible | ✅ Complete |
+| **Integration Tests & Validation Notebook** | ✅ Complete |
+| **Test Coverage** >= 85% (actual: 91%, 323 tests) | ✅ Complete |
+| IFRS 17, stochastic rates, REST API, CLI | 📅 Phase 3 |
 
 See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full phased build plan.
 
@@ -138,6 +142,34 @@ print(f"Profit Margin: {result.profit_margin:.2%}")
 
 ---
 
+## Example: Monte Carlo UQ on a Reinsurance Deal
+
+```python
+from polaris_re.analytics.uq import MonteCarloUQ, UQParameters
+
+# Run 1000 scenarios with perturbed mortality, lapse, and discount rates
+uq = MonteCarloUQ(
+    inforce=block,
+    base_assumptions=assumptions,
+    base_config=config,
+    treaty=treaty,            # YRT, coinsurance, modco, or None for standalone
+    hurdle_rate=0.10,
+    n_scenarios=1000,
+    seed=42,
+    params=UQParameters(mortality_log_sigma=0.10, lapse_log_sigma=0.15),
+)
+result = uq.run()
+
+print(f"Base PV Profit:  ${result.base_pv_profit:,.0f}")
+print(f"95% VaR:         ${result.var(0.95):,.0f}")
+print(f"95% CVaR:        ${result.cvar(0.95):,.0f}")
+print(f"P10/P50/P90 PV:  {result.percentile(10)['pv_profit']:,.0f} / "
+      f"{result.percentile(50)['pv_profit']:,.0f} / "
+      f"{result.percentile(90)['pv_profit']:,.0f}")
+```
+
+---
+
 ## Project Structure
 
 ```
@@ -154,10 +186,10 @@ polaris-re/
 │   └── ACTUARIAL_GLOSSARY.md  ← Domain terminology reference
 ├── src/polaris_re/
 │   ├── core/              ← Policy, InforceBlock, ProjectionConfig, CashFlowResult ✅
-│   ├── assumptions/       ← Mortality tables, improvement scales, lapse ✅
-│   ├── products/          ← Term life ✅ | whole life, UL (Phase 2)
-│   ├── reinsurance/       ← YRT, coinsurance ✅ | modco (Phase 2)
-│   ├── analytics/         ← Profit testing, scenarios ✅ | UQ (Phase 2)
+│   ├── assumptions/       ← Mortality, improvement (AA/MP-2020/CPM-B), lapse, morbidity ✅
+│   ├── products/          ← Term, Whole Life, UL, Disability/CI ✅
+│   ├── reinsurance/       ← YRT, Coinsurance, Modco, Stop Loss ✅
+│   ├── analytics/         ← Profit testing, scenarios, Monte Carlo UQ ✅
 │   └── utils/             ← Table loaders, interpolation, date utilities ✅
 ├── tests/
 ├── notebooks/
@@ -202,9 +234,10 @@ Place licensed table CSVs in `$POLARIS_DATA_DIR/mortality_tables/` and run `make
 
 Polaris RE targets the **individual life reinsurance** market. Primary users:
 
-- **Reinsurance actuaries** pricing YRT and coinsurance treaties on inforce blocks
+- **Reinsurance actuaries** pricing YRT, coinsurance, modco, and stop loss treaties on inforce blocks of term, whole life, UL, and disability/CI policies
+- **Risk managers** quantifying deal uncertainty via Monte Carlo simulation with VaR/CVaR metrics
 - **Valuation actuaries** running IFRS 17 projections (Phase 3)
-- **Data scientists** integrating ML-based mortality assumptions into actuarial projections
+- **Data scientists** integrating ML-based mortality and morbidity assumptions into actuarial projections
 
 The methodology follows industry-standard North American actuarial practice (CIA, SOA). All cash flow calculations are transparent and auditable.
 

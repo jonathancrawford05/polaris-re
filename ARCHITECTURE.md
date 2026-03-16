@@ -58,20 +58,32 @@ Assumptions are fully decoupled from product logic. The `AssumptionSet` is the s
 ```
 AssumptionSet
 ├── MortalityTable         (base q_x rates by age, sex, smoker, duration)
-│   └── MortalityImprovement  (annual improvement factors)
+│   └── MortalityImprovement  (Scale AA, MP-2020, CPM-B)
 ├── LapseAssumption        (duration-based select and ultimate lapse rates)
+├── MorbidityTable         (CI incidence, DI incidence + termination)
 ├── ExpenseAssumption      (per-policy and % of premium expense basis)
 └── metadata: dict         (version, source, effective date — for audit trail)
 ```
 
 **Critically:** `MortalityTable.get_qx_vector(ages, sex, durations)` returns a numpy array of shape `(N,)` — it operates on vectors of ages, not scalars. This is the performance contract.
 
-### Supported Mortality Tables (Phase 1)
+### Supported Tables
+
+**Mortality:**
 - CIA 2014 Individual Life (Canadian industry standard)
 - SOA VBT 2015 (US individual life, select and ultimate)
 - 2001 CSO (US regulatory minimum — used for CRVM/CARVM reserves)
 
-Tables are loaded from CSV files in `$POLARIS_DATA_DIR/mortality_tables/`. File format is standardized: columns = `[age, sex, smoker, select_year_1, ..., select_year_N, ultimate]`.
+**Improvement Scales:**
+- Scale AA (SOA, age-only — embedded constant array)
+- MP-2020 (SOA, 2D age×calendar year 2015-2031 — embedded 121×17 array)
+- CPM-B (CIA, age-only Canadian scale — embedded constant array)
+
+**Morbidity:**
+- CI incidence tables (by age, sex) — synthetic constructors for testing
+- DI incidence + termination tables (by age, sex) — synthetic constructors for testing
+
+Mortality tables are loaded from CSV files in `$POLARIS_DATA_DIR/mortality_tables/`. File format is standardized: columns = `[age, sex, smoker, select_year_1, ..., select_year_N, ultimate]`.
 
 ---
 
@@ -99,18 +111,46 @@ This approach scales to 500k policies with no changes — numpy broadcasts acros
 
 ### Reserve Calculation
 
-Reserves are required for coinsurance and profit testing. Phase 1 uses **net premium reserves** (prospective method):
+Reserves are required for coinsurance, modco, and profit testing. The reserve method depends on product type:
 
-```
-V_t = APV(future benefits) - APV(future net premiums)
-```
+**Term Life:** Net premium reserves with terminal condition V_T = 0 at policy expiry.
 
-Computed recursively using the standard reserve recursion:
+**Whole Life:** Net premium reserves with prospective terminal estimate V_T = face * q_T * v. Backward recursion proceeds from this approximation. (Phase 3 will extend to true prospective reserves.)
+
+**Universal Life:** Reserve = account value (simplified). The AV roll-forward itself is the reserve.
+
+**Disability / CI:** Reserves set to zero (simplified for Phase 2; DI GAAP reserves are complex).
+
+All products use the standard reserve recursion:
 ```
 (V_t + P_t) * (1 + i)^(1/12) = q_t * b_t + (1 - q_t) * V_{t+1}
 ```
 
 Where `i` is the valuation interest rate and `b_t` is the benefit paid at death.
+
+### Product-Specific Projection Details
+
+**Whole Life (`WholeLife`):**
+- Supports `NON_PAR` and `PAR` variants (dividends not yet modelled)
+- Optional limited-pay: `premium_payment_years` restricts premium collection period
+- `_compute_annual_net_premiums()` returns annual premium; divided by 12 for monthly use
+- Rate arrays have no remaining-term mask (active until max age 120 or death/lapse)
+- Terminal reserve at projection end: one-period prospective estimate V_T = face * q_T * v
+
+**Universal Life (`UniversalLife`):**
+- Account value roll-forward loop: `AV_{t+1} = (AV_t + prem - expense) * (1 + i/12) - COI`
+- COI = NAR * q / (1 + i/12) where NAR = max(face - AV, 0)
+- Forced lapse when AV reaches zero: `w_total = min(w_voluntary + forced_lapse, 1.0)`
+- Surrender value = max(AV - surrender_charge, 0)
+- Requires `account_value` and `credited_rate` fields on Policy
+
+**Disability / Critical Illness (`DisabilityProduct`):**
+- CI: single-decrement model — lx decremented by mortality + lapse + incidence; claims = lx * incidence * face
+- DI: multi-state model with `lx_active` and `lx_disabled` arrays:
+  - `new_disabled = lx_active * incidence_rate`
+  - `lx_disabled_{t+1} = lx_disabled_t * (1 - termination_rate) + new_disabled`
+  - DI benefits = lx_disabled * monthly_benefit
+- Requires a `MorbidityTable` with incidence (and termination for DI) rates
 
 ---
 
@@ -141,13 +181,24 @@ ceded_reserve_t  = gross_reserve_t * cession_pct
 net_cashflow_t   = gross_cashflow_t * (1 - cession_pct)
 ```
 
-### Modco Adjustment (Phase 2)
+### Modco Treaty
 
-In modco, the cedant retains the assets backing ceded reserves. The reinsurer is compensated via a modco adjustment:
+In modco, the cedant retains the assets backing ceded reserves. The reinsurer receives modco interest as compensation:
 ```
-modco_adjustment_t = ceded_reserve_{t-1} * investment_rate_t
+ceded_premiums  = gross_premiums * cession_pct
+ceded_claims    = gross_claims * cession_pct
+modco_interest  = ceded_reserve_balance * modco_interest_rate / 12
+ceded_ncf       = ceded_premiums - ceded_claims + modco_interest
 ```
-This is credited to the reinsurer's account as if they held the assets.
+Reserves are NOT transferred — the cedant retains 100%. The `CashFlowResult.modco_interest` field carries this component. NCF additivity (net + ceded = gross) holds because modco_interest cancels between sides.
+
+### Stop Loss Treaty
+
+Aggregate stop loss covers annual claims above an attachment point up to an exhaustion point:
+```
+reinsurer_payment_y = min(max(annual_claims_y - attachment, 0), exhaustion - attachment)
+```
+Monthly back-allocation is pro-rata by monthly claims. Partial final years use pro-rated attachment/exhaustion (`year_fraction = n_months / 12`).
 
 ---
 
@@ -172,8 +223,12 @@ class CashFlowResult(PolarisBaseModel):
     death_claims: np.ndarray
     lapse_surrenders: np.ndarray
     expenses: np.ndarray
+    reserve_balance: np.ndarray
     reserve_increase: np.ndarray
     net_cash_flow: np.ndarray    # = premiums - claims - expenses - ΔReserve
+
+    # Reinsurance-specific (populated by treaty.apply())
+    modco_interest: np.ndarray | None = None   # Modco treaty only
 
     # Optional seriatim (shape (N, T)) — populated only when requested
     seriatim_premiums: np.ndarray | None = None
@@ -185,17 +240,29 @@ class CashFlowResult(PolarisBaseModel):
 ## 7. Analytics Layer Architecture
 
 ### Profit Tester
-Wraps a projection and a treaty application into a single callable. Computes:
+Accepts NET or GROSS basis `CashFlowResult` (rejects CEDED). Computes:
 - Present value of profits at hurdle rate
-- IRR (via `numpy_financial.irr`)
+- IRR (via `scipy.optimize.brentq` root-finding; returns None when NCF has no sign change)
 - Break-even duration (first month where cumulative PV profit > 0)
 - Profit margin (PV profits / PV premiums)
 
 ### Scenario Runner
-Takes a base `AssumptionSet` and a list of `ScenarioAdjustment` objects (e.g., "multiply mortality by 110%"). Runs the projection once per scenario and returns a `ScenarioResult` containing the full distribution of profit metrics.
+Takes a base `AssumptionSet` and a list of `ScenarioAdjustment` objects (e.g., "multiply mortality by 110%"). Runs the projection once per scenario and returns a `ScenarioResult` with per-scenario profit metrics. Creates deep copies of scaled assumptions to respect immutability.
 
-### Monte Carlo UQ (Phase 2)
-Defines probability distributions over key assumptions (mortality A/E ratio, lapse deviation). Samples N scenarios using `np.random.Generator` (seeded via `np.random.default_rng()`). Returns confidence intervals on deal metrics.
+### Monte Carlo UQ
+Samples N scenarios from parametric distributions over key assumptions:
+- Mortality multiplier ~ LogNormal(mu=0, sigma) — always positive, mean ≈ 1
+- Lapse multiplier ~ LogNormal(mu=0, sigma) — always positive, mean ≈ 1
+- Interest rate shift ~ Normal(0, sigma) — additive shift to discount rate (floored at 0%)
+
+All sampling uses `np.random.default_rng(seed)` for reproducibility.
+
+Returns `UQResult` with:
+- Full distributions of PV profits, IRRs, and profit margins (shape `(n_scenarios,)`)
+- `percentile(pct)` — dict with pv_profit, irr, profit_margin at any percentile
+- `var(confidence)` — Value at Risk (e.g., 5th percentile of PV profits at 95% confidence)
+- `cvar(confidence)` — Conditional VaR (expected shortfall in the tail)
+- Base (unperturbed) scenario results for comparison
 
 ---
 
@@ -207,7 +274,13 @@ See `docs/DECISIONS.md` for full ADRs. Summary:
 |---|---|---|
 | ORM for policy data | Polars DataFrame + Pydantic | Performance over convenience |
 | Projection time step | Monthly | Industry standard for life insurance |
-| Reserve basis (P1) | Net premium reserve | Simplest auditable basis; IFRS 17 extensions in Phase 3 |
-| Mortality table format | CSV with standard column schema | No binary dependencies |
+| Reserve basis | Net premium (Term/WL), AV (UL), zero (DI/CI) | Simplest auditable basis per product; IFRS 17 in Phase 3 |
+| Mortality table format | CSV with standard column schema | No binary dependencies; auditability |
+| Improvement scales | Embedded NumPy constants | Small data (< 15KB); no file I/O dependency |
+| UL forced lapse | Indicator combined with voluntary lapse | Handles AV→0 gracefully in vectorized framework |
+| Modco NCF additivity | Algebraic proof: modco_interest cancels | Ensures net + ceded = gross by construction |
+| Stop loss partial year | Pro-rated attachment/exhaustion | Industry-standard for mid-year inception/expiry |
+| UQ distributions | LogNormal (mort/lapse), Normal (rates) | Positive multipliers, reproducible via default_rng |
 | Random number generation | `np.random.default_rng(seed)` | Reproducibility without global state |
+| IRR solver | `scipy.optimize.brentq` | Guaranteed convergence; returns None when no sign change |
 | Discount rate basis | Flat rate (per `ProjectionConfig`) | Stochastic rates in Phase 3 |

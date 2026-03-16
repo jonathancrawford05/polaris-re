@@ -28,7 +28,10 @@ Reference for developers who are not credentialed actuaries. Consult before impl
 
 **In-Force Factor (lx in code)** — The expected fraction of the original cohort still alive and in-force at time t. At t=0, lx = 1.0. Decrements from both mortality (q) and lapse (w) are applied each period.
 
-**Mortality Improvement** — The secular trend of declining mortality rates over time. Applied as multiplicative factors to base table rates. Key scales: SOA Scale AA (older), MP-2020 (more recent), CPM Improvement Scale B (Canadian).
+**Mortality Improvement** — The secular trend of declining mortality rates over time. Applied as multiplicative factors to base table rates. Key scales:
+- **Scale AA** (SOA) — age-only, single factor per age, applied as `q * (1 - AA_factor)^years`
+- **MP-2020** (SOA) — 2D table indexed by age and calendar year (2015–2031); factors vary by both dimensions; rates held constant at 2031 values for years beyond
+- **CPM-B** (CIA) — Canadian age-only scale; applied as `q * (1 - CPM_factor)^years`
 
 **A/E Ratio** — Actual-to-Expected ratio. If 100 deaths were expected based on the table but 87 occurred, A/E = 87%. A key metric in experience studies.
 
@@ -40,13 +43,32 @@ Reference for developers who are not credentialed actuaries. Consult before impl
 
 ---
 
+## Morbidity
+
+**Morbidity** — The rate of illness or disability in a population. Distinct from mortality (death). Used for CI and DI product pricing.
+
+**Incidence Rate** — The probability of a new disability or critical illness event in a given period. Analogous to q_x for mortality.
+
+**Termination Rate** — For disabled lives, the probability of exiting the disabled state (recovery + disability mortality combined). Only applicable to DI products.
+
+**Multi-State Model** — A projection model tracking transitions between states. For DI: Active → Disabled (via incidence), Disabled → Recovered/Dead (via termination). Two parallel lx arrays (`lx_active`, `lx_disabled`) are maintained.
+
+**Single-Decrement Model** — A simpler model where claims are a one-time event. For CI: policies transition Active → Claim → Terminated. No recovery state.
+
+---
+
 ## Insurance Product Types
 
 **Term Life** — Life insurance providing a death benefit for a fixed term (e.g., 10, 20, 30 years). No cash value. Lapses heavily in early durations. The most common individual life reinsurance product.
 
 **Whole Life** — Permanent life insurance with guaranteed death benefit and cash value accumulation. Participating (par) policies pay dividends. Significantly higher reserves than term.
 
-**Universal Life (UL)** — Flexible premium permanent insurance. Policyholder accumulates an account value that earns interest. Cost of insurance (COI) charges are deducted monthly. More complex to model than term or whole life.
+**Universal Life (UL)** — Flexible premium permanent insurance. Policyholder accumulates an account value that earns interest. Cost of insurance (COI) charges are deducted monthly. Key mechanics:
+- **Account Value (AV):** The policyholder's accumulated fund. `AV_{t+1} = (AV_t + premium - expense) * (1 + credited_rate/12) - COI`
+- **Cost of Insurance (COI):** Monthly mortality charge based on NAR. `COI = NAR * q / (1 + i/12)` where NAR = max(face - AV, 0)
+- **Credited Rate:** Interest rate applied to the account value each month. Set by the insurer (subject to a minimum guarantee).
+- **Forced Lapse:** When AV drops to zero (due to insufficient premium or high COI), the policy lapses automatically.
+- **Surrender Charge:** A penalty deducted from AV upon policy surrender, typically declining over 10+ years.
 
 **Disability Income (DI)** — Replaces income if the insured becomes disabled. Requires morbidity tables (incidence, termination, duration of disability) rather than mortality tables.
 
@@ -111,5 +133,21 @@ Reference for developers who are not credentialed actuaries. Consult before impl
 **Loss Ratio** — Claims paid divided by premiums earned. A common operational metric. A loss ratio above ~70-80% typically indicates an unprofitable book.
 
 **Combined Ratio** — Loss ratio + expense ratio. Above 100% means the book is unprofitable on an underwriting basis (excluding investment income).
+
+---
+
+## Risk Quantification
+
+**Value at Risk (VaR)** — The worst-case loss at a given confidence level. VaR_95 is the 5th percentile of the PV profit distribution — there is a 5% probability of outcomes worse than this. In Polaris RE, computed from the Monte Carlo distribution of PV profits.
+
+**Conditional Value at Risk (CVaR)** — Also called Expected Shortfall. The average loss in the tail beyond VaR. CVaR_95 = mean of PV profits in the worst 5% of scenarios. Always worse than (or equal to) VaR. A more complete measure of tail risk.
+
+**Monte Carlo Simulation** — Random sampling from assumption distributions to build an empirical distribution of outcomes. Polaris RE samples mortality multipliers (LogNormal), lapse multipliers (LogNormal), and interest rate shifts (Normal) to produce N scenarios of PV profits and IRRs.
+
+**LogNormal Distribution** — Used for assumption multipliers because it is strictly positive (cannot produce negative mortality or lapse rates) and has mean ≈ 1 for small sigma. `multiplier ~ LogNormal(mu=0, sigma)` gives `E[multiplier] = exp(sigma^2 / 2) ≈ 1`.
+
+---
+
+## Financial Metrics and Reporting
 
 **IFRS 17** — The international financial reporting standard for insurance contracts, effective 2023. Requires a building-block approach (BBA) with explicit risk adjustment and contractual service margin (CSM). The CSM represents unearned profit and is released over the coverage period. This is the primary accounting framework for Munich Re.
