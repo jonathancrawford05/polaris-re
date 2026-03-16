@@ -86,12 +86,76 @@ The goal of Phase 1 is a fully functional, tested, and documented engine capable
 
 ---
 
-## Phase 3: IFRS 17, Stochastic Rates & API Layer (Target: +12 weeks)
+## Phase 3: IFRS 17, Stochastic Rates & API Layer
 
-- [ ] IFRS 17 measurement models (BBA, PAA, VFA)
-- [ ] Contractual Service Margin (CSM) amortisation
-- [ ] Stochastic interest rate scenarios (Hull-White, CIR)
-- [ ] FastAPI REST layer for programmatic pricing
-- [ ] Streamlit or Panel dashboard for deal comparison
-- [ ] CLI interface via Typer (`polaris price`, `polaris scenario`)
-- [ ] Codecov badge and full coverage enforcement (≥ 90%)
+---
+
+### Milestone 3.1 — IFRS 17 Measurement Models
+- [ ] `analytics/ifrs17.py` — Building Block Approach (BBA) measurement model
+  - [ ] Best Estimate Liability (BEL) — PV of fulfilment cash flows
+  - [ ] Risk Adjustment (RA) — quantile-based or cost-of-capital method
+  - [ ] Contractual Service Margin (CSM) — unearned profit, released over coverage period
+  - [ ] CSM amortisation schedule — coverage units based on expected claims
+- [ ] `analytics/ifrs17.py` — Premium Allocation Approach (PAA) for short-duration contracts
+  - [ ] Liability for Remaining Coverage (LRC) and Liability for Incurred Claims (LIC)
+- [ ] `analytics/ifrs17.py` — Variable Fee Approach (VFA) for direct-participating contracts (UL)
+- [ ] Tests: BBA fulfilment cash flows match manual calculation; CSM release pattern verification
+
+---
+
+### Milestone 3.2 — Stochastic Interest Rate Scenarios
+- [ ] `analytics/stochastic.py` — Hull-White one-factor model for short-rate simulation
+- [ ] `analytics/stochastic.py` — Cox-Ingersoll-Ross (CIR) model as alternative
+- [ ] Interest rate scenario generator: N paths of monthly discount curves from t=0 to T
+- [ ] Integration with `ProjectionConfig` — replace flat `discount_rate` with a yield curve array
+- [ ] Integration with UL `credited_rate` — stochastic credited rates linked to scenario paths
+- [ ] Tests: mean-reversion properties, no-arbitrage verification, scenario shape correctness
+
+---
+
+### Milestone 3.3 — Experience Studies
+- [ ] `analytics/experience_study.py` — A/E ratio computation from historical data
+- [ ] Mortality A/E by age band, duration, sex, smoker status
+- [ ] Lapse A/E by duration
+- [ ] Credibility weighting (limited fluctuation or Buhlmann)
+- [ ] Output: calibrated assumption adjustments for use in `AssumptionSet`
+- [ ] Tests: known dataset produces expected A/E ratios
+
+---
+
+### Milestone 3.4 — CLI Interface (Typer)
+- [ ] `polaris price` — run a deal pricing pipeline from YAML/JSON config
+- [ ] `polaris scenario` — run scenario analysis with tabular output
+- [ ] `polaris uq` — run Monte Carlo UQ with summary statistics
+- [ ] `polaris validate` — validate inforce CSV, mortality tables, assumption sets
+- [ ] Rich-formatted terminal output with progress bars for long runs
+- [ ] Tests: CLI invocation via `subprocess` or Typer's `CliRunner`
+
+---
+
+### Milestone 3.5 — REST API Layer (FastAPI)
+- [ ] `api/main.py` — FastAPI application with health check
+- [ ] `POST /api/v1/price` — submit inforce + assumptions + treaty → returns ProfitTestResult
+- [ ] `POST /api/v1/scenario` — run scenario analysis → returns ScenarioResult
+- [ ] `POST /api/v1/uq` — run Monte Carlo UQ → returns UQResult summary
+- [ ] JSON serialization of all Pydantic models (CashFlowResult, ProfitTestResult, UQResult)
+- [ ] Input validation via Pydantic request models
+- [ ] Tests: FastAPI TestClient integration tests
+
+---
+
+### Milestone 3.6 — Dashboard & Visualization
+- [ ] Streamlit or Panel dashboard for interactive deal comparison
+- [ ] Side-by-side treaty comparison (YRT vs coinsurance vs modco)
+- [ ] Interactive scenario sensitivity charts
+- [ ] UQ distribution plots (histogram of PV profits, VaR/CVaR markers)
+- [ ] Cash flow waterfall charts by year
+
+---
+
+### Milestone 3.7 — Quality & Coverage Enforcement
+- [ ] Codecov integration with badge in README
+- [ ] Coverage enforcement ≥ 90% (up from 85%)
+- [ ] Full mypy strict compliance (resolve remaining pre-existing type ignores)
+- [ ] CI pipeline green on all jobs (lint, format, test-3.12, test-3.13, docker)
+- [ ] Documentation site generation (mkdocs or sphinx)
