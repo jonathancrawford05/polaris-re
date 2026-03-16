@@ -180,12 +180,19 @@ def _uq_histogram(
     """Histogram of simulated PV profits with VaR/CVaR markers."""
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.hist(pv_profits, bins=40, color="#3498db", edgecolor="white", linewidth=0.5, alpha=0.8)
-    ax.axvline(var_95, color="#e74c3c", linestyle="--", linewidth=1.5,
-               label=f"VaR 95%: ${var_95:,.0f}")
-    ax.axvline(cvar_95, color="#c0392b", linestyle=":", linewidth=1.5,
-               label=f"CVaR 95%: ${cvar_95:,.0f}")
-    ax.axvline(base_pv_profit, color="#2ecc71", linestyle="-", linewidth=1.5,
-               label=f"Base: ${base_pv_profit:,.0f}")
+    ax.axvline(
+        var_95, color="#e74c3c", linestyle="--", linewidth=1.5, label=f"VaR 95%: ${var_95:,.0f}"
+    )
+    ax.axvline(
+        cvar_95, color="#c0392b", linestyle=":", linewidth=1.5, label=f"CVaR 95%: ${cvar_95:,.0f}"
+    )
+    ax.axvline(
+        base_pv_profit,
+        color="#2ecc71",
+        linestyle="-",
+        linewidth=1.5,
+        label=f"Base: ${base_pv_profit:,.0f}",
+    )
     ax.set_xlabel("PV Profit ($)")
     ax.set_ylabel("Frequency")
     ax.set_title(title)
@@ -234,17 +241,21 @@ def _page_pricing() -> None:
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        n_policies = int(st.number_input(
-            "Number of Policies", min_value=1, max_value=10000, value=100, step=10
-        ))
+        n_policies = int(
+            st.number_input("Number of Policies", min_value=1, max_value=10000, value=100, step=10)
+        )
         attained_age = int(st.slider("Attained Age", 25, 65, 40))
-        face_amount = float(st.number_input(
-            "Face Amount ($)", min_value=50_000, max_value=5_000_000, value=500_000, step=50_000
-        ))
+        face_amount = float(
+            st.number_input(
+                "Face Amount ($)", min_value=50_000, max_value=5_000_000, value=500_000, step=50_000
+            )
+        )
     with col2:
-        annual_premium = float(st.number_input(
-            "Annual Premium ($)", min_value=100, max_value=50_000, value=1_200, step=100
-        ))
+        annual_premium = float(
+            st.number_input(
+                "Annual Premium ($)", min_value=100, max_value=50_000, value=1_200, step=100
+            )
+        )
         term_years = int(st.slider("Term (years)", 5, 30, 20))
         hurdle_rate = float(st.slider("Hurdle Rate (%)", 5, 20, 10)) / 100.0
     with col3:
@@ -293,9 +304,9 @@ def _page_scenario() -> None:
 
     col1, col2 = st.columns(2)
     with col1:
-        n_policies = int(st.number_input(
-            "Number of Policies", min_value=1, max_value=1000, value=50, step=10
-        ))
+        n_policies = int(
+            st.number_input("Number of Policies", min_value=1, max_value=1000, value=50, step=10)
+        )
         attained_age = int(st.slider("Attained Age", 25, 65, 40))
         face_amount = float(st.number_input("Face Amount ($)", value=500_000, step=50_000))
     with col2:
@@ -393,9 +404,11 @@ def _page_uq() -> None:
         col_b.metric("CVaR 95%", f"${result.cvar(0.95):,.0f}")
         col_c.metric("Base PV Profit", f"${result.base_pv_profit:,.0f}")
 
-        st.pyplot(_uq_histogram(
-            result.pv_profits, result.var(0.95), result.cvar(0.95), result.base_pv_profit
-        ))
+        st.pyplot(
+            _uq_histogram(
+                result.pv_profits, result.var(0.95), result.cvar(0.95), result.base_pv_profit
+            )
+        )
 
 
 # ---------------------------------------------------------------------------

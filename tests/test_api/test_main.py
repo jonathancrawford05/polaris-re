@@ -5,7 +5,6 @@ Uses FastAPI's TestClient (built on httpx) to test all endpoints
 without running a live server.
 """
 
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -37,8 +36,8 @@ DEMO_POLICY = {
 # System endpoints
 # ---------------------------------------------------------------------------
 
-class TestSystemEndpoints:
 
+class TestSystemEndpoints:
     def test_health_returns_200(self):
         response = client.get("/health")
         assert response.status_code == 200
@@ -74,9 +73,9 @@ class TestSystemEndpoints:
 # /api/v1/price
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.slow
 class TestPriceEndpoint:
-
     def test_price_returns_200(self):
         payload = {
             "policies": [DEMO_POLICY],
@@ -92,9 +91,16 @@ class TestPriceEndpoint:
         payload = {"policies": [DEMO_POLICY]}
         data = client.post("/api/v1/price", json=payload).json()
         required_keys = {
-            "hurdle_rate", "pv_profits", "pv_premiums", "profit_margin",
-            "irr", "breakeven_year", "total_undiscounted_profit",
-            "profit_by_year", "n_policies", "projection_months"
+            "hurdle_rate",
+            "pv_profits",
+            "pv_premiums",
+            "profit_margin",
+            "irr",
+            "breakeven_year",
+            "total_undiscounted_profit",
+            "profit_by_year",
+            "n_policies",
+            "projection_months",
         }
         assert required_keys.issubset(data.keys())
 
@@ -124,7 +130,6 @@ class TestPriceEndpoint:
 
 @pytest.mark.slow
 class TestScenarioEndpoint:
-
     def test_scenario_returns_200(self):
         payload = {"policies": [DEMO_POLICY]}
         response = client.post("/api/v1/scenario", json=payload)
@@ -149,7 +154,6 @@ class TestScenarioEndpoint:
 
 @pytest.mark.slow
 class TestUQEndpoint:
-
     def test_uq_returns_200(self):
         payload = {"policies": [DEMO_POLICY], "n_scenarios": 20}
         response = client.post("/api/v1/uq", json=payload)
@@ -159,9 +163,15 @@ class TestUQEndpoint:
         payload = {"policies": [DEMO_POLICY], "n_scenarios": 20}
         data = client.post("/api/v1/uq", json=payload).json()
         required_keys = {
-            "n_scenarios", "seed", "base_pv_profit", "base_irr",
-            "p5_pv_profit", "p50_pv_profit", "p95_pv_profit",
-            "var_95", "cvar_95"
+            "n_scenarios",
+            "seed",
+            "base_pv_profit",
+            "base_irr",
+            "p5_pv_profit",
+            "p50_pv_profit",
+            "p95_pv_profit",
+            "var_95",
+            "cvar_95",
         }
         assert required_keys.issubset(data.keys())
 
@@ -192,7 +202,6 @@ class TestUQEndpoint:
 
 @pytest.mark.slow
 class TestIFRS17Endpoints:
-
     def test_bba_returns_200(self):
         payload = {
             "policies": [DEMO_POLICY],
@@ -206,9 +215,16 @@ class TestIFRS17Endpoints:
         payload = {"policies": [DEMO_POLICY]}
         data = client.post("/api/v1/ifrs17/bba", json=payload).json()
         required_keys = {
-            "approach", "initial_bel", "initial_ra", "initial_csm",
-            "loss_component", "total_initial_liability",
-            "insurance_liability", "bel", "risk_adjustment", "csm"
+            "approach",
+            "initial_bel",
+            "initial_ra",
+            "initial_csm",
+            "loss_component",
+            "total_initial_liability",
+            "insurance_liability",
+            "bel",
+            "risk_adjustment",
+            "csm",
         }
         assert required_keys.issubset(data.keys())
 

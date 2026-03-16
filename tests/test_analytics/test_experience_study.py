@@ -20,6 +20,7 @@ from polaris_re.analytics.experience_study import ExperienceStudy
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_data(
     n_groups: int = 5,
     base_actual: float = 100.0,
@@ -30,22 +31,24 @@ def _make_data(
     actual = np.full(n_groups, base_actual, dtype=np.float64)
     expected = actual / ae_ratio
     exp = np.full(n_groups, exposure, dtype=np.float64)
-    age_bands = [f"{40 + 5*i}-{44 + 5*i}" for i in range(n_groups)]
-    return pl.DataFrame({
-        "actual": actual,
-        "expected": expected,
-        "exposure": exp,
-        "age_band": age_bands,
-        "sex": (["M", "F"] * 3)[:n_groups],
-    })
+    age_bands = [f"{40 + 5 * i}-{44 + 5 * i}" for i in range(n_groups)]
+    return pl.DataFrame(
+        {
+            "actual": actual,
+            "expected": expected,
+            "exposure": exp,
+            "age_band": age_bands,
+            "sex": (["M", "F"] * 3)[:n_groups],
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
 # Validation tests
 # ---------------------------------------------------------------------------
 
-class TestExperienceStudyValidation:
 
+class TestExperienceStudyValidation:
     def test_raises_on_missing_columns(self):
         """ExperienceStudy should raise ValueError for missing required columns."""
         df = pl.DataFrame({"actual": [1.0], "exposure": [100.0]})  # missing 'expected'
@@ -77,17 +80,19 @@ class TestExperienceStudyValidation:
 # A/E ratio tests
 # ---------------------------------------------------------------------------
 
-class TestAERatios:
 
+class TestAERatios:
     def test_ae_equals_one_when_actual_equals_expected(self):
         """
         CLOSED-FORM: When actual == expected, A/E must equal exactly 1.0.
         """
-        data = pl.DataFrame({
-            "actual": [50.0, 100.0, 200.0],
-            "expected": [50.0, 100.0, 200.0],
-            "exposure": [1000.0, 2000.0, 3000.0],
-        })
+        data = pl.DataFrame(
+            {
+                "actual": [50.0, 100.0, 200.0],
+                "expected": [50.0, 100.0, 200.0],
+                "exposure": [1000.0, 2000.0, 3000.0],
+            }
+        )
         study = ExperienceStudy(data)
         result = study.run()
 
@@ -97,23 +102,27 @@ class TestAERatios:
         """
         CLOSED-FORM: actual=120, expected=100 → A/E = 1.2.
         """
-        data = pl.DataFrame({
-            "actual": [120.0],
-            "expected": [100.0],
-            "exposure": [1000.0],
-        })
+        data = pl.DataFrame(
+            {
+                "actual": [120.0],
+                "expected": [100.0],
+                "exposure": [1000.0],
+            }
+        )
         study = ExperienceStudy(data)
         result = study.run()
         np.testing.assert_allclose(result.overall_ae, 1.2, rtol=1e-10)
 
     def test_ae_ratio_by_group(self):
         """Grouped A/E ratios should match manual calculation."""
-        data = pl.DataFrame({
-            "actual": [100.0, 80.0],
-            "expected": [100.0, 100.0],
-            "exposure": [1000.0, 1000.0],
-            "sex": ["M", "F"],
-        })
+        data = pl.DataFrame(
+            {
+                "actual": [100.0, 80.0],
+                "expected": [100.0, 100.0],
+                "exposure": [1000.0, 1000.0],
+                "sex": ["M", "F"],
+            }
+        )
         study = ExperienceStudy(data)
         result = study.run(group_by=["sex"])
 
@@ -127,11 +136,13 @@ class TestAERatios:
 
     def test_overall_ae_is_weighted_aggregate(self):
         """Overall A/E = total actual / total expected (not simple mean of group A/Es)."""
-        data = pl.DataFrame({
-            "actual": [200.0, 50.0],
-            "expected": [100.0, 100.0],
-            "exposure": [5000.0, 1000.0],
-        })
+        data = pl.DataFrame(
+            {
+                "actual": [200.0, 50.0],
+                "expected": [100.0, 100.0],
+                "exposure": [5000.0, 1000.0],
+            }
+        )
         study = ExperienceStudy(data)
         result = study.run()
         expected_overall = 250.0 / 200.0  # = 1.25
@@ -142,29 +153,33 @@ class TestAERatios:
 # Credibility tests
 # ---------------------------------------------------------------------------
 
-class TestCredibility:
 
+class TestCredibility:
     def test_full_credibility_when_actual_exceeds_n_full(self):
         """
         CLOSED-FORM: Z = min(1, sqrt(actual / n_full)) = 1.0 when actual >= n_full.
         """
         n_full = 1082.0
-        data = pl.DataFrame({
-            "actual": [n_full],  # exactly n_full → Z = 1.0
-            "expected": [n_full],
-            "exposure": [100_000.0],
-        })
+        data = pl.DataFrame(
+            {
+                "actual": [n_full],  # exactly n_full → Z = 1.0
+                "expected": [n_full],
+                "exposure": [100_000.0],
+            }
+        )
         study = ExperienceStudy(data, n_full_credibility=n_full)
         result = study.run()
         np.testing.assert_allclose(result.overall_credibility, 1.0, rtol=1e-6)
 
     def test_zero_credibility_at_zero_actual(self):
         """Z = min(1, sqrt(0 / n_full)) = 0.0 when actual = 0."""
-        data = pl.DataFrame({
-            "actual": [0.0],
-            "expected": [100.0],
-            "exposure": [1000.0],
-        })
+        data = pl.DataFrame(
+            {
+                "actual": [0.0],
+                "expected": [100.0],
+                "exposure": [1000.0],
+            }
+        )
         study = ExperienceStudy(data)
         result = study.run()
         np.testing.assert_allclose(result.overall_credibility, 0.0, atol=1e-10)
@@ -173,11 +188,13 @@ class TestCredibility:
         """
         CLOSED-FORM: actual = 100, n_full = 1000 → Z = sqrt(100/1000) = sqrt(0.1) ≈ 0.3162.
         """
-        data = pl.DataFrame({
-            "actual": [100.0],
-            "expected": [100.0],
-            "exposure": [10_000.0],
-        })
+        data = pl.DataFrame(
+            {
+                "actual": [100.0],
+                "expected": [100.0],
+                "exposure": [10_000.0],
+            }
+        )
         study = ExperienceStudy(data, n_full_credibility=1000.0)
         result = study.run()
         expected_z = np.sqrt(100.0 / 1000.0)
@@ -202,11 +219,13 @@ class TestCredibility:
         exposure = 1000.0
         expected_events = 10.0  # expected_rate = 10/1000 = 0.01
 
-        data = pl.DataFrame({
-            "actual": [actual],
-            "expected": [expected_events],
-            "exposure": [exposure],
-        })
+        data = pl.DataFrame(
+            {
+                "actual": [actual],
+                "expected": [expected_events],
+                "exposure": [exposure],
+            }
+        )
         study = ExperienceStudy(data, n_full_credibility=n_full)
         result = study.run()
 
@@ -223,15 +242,17 @@ class TestCredibility:
 # credibility_adjusted_multipliers
 # ---------------------------------------------------------------------------
 
-class TestCredibilityAdjustedMultipliers:
 
+class TestCredibilityAdjustedMultipliers:
     def test_multiplier_one_when_ae_one(self):
         """When A/E = 1.0, multiplier should be exactly 1.0 regardless of credibility."""
-        data = pl.DataFrame({
-            "actual": [200.0],
-            "expected": [200.0],
-            "exposure": [5000.0],
-        })
+        data = pl.DataFrame(
+            {
+                "actual": [200.0],
+                "expected": [200.0],
+                "exposure": [5000.0],
+            }
+        )
         study = ExperienceStudy(data)
         result = study.run()
         df = result.credibility_adjusted_multipliers()
@@ -243,11 +264,13 @@ class TestCredibilityAdjustedMultipliers:
         Credibility-weighted multiplier should be between 1.0 and A/E
         (since it blends toward expected = 1.0).
         """
-        data = pl.DataFrame({
-            "actual": [150.0],  # A/E = 1.5
-            "expected": [100.0],
-            "exposure": [5000.0],
-        })
+        data = pl.DataFrame(
+            {
+                "actual": [150.0],  # A/E = 1.5
+                "expected": [100.0],
+                "exposure": [5000.0],
+            }
+        )
         study = ExperienceStudy(data, n_full_credibility=1000.0)
         result = study.run()
         df = result.credibility_adjusted_multipliers()
@@ -261,8 +284,8 @@ class TestCredibilityAdjustedMultipliers:
 # from_projection constructor
 # ---------------------------------------------------------------------------
 
-class TestFromProjection:
 
+class TestFromProjection:
     def test_from_projection_overall_ae(self):
         """from_projection with actual = expected gives A/E = 1.0."""
         n_per = 12
@@ -300,14 +323,20 @@ class TestFromProjection:
 # add_age_bands helper
 # ---------------------------------------------------------------------------
 
-class TestAddAgeBands:
 
+class TestAddAgeBands:
     def test_age_band_labels(self):
         """
         CLOSED-FORM: age 37 with band_width=5 → band '35-39'.
         """
-        data = pl.DataFrame({"age": [37, 42, 50], "actual": [1.0, 2.0, 3.0],
-                              "expected": [1.0, 2.0, 3.0], "exposure": [100.0, 100.0, 100.0]})
+        data = pl.DataFrame(
+            {
+                "age": [37, 42, 50],
+                "actual": [1.0, 2.0, 3.0],
+                "expected": [1.0, 2.0, 3.0],
+                "exposure": [100.0, 100.0, 100.0],
+            }
+        )
         result = ExperienceStudy.add_age_bands(data, age_col="age", band_width=5)
         bands = result["age_band"].to_list()
         assert bands[0] == "35-39"
@@ -316,12 +345,14 @@ class TestAddAgeBands:
 
     def test_age_band_groups_runnable(self):
         """add_age_bands output can be used in an ExperienceStudy.run(group_by=['age_band'])."""
-        raw = pl.DataFrame({
-            "age": [35, 37, 42, 45, 51],
-            "actual": [5.0, 8.0, 10.0, 12.0, 7.0],
-            "expected": [5.0, 8.0, 10.0, 12.0, 7.0],
-            "exposure": [1000.0] * 5,
-        })
+        raw = pl.DataFrame(
+            {
+                "age": [35, 37, 42, 45, 51],
+                "actual": [5.0, 8.0, 10.0, 12.0, 7.0],
+                "expected": [5.0, 8.0, 10.0, 12.0, 7.0],
+                "exposure": [1000.0] * 5,
+            }
+        )
         data = ExperienceStudy.add_age_bands(raw, band_width=5)
         study = ExperienceStudy(data)
         result = study.run(group_by=["age_band"])
@@ -334,8 +365,8 @@ class TestAddAgeBands:
 # Aggregation and totals
 # ---------------------------------------------------------------------------
 
-class TestAggregationTotals:
 
+class TestAggregationTotals:
     def test_total_actual_sums_correctly(self):
         """total_actual should equal sum of actual column."""
         data = _make_data(n_groups=5, base_actual=100.0)

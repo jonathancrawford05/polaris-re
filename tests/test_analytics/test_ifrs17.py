@@ -22,6 +22,7 @@ from polaris_re.core.cashflow import CashFlowResult
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_gross_cashflow(
     n_per: int = 24,
     monthly_premium: float = 100.0,
@@ -64,8 +65,8 @@ def _make_gross_cashflow(
 # IFRS17Measurement validation
 # ---------------------------------------------------------------------------
 
-class TestIFRS17MeasurementValidation:
 
+class TestIFRS17MeasurementValidation:
     def test_raises_on_non_gross_basis(self):
         """IFRS17Measurement requires GROSS basis input."""
         cf = CashFlowResult(
@@ -89,8 +90,8 @@ class TestIFRS17MeasurementValidation:
 # BBA tests
 # ---------------------------------------------------------------------------
 
-class TestBBA:
 
+class TestBBA:
     def test_bel_at_inception_closed_form(self):
         """
         CLOSED-FORM: For a flat cash flow stream, BEL[0] should equal the
@@ -111,9 +112,14 @@ class TestBBA:
         disc = v ** np.arange(1, n_per + 1, dtype=np.float64)
         expected_bel = float(np.dot(np.full(n_per, fcf_per_period), disc))
 
-        cf = _make_gross_cashflow(n_per=n_per, monthly_premium=premium, monthly_claim=claim,
-                                   monthly_expense=expense, monthly_lapse=lapse,
-                                   discount_rate=discount_rate)
+        cf = _make_gross_cashflow(
+            n_per=n_per,
+            monthly_premium=premium,
+            monthly_claim=claim,
+            monthly_expense=expense,
+            monthly_lapse=lapse,
+            discount_rate=discount_rate,
+        )
         m = IFRS17Measurement(cashflows=cf, discount_rate=discount_rate, ra_factor=0.0)
         result = m.measure_bba()
 
@@ -122,8 +128,9 @@ class TestBBA:
     def test_profitable_contract_has_positive_csm(self):
         """A profitable contract (premiums > outflows) yields CSM > 0, loss_component = 0."""
         # Premiums 100, outflows 20 — very profitable
-        cf = _make_gross_cashflow(monthly_premium=100.0, monthly_claim=10.0,
-                                   monthly_expense=5.0, monthly_lapse=2.0)
+        cf = _make_gross_cashflow(
+            monthly_premium=100.0, monthly_claim=10.0, monthly_expense=5.0, monthly_lapse=2.0
+        )
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.04, ra_factor=0.05)
         result = m.measure_bba()
 
@@ -133,8 +140,9 @@ class TestBBA:
     def test_onerous_contract_has_positive_loss_component(self):
         """An onerous contract (outflows > premiums) yields loss_component > 0, CSM = 0."""
         # Claims heavily exceed premiums
-        cf = _make_gross_cashflow(monthly_premium=10.0, monthly_claim=100.0,
-                                   monthly_expense=5.0, monthly_lapse=2.0)
+        cf = _make_gross_cashflow(
+            monthly_premium=10.0, monthly_claim=100.0, monthly_expense=5.0, monthly_lapse=2.0
+        )
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.04, ra_factor=0.05)
         result = m.measure_bba()
 
@@ -143,16 +151,19 @@ class TestBBA:
 
     def test_initial_liability_structure(self):
         """For profitable contract: BEL + RA + CSM = 0 at inception (all profit is deferred)."""
-        cf = _make_gross_cashflow(monthly_premium=100.0, monthly_claim=10.0,
-                                   monthly_expense=5.0, monthly_lapse=2.0)
+        cf = _make_gross_cashflow(
+            monthly_premium=100.0, monthly_claim=10.0, monthly_expense=5.0, monthly_lapse=2.0
+        )
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.04, ra_factor=0.05)
         result = m.measure_bba()
 
         # At inception: BEL + RA + CSM = 0 (profitable contract, full offset)
         total_fcf = result.initial_bel + result.initial_ra
         np.testing.assert_allclose(
-            total_fcf + result.initial_csm, 0.0, atol=1e-6,
-            err_msg="BEL + RA + CSM should equal 0 at inception for profitable contract"
+            total_fcf + result.initial_csm,
+            0.0,
+            atol=1e-6,
+            err_msg="BEL + RA + CSM should equal 0 at inception for profitable contract",
         )
 
     def test_csm_fully_amortised_by_end(self):
@@ -164,8 +175,13 @@ class TestBBA:
         all interest accreted. Verify this balance-checks to zero.
         """
         n_per = 24
-        cf = _make_gross_cashflow(n_per=n_per, monthly_premium=100.0, monthly_claim=10.0,
-                                   monthly_expense=5.0, monthly_lapse=2.0)
+        cf = _make_gross_cashflow(
+            n_per=n_per,
+            monthly_premium=100.0,
+            monthly_claim=10.0,
+            monthly_expense=5.0,
+            monthly_lapse=2.0,
+        )
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.04, ra_factor=0.05)
         result = m.measure_bba()
 
@@ -175,8 +191,10 @@ class TestBBA:
         total_available = result.initial_csm + float(result.csm_interest_accretion.sum())
         total_released = float(result.csm_release.sum())
         np.testing.assert_allclose(
-            total_available, total_released, rtol=1e-6,
-            err_msg="Total CSM released should equal initial CSM plus all accretions"
+            total_available,
+            total_released,
+            rtol=1e-6,
+            err_msg="Total CSM released should equal initial CSM plus all accretions",
         )
 
     def test_bel_schedule_shape(self):
@@ -209,8 +227,13 @@ class TestBBA:
         the total released should equal initial_csm compounded at the discount rate.
         """
         n_per = 12
-        cf = _make_gross_cashflow(n_per=n_per, monthly_premium=100.0, monthly_claim=10.0,
-                                   monthly_expense=5.0, monthly_lapse=2.0)
+        cf = _make_gross_cashflow(
+            n_per=n_per,
+            monthly_premium=100.0,
+            monthly_claim=10.0,
+            monthly_expense=5.0,
+            monthly_lapse=2.0,
+        )
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.06)
         result = m.measure_bba()
 
@@ -229,8 +252,9 @@ class TestBBA:
 
     def test_zero_ra_factor(self):
         """With ra_factor=0, RA array is all zeros and CSM absorbs full initial profit."""
-        cf = _make_gross_cashflow(monthly_premium=100.0, monthly_claim=5.0,
-                                   monthly_expense=3.0, monthly_lapse=1.0)
+        cf = _make_gross_cashflow(
+            monthly_premium=100.0, monthly_claim=5.0, monthly_expense=3.0, monthly_lapse=1.0
+        )
         m_with_ra = IFRS17Measurement(cashflows=cf, discount_rate=0.05, ra_factor=0.05)
         m_no_ra = IFRS17Measurement(cashflows=cf, discount_rate=0.05, ra_factor=0.0)
         r_with = m_with_ra.measure_bba()
@@ -253,8 +277,9 @@ class TestBBA:
 
     def test_pv_insurance_revenue_positive(self):
         """PV of insurance revenue should be positive for a profitable contract."""
-        cf = _make_gross_cashflow(monthly_premium=100.0, monthly_claim=10.0,
-                                   monthly_expense=5.0, monthly_lapse=2.0)
+        cf = _make_gross_cashflow(
+            monthly_premium=100.0, monthly_claim=10.0, monthly_expense=5.0, monthly_lapse=2.0
+        )
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.05)
         result = m.measure_bba()
         assert result.pv_insurance_revenue() > 0.0
@@ -264,8 +289,8 @@ class TestBBA:
 # PAA tests
 # ---------------------------------------------------------------------------
 
-class TestPAA:
 
+class TestPAA:
     def test_lrc_at_inception_equals_total_premiums(self):
         """PAA: LRC at t=0 should equal the total premiums over the coverage period."""
         n_per = 12
@@ -349,13 +374,18 @@ class TestPAA:
 # VFA tests
 # ---------------------------------------------------------------------------
 
-class TestVFA:
 
+class TestVFA:
     def test_vfa_produces_result(self):
         """VFA measurement should produce a valid IFRS17Result."""
         n_per = 24
-        cf = _make_gross_cashflow(n_per=n_per, monthly_premium=100.0, monthly_claim=15.0,
-                                   monthly_expense=5.0, monthly_lapse=2.0)
+        cf = _make_gross_cashflow(
+            n_per=n_per,
+            monthly_premium=100.0,
+            monthly_claim=15.0,
+            monthly_expense=5.0,
+            monthly_lapse=2.0,
+        )
         underlying = np.linspace(10_000, 8_000, n_per)  # declining AV
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.04)
         result = m.measure_vfa(underlying_items_fair_value=underlying, variable_fee_rate=0.01)
@@ -375,8 +405,13 @@ class TestVFA:
     def test_vfa_csm_fully_amortised(self):
         """VFA: Total CSM released should equal initial CSM plus all accretions."""
         n_per = 12
-        cf = _make_gross_cashflow(n_per=n_per, monthly_premium=50.0, monthly_claim=5.0,
-                                   monthly_expense=3.0, monthly_lapse=1.0)
+        cf = _make_gross_cashflow(
+            n_per=n_per,
+            monthly_premium=50.0,
+            monthly_claim=5.0,
+            monthly_expense=3.0,
+            monthly_lapse=1.0,
+        )
         underlying = np.linspace(5_000, 4_000, n_per)
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.04)
         result = m.measure_vfa(underlying, variable_fee_rate=0.02)
@@ -390,8 +425,8 @@ class TestVFA:
 # IFRS17Result helper methods
 # ---------------------------------------------------------------------------
 
-class TestIFRS17ResultHelpers:
 
+class TestIFRS17ResultHelpers:
     def test_total_initial_liability(self):
         """total_initial_liability = initial_bel + initial_ra + initial_csm."""
         cf = _make_gross_cashflow()
@@ -402,8 +437,9 @@ class TestIFRS17ResultHelpers:
 
     def test_cumulative_csm_released_monotone(self):
         """Cumulative CSM released should be monotonically non-decreasing."""
-        cf = _make_gross_cashflow(monthly_premium=100.0, monthly_claim=10.0,
-                                   monthly_expense=5.0, monthly_lapse=2.0)
+        cf = _make_gross_cashflow(
+            monthly_premium=100.0, monthly_claim=10.0, monthly_expense=5.0, monthly_lapse=2.0
+        )
         m = IFRS17Measurement(cashflows=cf, discount_rate=0.05)
         result = m.measure_bba()
         cum = result.cumulative_csm_released()

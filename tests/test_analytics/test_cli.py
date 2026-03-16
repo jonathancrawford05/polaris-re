@@ -16,13 +16,13 @@ runner = CliRunner()
 
 
 class TestVersionCommand:
-
     def test_version_exits_zero(self):
         result = runner.invoke(app, ["version"])
         assert result.exit_code == 0, result.output
 
     def test_version_output_contains_version(self):
         import polaris_re
+
         result = runner.invoke(app, ["version"])
         assert polaris_re.__version__ in result.output
 
@@ -33,7 +33,6 @@ class TestVersionCommand:
 
 @pytest.mark.slow
 class TestPriceCommand:
-
     def test_price_demo_mode_exits_zero(self):
         """price without config runs demo mode and exits 0."""
         result = runner.invoke(app, ["price"])
@@ -65,7 +64,6 @@ class TestPriceCommand:
 
 @pytest.mark.slow
 class TestScenarioCommand:
-
     def test_scenario_demo_mode_exits_zero(self):
         """scenario without config runs demo mode and exits 0."""
         result = runner.invoke(app, ["scenario"])
@@ -85,7 +83,6 @@ class TestScenarioCommand:
 
 @pytest.mark.slow
 class TestUQCommand:
-
     def test_uq_demo_mode_exits_zero(self):
         """uq without config runs demo mode and exits 0."""
         result = runner.invoke(app, ["uq", "--scenarios", "20"])
@@ -103,7 +100,6 @@ class TestUQCommand:
 
 
 class TestValidateCommand:
-
     def test_validate_missing_file_exits_one(self):
         """validate with non-existent file exits with code 1."""
         result = runner.invoke(app, ["validate", "/nonexistent/path/file.csv"])
@@ -132,9 +128,7 @@ class TestValidateCommand:
     def test_validate_valid_json(self, tmp_path: Path):
         """validate accepts JSON with required keys."""
         json_file = tmp_path / "assumptions.json"
-        json_file.write_text(
-            '{"version": "v1", "mortality": {}, "lapse": {}}'
-        )
+        json_file.write_text('{"version": "v1", "mortality": {}, "lapse": {}}')
         result = runner.invoke(app, ["validate", str(json_file)])
         assert result.exit_code == 0, result.output
 

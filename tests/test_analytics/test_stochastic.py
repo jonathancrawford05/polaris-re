@@ -19,7 +19,6 @@ from polaris_re.analytics.stochastic import CIRModel, HullWhiteModel
 
 
 class TestHullWhiteModel:
-
     def test_output_shape(self):
         """simulate() returns RateScenarios with arrays of shape (n_paths, n_periods)."""
         model = HullWhiteModel(n_paths=50, seed=1)
@@ -142,7 +141,6 @@ class TestHullWhiteModel:
 
 
 class TestCIRModel:
-
     def test_output_shape(self):
         """CIR simulate() returns arrays of shape (n_paths, n_periods)."""
         model = CIRModel(n_paths=50, seed=1)
