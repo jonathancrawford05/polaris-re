@@ -301,7 +301,7 @@ def _page_scenario() -> None:
                 projection_horizon_years=term_years,
                 discount_rate=0.06,
             )
-            treaty = YRTTreaty(cession_pct=0.90, total_face_amount=face_amount)
+            treaty = YRTTreaty(treaty_id="YRT-SCENARIO", cession_pct=0.90, total_face_amount=face_amount)
             runner = ScenarioRunner(
                 inforce=inforce,
                 base_assumptions=assumptions,
@@ -346,7 +346,7 @@ def _page_uq() -> None:
             inforce = _build_policy_block(50, 40, 500_000, 1_200, 20, valuation_date)
             assumptions = _build_assumptions(0.001, 0.05, valuation_date)
             config = ProjectionConfig(valuation_date=valuation_date, projection_horizon_years=20, discount_rate=0.06)
-            treaty = YRTTreaty(cession_pct=0.90, total_face_amount=500_000)
+            treaty = YRTTreaty(treaty_id="YRT-UQ", cession_pct=0.90, total_face_amount=500_000)
             uq = MonteCarloUQ(
                 inforce=inforce,
                 base_assumptions=assumptions,
