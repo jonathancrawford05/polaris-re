@@ -81,16 +81,12 @@ class UniversalLife(BaseProduct):
                 f"UniversalLife received non-UL policies: {non_ul[:5]}"
                 f"{'...' if len(non_ul) > 5 else ''}"
             )
-        missing_av = [
-            p.policy_id for p in self.inforce.policies if p.account_value is None
-        ]
+        missing_av = [p.policy_id for p in self.inforce.policies if p.account_value is None]
         if missing_av:
             raise PolarisValidationError(
                 f"UL policies must have account_value set. Missing on: {missing_av[:5]}"
             )
-        missing_rate = [
-            p.policy_id for p in self.inforce.policies if p.credited_rate is None
-        ]
+        missing_rate = [p.policy_id for p in self.inforce.policies if p.credited_rate is None]
         if missing_rate:
             raise PolarisValidationError(
                 f"UL policies must have credited_rate set. Missing on: {missing_rate[:5]}"
@@ -104,15 +100,11 @@ class UniversalLife(BaseProduct):
 
     def _get_initial_account_values(self) -> np.ndarray:
         """Extract initial account values from policies, shape (N,)."""
-        return np.array(
-            [p.account_value for p in self.inforce.policies], dtype=np.float64
-        )
+        return np.array([p.account_value for p in self.inforce.policies], dtype=np.float64)
 
     def _get_credited_rates(self) -> np.ndarray:
         """Extract credited rates from policies, shape (N,)."""
-        return np.array(
-            [p.credited_rate for p in self.inforce.policies], dtype=np.float64
-        )
+        return np.array([p.credited_rate for p in self.inforce.policies], dtype=np.float64)
 
     def _build_mortality_arrays(self) -> np.ndarray:
         """
@@ -240,7 +232,7 @@ class UniversalLife(BaseProduct):
 
             # COI: based on NAR = max(face - AV, 0) at beginning of month
             nar_t = np.maximum(face_vec - current_av, 0.0)
-            monthly_rate = (1.0 + monthly_credited)  # accumulation factor
+            monthly_rate = 1.0 + monthly_credited  # accumulation factor
             # COI deducted at end of month (equivalent to beginning with accumulation)
             coi_t = nar_t * q[:, m] / monthly_rate  # per unit in-force
             coi[:, m] = coi_t * lx[:, m]

@@ -159,9 +159,7 @@ class TestWholeLifeReserves:
         short_config: ProjectionConfig,
     ) -> None:
         """Net premium reserves must be non-negative throughout."""
-        engine = WholeLife(
-            inforce=single_wl_block, assumptions=assumption_set, config=short_config
-        )
+        engine = WholeLife(inforce=single_wl_block, assumptions=assumption_set, config=short_config)
         reserves = engine.compute_reserves()
         assert np.all(reserves >= 0.0), "Negative reserves found"
 
@@ -172,9 +170,7 @@ class TestWholeLifeReserves:
         short_config: ProjectionConfig,
     ) -> None:
         """Reserve array shape is (N, T)."""
-        engine = WholeLife(
-            inforce=single_wl_block, assumptions=assumption_set, config=short_config
-        )
+        engine = WholeLife(inforce=single_wl_block, assumptions=assumption_set, config=short_config)
         reserves = engine.compute_reserves()
         t = short_config.projection_months
         assert reserves.shape == (1, t)
@@ -190,9 +186,7 @@ class TestWholeLifeReserves:
         generally increase over time (actuarial expectation). We check the
         trend is positive on average over the 20-year horizon.
         """
-        engine = WholeLife(
-            inforce=single_wl_block, assumptions=assumption_set, config=long_config
-        )
+        engine = WholeLife(inforce=single_wl_block, assumptions=assumption_set, config=long_config)
         reserves = engine.compute_reserves()
         # Average of first half vs second half should be higher in second half
         t = long_config.projection_months
@@ -239,9 +233,7 @@ class TestWholeLifeProjection:
         assumption_set: AssumptionSet,
         short_config: ProjectionConfig,
     ) -> None:
-        engine = WholeLife(
-            inforce=single_wl_block, assumptions=assumption_set, config=short_config
-        )
+        engine = WholeLife(inforce=single_wl_block, assumptions=assumption_set, config=short_config)
         result = engine.project()
         assert result.basis == "GROSS"
         assert result.product_type == "WHOLE_LIFE"
@@ -252,9 +244,7 @@ class TestWholeLifeProjection:
         assumption_set: AssumptionSet,
         short_config: ProjectionConfig,
     ) -> None:
-        engine = WholeLife(
-            inforce=single_wl_block, assumptions=assumption_set, config=short_config
-        )
+        engine = WholeLife(inforce=single_wl_block, assumptions=assumption_set, config=short_config)
         result = engine.project()
         t = short_config.projection_months
         assert len(result.gross_premiums) == t
@@ -268,9 +258,7 @@ class TestWholeLifeProjection:
         short_config: ProjectionConfig,
     ) -> None:
         """NCF = premiums - claims - lapses - expenses - reserve_increase."""
-        engine = WholeLife(
-            inforce=single_wl_block, assumptions=assumption_set, config=short_config
-        )
+        engine = WholeLife(inforce=single_wl_block, assumptions=assumption_set, config=short_config)
         result = engine.project()
         expected_ncf = (
             result.gross_premiums
@@ -288,9 +276,7 @@ class TestWholeLifeProjection:
         short_config: ProjectionConfig,
     ) -> None:
         """Premiums should be positive for at least the first month."""
-        engine = WholeLife(
-            inforce=single_wl_block, assumptions=assumption_set, config=short_config
-        )
+        engine = WholeLife(inforce=single_wl_block, assumptions=assumption_set, config=short_config)
         result = engine.project()
         assert result.gross_premiums[0] > 0.0
 
@@ -301,9 +287,7 @@ class TestWholeLifeProjection:
         short_config: ProjectionConfig,
     ) -> None:
         """Death claims should be positive (some expected mortality)."""
-        engine = WholeLife(
-            inforce=single_wl_block, assumptions=assumption_set, config=short_config
-        )
+        engine = WholeLife(inforce=single_wl_block, assumptions=assumption_set, config=short_config)
         result = engine.project()
         assert result.death_claims.sum() > 0.0
 
@@ -333,9 +317,7 @@ class TestWholeLifeProjection:
         short_config: ProjectionConfig,
     ) -> None:
         """seriatim=True populates (N, T) arrays."""
-        engine = WholeLife(
-            inforce=single_wl_block, assumptions=assumption_set, config=short_config
-        )
+        engine = WholeLife(inforce=single_wl_block, assumptions=assumption_set, config=short_config)
         result = engine.project(seriatim=True)
         t = short_config.projection_months
         assert result.seriatim_premiums is not None
@@ -367,9 +349,7 @@ class TestWholeLifeProjection:
             for i in range(3)
         ]
         combined_block = InforceBlock(policies=policies)
-        combined = WholeLife(
-            inforce=combined_block, assumptions=assumption_set, config=long_config
-        )
+        combined = WholeLife(inforce=combined_block, assumptions=assumption_set, config=long_config)
         combined_result = combined.project()
 
         individual_premiums = np.zeros(long_config.projection_months)
@@ -378,9 +358,7 @@ class TestWholeLifeProjection:
             eng = WholeLife(inforce=block, assumptions=assumption_set, config=long_config)
             individual_premiums += eng.project().gross_premiums
 
-        np.testing.assert_allclose(
-            combined_result.gross_premiums, individual_premiums, rtol=1e-8
-        )
+        np.testing.assert_allclose(combined_result.gross_premiums, individual_premiums, rtol=1e-8)
 
     def test_variant_par_same_as_non_par(
         self,

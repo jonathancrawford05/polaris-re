@@ -82,9 +82,7 @@ class MorbidityTable(PolarisBaseModel):
             ("female_incidence", self.female_incidence),
         ]:
             if arr.shape != (n,):
-                raise PolarisValidationError(
-                    f"{name} shape must be ({n},), got {arr.shape}."
-                )
+                raise PolarisValidationError(f"{name} shape must be ({n},), got {arr.shape}.")
             if np.any(arr < 0) or np.any(arr > 1):
                 raise PolarisValidationError(f"{name} values must be in [0, 1].")
         if self.table_type == MorbidityTableType.DISABILITY_INCOME:
@@ -93,9 +91,7 @@ class MorbidityTable(PolarisBaseModel):
                 ("female_termination", self.female_termination),
             ]:
                 if term_arr is None:
-                    raise PolarisValidationError(
-                        f"{name} is required for DI tables."
-                    )
+                    raise PolarisValidationError(f"{name} is required for DI tables.")
                 if term_arr.shape != (n,):
                     raise PolarisValidationError(
                         f"{name} shape must be ({n},), got {term_arr.shape}."

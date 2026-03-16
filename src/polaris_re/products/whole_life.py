@@ -76,9 +76,7 @@ class WholeLife(BaseProduct):
     def _validate_inputs(self) -> None:
         """Validate inforce block is compatible with WholeLife projection."""
         non_wl = [
-            p.policy_id
-            for p in self.inforce.policies
-            if p.product_type != ProductType.WHOLE_LIFE
+            p.policy_id for p in self.inforce.policies if p.product_type != ProductType.WHOLE_LIFE
         ]
         if non_wl:
             raise PolarisValidationError(
@@ -196,10 +194,13 @@ class WholeLife(BaseProduct):
         else:
             premium_months = min(self.premium_payment_years * 12, t)
 
-        apv_annuity = np.sum(
-            v_powers[:premium_months][np.newaxis, :] * lx[:, :premium_months],
-            axis=1,
-        ) / 12.0  # (N,) — monthly annuity-due
+        apv_annuity = (
+            np.sum(
+                v_powers[:premium_months][np.newaxis, :] * lx[:, :premium_months],
+                axis=1,
+            )
+            / 12.0
+        )  # (N,) — monthly annuity-due
 
         p_net_annual = np.where(apv_annuity > 0, apv_benefits / apv_annuity, 0.0)
         return p_net_annual  # Annual net premium per policy

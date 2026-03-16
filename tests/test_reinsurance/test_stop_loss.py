@@ -97,9 +97,7 @@ class TestStopLossAttachmentExhaustion:
         )
         _net, ceded = treaty.apply(gross)
         # Total ceded claims over 2 years = 2 * 20_000 = 40_000
-        np.testing.assert_allclose(
-            ceded.death_claims.sum(), 40_000.0, rtol=1e-8
-        )
+        np.testing.assert_allclose(ceded.death_claims.sum(), 40_000.0, rtol=1e-8)
 
     def test_above_exhaustion_capped(self) -> None:
         """Annual claims above exhaustion → reinsurer capped at limit."""
@@ -143,9 +141,7 @@ class TestStopLossAttachmentExhaustion:
         )
         _net, ceded = treaty.apply(gross)
         expected_monthly = 80_000.0 / 12.0
-        np.testing.assert_allclose(
-            ceded.death_claims[:12], expected_monthly, rtol=1e-8
-        )
+        np.testing.assert_allclose(ceded.death_claims[:12], expected_monthly, rtol=1e-8)
 
 
 class TestStopLossAdditivity:
@@ -206,9 +202,7 @@ class TestStopLossPremium:
             stop_loss_premium=annual_sl_prem,
         )
         _net, ceded = treaty.apply(gross)
-        np.testing.assert_allclose(
-            ceded.gross_premiums.sum(), annual_sl_prem * 5, rtol=1e-10
-        )
+        np.testing.assert_allclose(ceded.gross_premiums.sum(), annual_sl_prem * 5, rtol=1e-10)
 
 
 class TestStopLossEdgeCases:
@@ -224,6 +218,7 @@ class TestStopLossEdgeCases:
             stop_loss_premium=0.0,
         )
         import warnings
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             net, _ceded = treaty.apply(gross)
@@ -233,10 +228,12 @@ class TestStopLossEdgeCases:
         """Treaty applies year-by-year for multi-year projections."""
         # Year 1: claims = 5_000/mo → annual = 60_000 (below 100_000 attachment)
         # Year 2: claims = 10_000/mo → annual = 120_000 (above 100_000, pays 20_000)
-        claims = np.concatenate([
-            np.full(12, 5_000.0),
-            np.full(12, 10_000.0),
-        ])
+        claims = np.concatenate(
+            [
+                np.full(12, 5_000.0),
+                np.full(12, 10_000.0),
+            ]
+        )
         gross = _make_gross(n_months=24, monthly_claims=claims)
         treaty = StopLossTreaty(
             attachment_point=100_000.0,

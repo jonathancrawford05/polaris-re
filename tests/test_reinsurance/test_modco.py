@@ -23,10 +23,12 @@ def _make_gross(n_months: int = 120, face: float = 1_000_000.0) -> CashFlowResul
     lapses = np.full(n_months, 200.0, dtype=np.float64)
     expenses = np.full(n_months, 100.0, dtype=np.float64)
     # Reserves: linearly increasing then decreasing (typical WL pattern)
-    reserves = np.concatenate([
-        np.linspace(0, face * 0.3, n_months // 2),
-        np.linspace(face * 0.3, face * 0.1, n_months - n_months // 2),
-    ]).astype(np.float64)
+    reserves = np.concatenate(
+        [
+            np.linspace(0, face * 0.3, n_months // 2),
+            np.linspace(face * 0.3, face * 0.1, n_months - n_months // 2),
+        ]
+    ).astype(np.float64)
     reserve_inc = np.zeros(n_months, dtype=np.float64)
     reserve_inc[0] = reserves[0]
     reserve_inc[1:] = reserves[1:] - reserves[:-1]
@@ -78,9 +80,7 @@ class TestModcoAdditivity:
             err_msg="NCF additivity failed",
         )
 
-    def test_premium_additivity(
-        self, gross_120m: CashFlowResult, modco_50pct: ModcoTreaty
-    ) -> None:
+    def test_premium_additivity(self, gross_120m: CashFlowResult, modco_50pct: ModcoTreaty) -> None:
         """net_premiums + ceded_premiums == gross_premiums."""
         net, ceded = modco_50pct.apply(gross_120m)
         np.testing.assert_allclose(
@@ -89,9 +89,7 @@ class TestModcoAdditivity:
             rtol=1e-10,
         )
 
-    def test_claims_additivity(
-        self, gross_120m: CashFlowResult, modco_50pct: ModcoTreaty
-    ) -> None:
+    def test_claims_additivity(self, gross_120m: CashFlowResult, modco_50pct: ModcoTreaty) -> None:
         """net_claims + ceded_claims == gross_claims."""
         net, ceded = modco_50pct.apply(gross_120m)
         np.testing.assert_allclose(
@@ -116,18 +114,14 @@ class TestModcoReserveHandling:
     ) -> None:
         """Net reserve balance must equal gross (not split like coinsurance)."""
         net, _ceded = modco_50pct.apply(gross_120m)
-        np.testing.assert_allclose(
-            net.reserve_balance, gross_120m.reserve_balance, rtol=1e-10
-        )
+        np.testing.assert_allclose(net.reserve_balance, gross_120m.reserve_balance, rtol=1e-10)
 
     def test_net_reserve_increase_equals_gross(
         self, gross_120m: CashFlowResult, modco_50pct: ModcoTreaty
     ) -> None:
         """Net reserve increase equals gross (entire reserve liability stays)."""
         net, _ceded = modco_50pct.apply(gross_120m)
-        np.testing.assert_allclose(
-            net.reserve_increase, gross_120m.reserve_increase, rtol=1e-10
-        )
+        np.testing.assert_allclose(net.reserve_increase, gross_120m.reserve_increase, rtol=1e-10)
 
     def test_ceded_reserve_is_notional(
         self, gross_120m: CashFlowResult, modco_50pct: ModcoTreaty
@@ -163,18 +157,14 @@ class TestModcoInterest:
         assert net.modco_interest is not None
         np.testing.assert_allclose(net.modco_interest[0], expected_t0, rtol=1e-10)
 
-    def test_modco_interest_zero_when_zero_cession(
-        self, gross_120m: CashFlowResult
-    ) -> None:
+    def test_modco_interest_zero_when_zero_cession(self, gross_120m: CashFlowResult) -> None:
         """Modco interest = 0 when cession_pct = 0."""
         treaty = ModcoTreaty(cession_pct=0.0, modco_interest_rate=0.045)
         net, _ceded = treaty.apply(gross_120m)
         assert net.modco_interest is not None
         np.testing.assert_allclose(net.modco_interest, 0.0, atol=1e-10)
 
-    def test_modco_interest_zero_when_zero_rate(
-        self, gross_120m: CashFlowResult
-    ) -> None:
+    def test_modco_interest_zero_when_zero_rate(self, gross_120m: CashFlowResult) -> None:
         """Modco interest = 0 when modco_interest_rate = 0."""
         treaty = ModcoTreaty(cession_pct=0.50, modco_interest_rate=0.0)
         net, _ceded = treaty.apply(gross_120m)
@@ -194,9 +184,7 @@ class TestModcoInterest:
 class TestModcoVsCoinsurance:
     """Compare Modco to Coinsurance — same P&L economics, different reserve treatment."""
 
-    def test_net_ncf_differs_from_coinsurance(
-        self, gross_120m: CashFlowResult
-    ) -> None:
+    def test_net_ncf_differs_from_coinsurance(self, gross_120m: CashFlowResult) -> None:
         """Modco net NCF != coinsurance net NCF due to modco interest."""
         from polaris_re.reinsurance.coinsurance import CoinsuranceTreaty
 
@@ -246,15 +234,11 @@ class TestModcoEdgeCases:
         treaty = ModcoTreaty(cession_pct=1.0, modco_interest_rate=0.04)
         net, ceded = treaty.apply(gross_120m)
         np.testing.assert_allclose(net.gross_premiums, 0.0, atol=1e-10)
-        np.testing.assert_allclose(
-            ceded.gross_premiums, gross_120m.gross_premiums, rtol=1e-10
-        )
+        np.testing.assert_allclose(ceded.gross_premiums, gross_120m.gross_premiums, rtol=1e-10)
 
     def test_zero_cession(self, gross_120m: CashFlowResult) -> None:
         """At 0% cession, net == gross and ceded == 0."""
         treaty = ModcoTreaty(cession_pct=0.0, modco_interest_rate=0.04)
         net, ceded = treaty.apply(gross_120m)
-        np.testing.assert_allclose(
-            net.gross_premiums, gross_120m.gross_premiums, rtol=1e-10
-        )
+        np.testing.assert_allclose(net.gross_premiums, gross_120m.gross_premiums, rtol=1e-10)
         np.testing.assert_allclose(ceded.gross_premiums, 0.0, atol=1e-10)

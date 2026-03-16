@@ -300,9 +300,7 @@ class TestUniversalLifeAccountValue:
             valuation_date=date(2025, 1, 1),
         )
         block = InforceBlock(policies=[policy])
-        engine = UniversalLife(
-            inforce=block, assumptions=assumption_set, config=short_config
-        )
+        engine = UniversalLife(inforce=block, assumptions=assumption_set, config=short_config)
         q = engine._build_mortality_arrays()
         w = engine._build_lapse_arrays()
         _av, coi, _lx, _lapse = engine._roll_forward_account_values(q, w)

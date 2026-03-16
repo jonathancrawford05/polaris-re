@@ -254,9 +254,7 @@ class TestMonteCarloUQSmall:
         result = uq.run()
         # Mean of lognormal should be exp(sigma^2/2) ≈ 1.005
         expected_mean = np.exp(0.10**2 / 2)
-        np.testing.assert_allclose(
-            result.mort_multipliers.mean(), expected_mean, rtol=0.05
-        )
+        np.testing.assert_allclose(result.mort_multipliers.mean(), expected_mean, rtol=0.05)
 
 
 class TestUQResultMetrics:

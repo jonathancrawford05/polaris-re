@@ -192,9 +192,7 @@ class DisabilityProduct(BaseProduct):
         w = np.zeros((n, t), dtype=np.float64)
         duration_inforce = self.inforce.duration_inforce_vec
         for month in range(t):
-            w[:, month] = self.assumptions.lapse.get_lapse_vector(
-                duration_inforce + month
-            )
+            w[:, month] = self.assumptions.lapse.get_lapse_vector(duration_inforce + month)
         return w
 
     def compute_reserves(self) -> np.ndarray:
@@ -222,7 +220,7 @@ class DisabilityProduct(BaseProduct):
         t = self.config.projection_months
 
         q = self._build_mortality_arrays()  # (N, T) monthly mortality
-        w = self._build_lapse_arrays()      # (N, T) voluntary lapse
+        w = self._build_lapse_arrays()  # (N, T) voluntary lapse
         incidence = self._build_incidence_arrays()  # (N, T) monthly CI incidence
 
         face_vec = self.inforce.face_amount_vec  # (N,)
@@ -252,8 +250,15 @@ class DisabilityProduct(BaseProduct):
 
         return self._build_result(
             "CRITICAL_ILLNESS",
-            ser_premiums, ser_claims, ser_lapses, ser_expenses,
-            ser_reserves, ser_reserve_inc, lx, t, seriatim,
+            ser_premiums,
+            ser_claims,
+            ser_lapses,
+            ser_expenses,
+            ser_reserves,
+            ser_reserve_inc,
+            lx,
+            t,
+            seriatim,
         )
 
     def _project_di(self, seriatim: bool) -> CashFlowResult:
@@ -262,7 +267,7 @@ class DisabilityProduct(BaseProduct):
         t = self.config.projection_months
 
         q = self._build_mortality_arrays()  # (N, T) mortality of active lives
-        w = self._build_lapse_arrays()      # (N, T) voluntary lapse (active only)
+        w = self._build_lapse_arrays()  # (N, T) voluntary lapse (active only)
         incidence = self._build_incidence_arrays()  # (N, T) monthly onset rate
         term_rate = self._build_termination_arrays()  # (N, T) monthly recovery+death rate
 
@@ -286,10 +291,7 @@ class DisabilityProduct(BaseProduct):
                 * (1.0 - incidence[:, month - 1])
             )
 
-            lx_disabled[:, month] = (
-                prev_disabled * (1.0 - term_rate[:, month - 1])
-                + new_disabled
-            )
+            lx_disabled[:, month] = prev_disabled * (1.0 - term_rate[:, month - 1]) + new_disabled
             lx_disabled[:, month] = np.maximum(lx_disabled[:, month], 0.0)
 
         # DI benefit = monthly_benefit * lx_disabled (monthly_benefit = face/12)
@@ -307,8 +309,15 @@ class DisabilityProduct(BaseProduct):
 
         result = self._build_result(
             "DISABILITY",
-            ser_premiums, ser_claims, ser_lapses, ser_expenses,
-            ser_reserves, ser_reserve_inc, lx_active, t, seriatim,
+            ser_premiums,
+            ser_claims,
+            ser_lapses,
+            ser_expenses,
+            ser_reserves,
+            ser_reserve_inc,
+            lx_active,
+            t,
+            seriatim,
         )
 
         if seriatim:
