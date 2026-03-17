@@ -3,36 +3,40 @@
 convert_soa_tables.py — Download and convert SOA/CIA mortality tables to
 Polaris RE CSV format.
 
-PRIMARY PATH (recommended): Fetches tables directly from mort.soa.org via
-the `pymort` library. No manual download required.
+PRIMARY PATH (recommended): Fetches SOA tables directly from mort.soa.org
+via the `pymort` library. No manual download required for VBT 2015 / CSO 2001.
 
-FALLBACK PATH: Converts manually downloaded SOA Excel files (.xlsx) into
-the Polaris RE CSV schema.
+FALLBACK PATH: Converts the CIA2014 Excel workbook (222040T1e.xlsx) downloaded
+from cia-ica.ca into the Polaris RE CSV schema.
 
 TARGET CSV SCHEMA
 -----------------
-Select-and-ultimate (SOA VBT 2015, CIA 2014):
-    age, dur_1, dur_2, ..., dur_25, ultimate
-    - Rates expressed as decimals (e.g. 0.00045, NOT per-mille 0.45)
-    - age column: attained age (ANB), integers 18-120 inclusive
-    - dur_1..dur_25: select-period annual q_x rates
-    - ultimate: post-select-period annual q_x rate
+Select-and-ultimate (SOA VBT 2015, CIA2014):
+    age, dur_1, dur_2, ..., dur_N, ultimate
+    - age: issue age (ANB), integers 18-120
+    - dur_1..dur_N: select-period annual q_x as decimals (NOT per-mille)
+    - ultimate: post-select annual q_x as decimal
 
 Ultimate-only (2001 CSO):
     age, rate
-    - age column: integers 0-120 inclusive
+    - age: integers 0-120
     - rate: annual q_x as decimal
 
 USAGE
 -----
-# Primary: download directly from mort.soa.org (requires: pip install pymort)
+# Download VBT 2015 + CSO 2001 directly from mort.soa.org:
 python scripts/convert_soa_tables.py --source pymort --output-dir data/mortality_tables
 
-# Fallback: convert locally downloaded SOA Excel files
-python scripts/convert_soa_tables.py --source excel --excel-dir ~/Downloads/soa_tables --output-dir data/mortality_tables
+# Convert CIA2014 Excel workbook (222040T1e.xlsx):
+python scripts/convert_soa_tables.py --source excel \\
+    --excel-file ~/Downloads/222040T1e.xlsx \\
+    --output-dir data/mortality_tables
 
-# Validate outputs only
+# Validate all output CSVs:
 python scripts/convert_soa_tables.py --validate-only --output-dir data/mortality_tables
+
+# Inspect an unknown Excel file layout:
+python scripts/convert_soa_tables.py --inspect ~/Downloads/someFile.xlsx
 
 SOA TABLE IDs (mort.soa.org)
 -----------------------------
@@ -42,12 +46,16 @@ VBT 2015 Smoker-Distinct ANB (select period = 25 years):
     3267  Female Non-Smoker → soa_vbt_2015_female_ns.csv
     3268  Female Smoker     → soa_vbt_2015_female_smoker.csv
 
-2001 CSO (ultimate-only ANB, rates per 1000 in source):
+2001 CSO ANB (ultimate-only, rates stored per-mille in XML):
     1441  Male              → cso_2001_male.csv
     1442  Female            → cso_2001_female.csv
 
-CIA 2014 tables are not available via mort.soa.org (Canadian tables).
-Download from cia-ica.ca and use --source excel for those.
+CIA2014 Excel sheet → output file mapping (222040T1e.xlsx):
+    MsmN  Male Smoker       → cia_2014_male_smoker.csv
+    MnsN  Male Non-Smoker   → cia_2014_male_ns.csv
+    FsmN  Female Smoker     → cia_2014_female_smoker.csv
+    FnsN  Female Non-Smoker → cia_2014_female_ns.csv
+    (N suffix = Age Nearest Birthday; select period = 20 years; rates per-mille)
 """
 
 from __future__ import annotations
@@ -64,7 +72,7 @@ from rich.table import Table as RichTable
 console = Console()
 
 # ---------------------------------------------------------------------------
-# SOA table ID registry
+# SOA table registry (pymort path)
 # ---------------------------------------------------------------------------
 
 SOA_TABLE_REGISTRY: dict[str, dict] = {
@@ -75,7 +83,6 @@ SOA_TABLE_REGISTRY: dict[str, dict] = {
         "table_type": "select_ultimate",
         "min_age": 18,
         "max_age": 120,
-        "rates_per_mille": False,  # pymort returns rates already as q_x (0-1)
     },
     "soa_vbt_2015_male_smoker": {
         "table_id": 3266,
@@ -84,7 +91,6 @@ SOA_TABLE_REGISTRY: dict[str, dict] = {
         "table_type": "select_ultimate",
         "min_age": 18,
         "max_age": 120,
-        "rates_per_mille": False,
     },
     "soa_vbt_2015_female_ns": {
         "table_id": 3267,
@@ -93,7 +99,6 @@ SOA_TABLE_REGISTRY: dict[str, dict] = {
         "table_type": "select_ultimate",
         "min_age": 18,
         "max_age": 120,
-        "rates_per_mille": False,
     },
     "soa_vbt_2015_female_smoker": {
         "table_id": 3268,
@@ -102,7 +107,6 @@ SOA_TABLE_REGISTRY: dict[str, dict] = {
         "table_type": "select_ultimate",
         "min_age": 18,
         "max_age": 120,
-        "rates_per_mille": False,
     },
     "cso_2001_male": {
         "table_id": 1441,
@@ -111,7 +115,7 @@ SOA_TABLE_REGISTRY: dict[str, dict] = {
         "table_type": "ultimate_only",
         "min_age": 0,
         "max_age": 120,
-        "rates_per_mille": True,  # SOA stores CSO as q_x * 1000
+        "rates_per_mille": True,  # SOA XML stores CSO as q_x * 1000
     },
     "cso_2001_female": {
         "table_id": 1442,
@@ -124,56 +128,39 @@ SOA_TABLE_REGISTRY: dict[str, dict] = {
     },
 }
 
-# CIA 2014 Excel file patterns (used with --source excel)
-# These map the expected filename pattern to target output name.
-# CIA distributes their tables as Excel workbooks with separate sheets
-# for select (issue_age × duration) and ultimate (attained_age × rate).
-CIA_EXCEL_REGISTRY: dict[str, dict] = {
-    "cia_2014_male_ns": {
-        "filename_pattern": "*male*non*smok*",
-        "alt_pattern": "*MNS*",
-        "description": "CIA 2014 Male Non-Smoker",
-        "select_period": 25,
-        "select_sheet": "Select",       # adjust if your file differs
-        "ultimate_sheet": "Ultimate",
-        "issue_age_col": "Issue Age",   # adjust to match actual column header
-        "min_age": 18,
-        "max_age": 120,
+# ---------------------------------------------------------------------------
+# CIA2014 Excel sheet → output file mapping
+#
+# Layout in 222040T1e.xlsx (confirmed by inspection):
+#   - 2 title/description rows to skip (skiprows=2 gives real headers on row 3)
+#   - Real headers: "Issue Age" | 1 | 2 | ... | 20 | "Ult" | "Attd Age"
+#   - Select period = 20 years
+#   - Rates are per-mille (q_x * 1000); divide by 1000 for Polaris RE
+#   - "Attd Age" column is the attained age label — drop it
+# ---------------------------------------------------------------------------
+
+CIA_SHEET_MAP: dict[str, dict] = {
+    "MnsN": {
+        "output_key": "cia_2014_male_ns",
+        "description": "CIA2014 Male Non-Smoker ANB",
     },
-    "cia_2014_male_smoker": {
-        "filename_pattern": "*male*smok*",
-        "alt_pattern": "*MS*",
-        "description": "CIA 2014 Male Smoker",
-        "select_period": 25,
-        "select_sheet": "Select",
-        "ultimate_sheet": "Ultimate",
-        "issue_age_col": "Issue Age",
-        "min_age": 18,
-        "max_age": 120,
+    "MsmN": {
+        "output_key": "cia_2014_male_smoker",
+        "description": "CIA2014 Male Smoker ANB",
     },
-    "cia_2014_female_ns": {
-        "filename_pattern": "*female*non*smok*",
-        "alt_pattern": "*FNS*",
-        "description": "CIA 2014 Female Non-Smoker",
-        "select_period": 25,
-        "select_sheet": "Select",
-        "ultimate_sheet": "Ultimate",
-        "issue_age_col": "Issue Age",
-        "min_age": 18,
-        "max_age": 120,
+    "FnsN": {
+        "output_key": "cia_2014_female_ns",
+        "description": "CIA2014 Female Non-Smoker ANB",
     },
-    "cia_2014_female_smoker": {
-        "filename_pattern": "*female*smok*",
-        "alt_pattern": "*FS*",
-        "description": "CIA 2014 Female Smoker",
-        "select_period": 25,
-        "select_sheet": "Select",
-        "ultimate_sheet": "Ultimate",
-        "issue_age_col": "Issue Age",
-        "min_age": 18,
-        "max_age": 120,
+    "FsmN": {
+        "output_key": "cia_2014_female_smoker",
+        "description": "CIA2014 Female Smoker ANB",
     },
 }
+
+CIA_SELECT_PERIOD = 20
+CIA_MIN_AGE = 18
+CIA_MAX_AGE = 115
 
 
 # ---------------------------------------------------------------------------
@@ -182,18 +169,14 @@ CIA_EXCEL_REGISTRY: dict[str, dict] = {
 
 
 def convert_via_pymort(output_dir: Path, table_keys: list[str] | None = None) -> dict[str, bool]:
-    """
-    Download SOA tables via pymort and write to Polaris RE CSV format.
-
-    Returns a dict of {output_filename: success_bool}.
-    """
+    """Download SOA tables via pymort and write Polaris RE CSVs."""
     try:
         from pymort import MortXML  # type: ignore[import]
     except ImportError:
         console.print(
             "[red]pymort not installed.[/red] Run:\n"
-            "  uv add pymort   (inside the project)\n"
-            "  pip install pymort   (standalone)"
+            "  uv add pymort\n"
+            "  pip install pymort"
         )
         sys.exit(1)
 
@@ -203,24 +186,22 @@ def convert_via_pymort(output_dir: Path, table_keys: list[str] | None = None) ->
 
     for key in keys:
         if key not in SOA_TABLE_REGISTRY:
-            console.print(f"[yellow]Unknown table key '{key}' — skipping.[/yellow]")
+            console.print(f"[yellow]Unknown key '{key}' — skipping.[/yellow]")
             continue
 
         cfg = SOA_TABLE_REGISTRY[key]
-        table_id = cfg["table_id"]
         output_path = output_dir / f"{key}.csv"
-
-        console.print(f"  Fetching table {table_id}: {cfg['description']} ...", end=" ")
+        console.print(f"  Fetching {cfg['table_id']}: {cfg['description']} ...", end=" ")
 
         try:
-            xml = MortXML.from_id(table_id)
+            xml = MortXML.from_id(cfg["table_id"])
 
             if cfg["table_type"] == "ultimate_only":
-                df = _pymort_ultimate_to_csv(xml, cfg)
+                df = _pymort_to_ultimate_csv(xml, cfg)
             else:
-                df = _pymort_select_ultimate_to_csv(xml, cfg)
+                df = _pymort_to_select_ultimate_csv(xml, cfg)
 
-            _validate_output(df, cfg)
+            _validate_output_df(df, cfg)
             df.write_csv(output_path)
             console.print(f"[green]✓[/green] → {output_path.name}")
             results[key] = True
@@ -232,56 +213,55 @@ def convert_via_pymort(output_dir: Path, table_keys: list[str] | None = None) ->
     return results
 
 
-def _pymort_ultimate_to_csv(xml: object, cfg: dict) -> pl.DataFrame:
+def _pymort_to_ultimate_csv(xml: object, cfg: dict) -> pl.DataFrame:
     """
-    Convert a pymort ultimate-only table to Polars DataFrame in Polaris CSV schema.
+    Convert a pymort ultimate-only table to Polaris RE schema: age | rate.
 
-    pymort returns a MultiIndex pandas DataFrame for ultimate tables.
-    Schema: age | rate
+    pymort API: xml.Tables[0].Values → pandas DataFrame, index=age, col=rate
+    CSO tables are stored per-mille in the SOA XML.
+    Sentinel rows (rate <= 0 or NaN) are dropped before output.
     """
-    import pandas as pd  # pymort depends on pandas
+    import pandas as pd
 
-    # pymort exposes .values which is a pandas DataFrame for ultimate tables
-    # The index is age, the single column is the rate
-    ultimate_df: pd.DataFrame = xml.values  # type: ignore[union-attr]
+    raw: pd.DataFrame = xml.Tables[0].Values  # type: ignore[union-attr]
+    raw = raw.reset_index()
+    raw.columns = [str(c).strip() for c in raw.columns]
 
-    # Flatten: some tables have multi-level columns or index — normalise
-    if isinstance(ultimate_df.index, pd.MultiIndex):
-        ultimate_df = ultimate_df.reset_index()
-        age_col = [c for c in ultimate_df.columns if "age" in str(c).lower()][0]
-        rate_col = [c for c in ultimate_df.columns if c != age_col][0]
-    else:
-        ultimate_df = ultimate_df.reset_index()
-        age_col = ultimate_df.columns[0]
-        rate_col = ultimate_df.columns[1]
+    age_col = raw.columns[0]
+    rate_col = raw.columns[1]
 
-    ages = ultimate_df[age_col].astype(int).values
-    rates = ultimate_df[rate_col].astype(float).values
+    ages = pd.to_numeric(raw[age_col], errors="coerce").values
+    rates = pd.to_numeric(raw[rate_col], errors="coerce").values.astype(float)
 
-    # CSO tables are stored per-mille (q_x * 1000) in the SOA XML
     if cfg.get("rates_per_mille", False):
         rates = rates / 1000.0
 
-    # Filter to requested age range
     min_age, max_age = cfg["min_age"], cfg["max_age"]
-    mask = (ages >= min_age) & (ages <= max_age)
-    ages, rates = ages[mask], rates[mask]
+    # Drop sentinel rows: NaN ages, NaN rates, or negative rates (pymort
+    # uses -1 or similar as a missing-value indicator for some age ranges)
+    valid = (
+        ~np.isnan(ages.astype(float))
+        & ~np.isnan(rates)
+        & (rates >= 0.0)
+        & (ages >= min_age)
+        & (ages <= max_age)
+    )
+    return pl.DataFrame({
+        "age": ages[valid].astype(int).tolist(),
+        "rate": rates[valid].tolist(),
+    })
 
-    return pl.DataFrame({"age": ages.tolist(), "rate": rates.tolist()})
 
-
-def _pymort_select_ultimate_to_csv(xml: object, cfg: dict) -> pl.DataFrame:
+def _pymort_to_select_ultimate_csv(xml: object, cfg: dict) -> pl.DataFrame:
     """
-    Convert a pymort select-and-ultimate table to Polaris RE CSV schema.
+    Convert a pymort select-and-ultimate table to Polaris RE schema:
+        age, dur_1, ..., dur_N, ultimate
 
-    pymort returns:
-        xml.values  → select table as MultiIndex DataFrame (issue_age, duration)
-        xml.ultimate → ultimate table as Series indexed by attained_age
+    pymort API:
+        xml.Tables[0].Values → select table, MultiIndex DataFrame (issue_age, duration)
+        xml.Tables[1].Values → ultimate table, DataFrame indexed by attained_age
 
-    Target schema:
-        age, dur_1, dur_2, ..., dur_25, ultimate
-    where age = issue age (ANB), dur_i = q_x in select year i,
-    ultimate = q_x for attained age beyond select period.
+    VBT 2015 rates are already in q_x decimal form (not per-mille).
     """
     import pandas as pd
 
@@ -290,18 +270,16 @@ def _pymort_select_ultimate_to_csv(xml: object, cfg: dict) -> pl.DataFrame:
     max_age = cfg["max_age"]
 
     # --- Select table ---
-    select_raw: pd.DataFrame = xml.values  # type: ignore[union-attr]
-
-    # Reset MultiIndex → columns: IssueAge (or Age), Duration (or Dur), value
+    select_raw: pd.DataFrame = xml.Tables[0].Values  # type: ignore[union-attr]
     select_flat = select_raw.reset_index()
-    cols = select_flat.columns.tolist()
+    select_flat.columns = [str(c).strip() for c in select_flat.columns]
 
-    # Heuristic column identification — pymort column names vary slightly
-    age_col = next(
-        c for c in cols if any(k in str(c).lower() for k in ("issue", "age", "x"))
-    )
+    # Identify issue_age and duration columns heuristically
+    cols = select_flat.columns.tolist()
+    age_col = next(c for c in cols if any(k in str(c).lower() for k in ("issue", "age", "x")))
     dur_col = next(
-        c for c in cols if any(k in str(c).lower() for k in ("dur", "period", "t"))
+        c for c in cols
+        if any(k in str(c).lower() for k in ("dur", "period", "t", "year"))
         and c != age_col
     )
     rate_col = next(c for c in cols if c not in (age_col, dur_col))
@@ -318,318 +296,194 @@ def _pymort_select_ultimate_to_csv(xml: object, cfg: dict) -> pl.DataFrame:
         (select_flat["issue_age"] >= min_age) & (select_flat["issue_age"] <= max_age)
     ]
 
-    # Pivot: rows = issue_age, columns = duration (1..select_period)
+    # Pivot: rows=issue_age, cols=duration 1..select_period
     pivot = select_flat.pivot(index="issue_age", columns="duration", values="qx")
-    # Keep only durations 1..select_period
-    dur_cols = [d for d in range(1, select_period + 1) if d in pivot.columns]
-    pivot = pivot[dur_cols]
-    pivot.columns = [f"dur_{d}" for d in dur_cols]
+    dur_cols_present = [d for d in range(1, select_period + 1) if d in pivot.columns]
+    pivot = pivot[dur_cols_present]
+    pivot.columns = pd.Index([f"dur_{d}" for d in dur_cols_present])
     pivot = pivot.reset_index().rename(columns={"issue_age": "age"})
 
     # --- Ultimate table ---
-    # xml.ultimate is a pandas Series indexed by attained_age
-    ultimate_series: pd.Series = xml.ultimate  # type: ignore[union-attr]
-    ultimate_series.index = ultimate_series.index.astype(int)
-    ultimate_series = ultimate_series.astype(float)
+    ultimate_raw: pd.DataFrame = xml.Tables[1].Values  # type: ignore[union-attr]
+    ultimate_raw = ultimate_raw.reset_index()
+    ultimate_raw.columns = [str(c).strip() for c in ultimate_raw.columns]
+    ult_age_col = ultimate_raw.columns[0]
+    ult_rate_col = ultimate_raw.columns[1]
+    ultimate_raw[ult_age_col] = ultimate_raw[ult_age_col].astype(int)
+    ultimate_raw[ult_rate_col] = ultimate_raw[ult_rate_col].astype(float)
+    ult_map: dict[int, float] = dict(
+        zip(ultimate_raw[ult_age_col].tolist(), ultimate_raw[ult_rate_col].tolist())
+    )
 
-    # Map ultimate rates to issue_age:
-    # Attained age at end of select period = issue_age + select_period
-    # We use issue_age as the row key, consistent with SOA table layout.
-    def get_ultimate(issue_age: int) -> float:
-        attained = issue_age + select_period
-        if attained in ultimate_series.index:
-            return float(ultimate_series[attained])
-        # Clamp to max available attained age
-        return float(ultimate_series[min(attained, ultimate_series.index.max())])
+    # Map ultimate rate to each issue_age row:
+    # attained_age at end of select = issue_age + select_period
+    max_ult_age = max(ult_map.keys())
 
-    ages = pivot["age"].tolist()
-    pivot["ultimate"] = [get_ultimate(a) for a in ages]
+    def _get_ult(issue_age: int) -> float:
+        att = issue_age + select_period
+        return ult_map.get(min(att, max_ult_age), float("nan"))
+
+    pivot["ultimate"] = pivot["age"].apply(_get_ult)
 
     return pl.from_pandas(pivot)
 
 
 # ---------------------------------------------------------------------------
-# Fallback path: Excel → CSV
+# CIA2014 Excel path
 # ---------------------------------------------------------------------------
 
 
-def convert_via_excel(
-    excel_dir: Path,
-    output_dir: Path,
-    table_type: str = "all",
-) -> dict[str, bool]:
+def convert_cia_excel(excel_path: Path, output_dir: Path) -> dict[str, bool]:
     """
-    Convert manually downloaded SOA/CIA Excel files to Polaris RE CSV format.
+    Parse CIA2014 Excel workbook (222040T1e.xlsx) and write Polaris RE CSVs.
 
-    SOA VBT 2015 Excel layout (per file, one sex/smoker combination):
-        Sheet "Select":
-            Row 1: header — col 0 = "Issue Age", cols 1-25 = dur labels, col 26 = "Ult" or "Ultimate"
-            Rows 2+: data — rates expressed as q_x * 1000 (per-mille)
-        Sheet "Ultimate":
-            Row 1: header — "Attained Age", "qx" (or similar)
-            Rows 2+: data — rates per-mille
-
-    CIA 2014 Excel layout is similar but sheet names and headers may differ.
-    The --inspect flag can be used to print the actual headers before converting.
+    Confirmed layout (from --inspect output and screenshot):
+      - Sheet names: MnsN, MsmN, FnsN, FsmN  (N = ANB)
+      - Row 0: "CIA2014 mortality rates, age nearest birthday"  ← title, skip
+      - Row 1: "Male smoker" etc.                               ← description, skip
+      - Row 2 (skiprows=2): real headers →
+            "Issue Age" | 1 | 2 | ... | 20 | "Ult" | "Attd Age"
+      - Rates: per-mille (divide by 1000)
+      - "Attd Age" column: attained age label — drop
+      - Select period: 20 years
     """
     try:
-        import openpyxl  # type: ignore[import]
+        import pandas as pd
     except ImportError:
-        console.print(
-            "[red]openpyxl not installed.[/red] Run:\n"
-            "  uv add openpyxl\n  pip install openpyxl"
-        )
+        console.print("[red]pandas not installed.[/red] Run: uv add pandas")
         sys.exit(1)
+
+    if not excel_path.exists():
+        console.print(f"[red]File not found: {excel_path}[/red]")
+        return {}
 
     output_dir.mkdir(parents=True, exist_ok=True)
     results: dict[str, bool] = {}
 
-    excel_files = sorted(excel_dir.glob("*.xlsx")) + sorted(excel_dir.glob("*.xls"))
-    if not excel_files:
-        console.print(f"[red]No Excel files found in {excel_dir}[/red]")
-        return results
+    xl = pd.ExcelFile(excel_path)
+    available_sheets = xl.sheet_names
+    console.print(f"  Sheets in workbook: {available_sheets}")
 
-    console.print(f"\nFound {len(excel_files)} Excel file(s) in {excel_dir}")
+    for sheet_name, meta in CIA_SHEET_MAP.items():
+        output_key = meta["output_key"]
+        output_path = output_dir / f"{output_key}.csv"
+        console.print(f"\n  Processing sheet '{sheet_name}': {meta['description']} ...", end=" ")
 
-    for xlsx_path in excel_files:
-        console.print(f"\n  Processing: [cyan]{xlsx_path.name}[/cyan]")
+        # Try exact sheet name first, then case-insensitive fallback
+        matched_sheet = next(
+            (s for s in available_sheets if s == sheet_name),
+            next(
+                (s for s in available_sheets if s.lower() == sheet_name.lower()),
+                None,
+            ),
+        )
+
+        if matched_sheet is None:
+            console.print(f"[yellow]✗ Sheet '{sheet_name}' not found — skipping.[/yellow]")
+            console.print(f"    Available sheets: {available_sheets}")
+            results[output_key] = False
+            continue
+
         try:
-            result = _convert_soa_excel_file(xlsx_path, output_dir)
-            results.update(result)
+            df = _parse_cia2014_sheet(xl, matched_sheet)
+            pl_df = pl.from_pandas(df)
+            _validate_output_df(pl_df, {
+                "min_age": CIA_MIN_AGE,
+                "max_age": CIA_MAX_AGE,
+            })
+            pl_df.write_csv(output_path)
+            console.print(
+                f"[green]✓[/green] → {output_path.name} "
+                f"({len(pl_df)} ages × {len(pl_df.columns) - 1} rate cols)"
+            )
+            results[output_key] = True
+
         except Exception as exc:
-            console.print(f"    [red]✗ Failed: {exc}[/red]")
+            console.print(f"[red]✗ {exc}[/red]")
+            results[output_key] = False
 
     return results
 
 
-def _inspect_excel(path: Path) -> None:
-    """Print sheet names and first 3 rows of each sheet — useful for debugging."""
-    try:
-        import pandas as pd
-        xl = pd.ExcelFile(path)
-        console.print(f"\n[bold]Inspecting:[/bold] {path.name}")
-        for sheet in xl.sheet_names:
-            df = xl.parse(sheet, nrows=3)
-            console.print(f"  Sheet '{sheet}': columns = {df.columns.tolist()}")
-            console.print(f"  First row: {df.iloc[0].tolist() if len(df) > 0 else '(empty)'}")
-    except Exception as exc:
-        console.print(f"  [red]Could not inspect: {exc}[/red]")
-
-
-def _convert_soa_excel_file(
-    path: Path,
-    output_dir: Path,
-) -> dict[str, bool]:
+def _parse_cia2014_sheet(xl: object, sheet_name: str) -> "pd.DataFrame":
     """
-    Convert a single SOA/CIA Excel file to one or more Polaris RE CSVs.
+    Parse one CIA2014 ANB sheet into a Polaris RE select-and-ultimate DataFrame.
 
-    Attempts to auto-detect:
-    - Table type (select/ultimate or ultimate-only) from sheet names
-    - Sex and smoker status from filename
-    - Whether rates are per-mille or decimal
+    Confirmed layout (from inspect + screenshot of 222040T1e.xlsx):
+      Row 0: title  "CIA2014 mortality rates, age nearest birthday"
+      Row 1: blank
+      Row 2: sub-header  "Issue" | "Policy year" | ... | "Attd"   ← skip
+      Row 3: real headers  NaN/blank | 1 | 2 | ... | 20 | "Ult" | "Attd"  ← use
+      Row 4+: data
+
+    So skiprows=3 is correct. The first column header will be blank/NaN;
+    we rename it to "age". Duration columns are labelled 1..20 (integers).
+    Rates are per-mille — divided by 1000 on output.
     """
     import pandas as pd
 
-    results: dict[str, bool] = {}
-    stem = path.stem.lower()
+    df = xl.parse(sheet_name, skiprows=3, header=0)  # type: ignore[union-attr]
 
-    # --- Detect sex ---
-    if "male" in stem or "_m_" in stem or stem.endswith("_m"):
-        sex = "male"
-    elif "female" in stem or "_f_" in stem or stem.endswith("_f"):
-        sex = "female"
-    else:
-        console.print(
-            f"    [yellow]Cannot determine sex from filename '{path.name}'.[/yellow]\n"
-            f"    Rename to include 'male' or 'female', or pass --sex explicitly."
-        )
-        return results
+    # Rename columns to clean strings; blank first column → "age"
+    new_cols: list[str] = []
+    for i, c in enumerate(df.columns):
+        s = str(c).strip()
+        if s in ("", "nan", "None") or (i == 0 and not s.lstrip("-").replace(".", "").isdigit()):
+            new_cols.append("age" if i == 0 else f"_drop_{i}")
+        else:
+            new_cols.append(s)
+    df.columns = pd.Index(new_cols)
 
-    # --- Detect smoker status ---
-    if "nonsmoker" in stem or "non_smoker" in stem or "ns" in stem or "nons" in stem:
-        smoker = "ns"
-    elif "smoker" in stem:
-        smoker = "smoker"
-    elif "aggregate" in stem or "agg" in stem or "composite" in stem:
-        smoker = "aggregate"
-    else:
-        console.print(
-            f"    [yellow]Cannot determine smoker status from '{path.name}'.[/yellow]\n"
-            f"    Rename to include 'smoker', 'nonsmoker'/'ns', or 'aggregate'."
-        )
-        return results
+    # Drop completely empty rows
+    df = df.dropna(how="all")
 
-    # --- Detect source (SOA vs CIA) ---
-    if "cia" in stem or "canadian" in stem:
-        source_prefix = "cia_2014"
-    elif "vbt" in stem or "soa" in stem:
-        source_prefix = "soa_vbt_2015"
-    elif "cso" in stem:
-        source_prefix = "cso_2001"
-    else:
-        # Default to SOA VBT
-        source_prefix = "soa_vbt_2015"
-        console.print(
-            f"    [yellow]Source not detected from filename — assuming soa_vbt_2015.[/yellow]"
-        )
+    # Parse and filter the age (issue age) column
+    df["age"] = pd.to_numeric(df["age"], errors="coerce")
+    df = df.dropna(subset=["age"])
+    df["age"] = df["age"].astype(int)
+    df = df[(df["age"] >= CIA_MIN_AGE) & (df["age"] <= CIA_MAX_AGE)].copy()
 
-    output_key = f"{source_prefix}_{sex}_{smoker}"
-    output_path = output_dir / f"{output_key}.csv"
-
-    xl = pd.ExcelFile(path)
-    sheet_names_lower = {s.lower(): s for s in xl.sheet_names}
-
-    # --- Ultimate-only (CSO) ---
-    if source_prefix == "cso_2001" or len(xl.sheet_names) == 1:
-        df = _parse_ultimate_sheet(xl, sheet_names_lower, stem)
-        pl_df = pl.from_pandas(df)
-        pl_df.write_csv(output_path)
-        console.print(f"    [green]✓[/green] {output_key}.csv  ({len(pl_df)} ages)")
-        results[output_key] = True
-        return results
-
-    # --- Select-and-ultimate ---
-    select_sheet = next(
-        (sheet_names_lower[k] for k in sheet_names_lower
-         if "select" in k or "s&u" in k or "su" in k),
-        xl.sheet_names[0],
-    )
-    ultimate_sheet = next(
-        (sheet_names_lower[k] for k in sheet_names_lower
-         if "ultimate" in k or "ult" in k),
-        xl.sheet_names[-1] if len(xl.sheet_names) > 1 else xl.sheet_names[0],
-    )
-
-    df_select = xl.parse(select_sheet, header=0)
-    df_ultimate = xl.parse(ultimate_sheet, header=0)
-
-    polaris_df = _reshape_select_ultimate(df_select, df_ultimate, source_prefix)
-    pl_df = pl.from_pandas(polaris_df)
-    pl_df.write_csv(output_path)
-    console.print(
-        f"    [green]✓[/green] {output_key}.csv  "
-        f"({len(pl_df)} ages × {len(pl_df.columns) - 1} rate columns)"
-    )
-    results[output_key] = True
-    return results
-
-
-def _parse_ultimate_sheet(
-    xl: object,
-    sheet_names_lower: dict[str, str],
-    stem: str,
-) -> "pd.DataFrame":
-    """Parse an ultimate-only sheet and return a clean age|rate DataFrame."""
-    import pandas as pd
-
-    sheet = list(sheet_names_lower.values())[0]
-    df = xl.parse(sheet, header=0)  # type: ignore[union-attr]
-    df.columns = [str(c).strip().lower() for c in df.columns]
-
-    age_col = next((c for c in df.columns if "age" in c), df.columns[0])
-    rate_col = next((c for c in df.columns if c != age_col), df.columns[1])
-
-    df = df[[age_col, rate_col]].dropna()
-    df[age_col] = df[age_col].astype(int)
-    df[rate_col] = df[rate_col].astype(float)
-
-    # Detect per-mille (rates > 1.0 are clearly per-mille)
-    if df[rate_col].max() > 1.0:
-        df[rate_col] = df[rate_col] / 1000.0
-
-    return df.rename(columns={age_col: "age", rate_col: "rate"}).reset_index(drop=True)
-
-
-def _reshape_select_ultimate(
-    df_select: "pd.DataFrame",
-    df_ultimate: "pd.DataFrame",
-    source_prefix: str,
-) -> "pd.DataFrame":
-    """
-    Reshape SOA/CIA select table (issue_age × duration) + ultimate column
-    into Polaris RE schema: age, dur_1..dur_N, ultimate.
-
-    SOA Excel select sheet layout:
-        Row 0 (header): "Issue Age" | 1 | 2 | ... | 25 | "Ult" or "Ultimate"
-        Subsequent rows: age | q_x values (per-mille)
-
-    CIA Excel select sheet layout is similar but column labels may differ.
-    """
-    import pandas as pd
-
-    df_select.columns = [str(c).strip() for c in df_select.columns]
-
-    # Identify age column (first column)
-    age_col = df_select.columns[0]
-    df_select = df_select.dropna(subset=[age_col])
-    df_select[age_col] = pd.to_numeric(df_select[age_col], errors="coerce")
-    df_select = df_select.dropna(subset=[age_col])
-    df_select[age_col] = df_select[age_col].astype(int)
-
-    # Identify duration columns: numeric headers 1..25 or "1".."25"
-    # and the ultimate column (labelled "Ult", "Ultimate", "26", etc.)
-    rate_cols = [c for c in df_select.columns if c != age_col]
+    # Identify duration columns (numeric labels 1..20) and "Ult" column.
+    # Stop at first non-numeric, non-duration column after the durations.
     duration_cols: list[str] = []
     ult_col: str | None = None
 
-    for col in rate_cols:
+    for col in df.columns:
+        if col == "age" or col.startswith("_drop_"):
+            continue
+        col_lower = col.lower().strip()
+        if col_lower in ("ult", "ultimate", "ult."):
+            ult_col = col
+            break  # everything after Ult (e.g. "Attd") is discarded
         try:
-            d = int(float(str(col)))
-            if 1 <= d <= 30:
+            d = int(float(col))
+            if 1 <= d <= CIA_SELECT_PERIOD:
                 duration_cols.append(col)
         except ValueError:
-            if str(col).lower() in ("ult", "ultimate", "ult.", "u"):
-                ult_col = col
+            pass  # ignore non-numeric, non-Ult columns
 
-    # If ultimate column not found separately, it may be embedded in duration cols
-    # (some SOA files label it "26" for a 25-year select period)
-    if ult_col is None and len(duration_cols) > 25:
-        ult_col = duration_cols[-1]
-        duration_cols = duration_cols[:-1]
+    if ult_col is None:
+        raise ValueError(
+            f"Could not find 'Ult' column in sheet '{sheet_name}'. "
+            f"Columns after parsing: {df.columns.tolist()}"
+        )
 
-    # Detect per-mille
-    sample_rates = df_select[duration_cols[:3]].values.flatten()
-    sample_rates = sample_rates[~np.isnan(sample_rates.astype(float))]
-    is_per_mille = float(sample_rates.max()) > 1.0
+    if len(duration_cols) != CIA_SELECT_PERIOD:
+        raise ValueError(
+            f"Expected {CIA_SELECT_PERIOD} duration columns, "
+            f"found {len(duration_cols)}: {duration_cols}"
+        )
 
-    # Build output DataFrame
+    # Build output DataFrame — divide per-mille rates by 1000
     output = pd.DataFrame()
-    output["age"] = df_select[age_col].values
+    output["age"] = df["age"].values
 
     for i, col in enumerate(duration_cols, start=1):
-        vals = pd.to_numeric(df_select[col], errors="coerce").values.astype(float)
-        if is_per_mille:
-            vals = vals / 1000.0
-        output[f"dur_{i}"] = vals
+        vals = pd.to_numeric(df[col], errors="coerce").values.astype(float)
+        output[f"dur_{i}"] = vals / 1000.0
 
-    # Ultimate column — from select sheet or ultimate sheet
-    if ult_col is not None:
-        ult_vals = pd.to_numeric(df_select[ult_col], errors="coerce").values.astype(float)
-        if is_per_mille:
-            ult_vals = ult_vals / 1000.0
-        output["ultimate"] = ult_vals
-    else:
-        # Try to merge from separate ultimate sheet
-        df_ultimate.columns = [str(c).strip().lower() for c in df_ultimate.columns]
-        ult_age_col = next((c for c in df_ultimate.columns if "age" in c), df_ultimate.columns[0])
-        ult_rate_col = next((c for c in df_ultimate.columns if c != ult_age_col), df_ultimate.columns[1])
-        df_ultimate[ult_age_col] = pd.to_numeric(df_ultimate[ult_age_col], errors="coerce")
-        df_ultimate[ult_rate_col] = pd.to_numeric(df_ultimate[ult_rate_col], errors="coerce")
-        df_ultimate = df_ultimate.dropna()
-
-        ult_rates = pd.to_numeric(df_ultimate[ult_rate_col], errors="coerce").values.astype(float)
-        if float(ult_rates.max()) > 1.0:
-            ult_rates = ult_rates / 1000.0
-
-        ult_map = dict(zip(
-            df_ultimate[ult_age_col].astype(int).tolist(),
-            ult_rates.tolist(),
-        ))
-        # Map to issue_age (ultimate attained_age = issue_age + select_period)
-        select_period = len(duration_cols)
-        output["ultimate"] = output["age"].apply(
-            lambda a: ult_map.get(a + select_period, ult_map.get(max(ult_map.keys()), np.nan))
-        )
+    ult_vals = pd.to_numeric(df[ult_col], errors="coerce").values.astype(float)
+    output["ultimate"] = ult_vals / 1000.0
 
     return output.reset_index(drop=True)
 
@@ -639,72 +493,79 @@ def _reshape_select_ultimate(
 # ---------------------------------------------------------------------------
 
 
-def _validate_output(df: pl.DataFrame, cfg: dict) -> None:
-    """Basic sanity checks on a converted Polaris RE mortality table."""
-    min_age, max_age = cfg["min_age"], cfg["max_age"]
-    n_expected = max_age - min_age + 1
-
+def _validate_output_df(df: pl.DataFrame, cfg: dict) -> None:
+    """Sanity check: age coverage, rate bounds."""
     if "age" not in df.columns:
-        raise ValueError("Output DataFrame missing 'age' column.")
-
-    n_actual = len(df)
-    if n_actual < n_expected:
-        raise ValueError(
-            f"Expected {n_expected} age rows ({min_age}-{max_age}), got {n_actual}."
-        )
+        raise ValueError("Missing 'age' column.")
 
     rate_cols = [c for c in df.columns if c != "age"]
     for col in rate_cols:
         col_max = df[col].max()
         col_min = df[col].min()
-        if col_min is not None and col_min < 0:
-            raise ValueError(f"Column '{col}' contains negative rates.")
-        if col_max is not None and col_max > 1.0:
+        if col_min is not None and float(col_min) < 0:
+            raise ValueError(f"Column '{col}' has negative rates.")
+        if col_max is not None and float(col_max) > 1.0:
             raise ValueError(
-                f"Column '{col}' max={col_max:.4f} > 1.0 — likely still per-mille."
+                f"Column '{col}' max={float(col_max):.4f} > 1.0 — still per-mille?"
             )
 
 
 def validate_outputs(output_dir: Path) -> bool:
-    """Check all 10 required output CSVs exist and pass basic schema checks."""
-    required_files = list(SOA_TABLE_REGISTRY.keys()) + list(CIA_EXCEL_REGISTRY.keys())
+    """Check all required CSVs exist and pass schema checks."""
+    required = list(SOA_TABLE_REGISTRY.keys()) + list(
+        m["output_key"] for m in CIA_SHEET_MAP.values()
+    )
 
-    results_table = RichTable(title="Polaris RE Mortality Table Validation")
-    results_table.add_column("File", style="cyan")
-    results_table.add_column("Ages")
-    results_table.add_column("Rate cols")
-    results_table.add_column("Min q_x")
-    results_table.add_column("Max q_x")
-    results_table.add_column("Status", style="bold")
+    tbl = RichTable(title="Polaris RE Mortality Table Validation")
+    tbl.add_column("File", style="cyan")
+    tbl.add_column("Ages")
+    tbl.add_column("Rate cols")
+    tbl.add_column("Min q_x")
+    tbl.add_column("Max q_x")
+    tbl.add_column("Status", style="bold")
 
     all_ok = True
-
-    for key in required_files:
+    for key in required:
         path = output_dir / f"{key}.csv"
         if not path.exists():
-            results_table.add_row(f"{key}.csv", "-", "-", "-", "-", "[red]MISSING[/red]")
+            tbl.add_row(f"{key}.csv", "-", "-", "-", "-", "[red]MISSING[/red]")
             all_ok = False
             continue
-
         try:
             df = pl.read_csv(path)
             rate_cols = [c for c in df.columns if c != "age"]
-            all_rates = df.select(rate_cols).to_numpy().flatten()
+            all_rates = df.select(rate_cols).to_numpy().flatten().astype(float)
             all_rates = all_rates[~np.isnan(all_rates)]
-            results_table.add_row(
+            tbl.add_row(
                 f"{key}.csv",
                 str(len(df)),
                 str(len(rate_cols)),
-                f"{all_rates.min():.5f}",
+                f"{all_rates.min():.6f}",
                 f"{all_rates.max():.5f}",
                 "[green]OK[/green]",
             )
         except Exception as exc:
-            results_table.add_row(f"{key}.csv", "-", "-", "-", "-", f"[red]ERROR: {exc}[/red]")
+            tbl.add_row(f"{key}.csv", "-", "-", "-", "-", f"[red]ERROR: {exc}[/red]")
             all_ok = False
 
-    console.print(results_table)
+    console.print(tbl)
     return all_ok
+
+
+def _inspect_excel(path: Path) -> None:
+    """Print sheet names and first 5 rows of each sheet for debugging."""
+    try:
+        import pandas as pd
+        xl = pd.ExcelFile(path)
+        console.print(f"\n[bold]Inspecting:[/bold] {path.name}")
+        for sheet in xl.sheet_names:
+            df = xl.parse(sheet, nrows=5)
+            console.print(f"\n  Sheet '[cyan]{sheet}[/cyan]':")
+            console.print(f"    columns = {df.columns.tolist()}")
+            for i, row in df.iterrows():
+                console.print(f"    row {i}: {row.tolist()}")
+    except Exception as exc:
+        console.print(f"  [red]Could not inspect: {exc}[/red]")
 
 
 # ---------------------------------------------------------------------------
@@ -716,88 +577,71 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Convert SOA/CIA mortality tables to Polaris RE CSV format.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__,
     )
     parser.add_argument(
         "--source",
         choices=["pymort", "excel"],
         default="pymort",
-        help="Conversion source: 'pymort' (download from mort.soa.org) or 'excel' (local files).",
+        help="'pymort' = download VBT2015/CSO2001 from mort.soa.org; 'excel' = CIA2014 xlsx.",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
         default=Path("data/mortality_tables"),
-        help="Directory to write output CSVs (default: data/mortality_tables).",
+        help="Directory for output CSVs (default: data/mortality_tables).",
     )
     parser.add_argument(
-        "--excel-dir",
+        "--excel-file",
         type=Path,
         default=None,
-        help="Directory containing downloaded SOA/CIA Excel files (required for --source excel).",
+        help="Path to CIA2014 Excel file (222040T1e.xlsx). Required for --source excel.",
     )
     parser.add_argument(
         "--tables",
         nargs="+",
         default=None,
-        metavar="TABLE_KEY",
-        help=(
-            "Subset of tables to convert (default: all). "
-            f"Available: {', '.join(SOA_TABLE_REGISTRY.keys())}"
-        ),
+        metavar="KEY",
+        help=f"Subset of SOA tables to fetch. Available: {', '.join(SOA_TABLE_REGISTRY)}",
     )
     parser.add_argument(
         "--inspect",
         type=Path,
         default=None,
         metavar="EXCEL_FILE",
-        help="Print sheet names and headers for a single Excel file (for debugging CIA files).",
+        help="Print sheet names and first rows of an Excel file for debugging.",
     )
     parser.add_argument(
         "--validate-only",
         action="store_true",
-        help="Skip conversion and only validate existing CSVs in --output-dir.",
+        help="Skip conversion — just validate existing CSVs in --output-dir.",
     )
 
     args = parser.parse_args()
-
     console.print("\n[bold]Polaris RE — Mortality Table Converter[/bold]\n")
 
-    # --inspect mode
     if args.inspect:
         _inspect_excel(args.inspect)
         return
 
-    # --validate-only mode
     if args.validate_only:
         console.print(f"Validating CSVs in: {args.output_dir}\n")
         ok = validate_outputs(args.output_dir)
         sys.exit(0 if ok else 1)
 
-    # Conversion
     if args.source == "pymort":
-        console.print(
-            "Source: [bold]pymort[/bold] (fetching from mort.soa.org)\n"
-            f"Output: {args.output_dir}\n"
-        )
+        console.print(f"Source: [bold]pymort[/bold] → mort.soa.org\nOutput: {args.output_dir}\n")
         results = convert_via_pymort(args.output_dir, args.tables)
-
-    else:  # excel
-        if not args.excel_dir:
-            console.print("[red]--excel-dir is required when --source excel is used.[/red]")
+    else:
+        if not args.excel_file:
+            console.print("[red]--excel-file is required with --source excel.[/red]")
             sys.exit(1)
-        console.print(
-            f"Source: [bold]Excel files[/bold] in {args.excel_dir}\n"
-            f"Output: {args.output_dir}\n"
-        )
-        results = convert_via_excel(args.excel_dir, args.output_dir)
+        console.print(f"Source: [bold]CIA2014 Excel[/bold] {args.excel_file}\nOutput: {args.output_dir}\n")
+        results = convert_cia_excel(args.excel_file, args.output_dir)
 
-    # Summary
     n_ok = sum(v for v in results.values())
     n_total = len(results)
     console.print(f"\nConverted {n_ok}/{n_total} tables.")
 
-    # Validate outputs
     if n_ok > 0:
         console.print("\nValidating outputs...\n")
         validate_outputs(args.output_dir)

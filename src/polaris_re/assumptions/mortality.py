@@ -45,9 +45,9 @@ class MortalityTableSource(StrEnum):
 _SOURCE_CONFIG: dict[MortalityTableSource, dict[str, object]] = {
     MortalityTableSource.CIA_2014: {
         "table_name": "CIA 2014 Individual Life",
-        "select_period": 25,
+        "select_period": 20,  # CIA2014 uses 20-year select period
         "min_age": 18,
-        "max_age": 120,
+        "max_age": 115,
         "smoker_distinct": True,
         "file_pattern": "cia_2014_{sex}_{smoker}.csv",
     },
