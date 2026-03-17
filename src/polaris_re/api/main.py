@@ -228,19 +228,31 @@ def _build_pipeline(
     n_ages = 121 - 18  # ages 18-120 inclusive = 103 ages
     qx = np.full(n_ages, flat_qx, dtype=np.float64)
     rates_2d = qx.reshape(-1, 1)  # shape (103, 1) — ultimate-only
-    table_array = MortalityTableArray(
-        rates=rates_2d,
+
+    # Build a synthetic flat-rate table array once, then register it under
+    # all six sex/smoker key combinations so any policy mix resolves correctly.
+    # The demo pipeline uses a uniform flat_qx regardless of sex/smoker status;
+    # real production would use MortalityTable.load() with actual CSV files.
+    all_keys: dict[str, MortalityTableArray] = {}
+    for sex_val in (Sex.MALE, Sex.FEMALE):
+        for smoker_val in (SmokerStatus.SMOKER, SmokerStatus.NON_SMOKER, SmokerStatus.UNKNOWN):
+            key = f"{sex_val.value}_{smoker_val.value}"
+            all_keys[key] = MortalityTableArray(
+                rates=rates_2d.copy(),
+                min_age=18,
+                max_age=120,
+                select_period=0,
+                source_file=Path("synthetic"),
+            )
+
+    mortality = MortalityTable(
+        source=MortalityTableSource.CSO_2001,
+        table_name="Synthetic API (flat rate)",
         min_age=18,
         max_age=120,
-        select_period=0,
-        source_file=Path("synthetic"),
-    )
-    mortality = MortalityTable.from_table_array(
-        source=MortalityTableSource.CSO_2001,
-        table_name="Synthetic API",
-        table_array=table_array,
-        sex=Sex.MALE,
-        smoker_status=SmokerStatus.UNKNOWN,
+        select_period_years=0,
+        has_smoker_distinct_rates=False,
+        tables=all_keys,
     )
     lapse = LapseAssumption.from_duration_table(
         {1: flat_lapse, 2: flat_lapse, 3: flat_lapse, "ultimate": flat_lapse}
