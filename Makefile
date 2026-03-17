@@ -47,10 +47,10 @@ docker-build:
 	docker build -t polaris-re:dev .
 
 docker-test:
-	docker run --rm polaris-re:dev uv run pytest tests/
+	docker run --rm polaris-re:dev python -m pytest tests/ -v --tb=short
 
 docker-lint:
-	docker run --rm polaris-re:dev uv run ruff check src/ tests/
+	docker run --rm polaris-re:dev python -m ruff check src/ tests/
 
 # ---------------------------------------------------------------------------
 # Notebooks

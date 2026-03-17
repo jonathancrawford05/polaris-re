@@ -29,6 +29,46 @@ services:
     working_dir: /app
 
   # -------------------------------------------------------------------------
+  # api — FastAPI server (simulates a deployed pod / Kubernetes service)
+  #
+  # Usage:
+  #   docker compose up api              (foreground, see logs)
+  #   docker compose up -d api           (background)
+  #   docker compose down                (stop and remove)
+  #
+  # Then call from host:
+  #   curl http://localhost:8000/health
+  #   curl http://localhost:8000/docs     (Swagger UI in browser)
+  #   curl -X POST http://localhost:8000/api/v1/price -H 'Content-Type: application/json' -d @tests/fixtures/sample_price_request.json
+  # -------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      target: runtime
+    image: polaris-re:runtime
+    command: >
+      python -m uvicorn polaris_re.api.main:app
+        --host 0.0.0.0
+        --port 8000
+        --workers 2
+        --log-level info
+    ports:
+      - "8000:8000"
+    volumes:
+      # Live-mount src so code changes reflect without rebuilding the image
+      - ./src:/app/src
+      - ${POLARIS_DATA_DIR:-./data}:/data:ro
+    environment:
+      - POLARIS_DATA_DIR=/data
+      - POLARIS_LOG_LEVEL=${POLARIS_LOG_LEVEL:-INFO}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # -------------------------------------------------------------------------
   # notebook — JupyterLab server for validation notebooks
   # -------------------------------------------------------------------------
   notebook:

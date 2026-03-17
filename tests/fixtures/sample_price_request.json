@@ -1,0 +1,52 @@
+{
+  "policies": [
+    {
+      "policy_id": "POL-001",
+      "issue_age": 35,
+      "attained_age": 37,
+      "sex": "M",
+      "smoker": false,
+      "underwriting_class": "PREFERRED",
+      "face_amount": 500000.0,
+      "annual_premium": 1200.0,
+      "policy_term": 20,
+      "duration_inforce": 24,
+      "issue_date": "2022-01-01",
+      "valuation_date": "2024-01-01"
+    },
+    {
+      "policy_id": "POL-002",
+      "issue_age": 45,
+      "attained_age": 46,
+      "sex": "F",
+      "smoker": false,
+      "underwriting_class": "STANDARD",
+      "face_amount": 250000.0,
+      "annual_premium": 950.0,
+      "policy_term": 15,
+      "duration_inforce": 12,
+      "issue_date": "2023-01-01",
+      "valuation_date": "2024-01-01"
+    },
+    {
+      "policy_id": "POL-003",
+      "issue_age": 52,
+      "attained_age": 52,
+      "sex": "M",
+      "smoker": true,
+      "underwriting_class": "STANDARD",
+      "face_amount": 1000000.0,
+      "annual_premium": 8500.0,
+      "policy_term": 10,
+      "duration_inforce": 0,
+      "issue_date": "2024-01-01",
+      "valuation_date": "2024-01-01"
+    }
+  ],
+  "projection_horizon_years": 20,
+  "discount_rate": 0.06,
+  "hurdle_rate": 0.10,
+  "cession_pct": 0.90,
+  "flat_qx": 0.001,
+  "flat_lapse": 0.05
+}
