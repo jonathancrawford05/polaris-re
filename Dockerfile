@@ -31,12 +31,12 @@ COPY uv.lock* ./
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
-RUN uv sync --frozen --no-install-project --extra dev
+RUN uv sync --frozen --no-install-project --all-extras
 
 # Install the project itself (hatchling needs README.md to build)
 COPY src/ ./src/
 COPY README.md ./
-RUN uv sync --frozen --extra dev
+RUN uv sync --frozen --all-extras
 
 # ---------------------------------------------------------------------------
 # Stage 2 — Runtime: minimal production / CI image
