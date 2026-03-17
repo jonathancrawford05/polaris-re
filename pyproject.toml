@@ -33,6 +33,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+tables = [
+    "pymort>=0.2",
+    "openpyxl>=3.1",
+    "pandas>=2.2",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
@@ -55,6 +60,7 @@ api = [
 
 [project.scripts]
 polaris = "polaris_re.cli:app"
+polaris-convert-tables = "polaris_re.scripts.convert_soa_tables:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/polaris_re"]
