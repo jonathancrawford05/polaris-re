@@ -1,0 +1,145 @@
+{
+  // ============================================================================
+  // Polaris RE — GitHub Codespaces / VS Code Dev Container Configuration
+  // ============================================================================
+  // Base image: Microsoft devcontainers Python 3.12 (Debian Bookworm)
+  // Package manager: uv (installed via official installer in postCreateCommand)
+  //
+  // Ports forwarded (auto-labelled in the Codespaces Ports tab):
+  //   8000  → FastAPI  (uvicorn polaris_re.api.main:app --reload)
+  //   8501  → Streamlit dashboard (streamlit run src/polaris_re/dashboard/app.py)
+  //   8888  → JupyterLab (uv run jupyter lab --ip=0.0.0.0 --port=8888 --no-browser)
+  //
+  // After the Codespace starts, run in the terminal:
+  //   make test        — fast test suite (excludes @slow)
+  //   make coverage    — full test suite + HTML coverage report
+  //   make lint        — ruff check + mypy
+  //   make docker-build && make docker-test  — full Docker CI mirror
+  // ============================================================================
+
+  "name": "Polaris RE",
+
+  // ---------------------------------------------------------------------------
+  // Base image — Python 3.12 on Debian Bookworm
+  // Matches CI matrix: python-version 3.12 / ubuntu-latest
+  // ---------------------------------------------------------------------------
+  "image": "mcr.microsoft.com/devcontainers/python:3.12-bookworm",
+
+  // ---------------------------------------------------------------------------
+  // Dev container features
+  // docker-in-docker: enables `make docker-build` and `make docker-test`
+  //   inside the Codespace, mirroring CI job 3 exactly.
+  // ---------------------------------------------------------------------------
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "enableNonRootDocker": "true",
+      "moby": "true"
+    }
+  },
+
+  // ---------------------------------------------------------------------------
+  // Environment variables available in all terminal sessions
+  // ---------------------------------------------------------------------------
+  "containerEnv": {
+    "POLARIS_DATA_DIR": "/workspaces/polaris-re/data",
+    "POLARIS_LOG_LEVEL": "INFO",
+    // Suppress uv progress spinners in non-TTY terminals
+    "UV_NO_PROGRESS": "1"
+  },
+
+  // ---------------------------------------------------------------------------
+  // postCreateCommand — runs once after the container is first created.
+  // Installs uv, then syncs all deps (including api, dev, ml extras).
+  // uv.lock is committed so this resolves deterministically.
+  // ---------------------------------------------------------------------------
+  "postCreateCommand": "curl -LsSf https://astral.sh/uv/install.sh | sh && source $HOME/.local/bin/env && uv sync --frozen --all-extras && echo '\\n✅ Polaris RE environment ready. Run: make test'",
+
+  // ---------------------------------------------------------------------------
+  // postStartCommand — runs on every Codespace start/resume (not just creation).
+  // Activates the uv-managed venv so `python` and `pytest` resolve without
+  // needing `uv run` prefix in the terminal.
+  // ---------------------------------------------------------------------------
+  "postStartCommand": "echo 'source /workspaces/polaris-re/.venv/bin/activate' >> ~/.bashrc",
+
+  // ---------------------------------------------------------------------------
+  // Forwarded ports
+  // ---------------------------------------------------------------------------
+  "forwardPorts": [8000, 8501, 8888],
+
+  "portsAttributes": {
+    "8000": {
+      "label": "FastAPI",
+      "onAutoForward": "notify"
+    },
+    "8501": {
+      "label": "Streamlit Dashboard",
+      "onAutoForward": "notify"
+    },
+    "8888": {
+      "label": "JupyterLab",
+      "onAutoForward": "notify"
+    }
+  },
+
+  // ---------------------------------------------------------------------------
+  // VS Code extensions — installed automatically inside the Codespace
+  // ---------------------------------------------------------------------------
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        // Python core
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        // Ruff (replaces flake8, isort, black — matches project toolchain)
+        "charliermarsh.ruff",
+        // Test runner (pytest integration)
+        "littlefoxteam.vscode-python-test-adapter",
+        "hbenl.vscode-test-explorer",
+        // Coverage gutters (shows line coverage inline in editor)
+        "ryanluker.vscode-coverage-gutters",
+        // Jupyter
+        "ms-toolsai.jupyter",
+        "ms-toolsai.jupyter-keymap",
+        // Docker (for make docker-build / make docker-test)
+        "ms-azuretools.vscode-docker",
+        // REST client (test FastAPI endpoints from within VS Code)
+        "humao.rest-client",
+        // TOML (pyproject.toml syntax)
+        "tamasfe.even-better-toml",
+        // Markdown
+        "yzhang.markdown-all-in-one"
+      ],
+      "settings": {
+        // Point VS Code Python to the uv-managed venv
+        "python.defaultInterpreterPath": "/workspaces/polaris-re/.venv/bin/python",
+        // Ruff as the default formatter (replaces black)
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.formatOnSave": true,
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.codeActionsOnSave": {
+            "source.fixAll.ruff": "explicit",
+            "source.organizeImports.ruff": "explicit"
+          }
+        },
+        // pytest discovery
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": [
+          "tests",
+          "-m",
+          "not slow"
+        ],
+        // Coverage gutters: auto-watch coverage.xml
+        "coverage-gutters.coverageFileNames": ["coverage.xml"],
+        "coverage-gutters.showGutterCoverage": true,
+        "coverage-gutters.showLineCoverage": true
+      }
+    }
+  },
+
+  // ---------------------------------------------------------------------------
+  // Run as non-root (default vscode user in devcontainers/python image)
+  // ---------------------------------------------------------------------------
+  "remoteUser": "vscode"
+}
