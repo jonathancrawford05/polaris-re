@@ -237,12 +237,14 @@ def _pymort_to_ultimate_csv(xml: object, cfg: dict) -> pl.DataFrame:
         rates = rates / 1000.0
 
     min_age, max_age = cfg["min_age"], cfg["max_age"]
-    # Drop sentinel rows: NaN ages, NaN rates, or negative rates (pymort
-    # uses -1 or similar as a missing-value indicator for some age ranges)
+    # Drop only rows with NaN ages, NaN rates, or clearly invalid sentinel
+    # values (rates < -0.5 catch -1 sentinels without discarding true zero
+    # rates at juvenile ages). Do NOT filter on rates >= 0 — q_x = 0.0 is
+    # valid at the youngest ages in some tables.
     valid = (
         ~np.isnan(ages.astype(float))
         & ~np.isnan(rates)
-        & (rates >= 0.0)
+        & (rates > -0.5)          # sentinel guard only
         & (ages >= min_age)
         & (ages <= max_age)
     )
@@ -484,6 +486,20 @@ def _parse_cia2014_sheet(xl: object, sheet_name: str) -> "pd.DataFrame":
 
     ult_vals = pd.to_numeric(df[ult_col], errors="coerce").values.astype(float)
     output["ultimate"] = ult_vals / 1000.0
+
+    # Sanity check: if max rate is still tiny after dividing by 1000,
+    # the source rates were already in decimal form — undo the division.
+    all_rate_vals = output[[c for c in output.columns if c != "age"]].values.flatten()
+    all_rate_vals = all_rate_vals[~np.isnan(all_rate_vals)]
+    if len(all_rate_vals) > 0 and all_rate_vals.max() < 0.001:
+        console.print(
+            "    [yellow]Warning: max rate after /1000 is "
+            f"{all_rate_vals.max():.6f} — source appears already decimal. "
+            "Multiplying back by 1000.[/yellow]"
+        )
+        for col in output.columns:
+            if col != "age":
+                output[col] = output[col] * 1000.0
 
     return output.reset_index(drop=True)
 
