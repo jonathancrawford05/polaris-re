@@ -236,6 +236,9 @@ At the start of each session:
 
 ## 11. Environment Setup
 
+See `docs/QUICKSTART.md` for full setup instructions covering local, Docker,
+Codespaces, and mortality table conversion.
+
 ```bash
 # Install uv (if not already installed)
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -243,7 +246,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # Clone and set up
 git clone https://github.com/jonathancrawford05/polaris-re.git
 cd polaris-re
-uv sync                    # creates .venv and installs all deps
+uv sync --all-extras       # creates .venv and installs ALL deps (dev+api+ml+tables)
 
 # Verify
 uv run python -c "import polaris_re; print(polaris_re.__version__)"
@@ -256,6 +259,9 @@ make format                # auto-fix formatting
 make coverage              # test with coverage report
 make docker-build          # build Docker image
 make docker-test           # run tests inside Docker
+
+# Mortality tables (required for MortalityTable.load())
+uv run python scripts/convert_soa_tables.py --source pymort --output-dir data/mortality_tables
 ```
 
 Environment variables go in `.env` (copy from `.env.example`).
