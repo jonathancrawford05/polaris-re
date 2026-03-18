@@ -109,22 +109,22 @@ SOA_TABLE_REGISTRY: dict[str, dict] = {
         "max_age": 120,
     },
     "cso_2001_male": {
-        "table_id": 1441,
-        "description": "2001 CSO Male Ultimate ANB",
+        "table_id": 1136,
+        "description": "2001 CSO Male Composite Select & Ultimate ANB",
         "select_period": 0,
-        "table_type": "ultimate_only",
+        "table_type": "cso_ultimate",  # extract Tables[1] (ultimate)
         "min_age": 0,
         "max_age": 120,
-        "rates_per_mille": True,  # SOA XML stores CSO as q_x * 1000
+        "rates_per_mille": False,  # rates already in decimal form
     },
     "cso_2001_female": {
-        "table_id": 1442,
-        "description": "2001 CSO Female Ultimate ANB",
+        "table_id": 1139,
+        "description": "2001 CSO Female Composite Select & Ultimate ANB",
         "select_period": 0,
-        "table_type": "ultimate_only",
+        "table_type": "cso_ultimate",
         "min_age": 0,
         "max_age": 120,
-        "rates_per_mille": True,
+        "rates_per_mille": False,
     },
 }
 
@@ -196,7 +196,7 @@ def convert_via_pymort(output_dir: Path, table_keys: list[str] | None = None) ->
         try:
             xml = MortXML.from_id(cfg["table_id"])
 
-            if cfg["table_type"] == "ultimate_only":
+            if cfg["table_type"] in ("ultimate_only", "cso_ultimate"):
                 df = _pymort_to_ultimate_csv(xml, cfg)
             else:
                 df = _pymort_to_select_ultimate_csv(xml, cfg)
@@ -215,13 +215,50 @@ def convert_via_pymort(output_dir: Path, table_keys: list[str] | None = None) ->
 
 def _pymort_to_ultimate_csv(xml: object, cfg: dict) -> pl.DataFrame:
     """
-    Convert a pymort ultimate-only table to Polaris RE schema: age | rate.
+    Convert a pymort ultimate-only or CSO table to Polaris RE schema: age | rate.
 
-    pymort API: xml.Tables[0].Values → pandas DataFrame, index=age, col=rate
-    CSO tables are stored per-mille in the SOA XML.
-    Sentinel rows (rate <= 0 or NaN) are dropped before output.
+    For 'cso_ultimate' tables (e.g. table 1136/1139):
+      Tables[0] = select table (Age × Duration MultiIndex)
+      Tables[1] = ultimate table starting at age 25
+    We use Tables[1] for ages 25+ and fill ages 0-24 from the select table
+    at the highest available duration (last column of the select period).
+
+    For 'ultimate_only' tables: Tables[0] is used directly.
     """
     import pandas as pd
+
+    if cfg.get("table_type") == "cso_ultimate":
+        # Pull ultimate rates from Tables[1]
+        ult_raw: pd.DataFrame = xml.Tables[1].Values  # type: ignore[union-attr]
+        ult_raw = ult_raw.reset_index()
+        ult_raw.columns = [str(c).strip() for c in ult_raw.columns]
+        age_col = ult_raw.columns[0]
+        rate_col = ult_raw.columns[1]
+        ages_ult = pd.to_numeric(ult_raw[age_col], errors="coerce").values
+        rates_ult = pd.to_numeric(ult_raw[rate_col], errors="coerce").values.astype(float)
+
+        # Fill ages 0 to (min_ult_age - 1) from select table at last duration
+        # Tables[0] is MultiIndex (Age, Duration); pick the highest duration per age
+        sel_raw: pd.DataFrame = xml.Tables[0].Values  # type: ignore[union-attr]
+        sel_flat = sel_raw.reset_index()
+        sel_flat.columns = [str(c).strip() for c in sel_flat.columns]
+        # Last duration row per age = highest select-period rate (closest to ultimate)
+        sel_last = sel_flat.sort_values(sel_flat.columns[1]).groupby(sel_flat.columns[0]).last().reset_index()
+        young_ages = pd.to_numeric(sel_last.iloc[:, 0], errors="coerce").values
+        young_rates = pd.to_numeric(sel_last.iloc[:, 2], errors="coerce").values.astype(float)
+
+        min_ult_age = int(ages_ult[~np.isnan(ages_ult)].min())
+        young_mask = (young_ages < min_ult_age) & (~np.isnan(young_ages)) & (~np.isnan(young_rates))
+
+        all_ages = np.concatenate([young_ages[young_mask].astype(int), ages_ult[~np.isnan(ages_ult)].astype(int)])
+        all_rates = np.concatenate([young_rates[young_mask], rates_ult[~np.isnan(ages_ult)]])
+
+        # Sort by age and filter to requested range
+        order = np.argsort(all_ages)
+        all_ages, all_rates = all_ages[order], all_rates[order]
+        min_age, max_age = cfg["min_age"], cfg["max_age"]
+        mask = (all_ages >= min_age) & (all_ages <= max_age) & (all_rates > -0.5)
+        return pl.DataFrame({"age": all_ages[mask].tolist(), "rate": all_rates[mask].tolist()})
 
     raw: pd.DataFrame = xml.Tables[0].Values  # type: ignore[union-attr]
     raw = raw.reset_index()
