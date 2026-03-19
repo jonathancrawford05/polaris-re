@@ -417,3 +417,42 @@ This document records significant architecture and design decisions. Each entry 
 **Decision:** `dashboard/app.py` is excluded from pytest coverage via `omit = ["*/dashboard/app.py"]` in `pyproject.toml`. Streamlit added as an optional dependency under `[project.optional-dependencies] dashboard`.
 
 **Rationale:** Excluding dashboard from coverage prevents the 94%+ coverage on the core analytical modules from being diluted by untestable UI rendering code. The dashboard is a thin presentation layer over already-tested business logic — its correctness is best verified by visual inspection in a running Streamlit session. Users who don't need the dashboard install with `uv sync` (no Streamlit); users who do install with `uv sync --extra dashboard`.
+
+---
+
+## ADR-033: Lapse CSV schema uses 1D policy_year,rate format
+
+**Date:** Phase 4 (Milestone 4.1)
+**Status:** Accepted
+
+**Context:** Mortality tables are 2D (age × select duration). Lapse tables could follow the same 2D layout, or use a simpler 1D layout since lapse rates are fundamentally driven by policy year (duration since issue), not by attained age.
+
+**Decision:** Lapse CSV schema is `policy_year,rate` — one row per policy year. The last row is treated as the ultimate rate. No age or sex/smoker dimensions in the base CSV; if sex/smoker-distinct rates are needed, separate CSV files are used (matching the mortality pattern of one file per sex/smoker combination).
+
+**Rationale:** Real-world lapse experience studies produce rates by policy year, not by attained age. A simpler schema reduces friction for data ingestion from cedant lapse studies. The `LapseTableArray` wrapper mirrors the `MortalityTableArray` API (`get_rate()`, `get_rate_vector()`) for consistency, while using a 1D array internally. `LapseAssumption.load()` mirrors `MortalityTable.load()` for API symmetry. The convention that the last CSV row is the ultimate rate avoids needing a separate "ultimate" column for a 1D table.
+
+---
+
+## ADR-034: ML assumption protocol — same get_*_vector() interface as table assumptions
+
+**Date:** Phase 4 (Milestone 4.3)
+**Status:** Accepted
+
+**Context:** ML-enhanced mortality and lapse assumptions need to integrate with the existing projection engine without code changes to `AssumptionSet`, product engines, or treaty code. Two approaches: (1) a formal Python Protocol class that both table and ML assumptions satisfy, or (2) duck typing where ML classes implement the same method signatures.
+
+**Decision:** Duck typing. `MLMortalityAssumption.get_qx_vector()` matches the signature of `MortalityTable.get_qx_vector()`. `MLLapseAssumption.get_lapse_vector()` matches `LapseAssumption.get_lapse_vector()`. No formal Protocol class is introduced — the `AssumptionSet.mortality` field accepts either `MortalityTable` or `MLMortalityAssumption` since both satisfy Pydantic's `PolarisBaseModel` contract. ML assumptions clip predictions to [0, 1] and convert annual to monthly rates internally.
+
+**Rationale:** A formal Protocol adds an abstraction layer that provides minimal value given there are only two implementations per assumption type. Duck typing is simpler, avoids breaking changes to `AssumptionSet`, and follows Python conventions. The projection engines only call `get_qx_vector()` and `get_lapse_vector()` — as long as ML classes implement these with the same return shape and dtype contract, they are drop-in replacements. Model persistence uses joblib, which handles scikit-learn and XGBoost models natively.
+
+---
+
+## ADR-035: Feature engineering conventions — standard bands and transforms
+
+**Date:** Phase 4 (Milestone 4.3)
+**Status:** Accepted
+
+**Context:** ML models require engineered features beyond raw policy attributes. Need to standardise feature transforms so all ML assumption models use consistent preprocessing.
+
+**Decision:** Standard feature transforms in `utils/features.py`: 5-year age bands (`add_age_bands`), actuarial duration bands (0-1, 2-5, 6-10, 11-15, 16+ years via `add_duration_bands`), log-transformed face amount (`log_face_amount`), and a `build_feature_matrix` function that produces the canonical feature DataFrame from policy attributes. Binary encoding for sex (male=1) and smoker status (smoker=1).
+
+**Rationale:** Consistent feature engineering ensures reproducibility across training and inference. Age bands and duration bands are standard actuarial groupings used in experience studies and pricing. Log-transform for face amount handles the heavy-tailed distribution of policy sizes. Binary encoding for categorical variables is the simplest approach and sufficient for tree-based models (GBM, XGBoost) which dominate actuarial ML use cases.

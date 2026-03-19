@@ -1,7 +1,7 @@
 """
-Mortality table CSV loader and format utilities.
+Table CSV loader and format utilities for mortality and lapse tables.
 
-CANONICAL CSV SCHEMA
+MORTALITY CSV SCHEMA
 --------------------
 Filename convention: {source}_{sex}_{smoker}.csv
   e.g. soa_vbt_2015_male_ns.csv, cia_2014_female_smoker.csv, cso_2001_male.csv
@@ -9,33 +9,24 @@ Filename convention: {source}_{sex}_{smoker}.csv
 SELECT-AND-ULTIMATE tables (CIA 2014, SOA VBT 2015):
     age | dur_1 | dur_2 | ... | dur_N | ultimate
     18  | 0.000 | 0.000 | ... | 0.000 | 0.001
-    ...
-    age     = attained age (ANB for CIA; ALB for SOA VBT)
-    dur_1..N = select-period rates for years 1..N since underwriting
-    ultimate = rate for policies past the select period
 
 ULTIMATE-ONLY tables (2001 CSO):
     age | rate
-    0   | 0.004
+
+LAPSE CSV SCHEMA
+----------------
+Lapse rates are 1D (by policy year), not 2D like mortality (age x duration).
+
+Ultimate-only format:
+    policy_year | rate
+    1           | 0.10
+    2           | 0.08
     ...
 
 VALIDATION RULES:
     1. All rates in [0.0, 1.0]
-    2. Age column must be contiguous integers (no gaps)
+    2. Key column (age or policy_year) must be contiguous integers (no gaps)
     3. Ultimate column must be present for select tables
-    4. Ultimate rates non-decreasing above age 80 (approximately)
-
-Implementation Notes for Claude Code:
---------------------------------------
-- Use polars.read_csv for performance
-- Return MortalityTableArray: 2D numpy array (n_ages, select_period + 1)
-  where last column is ultimate; indexed by [age - min_age, duration_col]
-- Validate on load; raise PolarisValidationError on bad data
-
-TODO (Phase 1, Milestone 1.2):
-- Implement load_mortality_csv using polars + validation
-- Implement MortalityTableArray.get_rate_vector with numpy advanced indexing
-- Tests with synthetic CSV fixtures in tests/fixtures/
 """
 
 from pathlib import Path
@@ -45,7 +36,7 @@ import polars as pl
 
 from polaris_re.core.exceptions import PolarisValidationError
 
-__all__ = ["MortalityTableArray", "load_mortality_csv"]
+__all__ = ["LapseTableArray", "MortalityTableArray", "load_lapse_csv", "load_mortality_csv"]
 
 
 class MortalityTableArray:
@@ -198,5 +189,128 @@ def load_mortality_csv(
         min_age=min_age,
         max_age=max_age,
         select_period=select_period,
+        source_file=path,
+    )
+
+
+class LapseTableArray:
+    """
+    Loaded lapse table as a 1D numpy array for fast vectorized lookups.
+
+    Lapse rates are indexed by policy year (1-based). Years beyond the
+    last explicit year use the final rate as the ultimate rate.
+
+    Shape: (n_years,) where index 0 = policy year 1.
+    """
+
+    def __init__(
+        self,
+        rates: np.ndarray,
+        max_policy_year: int,
+        source_file: Path,
+    ) -> None:
+        self.rates = rates
+        self.max_policy_year = max_policy_year
+        self.source_file = source_file
+
+    def get_rate(self, policy_year: int) -> float:
+        """Single rate lookup. Years beyond max_policy_year use ultimate (last) rate."""
+        idx = min(policy_year, self.max_policy_year) - 1
+        return float(self.rates[idx])
+
+    def get_rate_vector(self, policy_years: np.ndarray) -> np.ndarray:
+        """
+        Vectorized rate lookup.
+
+        Args:
+            policy_years: Policy years (1-based), shape (N,), dtype int32.
+
+        Returns:
+            Annual lapse rates, shape (N,), dtype float64.
+        """
+        idx = np.minimum(policy_years, self.max_policy_year) - 1
+        return self.rates[idx]
+
+
+def load_lapse_csv(
+    path: Path,
+    min_policy_year: int = 1,
+    max_policy_year: int | None = None,
+) -> LapseTableArray:
+    """
+    Load and validate a lapse table CSV into a LapseTableArray.
+
+    Expected CSV schema:
+        policy_year | rate
+        1           | 0.10
+        2           | 0.08
+        ...
+
+    The last row's rate is treated as the ultimate rate for all years
+    beyond the table's range.
+
+    Args:
+        path:             Full path to the CSV file.
+        min_policy_year:  Expected minimum policy year (default: 1).
+        max_policy_year:  If set, truncate table to this many years.
+                          If None, use all rows from the CSV.
+
+    Returns:
+        Validated LapseTableArray.
+
+    Raises:
+        FileNotFoundError: CSV not found.
+        PolarisValidationError: Table fails validation.
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"Lapse table CSV not found: {path}")
+
+    df = pl.read_csv(path)
+
+    if df.columns[0] != "policy_year":
+        raise PolarisValidationError(
+            f"First column must be 'policy_year', got '{df.columns[0]}'."
+        )
+
+    if "rate" not in df.columns:
+        raise PolarisValidationError(
+            f"Missing required 'rate' column in {path.name}. "
+            f"Found columns: {df.columns}"
+        )
+
+    years = df["policy_year"].to_numpy().astype(np.int32)
+    rates = df["rate"].to_numpy().astype(np.float64)
+
+    # Validate contiguous policy years starting at min_policy_year
+    actual_min = int(years.min())
+    actual_max = int(years.max())
+
+    if actual_min > min_policy_year:
+        raise PolarisValidationError(
+            f"Table starts at policy year {actual_min}, expected {min_policy_year}."
+        )
+
+    expected_years = np.arange(actual_min, actual_max + 1, dtype=np.int32)
+    if len(years) != len(expected_years) or not np.array_equal(years, expected_years):
+        raise PolarisValidationError(
+            "policy_year column must be contiguous integers with no gaps."
+        )
+
+    # Validate rates in [0, 1]
+    if np.any(rates < 0.0) or np.any(rates > 1.0):
+        raise PolarisValidationError("All lapse rates must be in [0.0, 1.0].")
+
+    # Filter to requested range
+    mask = years >= min_policy_year
+    rates = rates[mask]
+
+    if max_policy_year is not None:
+        rates = rates[:max_policy_year]
+
+    n_years = len(rates)
+
+    return LapseTableArray(
+        rates=rates,
+        max_policy_year=n_years,
         source_file=path,
     )

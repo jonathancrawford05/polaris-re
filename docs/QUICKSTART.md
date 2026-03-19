@@ -6,6 +6,10 @@ This guide covers four paths to get Polaris RE running and tested:
 2. [GitHub Codespaces](#2-github-codespaces) — zero-install cloud environment
 3. [Docker API Server](#3-docker-api-server) — simulate a deployed reinsurance pricing pod
 4. [Mortality Tables](#4-mortality-tables) — loading real actuarial data
+5. [Lapse Tables](#5-lapse-tables) — loading lapse assumption CSVs
+6. [Cedant Inforce Ingestion](#6-cedant-inforce-data-ingestion) — normalising raw cedant data
+7. [ML-Enhanced Assumptions](#7-ml-enhanced-assumptions) — training ML mortality/lapse models
+8. [YRT Rate Schedule](#8-yrt-rate-schedule-generation) — generating reinsurer rate tables
 
 ---
 
@@ -53,7 +57,7 @@ make coverage      # full suite + HTML report → htmlcov/index.html
 make lint          # ruff check + mypy strict
 ```
 
-Expected outcome: **439 tests pass, 94% coverage**.
+Expected outcome: **533 tests pass, 90%+ coverage**.
 
 ### CLI quick smoke test
 
@@ -62,6 +66,7 @@ uv run polaris version
 uv run polaris price       # demo pricing run with Rich output
 uv run polaris scenario    # scenario analysis
 uv run polaris uq          # Monte Carlo UQ (200 scenarios by default)
+uv run polaris rate-schedule  # YRT rate schedule generation
 ```
 
 ### Validation notebook
@@ -233,6 +238,8 @@ for s in r.json()["scenarios"]:
 | `POST` | `/api/v1/uq` | Monte Carlo UQ — VaR, CVaR, percentiles |
 | `POST` | `/api/v1/ifrs17/bba` | IFRS 17 Building Block Approach |
 | `POST` | `/api/v1/ifrs17/paa` | IFRS 17 Premium Allocation Approach |
+| `POST` | `/api/v1/ingest` | Ingest raw cedant inforce data |
+| `POST` | `/api/v1/rate-schedule` | Generate YRT rate schedule |
 
 ### Container management
 
@@ -364,6 +371,149 @@ flag to see the actual sheet names and column layout:
 
 ```bash
 uv run python scripts/convert_soa_tables.py --inspect ~/Downloads/myfile.xlsx
+```
+
+---
+
+## 5. Lapse Tables
+
+Lapse assumptions can be loaded from CSV files, mirroring the mortality table
+workflow.
+
+### Lapse CSV schema
+
+```
+policy_year,rate
+1,0.12
+2,0.10
+3,0.08
+...
+```
+
+Each row is one policy year with the annual lapse rate as a decimal.
+
+### Convert SOA LLAT 2014 tables
+
+```bash
+uv run python scripts/convert_lapse_tables.py \
+  --source llat \
+  --input-file ~/Downloads/llat_2014.xlsx \
+  --output-dir data/lapse_tables
+```
+
+### Load lapse assumptions in code
+
+```python
+from polaris_re.assumptions.lapse import LapseAssumption
+
+lapse = LapseAssumption.load("my_lapse_table.csv", data_dir=Path("data"))
+```
+
+---
+
+## 6. Cedant Inforce Data Ingestion
+
+Normalise raw cedant CSV files into the Polaris RE schema using a YAML mapping
+config.
+
+### Create a YAML mapping file
+
+```yaml
+source_format:
+  delimiter: ","
+  date_format: "%Y-%m-%d"
+column_mapping:
+  policy_id: "POLNUM"
+  issue_age: "AGE_AT_ISSUE"
+  sex: "GENDER"
+  face_amount: "SUM_ASSURED"
+  annual_premium: "ANNUAL_PREM"
+code_translations:
+  sex:
+    M: "M"
+    MALE: "M"
+    F: "F"
+defaults:
+  underwriting_class: "STANDARD"
+```
+
+### Run ingestion
+
+```bash
+# CLI
+uv run polaris ingest --config mapping.yaml --output normalised.csv raw_cedant.csv
+
+# Python
+from polaris_re.core.inforce import InforceBlock
+block = InforceBlock.from_csv("normalised.csv")
+```
+
+---
+
+## 7. ML-Enhanced Assumptions
+
+Train ML models (scikit-learn / XGBoost) that serve as drop-in replacements
+for table-based mortality and lapse assumptions.
+
+### Train a mortality model
+
+```bash
+uv run python scripts/train_ml_assumptions.py \
+  --data inforce_with_claims.csv \
+  --output-dir models/ \
+  --model-type gradient_boosting
+```
+
+### Use ML assumptions in code
+
+```python
+from polaris_re.assumptions.ml_mortality import MLMortalityAssumption
+from polaris_re.assumptions.assumption_set import AssumptionSet
+
+ml_mort = MLMortalityAssumption.load("models/mortality_model.joblib")
+assumptions = AssumptionSet(mortality=ml_mort, lapse=lapse, version="ml-v1")
+# Use exactly like table-based assumptions in any projection
+```
+
+### Feature engineering
+
+```python
+from polaris_re.utils.features import build_feature_matrix
+
+features = build_feature_matrix(
+    ages=ages, sexes=sexes, smoker_statuses=smokers,
+    durations_months=durations, face_amounts=faces,
+)
+```
+
+---
+
+## 8. YRT Rate Schedule Generation
+
+Generate the actual deliverable reinsurers send cedants: a table of YRT rates
+per $1,000 NAR by age, sex, and smoker status.
+
+### CLI
+
+```bash
+uv run polaris rate-schedule --target-irr 0.10 --ages 25-65
+```
+
+### Python
+
+```python
+from polaris_re.analytics.rate_schedule import YRTRateSchedule
+
+scheduler = YRTRateSchedule(assumptions=assumptions, config=config, target_irr=0.10)
+df = scheduler.generate(ages=[30, 40, 50], sexes=[Sex.MALE], smoker_statuses=[SmokerStatus.UNKNOWN])
+print(df)
+```
+
+### Excel export
+
+```python
+from polaris_re.utils.excel_output import write_rate_schedule_excel
+write_rate_schedule_excel(df, "rates.xlsx")
 ```
 
 ---
