@@ -45,9 +45,7 @@ class MLMortalityAssumption(PolarisBaseModel):
     feature_names: list[str] = Field(description="Ordered feature column names used by the model.")
     model_type: str = Field(description="Model type identifier (e.g. 'xgboost', 'sklearn').")
     trained_date: date = Field(description="Date the model was trained.")
-    source_description: str = Field(
-        default="ML model", description="Description for audit trail."
-    )
+    source_description: str = Field(default="ML model", description="Description for audit trail.")
 
     @classmethod
     def from_trained_model(

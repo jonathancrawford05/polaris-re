@@ -166,14 +166,23 @@ class InforceBlock(PolarisBaseModel):
 
         df = pl.read_csv(path)
 
-        required = ["policy_id", "issue_age", "attained_age", "sex", "smoker_status",
-                     "face_amount", "annual_premium", "product_type", "duration_inforce",
-                     "issue_date", "valuation_date"]
+        required = [
+            "policy_id",
+            "issue_age",
+            "attained_age",
+            "sex",
+            "smoker_status",
+            "face_amount",
+            "annual_premium",
+            "product_type",
+            "duration_inforce",
+            "issue_date",
+            "valuation_date",
+        ]
         missing = [c for c in required if c not in df.columns]
         if missing:
             raise PolarisValidationError(
-                f"Missing required columns in CSV: {missing}. "
-                f"Available: {list(df.columns)}"
+                f"Missing required columns in CSV: {missing}. Available: {list(df.columns)}"
             )
 
         policies: list[Policy] = []

@@ -94,9 +94,16 @@ class TestBuildFeatureMatrix:
             face_amounts=np.array([500_000, 300_000], dtype=np.float64),
         )
         expected_cols = {
-            "age", "age_sq", "age_band", "sex_male", "is_smoker",
-            "duration_months", "duration_years", "duration_band",
-            "face_amount", "log_face",
+            "age",
+            "age_sq",
+            "age_band",
+            "sex_male",
+            "is_smoker",
+            "duration_months",
+            "duration_years",
+            "duration_band",
+            "face_amount",
+            "log_face",
         }
         assert set(df.columns) == expected_cols
 

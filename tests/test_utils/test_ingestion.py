@@ -175,19 +175,21 @@ class TestIngestCedantData:
         """Default values are applied for missing columns."""
         # Write CSV without underwriting_class
         csv_path = tmp_path / "simple.csv"
-        rows = [{
-            "policy_id": "P1",
-            "issue_age": 35,
-            "attained_age": 40,
-            "sex": "M",
-            "smoker_status": "NS",
-            "face_amount": 500000,
-            "annual_premium": 2000,
-            "product_type": "TERM",
-            "duration_inforce": 60,
-            "issue_date": "2020-01-01",
-            "valuation_date": "2025-01-01",
-        }]
+        rows = [
+            {
+                "policy_id": "P1",
+                "issue_age": 35,
+                "attained_age": 40,
+                "sex": "M",
+                "smoker_status": "NS",
+                "face_amount": 500000,
+                "annual_premium": 2000,
+                "product_type": "TERM",
+                "duration_inforce": 60,
+                "issue_date": "2020-01-01",
+                "valuation_date": "2025-01-01",
+            }
+        ]
         pl.DataFrame(rows).write_csv(csv_path)
 
         config = IngestConfig(
@@ -247,23 +249,27 @@ class TestValidateInforceDf:
 
     def test_duplicate_policy_ids(self):
         """Duplicate policy IDs produce a warning."""
-        df = pl.DataFrame({
-            "policy_id": ["P1", "P1"],
-            "attained_age": [40, 45],
-            "face_amount": [100_000, 200_000],
-            "sex": ["M", "F"],
-            "smoker_status": ["NS", "S"],
-        })
+        df = pl.DataFrame(
+            {
+                "policy_id": ["P1", "P1"],
+                "attained_age": [40, 45],
+                "face_amount": [100_000, 200_000],
+                "sex": ["M", "F"],
+                "smoker_status": ["NS", "S"],
+            }
+        )
         report = validate_inforce_df(df)
         assert any("duplicate" in w.lower() for w in report.warnings)
 
     def test_negative_age(self):
         """Negative age produces an error."""
-        df = pl.DataFrame({
-            "policy_id": ["P1"],
-            "attained_age": [-5],
-            "face_amount": [100_000],
-        })
+        df = pl.DataFrame(
+            {
+                "policy_id": ["P1"],
+                "attained_age": [-5],
+                "face_amount": [100_000],
+            }
+        )
         report = validate_inforce_df(df)
         assert any("Negative" in e for e in report.errors)
 

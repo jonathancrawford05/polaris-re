@@ -14,22 +14,24 @@ def _write_synthetic_csv(path: Path, n: int = 5) -> None:
     """Write a minimal synthetic inforce CSV for testing."""
     rows = []
     for i in range(n):
-        rows.append({
-            "policy_id": f"TEST_{i:04d}",
-            "issue_age": 35 + i,
-            "attained_age": 40 + i,
-            "sex": "M" if i % 2 == 0 else "F",
-            "smoker_status": "NS",
-            "underwriting_class": "STANDARD",
-            "face_amount": 500_000.0,
-            "annual_premium": 2000.0 + i * 100,
-            "product_type": "TERM",
-            "policy_term": 20,
-            "duration_inforce": 60,
-            "reinsurance_cession_pct": 0.50,
-            "issue_date": "2020-01-01",
-            "valuation_date": "2025-01-01",
-        })
+        rows.append(
+            {
+                "policy_id": f"TEST_{i:04d}",
+                "issue_age": 35 + i,
+                "attained_age": 40 + i,
+                "sex": "M" if i % 2 == 0 else "F",
+                "smoker_status": "NS",
+                "underwriting_class": "STANDARD",
+                "face_amount": 500_000.0,
+                "annual_premium": 2000.0 + i * 100,
+                "product_type": "TERM",
+                "policy_term": 20,
+                "duration_inforce": 60,
+                "reinsurance_cession_pct": 0.50,
+                "issue_date": "2020-01-01",
+                "valuation_date": "2025-01-01",
+            }
+        )
     pl.DataFrame(rows).write_csv(path)
 
 
@@ -95,26 +97,29 @@ class TestInforceBlockFromCSV:
         _write_synthetic_csv(csv_path, n=4)
         block = InforceBlock.from_csv(csv_path)
         from polaris_re.core.policy import Sex
+
         assert block.policies[0].sex == Sex.MALE
         assert block.policies[1].sex == Sex.FEMALE
 
     def test_optional_fields_default(self, tmp_path):
         """Optional fields get defaults when not in CSV."""
         csv_path = tmp_path / "minimal.csv"
-        rows = [{
-            "policy_id": "P1",
-            "issue_age": 35,
-            "attained_age": 40,
-            "sex": "M",
-            "smoker_status": "NS",
-            "face_amount": 500000,
-            "annual_premium": 2000,
-            "product_type": "TERM",
-            "policy_term": 20,
-            "duration_inforce": 60,
-            "issue_date": "2020-01-01",
-            "valuation_date": "2025-01-01",
-        }]
+        rows = [
+            {
+                "policy_id": "P1",
+                "issue_age": 35,
+                "attained_age": 40,
+                "sex": "M",
+                "smoker_status": "NS",
+                "face_amount": 500000,
+                "annual_premium": 2000,
+                "product_type": "TERM",
+                "policy_term": 20,
+                "duration_inforce": 60,
+                "issue_date": "2020-01-01",
+                "valuation_date": "2025-01-01",
+            }
+        ]
         pl.DataFrame(rows).write_csv(csv_path)
         block = InforceBlock.from_csv(csv_path)
         assert block.policies[0].underwriting_class == "STANDARD"

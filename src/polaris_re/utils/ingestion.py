@@ -224,15 +224,13 @@ def validate_inforce_df(df: pl.DataFrame) -> DataQualityReport:
     if "sex" in df.columns:
         counts = df["sex"].value_counts()
         report.sex_split = {
-            str(row["sex"]): int(row["count"])
-            for row in counts.iter_rows(named=True)
+            str(row["sex"]): int(row["count"]) for row in counts.iter_rows(named=True)
         }
 
     if "smoker_status" in df.columns:
         counts = df["smoker_status"].value_counts()
         report.smoker_split = {
-            str(row["smoker_status"]): int(row["count"])
-            for row in counts.iter_rows(named=True)
+            str(row["smoker_status"]): int(row["count"]) for row in counts.iter_rows(named=True)
         }
 
     # Duplicate policy IDs

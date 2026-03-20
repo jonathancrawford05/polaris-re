@@ -573,7 +573,9 @@ def rate_schedule_cmd(
         # Load synthetic mortality table
         table_array = load_mortality_csv(
             fixtures / "synthetic_select_ultimate.csv",
-            select_period=3, min_age=18, max_age=60,
+            select_period=3,
+            min_age=18,
+            max_age=60,
         )
         mortality = MortalityTable.from_table_array(
             source=MortalityTableSource.SOA_VBT_2015,
@@ -585,9 +587,7 @@ def rate_schedule_cmd(
         lapse = LapseAssumption.from_duration_table(
             {1: 0.10, 2: 0.08, 3: 0.06, 4: 0.05, 5: 0.04, "ultimate": 0.03}
         )
-        assumptions = AssumptionSet(
-            mortality=mortality, lapse=lapse, version="demo-rate-schedule"
-        )
+        assumptions = AssumptionSet(mortality=mortality, lapse=lapse, version="demo-rate-schedule")
         config = ProjectionConfig(
             projection_horizon_years=term,
             discount_rate=0.05,
@@ -597,7 +597,9 @@ def rate_schedule_cmd(
         prog.update(task, description="Solving rates...")
 
         scheduler = YRTRateSchedule(
-            assumptions=assumptions, config=config, target_irr=target_irr,
+            assumptions=assumptions,
+            config=config,
+            target_irr=target_irr,
         )
 
         age_list = [int(a.strip()) for a in ages.split(",")]
@@ -633,6 +635,7 @@ def rate_schedule_cmd(
         output.parent.mkdir(parents=True, exist_ok=True)
         if output.suffix == ".xlsx":
             from polaris_re.utils.excel_output import write_rate_schedule_excel
+
             write_rate_schedule_excel(result_df, output)
         else:
             result_df.write_csv(output)

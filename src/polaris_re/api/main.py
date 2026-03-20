@@ -704,22 +704,34 @@ def api_rate_schedule(request: RateScheduleRequest) -> RateScheduleResponse:
             for smoker_val in (SmokerStatus.SMOKER, SmokerStatus.NON_SMOKER, SmokerStatus.UNKNOWN):
                 key = f"{sex_val.value}_{smoker_val.value}"
                 all_keys[key] = MortalityTableArray(
-                    rates=rates_2d.copy(), min_age=18, max_age=120,
-                    select_period=0, source_file=Path("synthetic"),
+                    rates=rates_2d.copy(),
+                    min_age=18,
+                    max_age=120,
+                    select_period=0,
+                    source_file=Path("synthetic"),
                 )
 
         mortality = MortalityTable(
             source=MortalityTableSource.CSO_2001,
             table_name="Synthetic API (flat rate)",
-            min_age=18, max_age=120, select_period_years=0,
-            has_smoker_distinct_rates=False, tables=all_keys,
+            min_age=18,
+            max_age=120,
+            select_period_years=0,
+            has_smoker_distinct_rates=False,
+            tables=all_keys,
         )
         lapse = LapseAssumption.from_duration_table(
-            {1: request.flat_lapse, 2: request.flat_lapse,
-             3: request.flat_lapse, "ultimate": request.flat_lapse}
+            {
+                1: request.flat_lapse,
+                2: request.flat_lapse,
+                3: request.flat_lapse,
+                "ultimate": request.flat_lapse,
+            }
         )
         assumptions = AssumptionSet(
-            mortality=mortality, lapse=lapse, version="api-v1",
+            mortality=mortality,
+            lapse=lapse,
+            version="api-v1",
         )
         config = ProjectionConfig(
             valuation_date=date.today(),

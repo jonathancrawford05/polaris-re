@@ -108,17 +108,19 @@ def build_feature_matrix(
     durs_arr = np.asarray(durations_months, dtype=np.int32)
     face_arr = np.asarray(face_amounts, dtype=np.float64)
 
-    return pl.DataFrame({
-        "age": ages_arr,
-        "age_sq": (ages_arr ** 2).astype(np.int32),
-        "age_band": add_age_bands(ages_arr),
-        "sex_male": np.array([1 if str(s) == "M" else 0 for s in sexes], dtype=np.int32),
-        "is_smoker": np.array(
-            [1 if str(s) == "S" else 0 for s in smoker_statuses], dtype=np.int32
-        ),
-        "duration_months": durs_arr,
-        "duration_years": (durs_arr // 12).astype(np.int32),
-        "duration_band": add_duration_bands(durs_arr),
-        "face_amount": face_arr,
-        "log_face": log_face_amount(face_arr),
-    })
+    return pl.DataFrame(
+        {
+            "age": ages_arr,
+            "age_sq": (ages_arr**2).astype(np.int32),
+            "age_band": add_age_bands(ages_arr),
+            "sex_male": np.array([1 if str(s) == "M" else 0 for s in sexes], dtype=np.int32),
+            "is_smoker": np.array(
+                [1 if str(s) == "S" else 0 for s in smoker_statuses], dtype=np.int32
+            ),
+            "duration_months": durs_arr,
+            "duration_years": (durs_arr // 12).astype(np.int32),
+            "duration_band": add_duration_bands(durs_arr),
+            "face_amount": face_arr,
+            "log_face": log_face_amount(face_arr),
+        }
+    )

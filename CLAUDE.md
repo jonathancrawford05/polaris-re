@@ -223,6 +223,11 @@ At the start of each session:
 6. Complete one module fully (passing tests) before starting the next.
 7. After a module is complete, update `docs/DECISIONS.md` with choices made.
 
+**Before every commit:**
+- Run `uv run ruff format src/ tests/` to auto-format all code.
+- Run `uv run ruff check src/ tests/ --fix` to auto-fix lint issues.
+- These are **mandatory** — CI will reject unformatted code. Never commit without formatting first.
+
 **Never:**
 - Use `from __future__ import annotations` (Python 3.12 — not needed)
 - Use `Optional[X]` — use `X | None`

@@ -33,9 +33,7 @@ class TestMLLapseConstruction:
         model = GradientBoostingRegressor(n_estimators=10, random_state=42)
         x, y = _synthetic_lapse_data(n=100)
         model.fit(x.to_numpy(), y)
-        ml = MLLapseAssumption.from_trained_model(
-            model=model, feature_names=list(x.columns)
-        )
+        ml = MLLapseAssumption.from_trained_model(model=model, feature_names=list(x.columns))
         assert ml.model is not None
 
     def test_fit(self):
@@ -92,7 +90,9 @@ class TestMLLapsePrediction:
         durs = np.array([12, 60], dtype=np.int32)
         ages = np.array([35, 55], dtype=np.int32)
         result = ml_model.get_lapse_vector(
-            durs, ages=ages, sexes=np.array(["M", "F"]),
+            durs,
+            ages=ages,
+            sexes=np.array(["M", "F"]),
             smoker_statuses=np.array(["NS", "S"]),
             face_amounts=np.array([500_000, 300_000], dtype=np.float64),
         )

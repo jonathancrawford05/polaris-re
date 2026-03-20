@@ -14,7 +14,6 @@ Algorithm:
        that makes IRR = target_irr
 """
 
-
 import polars as pl
 from scipy.optimize import brentq
 
@@ -241,13 +240,17 @@ class YRTRateSchedule:
                         irr_val = self._compute_irr_for_rate(gross, solved_rate)
                         irr = irr_val
 
-                    rows.append({
-                        "issue_age": age,
-                        "sex": sex.value,
-                        "smoker_status": smoker.value,
-                        "policy_term": policy_term,
-                        "rate_per_1000": solved_rate if solved_rate is not None else float("nan"),
-                        "irr": irr if irr is not None else float("nan"),
-                    })
+                    rows.append(
+                        {
+                            "issue_age": age,
+                            "sex": sex.value,
+                            "smoker_status": smoker.value,
+                            "policy_term": policy_term,
+                            "rate_per_1000": solved_rate
+                            if solved_rate is not None
+                            else float("nan"),
+                            "irr": irr if irr is not None else float("nan"),
+                        }
+                    )
 
         return pl.DataFrame(rows)

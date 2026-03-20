@@ -268,14 +268,11 @@ def load_lapse_csv(
     df = pl.read_csv(path)
 
     if df.columns[0] != "policy_year":
-        raise PolarisValidationError(
-            f"First column must be 'policy_year', got '{df.columns[0]}'."
-        )
+        raise PolarisValidationError(f"First column must be 'policy_year', got '{df.columns[0]}'.")
 
     if "rate" not in df.columns:
         raise PolarisValidationError(
-            f"Missing required 'rate' column in {path.name}. "
-            f"Found columns: {df.columns}"
+            f"Missing required 'rate' column in {path.name}. Found columns: {df.columns}"
         )
 
     years = df["policy_year"].to_numpy().astype(np.int32)
@@ -292,9 +289,7 @@ def load_lapse_csv(
 
     expected_years = np.arange(actual_min, actual_max + 1, dtype=np.int32)
     if len(years) != len(expected_years) or not np.array_equal(years, expected_years):
-        raise PolarisValidationError(
-            "policy_year column must be contiguous integers with no gaps."
-        )
+        raise PolarisValidationError("policy_year column must be contiguous integers with no gaps.")
 
     # Validate rates in [0, 1]
     if np.any(rates < 0.0) or np.any(rates > 1.0):
