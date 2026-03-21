@@ -4,8 +4,14 @@ InforceBlock — a validated collection of Policy objects with vectorized attrib
 The InforceBlock is the primary input to all projection engines. It provides
 zero-copy numpy array views over policy attributes, enabling fully vectorized
 projection code without policy-level Python loops.
+
+Supports construction from:
+  - A list of ``Policy`` objects (standard)
+  - A normalised CSV file via ``InforceBlock.from_csv()`` (Phase 4)
 """
 
+from datetime import date as date_type
+from pathlib import Path
 from typing import Self
 
 import numpy as np
@@ -125,6 +131,94 @@ class InforceBlock(PolarisBaseModel):
             ],
             dtype=np.int32,
         )
+
+    # ------------------------------------------------------------------
+    # Factory methods
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_csv(
+        cls,
+        path: Path,
+        block_id: str | None = None,
+    ) -> Self:
+        """
+        Construct an InforceBlock from a normalised Polaris RE CSV file.
+
+        The CSV must follow the schema produced by ``generate_synthetic_block.py``:
+        columns match the ``Policy`` model fields.
+
+        Args:
+            path:     Path to the normalised CSV file.
+            block_id: Optional block identifier.
+
+        Returns:
+            A validated InforceBlock.
+
+        Raises:
+            FileNotFoundError: CSV file not found.
+            PolarisValidationError: Data fails validation.
+        """
+        import polars as pl
+
+        if not path.exists():
+            raise FileNotFoundError(f"Inforce CSV not found: {path}")
+
+        df = pl.read_csv(path)
+
+        required = [
+            "policy_id",
+            "issue_age",
+            "attained_age",
+            "sex",
+            "smoker_status",
+            "face_amount",
+            "annual_premium",
+            "product_type",
+            "duration_inforce",
+            "issue_date",
+            "valuation_date",
+        ]
+        missing = [c for c in required if c not in df.columns]
+        if missing:
+            raise PolarisValidationError(
+                f"Missing required columns in CSV: {missing}. Available: {list(df.columns)}"
+            )
+
+        policies: list[Policy] = []
+        for row in df.iter_rows(named=True):
+            policy_term = row.get("policy_term")
+            if policy_term is not None:
+                policy_term = int(policy_term)
+
+            # Parse dates — handle both string and date objects
+            issue_date_val = row["issue_date"]
+            if isinstance(issue_date_val, str):
+                issue_date_val = date_type.fromisoformat(issue_date_val)
+
+            val_date_val = row["valuation_date"]
+            if isinstance(val_date_val, str):
+                val_date_val = date_type.fromisoformat(val_date_val)
+
+            policy = Policy(
+                policy_id=str(row["policy_id"]),
+                issue_age=int(row["issue_age"]),
+                attained_age=int(row["attained_age"]),
+                sex=Sex(str(row["sex"])),
+                smoker_status=SmokerStatus(str(row["smoker_status"])),
+                underwriting_class=str(row.get("underwriting_class", "STANDARD")),
+                face_amount=float(row["face_amount"]),
+                annual_premium=float(row["annual_premium"]),
+                product_type=ProductType(str(row["product_type"])),
+                policy_term=policy_term,
+                duration_inforce=int(row["duration_inforce"]),
+                reinsurance_cession_pct=float(row.get("reinsurance_cession_pct", 0.0)),
+                issue_date=issue_date_val,
+                valuation_date=val_date_val,
+            )
+            policies.append(policy)
+
+        return cls(policies=policies, block_id=block_id)  # type: ignore[return-value]
 
     # ------------------------------------------------------------------
     # Filtering

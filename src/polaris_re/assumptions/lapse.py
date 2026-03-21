@@ -6,24 +6,21 @@ terminates their policy in a given policy year. They follow a
 "select and ultimate" pattern — high in early durations, declining to a
 stable ultimate rate after the select period.
 
-Implementation Notes for Claude Code:
---------------------------------------
-- Lapse rates are per policy year (annual), not per month.
-  Monthly: w_monthly = 1 - (1 - w_annual)^(1/12)
-- Duration measured in policy years from issue (duration_inforce / 12).
-- Select period for lapses is typically 10-20 years.
-- Lapse rates typically 5-15% in year 1, declining to 2-5% ultimate.
-- For reinsurance: lower lapses = more exposure = more adverse for YRT reinsurer.
+Supports two construction methods:
+  1. ``from_duration_table()`` — from an in-memory dict (testing/hardcoded)
+  2. ``load()`` — from a CSV file matching the Polaris RE lapse schema
 
-TODO (Phase 1, Milestone 1.2):
-- Implement `from_duration_table` factory method
-- Implement `get_lapse_vector` (vectorized over policies)
-- Unit tests verifying select and ultimate logic with closed-form values
+Lapse rates are per policy year (annual), not per month.
+Monthly: w_monthly = 1 - (1 - w_annual)^(1/12)
 """
+
+from pathlib import Path
+from typing import Self
 
 import numpy as np
 
 from polaris_re.core.base import PolarisBaseModel
+from polaris_re.core.exceptions import PolarisValidationError
 
 __all__ = ["LapseAssumption"]
 
@@ -78,6 +75,63 @@ class LapseAssumption(PolarisBaseModel):
         for rate in all_rates:
             if not (0.0 <= rate <= 1.0):
                 raise ValueError(f"Lapse rate {rate} outside [0, 1].")
+
+        return cls(
+            select_rates=select_rates,
+            ultimate_rate=ultimate_rate,
+            select_period_years=select_period_years,
+        )
+
+    @classmethod
+    def load(
+        cls,
+        path: Path,
+        data_dir: Path | None = None,
+    ) -> Self:
+        """
+        Load a lapse assumption from a CSV file.
+
+        The CSV must have columns ``policy_year`` and ``rate``. The last
+        row's rate is treated as the ultimate rate; all preceding rows
+        form the select-period rates.
+
+        Args:
+            path: Path to the CSV file, or just a filename to resolve
+                  relative to *data_dir*.
+            data_dir: Optional base directory. When *path* is relative,
+                      it is resolved against ``data_dir / lapse_tables/``.
+
+        Returns:
+            A validated LapseAssumption instance.
+
+        Raises:
+            FileNotFoundError: CSV not found.
+            PolarisValidationError: Table fails validation.
+        """
+        from polaris_re.utils.table_io import load_lapse_csv
+
+        resolved = Path(path)
+        if not resolved.is_absolute() and data_dir is not None:
+            resolved = data_dir / "lapse_tables" / path
+
+        if not resolved.exists():
+            raise FileNotFoundError(f"Lapse table CSV not found: {resolved}")
+
+        table_array = load_lapse_csv(resolved)
+
+        n_years = len(table_array.rates)
+        if n_years < 1:
+            raise PolarisValidationError("Lapse table must have at least one rate row.")
+
+        # All rates except the last form select rates; last is ultimate
+        if n_years == 1:
+            select_rates: tuple[float, ...] = ()
+            ultimate_rate = float(table_array.rates[0])
+            select_period_years = 0
+        else:
+            select_rates = tuple(float(r) for r in table_array.rates[:-1])
+            ultimate_rate = float(table_array.rates[-1])
+            select_period_years = n_years - 1
 
         return cls(
             select_rates=select_rates,

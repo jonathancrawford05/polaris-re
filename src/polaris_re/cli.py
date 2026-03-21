@@ -526,5 +526,202 @@ def validate_cmd(
         console.print("[green]✓ Validation PASSED[/green]")
 
 
+@app.command("rate-schedule")
+def rate_schedule_cmd(
+    target_irr: Annotated[
+        float,
+        typer.Option("--target-irr", help="Target annual IRR (e.g. 0.10 for 10%)"),
+    ] = 0.10,
+    ages: Annotated[
+        str,
+        typer.Option("--ages", help="Comma-separated issue ages (e.g. 25,30,35,40,45,50)"),
+    ] = "25,30,35,40,45,50,55,60,65",
+    term: Annotated[
+        int,
+        typer.Option("--term", help="Policy term in years"),
+    ] = 20,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Output CSV or Excel file"),
+    ] = None,
+    output_json: Annotated[
+        Path | None,
+        typer.Option("--json", help="Export results as JSON"),
+    ] = None,
+) -> None:
+    """
+    Generate a YRT rate schedule — rates per $1,000 NAR that achieve a target IRR.
+
+    Uses synthetic mortality and lapse tables (demo mode). Output is a table
+    of solved rates by issue age, sex, and smoker status.
+    """
+    _header()
+
+    from polaris_re.analytics.rate_schedule import YRTRateSchedule
+    from polaris_re.assumptions.assumption_set import AssumptionSet
+    from polaris_re.assumptions.lapse import LapseAssumption
+    from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
+    from polaris_re.core.policy import Sex, SmokerStatus
+    from polaris_re.core.projection import ProjectionConfig
+    from polaris_re.utils.table_io import load_mortality_csv
+
+    fixtures = Path(__file__).parent.parent.parent / "tests" / "fixtures"
+
+    with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}")) as prog:
+        task = prog.add_task("Loading assumptions...", total=None)
+
+        # Load synthetic mortality table
+        table_array = load_mortality_csv(
+            fixtures / "synthetic_select_ultimate.csv",
+            select_period=3,
+            min_age=18,
+            max_age=60,
+        )
+        mortality = MortalityTable.from_table_array(
+            source=MortalityTableSource.SOA_VBT_2015,
+            table_name="Demo Synthetic",
+            table_array=table_array,
+            sex=Sex.MALE,
+            smoker_status=SmokerStatus.UNKNOWN,
+        )
+        lapse = LapseAssumption.from_duration_table(
+            {1: 0.10, 2: 0.08, 3: 0.06, 4: 0.05, 5: 0.04, "ultimate": 0.03}
+        )
+        assumptions = AssumptionSet(mortality=mortality, lapse=lapse, version="demo-rate-schedule")
+        config = ProjectionConfig(
+            projection_horizon_years=term,
+            discount_rate=0.05,
+            valuation_date=date(2025, 1, 1),
+        )
+
+        prog.update(task, description="Solving rates...")
+
+        scheduler = YRTRateSchedule(
+            assumptions=assumptions,
+            config=config,
+            target_irr=target_irr,
+        )
+
+        age_list = [int(a.strip()) for a in ages.split(",")]
+        # Use only UNKNOWN smoker since we have aggregate tables in demo mode
+        result_df = scheduler.generate(
+            ages=age_list,
+            sexes=[Sex.MALE],
+            smoker_statuses=[SmokerStatus.UNKNOWN],
+            policy_term=term,
+        )
+
+    # Display table
+    result_table = Table(title=f"YRT Rate Schedule (Target IRR = {target_irr:.1%})")
+    result_table.add_column("Issue Age", justify="center")
+    result_table.add_column("Sex")
+    result_table.add_column("Smoker")
+    result_table.add_column("Term")
+    result_table.add_column("Rate/$1000", justify="right")
+
+    for row in result_df.iter_rows(named=True):
+        rate_str = f"{row['rate_per_1000']:.4f}" if not np.isnan(row["rate_per_1000"]) else "N/A"
+        result_table.add_row(
+            str(row["issue_age"]),
+            str(row["sex"]),
+            str(row["smoker_status"]),
+            str(row["policy_term"]),
+            rate_str,
+        )
+
+    console.print(result_table)
+
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        if output.suffix == ".xlsx":
+            from polaris_re.utils.excel_output import write_rate_schedule_excel
+
+            write_rate_schedule_excel(result_df, output)
+        else:
+            result_df.write_csv(output)
+        console.print(f"\nResults written to {output}")
+
+    if output_json is not None:
+        output_json.parent.mkdir(parents=True, exist_ok=True)
+        json_data = result_df.to_dicts()
+        output_json.write_text(json.dumps(json_data, indent=2, default=str))
+        console.print(f"JSON written to {output_json}")
+
+
+@app.command()
+def ingest(
+    input_path: Annotated[
+        Path,
+        typer.Argument(help="Raw cedant inforce data file (CSV or Excel)"),
+    ],
+    config_path: Annotated[
+        Path,
+        typer.Option("--config", "-c", help="YAML mapping configuration file"),
+    ] = ...,  # type: ignore[assignment]
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="Output normalised CSV path"),
+    ] = Path("data/normalised_block.csv"),
+    validate_only: Annotated[
+        bool,
+        typer.Option("--validate-only", help="Only validate, do not write"),
+    ] = False,
+) -> None:
+    """
+    Ingest raw cedant inforce data and normalise to Polaris RE schema.
+
+    Applies a YAML mapping config to rename columns, translate codes,
+    and fill defaults. Reports data quality summary.
+    """
+    _header()
+
+    from polaris_re.utils.ingestion import IngestConfig, ingest_cedant_data, validate_inforce_df
+
+    if not input_path.exists():
+        console.print(f"[red]Error:[/red] Input file not found: {input_path}")
+        raise typer.Exit(code=1)
+
+    if not config_path.exists():
+        console.print(f"[red]Error:[/red] Config file not found: {config_path}")
+        raise typer.Exit(code=1)
+
+    with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}")) as prog:
+        prog.add_task("Loading mapping config...", total=None)
+        config = IngestConfig.from_yaml(config_path)
+
+        prog.add_task("Ingesting raw data...", total=None)
+        df = ingest_cedant_data(input_path, config)
+
+        prog.add_task("Validating...", total=None)
+        report = validate_inforce_df(df)
+
+    # Summary
+    summary = Table(title="Ingestion Summary")
+    summary.add_column("Metric", style="cyan")
+    summary.add_column("Value")
+    summary.add_row("Policies", f"{report.n_policies:,}")
+    summary.add_row("Total Face Amount", f"${report.total_face_amount:,.0f}")
+    summary.add_row("Mean Age", f"{report.mean_age:.1f}")
+    summary.add_row("Sex Split", str(report.sex_split))
+    summary.add_row("Smoker Split", str(report.smoker_split))
+    console.print(summary)
+
+    if report.warnings:
+        for w in report.warnings:
+            console.print(f"[yellow]⚠ {w}[/yellow]")
+
+    if report.errors:
+        for e in report.errors:
+            console.print(f"[red]✗ {e}[/red]")
+        raise typer.Exit(code=1)
+
+    console.print("[green]✓ Validation passed[/green]")
+
+    if not validate_only:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        df.write_csv(output)
+        console.print(f"\nNormalised data written to {output}")
+
+
 if __name__ == "__main__":
     app()

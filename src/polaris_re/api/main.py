@@ -12,6 +12,7 @@ Endpoints:
     POST /api/v1/uq            — run Monte Carlo uncertainty quantification
     POST /api/v1/ifrs17/bba    — compute IFRS 17 BBA measurement
     POST /api/v1/ifrs17/paa    — compute IFRS 17 PAA measurement
+    POST /api/v1/ingest        — ingest raw cedant inforce data
 
 All request and response bodies are JSON, validated via Pydantic models.
 NumPy arrays are serialised as lists. Dates are ISO-8601 strings.
@@ -548,4 +549,215 @@ def ifrs17_paa(request: IFRS17Request) -> IFRS17Response:
         csm_release=result.csm_release.tolist(),
         insurance_revenue=result.insurance_revenue.tolist(),
         insurance_service_result=result.insurance_service_result.tolist(),
+    )
+
+
+# =========================================================================
+# POST /api/v1/ingest — Cedant inforce data ingestion
+# =========================================================================
+
+
+class IngestColumnMapping(BaseModel):
+    """Column mapping from source to Polaris RE schema."""
+
+    column_mapping: dict[str, str] = Field(description="Maps Polaris field → source column name.")
+    code_translations: dict[str, dict[str, str]] = Field(
+        default_factory=dict, description="Per-field code translations."
+    )
+    defaults: dict[str, str | float | int] = Field(
+        default_factory=dict, description="Default values for missing fields."
+    )
+
+
+class IngestRequest(BaseModel):
+    """Request body for inforce data ingestion."""
+
+    policies: list[dict[str, str | float | int]] = Field(
+        description="Raw policy records as list of dicts."
+    )
+    mapping: IngestColumnMapping = Field(description="Column mapping configuration.")
+
+
+class IngestResponse(BaseModel):
+    """Response body for inforce data ingestion."""
+
+    n_policies: int = Field(description="Number of policies ingested.")
+    total_face_amount: float = Field(description="Total face amount.")
+    mean_age: float = Field(description="Mean attained age.")
+    sex_split: dict[str, int] = Field(description="Count by sex.")
+    smoker_split: dict[str, int] = Field(description="Count by smoker status.")
+    errors: list[str] = Field(description="Validation errors.")
+    warnings: list[str] = Field(description="Validation warnings.")
+    policies: list[dict[str, str | float | int | None]] = Field(
+        description="Normalised policy records."
+    )
+
+
+@app.post("/api/v1/ingest", response_model=IngestResponse)
+def api_ingest(request: IngestRequest) -> IngestResponse:
+    """Ingest raw cedant inforce data: apply column mapping and validate."""
+    import polars as pl
+
+    from polaris_re.utils.ingestion import (
+        IngestConfig,
+        validate_inforce_df,
+    )
+
+    try:
+        df = pl.DataFrame(request.policies)
+
+        config = IngestConfig(
+            column_mapping=request.mapping.column_mapping,
+            code_translations=request.mapping.code_translations,
+            defaults=request.mapping.defaults,
+        )
+
+        # Apply rename
+        rename_map: dict[str, str] = {}
+        for polaris_field, source_col in config.column_mapping.items():
+            if source_col in df.columns:
+                rename_map[source_col] = polaris_field
+        df = df.rename(rename_map)
+
+        # Apply code translations
+        for field_name, translation in config.code_translations.items():
+            if field_name in df.columns:
+                df = df.with_columns(
+                    pl.col(field_name).cast(pl.Utf8).replace(translation).alias(field_name)
+                )
+
+        # Apply defaults
+        for field_name, default_value in config.defaults.items():
+            if field_name not in df.columns:
+                df = df.with_columns(pl.lit(default_value).alias(field_name))
+
+        report = validate_inforce_df(df)
+
+        policies_out = df.to_dicts()
+
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return IngestResponse(
+        n_policies=report.n_policies,
+        total_face_amount=report.total_face_amount,
+        mean_age=report.mean_age,
+        sex_split=report.sex_split,
+        smoker_split=report.smoker_split,
+        errors=report.errors,
+        warnings=report.warnings,
+        policies=policies_out,
+    )
+
+
+# =========================================================================
+# POST /api/v1/rate-schedule — YRT Rate Schedule Generator
+# =========================================================================
+
+
+class RateScheduleRequest(BaseModel):
+    """Request body for YRT rate schedule generation."""
+
+    target_irr: float = Field(default=0.10, ge=0.0, le=1.0, description="Target annual IRR.")
+    ages: list[int] = Field(
+        default=[25, 30, 35, 40, 45, 50, 55, 60],
+        description="Issue ages to include in the schedule.",
+    )
+    policy_term: int = Field(default=20, ge=1, le=50, description="Policy term in years.")
+    policies_in: int = Field(default=5, description="Demo: number of policies (ignored).")
+    flat_qx: float = Field(default=0.004, description="Demo: flat annual mortality rate.")
+    flat_lapse: float = Field(default=0.03, description="Demo: flat annual lapse rate.")
+    discount_rate: float = Field(default=0.05, description="Annual discount rate.")
+
+
+class RateScheduleResponse(BaseModel):
+    """Response body for YRT rate schedule."""
+
+    target_irr: float
+    n_cells: int
+    schedule: list[dict[str, float | str | int | None]]
+
+
+@app.post("/api/v1/rate-schedule", response_model=RateScheduleResponse)
+def api_rate_schedule(request: RateScheduleRequest) -> RateScheduleResponse:
+    """Generate a YRT rate schedule solving for rates that achieve target IRR."""
+    from polaris_re.analytics.rate_schedule import YRTRateSchedule
+
+    try:
+        from pathlib import Path
+
+        from polaris_re.assumptions.assumption_set import AssumptionSet
+        from polaris_re.assumptions.lapse import LapseAssumption
+        from polaris_re.assumptions.mortality import (
+            MortalityTable,
+            MortalityTableSource,
+        )
+        from polaris_re.core.projection import ProjectionConfig
+        from polaris_re.utils.table_io import MortalityTableArray
+
+        n_ages = 121 - 18
+        qx = np.full(n_ages, request.flat_qx, dtype=np.float64)
+        rates_2d = qx.reshape(-1, 1)
+
+        all_keys: dict[str, MortalityTableArray] = {}
+        for sex_val in (Sex.MALE, Sex.FEMALE):
+            for smoker_val in (SmokerStatus.SMOKER, SmokerStatus.NON_SMOKER, SmokerStatus.UNKNOWN):
+                key = f"{sex_val.value}_{smoker_val.value}"
+                all_keys[key] = MortalityTableArray(
+                    rates=rates_2d.copy(),
+                    min_age=18,
+                    max_age=120,
+                    select_period=0,
+                    source_file=Path("synthetic"),
+                )
+
+        mortality = MortalityTable(
+            source=MortalityTableSource.CSO_2001,
+            table_name="Synthetic API (flat rate)",
+            min_age=18,
+            max_age=120,
+            select_period_years=0,
+            has_smoker_distinct_rates=False,
+            tables=all_keys,
+        )
+        lapse = LapseAssumption.from_duration_table(
+            {
+                1: request.flat_lapse,
+                2: request.flat_lapse,
+                3: request.flat_lapse,
+                "ultimate": request.flat_lapse,
+            }
+        )
+        assumptions = AssumptionSet(
+            mortality=mortality,
+            lapse=lapse,
+            version="api-v1",
+        )
+        config = ProjectionConfig(
+            valuation_date=date.today(),
+            projection_horizon_years=request.policy_term,
+            discount_rate=request.discount_rate,
+        )
+
+        scheduler = YRTRateSchedule(
+            assumptions=assumptions,
+            config=config,
+            target_irr=request.target_irr,
+        )
+
+        result_df = scheduler.generate(
+            ages=request.ages,
+            sexes=[Sex.MALE],
+            smoker_statuses=[SmokerStatus.UNKNOWN],
+            policy_term=request.policy_term,
+        )
+
+        schedule = result_df.to_dicts()
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return RateScheduleResponse(
+        target_irr=request.target_irr,
+        n_cells=len(schedule),
+        schedule=schedule,
     )
