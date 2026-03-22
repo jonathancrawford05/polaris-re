@@ -23,6 +23,8 @@ NCF additivity proof:
 The modco_interest is stored in CashFlowResult.modco_interest for auditability.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 from pydantic import Field, model_validator
 
@@ -30,6 +32,9 @@ from polaris_re.core.base import PolarisBaseModel
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.exceptions import PolarisComputationError
 from polaris_re.reinsurance.base_treaty import BaseTreaty
+
+if TYPE_CHECKING:
+    from polaris_re.core.inforce import InforceBlock
 
 __all__ = ["ModcoTreaty"]
 
@@ -64,13 +69,18 @@ class ModcoTreaty(PolarisBaseModel, BaseTreaty):
             raise ValueError(f"modco_interest_rate must be >= 0.0, got {self.modco_interest_rate}")
         return self
 
-    def apply(self, gross: CashFlowResult) -> tuple[CashFlowResult, CashFlowResult]:
+    def apply(
+        self,
+        gross: CashFlowResult,
+        inforce: "InforceBlock | None" = None,
+    ) -> tuple[CashFlowResult, CashFlowResult]:
         """
         Apply Modco treaty to gross cash flows.
 
         Args:
-            gross: GROSS basis CashFlowResult. reserve_balance must be populated
-                   for modco interest calculation to be meaningful.
+            gross:   GROSS basis CashFlowResult. reserve_balance must be populated
+                     for modco interest calculation to be meaningful.
+            inforce: Optional InforceBlock for policy-level cession overrides.
 
         Returns:
             (net, ceded) CashFlowResult tuple.
@@ -81,7 +91,7 @@ class ModcoTreaty(PolarisBaseModel, BaseTreaty):
                 "ModcoTreaty requires reserve_balance in gross CashFlowResult."
             )
 
-        c = self.cession_pct
+        c = self._resolve_cession(self.cession_pct, inforce)
 
         # Premiums: split proportionally (identical to coinsurance)
         net_premiums = gross.gross_premiums * (1.0 - c)

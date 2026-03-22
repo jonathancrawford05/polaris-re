@@ -91,11 +91,14 @@ class Policy(PolarisBaseModel):
     )
 
     # --- Reinsurance ---
-    reinsurance_cession_pct: float = Field(
+    reinsurance_cession_pct: float | None = Field(
+        default=None,
         ge=0.0,
         le=1.0,
         description=(
-            "Proportion of the policy ceded to reinsurer. 0.0 = retained, 1.0 = fully ceded."
+            "Policy-level cession override. When set, this overrides the treaty-level "
+            "cession_pct for this specific policy. When None (default), the treaty-level "
+            "cession_pct applies. 0.0 = retained, 1.0 = fully ceded."
         ),
     )
 

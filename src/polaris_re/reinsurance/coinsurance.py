@@ -18,12 +18,17 @@ KEY DISTINCTION FROM YRT:
     Coinsurance transfers the reserve liability. net_reserve != gross_reserve.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 from pydantic import Field
 
 from polaris_re.core.base import PolarisBaseModel
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.reinsurance.base_treaty import BaseTreaty
+
+if TYPE_CHECKING:
+    from polaris_re.core.inforce import InforceBlock
 
 __all__ = ["CoinsuranceTreaty"]
 
@@ -50,7 +55,11 @@ class CoinsuranceTreaty(PolarisBaseModel, BaseTreaty):
     )
     treaty_name: str | None = Field(default=None, description="Optional treaty identifier.")
 
-    def apply(self, gross: CashFlowResult) -> tuple[CashFlowResult, CashFlowResult]:
+    def apply(
+        self,
+        gross: CashFlowResult,
+        inforce: "InforceBlock | None" = None,
+    ) -> tuple[CashFlowResult, CashFlowResult]:
         """
         Apply coinsurance treaty to gross cash flows.
 
@@ -58,12 +67,13 @@ class CoinsuranceTreaty(PolarisBaseModel, BaseTreaty):
         including reserves (unlike YRT where reserves stay with cedant).
 
         Args:
-            gross: GROSS basis CashFlowResult.
+            gross:   GROSS basis CashFlowResult.
+            inforce: Optional InforceBlock for policy-level cession overrides.
 
         Returns:
             (net, ceded) CashFlowResult tuple.
         """
-        c = self.cession_pct
+        c = self._resolve_cession(self.cession_pct, inforce)
         r = 1.0 - c  # retention proportion
 
         # All lines split proportionally

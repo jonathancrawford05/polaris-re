@@ -108,8 +108,54 @@ class InforceBlock(PolarisBaseModel):
 
     @property
     def cession_pct_vec(self) -> np.ndarray:
-        """Reinsurance cession percentages, shape (N,), dtype float64."""
-        return np.array([p.reinsurance_cession_pct for p in self.policies], dtype=np.float64)
+        """Reinsurance cession percentages, shape (N,), dtype float64.
+
+        Returns NaN for policies where reinsurance_cession_pct is None
+        (meaning 'use treaty default'). Use effective_cession_vec() to
+        resolve None values against a treaty-level default.
+        """
+        return np.array(
+            [p.reinsurance_cession_pct if p.reinsurance_cession_pct is not None else np.nan
+             for p in self.policies],
+            dtype=np.float64,
+        )
+
+    def effective_cession_vec(self, treaty_default: float) -> np.ndarray:
+        """Per-policy effective cession rates, shape (N,), dtype float64.
+
+        For each policy: uses the policy-level reinsurance_cession_pct if set,
+        otherwise falls back to treaty_default.
+
+        Args:
+            treaty_default: Treaty-level cession percentage used when a
+                policy's reinsurance_cession_pct is None.
+
+        Returns:
+            Effective cession rates, shape (N,), dtype float64.
+        """
+        raw = self.cession_pct_vec
+        return np.where(np.isnan(raw), treaty_default, raw)
+
+    def face_weighted_cession(self, treaty_default: float) -> float:
+        """Face-amount-weighted average effective cession rate (scalar).
+
+        Computes the blended cession rate across all policies, weighted by
+        face amount. This is the correct aggregate cession rate for
+        proportional treaty application on aggregate cash flows.
+
+        Args:
+            treaty_default: Treaty-level cession percentage used when a
+                policy's reinsurance_cession_pct is None.
+
+        Returns:
+            Scalar face-weighted average cession rate.
+        """
+        effective = self.effective_cession_vec(treaty_default)
+        face = self.face_amount_vec
+        total_face = face.sum()
+        if total_face == 0.0:
+            return treaty_default
+        return float(np.dot(effective, face) / total_face)
 
     @property
     def is_smoker_vec(self) -> np.ndarray:
@@ -212,7 +258,11 @@ class InforceBlock(PolarisBaseModel):
                 product_type=ProductType(str(row["product_type"])),
                 policy_term=policy_term,
                 duration_inforce=int(row["duration_inforce"]),
-                reinsurance_cession_pct=float(row.get("reinsurance_cession_pct", 0.0)),
+                reinsurance_cession_pct=(
+                    float(row["reinsurance_cession_pct"])
+                    if row.get("reinsurance_cession_pct") is not None
+                    else None
+                ),
                 issue_date=issue_date_val,
                 valuation_date=val_date_val,
             )

@@ -123,4 +123,4 @@ class TestInforceBlockFromCSV:
         pl.DataFrame(rows).write_csv(csv_path)
         block = InforceBlock.from_csv(csv_path)
         assert block.policies[0].underwriting_class == "STANDARD"
-        np.testing.assert_allclose(block.policies[0].reinsurance_cession_pct, 0.0)
+        assert block.policies[0].reinsurance_cession_pct is None
