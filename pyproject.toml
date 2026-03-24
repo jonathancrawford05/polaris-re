@@ -104,8 +104,6 @@ src = ["src", "tests"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "ANN", "B", "SIM", "RUF"]
 ignore = [
-    "ANN101",   # self annotation not required
-    "ANN102",   # cls annotation not required
     "ANN401",   # Any — allowed in test fixtures
 ]
 

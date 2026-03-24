@@ -13,7 +13,6 @@ from datetime import date
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.assumptions.lapse import LapseAssumption
