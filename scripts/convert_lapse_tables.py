@@ -48,10 +48,26 @@ def _generate_sample_llat(output_dir: Path) -> list[Path]:
 
     # Typical term life lapse pattern: high in year 1, declining to ultimate
     base_rates = {
-        1: 0.0800, 2: 0.0550, 3: 0.0420, 4: 0.0380, 5: 0.0350,
-        6: 0.0330, 7: 0.0310, 8: 0.0300, 9: 0.0290, 10: 0.0280,
-        11: 0.0270, 12: 0.0260, 13: 0.0250, 14: 0.0250, 15: 0.0250,
-        16: 0.0250, 17: 0.0250, 18: 0.0250, 19: 0.0250, 20: 0.0250,
+        1: 0.0800,
+        2: 0.0550,
+        3: 0.0420,
+        4: 0.0380,
+        5: 0.0350,
+        6: 0.0330,
+        7: 0.0310,
+        8: 0.0300,
+        9: 0.0290,
+        10: 0.0280,
+        11: 0.0270,
+        12: 0.0260,
+        13: 0.0250,
+        14: 0.0250,
+        15: 0.0250,
+        16: 0.0250,
+        17: 0.0250,
+        18: 0.0250,
+        19: 0.0250,
+        20: 0.0250,
     }
 
     # Smoker/non-smoker multipliers (smokers lapse slightly more)
@@ -102,7 +118,9 @@ def convert_from_excel(
         try:
             import pandas as pd
         except ImportError:
-            console.print("[red]pandas + openpyxl required for Excel input. Run: uv sync --all-extras[/red]")
+            console.print(
+                "[red]pandas + openpyxl required for Excel input. Run: uv sync --all-extras[/red]"
+            )
             sys.exit(1)
         pdf = pd.read_excel(input_path, sheet_name=sheet_name)
         df = pl.from_pandas(pdf)
@@ -142,9 +160,7 @@ def convert_from_excel(
 
 def main() -> None:
     """CLI entry point for lapse table conversion."""
-    parser = argparse.ArgumentParser(
-        description="Convert lapse data to Polaris RE CSV schema."
-    )
+    parser = argparse.ArgumentParser(description="Convert lapse data to Polaris RE CSV schema.")
     parser.add_argument(
         "--source",
         choices=["llat", "excel"],
@@ -160,7 +176,9 @@ def main() -> None:
         help="Output directory for converted CSVs.",
     )
     parser.add_argument("--sheet", type=str, default=None, help="Excel sheet name.")
-    parser.add_argument("--year-col", type=str, default="policy_year", help="Source year column name.")
+    parser.add_argument(
+        "--year-col", type=str, default="policy_year", help="Source year column name."
+    )
     parser.add_argument("--rate-col", type=str, default="rate", help="Source rate column name.")
     args = parser.parse_args()
 

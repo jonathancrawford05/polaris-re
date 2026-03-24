@@ -22,16 +22,16 @@ console = Console()
 
 REQUIRED_TABLES = [
     # (filename, select_period, description)
-    ("soa_vbt_2015_male_ns.csv",       25, "SOA VBT 2015 Male Non-Smoker"),
-    ("soa_vbt_2015_male_smoker.csv",   25, "SOA VBT 2015 Male Smoker"),
-    ("soa_vbt_2015_female_ns.csv",     25, "SOA VBT 2015 Female Non-Smoker"),
+    ("soa_vbt_2015_male_ns.csv", 25, "SOA VBT 2015 Male Non-Smoker"),
+    ("soa_vbt_2015_male_smoker.csv", 25, "SOA VBT 2015 Male Smoker"),
+    ("soa_vbt_2015_female_ns.csv", 25, "SOA VBT 2015 Female Non-Smoker"),
     ("soa_vbt_2015_female_smoker.csv", 25, "SOA VBT 2015 Female Smoker"),
-    ("cia_2014_male_ns.csv",           25, "CIA 2014 Male Non-Smoker"),
-    ("cia_2014_male_smoker.csv",       25, "CIA 2014 Male Smoker"),
-    ("cia_2014_female_ns.csv",         25, "CIA 2014 Female Non-Smoker"),
-    ("cia_2014_female_smoker.csv",     25, "CIA 2014 Female Smoker"),
-    ("cso_2001_male.csv",               0, "2001 CSO Male (ultimate only)"),
-    ("cso_2001_female.csv",             0, "2001 CSO Female (ultimate only)"),
+    ("cia_2014_male_ns.csv", 25, "CIA 2014 Male Non-Smoker"),
+    ("cia_2014_male_smoker.csv", 25, "CIA 2014 Male Smoker"),
+    ("cia_2014_female_ns.csv", 25, "CIA 2014 Female Non-Smoker"),
+    ("cia_2014_female_smoker.csv", 25, "CIA 2014 Female Smoker"),
+    ("cso_2001_male.csv", 0, "2001 CSO Male (ultimate only)"),
+    ("cso_2001_female.csv", 0, "2001 CSO Female (ultimate only)"),
 ]
 
 

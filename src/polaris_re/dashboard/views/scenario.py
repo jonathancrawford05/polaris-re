@@ -5,7 +5,7 @@ from datetime import date
 import streamlit as st  # type: ignore[import-untyped]
 
 from polaris_re.dashboard.components.charts import scenario_tornado
-from polaris_re.dashboard.pages.pricing import (
+from polaris_re.dashboard.views.pricing import (
     _build_fallback_assumptions,
     _build_fallback_block,
 )

@@ -29,15 +29,28 @@ def _build_fallback_assumptions(
     n_ages = 121 - 18
     qx = np.full(n_ages, flat_qx, dtype=np.float64)
     rates_2d = qx.reshape(-1, 1)
-    table_array = MortalityTableArray(
-        rates=rates_2d, min_age=18, max_age=120, select_period=0, source_file=Path("synthetic")
-    )
-    mortality = MortalityTable.from_table_array(
+
+    # Create table arrays for all sex/smoker combos so any policy can be priced
+    tables: dict[str, MortalityTableArray] = {}
+    for sex in Sex:
+        for smoker in SmokerStatus:
+            key = f"{sex.value}_{smoker.value}"
+            tables[key] = MortalityTableArray(
+                rates=rates_2d.copy(),
+                min_age=18,
+                max_age=120,
+                select_period=0,
+                source_file=Path("synthetic"),
+            )
+
+    mortality = MortalityTable(
         source=MortalityTableSource.CSO_2001,
         table_name="Synthetic Dashboard",
-        table_array=table_array,
-        sex=Sex.MALE,
-        smoker_status=SmokerStatus.UNKNOWN,
+        min_age=18,
+        max_age=120,
+        select_period_years=0,
+        has_smoker_distinct_rates=False,
+        tables=tables,
     )
     lapse = LapseAssumption.from_duration_table(
         {1: flat_lapse, 2: flat_lapse, 3: flat_lapse, "ultimate": flat_lapse}

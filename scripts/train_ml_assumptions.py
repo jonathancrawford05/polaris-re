@@ -89,16 +89,22 @@ def main() -> None:
         default=Path("models/ml_model.joblib"),
         help="Output model file.",
     )
-    parser.add_argument("--model", choices=["gradient_boosting", "xgboost"], default="gradient_boosting")
+    parser.add_argument(
+        "--model", choices=["gradient_boosting", "xgboost"], default="gradient_boosting"
+    )
     parser.add_argument("--seed", type=int, default=42, help="Random seed.")
-    parser.add_argument("--n-synthetic", type=int, default=5000, help="Synthetic data size (demo mode).")
+    parser.add_argument(
+        "--n-synthetic", type=int, default=5000, help="Synthetic data size (demo mode)."
+    )
     args = parser.parse_args()
 
     console.print("[bold]Polaris RE — ML Assumption Training[/bold]\n")
 
     # Generate or load training data
     if args.input is None:
-        console.print(f"[yellow]No --input provided. Using synthetic training data (n={args.n_synthetic}).[/yellow]\n")
+        console.print(
+            f"[yellow]No --input provided. Using synthetic training data (n={args.n_synthetic}).[/yellow]\n"
+        )
         features, y = _generate_synthetic_training_data(
             n=args.n_synthetic, target=args.type, seed=args.seed
         )

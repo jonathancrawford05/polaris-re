@@ -178,7 +178,7 @@ def _plot_feature_importance(ml_model: object, title: str) -> None:
 
 
 def _build_flat_mortality(flat_qx: float) -> object:
-    """Build a synthetic flat-rate mortality table."""
+    """Build a synthetic flat-rate mortality table with all sex/smoker combos."""
     from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
     from polaris_re.core.policy import Sex, SmokerStatus
     from polaris_re.utils.table_io import MortalityTableArray
@@ -186,19 +186,28 @@ def _build_flat_mortality(flat_qx: float) -> object:
     n_ages = 121 - 18
     qx = np.full(n_ages, flat_qx, dtype=np.float64)
     rates_2d = qx.reshape(-1, 1)
-    table_array = MortalityTableArray(
-        rates=rates_2d,
-        min_age=18,
-        max_age=120,
-        select_period=0,
-        source_file=Path("synthetic"),
-    )
-    return MortalityTable.from_table_array(
+
+    # Create table arrays for all sex/smoker combos so any policy can be priced
+    tables: dict[str, MortalityTableArray] = {}
+    for sex in Sex:
+        for smoker in SmokerStatus:
+            key = f"{sex.value}_{smoker.value}"
+            tables[key] = MortalityTableArray(
+                rates=rates_2d.copy(),
+                min_age=18,
+                max_age=120,
+                select_period=0,
+                source_file=Path("synthetic"),
+            )
+
+    return MortalityTable(
         source=MortalityTableSource.CSO_2001,
         table_name="Flat Rate (Dashboard)",
-        table_array=table_array,
-        sex=Sex.MALE,
-        smoker_status=SmokerStatus.UNKNOWN,
+        min_age=18,
+        max_age=120,
+        select_period_years=0,
+        has_smoker_distinct_rates=False,
+        tables=tables,
     )
 
 
@@ -213,10 +222,19 @@ def _plot_qx_curves(mortality: object) -> None:
     fig, ax = plt.subplots(figsize=(10, 5))
     ages = np.arange(mt.min_age, mt.max_age + 1, dtype=np.int32)
 
+    key_labels: dict[str, str] = {
+        "M_S": "Male Smoker",
+        "M_NS": "Male Non-Smoker",
+        "F_S": "Female Smoker",
+        "F_NS": "Female Non-Smoker",
+        "M_U": "Male Aggregate",
+        "F_U": "Female Aggregate",
+    }
+
     for key, table_array in mt.tables.items():
         ultimate_col = table_array.select_period
         q_annual = table_array.rates[:, ultimate_col]
-        label = key.replace("_", " ").title()
+        label = key_labels.get(key, key)
         ax.plot(ages[: len(q_annual)], q_annual, label=label, linewidth=1.5)
 
     ax.set_xlabel("Attained Age")
@@ -256,11 +274,25 @@ def _manual_lapse() -> object:
         col_idx = i % 4
         with cols[col_idx]:
             if label == "Ultimate":
-                val = st.slider(label, min_value=0.0, max_value=0.30, value=default, step=0.005)
+                val = st.slider(
+                    label,
+                    min_value=0.0,
+                    max_value=0.30,
+                    value=default,
+                    step=0.005,
+                    format="%.3f",
+                )
                 rates["ultimate"] = val
             else:
                 year_num = i + 1
-                val = st.slider(label, min_value=0.0, max_value=0.30, value=default, step=0.005)
+                val = st.slider(
+                    label,
+                    min_value=0.0,
+                    max_value=0.30,
+                    value=default,
+                    step=0.005,
+                    format="%.3f",
+                )
                 rates[year_num] = val
 
     lapse = LapseAssumption.from_duration_table(rates)
@@ -381,7 +413,13 @@ def page_assumptions() -> None:
         )
         st.session_state["assumption_set"] = assumption_set
 
+        lapse_ult = assumption_set.lapse.ultimate_rate
         if ml_mort is not None:
-            st.success(f"Assumptions saved (ML mortality active): {assumption_set.version}")
+            st.success(
+                f"Assumptions saved — Mortality: ML model (overriding {source_label}), "
+                f"Lapse ultimate: {lapse_ult:.1%}"
+            )
         else:
-            st.success(f"Assumptions saved: {assumption_set.summary}")
+            st.success(
+                f"Assumptions saved — Mortality: {source_label}, Lapse ultimate: {lapse_ult:.1%}"
+            )

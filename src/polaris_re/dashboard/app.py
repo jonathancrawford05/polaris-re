@@ -47,13 +47,13 @@ def main() -> None:
     _check_deps()
 
     from polaris_re.dashboard.components.state import init_session_state
-    from polaris_re.dashboard.pages.assumptions import page_assumptions
-    from polaris_re.dashboard.pages.ifrs17 import page_ifrs17
-    from polaris_re.dashboard.pages.inforce import page_inforce
-    from polaris_re.dashboard.pages.pricing import page_pricing
-    from polaris_re.dashboard.pages.scenario import page_scenario
-    from polaris_re.dashboard.pages.treaty_compare import page_treaty_compare
-    from polaris_re.dashboard.pages.uq import page_uq
+    from polaris_re.dashboard.views.assumptions import page_assumptions
+    from polaris_re.dashboard.views.ifrs17 import page_ifrs17
+    from polaris_re.dashboard.views.inforce import page_inforce
+    from polaris_re.dashboard.views.pricing import page_pricing
+    from polaris_re.dashboard.views.scenario import page_scenario
+    from polaris_re.dashboard.views.treaty_compare import page_treaty_compare
+    from polaris_re.dashboard.views.uq import page_uq
 
     st.set_page_config(
         page_title="Polaris RE Dashboard",

@@ -98,11 +98,11 @@ def _upload_tab() -> None:
             block = InforceBlock.from_csv(tmp_path)
             st.session_state["inforce_block"] = block
             st.success(f"Loaded {block.n_policies:,} policies from {uploaded.name}")
-            _summary_panel(block)
         except Exception as exc:
             st.error(f"Failed to load inforce CSV: {exc}")
 
-    if st.button("Reset to File"):
+    # Only show reset button when a block is loaded
+    if st.session_state.get("inforce_block") is not None and st.button("Reset Inforce Block"):
         st.session_state["inforce_block"] = None
         st.rerun()
 
@@ -114,12 +114,12 @@ def _synthetic_tab() -> None:
     col1, col2 = st.columns(2)
     with col1:
         n_policies = int(st.slider("Number of Policies", min_value=10, max_value=10000, value=1000))
-        _mean_age = int(st.slider("Mean Age", min_value=30, max_value=60, value=40))
-        _age_std = int(st.slider("Age Std Dev", min_value=5, max_value=15, value=8))
-        _male_pct = int(st.slider("Male %", min_value=0, max_value=100, value=60))
+        mean_age = int(st.slider("Mean Age", min_value=30, max_value=60, value=40))
+        age_std = int(st.slider("Age Std Dev", min_value=5, max_value=15, value=8))
+        male_pct = int(st.slider("Male %", min_value=0, max_value=100, value=60))
     with col2:
-        _smoker_pct = int(st.slider("Smoker %", min_value=0, max_value=100, value=15))
-        _face_median = int(
+        smoker_pct = int(st.slider("Smoker %", min_value=0, max_value=100, value=15))
+        face_median = int(
             st.slider(
                 "Face Amount Median ($)",
                 min_value=100_000,
@@ -136,7 +136,14 @@ def _synthetic_tab() -> None:
         st.warning("Term mix exceeds 100%. Adjust 10yr and 20yr sliders.")
         return
 
-    st.caption(f"30yr Term Mix: {term_30}%")
+    st.slider(
+        "30yr Term Mix %",
+        min_value=0,
+        max_value=100,
+        value=term_30,
+        disabled=True,
+        help="Automatically calculated as 100% minus 10yr and 20yr mix.",
+    )
 
     if st.button("Generate", type="primary"):
         # Import the generation function from scripts
@@ -151,7 +158,16 @@ def _synthetic_tab() -> None:
         )
 
         with st.spinner("Generating synthetic block..."):
-            df = generate_synthetic_block(n_policies=n_policies)
+            df = generate_synthetic_block(
+                n_policies=n_policies,
+                mean_age=mean_age,
+                age_std=age_std,
+                male_pct=male_pct,
+                smoker_pct=smoker_pct,
+                face_median=face_median,
+                term_10_pct=term_10,
+                term_20_pct=term_20,
+            )
 
             # Write to temp CSV and load via InforceBlock.from_csv
             with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
@@ -162,7 +178,6 @@ def _synthetic_tab() -> None:
             st.session_state["inforce_block"] = block
 
         st.success(f"Generated {block.n_policies:,} synthetic policies")
-        _summary_panel(block)
 
 
 def page_inforce() -> None:
@@ -177,7 +192,7 @@ def page_inforce() -> None:
     with tab_synthetic:
         _synthetic_tab()
 
-    # Show existing block from session state if present
+    # Show single persistent summary from session state
     block = st.session_state.get("inforce_block")
     if block is not None:
         st.divider()
