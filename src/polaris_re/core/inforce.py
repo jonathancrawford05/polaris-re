@@ -115,8 +115,10 @@ class InforceBlock(PolarisBaseModel):
         resolve None values against a treaty-level default.
         """
         return np.array(
-            [p.reinsurance_cession_pct if p.reinsurance_cession_pct is not None else np.nan
-             for p in self.policies],
+            [
+                p.reinsurance_cession_pct if p.reinsurance_cession_pct is not None else np.nan
+                for p in self.policies
+            ],
             dtype=np.float64,
         )
 

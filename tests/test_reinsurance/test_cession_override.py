@@ -73,9 +73,7 @@ def _make_assumptions() -> AssumptionSet:
         sex=Sex.MALE,
         smoker_status=SmokerStatus.NON_SMOKER,
     )
-    lapse = LapseAssumption.from_duration_table(
-        {1: 0.08, 2: 0.06, 3: 0.04, "ultimate": 0.03}
-    )
+    lapse = LapseAssumption.from_duration_table({1: 0.08, 2: 0.06, 3: 0.04, "ultimate": 0.03})
     return AssumptionSet(mortality=mortality, lapse=lapse, version="cession-test-v1")
 
 
@@ -100,47 +98,57 @@ class TestEffectiveCessionVec:
 
     def test_all_none_defaults_to_treaty(self) -> None:
         """When all policies have cession=None, effective vec = treaty default."""
-        block = InforceBlock(policies=[
-            _make_policy("P1", cession_pct=None),
-            _make_policy("P2", cession_pct=None),
-        ])
+        block = InforceBlock(
+            policies=[
+                _make_policy("P1", cession_pct=None),
+                _make_policy("P2", cession_pct=None),
+            ]
+        )
         result = block.effective_cession_vec(treaty_default=0.90)
         np.testing.assert_allclose(result, [0.90, 0.90])
 
     def test_all_explicit_ignores_treaty(self) -> None:
         """When all policies have explicit cession, treaty default is ignored."""
-        block = InforceBlock(policies=[
-            _make_policy("P1", cession_pct=0.70),
-            _make_policy("P2", cession_pct=0.30),
-        ])
+        block = InforceBlock(
+            policies=[
+                _make_policy("P1", cession_pct=0.70),
+                _make_policy("P2", cession_pct=0.30),
+            ]
+        )
         result = block.effective_cession_vec(treaty_default=0.90)
         np.testing.assert_allclose(result, [0.70, 0.30])
 
     def test_mixed_override_and_default(self) -> None:
         """Mix of None and explicit: None → treaty default, explicit → override."""
-        block = InforceBlock(policies=[
-            _make_policy("P1", cession_pct=0.80),
-            _make_policy("P2", cession_pct=None),
-            _make_policy("P3", cession_pct=0.40),
-        ])
+        block = InforceBlock(
+            policies=[
+                _make_policy("P1", cession_pct=0.80),
+                _make_policy("P2", cession_pct=None),
+                _make_policy("P3", cession_pct=0.40),
+            ]
+        )
         result = block.effective_cession_vec(treaty_default=0.50)
         np.testing.assert_allclose(result, [0.80, 0.50, 0.40])
 
     def test_face_weighted_cession_uniform(self) -> None:
         """Equal face amounts → simple average of effective cession rates."""
-        block = InforceBlock(policies=[
-            _make_policy("P1", face_amount=500_000, cession_pct=0.80),
-            _make_policy("P2", face_amount=500_000, cession_pct=0.40),
-        ])
+        block = InforceBlock(
+            policies=[
+                _make_policy("P1", face_amount=500_000, cession_pct=0.80),
+                _make_policy("P2", face_amount=500_000, cession_pct=0.40),
+            ]
+        )
         result = block.face_weighted_cession(treaty_default=0.50)
         np.testing.assert_allclose(result, 0.60)  # (0.80 + 0.40) / 2
 
     def test_face_weighted_cession_nonuniform(self) -> None:
         """Larger face gets more weight in blended cession."""
-        block = InforceBlock(policies=[
-            _make_policy("P1", face_amount=1_000_000, cession_pct=0.90),
-            _make_policy("P2", face_amount=500_000, cession_pct=None),
-        ])
+        block = InforceBlock(
+            policies=[
+                _make_policy("P1", face_amount=1_000_000, cession_pct=0.90),
+                _make_policy("P2", face_amount=500_000, cession_pct=None),
+            ]
+        )
         # Effective: P1=0.90, P2=0.50 (treaty default)
         # Face-weighted: (1M * 0.90 + 0.5M * 0.50) / 1.5M = 1.15M / 1.5M
         result = block.face_weighted_cession(treaty_default=0.50)
@@ -149,19 +157,23 @@ class TestEffectiveCessionVec:
 
     def test_face_weighted_all_none(self) -> None:
         """All None → face_weighted_cession equals treaty default."""
-        block = InforceBlock(policies=[
-            _make_policy("P1", face_amount=500_000, cession_pct=None),
-            _make_policy("P2", face_amount=1_000_000, cession_pct=None),
-        ])
+        block = InforceBlock(
+            policies=[
+                _make_policy("P1", face_amount=500_000, cession_pct=None),
+                _make_policy("P2", face_amount=1_000_000, cession_pct=None),
+            ]
+        )
         result = block.face_weighted_cession(treaty_default=0.75)
         np.testing.assert_allclose(result, 0.75)
 
     def test_cession_pct_vec_returns_nan_for_none(self) -> None:
         """cession_pct_vec uses NaN as sentinel for None (use treaty default)."""
-        block = InforceBlock(policies=[
-            _make_policy("P1", cession_pct=0.50),
-            _make_policy("P2", cession_pct=None),
-        ])
+        block = InforceBlock(
+            policies=[
+                _make_policy("P1", cession_pct=0.50),
+                _make_policy("P2", cession_pct=None),
+            ]
+        )
         raw = block.cession_pct_vec
         np.testing.assert_allclose(raw[0], 0.50)
         assert np.isnan(raw[1])
@@ -182,9 +194,7 @@ class TestYRTCessionOverride:
         treaty = YRTTreaty(cession_pct=0.50, total_face_amount=500_000)
         _net, ceded = treaty.apply(gross)
         # ceded claims = gross * 0.50 (treaty default, policy ignored)
-        np.testing.assert_allclose(
-            ceded.death_claims, gross.death_claims * 0.50, rtol=1e-10
-        )
+        np.testing.assert_allclose(ceded.death_claims, gross.death_claims * 0.50, rtol=1e-10)
 
     def test_inforce_with_overrides_changes_cession(self) -> None:
         """Passing inforce with explicit policy cession changes the split."""
@@ -210,9 +220,7 @@ class TestYRTCessionOverride:
         treaty = YRTTreaty(cession_pct=0.60, total_face_amount=500_000)
 
         _, ceded = treaty.apply(gross, inforce=block)
-        np.testing.assert_allclose(
-            ceded.death_claims, gross.death_claims * 0.60, rtol=1e-10
-        )
+        np.testing.assert_allclose(ceded.death_claims, gross.death_claims * 0.60, rtol=1e-10)
 
     def test_additivity_with_override(self) -> None:
         """net + ceded == gross even with policy-level override."""
@@ -306,10 +314,12 @@ class TestMixedBlockCession:
         Treaty default = 50%.
         Face-weighted = (1M*0.90 + 0.5M*0.50) / 1.5M ≈ 0.7667.
         """
-        block = InforceBlock(policies=[
-            _make_policy("P1", face_amount=1_000_000, cession_pct=0.90),
-            _make_policy("P2", face_amount=500_000, cession_pct=None),
-        ])
+        block = InforceBlock(
+            policies=[
+                _make_policy("P1", face_amount=1_000_000, cession_pct=0.90),
+                _make_policy("P2", face_amount=500_000, cession_pct=None),
+            ]
+        )
         gross = _project_gross(block)
         treaty = CoinsuranceTreaty(cession_pct=0.50)
 
@@ -325,9 +335,7 @@ class TestMixedBlockCession:
             rtol=1e-10,
         )
         # And different from the treaty default (50%)
-        assert not np.allclose(
-            ceded_blended.gross_premiums, ceded_default.gross_premiums
-        )
+        assert not np.allclose(ceded_blended.gross_premiums, ceded_default.gross_premiums)
 
 
 # ---------------------------------------------------------------------------
@@ -354,6 +362,4 @@ class TestBackwardCompatibility:
         gross = _project_gross(block)
         treaty = YRTTreaty(cession_pct=0.50, total_face_amount=500_000)
         _net, ceded = treaty.apply(gross)
-        np.testing.assert_allclose(
-            ceded.death_claims, gross.death_claims * 0.50, rtol=1e-10
-        )
+        np.testing.assert_allclose(ceded.death_claims, gross.death_claims * 0.50, rtol=1e-10)
