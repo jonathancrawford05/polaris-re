@@ -48,9 +48,11 @@ def main() -> None:
 
     from polaris_re.dashboard.components.state import init_session_state
     from polaris_re.dashboard.pages.assumptions import page_assumptions
+    from polaris_re.dashboard.pages.ifrs17 import page_ifrs17
     from polaris_re.dashboard.pages.inforce import page_inforce
     from polaris_re.dashboard.pages.pricing import page_pricing
     from polaris_re.dashboard.pages.scenario import page_scenario
+    from polaris_re.dashboard.pages.treaty_compare import page_treaty_compare
     from polaris_re.dashboard.pages.uq import page_uq
 
     st.set_page_config(
@@ -71,8 +73,10 @@ def main() -> None:
             "Inforce Block",
             "Assumptions",
             "Deal Pricing",
+            "Treaty Comparison",
             "Scenario Analysis",
             "Monte Carlo UQ",
+            "IFRS 17",
         ],
     )
 
@@ -82,10 +86,14 @@ def main() -> None:
         page_assumptions()
     elif page == "Deal Pricing":
         page_pricing()
+    elif page == "Treaty Comparison":
+        page_treaty_compare()
     elif page == "Scenario Analysis":
         page_scenario()
     elif page == "Monte Carlo UQ":
         page_uq()
+    elif page == "IFRS 17":
+        page_ifrs17()
 
 
 if __name__ == "__main__":

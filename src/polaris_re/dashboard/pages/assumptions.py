@@ -1,6 +1,7 @@
-"""Page 2: Assumptions — mortality, lapse, and improvement scale selection."""
+"""Page 2: Assumptions — mortality, lapse, improvement, and ML model selection."""
 
 import os
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -44,7 +45,6 @@ def _mortality_section() -> tuple[object, str] | None:
             / 1000.0
         )
         st.session_state["mortality_source"] = "flat_rate"
-        # Build a synthetic flat-rate table
         mortality = _build_flat_mortality(flat_qx)
         st.info(f"Using flat mortality rate: {flat_qx * 1000:.1f}\u2030 per annum")
         return mortality, "Flat Rate"
@@ -89,6 +89,94 @@ def _mortality_section() -> tuple[object, str] | None:
         return mortality, "Flat Rate"
 
 
+def _ml_mortality_section() -> None:
+    """ML mortality model upload and feature importance display."""
+    use_ml_mort = st.checkbox("Use ML Mortality Model")
+    if not use_ml_mort:
+        st.session_state["ml_mortality_model"] = None
+        return
+
+    uploaded = st.file_uploader("Upload ML Mortality Model (.joblib)", type=["joblib"])
+    if uploaded is None:
+        st.info("Upload a joblib file saved via `MLMortalityAssumption.save()`")
+        return
+
+    with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as tmp:
+        tmp.write(uploaded.getvalue())
+        tmp_path = Path(tmp.name)
+
+    try:
+        from polaris_re.assumptions.ml_mortality import MLMortalityAssumption
+
+        ml_model = MLMortalityAssumption.load(tmp_path)
+        st.session_state["ml_mortality_model"] = ml_model
+        st.success(
+            f"Loaded ML mortality model: {ml_model.model_type} "
+            f"({len(ml_model.feature_names)} features)"
+        )
+
+        # Feature importance bar chart
+        _plot_feature_importance(ml_model, "ML Mortality Model — Feature Importance")
+    except Exception as exc:
+        st.error(f"Failed to load ML mortality model: {exc}")
+
+
+def _ml_lapse_section() -> None:
+    """ML lapse model upload and feature importance display."""
+    use_ml_lapse = st.checkbox("Use ML Lapse Model")
+    if not use_ml_lapse:
+        st.session_state["ml_lapse_model"] = None
+        return
+
+    uploaded = st.file_uploader(
+        "Upload ML Lapse Model (.joblib)", type=["joblib"], key="ml_lapse_upload"
+    )
+    if uploaded is None:
+        st.info("Upload a joblib file saved via `MLLapseAssumption.save()`")
+        return
+
+    with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as tmp:
+        tmp.write(uploaded.getvalue())
+        tmp_path = Path(tmp.name)
+
+    try:
+        from polaris_re.assumptions.ml_lapse import MLLapseAssumption
+
+        ml_model = MLLapseAssumption.load(tmp_path)
+        st.session_state["ml_lapse_model"] = ml_model
+        st.success(
+            f"Loaded ML lapse model: {ml_model.model_type} ({len(ml_model.feature_names)} features)"
+        )
+        _plot_feature_importance(ml_model, "ML Lapse Model — Feature Importance")
+    except Exception as exc:
+        st.error(f"Failed to load ML lapse model: {exc}")
+
+
+def _plot_feature_importance(ml_model: object, title: str) -> None:
+    """Display feature importance bar chart for an ML model."""
+    import matplotlib.pyplot as plt  # type: ignore[import-untyped]
+
+    try:
+        model = ml_model.model  # type: ignore[union-attr]
+        if hasattr(model, "feature_importances_"):
+            importances = model.feature_importances_
+            features = ml_model.feature_names  # type: ignore[union-attr]
+
+            # Sort by importance
+            idx = np.argsort(importances)
+            fig, ax = plt.subplots(figsize=(8, max(3, len(features) * 0.4)))
+            ax.barh(np.array(features)[idx], importances[idx], color="#3498db")
+            ax.set_xlabel("Importance")
+            ax.set_title(title)
+            fig.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+        else:
+            st.info("Model does not expose feature_importances_.")
+    except Exception:
+        st.info("Could not extract feature importances from model.")
+
+
 def _build_flat_mortality(flat_qx: float) -> object:
     """Build a synthetic flat-rate mortality table."""
     from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
@@ -126,7 +214,6 @@ def _plot_qx_curves(mortality: object) -> None:
     ages = np.arange(mt.min_age, mt.max_age + 1, dtype=np.int32)
 
     for key, table_array in mt.tables.items():
-        # Use ultimate column for display
         ultimate_col = table_array.select_period
         q_annual = table_array.rates[:, ultimate_col]
         label = key.replace("_", " ").title()
@@ -134,7 +221,7 @@ def _plot_qx_curves(mortality: object) -> None:
 
     ax.set_xlabel("Attained Age")
     ax.set_ylabel("Annual q_x")
-    ax.set_title(f"Mortality Rates — {mt.table_name}")
+    ax.set_title(f"Mortality Rates \u2014 {mt.table_name}")
     ax.legend()
     ax.set_yscale("log")
     ax.grid(True, alpha=0.3)
@@ -185,8 +272,6 @@ def _manual_lapse() -> object:
 
 def _csv_lapse() -> object | None:
     """CSV upload for lapse table."""
-    import tempfile
-
     from polaris_re.assumptions.lapse import LapseAssumption
     from polaris_re.utils.table_io import load_lapse_csv
 
@@ -201,7 +286,6 @@ def _csv_lapse() -> object | None:
 
     try:
         lapse_array = load_lapse_csv(tmp_path)
-        # Build LapseAssumption from the loaded rates
         table_dict: dict[int | str, float] = {}
         for yr in range(1, lapse_array.max_policy_year + 1):
             table_dict[yr] = float(lapse_array.rates[yr - 1])
@@ -254,19 +338,20 @@ def _improvement_section() -> None:
         if improvement == "None":
             st.info("No mortality improvement applied.")
         else:
-            st.info(
-                f"**{improvement}** selected. "
-                "Improvement will be applied during projection (Phase C)."
-            )
+            st.info(f"**{improvement}** selected. Improvement will be applied during projection.")
 
 
 def page_assumptions() -> None:
-    """Assumptions page — mortality, lapse, and improvement selection."""
+    """Assumptions page \u2014 mortality, lapse, improvement, and ML model selection."""
     st.header("Assumptions")
 
     mortality_result = _mortality_section()
+    _ml_mortality_section()
+
     st.divider()
     lapse_result = _lapse_section()
+    _ml_lapse_section()
+
     st.divider()
     _improvement_section()
 
@@ -283,12 +368,20 @@ def page_assumptions() -> None:
 
         from polaris_re.assumptions.assumption_set import AssumptionSet
 
+        # Use ML model as mortality source if available (ADR-034: duck typing)
+        ml_mort = st.session_state.get("ml_mortality_model")
         mortality, source_label = mortality_result
+        effective_mortality = ml_mort if ml_mort is not None else mortality
+
         assumption_set = AssumptionSet(
-            mortality=mortality,  # type: ignore[arg-type]
+            mortality=effective_mortality,  # type: ignore[arg-type]
             lapse=lapse_result,  # type: ignore[arg-type]
             version=f"dashboard-{source_label}-{date.today().isoformat()}",
             effective_date=date.today(),
         )
         st.session_state["assumption_set"] = assumption_set
-        st.success(f"Assumptions saved: {assumption_set.summary}")
+
+        if ml_mort is not None:
+            st.success(f"Assumptions saved (ML mortality active): {assumption_set.version}")
+        else:
+            st.success(f"Assumptions saved: {assumption_set.summary}")
