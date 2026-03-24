@@ -180,7 +180,7 @@ class TestYRTCessionOverride:
         block = InforceBlock(policies=[_make_policy("P1", cession_pct=0.30)])
         gross = _project_gross(block)
         treaty = YRTTreaty(cession_pct=0.50, total_face_amount=500_000)
-        net, ceded = treaty.apply(gross)
+        _net, ceded = treaty.apply(gross)
         # ceded claims = gross * 0.50 (treaty default, policy ignored)
         np.testing.assert_allclose(
             ceded.death_claims, gross.death_claims * 0.50, rtol=1e-10
@@ -353,7 +353,7 @@ class TestBackwardCompatibility:
         block = InforceBlock(policies=[_make_policy("P1", cession_pct=None)])
         gross = _project_gross(block)
         treaty = YRTTreaty(cession_pct=0.50, total_face_amount=500_000)
-        net, ceded = treaty.apply(gross)
+        _net, ceded = treaty.apply(gross)
         np.testing.assert_allclose(
             ceded.death_claims, gross.death_claims * 0.50, rtol=1e-10
         )
