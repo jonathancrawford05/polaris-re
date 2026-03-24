@@ -47,7 +47,7 @@ _SOURCE_CONFIG: dict[MortalityTableSource, dict[str, object]] = {
         "table_name": "CIA 2014 Individual Life",
         "select_period": 20,  # CIA2014 uses 20-year select period
         "min_age": 18,
-        "max_age": 115,
+        "max_age": None,  # auto-detect from CSV
         "smoker_distinct": True,
         "file_pattern": "cia_2014_{sex}_{smoker}.csv",
     },
@@ -55,7 +55,7 @@ _SOURCE_CONFIG: dict[MortalityTableSource, dict[str, object]] = {
         "table_name": "SOA VBT 2015",
         "select_period": 25,
         "min_age": 18,
-        "max_age": 120,
+        "max_age": None,  # auto-detect from CSV
         "smoker_distinct": True,
         "file_pattern": "soa_vbt_2015_{sex}_{smoker}.csv",
     },
@@ -63,7 +63,7 @@ _SOURCE_CONFIG: dict[MortalityTableSource, dict[str, object]] = {
         "table_name": "2001 CSO",
         "select_period": 0,
         "min_age": 0,
-        "max_age": 120,
+        "max_age": None,  # auto-detect from CSV
         "smoker_distinct": False,
         "file_pattern": "cso_2001_{sex}.csv",
     },
@@ -139,7 +139,8 @@ class MortalityTable(PolarisBaseModel):
         config = _SOURCE_CONFIG[source]
         select_period = int(str(config["select_period"]))
         min_age = int(str(config["min_age"]))
-        max_age = int(str(config["max_age"]))
+        raw_max_age = config["max_age"]
+        max_age_param: int | None = int(str(raw_max_age)) if raw_max_age is not None else None
         smoker_distinct = bool(config["smoker_distinct"])
         file_pattern = str(config["file_pattern"])
         table_name = str(config["table_name"])
@@ -163,16 +164,19 @@ class MortalityTable(PolarisBaseModel):
                     filepath,
                     select_period=select_period,
                     min_age=min_age,
-                    max_age=max_age,
+                    max_age=max_age_param,
                 )
                 key = f"{sex.value}_{smoker.value}"
                 tables[key] = table_array
+
+        # Derive actual max_age from the loaded tables
+        actual_max_age = max(t.max_age for t in tables.values())
 
         return cls(
             source=source,
             table_name=table_name,
             min_age=min_age,
-            max_age=max_age,
+            max_age=actual_max_age,
             select_period_years=select_period,
             has_smoker_distinct_rates=smoker_distinct,
             tables=tables,
