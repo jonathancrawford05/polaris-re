@@ -10,10 +10,14 @@ This is verified via verify_additivity() in the test suite.
 """
 
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from polaris_re.core.cashflow import CashFlowResult
+
+if TYPE_CHECKING:
+    from polaris_re.core.inforce import InforceBlock
 
 __all__ = ["BaseTreaty"]
 
@@ -24,19 +28,49 @@ class BaseTreaty(ABC):
 
     The sole public interface is `apply()`, which receives the gross
     CashFlowResult and returns a (net, ceded) tuple.
+
+    Cession percentage resolution (ADR-036):
+        Treaty-level ``cession_pct`` is the default. When an ``InforceBlock``
+        is passed to ``apply()``, policy-level ``reinsurance_cession_pct``
+        overrides the treaty default for individual policies. For aggregate
+        cash flows, a face-weighted average of the effective per-policy
+        cession rates is used.
     """
 
     @abstractmethod
-    def apply(self, gross: CashFlowResult) -> tuple[CashFlowResult, CashFlowResult]:
+    def apply(
+        self,
+        gross: CashFlowResult,
+        inforce: "InforceBlock | None" = None,
+    ) -> tuple[CashFlowResult, CashFlowResult]:
         """
         Apply the treaty to gross cash flows.
 
         Args:
-            gross: CashFlowResult on GROSS basis from a product engine.
+            gross:   CashFlowResult on GROSS basis from a product engine.
+            inforce: Optional InforceBlock. When provided, policy-level
+                     reinsurance_cession_pct values override the treaty-level
+                     cession_pct. A face-weighted average is computed for
+                     aggregate cash flow splitting.
 
         Returns:
             (net, ceded) tuple. net + ceded must equal gross for all lines.
         """
+
+    def _resolve_cession(
+        self,
+        treaty_cession_pct: float,
+        inforce: "InforceBlock | None",
+    ) -> float:
+        """Resolve the effective aggregate cession rate.
+
+        If ``inforce`` is provided, computes a face-weighted average of
+        per-policy effective cession rates (policy override where set,
+        treaty default where not). Otherwise returns ``treaty_cession_pct``.
+        """
+        if inforce is None:
+            return treaty_cession_pct
+        return inforce.face_weighted_cession(treaty_cession_pct)
 
     def verify_additivity(
         self,

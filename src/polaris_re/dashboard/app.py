@@ -280,7 +280,7 @@ def _page_pricing() -> None:
                 discount_rate=discount_rate,
             )
             treaty = YRTTreaty(
-                treaty_id="YRT-DASH",
+                treaty_name="YRT-DASH",
                 cession_pct=cession_pct,
                 total_face_amount=face_amount,
             )
@@ -331,7 +331,7 @@ def _page_scenario() -> None:
                 discount_rate=0.06,
             )
             treaty = YRTTreaty(
-                treaty_id="YRT-SCENARIO", cession_pct=0.90, total_face_amount=face_amount
+                treaty_name="YRT-SCENARIO", cession_pct=0.90, total_face_amount=face_amount
             )
             runner = ScenarioRunner(
                 inforce=inforce,
@@ -382,7 +382,7 @@ def _page_uq() -> None:
             config = ProjectionConfig(
                 valuation_date=valuation_date, projection_horizon_years=20, discount_rate=0.06
             )
-            treaty = YRTTreaty(treaty_id="YRT-UQ", cession_pct=0.90, total_face_amount=500_000)
+            treaty = YRTTreaty(treaty_name="YRT-UQ", cession_pct=0.90, total_face_amount=500_000)
             uq = MonteCarloUQ(
                 inforce=inforce,
                 base_assumptions=assumptions,

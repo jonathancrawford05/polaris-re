@@ -440,6 +440,35 @@ This document records significant architecture and design decisions. Each entry 
 
 **Context:** ML-enhanced mortality and lapse assumptions need to integrate with the existing projection engine without code changes to `AssumptionSet`, product engines, or treaty code. Two approaches: (1) a formal Python Protocol class that both table and ML assumptions satisfy, or (2) duck typing where ML classes implement the same method signatures.
 
+---
+
+## ADR-036: Treaty-default with policy-level cession override
+
+**Date:** Phase 4 (user testing)
+**Status:** Accepted
+
+**Context:** The `Policy.reinsurance_cession_pct` field existed but was never consumed by any treaty's `apply()` method. All four treaty implementations (`YRTTreaty`, `CoinsuranceTreaty`, `ModcoTreaty`, `StopLossTreaty`) used only the treaty-level `cession_pct` parameter. This meant changing the policy-level cession had zero effect on output — a silent, confusing bug discovered during user testing.
+
+In practice, reinsurance treaties can have both a blanket cession percentage (simple deals) and per-policy cession overrides (excess-of-retention structures, facultative arrangements, or treaties where cession depends on face amount).
+
+Options considered:
+1. Remove `Policy.reinsurance_cession_pct` entirely — simplest, but loses the per-policy capability.
+2. Make treaty read only from policy — breaks backward compatibility, forces all users to set per-policy values.
+3. Treaty-default with policy-level override — treaty `cession_pct` is the default; policy values override when set.
+
+**Decision:** Option 3. The design is:
+- `Policy.reinsurance_cession_pct` changed from required `float` to `float | None = None`.
+- `None` means "use the treaty-level default" — backward compatible.
+- An explicit value (e.g., `0.70`) overrides the treaty default for that policy.
+- `InforceBlock.effective_cession_vec(treaty_default)` resolves per-policy rates.
+- `InforceBlock.face_weighted_cession(treaty_default)` computes the face-weighted average for aggregate cash flow splitting.
+- `BaseTreaty.apply()` accepts an optional `inforce: InforceBlock | None` parameter. When provided, `_resolve_cession()` computes the face-weighted blend. When omitted, the treaty's `cession_pct` is used directly.
+- `StopLossTreaty` accepts the `inforce` parameter for interface consistency but does not use it (stop loss is not a proportional treaty).
+
+**Rationale:** This design provides full backward compatibility (existing callers pass no `inforce=` and get unchanged behaviour), supports the simple case (blanket treaty cession), and enables the complex case (per-policy overrides with face-weighted blending) through a single optional parameter. The face-weighted average is the actuarially correct aggregation method because it preserves the economic equivalence between seriatim and aggregate treaty application.
+
+---
+
 **Decision:** Duck typing. `MLMortalityAssumption.get_qx_vector()` matches the signature of `MortalityTable.get_qx_vector()`. `MLLapseAssumption.get_lapse_vector()` matches `LapseAssumption.get_lapse_vector()`. No formal Protocol class is introduced — the `AssumptionSet.mortality` field accepts either `MortalityTable` or `MLMortalityAssumption` since both satisfy Pydantic's `PolarisBaseModel` contract. ML assumptions clip predictions to [0, 1] and convert annual to monthly rates internally.
 
 **Rationale:** A formal Protocol adds an abstraction layer that provides minimal value given there are only two implementations per assumption type. Duck typing is simpler, avoids breaking changes to `AssumptionSet`, and follows Python conventions. The projection engines only call `get_qx_vector()` and `get_lapse_vector()` — as long as ML classes implement these with the same return shape and dtype contract, they are drop-in replacements. Model persistence uses joblib, which handles scikit-learn and XGBoost models natively.

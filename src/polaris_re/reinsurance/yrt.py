@@ -18,6 +18,8 @@ time step is approximated using the premium runoff ratio as an in-force proxy:
     NAR_t = total_face_t - reserve_balance_t
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 from pydantic import Field
 
@@ -25,6 +27,9 @@ from polaris_re.core.base import PolarisBaseModel
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.exceptions import PolarisComputationError
 from polaris_re.reinsurance.base_treaty import BaseTreaty
+
+if TYPE_CHECKING:
+    from polaris_re.core.inforce import InforceBlock
 
 __all__ = ["YRTTreaty"]
 
@@ -68,12 +73,19 @@ class YRTTreaty(PolarisBaseModel, BaseTreaty):
     )
     treaty_name: str | None = Field(default=None, description="Optional treaty identifier.")
 
-    def apply(self, gross: CashFlowResult) -> tuple[CashFlowResult, CashFlowResult]:
+    def apply(
+        self,
+        gross: CashFlowResult,
+        inforce: "InforceBlock | None" = None,
+    ) -> tuple[CashFlowResult, CashFlowResult]:
         """
         Apply YRT treaty to gross cash flows.
 
         Args:
-            gross: GROSS basis CashFlowResult with reserve_balance populated.
+            gross:   GROSS basis CashFlowResult with reserve_balance populated.
+            inforce: Optional InforceBlock for policy-level cession overrides.
+                     When provided, face-weighted average cession is used
+                     instead of treaty-level cession_pct.
 
         Returns:
             (net, ceded) CashFlowResult tuple.
@@ -83,7 +95,7 @@ class YRTTreaty(PolarisBaseModel, BaseTreaty):
                 "YRT treaty requires reserve_balance in gross CashFlowResult."
             )
 
-        c = self.cession_pct
+        c = self._resolve_cession(self.cession_pct, inforce)
 
         # Ceded claims: proportional to gross
         ceded_claims = gross.death_claims * c
