@@ -42,8 +42,8 @@ SOA TABLE IDs (mort.soa.org)
 -----------------------------
 VBT 2015 Smoker-Distinct ANB (select period = 25 years):
     3265  Male Non-Smoker   → soa_vbt_2015_male_ns.csv
-    3266  Male Smoker       → soa_vbt_2015_male_smoker.csv
-    3267  Female Non-Smoker → soa_vbt_2015_female_ns.csv
+    3266  Female Non-Smoker → soa_vbt_2015_female_ns.csv
+    3267  Male Smoker       → soa_vbt_2015_male_smoker.csv
     3268  Female Smoker     → soa_vbt_2015_female_smoker.csv
 
 2001 CSO ANB (ultimate-only, rates stored per-mille in XML):
@@ -85,7 +85,7 @@ SOA_TABLE_REGISTRY: dict[str, dict] = {
         "max_age": 120,
     },
     "soa_vbt_2015_male_smoker": {
-        "table_id": 3266,
+        "table_id": 3267,
         "description": "2015 VBT Male Smoker ANB",
         "select_period": 25,
         "table_type": "select_ultimate",
@@ -93,7 +93,7 @@ SOA_TABLE_REGISTRY: dict[str, dict] = {
         "max_age": 120,
     },
     "soa_vbt_2015_female_ns": {
-        "table_id": 3267,
+        "table_id": 3266,
         "description": "2015 VBT Female Non-Smoker ANB",
         "select_period": 25,
         "table_type": "select_ultimate",
