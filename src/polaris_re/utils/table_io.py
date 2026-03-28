@@ -106,7 +106,7 @@ def load_mortality_csv(
     path: Path,
     select_period: int,
     min_age: int = 18,
-    max_age: int = 120,
+    max_age: int | None = None,
 ) -> MortalityTableArray:
     """
     Load and validate a mortality table CSV into a MortalityTableArray.
@@ -115,7 +115,7 @@ def load_mortality_csv(
         path:          Full path to the CSV file.
         select_period: Number of select years (0 for ultimate-only tables).
         min_age:       Expected minimum age (for validation).
-        max_age:       Expected maximum age (for validation).
+        max_age:       Maximum age. If None, auto-detected from the CSV file.
 
     Returns:
         Validated MortalityTableArray.
@@ -123,8 +123,6 @@ def load_mortality_csv(
     Raises:
         FileNotFoundError: CSV not found.
         PolarisValidationError: Table fails validation.
-
-    TODO: Implement using polars.read_csv + numpy array construction.
     """
     if not path.exists():
         raise FileNotFoundError(f"Mortality table CSV not found: {path}")
@@ -167,8 +165,16 @@ def load_mortality_csv(
     actual_max_age = int(ages_series.max())
     if actual_min_age > min_age:
         raise PolarisValidationError(f"Table min age {actual_min_age} > expected {min_age}.")
+
+    # Auto-detect max_age from CSV if not specified
+    if max_age is None:
+        max_age = actual_max_age
+
+    # Clamp max_age to what the CSV actually provides
     if actual_max_age < max_age:
-        raise PolarisValidationError(f"Table max age {actual_max_age} < expected {max_age}.")
+        max_age = actual_max_age
+
+    print(f"Loaded {path.name}: ages {actual_min_age}-{actual_max_age}")
 
     # Filter to requested age range
     mask = (ages_series >= min_age) & (ages_series <= max_age)

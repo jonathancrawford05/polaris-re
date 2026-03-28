@@ -42,8 +42,8 @@ SOA TABLE IDs (mort.soa.org)
 -----------------------------
 VBT 2015 Smoker-Distinct ANB (select period = 25 years):
     3265  Male Non-Smoker   → soa_vbt_2015_male_ns.csv
-    3266  Male Smoker       → soa_vbt_2015_male_smoker.csv
-    3267  Female Non-Smoker → soa_vbt_2015_female_ns.csv
+    3266  Female Non-Smoker → soa_vbt_2015_female_ns.csv
+    3267  Male Smoker       → soa_vbt_2015_male_smoker.csv
     3268  Female Smoker     → soa_vbt_2015_female_smoker.csv
 
 2001 CSO ANB (ultimate-only, rates stored per-mille in XML):
@@ -85,7 +85,7 @@ SOA_TABLE_REGISTRY: dict[str, dict] = {
         "max_age": 120,
     },
     "soa_vbt_2015_male_smoker": {
-        "table_id": 3266,
+        "table_id": 3267,
         "description": "2015 VBT Male Smoker ANB",
         "select_period": 25,
         "table_type": "select_ultimate",
@@ -93,7 +93,7 @@ SOA_TABLE_REGISTRY: dict[str, dict] = {
         "max_age": 120,
     },
     "soa_vbt_2015_female_ns": {
-        "table_id": 3267,
+        "table_id": 3266,
         "description": "2015 VBT Female Non-Smoker ANB",
         "select_period": 25,
         "table_type": "select_ultimate",
@@ -174,9 +174,7 @@ def convert_via_pymort(output_dir: Path, table_keys: list[str] | None = None) ->
         from pymort import MortXML  # type: ignore[import]
     except ImportError:
         console.print(
-            "[red]pymort not installed.[/red] Run:\n"
-            "  uv add pymort\n"
-            "  pip install pymort"
+            "[red]pymort not installed.[/red] Run:\n  uv add pymort\n  pip install pymort"
         )
         sys.exit(1)
 
@@ -243,14 +241,21 @@ def _pymort_to_ultimate_csv(xml: object, cfg: dict) -> pl.DataFrame:
         sel_flat = sel_raw.reset_index()
         sel_flat.columns = [str(c).strip() for c in sel_flat.columns]
         # Last duration row per age = highest select-period rate (closest to ultimate)
-        sel_last = sel_flat.sort_values(sel_flat.columns[1]).groupby(sel_flat.columns[0]).last().reset_index()
+        sel_last = (
+            sel_flat.sort_values(sel_flat.columns[1])
+            .groupby(sel_flat.columns[0])
+            .last()
+            .reset_index()
+        )
         young_ages = pd.to_numeric(sel_last.iloc[:, 0], errors="coerce").values
         young_rates = pd.to_numeric(sel_last.iloc[:, 2], errors="coerce").values.astype(float)
 
         min_ult_age = int(ages_ult[~np.isnan(ages_ult)].min())
         young_mask = (young_ages < min_ult_age) & (~np.isnan(young_ages)) & (~np.isnan(young_rates))
 
-        all_ages = np.concatenate([young_ages[young_mask].astype(int), ages_ult[~np.isnan(ages_ult)].astype(int)])
+        all_ages = np.concatenate(
+            [young_ages[young_mask].astype(int), ages_ult[~np.isnan(ages_ult)].astype(int)]
+        )
         all_rates = np.concatenate([young_rates[young_mask], rates_ult[~np.isnan(ages_ult)]])
 
         # Sort by age and filter to requested range
@@ -281,14 +286,16 @@ def _pymort_to_ultimate_csv(xml: object, cfg: dict) -> pl.DataFrame:
     valid = (
         ~np.isnan(ages.astype(float))
         & ~np.isnan(rates)
-        & (rates > -0.5)          # sentinel guard only
+        & (rates > -0.5)  # sentinel guard only
         & (ages >= min_age)
         & (ages <= max_age)
     )
-    return pl.DataFrame({
-        "age": ages[valid].astype(int).tolist(),
-        "rate": rates[valid].tolist(),
-    })
+    return pl.DataFrame(
+        {
+            "age": ages[valid].astype(int).tolist(),
+            "rate": rates[valid].tolist(),
+        }
+    )
 
 
 def _pymort_to_select_ultimate_csv(xml: object, cfg: dict) -> pl.DataFrame:
@@ -317,9 +324,9 @@ def _pymort_to_select_ultimate_csv(xml: object, cfg: dict) -> pl.DataFrame:
     cols = select_flat.columns.tolist()
     age_col = next(c for c in cols if any(k in str(c).lower() for k in ("issue", "age", "x")))
     dur_col = next(
-        c for c in cols
-        if any(k in str(c).lower() for k in ("dur", "period", "t", "year"))
-        and c != age_col
+        c
+        for c in cols
+        if any(k in str(c).lower() for k in ("dur", "period", "t", "year")) and c != age_col
     )
     rate_col = next(c for c in cols if c not in (age_col, dur_col))
 
@@ -426,10 +433,13 @@ def convert_cia_excel(excel_path: Path, output_dir: Path) -> dict[str, bool]:
         try:
             df = _parse_cia2014_sheet(xl, matched_sheet)
             pl_df = pl.from_pandas(df)
-            _validate_output_df(pl_df, {
-                "min_age": CIA_MIN_AGE,
-                "max_age": CIA_MAX_AGE,
-            })
+            _validate_output_df(
+                pl_df,
+                {
+                    "min_age": CIA_MIN_AGE,
+                    "max_age": CIA_MAX_AGE,
+                },
+            )
             pl_df.write_csv(output_path)
             console.print(
                 f"[green]✓[/green] → {output_path.name} "
@@ -444,7 +454,7 @@ def convert_cia_excel(excel_path: Path, output_dir: Path) -> dict[str, bool]:
     return results
 
 
-def _parse_cia2014_sheet(xl: object, sheet_name: str) -> "pd.DataFrame":
+def _parse_cia2014_sheet(xl: object, sheet_name: str) -> pd.DataFrame:
     """
     Parse one CIA2014 ANB sheet into a Polaris RE select-and-ultimate DataFrame.
 
@@ -558,9 +568,7 @@ def _validate_output_df(df: pl.DataFrame, cfg: dict) -> None:
         if col_min is not None and float(col_min) < 0:
             raise ValueError(f"Column '{col}' has negative rates.")
         if col_max is not None and float(col_max) > 1.0:
-            raise ValueError(
-                f"Column '{col}' max={float(col_max):.4f} > 1.0 — still per-mille?"
-            )
+            raise ValueError(f"Column '{col}' max={float(col_max):.4f} > 1.0 — still per-mille?")
 
 
 def validate_outputs(output_dir: Path) -> bool:
@@ -609,6 +617,7 @@ def _inspect_excel(path: Path) -> None:
     """Print sheet names and first 5 rows of each sheet for debugging."""
     try:
         import pandas as pd
+
         xl = pd.ExcelFile(path)
         console.print(f"\n[bold]Inspecting:[/bold] {path.name}")
         for sheet in xl.sheet_names:
@@ -688,7 +697,9 @@ def main() -> None:
         if not args.excel_file:
             console.print("[red]--excel-file is required with --source excel.[/red]")
             sys.exit(1)
-        console.print(f"Source: [bold]CIA2014 Excel[/bold] {args.excel_file}\nOutput: {args.output_dir}\n")
+        console.print(
+            f"Source: [bold]CIA2014 Excel[/bold] {args.excel_file}\nOutput: {args.output_dir}\n"
+        )
         results = convert_cia_excel(args.excel_file, args.output_dir)
 
     n_ok = sum(v for v in results.values())
