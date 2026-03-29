@@ -75,7 +75,8 @@ def page_treaty_compare() -> None:
 
             results: dict[str, object] = {}
             ncf_curves: dict[str, np.ndarray] = {}
-            reserve_totals: dict[str, float] = {}
+            reserve_peaks: dict[str, float] = {}
+            reserve_curves: dict[str, np.ndarray] = {}
 
             for treaty_name in treaties_to_compare:
                 if treaty_name == "Gross (No Treaty)":
@@ -87,7 +88,8 @@ def page_treaty_compare() -> None:
                         total_face_amount=face_amount,
                     )
                     net, ceded = treaty.apply(gross)
-                    reserve_totals[treaty_name] = float(ceded.reserve_balance.sum())
+                    reserve_peaks[treaty_name] = float(ceded.reserve_balance.max())
+                    reserve_curves[treaty_name] = ceded.reserve_balance
                 elif treaty_name == "Coinsurance":
                     treaty = CoinsuranceTreaty(  # type: ignore[assignment]
                         treaty_name="COINS-CMP",
@@ -95,7 +97,8 @@ def page_treaty_compare() -> None:
                         include_expense_allowance=True,
                     )
                     net, ceded = treaty.apply(gross)  # type: ignore[union-attr]
-                    reserve_totals[treaty_name] = float(ceded.reserve_balance.sum())
+                    reserve_peaks[treaty_name] = float(ceded.reserve_balance.max())
+                    reserve_curves[treaty_name] = ceded.reserve_balance
                 elif treaty_name == "Modco":
                     treaty = ModcoTreaty(  # type: ignore[assignment]
                         treaty_name="MODCO-CMP",
@@ -103,7 +106,8 @@ def page_treaty_compare() -> None:
                         modco_interest_rate=modco_rate,
                     )
                     net, ceded = treaty.apply(gross)  # type: ignore[union-attr]
-                    reserve_totals[treaty_name] = float(ceded.reserve_balance.sum())
+                    reserve_peaks[treaty_name] = float(ceded.reserve_balance.max())
+                    reserve_curves[treaty_name] = ceded.reserve_balance
                 else:
                     continue
 
@@ -151,16 +155,27 @@ def page_treaty_compare() -> None:
         st.pyplot(fig)
         plt.close(fig)
 
-        # Reserve transfer comparison
-        if reserve_totals:
-            st.subheader("Ceded Reserve Transfer (Cumulative)")
-            fig2, ax2 = plt.subplots(figsize=(8, 4))
-            names = list(reserve_totals.keys())
-            vals = [reserve_totals[n] for n in names]
-            ax2.bar(names, vals, color=["#3498db", "#e74c3c", "#9b59b6"][: len(names)])
-            ax2.set_ylabel("Total Ceded Reserve ($)")
-            ax2.set_title("Ceded Reserve by Treaty Type")
+        # Reserve balance comparison — time series and peak values
+        if reserve_curves:
+            st.subheader("Ceded Reserve Balance Over Time")
+            colors_res = ["#3498db", "#e74c3c", "#9b59b6"]
+            fig2, ax2 = plt.subplots(figsize=(10, 5))
+            for i, (name, curve) in enumerate(reserve_curves.items()):
+                n_months = len(curve)
+                peak = reserve_peaks[name]
+                ax2.plot(
+                    np.arange(n_months) / 12,
+                    curve,
+                    label=f"{name} (peak ${peak:,.0f})",
+                    color=colors_res[i % len(colors_res)],
+                    linewidth=2,
+                )
+            ax2.set_xlabel("Year")
+            ax2.set_ylabel("Ceded Reserve Balance ($)")
+            ax2.set_title("Ceded Reserve Balance by Treaty Type")
             ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+            ax2.legend()
+            ax2.grid(True, alpha=0.3)
             fig2.tight_layout()
             st.pyplot(fig2)
             plt.close(fig2)

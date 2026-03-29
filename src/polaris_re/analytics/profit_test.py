@@ -97,15 +97,28 @@ class ProfitTester:
             # No sign change - profits all same sign
             irr = None
 
-        # Break-even year
+        # Break-even year: first year where cumulative discounted profit turns
+        # positive and remains positive for the rest of the projection.
+        # Previous logic used np.argmax which found the *first* month with
+        # cum_pv > 0, which could be month 1 (premium received before claims
+        # accumulate) even when cumulative profit later goes deeply negative.
         v = (1.0 + self.hurdle_rate) ** (-1.0 / 12.0)
         discount_factors = v ** np.arange(1, t + 1, dtype=np.float64)
         discounted = profits * discount_factors
         cum_pv = np.cumsum(discounted)
-        mask = cum_pv > 0
         breakeven_year: int | None = None
-        if mask.any():
-            breakeven_year = int(np.argmax(mask) // 12 + 1)
+        # Find the last month where cum_pv transitions from <= 0 to > 0.
+        # After this crossing, cum_pv must stay positive through the end.
+        for m in range(t - 1, -1, -1):
+            if cum_pv[m] <= 0:
+                # The crossover is at m+1 (if it exists and stays positive)
+                if m + 1 < t and cum_pv[m + 1] > 0:
+                    breakeven_year = int((m + 1) // 12 + 1)
+                break
+        else:
+            # cum_pv is positive from month 0 onward (entire projection profitable)
+            if cum_pv[0] > 0:
+                breakeven_year = 1
 
         # Total undiscounted profit
         total_undiscounted_profit = float(profits.sum())
