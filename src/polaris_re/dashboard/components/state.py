@@ -13,6 +13,9 @@ KEYS = [
     "lapse_source",
     "ml_mortality_model",
     "ml_lapse_model",
+    "pricing_result",
+    "pricing_net_result",
+    "pricing_treaty_type",
 ]
 
 

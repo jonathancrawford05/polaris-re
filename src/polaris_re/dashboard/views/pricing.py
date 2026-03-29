@@ -352,6 +352,18 @@ def page_pricing() -> None:
 
             result = ProfitTester(cashflows=net, hurdle_rate=hurdle_rate).run()
 
+            # Cache results in session state so they survive page navigation
+            st.session_state["pricing_result"] = result
+            st.session_state["pricing_net_result"] = net
+            st.session_state["pricing_treaty_type"] = treaty_type
+
+    # Display results from session state (persists across navigation)
+    result = st.session_state.get("pricing_result")
+    net = st.session_state.get("pricing_net_result")
+    gross = st.session_state.get("gross_result")
+    cached_treaty_type = st.session_state.get("pricing_treaty_type", treaty_type)
+
+    if result is not None and net is not None and gross is not None:
         # Metrics
         col_a, col_b, col_c, col_d = st.columns(4)
         col_a.metric("PV Profits", f"${result.pv_profits:,.0f}")
@@ -365,21 +377,31 @@ def page_pricing() -> None:
         st.pyplot(_cash_flow_decomposition(gross))
         st.pyplot(_reserve_chart(gross))
 
-        # Tabular summary
-        n_years = gross.projection_months // 12
+        # Tabular summary — show net (post-treaty) cash flows to match
+        # the profit metrics above. Previously showed gross NCF which was
+        # inconsistent with the KPI panel and treaty comparison page.
+        n_years = net.projection_months // 12
         annual_data = []
         for yr in range(n_years):
             s, e = yr * 12, (yr + 1) * 12
             annual_data.append(
                 {
                     "Year": yr + 1,
-                    "Premiums": f"${gross.gross_premiums[s:e].sum():,.0f}",
-                    "Claims": f"${gross.death_claims[s:e].sum():,.0f}",
-                    "NCF": f"${gross.net_cash_flow[s:e].sum():,.0f}",
-                    "Cumul. NCF": f"${gross.net_cash_flow[:e].sum():,.0f}",
+                    "Net Premiums": f"${net.gross_premiums[s:e].sum():,.0f}",
+                    "Net Claims": f"${net.death_claims[s:e].sum():,.0f}",
+                    "Reserve Inc.": f"${net.reserve_increase[s:e].sum():,.0f}",
+                    "Net Cash Flow": f"${net.net_cash_flow[s:e].sum():,.0f}",
+                    "Cumul. NCF": f"${net.net_cash_flow[:e].sum():,.0f}",
                 }
             )
-        st.subheader("Annual Summary")
+        basis_label = (
+            "Gross" if cached_treaty_type == "None (Gross)" else f"Net ({cached_treaty_type})"
+        )
+        st.subheader(f"Annual Summary \u2014 {basis_label}")
+        st.caption(
+            "NCF = Net Premiums \u2212 Net Claims \u2212 Lapses "
+            "\u2212 Expenses \u2212 Reserve Increase"
+        )
         st.dataframe(annual_data, use_container_width=True)
 
         # Table vs ML comparison (Phase E)

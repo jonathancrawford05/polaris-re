@@ -34,7 +34,7 @@ def page_uq() -> None:
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        n_scenarios = int(st.slider("Monte Carlo Scenarios", 50, 1000, 200, step=50))
+        n_scenarios = int(st.slider("Monte Carlo Scenarios", 100, 2000, 500, step=100))
         seed = int(st.number_input("Random Seed", value=42, min_value=0))
     with col2:
         mort_sigma = float(st.slider("Mortality vol (%)", 5, 30, 10)) / 100.0
@@ -90,13 +90,18 @@ def page_uq() -> None:
             )
             result = uq.run()
 
-        # Metrics
+        # Metrics — VaR 95% is the 5th percentile of PV profits (same as P5),
+        # so we show Prob(Loss) instead of the redundant P5 metric.
         col_a, col_b, col_c, col_d = st.columns(4)
-        col_a.metric("VaR 95%", f"${result.var(0.95):,.0f}")
+        col_a.metric(
+            "VaR 95%",
+            f"${result.var(0.95):,.0f}",
+            help="5th percentile of PV Profit distribution (worst-case at 95% confidence).",
+        )
         col_b.metric("CVaR 95%", f"${result.cvar(0.95):,.0f}")
         col_c.metric("Base PV Profit", f"${result.base_pv_profit:,.0f}")
-        p5 = result.percentile(5)
-        col_d.metric("P5 PV Profit", f"${p5['pv_profit']:,.0f}")
+        prob_loss = float((result.pv_profits < 0).mean()) * 100.0
+        col_d.metric("Prob(Loss)", f"{prob_loss:.1f}%")
 
         # Main histogram
         st.pyplot(

@@ -59,6 +59,12 @@ def page_ifrs17() -> None:
                 f"Onerous contract: Loss Component = ${result.loss_component:,.0f} "
                 "(recognised in P&L at inception)"
             )
+            st.info(
+                "Under IFRS 17 B123, insurance revenue for onerous contracts "
+                "excludes the portion of expected cash flows attributable to the "
+                "loss component. The ISR chart below reflects this adjustment \u2014 "
+                "revenue will be lower than total expected outflows."
+            )
 
         # CSM amortisation schedule
         if approach == "BBA":
@@ -166,4 +172,10 @@ def page_ifrs17() -> None:
         st.metric(
             "PV Insurance Revenue",
             f"${result.pv_insurance_revenue():,.0f}",
+        )
+        st.caption(
+            "IFRS 17 Insurance Revenue \u2260 cash premiums. Under the BBA it equals "
+            "the release of expected claims, expenses, RA, and CSM to P&L over the "
+            "coverage period (IFRS 17.B121). For onerous contracts, revenue is "
+            "reduced by the loss component allocation (IFRS 17.B123)."
         )
