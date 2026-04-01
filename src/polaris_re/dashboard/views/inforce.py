@@ -144,6 +144,29 @@ def _synthetic_tab() -> None:
         term_20 = int(st.slider("20yr Term Mix %", 0, 100, 60))
         term_30 = 100 - term_10 - term_20
 
+    st.subheader("Premium Calibration")
+    pc1, pc2 = st.columns(2)
+    with pc1:
+        mortality_source = st.selectbox(
+            "Mortality Table for Pricing",
+            ["SOA_VBT_2015", "CIA_2014", "CSO_2001"],
+            index=0,
+            help="Premiums are calibrated to expected mortality from this table.",
+        )
+    with pc2:
+        target_loss_ratio = st.slider(
+            "Target Loss Ratio",
+            min_value=0.30,
+            max_value=0.90,
+            value=0.60,
+            step=0.05,
+            format="%.2f",
+            help=(
+                "Ratio of expected claims to premiums. "
+                "Lower = more profitable. 0.60 means 60% of premium covers expected claims."
+            ),
+        )
+
     if term_30 < 0:
         st.warning("Term mix exceeds 100%. Adjust 10yr and 20yr sliders.")
         return
@@ -179,6 +202,8 @@ def _synthetic_tab() -> None:
                 face_median=face_median,
                 term_10_pct=term_10,
                 term_20_pct=term_20,
+                mortality_table_source=mortality_source,
+                target_loss_ratio=target_loss_ratio,
             )
 
             # Write to temp CSV and load via InforceBlock.from_csv

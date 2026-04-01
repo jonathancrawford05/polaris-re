@@ -12,6 +12,7 @@ Usage:
 """
 
 import argparse
+import os
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -37,6 +38,9 @@ def generate_synthetic_block(
     face_median: int = 500_000,
     term_10_pct: int = 20,
     term_20_pct: int = 60,
+    mortality_table_source: str = "SOA_VBT_2015",
+    target_loss_ratio: float = 0.60,
+    data_dir: str | None = None,
 ) -> pl.DataFrame:
     """
     Generate a synthetic inforce block with realistic distributions.
@@ -105,10 +109,42 @@ def generate_synthetic_block(
     # Round to nearest $50k
     face_amounts = (face_amounts / 50_000).round() * 50_000
 
-    # Annual premiums (rough approximation: age-based rate per $1000)
-    base_rate_per_1000 = 0.8 + issue_ages * 0.05  # illustrative
-    smoker_multiplier = np.where(smokers == "S", 2.5, 1.0)
-    annual_premiums = (face_amounts / 1000) * base_rate_per_1000 * smoker_multiplier
+    # --- Compute mortality-calibrated premiums ---
+    from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
+    from polaris_re.core.policy import Sex, SmokerStatus
+
+    table_source = MortalityTableSource(mortality_table_source)
+    mort_data_dir = (
+        Path(data_dir)
+        if data_dir
+        else Path(os.environ.get("POLARIS_DATA_DIR", "data")) / "mortality_tables"
+    )
+    mortality_table = MortalityTable.load(source=table_source, data_dir=mort_data_dir)
+
+    # For each policy, compute average annual q_x over the policy term
+    # using the ultimate column (conservative, ignores select-period discounts)
+    annual_premiums = np.zeros(n, dtype=np.float64)
+    for i in range(n):
+        age = int(issue_ages[i])
+        term = int(policy_terms[i])
+        sex_enum = Sex.MALE if sexes[i] == "M" else Sex.FEMALE
+        smoker_enum = SmokerStatus.SMOKER if smokers[i] == "S" else SmokerStatus.NON_SMOKER
+
+        # Average q_x across ages [issue_age, issue_age + term - 1]
+        ages_over_term = np.arange(
+            age, min(age + term, mortality_table.max_age + 1), dtype=np.int32
+        )
+        # Use ultimate durations (duration >> select period) for conservative pricing
+        durations_ult = np.full_like(ages_over_term, mortality_table.select_period_years * 12 + 12)
+
+        qx_monthly_vec = mortality_table.get_qx_vector(
+            ages_over_term, sex_enum, smoker_enum, durations_ult
+        )
+        # get_qx_vector returns monthly rates — convert back to annual
+        qx_annual = 1.0 - (1.0 - qx_monthly_vec) ** 12
+
+        avg_annual_qx = float(qx_annual.mean())
+        annual_premiums[i] = (face_amounts[i] * avg_annual_qx) / target_loss_ratio
 
     # Issue dates (back-calculate from duration)
     issue_dates = [
@@ -151,12 +187,37 @@ def main() -> None:
         default=Path("data/synthetic_block.csv"),
         help="Output CSV file path",
     )
+    parser.add_argument(
+        "--mortality-source",
+        type=str,
+        default="SOA_VBT_2015",
+        choices=["SOA_VBT_2015", "CIA_2014", "CSO_2001"],
+        help="Mortality table source for premium calibration",
+    )
+    parser.add_argument(
+        "--target-loss-ratio",
+        type=float,
+        default=0.60,
+        help="Target loss ratio (0.0-1.0). Premium = expected_claims / loss_ratio",
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=str,
+        default=None,
+        help="Directory containing mortality table CSVs",
+    )
     args = parser.parse_args()
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
     print(f"Generating {args.n_policies:,} synthetic policies (seed={args.seed})...")
-    df = generate_synthetic_block(n_policies=args.n_policies, seed=args.seed)
+    df = generate_synthetic_block(
+        n_policies=args.n_policies,
+        seed=args.seed,
+        mortality_table_source=args.mortality_source,
+        target_loss_ratio=args.target_loss_ratio,
+        data_dir=args.data_dir,
+    )
     df.write_csv(args.output)
 
     print(f"Written to {args.output}")

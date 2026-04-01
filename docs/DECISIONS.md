@@ -485,3 +485,35 @@ Options considered:
 **Decision:** Standard feature transforms in `utils/features.py`: 5-year age bands (`add_age_bands`), actuarial duration bands (0-1, 2-5, 6-10, 11-15, 16+ years via `add_duration_bands`), log-transformed face amount (`log_face_amount`), and a `build_feature_matrix` function that produces the canonical feature DataFrame from policy attributes. Binary encoding for sex (male=1) and smoker status (smoker=1).
 
 **Rationale:** Consistent feature engineering ensures reproducibility across training and inference. Age bands and duration bands are standard actuarial groupings used in experience studies and pricing. Log-transform for face amount handles the heavy-tailed distribution of policy sizes. Binary encoding for categorical variables is the simplest approach and sufficient for tree-based models (GBM, XGBoost) which dominate actuarial ML use cases.
+
+---
+
+## ADR-037: Mortality-calibrated premium formula for synthetic blocks
+
+**Date:** Phase 5
+**Status:** Accepted
+
+**Context:** The synthetic block generator used an illustrative linear premium
+formula (`0.8 + age * 0.05` per $1,000) that was not calibrated to any mortality
+table. When real tables (SOA VBT 2015, CIA 2014) were used for projection, the
+block was universally onerous — claims exceeded premiums for policies with
+attained ages above ~45, producing a fully loss-making IFRS 17 result with
+CSM = 0.
+
+**Decision:** Replace the illustrative formula with a mortality-table-calibrated
+premium calculation:
+  1. For each policy, compute the average annual q_x across the policy term
+     using the ultimate column of the chosen mortality table.
+  2. Derive annual premium = (face_amount x avg_annual_qx) / target_loss_ratio.
+  3. Apply smoker loading by using the smoker-specific table rates (no separate
+     multiplier).
+  4. The target_loss_ratio parameter (default 0.60) replaces the manual premium
+     input in all dashboard flows.
+
+**Rationale:** Using average q_x over the term is a pragmatic approximation of
+an actuarially fair level premium. It avoids the complexity of a full APV
+calculation (which would require survival probabilities and discounting) while
+being far more accurate than the previous linear formula. The target loss ratio
+gives the user a single, interpretable control that directly determines
+profitability — a 60% loss ratio means 40% of premium is available for
+expenses, margins, and profit.
