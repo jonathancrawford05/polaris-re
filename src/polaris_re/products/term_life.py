@@ -81,6 +81,10 @@ class TermLife(BaseProduct):
         smoker_list = [p.smoker_status for p in self.inforce.policies]
         unique_combos = set(zip(sex_list, smoker_list, strict=True))
 
+        # Pre-compute improvement if available
+        improvement = getattr(self.assumptions, "improvement", None)
+        valuation_year = self.config.valuation_date.year
+
         for month in range(t):
             # Current ages and durations at this time step
             current_durations = duration_inforce + month  # (N,)
@@ -90,6 +94,9 @@ class TermLife(BaseProduct):
 
             # Cap ages at table max
             current_ages = np.minimum(current_ages, self.assumptions.mortality.max_age)
+
+            # Calendar year for this projection month (for improvement)
+            cal_year = valuation_year + (month // 12)
 
             # Active mask: policy still in term
             active = month < remaining_months  # (N,)
@@ -111,6 +118,20 @@ class TermLife(BaseProduct):
                     sex,
                     smoker,
                     current_durations[mask],
+                )
+
+            # Apply mortality improvement if configured
+            if improvement is not None:
+                # get_qx_vector returns monthly rates; convert back to annual,
+                # apply improvement, then convert back to monthly
+                q_annual_col = 1.0 - (1.0 - q_monthly_col) ** 12
+                q_annual_improved = improvement.apply_improvement(
+                    q_annual_col, current_ages, cal_year
+                )
+                from polaris_re.utils.interpolation import constant_force_interpolate_rates
+
+                q_monthly_col = constant_force_interpolate_rates(
+                    q_annual_improved, fraction=1.0 / 12.0
                 )
 
             # Lapse rates
@@ -245,8 +266,14 @@ class TermLife(BaseProduct):
         # Lapse surrenders: no cash value for term life, so zero
         ser_lapses = np.zeros((n, t), dtype=np.float64)
 
-        # Expenses: zero for now (Phase 2)
+        # Expenses: acquisition cost (month 0) + ongoing maintenance
         ser_expenses = np.zeros((n, t), dtype=np.float64)
+        acq_cost = self.config.acquisition_cost_per_policy
+        maint_cost_monthly = self.config.maintenance_cost_per_policy_per_year / 12.0
+        if acq_cost > 0.0:
+            ser_expenses[:, 0] += acq_cost  # one-time at start
+        if maint_cost_monthly > 0.0:
+            ser_expenses += lx * maint_cost_monthly  # ongoing per in-force policy
 
         # Reserve balance (seriatim): lx * V
         ser_reserves = lx * reserves  # (N, T)

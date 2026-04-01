@@ -52,6 +52,24 @@ class ProjectionConfig(PolarisBaseModel):
         ),
     )
 
+    # --- Expense loading ---
+    acquisition_cost_per_policy: float = Field(
+        default=0.0,
+        ge=0.0,
+        description=(
+            "One-time acquisition cost per policy at projection start (month 0). "
+            "Represents underwriting, issue, and initial commission costs."
+        ),
+    )
+    maintenance_cost_per_policy_per_year: float = Field(
+        default=0.0,
+        ge=0.0,
+        description=(
+            "Ongoing annual admin/maintenance cost per in-force policy. "
+            "Applied monthly as (cost / 12) * in-force factor."
+        ),
+    )
+
     @field_validator("projection_horizon_years")
     @classmethod
     def horizon_reasonable(cls, v: int) -> int:

@@ -279,6 +279,32 @@ def page_pricing() -> None:
     with pc3:
         hurdle_rate = float(st.slider("Hurdle Rate (%)", 5, 20, 10)) / 100.0
 
+    # Expense loading
+    st.subheader("Expense Loading")
+    ec1, ec2 = st.columns(2)
+    with ec1:
+        acquisition_cost = float(
+            st.number_input(
+                "Acquisition Cost per Policy ($)",
+                min_value=0,
+                max_value=10_000,
+                value=500,
+                step=50,
+                help="One-time cost at issue: underwriting, commission, setup.",
+            )
+        )
+    with ec2:
+        maintenance_cost = float(
+            st.number_input(
+                "Annual Maintenance Cost per Policy ($)",
+                min_value=0,
+                max_value=1_000,
+                value=75,
+                step=5,
+                help="Ongoing admin cost per in-force policy per year.",
+            )
+        )
+
     # Fallback sliders when session state not populated
     if not use_session:
         st.subheader("Fallback: Manual Block & Assumptions")
@@ -325,6 +351,8 @@ def page_pricing() -> None:
                 valuation_date=valuation_date,
                 projection_horizon_years=projection_years,
                 discount_rate=discount_rate,
+                acquisition_cost_per_policy=acquisition_cost,
+                maintenance_cost_per_policy_per_year=maintenance_cost,
             )
 
             if use_session:
@@ -360,6 +388,33 @@ def page_pricing() -> None:
                 net, _ceded = treaty.apply(gross, inforce=inforce_arg)  # type: ignore[union-attr]
 
             result = ProfitTester(cashflows=net, hurdle_rate=hurdle_rate).run()
+
+            # Sanity check: loss ratio (claims / premiums)
+            total_claims = float(gross.death_claims.sum())
+            total_premiums = float(gross.gross_premiums.sum())
+            if total_premiums > 0:
+                loss_ratio = total_claims / total_premiums
+                if loss_ratio < 0.01:
+                    st.error(
+                        f"**Pricing Validation Warning**: Aggregate loss ratio "
+                        f"is {loss_ratio:.4%} (claims ${total_claims:,.0f} vs "
+                        f"premiums ${total_premiums:,.0f}). "
+                        f"Expected 20-80% for a correctly parameterised deal. "
+                        f"Check that mortality rates are correctly scaled "
+                        f"(decimal q_x, not per-mille or per-100,000)."
+                    )
+                elif loss_ratio > 2.0:
+                    st.warning(
+                        f"**Pricing Validation Warning**: Loss ratio is "
+                        f"{loss_ratio:.2%} — claims far exceed premiums. "
+                        f"Check premium calibration and mortality assumptions."
+                    )
+                else:
+                    st.caption(
+                        f"Validation: aggregate loss ratio = {loss_ratio:.1%}, "
+                        f"total claims = ${total_claims:,.0f}, "
+                        f"total premiums = ${total_premiums:,.0f}"
+                    )
 
             # Cache results in session state so they survive page navigation
             st.session_state["pricing_result"] = result

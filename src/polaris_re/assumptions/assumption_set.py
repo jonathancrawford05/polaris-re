@@ -10,6 +10,7 @@ from datetime import date
 
 from pydantic import Field
 
+from polaris_re.assumptions.improvement import MortalityImprovement
 from polaris_re.assumptions.lapse import LapseAssumption
 from polaris_re.assumptions.mortality import MortalityTable
 from polaris_re.core.base import PolarisBaseModel
@@ -29,9 +30,12 @@ class AssumptionSet(PolarisBaseModel):
     mortality: MortalityTable = Field(description="Base mortality table.")
     lapse: LapseAssumption = Field(description="Voluntary lapse (termination) rates.")
 
-    # --- Optional (Phase 2+) ---
-    # improvement: MortalityImprovement | None = None
-    # expense: ExpenseAssumption | None = None
+    # --- Optional ---
+    improvement: MortalityImprovement | None = Field(
+        default=None,
+        description="Mortality improvement projection (Scale AA, MP-2020, CPM-B, or None).",
+    )
+    # expense: ExpenseAssumption | None = None  # Phase 2+
 
     # --- Audit metadata ---
     version: str = Field(description="Version identifier, e.g. 'v1.0' or '2025Q1-pricing'.")

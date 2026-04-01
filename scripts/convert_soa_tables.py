@@ -534,19 +534,48 @@ def _parse_cia2014_sheet(xl: object, sheet_name: str) -> pd.DataFrame:
     ult_vals = pd.to_numeric(df[ult_col], errors="coerce").values.astype(float)
     output["ultimate"] = ult_vals / 1000.0
 
-    # Sanity check: if max rate is still tiny after dividing by 1000,
-    # the source rates were already in decimal form — undo the division.
-    all_rate_vals = output[[c for c in output.columns if c != "age"]].values.flatten()
+    # Sanity check: verify rates are plausible q_x decimals.
+    # The old check (max < 0.001) fails because old-age rates can be 0.15-0.25
+    # even when young-age rates are 1000x too small.  Instead, check a mid-range
+    # age band (40-60) where we know reasonable q_x ≈ 0.001 to 0.02.
+    # If mid-range rates are all < 1e-5 after /1000, the source was likely
+    # already in decimal form (or per-100,000) and the /1000 was too aggressive.
+    all_rate_cols = [c for c in output.columns if c != "age"]
+    all_rate_vals = output[all_rate_cols].values.flatten()
     all_rate_vals = all_rate_vals[~np.isnan(all_rate_vals)]
-    if len(all_rate_vals) > 0 and all_rate_vals.max() < 0.001:
+
+    # Mid-range age band check (ages 40-60)
+    age_vals = output["age"].values
+    mid_mask = (age_vals >= 40) & (age_vals <= 60)
+    if mid_mask.any():
+        mid_rates = output.loc[mid_mask, all_rate_cols].values.flatten()
+        mid_rates = mid_rates[~np.isnan(mid_rates)]
+        mid_median = float(np.median(mid_rates)) if len(mid_rates) > 0 else 0.0
+
+        if mid_median < 1e-5 and len(mid_rates) > 0:
+            # Rates are implausibly small — try to determine the correct scale.
+            # Expected mid-range q_x for ages 40-60 is roughly 0.001 to 0.01.
+            # Compute the factor needed to bring median into that range.
+            target_mid = 0.003  # rough expected q_x at age 50
+            scale_factor = target_mid / mid_median if mid_median > 0 else 1000.0
+            # Round to nearest power of 10
+            scale_factor = 10 ** round(np.log10(scale_factor))
+            console.print(
+                f"    [yellow]Warning: median rate at ages 40-60 is {mid_median:.2e} "
+                f"after /1000 — implausibly small. "
+                f"Multiplying by {scale_factor:.0f} to correct.[/yellow]"
+            )
+            for col in all_rate_cols:
+                output[col] = output[col] * scale_factor
+    elif len(all_rate_vals) > 0 and all_rate_vals.max() < 0.001:
+        # Fallback: original max-based check if mid-range ages not in table
         console.print(
             "    [yellow]Warning: max rate after /1000 is "
             f"{all_rate_vals.max():.6f} — source appears already decimal. "
             "Multiplying back by 1000.[/yellow]"
         )
-        for col in output.columns:
-            if col != "age":
-                output[col] = output[col] * 1000.0
+        for col in all_rate_cols:
+            output[col] = output[col] * 1000.0
 
     return output.reset_index(drop=True)
 

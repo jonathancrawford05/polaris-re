@@ -84,14 +84,18 @@ class ProfitTester:
         profit_margin = pv_profits / pv_premiums if pv_premiums != 0.0 else 0.0
 
         # IRR via Brent's method
+        # Widen the search interval to [-0.99, 100.0] to handle edge cases.
+        # If all profits are the same sign (no sign change), brentq cannot
+        # find a root — this typically means the deal has no meaningful IRR
+        # (e.g., no initial strain from expenses or commissions).
         irr: float | None = None
         try:
             irr = brentq(
                 lambda r: self._npv(r, profits),
-                -0.50,
-                10.0,
+                -0.99,
+                100.0,
                 xtol=1e-8,
-                maxiter=200,
+                maxiter=500,
             )
         except ValueError:
             # No sign change - profits all same sign

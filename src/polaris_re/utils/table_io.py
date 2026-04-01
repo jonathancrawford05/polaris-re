@@ -190,6 +190,25 @@ def load_mortality_csv(
     if np.any(rates < 0.0) or np.any(rates > 1.0):
         raise PolarisValidationError("All mortality rates must be in [0.0, 1.0].")
 
+    # Plausibility check: rates at mid-range ages (40-60) should not be < 1e-5.
+    # This catches tables that were incorrectly scaled (e.g., per-mille divided
+    # by 1000 again, or per-100,000 not converted to decimal).
+    if min_age <= 50 <= max_age:
+        mid_start = max(40, min_age)
+        mid_end = min(60, max_age)
+        mid_slice = rates[mid_start - min_age : mid_end - min_age + 1]
+        mid_median = float(np.median(mid_slice))
+        if mid_median < 1e-5:
+            import warnings
+
+            warnings.warn(
+                f"Mortality table '{path.name}' has implausibly small rates "
+                f"(median q_x at ages {mid_start}-{mid_end} = {mid_median:.2e}). "
+                f"Expected q_x in range 0.001-0.02 for this age band. "
+                f"Check that rates are in decimal form (not per-mille or per-100,000).",
+                stacklevel=2,
+            )
+
     return MortalityTableArray(
         rates=rates,
         min_age=min_age,

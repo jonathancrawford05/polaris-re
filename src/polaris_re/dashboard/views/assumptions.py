@@ -361,16 +361,42 @@ def _plot_lapse_curve(lapse: object) -> None:
     plt.close(fig)
 
 
-def _improvement_section() -> None:
-    """Mortality improvement scale selection (informational only)."""
+def _improvement_section() -> object | None:
+    """Mortality improvement scale selection. Returns MortalityImprovement or None."""
+    from polaris_re.assumptions.improvement import ImprovementScale, MortalityImprovement
+
     with st.expander("Mortality Improvement Scale"):
         improvement = st.selectbox(
             "Mortality Improvement", ["None", "Scale AA", "MP-2020", "CPM-B"]
         )
-        if improvement == "None":
+
+        # Map mortality source to base year
+        mort_source = st.session_state.get("mortality_source", "")
+        base_year_map = {
+            "SOA VBT 2015": 2015,
+            "CIA 2014": 2014,
+            "2001 CSO": 2001,
+        }
+        base_year = base_year_map.get(mort_source, 2015)
+
+        scale_map: dict[str, ImprovementScale] = {
+            "None": ImprovementScale.NONE,
+            "Scale AA": ImprovementScale.SCALE_AA,
+            "MP-2020": ImprovementScale.MP_2020,
+            "CPM-B": ImprovementScale.CPM_B,
+        }
+        scale = scale_map[improvement]
+
+        if scale == ImprovementScale.NONE:
             st.info("No mortality improvement applied.")
-        else:
-            st.info(f"**{improvement}** selected. Improvement will be applied during projection.")
+            return None
+
+        mi = MortalityImprovement(scale=scale, base_year=base_year)
+        st.info(
+            f"**{improvement}** selected (base year {base_year}). "
+            f"Improvement will be applied during projection."
+        )
+        return mi
 
 
 def page_assumptions() -> None:
@@ -385,7 +411,7 @@ def page_assumptions() -> None:
     _ml_lapse_section()
 
     st.divider()
-    _improvement_section()
+    improvement_result = _improvement_section()
 
     st.divider()
     if st.button("Save Assumptions", type="primary"):
@@ -398,6 +424,7 @@ def page_assumptions() -> None:
 
         from datetime import date
 
+        from polaris_re.analytics.scenario import _scale_lapse, _scale_mortality
         from polaris_re.assumptions.assumption_set import AssumptionSet
 
         # Use ML model as mortality source if available (ADR-034: duck typing)
@@ -405,21 +432,38 @@ def page_assumptions() -> None:
         mortality, source_label = mortality_result
         effective_mortality = ml_mort if ml_mort is not None else mortality
 
+        # Apply user-configured multipliers (stored by sliders earlier on this page)
+        mort_mult = st.session_state.get("mortality_multiplier", 1.0)
+        lapse_mult = st.session_state.get("lapse_multiplier", 1.0)
+
+        if mort_mult != 1.0 and ml_mort is None:
+            effective_mortality = _scale_mortality(effective_mortality, mort_mult)
+        if lapse_mult != 1.0:
+            lapse_result = _scale_lapse(lapse_result, lapse_mult)  # type: ignore[arg-type]
+
         assumption_set = AssumptionSet(
             mortality=effective_mortality,  # type: ignore[arg-type]
             lapse=lapse_result,  # type: ignore[arg-type]
+            improvement=improvement_result,  # type: ignore[arg-type]
             version=f"dashboard-{source_label}-{date.today().isoformat()}",
             effective_date=date.today(),
         )
         st.session_state["assumption_set"] = assumption_set
 
         lapse_ult = assumption_set.lapse.ultimate_rate
+        mult_info = ""
+        if mort_mult != 1.0:
+            mult_info += f" (mort x{mort_mult:.2f})"
+        if lapse_mult != 1.0:
+            mult_info += f" (lapse x{lapse_mult:.2f})"
+
         if ml_mort is not None:
             st.success(
                 f"Assumptions saved — Mortality: ML model (overriding {source_label}), "
-                f"Lapse ultimate: {lapse_ult:.1%}"
+                f"Lapse ultimate: {lapse_ult:.1%}{mult_info}"
             )
         else:
             st.success(
-                f"Assumptions saved — Mortality: {source_label}, Lapse ultimate: {lapse_ult:.1%}"
+                f"Assumptions saved — Mortality: {source_label}, "
+                f"Lapse ultimate: {lapse_ult:.1%}{mult_info}"
             )
