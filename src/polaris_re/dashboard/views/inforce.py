@@ -114,7 +114,19 @@ def _synthetic_tab() -> None:
     col1, col2 = st.columns(2)
     with col1:
         n_policies = int(st.slider("Number of Policies", min_value=10, max_value=10000, value=1000))
-        mean_age = int(st.slider("Mean Age", min_value=30, max_value=60, value=40))
+        mean_age = int(
+            st.slider(
+                "Mean Issue Age",
+                min_value=30,
+                max_value=60,
+                value=40,
+                help=(
+                    "Controls the mean issue age of generated policies. "
+                    "Attained age will be higher due to random policy durations "
+                    "(typically 5\u201315 years older depending on term mix)."
+                ),
+            )
+        )
         age_std = int(st.slider("Age Std Dev", min_value=5, max_value=15, value=8))
         male_pct = int(st.slider("Male %", min_value=0, max_value=100, value=60))
     with col2:

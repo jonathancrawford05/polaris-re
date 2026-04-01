@@ -73,15 +73,37 @@ def page_scenario() -> None:
         custom_lapse = st.slider("Lapse Multiplier", 0.50, 2.00, 1.00, step=0.05, key="cs_l")
 
     if st.button("Add Custom Scenario"):
-        st.session_state["custom_scenarios"].append((custom_name, custom_mort, custom_lapse))
-        st.success(
-            f"Added scenario: {custom_name} (mort={custom_mort:.2f}, lapse={custom_lapse:.2f})"
-        )
+        if abs(custom_mort - 1.0) < 1e-6 and abs(custom_lapse - 1.0) < 1e-6:
+            st.warning(
+                "Mortality=1.00 and Lapse=1.00 is identical to the BASE scenario. "
+                "Adjust at least one parameter."
+            )
+        else:
+            st.session_state["custom_scenarios"].append((custom_name, custom_mort, custom_lapse))
+            st.success(
+                f"Added scenario: {custom_name} (mort={custom_mort:.2f}, lapse={custom_lapse:.2f})"
+            )
 
     if st.session_state["custom_scenarios"]:
         st.caption(f"Custom scenarios: {len(st.session_state['custom_scenarios'])}")
-        for cs_name, cs_m, cs_l in st.session_state["custom_scenarios"]:
-            st.text(f"  {cs_name}: mortality={cs_m:.2f}, lapse={cs_l:.2f}")
+        indices_to_remove: list[int] = []
+        for idx, (cs_name, cs_m, cs_l) in enumerate(st.session_state["custom_scenarios"]):
+            sc_col1, sc_col2 = st.columns([4, 1])
+            with sc_col1:
+                st.text(f"  {cs_name}: mortality={cs_m:.2f}, lapse={cs_l:.2f}")
+            with sc_col2:
+                if st.button("\u2715", key=f"del_scenario_{idx}", help=f"Remove {cs_name}"):
+                    indices_to_remove.append(idx)
+        if indices_to_remove:
+            st.session_state["custom_scenarios"] = [
+                s
+                for i, s in enumerate(st.session_state["custom_scenarios"])
+                if i not in indices_to_remove
+            ]
+            st.rerun()
+        if st.button("Clear All Custom Scenarios"):
+            st.session_state["custom_scenarios"] = []
+            st.rerun()
 
     if st.button("Run Scenarios", type="primary"):
         from polaris_re.analytics.scenario import ScenarioAdjustment, ScenarioRunner

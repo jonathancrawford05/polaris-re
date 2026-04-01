@@ -345,12 +345,22 @@ class IFRS17Measurement:
 
         # Insurance revenue = expected claims + expenses + RA release + CSM release
         # (This equals premiums on a "best estimate" basis for non-participating contracts)
-        insurance_revenue = (
-            self.cashflows.death_claims
-            + self.cashflows.expenses
-            + self.cashflows.lapse_surrenders
-            + csm_release
+        #
+        # IFRS 17 B123: For onerous contracts (loss_component > 0), the portion
+        # of expected cash flows attributable to the loss component must be
+        # excluded from insurance revenue. The loss component ratio determines
+        # what fraction of total outflows relates to the loss.
+        total_outflows = (
+            self.cashflows.death_claims + self.cashflows.expenses + self.cashflows.lapse_surrenders
         )
+        if loss_component > 0 and fcf_at_inception > 0:
+            # Loss component ratio: proportion of total liability due to loss
+            total_liability_at_inception = fcf_at_inception
+            loss_ratio = np.clip(loss_component / total_liability_at_inception, 0.0, 1.0)
+            # Revenue excludes the loss-component portion of outflows
+            insurance_revenue = total_outflows * (1.0 - loss_ratio) + csm_release
+        else:
+            insurance_revenue = total_outflows + csm_release
 
         insurance_service_result = insurance_revenue - insurance_service_expenses
 
