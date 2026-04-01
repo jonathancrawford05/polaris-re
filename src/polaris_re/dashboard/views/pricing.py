@@ -64,13 +64,18 @@ def _build_fallback_block(
     n_policies: int,
     attained_age: int,
     face_amount: float,
-    annual_premium: float,
+    flat_qx: float,
+    target_loss_ratio: float,
     term_years: int,
     valuation_date: date,
 ) -> object:
     """Build InforceBlock for dashboard (fallback when Page 1 not configured)."""
     from polaris_re.core.inforce import InforceBlock
     from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
+
+    # Calibrate premium to mortality and loss ratio
+    # flat_qx is annual; premium = face * qx / loss_ratio
+    annual_premium = (face_amount * flat_qx) / target_loss_ratio
 
     policies = [
         Policy(
@@ -295,10 +300,13 @@ def page_pricing() -> None:
                     step=50_000,
                 )
             )
-            annual_premium = float(
-                st.number_input(
-                    "Annual Premium ($)", min_value=100, max_value=50_000, value=1_200, step=100
-                )
+            target_loss_ratio = st.slider(
+                "Target Loss Ratio",
+                min_value=0.30,
+                max_value=0.90,
+                value=0.60,
+                step=0.05,
+                help="Ratio of expected claims to premiums. Lower = more profitable.",
             )
         with fc3:
             flat_qx = (
@@ -328,7 +336,8 @@ def page_pricing() -> None:
                     n_policies,  # type: ignore[possibly-undefined]
                     attained_age,  # type: ignore[possibly-undefined]
                     face_amount,  # type: ignore[possibly-undefined]
-                    annual_premium,  # type: ignore[possibly-undefined]
+                    flat_qx,  # type: ignore[possibly-undefined]
+                    target_loss_ratio,  # type: ignore[possibly-undefined]
                     projection_years,
                     valuation_date,
                 )
