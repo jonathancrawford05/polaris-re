@@ -99,11 +99,11 @@ def _build_fallback_block(
     return InforceBlock(policies=policies)
 
 
-def _cash_flow_decomposition(gross: object) -> plt.Figure:
-    """Stacked area chart of premiums, claims, reserves, net cash flow."""
+def _cash_flow_decomposition(cf_result: object, title_suffix: str = "") -> plt.Figure:
+    """Stacked area chart of premiums, claims, expenses, net cash flow."""
     from polaris_re.core.cashflow import CashFlowResult
 
-    cf: CashFlowResult = gross  # type: ignore[assignment]
+    cf: CashFlowResult = cf_result  # type: ignore[assignment]
     # Annualise: sum monthly values into yearly
     n_years = cf.projection_months // 12
 
@@ -111,17 +111,23 @@ def _cash_flow_decomposition(gross: object) -> plt.Figure:
         [cf.gross_premiums[i * 12 : (i + 1) * 12].sum() for i in range(n_years)]
     )
     annual_claims = np.array([cf.death_claims[i * 12 : (i + 1) * 12].sum() for i in range(n_years)])
+    annual_expenses = np.array([cf.expenses[i * 12 : (i + 1) * 12].sum() for i in range(n_years)])
     annual_ncf = np.array([cf.net_cash_flow[i * 12 : (i + 1) * 12].sum() for i in range(n_years)])
 
     years = np.arange(1, n_years + 1)
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.plot(years, annual_premiums, label="Premiums", color="#2ecc71", linewidth=2)
     ax.plot(years, annual_claims, label="Claims", color="#e74c3c", linewidth=2)
+    if annual_expenses.any():
+        ax.plot(years, annual_expenses, label="Expenses", color="#f39c12", linewidth=2)
     ax.plot(years, annual_ncf, label="Net Cash Flow", color="#3498db", linewidth=2, linestyle="--")
     ax.axhline(0, color="black", linewidth=0.5, linestyle=":")
     ax.set_xlabel("Policy Year")
     ax.set_ylabel("Amount ($)")
-    ax.set_title("Annual Cash Flow Decomposition")
+    title = "Annual Cash Flow Decomposition"
+    if title_suffix:
+        title += f" \u2014 {title_suffix}"
+    ax.set_title(title)
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"${x:,.0f}"))
     ax.legend()
     ax.grid(True, alpha=0.3)
@@ -436,14 +442,15 @@ def page_pricing() -> None:
         bey = str(result.breakeven_year) if result.breakeven_year else "Never"
         col_d.metric("Break-even Year", bey)
 
-        # Charts
+        # Charts — use net (post-treaty) basis to match the table and KPIs
+        basis_label = (
+            "Gross" if cached_treaty_type == "None (Gross)" else f"Net ({cached_treaty_type})"
+        )
         st.pyplot(cashflow_waterfall(result.profit_by_year))
-        st.pyplot(_cash_flow_decomposition(gross))
+        st.pyplot(_cash_flow_decomposition(net, title_suffix=basis_label))
         st.pyplot(_reserve_chart(gross))
 
-        # Tabular summary — show net (post-treaty) cash flows to match
-        # the profit metrics above. Previously showed gross NCF which was
-        # inconsistent with the KPI panel and treaty comparison page.
+        # Tabular summary — same net (post-treaty) basis as chart and KPIs
         n_years = net.projection_months // 12
         annual_data = []
         for yr in range(n_years):
@@ -451,20 +458,18 @@ def page_pricing() -> None:
             annual_data.append(
                 {
                     "Year": yr + 1,
-                    "Net Premiums": f"${net.gross_premiums[s:e].sum():,.0f}",
-                    "Net Claims": f"${net.death_claims[s:e].sum():,.0f}",
+                    "Premiums": f"${net.gross_premiums[s:e].sum():,.0f}",
+                    "Claims": f"${net.death_claims[s:e].sum():,.0f}",
+                    "Lapses": f"${net.lapse_surrenders[s:e].sum():,.0f}",
+                    "Expenses": f"${net.expenses[s:e].sum():,.0f}",
                     "Reserve Inc.": f"${net.reserve_increase[s:e].sum():,.0f}",
                     "Net Cash Flow": f"${net.net_cash_flow[s:e].sum():,.0f}",
                     "Cumul. NCF": f"${net.net_cash_flow[:e].sum():,.0f}",
                 }
             )
-        basis_label = (
-            "Gross" if cached_treaty_type == "None (Gross)" else f"Net ({cached_treaty_type})"
-        )
         st.subheader(f"Annual Summary \u2014 {basis_label}")
         st.caption(
-            "NCF = Net Premiums \u2212 Net Claims \u2212 Lapses "
-            "\u2212 Expenses \u2212 Reserve Increase"
+            "NCF = Premiums \u2212 Claims \u2212 Lapses \u2212 Expenses \u2212 Reserve Increase"
         )
         st.dataframe(annual_data, use_container_width=True)
 
