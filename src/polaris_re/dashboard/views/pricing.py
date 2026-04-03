@@ -162,13 +162,17 @@ def _build_treaty(
     cession_pct: float,
     face_amount: float,
     modco_rate: float = 0.045,
+    yrt_rate_per_1000: float | None = None,
 ) -> object:
     """Construct the selected treaty object."""
     if treaty_type == "YRT":
         from polaris_re.reinsurance.yrt import YRTTreaty
 
         return YRTTreaty(
-            treaty_name="YRT-DASH", cession_pct=cession_pct, total_face_amount=face_amount
+            treaty_name="YRT-DASH",
+            cession_pct=cession_pct,
+            total_face_amount=face_amount,
+            flat_yrt_rate_per_1000=yrt_rate_per_1000,
         )
     elif treaty_type == "Coinsurance":
         from polaris_re.reinsurance.coinsurance import CoinsuranceTreaty
@@ -274,6 +278,49 @@ def page_pricing() -> None:
             "Use policy-level cession overrides",
             help="Uses per-policy reinsurance_cession_pct from inforce data (ADR-036).",
         )
+
+    # YRT rate configuration
+    yrt_rate_per_1000: float | None = None
+    if treaty_type == "YRT":
+        yrt_basis = st.selectbox(
+            "YRT Rate Basis",
+            ["Mortality-based", "Manual Rate"],
+            help=(
+                "Mortality-based: derives YRT rate from the portfolio's average "
+                "mortality rate with a configurable loading. "
+                "Manual: enter a flat rate per $1,000 NAR directly."
+            ),
+        )
+        if yrt_basis == "Mortality-based":
+            yrt_loading = (
+                float(
+                    st.slider(
+                        "YRT Loading over Expected Mortality (%)",
+                        min_value=0,
+                        max_value=50,
+                        value=10,
+                        step=5,
+                        help=(
+                            "Reinsurer margin above expected mortality. "
+                            "10% means YRT rate = q_x * 1.10."
+                        ),
+                    )
+                )
+                / 100.0
+            )
+            st.session_state["yrt_loading"] = yrt_loading
+        else:
+            yrt_rate_per_1000 = float(
+                st.number_input(
+                    "Flat YRT Rate per $1,000 NAR",
+                    min_value=0.01,
+                    max_value=50.0,
+                    value=2.0,
+                    step=0.1,
+                    format="%.2f",
+                    help="Annual rate per $1,000 of Net Amount at Risk.",
+                )
+            )
 
     # Projection parameters
     st.subheader("Projection Parameters")
@@ -386,10 +433,35 @@ def page_pricing() -> None:
             gross = product.project()
             st.session_state["gross_result"] = gross
 
+            # Derive mortality-based YRT rate if applicable
+            if treaty_type == "YRT" and yrt_rate_per_1000 is None:
+                # Compute portfolio average annual q_x from gross cash flows:
+                # avg_qx = total_claims / total_face_exposure
+                # where face_exposure approximates sum of (lx * face) over time.
+                total_claims = float(gross.death_claims.sum())
+                # Annual face exposure: sum of monthly (premium / monthly_prem)
+                # approximated as total_premiums / (claims_rate * face)
+                # Simpler: derive from the first year's loss ratio
+                first_year_claims = float(gross.death_claims[:12].sum())
+                first_year_face_exposure = face_amount_total  # approximation for year 1
+                if first_year_face_exposure > 0:
+                    implied_annual_qx = first_year_claims / first_year_face_exposure
+                else:
+                    implied_annual_qx = 0.001  # fallback
+                loading = st.session_state.get("yrt_loading", 0.10)
+                yrt_rate_per_1000 = implied_annual_qx * 1000.0 * (1.0 + loading)
+                st.info(
+                    f"Derived YRT rate: {yrt_rate_per_1000:.3f} per $1,000 NAR "
+                    f"(implied q_x = {implied_annual_qx:.5f}, "
+                    f"loading = {loading:.0%})"
+                )
+
             if treaty_type == "None (Gross)":
                 net = gross
             else:
-                treaty = _build_treaty(treaty_type, cession_pct, face_amount_total, modco_rate)
+                treaty = _build_treaty(
+                    treaty_type, cession_pct, face_amount_total, modco_rate, yrt_rate_per_1000
+                )
                 inforce_arg = inforce if use_policy_cession else None
                 net, _ceded = treaty.apply(gross, inforce=inforce_arg)  # type: ignore[union-attr]
 
