@@ -450,24 +450,32 @@ def page_pricing() -> None:
         st.pyplot(_cash_flow_decomposition(net, title_suffix=basis_label))
         st.pyplot(_reserve_chart(gross))
 
-        # Tabular summary — same net (post-treaty) basis as chart and KPIs
+        # Tabular summary — show both gross and net to make treaty effect visible.
+        # For YRT without an explicit rate, ceded premiums may be zero (cedant
+        # keeps all premiums but pays YRT premium separately), making net premiums
+        # appear identical to gross while claims are heavily reduced.
         n_years = net.projection_months // 12
         annual_data = []
         for yr in range(n_years):
             s, e = yr * 12, (yr + 1) * 12
-            annual_data.append(
-                {
-                    "Year": yr + 1,
-                    "Premiums": f"${net.gross_premiums[s:e].sum():,.0f}",
-                    "Claims": f"${net.death_claims[s:e].sum():,.0f}",
-                    "Lapses": f"${net.lapse_surrenders[s:e].sum():,.0f}",
-                    "Expenses": f"${net.expenses[s:e].sum():,.0f}",
-                    "Reserve Inc.": f"${net.reserve_increase[s:e].sum():,.0f}",
-                    "Net Cash Flow": f"${net.net_cash_flow[s:e].sum():,.0f}",
-                    "Cumul. NCF": f"${net.net_cash_flow[:e].sum():,.0f}",
-                }
-            )
+            row: dict[str, str | int] = {"Year": yr + 1}
+            if cached_treaty_type != "None (Gross)":
+                row["Gross Premiums"] = f"${gross.gross_premiums[s:e].sum():,.0f}"
+                row["Gross Claims"] = f"${gross.death_claims[s:e].sum():,.0f}"
+            row["Premiums"] = f"${net.gross_premiums[s:e].sum():,.0f}"
+            row["Claims"] = f"${net.death_claims[s:e].sum():,.0f}"
+            row["Lapses"] = f"${net.lapse_surrenders[s:e].sum():,.0f}"
+            row["Expenses"] = f"${net.expenses[s:e].sum():,.0f}"
+            row["Reserve Inc."] = f"${net.reserve_increase[s:e].sum():,.0f}"
+            row["Net Cash Flow"] = f"${net.net_cash_flow[s:e].sum():,.0f}"
+            row["Cumul. NCF"] = f"${net.net_cash_flow[:e].sum():,.0f}"
+            annual_data.append(row)
         st.subheader(f"Annual Summary \u2014 {basis_label}")
+        if cached_treaty_type == "YRT":
+            st.caption(
+                "YRT: cedant retains gross premiums and pays separate YRT premium to reinsurer. "
+                "Claims are ceded proportionally. Gross columns shown for reference."
+            )
         st.caption(
             "NCF = Premiums \u2212 Claims \u2212 Lapses \u2212 Expenses \u2212 Reserve Increase"
         )
