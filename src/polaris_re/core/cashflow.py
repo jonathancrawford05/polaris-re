@@ -53,6 +53,9 @@ class CashFlowResult:
     # net_cash_flow = gross_premiums - death_claims - lapse_surrenders - expenses - reserve_increase
     net_cash_flow: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
 
+    # --- Informational arrays (not part of NCF formula) ---
+    lapse_count: np.ndarray | None = None  # expected lapse exits, shape (T,)
+
     # --- Optional seriatim arrays, shape (N, T) — populated when seriatim=True ---
     seriatim_premiums: np.ndarray | None = None
     seriatim_claims: np.ndarray | None = None

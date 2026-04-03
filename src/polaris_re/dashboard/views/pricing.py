@@ -536,11 +536,14 @@ def page_pricing() -> None:
                 row["Gross Claims"] = f"${gross.death_claims[s:e].sum():,.0f}"
             row["Premiums"] = f"${net.gross_premiums[s:e].sum():,.0f}"
             row["Claims"] = f"${net.death_claims[s:e].sum():,.0f}"
-            row["Lapses"] = f"${net.lapse_surrenders[s:e].sum():,.0f}"
             row["Expenses"] = f"${net.expenses[s:e].sum():,.0f}"
             row["Reserve Inc."] = f"${net.reserve_increase[s:e].sum():,.0f}"
             row["Net Cash Flow"] = f"${net.net_cash_flow[s:e].sum():,.0f}"
             row["Cumul. NCF"] = f"${net.net_cash_flow[:e].sum():,.0f}"
+            # Lapse exits (informational — not a cash flow for term life,
+            # but confirms assumptions are being applied)
+            if gross.lapse_count is not None:
+                row["Lapse Exits"] = f"{gross.lapse_count[s:e].sum():,.1f}"
             annual_data.append(row)
         st.subheader(f"Annual Summary \u2014 {basis_label}")
         if cached_treaty_type == "YRT":
@@ -549,7 +552,10 @@ def page_pricing() -> None:
                 "Claims are ceded proportionally. Gross columns shown for reference."
             )
         st.caption(
-            "NCF = Premiums \u2212 Claims \u2212 Lapses \u2212 Expenses \u2212 Reserve Increase"
+            "NCF = Premiums \u2212 Claims \u2212 Expenses \u2212 Reserve Increase. "
+            "Term life has no cash surrender value; lapse impact is reflected in "
+            "declining premiums/claims and reserve release. "
+            "Lapse Exits column confirms assumptions are applied."
         )
         st.dataframe(annual_data, use_container_width=True)
 

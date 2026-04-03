@@ -263,8 +263,16 @@ class TermLife(BaseProduct):
         # Death claims: lx_t * q_t * face (deaths during month t)
         ser_claims = lx * q * face_vec[:, np.newaxis]  # (N, T)
 
-        # Lapse surrenders: no cash value for term life, so zero
+        # Lapse surrenders: term life has no cash surrender value, so no
+        # direct cash outflow on lapse. The reserve release from lapses is
+        # already captured in reserve_increase = delta(lx * V) since lx
+        # incorporates lapse decrements. Setting lapse_surrenders to zero
+        # preserves the NCF identity without double-counting.
         ser_lapses = np.zeros((n, t), dtype=np.float64)
+
+        # Lapse count (informational, not part of NCF): expected lapse exits
+        # lapse_count_t = sum_i [lx_i,t * w_i,t] — number of policies lapsing
+        ser_lapse_count = lx * w  # (N, T)
 
         # Expenses: acquisition cost (month 0) + ongoing maintenance
         ser_expenses = np.zeros((n, t), dtype=np.float64)
@@ -290,6 +298,7 @@ class TermLife(BaseProduct):
         agg_expenses = ser_expenses.sum(axis=0)
         agg_reserve_balance = ser_reserves.sum(axis=0)
         agg_reserve_inc = ser_reserve_inc.sum(axis=0)
+        agg_lapse_count = ser_lapse_count.sum(axis=0)
 
         # Net cash flow = premiums - claims - lapses - expenses - reserve_increase
         agg_net_cf = agg_premiums - agg_claims - agg_lapses - agg_expenses - agg_reserve_inc
@@ -313,6 +322,7 @@ class TermLife(BaseProduct):
             reserve_balance=agg_reserve_balance,
             reserve_increase=agg_reserve_inc,
             net_cash_flow=agg_net_cf,
+            lapse_count=agg_lapse_count,
         )
 
         if seriatim:
