@@ -81,6 +81,10 @@ class TermLife(BaseProduct):
         smoker_list = [p.smoker_status for p in self.inforce.policies]
         unique_combos = set(zip(sex_list, smoker_list, strict=True))
 
+        # Pre-compute improvement if available
+        improvement = getattr(self.assumptions, "improvement", None)
+        valuation_year = self.config.valuation_date.year
+
         for month in range(t):
             # Current ages and durations at this time step
             current_durations = duration_inforce + month  # (N,)
@@ -90,6 +94,9 @@ class TermLife(BaseProduct):
 
             # Cap ages at table max
             current_ages = np.minimum(current_ages, self.assumptions.mortality.max_age)
+
+            # Calendar year for this projection month (for improvement)
+            cal_year = valuation_year + (month // 12)
 
             # Active mask: policy still in term
             active = month < remaining_months  # (N,)
@@ -111,6 +118,20 @@ class TermLife(BaseProduct):
                     sex,
                     smoker,
                     current_durations[mask],
+                )
+
+            # Apply mortality improvement if configured
+            if improvement is not None:
+                # get_qx_vector returns monthly rates; convert back to annual,
+                # apply improvement, then convert back to monthly
+                q_annual_col = 1.0 - (1.0 - q_monthly_col) ** 12
+                q_annual_improved = improvement.apply_improvement(
+                    q_annual_col, current_ages, cal_year
+                )
+                from polaris_re.utils.interpolation import constant_force_interpolate_rates
+
+                q_monthly_col = constant_force_interpolate_rates(
+                    q_annual_improved, fraction=1.0 / 12.0
                 )
 
             # Lapse rates
@@ -242,11 +263,25 @@ class TermLife(BaseProduct):
         # Death claims: lx_t * q_t * face (deaths during month t)
         ser_claims = lx * q * face_vec[:, np.newaxis]  # (N, T)
 
-        # Lapse surrenders: no cash value for term life, so zero
+        # Lapse surrenders: term life has no cash surrender value, so no
+        # direct cash outflow on lapse. The reserve release from lapses is
+        # already captured in reserve_increase = delta(lx * V) since lx
+        # incorporates lapse decrements. Setting lapse_surrenders to zero
+        # preserves the NCF identity without double-counting.
         ser_lapses = np.zeros((n, t), dtype=np.float64)
 
-        # Expenses: zero for now (Phase 2)
+        # Lapse count (informational, not part of NCF): expected lapse exits
+        # lapse_count_t = sum_i [lx_i,t * w_i,t] — number of policies lapsing
+        ser_lapse_count = lx * w  # (N, T)
+
+        # Expenses: acquisition cost (month 0) + ongoing maintenance
         ser_expenses = np.zeros((n, t), dtype=np.float64)
+        acq_cost = self.config.acquisition_cost_per_policy
+        maint_cost_monthly = self.config.maintenance_cost_per_policy_per_year / 12.0
+        if acq_cost > 0.0:
+            ser_expenses[:, 0] += acq_cost  # one-time at start
+        if maint_cost_monthly > 0.0:
+            ser_expenses += lx * maint_cost_monthly  # ongoing per in-force policy
 
         # Reserve balance (seriatim): lx * V
         ser_reserves = lx * reserves  # (N, T)
@@ -263,6 +298,7 @@ class TermLife(BaseProduct):
         agg_expenses = ser_expenses.sum(axis=0)
         agg_reserve_balance = ser_reserves.sum(axis=0)
         agg_reserve_inc = ser_reserve_inc.sum(axis=0)
+        agg_lapse_count = ser_lapse_count.sum(axis=0)
 
         # Net cash flow = premiums - claims - lapses - expenses - reserve_increase
         agg_net_cf = agg_premiums - agg_claims - agg_lapses - agg_expenses - agg_reserve_inc
@@ -286,6 +322,7 @@ class TermLife(BaseProduct):
             reserve_balance=agg_reserve_balance,
             reserve_increase=agg_reserve_inc,
             net_cash_flow=agg_net_cf,
+            lapse_count=agg_lapse_count,
         )
 
         if seriatim:

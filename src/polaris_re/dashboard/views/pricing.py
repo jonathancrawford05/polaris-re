@@ -99,11 +99,11 @@ def _build_fallback_block(
     return InforceBlock(policies=policies)
 
 
-def _cash_flow_decomposition(gross: object) -> plt.Figure:
-    """Stacked area chart of premiums, claims, reserves, net cash flow."""
+def _cash_flow_decomposition(cf_result: object, title_suffix: str = "") -> plt.Figure:
+    """Stacked area chart of premiums, claims, expenses, net cash flow."""
     from polaris_re.core.cashflow import CashFlowResult
 
-    cf: CashFlowResult = gross  # type: ignore[assignment]
+    cf: CashFlowResult = cf_result  # type: ignore[assignment]
     # Annualise: sum monthly values into yearly
     n_years = cf.projection_months // 12
 
@@ -111,17 +111,23 @@ def _cash_flow_decomposition(gross: object) -> plt.Figure:
         [cf.gross_premiums[i * 12 : (i + 1) * 12].sum() for i in range(n_years)]
     )
     annual_claims = np.array([cf.death_claims[i * 12 : (i + 1) * 12].sum() for i in range(n_years)])
+    annual_expenses = np.array([cf.expenses[i * 12 : (i + 1) * 12].sum() for i in range(n_years)])
     annual_ncf = np.array([cf.net_cash_flow[i * 12 : (i + 1) * 12].sum() for i in range(n_years)])
 
     years = np.arange(1, n_years + 1)
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.plot(years, annual_premiums, label="Premiums", color="#2ecc71", linewidth=2)
     ax.plot(years, annual_claims, label="Claims", color="#e74c3c", linewidth=2)
+    if annual_expenses.any():
+        ax.plot(years, annual_expenses, label="Expenses", color="#f39c12", linewidth=2)
     ax.plot(years, annual_ncf, label="Net Cash Flow", color="#3498db", linewidth=2, linestyle="--")
     ax.axhline(0, color="black", linewidth=0.5, linestyle=":")
     ax.set_xlabel("Policy Year")
     ax.set_ylabel("Amount ($)")
-    ax.set_title("Annual Cash Flow Decomposition")
+    title = "Annual Cash Flow Decomposition"
+    if title_suffix:
+        title += f" \u2014 {title_suffix}"
+    ax.set_title(title)
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"${x:,.0f}"))
     ax.legend()
     ax.grid(True, alpha=0.3)
@@ -156,13 +162,17 @@ def _build_treaty(
     cession_pct: float,
     face_amount: float,
     modco_rate: float = 0.045,
+    yrt_rate_per_1000: float | None = None,
 ) -> object:
     """Construct the selected treaty object."""
     if treaty_type == "YRT":
         from polaris_re.reinsurance.yrt import YRTTreaty
 
         return YRTTreaty(
-            treaty_name="YRT-DASH", cession_pct=cession_pct, total_face_amount=face_amount
+            treaty_name="YRT-DASH",
+            cession_pct=cession_pct,
+            total_face_amount=face_amount,
+            flat_yrt_rate_per_1000=yrt_rate_per_1000,
         )
     elif treaty_type == "Coinsurance":
         from polaris_re.reinsurance.coinsurance import CoinsuranceTreaty
@@ -269,6 +279,49 @@ def page_pricing() -> None:
             help="Uses per-policy reinsurance_cession_pct from inforce data (ADR-036).",
         )
 
+    # YRT rate configuration
+    yrt_rate_per_1000: float | None = None
+    if treaty_type == "YRT":
+        yrt_basis = st.selectbox(
+            "YRT Rate Basis",
+            ["Mortality-based", "Manual Rate"],
+            help=(
+                "Mortality-based: derives YRT rate from the portfolio's average "
+                "mortality rate with a configurable loading. "
+                "Manual: enter a flat rate per $1,000 NAR directly."
+            ),
+        )
+        if yrt_basis == "Mortality-based":
+            yrt_loading = (
+                float(
+                    st.slider(
+                        "YRT Loading over Expected Mortality (%)",
+                        min_value=0,
+                        max_value=50,
+                        value=10,
+                        step=5,
+                        help=(
+                            "Reinsurer margin above expected mortality. "
+                            "10% means YRT rate = q_x * 1.10."
+                        ),
+                    )
+                )
+                / 100.0
+            )
+            st.session_state["yrt_loading"] = yrt_loading
+        else:
+            yrt_rate_per_1000 = float(
+                st.number_input(
+                    "Flat YRT Rate per $1,000 NAR",
+                    min_value=0.01,
+                    max_value=50.0,
+                    value=2.0,
+                    step=0.1,
+                    format="%.2f",
+                    help="Annual rate per $1,000 of Net Amount at Risk.",
+                )
+            )
+
     # Projection parameters
     st.subheader("Projection Parameters")
     pc1, pc2, pc3 = st.columns(3)
@@ -278,6 +331,32 @@ def page_pricing() -> None:
         discount_rate = float(st.slider("Discount Rate (%)", 2, 12, 6)) / 100.0
     with pc3:
         hurdle_rate = float(st.slider("Hurdle Rate (%)", 5, 20, 10)) / 100.0
+
+    # Expense loading
+    st.subheader("Expense Loading")
+    ec1, ec2 = st.columns(2)
+    with ec1:
+        acquisition_cost = float(
+            st.number_input(
+                "Acquisition Cost per Policy ($)",
+                min_value=0,
+                max_value=10_000,
+                value=500,
+                step=50,
+                help="One-time cost at issue: underwriting, commission, setup.",
+            )
+        )
+    with ec2:
+        maintenance_cost = float(
+            st.number_input(
+                "Annual Maintenance Cost per Policy ($)",
+                min_value=0,
+                max_value=1_000,
+                value=75,
+                step=5,
+                help="Ongoing admin cost per in-force policy per year.",
+            )
+        )
 
     # Fallback sliders when session state not populated
     if not use_session:
@@ -325,6 +404,8 @@ def page_pricing() -> None:
                 valuation_date=valuation_date,
                 projection_horizon_years=projection_years,
                 discount_rate=discount_rate,
+                acquisition_cost_per_policy=acquisition_cost,
+                maintenance_cost_per_policy_per_year=maintenance_cost,
             )
 
             if use_session:
@@ -352,14 +433,66 @@ def page_pricing() -> None:
             gross = product.project()
             st.session_state["gross_result"] = gross
 
+            # Derive mortality-based YRT rate if applicable
+            if treaty_type == "YRT" and yrt_rate_per_1000 is None:
+                # Compute portfolio average annual q_x from gross cash flows:
+                # avg_qx = total_claims / total_face_exposure
+                # where face_exposure approximates sum of (lx * face) over time.
+                total_claims = float(gross.death_claims.sum())
+                # Annual face exposure: sum of monthly (premium / monthly_prem)
+                # approximated as total_premiums / (claims_rate * face)
+                # Simpler: derive from the first year's loss ratio
+                first_year_claims = float(gross.death_claims[:12].sum())
+                first_year_face_exposure = face_amount_total  # approximation for year 1
+                if first_year_face_exposure > 0:
+                    implied_annual_qx = first_year_claims / first_year_face_exposure
+                else:
+                    implied_annual_qx = 0.001  # fallback
+                loading = st.session_state.get("yrt_loading", 0.10)
+                yrt_rate_per_1000 = implied_annual_qx * 1000.0 * (1.0 + loading)
+                st.info(
+                    f"Derived YRT rate: {yrt_rate_per_1000:.3f} per $1,000 NAR "
+                    f"(implied q_x = {implied_annual_qx:.5f}, "
+                    f"loading = {loading:.0%})"
+                )
+
             if treaty_type == "None (Gross)":
                 net = gross
             else:
-                treaty = _build_treaty(treaty_type, cession_pct, face_amount_total, modco_rate)
+                treaty = _build_treaty(
+                    treaty_type, cession_pct, face_amount_total, modco_rate, yrt_rate_per_1000
+                )
                 inforce_arg = inforce if use_policy_cession else None
                 net, _ceded = treaty.apply(gross, inforce=inforce_arg)  # type: ignore[union-attr]
 
             result = ProfitTester(cashflows=net, hurdle_rate=hurdle_rate).run()
+
+            # Sanity check: loss ratio (claims / premiums)
+            total_claims = float(gross.death_claims.sum())
+            total_premiums = float(gross.gross_premiums.sum())
+            if total_premiums > 0:
+                loss_ratio = total_claims / total_premiums
+                if loss_ratio < 0.01:
+                    st.error(
+                        f"**Pricing Validation Warning**: Aggregate loss ratio "
+                        f"is {loss_ratio:.4%} (claims ${total_claims:,.0f} vs "
+                        f"premiums ${total_premiums:,.0f}). "
+                        f"Expected 20-80% for a correctly parameterised deal. "
+                        f"Check that mortality rates are correctly scaled "
+                        f"(decimal q_x, not per-mille or per-100,000)."
+                    )
+                elif loss_ratio > 2.0:
+                    st.warning(
+                        f"**Pricing Validation Warning**: Loss ratio is "
+                        f"{loss_ratio:.2%} — claims far exceed premiums. "
+                        f"Check premium calibration and mortality assumptions."
+                    )
+                else:
+                    st.caption(
+                        f"Validation: aggregate loss ratio = {loss_ratio:.1%}, "
+                        f"total claims = ${total_claims:,.0f}, "
+                        f"total premiums = ${total_premiums:,.0f}"
+                    )
 
             # Cache results in session state so they survive page navigation
             st.session_state["pricing_result"] = result
@@ -381,35 +514,48 @@ def page_pricing() -> None:
         bey = str(result.breakeven_year) if result.breakeven_year else "Never"
         col_d.metric("Break-even Year", bey)
 
-        # Charts
+        # Charts — use net (post-treaty) basis to match the table and KPIs
+        basis_label = (
+            "Gross" if cached_treaty_type == "None (Gross)" else f"Net ({cached_treaty_type})"
+        )
         st.pyplot(cashflow_waterfall(result.profit_by_year))
-        st.pyplot(_cash_flow_decomposition(gross))
+        st.pyplot(_cash_flow_decomposition(net, title_suffix=basis_label))
         st.pyplot(_reserve_chart(gross))
 
-        # Tabular summary — show net (post-treaty) cash flows to match
-        # the profit metrics above. Previously showed gross NCF which was
-        # inconsistent with the KPI panel and treaty comparison page.
+        # Tabular summary — show both gross and net to make treaty effect visible.
+        # For YRT without an explicit rate, ceded premiums may be zero (cedant
+        # keeps all premiums but pays YRT premium separately), making net premiums
+        # appear identical to gross while claims are heavily reduced.
         n_years = net.projection_months // 12
         annual_data = []
         for yr in range(n_years):
             s, e = yr * 12, (yr + 1) * 12
-            annual_data.append(
-                {
-                    "Year": yr + 1,
-                    "Net Premiums": f"${net.gross_premiums[s:e].sum():,.0f}",
-                    "Net Claims": f"${net.death_claims[s:e].sum():,.0f}",
-                    "Reserve Inc.": f"${net.reserve_increase[s:e].sum():,.0f}",
-                    "Net Cash Flow": f"${net.net_cash_flow[s:e].sum():,.0f}",
-                    "Cumul. NCF": f"${net.net_cash_flow[:e].sum():,.0f}",
-                }
-            )
-        basis_label = (
-            "Gross" if cached_treaty_type == "None (Gross)" else f"Net ({cached_treaty_type})"
-        )
+            row: dict[str, str | int] = {"Year": yr + 1}
+            if cached_treaty_type != "None (Gross)":
+                row["Gross Premiums"] = f"${gross.gross_premiums[s:e].sum():,.0f}"
+                row["Gross Claims"] = f"${gross.death_claims[s:e].sum():,.0f}"
+            row["Premiums"] = f"${net.gross_premiums[s:e].sum():,.0f}"
+            row["Claims"] = f"${net.death_claims[s:e].sum():,.0f}"
+            row["Expenses"] = f"${net.expenses[s:e].sum():,.0f}"
+            row["Reserve Inc."] = f"${net.reserve_increase[s:e].sum():,.0f}"
+            row["Net Cash Flow"] = f"${net.net_cash_flow[s:e].sum():,.0f}"
+            row["Cumul. NCF"] = f"${net.net_cash_flow[:e].sum():,.0f}"
+            # Lapse exits (informational — not a cash flow for term life,
+            # but confirms assumptions are being applied)
+            if gross.lapse_count is not None:
+                row["Lapse Exits"] = f"{gross.lapse_count[s:e].sum():,.1f}"
+            annual_data.append(row)
         st.subheader(f"Annual Summary \u2014 {basis_label}")
+        if cached_treaty_type == "YRT":
+            st.caption(
+                "YRT: cedant retains gross premiums and pays separate YRT premium to reinsurer. "
+                "Claims are ceded proportionally. Gross columns shown for reference."
+            )
         st.caption(
-            "NCF = Net Premiums \u2212 Net Claims \u2212 Lapses "
-            "\u2212 Expenses \u2212 Reserve Increase"
+            "NCF = Premiums \u2212 Claims \u2212 Expenses \u2212 Reserve Increase. "
+            "Term life has no cash surrender value; lapse impact is reflected in "
+            "declining premiums/claims and reserve release. "
+            "Lapse Exits column confirms assumptions are applied."
         )
         st.dataframe(annual_data, use_container_width=True)
 

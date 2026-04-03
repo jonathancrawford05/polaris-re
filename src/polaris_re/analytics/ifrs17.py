@@ -429,8 +429,14 @@ class IFRS17Measurement:
             v_arr = self._v ** np.arange(1, n + 1, dtype=np.float64)
             lic[t] = float(np.dot(future_outflows, v_arr))
 
-        # Total insurance liability for PAA = LRC + LIC
-        insurance_liability = lrc + lic
+        # --- Risk Adjustment (PAA) ---
+        # IFRS 17 permits RA under PAA using the same cost-of-capital method
+        # as BBA. RA is computed as a proportion of the LIC (incurred claims
+        # liability), which represents the uncertain future cash flows.
+        ra = self._compute_ra_schedule(lic)
+
+        # Total insurance liability for PAA = LRC + LIC + RA
+        insurance_liability = lrc + lic + ra
 
         # Insurance revenue under PAA = premiums earned in period
         # = LRC[t] - LRC[t+1] (unearned premium released)
@@ -450,7 +456,7 @@ class IFRS17Measurement:
             discount_rate=self.discount_rate,
             n_periods=n_per,
             bel=lic,  # BEL in PAA context = LIC
-            risk_adjustment=np.zeros(n_per, dtype=np.float64),
+            risk_adjustment=ra,
             csm=np.zeros(n_per, dtype=np.float64),
             insurance_liability=insurance_liability,
             csm_interest_accretion=np.zeros(n_per, dtype=np.float64),
@@ -459,7 +465,7 @@ class IFRS17Measurement:
             insurance_service_expenses=insurance_service_expenses,
             insurance_service_result=insurance_service_result,
             initial_bel=float(lic[0]),
-            initial_ra=0.0,
+            initial_ra=float(ra[0]),
             initial_csm=0.0,
             loss_component=0.0,
             lrc=lrc,

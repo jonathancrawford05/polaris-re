@@ -41,6 +41,45 @@ def page_scenario() -> None:
     with col2:
         hurdle_rate = float(st.slider("Hurdle Rate (%)", 5, 20, 10)) / 100.0
         cession_pct = float(st.slider("Cession % (YRT)", 50, 100, 90)) / 100.0
+        yrt_loading = (
+            float(
+                st.slider(
+                    "YRT Loading over Mortality (%)",
+                    min_value=0,
+                    max_value=50,
+                    value=10,
+                    step=5,
+                    key="sc_yrt_load",
+                    help="Reinsurer margin above expected mortality for YRT rate.",
+                )
+            )
+            / 100.0
+        )
+
+    # Expense loading (shared with pricing page defaults)
+    sc_ec1, sc_ec2 = st.columns(2)
+    with sc_ec1:
+        acquisition_cost = float(
+            st.number_input(
+                "Acquisition Cost per Policy ($)",
+                min_value=0,
+                max_value=10_000,
+                value=500,
+                step=50,
+                key="sc_acq",
+            )
+        )
+    with sc_ec2:
+        maintenance_cost = float(
+            st.number_input(
+                "Annual Maintenance per Policy ($)",
+                min_value=0,
+                max_value=1_000,
+                value=75,
+                step=5,
+                key="sc_maint",
+            )
+        )
 
     # Fallback sliders
     if not use_session:
@@ -55,7 +94,21 @@ def page_scenario() -> None:
             attained_age = int(st.slider("Attained Age", 25, 65, 40))
             face_amount = float(st.number_input("Face Amount ($)", value=500_000, step=50_000))
         with fc2:
-            annual_premium = float(st.number_input("Annual Premium ($)", value=1_200, step=100))
+            flat_qx = (
+                float(
+                    st.slider("Mortality Rate (q_x \u2030)", 0.1, 10.0, 1.0, step=0.1, key="sc_qx")
+                )
+                / 1000.0
+            )
+            target_loss_ratio = st.slider(
+                "Target Loss Ratio",
+                min_value=0.30,
+                max_value=0.90,
+                value=0.60,
+                step=0.05,
+                key="sc_lr",
+                help="Ratio of expected claims to premiums.",
+            )
 
     # Custom scenario builder
     st.subheader("Custom Scenarios")
@@ -122,22 +175,43 @@ def page_scenario() -> None:
                     n_policies,  # type: ignore[possibly-undefined]
                     attained_age,  # type: ignore[possibly-undefined]
                     face_amount,  # type: ignore[possibly-undefined]
-                    annual_premium,  # type: ignore[possibly-undefined]
+                    flat_qx,  # type: ignore[possibly-undefined]
+                    target_loss_ratio,  # type: ignore[possibly-undefined]
                     projection_years,
                     valuation_date,
                 )
-                assumptions = _build_fallback_assumptions(0.001, 0.05, valuation_date)
+                assumptions = _build_fallback_assumptions(
+                    flat_qx,
+                    0.05,
+                    valuation_date,  # type: ignore[possibly-undefined]
+                )
                 face_total = face_amount  # type: ignore[possibly-undefined]
 
             config = ProjectionConfig(
                 valuation_date=valuation_date,
                 projection_horizon_years=projection_years,
                 discount_rate=discount_rate,
+                acquisition_cost_per_policy=acquisition_cost,
+                maintenance_cost_per_policy_per_year=maintenance_cost,
             )
+            # Derive mortality-based YRT rate from a quick base projection
+            from polaris_re.products.term_life import TermLife
+
+            _base_engine = TermLife(inforce=inforce, assumptions=assumptions, config=config)  # type: ignore[arg-type]
+            _base_gross = _base_engine.project()
+            _yr1_claims = float(_base_gross.death_claims[:12].sum())
+            _implied_qx = _yr1_claims / face_total if face_total > 0 else 0.001
+            _yrt_rate = _implied_qx * 1000.0 * (1.0 + yrt_loading)
+            st.info(
+                f"Derived YRT rate: {_yrt_rate:.3f} per $1,000 NAR "
+                f"(implied q_x = {_implied_qx:.5f}, loading = {yrt_loading:.0%})"
+            )
+
             treaty = YRTTreaty(
                 treaty_name="YRT-SCENARIO",
                 cession_pct=cession_pct,
                 total_face_amount=face_total,
+                flat_yrt_rate_per_1000=_yrt_rate,
             )
 
             # Build scenario list: standard + custom
