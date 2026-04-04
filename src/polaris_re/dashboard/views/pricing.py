@@ -217,7 +217,9 @@ def _build_treaty(
         from polaris_re.reinsurance.coinsurance import CoinsuranceTreaty
 
         return CoinsuranceTreaty(
-            treaty_name="COINS-DASH", cession_pct=cession_pct, include_expense_allowance=True
+            treaty_name="COINS-DASH",
+            cession_pct=cession_pct,
+            include_expense_allowance=True,
         )
     elif treaty_type == "Modco":
         from polaris_re.reinsurance.modco import ModcoTreaty
@@ -253,8 +255,20 @@ def _table_vs_ml_comparison(assumption_set: object, ml_mort: object) -> None:
             )
 
             fig, ax = plt.subplots(figsize=(10, 5))
-            ax.plot(ages, table_rates * 12, label="Table (monthly\u00d712)", color="#3498db", lw=2)
-            ax.plot(ages, ml_rates * 12, label="ML Model (monthly\u00d712)", color="#e74c3c", lw=2)
+            ax.plot(
+                ages,
+                table_rates * 12,
+                label="Table (monthly\u00d712)",
+                color="#3498db",
+                lw=2,
+            )
+            ax.plot(
+                ages,
+                ml_rates * 12,
+                label="ML Model (monthly\u00d712)",
+                color="#e74c3c",
+                lw=2,
+            )
             ax.set_xlabel("Attained Age")
             ax.set_ylabel("Approx Annual q_x")
             ax.set_title("Table vs ML Mortality \u2014 Male Non-Smoker")
@@ -291,9 +305,9 @@ def page_pricing() -> None:
 
     if inforce_block is None or assumption_set is None:
         st.warning(
-            "Configure **Inforce Block** (Page 1) and **Assumptions** (Page 2) first, "
-            "or use the quick-start parameters below to run a pricing scenario "
-            "on a standard mortality basis."
+            "Configure **Inforce Block** (Page 1) and **Assumptions** "
+            "(Page 2) first, or use the quick-start parameters below to "
+            "run a pricing scenario on a standard mortality basis."
         )
         use_session = False
     else:
@@ -316,7 +330,7 @@ def page_pricing() -> None:
             modco_rate = float(st.slider("Modco Interest Rate (%)", 1.0, 8.0, 4.5, step=0.5)) / 100
         use_policy_cession = st.checkbox(
             "Use policy-level cession overrides",
-            help="Uses per-policy reinsurance_cession_pct from inforce data (ADR-036).",
+            help=("Uses per-policy reinsurance_cession_pct from inforce data (ADR-036)."),
         )
 
     # YRT rate configuration
@@ -326,8 +340,8 @@ def page_pricing() -> None:
             "YRT Rate Basis",
             ["Mortality-based", "Manual Rate"],
             help=(
-                "Mortality-based: derives YRT rate from the portfolio's average "
-                "mortality rate with a configurable loading. "
+                "Mortality-based: derives YRT rate from the portfolio's "
+                "average mortality rate with a configurable loading. "
                 "Manual: enter a flat rate per $1,000 NAR directly."
             ),
         )
@@ -403,8 +417,8 @@ def page_pricing() -> None:
     if not use_session:
         st.subheader("Quick-Start: Block & Assumptions")
         st.caption(
-            "Define a homogeneous policy block with standard mortality basis. "
-            "For heterogeneous blocks, configure Pages 1-2 instead."
+            "Define a homogeneous policy block with standard mortality "
+            "basis. For heterogeneous blocks, configure Pages 1-2 instead."
         )
 
         # Mortality basis selection
@@ -442,7 +456,11 @@ def page_pricing() -> None:
         with fb_block_col:
             n_policies = int(
                 st.number_input(
-                    "Number of Policies", min_value=1, max_value=10000, value=100, step=10
+                    "Number of Policies",
+                    min_value=1,
+                    max_value=10000,
+                    value=100,
+                    step=10,
                 )
             )
             attained_age = int(st.slider("Attained Age", 25, 65, 40))
@@ -465,26 +483,29 @@ def page_pricing() -> None:
                 max_value=0.90,
                 value=0.60,
                 step=0.05,
-                help="Ratio of expected claims to premiums. Lower = more profitable.",
+                help=("Ratio of expected claims to premiums. Lower = more profitable."),
             )
 
         # Lapse assumption
-        lapse_ultimate = float(
-            st.slider(
-                "Ultimate Lapse Rate (%)",
-                min_value=0.5,
-                max_value=10.0,
-                value=1.5,
-                step=0.5,
-                help=(
-                    "Ultimate annual lapse rate (after year 10). "
-                    "Early-duration rates are scaled proportionally from a "
-                    "standard select-and-ultimate structure."
-                ),
+        lapse_ultimate = (
+            float(
+                st.slider(
+                    "Ultimate Lapse Rate (%)",
+                    min_value=0.5,
+                    max_value=10.0,
+                    value=1.5,
+                    step=0.5,
+                    help=(
+                        "Ultimate annual lapse rate (after year 10). "
+                        "Early-duration rates are scaled proportionally "
+                        "from a standard select-and-ultimate structure."
+                    ),
+                )
             )
-        ) / 100.0
+            / 100.0
+        )
 
-        # Eagerly load the mortality table to validate and show calibration info
+        # Eagerly load the mortality table to validate and show calibration
         mortality_table = _load_mortality_table(mort_table_label)
         if mortality_table is None:
             fallback_ready = False
@@ -496,12 +517,18 @@ def page_pricing() -> None:
             q_annual = 1.0 - (1.0 - q_monthly) ** 12
             q_annual_adj = min(q_annual * mortality_multiplier, 1.0)
             implied_premium = (face_amount * q_annual_adj) / target_loss_ratio
+            mult_text = (
+                f" \u00d7 {mortality_multiplier:.2f} = {q_annual_adj:.5f}"
+                if mortality_multiplier != 1.0
+                else ""
+            )
             st.info(
                 f"**{mort_table_label}** \u2014 "
-                f"q_x at age {attained_age} ({sex_label}, {smoker_label}): "
-                f"{q_annual:.5f}"
-                f"{f' \u00d7 {mortality_multiplier:.2f} = {q_annual_adj:.5f}' if mortality_multiplier != 1.0 else ''}"
-                f" \u2192 implied annual premium: **${implied_premium:,.0f}** "
+                f"q_x at age {attained_age} "
+                f"({sex_label}, {smoker_label}): "
+                f"{q_annual:.5f}{mult_text}"
+                f" \u2192 implied annual premium: "
+                f"**${implied_premium:,.0f}** "
                 f"(at {target_loss_ratio:.0%} loss ratio)"
             )
 
@@ -529,7 +556,7 @@ def page_pricing() -> None:
                 assumptions = assumption_set
                 face_amount_total = float(inforce.total_face_amount())
             else:
-                # Apply mortality multiplier by scaling the table rates if != 1.0
+                # Apply mortality multiplier if != 1.0
                 effective_table = mortality_table  # type: ignore[possibly-undefined]
                 if mortality_multiplier != 1.0:  # type: ignore[possibly-undefined]
                     effective_table = _apply_mortality_multiplier(
@@ -556,13 +583,16 @@ def page_pricing() -> None:
                 )
                 face_amount_total = face_amount  # type: ignore[possibly-undefined]
 
-            product = TermLife(inforce=inforce, assumptions=assumptions, config=config)  # type: ignore[arg-type]
+            product = TermLife(  # type: ignore[arg-type]
+                inforce=inforce,
+                assumptions=assumptions,
+                config=config,
+            )
             gross = product.project()
             st.session_state["gross_result"] = gross
 
             # Derive mortality-based YRT rate if applicable
             if treaty_type == "YRT" and yrt_rate_per_1000 is None:
-                total_claims = float(gross.death_claims.sum())
                 first_year_claims = float(gross.death_claims[:12].sum())
                 first_year_face_exposure = face_amount_total
                 if first_year_face_exposure > 0:
@@ -572,7 +602,8 @@ def page_pricing() -> None:
                 loading = st.session_state.get("yrt_loading", 0.10)
                 yrt_rate_per_1000 = implied_annual_qx * 1000.0 * (1.0 + loading)
                 st.info(
-                    f"Derived YRT rate: {yrt_rate_per_1000:.3f} per $1,000 NAR "
+                    f"Derived YRT rate: "
+                    f"{yrt_rate_per_1000:.3f} per $1,000 NAR "
                     f"(implied q_x = {implied_annual_qx:.5f}, "
                     f"loading = {loading:.0%})"
                 )
@@ -581,10 +612,16 @@ def page_pricing() -> None:
                 net = gross
             else:
                 treaty = _build_treaty(
-                    treaty_type, cession_pct, face_amount_total, modco_rate, yrt_rate_per_1000
+                    treaty_type,
+                    cession_pct,
+                    face_amount_total,
+                    modco_rate,
+                    yrt_rate_per_1000,
                 )
                 inforce_arg = inforce if use_policy_cession else None
-                net, _ceded = treaty.apply(gross, inforce=inforce_arg)  # type: ignore[union-attr]
+                net, _ceded = treaty.apply(  # type: ignore[union-attr]
+                    gross, inforce=inforce_arg
+                )
 
             result = ProfitTester(cashflows=net, hurdle_rate=hurdle_rate).run()
 
@@ -595,27 +632,32 @@ def page_pricing() -> None:
                 loss_ratio = total_claims / total_premiums
                 if loss_ratio < 0.01:
                     st.error(
-                        f"**Pricing Validation Warning**: Aggregate loss ratio "
-                        f"is {loss_ratio:.4%} (claims ${total_claims:,.0f} vs "
+                        f"**Pricing Validation Warning**: "
+                        f"Aggregate loss ratio is {loss_ratio:.4%} "
+                        f"(claims ${total_claims:,.0f} vs "
                         f"premiums ${total_premiums:,.0f}). "
-                        f"Expected 20-80% for a correctly parameterised deal. "
-                        f"Check that mortality rates are correctly scaled "
-                        f"(decimal q_x, not per-mille or per-100,000)."
+                        f"Expected 20-80% for a correctly "
+                        f"parameterised deal. Check that mortality "
+                        f"rates are correctly scaled "
+                        f"(decimal q_x, not per-mille or "
+                        f"per-100,000)."
                     )
                 elif loss_ratio > 2.0:
                     st.warning(
-                        f"**Pricing Validation Warning**: Loss ratio is "
-                        f"{loss_ratio:.2%} — claims far exceed premiums. "
-                        f"Check premium calibration and mortality assumptions."
+                        f"**Pricing Validation Warning**: "
+                        f"Loss ratio is {loss_ratio:.2%} — claims "
+                        f"far exceed premiums. Check premium "
+                        f"calibration and mortality assumptions."
                     )
                 else:
                     st.caption(
-                        f"Validation: aggregate loss ratio = {loss_ratio:.1%}, "
+                        f"Validation: aggregate loss ratio "
+                        f"= {loss_ratio:.1%}, "
                         f"total claims = ${total_claims:,.0f}, "
                         f"total premiums = ${total_premiums:,.0f}"
                     )
 
-            # Cache results in session state so they survive page navigation
+            # Cache results in session state
             st.session_state["pricing_result"] = result
             st.session_state["pricing_net_result"] = net
             st.session_state["pricing_treaty_type"] = treaty_type
@@ -635,7 +677,7 @@ def page_pricing() -> None:
         bey = str(result.breakeven_year) if result.breakeven_year else "Never"
         col_d.metric("Break-even Year", bey)
 
-        # Charts — use net (post-treaty) basis to match the table and KPIs
+        # Charts — net (post-treaty) basis to match the table and KPIs
         basis_label = (
             "Gross" if cached_treaty_type == "None (Gross)" else f"Net ({cached_treaty_type})"
         )
@@ -643,7 +685,7 @@ def page_pricing() -> None:
         st.pyplot(_cash_flow_decomposition(net, title_suffix=basis_label))
         st.pyplot(_reserve_chart(gross))
 
-        # Tabular summary — show both gross and net to make treaty effect visible.
+        # Tabular summary
         n_years = net.projection_months // 12
         annual_data = []
         for yr in range(n_years):
@@ -664,14 +706,17 @@ def page_pricing() -> None:
         st.subheader(f"Annual Summary \u2014 {basis_label}")
         if cached_treaty_type == "YRT":
             st.caption(
-                "YRT: cedant retains gross premiums and pays separate YRT premium to reinsurer. "
-                "Claims are ceded proportionally. Gross columns shown for reference."
+                "YRT: cedant retains gross premiums and pays separate "
+                "YRT premium to reinsurer. Claims are ceded "
+                "proportionally. Gross columns shown for reference."
             )
         st.caption(
-            "NCF = Premiums \u2212 Claims \u2212 Expenses \u2212 Reserve Increase. "
-            "Term life has no cash surrender value; lapse impact is reflected in "
-            "declining premiums/claims and reserve release. "
-            "Lapse Exits column confirms assumptions are applied."
+            "NCF = Premiums \u2212 Claims \u2212 Expenses "
+            "\u2212 Reserve Increase. "
+            "Term life has no cash surrender value; lapse impact is "
+            "reflected in declining premiums/claims and reserve "
+            "release. Lapse Exits column confirms assumptions "
+            "are applied."
         )
         st.dataframe(annual_data, use_container_width=True)
 
