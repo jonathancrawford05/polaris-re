@@ -220,13 +220,21 @@ class IFRS17Measurement:
 
     def _compute_ra_schedule(self, bel: np.ndarray) -> np.ndarray:
         """
-        Risk Adjustment as a fixed proportion of BEL (simplified cost-of-capital method).
+        Risk Adjustment as a fixed proportion of the absolute BEL
+        (simplified cost-of-capital method).
 
-        RA[t] = ra_factor * max(BEL[t], 0)  — RA cannot be negative.
+        RA[t] = ra_factor * |BEL[t]|
+
+        The RA represents compensation for bearing non-financial risk
+        uncertainty and is always a liability (positive), regardless of
+        whether BEL is positive (net outflows exceed inflows) or negative
+        (profitable contract where inflows exceed outflows). Using the
+        absolute value ensures RA is non-zero for profitable contracts
+        (IFRS 17.37(b)).
 
         Returns shape (T,) array.
         """
-        return self.ra_factor * np.maximum(bel, 0.0)
+        return self.ra_factor * np.abs(bel)
 
     def _compute_csm_schedule(
         self,

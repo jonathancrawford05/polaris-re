@@ -1,4 +1,10 @@
-"""Page 2: Assumptions — mortality, lapse, improvement, and ML model selection."""
+"""Page 2: Assumptions — single source of truth for all deal inputs.
+
+Consolidates mortality, lapse, improvement, expense loading, treaty
+configuration, and projection parameters so every downstream page
+(Deal Pricing, Treaty Comparison, Scenario Analysis, Monte Carlo UQ,
+IFRS 17) consumes the same saved configuration.
+"""
 
 import os
 import tempfile
@@ -6,6 +12,8 @@ from pathlib import Path
 
 import numpy as np
 import streamlit as st  # type: ignore[import-untyped]
+
+from polaris_re.dashboard.components.state import get_deal_config
 
 __all__ = ["page_assumptions"]
 
@@ -23,6 +31,11 @@ _DEFAULT_LAPSE_RATES: dict[str, float] = {
     "Year 10": 0.02,
     "Ultimate": 0.015,
 }
+
+
+# ------------------------------------------------------------------ #
+# Mortality section                                                    #
+# ------------------------------------------------------------------ #
 
 
 def _mortality_section() -> tuple[object, str] | None:
@@ -89,6 +102,11 @@ def _mortality_section() -> tuple[object, str] | None:
         return mortality, "Flat Rate"
 
 
+# ------------------------------------------------------------------ #
+# ML model sections                                                    #
+# ------------------------------------------------------------------ #
+
+
 def _ml_mortality_section() -> None:
     """ML mortality model upload and feature importance display."""
     use_ml_mort = st.checkbox("Use ML Mortality Model")
@@ -114,9 +132,7 @@ def _ml_mortality_section() -> None:
             f"Loaded ML mortality model: {ml_model.model_type} "
             f"({len(ml_model.feature_names)} features)"
         )
-
-        # Feature importance bar chart
-        _plot_feature_importance(ml_model, "ML Mortality Model — Feature Importance")
+        _plot_feature_importance(ml_model, "ML Mortality Model \u2014 Feature Importance")
     except Exception as exc:
         st.error(f"Failed to load ML mortality model: {exc}")
 
@@ -147,7 +163,7 @@ def _ml_lapse_section() -> None:
         st.success(
             f"Loaded ML lapse model: {ml_model.model_type} ({len(ml_model.feature_names)} features)"
         )
-        _plot_feature_importance(ml_model, "ML Lapse Model — Feature Importance")
+        _plot_feature_importance(ml_model, "ML Lapse Model \u2014 Feature Importance")
     except Exception as exc:
         st.error(f"Failed to load ML lapse model: {exc}")
 
@@ -162,7 +178,6 @@ def _plot_feature_importance(ml_model: object, title: str) -> None:
             importances = model.feature_importances_
             features = ml_model.feature_names  # type: ignore[union-attr]
 
-            # Sort by importance
             idx = np.argsort(importances)
             fig, ax = plt.subplots(figsize=(8, max(3, len(features) * 0.4)))
             ax.barh(np.array(features)[idx], importances[idx], color="#3498db")
@@ -177,6 +192,11 @@ def _plot_feature_importance(ml_model: object, title: str) -> None:
         st.info("Could not extract feature importances from model.")
 
 
+# ------------------------------------------------------------------ #
+# Helper builders                                                      #
+# ------------------------------------------------------------------ #
+
+
 def _build_flat_mortality(flat_qx: float) -> object:
     """Build a synthetic flat-rate mortality table with all sex/smoker combos."""
     from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
@@ -187,7 +207,6 @@ def _build_flat_mortality(flat_qx: float) -> object:
     qx = np.full(n_ages, flat_qx, dtype=np.float64)
     rates_2d = qx.reshape(-1, 1)
 
-    # Create table arrays for all sex/smoker combos so any policy can be priced
     tables: dict[str, MortalityTableArray] = {}
     for sex in Sex:
         for smoker in SmokerStatus:
@@ -248,6 +267,11 @@ def _plot_qx_curves(mortality: object) -> None:
     plt.close(fig)
 
 
+# ------------------------------------------------------------------ #
+# Lapse section                                                        #
+# ------------------------------------------------------------------ #
+
+
 def _lapse_section() -> object | None:
     """Lapse basis selection. Returns LapseAssumption or None."""
     st.subheader("Lapse Basis")
@@ -284,7 +308,6 @@ def _manual_lapse() -> object:
                 )
                 rates["ultimate"] = val
             else:
-                year_num = i + 1
                 val = st.slider(
                     label,
                     min_value=0.0,
@@ -293,7 +316,7 @@ def _manual_lapse() -> object:
                     step=0.005,
                     format="%.3f",
                 )
-                rates[year_num] = val
+                rates[i + 1] = val
 
     lapse = LapseAssumption.from_duration_table(rates)
     st.session_state["lapse_source"] = "manual"
@@ -361,6 +384,11 @@ def _plot_lapse_curve(lapse: object) -> None:
     plt.close(fig)
 
 
+# ------------------------------------------------------------------ #
+# Improvement section                                                  #
+# ------------------------------------------------------------------ #
+
+
 def _improvement_section() -> object | None:
     """Mortality improvement scale selection. Returns MortalityImprovement or None."""
     from polaris_re.assumptions.improvement import ImprovementScale, MortalityImprovement
@@ -370,7 +398,6 @@ def _improvement_section() -> object | None:
             "Mortality Improvement", ["None", "Scale AA", "MP-2020", "CPM-B"]
         )
 
-        # Map mortality source to base year
         mort_source = st.session_state.get("mortality_source", "")
         base_year_map = {
             "SOA VBT 2015": 2015,
@@ -388,7 +415,12 @@ def _improvement_section() -> object | None:
         scale = scale_map[improvement]
 
         if scale == ImprovementScale.NONE:
-            st.info("No mortality improvement applied.")
+            st.warning(
+                "No mortality improvement applied. The industry standard for "
+                "North American pricing is to apply an improvement scale "
+                "(e.g. SOA MP-2020 or Scale AA). Static mortality tables will "
+                "overstate YRT premium rates for long-duration blocks."
+            )
             return None
 
         mi = MortalityImprovement(scale=scale, base_year=base_year)
@@ -399,10 +431,208 @@ def _improvement_section() -> object | None:
         return mi
 
 
-def page_assumptions() -> None:
-    """Assumptions page \u2014 mortality, lapse, improvement, and ML model selection."""
-    st.header("Assumptions")
+# ------------------------------------------------------------------ #
+# Expense loading section (NEW — previously on Deal Pricing only)      #
+# ------------------------------------------------------------------ #
 
+
+def _expense_section() -> tuple[float, float]:
+    """Expense loading inputs. Returns (acquisition_cost, maintenance_cost)."""
+    st.subheader("Expense Loading")
+    st.caption(
+        "These expense assumptions apply to all projections across all pages "
+        "(Deal Pricing, Treaty Comparison, Scenario Analysis, Monte Carlo UQ)."
+    )
+    cfg = get_deal_config()
+
+    ec1, ec2 = st.columns(2)
+    with ec1:
+        acquisition_cost = float(
+            st.number_input(
+                "Acquisition Cost per Policy ($)",
+                min_value=0,
+                max_value=10_000,
+                value=int(cfg.get("acquisition_cost", 500)),
+                step=50,
+                help="One-time cost at issue: underwriting, commission, setup.",
+                key="assum_acq_cost",
+            )
+        )
+    with ec2:
+        maintenance_cost = float(
+            st.number_input(
+                "Annual Maintenance Cost per Policy ($)",
+                min_value=0,
+                max_value=1_000,
+                value=int(cfg.get("maintenance_cost", 75)),
+                step=5,
+                help="Ongoing admin cost per in-force policy per year.",
+                key="assum_maint_cost",
+            )
+        )
+    return acquisition_cost, maintenance_cost
+
+
+# ------------------------------------------------------------------ #
+# Treaty configuration section (NEW — previously on Deal Pricing only) #
+# ------------------------------------------------------------------ #
+
+
+def _treaty_section() -> dict[str, object]:
+    """Treaty and projection configuration. Returns a dict of treaty params."""
+    st.subheader("Treaty & Projection Configuration")
+    st.caption(
+        "Reinsurance treaty parameters and projection settings used by all "
+        "downstream pages. Individual pages may override specific parameters "
+        "for comparative analysis (e.g. Treaty Comparison tests multiple structures)."
+    )
+    cfg = get_deal_config()
+
+    tc1, tc2, tc3 = st.columns(3)
+    with tc1:
+        treaty_type = st.selectbox(
+            "Default Treaty Type",
+            ["YRT", "Coinsurance", "Modco", "None (Gross)"],
+            index=["YRT", "Coinsurance", "Modco", "None (Gross)"].index(
+                str(cfg.get("treaty_type", "YRT"))
+            ),
+            key="assum_treaty_type",
+        )
+    with tc2:
+        cession_pct = (
+            float(
+                st.slider(
+                    "Cession %",
+                    50,
+                    100,
+                    int(float(cfg.get("cession_pct", 0.90)) * 100),
+                    key="assum_cession",
+                )
+            )
+            / 100.0
+        )
+    with tc3:
+        modco_rate = 0.045
+        if treaty_type == "Modco":
+            modco_rate = (
+                float(
+                    st.slider("Modco Interest Rate (%)", 1.0, 8.0, 4.5, step=0.5, key="assum_modco")
+                )
+                / 100.0
+            )
+
+    # YRT rate configuration
+    yrt_rate_per_1000: float | None = None
+    yrt_rate_basis = "Mortality-based"
+    yrt_loading = 0.10
+    if treaty_type == "YRT":
+        yrt_rate_basis = st.selectbox(
+            "YRT Rate Basis",
+            ["Mortality-based", "Manual Rate"],
+            key="assum_yrt_basis",
+            help=(
+                "Mortality-based: derives YRT rate from the portfolio's "
+                "average mortality rate with a configurable loading. "
+                "Manual: enter a flat rate per $1,000 NAR directly."
+            ),
+        )
+        if yrt_rate_basis == "Mortality-based":
+            yrt_loading = (
+                float(
+                    st.slider(
+                        "YRT Loading over Expected Mortality (%)",
+                        min_value=0,
+                        max_value=50,
+                        value=int(float(cfg.get("yrt_loading", 0.10)) * 100),
+                        step=5,
+                        help="Reinsurer margin above expected mortality. 10% = q_x * 1.10.",
+                        key="assum_yrt_loading",
+                    )
+                )
+                / 100.0
+            )
+        else:
+            yrt_rate_per_1000 = float(
+                st.number_input(
+                    "Flat YRT Rate per $1,000 NAR",
+                    min_value=0.01,
+                    max_value=50.0,
+                    value=2.0,
+                    step=0.1,
+                    format="%.2f",
+                    help="Annual rate per $1,000 of Net Amount at Risk.",
+                    key="assum_yrt_manual",
+                )
+            )
+
+    # Projection parameters
+    st.subheader("Projection Parameters")
+    pc1, pc2, pc3 = st.columns(3)
+    with pc1:
+        projection_years = int(
+            st.slider(
+                "Projection Horizon (years)",
+                5,
+                30,
+                int(cfg.get("projection_years", 20)),
+                key="assum_proj_years",
+            )
+        )
+    with pc2:
+        discount_rate = (
+            float(
+                st.slider(
+                    "Discount Rate (%)",
+                    2,
+                    12,
+                    int(float(cfg.get("discount_rate", 0.06)) * 100),
+                    key="assum_disc_rate",
+                )
+            )
+            / 100.0
+        )
+    with pc3:
+        hurdle_rate = (
+            float(
+                st.slider(
+                    "Hurdle Rate (%)",
+                    5,
+                    20,
+                    int(float(cfg.get("hurdle_rate", 0.10)) * 100),
+                    key="assum_hurdle",
+                )
+            )
+            / 100.0
+        )
+
+    return {
+        "treaty_type": treaty_type,
+        "cession_pct": cession_pct,
+        "yrt_loading": yrt_loading,
+        "yrt_rate_per_1000": yrt_rate_per_1000,
+        "yrt_rate_basis": yrt_rate_basis,
+        "modco_rate": modco_rate,
+        "discount_rate": discount_rate,
+        "hurdle_rate": hurdle_rate,
+        "projection_years": projection_years,
+    }
+
+
+# ------------------------------------------------------------------ #
+# Main page                                                            #
+# ------------------------------------------------------------------ #
+
+
+def page_assumptions() -> None:
+    """Assumptions page \u2014 single source of truth for all deal inputs."""
+    st.header("Assumptions")
+    st.caption(
+        "All assumption inputs are configured here and shared across every "
+        "downstream page. Save assumptions before navigating to Deal Pricing, "
+        "Treaty Comparison, Scenario Analysis, or Monte Carlo UQ."
+    )
+
+    # --- Actuarial assumptions ---
     mortality_result = _mortality_section()
     _ml_mortality_section()
 
@@ -414,7 +644,15 @@ def page_assumptions() -> None:
     improvement_result = _improvement_section()
 
     st.divider()
-    if st.button("Save Assumptions", type="primary"):
+    # --- Expense loading ---
+    acquisition_cost, maintenance_cost = _expense_section()
+
+    st.divider()
+    # --- Treaty & projection config ---
+    treaty_params = _treaty_section()
+
+    st.divider()
+    if st.button("Save All Assumptions", type="primary"):
         if mortality_result is None:
             st.error("No mortality table selected.")
             return
@@ -427,12 +665,12 @@ def page_assumptions() -> None:
         from polaris_re.analytics.scenario import _scale_lapse, _scale_mortality
         from polaris_re.assumptions.assumption_set import AssumptionSet
 
-        # Use ML model as mortality source if available (ADR-034: duck typing)
+        # Use ML model as mortality source if available
         ml_mort = st.session_state.get("ml_mortality_model")
         mortality, source_label = mortality_result
         effective_mortality = ml_mort if ml_mort is not None else mortality
 
-        # Apply user-configured multipliers (stored by sliders earlier on this page)
+        # Apply user-configured multipliers
         mort_mult = st.session_state.get("mortality_multiplier", 1.0)
         lapse_mult = st.session_state.get("lapse_multiplier", 1.0)
 
@@ -450,6 +688,18 @@ def page_assumptions() -> None:
         )
         st.session_state["assumption_set"] = assumption_set
 
+        # Save deal config centrally
+        deal_cfg = dict(treaty_params)
+        deal_cfg["acquisition_cost"] = acquisition_cost
+        deal_cfg["maintenance_cost"] = maintenance_cost
+        st.session_state["deal_config"] = deal_cfg
+
+        # Clear cached results so downstream pages re-compute
+        st.session_state["gross_result"] = None
+        st.session_state["pricing_result"] = None
+        st.session_state["pricing_net_result"] = None
+        st.session_state["pricing_ceded_result"] = None
+
         lapse_ult = assumption_set.lapse.ultimate_rate
         mult_info = ""
         if mort_mult != 1.0:
@@ -459,11 +709,17 @@ def page_assumptions() -> None:
 
         if ml_mort is not None:
             st.success(
-                f"Assumptions saved — Mortality: ML model (overriding {source_label}), "
+                f"Assumptions saved \u2014 Mortality: ML model (overriding {source_label}), "
                 f"Lapse ultimate: {lapse_ult:.1%}{mult_info}"
             )
         else:
             st.success(
-                f"Assumptions saved — Mortality: {source_label}, "
+                f"Assumptions saved \u2014 Mortality: {source_label}, "
                 f"Lapse ultimate: {lapse_ult:.1%}{mult_info}"
             )
+        st.success(
+            f"Deal config saved \u2014 Treaty: {treaty_params['treaty_type']}, "
+            f"Cession: {treaty_params['cession_pct']:.0%}, "
+            f"Discount: {treaty_params['discount_rate']:.0%}, "
+            f"Expenses: ${acquisition_cost:,.0f} acq + ${maintenance_cost:,.0f}/yr maint"
+        )

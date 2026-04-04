@@ -1,3 +1,3 @@
-"""Dashboard reusable components — charts, state management, and UI helpers."""
+"""Dashboard reusable components — charts, state management, projection helpers, and UI helpers."""
 
-__all__ = ["charts", "state"]
+__all__ = ["charts", "projection", "state"]

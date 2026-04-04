@@ -1,114 +1,92 @@
-"""Page 5: Scenario Analysis — rebuilt to use session state assumptions."""
+"""Page 5: Scenario Analysis — uses session state assumptions and deal config.
 
-from datetime import date
+Requires Inforce Block and Assumptions to be configured. No fallback.
+Uses the shared projection helpers for consistent YRT rate derivation.
+"""
 
 import streamlit as st  # type: ignore[import-untyped]
 
 from polaris_re.dashboard.components.charts import scenario_tornado
-from polaris_re.dashboard.views.pricing import (
-    _build_fallback_assumptions,
-    _build_fallback_block,
+from polaris_re.dashboard.components.projection import (
+    build_projection_config,
+    derive_yrt_rate,
+    run_gross_projection,
 )
+from polaris_re.dashboard.components.state import get_deal_config
 
 __all__ = ["page_scenario"]
 
 
 def page_scenario() -> None:
-    """Scenario analysis page — uses session state or fallback sliders."""
+    """Scenario analysis page \u2014 uses session state assumptions."""
     st.header("Scenario Analysis")
 
     inforce_block = st.session_state.get("inforce_block")
     assumption_set = st.session_state.get("assumption_set")
 
-    if inforce_block is not None and assumption_set is not None:
-        use_session = True
-        st.success(
-            f"Using session state: {inforce_block.n_policies} policies, "
-            f"assumptions v{assumption_set.version}"
-        )
-    else:
-        use_session = False
+    if inforce_block is None or assumption_set is None:
         st.warning(
-            "No session state configured. Using fallback sliders. "
-            "Configure Pages 1-2 for real assumptions."
+            "Configure **Inforce Block** (Page 1) and **Assumptions** (Page 2) first. "
+            "All projection parameters are set on the Assumptions page."
         )
+        return
 
-    # Common parameters
-    col1, col2 = st.columns(2)
-    with col1:
-        projection_years = int(st.slider("Projection Horizon (years)", 5, 30, 20))
-        discount_rate = float(st.slider("Discount Rate (%)", 2, 12, 6)) / 100.0
-    with col2:
-        hurdle_rate = float(st.slider("Hurdle Rate (%)", 5, 20, 10)) / 100.0
-        cession_pct = float(st.slider("Cession % (YRT)", 50, 100, 90)) / 100.0
-        yrt_loading = (
-            float(
-                st.slider(
-                    "YRT Loading over Mortality (%)",
-                    min_value=0,
-                    max_value=50,
-                    value=10,
-                    step=5,
-                    key="sc_yrt_load",
-                    help="Reinsurer margin above expected mortality for YRT rate.",
-                )
-            )
-            / 100.0
-        )
+    st.success(
+        f"Using session state: {inforce_block.n_policies:,} policies, "
+        f"assumptions v{assumption_set.version}"
+    )
 
-    # Expense loading (shared with pricing page defaults)
-    sc_ec1, sc_ec2 = st.columns(2)
-    with sc_ec1:
-        acquisition_cost = float(
-            st.number_input(
-                "Acquisition Cost per Policy ($)",
-                min_value=0,
-                max_value=10_000,
-                value=500,
-                step=50,
-                key="sc_acq",
-            )
-        )
-    with sc_ec2:
-        maintenance_cost = float(
-            st.number_input(
-                "Annual Maintenance per Policy ($)",
-                min_value=0,
-                max_value=1_000,
-                value=75,
-                step=5,
-                key="sc_maint",
-            )
-        )
+    cfg = get_deal_config()
 
-    # Fallback sliders
-    if not use_session:
-        st.subheader("Fallback Parameters")
-        fc1, fc2 = st.columns(2)
-        with fc1:
-            n_policies = int(
-                st.number_input(
-                    "Number of Policies", min_value=1, max_value=1000, value=50, step=10
-                )
-            )
-            attained_age = int(st.slider("Attained Age", 25, 65, 40))
-            face_amount = float(st.number_input("Face Amount ($)", value=500_000, step=50_000))
-        with fc2:
-            flat_qx = (
+    # Show inherited config with option to override cession and YRT loading for sensitivity
+    with st.expander("Scenario Configuration (overrides for sensitivity)", expanded=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            cession_pct = (
                 float(
-                    st.slider("Mortality Rate (q_x \u2030)", 0.1, 10.0, 1.0, step=0.1, key="sc_qx")
+                    st.slider(
+                        "Cession % (YRT)",
+                        50,
+                        100,
+                        int(float(cfg.get("cession_pct", 0.90)) * 100),
+                        key="sc_cession",
+                    )
                 )
-                / 1000.0
+                / 100.0
             )
-            target_loss_ratio = st.slider(
-                "Target Loss Ratio",
-                min_value=0.30,
-                max_value=0.90,
-                value=0.60,
-                step=0.05,
-                key="sc_lr",
-                help="Ratio of expected claims to premiums.",
+            yrt_loading = (
+                float(
+                    st.slider(
+                        "YRT Loading over Mortality (%)",
+                        min_value=0,
+                        max_value=50,
+                        value=int(float(cfg.get("yrt_loading", 0.10)) * 100),
+                        step=5,
+                        key="sc_yrt_load",
+                        help="Reinsurer margin above expected mortality for YRT rate.",
+                    )
+                )
+                / 100.0
             )
+        with col2:
+            hurdle_rate = (
+                float(
+                    st.slider(
+                        "Hurdle Rate (%)",
+                        5,
+                        20,
+                        int(float(cfg.get("hurdle_rate", 0.10)) * 100),
+                        key="sc_hurdle",
+                    )
+                )
+                / 100.0
+            )
+
+    st.caption(
+        "Projection horizon, discount rate, and expenses are inherited from the "
+        "Assumptions page. Cession %, YRT loading, and hurdle rate can be adjusted "
+        "for sensitivity testing."
+    )
 
     # Custom scenario builder
     st.subheader("Custom Scenarios")
@@ -160,51 +138,17 @@ def page_scenario() -> None:
 
     if st.button("Run Scenarios", type="primary"):
         from polaris_re.analytics.scenario import ScenarioAdjustment, ScenarioRunner
-        from polaris_re.core.projection import ProjectionConfig
         from polaris_re.reinsurance.yrt import YRTTreaty
 
         with st.spinner("Running scenario analysis..."):
-            valuation_date = date.today()
+            config = build_projection_config()
+            face_total = float(inforce_block.total_face_amount())
 
-            if use_session:
-                inforce = inforce_block
-                assumptions = assumption_set
-                face_total = float(inforce.total_face_amount())
-            else:
-                inforce = _build_fallback_block(
-                    n_policies,  # type: ignore[possibly-undefined]
-                    attained_age,  # type: ignore[possibly-undefined]
-                    face_amount,  # type: ignore[possibly-undefined]
-                    flat_qx,  # type: ignore[possibly-undefined]
-                    target_loss_ratio,  # type: ignore[possibly-undefined]
-                    projection_years,
-                    valuation_date,
-                )
-                assumptions = _build_fallback_assumptions(
-                    flat_qx,
-                    0.05,
-                    valuation_date,  # type: ignore[possibly-undefined]
-                )
-                face_total = face_amount  # type: ignore[possibly-undefined]
-
-            config = ProjectionConfig(
-                valuation_date=valuation_date,
-                projection_horizon_years=projection_years,
-                discount_rate=discount_rate,
-                acquisition_cost_per_policy=acquisition_cost,
-                maintenance_cost_per_policy_per_year=maintenance_cost,
-            )
-            # Derive mortality-based YRT rate from a quick base projection
-            from polaris_re.products.term_life import TermLife
-
-            _base_engine = TermLife(inforce=inforce, assumptions=assumptions, config=config)  # type: ignore[arg-type]
-            _base_gross = _base_engine.project()
-            _yr1_claims = float(_base_gross.death_claims[:12].sum())
-            _implied_qx = _yr1_claims / face_total if face_total > 0 else 0.001
-            _yrt_rate = _implied_qx * 1000.0 * (1.0 + yrt_loading)
+            # Derive YRT rate from a base gross projection (consistent with Deal Pricing)
+            _base_gross = run_gross_projection(inforce_block, assumption_set, config)
+            _yrt_rate = derive_yrt_rate(_base_gross, face_total, yrt_loading)
             st.info(
-                f"Derived YRT rate: {_yrt_rate:.3f} per $1,000 NAR "
-                f"(implied q_x = {_implied_qx:.5f}, loading = {yrt_loading:.0%})"
+                f"Derived YRT rate: {_yrt_rate:.3f} per $1,000 NAR (loading = {yrt_loading:.0%})"
             )
 
             treaty = YRTTreaty(
@@ -226,14 +170,13 @@ def page_scenario() -> None:
             ]
 
             runner = ScenarioRunner(
-                inforce=inforce,  # type: ignore[arg-type]
-                base_assumptions=assumptions,  # type: ignore[arg-type]
+                inforce=inforce_block,
+                base_assumptions=assumption_set,
                 config=config,
                 treaty=treaty,
                 hurdle_rate=hurdle_rate,
             )
 
-            # Standard scenarios + any custom ones
             all_scenarios = ScenarioRunner.standard_stress_scenarios() + custom_adjustments
             results = runner.run(scenarios=all_scenarios)
 
@@ -242,16 +185,28 @@ def page_scenario() -> None:
         base_pv = base_case.pv_profits if base_case else results.scenarios[0][1].pv_profits
         st.pyplot(scenario_tornado(results_dict, base_pv))
 
-        # Scenario comparison table with IRR and margin
+        # Scenario comparison table
         rows = []
         for name, res in results_dict.items():
+            delta = res.pv_profits - base_pv
             rows.append(
                 {
                     "Scenario": name,
                     "PV Profit": f"${res.pv_profits:,.0f}",
+                    "Delta vs Base": f"${delta:+,.0f}",
+                    "Delta %": f"{delta / abs(base_pv) * 100:+.1f}%" if base_pv != 0 else "N/A",
                     "Profit Margin": f"{res.profit_margin:.2%}",
                     "IRR": f"{res.irr:.2%}" if res.irr else "N/A",
-                    "Break-even": str(res.breakeven_year) if res.breakeven_year else "Never",
+                    "Break-even": str(res.breakeven_year) if res.breakeven_year else "N/A",
                 }
             )
         st.dataframe(rows, use_container_width=True)
+
+        # Note about scenario mechanics
+        st.caption(
+            "**Scenario mechanics**: Each scenario re-projects the full inforce "
+            "block with scaled mortality and/or lapse assumptions. The YRT rate "
+            "is locked at the base-case derived rate \u2014 only claims and in-force "
+            "runoff change. This reflects the contractual nature of YRT pricing "
+            "where rates are set at treaty inception."
+        )

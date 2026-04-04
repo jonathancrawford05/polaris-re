@@ -18,15 +18,25 @@ def _age_band(age: int) -> str:
 
 
 def _summary_panel(block: object) -> None:
-    """Display summary metrics and demographic chart for an InforceBlock."""
+    """Display summary metrics, demographic charts, face amount, and duration distributions."""
     from polaris_re.core.inforce import InforceBlock
 
     ib: InforceBlock = block  # type: ignore[assignment]
 
-    col1, col2, col3 = st.columns(3)
+    face_amounts = ib.face_amount_vec
+    mean_face = float(face_amounts.mean())
+    median_face = float(np.median(face_amounts))
+
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Policies", f"{ib.n_policies:,}")
     col2.metric("Total Face Amount", f"${ib.total_face_amount():,.0f}")
     col3.metric("Mean Attained Age", f"{float(ib.attained_age_vec.mean()):.1f}")
+    col4.metric(
+        "Mean / Median Face",
+        f"${mean_face:,.0f}",
+        delta=f"Median ${median_face:,.0f}",
+        delta_color="off",
+    )
 
     # Sex and smoker splits
     n_male = int(ib.is_male_vec.sum())
@@ -41,6 +51,8 @@ def _summary_panel(block: object) -> None:
     c4.metric("Non-Smoker", f"{n_nonsmoker:,}")
 
     _age_gender_chart(ib)
+    _face_amount_chart(ib)
+    _duration_chart(ib)
 
 
 def _age_gender_chart(block: object) -> None:
@@ -79,6 +91,71 @@ def _age_gender_chart(block: object) -> None:
     ax.set_xlabel("Policy Count")
     ax.set_title("Age x Gender Distribution")
     ax.legend()
+    fig.tight_layout()
+    st.pyplot(fig)
+    plt.close(fig)
+
+
+def _face_amount_chart(block: object) -> None:
+    """Histogram of face amounts showing concentration risk."""
+    import matplotlib.pyplot as plt  # type: ignore[import-untyped]
+
+    from polaris_re.core.inforce import InforceBlock
+
+    ib: InforceBlock = block  # type: ignore[assignment]
+    face_amounts = ib.face_amount_vec
+
+    # Define face bands
+    bands = [0, 100_000, 250_000, 500_000, 750_000, 1_000_000, 2_000_000, float("inf")]
+    band_labels = ["<$100K", "$100-250K", "$250-500K", "$500-750K", "$750K-1M", "$1-2M", ">$2M"]
+    counts = np.histogram(face_amounts, bins=bands)[0]
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.bar(band_labels, counts, color="#3498db", edgecolor="white", linewidth=0.5)
+    ax.set_xlabel("Face Amount Band")
+    ax.set_ylabel("Policy Count")
+    ax.set_title("Face Amount Distribution")
+    for i, (cnt, _lbl) in enumerate(zip(counts, band_labels, strict=False)):
+        if cnt > 0:
+            ax.text(i, cnt + max(counts) * 0.02, str(cnt), ha="center", va="bottom", fontsize=9)
+    ax.grid(True, alpha=0.3, axis="y")
+    plt.xticks(rotation=30, ha="right")
+    fig.tight_layout()
+    st.pyplot(fig)
+    plt.close(fig)
+
+
+def _duration_chart(block: object) -> None:
+    """Histogram of policy years in-force (attained age - issue age)."""
+    import matplotlib.pyplot as plt  # type: ignore[import-untyped]
+
+    from polaris_re.core.inforce import InforceBlock
+
+    ib: InforceBlock = block  # type: ignore[assignment]
+
+    durations = ib.attained_age_vec - ib.issue_age_vec
+    mean_dur = float(durations.mean())
+    median_dur = float(np.median(durations))
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    max_dur = int(durations.max()) + 1
+    bins = np.arange(0, max_dur + 1) - 0.5
+    ax.hist(durations, bins=bins, color="#9b59b6", edgecolor="white", linewidth=0.5, alpha=0.8)
+    ax.axvline(
+        mean_dur, color="#e74c3c", linestyle="--", linewidth=1.5, label=f"Mean: {mean_dur:.1f} yrs"
+    )
+    ax.axvline(
+        median_dur,
+        color="#2ecc71",
+        linestyle=":",
+        linewidth=1.5,
+        label=f"Median: {median_dur:.1f} yrs",
+    )
+    ax.set_xlabel("Policy Years In-Force")
+    ax.set_ylabel("Policy Count")
+    ax.set_title("Policy Duration Distribution")
+    ax.legend()
+    ax.grid(True, alpha=0.3, axis="y")
     fig.tight_layout()
     st.pyplot(fig)
     plt.close(fig)
@@ -172,12 +249,16 @@ def _synthetic_tab() -> None:
         return
 
     st.slider(
-        "30yr Term Mix %",
+        f"30yr Term Mix % (auto-calculated: {term_30}%)",
         min_value=0,
         max_value=100,
         value=term_30,
         disabled=True,
-        help="Automatically calculated as 100% minus 10yr and 20yr mix.",
+        help=(
+            "This value is automatically calculated as 100% minus "
+            "the 10yr and 20yr term mix percentages. Adjust those "
+            "sliders to change the 30yr allocation."
+        ),
     )
 
     if st.button("Generate", type="primary"):
