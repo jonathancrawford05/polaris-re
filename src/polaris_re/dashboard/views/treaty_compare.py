@@ -12,6 +12,7 @@ import streamlit as st  # type: ignore[import-untyped]
 from polaris_re.dashboard.components.projection import (
     build_projection_config,
     build_treaty,
+    ceded_to_reinsurer_view,
     derive_yrt_rate,
     run_gross_projection,
 )
@@ -135,7 +136,10 @@ def page_treaty_compare() -> None:
                     reserve_curves[treaty_name] = ceded.reserve_balance
 
                     # Reinsurer profit test (on ceded cash flows)
-                    reinsurer_profit = ProfitTester(cashflows=ceded, hurdle_rate=hurdle_rate).run()
+                    reinsurer_profit = ProfitTester(
+                        cashflows=ceded_to_reinsurer_view(ceded),
+                        hurdle_rate=hurdle_rate,
+                    ).run()
                     reinsurer_results[treaty_name] = reinsurer_profit
                     ceded_ncf_curves[treaty_name] = ceded.net_cash_flow
 

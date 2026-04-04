@@ -14,6 +14,7 @@ import streamlit as st  # type: ignore[import-untyped]
 from polaris_re.dashboard.components.charts import cashflow_waterfall
 from polaris_re.dashboard.components.projection import (
     build_projection_config,
+    ceded_to_reinsurer_view,
     derive_yrt_rate,
     run_gross_projection,
     run_treaty_projection,
@@ -329,10 +330,12 @@ def page_pricing() -> None:
             # Profit test on the NET (cedant retained) cash flows
             result = ProfitTester(cashflows=net, hurdle_rate=hurdle_rate).run()
 
-            # Profit test on the CEDED (reinsurer) cash flows — negate sign for reinsurer P&L
+            # Profit test on the CEDED (reinsurer) cash flows
             reinsurer_result = None
             if ceded is not None:
-                reinsurer_result = ProfitTester(cashflows=ceded, hurdle_rate=hurdle_rate).run()
+                reinsurer_result = ProfitTester(
+                    cashflows=ceded_to_reinsurer_view(ceded), hurdle_rate=hurdle_rate
+                ).run()
 
             # Sanity check: loss ratio
             total_claims = float(gross.death_claims.sum())

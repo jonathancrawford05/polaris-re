@@ -15,6 +15,7 @@ from polaris_re.dashboard.components.state import get_deal_config
 __all__ = [
     "build_projection_config",
     "build_treaty",
+    "ceded_to_reinsurer_view",
     "derive_yrt_rate",
     "run_gross_projection",
     "run_treaty_projection",
@@ -198,3 +199,30 @@ def run_treaty_projection(
     inforce_arg = inforce if use_policy_cession else None
     net, ceded = treaty.apply(gross, inforce=inforce_arg)  # type: ignore[union-attr]
     return net, ceded
+
+
+def ceded_to_reinsurer_view(ceded: CashFlowResult) -> CashFlowResult:
+    """Re-label a CEDED CashFlowResult as NET for reinsurer profit testing.
+
+    ProfitTester rejects CEDED basis by design (it's meaningless to
+    profit-test the ceded portion from the cedant's perspective). However,
+    the reinsurer's "net" position IS exactly the ceded cash flows. This
+    helper creates a shallow copy with basis="NET" so ProfitTester accepts it.
+    """
+    return CashFlowResult(
+        run_id=ceded.run_id,
+        valuation_date=ceded.valuation_date,
+        basis="NET",
+        assumption_set_version=ceded.assumption_set_version,
+        product_type=ceded.product_type,
+        block_id=ceded.block_id,
+        projection_months=ceded.projection_months,
+        time_index=ceded.time_index,
+        gross_premiums=ceded.gross_premiums,
+        death_claims=ceded.death_claims,
+        lapse_surrenders=ceded.lapse_surrenders,
+        expenses=ceded.expenses,
+        reserve_balance=ceded.reserve_balance,
+        reserve_increase=ceded.reserve_increase,
+        net_cash_flow=ceded.net_cash_flow,
+    )
