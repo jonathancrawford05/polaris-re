@@ -1,4 +1,8 @@
-"""Page 7: IFRS 17 Insurance Contract Measurement."""
+"""Page 7: IFRS 17 Insurance Contract Measurement.
+
+Provides BBA and PAA measurement with proper Risk Adjustment calculation,
+annual ISR table, and clear metric definitions.
+"""
 
 import matplotlib.pyplot as plt  # type: ignore[import-untyped]
 import matplotlib.ticker as mticker  # type: ignore[import-untyped]
@@ -9,7 +13,7 @@ __all__ = ["page_ifrs17"]
 
 
 def page_ifrs17() -> None:
-    """IFRS 17 measurement page — BBA or PAA from gross projection."""
+    """IFRS 17 measurement page \u2014 BBA or PAA from gross projection."""
     st.header("IFRS 17 Measurement")
 
     gross_result = st.session_state.get("gross_result")
@@ -33,6 +37,12 @@ def page_ifrs17() -> None:
     with col3:
         ra_factor = float(st.slider("Risk Adjustment Factor (%)", 1.0, 10.0, 5.0, step=0.5)) / 100.0
 
+    st.caption(
+        f"**Risk Adjustment**: {ra_factor:.1%} of |BEL| at each period. "
+        f"The RA compensates for non-financial risk uncertainty and is "
+        f"always a positive liability (IFRS 17.37(b))."
+    )
+
     if st.button("Run IFRS 17 Measurement", type="primary"):
         from polaris_re.analytics.ifrs17 import IFRS17Measurement
 
@@ -54,6 +64,14 @@ def page_ifrs17() -> None:
         total_liab = result.total_initial_liability()
         m4.metric("Total Liability", f"${total_liab:,.0f}")
 
+        # Explain BEL sign
+        if result.initial_bel < 0:
+            st.info(
+                f"BEL is negative (${result.initial_bel:,.0f}) because the contract group "
+                f"is profitable: PV of expected premium inflows exceeds PV of expected "
+                f"outflows (claims + expenses). The CSM captures this unearned profit."
+            )
+
         if result.loss_component > 0:
             st.error(
                 f"Onerous contract: Loss Component = ${result.loss_component:,.0f} "
@@ -62,14 +80,25 @@ def page_ifrs17() -> None:
             st.info(
                 "Under IFRS 17 B123, insurance revenue for onerous contracts "
                 "excludes the portion of expected cash flows attributable to the "
-                "loss component. The ISR chart below reflects this adjustment \u2014 "
-                "revenue will be lower than total expected outflows."
+                "loss component. The ISR chart below reflects this adjustment."
             )
 
-        # CSM amortisation schedule
+        # Reconciliation note
+        deal_pv = st.session_state.get("pricing_result")
+        if deal_pv is not None:
+            st.caption(
+                f"**Reconciliation note**: The CSM (${result.initial_csm:,.0f}) represents "
+                f"unearned profit at inception discounted at the IFRS 17 risk-free rate "
+                f"({ifrs_discount_rate:.1%}), whereas Deal Pricing PV Profit "
+                f"(${deal_pv.pv_profits:,.0f}) uses the hurdle rate "
+                f"({deal_pv.hurdle_rate:.1%}). The difference in discount rates and the "
+                f"inclusion of the Risk Adjustment (${result.initial_ra:,.0f}) in the "
+                f"IFRS 17 liability explains the gap between CSM and PV Profit."
+            )
+
+        # CSM amortisation schedule (BBA only)
         if approach == "BBA":
             st.subheader("CSM Amortisation")
-            n_years = result.n_periods // 12
             months = np.arange(result.n_periods)
 
             fig, ax = plt.subplots(figsize=(10, 5))
@@ -103,15 +132,24 @@ def page_ifrs17() -> None:
         if approach == "BBA":
             ax2.stackplot(
                 months / 12,
-                result.bel,
+                np.maximum(result.bel, 0),
                 result.risk_adjustment,
                 result.csm,
-                labels=["BEL", "Risk Adjustment", "CSM"],
+                labels=["BEL (positive part)", "Risk Adjustment", "CSM"],
                 colors=["#3498db", "#e74c3c", "#2ecc71"],
                 alpha=0.6,
             )
+            # Show negative BEL as a separate line for visibility
+            if (result.bel < 0).any():
+                ax2.plot(
+                    months / 12,
+                    result.bel,
+                    color="#3498db",
+                    linewidth=1.5,
+                    linestyle="--",
+                    label="BEL (incl. negative)",
+                )
         else:
-            # PAA: show LRC and LIC
             if result.lrc is not None and result.lic is not None:
                 ax2.stackplot(
                     months / 12,
@@ -131,7 +169,7 @@ def page_ifrs17() -> None:
         )
         ax2.set_xlabel("Year")
         ax2.set_ylabel("Liability ($)")
-        ax2.set_title(f"Insurance Liability — {approach}")
+        ax2.set_title(f"Insurance Liability \u2014 {approach}")
         ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"${x:,.0f}"))
         ax2.legend()
         ax2.grid(True, alpha=0.3)
@@ -140,7 +178,7 @@ def page_ifrs17() -> None:
         plt.close(fig2)
 
         # P&L: Insurance service result
-        st.subheader("Profit & Loss — Insurance Service Result")
+        st.subheader("Profit & Loss \u2014 Insurance Service Result")
         n_years = result.n_periods // 12
         annual_revenue = np.array(
             [result.insurance_revenue[y * 12 : (y + 1) * 12].sum() for y in range(n_years)]
@@ -160,7 +198,7 @@ def page_ifrs17() -> None:
         ax3.axhline(0, color="black", linewidth=0.5, linestyle=":")
         ax3.set_xlabel("Policy Year")
         ax3.set_ylabel("Amount ($)")
-        ax3.set_title(f"Insurance Service Result — {approach}")
+        ax3.set_title(f"Insurance Service Result \u2014 {approach}")
         ax3.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"${x:,.0f}"))
         ax3.legend()
         ax3.grid(True, alpha=0.3)
@@ -168,11 +206,34 @@ def page_ifrs17() -> None:
         st.pyplot(fig3)
         plt.close(fig3)
 
+        # Annual ISR table (Finding 7.3 — make verifiable)
+        st.subheader("Annual Insurance Service Result Table")
+        isr_rows = []
+        for yr in range(n_years):
+            isr_rows.append(
+                {
+                    "Year": yr + 1,
+                    "Revenue": f"${annual_revenue[yr]:,.0f}",
+                    "Expenses": f"${annual_expenses[yr]:,.0f}",
+                    "Net ISR": f"${annual_result[yr]:,.0f}",
+                    "CSM Release": f"${result.csm_release[yr * 12 : (yr + 1) * 12].sum():,.0f}",
+                    "RA (start)": f"${result.risk_adjustment[yr * 12]:,.0f}",
+                }
+            )
+        st.dataframe(isr_rows, use_container_width=True)
+
+        # Check for negative ISR in final years
+        if (annual_result < 0).any():
+            neg_years = years[annual_result < 0]
+            st.warning(
+                f"Negative ISR in year(s) {list(neg_years)}. Under IFRS 17 BBA for "
+                f"a profitable group (positive CSM), the ISR should generally be "
+                f"non-negative. This may indicate CSM exhaustion before final "
+                f"contracts run off, or experience variances not absorbed by CSM."
+            )
+
         # PV summary
-        st.metric(
-            "PV Insurance Revenue",
-            f"${result.pv_insurance_revenue():,.0f}",
-        )
+        st.metric("PV Insurance Revenue", f"${result.pv_insurance_revenue():,.0f}")
         st.caption(
             "IFRS 17 Insurance Revenue \u2260 cash premiums. Under the BBA it equals "
             "the release of expected claims, expenses, RA, and CSM to P&L over the "
