@@ -4,17 +4,17 @@ Polaris RE — Command Line Interface.
 Entry point: `polaris` (registered in pyproject.toml [project.scripts])
 
 Commands:
-    polaris price     — run a deal pricing pipeline from YAML/JSON config
-    polaris scenario  — run scenario analysis with tabular output
-    polaris uq        — run Monte Carlo UQ with summary statistics
-    polaris validate  — validate inforce CSV, mortality tables, assumption sets
-    polaris version   — display package version information
+    polaris price          — run a deal pricing pipeline from YAML/JSON config
+    polaris scenario       — run scenario analysis with tabular output
+    polaris uq             — run Monte Carlo UQ with summary statistics
+    polaris validate       — validate inforce CSV, mortality tables, assumption sets
+    polaris rate-schedule  — generate a YRT rate schedule for a target IRR
+    polaris ingest         — ingest and normalise raw cedant inforce data
+    polaris version        — display package version information
 
 Rich is used for all terminal output: coloured tables, progress bars, panels.
 All commands accept --config / --output arguments and write JSON results to disk.
 """
-
-from __future__ import annotations
 
 import json
 import sys
@@ -30,6 +30,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 import polaris_re
+from polaris_re.core.cashflow import CashFlowResult
 
 __all__ = ["app"]
 
@@ -83,10 +84,11 @@ def _write_output(data: dict, output_path: Path | None, default_name: str) -> No
 
 def _build_demo_pipeline() -> tuple:  # type: ignore[type-arg]
     """
-    Build a minimal demo pricing pipeline using synthetic data.
+    Build a minimal demo inforce pipeline using synthetic data.
 
     Used when a command is invoked without a real config file (demo mode).
-    Returns (inforce, assumptions, config, treaty).
+    Returns (inforce, assumptions, config) — treaty is NOT included because
+    the YRT rate must be derived from the gross projection first (ADR-038).
     """
 
     from pathlib import Path
@@ -99,7 +101,6 @@ def _build_demo_pipeline() -> tuple:  # type: ignore[type-arg]
     from polaris_re.core.inforce import InforceBlock
     from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
     from polaris_re.core.projection import ProjectionConfig
-    from polaris_re.reinsurance.yrt import YRTTreaty
     from polaris_re.utils.table_io import MortalityTableArray
 
     # Synthetic mortality: 0.001 q_x for all ages (ages 18-120, ultimate-only)
@@ -146,17 +147,69 @@ def _build_demo_pipeline() -> tuple:  # type: ignore[type-arg]
     )
     inforce = InforceBlock(policies=[policy])
 
+    # Expense defaults match the dashboard's build_projection_config() defaults
+    # so all interfaces produce consistent results for the same inforce block.
     config = ProjectionConfig(
         valuation_date=date.today(),
         projection_horizon_years=20,
         discount_rate=0.06,
+        acquisition_cost_per_policy=500.0,
+        maintenance_cost_per_policy_per_year=75.0,
     )
 
-    treaty = YRTTreaty(
-        cession_pct=0.90,
-        total_face_amount=500_000.0,
+    return inforce, assumptions, config
+
+
+def _derive_yrt_rate(
+    gross: CashFlowResult,
+    face_amount: float,
+    loading: float = 0.10,
+) -> float:
+    """Derive a mortality-based YRT rate per $1,000 NAR from a gross projection.
+
+    Uses first-year actual claims divided by total face amount to estimate the
+    implied annual q_x, then applies the loading factor. Mirrors the dashboard's
+    ``derive_yrt_rate()`` in ``dashboard/components/projection.py`` (ADR-038).
+
+    Args:
+        gross: GROSS basis CashFlowResult with at least 12 months.
+        face_amount: Total initial in-force face amount in dollars.
+        loading: YRT loading over expected mortality (e.g. 0.10 = 10%).
+
+    Returns:
+        YRT rate per $1,000 NAR (annual).
+    """
+    first_year_claims = float(gross.death_claims[:12].sum())
+    implied_qx = first_year_claims / face_amount if face_amount > 0 else 0.001
+    return implied_qx * 1000.0 * (1.0 + loading)
+
+
+def _ceded_to_reinsurer_view(ceded: CashFlowResult) -> CashFlowResult:
+    """Re-label a CEDED CashFlowResult as NET for reinsurer profit testing.
+
+    ProfitTester rejects CEDED basis by design (it is meaningless to
+    profit-test the ceded portion from the cedant's perspective). However,
+    the reinsurer's "net" position IS exactly the ceded cash flows. This
+    helper creates a copy with ``basis="NET"`` so ProfitTester accepts it.
+    Mirrors the dashboard's ``ceded_to_reinsurer_view()`` (ADR-039).
+    """
+    return CashFlowResult(
+        run_id=ceded.run_id,
+        valuation_date=ceded.valuation_date,
+        basis="NET",
+        assumption_set_version=ceded.assumption_set_version,
+        product_type=ceded.product_type,
+        block_id=ceded.block_id,
+        projection_months=ceded.projection_months,
+        time_index=ceded.time_index,
+        gross_premiums=ceded.gross_premiums,
+        death_claims=ceded.death_claims,
+        lapse_surrenders=ceded.lapse_surrenders,
+        expenses=ceded.expenses,
+        reserve_balance=ceded.reserve_balance,
+        reserve_increase=ceded.reserve_increase,
+        net_cash_flow=ceded.net_cash_flow,
     )
-    return inforce, assumptions, config, treaty
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +251,7 @@ def price_cmd(
 
     from polaris_re.analytics.profit_test import ProfitTester
     from polaris_re.products.term_life import TermLife
+    from polaris_re.reinsurance.yrt import YRTTreaty
 
     with Progress(
         SpinnerColumn(),
@@ -206,7 +260,7 @@ def price_cmd(
         transient=True,
     ) as progress:
         progress.add_task("Building pipeline...", total=None)
-        inforce, assumptions, config, treaty = _build_demo_pipeline()
+        inforce, assumptions, config = _build_demo_pipeline()
 
     with Progress(
         SpinnerColumn(),
@@ -215,40 +269,99 @@ def price_cmd(
         transient=True,
     ) as progress:
         task = progress.add_task("Running projection...", total=None)
+
+        # 1. Gross projection
         product = TermLife(inforce=inforce, assumptions=assumptions, config=config)
         gross = product.project()
-        net, _ = treaty.apply(gross)
-        tester = ProfitTester(cashflows=net, hurdle_rate=hurdle_rate)
-        result = tester.run()
+
+        # 2. Derive YRT rate from mortality (ADR-038) — avoids zero ceded premiums
+        face_amount = inforce.total_face_amount()
+        yrt_rate = _derive_yrt_rate(gross, face_amount)
+
+        # 3. Build treaty with derived rate and apply
+        treaty = YRTTreaty(
+            cession_pct=0.90,
+            total_face_amount=face_amount,
+            flat_yrt_rate_per_1000=yrt_rate,
+        )
+        net, ceded = treaty.apply(gross)
+
+        # 4. Cedant view: profit test on NET cash flows
+        cedant_result = ProfitTester(cashflows=net, hurdle_rate=hurdle_rate).run()
+
+        # 5. Reinsurer view: profit test on CEDED re-labelled as NET (ADR-039)
+        reinsurer_result = ProfitTester(
+            cashflows=_ceded_to_reinsurer_view(ceded),
+            hurdle_rate=hurdle_rate,
+        ).run()
+
         progress.update(task, completed=True)
 
-    # Display results table
-    table = Table(title="Profit Test Results", border_style="cyan")
-    table.add_column("Metric", style="bold")
-    table.add_column("Value", justify="right")
+    # Cedant results table
+    cedant_table = Table(title="Profit Test — Cedant (NET) View", border_style="cyan")
+    cedant_table.add_column("Metric", style="bold")
+    cedant_table.add_column("Value", justify="right")
 
-    irr_str = f"{result.irr:.2%}" if result.irr is not None else "N/A"
-    be_str = f"Year {result.breakeven_year}" if result.breakeven_year is not None else "Never"
+    irr_str = f"{cedant_result.irr:.2%}" if cedant_result.irr is not None else "N/A"
+    be_str = (
+        f"Year {cedant_result.breakeven_year}"
+        if cedant_result.breakeven_year is not None
+        else "Never"
+    )
+    cedant_table.add_row("Hurdle Rate", f"{cedant_result.hurdle_rate:.2%}")
+    cedant_table.add_row("PV Profits", f"${cedant_result.pv_profits:,.0f}")
+    cedant_table.add_row("PV Premiums", f"${cedant_result.pv_premiums:,.0f}")
+    cedant_table.add_row("Profit Margin", f"{cedant_result.profit_margin:.2%}")
+    cedant_table.add_row("IRR", irr_str)
+    cedant_table.add_row("Break-even", be_str)
+    cedant_table.add_row(
+        "Total Undiscounted Profit", f"${cedant_result.total_undiscounted_profit:,.0f}"
+    )
+    console.print(cedant_table)
 
-    table.add_row("Hurdle Rate", f"{result.hurdle_rate:.2%}")
-    table.add_row("PV Profits", f"${result.pv_profits:,.0f}")
-    table.add_row("PV Premiums", f"${result.pv_premiums:,.0f}")
-    table.add_row("Profit Margin", f"{result.profit_margin:.2%}")
-    table.add_row("IRR", irr_str)
-    table.add_row("Break-even", be_str)
-    table.add_row("Total Undiscounted Profit", f"${result.total_undiscounted_profit:,.0f}")
+    # Reinsurer results table
+    rei_table = Table(title="Profit Test — Reinsurer View", border_style="green")
+    rei_table.add_column("Metric", style="bold")
+    rei_table.add_column("Value", justify="right")
 
-    console.print(table)
+    rei_irr_str = f"{reinsurer_result.irr:.2%}" if reinsurer_result.irr is not None else "N/A"
+    rei_be_str = (
+        f"Year {reinsurer_result.breakeven_year}"
+        if reinsurer_result.breakeven_year is not None
+        else "Never"
+    )
+    rei_table.add_row("Hurdle Rate", f"{reinsurer_result.hurdle_rate:.2%}")
+    rei_table.add_row("PV Profits", f"${reinsurer_result.pv_profits:,.0f}")
+    rei_table.add_row("PV Premiums", f"${reinsurer_result.pv_premiums:,.0f}")
+    rei_table.add_row("Profit Margin", f"{reinsurer_result.profit_margin:.2%}")
+    rei_table.add_row("IRR", rei_irr_str)
+    rei_table.add_row("Break-even", rei_be_str)
+    rei_table.add_row(
+        "Total Undiscounted Profit", f"${reinsurer_result.total_undiscounted_profit:,.0f}"
+    )
+    console.print(rei_table)
 
     output_data = {
-        "hurdle_rate": result.hurdle_rate,
-        "pv_profits": result.pv_profits,
-        "pv_premiums": result.pv_premiums,
-        "profit_margin": result.profit_margin,
-        "irr": result.irr,
-        "breakeven_year": result.breakeven_year,
-        "total_undiscounted_profit": result.total_undiscounted_profit,
-        "profit_by_year": result.profit_by_year.tolist(),
+        "cedant": {
+            "hurdle_rate": cedant_result.hurdle_rate,
+            "pv_profits": cedant_result.pv_profits,
+            "pv_premiums": cedant_result.pv_premiums,
+            "profit_margin": cedant_result.profit_margin,
+            "irr": cedant_result.irr,
+            "breakeven_year": cedant_result.breakeven_year,
+            "total_undiscounted_profit": cedant_result.total_undiscounted_profit,
+            "profit_by_year": cedant_result.profit_by_year.tolist(),
+        },
+        "reinsurer": {
+            "hurdle_rate": reinsurer_result.hurdle_rate,
+            "pv_profits": reinsurer_result.pv_profits,
+            "pv_premiums": reinsurer_result.pv_premiums,
+            "profit_margin": reinsurer_result.profit_margin,
+            "irr": reinsurer_result.irr,
+            "breakeven_year": reinsurer_result.breakeven_year,
+            "total_undiscounted_profit": reinsurer_result.total_undiscounted_profit,
+            "profit_by_year": reinsurer_result.profit_by_year.tolist(),
+        },
     }
     _write_output(output_data, output_path, "price_result")
 
@@ -277,6 +390,8 @@ def scenario_cmd(
     _header()
 
     from polaris_re.analytics.scenario import ScenarioRunner
+    from polaris_re.products.term_life import TermLife
+    from polaris_re.reinsurance.yrt import YRTTreaty
 
     with Progress(
         SpinnerColumn(),
@@ -285,7 +400,18 @@ def scenario_cmd(
         transient=True,
     ) as progress:
         progress.add_task("Running scenarios...", total=None)
-        inforce, assumptions, config, treaty = _build_demo_pipeline()
+        inforce, assumptions, config = _build_demo_pipeline()
+
+        # Derive YRT rate from base gross projection (ADR-038)
+        gross = TermLife(inforce=inforce, assumptions=assumptions, config=config).project()
+        face_amount = inforce.total_face_amount()
+        yrt_rate = _derive_yrt_rate(gross, face_amount)
+        treaty = YRTTreaty(
+            cession_pct=0.90,
+            total_face_amount=face_amount,
+            flat_yrt_rate_per_1000=yrt_rate,
+        )
+
         runner = ScenarioRunner(
             inforce=inforce,
             base_assumptions=assumptions,
@@ -356,6 +482,8 @@ def uq_cmd(
     _header()
 
     from polaris_re.analytics.uq import MonteCarloUQ
+    from polaris_re.products.term_life import TermLife
+    from polaris_re.reinsurance.yrt import YRTTreaty
 
     with Progress(
         SpinnerColumn(),
@@ -364,7 +492,18 @@ def uq_cmd(
         transient=True,
     ) as progress:
         progress.add_task(f"Running {n_scenarios} Monte Carlo scenarios...", total=None)
-        inforce, assumptions, config, treaty = _build_demo_pipeline()
+        inforce, assumptions, config = _build_demo_pipeline()
+
+        # Derive YRT rate from base gross projection (ADR-038)
+        gross = TermLife(inforce=inforce, assumptions=assumptions, config=config).project()
+        face_amount = inforce.total_face_amount()
+        yrt_rate = _derive_yrt_rate(gross, face_amount)
+        treaty = YRTTreaty(
+            cession_pct=0.90,
+            total_face_amount=face_amount,
+            flat_yrt_rate_per_1000=yrt_rate,
+        )
+
         uq = MonteCarloUQ(
             inforce=inforce,
             base_assumptions=assumptions,

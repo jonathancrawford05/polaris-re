@@ -5,14 +5,15 @@ Exposes the core Polaris RE pricing engine over HTTP for integration
 with downstream systems, dashboards, and workflow automation.
 
 Endpoints:
-    GET  /health               — liveness / readiness probe
-    GET  /version              — package version information
-    POST /api/v1/price         — run full pricing pipeline
-    POST /api/v1/scenario      — run scenario analysis
-    POST /api/v1/uq            — run Monte Carlo uncertainty quantification
-    POST /api/v1/ifrs17/bba    — compute IFRS 17 BBA measurement
-    POST /api/v1/ifrs17/paa    — compute IFRS 17 PAA measurement
-    POST /api/v1/ingest        — ingest raw cedant inforce data
+    GET  /health                  — liveness / readiness probe
+    GET  /version                 — package version information
+    POST /api/v1/price            — run full pricing pipeline (cedant + reinsurer views)
+    POST /api/v1/scenario         — run scenario analysis
+    POST /api/v1/uq               — run Monte Carlo uncertainty quantification
+    POST /api/v1/ifrs17/bba       — compute IFRS 17 BBA measurement
+    POST /api/v1/ifrs17/paa       — compute IFRS 17 PAA measurement
+    POST /api/v1/ingest           — ingest raw cedant inforce data
+    POST /api/v1/rate-schedule    — generate YRT rate schedule for a target IRR
 
 All request and response bodies are JSON, validated via Pydantic models.
 NumPy arrays are serialised as lists. Dates are ISO-8601 strings.
@@ -100,12 +101,30 @@ class PriceRequest(BaseModel):
     cession_pct: float = Field(ge=0.0, le=1.0, default=0.90, description="YRT cession percentage.")
     flat_qx: float = Field(ge=0.0, le=1.0, default=0.001, description="Flat mortality rate (demo).")
     flat_lapse: float = Field(ge=0.0, le=1.0, default=0.05, description="Flat annual lapse rate.")
+    acquisition_cost_per_policy: float = Field(
+        default=0.0, ge=0.0, description="One-time acquisition expense per policy in dollars."
+    )
+    maintenance_cost_per_policy_per_year: float = Field(
+        default=0.0, ge=0.0, description="Annual per-policy maintenance expense in dollars."
+    )
+    yrt_loading: float = Field(
+        default=0.10,
+        ge=0.0,
+        le=1.0,
+        description="Loading over expected mortality for YRT rate derivation (e.g. 0.10 = 10%).",
+    )
 
 
 class PriceResponse(BaseModel):
-    """Response body for /api/v1/price."""
+    """Response body for /api/v1/price.
+
+    Returns both cedant (NET post-treaty) and reinsurer perspectives.
+    The reinsurer view is computed by re-labelling CEDED cash flows as NET
+    before passing to ProfitTester (ADR-039).
+    """
 
     hurdle_rate: float
+    # Cedant (NET) view
     pv_profits: float
     pv_premiums: float
     profit_margin: float
@@ -113,6 +132,14 @@ class PriceResponse(BaseModel):
     breakeven_year: int | None
     total_undiscounted_profit: float
     profit_by_year: list[float]
+    # Reinsurer view
+    reinsurer_pv_profits: float
+    reinsurer_profit_margin: float
+    reinsurer_irr: float | None
+    reinsurer_breakeven_year: int | None
+    reinsurer_total_undiscounted_profit: float
+    reinsurer_profit_by_year: list[float]
+    # Metadata
     n_policies: int
     projection_months: int
 
@@ -127,6 +154,14 @@ class ScenarioRequest(BaseModel):
     cession_pct: float = Field(ge=0.0, le=1.0, default=0.90)
     flat_qx: float = Field(ge=0.0, le=1.0, default=0.001)
     flat_lapse: float = Field(ge=0.0, le=1.0, default=0.05)
+    acquisition_cost_per_policy: float = Field(default=0.0, ge=0.0)
+    maintenance_cost_per_policy_per_year: float = Field(default=0.0, ge=0.0)
+    yrt_loading: float = Field(
+        default=0.10,
+        ge=0.0,
+        le=1.0,
+        description="Loading over expected mortality for YRT rate derivation.",
+    )
 
 
 class ScenarioSummary(BaseModel):
@@ -160,6 +195,14 @@ class UQRequest(BaseModel):
     mortality_log_sigma: float = Field(ge=0.0, le=1.0, default=0.10)
     lapse_log_sigma: float = Field(ge=0.0, le=1.0, default=0.15)
     interest_rate_sigma: float = Field(ge=0.0, le=0.10, default=0.005)
+    acquisition_cost_per_policy: float = Field(default=0.0, ge=0.0)
+    maintenance_cost_per_policy_per_year: float = Field(default=0.0, ge=0.0)
+    yrt_loading: float = Field(
+        default=0.10,
+        ge=0.0,
+        le=1.0,
+        description="Loading over expected mortality for YRT rate derivation.",
+    )
 
 
 class UQResponse(BaseModel):
@@ -215,15 +258,34 @@ class IFRS17Response(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _build_pipeline(
+def _build_components(
     policies_in: list[PolicyInput],
     projection_horizon_years: int,
     discount_rate: float,
-    cession_pct: float,
     flat_qx: float,
     flat_lapse: float,
-) -> tuple[InforceBlock, AssumptionSet, ProjectionConfig, YRTTreaty]:
-    """Convert API request data into pipeline components."""
+    acquisition_cost_per_policy: float = 0.0,
+    maintenance_cost_per_policy_per_year: float = 0.0,
+) -> tuple[InforceBlock, AssumptionSet, ProjectionConfig]:
+    """Convert API request data into core pipeline components (no treaty).
+
+    Treaty construction is intentionally excluded. The YRT rate must be derived
+    from the gross projection output before building the treaty (ADR-038).
+    This ensures ceded premiums are always non-zero and calibrated to actual
+    mortality experience in the projection.
+
+    Args:
+        policies_in: Validated policy inputs from the API request.
+        projection_horizon_years: Projection term in years.
+        discount_rate: Annual discount rate for present value calculations.
+        flat_qx: Flat annual mortality rate for the synthetic demo table.
+        flat_lapse: Flat annual lapse rate for all durations.
+        acquisition_cost_per_policy: One-time acquisition expense per policy.
+        maintenance_cost_per_policy_per_year: Annual per-policy maintenance expense.
+
+    Returns:
+        (InforceBlock, AssumptionSet, ProjectionConfig) ready for projection.
+    """
     from pathlib import Path
 
     n_ages = 121 - 18  # ages 18-120 inclusive = 103 ages
@@ -290,14 +352,11 @@ def _build_pipeline(
         valuation_date=policies_in[0].valuation_date,
         projection_horizon_years=projection_horizon_years,
         discount_rate=discount_rate,
+        acquisition_cost_per_policy=acquisition_cost_per_policy,
+        maintenance_cost_per_policy_per_year=maintenance_cost_per_policy_per_year,
     )
 
-    total_face = sum(p.face_amount for p in policies_in)
-    treaty = YRTTreaty(
-        cession_pct=cession_pct,
-        total_face_amount=total_face,
-    )
-    return inforce, assumptions, config, treaty
+    return inforce, assumptions, config
 
 
 def _run_gross_projection(
@@ -307,6 +366,57 @@ def _run_gross_projection(
 ) -> CashFlowResult:
     product = TermLife(inforce=inforce, assumptions=assumptions, config=config)
     return product.project()
+
+
+def _derive_yrt_rate(
+    gross: CashFlowResult,
+    face_amount: float,
+    loading: float = 0.10,
+) -> float:
+    """Derive a mortality-based YRT rate per $1,000 NAR from a gross projection.
+
+    Uses first-year actual claims divided by total face amount to estimate the
+    implied annual q_x, then applies the loading factor. Mirrors the dashboard's
+    ``derive_yrt_rate()`` helper (ADR-038).
+
+    Args:
+        gross: GROSS basis CashFlowResult with at least 12 months of projections.
+        face_amount: Total initial in-force face amount in dollars.
+        loading: YRT loading over expected mortality (e.g. 0.10 = 10%).
+
+    Returns:
+        YRT rate per $1,000 NAR (annual).
+    """
+    first_year_claims = float(gross.death_claims[:12].sum())
+    implied_qx = first_year_claims / face_amount if face_amount > 0 else 0.001
+    return implied_qx * 1000.0 * (1.0 + loading)
+
+
+def _ceded_to_reinsurer_view(ceded: CashFlowResult) -> CashFlowResult:
+    """Re-label a CEDED CashFlowResult as NET for reinsurer profit testing.
+
+    ProfitTester rejects CEDED basis by design (it is meaningless to profit-test
+    the ceded portion from the cedant's perspective). However, the reinsurer's
+    "net" position IS exactly the ceded cash flows. This helper creates a copy
+    with ``basis="NET"`` so ProfitTester accepts it (ADR-039).
+    """
+    return CashFlowResult(
+        run_id=ceded.run_id,
+        valuation_date=ceded.valuation_date,
+        basis="NET",
+        assumption_set_version=ceded.assumption_set_version,
+        product_type=ceded.product_type,
+        block_id=ceded.block_id,
+        projection_months=ceded.projection_months,
+        time_index=ceded.time_index,
+        gross_premiums=ceded.gross_premiums,
+        death_claims=ceded.death_claims,
+        lapse_surrenders=ceded.lapse_surrenders,
+        expenses=ceded.expenses,
+        reserve_balance=ceded.reserve_balance,
+        reserve_increase=ceded.reserve_increase,
+        net_cash_flow=ceded.net_cash_flow,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -336,33 +446,59 @@ def price(request: PriceRequest) -> PriceResponse:
     """
     Run a full deal pricing pipeline.
 
-    Projects the supplied inforce block through a YRT treaty and computes
-    profit metrics: PV profits, IRR, break-even year, profit margin.
+    Projects the supplied inforce block through a YRT treaty and returns profit
+    metrics for both the cedant (NET basis) and the reinsurer perspectives.
+    The YRT rate is derived from first-year mortality claims (ADR-038) so that
+    ceded premiums are always non-zero and actuarially calibrated.
     """
     try:
-        inforce, assumptions, config, treaty = _build_pipeline(
+        inforce, assumptions, config = _build_components(
             policies_in=request.policies,
             projection_horizon_years=request.projection_horizon_years,
             discount_rate=request.discount_rate,
-            cession_pct=request.cession_pct,
             flat_qx=request.flat_qx,
             flat_lapse=request.flat_lapse,
+            acquisition_cost_per_policy=request.acquisition_cost_per_policy,
+            maintenance_cost_per_policy_per_year=request.maintenance_cost_per_policy_per_year,
         )
         gross = _run_gross_projection(inforce, assumptions, config)
-        net, _ = treaty.apply(gross)
-        result = ProfitTester(cashflows=net, hurdle_rate=request.hurdle_rate).run()
+
+        # Derive YRT rate from first-year mortality (ADR-038)
+        total_face = sum(p.face_amount for p in request.policies)
+        yrt_rate = _derive_yrt_rate(gross, total_face, request.yrt_loading)
+        treaty = YRTTreaty(
+            cession_pct=request.cession_pct,
+            total_face_amount=total_face,
+            flat_yrt_rate_per_1000=yrt_rate,
+        )
+        net, ceded = treaty.apply(gross)
+
+        # Cedant view: profit test on NET cash flows
+        cedant = ProfitTester(cashflows=net, hurdle_rate=request.hurdle_rate).run()
+
+        # Reinsurer view: CEDED re-labelled as NET (ADR-039)
+        reinsurer = ProfitTester(
+            cashflows=_ceded_to_reinsurer_view(ceded),
+            hurdle_rate=request.hurdle_rate,
+        ).run()
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     return PriceResponse(
-        hurdle_rate=result.hurdle_rate,
-        pv_profits=result.pv_profits,
-        pv_premiums=result.pv_premiums,
-        profit_margin=result.profit_margin,
-        irr=result.irr,
-        breakeven_year=result.breakeven_year,
-        total_undiscounted_profit=result.total_undiscounted_profit,
-        profit_by_year=result.profit_by_year.tolist(),
+        hurdle_rate=cedant.hurdle_rate,
+        pv_profits=cedant.pv_profits,
+        pv_premiums=cedant.pv_premiums,
+        profit_margin=cedant.profit_margin,
+        irr=cedant.irr,
+        breakeven_year=cedant.breakeven_year,
+        total_undiscounted_profit=cedant.total_undiscounted_profit,
+        profit_by_year=cedant.profit_by_year.tolist(),
+        reinsurer_pv_profits=reinsurer.pv_profits,
+        reinsurer_profit_margin=reinsurer.profit_margin,
+        reinsurer_irr=reinsurer.irr,
+        reinsurer_breakeven_year=reinsurer.breakeven_year,
+        reinsurer_total_undiscounted_profit=reinsurer.total_undiscounted_profit,
+        reinsurer_profit_by_year=reinsurer.profit_by_year.tolist(),
         n_policies=len(request.policies),
         projection_months=config.projection_months,
     )
@@ -375,15 +511,27 @@ def scenario(request: ScenarioRequest) -> ScenarioResponse:
 
     Applies pre-defined stress scenarios (mortality shock, lapse stress,
     rate shock) to the base assumptions and returns comparative profit metrics.
+    The YRT rate is derived from the base gross projection (ADR-038) so that
+    the treaty is correctly calibrated before stress scenarios are applied.
     """
     try:
-        inforce, assumptions, config, treaty = _build_pipeline(
+        inforce, assumptions, config = _build_components(
             policies_in=request.policies,
             projection_horizon_years=request.projection_horizon_years,
             discount_rate=request.discount_rate,
-            cession_pct=request.cession_pct,
             flat_qx=request.flat_qx,
             flat_lapse=request.flat_lapse,
+            acquisition_cost_per_policy=request.acquisition_cost_per_policy,
+            maintenance_cost_per_policy_per_year=request.maintenance_cost_per_policy_per_year,
+        )
+        # Derive YRT rate from base gross projection (ADR-038)
+        gross = _run_gross_projection(inforce, assumptions, config)
+        total_face = sum(p.face_amount for p in request.policies)
+        yrt_rate = _derive_yrt_rate(gross, total_face, request.yrt_loading)
+        treaty = YRTTreaty(
+            cession_pct=request.cession_pct,
+            total_face_amount=total_face,
+            flat_yrt_rate_per_1000=yrt_rate,
         )
         runner = ScenarioRunner(
             inforce=inforce,
@@ -415,16 +563,27 @@ def uq(request: UQRequest) -> UQResponse:
 
     Samples assumption multipliers from LogNormal (mortality, lapse) and
     Normal (interest rate) distributions and returns the distribution of
-    deal profitability metrics.
+    deal profitability metrics. The YRT rate is derived from the base gross
+    projection (ADR-038) so that the treaty is calibrated before sampling.
     """
     try:
-        inforce, assumptions, config, treaty = _build_pipeline(
+        inforce, assumptions, config = _build_components(
             policies_in=request.policies,
             projection_horizon_years=request.projection_horizon_years,
             discount_rate=request.discount_rate,
-            cession_pct=request.cession_pct,
             flat_qx=request.flat_qx,
             flat_lapse=request.flat_lapse,
+            acquisition_cost_per_policy=request.acquisition_cost_per_policy,
+            maintenance_cost_per_policy_per_year=request.maintenance_cost_per_policy_per_year,
+        )
+        # Derive YRT rate from base gross projection (ADR-038)
+        gross = _run_gross_projection(inforce, assumptions, config)
+        total_face = sum(p.face_amount for p in request.policies)
+        yrt_rate = _derive_yrt_rate(gross, total_face, request.yrt_loading)
+        treaty = YRTTreaty(
+            cession_pct=request.cession_pct,
+            total_face_amount=total_face,
+            flat_yrt_rate_per_1000=yrt_rate,
         )
         uq_runner = MonteCarloUQ(
             inforce=inforce,
@@ -473,11 +632,10 @@ def ifrs17_bba(request: IFRS17Request) -> IFRS17Response:
     Risk Adjustment, CSM schedule, and P&L components.
     """
     try:
-        inforce, assumptions, config, _ = _build_pipeline(
+        inforce, assumptions, config = _build_components(
             policies_in=request.policies,
             projection_horizon_years=request.projection_horizon_years,
             discount_rate=request.discount_rate,
-            cession_pct=0.0,  # Gross basis for IFRS 17
             flat_qx=request.flat_qx,
             flat_lapse=request.flat_lapse,
         )
@@ -517,11 +675,10 @@ def ifrs17_paa(request: IFRS17Request) -> IFRS17Response:
     for Incurred Claims) schedules for short-duration contracts.
     """
     try:
-        inforce, assumptions, config, _ = _build_pipeline(
+        inforce, assumptions, config = _build_components(
             policies_in=request.policies,
             projection_horizon_years=request.projection_horizon_years,
             discount_rate=request.discount_rate,
-            cession_pct=0.0,
             flat_qx=request.flat_qx,
             flat_lapse=request.flat_lapse,
         )
@@ -680,20 +837,20 @@ class RateScheduleResponse(BaseModel):
 
 @app.post("/api/v1/rate-schedule", response_model=RateScheduleResponse)
 def api_rate_schedule(request: RateScheduleRequest) -> RateScheduleResponse:
-    """Generate a YRT rate schedule solving for rates that achieve target IRR."""
+    """Generate a YRT rate schedule solving for rates that achieve target IRR.
+
+    Builds a synthetic flat-rate assumption set from the request parameters and
+    solves for the per-$1,000 NAR YRT rate at each age/sex/smoker cell that
+    achieves the requested target IRR.
+    """
     from polaris_re.analytics.rate_schedule import YRTRateSchedule
 
     try:
+        # Build synthetic assumptions using the shared helper.
+        # A dummy single-policy request is not needed — _build_components() is
+        # designed for inforce inputs, so we construct assumptions + config directly
+        # here using the same pattern as _build_components() internally.
         from pathlib import Path
-
-        from polaris_re.assumptions.assumption_set import AssumptionSet
-        from polaris_re.assumptions.lapse import LapseAssumption
-        from polaris_re.assumptions.mortality import (
-            MortalityTable,
-            MortalityTableSource,
-        )
-        from polaris_re.core.projection import ProjectionConfig
-        from polaris_re.utils.table_io import MortalityTableArray
 
         n_ages = 121 - 18
         qx = np.full(n_ages, request.flat_qx, dtype=np.float64)
