@@ -1,6 +1,8 @@
 """Page 3: Deal Pricing — rebuilt to consume session state from Pages 1-2."""
 
+import os
 from datetime import date
+from pathlib import Path
 
 import matplotlib.pyplot as plt  # type: ignore[import-untyped]
 import matplotlib.ticker as mticker  # type: ignore[import-untyped]
@@ -11,52 +13,79 @@ from polaris_re.dashboard.components.charts import cashflow_waterfall
 
 __all__ = ["page_pricing"]
 
+# Default select-and-ultimate lapse structure (realistic industry pattern)
+_DEFAULT_LAPSE_TABLE: dict[int | str, float] = {
+    1: 0.06,
+    2: 0.05,
+    3: 0.04,
+    4: 0.035,
+    5: 0.03,
+    6: 0.025,
+    7: 0.02,
+    8: 0.02,
+    9: 0.02,
+    10: 0.02,
+    "ultimate": 0.015,
+}
+
+# Map UI labels to MortalityTableSource enum values
+_TABLE_SOURCE_MAP: dict[str, str] = {
+    "SOA VBT 2015": "SOA_VBT_2015",
+    "CIA 2014": "CIA_2014",
+    "2001 CSO": "CSO_2001",
+}
+
+
+def _resolve_data_dir() -> Path:
+    """Resolve mortality table data directory using the same convention as the Assumptions page."""
+    return Path(os.environ.get("POLARIS_DATA_DIR", "data")) / "mortality_tables"
+
+
+def _load_mortality_table(source_label: str) -> object | None:
+    """Attempt to load a standard mortality table. Returns MortalityTable or None."""
+    from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
+
+    source_key = _TABLE_SOURCE_MAP[source_label]
+    table_source = MortalityTableSource(source_key)
+    data_dir = _resolve_data_dir()
+
+    try:
+        return MortalityTable.load(source=table_source, data_dir=data_dir)
+    except (FileNotFoundError, Exception) as exc:
+        st.error(
+            f"**Cannot load {source_label}**: {exc}\n\n"
+            f"Ensure mortality table CSVs are in `{data_dir}` or set the "
+            f"`POLARIS_DATA_DIR` environment variable. "
+            f"See `data/mortality_tables/` in the repository."
+        )
+        return None
+
 
 def _build_fallback_assumptions(
-    flat_qx: float,
-    flat_lapse: float,
+    mortality_table: object,
+    lapse_ultimate_rate: float,
     valuation_date: date,
+    source_label: str,
 ) -> object:
-    """Build minimal AssumptionSet for dashboard with flat rates (fallback)."""
-    from pathlib import Path
-
+    """Build AssumptionSet for dashboard using a real mortality table basis."""
     from polaris_re.assumptions.assumption_set import AssumptionSet
     from polaris_re.assumptions.lapse import LapseAssumption
-    from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
-    from polaris_re.core.policy import Sex, SmokerStatus
-    from polaris_re.utils.table_io import MortalityTableArray
 
-    n_ages = 121 - 18
-    qx = np.full(n_ages, flat_qx, dtype=np.float64)
-    rates_2d = qx.reshape(-1, 1)
+    # Build select-and-ultimate lapse structure, scaling the ultimate rate
+    # while preserving the select-period shape
+    base_ultimate = _DEFAULT_LAPSE_TABLE["ultimate"]
+    scale = lapse_ultimate_rate / base_ultimate if base_ultimate > 0 else 1.0
+    scaled_lapse: dict[int | str, float] = {}
+    for k, v in _DEFAULT_LAPSE_TABLE.items():
+        scaled_lapse[k] = min(v * scale, 1.0)  # cap at 100%
 
-    # Create table arrays for all sex/smoker combos so any policy can be priced
-    tables: dict[str, MortalityTableArray] = {}
-    for sex in Sex:
-        for smoker in SmokerStatus:
-            key = f"{sex.value}_{smoker.value}"
-            tables[key] = MortalityTableArray(
-                rates=rates_2d.copy(),
-                min_age=18,
-                max_age=120,
-                select_period=0,
-                source_file=Path("synthetic"),
-            )
+    lapse = LapseAssumption.from_duration_table(scaled_lapse)
 
-    mortality = MortalityTable(
-        source=MortalityTableSource.CSO_2001,
-        table_name="Synthetic Dashboard",
-        min_age=18,
-        max_age=120,
-        select_period_years=0,
-        has_smoker_distinct_rates=False,
-        tables=tables,
-    )
-    lapse = LapseAssumption.from_duration_table(
-        {1: flat_lapse, 2: flat_lapse, 3: flat_lapse, "ultimate": flat_lapse}
-    )
     return AssumptionSet(
-        mortality=mortality, lapse=lapse, version="dashboard-v1", effective_date=valuation_date
+        mortality=mortality_table,  # type: ignore[arg-type]
+        lapse=lapse,
+        version=f"dashboard-fallback-{source_label.replace(' ', '_').lower()}",
+        effective_date=valuation_date,
     )
 
 
@@ -64,26 +93,36 @@ def _build_fallback_block(
     n_policies: int,
     attained_age: int,
     face_amount: float,
-    flat_qx: float,
     target_loss_ratio: float,
     term_years: int,
     valuation_date: date,
+    mortality_table: object,
+    sex: object,
+    smoker_status: object,
 ) -> object:
-    """Build InforceBlock for dashboard (fallback when Page 1 not configured)."""
+    """Build InforceBlock for dashboard, with premium calibrated from table mortality."""
     from polaris_re.core.inforce import InforceBlock
     from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
 
-    # Calibrate premium to mortality and loss ratio
-    # flat_qx is annual; premium = face * qx / loss_ratio
-    annual_premium = (face_amount * flat_qx) / target_loss_ratio
+    sex_val: Sex = sex  # type: ignore[assignment]
+    smoker_val: SmokerStatus = smoker_status  # type: ignore[assignment]
+
+    # Look up annual q_x at the specified attained age from the real table
+    q_monthly = mortality_table.get_qx_scalar(  # type: ignore[union-attr]
+        attained_age, sex_val, smoker_val, duration_months=0
+    )
+    q_annual = 1.0 - (1.0 - q_monthly) ** 12
+
+    # Calibrate premium: premium = face * q_x / loss_ratio
+    annual_premium = (face_amount * q_annual) / target_loss_ratio
 
     policies = [
         Policy(
             policy_id=f"P{i:05d}",
             issue_age=attained_age,
             attained_age=attained_age,
-            sex=Sex.MALE,
-            smoker_status=SmokerStatus.NON_SMOKER,
+            sex=sex_val,
+            smoker_status=smoker_val,
             underwriting_class="STANDARD",
             face_amount=face_amount,
             annual_premium=annual_premium,
@@ -178,7 +217,9 @@ def _build_treaty(
         from polaris_re.reinsurance.coinsurance import CoinsuranceTreaty
 
         return CoinsuranceTreaty(
-            treaty_name="COINS-DASH", cession_pct=cession_pct, include_expense_allowance=True
+            treaty_name="COINS-DASH",
+            cession_pct=cession_pct,
+            include_expense_allowance=True,
         )
     elif treaty_type == "Modco":
         from polaris_re.reinsurance.modco import ModcoTreaty
@@ -214,8 +255,20 @@ def _table_vs_ml_comparison(assumption_set: object, ml_mort: object) -> None:
             )
 
             fig, ax = plt.subplots(figsize=(10, 5))
-            ax.plot(ages, table_rates * 12, label="Table (monthly\u00d712)", color="#3498db", lw=2)
-            ax.plot(ages, ml_rates * 12, label="ML Model (monthly\u00d712)", color="#e74c3c", lw=2)
+            ax.plot(
+                ages,
+                table_rates * 12,
+                label="Table (monthly\u00d712)",
+                color="#3498db",
+                lw=2,
+            )
+            ax.plot(
+                ages,
+                ml_rates * 12,
+                label="ML Model (monthly\u00d712)",
+                color="#e74c3c",
+                lw=2,
+            )
             ax.set_xlabel("Attained Age")
             ax.set_ylabel("Approx Annual q_x")
             ax.set_title("Table vs ML Mortality \u2014 Male Non-Smoker")
@@ -252,8 +305,9 @@ def page_pricing() -> None:
 
     if inforce_block is None or assumption_set is None:
         st.warning(
-            "Configure **Inforce Block** (Page 1) and **Assumptions** (Page 2) first, "
-            "or use the fallback sliders below."
+            "Configure **Inforce Block** (Page 1) and **Assumptions** "
+            "(Page 2) first, or use the quick-start parameters below to "
+            "run a pricing scenario on a standard mortality basis."
         )
         use_session = False
     else:
@@ -276,7 +330,7 @@ def page_pricing() -> None:
             modco_rate = float(st.slider("Modco Interest Rate (%)", 1.0, 8.0, 4.5, step=0.5)) / 100
         use_policy_cession = st.checkbox(
             "Use policy-level cession overrides",
-            help="Uses per-policy reinsurance_cession_pct from inforce data (ADR-036).",
+            help=("Uses per-policy reinsurance_cession_pct from inforce data (ADR-036)."),
         )
 
     # YRT rate configuration
@@ -286,8 +340,8 @@ def page_pricing() -> None:
             "YRT Rate Basis",
             ["Mortality-based", "Manual Rate"],
             help=(
-                "Mortality-based: derives YRT rate from the portfolio's average "
-                "mortality rate with a configurable loading. "
+                "Mortality-based: derives YRT rate from the portfolio's "
+                "average mortality rate with a configurable loading. "
                 "Manual: enter a flat rate per $1,000 NAR directly."
             ),
         )
@@ -358,18 +412,61 @@ def page_pricing() -> None:
             )
         )
 
-    # Fallback sliders when session state not populated
+    # Quick-start block & assumptions when session state not populated
+    fallback_ready = True  # will be set to False if table loading fails
     if not use_session:
-        st.subheader("Fallback: Manual Block & Assumptions")
-        fc1, fc2, fc3 = st.columns(3)
-        with fc1:
+        st.subheader("Quick-Start: Block & Assumptions")
+        st.caption(
+            "Define a homogeneous policy block with standard mortality "
+            "basis. For heterogeneous blocks, configure Pages 1-2 instead."
+        )
+
+        # Mortality basis selection
+        fb_mort_col, fb_demo_col, fb_block_col = st.columns(3)
+        with fb_mort_col:
+            mort_table_label = st.selectbox(
+                "Mortality Table",
+                list(_TABLE_SOURCE_MAP.keys()),
+                index=0,
+                help="Standard industry mortality basis for the projection.",
+            )
+            mortality_multiplier = st.slider(
+                "Mortality Multiplier",
+                min_value=0.50,
+                max_value=2.00,
+                value=1.00,
+                step=0.05,
+                help=(
+                    "Scale factor applied to base table rates. "
+                    "1.0 = 100% of table. Use <1.0 for preferred lives, "
+                    ">1.0 for substandard."
+                ),
+            )
+
+        with fb_demo_col:
+            from polaris_re.core.policy import Sex, SmokerStatus
+
+            sex_label = st.selectbox("Sex", ["Male", "Female"])
+            sex = Sex.MALE if sex_label == "Male" else Sex.FEMALE
+            smoker_label = st.selectbox("Smoker Status", ["Non-Smoker", "Smoker"])
+            smoker_status = (
+                SmokerStatus.NON_SMOKER if smoker_label == "Non-Smoker" else SmokerStatus.SMOKER
+            )
+
+        with fb_block_col:
             n_policies = int(
                 st.number_input(
-                    "Number of Policies", min_value=1, max_value=10000, value=100, step=10
+                    "Number of Policies",
+                    min_value=1,
+                    max_value=10000,
+                    value=100,
+                    step=10,
                 )
             )
             attained_age = int(st.slider("Attained Age", 25, 65, 40))
-        with fc2:
+
+        fb_fin_col1, fb_fin_col2 = st.columns(2)
+        with fb_fin_col1:
             face_amount = float(
                 st.number_input(
                     "Face Amount ($)",
@@ -379,21 +476,67 @@ def page_pricing() -> None:
                     step=50_000,
                 )
             )
+        with fb_fin_col2:
             target_loss_ratio = st.slider(
                 "Target Loss Ratio",
                 min_value=0.30,
                 max_value=0.90,
                 value=0.60,
                 step=0.05,
-                help="Ratio of expected claims to premiums. Lower = more profitable.",
+                help=("Ratio of expected claims to premiums. Lower = more profitable."),
             )
-        with fc3:
-            flat_qx = (
-                float(st.slider("Mortality Rate (q_x \u2030)", 0.1, 10.0, 1.0, step=0.1)) / 1000.0
+
+        # Lapse assumption
+        lapse_ultimate = (
+            float(
+                st.slider(
+                    "Ultimate Lapse Rate (%)",
+                    min_value=0.5,
+                    max_value=10.0,
+                    value=1.5,
+                    step=0.5,
+                    help=(
+                        "Ultimate annual lapse rate (after year 10). "
+                        "Early-duration rates are scaled proportionally "
+                        "from a standard select-and-ultimate structure."
+                    ),
+                )
             )
-            flat_lapse = float(st.slider("Lapse Rate (%)", 1, 20, 5)) / 100.0
+            / 100.0
+        )
+
+        # Eagerly load the mortality table to validate and show calibration
+        mortality_table = _load_mortality_table(mort_table_label)
+        if mortality_table is None:
+            fallback_ready = False
+        else:
+            # Show the implied premium from the table-based calibration
+            q_monthly = mortality_table.get_qx_scalar(  # type: ignore[union-attr]
+                attained_age, sex, smoker_status, duration_months=0
+            )
+            q_annual = 1.0 - (1.0 - q_monthly) ** 12
+            q_annual_adj = min(q_annual * mortality_multiplier, 1.0)
+            implied_premium = (face_amount * q_annual_adj) / target_loss_ratio
+            mult_text = (
+                f" \u00d7 {mortality_multiplier:.2f} = {q_annual_adj:.5f}"
+                if mortality_multiplier != 1.0
+                else ""
+            )
+            st.info(
+                f"**{mort_table_label}** \u2014 "
+                f"q_x at age {attained_age} "
+                f"({sex_label}, {smoker_label}): "
+                f"{q_annual:.5f}{mult_text}"
+                f" \u2192 implied annual premium: "
+                f"**${implied_premium:,.0f}** "
+                f"(at {target_loss_ratio:.0%} loss ratio)"
+            )
 
     if st.button("Run Pricing", type="primary"):
+        if not use_session and not fallback_ready:
+            st.error("Cannot run pricing — mortality table failed to load. See error above.")
+            st.stop()
+
         from polaris_re.analytics.profit_test import ProfitTester
         from polaris_re.core.projection import ProjectionConfig
         from polaris_re.products.term_life import TermLife
@@ -413,45 +556,54 @@ def page_pricing() -> None:
                 assumptions = assumption_set
                 face_amount_total = float(inforce.total_face_amount())
             else:
+                # Apply mortality multiplier if != 1.0
+                effective_table = mortality_table  # type: ignore[possibly-undefined]
+                if mortality_multiplier != 1.0:  # type: ignore[possibly-undefined]
+                    effective_table = _apply_mortality_multiplier(
+                        mortality_table,  # type: ignore[possibly-undefined]
+                        mortality_multiplier,  # type: ignore[possibly-undefined]
+                    )
+
+                assumptions = _build_fallback_assumptions(
+                    effective_table,
+                    lapse_ultimate,  # type: ignore[possibly-undefined]
+                    valuation_date,
+                    mort_table_label,  # type: ignore[possibly-undefined]
+                )
                 inforce = _build_fallback_block(
                     n_policies,  # type: ignore[possibly-undefined]
                     attained_age,  # type: ignore[possibly-undefined]
                     face_amount,  # type: ignore[possibly-undefined]
-                    flat_qx,  # type: ignore[possibly-undefined]
                     target_loss_ratio,  # type: ignore[possibly-undefined]
                     projection_years,
                     valuation_date,
-                )
-                assumptions = _build_fallback_assumptions(
-                    flat_qx,
-                    flat_lapse,
-                    valuation_date,  # type: ignore[possibly-undefined]
+                    effective_table,
+                    sex,  # type: ignore[possibly-undefined]
+                    smoker_status,  # type: ignore[possibly-undefined]
                 )
                 face_amount_total = face_amount  # type: ignore[possibly-undefined]
 
-            product = TermLife(inforce=inforce, assumptions=assumptions, config=config)  # type: ignore[arg-type]
+            product = TermLife(  # type: ignore[arg-type]
+                inforce=inforce,
+                assumptions=assumptions,
+                config=config,
+            )
             gross = product.project()
             st.session_state["gross_result"] = gross
 
             # Derive mortality-based YRT rate if applicable
             if treaty_type == "YRT" and yrt_rate_per_1000 is None:
-                # Compute portfolio average annual q_x from gross cash flows:
-                # avg_qx = total_claims / total_face_exposure
-                # where face_exposure approximates sum of (lx * face) over time.
-                total_claims = float(gross.death_claims.sum())
-                # Annual face exposure: sum of monthly (premium / monthly_prem)
-                # approximated as total_premiums / (claims_rate * face)
-                # Simpler: derive from the first year's loss ratio
                 first_year_claims = float(gross.death_claims[:12].sum())
-                first_year_face_exposure = face_amount_total  # approximation for year 1
+                first_year_face_exposure = face_amount_total
                 if first_year_face_exposure > 0:
                     implied_annual_qx = first_year_claims / first_year_face_exposure
                 else:
-                    implied_annual_qx = 0.001  # fallback
+                    implied_annual_qx = 0.001
                 loading = st.session_state.get("yrt_loading", 0.10)
                 yrt_rate_per_1000 = implied_annual_qx * 1000.0 * (1.0 + loading)
                 st.info(
-                    f"Derived YRT rate: {yrt_rate_per_1000:.3f} per $1,000 NAR "
+                    f"Derived YRT rate: "
+                    f"{yrt_rate_per_1000:.3f} per $1,000 NAR "
                     f"(implied q_x = {implied_annual_qx:.5f}, "
                     f"loading = {loading:.0%})"
                 )
@@ -460,10 +612,16 @@ def page_pricing() -> None:
                 net = gross
             else:
                 treaty = _build_treaty(
-                    treaty_type, cession_pct, face_amount_total, modco_rate, yrt_rate_per_1000
+                    treaty_type,
+                    cession_pct,
+                    face_amount_total,
+                    modco_rate,
+                    yrt_rate_per_1000,
                 )
                 inforce_arg = inforce if use_policy_cession else None
-                net, _ceded = treaty.apply(gross, inforce=inforce_arg)  # type: ignore[union-attr]
+                net, _ceded = treaty.apply(  # type: ignore[union-attr]
+                    gross, inforce=inforce_arg
+                )
 
             result = ProfitTester(cashflows=net, hurdle_rate=hurdle_rate).run()
 
@@ -474,27 +632,32 @@ def page_pricing() -> None:
                 loss_ratio = total_claims / total_premiums
                 if loss_ratio < 0.01:
                     st.error(
-                        f"**Pricing Validation Warning**: Aggregate loss ratio "
-                        f"is {loss_ratio:.4%} (claims ${total_claims:,.0f} vs "
+                        f"**Pricing Validation Warning**: "
+                        f"Aggregate loss ratio is {loss_ratio:.4%} "
+                        f"(claims ${total_claims:,.0f} vs "
                         f"premiums ${total_premiums:,.0f}). "
-                        f"Expected 20-80% for a correctly parameterised deal. "
-                        f"Check that mortality rates are correctly scaled "
-                        f"(decimal q_x, not per-mille or per-100,000)."
+                        f"Expected 20-80% for a correctly "
+                        f"parameterised deal. Check that mortality "
+                        f"rates are correctly scaled "
+                        f"(decimal q_x, not per-mille or "
+                        f"per-100,000)."
                     )
                 elif loss_ratio > 2.0:
                     st.warning(
-                        f"**Pricing Validation Warning**: Loss ratio is "
-                        f"{loss_ratio:.2%} — claims far exceed premiums. "
-                        f"Check premium calibration and mortality assumptions."
+                        f"**Pricing Validation Warning**: "
+                        f"Loss ratio is {loss_ratio:.2%} — claims "
+                        f"far exceed premiums. Check premium "
+                        f"calibration and mortality assumptions."
                     )
                 else:
                     st.caption(
-                        f"Validation: aggregate loss ratio = {loss_ratio:.1%}, "
+                        f"Validation: aggregate loss ratio "
+                        f"= {loss_ratio:.1%}, "
                         f"total claims = ${total_claims:,.0f}, "
                         f"total premiums = ${total_premiums:,.0f}"
                     )
 
-            # Cache results in session state so they survive page navigation
+            # Cache results in session state
             st.session_state["pricing_result"] = result
             st.session_state["pricing_net_result"] = net
             st.session_state["pricing_treaty_type"] = treaty_type
@@ -514,7 +677,7 @@ def page_pricing() -> None:
         bey = str(result.breakeven_year) if result.breakeven_year else "Never"
         col_d.metric("Break-even Year", bey)
 
-        # Charts — use net (post-treaty) basis to match the table and KPIs
+        # Charts — net (post-treaty) basis to match the table and KPIs
         basis_label = (
             "Gross" if cached_treaty_type == "None (Gross)" else f"Net ({cached_treaty_type})"
         )
@@ -522,10 +685,7 @@ def page_pricing() -> None:
         st.pyplot(_cash_flow_decomposition(net, title_suffix=basis_label))
         st.pyplot(_reserve_chart(gross))
 
-        # Tabular summary — show both gross and net to make treaty effect visible.
-        # For YRT without an explicit rate, ceded premiums may be zero (cedant
-        # keeps all premiums but pays YRT premium separately), making net premiums
-        # appear identical to gross while claims are heavily reduced.
+        # Tabular summary
         n_years = net.projection_months // 12
         annual_data = []
         for yr in range(n_years):
@@ -540,22 +700,23 @@ def page_pricing() -> None:
             row["Reserve Inc."] = f"${net.reserve_increase[s:e].sum():,.0f}"
             row["Net Cash Flow"] = f"${net.net_cash_flow[s:e].sum():,.0f}"
             row["Cumul. NCF"] = f"${net.net_cash_flow[:e].sum():,.0f}"
-            # Lapse exits (informational — not a cash flow for term life,
-            # but confirms assumptions are being applied)
             if gross.lapse_count is not None:
                 row["Lapse Exits"] = f"{gross.lapse_count[s:e].sum():,.1f}"
             annual_data.append(row)
         st.subheader(f"Annual Summary \u2014 {basis_label}")
         if cached_treaty_type == "YRT":
             st.caption(
-                "YRT: cedant retains gross premiums and pays separate YRT premium to reinsurer. "
-                "Claims are ceded proportionally. Gross columns shown for reference."
+                "YRT: cedant retains gross premiums and pays separate "
+                "YRT premium to reinsurer. Claims are ceded "
+                "proportionally. Gross columns shown for reference."
             )
         st.caption(
-            "NCF = Premiums \u2212 Claims \u2212 Expenses \u2212 Reserve Increase. "
-            "Term life has no cash surrender value; lapse impact is reflected in "
-            "declining premiums/claims and reserve release. "
-            "Lapse Exits column confirms assumptions are applied."
+            "NCF = Premiums \u2212 Claims \u2212 Expenses "
+            "\u2212 Reserve Increase. "
+            "Term life has no cash surrender value; lapse impact is "
+            "reflected in declining premiums/claims and reserve "
+            "release. Lapse Exits column confirms assumptions "
+            "are applied."
         )
         st.dataframe(annual_data, use_container_width=True)
 
@@ -563,3 +724,36 @@ def page_pricing() -> None:
         ml_mort = st.session_state.get("ml_mortality_model")
         if ml_mort is not None and use_session:
             _table_vs_ml_comparison(assumption_set, ml_mort)
+
+
+def _apply_mortality_multiplier(mortality_table: object, multiplier: float) -> object:
+    """Create a new MortalityTable with rates scaled by the multiplier.
+
+    Constructs new MortalityTableArray objects with adjusted rates,
+    preserving the original table structure and metadata.
+    """
+    from polaris_re.assumptions.mortality import MortalityTable
+    from polaris_re.utils.table_io import MortalityTableArray
+
+    orig: MortalityTable = mortality_table  # type: ignore[assignment]
+    scaled_tables: dict[str, MortalityTableArray] = {}
+
+    for key, table_arr in orig.tables.items():
+        scaled_rates = np.minimum(table_arr.rates * multiplier, 1.0)
+        scaled_tables[key] = MortalityTableArray(
+            rates=scaled_rates,
+            min_age=table_arr.min_age,
+            max_age=table_arr.max_age,
+            select_period=table_arr.select_period,
+            source_file=table_arr.source_file,
+        )
+
+    return MortalityTable(
+        source=orig.source,
+        table_name=f"{orig.table_name} (\u00d7{multiplier:.2f})",
+        min_age=orig.min_age,
+        max_age=orig.max_age,
+        select_period_years=orig.select_period_years,
+        has_smoker_distinct_rates=orig.has_smoker_distinct_rates,
+        tables=scaled_tables,
+    )
