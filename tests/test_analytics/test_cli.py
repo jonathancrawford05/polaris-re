@@ -46,15 +46,19 @@ class TestPriceCommand:
         assert any(kw in output for kw in ["IRR", "PV Profit", "Margin", "Hurdle"])
 
     def test_price_writes_json_output(self, tmp_path: Path):
-        """price --output writes valid JSON to file."""
+        """price --output writes valid JSON with cedant and reinsurer views."""
         out_file = tmp_path / "result.json"
         result = runner.invoke(app, ["price", "--output", str(out_file)])
         assert result.exit_code == 0, result.output
         assert out_file.exists()
         data = json.loads(out_file.read_text())
-        assert "pv_profits" in data
-        assert "irr" in data
-        assert "profit_by_year" in data
+        # Output is now split into cedant and reinsurer views (ADR-038, ADR-039)
+        assert "cedant" in data
+        assert "reinsurer" in data
+        assert "pv_profits" in data["cedant"]
+        assert "irr" in data["cedant"]
+        assert "profit_by_year" in data["cedant"]
+        assert "pv_profits" in data["reinsurer"]
 
     def test_price_custom_hurdle_rate(self):
         """price with custom hurdle rate should succeed."""

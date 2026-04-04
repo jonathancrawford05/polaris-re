@@ -517,3 +517,81 @@ being far more accurate than the previous linear formula. The target loss ratio
 gives the user a single, interpretable control that directly determines
 profitability — a 60% loss ratio means 40% of premium is available for
 expenses, margins, and profit.
+
+---
+
+## ADR-038: Mortality-based YRT rate derivation as the canonical pipeline pattern
+
+**Date:** Phase 5 (user testing / cross-module consistency fix)
+**Status:** Accepted
+
+**Context:** All three interface layers (Streamlit dashboard, REST API, CLI) were
+constructing `YRTTreaty` with `flat_yrt_rate_per_1000=None`. The YRT treaty
+implementation correctly treats `None` as "no rate available" and sets ceded YRT
+premiums to $0. This caused ceded premium cash flows to be zero, inflating the
+cedant's NET profit metrics (up to 47% error on test blocks). The bug was silent
+— no exception was raised, and results looked plausible but were actuarially wrong.
+
+**Root cause:** The YRT rate cannot be known before the gross projection runs, because
+it depends on the expected mortality claims. The previous pipeline pattern constructed
+the treaty before running the projection, making it impossible to derive the rate from
+actual projected claims.
+
+**Decision:** Adopt a two-stage pipeline pattern across all interfaces:
+1. Build `InforceBlock`, `AssumptionSet`, and `ProjectionConfig` (no treaty).
+2. Run `TermLife.project()` to obtain the GROSS `CashFlowResult`.
+3. Derive the YRT rate: `rate = (first_year_claims / total_face) * 1000 * (1 + loading)`.
+4. Construct `YRTTreaty(flat_yrt_rate_per_1000=rate)` with the derived rate.
+5. Call `treaty.apply(gross)` → `(net, ceded)`.
+
+The `loading` parameter (default 10%) represents the reinsurer's margin over
+expected mortality — it is exposed as `yrt_loading` in API request models and
+hardcoded to 0.10 in CLI demo mode, matching the dashboard default.
+
+This pattern is implemented in:
+- `dashboard/components/projection.py::derive_yrt_rate()` + `run_treaty_projection()`
+- `api/main.py::_derive_yrt_rate()` + `_build_components()` (replaces `_build_pipeline()`)
+- `cli.py::_derive_yrt_rate()` + all commands that use a YRT treaty
+
+**Rationale:** The rate must be derived from the projection, not estimated before
+it. Deriving from first-year claims is the simplest actuarially defensible approach
+and matches standard YRT pricing practice where the cedant's mortality experience
+in Year 1 sets the base rate. All interfaces must use the same pattern so that
+identical inputs produce identical results regardless of access method.
+
+---
+
+## ADR-039: `ceded_to_reinsurer_view()` for reinsurer profit testing
+
+**Date:** Phase 5 (user testing / dashboard redesign)
+**Status:** Accepted
+
+**Context:** `ProfitTester` explicitly rejects `CashFlowResult` objects with
+`basis="CEDED"` by raising `ValueError`. This is correct by design — profit-testing
+the cedant's ceded portion in isolation is actuarially meaningless. However, the
+reinsurer's perspective requires exactly this: the reinsurer's inflows (YRT premiums
+received from cedant) and outflows (ceded death claims paid, expense allowances) are
+precisely the ceded cash flows.
+
+**Decision:** Provide a `ceded_to_reinsurer_view()` helper in every interface layer
+that creates a shallow copy of a CEDED `CashFlowResult` with `basis` relabelled to
+`"NET"`. This allows `ProfitTester` to accept it and compute reinsurer profitability
+metrics (PV profits, IRR, profit margin, break-even year) correctly.
+
+The convention is:
+- **Cedant view**: `ProfitTester(net, hurdle_rate).run()` where `net` is the NET
+  result from `treaty.apply(gross)`.
+- **Reinsurer view**: `ProfitTester(ceded_to_reinsurer_view(ceded), hurdle_rate).run()`
+  where `ceded` is the CEDED result from `treaty.apply(gross)`.
+
+This pattern is implemented as:
+- `dashboard/components/projection.py::ceded_to_reinsurer_view()`
+- `api/main.py::_ceded_to_reinsurer_view()` (reinsurer metrics in `PriceResponse`)
+- `cli.py::_ceded_to_reinsurer_view()` (reinsurer table in `polaris price` output)
+
+**Rationale:** The relabelling is semantically correct: from the reinsurer's
+perspective, the ceded flows ARE their net position. The helper is a deliberate,
+named operation — not a silent bypass — so it is auditable and understandable.
+`ProfitTester`'s CEDED rejection remains intact, preserving its contract.
+Both cedant and reinsurer views are now exposed in all profit-test outputs so that
+deal economics are visible to both parties from a single API call or CLI run.

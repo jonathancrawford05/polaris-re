@@ -91,6 +91,7 @@ class TestPriceEndpoint:
         payload = {"policies": [DEMO_POLICY]}
         data = client.post("/api/v1/price", json=payload).json()
         required_keys = {
+            # Cedant (NET) view
             "hurdle_rate",
             "pv_profits",
             "pv_premiums",
@@ -99,6 +100,14 @@ class TestPriceEndpoint:
             "breakeven_year",
             "total_undiscounted_profit",
             "profit_by_year",
+            # Reinsurer view (ADR-039)
+            "reinsurer_pv_profits",
+            "reinsurer_profit_margin",
+            "reinsurer_irr",
+            "reinsurer_breakeven_year",
+            "reinsurer_total_undiscounted_profit",
+            "reinsurer_profit_by_year",
+            # Metadata
             "n_policies",
             "projection_months",
         }
