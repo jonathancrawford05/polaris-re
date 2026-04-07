@@ -105,16 +105,16 @@ class TestComputeEPVs:
     def test_single_year_terminal(self):
         """One-year curve with q=1: A = v, ä = 1, so P = v."""
         q = np.array([1.0])
-        A, a = _compute_epvs(q, discount_rate=0.05)
-        assert A == pytest.approx(1.0 / 1.05)
+        A, a = _compute_epvs(q, discount_rate=0.05) # noqa: N806
+        assert pytest.approx(1.0 / 1.05) == A
         assert a == pytest.approx(1.0)
         assert A / a == pytest.approx(1.0 / 1.05)
 
     def test_zero_discount_wl_identity(self):
         """At i=0 with a terminal clamp, sum of _t p_x q_{x+t} must equal 1."""
         q = np.array([0.01, 0.02, 0.05, 0.10, 1.0])
-        A, _ = _compute_epvs(q, discount_rate=0.0)
-        assert A == pytest.approx(1.0, abs=1e-12)
+        A, _ = _compute_epvs(q, discount_rate=0.0) # noqa: N806
+        assert pytest.approx(1.0, abs=1e-12) == A
 
     def test_empty_array_raises(self):
         with pytest.raises(PolarisValidationError):
