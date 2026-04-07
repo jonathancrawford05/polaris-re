@@ -474,6 +474,48 @@ def _expense_section() -> tuple[float, float]:
 
 
 # ------------------------------------------------------------------ #
+# Product type section                                                  #
+# ------------------------------------------------------------------ #
+
+
+def _product_type_section() -> str:
+    """Product type selector. Returns product type string for deal config."""
+    st.subheader("Product Type")
+    cfg = get_deal_config()
+    product_options = ["TERM", "WHOLE_LIFE", "UL"]
+    product_labels = {
+        "TERM": "Term Life",
+        "WHOLE_LIFE": "Whole Life",
+        "UL": "Universal Life",
+    }
+    current = str(cfg.get("product_type", "TERM"))
+    idx = product_options.index(current) if current in product_options else 0
+    selection = st.selectbox(
+        "Product Type",
+        product_options,
+        index=idx,
+        format_func=lambda x: product_labels.get(x, x),
+        key="assum_product_type",
+        help=(
+            "Selects the projection engine. Term Life has a fixed expiry; "
+            "Whole Life projects to max age 120; Universal Life models "
+            "account value roll-forward with COI deductions."
+        ),
+    )
+    if selection == "WHOLE_LIFE":
+        st.info(
+            "Whole Life: policies have no term expiry. Ensure your inforce "
+            "block has `policy_term` set to null or omitted for permanent products."
+        )
+    elif selection == "UL":
+        st.info(
+            "Universal Life: requires `account_value` and `credited_rate` "
+            "fields on each policy. The projection uses AV roll-forward with COI."
+        )
+    return selection  # type: ignore[return-value]
+
+
+# ------------------------------------------------------------------ #
 # Treaty configuration section (NEW — previously on Deal Pricing only) #
 # ------------------------------------------------------------------ #
 
@@ -648,6 +690,10 @@ def page_assumptions() -> None:
     acquisition_cost, maintenance_cost = _expense_section()
 
     st.divider()
+    # --- Product type ---
+    product_type = _product_type_section()
+
+    st.divider()
     # --- Treaty & projection config ---
     treaty_params = _treaty_section()
 
@@ -692,6 +738,7 @@ def page_assumptions() -> None:
         deal_cfg = dict(treaty_params)
         deal_cfg["acquisition_cost"] = acquisition_cost
         deal_cfg["maintenance_cost"] = maintenance_cost
+        deal_cfg["product_type"] = product_type
         st.session_state["deal_config"] = deal_cfg
 
         # Clear cached results so downstream pages re-compute

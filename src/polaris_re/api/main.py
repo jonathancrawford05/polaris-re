@@ -43,7 +43,8 @@ from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
 from polaris_re.core.projection import ProjectionConfig
-from polaris_re.products.term_life import TermLife
+from polaris_re.products.dispatch import get_product_engine
+from polaris_re.reinsurance.base_treaty import BaseTreaty
 from polaris_re.reinsurance.yrt import YRTTreaty
 from polaris_re.utils.table_io import MortalityTableArray
 
@@ -85,20 +86,36 @@ class PolicyInput(BaseModel):
     underwriting_class: str = Field(default="STANDARD", description="Underwriting class.")
     face_amount: float = Field(gt=0.0, description="Policy face amount in USD.")
     annual_premium: float = Field(gt=0.0, description="Annual gross premium in USD.")
-    policy_term: int = Field(ge=1, le=40, description="Policy term in years.")
+    policy_term: int | None = Field(
+        default=20, ge=1, le=40, description="Policy term in years. None for permanent products."
+    )
     duration_inforce: int = Field(default=0, ge=0, description="Months in force at valuation date.")
     issue_date: date = Field(description="Policy issue date (ISO 8601).")
     valuation_date: date = Field(description="Valuation date (ISO 8601).")
+    account_value: float = Field(default=0.0, ge=0.0, description="UL account value at valuation.")
+    credited_rate: float = Field(
+        default=0.0, ge=0.0, le=0.20, description="UL credited interest rate."
+    )
 
 
 class PriceRequest(BaseModel):
     """Request body for /api/v1/price."""
 
     policies: list[PolicyInput] = Field(min_length=1, description="List of policies to price.")
+    product_type: str = Field(
+        default="TERM",
+        description="Product type: 'TERM', 'WHOLE_LIFE', or 'UL'.",
+    )
+    treaty_type: str | None = Field(
+        default="YRT",
+        description="Treaty type: 'YRT', 'Coinsurance', 'Modco', or null for gross only.",
+    )
     projection_horizon_years: int = Field(ge=1, le=40, default=20)
     discount_rate: float = Field(ge=0.0, le=1.0, default=0.06)
     hurdle_rate: float = Field(ge=0.0, le=1.0, default=0.10)
-    cession_pct: float = Field(ge=0.0, le=1.0, default=0.90, description="YRT cession percentage.")
+    cession_pct: float = Field(
+        ge=0.0, le=1.0, default=0.90, description="Treaty cession percentage."
+    )
     flat_qx: float = Field(ge=0.0, le=1.0, default=0.001, description="Flat mortality rate (demo).")
     flat_lapse: float = Field(ge=0.0, le=1.0, default=0.05, description="Flat annual lapse rate.")
     acquisition_cost_per_policy: float = Field(
@@ -112,6 +129,12 @@ class PriceRequest(BaseModel):
         ge=0.0,
         le=1.0,
         description="Loading over expected mortality for YRT rate derivation (e.g. 0.10 = 10%).",
+    )
+    modco_interest_rate: float = Field(
+        default=0.045,
+        ge=0.0,
+        le=0.20,
+        description="Modco interest rate (used only for Modco treaty type).",
     )
 
 
@@ -148,6 +171,12 @@ class ScenarioRequest(BaseModel):
     """Request body for /api/v1/scenario."""
 
     policies: list[PolicyInput] = Field(min_length=1)
+    product_type: str = Field(
+        default="TERM", description="Product type: 'TERM', 'WHOLE_LIFE', or 'UL'."
+    )
+    treaty_type: str | None = Field(
+        default="YRT", description="Treaty type: 'YRT', 'Coinsurance', 'Modco', or null."
+    )
     projection_horizon_years: int = Field(ge=1, le=40, default=20)
     discount_rate: float = Field(ge=0.0, le=1.0, default=0.06)
     hurdle_rate: float = Field(ge=0.0, le=1.0, default=0.10)
@@ -162,6 +191,7 @@ class ScenarioRequest(BaseModel):
         le=1.0,
         description="Loading over expected mortality for YRT rate derivation.",
     )
+    modco_interest_rate: float = Field(default=0.045, ge=0.0, le=0.20)
 
 
 class ScenarioSummary(BaseModel):
@@ -184,6 +214,12 @@ class UQRequest(BaseModel):
     """Request body for /api/v1/uq."""
 
     policies: list[PolicyInput] = Field(min_length=1)
+    product_type: str = Field(
+        default="TERM", description="Product type: 'TERM', 'WHOLE_LIFE', or 'UL'."
+    )
+    treaty_type: str | None = Field(
+        default="YRT", description="Treaty type: 'YRT', 'Coinsurance', 'Modco', or null."
+    )
     projection_horizon_years: int = Field(ge=1, le=40, default=20)
     discount_rate: float = Field(ge=0.0, le=1.0, default=0.06)
     hurdle_rate: float = Field(ge=0.0, le=1.0, default=0.10)
@@ -203,6 +239,7 @@ class UQRequest(BaseModel):
         le=1.0,
         description="Loading over expected mortality for YRT rate derivation.",
     )
+    modco_interest_rate: float = Field(default=0.045, ge=0.0, le=0.20)
 
 
 class UQResponse(BaseModel):
@@ -264,6 +301,7 @@ def _build_components(
     discount_rate: float,
     flat_qx: float,
     flat_lapse: float,
+    product_type_str: str = "TERM",
     acquisition_cost_per_policy: float = 0.0,
     maintenance_cost_per_policy_per_year: float = 0.0,
 ) -> tuple[InforceBlock, AssumptionSet, ProjectionConfig]:
@@ -327,6 +365,8 @@ def _build_components(
         effective_date=date.today(),
     )
 
+    resolved_product_type = ProductType(product_type_str)
+
     policies = [
         Policy(
             policy_id=p.policy_id,
@@ -342,7 +382,9 @@ def _build_components(
             reinsurance_cession_pct=0.0,
             issue_date=p.issue_date,
             valuation_date=p.valuation_date,
-            product_type=ProductType.TERM,
+            product_type=resolved_product_type,
+            account_value=p.account_value,
+            credited_rate=p.credited_rate,
         )
         for p in policies_in
     ]
@@ -364,7 +406,7 @@ def _run_gross_projection(
     assumptions: AssumptionSet,
     config: ProjectionConfig,
 ) -> CashFlowResult:
-    product = TermLife(inforce=inforce, assumptions=assumptions, config=config)
+    product = get_product_engine(inforce=inforce, assumptions=assumptions, config=config)
     return product.project()
 
 
@@ -419,6 +461,51 @@ def _ceded_to_reinsurer_view(ceded: CashFlowResult) -> CashFlowResult:
     )
 
 
+def _build_treaty(
+    treaty_type: str | None,
+    gross: CashFlowResult,
+    face_amount: float,
+    cession_pct: float = 0.90,
+    yrt_loading: float = 0.10,
+    modco_interest_rate: float = 0.045,
+) -> BaseTreaty | None:
+    """Build a treaty object based on treaty_type string.
+
+    Returns None for gross-only (no treaty).
+    """
+    if treaty_type is None:
+        return None
+
+    if treaty_type == "YRT":
+        yrt_rate = _derive_yrt_rate(gross, face_amount, yrt_loading)
+        return YRTTreaty(
+            cession_pct=cession_pct,
+            total_face_amount=face_amount,
+            flat_yrt_rate_per_1000=yrt_rate,
+        )
+    elif treaty_type == "Coinsurance":
+        from polaris_re.reinsurance.coinsurance import CoinsuranceTreaty
+
+        return CoinsuranceTreaty(
+            treaty_name="COINS-API",
+            cession_pct=cession_pct,
+            include_expense_allowance=True,
+        )
+    elif treaty_type == "Modco":
+        from polaris_re.reinsurance.modco import ModcoTreaty
+
+        return ModcoTreaty(
+            treaty_name="MODCO-API",
+            cession_pct=cession_pct,
+            modco_interest_rate=modco_interest_rate,
+        )
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"Unknown treaty_type '{treaty_type}'. Use 'YRT', 'Coinsurance', 'Modco', or null.",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -446,10 +533,10 @@ def price(request: PriceRequest) -> PriceResponse:
     """
     Run a full deal pricing pipeline.
 
-    Projects the supplied inforce block through a YRT treaty and returns profit
+    Projects the supplied inforce block through a treaty and returns profit
     metrics for both the cedant (NET basis) and the reinsurer perspectives.
-    The YRT rate is derived from first-year mortality claims (ADR-038) so that
-    ceded premiums are always non-zero and actuarially calibrated.
+    Supports TERM, WHOLE_LIFE, and UL product types via the product dispatcher.
+    Supports YRT, Coinsurance, and Modco treaty types (or null for gross only).
     """
     try:
         inforce, assumptions, config = _build_components(
@@ -458,29 +545,39 @@ def price(request: PriceRequest) -> PriceResponse:
             discount_rate=request.discount_rate,
             flat_qx=request.flat_qx,
             flat_lapse=request.flat_lapse,
+            product_type_str=request.product_type,
             acquisition_cost_per_policy=request.acquisition_cost_per_policy,
             maintenance_cost_per_policy_per_year=request.maintenance_cost_per_policy_per_year,
         )
         gross = _run_gross_projection(inforce, assumptions, config)
 
-        # Derive YRT rate from first-year mortality (ADR-038)
+        # Build treaty from request parameters
         total_face = sum(p.face_amount for p in request.policies)
-        yrt_rate = _derive_yrt_rate(gross, total_face, request.yrt_loading)
-        treaty = YRTTreaty(
+        treaty = _build_treaty(
+            treaty_type=request.treaty_type,
+            gross=gross,
+            face_amount=total_face,
             cession_pct=request.cession_pct,
-            total_face_amount=total_face,
-            flat_yrt_rate_per_1000=yrt_rate,
+            yrt_loading=request.yrt_loading,
+            modco_interest_rate=request.modco_interest_rate,
         )
-        net, ceded = treaty.apply(gross)
+
+        if treaty is not None:
+            net, ceded = treaty.apply(gross)
+        else:
+            net, ceded = gross, None
 
         # Cedant view: profit test on NET cash flows
         cedant = ProfitTester(cashflows=net, hurdle_rate=request.hurdle_rate).run()
 
         # Reinsurer view: CEDED re-labelled as NET (ADR-039)
-        reinsurer = ProfitTester(
-            cashflows=_ceded_to_reinsurer_view(ceded),
-            hurdle_rate=request.hurdle_rate,
-        ).run()
+        if ceded is not None:
+            reinsurer = ProfitTester(
+                cashflows=_ceded_to_reinsurer_view(ceded),
+                hurdle_rate=request.hurdle_rate,
+            ).run()
+        else:
+            reinsurer = cedant  # Gross-only: cedant = full view
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -521,18 +618,28 @@ def scenario(request: ScenarioRequest) -> ScenarioResponse:
             discount_rate=request.discount_rate,
             flat_qx=request.flat_qx,
             flat_lapse=request.flat_lapse,
+            product_type_str=request.product_type,
             acquisition_cost_per_policy=request.acquisition_cost_per_policy,
             maintenance_cost_per_policy_per_year=request.maintenance_cost_per_policy_per_year,
         )
-        # Derive YRT rate from base gross projection (ADR-038)
         gross = _run_gross_projection(inforce, assumptions, config)
         total_face = sum(p.face_amount for p in request.policies)
-        yrt_rate = _derive_yrt_rate(gross, total_face, request.yrt_loading)
-        treaty = YRTTreaty(
+        treaty = _build_treaty(
+            treaty_type=request.treaty_type,
+            gross=gross,
+            face_amount=total_face,
             cession_pct=request.cession_pct,
-            total_face_amount=total_face,
-            flat_yrt_rate_per_1000=yrt_rate,
+            yrt_loading=request.yrt_loading,
+            modco_interest_rate=request.modco_interest_rate,
         )
+        # ScenarioRunner requires a treaty; use zero-cession YRT as passthrough if None
+        if treaty is None:
+            yrt_rate = _derive_yrt_rate(gross, total_face)
+            treaty = YRTTreaty(
+                cession_pct=0.0,
+                total_face_amount=total_face,
+                flat_yrt_rate_per_1000=yrt_rate,
+            )
         runner = ScenarioRunner(
             inforce=inforce,
             base_assumptions=assumptions,
@@ -573,17 +680,19 @@ def uq(request: UQRequest) -> UQResponse:
             discount_rate=request.discount_rate,
             flat_qx=request.flat_qx,
             flat_lapse=request.flat_lapse,
+            product_type_str=request.product_type,
             acquisition_cost_per_policy=request.acquisition_cost_per_policy,
             maintenance_cost_per_policy_per_year=request.maintenance_cost_per_policy_per_year,
         )
-        # Derive YRT rate from base gross projection (ADR-038)
         gross = _run_gross_projection(inforce, assumptions, config)
         total_face = sum(p.face_amount for p in request.policies)
-        yrt_rate = _derive_yrt_rate(gross, total_face, request.yrt_loading)
-        treaty = YRTTreaty(
+        treaty = _build_treaty(
+            treaty_type=request.treaty_type,
+            gross=gross,
+            face_amount=total_face,
             cession_pct=request.cession_pct,
-            total_face_amount=total_face,
-            flat_yrt_rate_per_1000=yrt_rate,
+            yrt_loading=request.yrt_loading,
+            modco_interest_rate=request.modco_interest_rate,
         )
         uq_runner = MonteCarloUQ(
             inforce=inforce,

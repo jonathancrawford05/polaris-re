@@ -20,7 +20,7 @@ from polaris_re.assumptions.lapse import LapseAssumption
 from polaris_re.assumptions.mortality import MortalityTable
 from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.projection import ProjectionConfig
-from polaris_re.products.term_life import TermLife
+from polaris_re.products.dispatch import get_product_engine
 from polaris_re.reinsurance.base_treaty import BaseTreaty
 from polaris_re.utils.table_io import MortalityTableArray
 
@@ -177,7 +177,7 @@ class ScenarioRunner:
             adjusted_assumptions = _apply_scenario(self.base_assumptions, scenario)
 
             # Run projection with adjusted assumptions
-            engine = TermLife(self.inforce, adjusted_assumptions, self.config)
+            engine = get_product_engine(self.inforce, adjusted_assumptions, self.config)
             gross = engine.project()
 
             # Apply treaty

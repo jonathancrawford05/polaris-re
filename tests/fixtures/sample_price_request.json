@@ -1,4 +1,6 @@
 {
+  "product_type": "TERM",
+  "treaty_type": "YRT",
   "policies": [
     {
       "policy_id": "POL-001",

@@ -1,0 +1,27 @@
+{
+  "product_type": "WHOLE_LIFE",
+  "treaty_type": "Coinsurance",
+  "policies": [
+    {
+      "policy_id": "WL-001",
+      "issue_age": 35,
+      "attained_age": 45,
+      "sex": "M",
+      "smoker": false,
+      "underwriting_class": "STANDARD",
+      "face_amount": 250000.0,
+      "annual_premium": 3200.0,
+      "policy_term": null,
+      "duration_inforce": 120,
+      "issue_date": "2016-01-01",
+      "valuation_date": "2026-01-01"
+    }
+  ],
+  "projection_horizon_years": 20,
+  "discount_rate": 0.05,
+  "flat_qx": 0.002,
+  "flat_lapse": 0.03,
+  "cession_pct": 0.50,
+  "acquisition_cost_per_policy": 800.0,
+  "maintenance_cost_per_policy_per_year": 100.0
+}

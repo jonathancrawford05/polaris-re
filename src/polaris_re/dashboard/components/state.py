@@ -23,6 +23,7 @@ KEYS = [
 
 # Default deal configuration values (treaty, expenses, projection)
 DEFAULTS: dict[str, object] = {
+    "product_type": "TERM",
     "treaty_type": "YRT",
     "cession_pct": 0.90,
     "yrt_loading": 0.10,
