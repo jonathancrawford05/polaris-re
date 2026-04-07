@@ -5,6 +5,7 @@ stochastic rates, experience studies, and rate schedule generation.
 
 from polaris_re.analytics.experience_study import AEResult, ExperienceStudy
 from polaris_re.analytics.ifrs17 import IFRS17Measurement, IFRS17Result
+from polaris_re.analytics.pricing import NetPremiumCalculator, NetPremiumResult
 from polaris_re.analytics.profit_test import ProfitTester, ProfitTestResult
 from polaris_re.analytics.rate_schedule import YRTRateSchedule
 from polaris_re.analytics.scenario import ScenarioResult, ScenarioRunner
@@ -19,6 +20,8 @@ __all__ = [
     "IFRS17Measurement",
     "IFRS17Result",
     "MonteCarloUQ",
+    "NetPremiumCalculator",
+    "NetPremiumResult",
     "ProfitTestResult",
     "ProfitTester",
     "RateScenarios",
