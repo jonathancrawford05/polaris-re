@@ -248,7 +248,7 @@ class NetPremiumCalculator:
             )
 
         q = self._annual_qx_curve(policy, pricing_age)
-        A_x, a_due = _compute_epvs(q, self.discount_rate) # noqa: N806
+        A_x, a_due = _compute_epvs(q, self.discount_rate)  # noqa: N806
         return self._build_result(
             policy=policy,
             pricing_age=pricing_age,
@@ -291,7 +291,7 @@ class NetPremiumCalculator:
             )[0]
             q[-1] = float(1.0 - (1.0 - q_m) ** 12)
 
-        A_x, a_due = _compute_epvs(q, self.discount_rate) # noqa: N806
+        A_x, a_due = _compute_epvs(q, self.discount_rate)  # noqa: N806
         return self._build_result(
             policy=policy,
             pricing_age=pricing_age,
@@ -310,7 +310,7 @@ class NetPremiumCalculator:
         policy: Policy,
         pricing_age: int,
         coverage_years: int,
-        A_x: float, # noqa: N803
+        A_x: float,  # noqa: N803
         a_due: float,
     ) -> NetPremiumResult:
         if a_due <= 0.0:
@@ -365,6 +365,6 @@ def _compute_epvs(q_annual: np.ndarray, discount_rate: float) -> tuple[float, fl
     # of year t (so _0 p_x = 1).
     surv = np.concatenate([[1.0], np.cumprod(1.0 - q_annual)[:-1]])
     t = np.arange(q_annual.size, dtype=np.float64)
-    A_x = float(np.sum(v ** (t + 1.0) * surv * q_annual)) # noqa: N806
+    A_x = float(np.sum(v ** (t + 1.0) * surv * q_annual))  # noqa: N806
     a_due = float(np.sum(v**t * surv))
     return A_x, a_due
