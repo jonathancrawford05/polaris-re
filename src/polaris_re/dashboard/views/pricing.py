@@ -325,6 +325,11 @@ def page_pricing() -> None:
                 use_policy_cession=use_policy_cession,
             )
 
+            # Parity diagnostic dump (set POLARIS_PARITY_DEBUG=1 to enable)
+            from polaris_re.core.pipeline import dump_parity_debug
+
+            dump_parity_debug("dashboard", gross, net, ceded)
+
             hurdle_rate = float(cfg.get("hurdle_rate", 0.10))
 
             # Profit test on the NET (cedant retained) cash flows

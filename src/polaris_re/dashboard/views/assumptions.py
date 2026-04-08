@@ -538,7 +538,7 @@ def _treaty_section() -> dict[str, object]:
             float(
                 st.slider(
                     "Cession %",
-                    50,
+                    0,
                     100,
                     int(float(cfg.get("cession_pct", 0.90)) * 100),
                     key="assum_cession",

@@ -35,6 +35,7 @@ __all__ = [
     "build_treaty",
     "ceded_to_reinsurer_view",
     "derive_yrt_rate",
+    "dump_parity_debug",
     "load_inforce",
 ]
 
@@ -464,3 +465,61 @@ def ceded_to_reinsurer_view(ceded: CashFlowResult) -> CashFlowResult:
         reserve_increase=ceded.reserve_increase,
         net_cash_flow=ceded.net_cash_flow,
     )
+
+
+# ------------------------------------------------------------------ #
+# Parity diagnostic dump (set POLARIS_PARITY_DEBUG=1 to enable)       #
+# ------------------------------------------------------------------ #
+
+
+def dump_parity_debug(
+    label: str,
+    gross: CashFlowResult,
+    net: CashFlowResult | None = None,
+    ceded: CashFlowResult | None = None,
+) -> None:
+    """Write year-by-year cash flow CSV for parity debugging.
+
+    Enabled only when the ``POLARIS_PARITY_DEBUG`` environment variable is
+    set.  Writes to ``data/outputs/parity/{label}_{basis}.csv``.
+    """
+    if not os.environ.get("POLARIS_PARITY_DEBUG"):
+        return
+
+    out_dir = Path("data/outputs/parity")
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    for cf, basis in [(gross, "gross"), (net, "net"), (ceded, "ceded")]:
+        if cf is None:
+            continue
+        months = cf.projection_months
+        years = (np.arange(months) // 12) + 1
+        rows: list[dict[str, object]] = []
+        for yr in range(1, int(years.max()) + 1):
+            mask = years == yr
+            rows.append(
+                {
+                    "year": yr,
+                    "gross_premiums": float(cf.gross_premiums[mask].sum()),
+                    "death_claims": float(cf.death_claims[mask].sum()),
+                    "lapse_surrenders": float(cf.lapse_surrenders[mask].sum()),
+                    "expenses": float(cf.expenses[mask].sum()),
+                    "reserve_increase": float(cf.reserve_increase[mask].sum()),
+                    "net_cash_flow": float(cf.net_cash_flow[mask].sum()),
+                    "reserve_balance_eoy": float(
+                        cf.reserve_balance[min(int(mask.nonzero()[0][-1]) + 1, months - 1)]
+                    ),
+                }
+            )
+
+        path = out_dir / f"{label}_{basis}.csv"
+        import csv
+
+        with path.open("w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(rows)
+        # Print to stderr so it doesn't interfere with JSON output
+        import sys
+
+        print(f"[parity-debug] wrote {path}", file=sys.stderr)

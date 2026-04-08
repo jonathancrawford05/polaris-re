@@ -37,6 +37,11 @@ def build_projection_config(
 ) -> ProjectionConfig:
     """Build a ProjectionConfig from the centralised deal config.
 
+    The valuation date is derived from the inforce block in session state
+    (using the first policy's valuation_date) so that CLI and dashboard
+    produce identical results on the same CSV.  Falls back to date.today()
+    only when no inforce block has been loaded yet.
+
     Args:
         overrides: Optional dict to override specific deal config values.
                    Supported keys: projection_years, discount_rate,
@@ -45,12 +50,20 @@ def build_projection_config(
     Returns:
         ProjectionConfig ready for projection.
     """
+    import streamlit as st  # type: ignore[import-untyped]
+
     cfg = get_deal_config()
     if overrides:
         cfg = {**cfg, **overrides}
 
+    # Use the inforce block's valuation date for CLI/dashboard parity
+    val_date = date.today()
+    inforce_block = st.session_state.get("inforce_block")
+    if inforce_block is not None and hasattr(inforce_block, "policies") and inforce_block.policies:
+        val_date = inforce_block.policies[0].valuation_date
+
     return ProjectionConfig(
-        valuation_date=date.today(),
+        valuation_date=val_date,
         projection_horizon_years=int(cfg.get("projection_years", 20)),
         discount_rate=float(cfg.get("discount_rate", 0.06)),
         acquisition_cost_per_policy=float(cfg.get("acquisition_cost", 500.0)),

@@ -40,6 +40,7 @@ from polaris_re.core.pipeline import (
     build_treaty,
     ceded_to_reinsurer_view,
     derive_yrt_rate,
+    dump_parity_debug,
     load_inforce,
 )
 
@@ -348,6 +349,9 @@ def price_cmd(
             net, ceded = treaty.apply(gross, inforce=inforce_arg)  # type: ignore[union-attr]
         else:
             net, ceded = gross, None
+
+        # Parity diagnostic dump (set POLARIS_PARITY_DEBUG=1 to enable)
+        dump_parity_debug("cli", gross, net, ceded)
 
         # 4. Cedant view: profit test on NET cash flows
         effective_hurdle = hurdle_rate if hurdle_rate != 0.10 else inputs.deal.hurdle_rate
