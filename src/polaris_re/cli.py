@@ -31,6 +31,7 @@ from rich.table import Table
 
 import polaris_re
 from polaris_re.core.cashflow import CashFlowResult
+from polaris_re.core.policy import ProductType
 
 __all__ = ["app"]
 
@@ -160,6 +161,192 @@ def _build_demo_pipeline() -> tuple:  # type: ignore[type-arg]
     return inforce, assumptions, config
 
 
+def _build_pipeline_from_config(
+    config_path: Path,
+) -> tuple:  # type: ignore[type-arg]
+    """Build an inforce pipeline from a JSON config file.
+
+    The JSON config schema supports the following top-level keys:
+
+        policies:  list of policy objects (required)
+        product_type: "TERM" | "WHOLE_LIFE" | "UL" (default "TERM")
+        projection_horizon_years: int (default 20)
+        discount_rate: float (default 0.06)
+        flat_qx: float (default 0.001)
+        flat_lapse: float (default 0.05)
+        acquisition_cost_per_policy: float (default 500.0)
+        maintenance_cost_per_policy_per_year: float (default 75.0)
+        treaty_type: "YRT" | "Coinsurance" | "Modco" | null (default "YRT")
+        cession_pct: float 0-1 (default 0.90)
+        yrt_loading: float 0-1 (default 0.10)
+        yrt_rate_per_1000: float | null (default null = derive from mortality)
+        modco_interest_rate: float (default 0.045)
+
+    Each policy object:
+        policy_id, issue_age, attained_age, sex ("M"/"F"), smoker (bool),
+        face_amount, annual_premium, policy_term (null for permanent),
+        duration_inforce, issue_date, valuation_date,
+        underwriting_class (default "STANDARD"),
+        account_value (default 0.0, for UL), credited_rate (default 0.0, for UL)
+
+    Returns:
+        (inforce, assumptions, config) tuple.
+    """
+    from polaris_re.assumptions.assumption_set import AssumptionSet
+    from polaris_re.assumptions.lapse import LapseAssumption
+    from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
+    from polaris_re.core.inforce import InforceBlock
+    from polaris_re.core.policy import Policy, Sex, SmokerStatus
+    from polaris_re.core.projection import ProjectionConfig
+    from polaris_re.utils.table_io import MortalityTableArray
+
+    raw = _load_json_config(config_path)
+
+    # Resolve product type
+    pt_str = raw.get("product_type", "TERM")
+    product_type = ProductType(pt_str)
+
+    # Build flat-rate mortality covering all sex/smoker combos
+    flat_qx = float(raw.get("flat_qx", 0.001))
+    n_ages = 121 - 18
+    qx = np.full(n_ages, flat_qx, dtype=np.float64)
+    rates_2d = qx.reshape(-1, 1)
+
+    all_keys: dict[str, MortalityTableArray] = {}
+    for sex_val in (Sex.MALE, Sex.FEMALE):
+        for smoker_val in (SmokerStatus.SMOKER, SmokerStatus.NON_SMOKER, SmokerStatus.UNKNOWN):
+            key = f"{sex_val.value}_{smoker_val.value}"
+            all_keys[key] = MortalityTableArray(
+                rates=rates_2d.copy(),
+                min_age=18,
+                max_age=120,
+                select_period=0,
+                source_file=Path("config"),
+            )
+
+    mortality = MortalityTable(
+        source=MortalityTableSource.CSO_2001,
+        table_name="Config flat rate",
+        min_age=18,
+        max_age=120,
+        select_period_years=0,
+        has_smoker_distinct_rates=False,
+        tables=all_keys,
+    )
+
+    flat_lapse = float(raw.get("flat_lapse", 0.05))
+    lapse = LapseAssumption.from_duration_table(
+        {1: flat_lapse, 2: flat_lapse, 3: flat_lapse, "ultimate": flat_lapse}
+    )
+    assumptions = AssumptionSet(
+        mortality=mortality,
+        lapse=lapse,
+        version="config-v1",
+        effective_date=date.today(),
+    )
+
+    # Build policies
+    policies_raw = raw.get("policies", [])
+    if not policies_raw:
+        console.print("[red]Error:[/red] Config must contain at least one policy.")
+        raise typer.Exit(code=1)
+
+    policies = []
+    for p in policies_raw:
+        policies.append(
+            Policy(
+                policy_id=p["policy_id"],
+                issue_age=p["issue_age"],
+                attained_age=p["attained_age"],
+                sex=Sex.MALE if str(p.get("sex", "M")).upper() == "M" else Sex.FEMALE,
+                smoker_status=(
+                    SmokerStatus.SMOKER if p.get("smoker", False) else SmokerStatus.NON_SMOKER
+                ),
+                underwriting_class=p.get("underwriting_class", "STANDARD"),
+                face_amount=float(p["face_amount"]),
+                annual_premium=float(p["annual_premium"]),
+                policy_term=p.get("policy_term"),
+                duration_inforce=int(p.get("duration_inforce", 0)),
+                reinsurance_cession_pct=float(p.get("reinsurance_cession_pct", 0.0)),
+                issue_date=date.fromisoformat(p["issue_date"]),
+                valuation_date=date.fromisoformat(p["valuation_date"]),
+                product_type=product_type,
+                account_value=float(p.get("account_value", 0.0)),
+                credited_rate=float(p.get("credited_rate", 0.0)),
+            )
+        )
+
+    inforce = InforceBlock(policies=policies)
+
+    config = ProjectionConfig(
+        valuation_date=policies[0].valuation_date,
+        projection_horizon_years=int(raw.get("projection_horizon_years", 20)),
+        discount_rate=float(raw.get("discount_rate", 0.06)),
+        acquisition_cost_per_policy=float(raw.get("acquisition_cost_per_policy", 500.0)),
+        maintenance_cost_per_policy_per_year=float(
+            raw.get("maintenance_cost_per_policy_per_year", 75.0)
+        ),
+    )
+
+    return inforce, assumptions, config
+
+
+def _build_treaty_from_config(
+    config_path: Path,
+    gross: CashFlowResult,
+    face_amount: float,
+) -> object | None:
+    """Build a treaty object from a JSON config, deriving YRT rate if needed.
+
+    Args:
+        config_path: Path to the JSON config file.
+        gross: GROSS basis CashFlowResult for YRT rate derivation.
+        face_amount: Total in-force face amount.
+
+    Returns:
+        Treaty object or None for gross-only.
+    """
+    from polaris_re.reinsurance.coinsurance import CoinsuranceTreaty
+    from polaris_re.reinsurance.modco import ModcoTreaty
+    from polaris_re.reinsurance.yrt import YRTTreaty
+
+    raw = _load_json_config(config_path)
+    treaty_type = raw.get("treaty_type", "YRT")
+    if treaty_type is None or str(treaty_type).lower() == "none":
+        return None
+
+    cession_pct = float(raw.get("cession_pct", 0.90))
+
+    if treaty_type == "YRT":
+        yrt_rate = raw.get("yrt_rate_per_1000")
+        if yrt_rate is None:
+            loading = float(raw.get("yrt_loading", 0.10))
+            yrt_rate = _derive_yrt_rate(gross, face_amount, loading)
+        return YRTTreaty(
+            cession_pct=cession_pct,
+            total_face_amount=face_amount,
+            flat_yrt_rate_per_1000=float(yrt_rate),
+        )
+    elif treaty_type == "Coinsurance":
+        return CoinsuranceTreaty(
+            treaty_name="COINS-CLI",
+            cession_pct=cession_pct,
+            include_expense_allowance=True,
+        )
+    elif treaty_type == "Modco":
+        modco_rate = float(raw.get("modco_interest_rate", 0.045))
+        return ModcoTreaty(
+            treaty_name="MODCO-CLI",
+            cession_pct=cession_pct,
+            modco_interest_rate=modco_rate,
+        )
+
+    console.print(
+        f"[yellow]Warning:[/yellow] Unknown treaty type '{treaty_type}', using gross only."
+    )
+    return None
+
+
 def _derive_yrt_rate(
     gross: CashFlowResult,
     face_amount: float,
@@ -243,14 +430,15 @@ def price_cmd(
     """
     [bold]Run a deal pricing pipeline.[/bold]
 
-    Runs the full pipeline: InforceBlock → AssumptionSet → TermLife → YRT Treaty → ProfitTester.
+    Runs the full pipeline: InforceBlock → AssumptionSet → Product → Treaty → ProfitTester.
+    Supports TERM, WHOLE_LIFE, and UL product types via the product dispatcher.
 
     If no --config is supplied, runs in demo mode with synthetic data.
     """
     _header()
 
     from polaris_re.analytics.profit_test import ProfitTester
-    from polaris_re.products.term_life import TermLife
+    from polaris_re.products.dispatch import get_product_engine
     from polaris_re.reinsurance.yrt import YRTTreaty
 
     with Progress(
@@ -260,7 +448,12 @@ def price_cmd(
         transient=True,
     ) as progress:
         progress.add_task("Building pipeline...", total=None)
-        inforce, assumptions, config = _build_demo_pipeline()
+        if config_path is not None:
+            inforce, assumptions, config = _build_pipeline_from_config(config_path)
+            console.print(f"[dim]Loaded config from {config_path}[/dim]")
+        else:
+            inforce, assumptions, config = _build_demo_pipeline()
+            console.print("[dim]No --config supplied — running demo mode[/dim]")
 
     with Progress(
         SpinnerColumn(),
@@ -270,30 +463,39 @@ def price_cmd(
     ) as progress:
         task = progress.add_task("Running projection...", total=None)
 
-        # 1. Gross projection
-        product = TermLife(inforce=inforce, assumptions=assumptions, config=config)
+        # 1. Gross projection via product dispatch
+        product = get_product_engine(inforce=inforce, assumptions=assumptions, config=config)
         gross = product.project()
 
-        # 2. Derive YRT rate from mortality (ADR-038) — avoids zero ceded premiums
+        # 2. Build treaty (from config or default YRT with derived rate)
         face_amount = inforce.total_face_amount()
-        yrt_rate = _derive_yrt_rate(gross, face_amount)
+        if config_path is not None:
+            treaty = _build_treaty_from_config(config_path, gross, face_amount)
+        else:
+            yrt_rate = _derive_yrt_rate(gross, face_amount)
+            treaty = YRTTreaty(
+                cession_pct=0.90,
+                total_face_amount=face_amount,
+                flat_yrt_rate_per_1000=yrt_rate,
+            )
 
-        # 3. Build treaty with derived rate and apply
-        treaty = YRTTreaty(
-            cession_pct=0.90,
-            total_face_amount=face_amount,
-            flat_yrt_rate_per_1000=yrt_rate,
-        )
-        net, ceded = treaty.apply(gross)
+        # 3. Apply treaty
+        if treaty is not None:
+            net, ceded = treaty.apply(gross)  # type: ignore[union-attr]
+        else:
+            net, ceded = gross, None
 
         # 4. Cedant view: profit test on NET cash flows
         cedant_result = ProfitTester(cashflows=net, hurdle_rate=hurdle_rate).run()
 
         # 5. Reinsurer view: profit test on CEDED re-labelled as NET (ADR-039)
-        reinsurer_result = ProfitTester(
-            cashflows=_ceded_to_reinsurer_view(ceded),
-            hurdle_rate=hurdle_rate,
-        ).run()
+        if ceded is not None:
+            reinsurer_result = ProfitTester(
+                cashflows=_ceded_to_reinsurer_view(ceded),
+                hurdle_rate=hurdle_rate,
+            ).run()
+        else:
+            reinsurer_result = None
 
         progress.update(task, completed=True)
 
@@ -320,28 +522,31 @@ def price_cmd(
     console.print(cedant_table)
 
     # Reinsurer results table
-    rei_table = Table(title="Profit Test — Reinsurer View", border_style="green")
-    rei_table.add_column("Metric", style="bold")
-    rei_table.add_column("Value", justify="right")
+    if reinsurer_result is not None:
+        rei_table = Table(title="Profit Test — Reinsurer View", border_style="green")
+        rei_table.add_column("Metric", style="bold")
+        rei_table.add_column("Value", justify="right")
 
-    rei_irr_str = f"{reinsurer_result.irr:.2%}" if reinsurer_result.irr is not None else "N/A"
-    rei_be_str = (
-        f"Year {reinsurer_result.breakeven_year}"
-        if reinsurer_result.breakeven_year is not None
-        else "Never"
-    )
-    rei_table.add_row("Hurdle Rate", f"{reinsurer_result.hurdle_rate:.2%}")
-    rei_table.add_row("PV Profits", f"${reinsurer_result.pv_profits:,.0f}")
-    rei_table.add_row("PV Premiums", f"${reinsurer_result.pv_premiums:,.0f}")
-    rei_table.add_row("Profit Margin", f"{reinsurer_result.profit_margin:.2%}")
-    rei_table.add_row("IRR", rei_irr_str)
-    rei_table.add_row("Break-even", rei_be_str)
-    rei_table.add_row(
-        "Total Undiscounted Profit", f"${reinsurer_result.total_undiscounted_profit:,.0f}"
-    )
-    console.print(rei_table)
+        rei_irr_str = f"{reinsurer_result.irr:.2%}" if reinsurer_result.irr is not None else "N/A"
+        rei_be_str = (
+            f"Year {reinsurer_result.breakeven_year}"
+            if reinsurer_result.breakeven_year is not None
+            else "Never"
+        )
+        rei_table.add_row("Hurdle Rate", f"{reinsurer_result.hurdle_rate:.2%}")
+        rei_table.add_row("PV Profits", f"${reinsurer_result.pv_profits:,.0f}")
+        rei_table.add_row("PV Premiums", f"${reinsurer_result.pv_premiums:,.0f}")
+        rei_table.add_row("Profit Margin", f"{reinsurer_result.profit_margin:.2%}")
+        rei_table.add_row("IRR", rei_irr_str)
+        rei_table.add_row("Break-even", rei_be_str)
+        rei_table.add_row(
+            "Total Undiscounted Profit", f"${reinsurer_result.total_undiscounted_profit:,.0f}"
+        )
+        console.print(rei_table)
+    else:
+        console.print("[dim]No treaty applied — reinsurer view not available.[/dim]")
 
-    output_data = {
+    output_data: dict[str, object] = {
         "cedant": {
             "hurdle_rate": cedant_result.hurdle_rate,
             "pv_profits": cedant_result.pv_profits,
@@ -352,7 +557,9 @@ def price_cmd(
             "total_undiscounted_profit": cedant_result.total_undiscounted_profit,
             "profit_by_year": cedant_result.profit_by_year.tolist(),
         },
-        "reinsurer": {
+    }
+    if reinsurer_result is not None:
+        output_data["reinsurer"] = {
             "hurdle_rate": reinsurer_result.hurdle_rate,
             "pv_profits": reinsurer_result.pv_profits,
             "pv_premiums": reinsurer_result.pv_premiums,
@@ -361,8 +568,7 @@ def price_cmd(
             "breakeven_year": reinsurer_result.breakeven_year,
             "total_undiscounted_profit": reinsurer_result.total_undiscounted_profit,
             "profit_by_year": reinsurer_result.profit_by_year.tolist(),
-        },
-    }
+        }
     _write_output(output_data, output_path, "price_result")
 
 
@@ -386,11 +592,12 @@ def scenario_cmd(
 
     Applies standard stress scenarios (mortality shock, lapse stress, rate shock)
     to the base pricing assumption set and reports PV profit sensitivities.
+    Supports TERM, WHOLE_LIFE, and UL product types via the product dispatcher.
     """
     _header()
 
     from polaris_re.analytics.scenario import ScenarioRunner
-    from polaris_re.products.term_life import TermLife
+    from polaris_re.products.dispatch import get_product_engine
     from polaris_re.reinsurance.yrt import YRTTreaty
 
     with Progress(
@@ -400,23 +607,43 @@ def scenario_cmd(
         transient=True,
     ) as progress:
         progress.add_task("Running scenarios...", total=None)
-        inforce, assumptions, config = _build_demo_pipeline()
+        if config_path is not None:
+            inforce, assumptions, config = _build_pipeline_from_config(config_path)
+            console.print(f"[dim]Loaded config from {config_path}[/dim]")
+        else:
+            inforce, assumptions, config = _build_demo_pipeline()
+            console.print("[dim]No --config supplied — running demo mode[/dim]")
 
         # Derive YRT rate from base gross projection (ADR-038)
-        gross = TermLife(inforce=inforce, assumptions=assumptions, config=config).project()
+        gross = get_product_engine(
+            inforce=inforce, assumptions=assumptions, config=config
+        ).project()
         face_amount = inforce.total_face_amount()
-        yrt_rate = _derive_yrt_rate(gross, face_amount)
-        treaty = YRTTreaty(
-            cession_pct=0.90,
-            total_face_amount=face_amount,
-            flat_yrt_rate_per_1000=yrt_rate,
-        )
+
+        if config_path is not None:
+            treaty_obj = _build_treaty_from_config(config_path, gross, face_amount)
+        else:
+            yrt_rate = _derive_yrt_rate(gross, face_amount)
+            treaty_obj = YRTTreaty(
+                cession_pct=0.90,
+                total_face_amount=face_amount,
+                flat_yrt_rate_per_1000=yrt_rate,
+            )
+
+        # ScenarioRunner requires a treaty; fall back to gross-only YRT if None
+        if treaty_obj is None:
+            yrt_rate = _derive_yrt_rate(gross, face_amount)
+            treaty_obj = YRTTreaty(
+                cession_pct=0.0,
+                total_face_amount=face_amount,
+                flat_yrt_rate_per_1000=yrt_rate,
+            )
 
         runner = ScenarioRunner(
             inforce=inforce,
             base_assumptions=assumptions,
             config=config,
-            treaty=treaty,
+            treaty=treaty_obj,
             hurdle_rate=hurdle_rate,
         )
         results = runner.run()
@@ -478,11 +705,12 @@ def uq_cmd(
 
     Samples from distributions of mortality, lapse, and interest rate assumptions
     and reports the distribution of PV profits, IRR, and profit margin.
+    Supports TERM, WHOLE_LIFE, and UL product types via the product dispatcher.
     """
     _header()
 
     from polaris_re.analytics.uq import MonteCarloUQ
-    from polaris_re.products.term_life import TermLife
+    from polaris_re.products.dispatch import get_product_engine
     from polaris_re.reinsurance.yrt import YRTTreaty
 
     with Progress(
@@ -492,23 +720,34 @@ def uq_cmd(
         transient=True,
     ) as progress:
         progress.add_task(f"Running {n_scenarios} Monte Carlo scenarios...", total=None)
-        inforce, assumptions, config = _build_demo_pipeline()
+        if config_path is not None:
+            inforce, assumptions, config = _build_pipeline_from_config(config_path)
+            console.print(f"[dim]Loaded config from {config_path}[/dim]")
+        else:
+            inforce, assumptions, config = _build_demo_pipeline()
+            console.print("[dim]No --config supplied — running demo mode[/dim]")
 
         # Derive YRT rate from base gross projection (ADR-038)
-        gross = TermLife(inforce=inforce, assumptions=assumptions, config=config).project()
+        gross = get_product_engine(
+            inforce=inforce, assumptions=assumptions, config=config
+        ).project()
         face_amount = inforce.total_face_amount()
-        yrt_rate = _derive_yrt_rate(gross, face_amount)
-        treaty = YRTTreaty(
-            cession_pct=0.90,
-            total_face_amount=face_amount,
-            flat_yrt_rate_per_1000=yrt_rate,
-        )
+
+        if config_path is not None:
+            treaty_obj = _build_treaty_from_config(config_path, gross, face_amount)
+        else:
+            yrt_rate = _derive_yrt_rate(gross, face_amount)
+            treaty_obj = YRTTreaty(
+                cession_pct=0.90,
+                total_face_amount=face_amount,
+                flat_yrt_rate_per_1000=yrt_rate,
+            )
 
         uq = MonteCarloUQ(
             inforce=inforce,
             base_assumptions=assumptions,
             base_config=config,
-            treaty=treaty,
+            treaty=treaty_obj,
             hurdle_rate=hurdle_rate,
             n_scenarios=n_scenarios,
             seed=seed,

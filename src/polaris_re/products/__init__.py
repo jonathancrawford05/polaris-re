@@ -8,6 +8,7 @@ cash flow projections only — reinsurance modifications are applied separately.
 
 from polaris_re.products.base_product import BaseProduct
 from polaris_re.products.disability import DisabilityProduct
+from polaris_re.products.dispatch import get_product_engine
 from polaris_re.products.term_life import TermLife
 from polaris_re.products.universal_life import UniversalLife
 from polaris_re.products.whole_life import WholeLife, WholeLifeVariant
@@ -19,4 +20,5 @@ __all__ = [
     "UniversalLife",
     "WholeLife",
     "WholeLifeVariant",
+    "get_product_engine",
 ]

@@ -1,0 +1,30 @@
+{
+  "product_type": "UL",
+  "treaty_type": "YRT",
+  "policies": [
+    {
+      "policy_id": "UL-001",
+      "issue_age": 40,
+      "attained_age": 50,
+      "sex": "F",
+      "smoker": false,
+      "underwriting_class": "PREFERRED",
+      "face_amount": 500000.0,
+      "annual_premium": 5000.0,
+      "policy_term": null,
+      "duration_inforce": 120,
+      "issue_date": "2016-06-01",
+      "valuation_date": "2026-06-01",
+      "account_value": 75000.0,
+      "credited_rate": 0.04
+    }
+  ],
+  "projection_horizon_years": 20,
+  "discount_rate": 0.06,
+  "flat_qx": 0.003,
+  "flat_lapse": 0.04,
+  "cession_pct": 0.90,
+  "yrt_loading": 0.15,
+  "acquisition_cost_per_policy": 500.0,
+  "maintenance_cost_per_policy_per_year": 75.0
+}

@@ -123,7 +123,10 @@ def run_gross_projection(
     assumptions: object,
     config: ProjectionConfig,
 ) -> CashFlowResult:
-    """Run a gross TermLife projection.
+    """Run a gross projection using the appropriate product engine.
+
+    Dispatches to TermLife, WholeLife, or UniversalLife based on the
+    product type of the policies in the inforce block.
 
     Args:
         inforce: InforceBlock.
@@ -133,13 +136,13 @@ def run_gross_projection(
     Returns:
         GROSS basis CashFlowResult.
     """
-    from polaris_re.products.term_life import TermLife
+    from polaris_re.products.dispatch import get_product_engine
 
-    product = TermLife(
-        inforce=inforce,
-        assumptions=assumptions,
+    product = get_product_engine(
+        inforce=inforce,  # type: ignore[arg-type]
+        assumptions=assumptions,  # type: ignore[arg-type]
         config=config,
-    )  # type: ignore[arg-type]
+    )
     return product.project()
 
 

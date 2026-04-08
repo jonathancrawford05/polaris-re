@@ -28,7 +28,7 @@ from polaris_re.analytics.scenario import ScenarioAdjustment, _apply_scenario
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.projection import ProjectionConfig
-from polaris_re.products.term_life import TermLife
+from polaris_re.products.dispatch import get_product_engine
 from polaris_re.reinsurance.base_treaty import BaseTreaty
 
 __all__ = ["MonteCarloUQ", "UQParameters", "UQResult"]
@@ -178,7 +178,7 @@ class MonteCarloUQ:
         config: ProjectionConfig,
     ) -> ProfitTestResult:
         """Run one scenario through the full pipeline and return ProfitTestResult."""
-        product = TermLife(
+        product = get_product_engine(
             inforce=self.inforce,
             assumptions=assumptions,
             config=config,
