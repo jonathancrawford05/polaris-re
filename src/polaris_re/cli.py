@@ -31,7 +31,17 @@ from rich.table import Table
 
 import polaris_re
 from polaris_re.core.cashflow import CashFlowResult
-from polaris_re.core.policy import ProductType
+from polaris_re.core.pipeline import (
+    DealConfig,
+    LapseConfig,
+    MortalityConfig,
+    PipelineInputs,
+    build_pipeline,
+    build_treaty,
+    ceded_to_reinsurer_view,
+    derive_yrt_rate,
+    load_inforce,
+)
 
 __all__ = ["app"]
 
@@ -83,320 +93,169 @@ def _write_output(data: dict, output_path: Path | None, default_name: str) -> No
         console.print_json(json.dumps(data, indent=2, default=str))
 
 
-def _build_demo_pipeline() -> tuple:  # type: ignore[type-arg]
+def _parse_config_to_pipeline_inputs(
+    raw: dict,  # type: ignore[type-arg]
+) -> tuple[PipelineInputs, list[dict[str, object]] | None]:
+    """Parse a JSON config dict into PipelineInputs + optional policies list.
+
+    Supports both the new nested schema (mortality/lapse/deal blocks)
+    and the legacy flat schema (flat_qx/flat_lapse top-level keys).
+    Returns (inputs, policies_dicts_or_None).
     """
-    Build a minimal demo inforce pipeline using synthetic data.
+    policies_raw: list[dict[str, object]] | None = raw.get("policies")  # type: ignore[assignment]
 
-    Used when a command is invoked without a real config file (demo mode).
-    Returns (inforce, assumptions, config) — treaty is NOT included because
-    the YRT rate must be derived from the gross projection first (ADR-038).
-    """
+    # Detect legacy flat schema and translate
+    if "flat_qx" in raw or "flat_lapse" in raw:
+        console.print(
+            "[yellow]Warning:[/yellow] Legacy config schema detected (flat_qx/flat_lapse). "
+            "Migrate to the nested mortality/lapse/deal format. "
+            "See data/inputs/test_inforce.json for an example."
+        )
+        flat_qx = float(raw.get("flat_qx", 0.001))
+        flat_lapse = float(raw.get("flat_lapse", 0.05))
 
-    from pathlib import Path
+        mort_cfg = MortalityConfig(source="flat", flat_qx=flat_qx)
+        lapse_cfg = LapseConfig(
+            duration_table={1: flat_lapse, 2: flat_lapse, 3: flat_lapse, "ultimate": flat_lapse}
+        )
+        deal_cfg = DealConfig(
+            product_type=raw.get("product_type", "TERM"),  # type: ignore[arg-type]
+            treaty_type=raw.get("treaty_type", "YRT"),  # type: ignore[arg-type]
+            cession_pct=float(raw.get("cession_pct", 0.90)),
+            yrt_loading=float(raw.get("yrt_loading", 0.10)),
+            yrt_rate_per_1000=raw.get("yrt_rate_per_1000"),  # type: ignore[arg-type]
+            modco_rate=float(raw.get("modco_interest_rate", 0.045)),
+            discount_rate=float(raw.get("discount_rate", 0.06)),
+            projection_years=int(raw.get("projection_horizon_years", 20)),
+            acquisition_cost=float(raw.get("acquisition_cost_per_policy", 500.0)),
+            maintenance_cost=float(raw.get("maintenance_cost_per_policy_per_year", 75.0)),
+        )
+        # Stamp product_type onto each policy dict for load_inforce
+        if policies_raw:
+            for p in policies_raw:
+                p.setdefault("product_type", deal_cfg.product_type)
+        return PipelineInputs(mortality=mort_cfg, lapse=lapse_cfg, deal=deal_cfg), policies_raw
 
-    import numpy as np
+    # New nested schema
+    mort_raw = raw.get("mortality", {})
+    lapse_raw = raw.get("lapse", {})
+    deal_raw = raw.get("deal", {})
 
-    from polaris_re.assumptions.assumption_set import AssumptionSet
-    from polaris_re.assumptions.lapse import LapseAssumption
-    from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
-    from polaris_re.core.inforce import InforceBlock
-    from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
-    from polaris_re.core.projection import ProjectionConfig
-    from polaris_re.utils.table_io import MortalityTableArray
-
-    # Synthetic mortality: 0.001 q_x for all ages (ages 18-120, ultimate-only)
-    n_ages = 121 - 18  # 103 ages
-    qx = np.full(n_ages, 0.001, dtype=np.float64)
-    rates_2d = qx.reshape(-1, 1)  # shape (103, 1) — single column = ultimate
-    table_array = MortalityTableArray(
-        rates=rates_2d,
-        min_age=18,
-        max_age=120,
-        select_period=0,
-        source_file=Path("synthetic"),
-    )
-    mortality = MortalityTable.from_table_array(
-        source=MortalityTableSource.CSO_2001,
-        table_name="Synthetic Demo",
-        table_array=table_array,
-        sex=Sex.MALE,
-        smoker_status=SmokerStatus.UNKNOWN,
-    )
-    lapse = LapseAssumption.from_duration_table({1: 0.05, 2: 0.04, 3: 0.03, "ultimate": 0.02})
-    assumptions = AssumptionSet(
-        mortality=mortality,
-        lapse=lapse,
-        version="demo-v1",
-        effective_date=date.today(),
-    )
-
-    policy = Policy(
-        policy_id="DEMO001",
-        issue_age=40,
-        attained_age=40,
-        sex=Sex.MALE,
-        smoker_status=SmokerStatus.NON_SMOKER,
-        underwriting_class="PREFERRED",
-        face_amount=500_000.0,
-        annual_premium=1_200.0,
-        policy_term=20,
-        duration_inforce=0,
-        reinsurance_cession_pct=0.0,
-        issue_date=date(2010, 1, 1),
-        valuation_date=date.today(),
-        product_type=ProductType.TERM,
-    )
-    inforce = InforceBlock(policies=[policy])
-
-    # Expense defaults match the dashboard's build_projection_config() defaults
-    # so all interfaces produce consistent results for the same inforce block.
-    config = ProjectionConfig(
-        valuation_date=date.today(),
-        projection_horizon_years=20,
-        discount_rate=0.06,
-        acquisition_cost_per_policy=500.0,
-        maintenance_cost_per_policy_per_year=75.0,
+    mort_cfg = MortalityConfig(
+        source=mort_raw.get("source", "SOA_VBT_2015"),
+        multiplier=float(mort_raw.get("multiplier", 1.0)),
+        flat_qx=mort_raw.get("flat_qx"),
+        data_dir=Path(mort_raw["data_dir"]) if "data_dir" in mort_raw else None,
     )
 
-    return inforce, assumptions, config
+    # Parse lapse duration table — JSON keys are strings, need int conversion
+    lapse_duration_raw = lapse_raw.get("duration_table")
+    if lapse_duration_raw is not None:
+        duration_table: dict[int | str, float] = {}
+        for k, v in lapse_duration_raw.items():
+            if k == "ultimate":
+                duration_table["ultimate"] = float(v)
+            else:
+                duration_table[int(k)] = float(v)
+        lapse_cfg = LapseConfig(
+            duration_table=duration_table,
+            multiplier=float(lapse_raw.get("multiplier", 1.0)),
+        )
+    else:
+        lapse_cfg = LapseConfig(multiplier=float(lapse_raw.get("multiplier", 1.0)))
+
+    deal_cfg = DealConfig(
+        product_type=deal_raw.get("product_type", "TERM"),
+        treaty_type=deal_raw.get("treaty_type", "YRT"),
+        cession_pct=float(deal_raw.get("cession_pct", 0.90)),
+        yrt_loading=float(deal_raw.get("yrt_loading", 0.10)),
+        yrt_rate_per_1000=deal_raw.get("yrt_rate_per_1000"),
+        yrt_rate_basis=deal_raw.get("yrt_rate_basis", "Mortality-based"),
+        modco_rate=float(deal_raw.get("modco_rate", 0.045)),
+        discount_rate=float(deal_raw.get("discount_rate", 0.06)),
+        hurdle_rate=float(deal_raw.get("hurdle_rate", 0.10)),
+        projection_years=int(deal_raw.get("projection_years", 20)),
+        acquisition_cost=float(deal_raw.get("acquisition_cost", 500.0)),
+        maintenance_cost=float(deal_raw.get("maintenance_cost", 75.0)),
+        use_policy_cession=bool(deal_raw.get("use_policy_cession", False)),
+    )
+
+    # Stamp product_type onto each policy dict for load_inforce
+    if policies_raw:
+        for p in policies_raw:
+            p.setdefault("product_type", deal_cfg.product_type)
+
+    return PipelineInputs(mortality=mort_cfg, lapse=lapse_cfg, deal=deal_cfg), policies_raw
 
 
 def _build_pipeline_from_config(
     config_path: Path,
+    inforce_path: Path | None = None,
 ) -> tuple:  # type: ignore[type-arg]
     """Build an inforce pipeline from a JSON config file.
 
-    The JSON config schema supports the following top-level keys:
+    Supports both the new nested schema (mortality/lapse/deal blocks)
+    and the legacy flat schema (flat_qx/flat_lapse) with deprecation warning.
 
-        policies:  list of policy objects (required)
-        product_type: "TERM" | "WHOLE_LIFE" | "UL" (default "TERM")
-        projection_horizon_years: int (default 20)
-        discount_rate: float (default 0.06)
-        flat_qx: float (default 0.001)
-        flat_lapse: float (default 0.05)
-        acquisition_cost_per_policy: float (default 500.0)
-        maintenance_cost_per_policy_per_year: float (default 75.0)
-        treaty_type: "YRT" | "Coinsurance" | "Modco" | null (default "YRT")
-        cession_pct: float 0-1 (default 0.90)
-        yrt_loading: float 0-1 (default 0.10)
-        yrt_rate_per_1000: float | null (default null = derive from mortality)
-        modco_interest_rate: float (default 0.045)
-
-    Each policy object:
-        policy_id, issue_age, attained_age, sex ("M"/"F"), smoker (bool),
-        face_amount, annual_premium, policy_term (null for permanent),
-        duration_inforce, issue_date, valuation_date,
-        underwriting_class (default "STANDARD"),
-        account_value (default 0.0, for UL), credited_rate (default 0.0, for UL)
+    When inforce_path is provided, policies are loaded from CSV rather than
+    the embedded policies list in the config.
 
     Returns:
-        (inforce, assumptions, config) tuple.
+        (inforce, assumptions, config, pipeline_inputs) tuple.
     """
-    from polaris_re.assumptions.assumption_set import AssumptionSet
-    from polaris_re.assumptions.lapse import LapseAssumption
-    from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
-    from polaris_re.core.inforce import InforceBlock
-    from polaris_re.core.policy import Policy, Sex, SmokerStatus
-    from polaris_re.core.projection import ProjectionConfig
-    from polaris_re.utils.table_io import MortalityTableArray
-
     raw = _load_json_config(config_path)
+    inputs, policies_raw = _parse_config_to_pipeline_inputs(raw)
 
-    # Resolve product type
-    pt_str = raw.get("product_type", "TERM")
-    product_type = ProductType(pt_str)
-
-    # Build flat-rate mortality covering all sex/smoker combos
-    flat_qx = float(raw.get("flat_qx", 0.001))
-    n_ages = 121 - 18
-    qx = np.full(n_ages, flat_qx, dtype=np.float64)
-    rates_2d = qx.reshape(-1, 1)
-
-    all_keys: dict[str, MortalityTableArray] = {}
-    for sex_val in (Sex.MALE, Sex.FEMALE):
-        for smoker_val in (SmokerStatus.SMOKER, SmokerStatus.NON_SMOKER, SmokerStatus.UNKNOWN):
-            key = f"{sex_val.value}_{smoker_val.value}"
-            all_keys[key] = MortalityTableArray(
-                rates=rates_2d.copy(),
-                min_age=18,
-                max_age=120,
-                select_period=0,
-                source_file=Path("config"),
+    # Load inforce
+    if inforce_path is not None:
+        if policies_raw:
+            console.print(
+                "[yellow]Warning:[/yellow] --inforce provided; ignoring 'policies' in config."
             )
-
-    mortality = MortalityTable(
-        source=MortalityTableSource.CSO_2001,
-        table_name="Config flat rate",
-        min_age=18,
-        max_age=120,
-        select_period_years=0,
-        has_smoker_distinct_rates=False,
-        tables=all_keys,
-    )
-
-    flat_lapse = float(raw.get("flat_lapse", 0.05))
-    lapse = LapseAssumption.from_duration_table(
-        {1: flat_lapse, 2: flat_lapse, 3: flat_lapse, "ultimate": flat_lapse}
-    )
-    assumptions = AssumptionSet(
-        mortality=mortality,
-        lapse=lapse,
-        version="config-v1",
-        effective_date=date.today(),
-    )
-
-    # Build policies
-    policies_raw = raw.get("policies", [])
-    if not policies_raw:
-        console.print("[red]Error:[/red] Config must contain at least one policy.")
+        inforce = load_inforce(csv_path=inforce_path)
+    elif policies_raw:
+        inforce = load_inforce(policies_dict=policies_raw)
+    else:
+        console.print(
+            "[red]Error:[/red] No inforce data: provide --inforce CSV or 'policies' in config."
+        )
         raise typer.Exit(code=1)
 
-    policies = []
-    for p in policies_raw:
-        policies.append(
-            Policy(
-                policy_id=p["policy_id"],
-                issue_age=p["issue_age"],
-                attained_age=p["attained_age"],
-                sex=Sex.MALE if str(p.get("sex", "M")).upper() == "M" else Sex.FEMALE,
-                smoker_status=(
-                    SmokerStatus.SMOKER if p.get("smoker", False) else SmokerStatus.NON_SMOKER
-                ),
-                underwriting_class=p.get("underwriting_class", "STANDARD"),
-                face_amount=float(p["face_amount"]),
-                annual_premium=float(p["annual_premium"]),
-                policy_term=p.get("policy_term"),
-                duration_inforce=int(p.get("duration_inforce", 0)),
-                reinsurance_cession_pct=float(p.get("reinsurance_cession_pct", 0.0)),
-                issue_date=date.fromisoformat(p["issue_date"]),
-                valuation_date=date.fromisoformat(p["valuation_date"]),
-                product_type=product_type,
-                account_value=float(p.get("account_value", 0.0)),
-                credited_rate=float(p.get("credited_rate", 0.0)),
-            )
-        )
-
-    inforce = InforceBlock(policies=policies)
-
-    config = ProjectionConfig(
-        valuation_date=policies[0].valuation_date,
-        projection_horizon_years=int(raw.get("projection_horizon_years", 20)),
-        discount_rate=float(raw.get("discount_rate", 0.06)),
-        acquisition_cost_per_policy=float(raw.get("acquisition_cost_per_policy", 500.0)),
-        maintenance_cost_per_policy_per_year=float(
-            raw.get("maintenance_cost_per_policy_per_year", 75.0)
-        ),
-    )
-
-    return inforce, assumptions, config
+    inforce, assumptions, config = build_pipeline(inforce, inputs)
+    return inforce, assumptions, config, inputs
 
 
-def _build_treaty_from_config(
-    config_path: Path,
+def _build_treaty_for_pipeline(
+    inputs: PipelineInputs,
     gross: CashFlowResult,
     face_amount: float,
-) -> object | None:
-    """Build a treaty object from a JSON config, deriving YRT rate if needed.
+    inforce: object | None = None,
+) -> tuple[object | None, bool]:
+    """Build a treaty and apply it using the pipeline inputs.
 
-    Args:
-        config_path: Path to the JSON config file.
-        gross: GROSS basis CashFlowResult for YRT rate derivation.
-        face_amount: Total in-force face amount.
-
-    Returns:
-        Treaty object or None for gross-only.
+    Returns (treaty_object, use_policy_cession).
     """
-    from polaris_re.reinsurance.coinsurance import CoinsuranceTreaty
-    from polaris_re.reinsurance.modco import ModcoTreaty
-    from polaris_re.reinsurance.yrt import YRTTreaty
-
-    raw = _load_json_config(config_path)
-    treaty_type = raw.get("treaty_type", "YRT")
+    deal = inputs.deal
+    treaty_type = deal.treaty_type
     if treaty_type is None or str(treaty_type).lower() == "none":
-        return None
+        return None, False
 
-    cession_pct = float(raw.get("cession_pct", 0.90))
+    # Resolve YRT rate
+    yrt_rate = deal.yrt_rate_per_1000
+    if treaty_type == "YRT" and yrt_rate is None:
+        if deal.yrt_rate_basis == "Manual Rate" and deal.yrt_rate_per_1000 is not None:
+            yrt_rate = deal.yrt_rate_per_1000
+        else:
+            yrt_rate = derive_yrt_rate(gross, face_amount, deal.yrt_loading)
 
-    if treaty_type == "YRT":
-        yrt_rate = raw.get("yrt_rate_per_1000")
-        if yrt_rate is None:
-            loading = float(raw.get("yrt_loading", 0.10))
-            yrt_rate = _derive_yrt_rate(gross, face_amount, loading)
-        return YRTTreaty(
-            cession_pct=cession_pct,
-            total_face_amount=face_amount,
-            flat_yrt_rate_per_1000=float(yrt_rate),
-        )
-    elif treaty_type == "Coinsurance":
-        return CoinsuranceTreaty(
-            treaty_name="COINS-CLI",
-            cession_pct=cession_pct,
-            include_expense_allowance=True,
-        )
-    elif treaty_type == "Modco":
-        modco_rate = float(raw.get("modco_interest_rate", 0.045))
-        return ModcoTreaty(
-            treaty_name="MODCO-CLI",
-            cession_pct=cession_pct,
-            modco_interest_rate=modco_rate,
-        )
-
-    console.print(
-        f"[yellow]Warning:[/yellow] Unknown treaty type '{treaty_type}', using gross only."
+    treaty = build_treaty(
+        treaty_type=treaty_type,
+        cession_pct=deal.cession_pct,
+        face_amount=face_amount,
+        modco_rate=deal.modco_rate,
+        yrt_rate_per_1000=yrt_rate,
     )
-    return None
-
-
-def _derive_yrt_rate(
-    gross: CashFlowResult,
-    face_amount: float,
-    loading: float = 0.10,
-) -> float:
-    """Derive a mortality-based YRT rate per $1,000 NAR from a gross projection.
-
-    Uses first-year actual claims divided by total face amount to estimate the
-    implied annual q_x, then applies the loading factor. Mirrors the dashboard's
-    ``derive_yrt_rate()`` in ``dashboard/components/projection.py`` (ADR-038).
-
-    Args:
-        gross: GROSS basis CashFlowResult with at least 12 months.
-        face_amount: Total initial in-force face amount in dollars.
-        loading: YRT loading over expected mortality (e.g. 0.10 = 10%).
-
-    Returns:
-        YRT rate per $1,000 NAR (annual).
-    """
-    first_year_claims = float(gross.death_claims[:12].sum())
-    implied_qx = first_year_claims / face_amount if face_amount > 0 else 0.001
-    return implied_qx * 1000.0 * (1.0 + loading)
-
-
-def _ceded_to_reinsurer_view(ceded: CashFlowResult) -> CashFlowResult:
-    """Re-label a CEDED CashFlowResult as NET for reinsurer profit testing.
-
-    ProfitTester rejects CEDED basis by design (it is meaningless to
-    profit-test the ceded portion from the cedant's perspective). However,
-    the reinsurer's "net" position IS exactly the ceded cash flows. This
-    helper creates a copy with ``basis="NET"`` so ProfitTester accepts it.
-    Mirrors the dashboard's ``ceded_to_reinsurer_view()`` (ADR-039).
-    """
-    return CashFlowResult(
-        run_id=ceded.run_id,
-        valuation_date=ceded.valuation_date,
-        basis="NET",
-        assumption_set_version=ceded.assumption_set_version,
-        product_type=ceded.product_type,
-        block_id=ceded.block_id,
-        projection_months=ceded.projection_months,
-        time_index=ceded.time_index,
-        gross_premiums=ceded.gross_premiums,
-        death_claims=ceded.death_claims,
-        lapse_surrenders=ceded.lapse_surrenders,
-        expenses=ceded.expenses,
-        reserve_balance=ceded.reserve_balance,
-        reserve_increase=ceded.reserve_increase,
-        net_cash_flow=ceded.net_cash_flow,
-    )
+    return treaty, deal.use_policy_cession
 
 
 # ---------------------------------------------------------------------------
@@ -418,6 +277,10 @@ def price_cmd(
         Path | None,
         typer.Option("--config", "-c", help="Path to pricing config JSON file."),
     ] = None,
+    inforce_path: Annotated[
+        Path | None,
+        typer.Option("--inforce", "-i", help="Path to inforce CSV file."),
+    ] = None,
     output_path: Annotated[
         Path | None,
         typer.Option("--output", "-o", help="Path to write JSON results. Defaults to stdout."),
@@ -433,13 +296,13 @@ def price_cmd(
     Runs the full pipeline: InforceBlock → AssumptionSet → Product → Treaty → ProfitTester.
     Supports TERM, WHOLE_LIFE, and UL product types via the product dispatcher.
 
-    If no --config is supplied, runs in demo mode with synthetic data.
+    If no --config is supplied, runs in demo mode using data/configs/demo.json
+    and data/inputs/demo.csv.
     """
     _header()
 
     from polaris_re.analytics.profit_test import ProfitTester
     from polaris_re.products.dispatch import get_product_engine
-    from polaris_re.reinsurance.yrt import YRTTreaty
 
     with Progress(
         SpinnerColumn(),
@@ -449,10 +312,18 @@ def price_cmd(
     ) as progress:
         progress.add_task("Building pipeline...", total=None)
         if config_path is not None:
-            inforce, assumptions, config = _build_pipeline_from_config(config_path)
+            inforce, assumptions, config, inputs = _build_pipeline_from_config(
+                config_path, inforce_path
+            )
             console.print(f"[dim]Loaded config from {config_path}[/dim]")
         else:
-            inforce, assumptions, config = _build_demo_pipeline()
+            # Demo mode: use shipped fixtures
+            demo_dir = Path(__file__).parent.parent.parent
+            demo_config = demo_dir / "data" / "configs" / "demo.json"
+            demo_csv = demo_dir / "data" / "inputs" / "demo.csv"
+            inforce, assumptions, config, inputs = _build_pipeline_from_config(
+                demo_config, demo_csv if demo_csv.exists() else None
+            )
             console.print("[dim]No --config supplied — running demo mode[/dim]")
 
     with Progress(
@@ -467,32 +338,26 @@ def price_cmd(
         product = get_product_engine(inforce=inforce, assumptions=assumptions, config=config)
         gross = product.project()
 
-        # 2. Build treaty (from config or default YRT with derived rate)
+        # 2. Build treaty from pipeline inputs, deriving YRT rate if needed
         face_amount = inforce.total_face_amount()
-        if config_path is not None:
-            treaty = _build_treaty_from_config(config_path, gross, face_amount)
-        else:
-            yrt_rate = _derive_yrt_rate(gross, face_amount)
-            treaty = YRTTreaty(
-                cession_pct=0.90,
-                total_face_amount=face_amount,
-                flat_yrt_rate_per_1000=yrt_rate,
-            )
+        treaty, use_policy_cession = _build_treaty_for_pipeline(inputs, gross, face_amount, inforce)
 
-        # 3. Apply treaty
+        # 3. Apply treaty (with policy-level cession override if configured)
         if treaty is not None:
-            net, ceded = treaty.apply(gross)  # type: ignore[union-attr]
+            inforce_arg = inforce if use_policy_cession else None
+            net, ceded = treaty.apply(gross, inforce=inforce_arg)  # type: ignore[union-attr]
         else:
             net, ceded = gross, None
 
         # 4. Cedant view: profit test on NET cash flows
-        cedant_result = ProfitTester(cashflows=net, hurdle_rate=hurdle_rate).run()
+        effective_hurdle = hurdle_rate if hurdle_rate != 0.10 else inputs.deal.hurdle_rate
+        cedant_result = ProfitTester(cashflows=net, hurdle_rate=effective_hurdle).run()
 
         # 5. Reinsurer view: profit test on CEDED re-labelled as NET (ADR-039)
         if ceded is not None:
             reinsurer_result = ProfitTester(
-                cashflows=_ceded_to_reinsurer_view(ceded),
-                hurdle_rate=hurdle_rate,
+                cashflows=ceded_to_reinsurer_view(ceded),
+                hurdle_rate=effective_hurdle,
             ).run()
         else:
             reinsurer_result = None
@@ -578,6 +443,10 @@ def scenario_cmd(
         Path | None,
         typer.Option("--config", "-c", help="Path to scenario config JSON file."),
     ] = None,
+    inforce_path: Annotated[
+        Path | None,
+        typer.Option("--inforce", "-i", help="Path to inforce CSV file."),
+    ] = None,
     output_path: Annotated[
         Path | None,
         typer.Option("--output", "-o", help="Path to write JSON results."),
@@ -608,10 +477,17 @@ def scenario_cmd(
     ) as progress:
         progress.add_task("Running scenarios...", total=None)
         if config_path is not None:
-            inforce, assumptions, config = _build_pipeline_from_config(config_path)
+            inforce, assumptions, config, inputs = _build_pipeline_from_config(
+                config_path, inforce_path
+            )
             console.print(f"[dim]Loaded config from {config_path}[/dim]")
         else:
-            inforce, assumptions, config = _build_demo_pipeline()
+            demo_dir = Path(__file__).parent.parent.parent
+            demo_config = demo_dir / "data" / "configs" / "demo.json"
+            demo_csv = demo_dir / "data" / "inputs" / "demo.csv"
+            inforce, assumptions, config, inputs = _build_pipeline_from_config(
+                demo_config, demo_csv if demo_csv.exists() else None
+            )
             console.print("[dim]No --config supplied — running demo mode[/dim]")
 
         # Derive YRT rate from base gross projection (ADR-038)
@@ -620,31 +496,24 @@ def scenario_cmd(
         ).project()
         face_amount = inforce.total_face_amount()
 
-        if config_path is not None:
-            treaty_obj = _build_treaty_from_config(config_path, gross, face_amount)
-        else:
-            yrt_rate = _derive_yrt_rate(gross, face_amount)
-            treaty_obj = YRTTreaty(
-                cession_pct=0.90,
-                total_face_amount=face_amount,
-                flat_yrt_rate_per_1000=yrt_rate,
-            )
+        treaty_obj, _use_pc = _build_treaty_for_pipeline(inputs, gross, face_amount, inforce)
 
         # ScenarioRunner requires a treaty; fall back to gross-only YRT if None
         if treaty_obj is None:
-            yrt_rate = _derive_yrt_rate(gross, face_amount)
+            yrt_rate = derive_yrt_rate(gross, face_amount)
             treaty_obj = YRTTreaty(
                 cession_pct=0.0,
                 total_face_amount=face_amount,
                 flat_yrt_rate_per_1000=yrt_rate,
             )
 
+        effective_hurdle = hurdle_rate if hurdle_rate != 0.10 else inputs.deal.hurdle_rate
         runner = ScenarioRunner(
             inforce=inforce,
             base_assumptions=assumptions,
             config=config,
             treaty=treaty_obj,
-            hurdle_rate=hurdle_rate,
+            hurdle_rate=effective_hurdle,
         )
         results = runner.run()
 
@@ -683,6 +552,10 @@ def uq_cmd(
         Path | None,
         typer.Option("--config", "-c", help="Path to UQ config JSON file."),
     ] = None,
+    inforce_path: Annotated[
+        Path | None,
+        typer.Option("--inforce", "-i", help="Path to inforce CSV file."),
+    ] = None,
     output_path: Annotated[
         Path | None,
         typer.Option("--output", "-o", help="Path to write JSON results."),
@@ -711,7 +584,6 @@ def uq_cmd(
 
     from polaris_re.analytics.uq import MonteCarloUQ
     from polaris_re.products.dispatch import get_product_engine
-    from polaris_re.reinsurance.yrt import YRTTreaty
 
     with Progress(
         SpinnerColumn(),
@@ -721,10 +593,17 @@ def uq_cmd(
     ) as progress:
         progress.add_task(f"Running {n_scenarios} Monte Carlo scenarios...", total=None)
         if config_path is not None:
-            inforce, assumptions, config = _build_pipeline_from_config(config_path)
+            inforce, assumptions, config, inputs = _build_pipeline_from_config(
+                config_path, inforce_path
+            )
             console.print(f"[dim]Loaded config from {config_path}[/dim]")
         else:
-            inforce, assumptions, config = _build_demo_pipeline()
+            demo_dir = Path(__file__).parent.parent.parent
+            demo_config = demo_dir / "data" / "configs" / "demo.json"
+            demo_csv = demo_dir / "data" / "inputs" / "demo.csv"
+            inforce, assumptions, config, inputs = _build_pipeline_from_config(
+                demo_config, demo_csv if demo_csv.exists() else None
+            )
             console.print("[dim]No --config supplied — running demo mode[/dim]")
 
         # Derive YRT rate from base gross projection (ADR-038)
@@ -733,22 +612,15 @@ def uq_cmd(
         ).project()
         face_amount = inforce.total_face_amount()
 
-        if config_path is not None:
-            treaty_obj = _build_treaty_from_config(config_path, gross, face_amount)
-        else:
-            yrt_rate = _derive_yrt_rate(gross, face_amount)
-            treaty_obj = YRTTreaty(
-                cession_pct=0.90,
-                total_face_amount=face_amount,
-                flat_yrt_rate_per_1000=yrt_rate,
-            )
+        treaty_obj, _use_pc = _build_treaty_for_pipeline(inputs, gross, face_amount, inforce)
 
+        effective_hurdle = hurdle_rate if hurdle_rate != 0.10 else inputs.deal.hurdle_rate
         uq = MonteCarloUQ(
             inforce=inforce,
             base_assumptions=assumptions,
             base_config=config,
             treaty=treaty_obj,
-            hurdle_rate=hurdle_rate,
+            hurdle_rate=effective_hurdle,
             n_scenarios=n_scenarios,
             seed=seed,
         )

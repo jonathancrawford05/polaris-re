@@ -2,6 +2,8 @@
 
 import streamlit as st  # type: ignore[import-untyped]
 
+from polaris_re.core.pipeline import DealConfig
+
 __all__ = ["DEFAULTS", "KEYS", "get_deal_config", "init_session_state"]
 
 KEYS = [
@@ -21,21 +23,9 @@ KEYS = [
     "deal_config",
 ]
 
-# Default deal configuration values (treaty, expenses, projection)
-DEFAULTS: dict[str, object] = {
-    "product_type": "TERM",
-    "treaty_type": "YRT",
-    "cession_pct": 0.90,
-    "yrt_loading": 0.10,
-    "yrt_rate_per_1000": None,  # None = derive from mortality
-    "yrt_rate_basis": "Mortality-based",
-    "modco_rate": 0.045,
-    "discount_rate": 0.06,
-    "hurdle_rate": 0.10,
-    "projection_years": 20,
-    "acquisition_cost": 500.0,
-    "maintenance_cost": 75.0,
-}
+# Default deal configuration values — derived from the shared DealConfig
+# so CLI and dashboard can never drift. DealConfig is the single source of truth.
+DEFAULTS: dict[str, object] = DealConfig().to_dict()
 
 
 def init_session_state() -> None:

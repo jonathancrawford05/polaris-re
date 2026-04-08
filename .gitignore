@@ -55,6 +55,11 @@ notebooks/output/
 # Data files (actuarial tables, large CSVs) — do not commit
 data/
 !data/.gitkeep
+!data/inputs/
+!data/inputs/*.csv
+!data/inputs/*.json
+!data/configs/
+!data/configs/*.json
 *.parquet
 
 # Logs

@@ -1,0 +1,2 @@
+policy_id,issue_age,attained_age,sex,smoker_status,underwriting_class,face_amount,annual_premium,product_type,policy_term,duration_inforce,reinsurance_cession_pct,issue_date,valuation_date
+DEMO001,40,40,M,NS,PREFERRED,500000.00,1200.00,TERM,20,0,0.00,2026-01-01,2026-04-06
