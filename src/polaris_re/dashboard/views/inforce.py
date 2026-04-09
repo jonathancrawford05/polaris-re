@@ -161,6 +161,22 @@ def _duration_chart(block: object) -> None:
     plt.close(fig)
 
 
+def _sync_deal_config_product_type(block: object) -> None:
+    """Stamp the detected product type onto the central deal config.
+
+    Mirrors the dispatcher (``products.dispatch.get_product_engine``) which
+    picks the engine from ``policies[0].product_type``. Keeping this in
+    sync at block-load time means every downstream page sees the correct
+    product type even before the user re-visits the Assumptions page.
+    """
+    from polaris_re.dashboard.components.state import get_deal_config
+
+    policies = getattr(block, "policies", None)
+    if not policies:
+        return
+    get_deal_config()["product_type"] = policies[0].product_type.value
+
+
 def _upload_tab() -> None:
     """Upload File tab content."""
     from polaris_re.core.inforce import InforceBlock
@@ -174,6 +190,7 @@ def _upload_tab() -> None:
         try:
             block = InforceBlock.from_csv(tmp_path)
             st.session_state["inforce_block"] = block
+            _sync_deal_config_product_type(block)
             st.success(f"Loaded {block.n_policies:,} policies from {uploaded.name}")
         except Exception as exc:
             st.error(f"Failed to load inforce CSV: {exc}")
@@ -294,6 +311,7 @@ def _synthetic_tab() -> None:
 
             block = InforceBlock.from_csv(tmp_path)
             st.session_state["inforce_block"] = block
+            _sync_deal_config_product_type(block)
 
         st.success(f"Generated {block.n_policies:,} synthetic policies")
 

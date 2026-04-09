@@ -83,6 +83,22 @@ make synthetic-block  # generate 1000-policy synthetic inforce block
 make notebook         # launch JupyterLab
 ```
 
+### CLI demo mode
+
+`polaris price` (and `scenario`, `uq`) runs in **demo mode** when no `--config`
+is supplied, using the shipped fixtures at `data/configs/demo.json` and
+`data/inputs/demo.csv`:
+
+```bash
+uv run polaris price                      # price the demo block end-to-end
+uv run polaris price -i my_block.csv      # demo config, custom inforce CSV
+uv run polaris price -c my_deal.json      # custom config, embedded policies
+```
+
+Set `POLARIS_PARITY_DEBUG=1` to dump year-by-year cash flow CSVs (gross / net /
+ceded) to `data/outputs/parity/`. Override the location with
+`POLARIS_PARITY_OUTPUT=<path>`.
+
 ---
 
 ## Example: Price a YRT Deal on a Term Life Block

@@ -423,7 +423,7 @@ def build_treaty(
         from polaris_re.reinsurance.coinsurance import CoinsuranceTreaty
 
         return CoinsuranceTreaty(
-            treaty_name=treaty_name or "COINS",
+            treaty_name=treaty_name or "Coinsurance",
             cession_pct=cession_pct,
             include_expense_allowance=True,
         )
@@ -431,7 +431,7 @@ def build_treaty(
         from polaris_re.reinsurance.modco import ModcoTreaty
 
         return ModcoTreaty(
-            treaty_name=treaty_name or "MODCO",
+            treaty_name=treaty_name or "Modco",
             cession_pct=cession_pct,
             modco_interest_rate=modco_rate,
         )

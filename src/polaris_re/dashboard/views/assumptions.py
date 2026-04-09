@@ -471,23 +471,84 @@ def _expense_section() -> tuple[float, float]:
 # ------------------------------------------------------------------ #
 
 
+_PRODUCT_LABELS: dict[str, str] = {
+    "TERM": "Term Life",
+    "WHOLE_LIFE": "Whole Life",
+    "UL": "Universal Life",
+}
+
+
 def _product_type_section() -> str:
-    """Product type selector. Returns product type string for deal config."""
+    """Product type selector. Returns product type string for deal config.
+
+    When an inforce block is loaded, the product type is read-only and
+    derived from ``policies[0].product_type`` — matching the dispatcher at
+    ``products.dispatch.get_product_engine``. The selectbox is editable
+    only on the synthetic-block path (no CSV loaded), where it drives
+    synthetic generation and the projection engine choice.
+    """
     st.subheader("Product Type")
     cfg = get_deal_config()
-    product_options = ["TERM", "WHOLE_LIFE", "UL"]
-    product_labels = {
-        "TERM": "Term Life",
-        "WHOLE_LIFE": "Whole Life",
-        "UL": "Universal Life",
-    }
+    product_options = list(_PRODUCT_LABELS.keys())
+
+    inforce_block = st.session_state.get("inforce_block")
+
+    # --- Data-driven path: inforce block is loaded ---------------------
+    if inforce_block is not None and getattr(inforce_block, "policies", None):
+        detected_types: set[str] = {str(p.product_type.value) for p in inforce_block.policies}
+        dispatched: str = str(inforce_block.policies[0].product_type.value)
+        dispatched_label = _PRODUCT_LABELS.get(dispatched, dispatched)
+        n_policies = inforce_block.n_policies
+
+        if len(detected_types) == 1:
+            st.info(
+                f"Product type detected from inforce: **{dispatched_label}** "
+                f"({n_policies:,} policies). Load a different CSV on Page 1 "
+                f"to change product type."
+            )
+        else:
+            other_labels = ", ".join(sorted(_PRODUCT_LABELS.get(t, t) for t in detected_types))
+            st.warning(
+                f"Mixed product types detected in inforce: {other_labels}. "
+                f"The projection dispatcher uses the **first policy's** type "
+                f"(`{dispatched_label}`). Split the block via "
+                f"`InforceBlock.filter_by_product()` to price each cohort separately."
+            )
+
+        # Flag and drop any stale override the user set before loading the CSV.
+        prior = str(cfg.get("product_type", dispatched))
+        if prior != dispatched and prior in product_options:
+            st.caption(
+                f"Ignoring previous override `{_PRODUCT_LABELS.get(prior, prior)}` "
+                f"— inforce block contains `{dispatched_label}` policies."
+            )
+
+        # Read-only display so users see the value in a dropdown-like widget.
+        st.selectbox(
+            "Product Type (auto-detected)",
+            [dispatched],
+            format_func=lambda x: _PRODUCT_LABELS.get(x, x),
+            key="assum_product_type_readonly",
+            disabled=True,
+            help=(
+                "Read-only when an inforce block is loaded. The projection "
+                "engine is chosen from `policies[0].product_type`."
+            ),
+        )
+        return dispatched
+
+    # --- Synthetic-block path: no CSV loaded, user chooses freely -------
+    st.caption(
+        "No inforce block loaded — select the product type for the "
+        "synthetic-block path. Load a CSV on Page 1 to auto-detect instead."
+    )
     current = str(cfg.get("product_type", "TERM"))
     idx = product_options.index(current) if current in product_options else 0
     selection = st.selectbox(
         "Product Type",
         product_options,
         index=idx,
-        format_func=lambda x: product_labels.get(x, x),
+        format_func=lambda x: _PRODUCT_LABELS.get(x, x),
         key="assum_product_type",
         help=(
             "Selects the projection engine. Term Life has a fixed expiry; "

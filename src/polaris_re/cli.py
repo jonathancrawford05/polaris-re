@@ -297,8 +297,14 @@ def price_cmd(
     Runs the full pipeline: InforceBlock → AssumptionSet → Product → Treaty → ProfitTester.
     Supports TERM, WHOLE_LIFE, and UL product types via the product dispatcher.
 
-    If no --config is supplied, runs in demo mode using data/configs/demo.json
-    and data/inputs/demo.csv.
+    If no --config is supplied, runs in demo mode using
+    [cyan]data/configs/demo.json[/cyan] and [cyan]data/inputs/demo.csv[/cyan].
+
+    [bold]Debugging:[/bold] set [cyan]POLARIS_PARITY_DEBUG=1[/cyan] to dump
+    year-by-year cash flow CSVs (gross / net / ceded). Files are written to
+    [cyan]data/outputs/parity/[/cyan] by default; override with
+    [cyan]POLARIS_PARITY_OUTPUT=<path>[/cyan]. The resolved absolute path is
+    printed on stderr.
     """
     _header()
 
@@ -466,6 +472,14 @@ def scenario_cmd(
     Applies standard stress scenarios (mortality shock, lapse stress, rate shock)
     to the base pricing assumption set and reports PV profit sensitivities.
     Supports TERM, WHOLE_LIFE, and UL product types via the product dispatcher.
+
+    If no --config is supplied, runs in demo mode using
+    [cyan]data/configs/demo.json[/cyan] and [cyan]data/inputs/demo.csv[/cyan].
+
+    [bold]Debugging:[/bold] set [cyan]POLARIS_PARITY_DEBUG=1[/cyan] to dump
+    year-by-year cash flow CSVs. Files are written to
+    [cyan]data/outputs/parity/[/cyan] by default; override with
+    [cyan]POLARIS_PARITY_OUTPUT=<path>[/cyan].
     """
     _header()
 
@@ -593,6 +607,14 @@ def uq_cmd(
     Samples from distributions of mortality, lapse, and interest rate assumptions
     and reports the distribution of PV profits, IRR, and profit margin.
     Supports TERM, WHOLE_LIFE, and UL product types via the product dispatcher.
+
+    If no --config is supplied, runs in demo mode using
+    [cyan]data/configs/demo.json[/cyan] and [cyan]data/inputs/demo.csv[/cyan].
+
+    [bold]Debugging:[/bold] set [cyan]POLARIS_PARITY_DEBUG=1[/cyan] to dump
+    year-by-year cash flow CSVs. Files are written to
+    [cyan]data/outputs/parity/[/cyan] by default; override with
+    [cyan]POLARIS_PARITY_OUTPUT=<path>[/cyan].
     """
     _header()
 
