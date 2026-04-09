@@ -481,13 +481,28 @@ def dump_parity_debug(
     """Write year-by-year cash flow CSV for parity debugging.
 
     Enabled only when the ``POLARIS_PARITY_DEBUG`` environment variable is
-    set.  Writes to ``data/outputs/parity/{label}_{basis}.csv``.
+    set.  Writes to ``$POLARIS_PARITY_OUTPUT`` (default:
+    ``data/outputs/parity``) as ``{label}_{basis}.csv``.
+
+    Paths are resolved to absolute form so the location is always
+    discoverable regardless of the caller's working directory.
     """
+    import csv
+    import sys
+
     if not os.environ.get("POLARIS_PARITY_DEBUG"):
         return
 
-    out_dir = Path("data/outputs/parity")
+    out_dir = Path(os.environ.get("POLARIS_PARITY_OUTPUT", "data/outputs/parity")).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Always announce the output directory so the user can find the files
+    # even if the write step fails later.
+    print(
+        f"[parity-debug] label={label} cwd={Path.cwd()} out_dir={out_dir}",
+        file=sys.stderr,
+        flush=True,
+    )
 
     for cf, basis in [(gross, "gross"), (net, "net"), (ceded, "ceded")]:
         if cf is None:
@@ -513,13 +528,8 @@ def dump_parity_debug(
             )
 
         path = out_dir / f"{label}_{basis}.csv"
-        import csv
-
         with path.open("w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
             writer.writeheader()
             writer.writerows(rows)
-        # Print to stderr so it doesn't interfere with JSON output
-        import sys
-
-        print(f"[parity-debug] wrote {path}", file=sys.stderr)
+        print(f"[parity-debug] wrote {path}", file=sys.stderr, flush=True)

@@ -500,7 +500,17 @@ def scenario_cmd(
         ).project()
         face_amount = inforce.total_face_amount()
 
-        treaty_obj, _use_pc = _build_treaty_for_pipeline(inputs, gross, face_amount, inforce)
+        treaty_obj, use_policy_cession = _build_treaty_for_pipeline(
+            inputs, gross, face_amount, inforce
+        )
+
+        # Parity diagnostic dump (set POLARIS_PARITY_DEBUG=1 to enable)
+        if treaty_obj is not None:
+            inforce_arg = inforce if use_policy_cession else None
+            _net, _ceded = treaty_obj.apply(gross, inforce=inforce_arg)
+            dump_parity_debug("cli_scenario", gross, _net, _ceded)
+        else:
+            dump_parity_debug("cli_scenario", gross)
 
         # ScenarioRunner requires a treaty; fall back to gross-only YRT if None
         if treaty_obj is None:
@@ -616,7 +626,17 @@ def uq_cmd(
         ).project()
         face_amount = inforce.total_face_amount()
 
-        treaty_obj, _use_pc = _build_treaty_for_pipeline(inputs, gross, face_amount, inforce)
+        treaty_obj, use_policy_cession = _build_treaty_for_pipeline(
+            inputs, gross, face_amount, inforce
+        )
+
+        # Parity diagnostic dump (set POLARIS_PARITY_DEBUG=1 to enable)
+        if treaty_obj is not None:
+            inforce_arg = inforce if use_policy_cession else None
+            _net, _ceded = treaty_obj.apply(gross, inforce=inforce_arg)
+            dump_parity_debug("cli_uq", gross, _net, _ceded)
+        else:
+            dump_parity_debug("cli_uq", gross)
 
         effective_hurdle = hurdle_rate if hurdle_rate != 0.10 else inputs.deal.hurdle_rate
         uq = MonteCarloUQ(
