@@ -142,6 +142,13 @@ def _parse_config_to_pipeline_inputs(
         lapse_cfg = LapseConfig(
             duration_table={1: flat_lapse, 2: flat_lapse, 3: flat_lapse, "ultimate": flat_lapse}
         )
+        # Parse optional valuation_date (ISO format string)
+        legacy_val_date_raw = raw.get("valuation_date")
+        legacy_val_date = (
+            date.fromisoformat(str(legacy_val_date_raw))
+            if legacy_val_date_raw is not None
+            else date.today()
+        )
         deal_cfg = DealConfig(
             product_type=raw.get("product_type", "TERM"),  # type: ignore[arg-type]
             treaty_type=raw.get("treaty_type", "YRT"),  # type: ignore[arg-type]
@@ -153,6 +160,7 @@ def _parse_config_to_pipeline_inputs(
             projection_years=int(raw.get("projection_horizon_years", 20)),
             acquisition_cost=float(raw.get("acquisition_cost_per_policy", 500.0)),
             maintenance_cost=float(raw.get("maintenance_cost_per_policy_per_year", 75.0)),
+            valuation_date=legacy_val_date,
         )
         # Stamp product_type onto each policy dict for load_inforce
         if policies_raw:
@@ -188,6 +196,13 @@ def _parse_config_to_pipeline_inputs(
     else:
         lapse_cfg = LapseConfig(multiplier=float(lapse_raw.get("multiplier", 1.0)))
 
+    # Parse optional valuation_date (ISO format string) from deal config
+    deal_val_date_raw = deal_raw.get("valuation_date")
+    deal_val_date = (
+        date.fromisoformat(str(deal_val_date_raw))
+        if deal_val_date_raw is not None
+        else date.today()
+    )
     deal_cfg = DealConfig(
         product_type=deal_raw.get("product_type", "TERM"),
         treaty_type=deal_raw.get("treaty_type", "YRT"),
@@ -202,6 +217,7 @@ def _parse_config_to_pipeline_inputs(
         acquisition_cost=float(deal_raw.get("acquisition_cost", 500.0)),
         maintenance_cost=float(deal_raw.get("maintenance_cost", 75.0)),
         use_policy_cession=bool(deal_raw.get("use_policy_cession", False)),
+        valuation_date=deal_val_date,
     )
 
     # Stamp product_type onto each policy dict for load_inforce
@@ -1093,7 +1109,7 @@ def rate_schedule_cmd(
         config = ProjectionConfig(
             projection_horizon_years=term,
             discount_rate=0.05,
-            valuation_date=date(2025, 1, 1),
+            valuation_date=date.today(),
         )
 
         prog.update(task, description="Solving rates...")

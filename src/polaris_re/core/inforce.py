@@ -169,6 +169,49 @@ class InforceBlock(PolarisBaseModel):
         """Boolean mask: True where sex == MALE, shape (N,)."""
         return np.array([p.sex == Sex.MALE for p in self.policies], dtype=bool)
 
+    def attained_age_vec_at(self, valuation_date: date_type) -> np.ndarray:
+        """Compute attained ages relative to a given valuation date.
+
+        Attained age = issue_age + whole years elapsed from issue_date to
+        valuation_date.  This allows the same inforce block to be re-valued
+        at different dates without reloading.
+
+        Args:
+            valuation_date: The reference date for age calculation.
+
+        Returns:
+            Attained ages, shape (N,), dtype int32.
+        """
+        from polaris_re.utils.date_utils import months_between
+
+        return np.array(
+            [
+                p.issue_age + months_between(p.issue_date, valuation_date) // 12
+                for p in self.policies
+            ],
+            dtype=np.int32,
+        )
+
+    def duration_inforce_vec_at(self, valuation_date: date_type) -> np.ndarray:
+        """Compute duration in force (months) relative to a given valuation date.
+
+        Duration = months between each policy's issue_date and the given
+        valuation_date.  This allows the same inforce block to be re-valued
+        at different dates without reloading.
+
+        Args:
+            valuation_date: The reference date for duration calculation.
+
+        Returns:
+            Duration in force (months), shape (N,), dtype int32.
+        """
+        from polaris_re.utils.date_utils import months_between
+
+        return np.array(
+            [months_between(p.issue_date, valuation_date) for p in self.policies],
+            dtype=np.int32,
+        )
+
     @property
     def remaining_term_months_vec(self) -> np.ndarray:
         """Remaining coverage term (months), shape (N,), dtype int32. -1 for permanent products."""

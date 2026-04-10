@@ -56,11 +56,20 @@ def build_projection_config(
     if overrides:
         cfg = {**cfg, **overrides}
 
-    # Use the inforce block's valuation date for CLI/dashboard parity
-    val_date = date.today()
-    inforce_block = st.session_state.get("inforce_block")
-    if inforce_block is not None and hasattr(inforce_block, "policies") and inforce_block.policies:
-        val_date = inforce_block.policies[0].valuation_date
+    # Resolution order: deal_config valuation_date → inforce block → today
+    val_date = cfg.get("valuation_date")
+    if isinstance(val_date, str):
+        val_date = date.fromisoformat(val_date)
+    if not isinstance(val_date, date):
+        inforce_block = st.session_state.get("inforce_block")
+        if (
+            inforce_block is not None
+            and hasattr(inforce_block, "policies")
+            and inforce_block.policies
+        ):
+            val_date = inforce_block.policies[0].valuation_date
+        else:
+            val_date = date.today()
 
     return ProjectionConfig(
         valuation_date=val_date,
