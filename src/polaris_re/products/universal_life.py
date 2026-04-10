@@ -116,8 +116,8 @@ class UniversalLife(BaseProduct):
         t = self.config.projection_months
         q = np.zeros((n, t), dtype=np.float64)
 
-        duration_inforce = self.inforce.duration_inforce_vec  # (N,)
-        attained_ages = self.inforce.attained_age_vec  # (N,)
+        duration_inforce = self.inforce.duration_inforce_vec_at(self.config.valuation_date)  # (N,)
+        attained_ages = self.inforce.attained_age_vec_at(self.config.valuation_date)  # (N,)
         max_age = self.assumptions.mortality.max_age
 
         sex_list = [p.sex for p in self.inforce.policies]
@@ -163,7 +163,7 @@ class UniversalLife(BaseProduct):
         n = self.inforce.n_policies
         t = self.config.projection_months
         w = np.zeros((n, t), dtype=np.float64)
-        duration_inforce = self.inforce.duration_inforce_vec
+        duration_inforce = self.inforce.duration_inforce_vec_at(self.config.valuation_date)
 
         for month in range(t):
             current_durations = duration_inforce + month

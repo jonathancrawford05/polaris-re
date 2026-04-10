@@ -107,8 +107,8 @@ class DisabilityProduct(BaseProduct):
         t = self.config.projection_months
         q = np.zeros((n, t), dtype=np.float64)
 
-        duration_inforce = self.inforce.duration_inforce_vec
-        attained_ages = self.inforce.attained_age_vec
+        duration_inforce = self.inforce.duration_inforce_vec_at(self.config.valuation_date)
+        attained_ages = self.inforce.attained_age_vec_at(self.config.valuation_date)
         max_age = self.assumptions.mortality.max_age
 
         sex_list = [p.sex for p in self.inforce.policies]
@@ -144,8 +144,8 @@ class DisabilityProduct(BaseProduct):
         t = self.config.projection_months
         incidence = np.zeros((n, t), dtype=np.float64)
 
-        duration_inforce = self.inforce.duration_inforce_vec
-        attained_ages = self.inforce.attained_age_vec
+        duration_inforce = self.inforce.duration_inforce_vec_at(self.config.valuation_date)
+        attained_ages = self.inforce.attained_age_vec_at(self.config.valuation_date)
         sex_list = [p.sex for p in self.inforce.policies]
 
         for month in range(t):
@@ -168,8 +168,8 @@ class DisabilityProduct(BaseProduct):
         t = self.config.projection_months
         termination = np.zeros((n, t), dtype=np.float64)
 
-        duration_inforce = self.inforce.duration_inforce_vec
-        attained_ages = self.inforce.attained_age_vec
+        duration_inforce = self.inforce.duration_inforce_vec_at(self.config.valuation_date)
+        attained_ages = self.inforce.attained_age_vec_at(self.config.valuation_date)
         sex_list = [p.sex for p in self.inforce.policies]
 
         for month in range(t):
@@ -190,7 +190,7 @@ class DisabilityProduct(BaseProduct):
         n = self.inforce.n_policies
         t = self.config.projection_months
         w = np.zeros((n, t), dtype=np.float64)
-        duration_inforce = self.inforce.duration_inforce_vec
+        duration_inforce = self.inforce.duration_inforce_vec_at(self.config.valuation_date)
         for month in range(t):
             w[:, month] = self.assumptions.lapse.get_lapse_vector(duration_inforce + month)
         return w
