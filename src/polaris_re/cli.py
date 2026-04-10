@@ -18,6 +18,7 @@ All commands accept --config / --output arguments and write JSON results to disk
 
 import json
 import sys
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Annotated
@@ -30,7 +31,10 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 import polaris_re
+from polaris_re.analytics.profit_test import ProfitTestResult
+from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.core.cashflow import CashFlowResult
+from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.pipeline import (
     DealConfig,
     LapseConfig,
@@ -41,10 +45,29 @@ from polaris_re.core.pipeline import (
     ceded_to_reinsurer_view,
     derive_yrt_rate,
     dump_parity_debug,
+    iter_cohorts,
     load_inforce,
 )
+from polaris_re.core.projection import ProjectionConfig
 
 __all__ = ["app"]
+
+
+@dataclass(frozen=True)
+class CohortResult:
+    """Typed per-cohort pricing result used by ``price_cmd``.
+
+    Holds the raw ``ProfitTestResult`` objects (for Rich table rendering)
+    alongside summary metadata. Replaces an earlier ``dict[str, object]``
+    shape so downstream code gets clean types.
+    """
+
+    product_type: str
+    n_policies: int
+    face_amount: float
+    cedant_result: ProfitTestResult
+    reinsurer_result: ProfitTestResult | None
+
 
 app = typer.Typer(
     name="polaris",
@@ -259,6 +282,177 @@ def _build_treaty_for_pipeline(
     return treaty, deal.use_policy_cession
 
 
+def _price_single_cohort(
+    cohort_id: str,
+    cohort_inforce: InforceBlock,
+    assumptions: AssumptionSet,
+    config: ProjectionConfig,
+    inputs: PipelineInputs,
+    hurdle_rate: float,
+    parity_label: str,
+) -> CohortResult:
+    """Run the full pricing pipeline on a single-product cohort.
+
+    Extracted from ``price_cmd`` so the same logic can be looped over
+    cohorts when the inforce block contains multiple product types.
+
+    Args:
+        cohort_id: Human-readable cohort identifier (e.g. "TERM").
+        cohort_inforce: InforceBlock containing only one product type.
+        assumptions: Shared ``AssumptionSet`` (same for all cohorts in a deal).
+        config: Shared ``ProjectionConfig``.
+        inputs: PipelineInputs (deal config, treaty type, etc.).
+        hurdle_rate: CLI ``--hurdle-rate`` flag (falls back to deal config).
+        parity_label: Label for the parity debug dump. When multiple cohorts
+            are present we append the cohort id so each dump is distinct.
+
+    Returns:
+        Typed ``CohortResult`` carrying the raw ProfitTestResult objects
+        plus cohort metadata (product type, policy count, face amount).
+    """
+    from polaris_re.analytics.profit_test import ProfitTester
+    from polaris_re.products.dispatch import get_product_engine
+
+    # 1. Gross projection via product dispatch
+    product = get_product_engine(inforce=cohort_inforce, assumptions=assumptions, config=config)
+    gross = product.project()
+
+    # 2. Build treaty from pipeline inputs (YRT rate derived per-cohort)
+    face_amount = cohort_inforce.total_face_amount()
+    treaty, use_policy_cession = _build_treaty_for_pipeline(
+        inputs, gross, face_amount, cohort_inforce
+    )
+
+    # 3. Apply treaty
+    if treaty is not None:
+        inforce_arg = cohort_inforce if use_policy_cession else None
+        net, ceded = treaty.apply(gross, inforce=inforce_arg)  # type: ignore[attr-defined]
+    else:
+        net, ceded = gross, None
+
+    # 4. Parity debug dump (label disambiguates cohorts when >1)
+    dump_parity_debug(parity_label, gross, net, ceded)
+
+    # 5. Cedant profit test on NET cash flows
+    effective_hurdle = hurdle_rate if hurdle_rate != 0.10 else inputs.deal.hurdle_rate
+    cedant_result = ProfitTester(cashflows=net, hurdle_rate=effective_hurdle).run()
+
+    # 6. Reinsurer profit test on CEDED re-labelled as NET (ADR-039)
+    reinsurer_result: ProfitTestResult | None = None
+    if ceded is not None:
+        reinsurer_result = ProfitTester(
+            cashflows=ceded_to_reinsurer_view(ceded),
+            hurdle_rate=effective_hurdle,
+        ).run()
+
+    return CohortResult(
+        product_type=cohort_id,
+        n_policies=cohort_inforce.n_policies,
+        face_amount=face_amount,
+        cedant_result=cedant_result,
+        reinsurer_result=reinsurer_result,
+    )
+
+
+def _profit_test_to_dict(result: ProfitTestResult) -> dict[str, object]:
+    """Flatten a ProfitTestResult into a plain dict for JSON serialisation."""
+    return {
+        "hurdle_rate": result.hurdle_rate,
+        "pv_profits": result.pv_profits,
+        "pv_premiums": result.pv_premiums,
+        "profit_margin": result.profit_margin,
+        "irr": result.irr,
+        "breakeven_year": result.breakeven_year,
+        "total_undiscounted_profit": result.total_undiscounted_profit,
+        "profit_by_year": result.profit_by_year.tolist(),
+    }
+
+
+def _render_cohort_pricing_tables(cohort: CohortResult) -> None:
+    """Render the Rich tables for a single cohort's pricing results."""
+    cedant_result = cohort.cedant_result
+    reinsurer_result = cohort.reinsurer_result
+    pt_label = cohort.product_type
+
+    # Cedant results table
+    cedant_table = Table(
+        title=(f"Profit Test — Cedant (NET) View · {pt_label} · {cohort.n_policies:,} policies"),
+        border_style="cyan",
+    )
+    cedant_table.add_column("Metric", style="bold")
+    cedant_table.add_column("Value", justify="right")
+
+    irr_str = f"{cedant_result.irr:.2%}" if cedant_result.irr is not None else "N/A"
+    be_str = (
+        f"Year {cedant_result.breakeven_year}"
+        if cedant_result.breakeven_year is not None
+        else "Never"
+    )
+    cedant_table.add_row("Hurdle Rate", f"{cedant_result.hurdle_rate:.2%}")
+    cedant_table.add_row("PV Profits", f"${cedant_result.pv_profits:,.0f}")
+    cedant_table.add_row("PV Premiums", f"${cedant_result.pv_premiums:,.0f}")
+    cedant_table.add_row("Profit Margin", f"{cedant_result.profit_margin:.2%}")
+    cedant_table.add_row("IRR", irr_str)
+    cedant_table.add_row("Break-even", be_str)
+    cedant_table.add_row(
+        "Total Undiscounted Profit",
+        f"${cedant_result.total_undiscounted_profit:,.0f}",
+    )
+    console.print(cedant_table)
+
+    # Reinsurer results table
+    if reinsurer_result is not None:
+        rei_table = Table(
+            title=f"Profit Test — Reinsurer View · {pt_label}",
+            border_style="green",
+        )
+        rei_table.add_column("Metric", style="bold")
+        rei_table.add_column("Value", justify="right")
+
+        rei_irr_str = f"{reinsurer_result.irr:.2%}" if reinsurer_result.irr is not None else "N/A"
+        rei_be_str = (
+            f"Year {reinsurer_result.breakeven_year}"
+            if reinsurer_result.breakeven_year is not None
+            else "Never"
+        )
+        rei_table.add_row("Hurdle Rate", f"{reinsurer_result.hurdle_rate:.2%}")
+        rei_table.add_row("PV Profits", f"${reinsurer_result.pv_profits:,.0f}")
+        rei_table.add_row("PV Premiums", f"${reinsurer_result.pv_premiums:,.0f}")
+        rei_table.add_row("Profit Margin", f"{reinsurer_result.profit_margin:.2%}")
+        rei_table.add_row("IRR", rei_irr_str)
+        rei_table.add_row("Break-even", rei_be_str)
+        rei_table.add_row(
+            "Total Undiscounted Profit",
+            f"${reinsurer_result.total_undiscounted_profit:,.0f}",
+        )
+        console.print(rei_table)
+    else:
+        console.print("[dim]No treaty applied — reinsurer view not available.[/dim]")
+
+
+def _fail_on_mixed_cohorts(
+    inforce: InforceBlock,
+    command_name: str,
+) -> None:
+    """Exit the CLI with a clear message if the block has multiple product types.
+
+    Scenario analysis and Monte Carlo UQ operate on a single CashFlowResult
+    per run and cannot coherently combine cash flows across product types.
+    For mixed blocks, users should run ``polaris price`` (which is cohort
+    aware) or filter the input CSV to a single product type first.
+    """
+    if len(inforce.product_types) <= 1:
+        return
+    detected = ", ".join(sorted(pt.value for pt in inforce.product_types))
+    console.print(
+        f"[red]Error:[/red] `polaris {command_name}` does not support mixed "
+        f"product-type blocks (found: {detected}).\n"
+        f"[dim]Run [bold]polaris price[/bold] to see per-cohort results, or "
+        f"filter your inforce CSV to a single product type first.[/dim]"
+    )
+    raise typer.Exit(code=1)
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -297,6 +491,11 @@ def price_cmd(
     Runs the full pipeline: InforceBlock → AssumptionSet → Product → Treaty → ProfitTester.
     Supports TERM, WHOLE_LIFE, and UL product types via the product dispatcher.
 
+    [bold]Mixed product blocks[/bold] are supported: each distinct
+    [cyan]product_type[/cyan] in the inforce CSV is priced as its own
+    independent cohort (separate gross projection, treaty, and profit test).
+    Results are reported per-cohort — there is no cross-product aggregation.
+
     If no --config is supplied, runs in demo mode using
     [cyan]data/configs/demo.json[/cyan] and [cyan]data/inputs/demo.csv[/cyan].
 
@@ -307,9 +506,6 @@ def price_cmd(
     printed on stderr.
     """
     _header()
-
-    from polaris_re.analytics.profit_test import ProfitTester
-    from polaris_re.products.dispatch import get_product_engine
 
     with Progress(
         SpinnerColumn(),
@@ -333,6 +529,18 @@ def price_cmd(
             )
             console.print("[dim]No --config supplied — running demo mode[/dim]")
 
+    # Partition the block into per-product cohorts. Homogeneous blocks
+    # pass through as a single-element list (zero overhead).
+    cohorts_split = iter_cohorts(inforce)
+    n_cohorts = len(cohorts_split)
+    if n_cohorts > 1:
+        detected = ", ".join(pt.value for pt, _ in cohorts_split)
+        console.print(
+            f"[yellow]Mixed product block detected[/yellow] "
+            f"({n_cohorts} cohorts: {detected}). Pricing each cohort independently."
+        )
+
+    cohort_results: list[CohortResult] = []
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -341,109 +549,91 @@ def price_cmd(
     ) as progress:
         task = progress.add_task("Running projection...", total=None)
 
-        # 1. Gross projection via product dispatch
-        product = get_product_engine(inforce=inforce, assumptions=assumptions, config=config)
-        gross = product.project()
-
-        # 2. Build treaty from pipeline inputs, deriving YRT rate if needed
-        face_amount = inforce.total_face_amount()
-        treaty, use_policy_cession = _build_treaty_for_pipeline(inputs, gross, face_amount, inforce)
-
-        # 3. Apply treaty (with policy-level cession override if configured)
-        if treaty is not None:
-            inforce_arg = inforce if use_policy_cession else None
-            net, ceded = treaty.apply(gross, inforce=inforce_arg)  # type: ignore[union-attr]
-        else:
-            net, ceded = gross, None
-
-        # Parity diagnostic dump (set POLARIS_PARITY_DEBUG=1 to enable)
-        dump_parity_debug("cli", gross, net, ceded)
-
-        # 4. Cedant view: profit test on NET cash flows
-        effective_hurdle = hurdle_rate if hurdle_rate != 0.10 else inputs.deal.hurdle_rate
-        cedant_result = ProfitTester(cashflows=net, hurdle_rate=effective_hurdle).run()
-
-        # 5. Reinsurer view: profit test on CEDED re-labelled as NET (ADR-039)
-        if ceded is not None:
-            reinsurer_result = ProfitTester(
-                cashflows=ceded_to_reinsurer_view(ceded),
-                hurdle_rate=effective_hurdle,
-            ).run()
-        else:
-            reinsurer_result = None
+        for product_type, cohort_inforce in cohorts_split:
+            parity_label = f"cli_{product_type.value.lower()}" if n_cohorts > 1 else "cli"
+            cohort_results.append(
+                _price_single_cohort(
+                    cohort_id=product_type.value,
+                    cohort_inforce=cohort_inforce,
+                    assumptions=assumptions,
+                    config=config,
+                    inputs=inputs,
+                    hurdle_rate=hurdle_rate,
+                    parity_label=parity_label,
+                )
+            )
 
         progress.update(task, completed=True)
 
-    # Cedant results table
-    cedant_table = Table(title="Profit Test — Cedant (NET) View", border_style="cyan")
-    cedant_table.add_column("Metric", style="bold")
-    cedant_table.add_column("Value", justify="right")
+    # Render per-cohort tables
+    for cohort in cohort_results:
+        if n_cohorts > 1:
+            console.print()
+            console.print(
+                Panel(
+                    f"[bold]Cohort: {cohort.product_type}[/bold] "
+                    f"· {cohort.n_policies:,} policies "
+                    f"· ${cohort.face_amount:,.0f} face",
+                    border_style="yellow",
+                )
+            )
+        _render_cohort_pricing_tables(cohort)
 
-    irr_str = f"{cedant_result.irr:.2%}" if cedant_result.irr is not None else "N/A"
-    be_str = (
-        f"Year {cedant_result.breakeven_year}"
-        if cedant_result.breakeven_year is not None
-        else "Never"
-    )
-    cedant_table.add_row("Hurdle Rate", f"{cedant_result.hurdle_rate:.2%}")
-    cedant_table.add_row("PV Profits", f"${cedant_result.pv_profits:,.0f}")
-    cedant_table.add_row("PV Premiums", f"${cedant_result.pv_premiums:,.0f}")
-    cedant_table.add_row("Profit Margin", f"{cedant_result.profit_margin:.2%}")
-    cedant_table.add_row("IRR", irr_str)
-    cedant_table.add_row("Break-even", be_str)
-    cedant_table.add_row(
-        "Total Undiscounted Profit", f"${cedant_result.total_undiscounted_profit:,.0f}"
-    )
-    console.print(cedant_table)
-
-    # Reinsurer results table
-    if reinsurer_result is not None:
-        rei_table = Table(title="Profit Test — Reinsurer View", border_style="green")
-        rei_table.add_column("Metric", style="bold")
-        rei_table.add_column("Value", justify="right")
-
-        rei_irr_str = f"{reinsurer_result.irr:.2%}" if reinsurer_result.irr is not None else "N/A"
-        rei_be_str = (
-            f"Year {reinsurer_result.breakeven_year}"
-            if reinsurer_result.breakeven_year is not None
-            else "Never"
+    # Build JSON output. Always includes a "cohorts" list; for the common
+    # single-cohort case, mirror the cohort's cedant/reinsurer dicts at the
+    # top level so existing consumers of the CLI JSON output keep working.
+    cohorts_out: list[dict[str, object]] = []
+    total_cedant_pv = 0.0
+    total_reinsurer_pv = 0.0
+    for c in cohort_results:
+        cedant_dict = _profit_test_to_dict(c.cedant_result)
+        reinsurer_dict = (
+            _profit_test_to_dict(c.reinsurer_result) if c.reinsurer_result is not None else None
         )
-        rei_table.add_row("Hurdle Rate", f"{reinsurer_result.hurdle_rate:.2%}")
-        rei_table.add_row("PV Profits", f"${reinsurer_result.pv_profits:,.0f}")
-        rei_table.add_row("PV Premiums", f"${reinsurer_result.pv_premiums:,.0f}")
-        rei_table.add_row("Profit Margin", f"{reinsurer_result.profit_margin:.2%}")
-        rei_table.add_row("IRR", rei_irr_str)
-        rei_table.add_row("Break-even", rei_be_str)
-        rei_table.add_row(
-            "Total Undiscounted Profit", f"${reinsurer_result.total_undiscounted_profit:,.0f}"
+        cohorts_out.append(
+            {
+                "product_type": c.product_type,
+                "n_policies": c.n_policies,
+                "face_amount": c.face_amount,
+                "cedant": cedant_dict,
+                "reinsurer": reinsurer_dict,
+            }
         )
-        console.print(rei_table)
-    else:
-        console.print("[dim]No treaty applied — reinsurer view not available.[/dim]")
+        total_cedant_pv += c.cedant_result.pv_profits
+        if c.reinsurer_result is not None:
+            total_reinsurer_pv += c.reinsurer_result.pv_profits
 
     output_data: dict[str, object] = {
-        "cedant": {
-            "hurdle_rate": cedant_result.hurdle_rate,
-            "pv_profits": cedant_result.pv_profits,
-            "pv_premiums": cedant_result.pv_premiums,
-            "profit_margin": cedant_result.profit_margin,
-            "irr": cedant_result.irr,
-            "breakeven_year": cedant_result.breakeven_year,
-            "total_undiscounted_profit": cedant_result.total_undiscounted_profit,
-            "profit_by_year": cedant_result.profit_by_year.tolist(),
+        "cohorts": cohorts_out,
+        "summary": {
+            "n_cohorts": n_cohorts,
+            "total_pv_profits_cedant": total_cedant_pv,
+            "total_pv_profits_reinsurer": total_reinsurer_pv,
         },
     }
-    if reinsurer_result is not None:
-        output_data["reinsurer"] = {
-            "hurdle_rate": reinsurer_result.hurdle_rate,
-            "pv_profits": reinsurer_result.pv_profits,
-            "pv_premiums": reinsurer_result.pv_premiums,
-            "profit_margin": reinsurer_result.profit_margin,
-            "irr": reinsurer_result.irr,
-            "breakeven_year": reinsurer_result.breakeven_year,
-            "total_undiscounted_profit": reinsurer_result.total_undiscounted_profit,
-            "profit_by_year": reinsurer_result.profit_by_year.tolist(),
-        }
+    # Back-compat: expose the first cohort's cedant/reinsurer at the top
+    # level so downstream consumers that only know the old schema still
+    # work for the (overwhelmingly common) single-cohort case.
+    if n_cohorts == 1:
+        first = cohort_results[0]
+        output_data["cedant"] = _profit_test_to_dict(first.cedant_result)
+        if first.reinsurer_result is not None:
+            output_data["reinsurer"] = _profit_test_to_dict(first.reinsurer_result)
+
+    if n_cohorts > 1:
+        summary_table = Table(title="Mixed-Cohort Summary", border_style="magenta")
+        summary_table.add_column("Metric", style="bold")
+        summary_table.add_column("Value", justify="right")
+        summary_table.add_row("Cohorts", str(n_cohorts))
+        summary_table.add_row("Total PV Profits (Cedant)", f"${total_cedant_pv:,.0f}")
+        summary_table.add_row("Total PV Profits (Reinsurer)", f"${total_reinsurer_pv:,.0f}")
+        console.print(summary_table)
+        console.print(
+            "[dim]Note: per-cohort IRRs are not summed. Each cohort is an "
+            "independent deal — cross-product aggregation (single blended IRR) "
+            "is a separate feature.[/dim]"
+        )
+
     _write_output(output_data, output_path, "price_result")
 
 
@@ -472,6 +662,12 @@ def scenario_cmd(
     Applies standard stress scenarios (mortality shock, lapse stress, rate shock)
     to the base pricing assumption set and reports PV profit sensitivities.
     Supports TERM, WHOLE_LIFE, and UL product types via the product dispatcher.
+
+    [bold]Mixed product blocks are not supported[/bold] — scenario analysis
+    operates on a single aggregated CashFlowResult and cannot coherently
+    combine cash flows across product types. For mixed blocks, run
+    [bold]polaris price[/bold] (which is cohort-aware) or filter your
+    inforce CSV to a single [cyan]product_type[/cyan] first.
 
     If no --config is supplied, runs in demo mode using
     [cyan]data/configs/demo.json[/cyan] and [cyan]data/inputs/demo.csv[/cyan].
@@ -507,6 +703,8 @@ def scenario_cmd(
                 demo_config, demo_csv if demo_csv.exists() else None
             )
             console.print("[dim]No --config supplied — running demo mode[/dim]")
+
+        _fail_on_mixed_cohorts(inforce, "scenario")
 
         # Derive YRT rate from base gross projection (ADR-038)
         gross = get_product_engine(
@@ -608,6 +806,12 @@ def uq_cmd(
     and reports the distribution of PV profits, IRR, and profit margin.
     Supports TERM, WHOLE_LIFE, and UL product types via the product dispatcher.
 
+    [bold]Mixed product blocks are not supported[/bold] — Monte Carlo UQ
+    samples against a single base projection and cannot coherently combine
+    cash flows across product types. For mixed blocks, run
+    [bold]polaris price[/bold] (which is cohort-aware) or filter your
+    inforce CSV to a single [cyan]product_type[/cyan] first.
+
     If no --config is supplied, runs in demo mode using
     [cyan]data/configs/demo.json[/cyan] and [cyan]data/inputs/demo.csv[/cyan].
 
@@ -641,6 +845,8 @@ def uq_cmd(
                 demo_config, demo_csv if demo_csv.exists() else None
             )
             console.print("[dim]No --config supplied — running demo mode[/dim]")
+
+        _fail_on_mixed_cohorts(inforce, "uq")
 
         # Derive YRT rate from base gross projection (ADR-038)
         gross = get_product_engine(

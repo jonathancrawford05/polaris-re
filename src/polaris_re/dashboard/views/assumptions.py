@@ -507,12 +507,36 @@ def _product_type_section() -> str:
                 f"to change product type."
             )
         else:
-            other_labels = ", ".join(sorted(_PRODUCT_LABELS.get(t, t) for t in detected_types))
-            st.warning(
-                f"Mixed product types detected in inforce: {other_labels}. "
-                f"The projection dispatcher uses the **first policy's** type "
-                f"(`{dispatched_label}`). Split the block via "
-                f"`InforceBlock.filter_by_product()` to price each cohort separately."
+            # Per-cohort breakdown so users can see exactly what each tab on
+            # the Deal Pricing page will price.
+            from collections import Counter
+
+            counts = Counter(str(p.product_type.value) for p in inforce_block.policies)
+            face_by_type: dict[str, float] = {}
+            for p in inforce_block.policies:
+                key = str(p.product_type.value)
+                face_by_type[key] = face_by_type.get(key, 0.0) + float(p.face_amount)
+            cohort_rows = [
+                {
+                    "Product Type": _PRODUCT_LABELS.get(pt, pt),
+                    "Policies": f"{counts[pt]:,}",
+                    "Face Amount": f"${face_by_type[pt]:,.0f}",
+                }
+                for pt in sorted(detected_types)
+            ]
+            st.info(
+                f"**Mixed product block detected** \u2014 {len(detected_types)} cohorts "
+                f"across {n_policies:,} policies."
+            )
+            st.dataframe(cohort_rows, use_container_width=True)
+            st.caption(
+                "**Deal Pricing** is cohort-aware: each product type will be priced "
+                "as an independent deal and shown in its own tab (separate gross "
+                "projection, treaty, and profit test \u2014 no cross-product aggregation). "
+                "\n\n**Treaty Comparison**, **Scenario Analysis**, **Monte Carlo UQ**, "
+                "and **IFRS 17** pages currently operate on a single aggregated "
+                "CashFlowResult and will show a guard message until you filter the "
+                "CSV on Page 1 to a single `product_type`."
             )
 
         # Flag and drop any stale override the user set before loading the CSV.
@@ -520,10 +544,13 @@ def _product_type_section() -> str:
         if prior != dispatched and prior in product_options:
             st.caption(
                 f"Ignoring previous override `{_PRODUCT_LABELS.get(prior, prior)}` "
-                f"— inforce block contains `{dispatched_label}` policies."
+                f"\u2014 inforce block contains `{dispatched_label}` policies."
             )
 
         # Read-only display so users see the value in a dropdown-like widget.
+        # For mixed blocks this reflects the first cohort as a convention — the
+        # Deal Pricing page no longer relies on this value and instead iterates
+        # over all cohorts via iter_cohorts().
         st.selectbox(
             "Product Type (auto-detected)",
             [dispatched],
@@ -531,8 +558,11 @@ def _product_type_section() -> str:
             key="assum_product_type_readonly",
             disabled=True,
             help=(
-                "Read-only when an inforce block is loaded. The projection "
-                "engine is chosen from `policies[0].product_type`."
+                "Read-only when an inforce block is loaded. For homogeneous "
+                "blocks the projection engine is chosen from "
+                "`policies[0].product_type`. For mixed blocks the Deal Pricing "
+                "page iterates over every distinct product type via "
+                "`iter_cohorts()`."
             ),
         )
         return dispatched

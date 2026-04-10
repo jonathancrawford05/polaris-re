@@ -19,7 +19,7 @@ from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSourc
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
-from polaris_re.core.policy import Sex, SmokerStatus
+from polaris_re.core.policy import ProductType, Sex, SmokerStatus
 from polaris_re.core.projection import ProjectionConfig
 from polaris_re.utils.table_io import MortalityTableArray
 
@@ -36,6 +36,7 @@ __all__ = [
     "ceded_to_reinsurer_view",
     "derive_yrt_rate",
     "dump_parity_debug",
+    "iter_cohorts",
     "load_inforce",
 ]
 
@@ -353,6 +354,44 @@ def build_pipeline(
         or (inforce.policies[0].valuation_date if inforce.policies else date.today()),
     )
     return inforce, assumptions, config
+
+
+# ------------------------------------------------------------------ #
+# Cohort iteration — multi-product block partitioning                 #
+# ------------------------------------------------------------------ #
+
+
+def iter_cohorts(
+    inforce: InforceBlock,
+) -> list[tuple[ProductType, InforceBlock]]:
+    """Partition an inforce block into single-product cohorts.
+
+    Returns a deterministic list of ``(product_type, sub_block)`` tuples,
+    ordered by ``ProductType`` enum value. A homogeneous block returns a
+    single-element list containing the original block (no copy), so callers
+    can use ``iter_cohorts()`` uniformly without paying any cost on the
+    common single-product case.
+
+    This is the path used by CLI ``price`` and the dashboard Pricing page
+    to handle mixed product blocks as independent per-cohort pipelines
+    (no cash-flow aggregation — each cohort is its own priced deal).
+
+    Args:
+        inforce: InforceBlock potentially containing multiple product types.
+
+    Returns:
+        List of (product_type, sub_block) tuples, one per distinct product
+        type in the block. Sub-blocks are new InforceBlock instances when
+        the input is heterogeneous, or the original block itself when it
+        is already homogeneous.
+    """
+    distinct = sorted(inforce.product_types, key=lambda pt: pt.value)
+    if len(distinct) <= 1:
+        # Homogeneous: return the block as-is to avoid a redundant copy.
+        if not distinct:
+            return []
+        return [(distinct[0], inforce)]
+    return [(pt, inforce.filter_by_product(pt)) for pt in distinct]
 
 
 # ------------------------------------------------------------------ #

@@ -9,12 +9,22 @@ import matplotlib.ticker as mticker  # type: ignore[import-untyped]
 import numpy as np
 import streamlit as st  # type: ignore[import-untyped]
 
+from polaris_re.dashboard.components.state import require_single_product_cohort
+
 __all__ = ["page_ifrs17"]
 
 
 def page_ifrs17() -> None:
     """IFRS 17 measurement page \u2014 BBA or PAA from gross projection."""
     st.header("IFRS 17 Measurement")
+
+    # Mixed-block guard: IFRS 17 measurement operates on a single
+    # CashFlowResult and cannot coherently aggregate across product types.
+    inforce_block = st.session_state.get("inforce_block")
+    if inforce_block is not None and not require_single_product_cohort(
+        inforce_block, "IFRS 17 Measurement"
+    ):
+        return
 
     gross_result = st.session_state.get("gross_result")
     if gross_result is None:
