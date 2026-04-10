@@ -471,23 +471,114 @@ def _expense_section() -> tuple[float, float]:
 # ------------------------------------------------------------------ #
 
 
+_PRODUCT_LABELS: dict[str, str] = {
+    "TERM": "Term Life",
+    "WHOLE_LIFE": "Whole Life",
+    "UL": "Universal Life",
+}
+
+
 def _product_type_section() -> str:
-    """Product type selector. Returns product type string for deal config."""
+    """Product type selector. Returns product type string for deal config.
+
+    When an inforce block is loaded, the product type is read-only and
+    derived from ``policies[0].product_type`` — matching the dispatcher at
+    ``products.dispatch.get_product_engine``. The selectbox is editable
+    only on the synthetic-block path (no CSV loaded), where it drives
+    synthetic generation and the projection engine choice.
+    """
     st.subheader("Product Type")
     cfg = get_deal_config()
-    product_options = ["TERM", "WHOLE_LIFE", "UL"]
-    product_labels = {
-        "TERM": "Term Life",
-        "WHOLE_LIFE": "Whole Life",
-        "UL": "Universal Life",
-    }
+    product_options = list(_PRODUCT_LABELS.keys())
+
+    inforce_block = st.session_state.get("inforce_block")
+
+    # --- Data-driven path: inforce block is loaded ---------------------
+    if inforce_block is not None and getattr(inforce_block, "policies", None):
+        detected_types: set[str] = {str(p.product_type.value) for p in inforce_block.policies}
+        dispatched: str = str(inforce_block.policies[0].product_type.value)
+        dispatched_label = _PRODUCT_LABELS.get(dispatched, dispatched)
+        n_policies = inforce_block.n_policies
+
+        if len(detected_types) == 1:
+            st.info(
+                f"Product type detected from inforce: **{dispatched_label}** "
+                f"({n_policies:,} policies). Load a different CSV on Page 1 "
+                f"to change product type."
+            )
+        else:
+            # Per-cohort breakdown so users can see exactly what each tab on
+            # the Deal Pricing page will price.
+            from collections import Counter
+
+            counts = Counter(str(p.product_type.value) for p in inforce_block.policies)
+            face_by_type: dict[str, float] = {}
+            for p in inforce_block.policies:
+                key = str(p.product_type.value)
+                face_by_type[key] = face_by_type.get(key, 0.0) + float(p.face_amount)
+            cohort_rows = [
+                {
+                    "Product Type": _PRODUCT_LABELS.get(pt, pt),
+                    "Policies": f"{counts[pt]:,}",
+                    "Face Amount": f"${face_by_type[pt]:,.0f}",
+                }
+                for pt in sorted(detected_types)
+            ]
+            st.info(
+                f"**Mixed product block detected** \u2014 {len(detected_types)} cohorts "
+                f"across {n_policies:,} policies."
+            )
+            st.dataframe(cohort_rows, use_container_width=True)
+            st.caption(
+                "**Deal Pricing** is cohort-aware: each product type will be priced "
+                "as an independent deal and shown in its own tab (separate gross "
+                "projection, treaty, and profit test \u2014 no cross-product aggregation). "
+                "\n\n**Treaty Comparison**, **Scenario Analysis**, **Monte Carlo UQ**, "
+                "and **IFRS 17** pages currently operate on a single aggregated "
+                "CashFlowResult and will show a guard message until you filter the "
+                "CSV on Page 1 to a single `product_type`."
+            )
+
+        # Flag and drop any stale override the user set before loading the CSV.
+        prior = str(cfg.get("product_type", dispatched))
+        if prior != dispatched and prior in product_options:
+            st.caption(
+                f"Ignoring previous override `{_PRODUCT_LABELS.get(prior, prior)}` "
+                f"\u2014 inforce block contains `{dispatched_label}` policies."
+            )
+
+        # Read-only display so users see the value in a dropdown-like widget.
+        # For mixed blocks this reflects the first cohort as a convention — the
+        # Deal Pricing page no longer relies on this value and instead iterates
+        # over all cohorts via iter_cohorts().
+        st.selectbox(
+            "Product Type (auto-detected)",
+            [dispatched],
+            format_func=lambda x: _PRODUCT_LABELS.get(x, x),
+            key="assum_product_type_readonly",
+            disabled=True,
+            help=(
+                "Read-only when an inforce block is loaded. For homogeneous "
+                "blocks the projection engine is chosen from "
+                "`policies[0].product_type`. For mixed blocks the Deal Pricing "
+                "page iterates over every distinct product type via "
+                "`iter_cohorts()`."
+            ),
+        )
+        return dispatched
+
+    # --- Synthetic-block path: no CSV loaded, user chooses freely -------
+    st.caption(
+        "No inforce block loaded — select the product type for the "
+        "synthetic-block path. Load a CSV on Page 1 to auto-detect instead."
+    )
     current = str(cfg.get("product_type", "TERM"))
     idx = product_options.index(current) if current in product_options else 0
     selection = st.selectbox(
         "Product Type",
         product_options,
         index=idx,
-        format_func=lambda x: product_labels.get(x, x),
+        format_func=lambda x: _PRODUCT_LABELS.get(x, x),
         key="assum_product_type",
         help=(
             "Selects the projection engine. Term Life has a fixed expiry; "

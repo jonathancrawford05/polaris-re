@@ -4,13 +4,24 @@ Requires Inforce Block and Assumptions to be configured first. No fallback
 mechanism — all inputs are centralised on the Assumptions page.
 
 Provides separate Cedant and Reinsurer views of cash flows for clarity.
+When the inforce block contains multiple product types, each distinct
+``product_type`` is priced as its own independent cohort (separate gross
+projection, treaty, and profit test) displayed in per-cohort tabs.
 """
+
+from dataclasses import dataclass
 
 import matplotlib.pyplot as plt  # type: ignore[import-untyped]
 import matplotlib.ticker as mticker  # type: ignore[import-untyped]
 import numpy as np
 import streamlit as st  # type: ignore[import-untyped]
 
+from polaris_re.analytics.profit_test import ProfitTestResult
+from polaris_re.assumptions.assumption_set import AssumptionSet
+from polaris_re.core.cashflow import CashFlowResult
+from polaris_re.core.inforce import InforceBlock
+from polaris_re.core.pipeline import iter_cohorts
+from polaris_re.core.projection import ProjectionConfig
 from polaris_re.dashboard.components.charts import cashflow_waterfall
 from polaris_re.dashboard.components.projection import (
     build_projection_config,
@@ -22,6 +33,41 @@ from polaris_re.dashboard.components.projection import (
 from polaris_re.dashboard.components.state import get_deal_config
 
 __all__ = ["page_pricing"]
+
+
+@dataclass(frozen=True)
+class CohortPricingData:
+    """Typed per-cohort pricing artefacts used by the Deal Pricing page.
+
+    Holds the raw projection and profit-test objects for rendering.
+    Replaces an earlier ``dict[str, object]`` shape so downstream code
+    (summary tables, tabs, session-state bridging) gets clean types.
+    """
+
+    cohort_id: str
+    n_policies: int
+    face_amount: float
+    gross: CashFlowResult
+    net: CashFlowResult
+    ceded: CashFlowResult | None
+    result: ProfitTestResult
+    reinsurer_result: ProfitTestResult | None
+    treaty_type: str
+    loss_ratio_msg: tuple[str, str] | None
+
+
+# Flat session-state keys preserved for single-cohort backward compatibility.
+# Downstream pages (IFRS17, Treaty Compare) still read these directly. When a
+# mixed-cohort run occurs, these are cleared so those pages show their
+# mixed-block guard instead of stale single-cohort data.
+_FLAT_PRICING_KEYS = (
+    "pricing_result",
+    "pricing_net_result",
+    "pricing_ceded_result",
+    "pricing_treaty_type",
+    "reinsurer_result",
+    "gross_result",
+)
 
 
 def _cash_flow_decomposition(
@@ -244,145 +290,128 @@ def _irr_explanation(irr: float | None, treaty_type: str) -> str | None:
     )
 
 
-def page_pricing() -> None:
-    """Deal pricing page \u2014 requires session state from Pages 1-2."""
-    st.header("Deal Pricing")
+def _run_pricing_for_cohort(
+    cohort_id: str,
+    cohort_inforce: InforceBlock,
+    assumption_set: AssumptionSet,
+    config: ProjectionConfig,
+    treaty_type: str,
+    use_policy_cession: bool,
+    hurdle_rate: float,
+    parity_label: str,
+    show_yrt_info: bool,
+) -> CohortPricingData:
+    """Run the full pricing pipeline for a single-product cohort.
 
-    # Check prerequisites
-    inforce_block = st.session_state.get("inforce_block")
-    assumption_set = st.session_state.get("assumption_set")
+    Returns a ``CohortPricingData`` carrying the raw projection and
+    profit-test objects for later rendering. Does NOT touch session state.
+    """
+    from polaris_re.analytics.profit_test import ProfitTester
+    from polaris_re.core.pipeline import dump_parity_debug
+
     cfg = get_deal_config()
 
-    if inforce_block is None or assumption_set is None:
-        st.warning(
-            "Configure **Inforce Block** (Page 1) and **Assumptions** (Page 2) first. "
-            "All deal inputs \u2014 including treaty structure, expenses, and projection "
-            "parameters \u2014 are set on the Assumptions page."
-        )
-        return
+    # 1. Gross projection via product dispatch
+    gross = run_gross_projection(cohort_inforce, assumption_set, config)
 
-    st.success(
-        f"Using session state: {inforce_block.n_policies:,} policies, "
-        f"assumptions v{assumption_set.version}"
-    )
+    face_amount_total = float(cohort_inforce.total_face_amount())
 
-    # Show current deal config summary
-    treaty_type = str(cfg.get("treaty_type", "YRT"))
-    cession_pct = float(cfg.get("cession_pct", 0.90))
-    with st.expander("Current Deal Configuration (edit on Assumptions page)", expanded=False):
-        dc1, dc2, dc3, dc4 = st.columns(4)
-        dc1.metric("Treaty", treaty_type)
-        dc2.metric("Cession", f"{cession_pct:.0%}")
-        dc3.metric("Discount Rate", f"{float(cfg.get('discount_rate', 0.06)):.0%}")
-        dc4.metric("Hurdle Rate", f"{float(cfg.get('hurdle_rate', 0.10)):.0%}")
+    # 2. Show derived YRT rate info (only for the single-cohort case to
+    #    avoid cluttering the screen when there are many cohorts; per-cohort
+    #    rate info is still captured in the parity debug dump).
+    if show_yrt_info and treaty_type == "YRT":
+        yrt_loading = float(cfg.get("yrt_loading", 0.10))  # type: ignore[arg-type]
+        yrt_manual_rate = cfg.get("yrt_rate_per_1000")
+        rate_basis = str(cfg.get("yrt_rate_basis", "Mortality-based"))
 
-        dc5, dc6, dc7, dc8 = st.columns(4)
-        dc5.metric("Projection", f"{int(cfg.get('projection_years', 20))} years")
-        dc6.metric("Acq. Cost", f"${float(cfg.get('acquisition_cost', 500)):,.0f}/policy")
-        dc7.metric("Maint. Cost", f"${float(cfg.get('maintenance_cost', 75)):,.0f}/yr/policy")
-        if treaty_type == "YRT":
-            basis = str(cfg.get("yrt_rate_basis", "Mortality-based"))
-            loading = float(cfg.get("yrt_loading", 0.10))
-            dc8.metric(
-                "YRT Basis",
-                f"{basis} ({loading:.0%} loading)" if basis == "Mortality-based" else basis,
+        if rate_basis == "Mortality-based" or yrt_manual_rate is None:
+            derived_rate = derive_yrt_rate(gross, face_amount_total, yrt_loading)
+            implied_qx = derived_rate / (1000.0 * (1.0 + yrt_loading))
+            st.info(
+                f"Derived YRT rate ({cohort_id}): {derived_rate:.3f} per $1,000 NAR "
+                f"(implied q_x = {implied_qx:.5f}, loading = {yrt_loading:.0%})"
             )
 
-    # Optional per-run overrides (minimal — most config is on Assumptions page)
-    use_policy_cession = st.checkbox(
-        "Use policy-level cession overrides",
-        help="Uses per-policy reinsurance_cession_pct from inforce data (ADR-036).",
+    # 3. Apply treaty
+    net, ceded = run_treaty_projection(
+        gross,
+        cohort_inforce,
+        use_policy_cession=use_policy_cession,
     )
 
-    if st.button("Run Pricing", type="primary"):
-        from polaris_re.analytics.profit_test import ProfitTester
+    # 4. Parity diagnostic dump (disambiguated per cohort)
+    dump_parity_debug(parity_label, gross, net, ceded)
 
-        with st.spinner("Running projection..."):
-            config = build_projection_config()
-            gross = run_gross_projection(inforce_block, assumption_set, config)
-            st.session_state["gross_result"] = gross
+    # 5. Cedant profit test
+    result = ProfitTester(cashflows=net, hurdle_rate=hurdle_rate).run()
 
-            face_amount_total = float(inforce_block.total_face_amount())
+    # 6. Reinsurer profit test on ceded re-labelled as net (ADR-039)
+    reinsurer_result: ProfitTestResult | None = None
+    if ceded is not None:
+        reinsurer_result = ProfitTester(
+            cashflows=ceded_to_reinsurer_view(ceded), hurdle_rate=hurdle_rate
+        ).run()
 
-            # Derive YRT rate and show it
-            if treaty_type == "YRT":
-                yrt_loading = float(cfg.get("yrt_loading", 0.10))
-                yrt_manual_rate = cfg.get("yrt_rate_per_1000")
-                rate_basis = str(cfg.get("yrt_rate_basis", "Mortality-based"))
-
-                if rate_basis == "Mortality-based" or yrt_manual_rate is None:
-                    derived_rate = derive_yrt_rate(gross, face_amount_total, yrt_loading)
-                    implied_qx = derived_rate / (1000.0 * (1.0 + yrt_loading))
-                    st.info(
-                        f"Derived YRT rate: {derived_rate:.3f} per $1,000 NAR "
-                        f"(implied q_x = {implied_qx:.5f}, loading = {yrt_loading:.0%})"
-                    )
-
-            # Apply treaty
-            net, ceded = run_treaty_projection(
-                gross,
-                inforce_block,
-                use_policy_cession=use_policy_cession,
+    # 7. Sanity check: loss ratio warning
+    total_claims = float(gross.death_claims.sum())
+    total_premiums = float(gross.gross_premiums.sum())
+    loss_ratio_msg: tuple[str, str] | None = None
+    if total_premiums > 0:
+        loss_ratio = total_claims / total_premiums
+        if loss_ratio < 0.01:
+            loss_ratio_msg = (
+                "error",
+                f"**Pricing Validation Warning ({cohort_id})**: "
+                f"Aggregate loss ratio is {loss_ratio:.4%} "
+                f"(claims ${total_claims:,.0f} vs premiums "
+                f"${total_premiums:,.0f}). Expected 20-80%.",
+            )
+        elif loss_ratio > 2.0:
+            loss_ratio_msg = (
+                "warning",
+                f"**Pricing Validation Warning ({cohort_id})**: "
+                f"Loss ratio is {loss_ratio:.2%} \u2014 claims far exceed premiums.",
+            )
+        else:
+            loss_ratio_msg = (
+                "caption",
+                f"Validation ({cohort_id}): gross loss ratio = {loss_ratio:.1%}, "
+                f"total claims = ${total_claims:,.0f}, "
+                f"total premiums = ${total_premiums:,.0f}",
             )
 
-            # Parity diagnostic dump (set POLARIS_PARITY_DEBUG=1 to enable)
-            from polaris_re.core.pipeline import dump_parity_debug
+    return CohortPricingData(
+        cohort_id=cohort_id,
+        n_policies=cohort_inforce.n_policies,
+        face_amount=face_amount_total,
+        gross=gross,
+        net=net,
+        ceded=ceded,
+        result=result,
+        reinsurer_result=reinsurer_result,
+        treaty_type=treaty_type,
+        loss_ratio_msg=loss_ratio_msg,
+    )
 
-            dump_parity_debug("dashboard", gross, net, ceded)
 
-            hurdle_rate = float(cfg.get("hurdle_rate", 0.10))
+def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: AssumptionSet) -> None:
+    """Render cedant + reinsurer views for a single priced cohort."""
+    gross = cohort_data.gross
+    net = cohort_data.net
+    ceded = cohort_data.ceded
+    result = cohort_data.result
+    reinsurer_result = cohort_data.reinsurer_result
+    cached_treaty_type = cohort_data.treaty_type
+    loss_ratio_msg = cohort_data.loss_ratio_msg
 
-            # Profit test on the NET (cedant retained) cash flows
-            result = ProfitTester(cashflows=net, hurdle_rate=hurdle_rate).run()
-
-            # Profit test on the CEDED (reinsurer) cash flows
-            reinsurer_result = None
-            if ceded is not None:
-                reinsurer_result = ProfitTester(
-                    cashflows=ceded_to_reinsurer_view(ceded), hurdle_rate=hurdle_rate
-                ).run()
-
-            # Sanity check: loss ratio
-            total_claims = float(gross.death_claims.sum())
-            total_premiums = float(gross.gross_premiums.sum())
-            if total_premiums > 0:
-                loss_ratio = total_claims / total_premiums
-                if loss_ratio < 0.01:
-                    st.error(
-                        f"**Pricing Validation Warning**: Aggregate loss ratio is "
-                        f"{loss_ratio:.4%} (claims ${total_claims:,.0f} vs premiums "
-                        f"${total_premiums:,.0f}). Expected 20-80%."
-                    )
-                elif loss_ratio > 2.0:
-                    st.warning(
-                        f"**Pricing Validation Warning**: Loss ratio is {loss_ratio:.2%} "
-                        f"\u2014 claims far exceed premiums."
-                    )
-                else:
-                    st.caption(
-                        f"Validation: gross loss ratio = {loss_ratio:.1%}, "
-                        f"total claims = ${total_claims:,.0f}, "
-                        f"total premiums = ${total_premiums:,.0f}"
-                    )
-
-            # Cache results
-            st.session_state["pricing_result"] = result
-            st.session_state["pricing_net_result"] = net
-            st.session_state["pricing_ceded_result"] = ceded
-            st.session_state["pricing_treaty_type"] = treaty_type
-            if reinsurer_result is not None:
-                st.session_state["reinsurer_result"] = reinsurer_result
-
-    # --- Display results from session state ---
-    result = st.session_state.get("pricing_result")
-    net = st.session_state.get("pricing_net_result")
-    gross = st.session_state.get("gross_result")
-    ceded = st.session_state.get("pricing_ceded_result")
-    cached_treaty_type = st.session_state.get("pricing_treaty_type", treaty_type)
-    reinsurer_result = st.session_state.get("reinsurer_result")
-
-    if result is None or net is None or gross is None:
-        return
+    if loss_ratio_msg is not None:
+        level, msg = loss_ratio_msg
+        if level == "error":
+            st.error(msg)
+        elif level == "warning":
+            st.warning(msg)
+        else:
+            st.caption(msg)
 
     # ========== CEDANT VIEW ==========
     st.subheader("Cedant View (Retained)")
@@ -403,7 +432,12 @@ def page_pricing() -> None:
     if irr_note:
         st.caption(irr_note)
 
-    st.pyplot(cashflow_waterfall(result.profit_by_year, title="Cedant Annual Profit Waterfall"))
+    st.pyplot(
+        cashflow_waterfall(
+            result.profit_by_year,
+            title="Cedant Annual Profit Waterfall",
+        )
+    )
     st.pyplot(
         _cash_flow_decomposition(net, title_suffix=basis_label, annotate_reserve_release=True)
     )
@@ -413,14 +447,11 @@ def page_pricing() -> None:
         st.subheader("Reinsurer View (Ceded)")
 
         rc_a, rc_b, rc_c, rc_d = st.columns(4)
-        # For the reinsurer, the ceded NCF is income - outgo
-        # Positive ceded NCF = reinsurer loss (pays more claims than receives premiums)
-        # So reinsurer profit = -ceded_ncf ... but the ProfitTester already uses the
-        # ceded CashFlowResult where NCF = premiums - claims - expenses
-        # So positive means reinsurer is profitable
-        rc_a.metric("PV Profits (Reinsurer)", f"${reinsurer_result.pv_profits:,.0f}")
+        rc_a.metric(
+            "PV Profits (Reinsurer)",
+            f"${reinsurer_result.pv_profits:,.0f}",
+        )
 
-        # Net loss ratio: ceded claims / ceded premiums
         ceded_total_claims = float(ceded.death_claims.sum())
         ceded_total_premiums = float(ceded.gross_premiums.sum())
         net_loss_ratio = (
@@ -439,9 +470,15 @@ def page_pricing() -> None:
             f"{reinsurer_result.profit_margin:.2%}",
             help="PV(Reinsurer NCF) / PV(Ceded Premiums) at the hurdle rate.",
         )
-        rc_d.metric("IRR", _format_irr(reinsurer_result.irr, cached_treaty_type))
+        rc_d.metric(
+            "IRR",
+            _format_irr(reinsurer_result.irr, cached_treaty_type),
+        )
 
-        irr_note_r = _irr_explanation(reinsurer_result.irr, cached_treaty_type)
+        irr_note_r = _irr_explanation(
+            reinsurer_result.irr,
+            cached_treaty_type,
+        )
         if irr_note_r:
             st.caption(irr_note_r)
 
@@ -501,3 +538,169 @@ def page_pricing() -> None:
     ml_mort = st.session_state.get("ml_mortality_model")
     if ml_mort is not None:
         _table_vs_ml_comparison(assumption_set, ml_mort)
+
+
+def page_pricing() -> None:
+    """Deal pricing page \u2014 requires session state from Pages 1-2.
+
+    When the inforce contains multiple product types, each cohort is priced
+    as an independent deal (separate gross projection, treaty, profit test)
+    and shown in a dedicated tab. No cross-product aggregation is performed.
+    """
+    st.header("Deal Pricing")
+
+    # Check prerequisites
+    inforce_block = st.session_state.get("inforce_block")
+    assumption_set = st.session_state.get("assumption_set")
+    cfg = get_deal_config()
+
+    if inforce_block is None or assumption_set is None:
+        st.warning(
+            "Configure **Inforce Block** (Page 1) and **Assumptions** (Page 2) first. "
+            "All deal inputs \u2014 including treaty structure, expenses, and projection "
+            "parameters \u2014 are set on the Assumptions page."
+        )
+        return
+
+    # Partition the block into single-product cohorts. For homogeneous
+    # blocks this is a zero-cost single-element list; for mixed blocks it
+    # returns one sub-block per distinct product type.
+    cohorts = iter_cohorts(inforce_block)
+    n_cohorts = len(cohorts)
+
+    if n_cohorts > 1:
+        detected = ", ".join(pt.value for pt, _ in cohorts)
+        st.info(
+            f"Mixed product block detected ({n_cohorts} cohorts: {detected}). "
+            f"Each cohort will be priced as an independent deal and shown in its own tab. "
+            f"There is no cross-product aggregation \u2014 every cohort carries its own "
+            f"PV profits, IRR, and break-even metrics."
+        )
+    else:
+        st.success(
+            f"Using session state: {inforce_block.n_policies:,} policies, "
+            f"assumptions v{assumption_set.version}"
+        )
+
+    # Show current deal config summary
+    treaty_type = str(cfg.get("treaty_type", "YRT"))
+    cession_pct = float(cfg.get("cession_pct", 0.90))
+    with st.expander("Current Deal Configuration (edit on Assumptions page)", expanded=False):
+        dc1, dc2, dc3, dc4 = st.columns(4)
+        dc1.metric("Treaty", treaty_type)
+        dc2.metric("Cession", f"{cession_pct:.0%}")
+        dc3.metric("Discount Rate", f"{float(cfg.get('discount_rate', 0.06)):.0%}")
+        dc4.metric("Hurdle Rate", f"{float(cfg.get('hurdle_rate', 0.10)):.0%}")
+
+        dc5, dc6, dc7, dc8 = st.columns(4)
+        dc5.metric("Projection", f"{int(cfg.get('projection_years', 20))} years")
+        dc6.metric("Acq. Cost", f"${float(cfg.get('acquisition_cost', 500)):,.0f}/policy")
+        dc7.metric("Maint. Cost", f"${float(cfg.get('maintenance_cost', 75)):,.0f}/yr/policy")
+        if treaty_type == "YRT":
+            basis = str(cfg.get("yrt_rate_basis", "Mortality-based"))
+            loading = float(cfg.get("yrt_loading", 0.10))
+            dc8.metric(
+                "YRT Basis",
+                f"{basis} ({loading:.0%} loading)" if basis == "Mortality-based" else basis,
+            )
+
+    # Optional per-run overrides (minimal — most config is on Assumptions page)
+    use_policy_cession = st.checkbox(
+        "Use policy-level cession overrides",
+        help="Uses per-policy reinsurance_cession_pct from inforce data (ADR-036).",
+    )
+
+    if st.button("Run Pricing", type="primary"):
+        with st.spinner("Running projection..."):
+            config = build_projection_config()
+            hurdle_rate = float(cfg.get("hurdle_rate", 0.10))  # type: ignore[arg-type]
+
+            cohort_data_map: dict[str, CohortPricingData] = {}
+            for product_type, cohort_inforce in cohorts:
+                cohort_id = product_type.value
+                parity_label = f"dashboard_{cohort_id.lower()}" if n_cohorts > 1 else "dashboard"
+                cohort_data_map[cohort_id] = _run_pricing_for_cohort(
+                    cohort_id=cohort_id,
+                    cohort_inforce=cohort_inforce,
+                    assumption_set=assumption_set,
+                    config=config,
+                    treaty_type=treaty_type,
+                    use_policy_cession=use_policy_cession,
+                    hurdle_rate=hurdle_rate,
+                    parity_label=parity_label,
+                    show_yrt_info=(n_cohorts == 1),
+                )
+
+        # Store multi-cohort results
+        st.session_state["pricing_cohorts"] = cohort_data_map
+
+        # Backward-compat flat keys: preserved for single-cohort so that
+        # IFRS17 and Treaty Compare pages keep working unchanged. Cleared
+        # on multi-cohort runs so those pages trip their mixed-block guard.
+        if n_cohorts == 1:
+            only = next(iter(cohort_data_map.values()))
+            st.session_state["gross_result"] = only.gross
+            st.session_state["pricing_result"] = only.result
+            st.session_state["pricing_net_result"] = only.net
+            st.session_state["pricing_ceded_result"] = only.ceded
+            st.session_state["pricing_treaty_type"] = treaty_type
+            if only.reinsurer_result is not None:
+                st.session_state["reinsurer_result"] = only.reinsurer_result
+            elif "reinsurer_result" in st.session_state:
+                del st.session_state["reinsurer_result"]
+        else:
+            for k in _FLAT_PRICING_KEYS:
+                if k in st.session_state:
+                    del st.session_state[k]
+
+    # --- Display results from session state ---
+    cohort_data_map = st.session_state.get("pricing_cohorts")  # type: ignore[assignment]
+    if not cohort_data_map:
+        return
+
+    if len(cohort_data_map) == 1:
+        only = next(iter(cohort_data_map.values()))
+        _render_cohort_results(only, assumption_set)
+        return
+
+    # Mixed-cohort summary table above the tabs
+    summary_rows = []
+    total_cedant_pv = 0.0
+    total_reinsurer_pv = 0.0
+    for cohort_id, data in cohort_data_map.items():
+        cedant_pv = float(data.result.pv_profits)
+        total_cedant_pv += cedant_pv
+        rei_pv: float | None = None
+        if data.reinsurer_result is not None:
+            rei_pv = float(data.reinsurer_result.pv_profits)
+            total_reinsurer_pv += rei_pv
+        summary_rows.append(
+            {
+                "Cohort": cohort_id,
+                "Policies": f"{data.n_policies:,}",
+                "Face Amount": f"${data.face_amount:,.0f}",
+                "Cedant PV Profits": f"${cedant_pv:,.0f}",
+                "Reinsurer PV Profits": (f"${rei_pv:,.0f}" if rei_pv is not None else "N/A"),
+                "Cedant IRR": (f"{data.result.irr:.2%}" if data.result.irr is not None else "N/A"),
+            }
+        )
+
+    st.subheader("Mixed-Cohort Summary")
+    st.dataframe(summary_rows, use_container_width=True)
+    ms_a, ms_b = st.columns(2)
+    ms_a.metric("Total PV Profits (Cedant)", f"${total_cedant_pv:,.0f}")
+    ms_b.metric("Total PV Profits (Reinsurer)", f"${total_reinsurer_pv:,.0f}")
+    st.caption(
+        "Per-cohort IRRs are not summed. Each cohort is an independent deal \u2014 "
+        "cross-product aggregation (single blended IRR) is a separate feature. "
+        "Note: **Treaty Comparison**, **Scenario Analysis**, **Monte Carlo UQ**, "
+        "and **IFRS 17** pages do not yet support mixed blocks; they will show a "
+        "guard message until you filter the inforce to a single product type."
+    )
+
+    # Per-cohort tabs
+    tab_labels = list(cohort_data_map.keys())
+    tabs = st.tabs(tab_labels)
+    for tab, cohort_id in zip(tabs, tab_labels, strict=True):
+        with tab:
+            _render_cohort_results(cohort_data_map[cohort_id], assumption_set)

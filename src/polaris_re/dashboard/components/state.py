@@ -4,7 +4,13 @@ import streamlit as st  # type: ignore[import-untyped]
 
 from polaris_re.core.pipeline import DealConfig
 
-__all__ = ["DEFAULTS", "KEYS", "get_deal_config", "init_session_state"]
+__all__ = [
+    "DEFAULTS",
+    "KEYS",
+    "get_deal_config",
+    "init_session_state",
+    "require_single_product_cohort",
+]
 
 KEYS = [
     "inforce_block",
@@ -45,3 +51,28 @@ def get_deal_config() -> dict[str, object]:
         cfg = dict(DEFAULTS)
         st.session_state["deal_config"] = cfg
     return cfg
+
+
+def require_single_product_cohort(inforce: object, page_name: str) -> bool:
+    """Warn and return False if the inforce block has more than one product type.
+
+    Used by dashboard pages that operate on a single aggregated
+    CashFlowResult (Scenario, Monte Carlo UQ, IFRS17, Treaty Comparison)
+    and cannot coherently combine cash flows across product types. The
+    Deal Pricing page is cohort-aware and does NOT use this guard.
+
+    Returns:
+        True if the block is homogeneous (page should proceed), False
+        otherwise (page should return after the guard is shown).
+    """
+    product_types = getattr(inforce, "product_types", None)
+    if product_types is None or len(product_types) <= 1:
+        return True
+    detected = ", ".join(sorted(pt.value for pt in product_types))
+    st.warning(
+        f"**{page_name}** does not support mixed product-type blocks "
+        f"(detected: {detected}). Run **Deal Pricing** for a cohort-aware "
+        f"view, or reload Page 1 with a CSV filtered to a single "
+        f"`product_type` first."
+    )
+    return False

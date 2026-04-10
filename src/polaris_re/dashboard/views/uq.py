@@ -14,7 +14,10 @@ from polaris_re.dashboard.components.projection import (
     derive_yrt_rate,
     run_gross_projection,
 )
-from polaris_re.dashboard.components.state import get_deal_config
+from polaris_re.dashboard.components.state import (
+    get_deal_config,
+    require_single_product_cohort,
+)
 
 __all__ = ["page_uq"]
 
@@ -31,6 +34,9 @@ def page_uq() -> None:
             "Configure **Inforce Block** (Page 1) and **Assumptions** (Page 2) first. "
             "All projection parameters are set on the Assumptions page."
         )
+        return
+
+    if not require_single_product_cohort(inforce_block, "Monte Carlo UQ"):
         return
 
     st.success(
