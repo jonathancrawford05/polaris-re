@@ -105,6 +105,7 @@ class DealConfig:
     acquisition_cost: float = 500.0
     maintenance_cost: float = 75.0
     use_policy_cession: bool = False
+    valuation_date: date = field(default_factory=date.today)
 
     def to_dict(self) -> dict[str, object]:
         """Return a plain dict suitable for dashboard session state."""
@@ -121,6 +122,7 @@ class DealConfig:
             "projection_years": self.projection_years,
             "acquisition_cost": self.acquisition_cost,
             "maintenance_cost": self.maintenance_cost,
+            "valuation_date": self.valuation_date,
         }
 
 
@@ -326,9 +328,16 @@ def build_projection_config(
     inputs: PipelineInputs,
     valuation_date: date | None = None,
 ) -> ProjectionConfig:
-    """Build a ProjectionConfig matching dashboard.components.projection."""
+    """Build a ProjectionConfig matching dashboard.components.projection.
+
+    Resolution order for valuation_date:
+    1. Explicit ``valuation_date`` argument (caller override).
+    2. ``inputs.deal.valuation_date`` (from config JSON / dashboard).
+    3. ``date.today()`` (fallback).
+    """
+    resolved_date = valuation_date or inputs.deal.valuation_date
     return ProjectionConfig(
-        valuation_date=valuation_date or date.today(),
+        valuation_date=resolved_date,
         projection_horizon_years=inputs.deal.projection_years,
         discount_rate=inputs.deal.discount_rate,
         acquisition_cost_per_policy=inputs.deal.acquisition_cost,
@@ -346,13 +355,21 @@ def build_pipeline(
     inputs: PipelineInputs,
     valuation_date: date | None = None,
 ) -> tuple[InforceBlock, AssumptionSet, ProjectionConfig]:
-    """One-shot builder that produces the full pipeline tuple."""
+    """One-shot builder that produces the full pipeline tuple.
+
+    Resolution order for valuation_date:
+    1. Explicit ``valuation_date`` argument.
+    2. ``inputs.deal.valuation_date`` (from DealConfig).
+    3. First policy's ``valuation_date`` in the inforce block.
+    4. ``date.today()``.
+    """
     assumptions = build_assumption_set(inputs)
-    config = build_projection_config(
-        inputs,
-        valuation_date=valuation_date
-        or (inforce.policies[0].valuation_date if inforce.policies else date.today()),
+    effective_date = (
+        valuation_date
+        or inputs.deal.valuation_date
+        or (inforce.policies[0].valuation_date if inforce.policies else date.today())
     )
+    config = build_projection_config(inputs, valuation_date=effective_date)
     return inforce, assumptions, config
 
 

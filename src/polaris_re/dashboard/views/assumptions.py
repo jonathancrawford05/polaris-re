@@ -693,6 +693,31 @@ def _treaty_section() -> dict[str, object]:
 
     # Projection parameters
     st.subheader("Projection Parameters")
+
+    # Valuation date — reference date for discounting and age/duration calc
+    from datetime import date as _date_type
+
+    _default_val_date = cfg.get("valuation_date")
+    if isinstance(_default_val_date, str):
+        _default_val_date = _date_type.fromisoformat(_default_val_date)
+    if not isinstance(_default_val_date, _date_type):
+        # Fall back to inforce block date, then today
+        _ib = st.session_state.get("inforce_block")
+        if _ib is not None and hasattr(_ib, "policies") and _ib.policies:
+            _default_val_date = _ib.policies[0].valuation_date
+        else:
+            _default_val_date = _date_type.today()
+    valuation_date = st.date_input(
+        "Valuation Date",
+        value=_default_val_date,
+        help=(
+            "Reference date for discounting, mortality age calculation, "
+            "and duration-since-issue. Defaults to the inforce block's "
+            "valuation date or today."
+        ),
+        key="assum_valuation_date",
+    )
+
     pc1, pc2, pc3 = st.columns(3)
     with pc1:
         projection_years = int(
@@ -741,6 +766,7 @@ def _treaty_section() -> dict[str, object]:
         "discount_rate": discount_rate,
         "hurdle_rate": hurdle_rate,
         "projection_years": projection_years,
+        "valuation_date": valuation_date,
     }
 
 
@@ -818,7 +844,7 @@ def page_assumptions() -> None:
         )
         st.session_state["assumption_set"] = assumption_set
 
-        # Save deal config centrally
+        # Save deal config centrally (treaty_params already includes valuation_date)
         deal_cfg = dict(treaty_params)
         deal_cfg["acquisition_cost"] = acquisition_cost
         deal_cfg["maintenance_cost"] = maintenance_cost

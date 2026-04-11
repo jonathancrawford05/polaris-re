@@ -100,8 +100,8 @@ class WholeLife(BaseProduct):
         q = np.zeros((n, t), dtype=np.float64)
         w = np.zeros((n, t), dtype=np.float64)
 
-        duration_inforce = self.inforce.duration_inforce_vec  # (N,)
-        attained_ages = self.inforce.attained_age_vec  # (N,)
+        duration_inforce = self.inforce.duration_inforce_vec_at(self.config.valuation_date)  # (N,)
+        attained_ages = self.inforce.attained_age_vec_at(self.config.valuation_date)  # (N,)
 
         sex_list = [p.sex for p in self.inforce.policies]
         smoker_list = [p.smoker_status for p in self.inforce.policies]

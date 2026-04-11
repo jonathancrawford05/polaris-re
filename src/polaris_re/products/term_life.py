@@ -72,8 +72,8 @@ class TermLife(BaseProduct):
         q = np.zeros((n, t), dtype=np.float64)
         w = np.zeros((n, t), dtype=np.float64)
 
-        duration_inforce = self.inforce.duration_inforce_vec  # (N,)
-        attained_ages = self.inforce.attained_age_vec  # (N,)
+        duration_inforce = self.inforce.duration_inforce_vec_at(self.config.valuation_date)  # (N,)
+        attained_ages = self.inforce.attained_age_vec_at(self.config.valuation_date)  # (N,)
         remaining_months = self.inforce.remaining_term_months_vec  # (N,)
 
         # Build unique (sex, smoker) combos for mortality lookup
