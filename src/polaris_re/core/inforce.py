@@ -224,6 +224,65 @@ class InforceBlock(PolarisBaseModel):
         )
 
     # ------------------------------------------------------------------
+    # Projection horizon recommendation
+    # ------------------------------------------------------------------
+
+    def recommended_projection_years(self, omega: int = 121) -> int:
+        """Recommend a projection horizon (years) that covers the whole block.
+
+        Computes a per-policy horizon based on product type and returns the
+        maximum, capped at 100 to respect ``ProjectionConfig`` limits:
+
+          * ``TERM``:        ceil(remaining_term_months / 12)   (minimum 1)
+          * ``WHOLE_LIFE``:  omega - attained_age
+          * ``UL``:          max(ceil(remaining_term_months / 12), 50)
+                             — permanent UL (no term) uses 50 as a
+                             conservative runoff until UL dynamics are modelled
+          * other products:  30
+
+        Args:
+            omega: Terminal age used for whole-life policies. Defaults to 121,
+                matching the SOA 2017 CSO and CIA 2014 table extensions.
+
+        Returns:
+            The recommended projection horizon in years, ``int``, capped at 100.
+        """
+        product_types = np.array([p.product_type for p in self.policies], dtype=object)
+        attained = self.attained_age_vec
+        remaining_months = self.remaining_term_months_vec
+
+        # Default horizon (DI, CI, ANNUITY, unknown): 30 years
+        years = np.full(self.n_policies, 30, dtype=np.int32)
+
+        # TERM: ceil(remaining_months / 12), at least 1 year
+        term_mask = product_types == ProductType.TERM
+        if term_mask.any():
+            term_rem = remaining_months[term_mask]
+            # remaining_term_months is always >= 0 for TERM (not -1) because
+            # policy_term is required for term products.
+            term_years = np.ceil(term_rem / 12.0).astype(np.int32)
+            years[term_mask] = np.maximum(term_years, 1)
+
+        # WHOLE_LIFE: omega - attained_age
+        wl_mask = product_types == ProductType.WHOLE_LIFE
+        if wl_mask.any():
+            years[wl_mask] = np.maximum((omega - attained[wl_mask]).astype(np.int32), 1)
+
+        # UL: max(ceil(remaining/12), 50). Permanent UL has remaining = -1,
+        # which ceils to 0; the max with 50 handles both cases.
+        ul_mask = product_types == ProductType.UNIVERSAL_LIFE
+        if ul_mask.any():
+            ul_rem = remaining_months[ul_mask]
+            ul_years = np.where(
+                ul_rem > 0,
+                np.ceil(ul_rem / 12.0).astype(np.int32),
+                0,
+            )
+            years[ul_mask] = np.maximum(ul_years, 50)
+
+        return int(min(int(years.max()), 100))
+
+    # ------------------------------------------------------------------
     # Factory methods
     # ------------------------------------------------------------------
 

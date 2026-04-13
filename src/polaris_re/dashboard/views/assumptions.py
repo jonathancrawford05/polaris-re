@@ -14,6 +14,7 @@ import numpy as np
 import streamlit as st  # type: ignore[import-untyped]
 
 from polaris_re.core.pipeline import DEFAULT_LAPSE_CURVE
+from polaris_re.core.policy import ProductType
 from polaris_re.dashboard.components.state import get_deal_config
 
 __all__ = ["page_assumptions"]
@@ -604,6 +605,38 @@ def _product_type_section() -> str:
 # ------------------------------------------------------------------ #
 
 
+def _build_horizon_caption(block: object, recommended_years: int) -> str:
+    """Build a one-line explanation for the auto-computed projection horizon.
+
+    Describes which product type in the inforce block drove the recommendation,
+    along with the relevant key statistic (oldest age for WL, longest remaining
+    term for TERM, conservative 50yr runoff for UL).
+    """
+    product_types = getattr(block, "product_types", set())
+    parts: list[str] = []
+
+    if ProductType.WHOLE_LIFE in product_types:
+        oldest_wl = max(
+            int(p.attained_age)
+            for p in block.policies  # type: ignore[attr-defined]
+            if p.product_type == ProductType.WHOLE_LIFE
+        )
+        parts.append(f"WL, oldest age {oldest_wl} → omega 121")
+    if ProductType.UNIVERSAL_LIFE in product_types:
+        parts.append("UL, conservative 50yr runoff")
+    if ProductType.TERM in product_types:
+        term_rem_years = [
+            int(np.ceil((p.remaining_term_months or 0) / 12.0))
+            for p in block.policies  # type: ignore[attr-defined]
+            if p.product_type == ProductType.TERM
+        ]
+        if term_rem_years:
+            parts.append(f"TERM, longest remaining {max(term_rem_years)}yr")
+
+    reason = "; ".join(parts) if parts else "default 30yr"
+    return f"Auto-computed from inforce: {recommended_years} years ({reason})."
+
+
 def _treaty_section() -> dict[str, object]:
     """Treaty and projection configuration. Returns a dict of treaty params."""
     st.subheader("Treaty & Projection Configuration")
@@ -718,17 +751,34 @@ def _treaty_section() -> dict[str, object]:
         key="assum_valuation_date",
     )
 
+    # Auto-compute a sensible projection horizon from the loaded inforce
+    # block (e.g. whole-life blocks need 70+ years to reach omega). Fall
+    # back to the stored config value when no block is present.
+    _ib_for_horizon = st.session_state.get("inforce_block")
+    _rec_caption: str | None = None
+    if (
+        _ib_for_horizon is not None
+        and hasattr(_ib_for_horizon, "policies")
+        and _ib_for_horizon.policies
+    ):
+        _rec_years = int(_ib_for_horizon.recommended_projection_years())
+        _rec_caption = _build_horizon_caption(_ib_for_horizon, _rec_years)
+    else:
+        _rec_years = int(cfg.get("projection_years", 20))
+
     pc1, pc2, pc3 = st.columns(3)
     with pc1:
         projection_years = int(
             st.slider(
                 "Projection Horizon (years)",
                 5,
-                30,
-                int(cfg.get("projection_years", 20)),
+                100,
+                _rec_years,
                 key="assum_proj_years",
             )
         )
+        if _rec_caption is not None:
+            st.caption(_rec_caption)
     with pc2:
         discount_rate = (
             float(
