@@ -299,3 +299,50 @@ class TestTermLifeMultiPolicy:
 
         expected_prem = (6_000.0 / 12) + (12_000.0 / 12)
         np.testing.assert_allclose(result.gross_premiums[0], expected_prem, rtol=1e-10)
+
+
+class TestTermLifePremiumExpiry:
+    """Verify premiums and expenses stop after the policy term expires."""
+
+    def test_premiums_zero_after_term(
+        self, single_policy_block: InforceBlock, assumption_set: AssumptionSet
+    ):
+        """A 20yr term projected over 30yr must have zero premiums after month 240."""
+        long_config = ProjectionConfig(
+            valuation_date=date(2025, 1, 1),
+            projection_horizon_years=30,
+            discount_rate=0.05,
+        )
+        engine = TermLife(single_policy_block, assumption_set, long_config)
+        result = engine.project()
+
+        term_months = 20 * 12  # 240
+        assert result.gross_premiums[:term_months].sum() > 0.0
+        np.testing.assert_allclose(
+            result.gross_premiums[term_months:],
+            0.0,
+            atol=1e-15,
+            err_msg="Premiums must be zero after the policy term expires",
+        )
+
+    def test_expenses_zero_after_term(
+        self, single_policy_block: InforceBlock, assumption_set: AssumptionSet
+    ):
+        """Ongoing maintenance expenses must stop after term expiry."""
+        long_config = ProjectionConfig(
+            valuation_date=date(2025, 1, 1),
+            projection_horizon_years=30,
+            discount_rate=0.05,
+            maintenance_cost_per_policy_per_year=120.0,
+        )
+        engine = TermLife(single_policy_block, assumption_set, long_config)
+        result = engine.project()
+
+        term_months = 20 * 12
+        assert result.expenses[:term_months].sum() > 0.0
+        np.testing.assert_allclose(
+            result.expenses[term_months:],
+            0.0,
+            atol=1e-15,
+            err_msg="Expenses must be zero after the policy term expires",
+        )

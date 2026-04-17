@@ -256,11 +256,17 @@ class TermLife(BaseProduct):
         face_vec = self.inforce.face_amount_vec  # (N,)
         monthly_prem_vec = self.inforce.monthly_premium_vec  # (N,)
 
+        # Active mask: True while the policy term has not expired, shape (N, T)
+        remaining_months = self.inforce.remaining_term_months_vec  # (N,)
+        months = np.arange(t, dtype=np.int32)[np.newaxis, :]  # (1, T)
+        active = months < remaining_months[:, np.newaxis]  # (N, T)
+
         # Cash flow arrays, shape (N, T)
-        # Premiums: lx * monthly_premium (paid by those in force at start of month)
-        ser_premiums = lx * monthly_prem_vec[:, np.newaxis]  # (N, T)
+        # Premiums: lx * monthly_premium, zeroed after term expiry
+        ser_premiums = lx * monthly_prem_vec[:, np.newaxis] * active  # (N, T)
 
         # Death claims: lx_t * q_t * face (deaths during month t)
+        # q is already zeroed after term expiry in _build_rate_arrays
         ser_claims = lx * q * face_vec[:, np.newaxis]  # (N, T)
 
         # Lapse surrenders: term life has no cash surrender value, so no
@@ -281,7 +287,7 @@ class TermLife(BaseProduct):
         if acq_cost > 0.0:
             ser_expenses[:, 0] += acq_cost  # one-time at start
         if maint_cost_monthly > 0.0:
-            ser_expenses += lx * maint_cost_monthly  # ongoing per in-force policy
+            ser_expenses += lx * maint_cost_monthly * active  # ongoing per in-force policy
 
         # Reserve balance (seriatim): lx * V
         ser_reserves = lx * reserves  # (N, T)
