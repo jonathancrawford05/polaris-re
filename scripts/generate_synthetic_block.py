@@ -38,6 +38,7 @@ def generate_synthetic_block(
     face_median: int = 500_000,
     term_10_pct: int = 20,
     term_20_pct: int = 60,
+    whole_life_pct: int = 0,
     mortality_table_source: str = "SOA_VBT_2015",
     target_loss_ratio: float = 0.60,
     data_dir: str | None = None,
@@ -46,7 +47,7 @@ def generate_synthetic_block(
     Generate a synthetic inforce block with realistic distributions.
 
     Distributions are approximate representations of a typical North American
-    individual term life portfolio. Not calibrated to any specific real portfolio.
+    individual life portfolio. Not calibrated to any specific real portfolio.
 
     Parameters
     ----------
@@ -67,22 +68,40 @@ def generate_synthetic_block(
     face_median : int
         Median face amount in dollars (default 500,000).
     term_10_pct : int
-        Percentage of 10-year term policies, 0-100 (default 20).
+        Percentage of 10-year term policies within the TERM portion, 0-100 (default 20).
     term_20_pct : int
-        Percentage of 20-year term policies, 0-100 (default 60).
+        Percentage of 20-year term policies within the TERM portion, 0-100 (default 60).
         The remainder (100 - term_10_pct - term_20_pct) is 30-year term.
+    whole_life_pct : int
+        Percentage of whole life policies in the block, 0-100 (default 0).
+        The remaining (100 - whole_life_pct) % are term policies.
     """
     rng = np.random.default_rng(seed)
     n = n_policies
 
+    # --- Product type assignment ---
+    n_wl = round(n * whole_life_pct / 100)
+    n_term = n - n_wl
+    product_types = np.array(["TERM"] * n_term + ["WHOLE_LIFE"] * n_wl)
+    rng.shuffle(product_types)
+    is_term = product_types == "TERM"
+
     # Ages (ANB)
     issue_ages = np.clip(rng.normal(mean_age, age_std, n).astype(int), 20, 65)
 
-    # Duration in force (months) — uniform over policy's life, capped at remaining term
+    # --- Policy terms and durations ---
+    # TERM policies: 10/20/30-year mix
     term_30_pct = 100 - term_10_pct - term_20_pct
     term_probs = [term_10_pct / 100, term_20_pct / 100, max(0, term_30_pct) / 100]
-    policy_terms = rng.choice([10, 20, 30], size=n, p=term_probs)
-    max_durations = (policy_terms * 12 - 1).astype(int)
+    # Allocate terms for all policies; WL entries will be overwritten
+    policy_terms_int = rng.choice([10, 20, 30], size=n, p=term_probs)
+
+    # Durations: TERM capped at (term*12 - 1); WL capped at 30 years
+    max_durations = np.where(
+        is_term,
+        policy_terms_int * 12 - 1,
+        30 * 12 - 1,
+    ).astype(int)
     durations = np.array([rng.integers(0, max_dur + 1) for max_dur in max_durations])
 
     # Attained ages
@@ -121,16 +140,19 @@ def generate_synthetic_block(
     )
     mortality_table = MortalityTable.load(source=table_source, data_dir=mort_data_dir)
 
-    # For each policy, compute average annual q_x over the policy term
-    # using the ultimate column (conservative, ignores select-period discounts)
+    # Omega for WL premium averaging (cap at table max age)
+    omega = min(120, mortality_table.max_age)
+
     annual_premiums = np.zeros(n, dtype=np.float64)
     for i in range(n):
         age = int(issue_ages[i])
-        term = int(policy_terms[i])
         sex_enum = Sex.MALE if sexes[i] == "M" else Sex.FEMALE
         smoker_enum = SmokerStatus.SMOKER if smokers[i] == "S" else SmokerStatus.NON_SMOKER
 
-        # Average q_x across ages [issue_age, issue_age + term - 1]
+        # TERM: average q_x over [issue_age, issue_age + term)
+        # WL:   average q_x over [issue_age, omega) — produces higher premiums
+        term = int(policy_terms_int[i]) if is_term[i] else max(omega - age, 1)
+
         ages_over_term = np.arange(
             age, min(age + term, mortality_table.max_age + 1), dtype=np.int32
         )
@@ -151,6 +173,11 @@ def generate_synthetic_block(
         (valuation_date - timedelta(days=int(dur * 30.44))).replace(day=1) for dur in durations
     ]
 
+    # Build output columns — WL policies have None for policy_term
+    policy_term_col: list[int | None] = [
+        int(policy_terms_int[i]) if is_term[i] else None for i in range(n)
+    ]
+
     df = pl.DataFrame(
         {
             "policy_id": [f"SYN_{i:06d}" for i in range(n)],
@@ -161,8 +188,8 @@ def generate_synthetic_block(
             "underwriting_class": uw_classes.tolist(),
             "face_amount": face_amounts.tolist(),
             "annual_premium": annual_premiums.round(2).tolist(),
-            "product_type": ["TERM"] * n,
-            "policy_term": policy_terms.tolist(),
+            "product_type": product_types.tolist(),
+            "policy_term": policy_term_col,
             "duration_inforce": durations.tolist(),
             "reinsurance_cession_pct": [0.50] * n,
             "issue_date": [d.isoformat() for d in issue_dates],
