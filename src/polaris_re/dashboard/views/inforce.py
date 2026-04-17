@@ -234,9 +234,41 @@ def _synthetic_tab() -> None:
                 step=50_000,
             )
         )
-        term_10 = int(st.slider("10yr Term Mix %", 0, 100, 20))
-        term_20 = int(st.slider("20yr Term Mix %", 0, 100, 60))
-        term_30 = 100 - term_10 - term_20
+
+    # --- Product mix ---
+    st.subheader("Product Mix")
+    whole_life_pct = int(
+        st.slider(
+            "Whole Life %",
+            min_value=0,
+            max_value=100,
+            value=0,
+            help="Percentage of the block that is whole life. The remainder is term life.",
+        )
+    )
+    term_pct = 100 - whole_life_pct
+
+    if term_pct > 0:
+        st.caption(f"Term life: {term_pct}% of block — configure term mix below.")
+        tc1, tc2, tc3 = st.columns(3)
+        with tc1:
+            term_10 = int(st.slider("10yr Term Mix %", 0, 100, 20))
+        with tc2:
+            term_20 = int(st.slider("20yr Term Mix %", 0, 100, 60))
+        with tc3:
+            term_30 = 100 - term_10 - term_20
+            st.slider(
+                f"30yr Term (auto: {term_30}%)",
+                min_value=0,
+                max_value=100,
+                value=term_30,
+                disabled=True,
+                help=(
+                    "Automatically calculated as 100% minus the 10yr and 20yr term mix percentages."
+                ),
+            )
+    else:
+        term_10, term_20, term_30 = 20, 60, 20
 
     st.subheader("Premium Calibration")
     pc1, pc2 = st.columns(2)
@@ -261,22 +293,9 @@ def _synthetic_tab() -> None:
             ),
         )
 
-    if term_30 < 0:
+    if term_pct > 0 and term_30 < 0:
         st.warning("Term mix exceeds 100%. Adjust 10yr and 20yr sliders.")
         return
-
-    st.slider(
-        f"30yr Term Mix % (auto-calculated: {term_30}%)",
-        min_value=0,
-        max_value=100,
-        value=term_30,
-        disabled=True,
-        help=(
-            "This value is automatically calculated as 100% minus "
-            "the 10yr and 20yr term mix percentages. Adjust those "
-            "sliders to change the 30yr allocation."
-        ),
-    )
 
     if st.button("Generate", type="primary"):
         # Import the generation function from scripts
@@ -300,6 +319,7 @@ def _synthetic_tab() -> None:
                 face_median=face_median,
                 term_10_pct=term_10,
                 term_20_pct=term_20,
+                whole_life_pct=whole_life_pct,
                 mortality_table_source=mortality_source,
                 target_loss_ratio=target_loss_ratio,
             )

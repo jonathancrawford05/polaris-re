@@ -298,6 +298,7 @@ class WholeLife(BaseProduct):
         ser_premiums = lx * monthly_prem_vec[:, np.newaxis] * prem_mask[np.newaxis, :]
         ser_claims = lx * q * face_vec[:, np.newaxis]
         ser_lapses = np.zeros((n, t), dtype=np.float64)
+        ser_lapse_count = lx * w  # (N, T)
         ser_expenses = np.zeros((n, t), dtype=np.float64)
 
         # Reserve balance: lx * V
@@ -313,6 +314,7 @@ class WholeLife(BaseProduct):
         agg_expenses = ser_expenses.sum(axis=0)
         agg_reserve_balance = ser_reserves.sum(axis=0)
         agg_reserve_inc = ser_reserve_inc.sum(axis=0)
+        agg_lapse_count = ser_lapse_count.sum(axis=0)
         agg_net_cf = agg_premiums - agg_claims - agg_lapses - agg_expenses - agg_reserve_inc
 
         time_idx = projection_date_index(self.config.valuation_date, t)
@@ -333,6 +335,7 @@ class WholeLife(BaseProduct):
             reserve_balance=agg_reserve_balance,
             reserve_increase=agg_reserve_inc,
             net_cash_flow=agg_net_cf,
+            lapse_count=agg_lapse_count,
         )
 
         if seriatim:
