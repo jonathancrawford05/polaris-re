@@ -60,6 +60,9 @@ data/
 !data/inputs/*.json
 !data/configs/
 !data/configs/*.json
+!data/qa/
+!data/qa/*.json
+!data/qa/golden_inforce.csv
 *.parquet
 
 # Logs
