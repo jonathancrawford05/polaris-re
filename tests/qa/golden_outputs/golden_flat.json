@@ -1,0 +1,28 @@
+{
+  "TERM": {
+    "n_policies": 6,
+    "face_amount": 3300000.0,
+    "cedant_pv_profits": -37772.562750497294,
+    "cedant_profit_margin": 1.500621659591691,
+    "cedant_irr": null,
+    "cedant_breakeven": null,
+    "reinsurer_pv_profits": 595.7568932131696,
+    "reinsurer_profit_margin": 0.009708315246290511,
+    "gross_total_premiums": 68022.781296764,
+    "gross_total_claims": 127979.6406988254,
+    "projection_months": 240
+  },
+  "WHOLE_LIFE": {
+    "n_policies": 6,
+    "face_amount": 25500000.0,
+    "cedant_pv_profits": 3552801.161010335,
+    "cedant_profit_margin": 0.9829071116395928,
+    "cedant_irr": null,
+    "cedant_breakeven": 1,
+    "reinsurer_pv_profits": 44790.68167658708,
+    "reinsurer_profit_margin": 0.07778112124062946,
+    "gross_total_premiums": 8895728.156854935,
+    "gross_total_claims": 1252990.5388091698,
+    "projection_months": 240
+  }
+}

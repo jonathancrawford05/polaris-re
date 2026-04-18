@@ -1,0 +1,34 @@
+{
+  "mortality": {
+    "source": "SOA_VBT_2015",
+    "multiplier": 1.0
+  },
+  "lapse": {
+    "duration_table": {
+      "1": 0.06,
+      "2": 0.05,
+      "3": 0.04,
+      "4": 0.035,
+      "5": 0.03,
+      "6": 0.025,
+      "7": 0.02,
+      "8": 0.02,
+      "9": 0.02,
+      "10": 0.02,
+      "ultimate": 0.015
+    }
+  },
+  "deal": {
+    "product_type": "TERM",
+    "treaty_type": "YRT",
+    "cession_pct": 0.90,
+    "yrt_loading": 0.10,
+    "discount_rate": 0.06,
+    "hurdle_rate": 0.10,
+    "projection_years": 20,
+    "acquisition_cost": 500.0,
+    "maintenance_cost": 75.0,
+    "use_policy_cession": false,
+    "valuation_date": "2026-04-01"
+  }
+}
