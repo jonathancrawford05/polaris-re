@@ -41,7 +41,10 @@ notebooks/output/
 .idea/
 
 # Large data files (mount at runtime via -v flag instead)
-data/
+# data/qa/ is allowed through — small golden fixtures required by test suite
+data/*
+!data/qa/
+!data/qa/**
 *.parquet
 *.csv
 
