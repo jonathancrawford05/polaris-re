@@ -53,16 +53,13 @@ notebooks/output/
 *.code-workspace
 
 # Data files (actuarial tables, large CSVs) — do not commit
-data/
-!data/.gitkeep
-!data/inputs/
-!data/inputs/*.csv
-!data/inputs/*.json
-!data/configs/
-!data/configs/*.json
-!data/qa/
-!data/qa/*.json
-!data/qa/golden_inforce.csv
+# We exclude specific sub-paths rather than all of data/, so that new
+# files in data/inputs/, data/configs/, and data/qa/ can be committed
+# without requiring `git add -f` (git will not re-include files whose
+# parent directory is excluded).
+data/mortality_tables/
+data/outputs/
+data/normalised_block.csv
 *.parquet
 
 # Logs

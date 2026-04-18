@@ -168,7 +168,7 @@ class TestCLIStreamlitParity:
         import os
 
         data_dir = Path(os.environ.get("POLARIS_DATA_DIR", "data")) / "mortality_tables"
-        sample = data_dir / "soa_vbt_2015_male_nonsmoker.csv"
+        sample = data_dir / "soa_vbt_2015_male_ns.csv"
         if not sample.exists():
             pytest.skip(f"Mortality tables not found at {data_dir}")
 

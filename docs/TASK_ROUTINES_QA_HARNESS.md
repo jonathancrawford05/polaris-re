@@ -146,7 +146,7 @@ GOLDEN_OUTPUTS_DIR = Path("tests/qa/golden_outputs")
 
 # Mortality tables required for SOA VBT 2015 configs
 _MORTALITY_DIR = Path(os.environ.get("POLARIS_DATA_DIR", "data")) / "mortality_tables"
-_HAS_SOA_TABLES = (_MORTALITY_DIR / "soa_vbt_2015_male_nonsmoker.csv").exists()
+_HAS_SOA_TABLES = (_MORTALITY_DIR / "soa_vbt_2015_male_ns.csv").exists()
 
 
 def requires_soa_tables(fn):
