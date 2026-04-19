@@ -618,7 +618,7 @@ class TestWholeLifeExpenses:
         block = InforceBlock(policies=[new_policy, seasoned_policy])
         engine = WholeLife(inforce=block, assumptions=assumption_set, config=config)
         result = engine.project()
-        # Only 1 of 2 policies is new business → month-0 expense = 1 × $500
+        # Only 1 of 2 policies is new business -- month-0 expense = 1 x $500
         np.testing.assert_allclose(result.expenses[0], 500.0, rtol=1e-10)
         # No maintenance → remaining months are zero
         np.testing.assert_allclose(result.expenses[1:], 0.0, atol=1e-15)

@@ -351,9 +351,7 @@ class TestTermLifePremiumExpiry:
 class TestTermLifeAcquisitionCostGating:
     """Acquisition cost applies only to new-business policies (duration_inforce == 0)."""
 
-    def test_seasoned_policy_no_acquisition_cost(
-        self, assumption_set: AssumptionSet
-    ) -> None:
+    def test_seasoned_policy_no_acquisition_cost(self, assumption_set: AssumptionSet) -> None:
         """
         A seasoned inforce policy (duration_inforce > 0) must NOT receive
         acquisition cost — it was already paid at original issue.
@@ -387,9 +385,7 @@ class TestTermLifeAcquisitionCostGating:
         # Zero acquisition for seasoned policy, zero maintenance → all expenses zero
         np.testing.assert_allclose(result.expenses, 0.0, atol=1e-15)
 
-    def test_mixed_block_acquisition_only_new_business(
-        self, assumption_set: AssumptionSet
-    ) -> None:
+    def test_mixed_block_acquisition_only_new_business(self, assumption_set: AssumptionSet) -> None:
         """
         A block with 1 new-business and 1 seasoned policy: acquisition cost
         applies only to the new-business policy.
@@ -436,7 +432,7 @@ class TestTermLifeAcquisitionCostGating:
         block = InforceBlock(policies=[new_policy, seasoned_policy])
         engine = TermLife(block, assumption_set, config)
         result = engine.project()
-        # Only 1 of 2 policies is new business → month-0 expense = 1 × $500
+        # Only 1 of 2 policies is new business -- month-0 expense = 1 x $500
         np.testing.assert_allclose(result.expenses[0], 500.0, rtol=1e-10)
         # No maintenance → remaining months are zero
         np.testing.assert_allclose(result.expenses[1:], 0.0, atol=1e-15)
