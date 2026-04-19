@@ -528,3 +528,97 @@ class TestWholeLifeExpenses:
         else:
             # expenses[t] = (maint_cost / 12) * lx_agg[t] — scaling is linear in maint_cost
             assert result.expenses.sum() > 0.0
+
+    def test_seasoned_policy_no_acquisition_cost(
+        self,
+        assumption_set: AssumptionSet,
+    ) -> None:
+        """
+        A seasoned inforce policy (duration_inforce > 0) must NOT receive
+        acquisition cost — it was already paid at original issue.
+        """
+        seasoned_policy = Policy(
+            policy_id="WL_SEASONED",
+            issue_age=35,
+            attained_age=40,
+            sex=Sex.MALE,
+            smoker_status=SmokerStatus.NON_SMOKER,
+            underwriting_class="STANDARD",
+            face_amount=500_000.0,
+            annual_premium=8_000.0,
+            product_type=ProductType.WHOLE_LIFE,
+            policy_term=None,
+            duration_inforce=60,  # 5 years seasoned
+            reinsurance_cession_pct=0.5,
+            issue_date=date(2020, 1, 1),
+            valuation_date=date(2025, 1, 1),
+        )
+        config = ProjectionConfig(
+            valuation_date=date(2025, 1, 1),
+            projection_horizon_years=10,
+            discount_rate=0.05,
+            valuation_interest_rate=0.035,
+            acquisition_cost_per_policy=500.0,
+            maintenance_cost_per_policy_per_year=0.0,
+        )
+        block = InforceBlock(policies=[seasoned_policy])
+        engine = WholeLife(inforce=block, assumptions=assumption_set, config=config)
+        result = engine.project()
+        # Zero acquisition for seasoned policy, zero maintenance → all expenses zero
+        np.testing.assert_allclose(result.expenses, 0.0, atol=1e-15)
+
+    def test_mixed_block_acquisition_only_new_business(
+        self,
+        assumption_set: AssumptionSet,
+    ) -> None:
+        """
+        A block with 1 new-business and 1 seasoned policy: acquisition cost
+        applies only to the new-business policy.
+        """
+        new_policy = Policy(
+            policy_id="WL_NEW",
+            issue_age=40,
+            attained_age=40,
+            sex=Sex.MALE,
+            smoker_status=SmokerStatus.NON_SMOKER,
+            underwriting_class="STANDARD",
+            face_amount=500_000.0,
+            annual_premium=8_000.0,
+            product_type=ProductType.WHOLE_LIFE,
+            policy_term=None,
+            duration_inforce=0,
+            reinsurance_cession_pct=0.5,
+            issue_date=date(2025, 1, 1),
+            valuation_date=date(2025, 1, 1),
+        )
+        seasoned_policy = Policy(
+            policy_id="WL_SEASONED",
+            issue_age=35,
+            attained_age=40,
+            sex=Sex.MALE,
+            smoker_status=SmokerStatus.NON_SMOKER,
+            underwriting_class="STANDARD",
+            face_amount=500_000.0,
+            annual_premium=8_000.0,
+            product_type=ProductType.WHOLE_LIFE,
+            policy_term=None,
+            duration_inforce=60,  # 5 years seasoned
+            reinsurance_cession_pct=0.5,
+            issue_date=date(2020, 1, 1),
+            valuation_date=date(2025, 1, 1),
+        )
+        config = ProjectionConfig(
+            valuation_date=date(2025, 1, 1),
+            projection_horizon_years=5,
+            discount_rate=0.05,
+            valuation_interest_rate=0.035,
+            acquisition_cost_per_policy=500.0,
+            maintenance_cost_per_policy_per_year=0.0,
+        )
+        block = InforceBlock(policies=[new_policy, seasoned_policy])
+        engine = WholeLife(inforce=block, assumptions=assumption_set, config=config)
+        result = engine.project()
+        # Only 1 of 2 policies is new business → month-0 expense = 1 × $500
+        np.testing.assert_allclose(result.expenses[0], 500.0, rtol=1e-10)
+        # No maintenance → remaining months are zero
+        np.testing.assert_allclose(result.expenses[1:], 0.0, atol=1e-15)

@@ -195,7 +195,9 @@ are roughly one week of work and unblock first-deal quoting.
    - Acceptance: new test `tests/test_products/test_whole_life.py::test_expenses_applied`
      verifies that with `acquisition_cost=500, maintenance_cost=120,
      n=1`, `CashFlowResult.expenses[0] >= 500` and
-     `sum(expenses) > 500 + 120*20`.
+     `sum(expenses) <= 500 + 120*20` (upper bound: full-lx scenario)
+     with a separate lower bound confirming at least one year of
+     maintenance accrues (`sum > 500 + 12 * (120/12)`).
    - Files: `src/polaris_re/products/whole_life.py`,
      `tests/test_products/test_whole_life.py`,
      `tests/qa/golden_outputs/*.json` (regenerate after fix; golden

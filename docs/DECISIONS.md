@@ -612,19 +612,24 @@ readiness assessment (see `docs/PRODUCT_DIRECTION_2026-04-19.md`, BLOCKER #1).
 
 **Decision:** WL follows the TERM expense pattern:
 - `expenses[:, 0] += acquisition_cost_per_policy` — one-time issue expense per
-  policy at projection start (lx[:,0] = 1 so no lx weighting needed at t=0).
+  policy at projection start, **gated on `duration_inforce == 0`** so that only
+  genuine new-business policies incur acquisition cost. Seasoned inforce policies
+  (duration > 0) already paid acquisition at original issue and are excluded.
 - `expenses += lx * (maintenance_cost_per_policy_per_year / 12)` — monthly admin
   cost scaled by in-force factor.
 - No remaining-term mask (unlike TERM): whole life has no expiry, so maintenance
   runs for the full projection horizon weighted by lx.
-- Acquisition applies to every policy regardless of `duration_inforce`. A future
-  enhancement may restrict acquisition to new-issue policies (duration == 0);
-  the current behaviour matches TERM for consistency.
+- The same `duration_inforce == 0` gating applies to TERM as well, ensuring
+  consistent treatment across both product engines.
 
 **Rationale:** The fix matches the existing TERM pattern verbatim with the
 single adjustment that WL has no term-expiry mask. Whole life is a permanent
 product, so maintenance expenses accrue while the policy remains in-force (lx
-captures mortality + lapse decrement). The change is additive when the
+captures mortality + lapse decrement). The `duration_inforce == 0` gate on
+acquisition cost is actuarially correct: acquisition is a one-time cost at
+policy issue, and seasoned inforce policies have already incurred it in a
+prior accounting period. This gate was applied consistently to both TERM
+and WL engines. The change is additive when the
 config fields are zero (preserves backward compatibility in tests that do not
 set expense loadings) and fixes a silent understatement of costs when they are
 set. Golden baselines (`tests/qa/golden_outputs/golden_flat.json`,
