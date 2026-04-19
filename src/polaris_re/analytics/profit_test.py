@@ -24,13 +24,22 @@ class ProfitTestResult:
     Profitability metrics for a reinsurance deal.
 
     Monetary values in dollars. Rates as decimals (0.12 = 12%).
+
+    Reporting guardrails (see ADR-041):
+    - `irr` is None when the brentq solver does not converge OR when
+      |irr| > IRR_SUPPRESS_MAGNITUDE and total_undiscounted_profit < 0.
+      The latter case catches mathematically valid but economically
+      meaningless roots on loss-making deals.
+    - `profit_margin` is None when pv_premiums <= 0. A ratio with a
+      non-positive denominator flips sign misleadingly on NET cash flows
+      where ceded premiums can exceed gross.
     """
 
     hurdle_rate: float
     pv_profits: float
     pv_premiums: float
-    profit_margin: float  # pv_profits / pv_premiums
-    irr: float | None  # None if solver does not converge
+    profit_margin: float | None  # pv_profits / pv_premiums; None if pv_premiums <= 0
+    irr: float | None  # None if solver does not converge or deal is degenerate
     breakeven_year: int | None  # None if never breaks even
     total_undiscounted_profit: float
     profit_by_year: np.ndarray  # shape (projection_years,)
@@ -47,6 +56,11 @@ class ProfitTester:
         cashflows: NET or GROSS basis CashFlowResult.
         hurdle_rate: Annual hurdle rate, e.g. 0.10 for 10%.
     """
+
+    # IRR values above this magnitude on loss-making deals are typically
+    # artefacts of a degenerate sign change (brief early positive then all
+    # negative) and are not economically interpretable. See ADR-041.
+    IRR_SUPPRESS_MAGNITUDE: float = 0.5
 
     def __init__(self, cashflows: CashFlowResult, hurdle_rate: float) -> None:
         if cashflows.basis == "CEDED":
@@ -80,8 +94,10 @@ class ProfitTester:
         # PV premiums at hurdle rate
         pv_premiums = self._npv(self.hurdle_rate, self.cashflows.gross_premiums)
 
-        # Profit margin
-        profit_margin = pv_profits / pv_premiums if pv_premiums != 0.0 else 0.0
+        # Profit margin — suppressed when pv_premiums <= 0, because the ratio
+        # of two non-positive numbers flips sign misleadingly. This occurs on
+        # NET cash flows where ceded YRT premiums can exceed gross premiums.
+        profit_margin: float | None = pv_profits / pv_premiums if pv_premiums > 0.0 else None
 
         # IRR via Brent's method
         # Widen the search interval to [-0.99, 100.0] to handle edge cases.
@@ -99,6 +115,19 @@ class ProfitTester:
             )
         except ValueError:
             # No sign change - profits all same sign
+            irr = None
+
+        # IRR reporting guardrail: on a loss-making deal (negative total
+        # undiscounted profit), a root whose magnitude exceeds
+        # IRR_SUPPRESS_MAGNITUDE is almost always an artefact of a
+        # degenerate sign change (e.g. one small early positive followed by
+        # monotonic losses) and should not be reported.
+        total_undiscounted_profit = float(profits.sum())
+        if (
+            irr is not None
+            and abs(irr) > self.IRR_SUPPRESS_MAGNITUDE
+            and total_undiscounted_profit < 0
+        ):
             irr = None
 
         # Break-even year: first year where cumulative discounted profit turns
@@ -123,9 +152,6 @@ class ProfitTester:
             # cum_pv is positive from month 0 onward (entire projection profitable)
             if cum_pv[0] > 0:
                 breakeven_year = 1
-
-        # Total undiscounted profit
-        total_undiscounted_profit = float(profits.sum())
 
         # Annual profit summary
         # Pad to full years if needed

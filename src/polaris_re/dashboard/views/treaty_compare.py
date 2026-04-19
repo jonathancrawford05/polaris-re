@@ -162,7 +162,11 @@ def page_treaty_compare() -> None:
                 {
                     "Treaty": name,
                     "PV Profit (Cedant)": f"${res.pv_profits:,.0f}",  # type: ignore[union-attr]
-                    "Profit Margin": f"{res.profit_margin:.2%}",  # type: ignore[union-attr]
+                    "Profit Margin": (
+                        f"{res.profit_margin:.2%}"  # type: ignore[union-attr]
+                        if res.profit_margin is not None  # type: ignore[union-attr]
+                        else "N/A"
+                    ),
                     "IRR": f"{res.irr:.2%}" if res.irr else "N/A",  # type: ignore[union-attr]
                     "Break-even": str(res.breakeven_year) if res.breakeven_year else "N/A",  # type: ignore[union-attr]
                 }
@@ -178,7 +182,11 @@ def page_treaty_compare() -> None:
                     {
                         "Treaty": name,
                         "PV Profit (Reinsurer)": f"${res.pv_profits:,.0f}",  # type: ignore[union-attr]
-                        "Reinsurer Margin": f"{res.profit_margin:.2%}",  # type: ignore[union-attr]
+                        "Reinsurer Margin": (
+                            f"{res.profit_margin:.2%}"  # type: ignore[union-attr]
+                            if res.profit_margin is not None  # type: ignore[union-attr]
+                            else "N/A"
+                        ),
                         "IRR": f"{res.irr:.2%}" if res.irr else "N/A",  # type: ignore[union-attr]
                         "Break-even": str(res.breakeven_year) if res.breakeven_year else "N/A",  # type: ignore[union-attr]
                     }

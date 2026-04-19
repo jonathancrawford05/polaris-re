@@ -201,7 +201,9 @@ def page_scenario() -> None:
                     "PV Profit": f"${res.pv_profits:,.0f}",
                     "Delta vs Base": f"${delta:+,.0f}",
                     "Delta %": f"{delta / abs(base_pv) * 100:+.1f}%" if base_pv != 0 else "N/A",
-                    "Profit Margin": f"{res.profit_margin:.2%}",
+                    "Profit Margin": (
+                        f"{res.profit_margin:.2%}" if res.profit_margin is not None else "N/A"
+                    ),
                     "IRR": f"{res.irr:.2%}" if res.irr else "N/A",
                     "Break-even": str(res.breakeven_year) if res.breakeven_year else "N/A",
                 }

@@ -637,3 +637,89 @@ set. Golden baselines (`tests/qa/golden_outputs/golden_flat.json`,
 cedant PV profits decreased by ~$6K on each WL cohort, consistent with
 20 years of $75/policy/year maintenance plus $500/policy acquisition on 6
 policies discounted at 6%.
+
+---
+
+## ADR-041: Reporting guardrails on ProfitTester (IRR and profit_margin)
+
+**Date:** Phase 5 (product direction IMPORTANT fix)
+**Status:** Accepted
+
+**Context:** The 2026-04-19 commercial readiness assessment
+(`docs/PRODUCT_DIRECTION_2026-04-19.md`) identified two metric-level results
+in golden outputs that a pricing actuary would never present without caveat:
+
+1. **Spurious large IRRs on loss-making deals.** The WL cohort under YRT
+   produced a reinsurer IRR of 899.04% on a deal with PV profits of
+   −$4.32M and total undiscounted profit of −$13.89M. The 899% was a
+   mathematically valid brentq root of a cash-flow stream that started with
+   a single small positive ($3,839 in year 1) and turned monotonically
+   negative — a degenerate sign change with no economic meaning.
+
+2. **Sign-flipped profit margins.** The FLAT TERM cohort showed
+   `profit_margin = +1.40` (140%) while `pv_profits = −$35,292`. Root
+   cause: the NET view's `pv_premiums` was **negative** (−$25,171) because
+   ceded YRT premiums exceeded gross premiums. The ratio of two negative
+   numbers flipped sign, producing a misleading "positive margin" on a
+   loss-making deal.
+
+**Decision:** Add two reporting guardrails to `ProfitTester.run()`:
+
+1. **IRR guardrail:** After the brentq solve, if the deal has
+   `total_undiscounted_profit < 0` AND `|irr| > IRR_SUPPRESS_MAGNITUDE`
+   (default 0.5 = 50%), set `irr = None`. Large-magnitude IRRs are
+   retained when the deal is genuinely profitable (total undiscounted
+   > 0), so legitimate high-return structures are not suppressed. The
+   threshold is a class constant (`ProfitTester.IRR_SUPPRESS_MAGNITUDE`)
+   so it can be tuned or overridden in future experiments.
+
+2. **Profit-margin guardrail:** If `pv_premiums <= 0`, set
+   `profit_margin = None` instead of computing a sign-ambiguous ratio.
+   Previously the code returned `0.0` when `pv_premiums == 0` and
+   computed the sign-flipped ratio when `pv_premiums < 0`; both are
+   misleading. The type of `ProfitTestResult.profit_margin` changes from
+   `float` to `float | None`.
+
+All downstream consumers were updated to handle `None`:
+
+- `analytics/uq.py`: `profit_margins` array stores `np.nan` when the
+  underlying value is `None`; `UQResult.percentile()` masks NaN before
+  computing the percentile (mirroring the existing IRR handling).
+- `api/main.py`: `PriceResponse.profit_margin`,
+  `PriceResponse.reinsurer_profit_margin`, and
+  `ScenarioSummary.profit_margin` typed `float | None`.
+- `cli.py`: the Rich-rendered cedant/reinsurer/scenario tables format
+  `profit_margin` as `"N/A"` when `None` (same pattern as `irr`).
+- `dashboard/views/pricing.py`, `treaty_compare.py`, `scenario.py`:
+  `st.metric`/table cells format `"N/A"` when `profit_margin is None`.
+
+**Rationale:** Reinsurance deal committee packets demand numbers that are
+both correct and economically interpretable. An IRR of 899% or a margin
+of +140% on a loss-making deal fails the second test even when it passes
+the first. Suppressing these values (returning `None` → `"N/A"`) is the
+standard industry practice, mirroring how the existing non-convergent
+IRR case is already handled. The guardrails are additive and conservative:
+
+- They only suppress values on loss-making deals (IRR guardrail) or
+  degenerate denominators (margin guardrail).
+- Legitimate high-IRR profitable deals, and loss-making deals with
+  modest IRRs, are unchanged.
+- Typical well-behaved golden outputs (positive pv_premiums, modest
+  IRRs) retain their prior numeric values up to floating-point noise.
+
+**Impact on golden baselines:** Regenerated. Only one semantic change:
+`golden_flat.json::TERM.cedant_profit_margin` went from
+`1.4020878265412453` → `null`, correctly reflecting the negative
+`pv_premiums` for that cohort. All other golden values changed only at
+the float-noise level (final ULP).
+
+**Tests:** Six new tests in
+`tests/test_analytics/test_profit_test.py::TestProfitTesterReportingGuardrails`
+verify each guardrail closed-form: IRR suppression vs preservation under
+the four cross-product combinations of (magnitude small/large) × (deal
+profitable/unprofitable); margin suppression when `pv_premiums < 0` and
+`pv_premiums == 0`; margin preservation when `pv_premiums > 0` (even on
+losses — well-defined). Two existing margin tests were tightened with
+`is not None` assertions to confirm the common path returns a concrete
+float.
+

@@ -178,6 +178,7 @@ class TestProfitTesterMargin:
         premiums = np.ones(60, dtype=np.float64) * 1000.0
         cf = _make_net_cashflow(profits, premiums)
         result = ProfitTester(cf, hurdle_rate=0.10).run()
+        assert result.profit_margin is not None
         assert -1.0 <= result.profit_margin <= 1.0
 
     def test_profit_margin_positive_for_profitable_deal(self):
@@ -186,7 +187,115 @@ class TestProfitTesterMargin:
         premiums = np.ones(60, dtype=np.float64) * 1000.0
         cf = _make_net_cashflow(profits, premiums)
         result = ProfitTester(cf, hurdle_rate=0.10).run()
+        assert result.profit_margin is not None
         assert result.profit_margin > 0
+
+
+class TestProfitTesterReportingGuardrails:
+    """Reporting guardrails that suppress misleading IRR and profit_margin values.
+
+    Rationale (see ADR-041):
+    - IRRs with |value| > 50% on loss-making deals are numerically valid roots
+      of degenerate sign changes but economically meaningless. A pricing actuary
+      would never cite "899% IRR on a $14M loss".
+    - profit_margin = pv_profits / pv_premiums flips sign when pv_premiums is
+      negative (possible on NET cash flows where ceded premiums exceed gross),
+      producing "1.5%" margins on large losses.
+    """
+
+    def test_irr_suppressed_when_large_magnitude_and_net_loss(self):
+        """
+        Closed-form: a stream with a small positive in month 0 and losses
+        thereafter yields a huge spurious IRR. With total_undiscounted_profit
+        < 0 and |irr| > 0.5, irr must be None.
+        """
+        t = 60
+        profits = np.full(t, -100.0, dtype=np.float64)
+        profits[0] = 50.0  # tiny early positive → brentq finds a huge root
+        cf = _make_net_cashflow(profits)
+        result = ProfitTester(cf, hurdle_rate=0.10).run()
+
+        assert result.total_undiscounted_profit < 0
+        assert result.irr is None, (
+            f"Expected IRR suppressed for loss-making deal with large magnitude "
+            f"IRR root, but got irr={result.irr}"
+        )
+
+    def test_irr_preserved_when_magnitude_small_even_if_loss(self):
+        """
+        A loss-making deal with a modest IRR (|irr| <= 0.5) is economically
+        interpretable (e.g. a low negative IRR on a mildly unprofitable deal).
+        Keep it.
+        """
+        # Initial outflow of -100, then 59 monthly inflows of +1.60.
+        # Undiscounted total = -100 + 59*1.60 = -5.6 < 0.
+        # The cash flow yields a modest negative IRR (sign change exists).
+        t = 60
+        profits = np.zeros(t, dtype=np.float64)
+        profits[0] = -100.0
+        profits[1:] = 1.60
+        cf = _make_net_cashflow(profits)
+        result = ProfitTester(cf, hurdle_rate=0.10).run()
+
+        assert result.total_undiscounted_profit < 0
+        assert result.irr is not None
+        assert abs(result.irr) <= 0.5
+
+    def test_irr_preserved_when_large_magnitude_but_profitable(self):
+        """
+        A deal with large IRR but NET profitable (total undisc > 0) is a
+        legitimate high-return structure — do not suppress.
+        """
+        # Initial outflow -10, then +2.0 for 59 months. Total = -10 + 118 = 108 > 0.
+        # IRR is very large (small strain, large cumulative profit).
+        t = 60
+        profits = np.full(t, 2.0, dtype=np.float64)
+        profits[0] = -10.0
+        cf = _make_net_cashflow(profits)
+        result = ProfitTester(cf, hurdle_rate=0.10).run()
+
+        assert result.total_undiscounted_profit > 0
+        # IRR is very large here but should remain because the deal is profitable
+        assert result.irr is not None
+        assert result.irr > 0.5
+
+    def test_profit_margin_suppressed_when_pv_premiums_negative(self):
+        """
+        When a NET premium stream has pv_premiums <= 0 (e.g. ceded YRT premiums
+        exceed gross premiums in a high-cession deal), profit_margin is the
+        ratio of two negative-ish numbers and flips sign misleadingly. Suppress.
+        """
+        t = 60
+        profits = np.full(t, -20.0, dtype=np.float64)
+        premiums = np.full(t, -10.0, dtype=np.float64)  # net premiums negative
+        cf = _make_net_cashflow(profits, premiums)
+        result = ProfitTester(cf, hurdle_rate=0.10).run()
+
+        assert result.pv_premiums < 0
+        assert result.profit_margin is None
+
+    def test_profit_margin_suppressed_when_pv_premiums_zero(self):
+        """Zero pv_premiums => undefined margin => None."""
+        t = 60
+        profits = np.full(t, -5.0, dtype=np.float64)
+        premiums = np.zeros(t, dtype=np.float64)
+        cf = _make_net_cashflow(profits, premiums)
+        result = ProfitTester(cf, hurdle_rate=0.10).run()
+
+        np.testing.assert_allclose(result.pv_premiums, 0.0, atol=1e-10)
+        assert result.profit_margin is None
+
+    def test_profit_margin_preserved_when_pv_premiums_positive(self):
+        """Positive pv_premiums → margin is meaningful, even if profits are negative."""
+        t = 60
+        profits = np.full(t, -5.0, dtype=np.float64)
+        premiums = np.full(t, 100.0, dtype=np.float64)
+        cf = _make_net_cashflow(profits, premiums)
+        result = ProfitTester(cf, hurdle_rate=0.10).run()
+
+        assert result.pv_premiums > 0
+        assert result.profit_margin is not None
+        assert result.profit_margin < 0  # loss-making but well-defined
 
 
 class TestProfitTesterBreakeven:
