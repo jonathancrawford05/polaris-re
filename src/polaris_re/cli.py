@@ -404,10 +404,13 @@ def _render_cohort_pricing_tables(cohort: CohortResult) -> None:
         if cedant_result.breakeven_year is not None
         else "Never"
     )
+    cedant_margin_str = (
+        f"{cedant_result.profit_margin:.2%}" if cedant_result.profit_margin is not None else "N/A"
+    )
     cedant_table.add_row("Hurdle Rate", f"{cedant_result.hurdle_rate:.2%}")
     cedant_table.add_row("PV Profits", f"${cedant_result.pv_profits:,.0f}")
     cedant_table.add_row("PV Premiums", f"${cedant_result.pv_premiums:,.0f}")
-    cedant_table.add_row("Profit Margin", f"{cedant_result.profit_margin:.2%}")
+    cedant_table.add_row("Profit Margin", cedant_margin_str)
     cedant_table.add_row("IRR", irr_str)
     cedant_table.add_row("Break-even", be_str)
     cedant_table.add_row(
@@ -431,10 +434,15 @@ def _render_cohort_pricing_tables(cohort: CohortResult) -> None:
             if reinsurer_result.breakeven_year is not None
             else "Never"
         )
+        rei_margin_str = (
+            f"{reinsurer_result.profit_margin:.2%}"
+            if reinsurer_result.profit_margin is not None
+            else "N/A"
+        )
         rei_table.add_row("Hurdle Rate", f"{reinsurer_result.hurdle_rate:.2%}")
         rei_table.add_row("PV Profits", f"${reinsurer_result.pv_profits:,.0f}")
         rei_table.add_row("PV Premiums", f"${reinsurer_result.pv_premiums:,.0f}")
-        rei_table.add_row("Profit Margin", f"{reinsurer_result.profit_margin:.2%}")
+        rei_table.add_row("Profit Margin", rei_margin_str)
         rei_table.add_row("IRR", rei_irr_str)
         rei_table.add_row("Break-even", rei_be_str)
         rei_table.add_row(
@@ -769,10 +777,11 @@ def scenario_cmd(
     all_rows = []
     for name, res in results.scenarios:
         irr_str = f"{res.irr:.2%}" if res.irr is not None else "N/A"
+        margin_str = f"{res.profit_margin:.2%}" if res.profit_margin is not None else "N/A"
         table.add_row(
             name,
             f"${res.pv_profits:,.0f}",
-            f"{res.profit_margin:.2%}",
+            margin_str,
             irr_str,
         )
         all_rows.append(

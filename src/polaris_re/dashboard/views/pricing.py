@@ -419,10 +419,14 @@ def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: Assum
 
     col_a, col_b, col_c, col_d = st.columns(4)
     col_a.metric("PV Profits (Cedant)", f"${result.pv_profits:,.0f}")
+    margin_str = f"{result.profit_margin:.2%}" if result.profit_margin is not None else "N/A"
     col_b.metric(
         "Profit Margin",
-        f"{result.profit_margin:.2%}",
-        help="PV(Net Cash Flow) / PV(Net Premiums) at the hurdle rate.",
+        margin_str,
+        help=(
+            "PV(Net Cash Flow) / PV(Net Premiums) at the hurdle rate. "
+            "Reported as N/A when PV(Net Premiums) <= 0 (ADR-041)."
+        ),
     )
     col_c.metric("IRR", _format_irr(result.irr, cached_treaty_type))
     bey = str(result.breakeven_year) if result.breakeven_year else "N/A"
@@ -465,10 +469,18 @@ def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: Assum
                 "For a profitable reinsurer, this should be < 100%."
             ),
         )
+        rei_margin_str = (
+            f"{reinsurer_result.profit_margin:.2%}"
+            if reinsurer_result.profit_margin is not None
+            else "N/A"
+        )
         rc_c.metric(
             "Reinsurer Margin",
-            f"{reinsurer_result.profit_margin:.2%}",
-            help="PV(Reinsurer NCF) / PV(Ceded Premiums) at the hurdle rate.",
+            rei_margin_str,
+            help=(
+                "PV(Reinsurer NCF) / PV(Ceded Premiums) at the hurdle rate. "
+                "Reported as N/A when PV(Ceded Premiums) <= 0 (ADR-041)."
+            ),
         )
         rc_d.metric(
             "IRR",

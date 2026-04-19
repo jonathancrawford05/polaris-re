@@ -150,14 +150,14 @@ class PriceResponse(BaseModel):
     # Cedant (NET) view
     pv_profits: float
     pv_premiums: float
-    profit_margin: float
+    profit_margin: float | None  # None when pv_premiums <= 0 (ADR-041)
     irr: float | None
     breakeven_year: int | None
     total_undiscounted_profit: float
     profit_by_year: list[float]
     # Reinsurer view
     reinsurer_pv_profits: float
-    reinsurer_profit_margin: float
+    reinsurer_profit_margin: float | None  # None when pv_premiums <= 0 (ADR-041)
     reinsurer_irr: float | None
     reinsurer_breakeven_year: int | None
     reinsurer_total_undiscounted_profit: float
@@ -199,7 +199,7 @@ class ScenarioSummary(BaseModel):
 
     scenario_name: str
     pv_profits: float
-    profit_margin: float
+    profit_margin: float | None  # None when pv_premiums <= 0 (ADR-041)
     irr: float | None
 
 

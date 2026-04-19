@@ -98,10 +98,13 @@ class UQResult:
             Dict with keys 'pv_profit', 'irr', 'profit_margin'.
         """
         valid_irrs = self.irrs[~np.isnan(self.irrs)]
+        valid_margins = self.profit_margins[~np.isnan(self.profit_margins)]
         return {
             "pv_profit": float(np.percentile(self.pv_profits, pct)),
             "irr": float(np.percentile(valid_irrs, pct)) if len(valid_irrs) > 0 else float("nan"),
-            "profit_margin": float(np.percentile(self.profit_margins, pct)),
+            "profit_margin": (
+                float(np.percentile(valid_margins, pct)) if len(valid_margins) > 0 else float("nan")
+            ),
         }
 
     def var(self, confidence: float = 0.95) -> float:
@@ -242,7 +245,9 @@ class MonteCarloUQ:
             pv_profits[i] = result.pv_profits
             if result.irr is not None:
                 irrs[i] = result.irr
-            profit_margins[i] = result.profit_margin
+            # profit_margin is None when pv_premiums <= 0 (ADR-041). Store NaN
+            # so percentile and np.isnan masking behave correctly downstream.
+            profit_margins[i] = result.profit_margin if result.profit_margin is not None else np.nan
 
         return UQResult(
             n_scenarios=n,
