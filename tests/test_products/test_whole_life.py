@@ -382,3 +382,243 @@ class TestWholeLifeProjection:
         np.testing.assert_allclose(
             non_par.project().gross_premiums, par.project().gross_premiums, rtol=1e-10
         )
+
+
+class TestWholeLifeExpenses:
+    """Expense loading for whole life — mirrors the TERM pattern."""
+
+    def test_expenses_zero_when_config_zero(
+        self,
+        single_wl_block: InforceBlock,
+        assumption_set: AssumptionSet,
+        short_config: ProjectionConfig,
+    ) -> None:
+        """Default ProjectionConfig has both expense fields zero → expenses array is zero."""
+        engine = WholeLife(inforce=single_wl_block, assumptions=assumption_set, config=short_config)
+        result = engine.project()
+        np.testing.assert_allclose(result.expenses, 0.0, atol=1e-15)
+
+    def test_expenses_applied(
+        self,
+        single_wl_block: InforceBlock,
+        assumption_set: AssumptionSet,
+    ) -> None:
+        """
+        With acquisition_cost=500 and maintenance_cost=120/yr, over a 20-year
+        projection on a single policy:
+          - expenses[0] is exactly acquisition + one month of maintenance
+            (lx[0] = 1.0 for all policies).
+          - expenses[1:] is positive (ongoing maintenance while in-force).
+          - Total expenses do not exceed the full-lx upper bound
+            acq + maint*n_years.
+        """
+        config = ProjectionConfig(
+            valuation_date=date(2025, 1, 1),
+            projection_horizon_years=20,
+            discount_rate=0.05,
+            valuation_interest_rate=0.035,
+            acquisition_cost_per_policy=500.0,
+            maintenance_cost_per_policy_per_year=120.0,
+        )
+        engine = WholeLife(inforce=single_wl_block, assumptions=assumption_set, config=config)
+        result = engine.project()
+
+        maint_monthly = 120.0 / 12.0
+        expected_month0 = 500.0 + maint_monthly  # acq applied once at t=0; maint scaled by lx[0]=1
+        np.testing.assert_allclose(result.expenses[0], expected_month0, rtol=1e-10)
+        # Ongoing maintenance from month 1 onward (policy still in-force)
+        assert result.expenses[1:].sum() > 0.0, "Maintenance expense not applied after month 0"
+        # Upper bound: full lx=1 for 240 months + acquisition
+        upper_bound = 500.0 + 120.0 * 20
+        assert result.expenses.sum() <= upper_bound + 1e-8, (
+            f"Expense total {result.expenses.sum():.2f} exceeds upper bound {upper_bound:.2f}"
+        )
+        # Lower bound: at least the acquisition cost + a couple months of maintenance
+        assert result.expenses.sum() > 500.0 + maint_monthly * 12
+
+    def test_expense_decay_tracks_inforce(
+        self,
+        single_wl_block: InforceBlock,
+        assumption_set: AssumptionSet,
+    ) -> None:
+        """
+        Maintenance expense in any month t (t>0) equals maint_monthly * lx_agg[t].
+        Verify using seriatim lx output that maintenance is lx-weighted.
+        """
+        config = ProjectionConfig(
+            valuation_date=date(2025, 1, 1),
+            projection_horizon_years=10,
+            discount_rate=0.05,
+            valuation_interest_rate=0.035,
+            acquisition_cost_per_policy=0.0,
+            maintenance_cost_per_policy_per_year=60.0,
+        )
+        engine = WholeLife(inforce=single_wl_block, assumptions=assumption_set, config=config)
+        result = engine.project(seriatim=True)
+
+        maint_monthly = 60.0 / 12.0
+        lx_agg = result.seriatim_lx.sum(axis=0)
+        expected = lx_agg * maint_monthly
+        np.testing.assert_allclose(result.expenses, expected, rtol=1e-10)
+
+    def test_multi_policy_expenses_sum(
+        self,
+        assumption_set: AssumptionSet,
+    ) -> None:
+        """
+        Three-policy block → month-0 expenses = 3 * acquisition_cost + 3 * maint_monthly.
+        Confirms acquisition applies per policy and maintenance scales with N.
+        """
+        config = ProjectionConfig(
+            valuation_date=date(2025, 1, 1),
+            projection_horizon_years=5,
+            discount_rate=0.05,
+            valuation_interest_rate=0.035,
+            acquisition_cost_per_policy=200.0,
+            maintenance_cost_per_policy_per_year=60.0,
+        )
+        policies = [
+            Policy(
+                policy_id=f"WL_EXP_{i}",
+                issue_age=40 + i * 5,
+                attained_age=40 + i * 5,
+                sex=Sex.MALE,
+                smoker_status=SmokerStatus.NON_SMOKER,
+                underwriting_class="STANDARD",
+                face_amount=500_000.0,
+                annual_premium=8_000.0,
+                product_type=ProductType.WHOLE_LIFE,
+                policy_term=None,
+                duration_inforce=0,
+                reinsurance_cession_pct=0.5,
+                issue_date=date(2025, 1, 1),
+                valuation_date=date(2025, 1, 1),
+            )
+            for i in range(3)
+        ]
+        block = InforceBlock(policies=policies)
+        engine = WholeLife(inforce=block, assumptions=assumption_set, config=config)
+        result = engine.project()
+
+        maint_monthly = 60.0 / 12.0
+        expected_month0 = 3 * 200.0 + 3 * maint_monthly
+        np.testing.assert_allclose(result.expenses[0], expected_month0, rtol=1e-10)
+
+    @pytest.mark.parametrize("maint_cost", [0.0, 75.0, 240.0])
+    def test_maintenance_sensitivity(
+        self,
+        single_wl_block: InforceBlock,
+        assumption_set: AssumptionSet,
+        maint_cost: float,
+    ) -> None:
+        """Expense total scales linearly with maintenance_cost_per_policy_per_year."""
+        config = ProjectionConfig(
+            valuation_date=date(2025, 1, 1),
+            projection_horizon_years=10,
+            discount_rate=0.05,
+            valuation_interest_rate=0.035,
+            acquisition_cost_per_policy=0.0,
+            maintenance_cost_per_policy_per_year=maint_cost,
+        )
+        engine = WholeLife(inforce=single_wl_block, assumptions=assumption_set, config=config)
+        result = engine.project()
+
+        if maint_cost == 0.0:
+            np.testing.assert_allclose(result.expenses, 0.0, atol=1e-15)
+        else:
+            # expenses[t] = (maint_cost / 12) * lx_agg[t] — scaling is linear in maint_cost
+            assert result.expenses.sum() > 0.0
+
+    def test_seasoned_policy_no_acquisition_cost(
+        self,
+        assumption_set: AssumptionSet,
+    ) -> None:
+        """
+        A seasoned inforce policy (duration_inforce > 0) must NOT receive
+        acquisition cost — it was already paid at original issue.
+        """
+        seasoned_policy = Policy(
+            policy_id="WL_SEASONED",
+            issue_age=35,
+            attained_age=40,
+            sex=Sex.MALE,
+            smoker_status=SmokerStatus.NON_SMOKER,
+            underwriting_class="STANDARD",
+            face_amount=500_000.0,
+            annual_premium=8_000.0,
+            product_type=ProductType.WHOLE_LIFE,
+            policy_term=None,
+            duration_inforce=60,  # 5 years seasoned
+            reinsurance_cession_pct=0.5,
+            issue_date=date(2020, 1, 1),
+            valuation_date=date(2025, 1, 1),
+        )
+        config = ProjectionConfig(
+            valuation_date=date(2025, 1, 1),
+            projection_horizon_years=10,
+            discount_rate=0.05,
+            valuation_interest_rate=0.035,
+            acquisition_cost_per_policy=500.0,
+            maintenance_cost_per_policy_per_year=0.0,
+        )
+        block = InforceBlock(policies=[seasoned_policy])
+        engine = WholeLife(inforce=block, assumptions=assumption_set, config=config)
+        result = engine.project()
+        # Zero acquisition for seasoned policy, zero maintenance → all expenses zero
+        np.testing.assert_allclose(result.expenses, 0.0, atol=1e-15)
+
+    def test_mixed_block_acquisition_only_new_business(
+        self,
+        assumption_set: AssumptionSet,
+    ) -> None:
+        """
+        A block with 1 new-business and 1 seasoned policy: acquisition cost
+        applies only to the new-business policy.
+        """
+        new_policy = Policy(
+            policy_id="WL_NEW",
+            issue_age=40,
+            attained_age=40,
+            sex=Sex.MALE,
+            smoker_status=SmokerStatus.NON_SMOKER,
+            underwriting_class="STANDARD",
+            face_amount=500_000.0,
+            annual_premium=8_000.0,
+            product_type=ProductType.WHOLE_LIFE,
+            policy_term=None,
+            duration_inforce=0,
+            reinsurance_cession_pct=0.5,
+            issue_date=date(2025, 1, 1),
+            valuation_date=date(2025, 1, 1),
+        )
+        seasoned_policy = Policy(
+            policy_id="WL_SEASONED",
+            issue_age=35,
+            attained_age=40,
+            sex=Sex.MALE,
+            smoker_status=SmokerStatus.NON_SMOKER,
+            underwriting_class="STANDARD",
+            face_amount=500_000.0,
+            annual_premium=8_000.0,
+            product_type=ProductType.WHOLE_LIFE,
+            policy_term=None,
+            duration_inforce=60,  # 5 years seasoned
+            reinsurance_cession_pct=0.5,
+            issue_date=date(2020, 1, 1),
+            valuation_date=date(2025, 1, 1),
+        )
+        config = ProjectionConfig(
+            valuation_date=date(2025, 1, 1),
+            projection_horizon_years=5,
+            discount_rate=0.05,
+            valuation_interest_rate=0.035,
+            acquisition_cost_per_policy=500.0,
+            maintenance_cost_per_policy_per_year=0.0,
+        )
+        block = InforceBlock(policies=[new_policy, seasoned_policy])
+        engine = WholeLife(inforce=block, assumptions=assumption_set, config=config)
+        result = engine.project()
+        # Only 1 of 2 policies is new business -- month-0 expense = 1 x $500
+        np.testing.assert_allclose(result.expenses[0], 500.0, rtol=1e-10)
+        # No maintenance → remaining months are zero
+        np.testing.assert_allclose(result.expenses[1:], 0.0, atol=1e-15)

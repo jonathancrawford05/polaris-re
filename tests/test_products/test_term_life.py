@@ -346,3 +346,108 @@ class TestTermLifePremiumExpiry:
             atol=1e-15,
             err_msg="Expenses must be zero after the policy term expires",
         )
+
+
+class TestTermLifeAcquisitionCostGating:
+    """Acquisition cost applies only to new-business policies (duration_inforce == 0)."""
+
+    def test_seasoned_policy_no_acquisition_cost(self, assumption_set: AssumptionSet) -> None:
+        """
+        A seasoned inforce policy (duration_inforce > 0) must NOT receive
+        acquisition cost — it was already paid at original issue.
+        """
+        seasoned_policy = Policy(
+            policy_id="TERM_SEASONED",
+            issue_age=35,
+            attained_age=40,
+            sex=Sex.MALE,
+            smoker_status=SmokerStatus.NON_SMOKER,
+            underwriting_class="STANDARD",
+            face_amount=1_000_000.0,
+            annual_premium=12_000.0,
+            product_type=ProductType.TERM,
+            policy_term=20,
+            duration_inforce=60,  # 5 years seasoned
+            reinsurance_cession_pct=0.5,
+            issue_date=date(2020, 1, 1),
+            valuation_date=date(2025, 1, 1),
+        )
+        config = ProjectionConfig(
+            valuation_date=date(2025, 1, 1),
+            projection_horizon_years=10,
+            discount_rate=0.05,
+            acquisition_cost_per_policy=500.0,
+            maintenance_cost_per_policy_per_year=0.0,
+        )
+        block = InforceBlock(policies=[seasoned_policy])
+        engine = TermLife(block, assumption_set, config)
+        result = engine.project()
+        # Zero acquisition for seasoned policy, zero maintenance → all expenses zero
+        np.testing.assert_allclose(result.expenses, 0.0, atol=1e-15)
+
+    def test_mixed_block_acquisition_only_new_business(self, assumption_set: AssumptionSet) -> None:
+        """
+        A block with 1 new-business and 1 seasoned policy: acquisition cost
+        applies only to the new-business policy.
+        """
+        new_policy = Policy(
+            policy_id="TERM_NEW",
+            issue_age=40,
+            attained_age=40,
+            sex=Sex.MALE,
+            smoker_status=SmokerStatus.NON_SMOKER,
+            underwriting_class="STANDARD",
+            face_amount=1_000_000.0,
+            annual_premium=12_000.0,
+            product_type=ProductType.TERM,
+            policy_term=20,
+            duration_inforce=0,
+            reinsurance_cession_pct=0.5,
+            issue_date=date(2025, 1, 1),
+            valuation_date=date(2025, 1, 1),
+        )
+        seasoned_policy = Policy(
+            policy_id="TERM_SEASONED",
+            issue_age=35,
+            attained_age=40,
+            sex=Sex.MALE,
+            smoker_status=SmokerStatus.NON_SMOKER,
+            underwriting_class="STANDARD",
+            face_amount=1_000_000.0,
+            annual_premium=12_000.0,
+            product_type=ProductType.TERM,
+            policy_term=20,
+            duration_inforce=60,  # 5 years seasoned
+            reinsurance_cession_pct=0.5,
+            issue_date=date(2020, 1, 1),
+            valuation_date=date(2025, 1, 1),
+        )
+        config = ProjectionConfig(
+            valuation_date=date(2025, 1, 1),
+            projection_horizon_years=10,
+            discount_rate=0.05,
+            acquisition_cost_per_policy=500.0,
+            maintenance_cost_per_policy_per_year=0.0,
+        )
+        block = InforceBlock(policies=[new_policy, seasoned_policy])
+        engine = TermLife(block, assumption_set, config)
+        result = engine.project()
+        # Only 1 of 2 policies is new business -- month-0 expense = 1 x $500
+        np.testing.assert_allclose(result.expenses[0], 500.0, rtol=1e-10)
+        # No maintenance → remaining months are zero
+        np.testing.assert_allclose(result.expenses[1:], 0.0, atol=1e-15)
+
+    def test_new_business_still_receives_acquisition(
+        self, single_policy_block: InforceBlock, assumption_set: AssumptionSet
+    ) -> None:
+        """A new-business policy (duration_inforce == 0) still gets acquisition cost."""
+        config = ProjectionConfig(
+            valuation_date=date(2025, 1, 1),
+            projection_horizon_years=5,
+            discount_rate=0.05,
+            acquisition_cost_per_policy=750.0,
+            maintenance_cost_per_policy_per_year=0.0,
+        )
+        engine = TermLife(single_policy_block, assumption_set, config)
+        result = engine.project()
+        np.testing.assert_allclose(result.expenses[0], 750.0, rtol=1e-10)
