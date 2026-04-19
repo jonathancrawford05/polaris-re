@@ -299,7 +299,17 @@ class WholeLife(BaseProduct):
         ser_claims = lx * q * face_vec[:, np.newaxis]
         ser_lapses = np.zeros((n, t), dtype=np.float64)
         ser_lapse_count = lx * w  # (N, T)
+
+        # Expenses: acquisition cost (month 0) + ongoing maintenance scaled by lx.
+        # Whole life has no term expiry, so maintenance applies for the full
+        # projection horizon — in-force weighting is handled by lx.
         ser_expenses = np.zeros((n, t), dtype=np.float64)
+        acq_cost = self.config.acquisition_cost_per_policy
+        maint_cost_monthly = self.config.maintenance_cost_per_policy_per_year / 12.0
+        if acq_cost > 0.0:
+            ser_expenses[:, 0] += acq_cost
+        if maint_cost_monthly > 0.0:
+            ser_expenses += lx * maint_cost_monthly
 
         # Reserve balance: lx * V
         ser_reserves = lx * reserves
