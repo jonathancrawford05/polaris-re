@@ -451,3 +451,118 @@ class TestTermLifeAcquisitionCostGating:
         engine = TermLife(single_policy_block, assumption_set, config)
         result = engine.project()
         np.testing.assert_allclose(result.expenses[0], 750.0, rtol=1e-10)
+
+
+def _make_term_policy(
+    *,
+    policy_id: str = "TERM_SS",
+    mortality_multiplier: float = 1.0,
+    flat_extra_per_1000: float = 0.0,
+) -> Policy:
+    """Build a standard-shape term policy with optional substandard rating."""
+    return Policy(
+        policy_id=policy_id,
+        issue_age=40,
+        attained_age=40,
+        sex=Sex.MALE,
+        smoker_status=SmokerStatus.NON_SMOKER,
+        underwriting_class="STANDARD",
+        face_amount=1_000_000.0,
+        annual_premium=12_000.0,
+        product_type=ProductType.TERM,
+        policy_term=20,
+        duration_inforce=0,
+        mortality_multiplier=mortality_multiplier,
+        flat_extra_per_1000=flat_extra_per_1000,
+        reinsurance_cession_pct=0.5,
+        issue_date=date(2025, 1, 1),
+        valuation_date=date(2025, 1, 1),
+    )
+
+
+class TestTermLifeSubstandardRating:
+    """Closed-form tests for per-policy substandard rating (ADR-042, Slice 2)."""
+
+    def test_default_is_identity(
+        self,
+        single_policy_block: InforceBlock,
+        assumption_set: AssumptionSet,
+        config: ProjectionConfig,
+    ) -> None:
+        """multiplier=1.0, flat_extra=0.0 must match the implicit-default projection."""
+        default_policy = _make_term_policy(policy_id="TERM_DEFAULT")
+        block = InforceBlock(policies=[default_policy])
+        result_explicit = TermLife(block, assumption_set, config).project()
+        result_baseline = TermLife(single_policy_block, assumption_set, config).project()
+        np.testing.assert_allclose(
+            result_explicit.death_claims, result_baseline.death_claims, rtol=1e-12
+        )
+        np.testing.assert_allclose(
+            result_explicit.gross_premiums, result_baseline.gross_premiums, rtol=1e-12
+        )
+
+    def test_multiplier_scales_first_month_claim(
+        self, assumption_set: AssumptionSet, config: ProjectionConfig
+    ) -> None:
+        """
+        CLOSED-FORM: First-month claim = lx[0] * q_eff * face, lx[0] = 1.
+        With multiplier=2.0 and no flat extra, first-month claim is EXACTLY 2x.
+        """
+        base = InforceBlock(policies=[_make_term_policy(policy_id="BASE")])
+        rated = InforceBlock(
+            policies=[_make_term_policy(policy_id="RATED", mortality_multiplier=2.0)]
+        )
+        r_base = TermLife(base, assumption_set, config).project()
+        r_rated = TermLife(rated, assumption_set, config).project()
+        np.testing.assert_allclose(
+            r_rated.death_claims[0], 2.0 * r_base.death_claims[0], rtol=1e-12
+        )
+
+    def test_flat_extra_adds_expected_monthly_increment(
+        self, assumption_set: AssumptionSet, config: ProjectionConfig
+    ) -> None:
+        """
+        CLOSED-FORM: flat_extra=$5/$1000/year on $1M face adds
+        face * 5 / 12000 = $416.6667 to first-month claim (lx[0] = 1).
+        Over a year of level lx, the additive component aggregates to ~$5,000.
+        """
+        base = InforceBlock(policies=[_make_term_policy(policy_id="BASE")])
+        rated = InforceBlock(
+            policies=[_make_term_policy(policy_id="FLAT", flat_extra_per_1000=5.0)]
+        )
+        r_base = TermLife(base, assumption_set, config).project()
+        r_rated = TermLife(rated, assumption_set, config).project()
+        expected_month0_diff = 1_000_000.0 * 5.0 / 12000.0
+        np.testing.assert_allclose(
+            r_rated.death_claims[0] - r_base.death_claims[0],
+            expected_month0_diff,
+            rtol=1e-12,
+        )
+
+    def test_zero_multiplier_and_zero_flat_extra_produces_zero_claims(
+        self, assumption_set: AssumptionSet, config: ProjectionConfig
+    ) -> None:
+        """EDGE CASE: multiplier=0.0 AND flat_extra=0.0 → q_eff = 0 everywhere."""
+        policy = _make_term_policy(
+            policy_id="ZERO", mortality_multiplier=0.0, flat_extra_per_1000=0.0
+        )
+        block = InforceBlock(policies=[policy])
+        result = TermLife(block, assumption_set, config).project()
+        np.testing.assert_allclose(result.death_claims, 0.0, atol=1e-12)
+
+    def test_q_eff_capped_at_one_for_extreme_multiplier(
+        self, assumption_set: AssumptionSet, config: ProjectionConfig
+    ) -> None:
+        """
+        EDGE CASE: with multiplier=20.0 (upper bound) and a high flat extra,
+        q_eff must be capped at 1.0. First-month claim cannot exceed face.
+        """
+        policy = _make_term_policy(
+            policy_id="EXTREME", mortality_multiplier=20.0, flat_extra_per_1000=100.0
+        )
+        block = InforceBlock(policies=[policy])
+        result = TermLife(block, assumption_set, config).project(seriatim=True)
+        assert result.seriatim_claims is not None
+        # First-month claim is lx[0]=1 * q_eff * face; capping q_eff at 1.0
+        # bounds the claim to face amount.
+        assert result.seriatim_claims[0, 0] <= 1_000_000.0 + 1e-6
