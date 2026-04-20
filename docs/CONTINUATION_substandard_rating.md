@@ -1,7 +1,7 @@
 # Continuation: Per-Policy Substandard Rating and Flat Extras
 
 **Source:** PRODUCT_DIRECTION_2026-04-19.md — BLOCKER (item #3 in Recommended Next Sprint)
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 **Total slices:** 3
 **Estimated total scope:** ~3 dev-days
 
@@ -87,17 +87,46 @@ rate used when projecting claims.
     and is out of scope here.
 
 ### Slice 3: CLI, ingestion, and dashboard
-- **Status:** NEXT
-- **Depends on:** Slice 2 merged
-- **Scope:**
-  - `src/polaris_re/utils/ingestion.py` — map cedant rating codes
-    (`TABLE_2`, `TABLE_4`, `STANDARD`) to `mortality_multiplier` via a
-    YAML-driven lookup.
-  - `src/polaris_re/cli.py` — ensure `--config` / inforce CSV pass-through
-    works with rated business end-to-end.
-  - Streamlit dashboard — display per-policy rating in the inforce table;
-    summary metric "% of block rated > standard".
-  - ADR update if ingestion needs a new rating-code registry.
+- **Status:** DONE
+- **Branch:** `claude/blissful-volta-twdZa`
+- **PR:** #30 (draft; opened by this session)
+- **What was done:**
+  - `src/polaris_re/utils/ingestion.py` — `RatingCodeEntry` +
+    `RatingCodeMap` Pydantic models; `IngestConfig.rating_code_map`
+    field; `_apply_rating_code_map` helper that translates a cedant's
+    rating-code column into `mortality_multiplier` and
+    `flat_extra_per_1000` using Polars `replace_strict(default=...)`.
+    Unknown codes fall back to a configurable `default` entry (safe
+    1.0 / 0.0 standard life by default). `POLARIS_COLUMNS` extended
+    so the normalised CSV round-trips directly through
+    `InforceBlock.from_csv`. `DataQualityReport` gained `n_rated`,
+    `pct_rated_by_count`, `pct_rated_by_face`, and
+    `mean_multiplier_rated`.
+  - `src/polaris_re/utils/rating.py` (NEW) —
+    `rating_composition(inforce)` helper shared by CLI and dashboard
+    to avoid duplication. Pure read-over of existing `InforceBlock`
+    vectors; no core-contract change.
+  - `src/polaris_re/cli.py` — `polaris price` emits `rated_block` in
+    the output JSON; Rich console table rendered only when
+    `n_rated > 0` so all-standard runs preserve prior console output.
+  - `src/polaris_re/dashboard/views/inforce.py` — `_rating_panel` (4
+    `st.metric` cards) and `_rating_histogram` (band bar chart),
+    wired into `_summary_panel`.
+  - `data/ingest_mappings/rating_codes_example.yaml` (NEW) — sample
+    registry covering STD, TBL2/4/6/8, FE5/10, and combined codes.
+  - ADR-044 — rating-code registry + block rating composition.
+- **Tests added (18):** `TestRatingCodeMap` (7),
+  `TestValidateRatingReport` (4), `TestRatingComposition` (5),
+  `TestCLIRatedBlockOutput` (2). Full suite now 702 non-slow (up
+  from 684). QA suite 29/29 pass.
+- **Acceptance criteria:**
+  - Ingestion accepts `rating_code_map` and derives numeric fields. ✅
+  - Unknown codes fall back to `default`. ✅
+  - `polaris price` output JSON contains `rated_block`. ✅
+  - Console output unchanged for all-standard blocks. ✅
+  - Dashboard panel + histogram render on a rated block. ✅
+  - Golden regression unchanged. ✅
+  - ADR-044 written. ✅
 
 ## Context for Next Session
 
@@ -143,3 +172,13 @@ rate used when projecting claims.
    ADR-043 for the current "skip until ingestion confirms" stance.
 
 When all slices are DONE, update Status to COMPLETE.
+
+---
+
+**Feature COMPLETE as of 2026-04-20.** All three slices merged or in
+review (#28 merged, #29 merged, #30 draft). Follow-on work (treaty-
+level rated-YRT override, CI/DI rating, flat-extra as a separate
+cash-flow line, ingestion strict-mode for unknown codes) tracked in
+the Open Questions section above and the Slice-3 dev session log —
+each requires its own product-direction decision before a new
+CONTINUATION file is opened.
