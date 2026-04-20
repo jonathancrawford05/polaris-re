@@ -160,6 +160,28 @@ class InforceBlock(PolarisBaseModel):
         return float(np.dot(effective, face) / total_face)
 
     @property
+    def mortality_multiplier_vec(self) -> np.ndarray:
+        """Per-policy mortality multipliers, shape (N,), dtype float64.
+
+        Used by product engines to apply substandard ratings. A value of 1.0
+        means standard; 2.0 means Table 2 (200% of base q_x); etc. Default
+        Policy construction produces 1.0, so policies without explicit
+        substandard ratings have no effect on projected claims.
+        """
+        return np.array([p.mortality_multiplier for p in self.policies], dtype=np.float64)
+
+    @property
+    def flat_extra_vec(self) -> np.ndarray:
+        """Per-policy flat extra amounts ($ per $1,000 face per year), shape (N,), dtype float64.
+
+        Used by product engines to add a flat-extra component to the mortality
+        decrement: ``flat_extra / 1000 / 12`` added per month. Default Policy
+        construction produces 0.0, so policies without explicit flat extras
+        have no effect on projected claims.
+        """
+        return np.array([p.flat_extra_per_1000 for p in self.policies], dtype=np.float64)
+
+    @property
     def is_smoker_vec(self) -> np.ndarray:
         """Boolean mask: True where smoker_status == SMOKER, shape (N,)."""
         return np.array([p.smoker_status == SmokerStatus.SMOKER for p in self.policies], dtype=bool)
@@ -350,6 +372,8 @@ class InforceBlock(PolarisBaseModel):
             if isinstance(val_date_val, str):
                 val_date_val = date_type.fromisoformat(val_date_val)
 
+            multiplier_raw = row.get("mortality_multiplier")
+            flat_extra_raw = row.get("flat_extra_per_1000")
             policy = Policy(
                 policy_id=str(row["policy_id"]),
                 issue_age=int(row["issue_age"]),
@@ -362,6 +386,8 @@ class InforceBlock(PolarisBaseModel):
                 product_type=ProductType(str(row["product_type"])),
                 policy_term=policy_term,
                 duration_inforce=int(row["duration_inforce"]),
+                mortality_multiplier=(float(multiplier_raw) if multiplier_raw is not None else 1.0),
+                flat_extra_per_1000=(float(flat_extra_raw) if flat_extra_raw is not None else 0.0),
                 reinsurance_cession_pct=(
                     float(row["reinsurance_cession_pct"])
                     if row.get("reinsurance_cession_pct") is not None

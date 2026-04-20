@@ -124,3 +124,39 @@ class TestInforceBlockFromCSV:
         block = InforceBlock.from_csv(csv_path)
         assert block.policies[0].underwriting_class == "STANDARD"
         assert block.policies[0].reinsurance_cession_pct is None
+
+    def test_substandard_rating_defaults_when_columns_missing(self, tmp_path):
+        """CSVs without rating columns load with standard defaults (ADR-042)."""
+        csv_path = tmp_path / "block.csv"
+        _write_synthetic_csv(csv_path, n=3)
+        block = InforceBlock.from_csv(csv_path)
+        assert all(p.mortality_multiplier == 1.0 for p in block.policies)
+        assert all(p.flat_extra_per_1000 == 0.0 for p in block.policies)
+
+    def test_substandard_rating_read_from_csv(self, tmp_path):
+        """CSVs with rating columns load the values through to Policy (ADR-042)."""
+        csv_path = tmp_path / "rated.csv"
+        rows = [
+            {
+                "policy_id": "RATED_01",
+                "issue_age": 45,
+                "attained_age": 45,
+                "sex": "M",
+                "smoker_status": "NS",
+                "underwriting_class": "SUBSTANDARD",
+                "face_amount": 1_000_000,
+                "annual_premium": 6_000,
+                "product_type": "TERM",
+                "policy_term": 20,
+                "duration_inforce": 0,
+                "reinsurance_cession_pct": 0.5,
+                "mortality_multiplier": 2.5,
+                "flat_extra_per_1000": 7.5,
+                "issue_date": "2025-01-01",
+                "valuation_date": "2025-01-01",
+            }
+        ]
+        pl.DataFrame(rows).write_csv(csv_path)
+        block = InforceBlock.from_csv(csv_path)
+        np.testing.assert_allclose(block.policies[0].mortality_multiplier, 2.5)
+        np.testing.assert_allclose(block.policies[0].flat_extra_per_1000, 7.5)

@@ -100,6 +100,59 @@ class TestPolicy:
             )
 
 
+class TestPolicySubstandardRating:
+    """Verify the substandard-rating fields on Policy (ADR-042)."""
+
+    def _base_kwargs(self) -> dict:
+        return dict(
+            policy_id="SUB_001",
+            issue_age=40,
+            attained_age=40,
+            sex=Sex.MALE,
+            smoker_status=SmokerStatus.NON_SMOKER,
+            underwriting_class="SUBSTANDARD",
+            face_amount=500_000,
+            annual_premium=3_000,
+            product_type=ProductType.TERM,
+            policy_term=20,
+            duration_inforce=0,
+            issue_date=date(2025, 1, 1),
+            valuation_date=date(2025, 1, 1),
+        )
+
+    def test_default_multiplier_is_one(self, single_male_ns_term_policy):
+        assert single_male_ns_term_policy.mortality_multiplier == 1.0
+
+    def test_default_flat_extra_is_zero(self, single_male_ns_term_policy):
+        assert single_male_ns_term_policy.flat_extra_per_1000 == 0.0
+
+    def test_explicit_table_2(self):
+        p = Policy(**self._base_kwargs(), mortality_multiplier=2.0)
+        assert p.mortality_multiplier == 2.0
+        assert p.flat_extra_per_1000 == 0.0
+
+    def test_explicit_flat_extra(self):
+        p = Policy(**self._base_kwargs(), flat_extra_per_1000=5.0)
+        assert p.flat_extra_per_1000 == 5.0
+        assert p.mortality_multiplier == 1.0
+
+    def test_negative_multiplier_rejected(self):
+        with pytest.raises(ValidationError):
+            Policy(**self._base_kwargs(), mortality_multiplier=-0.5)
+
+    def test_multiplier_above_bound_rejected(self):
+        with pytest.raises(ValidationError):
+            Policy(**self._base_kwargs(), mortality_multiplier=25.0)
+
+    def test_negative_flat_extra_rejected(self):
+        with pytest.raises(ValidationError):
+            Policy(**self._base_kwargs(), flat_extra_per_1000=-1.0)
+
+    def test_flat_extra_above_bound_rejected(self):
+        with pytest.raises(ValidationError):
+            Policy(**self._base_kwargs(), flat_extra_per_1000=150.0)
+
+
 class TestInforceBlock:
     """Verify InforceBlock construction and vectorized attribute access."""
 
@@ -158,6 +211,64 @@ class TestInforceBlock:
         )
         with pytest.raises(PolarisValidationError):
             InforceBlock(policies=[p1, p2])
+
+
+class TestInforceBlockSubstandardVecs:
+    """Verify vectorized access to substandard-rating fields (ADR-042)."""
+
+    def test_defaults_are_neutral(self, small_mixed_block):
+        # small_mixed_block was constructed without specifying rating fields;
+        # defaults (1.0, 0.0) must flow through to the vec properties so
+        # downstream engines can safely multiply/add them into rate arrays.
+        mult = small_mixed_block.mortality_multiplier_vec
+        flat = small_mixed_block.flat_extra_vec
+        assert mult.shape == (5,)
+        assert flat.shape == (5,)
+        assert mult.dtype == np.float64
+        assert flat.dtype == np.float64
+        np.testing.assert_array_equal(mult, np.ones(5, dtype=np.float64))
+        np.testing.assert_array_equal(flat, np.zeros(5, dtype=np.float64))
+
+    def test_explicit_ratings_flow_through(self):
+        policies = [
+            Policy(
+                policy_id="STD",
+                issue_age=40,
+                attained_age=40,
+                sex=Sex.MALE,
+                smoker_status=SmokerStatus.NON_SMOKER,
+                underwriting_class="STANDARD",
+                face_amount=100_000,
+                annual_premium=500,
+                product_type=ProductType.TERM,
+                policy_term=20,
+                duration_inforce=0,
+                issue_date=date(2025, 1, 1),
+                valuation_date=date(2025, 1, 1),
+            ),
+            Policy(
+                policy_id="TABLE_4",
+                issue_age=40,
+                attained_age=40,
+                sex=Sex.MALE,
+                smoker_status=SmokerStatus.NON_SMOKER,
+                underwriting_class="SUBSTANDARD",
+                face_amount=100_000,
+                annual_premium=500,
+                product_type=ProductType.TERM,
+                policy_term=20,
+                duration_inforce=0,
+                mortality_multiplier=4.0,
+                flat_extra_per_1000=5.0,
+                issue_date=date(2025, 1, 1),
+                valuation_date=date(2025, 1, 1),
+            ),
+        ]
+        block = InforceBlock(policies=policies)
+        np.testing.assert_array_equal(
+            block.mortality_multiplier_vec, np.array([1.0, 4.0], dtype=np.float64)
+        )
+        np.testing.assert_array_equal(block.flat_extra_vec, np.array([0.0, 5.0], dtype=np.float64))
 
 
 class TestProjectionConfig:

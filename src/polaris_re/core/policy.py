@@ -90,6 +90,30 @@ class Policy(PolarisBaseModel):
         "Used to determine position in select mortality table.",
     )
 
+    # --- Substandard rating ---
+    mortality_multiplier: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=20.0,
+        description=(
+            "Per-policy mortality multiplier applied to base q_x for substandard "
+            "business. 1.0 = standard (default), 2.0 = Table 2 (200%), "
+            "5.0 = Table 8 (500%). Capped at 20.0 as a sanity bound — extreme "
+            "rated lives above this are declined in practice."
+        ),
+    )
+    flat_extra_per_1000: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=100.0,
+        description=(
+            "Annual flat extra premium expressed as dollars per $1,000 of face "
+            "amount, added to the mortality decrement as "
+            "flat_extra / 1000 / 12 per month. 0.0 = no flat extra (default). "
+            "Capped at 100.0 ($100 per $1,000/year) as a sanity bound."
+        ),
+    )
+
     # --- Reinsurance ---
     reinsurance_cession_pct: float | None = Field(
         default=None,
