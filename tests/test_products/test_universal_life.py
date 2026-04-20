@@ -440,3 +440,106 @@ class TestUniversalLifeProjection:
         res_with = with_charge.project()
         # Lapse surrenders should be lower with charge
         assert res_with.lapse_surrenders.sum() <= res_no.lapse_surrenders.sum()
+
+
+def _make_ul_policy(
+    *,
+    policy_id: str = "UL_SS",
+    mortality_multiplier: float = 1.0,
+    flat_extra_per_1000: float = 0.0,
+) -> Policy:
+    """Build a standard-shape UL policy with optional substandard rating."""
+    return Policy(
+        policy_id=policy_id,
+        issue_age=40,
+        attained_age=40,
+        sex=Sex.MALE,
+        smoker_status=SmokerStatus.NON_SMOKER,
+        underwriting_class="STANDARD",
+        face_amount=500_000.0,
+        annual_premium=6_000.0,
+        product_type=ProductType.UNIVERSAL_LIFE,
+        policy_term=None,
+        duration_inforce=0,
+        mortality_multiplier=mortality_multiplier,
+        flat_extra_per_1000=flat_extra_per_1000,
+        reinsurance_cession_pct=0.5,
+        account_value=10_000.0,
+        credited_rate=0.04,
+        issue_date=date(2025, 1, 1),
+        valuation_date=date(2025, 1, 1),
+    )
+
+
+class TestUniversalLifeSubstandardRating:
+    """Closed-form tests for per-policy substandard rating (ADR-042, Slice 2)."""
+
+    def test_default_is_identity(
+        self,
+        single_ul_block: InforceBlock,
+        assumption_set: AssumptionSet,
+        short_config: ProjectionConfig,
+    ) -> None:
+        """Explicit defaults match the implicit-default projection byte-for-byte."""
+        default_policy = _make_ul_policy(policy_id="UL_DEFAULT")
+        block = InforceBlock(policies=[default_policy])
+        r_explicit = UniversalLife(block, assumption_set, short_config).project()
+        r_baseline = UniversalLife(single_ul_block, assumption_set, short_config).project()
+        np.testing.assert_allclose(r_explicit.death_claims, r_baseline.death_claims, rtol=1e-12)
+
+    def test_multiplier_scales_first_month_claim(
+        self, assumption_set: AssumptionSet, short_config: ProjectionConfig
+    ) -> None:
+        """
+        CLOSED-FORM: First-month claim = q_eff * face (lx[0] = 1).
+        With multiplier=2.0 and no flat extra, claim scales exactly 2x.
+        """
+        base = InforceBlock(policies=[_make_ul_policy(policy_id="BASE")])
+        rated = InforceBlock(
+            policies=[_make_ul_policy(policy_id="RATED", mortality_multiplier=2.0)]
+        )
+        r_base = UniversalLife(base, assumption_set, short_config).project()
+        r_rated = UniversalLife(rated, assumption_set, short_config).project()
+        np.testing.assert_allclose(
+            r_rated.death_claims[0], 2.0 * r_base.death_claims[0], rtol=1e-12
+        )
+
+    def test_flat_extra_adds_expected_monthly_increment(
+        self, assumption_set: AssumptionSet, short_config: ProjectionConfig
+    ) -> None:
+        """
+        CLOSED-FORM: $5/$1000/year flat extra on $500k face adds
+        500_000 * 5 / 12000 = $208.3333 to first-month claim (lx[0] = 1).
+        """
+        base = InforceBlock(policies=[_make_ul_policy(policy_id="BASE")])
+        rated = InforceBlock(policies=[_make_ul_policy(policy_id="FLAT", flat_extra_per_1000=5.0)])
+        r_base = UniversalLife(base, assumption_set, short_config).project()
+        r_rated = UniversalLife(rated, assumption_set, short_config).project()
+        np.testing.assert_allclose(
+            r_rated.death_claims[0] - r_base.death_claims[0],
+            500_000.0 * 5.0 / 12000.0,
+            rtol=1e-12,
+        )
+
+    def test_zero_multiplier_and_zero_flat_extra_produces_zero_claims(
+        self, assumption_set: AssumptionSet, short_config: ProjectionConfig
+    ) -> None:
+        """EDGE CASE: q_base * 0 + 0 = 0 for every projection month before max_age."""
+        policy = _make_ul_policy(
+            policy_id="ZERO", mortality_multiplier=0.0, flat_extra_per_1000=0.0
+        )
+        block = InforceBlock(policies=[policy])
+        result = UniversalLife(block, assumption_set, short_config).project()
+        np.testing.assert_allclose(result.death_claims, 0.0, atol=1e-12)
+
+    def test_q_eff_capped_at_one_for_extreme_multiplier(
+        self, assumption_set: AssumptionSet, short_config: ProjectionConfig
+    ) -> None:
+        """EDGE CASE: extreme multiplier cannot push q above 1.0."""
+        policy = _make_ul_policy(
+            policy_id="EXTREME", mortality_multiplier=20.0, flat_extra_per_1000=100.0
+        )
+        block = InforceBlock(policies=[policy])
+        result = UniversalLife(block, assumption_set, short_config).project(seriatim=True)
+        assert result.seriatim_claims is not None
+        assert result.seriatim_claims[0, 0] <= 500_000.0 + 1e-6

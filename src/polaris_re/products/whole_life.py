@@ -103,6 +103,11 @@ class WholeLife(BaseProduct):
         duration_inforce = self.inforce.duration_inforce_vec_at(self.config.valuation_date)  # (N,)
         attained_ages = self.inforce.attained_age_vec_at(self.config.valuation_date)  # (N,)
 
+        # Per-policy substandard rating (ADR-042):
+        # q_eff = q_base * multiplier + flat_extra / 1000 / 12, capped at 1.0.
+        multiplier_vec = self.inforce.mortality_multiplier_vec  # (N,)
+        flat_extra_monthly_vec = self.inforce.flat_extra_vec / 12000.0  # (N,) monthly
+
         sex_list = [p.sex for p in self.inforce.policies]
         smoker_list = [p.smoker_status for p in self.inforce.policies]
         unique_combos = set(zip(sex_list, smoker_list, strict=True))
@@ -132,6 +137,10 @@ class WholeLife(BaseProduct):
                 )
 
             w_monthly_col = self.assumptions.lapse.get_lapse_vector(current_durations)
+
+            # Apply per-policy substandard rating (ADR-042) before the max-age
+            # override so that max-age certain-death still forces q = 1.0.
+            q_monthly_col = np.minimum(q_monthly_col * multiplier_vec + flat_extra_monthly_vec, 1.0)
 
             # At max age the policy must terminate — set mortality to 1.0
             max_age = self.assumptions.mortality.max_age

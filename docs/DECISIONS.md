@@ -808,3 +808,82 @@ explicit-rating round-trip). `tests/test_core/test_inforce_csv.py` adds
 backward-compat for CSVs without the new columns plus a positive test
 that values in CSV flow through to Policy.
 
+---
+
+## ADR-043: Wiring substandard rating into life product engines
+
+**Date:** 2026-04-20
+**Status:** Accepted (Slice 2 of 3 for the substandard-rating feature;
+supersedes the "Slice 1 of 3" scope note in ADR-042 for behavioural
+effects only — ADR-042 remains authoritative on the data model)
+
+**Context:** ADR-042 added `mortality_multiplier` and
+`flat_extra_per_1000` to `Policy` with defaults of `1.0` / `0.0` and
+exposed them as `InforceBlock.mortality_multiplier_vec` and
+`flat_extra_vec`. No product engine read these fields, so the slice was
+behaviour-neutral by construction. Slice 2 wires them into the
+life-insurance product engines so that projected claims reflect
+substandard rating.
+
+**Decision:** Inside the monthly rate-array construction of each life
+product engine, apply
+
+    q_eff = min(q_base * multiplier + flat_extra / 1000 / 12, 1.0)
+
+where `q_base` is the monthly base mortality (post-improvement for
+TermLife), `multiplier` is `mortality_multiplier_vec`, and the flat-extra
+monthly increment is `flat_extra_vec / 12000.0`. Implemented in:
+
+- `TermLife._build_rate_arrays()` — after mortality-improvement
+  adjustment, before the `active` mask zeros out expired policies.
+- `WholeLife._build_rate_arrays()` — after base lookup, before the
+  max-age override that forces certain death at `omega`.
+- `UniversalLife._build_mortality_arrays()` — after base lookup, before
+  the max-age override.
+
+**YRT ceded premium policy:** YRT rates remain unmultiplied by
+`mortality_multiplier`. Under the current treaty layer, ceded claims
+are a function of the GROSS `death_claims` column which already reflects
+`q_eff`, so substandard risk flows through to the reinsurer in ceded
+claims automatically. The `yrt_rate` schedule itself is not adjusted,
+matching common reinsurance practice where the cedant bears incremental
+rating risk on premium unless the treaty is explicitly written to bill
+rated YRT. This is a reversible default — a future treaty-level field
+can override without touching the product engines.
+
+**Disability out of scope for Slice 2:** `DisabilityProduct` is
+unaffected by this change. CI/DI substandard rating is a separate
+concept (morbidity rating, not mortality rating). If reinsurers want
+substandard decrements on CI/DI active lives, that will land in a
+future slice after the ingestion and CLI surface (Slice 3) confirms
+how cedant rating codes should map onto morbidity products.
+
+**Flat extra reporting:** The flat-extra component is folded into
+aggregate `CashFlowResult.death_claims` — it is not reported as a
+separate cash-flow line. This matches the CONTINUATION default and
+keeps the `CashFlowResult` contract unchanged; splitting the flat-extra
+component into its own line would be a Phase-3 feature.
+
+**Rationale for placement in the rate-array construction:** Substandard
+rating is conceptually a per-policy modifier of the base mortality
+vector, not a downstream adjustment to claims. Applying inside
+`_build_rate_arrays` means every downstream calculation — claim
+projection, in-force factor `lx`, net-premium reserves, COI charges in
+UL — all consistently see the post-rating `q_eff`. Applying it later
+(e.g., only to `death_claims`) would decouple reserves and `lx` from
+the rated mortality, producing actuarially incorrect projections.
+
+**Impact on golden baselines:** None. All existing inforce fixtures
+carry default `mortality_multiplier = 1.0` and `flat_extra_per_1000 =
+0.0`, and `q_base * 1.0 + 0.0 = q_base`, which in turn is always
+below the cap of 1.0 for realistic ages. Golden regression outputs are
+byte-identical with Slice 1.
+
+**Tests:** `tests/test_products/test_term_life.py::TestTermLifeSubstandardRating`,
+`tests/test_products/test_whole_life.py::TestWholeLifeSubstandardRating`,
+`tests/test_products/test_universal_life.py::TestUniversalLifeSubstandardRating`
+— five closed-form / edge-case tests per product (15 total): default-is-
+identity, multiplier scales first-month claim exactly 2x, flat-extra
+first-month increment equals `face * $5 / 12000`, zero-rating produces
+zero claims, and extreme multiplier is capped at 1.0.
+

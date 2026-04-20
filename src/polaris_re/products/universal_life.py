@@ -120,6 +120,11 @@ class UniversalLife(BaseProduct):
         attained_ages = self.inforce.attained_age_vec_at(self.config.valuation_date)  # (N,)
         max_age = self.assumptions.mortality.max_age
 
+        # Per-policy substandard rating (ADR-042):
+        # q_eff = q_base * multiplier + flat_extra / 1000 / 12, capped at 1.0.
+        multiplier_vec = self.inforce.mortality_multiplier_vec  # (N,)
+        flat_extra_monthly_vec = self.inforce.flat_extra_vec / 12000.0  # (N,) monthly
+
         sex_list = [p.sex for p in self.inforce.policies]
         smoker_list = [p.smoker_status for p in self.inforce.policies]
         unique_combos = set(zip(sex_list, smoker_list, strict=True))
@@ -143,6 +148,10 @@ class UniversalLife(BaseProduct):
                 q_col[mask] = self.assumptions.mortality.get_qx_vector(
                     current_ages[mask], sex, smoker, current_durations[mask]
                 )
+
+            # Apply per-policy substandard rating (ADR-042) before the max-age
+            # override so that max-age certain-death still forces q = 1.0.
+            q_col = np.minimum(q_col * multiplier_vec + flat_extra_monthly_vec, 1.0)
 
             # At max age: certain death
             at_max = (

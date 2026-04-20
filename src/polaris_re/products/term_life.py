@@ -76,6 +76,11 @@ class TermLife(BaseProduct):
         attained_ages = self.inforce.attained_age_vec_at(self.config.valuation_date)  # (N,)
         remaining_months = self.inforce.remaining_term_months_vec  # (N,)
 
+        # Per-policy substandard rating (ADR-042):
+        # q_eff = q_base * multiplier + flat_extra / 1000 / 12, capped at 1.0.
+        multiplier_vec = self.inforce.mortality_multiplier_vec  # (N,)
+        flat_extra_monthly_vec = self.inforce.flat_extra_vec / 12000.0  # (N,) monthly
+
         # Build unique (sex, smoker) combos for mortality lookup
         sex_list = [p.sex for p in self.inforce.policies]
         smoker_list = [p.smoker_status for p in self.inforce.policies]
@@ -133,6 +138,10 @@ class TermLife(BaseProduct):
                 q_monthly_col = constant_force_interpolate_rates(
                     q_annual_improved, fraction=1.0 / 12.0
                 )
+
+            # Apply per-policy substandard rating (ADR-042). Must come after
+            # improvement so multiplier scales the calendar-year-adjusted rate.
+            q_monthly_col = np.minimum(q_monthly_col * multiplier_vec + flat_extra_monthly_vec, 1.0)
 
             # Lapse rates
             w_monthly_col = self.assumptions.lapse.get_lapse_vector(current_durations)

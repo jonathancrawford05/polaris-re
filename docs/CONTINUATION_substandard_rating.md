@@ -18,8 +18,9 @@ rate used when projecting claims.
 ## Decomposition
 
 ### Slice 1: Data model first
-- **Status:** IN PROGRESS
+- **Status:** DONE
 - **Branch:** `claude/blissful-volta-pNmtL`
+- **PR:** #28 (merged)
 - **What is done in this slice:**
   - Add `mortality_multiplier: float = 1.0` to `Policy` (ge=0.0, le=20.0).
   - Add `flat_extra_per_1000: float = 0.0` to `Policy` (ge=0.0, le=100.0).
@@ -45,31 +46,48 @@ rate used when projecting claims.
     invariant that mortality rates are probabilities.
 
 ### Slice 2: Wire into product engines
-- **Status:** PLANNED (NEXT)
-- **Depends on:** Slice 1 merged
-- **Files to create/modify:**
-  - `src/polaris_re/products/term_life.py` — apply in `_build_rate_arrays()`.
-  - `src/polaris_re/products/whole_life.py` — apply in `_build_rate_arrays()`.
-  - `src/polaris_re/products/universal_life.py` — apply in rate construction.
-  - `src/polaris_re/products/disability.py` — if applicable (may only apply
-    multiplier to mortality decrement, not to CI/DI incidence).
-- **Tests to add:**
-  - Closed-form: a Policy with `multiplier=2.0` produces exactly 2x the
-    PV of claims of an otherwise identical Policy (within float tolerance),
-    on each product.
-  - Closed-form: a $5/1000 flat extra on a $1M face, zero-multiplier policy
-    produces an annual extra claim stream of ~$5,000/year scaled by `lx`.
-  - Edge case: `multiplier=0.0` with `flat_extra_per_1000=0.0` produces
-    exactly zero claims (no base mortality survives).
-  - Edge case: `q_eff` capped at 1.0 when multiplier is extreme.
+- **Status:** DONE (this slice)
+- **Branch:** `claude/blissful-volta-rpTYA`
+- **PR:** (draft; opened by this session)
+- **What was done:** Applied the ADR-042 formula
+  `q_eff = min(q_base * multiplier + flat_extra / 12000, 1.0)` inside
+  `TermLife._build_rate_arrays()` (after mortality improvement),
+  `WholeLife._build_rate_arrays()` (before the max-age override), and
+  `UniversalLife._build_mortality_arrays()` (before the max-age
+  override). Disability is intentionally skipped (see "Key decisions"
+  below and ADR-043).
+- **Files modified:**
+  - `src/polaris_re/products/term_life.py`
+  - `src/polaris_re/products/whole_life.py`
+  - `src/polaris_re/products/universal_life.py`
+- **Tests added (15):** `TestTermLifeSubstandardRating`,
+  `TestWholeLifeSubstandardRating`, `TestUniversalLifeSubstandardRating`
+  — five per product (default-is-identity, multiplier scales first-month
+  claim exactly 2x, flat-extra first-month increment = `face * 5 / 12000`,
+  zero-rating produces zero claims, extreme multiplier is capped at 1.0).
 - **Acceptance criteria:**
-  - TERM, WL, UL all consume the new fields.
-  - Closed-form tests pass on each product.
+  - TERM, WL, UL all consume the new fields.  ✅
+  - Closed-form tests pass on each product.  ✅
   - Existing golden baselines unchanged (standard policies have
-    multiplier=1.0 and flat_extra=0.0 by default).
+    multiplier=1.0 and flat_extra=0.0 by default).  ✅
+- **Key decisions that affect later slices:**
+  - **YRT rates remain unmultiplied.** Ceded claims already flow through
+    `CashFlowResult.death_claims` (which reflects `q_eff`), so the
+    reinsurer inherits rated-mortality risk through claims. Premium
+    rates are not scaled by `mortality_multiplier`. A future treaty
+    field can override this default without touching product engines.
+  - **Disability is deferred.** CI/DI substandard rating is a morbidity
+    concept, not a mortality concept. Slice 2 does not modify
+    `DisabilityProduct._build_mortality_arrays`. If, during Slice 3
+    ingestion, the registry shows cedant rating codes that must apply
+    to CI/DI, a follow-on ADR will decide whether mortality multipliers
+    should decrement active CI/DI lives.
+  - **Flat extra folds into `death_claims`.** Not reported as a separate
+    `CashFlowResult` line. Splitting would require a contract change
+    and is out of scope here.
 
 ### Slice 3: CLI, ingestion, and dashboard
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 2 merged
 - **Scope:**
   - `src/polaris_re/utils/ingestion.py` — map cedant rating codes
@@ -116,6 +134,12 @@ rate used when projecting claims.
    translation (as opposed to a mortality multiplier)? Slice 3 ingestion
    registry needs confirmation.
 3. Slice 2 default: YRT rates are NOT multiplied by `mortality_multiplier`.
-   Confirm or reject before Slice 2 starts.
+   Implemented as default in Slice 2 (see ADR-043). Confirm before
+   Slice 3 whether any cedants need a treaty-level override that bills
+   rated YRT at `yrt_rate × mortality_multiplier`. If yes, Slice 3 will
+   add a treaty-level opt-in flag.
+4. Disability substandard (new, post-Slice-2): should CI/DI mortality
+   decrements on active lives be scaled by `mortality_multiplier`? See
+   ADR-043 for the current "skip until ingestion confirms" stance.
 
 When all slices are DONE, update Status to COMPLETE.
