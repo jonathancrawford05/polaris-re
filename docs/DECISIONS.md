@@ -723,3 +723,88 @@ losses — well-defined). Two existing margin tests were tightened with
 `is not None` assertions to confirm the common path returns a concrete
 float.
 
+---
+
+## ADR-042: Per-policy substandard rating fields on `Policy`
+
+**Date:** 2026-04-20
+**Status:** Accepted (Slice 1 of 3 — data model only)
+
+**Context:** Polaris RE cannot currently price substandard business. The
+`Policy` model has an `underwriting_class` string (free-form) but no
+numeric mortality multiplier or flat extra, and the only mortality
+multiplier available is block-level on `AssumptionSet`. This blocks any
+deal where the cedant has priced rated lives (Table 2, Table 4, etc.) or
+flat extras ($/1000 face amount for tobacco, aviation, occupational
+hazard, etc.) — which is most commercial individual life reinsurance.
+
+Options considered:
+
+1. Keep rating in `underwriting_class` as a string and translate at
+   projection time. Rejected: the projection engine must remain
+   decoupled from rating-code dictionaries, and the string type loses
+   precision (Table 2½ is common).
+2. Add per-policy multipliers to `AssumptionSet`. Rejected: an
+   `AssumptionSet` is meant to be a block-level, immutable input;
+   tying a per-policy rating into it violates the existing separation
+   of "per-policy data" (Policy) from "how we project" (AssumptionSet).
+3. **Add `mortality_multiplier: float = 1.0` and
+   `flat_extra_per_1000: float = 0.0` directly to `Policy`, with
+   defaults that make standard business unchanged.** Chosen.
+
+**Decision:** Extend `Policy` with two new fields:
+
+- `mortality_multiplier: float = 1.0` (validated `0.0 ≤ x ≤ 20.0`) —
+  dimensionless factor applied to base `q_x`. 1.0 is standard; 2.0 is
+  Table 2 (200%); 5.0 is Table 8 (500%).
+- `flat_extra_per_1000: float = 0.0` (validated `0.0 ≤ x ≤ 100.0`) —
+  annual flat extra premium expressed as dollars per $1,000 of face
+  amount. Applied as `flat_extra / 1000 / 12` added to the monthly
+  mortality decrement inside each product engine.
+
+Expose them vectorized on `InforceBlock` as
+`mortality_multiplier_vec` and `flat_extra_vec` (shape `(N,)`,
+dtype `float64`), matching the established vectorization contract.
+Extend `InforceBlock.from_csv()` to read the two optional columns,
+defaulting to `1.0` / `0.0` when absent so all pre-existing CSV fixtures
+continue to load unchanged.
+
+**Rationale:** The fields sit on `Policy` because substandard rating is
+a per-life property and must survive block filtering, aggregation, and
+round-trip through CSV. Defaults of `1.0` and `0.0` are the identity
+elements for their respective operations (multiply by 1; add 0), which
+preserves every existing test and golden baseline — Slice 1 is a pure
+structural addition with no behavioural change. Slices 2 and 3 (wiring
+into product engines and ingestion/CLI/dashboard) are tracked in
+`docs/CONTINUATION_substandard_rating.md` and will land in separate PRs.
+
+The effective mortality formula
+
+    q_eff = q_base * mortality_multiplier + flat_extra_per_1000 / 1000 / 12
+
+mirrors standard reinsurance pricing practice: the multiplier scales the
+base probability, and the flat extra is an additive monthly increment
+derived from the annual $/1000 quote.  The formula is documented here so
+that Slice 2 implementers in each product engine use identical semantics;
+`q_eff` must be capped at `1.0` to preserve the invariant that mortality
+rates are probabilities.
+
+**Bounds rationale:** `mortality_multiplier` is capped at `20.0` because
+lives rated above Table 16 (1600%) are declined in practice — anything
+above this is almost certainly a data error.  `flat_extra_per_1000` is
+capped at `100.0` ($100 per $1,000/year ≈ 10% annual mortality from the
+flat extra alone on level face), which is well beyond any realistic
+commercial quote.
+
+**Impact on golden baselines:** None. All existing policies are
+constructed without these fields, so they default to 1.0 / 0.0. No
+product engine consumes the fields yet (Slice 2), so projections produce
+byte-identical results.
+
+**Tests:** `tests/test_core/test_models.py::TestPolicySubstandardRating`
+(field defaults, explicit values, bound validation on both fields) and
+`TestInforceBlockSubstandardVecs` (vec shape/dtype, neutral defaults,
+explicit-rating round-trip). `tests/test_core/test_inforce_csv.py` adds
+backward-compat for CSVs without the new columns plus a positive test
+that values in CSV flow through to Policy.
+
