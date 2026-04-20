@@ -50,9 +50,82 @@ def _summary_panel(block: object) -> None:
     c3.metric("Smoker", f"{n_smoker:,}")
     c4.metric("Non-Smoker", f"{n_nonsmoker:,}")
 
+    _rating_panel(ib)
     _age_gender_chart(ib)
     _face_amount_chart(ib)
     _duration_chart(ib)
+
+
+def _rating_panel(block: object) -> None:
+    """Display substandard-rating composition metrics and a rating histogram.
+
+    Always rendered so reviewers can confirm at a glance that a block is
+    fully standard (0% rated) vs. carrying substandard lives; rating-code
+    ingestion from cedant data is the typical source of non-default
+    multipliers. The histogram is suppressed when no policies are rated
+    to avoid an empty chart.
+    """
+    from polaris_re.core.inforce import InforceBlock
+    from polaris_re.utils.rating import rating_composition
+
+    ib: InforceBlock = block  # type: ignore[assignment]
+    summary = rating_composition(ib)
+
+    st.subheader("Substandard Rating")
+    r1, r2, r3, r4 = st.columns(4)
+    r1.metric("Policies Rated", f"{int(summary['n_rated']):,}")
+    r2.metric("% of Block (count)", f"{float(summary['pct_rated_by_count']):.1%}")
+    r3.metric("% of Block (face)", f"{float(summary['pct_rated_by_face']):.1%}")
+    r4.metric(
+        "Face-weighted Avg Multiplier",
+        f"{float(summary['face_weighted_mean_multiplier']):.3f}",
+    )
+
+    if int(summary["n_rated"]) > 0:
+        _rating_histogram(ib)
+
+
+def _rating_histogram(block: object) -> None:
+    """Bar chart of face-amount distribution across mortality-multiplier bands."""
+    import matplotlib.pyplot as plt  # type: ignore[import-untyped]
+
+    from polaris_re.core.inforce import InforceBlock
+
+    ib: InforceBlock = block  # type: ignore[assignment]
+    multipliers = ib.mortality_multiplier_vec
+    face = ib.face_amount_vec
+    flat_extras = ib.flat_extra_vec
+
+    bands = [
+        ("Standard", (multipliers == 1.0) & (flat_extras == 0.0)),
+        ("Flat-extra only", (multipliers == 1.0) & (flat_extras > 0.0)),
+        ("Table 2 (1.5-2.5x)", (multipliers > 1.0) & (multipliers <= 2.5)),
+        ("Table 4 (2.5-4.5x)", (multipliers > 2.5) & (multipliers <= 4.5)),
+        ("Highly rated (>4.5x)", multipliers > 4.5),
+    ]
+    labels = [b[0] for b in bands]
+    counts = [int(mask.sum()) for _, mask in bands]
+    face_totals = [float(face[mask].sum()) for _, mask in bands]
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.bar(labels, face_totals, color="#e67e22", edgecolor="white", linewidth=0.5)
+    ax.set_ylabel("Face Amount ($)")
+    ax.set_title("Face Amount by Rating Band")
+    for i, (cnt, ft) in enumerate(zip(counts, face_totals, strict=False)):
+        if cnt > 0:
+            ax.text(
+                i,
+                ft + max(face_totals) * 0.02,
+                f"{cnt} policy",
+                ha="center",
+                va="bottom",
+                fontsize=9,
+            )
+    ax.grid(True, alpha=0.3, axis="y")
+    plt.xticks(rotation=20, ha="right")
+    fig.tight_layout()
+    st.pyplot(fig)
+    plt.close(fig)
 
 
 def _age_gender_chart(block: object) -> None:

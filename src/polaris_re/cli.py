@@ -384,6 +384,28 @@ def _profit_test_to_dict(result: ProfitTestResult) -> dict[str, object]:
     }
 
 
+def _render_rated_block_table(summary: dict[str, object]) -> None:
+    """Render a small Rich table summarising substandard-rating composition."""
+    table = Table(title="Block Substandard Rating", border_style="magenta")
+    table.add_column("Metric", style="bold")
+    table.add_column("Value", justify="right")
+    n_policies = int(summary["n_policies"])  # type: ignore[arg-type]
+    n_rated = int(summary["n_rated"])  # type: ignore[arg-type]
+    pct_count = float(summary["pct_rated_by_count"])  # type: ignore[arg-type]
+    pct_face = float(summary["pct_rated_by_face"])  # type: ignore[arg-type]
+    wavg = float(summary["face_weighted_mean_multiplier"])  # type: ignore[arg-type]
+    max_mult = float(summary["max_multiplier"])  # type: ignore[arg-type]
+    max_fe = float(summary["max_flat_extra_per_1000"])  # type: ignore[arg-type]
+    table.add_row("Policies", f"{n_policies:,}")
+    table.add_row("Rated (> standard)", f"{n_rated:,}")
+    table.add_row("% Rated (by count)", f"{pct_count:.1%}")
+    table.add_row("% Rated (by face)", f"{pct_face:.1%}")
+    table.add_row("Face-weighted avg multiplier", f"{wavg:.3f}")
+    table.add_row("Max multiplier", f"{max_mult:.2f}")
+    table.add_row("Max flat-extra / $1,000", f"${max_fe:.2f}")
+    console.print(table)
+
+
 def _render_cohort_pricing_tables(cohort: CohortResult) -> None:
     """Render the Rich tables for a single cohort's pricing results."""
     cedant_result = cohort.cedant_result
@@ -627,6 +649,10 @@ def price_cmd(
         if c.reinsurer_result is not None:
             total_reinsurer_pv += c.reinsurer_result.pv_profits
 
+    from polaris_re.utils.rating import rating_composition
+
+    rated_summary = rating_composition(inforce)
+
     output_data: dict[str, object] = {
         "cohorts": cohorts_out,
         "summary": {
@@ -634,6 +660,7 @@ def price_cmd(
             "total_pv_profits_cedant": total_cedant_pv,
             "total_pv_profits_reinsurer": total_reinsurer_pv,
         },
+        "rated_block": rated_summary,
     }
     # Back-compat: expose the first cohort's cedant/reinsurer at the top
     # level so downstream consumers that only know the old schema still
@@ -657,6 +684,12 @@ def price_cmd(
             "independent deal — cross-product aggregation (single blended IRR) "
             "is a separate feature.[/dim]"
         )
+
+    # Only render the rated-block panel when the block actually contains
+    # substandard lives — all-standard blocks stay visually identical to
+    # pre-Slice-3 output.
+    if int(rated_summary["n_rated"]) > 0:  # type: ignore[arg-type]
+        _render_rated_block_table(rated_summary)
 
     _write_output(output_data, output_path, "price_result")
 

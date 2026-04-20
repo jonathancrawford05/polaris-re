@@ -887,3 +887,98 @@ identity, multiplier scales first-month claim exactly 2x, flat-extra
 first-month increment equals `face * $5 / 12000`, zero-rating produces
 zero claims, and extreme multiplier is capped at 1.0.
 
+---
+
+## ADR-044: Cedant rating-code registry and block rating composition
+
+**Date:** 2026-04-20
+**Status:** Accepted (Slice 3 of 3 for the substandard-rating feature —
+ingestion, CLI pass-through, and dashboard surface. ADR-042 remains
+authoritative on the data model; ADR-043 on the product-engine
+effect.)
+
+**Context:** ADR-042 added `mortality_multiplier` and
+`flat_extra_per_1000` to `Policy`; ADR-043 wired them into every life
+product engine. Both slices kept the I/O surface unchanged: the CLI
+accepted rated CSVs only because `InforceBlock.from_csv` was extended
+in Slice 1, and there was no way for a cedant to express rating as a
+string code like `TBL2` or `FE5` — users had to pre-translate codes
+into numeric multipliers externally. That gap forced Excel-based
+workarounds and prevented the pipeline from being self-contained
+end-to-end.
+
+**Decision:** Extend `polaris_re.utils.ingestion.IngestConfig` with an
+optional `rating_code_map: RatingCodeMap` field. The registry
+translates ONE cedant column (e.g. `RATE_CLASS`) into the TWO
+Polaris-side fields:
+
+    q_eff contributors  ←  mortality_multiplier
+                          flat_extra_per_1000
+
+Semantics:
+
+- `RatingCodeEntry` mirrors the `Policy` bounds (`mortality_multiplier`
+  `∈ [0, 20]`, `flat_extra_per_1000 ∈ [0, 100]`). Validation at the
+  ingestion boundary is identical to validation at the projection
+  boundary — no ingestion path can produce a Policy that would fail
+  later.
+- Unknown codes fall back to `default` (standard 1.0 / 0.0). This is
+  intentional: a typo in the cedant's code column should not crash the
+  pipeline silently, and treating unknowns as standard is the
+  conservative reinsurer-facing default.
+- The rating map overwrites pre-existing `mortality_multiplier` /
+  `flat_extra_per_1000` columns, because when both are supplied the
+  rating code is the audit-trail-bearing source of truth.
+- The map is applied AFTER `column_mapping` renames (so
+  `source_column` always refers to the post-rename Polaris column
+  name) and AFTER `code_translations` (so value-to-value cedant
+  translations do not interfere with the rating registry).
+
+**Supporting surface:**
+
+- `DataQualityReport` gains `n_rated`, `pct_rated_by_count`,
+  `pct_rated_by_face`, `mean_multiplier_rated` so the ingestion CLI
+  can report at a glance how much of a block carries substandard
+  ratings.
+- `polaris_re.utils.rating.rating_composition(InforceBlock)` is the
+  single source of truth for block-level rating metrics. It is used
+  by both the CLI (`polaris price` JSON output, `rated_block` key) and
+  the Streamlit dashboard (inforce view, "Substandard Rating" panel
+  and face-by-rating-band chart). Duplicating the computation in two
+  places would let the dashboard and CLI drift — the shared helper
+  prevents that by construction.
+- The `polaris price` JSON output always includes `rated_block`. For
+  all-standard blocks this is a zero-rated shape — it costs one float
+  per key and zero CI churn, and it lets downstream consumers treat
+  the key as always-present.
+
+**InforceBlock interface impact:** None. The helper is a read-only
+function over the existing `mortality_multiplier_vec` /
+`flat_extra_vec` / `face_amount_vec` properties added in Slice 1. No
+new fields, no new methods on the core contract.
+
+**Backward compatibility:** All existing ingestion configs remain
+valid — `rating_code_map` defaults to `None`, in which case ingestion
+behaviour is byte-identical to pre-ADR-044. Golden regression outputs
+are unchanged (golden CSVs carry no rating columns, and the default
+path never synthesises them).
+
+**Rationale for a nested (RatingCodeEntry) shape:** A flat
+`dict[str, float]` for each Polaris field would require the user to
+spell out two parallel maps, and it would be easy to keep one in
+sync while forgetting the other. A nested per-code entry makes the
+invariant "one code → one (multiplier, flat_extra) pair" explicit and
+validates both fields together at load time.
+
+**Tests:** `tests/test_utils/test_ingestion.py::TestRatingCodeMap`
+(7 tests — multiplier derivation, flat-extra derivation, missing
+map, custom default, round-trip into InforceBlock, bound
+validation, YAML load), `TestValidateRatingReport` (4 tests —
+count-based and face-based rating share, mean multiplier over rated
+subset, zero-rating baseline), `tests/test_utils/test_rating.py`
+(5 tests — the `rating_composition` helper over a hand-built block),
+`tests/qa/test_cli_golden.py::TestCLIRatedBlockOutput` (2 tests —
+all-standard golden CSV emits zeroed `rated_block`; rated CSV
+surfaces correct `max_multiplier`, `max_flat_extra_per_1000`, and
+non-zero `pct_rated_by_count`).
+
