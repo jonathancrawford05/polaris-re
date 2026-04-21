@@ -24,6 +24,8 @@ from polaris_re.core.exceptions import PolarisValidationError
 __all__ = [
     "DataQualityReport",
     "IngestConfig",
+    "RatingCodeEntry",
+    "RatingCodeMap",
     "ingest_cedant_data",
     "validate_inforce_df",
 ]
@@ -42,6 +44,8 @@ POLARIS_COLUMNS = [
     "policy_term",
     "duration_inforce",
     "reinsurance_cession_pct",
+    "mortality_multiplier",
+    "flat_extra_per_1000",
     "issue_date",
     "valuation_date",
 ]
@@ -68,13 +72,78 @@ class SourceFormat(PolarisBaseModel):
     date_format: str = Field(default="%Y-%m-%d", description="Date format string.")
 
 
+class RatingCodeEntry(PolarisBaseModel):
+    """
+    Target substandard-rating values derived from a single cedant rating code.
+
+    Bounds mirror the ``Policy`` fields to keep the Pydantic validation at
+    the ingestion boundary identical to the projection-layer validation.
+    """
+
+    mortality_multiplier: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=20.0,
+        description=(
+            "Mortality multiplier applied to base q_x. 1.0 = standard; 2.0 = Table 2; "
+            "5.0 = Table 8. Must match the bounds on Policy.mortality_multiplier."
+        ),
+    )
+    flat_extra_per_1000: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=100.0,
+        description=(
+            "Annual flat extra in $ per $1,000 face amount. Must match the "
+            "bounds on Policy.flat_extra_per_1000."
+        ),
+    )
+
+
+class RatingCodeMap(PolarisBaseModel):
+    """
+    Cedant rating-code registry.
+
+    Cedants commonly record substandard rating as a single string code
+    (e.g. ``STD``, ``TBL2``, ``TBL4``, ``FE5``) rather than as the two
+    numeric Polaris fields (``mortality_multiplier``,
+    ``flat_extra_per_1000``). This registry derives the two Polaris
+    fields from one source column.
+
+    Applied AFTER column renaming and code translations. If a row's
+    rating code is not found in ``codes``, ``default`` values are used —
+    equivalent to treating the life as standard.
+    """
+
+    source_column: str = Field(
+        description=(
+            "Source column name (post-rename) containing cedant rating codes. "
+            "Typically 'rating_code' or similar after column_mapping is applied."
+        ),
+    )
+    codes: dict[str, RatingCodeEntry] = Field(
+        description=(
+            "Mapping from cedant rating code → target Polaris rating values. "
+            "Codes not present in the source file are silently skipped."
+        ),
+    )
+    default: RatingCodeEntry = Field(
+        default_factory=RatingCodeEntry,
+        description=(
+            "Fallback rating for codes not present in the 'codes' dict. "
+            "Defaults to standard (multiplier=1.0, flat_extra=0.0)."
+        ),
+    )
+
+
 class IngestConfig(PolarisBaseModel):
     """
     YAML-driven mapping configuration for cedant inforce ingestion.
 
     Maps arbitrary source column names to Polaris RE field names, defines
-    code translations (e.g. ``M → MALE``), and provides default values for
-    missing optional fields.
+    code translations (e.g. ``M → MALE``), optionally derives the
+    per-policy substandard rating fields from a cedant rating-code column,
+    and provides default values for missing optional fields.
     """
 
     source_format: SourceFormat = Field(default_factory=SourceFormat)
@@ -84,6 +153,15 @@ class IngestConfig(PolarisBaseModel):
     code_translations: dict[str, dict[str, str]] = Field(
         default_factory=dict,
         description="Per-field code translation dicts (source_value → polaris_value).",
+    )
+    rating_code_map: RatingCodeMap | None = Field(
+        default=None,
+        description=(
+            "Optional registry that derives mortality_multiplier and "
+            "flat_extra_per_1000 from a single cedant rating-code column. "
+            "When None, rating is not derived (defaults of 1.0 / 0.0 apply "
+            "downstream via Policy validation)."
+        ),
     )
     defaults: dict[str, str | float | int] = Field(
         default_factory=dict,
@@ -114,6 +192,10 @@ class DataQualityReport:
     mean_age: float = 0.0
     sex_split: dict[str, int] = field(default_factory=dict)
     smoker_split: dict[str, int] = field(default_factory=dict)
+    n_rated: int = 0
+    pct_rated_by_count: float = 0.0
+    pct_rated_by_face: float = 0.0
+    mean_multiplier_rated: float = 0.0
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -121,6 +203,47 @@ class DataQualityReport:
     def is_valid(self) -> bool:
         """True if no blocking errors were found."""
         return len(self.errors) == 0
+
+
+def _apply_rating_code_map(df: pl.DataFrame, mapping: RatingCodeMap) -> pl.DataFrame:
+    """Derive mortality_multiplier and flat_extra_per_1000 from a rating code column.
+
+    Applied after column renaming so ``mapping.source_column`` refers to the
+    post-rename column name. Silently leaves the frame unchanged if the
+    source column is absent — callers that require the column should set
+    it as required in ``column_mapping``.
+
+    Existing mortality_multiplier / flat_extra_per_1000 columns are
+    overwritten. This is intentional: when a cedant supplies both a rating
+    code and pre-computed multipliers, the rating code is authoritative.
+    """
+    if mapping.source_column not in df.columns:
+        return df
+
+    mult_lookup = {code: entry.mortality_multiplier for code, entry in mapping.codes.items()}
+    extra_lookup = {code: entry.flat_extra_per_1000 for code, entry in mapping.codes.items()}
+
+    code_col = pl.col(mapping.source_column).cast(pl.Utf8)
+    multiplier_expr = (
+        code_col.replace_strict(
+            mult_lookup, default=mapping.default.mortality_multiplier, return_dtype=pl.Float64
+        )
+        .cast(pl.Float64)
+        .alias("mortality_multiplier")
+    )
+    flat_extra_expr = (
+        code_col.replace_strict(
+            extra_lookup, default=mapping.default.flat_extra_per_1000, return_dtype=pl.Float64
+        )
+        .cast(pl.Float64)
+        .alias("flat_extra_per_1000")
+    )
+
+    drop_cols = [c for c in ("mortality_multiplier", "flat_extra_per_1000") if c in df.columns]
+    if drop_cols:
+        df = df.drop(drop_cols)
+
+    return df.with_columns([multiplier_expr, flat_extra_expr])
 
 
 def ingest_cedant_data(
@@ -174,6 +297,10 @@ def ingest_cedant_data(
             df = df.with_columns(
                 pl.col(field_name).cast(pl.Utf8).replace(translation).alias(field_name)
             )
+
+    # Derive substandard-rating fields from cedant rating codes
+    if config.rating_code_map is not None:
+        df = _apply_rating_code_map(df, config.rating_code_map)
 
     # Apply defaults for missing columns
     for field_name, default_value in config.defaults.items():
@@ -232,6 +359,29 @@ def validate_inforce_df(df: pl.DataFrame) -> DataQualityReport:
         report.smoker_split = {
             str(row["smoker_status"]): int(row["count"]) for row in counts.iter_rows(named=True)
         }
+
+    # Substandard rating composition (only meaningful when the fields exist)
+    if "mortality_multiplier" in df.columns or "flat_extra_per_1000" in df.columns:
+        mult_col = (
+            df["mortality_multiplier"].cast(pl.Float64, strict=False)
+            if "mortality_multiplier" in df.columns
+            else pl.Series("mortality_multiplier", [1.0] * report.n_policies, dtype=pl.Float64)
+        )
+        extra_col = (
+            df["flat_extra_per_1000"].cast(pl.Float64, strict=False)
+            if "flat_extra_per_1000" in df.columns
+            else pl.Series("flat_extra_per_1000", [0.0] * report.n_policies, dtype=pl.Float64)
+        )
+        is_rated_mask = (mult_col > 1.0) | (extra_col > 0.0)
+        report.n_rated = int(is_rated_mask.sum())
+        report.pct_rated_by_count = report.n_rated / report.n_policies if report.n_policies else 0.0
+        if "face_amount" in df.columns and report.total_face_amount > 0.0:
+            face_col = df["face_amount"].cast(pl.Float64, strict=False)
+            rated_face = float((face_col * is_rated_mask.cast(pl.Float64)).sum())
+            report.pct_rated_by_face = rated_face / report.total_face_amount
+        if report.n_rated > 0:
+            rated_mult = mult_col.filter(is_rated_mask)
+            report.mean_multiplier_rated = float(rated_mult.mean())  # type: ignore[arg-type]
 
     # Duplicate policy IDs
     if "policy_id" in df.columns:

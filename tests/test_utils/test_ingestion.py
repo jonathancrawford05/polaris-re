@@ -9,6 +9,8 @@ import yaml
 from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.utils.ingestion import (
     IngestConfig,
+    RatingCodeEntry,
+    RatingCodeMap,
     ingest_cedant_data,
     validate_inforce_df,
 )
@@ -299,3 +301,280 @@ class TestValidateInforceDf:
         report = validate_inforce_df(df)
 
         assert report.mean_age == pytest.approx(45.0, abs=0.1)
+
+
+def _write_rated_cedant_csv(path: Path) -> None:
+    """Write a mock cedant CSV carrying a rating-code column."""
+    rows = [
+        {
+            "policy_id": "R001",
+            "issue_age": 30,
+            "attained_age": 35,
+            "sex": "M",
+            "smoker_status": "NS",
+            "underwriting_class": "STANDARD",
+            "face_amount": 500_000,
+            "annual_premium": 500.0,
+            "product_type": "TERM",
+            "policy_term": 20,
+            "duration_inforce": 60,
+            "issue_date": "2021-01-01",
+            "valuation_date": "2026-01-01",
+            "RATE_CLASS": "STD",
+        },
+        {
+            "policy_id": "R002",
+            "issue_age": 40,
+            "attained_age": 45,
+            "sex": "F",
+            "smoker_status": "NS",
+            "underwriting_class": "SUBSTANDARD",
+            "face_amount": 1_000_000,
+            "annual_premium": 2000.0,
+            "product_type": "TERM",
+            "policy_term": 20,
+            "duration_inforce": 60,
+            "issue_date": "2021-01-01",
+            "valuation_date": "2026-01-01",
+            "RATE_CLASS": "TBL2",
+        },
+        {
+            "policy_id": "R003",
+            "issue_age": 50,
+            "attained_age": 55,
+            "sex": "M",
+            "smoker_status": "S",
+            "underwriting_class": "SUBSTANDARD",
+            "face_amount": 250_000,
+            "annual_premium": 1500.0,
+            "product_type": "TERM",
+            "policy_term": 10,
+            "duration_inforce": 36,
+            "issue_date": "2023-01-01",
+            "valuation_date": "2026-01-01",
+            "RATE_CLASS": "FE5",
+        },
+        {
+            "policy_id": "R004",
+            "issue_age": 35,
+            "attained_age": 40,
+            "sex": "M",
+            "smoker_status": "NS",
+            "underwriting_class": "STANDARD",
+            "face_amount": 750_000,
+            "annual_premium": 1200.0,
+            "product_type": "TERM",
+            "policy_term": 20,
+            "duration_inforce": 48,
+            "issue_date": "2022-01-01",
+            "valuation_date": "2026-01-01",
+            "RATE_CLASS": "UNKNOWN_CODE",
+        },
+    ]
+    pl.DataFrame(rows).write_csv(path)
+
+
+def _rating_config(include_rating_code_map: bool = True) -> IngestConfig:
+    """Build an IngestConfig for rated-cedant CSVs."""
+    column_mapping = {
+        "policy_id": "policy_id",
+        "issue_age": "issue_age",
+        "attained_age": "attained_age",
+        "sex": "sex",
+        "smoker_status": "smoker_status",
+        "underwriting_class": "underwriting_class",
+        "face_amount": "face_amount",
+        "annual_premium": "annual_premium",
+        "product_type": "product_type",
+        "policy_term": "policy_term",
+        "duration_inforce": "duration_inforce",
+        "issue_date": "issue_date",
+        "valuation_date": "valuation_date",
+        "rating_code": "RATE_CLASS",
+    }
+    rating_map = (
+        RatingCodeMap(
+            source_column="rating_code",
+            codes={
+                "STD": RatingCodeEntry(mortality_multiplier=1.0, flat_extra_per_1000=0.0),
+                "TBL2": RatingCodeEntry(mortality_multiplier=2.0, flat_extra_per_1000=0.0),
+                "TBL4": RatingCodeEntry(mortality_multiplier=4.0, flat_extra_per_1000=0.0),
+                "FE5": RatingCodeEntry(mortality_multiplier=1.0, flat_extra_per_1000=5.0),
+                "TBL2_FE5": RatingCodeEntry(mortality_multiplier=2.0, flat_extra_per_1000=5.0),
+            },
+        )
+        if include_rating_code_map
+        else None
+    )
+    return IngestConfig(
+        column_mapping=column_mapping,
+        rating_code_map=rating_map,
+    )
+
+
+class TestRatingCodeMap:
+    """Tests for the substandard rating-code registry (ADR-044)."""
+
+    def test_derives_multiplier_from_rating_code(self, tmp_path):
+        """TBL2 rating code yields mortality_multiplier=2.0 after ingestion."""
+        csv_path = tmp_path / "rated.csv"
+        _write_rated_cedant_csv(csv_path)
+
+        df = ingest_cedant_data(csv_path, _rating_config())
+
+        assert "mortality_multiplier" in df.columns
+        rows = {row["policy_id"]: row for row in df.iter_rows(named=True)}
+        assert rows["R001"]["mortality_multiplier"] == pytest.approx(1.0)
+        assert rows["R002"]["mortality_multiplier"] == pytest.approx(2.0)
+        assert rows["R003"]["mortality_multiplier"] == pytest.approx(1.0)
+        # Unknown codes fall back to the default entry
+        assert rows["R004"]["mortality_multiplier"] == pytest.approx(1.0)
+
+    def test_derives_flat_extra_from_rating_code(self, tmp_path):
+        """FE5 rating code yields flat_extra_per_1000=5.0 after ingestion."""
+        csv_path = tmp_path / "rated.csv"
+        _write_rated_cedant_csv(csv_path)
+
+        df = ingest_cedant_data(csv_path, _rating_config())
+
+        assert "flat_extra_per_1000" in df.columns
+        rows = {row["policy_id"]: row for row in df.iter_rows(named=True)}
+        assert rows["R001"]["flat_extra_per_1000"] == pytest.approx(0.0)
+        assert rows["R002"]["flat_extra_per_1000"] == pytest.approx(0.0)
+        assert rows["R003"]["flat_extra_per_1000"] == pytest.approx(5.0)
+        assert rows["R004"]["flat_extra_per_1000"] == pytest.approx(0.0)
+
+    def test_rating_code_map_absent_leaves_frame_unchanged(self, tmp_path):
+        """Without a rating_code_map the derived columns are not added."""
+        csv_path = tmp_path / "rated.csv"
+        _write_rated_cedant_csv(csv_path)
+
+        df = ingest_cedant_data(csv_path, _rating_config(include_rating_code_map=False))
+
+        # Without the map, ingestion does not create the multiplier columns.
+        assert "mortality_multiplier" not in df.columns
+        assert "flat_extra_per_1000" not in df.columns
+
+    def test_custom_default_applied_for_unknown_codes(self, tmp_path):
+        """Custom ``default`` is returned for codes not present in ``codes``."""
+        csv_path = tmp_path / "rated.csv"
+        _write_rated_cedant_csv(csv_path)
+        cfg = _rating_config()
+        cfg_with_default = IngestConfig(
+            column_mapping=cfg.column_mapping,
+            rating_code_map=RatingCodeMap(
+                source_column="rating_code",
+                codes=cfg.rating_code_map.codes,  # type: ignore[union-attr]
+                default=RatingCodeEntry(mortality_multiplier=1.5, flat_extra_per_1000=0.0),
+            ),
+        )
+        df = ingest_cedant_data(csv_path, cfg_with_default)
+
+        rows = {row["policy_id"]: row for row in df.iter_rows(named=True)}
+        # Known code is unaffected
+        assert rows["R002"]["mortality_multiplier"] == pytest.approx(2.0)
+        # Unknown code now uses the custom default
+        assert rows["R004"]["mortality_multiplier"] == pytest.approx(1.5)
+
+    def test_rating_code_round_trips_into_inforce_block(self, tmp_path):
+        """Ingested rated CSV loads into InforceBlock with correct rating vecs."""
+        from polaris_re.core.inforce import InforceBlock
+
+        csv_path = tmp_path / "rated.csv"
+        normalised_path = tmp_path / "normalised.csv"
+        _write_rated_cedant_csv(csv_path)
+
+        df = ingest_cedant_data(csv_path, _rating_config())
+        df.write_csv(normalised_path)
+
+        block = InforceBlock.from_csv(normalised_path)
+        assert block.n_policies == 4
+        # Policies are created in source order; verify per-policy rating
+        by_id = {p.policy_id: p for p in block.policies}
+        assert by_id["R001"].mortality_multiplier == pytest.approx(1.0)
+        assert by_id["R002"].mortality_multiplier == pytest.approx(2.0)
+        assert by_id["R003"].flat_extra_per_1000 == pytest.approx(5.0)
+        assert by_id["R004"].mortality_multiplier == pytest.approx(1.0)
+
+    def test_validation_bounds_reject_out_of_range_rating(self):
+        """Out-of-range rating values are rejected at the RatingCodeEntry layer."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            RatingCodeEntry(mortality_multiplier=25.0)
+        with pytest.raises(ValidationError):
+            RatingCodeEntry(flat_extra_per_1000=150.0)
+
+    def test_rating_map_loads_from_yaml(self, tmp_path):
+        """Rating-code registry is serialisable via YAML like the rest of IngestConfig."""
+        yaml_path = tmp_path / "mapping.yaml"
+        config_dict = {
+            "column_mapping": {"policy_id": "id"},
+            "rating_code_map": {
+                "source_column": "rate_cls",
+                "codes": {
+                    "STD": {"mortality_multiplier": 1.0, "flat_extra_per_1000": 0.0},
+                    "TBL2": {"mortality_multiplier": 2.0},
+                    "FE5": {"flat_extra_per_1000": 5.0},
+                },
+            },
+        }
+        with open(yaml_path, "w") as f:
+            yaml.safe_dump(config_dict, f)
+
+        cfg = IngestConfig.from_yaml(yaml_path)
+        assert cfg.rating_code_map is not None
+        assert cfg.rating_code_map.source_column == "rate_cls"
+        assert cfg.rating_code_map.codes["TBL2"].mortality_multiplier == pytest.approx(2.0)
+        assert cfg.rating_code_map.codes["FE5"].flat_extra_per_1000 == pytest.approx(5.0)
+
+
+class TestValidateRatingReport:
+    """Tests that validate_inforce_df surfaces substandard-rating composition."""
+
+    def test_report_counts_rated_policies(self, tmp_path):
+        """report.n_rated reflects policies with multiplier > 1 or flat_extra > 0."""
+        csv_path = tmp_path / "rated.csv"
+        _write_rated_cedant_csv(csv_path)
+
+        df = ingest_cedant_data(csv_path, _rating_config())
+        report = validate_inforce_df(df)
+
+        # R002 (TBL2) and R003 (FE5) are rated; R001 and R004 are standard.
+        assert report.n_rated == 2
+        assert report.pct_rated_by_count == pytest.approx(0.5)
+
+    def test_report_face_weighted_rated_share(self, tmp_path):
+        """pct_rated_by_face is weighted by face amount."""
+        csv_path = tmp_path / "rated.csv"
+        _write_rated_cedant_csv(csv_path)
+
+        df = ingest_cedant_data(csv_path, _rating_config())
+        report = validate_inforce_df(df)
+
+        # Rated face = 1,000,000 (R002) + 250,000 (R003) = 1,250,000
+        # Total face = 500k + 1m + 250k + 750k = 2,500,000 → 50% by face.
+        assert report.pct_rated_by_face == pytest.approx(0.5)
+
+    def test_report_mean_multiplier_rated(self, tmp_path):
+        """Mean multiplier is averaged only over rated policies."""
+        csv_path = tmp_path / "rated.csv"
+        _write_rated_cedant_csv(csv_path)
+
+        df = ingest_cedant_data(csv_path, _rating_config())
+        report = validate_inforce_df(df)
+
+        # Rated multipliers: R002=2.0, R003=1.0 (flat-extra only) → mean 1.5
+        assert report.mean_multiplier_rated == pytest.approx(1.5)
+
+    def test_report_zero_rated_when_no_rating_columns(self, tmp_path):
+        """When rating columns are absent, n_rated stays 0 (default dataclass)."""
+        csv_path = tmp_path / "rated.csv"
+        _write_rated_cedant_csv(csv_path)
+
+        df = ingest_cedant_data(csv_path, _rating_config(include_rating_code_map=False))
+        report = validate_inforce_df(df)
+
+        # No rating fields in df → report.n_rated stays 0
+        assert report.n_rated == 0
+        assert report.pct_rated_by_count == pytest.approx(0.0)

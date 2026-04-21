@@ -1,0 +1,76 @@
+# Example cedant ingestion mapping — substandard rating codes
+#
+# This config shows how to derive the Polaris RE substandard-rating
+# fields (mortality_multiplier, flat_extra_per_1000) from a cedant's
+# rating-code column. Point `polaris ingest --config` at this file
+# (or at a customised copy) to convert raw cedant data into a
+# normalised Polaris RE CSV.
+#
+# See docs/DECISIONS.md ADR-044 for rationale.
+
+source_format:
+  delimiter: ","
+  date_format: "%Y-%m-%d"
+
+# Map source column names → Polaris RE field names. Include the
+# source rating-code column under a stable Polaris-side name so the
+# rating_code_map below can reference it.
+column_mapping:
+  policy_id: POL_NUM
+  issue_age: AGE_AT_ISSUE
+  attained_age: CURRENT_AGE
+  sex: GENDER
+  smoker_status: TOBACCO
+  underwriting_class: UW_CLASS
+  face_amount: SUM_ASSURED
+  annual_premium: ANNUAL_PREM
+  product_type: PLAN_CODE
+  policy_term: TERM_YEARS
+  duration_inforce: MONTHS_IF
+  issue_date: ISSUE_DT
+  valuation_date: VAL_DT
+  rating_code: RATE_CLASS
+
+# Simple value-to-value code translations (source_value → polaris_value).
+code_translations:
+  sex:
+    MALE: M
+    FEMALE: F
+  smoker_status:
+    Y: S
+    "N": NS
+  product_type:
+    T10: TERM
+    T20: TERM
+    T30: TERM
+
+# Substandard rating registry: translate a cedant's rating code into
+# Polaris's two numeric fields. Unknown codes fall back to `default`
+# (standard life, 1.0 / 0.0).
+rating_code_map:
+  source_column: rating_code
+  codes:
+    STD:
+      mortality_multiplier: 1.0
+      flat_extra_per_1000: 0.0
+    TBL2:
+      mortality_multiplier: 2.0
+    TBL4:
+      mortality_multiplier: 4.0
+    TBL6:
+      mortality_multiplier: 6.0
+    TBL8:
+      mortality_multiplier: 8.0
+    FE5:
+      flat_extra_per_1000: 5.0
+    FE10:
+      flat_extra_per_1000: 10.0
+    TBL2_FE5:
+      mortality_multiplier: 2.0
+      flat_extra_per_1000: 5.0
+    TBL4_FE10:
+      mortality_multiplier: 4.0
+      flat_extra_per_1000: 10.0
+  default:
+    mortality_multiplier: 1.0
+    flat_extra_per_1000: 0.0
