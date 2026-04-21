@@ -982,3 +982,95 @@ all-standard golden CSV emits zeroed `rated_block`; rated CSV
 surfaces correct `max_multiplier`, `max_flat_extra_per_1000`, and
 non-zero `pct_rated_by_count`).
 
+## ADR-045: Deal-pricing Excel export format
+
+**Date:** 2026-04-21
+**Status:** Accepted (Slice 1 of 2 for the deal-pricing Excel-export
+feature — this slice ships the workbook writer as a library function
+and the DTOs that bound it. Slice 2 will wire the writer into
+`polaris price --excel-out`.)
+
+**Context:** Polaris RE already emits JSON results from `polaris
+price`, and the rate-schedule command ships a rate-schedule Excel
+workbook via `write_rate_schedule_excel`. Committee packets at a
+reinsurer are Excel artefacts — a pricing actuary circulates a
+formatted workbook with a one-page Summary, an annual Cash Flows
+table, a list of key assumptions, and a sensitivity table. JSON is
+not a committee deliverable. The PRODUCT_DIRECTION_2026-04-19
+assessment flagged "Deal-pricing Excel export" as the third BLOCKER
+for first-deal submission.
+
+**Decision:** Add `polaris_re.utils.excel_output.write_deal_pricing_excel(
+export, path)` that renders a formatted four-sheet workbook from a
+single `DealPricingExport` bundle:
+
+    1. Summary      — profit metrics (IRR, PV, margin, breakeven, etc.)
+                       with one column per side (Cedant / Reinsurer).
+    2. Cash Flows   — annual rollup of the NET CashFlowResult, seven
+                       canonical columns (Year / Gross Premiums /
+                       Death Claims / Lapse Surrenders / Expenses /
+                       Reserve Increase / Net Cash Flow).
+    3. Assumptions  — flat label/value table sourced from
+                       `DealMetaExport` + `AssumptionsMetaExport`.
+    4. Sensitivity  — OMITTED when `export.scenario_results` is None;
+                       otherwise one row per `ScenarioMetric`.
+
+**DTO design:** The writer takes a single `DealPricingExport`
+dataclass rather than a long keyword list. Sub-DTOs
+(`DealMetaExport`, `AssumptionsMetaExport`, `ScenarioMetric`) are
+`@dataclass(frozen=True)` with explicit typing — no `dict[str, Any]`,
+per the project typing rules. This keeps the CLI wiring (Slice 2) a
+mechanical translation from `CohortResult` + `PipelineInputs` into
+an export bundle, and it keeps the writer itself free of CLI or
+pipeline imports.
+
+**Rationale for annual rather than monthly cash flows:** Committee
+packets never present 240-month granularity — the reviewers' mental
+model is annual. Aggregating monthly → annual inside the writer
+matches what `ProfitTester.profit_by_year` already does and gives a
+20-row table for a standard 20-year projection. Partial trailing
+years are rendered as an additional Year N+1 row, mirroring
+`ProfitTester` exactly, so both outputs agree on what "Year 21"
+means for a 241-month projection.
+
+**Rationale for mandatory NET cash flows:** Net-basis cash flows are
+the input a `ProfitTester` accepts and the Summary sheet's metrics
+describe. Gross and ceded bases are interesting for audit, but for
+Slice 1 the contract stays narrow — `gross_cashflows` and
+`ceded_cashflows` are currently accepted as optional fields on the
+bundle but not yet rendered, to avoid committing to a presentation
+(separate sheets? merged columns?) before the CLI wiring
+(Slice 2) confirms what downstream consumers need. Adding those
+sheets later is purely additive.
+
+**Guardrail handling:** `ProfitTestResult.irr` and
+`ProfitTestResult.profit_margin` are `float | None` under ADR-041.
+The writer renders `None` as the string `"N/A"` in the affected
+cell (and falls back to no number format for that cell). This keeps
+the workbook lossless with respect to the JSON output — a cell that
+JSON reports as `null` becomes an explicit `"N/A"` in Excel, and a
+float cell always carries a numeric format so the committee sees
+percentages as percentages.
+
+**Reinsurer column conditional on `reinsurer_result`:** The Summary
+sheet grows a third column only when a reinsurer side exists. For a
+stand-alone gross projection (no treaty), the Cedant column is the
+only metric column, which keeps standalone pricing runs visually
+clean.
+
+**Out of scope for Slice 1:** (1) CLI flag `polaris price
+--excel-out path.xlsx`, (2) gross/ceded cash-flow sheets, (3)
+per-cohort workbooks for mixed-product blocks (one file vs one per
+cohort). All three will be decided in Slice 2 on the basis of
+concrete CLI behaviour.
+
+**Tests:** `tests/test_utils/test_excel_output.py` (20 tests) —
+structure (file created, expected sheets for minimal/full export,
+workbook roundtrips), Summary (cedant IRR/PV match source, reinsurer
+column presence/absence, IRR=None → "N/A", profit_margin=None →
+"N/A"), Cash Flows (row count = projection_years, year-1 premium
+aggregation matches monthly sum, all required columns present, total
+NCF equals monthly sum), Assumptions (mortality source, treaty,
+cession, hurdle rate value), and Sensitivity (row per scenario,
+scenario name preservation, PV profits cell match).
+
