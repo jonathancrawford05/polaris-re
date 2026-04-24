@@ -21,7 +21,7 @@ import sys
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import numpy as np
 import typer
@@ -35,6 +35,10 @@ from polaris_re.analytics.profit_test import ProfitTestResult
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.inforce import InforceBlock
+
+if TYPE_CHECKING:
+    from polaris_re.assumptions.lapse import LapseAssumption
+    from polaris_re.utils.excel_output import DealPricingExport
 from polaris_re.core.pipeline import (
     DealConfig,
     LapseConfig,
@@ -58,8 +62,10 @@ class CohortResult:
     """Typed per-cohort pricing result used by ``price_cmd``.
 
     Holds the raw ``ProfitTestResult`` objects (for Rich table rendering)
-    alongside summary metadata. Replaces an earlier ``dict[str, object]``
-    shape so downstream code gets clean types.
+    alongside summary metadata and the live ``CashFlowResult`` instances
+    that fed the profit test. The cash flow objects are kept on the
+    result so downstream consumers (e.g. the Excel writer wired in by
+    Slice 2 of ADR-045) can render annual rollups without re-projecting.
     """
 
     product_type: str
@@ -67,6 +73,9 @@ class CohortResult:
     face_amount: float
     cedant_result: ProfitTestResult
     reinsurer_result: ProfitTestResult | None
+    net_cashflows: CashFlowResult
+    gross_cashflows: CashFlowResult
+    ceded_cashflows: CashFlowResult | None
 
 
 app = typer.Typer(
@@ -367,6 +376,9 @@ def _price_single_cohort(
         face_amount=face_amount,
         cedant_result=cedant_result,
         reinsurer_result=reinsurer_result,
+        net_cashflows=net,
+        gross_cashflows=gross,
+        ceded_cashflows=ceded,
     )
 
 
@@ -476,6 +488,94 @@ def _render_cohort_pricing_tables(cohort: CohortResult) -> None:
         console.print("[dim]No treaty applied — reinsurer view not available.[/dim]")
 
 
+def _describe_lapse(lapse: "LapseAssumption") -> str:
+    """Collapse a LapseAssumption into a one-line human description.
+
+    The committee workbook's Assumptions sheet wants a single readable
+    cell, not a numeric vector. For short select periods (≤ 5 years) we
+    render every duration; for longer ones we show the first two and the
+    ultimate only, so the cell stays readable.
+    """
+    rates = lapse.select_rates
+    ult = lapse.ultimate_rate
+    if len(rates) == 0:
+        return f"Ultimate {ult:.2%}"
+    if len(rates) <= 5:
+        parts = [f"Y{i + 1}={r:.2%}" for i, r in enumerate(rates)]
+        parts.append(f"ultimate={ult:.2%}")
+        return "; ".join(parts)
+    head = ", ".join(f"Y{i + 1}={rates[i]:.2%}" for i in range(2))
+    return f"{head}, …, Y{len(rates)}={rates[-1]:.2%}, ultimate={ult:.2%}"
+
+
+def _cohort_to_deal_pricing_export(
+    cohort: CohortResult,
+    assumptions: AssumptionSet,
+    config: ProjectionConfig,
+    inputs: PipelineInputs,
+    effective_hurdle: float,
+) -> "DealPricingExport":
+    """Translate a priced cohort into a DealPricingExport bundle.
+
+    Keeps the CLI as the only translation site between pipeline state
+    (``CohortResult`` + ``PipelineInputs``) and the writer's DTO surface.
+    """
+    from polaris_re.utils.excel_output import (
+        AssumptionsMetaExport,
+        DealMetaExport,
+        DealPricingExport,
+    )
+
+    deal = inputs.deal
+    treaty_type = deal.treaty_type
+    treaty_type_str = (
+        None if treaty_type is None or str(treaty_type).lower() == "none" else str(treaty_type)
+    )
+    cession_pct = deal.cession_pct if treaty_type_str is not None else None
+
+    deal_meta = DealMetaExport(
+        product_type=cohort.product_type,
+        n_policies=cohort.n_policies,
+        face_amount=cohort.face_amount,
+        treaty_type=treaty_type_str,
+        cession_pct=cession_pct,
+        hurdle_rate=effective_hurdle,
+        discount_rate=config.discount_rate,
+        projection_years=config.projection_horizon_years,
+        valuation_date=config.valuation_date,
+    )
+    assumptions_meta = AssumptionsMetaExport(
+        mortality_source=assumptions.mortality.source.value,
+        mortality_multiplier=inputs.mortality.multiplier,
+        lapse_description=_describe_lapse(assumptions.lapse),
+        assumption_set_version=assumptions.version,
+    )
+    return DealPricingExport(
+        deal_meta=deal_meta,
+        assumptions_meta=assumptions_meta,
+        cedant_result=cohort.cedant_result,
+        reinsurer_result=cohort.reinsurer_result,
+        net_cashflows=cohort.net_cashflows,
+        gross_cashflows=cohort.gross_cashflows,
+        ceded_cashflows=cohort.ceded_cashflows,
+        scenario_results=None,
+    )
+
+
+def _resolve_excel_path(base: Path, cohort_id: str, n_cohorts: int) -> Path:
+    """Derive the per-cohort Excel path.
+
+    Single-cohort runs write to the supplied path as-is. Mixed-cohort
+    runs insert the cohort identifier before the suffix so each workbook
+    has a unique filename (e.g. ``deal.xlsx`` → ``deal-TERM.xlsx``).
+    """
+    if n_cohorts <= 1:
+        return base
+    suffix = base.suffix or ".xlsx"
+    stem = base.stem
+    return base.with_name(f"{stem}-{cohort_id}{suffix}")
+
+
 def _fail_on_mixed_cohorts(
     inforce: InforceBlock,
     command_name: str,
@@ -530,6 +630,17 @@ def price_cmd(
         float,
         typer.Option("--hurdle-rate", "-r", help="Annual hurdle rate for profit test (e.g. 0.10)."),
     ] = 0.10,
+    excel_out: Annotated[
+        Path | None,
+        typer.Option(
+            "--excel-out",
+            help=(
+                "Path to write a formatted deal-pricing Excel workbook. "
+                "For mixed-cohort blocks, one file per cohort is written "
+                "with the cohort id appended to the stem."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """
     [bold]Run a deal pricing pipeline.[/bold]
@@ -690,6 +801,26 @@ def price_cmd(
     # pre-Slice-3 output.
     if int(rated_summary["n_rated"]) > 0:  # type: ignore[arg-type]
         _render_rated_block_table(rated_summary)
+
+    if excel_out is not None:
+        from polaris_re.utils.excel_output import write_deal_pricing_excel
+
+        effective_hurdle = hurdle_rate if hurdle_rate != 0.10 else inputs.deal.hurdle_rate
+        excel_out.parent.mkdir(parents=True, exist_ok=True)
+        written_paths: list[Path] = []
+        for cohort in cohort_results:
+            export = _cohort_to_deal_pricing_export(
+                cohort=cohort,
+                assumptions=assumptions,
+                config=config,
+                inputs=inputs,
+                effective_hurdle=effective_hurdle,
+            )
+            out_path = _resolve_excel_path(excel_out, cohort.product_type, n_cohorts)
+            write_deal_pricing_excel(export, out_path)
+            written_paths.append(out_path)
+        for p in written_paths:
+            console.print(f"[green]Excel workbook written to:[/green] {p}")
 
     _write_output(output_data, output_path, "price_result")
 

@@ -2,7 +2,7 @@
 
 **Source:** PRODUCT_DIRECTION_2026-04-19.md — BLOCKER (item #4 in
 Recommended Next Sprint)
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 **Total slices:** 2
 **Estimated total scope:** ~2 dev-days
 
@@ -89,39 +89,53 @@ that writes the workbook alongside the existing JSON output.
     visually clean.
 
 ### Slice 2: CLI wiring + mixed-cohort behaviour
-- **Status:** NEXT
-- **Depends on:** Slice 1 merged.
-- **Branch (planned):** `feat/auto-deal-excel-export-s2-2026-XX-XX`
-- **Files to create/modify:**
-  - `src/polaris_re/cli.py` — add `--excel-out PATH` option to
-    `polaris price`. When provided, translate each `CohortResult`
-    into a `DealPricingExport` and call `write_deal_pricing_excel`.
-    For a single-cohort deal, write one workbook at the provided
-    path. For mixed cohorts, write either a single workbook with
-    one sheet set per cohort (preferred) OR one file per cohort
-    (alternative — see open question below).
-  - `tests/qa/test_cli_golden.py` — add one CLI integration test
-    using the golden YRT config: run `polaris price --excel-out`,
-    verify the workbook exists, verify sheet names, verify Summary
-    IRR cell equals the JSON `cedant.irr` field.
-  - (Optional) `tests/test_utils/test_excel_output.py` — if the
-    translation helper lives in `excel_output.py`, add unit tests
-    for it.
-- **Tests to add (estimated 3-4):**
-  - CLI integration: `polaris price --excel-out` produces a valid
-    workbook whose cell values match the JSON output.
-  - CLI integration: `polaris price` without `--excel-out` does not
-    write any .xlsx (no regression of existing JSON-only path).
-  - (If mixed-cohort aggregation is implemented) cohort sheet
-    naming test.
+- **Status:** DONE
+- **Branch:** `claude/blissful-volta-ukXu2`
+- **PR:** (draft; opened by this session)
+- **What was done:**
+  - `src/polaris_re/cli.py` — extended `CohortResult` with
+    `net_cashflows` / `gross_cashflows` / `ceded_cashflows` so the
+    live `CashFlowResult` objects survive the pricing loop; added
+    `_describe_lapse(LapseAssumption) → str` (one-liner for the
+    Assumptions sheet), `_cohort_to_deal_pricing_export(...)` (pure
+    translation from pipeline state to `DealPricingExport`), and
+    `_resolve_excel_path(base, cohort_id, n_cohorts)` (mixed-cohort
+    filename derivation). `price_cmd` gained a new
+    `--excel-out PATH` option; when supplied, each cohort is
+    translated and written via `write_deal_pricing_excel`. JSON
+    output is unchanged when the flag is absent.
+  - `tests/qa/test_cli_golden.py` — new `TestCLIExcelOut` class
+    (four integration tests).
+  - `docs/DECISIONS.md` — ADR-046 appended documenting the CLI
+    wiring and the per-cohort file-layout decision.
+- **Tests added (4):** single-cohort → one workbook at the supplied
+  path, Summary IRR cell matches `cedant.irr`, Cash Flows has
+  `projection_years` data rows, Sensitivity sheet absent; mixed
+  cohort (golden TERM + WHOLE_LIFE) writes `deal-TERM.xlsx` and
+  `deal-WHOLE_LIFE.xlsx` and NOT `deal.xlsx`; no `--excel-out` →
+  no `.xlsx` (JSON-only regression guard); Assumptions sheet
+  reflects config's treaty type, cession, hurdle, discount,
+  projection years. Full suite now 726 non-slow (up from 722), QA
+  suite 33/33 (up from 29).
 - **Acceptance criteria:**
   - `polaris price --inforce ... --config ... --excel-out deal.xlsx`
-    writes a valid workbook.
-  - Summary IRR cell equals the JSON `cedant.irr` value.
-  - Cash flow row count equals `projection_years`.
+    writes a valid workbook. ✅
+  - Summary IRR cell equals the JSON `cedant.irr` value. ✅
+  - Cash flow row count equals `projection_years`. ✅
   - Existing CLI JSON output unchanged when `--excel-out` is not
-    provided (no regression).
-  - Golden regression unchanged.
+    provided (no regression). ✅
+  - Golden regression unchanged. ✅
+- **Key decisions resolved in this slice:**
+  - Mixed-cohort layout resolved as **one file per cohort** (option
+    (b) from the open questions). The Slice-1 single-cohort workbook
+    schema is preserved exactly; filenames gain `-{cohort_id}` before
+    the suffix for mixed blocks.
+  - Gross/ceded cash-flow sheets remain deferred — the DTO still
+    accepts them but the writer does not render them. A later PR can
+    add the sheets additively without a CLI contract change.
+  - Sensitivity sheet on `polaris price --excel-out` stays empty/
+    omitted. `polaris scenario` is the authoritative entry point for
+    sensitivity analysis, consistent with ADR-045.
 
 ## Context for Next Session
 
@@ -197,3 +211,13 @@ that writes the workbook alongside the existing JSON output.
    `polaris scenario` authoritative for sensitivity analysis.
 
 When all slices are DONE, update Status to COMPLETE.
+
+---
+
+**Feature COMPLETE as of 2026-04-24.** Both slices merged or in
+review (#31 merged for Slice 1; Slice 2 opened as a draft PR by
+this session). Follow-on work explicitly tracked as deferred
+above — gross/ceded sheets, rated-block panel on the Assumptions
+sheet, and `--with-sensitivity` inline scenarios — will each
+require its own product-direction decision before a new
+CONTINUATION file is opened.

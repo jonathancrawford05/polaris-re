@@ -1074,3 +1074,83 @@ NCF equals monthly sum), Assumptions (mortality source, treaty,
 cession, hurdle rate value), and Sensitivity (row per scenario,
 scenario name preservation, PV profits cell match).
 
+
+## ADR-046: `polaris price --excel-out` CLI wiring
+
+**Date:** 2026-04-24
+**Status:** Accepted (Slice 2 of 2 for the deal-pricing Excel-export
+feature — the writer + DTOs were delivered in Slice 1 / ADR-045;
+this ADR records the CLI wiring and the per-cohort file-layout
+decision for mixed blocks.)
+
+**Context:** ADR-045 added `write_deal_pricing_excel` as a library
+function that consumes a `DealPricingExport` bundle. It had no
+caller — `polaris price` still emitted JSON only. The committee
+needs a single CLI invocation that produces the workbook alongside
+the existing JSON. The CONTINUATION file flagged two open design
+questions: (a) mixed-cohort workbook layout (one-workbook-many-sheets
+vs one-workbook-per-cohort), and (b) whether to also render
+gross/ceded cash-flow sheets.
+
+**Decision:** Add `--excel-out PATH` to `polaris price`. When
+provided, after the per-cohort pricing loop runs, each
+`CohortResult` is translated into a `DealPricingExport` and written
+via `write_deal_pricing_excel`. The existing JSON path is
+unchanged — `--excel-out` is purely additive.
+
+*Mixed-cohort layout (one-file-per-cohort).* For a homogeneous
+block (single cohort) the workbook is written exactly at the
+supplied path — `deal.xlsx` means `deal.xlsx`. For a mixed block,
+the cohort id is appended to the stem: `deal.xlsx` becomes
+`deal-TERM.xlsx` and `deal-WHOLE_LIFE.xlsx`. This preserves the
+Slice-1 workbook schema exactly (one cohort per workbook — no sheet
+collisions), keeps committee packets self-contained per product
+(the common circulation pattern), and avoids ambiguity about what
+"Summary" means when several cohorts are present.
+
+*Cash flows are threaded through `CohortResult`.* The
+`CohortResult` dataclass in `cli.py` now carries
+`net_cashflows: CashFlowResult`, `gross_cashflows: CashFlowResult`,
+and `ceded_cashflows: CashFlowResult | None`. This keeps the live
+objects in scope for `_cohort_to_deal_pricing_export` without
+touching any core contracts (the `CashFlowResult` layout itself is
+unchanged). The `CashFlowResult` type was already imported by
+`cli.py`, so the extension is a CLI-local change.
+
+*Translation helpers live in `cli.py`.* `_cohort_to_deal_pricing_export`
+builds `DealMetaExport` from `DealConfig` / `ProjectionConfig` and
+`AssumptionsMetaExport` from `AssumptionSet` / `MortalityConfig`.
+`_describe_lapse(LapseAssumption)` produces the one-line
+`lapse_description` string. Both helpers are CLI-private so the
+writer stays free of pipeline imports (a key Slice-1 invariant).
+
+**Open-questions status (tracked in CONTINUATION_deal_pricing_excel):**
+
+1. **Mixed-cohort layout** — resolved as "one file per cohort" (see
+   above). Reviewers can still override in a follow-on ADR if the
+   "one-workbook-many-sheets" ergonomics are preferred.
+2. **Gross/ceded cash-flow sheets** — still deferred. The DTO
+   already accepts them; Slice 2 does not render them. A later PR
+   can add two sheets additively without a CLI contract change
+   (no new flags, no new fields).
+3. **Rated-block panel on Assumptions sheet** — deferred. The JSON
+   output already carries `rated_block`; teaching the workbook to
+   render it is an Assumptions-sheet-only change that can ship
+   without touching the CLI.
+4. **`--with-sensitivity` inline scenarios** — deferred. `polaris
+   scenario` remains the authoritative sensitivity-analysis entry
+   point. `polaris price --excel-out` never populates the
+   Sensitivity sheet, and the writer omits the sheet entirely when
+   `scenario_results is None` (ADR-045).
+
+**Tests (`tests/qa/test_cli_golden.py::TestCLIExcelOut`, 4 tests):**
+- Single-cohort run writes exactly the supplied path; Summary IRR
+  cell matches the JSON `cedant.irr`; Cash Flows sheet has
+  `projection_years` data rows; Sensitivity sheet is absent.
+- Mixed-cohort run (golden CSV has TERM and WHOLE_LIFE) writes
+  `deal-TERM.xlsx` and `deal-WHOLE_LIFE.xlsx` but NOT `deal.xlsx`.
+- Omitting `--excel-out` produces no `.xlsx` (JSON-only regression
+  guard).
+- Assumptions sheet values match the config's treaty type, cession,
+  hurdle, discount, and projection years.
+
