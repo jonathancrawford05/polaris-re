@@ -1154,3 +1154,102 @@ writer stays free of pipeline imports (a key Slice-1 invariant).
 - Assumptions sheet values match the config's treaty type, cession,
   hurdle, discount, and projection years.
 
+---
+
+## ADR-047: LICAT regulatory capital — factor-based v1 with NAR C-2
+
+**Date:** 2026-04-25
+**Status:** Accepted (Slice 1 of Phase 5.1)
+
+**Context:** Reinsurer deal evaluation hinges on return-on-required-capital
+(RoC), not IRR alone. PRODUCT_DIRECTION_2026-04-19 identified the absence
+of a regulatory capital module as a BLOCKER. Polaris RE needed a
+LICAT-aligned `required_capital(cashflows)` calculation as the foundation
+for an RoC metric. OSFI's 2024 LICAT mortality risk framework uses a
+shock-based scenario approach: required capital is the change in BEL under
+a prescribed mortality stress (level shock + trend shock + catastrophe
+shock). Replicating that approach requires re-running the projection under
+each shock, which is a substantial engineering effort and is more naturally
+deferred to a later phase once the calculator's interface is stable.
+
+**Decision:** Implement LICAT capital as a factor-based proxy in Slice 1.
+Required capital at each monthly step is the linear combination
+
+```
+capital_t = c1_factor × reserve_t + c2_factor × NAR_t + c3_factor × reserve_t
+```
+
+where `c2_factor` is calibrated per product type to approximate the
+shock-based result for an individual life book of that product type, and
+`c1_factor` / `c3_factor` are zero stubs to be populated once the asset /
+ALM model lands in Phase 5.4.
+
+Default C-2 factors via `LICATCapital.for_product(...)`:
+
+| Product | c2_mortality_factor |
+|---|---|
+| TERM | 0.15 |
+| WHOLE_LIFE | 0.10 |
+| UNIVERSAL_LIFE | 0.08 |
+| DISABILITY | 0.05 |
+| CRITICAL_ILLNESS | 0.05 |
+| ANNUITY | 0.03 |
+
+NAR is sourced from `cashflows.nar` (populated by YRT treaty application)
+or supplied explicitly as a `(T,)` array. CEDED basis is rejected — capital
+is held against retained business.
+
+**Rationale:**
+- **Factor approach is auditable.** The output `c2_t = factor × NAR_t` is
+  hand-verifiable from the published factor table; this is what a deal
+  committee will demand on first review.
+- **Factor approach is composable.** Slice 2 wires capital into
+  `ProfitTester.run_with_capital`; Slice 3 surfaces RoC via CLI / API /
+  Excel. None of that integration depends on the internal capital
+  calculation, so a future shock-based v2 can replace the factor formula
+  without touching the integration surface.
+- **NAR from `CashFlowResult.nar` keeps the contract clean.** YRT treaty
+  already populates that field; the CLI need not pass NAR around. For
+  non-YRT runs, the explicit `nar=` override or a future
+  `face_amount_in_force` derivation supplies the input.
+- **Per-product factors expose the actuarial driver.** A WL block on a YRT
+  treaty looks very different from a TERM block, and a single global factor
+  would either understate WL or overstate TERM. Per-product defaults give
+  pricing actuaries a credible starting point with one knob to override.
+
+**Out of scope for Slice 1:**
+- Shock-based mortality stress recomputation (Phase 5.1 v2 / Phase 5.4).
+- C-1 asset default and C-3 interest-rate components (Phase 5.4).
+- Lapse-risk and morbidity-risk components (separate ADRs once the
+  underlying stress framework is in).
+- `ProfitTester.run_with_capital` and the `return_on_capital` metric
+  (Slice 2 of this CONTINUATION).
+- CLI `--capital licat` flag, API `capital_model` field, Excel surfacing
+  (Slice 3).
+
+**Open questions deferred to Slice 2 / 3:**
+1. Whether to introduce `face_amount_in_force` on `CashFlowResult` so
+   non-YRT runs can derive NAR without an explicit caller-supplied vector.
+   Slice 2 will address as part of the `run_with_capital` plumbing, since
+   that is where the InforceBlock is still in scope.
+2. Whether RoC denominator should be a stock metric (`pv_capital`) or a
+   strain metric (PV of capital increases). Industry practice varies; we'll
+   choose in Slice 2 with documented rationale.
+
+**Tests (`tests/test_analytics/test_capital.py`, 31 tests):**
+- `LICATFactors` validation: defaults, non-negativity, ≤1 cap, frozen.
+- `LICATCapital.for_product` returns the right factor per product type
+  (parametrised across all six `ProductType` values) and zero C-1 / C-3.
+- `required_capital` closed-form: `c2 = factor × NAR`, zero C-1 / C-3,
+  total = sum of components, initial = period 0, peak = max, doubling
+  factor doubles C-2, zero factor zero capital.
+- NAR resolution: uses `cashflows.nar` when present, explicit override
+  takes precedence, missing NAR raises, length mismatch raises.
+- Basis acceptance: GROSS / NET accepted, CEDED rejected.
+- `CapitalResult.pv_capital` monotone in rate, zero-rate equals
+  undiscounted sum.
+- Closed-form OSFI verification: TERM 1M NAR @ 0.15 = 150K; WL 2M NAR
+  @ 0.10 = 200K.
+- Module exports: `LICATCapital`, `LICATFactors`, `CapitalResult`
+  importable from `polaris_re.analytics`.
+
