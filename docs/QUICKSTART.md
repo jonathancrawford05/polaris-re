@@ -10,6 +10,7 @@ This guide covers four paths to get Polaris RE running and tested:
 6. [Cedant Inforce Ingestion](#6-cedant-inforce-data-ingestion) — normalising raw cedant data
 7. [ML-Enhanced Assumptions](#7-ml-enhanced-assumptions) — training ML mortality/lapse models
 8. [YRT Rate Schedule](#8-yrt-rate-schedule-generation) — generating reinsurer rate tables
+9. [Deal Pricing & Excel Export](#9-deal-pricing--excel-export) — `polaris price` with `--excel-out`
 
 ---
 
@@ -518,6 +519,159 @@ write_rate_schedule_excel(df, "rates.xlsx")
 
 ---
 
+## 9. Deal Pricing & Excel Export
+
+`polaris price` runs the full deal pricing pipeline — InforceBlock → AssumptionSet →
+Product → Treaty → ProfitTester — and outputs Rich terminal tables plus a JSON
+result file. The `--excel-out` flag (added in ADR-046, Slice 2) additionally writes
+a formatted committee-grade Excel workbook for each priced cohort.
+
+### Command reference
+
+```
+polaris price [OPTIONS]
+
+Options:
+  -c, --config PATH        Pricing config JSON file (mortality/lapse/deal blocks).
+  -i, --inforce PATH       Inforce CSV file. Overrides any 'policies' embedded in config.
+  -o, --output PATH        Write JSON results to PATH (default: stdout).
+  -r, --hurdle-rate FLOAT  Annual hurdle rate for profit test (default: 0.10).
+      --excel-out PATH     Write a formatted deal-pricing Excel workbook to PATH.
+                           Mixed-cohort blocks write one file per cohort with the
+                           cohort id appended to the stem (e.g. deal-TERM.xlsx).
+      --help               Show this message and exit.
+```
+
+### Workbook contents
+
+Each Excel workbook produced by `--excel-out` contains three sheets:
+
+| Sheet | Contents |
+|---|---|
+| **Summary** | Key pricing metrics: IRR, PV profits, profit margin, break-even year (cedant and reinsurer views) |
+| **Cash Flows** | Annual net cash-flow rollup for `projection_years` rows |
+| **Assumptions** | Treaty type, cession %, hurdle rate, discount rate, projection years, mortality source, lapse description |
+
+The Sensitivity sheet is intentionally absent — `polaris scenario` remains the
+authoritative sensitivity entry point (see ADR-046).
+
+### Smoke test with the shipped fixtures
+
+These commands use `data/inputs/test_inforce.json` (SOA VBT 2015, YRT, WHOLE_LIFE
+deal config) and `data/inputs/test_inforce.csv` (2 WHOLE_LIFE policies). The block
+is homogeneous so a single workbook is written at the exact path supplied.
+
+```bash
+# 1. Validate the inforce CSV first
+uv run polaris validate data/inputs/test_inforce.csv
+
+# 2. Pricing only — JSON to stdout
+uv run polaris price \
+  --config data/inputs/test_inforce.json \
+  --inforce data/inputs/test_inforce.csv
+
+# 3. Pricing with JSON output saved to disk
+uv run polaris price \
+  --config data/inputs/test_inforce.json \
+  --inforce data/inputs/test_inforce.csv \
+  --output data/outputs/test_price_result.json
+
+# 4. Pricing with Excel workbook output (the main PR-32 feature)
+uv run polaris price \
+  --config data/inputs/test_inforce.json \
+  --inforce data/inputs/test_inforce.csv \
+  --output data/outputs/test_price_result.json \
+  --excel-out data/outputs/test_deal.xlsx
+
+# 5. Override the hurdle rate
+uv run polaris price \
+  --config data/inputs/test_inforce.json \
+  --inforce data/inputs/test_inforce.csv \
+  --output data/outputs/test_price_result.json \
+  --excel-out data/outputs/test_deal.xlsx \
+  --hurdle-rate 0.12
+```
+
+Expected terminal output for command 4:
+```
+╭─────────────────────────────────────────────────────╮
+│ Polaris RE  v<version>                              │
+│ Life Reinsurance Cash Flow Projection & Pricing ... │
+╰─────────────────────────────────────────────────────╯
+Results written to: data/outputs/test_price_result.json
+Excel workbook written to: data/outputs/test_deal.xlsx
+```
+
+Open `data/outputs/test_deal.xlsx` in Excel or Numbers to verify the three
+sheets are present and the Summary IRR matches the JSON `cohorts[0].cedant.irr`.
+
+### Mixed-cohort blocks (TERM + WHOLE_LIFE)
+
+When the inforce CSV contains multiple `product_type` values, `polaris price`
+prices each cohort independently and writes one workbook per cohort, appending
+the cohort id to the stem:
+
+```bash
+uv run polaris price \
+  --config data/configs/demo.json \
+  --inforce data/inputs/demo.csv \
+  --output data/outputs/mixed_result.json \
+  --excel-out data/outputs/mixed_deal.xlsx
+# Writes: mixed_deal-TERM.xlsx and mixed_deal-WHOLE_LIFE.xlsx
+```
+
+Note: `polaris scenario` and `polaris uq` do not support mixed-cohort blocks —
+they will exit with an error and instruct you to filter to a single product type
+first or use `polaris price` instead.
+
+### Config file schema (nested format)
+
+```json
+{
+  "mortality": {
+    "source": "SOA_VBT_2015",
+    "multiplier": 1.0
+  },
+  "lapse": {
+    "duration_table": {
+      "1": 0.06, "2": 0.05, "3": 0.04,
+      "ultimate": 0.015
+    }
+  },
+  "deal": {
+    "product_type": "WHOLE_LIFE",
+    "treaty_type": "YRT",
+    "cession_pct": 0.20,
+    "yrt_loading": 0.10,
+    "discount_rate": 0.06,
+    "hurdle_rate": 0.10,
+    "projection_years": 30,
+    "acquisition_cost": 500.0,
+    "maintenance_cost": 75.0,
+    "valuation_date": "2026-04-06"
+  }
+}
+```
+
+A complete worked example is at `data/inputs/test_inforce.json`. Legacy flat
+configs (`flat_qx` / `flat_lapse` top-level keys) still work but emit a
+deprecation warning; migrate to the nested format.
+
+### Debugging cash flows
+
+Set `POLARIS_PARITY_DEBUG=1` before any `polaris price` run to dump year-by-year
+gross / net / ceded cash flow CSVs alongside the workbook:
+
+```bash
+POLARIS_PARITY_DEBUG=1 uv run polaris price \
+  --config data/inputs/test_inforce.json \
+  --inforce data/inputs/test_inforce.csv \
+  --excel-out data/outputs/test_deal.xlsx
+# Parity CSVs written to data/outputs/parity/
+```
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -530,3 +684,5 @@ write_rate_schedule_excel(df, "rates.xlsx")
 | `uv run` fails in Docker | uv not in runtime image | Use `python -m pytest` directly (as per Makefile) |
 | `curl: (7) Failed to connect` | API container not running | Run `docker compose up api` first |
 | `GET / → 404` in browser | No root route defined | Navigate to `/docs` for the Swagger UI |
+| `--excel-out` produces no file | Output directory doesn't exist | The CLI creates parent directories automatically; check for a config or inforce error above the Excel line in stderr |
+| Mixed-cohort: only one `.xlsx` written | Single cohort in CSV | Cohort suffix is only appended when >1 product type is present — check `product_type` column values |

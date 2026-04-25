@@ -141,3 +141,77 @@ and confirming the per-cohort `cedant.pv_profits`,
 `reinsurer.pv_profits`, and `reinsurer.profit_margin` values match
 `tests/qa/golden_outputs/golden_flat.json` exactly. The existing
 `TestGoldenFlat` regression test remains green.
+
+---
+
+## Post-Session Follow-up Items
+
+### [FUTURE] Streamlit Excel Export — `st.download_button` for Deal Pricing Workbook
+
+**Priority:** Medium (nice-to-have; does not block any current BLOCKER items)
+
+**Context:** The CLI `--excel-out` flag writes a committee-grade deal-pricing
+workbook via `write_deal_pricing_excel` (Slice 1, PR #31) and the DTO
+translation `_cohort_to_deal_pricing_export` (Slice 2, this session). Streamlit
+dashboard users currently have no equivalent — they can view pricing results in
+the UI but cannot download the formatted Excel workbook that would be shared
+with cedants or pricing committees.
+
+**Proposed feature:** Add a **Download Deal Pricing Excel** button to the
+Streamlit pricing results page. Clicking it calls `write_deal_pricing_excel`
+and serves the output as a `st.download_button` byte stream (via `io.BytesIO`).
+The button should only appear once a pricing run has completed successfully.
+
+**Key design decision — refactor `_cohort_to_deal_pricing_export` out of `cli.py`:**
+The DTO translation currently lives in `cli.py` as a private helper, enforcing
+the ADR-045 invariant that the writer is free of CLI imports. To make the same
+translation available to the Streamlit page without importing from `cli.py`, it
+should be promoted to a shared utility, e.g.
+`polaris_re/utils/excel_export_helpers.py`. The `cli.py` private helper can then
+delegate to it. This refactor is the main architectural work; the writer and
+DTOs themselves are unchanged.
+
+**Mixed-cohort handling (design TBD):** When the priced block contains multiple
+product types, two options exist:
+- Option A — **Per-cohort zip archive**: a single `.zip` download containing one
+  workbook per cohort, mirroring CLI behaviour exactly.
+- Option B — **Multi-tab merged workbook**: one workbook with per-cohort sheet
+  tabs (Summary-TERM, CashFlows-TERM, Summary-WHOLE_LIFE, …). Deviates from CLI
+  but may be more convenient for Streamlit users. Requires a schema extension to
+  `write_deal_pricing_excel` or a new multi-cohort writer function.
+
+Option A is simpler and preserves the single-cohort schema without change.
+Option B requires an ADR before implementation.
+
+**Proposed acceptance criteria:**
+- "Download Deal Pricing Excel" button is visible on the pricing results page
+  after a successful run.
+- Single-cohort: clicking downloads a `.xlsx` identical in schema to CLI
+  `--excel-out` output (Summary / Cash Flows / Assumptions sheets).
+- Mixed-cohort: per chosen option (A or B above), the download contains all
+  priced cohorts.
+- No regression to existing Streamlit pricing display, JSON download, or
+  scenario/UQ pages.
+- `_cohort_to_deal_pricing_export` logic is accessible from both CLI and
+  Streamlit without cross-module circular imports.
+
+**ADR required:** Yes — the refactor out of `cli.py` touches the CLI-local
+invariant documented in ADR-045/046. The mixed-cohort multi-tab option (Option B)
+requires an additional ADR for the schema extension.
+
+**Estimated complexity:** Small–Medium (1 session). The writer is done; the main
+work is the `cli.py` helper refactor and the `st.download_button` wiring in the
+dashboard. The mixed-cohort design decision gates the full complexity estimate.
+
+**Files expected to change:**
+- `src/polaris_re/utils/excel_export_helpers.py` — new shared module with the
+  promoted `cohort_to_deal_pricing_export(...)` function.
+- `src/polaris_re/cli.py` — `_cohort_to_deal_pricing_export` delegates to the
+  shared helper; `TYPE_CHECKING` guard may be removed if the circular import
+  concern disappears.
+- `src/polaris_re/dashboard/app.py` (or the relevant pricing page module) —
+  import the shared helper, call `write_deal_pricing_excel` into `io.BytesIO`,
+  wire `st.download_button`.
+- `tests/` — unit test for the shared helper; integration test for the Streamlit
+  download button (may use `st.testing` or a simple round-trip test via the
+  shared function directly).
