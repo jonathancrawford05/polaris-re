@@ -50,14 +50,14 @@ All three phases are complete. 439 tests, 94% coverage.
 | `analytics/` | Stochastic Rates — Hull-White one-factor, CIR | ✅ |
 | `analytics/` | Experience Studies — A/E, limited-fluctuation credibility, blended rates | ✅ |
 | `api/` | REST API — FastAPI with full OpenAPI docs | ✅ |
-| `cli.py` | CLI — `polaris price / scenario / uq / validate / version` | ✅ |
+| `cli.py` | CLI — `polaris price / scenario / uq / validate / version`; `price --excel-out` for committee workbooks | ✅ |
 | `dashboard/` | Streamlit dashboard — pricing, scenarios, Monte Carlo | ✅ |
 
 ---
 
 ## Quick Start
 
-See [`docs/QUICKSTART.md`](docs/QUICKSTART.md) for the full setup guide including Docker, Codespaces, mortality table loading, and API testing.
+See [`docs/QUICKSTART.md`](docs/QUICKSTART.md) for the full setup guide including Docker, Codespaces, mortality table loading, API testing, and `--excel-out` usage.
 
 **Requires:** Python 3.12+, [uv](https://docs.astral.sh/uv/getting-started/installation/)
 
@@ -93,11 +93,21 @@ is supplied, using the shipped fixtures at `data/configs/demo.json` and
 uv run polaris price                      # price the demo block end-to-end
 uv run polaris price -i my_block.csv      # demo config, custom inforce CSV
 uv run polaris price -c my_deal.json      # custom config, embedded policies
+
+# Write a committee-grade Excel workbook alongside the JSON result
+uv run polaris price \
+  -c my_deal.json \
+  -i my_block.csv \
+  -o result.json \
+  --excel-out deal.xlsx
 ```
 
 Set `POLARIS_PARITY_DEBUG=1` to dump year-by-year cash flow CSVs (gross / net /
 ceded) to `data/outputs/parity/`. Override the location with
 `POLARIS_PARITY_OUTPUT=<path>`.
+
+See [`docs/QUICKSTART.md §9`](docs/QUICKSTART.md#9-deal-pricing--excel-export) for the full
+`polaris price` command reference, workbook contents, and mixed-cohort filename behaviour.
 
 ---
 
@@ -225,9 +235,9 @@ polaris-re/
 ├── .github/
 │   └── workflows/ci.yml   ← GitHub Actions: lint → test (3.12/3.13) → docker → coverage
 ├── docs/
-│   ├── QUICKSTART.md      ← Setup guide: local, Docker, Codespaces, API, tables
+│   ├── QUICKSTART.md      ← Setup guide: local, Docker, Codespaces, API, tables, Excel export
 │   ├── ROADMAP.md         ← Phased feature plan with milestone checklists
-│   ├── DECISIONS.md       ← Architecture decision records (ADRs 001–032)
+│   ├── DECISIONS.md       ← Architecture decision records (ADRs 001–046)
 │   └── ACTUARIAL_GLOSSARY.md  ← Domain terminology reference
 ├── src/polaris_re/
 │   ├── core/              ← Policy, InforceBlock, ProjectionConfig, CashFlowResult
@@ -238,9 +248,9 @@ polaris-re/
 │   │                         experience studies
 │   ├── api/               ← FastAPI application
 │   ├── dashboard/         ← Streamlit dashboard
-│   ├── utils/             ← Table loaders, interpolation, date utilities
+│   ├── utils/             ← Table loaders, interpolation, date utilities, Excel writer
 │   └── cli.py             ← Typer CLI entry point
-├── tests/                 ← 439 tests, 94% coverage
+├── tests/                 ← 726 tests, 94% coverage
 ├── notebooks/
 │   └── 01_term_life_yrt_pricing.ipynb  ← End-to-end validation notebook
 ├── scripts/
@@ -272,7 +282,8 @@ InforceBlock (N policies)
                                             ├──► ProfitTester   → IRR, PV profits, margin
                                             ├──► ScenarioRunner → stress scenario table
                                             ├──► MonteCarloUQ   → VaR, CVaR, percentiles
-                                            └──► IFRS17         → BEL, RA, CSM schedule
+                                            ├──► IFRS17         → BEL, RA, CSM schedule
+                                            └──► ExcelWriter    → committee deal workbook
 ```
 
 ---
