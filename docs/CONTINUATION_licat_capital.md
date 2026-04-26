@@ -197,12 +197,12 @@ deal-pricing Excel workbook.
    widely cited definition. If the deal committee prefers strain,
    Slice 2 will add a parameter; document in ADR-048 either way.
 2. **Should Slice 2 introduce `face_amount_in_force` on
-   `CashFlowResult`?** Without it, capital calculation for non-YRT
-   runs requires the caller to compute NAR from the InforceBlock.
-   With it, the CashFlowResult becomes self-sufficient but the core
-   contract grows. Default: NO contract change in Slice 2 — caller
-   computes NAR from InforceBlock. Revisit if Slice 3 dashboards
-   need NAR after CashFlowResult goes out of scope.
+   `CashFlowResult`?** **RESOLVED — NO** (PR #33 reviewer confirmed
+   2026-04-25): do NOT expand the `CashFlowResult` contract for a
+   stock variable in this phase. Slice 2 derives NAR at the
+   `run_with_capital` call site from the InforceBlock (in scope) and
+   passes it via the existing `nar=` override on
+   `LICATCapital.required_capital`.
 3. **C-1 and C-3 components.** Slice 1 stubs them at zero. Phase 5.4
    (asset / ALM model) will populate C-1 properly. C-3 needs
    integration with the stochastic-rate engine. For deal-committee
@@ -215,5 +215,21 @@ deal-pricing Excel workbook.
    straight extension of the factor model — propose a Phase 5.1.b
    ADR after Slice 3 ships, since it doesn't change the ProfitTester
    integration surface.
+
+## Resolved (PR #33 review, 2026-04-25)
+
+- **Default C-2 factors per product type are accepted.** TERM 0.15,
+  WL 0.10, UL 0.08, DI 0.05, CI 0.05, ANN 0.03 ship as the OSFI-aligned
+  defaults; Slice 3 CLI / API surface uses these via
+  `LICATCapital.for_product(...)`.
+- **CEDED basis rejection is confirmed as a deliberate guardrail**,
+  matching the ADR-039 pattern: cedant capital runs on NET; reinsurer
+  capital runs on `ceded_to_reinsurer_view(ceded)` (which is GROSS-
+  labelled). The CEDED rejection in `LICATCapital.required_capital`
+  stays, and Slice 2's `run_with_capital` call sites must follow
+  this convention.
+- **No `face_amount_in_force` on `CashFlowResult`.** Open Q2 above is
+  closed. Slice 2 derives NAR from the InforceBlock at the
+  `run_with_capital` call site and passes it via `nar=`.
 
 When all slices are DONE, update Status to COMPLETE.
