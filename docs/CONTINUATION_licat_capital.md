@@ -91,37 +91,86 @@ deal-pricing Excel workbook.
     or Slice 3 integrations.
 
 ### Slice 2: ProfitTester integration — `run_with_capital`
-- **Status:** NEXT
-- **Depends on:** Slice 1 merged
-- **Files to create / modify:**
-  - `src/polaris_re/analytics/profit_test.py` — add
-    `ProfitResultWithCapital` dataclass extending `ProfitTestResult`
-    with `peak_capital`, `pv_capital`, `return_on_capital`,
-    `capital_adjusted_irr`. Add `ProfitTester.run_with_capital(
-    capital_model: LICATCapital, *, nar: np.ndarray | None = None)
-    -> ProfitResultWithCapital`. Existing `run()` unchanged.
-  - `tests/test_analytics/test_profit_test.py` — extend with
-    `TestProfitTesterWithCapital` covering RoC formula closed-form
-    (PV profits / PV capital), capital-adjusted IRR shape, NAR
-    explicit pass-through, no-NAR fallback raises with a clear
-    message.
-- **Tests to add (estimated 8-10):**
-  - RoC = pv_profits / pv_capital for a known cash flow + capital
-    schedule.
-  - Doubling capital factor halves RoC (sensitivity).
-  - `nar=` argument is plumbed correctly into `LICATCapital`.
-  - `ProfitTestResult` fields are preserved (backward compatibility:
-    callers that already use `run()` see no change).
-  - Capital-adjusted IRR: deals where RoC < hurdle should not be
-    flagged as profitable even if vanilla IRR > hurdle.
+- **Status:** DONE (this session, 2026-04-26)
+- **Branch:** `claude/blissful-volta-CdNBB`
+- **PR:** (draft; opened by this session)
+- **What was done:**
+  - Added `ProfitResultWithCapital` dataclass to
+    `src/polaris_re/analytics/profit_test.py`, extending
+    `ProfitTestResult` with `initial_capital`, `peak_capital`,
+    `pv_capital`, `pv_capital_strain`, `return_on_capital`,
+    `capital_adjusted_irr`, and `capital_by_period`.
+  - Added `ProfitTester.run_with_capital(capital_model, *, nar=None)`
+    which calls `self.run()`, then runs the capital model on
+    `self.cashflows`, and joins the two into a
+    `ProfitResultWithCapital`. RoC denominator is `pv_capital`
+    (stock at the hurdle rate) per ADR-048; `pv_capital_strain` is
+    surfaced for callers that prefer the incremental view.
+  - Refactored IRR computation into a shared `_solve_irr(profits)`
+    helper that mirrors the ADR-041 sign-change suppression and
+    large-magnitude guard rail. `run()` continues to inline the
+    same logic for backward-compat byte equality on the existing
+    fields.
+  - Capital-adjusted IRR uses distributable cash flow
+    `net_cash_flow_t - strain_t` with terminal release of
+    `capital[T-1]` at month T-1. Sum of strain telescopes to zero
+    so the undiscounted profit total is unchanged.
+  - Added `CapitalResult.capital_strain()` and
+    `CapitalResult.pv_capital_strain(rate)` to
+    `src/polaris_re/analytics/capital.py`. Strain is
+    `capital_t - capital_{t-1}` with `capital_{-1} = 0` (no
+    terminal release inside the calculator — `ProfitTester` adds
+    it for the IRR computation).
+  - `analytics/__init__.py` re-exports `ProfitResultWithCapital`;
+    `__all__` re-sorted.
+  - ADR-048 added to `docs/DECISIONS.md`.
+  - 14 tests added in
+    `tests/test_analytics/test_profit_test.py`:
+    `TestProfitTesterWithCapital` (12) and
+    `TestPvCapitalStrainClosedForm` (2). Full suite is now 771
+    non-slow (up from 757); QA suite 33/33; ruff format and check
+    both clean. Golden baselines unchanged because the new code
+    path is opt-in.
 - **Acceptance criteria:**
   - `ProfitTester.run_with_capital(LICATCapital.for_product(TERM))`
-    returns a `ProfitResultWithCapital` with non-None `peak_capital`,
-    `pv_capital`, and `return_on_capital`.
-  - Closed-form RoC test passes within float tolerance.
-  - Existing `ProfitTester.run()` callers unaffected (regression
-    guard: full suite still green without changes).
-  - Golden baselines unchanged (the new code path is opt-in).
+    returns `ProfitResultWithCapital` with non-None
+    `peak_capital`, `pv_capital`, `return_on_capital`. ✅
+  - Closed-form RoC test passes within float tolerance
+    (`pv_profits / pv_capital` matches direct computation). ✅
+  - Existing `ProfitTester.run()` callers unaffected (full suite
+    still green; backward-compat field-preservation test
+    explicit). ✅
+  - Doubling C-2 factor halves RoC (sensitivity). ✅
+  - Explicit `nar=` argument forwards to `LICATCapital`. ✅
+  - Missing NAR raises a clear `PolarisComputationError`. ✅
+  - Capital-adjusted IRR < vanilla IRR for a strained deal. ✅
+  - `pv_capital_strain` for flat capital equals `K × v`. ✅
+  - Golden baselines unchanged. ✅
+  - `ProfitResultWithCapital` exported via
+    `polaris_re.analytics`. ✅
+- **Key decisions that affect Slice 3:**
+  - **RoC denominator = stock (`pv_capital`).** Slice 3 should
+    surface `return_on_capital` (the stock-based RoC) as the
+    headline number on CLI / API / Excel. The strain measure is
+    available on `ProfitResultWithCapital.pv_capital_strain` if a
+    secondary tile is desired.
+  - **`run_with_capital` is opt-in.** Slice 3 must add the
+    `--capital licat` CLI flag and the `capital_model` API field
+    that gates the call. Existing pipeline paths remain on
+    `tester.run()` until the flag is set.
+  - **NAR is sourced at the call site.** For coinsurance / modco /
+    no-treaty runs the `CashFlowResult.nar` is None; Slice 3 must
+    derive NAR from the InforceBlock at the call site (e.g.
+    `(inforce.face_amount_vec * lx_vec).sum(axis=0)` or a
+    cession-aware equivalent) and pass it via `nar=`. For YRT runs
+    the existing `cashflows.nar` populated by `YRTTreaty.apply`
+    flows through automatically.
+  - **`ProfitResultWithCapital` preserves all
+    `ProfitTestResult` fields.** Slice 3's CLI / API / Excel
+    serialisation can branch on `isinstance(result,
+    ProfitResultWithCapital)` to decide whether to emit the
+    capital block, with no changes to existing serialisation
+    code.
 
 ### Slice 3: CLI / API / Excel surfacing
 - **Status:** PLANNED
@@ -137,11 +186,31 @@ deal-pricing Excel workbook.
   - `src/polaris_re/utils/excel_output.py` — extend the Summary
     sheet of `write_deal_pricing_export` to emit the RoC and Peak
     Capital rows when capital metrics are present in the
-    `DealPricingExport`.
+    `DealPricingExport`. Per PR #34 reviewer: also surface
+    `pv_capital_strain` as a secondary advisory metric on the
+    Excel workbook (primary RoC denominator stays stock).
   - `src/polaris_re/dashboard/views/pricing.py` — RoC tile beside
     the existing IRR tile.
   - Tests covering CLI flag, API field round-trip, Excel cell
     placement, and dashboard render.
+- **NAR-derivation formula at the call site (PR #34 reviewer
+  guidance, 2026-04-26):** at each Slice-3 call site that builds
+  the `nar=` kwarg, compute
+
+      nar_t = max((face_amount_vec * lx_vec).sum(axis=0) - reserve_t, 0.0)
+
+  where `lx_vec` is the in-force factor matrix from the projection.
+  For coinsurance / modco NET runs, scale the face term by
+  `(1 - cession_pct)` so the retained NAR matches the NET cashflow
+  basis:
+
+      nar_t_net = max(((1 - cession_pct) * face_amount_vec * lx_vec).sum(axis=0)
+                      - reserve_t, 0.0)
+
+  Both are one-line changes at the call site; the `LICATCapital`
+  module itself is unchanged. YRT runs continue to use
+  `cashflows.nar` (already populated by `YRTTreaty.apply`) and skip
+  the explicit derivation.
 - **Acceptance criteria:**
   - `polaris price --inforce ... --config ... --capital licat -o
     out.json` produces JSON with `return_on_capital` populated for
@@ -149,7 +218,10 @@ deal-pricing Excel workbook.
   - `POST /api/v1/price` with `capital_model="licat"` returns
     `return_on_capital`.
   - `polaris price --capital licat --excel-out deal.xlsx` Summary
-    sheet shows the new rows.
+    sheet shows the new rows (RoC, Peak Capital, advisory
+    pv_capital_strain).
+  - Coinsurance/modco NET runs use the cession-aware NAR formula
+    above; YRT runs use `cashflows.nar` unchanged.
   - Golden baselines unchanged when `--capital` is not supplied.
 
 ## Context for Next Session
@@ -191,11 +263,13 @@ deal-pricing Excel workbook.
 ## Open Questions (for human)
 
 1. **RoC denominator: stock (pv_capital) or strain (pv_capital_strain)?**
-   Industry practice splits — Phase 5.1 of the roadmap doesn't
-   prescribe. Slice 2 will default to **stock** (pv_capital with
-   discount rate = hurdle rate) because it is the simpler, more
-   widely cited definition. If the deal committee prefers strain,
-   Slice 2 will add a parameter; document in ADR-048 either way.
+   **RESOLVED — Stock** (Slice 2 / ADR-048, 2026-04-26): default
+   `return_on_capital = pv_profits / pv_capital`, where `pv_capital`
+   discounts capital balances at the hurdle rate. The strain
+   measure is exposed on `ProfitResultWithCapital.pv_capital_strain`
+   and `CapitalResult.pv_capital_strain(rate)` for callers that
+   prefer it; a future ADR can flip the default if firm policy
+   evolves.
 2. **Should Slice 2 introduce `face_amount_in_force` on
    `CashFlowResult`?** **RESOLVED — NO** (PR #33 reviewer confirmed
    2026-04-25): do NOT expand the `CashFlowResult` contract for a
@@ -231,5 +305,28 @@ deal-pricing Excel workbook.
 - **No `face_amount_in_force` on `CashFlowResult`.** Open Q2 above is
   closed. Slice 2 derives NAR from the InforceBlock at the
   `run_with_capital` call site and passes it via `nar=`.
+
+## Resolved (PR #34 review, 2026-04-26)
+
+- **RoC denominator stays PV(capital STOCK).** Reviewer confirmed the
+  default matches firm reporting convention. Slice 3 may surface
+  `pv_capital_strain` as an advisory metric on the Excel workbook;
+  the primary RoC denominator does not change.
+- **Capital-adjusted IRR construction confirmed.** The
+  distributable-cash-flow-with-terminal-release formulation
+  (`net_cash_flow_t - strain_t` plus terminal release of
+  `capital[T-1]`) is the correct approach. The frictional
+  cost-of-capital alternative
+  (`net_cash_flow_t - capital_t × hurdle / 12`) introduces hurdle-rate
+  circularity and is inappropriate for a deal-level IRR metric. The
+  CONTINUATION note about that variant stays for future reference but
+  no implementation work is planned.
+- **Slice 3 NAR-derivation formula** — see the formula block in the
+  Slice 3 section above. Two amendments to the original
+  `(face × lx).sum()` plan: (1) subtract `reserve_balance` and floor
+  at zero; (2) scale face by `(1 − cession_pct)` for coinsurance/modco
+  NET runs so the retained NAR matches the NET cashflow basis. Both
+  are one-line changes at the call site; the `LICATCapital` module
+  itself is unchanged.
 
 When all slices are DONE, update Status to COMPLETE.

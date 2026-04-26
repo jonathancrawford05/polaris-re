@@ -6,16 +6,23 @@ PV profits: sum_t [profit_t * v^t], v = (1 + hurdle_rate)^(-1/12)
 IRR: rate at which PV profits = 0, solved via scipy.optimize.brentq
 Break-even year: first year where cumulative discounted profit > 0
 Profit margin: pv_profits / pv_premiums
+
+Capital-aware extension (ADR-048, Slice 2 of LICAT capital feature):
+`run_with_capital(capital_model, *, nar=None)` joins the profit test with a
+`LICATCapital` calculator and returns `ProfitResultWithCapital` carrying
+peak/initial capital, PV capital (stock), PV capital strain (incremental),
+return-on-capital, and capital-adjusted IRR.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from scipy.optimize import brentq
 
+from polaris_re.analytics.capital import CapitalResult, LICATCapital
 from polaris_re.core.cashflow import CashFlowResult
 
-__all__ = ["ProfitTestResult", "ProfitTester"]
+__all__ = ["ProfitResultWithCapital", "ProfitTestResult", "ProfitTester"]
 
 
 @dataclass
@@ -43,6 +50,37 @@ class ProfitTestResult:
     breakeven_year: int | None  # None if never breaks even
     total_undiscounted_profit: float
     profit_by_year: np.ndarray  # shape (projection_years,)
+
+
+@dataclass
+class ProfitResultWithCapital(ProfitTestResult):
+    """
+    `ProfitTestResult` augmented with capital metrics (ADR-048, Slice 2).
+
+    All `ProfitTestResult` fields are preserved unchanged. Additional fields:
+
+    - `initial_capital`: required capital at projection month 0.
+    - `peak_capital`: maximum required capital across the projection.
+    - `pv_capital`: PV of the capital STOCK at the hurdle rate (default
+      RoC denominator per ADR-048).
+    - `pv_capital_strain`: PV of the capital STRAIN (period-over-period
+      increases) at the hurdle rate (alternative RoC denominator).
+    - `return_on_capital`: `pv_profits / pv_capital`. None when
+      `pv_capital <= 0` (e.g. zero-factor capital model).
+    - `capital_adjusted_irr`: IRR of `net_cash_flow_t - strain_t`, with
+      a terminal release of the residual capital at month T-1. None when
+      the distributable cash flow has no sign change.
+    - `capital_by_period`: full `(T,)` capital schedule for downstream
+      reporting.
+    """
+
+    initial_capital: float = 0.0
+    peak_capital: float = 0.0
+    pv_capital: float = 0.0
+    pv_capital_strain: float = 0.0
+    return_on_capital: float | None = None
+    capital_adjusted_irr: float | None = None
+    capital_by_period: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
 
 
 class ProfitTester:
@@ -77,6 +115,31 @@ class ProfitTester:
         v = (1.0 + rate) ** (-1.0 / 12.0)
         discount_factors = v ** np.arange(1, t + 1, dtype=np.float64)
         return float(np.dot(profits, discount_factors))
+
+    def _solve_irr(self, profits: np.ndarray) -> float | None:
+        """
+        Solve IRR for an arbitrary cash-flow stream using brentq.
+
+        Mirrors the IRR reporting guardrail used by `run()`:
+        - Returns None if brentq cannot find a sign change.
+        - Returns None on a loss-making stream when |irr| exceeds
+          IRR_SUPPRESS_MAGNITUDE (degenerate sign-change root).
+        """
+        try:
+            irr: float | None = brentq(
+                lambda r: self._npv(r, profits),
+                -0.99,
+                100.0,
+                xtol=1e-8,
+                maxiter=500,
+            )
+        except ValueError:
+            return None
+
+        total = float(profits.sum())
+        if irr is not None and abs(irr) > self.IRR_SUPPRESS_MAGNITUDE and total < 0:
+            return None
+        return irr
 
     def run(self) -> ProfitTestResult:
         """
@@ -174,4 +237,76 @@ class ProfitTester:
             breakeven_year=breakeven_year,
             total_undiscounted_profit=total_undiscounted_profit,
             profit_by_year=profit_by_year,
+        )
+
+    def run_with_capital(
+        self,
+        capital_model: LICATCapital,
+        *,
+        nar: np.ndarray | None = None,
+    ) -> ProfitResultWithCapital:
+        """
+        Compute profit metrics jointly with required capital and RoC.
+
+        Wraps `run()` and joins the result with a `LICATCapital`
+        calculator. The returned `ProfitResultWithCapital` contains every
+        field on `ProfitTestResult` (so callers that only inspect base
+        fields keep working) plus capital metrics.
+
+        Args:
+            capital_model: An instantiated `LICATCapital` (typically built
+                via `LICATCapital.for_product(product_type)`).
+            nar: Optional NAR vector of shape `(T,)`. Forwarded to
+                `LICATCapital.required_capital`. If neither this nor
+                `cashflows.nar` is set, the underlying calculator raises
+                `PolarisComputationError`.
+
+        Returns:
+            ProfitResultWithCapital with `pv_capital`, `return_on_capital`,
+            `capital_adjusted_irr`, etc. populated. RoC denominator is
+            PV(capital stock) at the hurdle rate (ADR-048).
+        """
+        base = self.run()
+        capital: CapitalResult = capital_model.required_capital(self.cashflows, nar=nar)
+
+        pv_capital = capital.pv_capital(self.hurdle_rate)
+        pv_capital_strain = capital.pv_capital_strain(self.hurdle_rate)
+
+        # RoC denominator = pv_capital (stock) per ADR-048. Suppress when
+        # the stock is non-positive — the ratio is not meaningful for
+        # zero-capital models or anomalous negative balances.
+        return_on_capital: float | None = base.pv_profits / pv_capital if pv_capital > 0.0 else None
+
+        # Capital-adjusted IRR: IRR of distributable cash flow, defined as
+        # net_cash_flow_t - strain_t with a terminal release of the
+        # residual capital balance at month T-1. Sum of strain over the
+        # adjusted projection is therefore zero (full capital recycle).
+        profits = self.cashflows.net_cash_flow
+        strain = capital.capital_strain()
+        n = len(profits)
+        if n == 0 or len(strain) != n:
+            distributable = profits.copy()
+        else:
+            distributable = profits - strain
+            # Terminal release of residual capital
+            distributable[-1] += float(capital.capital_by_period[-1])
+
+        capital_adjusted_irr = self._solve_irr(distributable) if n > 0 else None
+
+        return ProfitResultWithCapital(
+            hurdle_rate=base.hurdle_rate,
+            pv_profits=base.pv_profits,
+            pv_premiums=base.pv_premiums,
+            profit_margin=base.profit_margin,
+            irr=base.irr,
+            breakeven_year=base.breakeven_year,
+            total_undiscounted_profit=base.total_undiscounted_profit,
+            profit_by_year=base.profit_by_year,
+            initial_capital=capital.initial_capital,
+            peak_capital=capital.peak_capital,
+            pv_capital=pv_capital,
+            pv_capital_strain=pv_capital_strain,
+            return_on_capital=return_on_capital,
+            capital_adjusted_irr=capital_adjusted_irr,
+            capital_by_period=capital.capital_by_period.copy(),
         )

@@ -111,10 +111,9 @@ class CapitalResult:
         """
         Present value of the capital-held stream at a flat annual rate.
 
-        Discounts each monthly capital balance back to t=0. Useful as the
-        denominator of return-on-capital when expressed as a stock value;
-        Slice 2 will introduce capital-strain (incremental) discounting
-        as the alternative basis.
+        Discounts each monthly capital balance back to t=0. This is the
+        STOCK measure of capital usage and is the default denominator of
+        return-on-capital (see ADR-048).
         """
         n = len(self.capital_by_period)
         if n == 0:
@@ -122,6 +121,49 @@ class CapitalResult:
         v = (1.0 + discount_rate) ** (-1.0 / 12.0)
         discount_factors = v ** np.arange(1, n + 1, dtype=np.float64)
         return float(np.dot(self.capital_by_period, discount_factors))
+
+    def capital_strain(self) -> np.ndarray:
+        """
+        Period-over-period change in required capital, shape `(T,)`.
+
+        `strain_t = capital_t - capital_{t-1}` with `capital_{-1} = 0`.
+        Positive strain represents new capital that must be injected at
+        period `t`; negative strain represents capital that is released.
+
+        Note: this does NOT include a terminal release of the residual
+        capital balance at the end of the projection; the IRR helper in
+        `ProfitTester.run_with_capital` adds that adjustment when
+        constructing the distributable cash flow.
+        """
+        n = len(self.capital_by_period)
+        if n == 0:
+            return np.array([], dtype=np.float64)
+        strain = np.empty(n, dtype=np.float64)
+        strain[0] = self.capital_by_period[0]
+        if n > 1:
+            strain[1:] = self.capital_by_period[1:] - self.capital_by_period[:-1]
+        return strain
+
+    def pv_capital_strain(self, discount_rate: float) -> float:
+        """
+        Present value of the capital-strain stream at a flat annual rate.
+
+        Strain is the period-over-period change in required capital
+        (`capital_t - capital_{t-1}`, with `capital_{-1} = 0`). For a
+        flat capital schedule this collapses to `capital_0 * v` (one
+        initial injection, no further movements).
+
+        See ADR-048: PV(strain) is the alternative RoC denominator to
+        PV(capital). Slice 2 defaults to PV(capital) but exposes the
+        strain measure for callers that prefer the incremental view.
+        """
+        strain = self.capital_strain()
+        n = len(strain)
+        if n == 0:
+            return 0.0
+        v = (1.0 + discount_rate) ** (-1.0 / 12.0)
+        discount_factors = v ** np.arange(1, n + 1, dtype=np.float64)
+        return float(np.dot(strain, discount_factors))
 
 
 class LICATCapital(PolarisBaseModel):

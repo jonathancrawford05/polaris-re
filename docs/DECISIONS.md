@@ -1253,3 +1253,100 @@ is held against retained business.
 - Module exports: `LICATCapital`, `LICATFactors`, `CapitalResult`
   importable from `polaris_re.analytics`.
 
+---
+
+## ADR-048: ProfitTester capital integration — RoC denominator and capital-adjusted IRR
+
+**Date:** 2026-04-26
+**Status:** Accepted (Slice 2 of Phase 5.1)
+
+**Context:** ADR-047 introduced the standalone `LICATCapital` calculator
+producing a required-capital schedule from a `CashFlowResult`. Slice 2 of
+the LICAT capital feature wires that calculator into `ProfitTester` so a
+single call returns both the profit metrics and the
+return-on-capital (RoC) figure that pricing actuaries need at deal
+committee. The integration raises three design questions:
+
+1. RoC denominator — PV of capital STOCK vs PV of capital STRAIN.
+2. NAR sourcing for non-YRT runs.
+3. How to express a capital-adjusted IRR that respects shareholder
+   capital lock-up.
+
+**Decision:**
+
+1. **RoC denominator defaults to PV(capital STOCK)** at the hurdle rate.
+   `return_on_capital = pv_profits / pv_capital`, where `pv_capital`
+   discounts the period-end capital balance at each month back to t=0.
+   This is the simpler and more widely cited definition and matches the
+   "PV of profits per dollar-year of capital tied up" intuition pricing
+   actuaries use at first-pass committee screening. The strain measure
+   (`pv_capital_strain`) is exposed on `CapitalResult` so callers that
+   prefer the incremental view can compute it without subclassing —
+   future ADR can flip the default if firm policy evolves.
+
+2. **NAR sourcing.** `ProfitTester.run_with_capital(capital_model, *,
+   nar=None)` forwards the `nar=` keyword to `LICATCapital.required_capital`.
+   The Slice 2 call sites (which all live in CLI / API / dashboard,
+   covered by Slice 3) are responsible for deriving NAR from the
+   `InforceBlock` when the upstream `CashFlowResult` does not already
+   carry it (e.g. coinsurance/modco runs). This honours the PR-#33
+   guard rail of NOT expanding `CashFlowResult` with a stock variable
+   in this phase.
+
+3. **Capital-adjusted IRR** is the IRR of distributable cash flow,
+   defined as
+
+       distributable_t = net_cash_flow_t - strain_t
+
+   with `strain_t = capital_t - capital_{t-1}` (capital_{-1} = 0). The
+   residual capital balance at month T-1 is released back to
+   shareholders as a terminal positive (`distributable[T-1] +=
+   capital[T-1]`), so the capital flows recycle to zero across the
+   projection. Sign-change suppression and large-magnitude guard rails
+   from ADR-041 apply unchanged via the shared `_solve_irr` helper.
+
+**Rationale:**
+
+- **Stock denominator is auditable.** PV(capital × discount factor) is
+  a single hand-checkable calculation; PV(strain) requires a
+  period-over-period diff that obscures the per-month capital level a
+  reviewer wants to spot-check.
+- **`run_with_capital` preserves backward compatibility.**
+  `ProfitResultWithCapital` extends `ProfitTestResult` so every existing
+  caller of `tester.run()` is unaffected; the new fields default to
+  zero / None when constructed directly.
+- **Capital-adjusted IRR captures shareholder economics.** Shareholders
+  see distributable cash flow net of capital injections and gross of
+  capital releases; the IRR of that stream is the rate of return on
+  shareholder funds and is by construction no greater than the vanilla
+  IRR for any deal that requires net positive capital strain.
+- **Strain telescope is preserved.** Sum of `capital_strain` over the
+  projection equals `capital[T-1]`. The terminal release sets the IRR
+  cash-flow sum equal to the vanilla profit sum, ensuring the capital
+  treatment does not change the undiscounted profit total — only its
+  time profile.
+
+**Out of scope for Slice 2:**
+- CLI flag, API field, Excel surfacing (Slice 3).
+- Strain-denominator default (deferred; `pv_capital_strain` is
+  already exposed for callers that prefer it).
+- Cost-of-capital interest credit on the held-capital balance (some
+  firms add `capital_t × risk_free_rate / 12` as an offset to the
+  capital charge — out of scope until Phase 5.4 lands a risk-free
+  curve).
+- Lapse-risk and morbidity-risk capital components (still pending the
+  Phase 5.1.b ADR after Slice 3 ships).
+
+**Tests (`tests/test_analytics/test_profit_test.py`):**
+
+- `TestProfitTesterWithCapital` (12) — return type, base-field
+  preservation, RoC closed-form (`pv_profits / pv_capital`),
+  doubling-factor halves RoC, explicit `nar=` plumbing, missing NAR
+  raises, zero-factor → RoC None, capital_by_period shape/values,
+  pv_capital_strain for flat capital, capital-adjusted IRR < vanilla
+  IRR for a strained deal, `run()` unaffected by `run_with_capital`,
+  and module export of `ProfitResultWithCapital`.
+- `TestPvCapitalStrainClosedForm` (2) — telescope at rate=0
+  (sum of strain = `capital[T-1]`); flat-capital strain PV equals
+  `K × v` (only initial injection has weight).
+
