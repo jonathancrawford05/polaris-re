@@ -34,6 +34,7 @@ __all__ = [
     "build_projection_config",
     "build_treaty",
     "ceded_to_reinsurer_view",
+    "derive_capital_nar",
     "derive_yrt_rate",
     "dump_parity_debug",
     "iter_cohorts",
@@ -493,6 +494,70 @@ def build_treaty(
         )
 
     return None
+
+
+def derive_capital_nar(
+    gross: CashFlowResult,
+    reserve_balance: np.ndarray,
+    face_amount_total: float,
+    *,
+    cession_pct: float | None = None,
+    is_reinsurer: bool = False,
+) -> np.ndarray:
+    """Derive a NAR vector for `LICATCapital.required_capital` (ADR-049).
+
+    Mirrors the inforce-ratio approximation that `YRTTreaty.apply` already
+    uses to populate `cashflows.nar`, so capital NAR for non-YRT runs is
+    consistent with the YRT path:
+
+        inforce_ratio_t = gross.gross_premiums / gross.gross_premiums[0]
+        face_in_force_t = face_amount_total * face_share * inforce_ratio_t
+        nar_t           = max(face_in_force_t - reserve_balance_t, 0.0)
+
+    `face_share` defaults to 1.0 (no treaty / GROSS basis). When
+    `cession_pct` is provided, `face_share = cession_pct` for the reinsurer
+    view and `(1 - cession_pct)` for the cedant. The same formula works
+    for YRT (cedant retains face but only `(1-cession)` of mortality
+    risk), coinsurance, and modco — pass the cashflows-being-capitalised
+    `reserve_balance` to get a consistent NAR.
+
+    Args:
+        gross: GROSS-basis CashFlowResult — its `gross_premiums` runoff is
+            the inforce-ratio reference. Using GROSS rather than NET keeps
+            the inforce signal intact across treaty types (e.g. YRT NET
+            premiums net out ceded YRT premiums and would distort the
+            ratio).
+        reserve_balance: Reserve balance vector of the cashflows being
+            capitalised (NET for cedant, CEDED for reinsurer). Shape (T,).
+        face_amount_total: Total initial in-force face amount.
+        cession_pct: Treaty cession percentage. When None, `face_share` is
+            1.0 (gross / no-treaty case).
+        is_reinsurer: When True and `cession_pct is not None`, returns the
+            reinsurer-share NAR (`face_share = cession_pct`); otherwise
+            returns the cedant-share NAR (`face_share = 1 - cession_pct`).
+
+    Returns:
+        NAR vector of shape `(T,)`, dtype `float64`, floored at zero.
+    """
+    n = len(gross.gross_premiums)
+    if n == 0:
+        return np.array([], dtype=np.float64)
+
+    initial = float(gross.gross_premiums[0])
+    if initial > 0.0:
+        inforce_ratio = gross.gross_premiums / initial
+    else:
+        inforce_ratio = np.ones(n, dtype=np.float64)
+
+    if cession_pct is None:
+        face_share = 1.0
+    elif is_reinsurer:
+        face_share = float(cession_pct)
+    else:
+        face_share = 1.0 - float(cession_pct)
+
+    face_in_force = face_amount_total * face_share * inforce_ratio
+    return np.maximum(face_in_force - reserve_balance, 0.0).astype(np.float64)
 
 
 def ceded_to_reinsurer_view(ceded: CashFlowResult) -> CashFlowResult:

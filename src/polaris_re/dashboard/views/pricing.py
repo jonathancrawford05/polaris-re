@@ -16,11 +16,11 @@ import matplotlib.ticker as mticker  # type: ignore[import-untyped]
 import numpy as np
 import streamlit as st  # type: ignore[import-untyped]
 
-from polaris_re.analytics.profit_test import ProfitTestResult
+from polaris_re.analytics.profit_test import ProfitResultWithCapital, ProfitTestResult
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.inforce import InforceBlock
-from polaris_re.core.pipeline import iter_cohorts
+from polaris_re.core.pipeline import derive_capital_nar, iter_cohorts
 from polaris_re.core.projection import ProjectionConfig
 from polaris_re.dashboard.components.charts import cashflow_waterfall
 from polaris_re.dashboard.components.projection import (
@@ -300,6 +300,7 @@ def _run_pricing_for_cohort(
     hurdle_rate: float,
     parity_label: str,
     show_yrt_info: bool,
+    capital_model_id: str | None = None,
 ) -> CohortPricingData:
     """Run the full pricing pipeline for a single-product cohort.
 
@@ -342,15 +343,45 @@ def _run_pricing_for_cohort(
     # 4. Parity diagnostic dump (disambiguated per cohort)
     dump_parity_debug(parity_label, gross, net, ceded)
 
-    # 5. Cedant profit test
-    result = ProfitTester(cashflows=net, hurdle_rate=hurdle_rate).run()
-
-    # 6. Reinsurer profit test on ceded re-labelled as net (ADR-039)
-    reinsurer_result: ProfitTestResult | None = None
+    # 5. Cedant + reinsurer profit tests, optionally with LICAT capital
+    cedant_tester = ProfitTester(cashflows=net, hurdle_rate=hurdle_rate)
+    reinsurer_tester: ProfitTester | None = None
     if ceded is not None:
-        reinsurer_result = ProfitTester(
+        reinsurer_tester = ProfitTester(
             cashflows=ceded_to_reinsurer_view(ceded), hurdle_rate=hurdle_rate
-        ).run()
+        )
+
+    if capital_model_id == "licat":
+        from polaris_re.analytics.capital import LICATCapital
+        from polaris_re.core.policy import ProductType
+
+        try:
+            product_type_enum = ProductType(cohort_id)
+        except ValueError:
+            product_type_enum = ProductType.TERM
+        capital_model = LICATCapital.for_product(product_type_enum)
+        cession_pct = float(cfg.get("cession_pct", 0.90)) if treaty_type != "None (Gross)" else None
+        cedant_nar = derive_capital_nar(
+            gross=gross,
+            reserve_balance=net.reserve_balance,
+            face_amount_total=face_amount_total,
+            cession_pct=cession_pct,
+            is_reinsurer=False,
+        )
+        result: ProfitTestResult = cedant_tester.run_with_capital(capital_model, nar=cedant_nar)
+        reinsurer_result: ProfitTestResult | None = None
+        if reinsurer_tester is not None and ceded is not None and cession_pct is not None:
+            reinsurer_nar = derive_capital_nar(
+                gross=gross,
+                reserve_balance=ceded.reserve_balance,
+                face_amount_total=face_amount_total,
+                cession_pct=cession_pct,
+                is_reinsurer=True,
+            )
+            reinsurer_result = reinsurer_tester.run_with_capital(capital_model, nar=reinsurer_nar)
+    else:
+        result = cedant_tester.run()
+        reinsurer_result = reinsurer_tester.run() if reinsurer_tester is not None else None
 
     # 7. Sanity check: loss ratio warning
     total_claims = float(gross.death_claims.sum())
@@ -436,6 +467,35 @@ def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: Assum
     if irr_note:
         st.caption(irr_note)
 
+    if isinstance(result, ProfitResultWithCapital):
+        cap_a, cap_b, cap_c = st.columns(3)
+        roc_str = (
+            f"{result.return_on_capital:.2%}" if result.return_on_capital is not None else "N/A"
+        )
+        cap_a.metric(
+            "Return on Capital",
+            roc_str,
+            help=(
+                "PV(Cedant Profits) / PV(Required Capital) at the hurdle "
+                "rate. LICAT factor model (ADR-047/048). Compare to your "
+                "8-12% cost-of-capital hurdle to gate treaty acceptance."
+            ),
+        )
+        cap_b.metric(
+            "Peak Capital",
+            f"${result.peak_capital:,.0f}",
+            help="Maximum required LICAT capital across the projection.",
+        )
+        cap_c.metric(
+            "PV Capital Strain",
+            f"${result.pv_capital_strain:,.0f}",
+            help=(
+                "Advisory: PV of period-over-period capital injections. "
+                "Default RoC denominator is PV(stock); strain is shown "
+                "for reference only (ADR-048)."
+            ),
+        )
+
     st.pyplot(
         cashflow_waterfall(
             result.profit_by_year,
@@ -493,6 +553,27 @@ def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: Assum
         )
         if irr_note_r:
             st.caption(irr_note_r)
+
+        if isinstance(reinsurer_result, ProfitResultWithCapital):
+            r_cap_a, r_cap_b, r_cap_c = st.columns(3)
+            r_roc_str = (
+                f"{reinsurer_result.return_on_capital:.2%}"
+                if reinsurer_result.return_on_capital is not None
+                else "N/A"
+            )
+            r_cap_a.metric(
+                "Return on Capital",
+                r_roc_str,
+                help=("PV(Reinsurer Profits) / PV(Required Capital) at the hurdle rate."),
+            )
+            r_cap_b.metric(
+                "Peak Capital",
+                f"${reinsurer_result.peak_capital:,.0f}",
+            )
+            r_cap_c.metric(
+                "PV Capital Strain",
+                f"${reinsurer_result.pv_capital_strain:,.0f}",
+            )
 
         st.pyplot(_reinsurer_cash_flow_chart(ceded, cached_treaty_type))
 
@@ -621,6 +702,16 @@ def page_pricing() -> None:
         "Use policy-level cession overrides",
         help="Uses per-policy reinsurance_cession_pct from inforce data (ADR-036).",
     )
+    compute_capital = st.checkbox(
+        "Compute LICAT capital + RoC",
+        value=False,
+        help=(
+            "Run the LICAT factor model alongside the profit test "
+            "(ADR-047/048). Adds Return on Capital, Peak Capital, and "
+            "PV Capital Strain tiles to the cedant and reinsurer views."
+        ),
+    )
+    capital_model_id: str | None = "licat" if compute_capital else None
 
     if st.button("Run Pricing", type="primary"):
         with st.spinner("Running projection..."):
@@ -641,6 +732,7 @@ def page_pricing() -> None:
                     hurdle_rate=hurdle_rate,
                     parity_label=parity_label,
                     show_yrt_info=(n_cohorts == 1),
+                    capital_model_id=capital_model_id,
                 )
 
         # Store multi-cohort results

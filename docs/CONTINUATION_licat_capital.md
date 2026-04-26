@@ -3,7 +3,7 @@
 **Source:** PRODUCT_DIRECTION_2026-04-19.md — BLOCKER (item #5 in
 Recommended Next Sprint, "LICAT regulatory capital (Milestone 5.1
 kick-off)")
-**Status:** IN PROGRESS
+**Status:** COMPLETE (all three slices shipped 2026-04-25 / 2026-04-26)
 **Total slices:** 3
 **Estimated total scope:** ~4 dev-days
 
@@ -173,26 +173,77 @@ deal-pricing Excel workbook.
     code.
 
 ### Slice 3: CLI / API / Excel surfacing
-- **Status:** PLANNED
-- **Depends on:** Slice 2 merged
-- **Scope:**
-  - `src/polaris_re/cli.py` — `polaris price --capital licat` flag.
-    When present, each cohort's `cedant` and `reinsurer` profit
-    results gain `peak_capital` / `pv_capital` /
-    `return_on_capital` fields in the JSON output.
-  - `src/polaris_re/api/main.py` — extend `PriceRequest` with an
-    optional `capital_model: Literal["licat"] | None`; extend
-    `PriceResponse` with `return_on_capital`.
-  - `src/polaris_re/utils/excel_output.py` — extend the Summary
-    sheet of `write_deal_pricing_export` to emit the RoC and Peak
-    Capital rows when capital metrics are present in the
-    `DealPricingExport`. Per PR #34 reviewer: also surface
-    `pv_capital_strain` as a secondary advisory metric on the
-    Excel workbook (primary RoC denominator stays stock).
-  - `src/polaris_re/dashboard/views/pricing.py` — RoC tile beside
-    the existing IRR tile.
-  - Tests covering CLI flag, API field round-trip, Excel cell
-    placement, and dashboard render.
+- **Status:** DONE (this session, 2026-04-26)
+- **Branch:** `feat/auto-licat-capital-s3-2026-04-26`
+- **PR:** (draft; opened by this session)
+- **What was done:**
+  - Added `derive_capital_nar(gross, reserve_balance, face_amount_total,
+    *, cession_pct=None, is_reinsurer=False)` to
+    `src/polaris_re/core/pipeline.py` — the canonical NAR derivation
+    used by all four call sites. Mirrors the YRT inforce-ratio
+    approximation (`gross.gross_premiums / gross.gross_premiums[0]`)
+    and applies the cedant/reinsurer face-share split per the PR-#34
+    reviewer guidance. ADR-049 documents the choice.
+  - `src/polaris_re/cli.py` — `polaris price --capital licat` flag
+    + `_run_profit_tests` helper that swaps `run()` for
+    `run_with_capital()` per side. JSON output via
+    `_profit_test_to_dict` gains the capital block on every cohort
+    when the flag is set; Rich tables render new rows via
+    `_append_capital_rows`. Unknown values exit 1 with a clear
+    message.
+  - `src/polaris_re/api/main.py` — `PriceRequest.capital_model:
+    Literal["licat"] | None` (default `None`). `PriceResponse` gains
+    optional capital fields on both cedant and reinsurer sides
+    (default `None`). Pydantic `Literal` validates unknown values
+    with 422.
+  - `src/polaris_re/utils/excel_output.py` — `_CAPITAL_METRICS`
+    rows on the Summary sheet, conditional on the rendered result
+    being `ProfitResultWithCapital` via `isinstance`. PR-#34
+    reviewer asked for `pv_capital_strain` as an advisory metric;
+    rendered alongside RoC and peak capital.
+  - `src/polaris_re/dashboard/views/pricing.py` — "Compute LICAT
+    capital + RoC" checkbox on the Pricing page; cedant and
+    reinsurer views each gain a row of three `st.metric` tiles
+    (Return on Capital, Peak Capital, PV Capital Strain) when the
+    rendered result is a `ProfitResultWithCapital`.
+  - ADR-049 added to `docs/DECISIONS.md`.
+  - 30 tests added across 4 files. Full suite is now 793 non-slow
+    (up from 771 — the rest of the new tests are `@pytest.mark.slow`
+    in the CLI test class). QA suite 33/33 green; golden regression
+    schema-stable when `--capital` is not supplied; numerical golden
+    baselines unchanged.
+- **Acceptance criteria:**
+  - `polaris price --inforce ... --config ... --capital licat -o
+    out.json` produces JSON with `return_on_capital` populated for
+    each cohort. ✅ (verified end-to-end against
+    `data/qa/golden_inforce.csv`)
+  - `POST /api/v1/price` with `capital_model="licat"` returns
+    `return_on_capital`. ✅
+  - `polaris price --capital licat --excel-out deal.xlsx` Summary
+    sheet shows the new rows (RoC, Peak Capital, advisory
+    `pv_capital_strain`). ✅ (test
+    `test_advisory_strain_metric_present`)
+  - Coinsurance/modco NET runs use the cession-aware NAR formula;
+    YRT runs use the same helper for both cedant (face_share =
+    `1-cession`) and reinsurer (face_share = `cession`). The
+    helper also handles the no-treaty case. ✅
+  - Golden baselines unchanged when `--capital` is not supplied. ✅
+    (QA `TestGoldenFlat` / `TestGoldenYRT` remain green; golden
+    JSON schema verified to omit capital fields)
+- **Key decisions documented in ADR-049:**
+  - **One canonical NAR helper** for all four surfaces, lives in
+    `pipeline.py` next to `derive_yrt_rate` /
+    `ceded_to_reinsurer_view`.
+  - **Inforce-ratio approximation** mirrors YRT so non-YRT NAR is
+    comparable to YRT NAR (no surprise step-changes when the user
+    toggles treaty type).
+  - **Opt-in everywhere** — CLI flag absent by default, API field
+    `None` by default, Excel writer detects via `isinstance`,
+    dashboard checkbox off. Existing consumers keep their
+    contracts.
+  - **Single capital model in this slice** — only `licat`. Future
+    models extend the same enum without changing the surface
+    shape.
 - **NAR-derivation formula at the call site (PR #34 reviewer
   guidance, 2026-04-26):** at each Slice-3 call site that builds
   the `nar=` kwarg, compute
