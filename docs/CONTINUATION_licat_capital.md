@@ -186,11 +186,31 @@ deal-pricing Excel workbook.
   - `src/polaris_re/utils/excel_output.py` — extend the Summary
     sheet of `write_deal_pricing_export` to emit the RoC and Peak
     Capital rows when capital metrics are present in the
-    `DealPricingExport`.
+    `DealPricingExport`. Per PR #34 reviewer: also surface
+    `pv_capital_strain` as a secondary advisory metric on the
+    Excel workbook (primary RoC denominator stays stock).
   - `src/polaris_re/dashboard/views/pricing.py` — RoC tile beside
     the existing IRR tile.
   - Tests covering CLI flag, API field round-trip, Excel cell
     placement, and dashboard render.
+- **NAR-derivation formula at the call site (PR #34 reviewer
+  guidance, 2026-04-26):** at each Slice-3 call site that builds
+  the `nar=` kwarg, compute
+
+      nar_t = max((face_amount_vec * lx_vec).sum(axis=0) - reserve_t, 0.0)
+
+  where `lx_vec` is the in-force factor matrix from the projection.
+  For coinsurance / modco NET runs, scale the face term by
+  `(1 - cession_pct)` so the retained NAR matches the NET cashflow
+  basis:
+
+      nar_t_net = max(((1 - cession_pct) * face_amount_vec * lx_vec).sum(axis=0)
+                      - reserve_t, 0.0)
+
+  Both are one-line changes at the call site; the `LICATCapital`
+  module itself is unchanged. YRT runs continue to use
+  `cashflows.nar` (already populated by `YRTTreaty.apply`) and skip
+  the explicit derivation.
 - **Acceptance criteria:**
   - `polaris price --inforce ... --config ... --capital licat -o
     out.json` produces JSON with `return_on_capital` populated for
@@ -198,7 +218,10 @@ deal-pricing Excel workbook.
   - `POST /api/v1/price` with `capital_model="licat"` returns
     `return_on_capital`.
   - `polaris price --capital licat --excel-out deal.xlsx` Summary
-    sheet shows the new rows.
+    sheet shows the new rows (RoC, Peak Capital, advisory
+    pv_capital_strain).
+  - Coinsurance/modco NET runs use the cession-aware NAR formula
+    above; YRT runs use `cashflows.nar` unchanged.
   - Golden baselines unchanged when `--capital` is not supplied.
 
 ## Context for Next Session
@@ -282,5 +305,28 @@ deal-pricing Excel workbook.
 - **No `face_amount_in_force` on `CashFlowResult`.** Open Q2 above is
   closed. Slice 2 derives NAR from the InforceBlock at the
   `run_with_capital` call site and passes it via `nar=`.
+
+## Resolved (PR #34 review, 2026-04-26)
+
+- **RoC denominator stays PV(capital STOCK).** Reviewer confirmed the
+  default matches firm reporting convention. Slice 3 may surface
+  `pv_capital_strain` as an advisory metric on the Excel workbook;
+  the primary RoC denominator does not change.
+- **Capital-adjusted IRR construction confirmed.** The
+  distributable-cash-flow-with-terminal-release formulation
+  (`net_cash_flow_t - strain_t` plus terminal release of
+  `capital[T-1]`) is the correct approach. The frictional
+  cost-of-capital alternative
+  (`net_cash_flow_t - capital_t × hurdle / 12`) introduces hurdle-rate
+  circularity and is inappropriate for a deal-level IRR metric. The
+  CONTINUATION note about that variant stays for future reference but
+  no implementation work is planned.
+- **Slice 3 NAR-derivation formula** — see the formula block in the
+  Slice 3 section above. Two amendments to the original
+  `(face × lx).sum()` plan: (1) subtract `reserve_balance` and floor
+  at zero; (2) scale face by `(1 − cession_pct)` for coinsurance/modco
+  NET runs so the retained NAR matches the NET cashflow basis. Both
+  are one-line changes at the call site; the `LICATCapital` module
+  itself is unchanged.
 
 When all slices are DONE, update Status to COMPLETE.
