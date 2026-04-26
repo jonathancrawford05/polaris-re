@@ -14,11 +14,17 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from polaris_re.analytics.profit_test import ProfitTester, ProfitTestResult
+from polaris_re.analytics.capital import LICATCapital, LICATFactors
+from polaris_re.analytics.profit_test import (
+    ProfitResultWithCapital,
+    ProfitTester,
+    ProfitTestResult,
+)
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.assumptions.lapse import LapseAssumption
 from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
 from polaris_re.core.cashflow import CashFlowResult
+from polaris_re.core.exceptions import PolarisComputationError
 from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
 from polaris_re.core.projection import ProjectionConfig
@@ -412,3 +418,310 @@ class TestProfitTesterIntegration:
         assert result.pv_premiums > 0
         assert len(result.profit_by_year) == 5
         assert result.total_undiscounted_profit != 0.0
+
+
+# ----------------------------------------------------------------------
+# ProfitTester.run_with_capital — Slice 2 of LICAT capital feature (ADR-048)
+# ----------------------------------------------------------------------
+
+
+def _make_cashflow_with_nar(
+    profits: np.ndarray,
+    nar: np.ndarray,
+    premiums: np.ndarray | None = None,
+) -> CashFlowResult:
+    """Helper for capital tests — NET cashflow with explicit NAR populated."""
+    t = len(profits)
+    if premiums is None:
+        premiums = np.full(t, 100.0, dtype=np.float64)
+    return CashFlowResult(
+        run_id="test-capital",
+        valuation_date=date(2025, 1, 1),
+        basis="NET",
+        assumption_set_version="v1",
+        product_type="TERM",
+        projection_months=t,
+        time_index=np.arange(
+            np.datetime64("2025-01"), np.datetime64("2025-01") + t, dtype="datetime64[M]"
+        ),
+        gross_premiums=premiums,
+        death_claims=np.zeros(t, dtype=np.float64),
+        lapse_surrenders=np.zeros(t, dtype=np.float64),
+        expenses=np.zeros(t, dtype=np.float64),
+        reserve_balance=np.zeros(t, dtype=np.float64),
+        reserve_increase=np.zeros(t, dtype=np.float64),
+        net_cash_flow=profits,
+        nar=nar,
+    )
+
+
+class TestProfitTesterWithCapital:
+    """Slice 2 — ProfitTester.run_with_capital + RoC."""
+
+    def test_returns_profit_result_with_capital(self) -> None:
+        t = 12
+        profits = np.full(t, 50.0, dtype=np.float64)
+        nar = np.full(t, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow_with_nar(profits, nar)
+        cap = LICATCapital.for_product(ProductType.TERM)
+
+        result = ProfitTester(cf, hurdle_rate=0.10).run_with_capital(cap)
+
+        assert isinstance(result, ProfitResultWithCapital)
+        assert isinstance(result, ProfitTestResult)
+        assert result.peak_capital > 0.0
+        assert result.pv_capital > 0.0
+        assert result.return_on_capital is not None
+
+    def test_base_profit_fields_preserved(self) -> None:
+        """run_with_capital preserves every ProfitTestResult field unchanged."""
+        t = 24
+        profits = np.full(t, 50.0, dtype=np.float64)
+        profits[0] = -200.0  # add a sign change so IRR exists
+        premiums = np.full(t, 1_000.0, dtype=np.float64)
+        nar = np.full(t, 500_000.0, dtype=np.float64)
+        cf = _make_cashflow_with_nar(profits, nar, premiums)
+        cap = LICATCapital.for_product(ProductType.TERM)
+        tester = ProfitTester(cf, hurdle_rate=0.10)
+
+        base = tester.run()
+        joint = tester.run_with_capital(cap)
+
+        assert joint.hurdle_rate == base.hurdle_rate
+        assert joint.pv_profits == pytest.approx(base.pv_profits)
+        assert joint.pv_premiums == pytest.approx(base.pv_premiums)
+        assert joint.profit_margin == base.profit_margin
+        assert joint.irr == base.irr
+        assert joint.breakeven_year == base.breakeven_year
+        assert joint.total_undiscounted_profit == pytest.approx(base.total_undiscounted_profit)
+        np.testing.assert_array_equal(joint.profit_by_year, base.profit_by_year)
+
+    def test_roc_closed_form_pv_profits_over_pv_capital(self) -> None:
+        """
+        CLOSED-FORM: For a flat profit + flat capital schedule, RoC equals
+        pv_profits / pv_capital (stock denominator at the hurdle rate).
+        """
+        t = 36
+        profits = np.full(t, 100.0, dtype=np.float64)
+        nar = np.full(t, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow_with_nar(profits, nar)
+        cap = LICATCapital(factors=LICATFactors(c2_mortality_factor=0.10))
+        tester = ProfitTester(cf, hurdle_rate=0.10)
+
+        result = tester.run_with_capital(cap)
+        capital_schedule = cap.required_capital(cf)
+
+        expected_pv_capital = capital_schedule.pv_capital(0.10)
+        expected_roc = result.pv_profits / expected_pv_capital
+
+        assert result.pv_capital == pytest.approx(expected_pv_capital)
+        assert result.return_on_capital == pytest.approx(expected_roc)
+
+    def test_doubling_capital_factor_halves_roc(self) -> None:
+        """Sensitivity: 2x C-2 factor -> 2x pv_capital -> RoC halved."""
+        t = 24
+        profits = np.full(t, 100.0, dtype=np.float64)
+        nar = np.full(t, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow_with_nar(profits, nar)
+        tester = ProfitTester(cf, hurdle_rate=0.10)
+
+        cap_low = LICATCapital(factors=LICATFactors(c2_mortality_factor=0.05))
+        cap_high = LICATCapital(factors=LICATFactors(c2_mortality_factor=0.10))
+
+        r_low = tester.run_with_capital(cap_low)
+        r_high = tester.run_with_capital(cap_high)
+
+        assert r_low.return_on_capital is not None
+        assert r_high.return_on_capital is not None
+        # Doubling capital factor halves RoC (within float tolerance)
+        assert r_high.return_on_capital == pytest.approx(r_low.return_on_capital / 2.0)
+
+    def test_explicit_nar_plumbed_through_to_calculator(self) -> None:
+        """
+        Slice 2 acceptance: nar= override forwards to LICATCapital and
+        produces the expected closed-form C-2 component.
+        """
+        t = 12
+        profits = np.full(t, 0.0, dtype=np.float64)
+        # CashFlowResult has TINY nar; explicit override should win
+        cf = _make_cashflow_with_nar(profits, np.full(t, 1.0, dtype=np.float64))
+        explicit_nar = np.full(t, 2_000_000.0, dtype=np.float64)
+        cap = LICATCapital(factors=LICATFactors(c2_mortality_factor=0.10))
+        tester = ProfitTester(cf, hurdle_rate=0.10)
+
+        result = tester.run_with_capital(cap, nar=explicit_nar)
+
+        # Peak capital should reflect explicit NAR, not the cashflow stub
+        expected_peak = 0.10 * 2_000_000.0
+        assert result.peak_capital == pytest.approx(expected_peak)
+        # Initial = same in this constant-NAR case
+        assert result.initial_capital == pytest.approx(expected_peak)
+
+    def test_no_nar_raises(self) -> None:
+        """If neither cashflows.nar nor nar= override is supplied, raise."""
+        t = 12
+        profits = np.full(t, 50.0, dtype=np.float64)
+        # Build a cashflow without nar
+        cf = CashFlowResult(
+            run_id="test-no-nar",
+            valuation_date=date(2025, 1, 1),
+            basis="NET",
+            assumption_set_version="v1",
+            product_type="TERM",
+            projection_months=t,
+            time_index=np.arange(
+                np.datetime64("2025-01"), np.datetime64("2025-01") + t, dtype="datetime64[M]"
+            ),
+            gross_premiums=np.full(t, 100.0, dtype=np.float64),
+            death_claims=np.zeros(t, dtype=np.float64),
+            lapse_surrenders=np.zeros(t, dtype=np.float64),
+            expenses=np.zeros(t, dtype=np.float64),
+            reserve_balance=np.zeros(t, dtype=np.float64),
+            reserve_increase=np.zeros(t, dtype=np.float64),
+            net_cash_flow=profits,
+        )
+        cap = LICATCapital.for_product(ProductType.TERM)
+        tester = ProfitTester(cf, hurdle_rate=0.10)
+
+        with pytest.raises(PolarisComputationError, match="NAR"):
+            tester.run_with_capital(cap)
+
+    def test_zero_capital_factor_yields_none_roc(self) -> None:
+        """A zero-factor capital model produces pv_capital = 0 -> RoC None."""
+        t = 12
+        profits = np.full(t, 50.0, dtype=np.float64)
+        nar = np.full(t, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow_with_nar(profits, nar)
+        cap = LICATCapital(factors=LICATFactors(c2_mortality_factor=0.0))
+        tester = ProfitTester(cf, hurdle_rate=0.10)
+
+        result = tester.run_with_capital(cap)
+
+        assert result.pv_capital == 0.0
+        assert result.return_on_capital is None
+
+    def test_capital_by_period_shape_and_values(self) -> None:
+        """capital_by_period mirrors the LICATCapital schedule shape and values."""
+        t = 18
+        profits = np.full(t, 25.0, dtype=np.float64)
+        nar = np.linspace(1_000_000.0, 500_000.0, t, dtype=np.float64)
+        cf = _make_cashflow_with_nar(profits, nar)
+        cap = LICATCapital.for_product(ProductType.TERM)
+        tester = ProfitTester(cf, hurdle_rate=0.10)
+
+        result = tester.run_with_capital(cap)
+
+        assert result.capital_by_period.shape == (t,)
+        np.testing.assert_allclose(result.capital_by_period, 0.15 * nar)
+
+    def test_pv_capital_strain_for_flat_capital(self) -> None:
+        """
+        For a constant capital schedule, strain is K at t=0 and zero after,
+        so pv_capital_strain = K * v.
+        """
+        t = 12
+        profits = np.zeros(t, dtype=np.float64)
+        nar = np.full(t, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow_with_nar(profits, nar)
+        cap = LICATCapital(factors=LICATFactors(c2_mortality_factor=0.10))
+        tester = ProfitTester(cf, hurdle_rate=0.10)
+
+        result = tester.run_with_capital(cap)
+
+        v = (1.0 + 0.10) ** (-1.0 / 12.0)
+        expected = 0.10 * 1_000_000.0 * v
+        assert result.pv_capital_strain == pytest.approx(expected)
+
+    def test_capital_adjusted_irr_falls_below_vanilla_when_capital_strained(self) -> None:
+        """
+        Sensitivity: a profitable deal with significant capital lock-up
+        produces a capital-adjusted IRR strictly below the vanilla IRR.
+        Capital is a frictional cost on the shareholder; shareholder IRR
+        must be no higher than the gross IRR.
+        """
+        t = 60
+        # Initial strain followed by steady positive profits to give a
+        # well-defined IRR with a sign change.
+        profits = np.full(t, 100.0, dtype=np.float64)
+        profits[0] = -500.0
+        nar = np.full(t, 2_000_000.0, dtype=np.float64)
+        cf = _make_cashflow_with_nar(profits, nar)
+        cap = LICATCapital.for_product(ProductType.TERM)
+        tester = ProfitTester(cf, hurdle_rate=0.10)
+
+        result = tester.run_with_capital(cap)
+
+        assert result.irr is not None
+        assert result.capital_adjusted_irr is not None
+        # Adjusting for capital injects a negative period 0 strain and a
+        # terminal release; the net effect lowers the shareholder IRR.
+        assert result.capital_adjusted_irr < result.irr
+
+    def test_run_unaffected_by_run_with_capital(self) -> None:
+        """Backward compat: existing run() callers see no change."""
+        t = 12
+        profits = np.full(t, 50.0, dtype=np.float64)
+        nar = np.full(t, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow_with_nar(profits, nar)
+        cap = LICATCapital.for_product(ProductType.TERM)
+        tester = ProfitTester(cf, hurdle_rate=0.10)
+
+        before = tester.run()
+        _ = tester.run_with_capital(cap)
+        after = tester.run()
+
+        assert before.pv_profits == after.pv_profits
+        assert before.irr == after.irr
+        assert before.profit_margin == after.profit_margin
+
+    def test_module_exports_profit_result_with_capital(self) -> None:
+        """ProfitResultWithCapital is exposed via polaris_re.analytics."""
+        from polaris_re.analytics import ProfitResultWithCapital as Exported
+
+        assert Exported is ProfitResultWithCapital
+
+
+# ----------------------------------------------------------------------
+# CapitalResult.pv_capital_strain — closed-form (Slice 2 method)
+# ----------------------------------------------------------------------
+
+
+class TestPvCapitalStrainClosedForm:
+    def test_strain_zero_rate_equals_telescoped_capital(self) -> None:
+        """At rate=0, sum of strain equals capital[T-1] (telescope)."""
+        from polaris_re.analytics.capital import CapitalResult
+
+        capital = np.array([100.0, 150.0, 120.0, 90.0], dtype=np.float64)
+        result = CapitalResult(
+            projection_months=4,
+            c1_component=np.zeros(4, dtype=np.float64),
+            c2_component=capital.copy(),
+            c3_component=np.zeros(4, dtype=np.float64),
+            capital_by_period=capital.copy(),
+            initial_capital=100.0,
+            peak_capital=150.0,
+        )
+
+        # At rate=0 the sum of strain components = capital[-1] (telescope)
+        pv_strain_zero = result.pv_capital_strain(discount_rate=0.0)
+        assert pv_strain_zero == pytest.approx(float(capital[-1]))
+
+    def test_strain_for_constant_capital_equals_initial_times_v(self) -> None:
+        from polaris_re.analytics.capital import CapitalResult
+
+        n = 24
+        capital = np.full(n, 250_000.0, dtype=np.float64)
+        result = CapitalResult(
+            projection_months=n,
+            c1_component=np.zeros(n, dtype=np.float64),
+            c2_component=capital.copy(),
+            c3_component=np.zeros(n, dtype=np.float64),
+            capital_by_period=capital.copy(),
+            initial_capital=250_000.0,
+            peak_capital=250_000.0,
+        )
+
+        rate = 0.08
+        v = (1.0 + rate) ** (-1.0 / 12.0)
+        expected = 250_000.0 * v  # only initial injection has weight
+        assert result.pv_capital_strain(rate) == pytest.approx(expected)
