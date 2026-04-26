@@ -50,14 +50,14 @@ All three phases are complete. 439 tests, 94% coverage.
 | `analytics/` | Stochastic Rates — Hull-White one-factor, CIR | ✅ |
 | `analytics/` | Experience Studies — A/E, limited-fluctuation credibility, blended rates | ✅ |
 | `api/` | REST API — FastAPI with full OpenAPI docs | ✅ |
-| `cli.py` | CLI — `polaris price / scenario / uq / validate / version`; `price --excel-out` for committee workbooks | ✅ |
+| `cli.py` | CLI — `polaris price / scenario / uq / validate / version`; `price --excel-out` for committee workbooks; `price --capital licat` for LICAT RoC (ADR-049) | ✅ |
 | `dashboard/` | Streamlit dashboard — pricing, scenarios, Monte Carlo | ✅ |
 
 ---
 
 ## Quick Start
 
-See [`docs/QUICKSTART.md`](docs/QUICKSTART.md) for the full setup guide including Docker, Codespaces, mortality table loading, API testing, and `--excel-out` usage.
+See [`docs/QUICKSTART.md`](docs/QUICKSTART.md) for the full setup guide including Docker, Codespaces, mortality table loading, API testing, `--excel-out` usage, and `--capital licat` for LICAT return-on-capital ([§10](docs/QUICKSTART.md#10-licat-capital--return-on-capital)).
 
 **Requires:** Python 3.12+, [uv](https://docs.astral.sh/uv/getting-started/installation/)
 
@@ -100,6 +100,16 @@ uv run polaris price \
   -i my_block.csv \
   -o result.json \
   --excel-out deal.xlsx
+
+# Add LICAT capital + return-on-capital metrics (ADR-049). The flag is
+# opt-in; when absent the JSON / console / Excel output is byte-identical
+# to a vanilla run.
+uv run polaris price \
+  -c my_deal.json \
+  -i my_block.csv \
+  -o result.json \
+  --excel-out deal.xlsx \
+  --capital licat
 ```
 
 Set `POLARIS_PARITY_DEBUG=1` to dump year-by-year cash flow CSVs (gross / net /

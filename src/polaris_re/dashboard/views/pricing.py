@@ -477,8 +477,13 @@ def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: Assum
             roc_str,
             help=(
                 "PV(Cedant Profits) / PV(Required Capital) at the hurdle "
-                "rate. LICAT factor model (ADR-047/048). Compare to your "
-                "8-12% cost-of-capital hurdle to gate treaty acceptance."
+                "rate. PV(Required Capital) sums each monthly capital "
+                "balance discounted to t=0 — for a 30-year WL cohort, 360 "
+                "monthly balances are discounted, so PV Capital is "
+                "substantially larger than Peak Capital (the intuitive "
+                "point-in-time comparator). LICAT factor model "
+                "(ADR-047/048). Compare RoC to your 8-12% cost-of-capital "
+                "hurdle to gate treaty acceptance."
             ),
         )
         cap_b.metric(
@@ -564,7 +569,15 @@ def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: Assum
             r_cap_a.metric(
                 "Return on Capital",
                 r_roc_str,
-                help=("PV(Reinsurer Profits) / PV(Required Capital) at the hurdle rate."),
+                help=(
+                    "PV(Reinsurer Profits) / PV(Required Capital) at the "
+                    "hurdle rate. PV(Required Capital) sums each monthly "
+                    "capital balance discounted to t=0 — over a 30-year "
+                    "horizon 360 monthly balances are discounted, so PV "
+                    "Capital is substantially larger than Peak Capital "
+                    "(the intuitive point-in-time comparator). LICAT "
+                    "factor model (ADR-047/048)."
+                ),
             )
             r_cap_b.metric(
                 "Peak Capital",

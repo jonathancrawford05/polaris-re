@@ -112,22 +112,33 @@ both clean.
 
 ## Open Questions / Follow-ups
 
-1. **Mixed-cohort summary aggregation.** The CLI mixed-cohort summary
-   table still reports total cedant / reinsurer PV profits only — it
-   does NOT aggregate RoC across cohorts. Cross-cohort RoC requires a
-   capital-weighting decision (sum of PV profits ÷ sum of PV capital
-   vs. weighted-average RoC) that I left out of scope per the
-   ADR-049 "out of scope" list. Worth a separate ADR if pricing
-   actuaries ask for a single deal-level RoC headline on mixed
-   blocks.
-2. **Dashboard help text on PV capital magnitude.** The PV capital
-   numbers can be very large (e.g. ~$211M for a 30-year WHOLE_LIFE
-   cohort) because the stock denominator sums monthly capital
-   balances over the projection. The help-text on the dashboard
-   tile flags ADR-048 but doesn't quantify "expect this to be
-   ~T × peak_capital". Optional polish.
-3. **Lapse/morbidity capital factors.** Still deferred per ADR-047 /
+1. **Lapse/morbidity capital factors.** Still deferred per ADR-047 /
    ADR-049 "out of scope". Phase 5.1.b.
+
+## Tracked future-routine items (not blocking this PR)
+
+PR-#35 reviewer (jonathancrawford05, 2026-04-26) confirmed the
+following dispositions and asked that they live as tracked
+follow-ups rather than untracked open questions on the PR:
+
+1. **Mixed-cohort RoC aggregation (next LICAT follow-up).** The CLI
+   mixed-cohort summary table still reports total cedant / reinsurer
+   PV profits only — it does NOT aggregate RoC across cohorts. The
+   reviewer-confirmed proposed formula is
+   `Σ(pv_profits) / Σ(pv_capital)` across cohorts (capital-weighted
+   implicitly), surfaced as a one-liner addition to the mixed-cohort
+   summary table. Implementation gated on a separate ADR that
+   captures the weighting choice. **Action for next routine:** open
+   an ADR proposal + implementation slice; expected scope ≤ 1
+   session.
+2. **Dashboard tile help-text quantitative anchor.** Reviewer NACK
+   on the original PR-#35 text — addressed in this same PR by
+   appending the "360 monthly balances are discounted; PV Capital
+   is substantially larger than Peak Capital" sentence to the RoC
+   tile tooltips (cedant + reinsurer). No separate follow-up.
+3. **NAR `is_reinsurer` keyword vs separate functions.** Reviewer
+   confirmed the single-helper design. No follow-up; will reconsider
+   only if a fifth external-facing call site appears.
 
 ## Impact on Golden Baselines
 
