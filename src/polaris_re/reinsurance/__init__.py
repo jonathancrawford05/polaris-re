@@ -11,5 +11,14 @@ from polaris_re.reinsurance.coinsurance import CoinsuranceTreaty
 from polaris_re.reinsurance.modco import ModcoTreaty
 from polaris_re.reinsurance.stop_loss import StopLossTreaty
 from polaris_re.reinsurance.yrt import YRTTreaty
+from polaris_re.reinsurance.yrt_rate_table import YRTRateTable, YRTRateTableArray
 
-__all__ = ["BaseTreaty", "CoinsuranceTreaty", "ModcoTreaty", "StopLossTreaty", "YRTTreaty"]
+__all__ = [
+    "BaseTreaty",
+    "CoinsuranceTreaty",
+    "ModcoTreaty",
+    "StopLossTreaty",
+    "YRTRateTable",
+    "YRTRateTableArray",
+    "YRTTreaty",
+]

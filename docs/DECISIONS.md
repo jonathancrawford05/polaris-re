@@ -1489,3 +1489,131 @@ NOT extend `CashFlowResult` with a stock variable in this phase.
 Total: 30 new tests; full suite passes; QA suite unchanged; golden
 baselines unchanged when `--capital` is not supplied.
 
+---
+
+## ADR-050: Tabular YRT rate table — standalone data model (Slice 1 of 3)
+
+**Date:** 2026-04-27
+**Status:** Accepted (Slice 1 of "YRT rate schedule by age × duration"
+multi-session feature; PRODUCT_DIRECTION_2026-04-19 IMPORTANT item).
+
+**Context:**
+
+`YRTTreaty` accepts a single `flat_yrt_rate_per_1000` scalar to compute
+ceded premiums against an aggregate NAR runoff. PRODUCT_DIRECTION_2026-
+04-19 flags this as the source of the WL YRT rate-too-low pattern: real
+YRT rates rise annually with attained age, so a flat rate calibrated at
+the inforce midpoint understates reinsurer cost as the block ages. The
+roadmap's Milestone 4.4 already shipped a flat-rate solver; the
+IMPORTANT item is to extend the data model to the full age × sex ×
+smoker × duration grid and to wire it through the treaty, the rate
+solver, and the CLI / API / Excel surfaces.
+
+This ADR covers Slice 1 only: the standalone rate-table data model. No
+existing module is modified beyond `reinsurance/__init__.py`. Slices 2
+and 3 are tracked in `docs/CONTINUATION_yrt_rate_table.md`.
+
+**Decision:**
+
+1. **New module `polaris_re.reinsurance.yrt_rate_table`** with two
+   public symbols:
+
+   - `YRTRateTableArray` — storage class, one per (sex, smoker)
+     combination. Holds a 2-D `float64` array of shape
+     `(n_ages, select_period + 1)` indexed by
+     `[age - min_age, min(duration_years, select_period)]`. Provides
+     scalar `get_rate(age, duration_years)` and vectorised
+     `get_rate_vector(ages, durations_years)`.
+   - `YRTRateTable` — frozen Pydantic model wrapping a dict of arrays
+     keyed by `f"{sex.value}_{smoker.value}"`, mirroring the
+     `MortalityTable` storage convention. Provides
+     `get_rate_vector(ages, sex, smoker, durations_years)` and
+     `get_rate_scalar(age, sex, smoker, duration_years)`. Smoker-
+     specific lookups fall back to the aggregate (`UNKNOWN`) key when
+     a smoker-distinct array is absent.
+
+2. **Rates are quoted as annual dollars per $1,000 NAR.** The lookup
+   contract returns the annual rate; consumers (Slice 2) convert to
+   monthly per-dollar form via `/12 / 1000`. This matches the
+   convention already used by `YRTTreaty` for the flat-rate path.
+
+3. **No upper bound on rates.** Mortality probabilities are bounded
+   above by 1.0 — `MortalityTableArray` validates this. YRT rates
+   routinely exceed `$50/$1,000` at advanced ages, so reusing the
+   mortality storage class would force us to weaken its probability
+   invariant. A small parallel storage class keeps both invariants
+   intact.
+
+4. **Storage layout matches `MortalityTableArray`** (rows by age,
+   columns by duration with a final "ultimate" column). This keeps
+   the look-and-feel of the actuarial code consistent and means a
+   future CSV loader (deferred to Slice 3) can largely mirror
+   `load_mortality_csv`.
+
+5. **No CSV file loading in Slice 1.** `from_arrays(...)` is the
+   only construction entry point. CSV loading lives with the CLI/API
+   surfacing in Slice 3 to avoid a half-finished file format that
+   downstream slices might rewrite.
+
+6. **`YRTTreaty` is unchanged in this slice.** The new field
+   (`yrt_rate_table: YRTRateTable | None = None`) is added in Slice
+   2 alongside the consumption logic. Adding the field today without
+   the consumer would be a half-finished implementation, which CLAUDE.md
+   explicitly forbids.
+
+**Rationale:**
+
+- **Data model first** is the safest decomposition for a treaty-level
+  feature. Slice 1 is purely additive — no existing test, no QA
+  golden, and no runtime path is altered. All 793 pre-existing
+  non-slow tests still pass byte-identically.
+- **Mirroring `MortalityTable`** lets the actuarial reader recognise
+  the lookup pattern at a glance. The (sex, smoker) keying, the
+  age-row × duration-column layout, and the "ultimate" column
+  convention are all carried over.
+- **Validation hardening at construction time** (shape check,
+  non-negative rates, finite values, age-range and select-period
+  consistency across arrays) prevents silent data corruption at the
+  Slice 2 lookup boundary, where an incorrect rate would flow into
+  ceded premium calculations and silently distort RoC.
+- **Single-responsibility module.** Putting the rate-table model in
+  its own file keeps `reinsurance/yrt.py` (already 193 lines, with
+  the apply pipeline) from doubling in size. Slice 2 imports the
+  table from the new module without touching its internals.
+
+**Out of scope:**
+
+- `YRTTreaty.apply()` consumption of the table (Slice 2).
+- Per-policy in-force factor projection for tabular rate
+  application (Slice 2 design decision: aggregate-via-inforce-ratio
+  vs. seriatim).
+- CSV file format and `YRTRateTable.load(path)` (Slice 3).
+- `YRTRateSchedule.generate(...)` extension to solve a tabular
+  schedule (Slice 2 / 3).
+- CLI flag `polaris price --yrt-rate-table` (Slice 3).
+- API field on `PriceRequest` and Excel surfacing (Slice 3).
+
+**Tests:**
+
+- `tests/test_reinsurance/test_yrt_rate_table.py` (34 new tests):
+  - `TestYRTRateTableArrayConstruction` (8) — float64 promotion,
+    shape mismatch, age-range / select-period / negative-rate / NaN
+    rejection, large-rate acceptance.
+  - `TestYRTRateTableArrayLookup` (11) — scalar known-cell, ultimate-
+    column clamp, age out-of-range, negative duration, vector shape /
+    dtype / values / clamp / shape-mismatch / age-out-of-range /
+    negative-duration.
+  - `TestYRTRateTableConstruction` (6) — smoker-distinct, aggregate-
+    only, empty raises, age-range / select-period inconsistency,
+    frozen-after-construction.
+  - `TestYRTRateTableLookup` (7) — scalar smoker-vs-non-smoker
+    closed-form, vector shape / dtype, smoker-fallback-to-aggregate,
+    missing-sex raises, age-monotone increase, duration-monotone
+    increase through select.
+  - `TestPublicExports` (2) — `YRTRateTable` and `YRTRateTableArray`
+    re-exported from `polaris_re.reinsurance`.
+
+Total: 34 new tests; full suite is now 827 non-slow (up from 793); QA
+suite unchanged at 33/33; golden baselines unchanged because no
+existing pricing path consumes the new module.
+
