@@ -90,12 +90,43 @@ class TestYRTRateTableArrayConstruction:
         with pytest.raises(PolarisValidationError, match="finite"):
             YRTRateTableArray(rates=rates, min_age=40, max_age=42, select_period=1)
 
+    def test_inf_rate_raises(self) -> None:
+        # `np.isfinite` rejects both NaN and Inf; cover the Inf branch too.
+        rates = np.ones((3, 2), dtype=np.float64)
+        rates[0, 0] = np.inf
+        with pytest.raises(PolarisValidationError, match="finite"):
+            YRTRateTableArray(rates=rates, min_age=40, max_age=42, select_period=1)
+
     def test_large_rate_allowed(self) -> None:
         # YRT rates routinely exceed $50/$1000 at advanced ages — must NOT
         # be capped at 1 (unlike mortality probabilities).
         rates = np.full((3, 2), 75.0, dtype=np.float64)
         arr = YRTRateTableArray(rates=rates, min_age=85, max_age=87, select_period=1)
         assert arr.get_rate(85, 0) == 75.0
+
+    def test_caller_mutation_does_not_corrupt_stored_rates(self) -> None:
+        # Defensive copy — the array stored on the instance must be
+        # decoupled from the caller's reference, so post-construction
+        # mutation of the source array cannot bypass the validators.
+        rates = np.ones((3, 2), dtype=np.float64)
+        arr = YRTRateTableArray(rates=rates, min_age=40, max_age=42, select_period=1)
+        rates[0, 0] = -999.0
+        assert arr.get_rate(40, 0) == 1.0
+        assert np.all(arr.rates >= 0)
+
+    def test_select_period_zero_constructs_and_clamps(self) -> None:
+        # `select_period=0` is the ultimate-only case (single column).
+        # Every duration lookup must clamp to column 0.
+        rates = np.array([[1.0], [2.0], [3.0]], dtype=np.float64)
+        arr = YRTRateTableArray(rates=rates, min_age=40, max_age=42, select_period=0)
+        assert arr.rates.shape == (3, 1)
+        assert arr.get_rate(40, 0) == 1.0
+        assert arr.get_rate(41, 5) == 2.0  # clamps to column 0
+        assert arr.get_rate(42, 99) == 3.0  # clamps to column 0
+        ages = np.array([40, 41, 42], dtype=np.int32)
+        durs = np.array([0, 100, 50], dtype=np.int32)
+        out = arr.get_rate_vector(ages, durs)
+        np.testing.assert_allclose(out, np.array([1.0, 2.0, 3.0]), rtol=1e-12)
 
 
 class TestYRTRateTableArrayLookup:
@@ -174,6 +205,34 @@ class TestYRTRateTableArrayLookup:
         durs = np.array([0, -1], dtype=np.int32)
         with pytest.raises(PolarisValidationError, match="non-negative"):
             arr.get_rate_vector(ages, durs)
+
+    def test_vector_float_ages_rejected(self) -> None:
+        # Float ages must be rejected at the API boundary — silent
+        # truncation by numpy fancy indexing would give plausibly-wrong
+        # rates without raising, which is the worst failure mode for an
+        # actuarial calculation.
+        arr = _build_array()
+        ages = np.array([30.0, 35.0], dtype=np.float64)
+        durs = np.array([0, 0], dtype=np.int32)
+        with pytest.raises(PolarisValidationError, match="integer array"):
+            arr.get_rate_vector(ages, durs)
+
+    def test_vector_float_durations_rejected(self) -> None:
+        arr = _build_array()
+        ages = np.array([30, 35], dtype=np.int32)
+        durs = np.array([0.0, 1.0], dtype=np.float64)
+        with pytest.raises(PolarisValidationError, match="integer array"):
+            arr.get_rate_vector(ages, durs)
+
+    def test_vector_int64_ages_accepted(self) -> None:
+        # Both int32 and int64 callers must work; the boundary coerces
+        # internally rather than rejecting on dtype mismatch.
+        arr = _build_array()
+        ages = np.array([30, 35, 40], dtype=np.int64)
+        durs = np.array([0, 1, 2], dtype=np.int64)
+        out = arr.get_rate_vector(ages, durs)
+        assert out.dtype == np.float64
+        assert out.shape == (3,)
 
 
 class TestYRTRateTableConstruction:
@@ -267,7 +326,7 @@ class TestYRTRateTableLookup:
             },
         )
 
-    def test_scalar_lookup_smoker_lower_than_smoker(
+    def test_scalar_lookup_closed_form_values_per_sex_smoker(
         self, smoker_distinct_table: YRTRateTable
     ) -> None:
         # Hand-verifiable: at age=30, dur=0:
@@ -339,12 +398,21 @@ class TestYRTRateTableLookup:
     def test_duration_progression_within_select_period(
         self, smoker_distinct_table: YRTRateTable
     ) -> None:
-        # duration_slope=0.1 — rates rise with duration up to ultimate
+        # duration_slope=0.1 — rates rise with duration up to ultimate.
+        # Then any duration >= select_period must clamp to the ultimate
+        # column value.
         ages = np.full(6, 30, dtype=np.int32)
         durs = np.arange(0, 6, dtype=np.int32)
         rates = smoker_distinct_table.get_rate_vector(ages, Sex.MALE, SmokerStatus.NON_SMOKER, durs)
-        # Strictly increasing through select period, then equal to ultimate
-        assert np.all(np.diff(rates[:-1]) > 0)
+        # Strictly increasing across select + ultimate columns 0..5.
+        assert np.all(np.diff(rates) > 0)
+        # Durations >= select_period (5) all clamp to column 5 (ultimate).
+        ages_ult = np.full(3, 30, dtype=np.int32)
+        durs_ult = np.array([5, 10, 99], dtype=np.int32)
+        ultimate_vals = smoker_distinct_table.get_rate_vector(
+            ages_ult, Sex.MALE, SmokerStatus.NON_SMOKER, durs_ult
+        )
+        np.testing.assert_allclose(ultimate_vals, np.full(3, rates[-1]), rtol=1e-12)
 
 
 class TestPublicExports:

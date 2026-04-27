@@ -214,10 +214,14 @@ treaty consumption (Slice 2), schedule generation via brentq solver
    with a fallback to (b) when seriatim arrays are absent. ADR-051
    to document.
 2. **Precedence when both `flat_yrt_rate_per_1000` and
-   `yrt_rate_table` are set on the same `YRTTreaty`?** Default for
-   Slice 2: prefer the table, with a `PolarisValidationError` if
-   both are set (force the user to pick one). Alternative: silent
-   table-wins. Pick at Slice 2 review time.
+   `yrt_rate_table` are set on the same `YRTTreaty`?**
+   **RESOLVED — raise `PolarisValidationError` if both are set**
+   (PR #36 reviewer, 2026-04-27). The reviewer flagged that
+   silent table-wins could mask a copy-paste error in deal
+   configuration, so Slice 2 must enforce mutual exclusion at
+   `YRTTreaty` model-validator time. The validator should produce
+   a clear error message naming both fields. ADR-051 will
+   document the choice.
 3. **CSV format for the YRT rate table** (Slice 3) — mirror the
    mortality CSV (one file per (sex, smoker)) or a single CSV with
    sex/smoker columns? Default: mirror mortality format for

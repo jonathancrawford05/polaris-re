@@ -71,8 +71,10 @@ class YRTRateTableArray:
         max_age: int,
         select_period: int,
     ) -> None:
-        if rates.dtype != np.float64:
-            rates = rates.astype(np.float64)
+        # Defensive copy + dtype promotion in one step. Storing the caller's
+        # array by reference would let post-construction mutation silently
+        # corrupt the validated rates.
+        rates = np.asarray(rates, dtype=np.float64).copy()
         if rates.ndim != 2:
             raise PolarisValidationError(f"YRT rate array must be 2D, got shape {rates.shape}.")
         expected_n_ages = max_age - min_age + 1
@@ -119,29 +121,42 @@ class YRTRateTableArray:
         Vectorized rate lookup.
 
         Args:
-            ages:            Attained ages, shape (N,), dtype int32.
-            durations_years: Policy years from issue, shape (N,), dtype int32.
+            ages:            Attained ages, shape (N,). Coerced to int64
+                             internally; callers can pass int32 / int64.
+            durations_years: Policy years from issue, shape (N,). Coerced to
+                             int64 internally; callers can pass int32 / int64.
 
         Returns:
             Annual YRT rates per $1,000 NAR, shape (N,), dtype float64.
 
         Raises:
-            PolarisValidationError: If any age is outside [min_age, max_age]
-                or any duration is negative.
+            PolarisValidationError: If shapes mismatch, any age is outside
+                [min_age, max_age], or any duration is negative.
         """
         if ages.shape != durations_years.shape:
             raise PolarisValidationError(
                 f"ages shape {ages.shape} must match durations shape {durations_years.shape}."
             )
-        age_idx = ages - self.min_age
+        # Coerce to int64 once at the boundary — callers commonly pass int32
+        # vectors from `InforceBlock.attained_age_vec`. Float inputs would be
+        # truncated by numpy fancy indexing, so reject them explicitly.
+        if not np.issubdtype(ages.dtype, np.integer):
+            raise PolarisValidationError(f"ages must be an integer array, got dtype {ages.dtype}.")
+        if not np.issubdtype(durations_years.dtype, np.integer):
+            raise PolarisValidationError(
+                f"durations_years must be an integer array, got dtype {durations_years.dtype}."
+            )
+        ages_i = ages.astype(np.int64, copy=False)
+        durations_i = durations_years.astype(np.int64, copy=False)
+        age_idx = ages_i - self.min_age
         if np.any(age_idx < 0) or np.any(age_idx >= self.rates.shape[0]):
             raise PolarisValidationError(
                 f"One or more ages outside YRT rate table range [{self.min_age}, {self.max_age}]."
             )
-        if np.any(durations_years < 0):
+        if np.any(durations_i < 0):
             raise PolarisValidationError("durations_years must all be non-negative.")
-        dur_cols = np.minimum(durations_years, self.select_period).astype(np.int64)
-        return self.rates[age_idx.astype(np.int64), dur_cols]
+        dur_cols = np.minimum(durations_i, self.select_period)
+        return self.rates[age_idx, dur_cols]
 
 
 class YRTRateTable(PolarisBaseModel):
@@ -169,7 +184,12 @@ class YRTRateTable(PolarisBaseModel):
         description="Number of select-period columns in each rate array.",
     )
     has_smoker_distinct_rates: bool = Field(
-        description="Whether (sex, smoker) keys distinguish smoker status."
+        description=(
+            "Whether (sex, smoker) keys distinguish smoker status. "
+            "INFORMATIONAL ONLY — `_resolve_key` handles the smoker-fallback "
+            "logic independently, so consumers must not branch on this flag "
+            "to decide lookup behaviour. Display / metadata only."
+        )
     )
     arrays: dict[str, YRTRateTableArray] = Field(
         description="Loaded rate arrays keyed by 'sex_smoker' string.",
@@ -215,6 +235,10 @@ class YRTRateTable(PolarisBaseModel):
 
         At least one (sex, smoker) entry is required. All arrays must
         share the same `min_age`, `max_age`, and `select_period`.
+
+        Metadata (`min_age`, `max_age`, `select_period_years`) is derived
+        from the first entry in `arrays`; `_validate_arrays_consistent`
+        then raises `PolarisValidationError` if any other entry disagrees.
         """
         if not arrays:
             raise PolarisValidationError(
