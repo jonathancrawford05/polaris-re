@@ -539,6 +539,10 @@ Options:
       --excel-out PATH     Write a formatted deal-pricing Excel workbook to PATH.
                            Mixed-cohort blocks write one file per cohort with the
                            cohort id appended to the stem (e.g. deal-TERM.xlsx).
+      --capital MODEL      Regulatory capital model. Only "licat" is shipped today
+                           (ADR-049). When set, JSON output and the workbook
+                           Summary sheet gain RoC, peak capital, and PV capital
+                           rows. See §10 for usage.
       --help               Show this message and exit.
 ```
 
@@ -548,7 +552,7 @@ Each Excel workbook produced by `--excel-out` contains three sheets:
 
 | Sheet | Contents |
 |---|---|
-| **Summary** | Key pricing metrics: IRR, PV profits, profit margin, break-even year (cedant and reinsurer views) |
+| **Summary** | Key pricing metrics: IRR, PV profits, profit margin, break-even year (cedant and reinsurer views). Under `--capital licat` (ADR-049) the same sheet **gains five additional rows** appended inline below the existing metrics — `Return on Capital`, `Peak Capital`, `PV Capital (stock)`, `PV Capital Strain`, and `Capital-Adjusted IRR` — with values for both the Cedant and Reinsurer columns. The sheet count stays at three; no new sheet is added. |
 | **Cash Flows** | Annual net cash-flow rollup for `projection_years` rows |
 | **Assumptions** | Treaty type, cession %, hurdle rate, discount rate, projection years, mortality source, lapse description |
 
@@ -672,6 +676,178 @@ POLARIS_PARITY_DEBUG=1 uv run polaris price \
 
 ---
 
+## 10. LICAT Capital & Return on Capital
+
+`polaris price --capital licat` (ADR-049) runs the LICAT factor-based
+required-capital calculator (ADR-047) alongside the profit test
+(ADR-048) and surfaces return-on-capital (RoC) on every cohort. The
+flag is opt-in everywhere — when it is absent the JSON, console, and
+Excel outputs are byte-identical to a vanilla `polaris price` run.
+
+The metric set populated under `--capital licat`:
+
+| Field | Meaning |
+|---|---|
+| `peak_capital` | Maximum required capital across the projection (point-in-time, the intuitive comparator). |
+| `pv_capital` | PV of the capital STOCK at the hurdle rate — sum of each monthly capital balance discounted to t=0. The default RoC denominator (ADR-048). For a 30-year cohort 360 monthly balances are discounted, so this is **substantially larger** than `peak_capital`. |
+| `pv_capital_strain` | PV of the capital STRAIN (period-over-period injections) at the hurdle rate. Advisory metric — the alternative RoC denominator. |
+| `return_on_capital` | `pv_profits / pv_capital`. Compare to your 8–12% cost-of-capital hurdle to gate treaty acceptance. |
+| `capital_adjusted_irr` | IRR of distributable cash flow `net_cash_flow_t − strain_t`, with the residual capital balance released at month T-1. |
+
+### CLI smoke test
+
+These commands use the shipped fixtures
+(`data/inputs/test_inforce.json` + `data/inputs/test_inforce.csv` —
+SOA VBT 2015, YRT, WHOLE_LIFE) and write the capital block into the
+JSON output and the Excel workbook Summary sheet.
+
+```bash
+# Pricing with LICAT capital — JSON only
+uv run polaris price \
+  --config data/inputs/test_inforce.json \
+  --inforce data/inputs/test_inforce.csv \
+  --capital licat \
+  --output data/outputs/test_capital_result.json
+
+# Pricing with LICAT capital + Excel workbook
+uv run polaris price \
+  --config data/inputs/test_inforce.json \
+  --inforce data/inputs/test_inforce.csv \
+  --capital licat \
+  --output data/outputs/test_capital_result.json \
+  --excel-out data/outputs/test_capital_deal.xlsx
+```
+
+Expected JSON shape (top-level fields populated only on single-cohort
+runs; the per-cohort `cohorts[].cedant` / `cohorts[].reinsurer`
+entries always carry the same fields):
+
+```json
+{
+  "cohorts": [
+    {
+      "product_type": "WHOLE_LIFE",
+      "cedant": {
+        "pv_profits": ...,
+        "irr": ...,
+        "return_on_capital": 0.0234,
+        "peak_capital": 2295000.0,
+        "pv_capital": 211751790.0,
+        "pv_capital_strain": 1903344.0,
+        "capital_adjusted_irr": 0.0025
+      },
+      "reinsurer": { ... }
+    }
+  ]
+}
+```
+
+The Rich console table also gains `Peak Capital`, `PV Capital
+(stock)`, `PV Capital Strain`, `Return on Capital`, and
+`Capital-Adjusted IRR` rows for both the Cedant and Reinsurer views.
+
+### Python usage
+
+The `LICATCapital` calculator is standalone and can be used outside
+the CLI / API. The `for_product(...)` factory pre-populates the
+OSFI-aligned C-2 mortality factor (TERM 0.15, WHOLE_LIFE 0.10, UL
+0.08, DI 0.05, CI 0.05, ANNUITY 0.03; see ADR-047):
+
+```python
+from polaris_re.analytics.capital import LICATCapital
+from polaris_re.analytics.profit_test import ProfitTester
+from polaris_re.core.policy import ProductType
+
+capital_model = LICATCapital.for_product(ProductType.TERM)
+
+# Option A: ProfitTester integration (recommended) — joins profits
+# and capital in one call, returns ProfitResultWithCapital.
+tester = ProfitTester(cashflows=net, hurdle_rate=0.10)
+result = tester.run_with_capital(capital_model, nar=cedant_nar)
+print(result.return_on_capital, result.peak_capital, result.pv_capital)
+
+# Option B: standalone capital schedule (advanced).
+capital = capital_model.required_capital(net, nar=cedant_nar)
+print(capital.capital_by_period.shape, capital.peak_capital)
+```
+
+NAR derivation at the call site uses
+`polaris_re.core.pipeline.derive_capital_nar`:
+
+```python
+from polaris_re.core.pipeline import derive_capital_nar
+
+# Cedant view (face_share = 1 - cession_pct)
+cedant_nar = derive_capital_nar(
+    gross=gross_cashflows,
+    reserve_balance=net.reserve_balance,
+    face_amount_total=block.total_face_amount(),
+    cession_pct=0.90,
+    is_reinsurer=False,
+)
+```
+
+### REST API
+
+```bash
+curl -X POST http://localhost:8000/api/v1/price \
+  -H "Content-Type: application/json" \
+  -d '{
+    "policies": [...],
+    "treaty_type": "YRT",
+    "cession_pct": 0.90,
+    "capital_model": "licat"
+  }'
+```
+
+The response gains the optional capital fields on both the cedant
+and reinsurer views:
+
+```json
+{
+  "irr": 0.118,
+  "pv_profits": 1234567.0,
+  "return_on_capital": 0.094,
+  "peak_capital": 2_500_000.0,
+  "pv_capital": 218_000_000.0,
+  "pv_capital_strain": 2_100_000.0,
+  "capital_adjusted_irr": 0.073,
+  "reinsurer_return_on_capital": 0.087,
+  "reinsurer_peak_capital": 1_800_000.0,
+  ...
+}
+```
+
+Unknown `capital_model` values are rejected at the Pydantic layer
+with a 422; only `"licat"` and `null` are accepted today.
+
+### Stock vs strain (ADR-048)
+
+The default RoC denominator is **PV of capital STOCK** —
+`pv_profits / pv_capital`, where `pv_capital` discounts each monthly
+capital balance to t=0 and sums. Because the capital is held over
+the full projection, the stock measure compounds month-over-month
+and ends up much larger than `peak_capital`. As a rough anchor: for
+a 30-year cohort with roughly flat capital `K`, `pv_capital ≈ K × 12 × ä_n|`
+where `ä_n|` is the annuity factor at the hurdle rate over the
+horizon (~9.4 at 10% over 30 years, so ~110 × K). Compare
+`peak_capital` for the point-in-time view.
+
+`pv_capital_strain` (PV of period-over-period injections) is
+exposed for callers that prefer the incremental view; it does not
+change the default RoC formula. See ADR-048 for the rationale.
+
+### Streamlit dashboard
+
+The Pricing page exposes a **"Compute LICAT capital + RoC"**
+checkbox alongside the existing run controls. When checked, the
+Cedant and Reinsurer view sections each gain a row of three tiles:
+`Return on Capital`, `Peak Capital`, and `PV Capital Strain`. The
+RoC tile tooltip explains the stock-vs-strain distinction and the
+monthly-accumulation effect that makes `pv_capital ≫ peak_capital`.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -686,3 +862,5 @@ POLARIS_PARITY_DEBUG=1 uv run polaris price \
 | `GET / → 404` in browser | No root route defined | Navigate to `/docs` for the Swagger UI |
 | `--excel-out` produces no file | Output directory doesn't exist | The CLI creates parent directories automatically; check for a config or inforce error above the Excel line in stderr |
 | Mixed-cohort: only one `.xlsx` written | Single cohort in CSV | Cohort suffix is only appended when >1 product type is present — check `product_type` column values |
+| `return_on_capital` is `null` under `--capital licat` | Capital factor is zero (e.g. wrong product type or zero `c2_mortality_factor`) | Confirm `LICATCapital.for_product(...)` matches the cohort's `product_type`; ANNUITY defaults to 0.03 and TERM to 0.15 (ADR-047). For custom factors, instantiate `LICATCapital(factors=LICATFactors(...))` directly. |
+| `pv_capital` looks huge (e.g. 100× `peak_capital`) | Stock measure compounds monthly across the full projection (ADR-048) | Expected — compare to `peak_capital` for the point-in-time view. `pv_capital_strain` shows the incremental measure. See §10 for the order-of-magnitude rule of thumb. |

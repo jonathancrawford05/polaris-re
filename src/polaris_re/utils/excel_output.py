@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import polars as pl
 
-from polaris_re.analytics.profit_test import ProfitTestResult
+from polaris_re.analytics.profit_test import ProfitResultWithCapital, ProfitTestResult
 from polaris_re.core.cashflow import CashFlowResult
 
 if TYPE_CHECKING:
@@ -217,6 +217,17 @@ _SUMMARY_METRICS: tuple[str, ...] = (
     "Total Undiscounted Profit",
 )
 
+# LICAT-capital rows appended to the Summary sheet when at least one of
+# the rendered profit-test results carries capital metrics (ADR-049).
+# Order matches the CLI Rich table for readability.
+_CAPITAL_METRICS: tuple[str, ...] = (
+    "Peak Capital",
+    "PV Capital (stock)",
+    "PV Capital Strain",
+    "Return on Capital",
+    "Capital-Adjusted IRR",
+)
+
 
 def write_deal_pricing_excel(export: DealPricingExport, path: Path) -> None:
     """Write a formatted deal-pricing workbook (see ADR-045).
@@ -293,6 +304,22 @@ def _write_summary_sheet(wb: "Workbook", export: DealPricingExport) -> None:
         if export.reinsurer_result is not None:
             _write_metric_cell(ws, row_idx, 3, metric, export.reinsurer_result)
 
+    # Optional LICAT capital block — appended only when at least one
+    # rendered result is a ProfitResultWithCapital (ADR-049). Workbooks
+    # produced without --capital remain byte-identical pre-Slice-3.
+    capital_present = isinstance(export.cedant_result, ProfitResultWithCapital) or (
+        export.reinsurer_result is not None
+        and isinstance(export.reinsurer_result, ProfitResultWithCapital)
+    )
+    if capital_present:
+        capital_start = 4 + len(_SUMMARY_METRICS)
+        for i, metric in enumerate(_CAPITAL_METRICS):
+            row_idx = capital_start + i
+            ws.cell(row=row_idx, column=1, value=metric).font = header_font
+            _write_capital_cell(ws, row_idx, 2, metric, export.cedant_result)
+            if export.reinsurer_result is not None:
+                _write_capital_cell(ws, row_idx, 3, metric, export.reinsurer_result)
+
     ws.column_dimensions["A"].width = 26
     ws.column_dimensions["B"].width = 20
     if export.reinsurer_result is not None:
@@ -330,6 +357,42 @@ def _write_metric_cell(
     elif metric == "Total Undiscounted Profit":
         cell.value = float(result.total_undiscounted_profit)
         cell.number_format = "$#,##0"
+
+
+def _write_capital_cell(
+    ws: "Worksheet",
+    row: int,
+    col: int,
+    metric: str,
+    result: ProfitTestResult,
+) -> None:
+    """Write one Summary-sheet LICAT capital cell.
+
+    Renders ``"N/A"`` when the result is not a
+    ``ProfitResultWithCapital`` (e.g. mixed runs where one side has no
+    treaty and therefore no reinsurer capital).
+    """
+    cell = ws.cell(row=row, column=col)
+    if not isinstance(result, ProfitResultWithCapital):
+        cell.value = "N/A"
+        return
+    if metric == "Peak Capital":
+        cell.value = float(result.peak_capital)
+        cell.number_format = "$#,##0"
+    elif metric == "PV Capital (stock)":
+        cell.value = float(result.pv_capital)
+        cell.number_format = "$#,##0"
+    elif metric == "PV Capital Strain":
+        cell.value = float(result.pv_capital_strain)
+        cell.number_format = "$#,##0"
+    elif metric == "Return on Capital":
+        cell.value = _fmt_rate(result.return_on_capital)
+        if isinstance(cell.value, float):
+            cell.number_format = "0.00%"
+    elif metric == "Capital-Adjusted IRR":
+        cell.value = _fmt_rate(result.capital_adjusted_irr)
+        if isinstance(cell.value, float):
+            cell.number_format = "0.00%"
 
 
 def _write_cash_flows_sheet(wb: "Workbook", export: DealPricingExport) -> None:

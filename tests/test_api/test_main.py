@@ -131,6 +131,55 @@ class TestPriceEndpoint:
         data = client.post("/api/v1/price", json=payload).json()
         assert abs(data["hurdle_rate"] - 0.12) < 1e-9
 
+    def test_price_capital_model_omitted_returns_null_capital_fields(self):
+        """ADR-049: when capital_model is omitted, capital fields are null."""
+        payload = {"policies": [DEMO_POLICY]}
+        data = client.post("/api/v1/price", json=payload).json()
+        assert data["return_on_capital"] is None
+        assert data["peak_capital"] is None
+        assert data["pv_capital"] is None
+        assert data["pv_capital_strain"] is None
+        assert data["capital_adjusted_irr"] is None
+        assert data["reinsurer_return_on_capital"] is None
+
+    def test_price_capital_model_licat_populates_capital_block(self):
+        """capital_model='licat' returns numeric peak_capital and pv_capital."""
+        payload = {"policies": [DEMO_POLICY], "capital_model": "licat"}
+        response = client.post("/api/v1/price", json=payload)
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert isinstance(data["peak_capital"], (int, float))
+        assert data["peak_capital"] > 0.0
+        assert isinstance(data["pv_capital"], (int, float))
+        assert data["pv_capital"] > 0.0
+        assert isinstance(data["pv_capital_strain"], (int, float))
+        # Reinsurer side too (default treaty is YRT with 90% cession)
+        assert isinstance(data["reinsurer_peak_capital"], (int, float))
+        assert data["reinsurer_peak_capital"] > 0.0
+
+    def test_price_capital_model_invalid_value_returns_422(self):
+        """Unknown capital_model values are rejected by Pydantic."""
+        payload = {"policies": [DEMO_POLICY], "capital_model": "solvency2"}
+        response = client.post("/api/v1/price", json=payload)
+        assert response.status_code == 422, response.text
+
+    def test_price_capital_licat_doubling_cession_shifts_reinsurer_capital_up(self):
+        """Higher cession → larger reinsurer capital share (face_share scaling)."""
+        low_payload = {
+            "policies": [DEMO_POLICY],
+            "capital_model": "licat",
+            "cession_pct": 0.20,
+        }
+        high_payload = {
+            "policies": [DEMO_POLICY],
+            "capital_model": "licat",
+            "cession_pct": 0.80,
+        }
+        low = client.post("/api/v1/price", json=low_payload).json()
+        high = client.post("/api/v1/price", json=high_payload).json()
+        assert high["reinsurer_peak_capital"] > low["reinsurer_peak_capital"]
+        assert low["peak_capital"] > high["peak_capital"]
+
     def test_price_invalid_request_returns_422(self):
         """Missing required fields should return 422 Unprocessable Entity."""
         response = client.post("/api/v1/price", json={"policies": []})

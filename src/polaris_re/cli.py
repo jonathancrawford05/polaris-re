@@ -31,7 +31,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 import polaris_re
-from polaris_re.analytics.profit_test import ProfitTestResult
+from polaris_re.analytics.profit_test import ProfitResultWithCapital, ProfitTestResult
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.inforce import InforceBlock
@@ -47,11 +47,13 @@ from polaris_re.core.pipeline import (
     build_pipeline,
     build_treaty,
     ceded_to_reinsurer_view,
+    derive_capital_nar,
     derive_yrt_rate,
     dump_parity_debug,
     iter_cohorts,
     load_inforce,
 )
+from polaris_re.core.policy import ProductType
 from polaris_re.core.projection import ProjectionConfig
 
 __all__ = ["app"]
@@ -66,6 +68,11 @@ class CohortResult:
     that fed the profit test. The cash flow objects are kept on the
     result so downstream consumers (e.g. the Excel writer wired in by
     Slice 2 of ADR-045) can render annual rollups without re-projecting.
+
+    When ``--capital licat`` is supplied, ``cedant_result`` and
+    ``reinsurer_result`` are ``ProfitResultWithCapital`` instances
+    (subclass of ``ProfitTestResult``) carrying RoC and peak capital
+    fields. Existing consumers that read base fields keep working.
     """
 
     product_type: str
@@ -315,6 +322,7 @@ def _price_single_cohort(
     inputs: PipelineInputs,
     hurdle_rate: float,
     parity_label: str,
+    capital_model_id: str | None = None,
 ) -> CohortResult:
     """Run the full pricing pipeline on a single-product cohort.
 
@@ -330,12 +338,18 @@ def _price_single_cohort(
         hurdle_rate: CLI ``--hurdle-rate`` flag (falls back to deal config).
         parity_label: Label for the parity debug dump. When multiple cohorts
             are present we append the cohort id so each dump is distinct.
+        capital_model_id: When ``"licat"``, both cedant and reinsurer profit
+            tests are run via ``ProfitTester.run_with_capital`` using the
+            per-product LICAT factor model (ADR-047 / ADR-048). NAR is
+            derived per-side via ``derive_capital_nar`` (ADR-049). When
+            ``None``, the unchanged ``run()`` path is used.
 
     Returns:
         Typed ``CohortResult`` carrying the raw ProfitTestResult objects
         plus cohort metadata (product type, policy count, face amount).
+        When ``capital_model_id == "licat"``, the result fields are
+        ``ProfitResultWithCapital`` instances.
     """
-    from polaris_re.analytics.profit_test import ProfitTester
     from polaris_re.products.dispatch import get_product_engine
 
     # 1. Gross projection via product dispatch
@@ -358,17 +372,18 @@ def _price_single_cohort(
     # 4. Parity debug dump (label disambiguates cohorts when >1)
     dump_parity_debug(parity_label, gross, net, ceded)
 
-    # 5. Cedant profit test on NET cash flows
+    # 5. Cedant + reinsurer profit tests
     effective_hurdle = hurdle_rate if hurdle_rate != 0.10 else inputs.deal.hurdle_rate
-    cedant_result = ProfitTester(cashflows=net, hurdle_rate=effective_hurdle).run()
-
-    # 6. Reinsurer profit test on CEDED re-labelled as NET (ADR-039)
-    reinsurer_result: ProfitTestResult | None = None
-    if ceded is not None:
-        reinsurer_result = ProfitTester(
-            cashflows=ceded_to_reinsurer_view(ceded),
-            hurdle_rate=effective_hurdle,
-        ).run()
+    cedant_result, reinsurer_result = _run_profit_tests(
+        cohort_id=cohort_id,
+        gross=gross,
+        net=net,
+        ceded=ceded,
+        face_amount=face_amount,
+        cession_pct=inputs.deal.cession_pct if treaty is not None else None,
+        hurdle_rate=effective_hurdle,
+        capital_model_id=capital_model_id,
+    )
 
     return CohortResult(
         product_type=cohort_id,
@@ -382,9 +397,86 @@ def _price_single_cohort(
     )
 
 
+def _run_profit_tests(
+    *,
+    cohort_id: str,
+    gross: CashFlowResult,
+    net: CashFlowResult,
+    ceded: CashFlowResult | None,
+    face_amount: float,
+    cession_pct: float | None,
+    hurdle_rate: float,
+    capital_model_id: str | None,
+) -> tuple[ProfitTestResult, ProfitTestResult | None]:
+    """Run cedant + reinsurer profit tests, optionally with capital.
+
+    When ``capital_model_id == "licat"``, both sides go through
+    ``run_with_capital`` with cedant- and reinsurer-derived NAR. Other
+    values raise — Slice 3 only ships the ``licat`` model.
+    """
+    from polaris_re.analytics.capital import LICATCapital
+    from polaris_re.analytics.profit_test import ProfitTester
+
+    cedant_tester = ProfitTester(cashflows=net, hurdle_rate=hurdle_rate)
+    reinsurer_tester: ProfitTester | None = None
+    if ceded is not None:
+        reinsurer_tester = ProfitTester(
+            cashflows=ceded_to_reinsurer_view(ceded),
+            hurdle_rate=hurdle_rate,
+        )
+
+    if capital_model_id is None:
+        cedant = cedant_tester.run()
+        reinsurer: ProfitTestResult | None = (
+            reinsurer_tester.run() if reinsurer_tester is not None else None
+        )
+        return cedant, reinsurer
+
+    if capital_model_id != "licat":
+        raise typer.BadParameter(
+            f"Unknown capital model '{capital_model_id}'. Only 'licat' is supported."
+        )
+
+    try:
+        product_type_enum = ProductType(cohort_id)
+    except ValueError as exc:
+        raise typer.BadParameter(
+            f"Cannot map cohort id '{cohort_id}' to a ProductType for capital model."
+        ) from exc
+    capital_model = LICATCapital.for_product(product_type_enum)
+
+    cedant_nar = derive_capital_nar(
+        gross=gross,
+        reserve_balance=net.reserve_balance,
+        face_amount_total=face_amount,
+        cession_pct=cession_pct,
+        is_reinsurer=False,
+    )
+    cedant = cedant_tester.run_with_capital(capital_model, nar=cedant_nar)
+
+    reinsurer_with_capital: ProfitResultWithCapital | None = None
+    if reinsurer_tester is not None and ceded is not None and cession_pct is not None:
+        reinsurer_nar = derive_capital_nar(
+            gross=gross,
+            reserve_balance=ceded.reserve_balance,
+            face_amount_total=face_amount,
+            cession_pct=cession_pct,
+            is_reinsurer=True,
+        )
+        reinsurer_with_capital = reinsurer_tester.run_with_capital(capital_model, nar=reinsurer_nar)
+    return cedant, reinsurer_with_capital
+
+
 def _profit_test_to_dict(result: ProfitTestResult) -> dict[str, object]:
-    """Flatten a ProfitTestResult into a plain dict for JSON serialisation."""
-    return {
+    """Flatten a ProfitTestResult into a plain dict for JSON serialisation.
+
+    When ``result`` is a ``ProfitResultWithCapital``, the capital block
+    (``initial_capital``, ``peak_capital``, ``pv_capital``,
+    ``pv_capital_strain``, ``return_on_capital``, ``capital_adjusted_irr``)
+    is appended. Plain ``ProfitTestResult`` instances produce the original
+    schema unchanged so existing JSON consumers keep working.
+    """
+    out: dict[str, object] = {
         "hurdle_rate": result.hurdle_rate,
         "pv_profits": result.pv_profits,
         "pv_premiums": result.pv_premiums,
@@ -394,6 +486,14 @@ def _profit_test_to_dict(result: ProfitTestResult) -> dict[str, object]:
         "total_undiscounted_profit": result.total_undiscounted_profit,
         "profit_by_year": result.profit_by_year.tolist(),
     }
+    if isinstance(result, ProfitResultWithCapital):
+        out["initial_capital"] = result.initial_capital
+        out["peak_capital"] = result.peak_capital
+        out["pv_capital"] = result.pv_capital
+        out["pv_capital_strain"] = result.pv_capital_strain
+        out["return_on_capital"] = result.return_on_capital
+        out["capital_adjusted_irr"] = result.capital_adjusted_irr
+    return out
 
 
 def _render_rated_block_table(summary: dict[str, object]) -> None:
@@ -416,6 +516,26 @@ def _render_rated_block_table(summary: dict[str, object]) -> None:
     table.add_row("Max multiplier", f"{max_mult:.2f}")
     table.add_row("Max flat-extra / $1,000", f"${max_fe:.2f}")
     console.print(table)
+
+
+def _append_capital_rows(table: Table, result: ProfitTestResult) -> None:
+    """Append LICAT capital rows to a Rich profit-test table when present.
+
+    No-op when ``result`` is a plain ``ProfitTestResult`` (i.e. the user
+    did not pass ``--capital licat``). Keeps single-cohort and mixed-cohort
+    visual output identical to pre-Slice-3 when capital is off.
+    """
+    if not isinstance(result, ProfitResultWithCapital):
+        return
+    table.add_row("Peak Capital", f"${result.peak_capital:,.0f}")
+    table.add_row("PV Capital (stock)", f"${result.pv_capital:,.0f}")
+    table.add_row("PV Capital Strain", f"${result.pv_capital_strain:,.0f}")
+    roc_str = f"{result.return_on_capital:.2%}" if result.return_on_capital is not None else "N/A"
+    table.add_row("Return on Capital", roc_str)
+    capital_irr_str = (
+        f"{result.capital_adjusted_irr:.2%}" if result.capital_adjusted_irr is not None else "N/A"
+    )
+    table.add_row("Capital-Adjusted IRR", capital_irr_str)
 
 
 def _render_cohort_pricing_tables(cohort: CohortResult) -> None:
@@ -451,6 +571,7 @@ def _render_cohort_pricing_tables(cohort: CohortResult) -> None:
         "Total Undiscounted Profit",
         f"${cedant_result.total_undiscounted_profit:,.0f}",
     )
+    _append_capital_rows(cedant_table, cedant_result)
     console.print(cedant_table)
 
     # Reinsurer results table
@@ -483,6 +604,7 @@ def _render_cohort_pricing_tables(cohort: CohortResult) -> None:
             "Total Undiscounted Profit",
             f"${reinsurer_result.total_undiscounted_profit:,.0f}",
         )
+        _append_capital_rows(rei_table, reinsurer_result)
         console.print(rei_table)
     else:
         console.print("[dim]No treaty applied — reinsurer view not available.[/dim]")
@@ -641,6 +763,19 @@ def price_cmd(
             ),
         ),
     ] = None,
+    capital: Annotated[
+        str | None,
+        typer.Option(
+            "--capital",
+            help=(
+                "Regulatory capital model. When set to 'licat', each "
+                "cohort's cedant and reinsurer profit tests run with "
+                "the LICAT factor model (ADR-047/048) and the JSON / "
+                "Excel output gain return-on-capital, peak capital, and "
+                "PV capital strain (ADR-049). Default: not applied."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """
     [bold]Run a deal pricing pipeline.[/bold]
@@ -663,6 +798,16 @@ def price_cmd(
     printed on stderr.
     """
     _header()
+
+    capital_model_id: str | None = None
+    if capital is not None:
+        capital_norm = capital.strip().lower()
+        if capital_norm != "licat":
+            console.print(
+                f"[red]Error:[/red] Unknown --capital value '{capital}'. Only 'licat' is supported."
+            )
+            raise typer.Exit(code=1)
+        capital_model_id = capital_norm
 
     with Progress(
         SpinnerColumn(),
@@ -717,6 +862,7 @@ def price_cmd(
                     inputs=inputs,
                     hurdle_rate=hurdle_rate,
                     parity_label=parity_label,
+                    capital_model_id=capital_model_id,
                 )
             )
 

@@ -1350,3 +1350,142 @@ committee. The integration raises three design questions:
   (sum of strain = `capital[T-1]`); flat-capital strain PV equals
   `K × v` (only initial injection has weight).
 
+---
+
+## ADR-049: LICAT capital surfacing — CLI / API / Excel / dashboard, NAR helper
+
+**Date:** 2026-04-26
+**Status:** Accepted (Slice 3 of Phase 5.1)
+
+**Context:** ADR-047 (LICAT calculator) and ADR-048 (ProfitTester
+integration) ship the capability internally. Slice 3 makes the metric
+queryable from the three production surfaces — `polaris price` CLI,
+`POST /api/v1/price`, and the deal-pricing Excel workbook — plus the
+Streamlit dashboard. The user-visible question at every surface is
+"what RoC does this deal generate?" so the metric must be opt-in
+(no breakage for existing consumers) and consistent across surfaces.
+
+The integration also needs a NAR-derivation helper at the call site:
+`CashFlowResult.nar` is populated only by `YRTTreaty.apply` (and only
+on the CEDED side); for coinsurance / modco / no-treaty runs and for
+the cedant view of YRT, the call site must derive NAR explicitly. The
+PR-#33 reviewer confirmed (and PR-#34 reviewer reaffirmed) that we do
+NOT extend `CashFlowResult` with a stock variable in this phase.
+
+**Decision:**
+
+1. **`derive_capital_nar(gross, reserve_balance, face_amount_total, *,
+   cession_pct=None, is_reinsurer=False)`** is the canonical helper for
+   this NAR derivation and lives next to `derive_yrt_rate` /
+   `ceded_to_reinsurer_view` in `polaris_re.core.pipeline`. It mirrors
+   the inforce-ratio approximation that `YRTTreaty.apply` already uses:
+
+       inforce_ratio_t = gross.gross_premiums / gross.gross_premiums[0]
+       face_in_force_t = face_amount_total * face_share * inforce_ratio_t
+       nar_t           = max(face_in_force_t - reserve_balance_t, 0.0)
+
+   `face_share` is `1.0` when `cession_pct is None` (gross / no-treaty
+   case), `(1 - cession_pct)` for the cedant view, and `cession_pct`
+   for the reinsurer view. The same formula works across YRT,
+   coinsurance, and modco — pass the cashflows-being-capitalised
+   `reserve_balance` to get a consistent NAR.
+
+2. **CLI: `polaris price --capital licat`.** Single-value enum (only
+   `licat` is shipped). When set, both cedant and reinsurer profit
+   tests call `ProfitTester.run_with_capital(LICATCapital.for_product(...))`
+   with `nar=` derived per-side via `derive_capital_nar`. The JSON
+   output gains an additive capital block on every cohort
+   (`return_on_capital`, `peak_capital`, `pv_capital`,
+   `pv_capital_strain`, `capital_adjusted_irr`); the Rich console
+   adds rows for each metric. When `--capital` is not supplied, the
+   JSON output schema and console output are byte-identical to
+   pre-Slice-3.
+
+3. **API: `PriceRequest.capital_model: Literal["licat"] | None`.**
+   Default `None` keeps every existing API consumer unaffected.
+   `PriceResponse` gains optional capital fields with default `None`
+   on both the cedant and reinsurer sides; populated only when
+   `capital_model="licat"`. Pydantic `Literal` validation rejects
+   unknown values with a 422 — no string-bool / typo gotchas.
+
+4. **Excel: `_CAPITAL_METRICS` rows on the Summary sheet, conditional
+   on the rendered result being `ProfitResultWithCapital`.** The
+   `DealPricingExport` DTO is unchanged; the writer detects capital
+   results via `isinstance` and appends the rows below the existing
+   `_SUMMARY_METRICS`. Workbooks produced without `--capital` are
+   byte-identical pre-Slice-3. Per PR-#34 reviewer, `pv_capital_strain`
+   is surfaced as an advisory metric alongside the primary RoC and
+   peak capital rows.
+
+5. **Dashboard: "Compute LICAT capital + RoC" checkbox** on the
+   Pricing page. When checked, `_run_pricing_for_cohort` switches to
+   the capital-aware code path; the cedant and reinsurer views each
+   gain a row of three Streamlit `st.metric` tiles for Return on
+   Capital, Peak Capital, and PV Capital Strain (with help-text
+   explaining the stock-vs-strain choice from ADR-048).
+
+**Rationale:**
+
+- **Single NAR helper, four call sites.** Putting the NAR derivation
+  in `pipeline.py` (the existing canonical home for treaty-aware
+  helpers) means CLI, API, dashboard, and any future consumer all
+  use the same formula. The cedant/reinsurer face-share split is a
+  single keyword arg (`is_reinsurer`), so the call sites stay
+  one-liners.
+- **Inforce-ratio approximation is consistent with YRT.** Reusing
+  the same `gross.gross_premiums / gross.gross_premiums[0]` runoff
+  shape as `YRTTreaty.apply` means the LICAT NAR for non-YRT runs
+  is comparable to the YRT NAR — no surprise step-changes when a
+  user toggles between treaty types.
+- **Opt-in everywhere.** The CLI flag is absent by default; the API
+  field is `None` by default; the Excel writer detects the capital
+  type via `isinstance`; the dashboard checkbox is unchecked. This
+  preserves every existing consumer's contract and lets us merge
+  Slice 3 without coordinated downstream releases.
+- **Single capital model in this slice.** Only `licat` is shipped.
+  CLI and API both reject unknown values with a clear error. Future
+  models (e.g. EU `solvency2`, US `naic_rbc`) can be added by
+  extending the same enum without changing the surface shape.
+- **Dashboard surfacing matches Excel labels.** Both the dashboard
+  tiles and the Excel rows use the same "Return on Capital" / "Peak
+  Capital" / "PV Capital Strain" labels so committee deck producers
+  can map them to the workbook 1-for-1.
+
+**Out of scope:**
+
+- Cost-of-capital interest credit on held capital (still deferred
+  to Phase 5.4 / risk-free curve).
+- Lapse-risk and morbidity-risk LICAT components.
+- Multiple capital models per call (a deal-level comparison view
+  is a separate ADR).
+- Per-cohort RoC aggregation at the mixed-block summary level (the
+  CLI summary table still reports total cedant / reinsurer PV
+  profits only — capital aggregation across cohorts requires a
+  weighting decision that is itself a separate ADR).
+
+**Tests:**
+
+- `tests/test_core/test_pipeline_capital_nar.py` (15) — basics
+  (face−reserve, dtype/shape, floor at zero, zero-initial-premium
+  fallback, empty projection), inforce-ratio scaling, cession-aware
+  splits (cedant + reinsurer face-share, sum to total, parameterised
+  cession sweep), reserve subtraction.
+- `tests/test_analytics/test_cli.py::TestPriceCommandCapital` (4) —
+  JSON capital block under `--capital licat`; absent without the
+  flag; invalid value exits 1; console rendering of "Return on
+  Capital" / "Peak Capital".
+- `tests/test_api/test_main.py::TestPriceEndpoint` (4 added) —
+  capital fields null when `capital_model` omitted; numeric and
+  positive when `capital_model="licat"`; invalid value rejected
+  with 422; cession-pct sensitivity (higher cession → larger
+  reinsurer capital, smaller cedant capital).
+- `tests/test_utils/test_excel_output.py::TestSummarySheetCapitalBlock`
+  (7) — capital rows absent without capital, present with capital
+  result; cedant RoC and reinsurer PV capital values match;
+  advisory PV Capital Strain present (PR-#34 reviewer); RoC None
+  renders as "N/A"; mixed cedant/reinsurer (only one side has
+  capital) renders other side as "N/A".
+
+Total: 30 new tests; full suite passes; QA suite unchanged; golden
+baselines unchanged when `--capital` is not supplied.
+

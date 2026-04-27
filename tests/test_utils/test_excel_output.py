@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from openpyxl import load_workbook
 
-from polaris_re.analytics.profit_test import ProfitTestResult
+from polaris_re.analytics.profit_test import ProfitResultWithCapital, ProfitTestResult
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.utils.excel_output import (
     AssumptionsMetaExport,
@@ -390,3 +390,148 @@ class TestSensitivitySheet:
         for i, scenario in enumerate(full_export.scenario_results):
             pv_cell = ws.cell(row=i + 2, column=pv_col).value
             assert pv_cell == pytest.approx(scenario.pv_profits)
+
+
+# ---------------------------------------------------------------------------
+# LICAT capital block on the Summary sheet (ADR-049)
+# ---------------------------------------------------------------------------
+
+
+def _make_capital_result(
+    *,
+    pv_capital: float = 100_000.0,
+    pv_capital_strain: float = 25_000.0,
+    return_on_capital: float | None = 0.18,
+    capital_adjusted_irr: float | None = 0.115,
+    peak_capital: float = 150_000.0,
+) -> ProfitResultWithCapital:
+    profit_by_year = np.linspace(-1000.0, 5000.0, PROJECTION_YEARS, dtype=np.float64)
+    return ProfitResultWithCapital(
+        hurdle_rate=0.10,
+        pv_profits=25_000.0,
+        pv_premiums=250_000.0,
+        profit_margin=0.10,
+        irr=0.125,
+        breakeven_year=5,
+        total_undiscounted_profit=float(profit_by_year.sum()),
+        profit_by_year=profit_by_year,
+        initial_capital=80_000.0,
+        peak_capital=peak_capital,
+        pv_capital=pv_capital,
+        pv_capital_strain=pv_capital_strain,
+        return_on_capital=return_on_capital,
+        capital_adjusted_irr=capital_adjusted_irr,
+        capital_by_period=np.linspace(80_000.0, peak_capital, PROJECTION_MONTHS, dtype=np.float64),
+    )
+
+
+@pytest.fixture
+def capital_export() -> DealPricingExport:
+    """Export with a ProfitResultWithCapital cedant + reinsurer."""
+    return DealPricingExport(
+        deal_meta=_make_deal_meta(),
+        assumptions_meta=_make_assumptions_meta(),
+        cedant_result=_make_capital_result(),
+        reinsurer_result=_make_capital_result(
+            pv_capital=60_000.0,
+            return_on_capital=0.22,
+            capital_adjusted_irr=0.142,
+            peak_capital=90_000.0,
+        ),
+        net_cashflows=_make_cashflows("NET"),
+    )
+
+
+class TestSummarySheetCapitalBlock:
+    """ADR-049: capital rows are appended only when results carry capital."""
+
+    def test_capital_rows_absent_when_off(
+        self, minimal_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(minimal_export, out)
+        ws = load_workbook(out)["Summary"]
+        labels = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+        assert "Return on Capital" not in labels
+        assert "Peak Capital" not in labels
+        assert "PV Capital (stock)" not in labels
+        assert "PV Capital Strain" not in labels
+        assert "Capital-Adjusted IRR" not in labels
+
+    def test_capital_rows_present_when_capital_result(
+        self, capital_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(capital_export, out)
+        ws = load_workbook(out)["Summary"]
+        labels = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+        for required in (
+            "Peak Capital",
+            "PV Capital (stock)",
+            "PV Capital Strain",
+            "Return on Capital",
+            "Capital-Adjusted IRR",
+        ):
+            assert required in labels, f"missing {required!r} on Summary sheet"
+
+    def test_cedant_return_on_capital_value_matches(
+        self, capital_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(capital_export, out)
+        ws = load_workbook(out)["Summary"]
+        row = _find_row_with_label(ws, "Return on Capital")
+        cell = ws.cell(row=row, column=2).value
+        assert cell == pytest.approx(0.18)
+
+    def test_reinsurer_pv_capital_value_matches(
+        self, capital_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(capital_export, out)
+        ws = load_workbook(out)["Summary"]
+        row = _find_row_with_label(ws, "PV Capital (stock)")
+        cedant_cell = ws.cell(row=row, column=2).value
+        reinsurer_cell = ws.cell(row=row, column=3).value
+        assert cedant_cell == pytest.approx(100_000.0)
+        assert reinsurer_cell == pytest.approx(60_000.0)
+
+    def test_advisory_strain_metric_present(
+        self, capital_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        """PR-#34 reviewer requirement: surface PV Capital Strain on Excel."""
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(capital_export, out)
+        ws = load_workbook(out)["Summary"]
+        row = _find_row_with_label(ws, "PV Capital Strain")
+        cedant_cell = ws.cell(row=row, column=2).value
+        assert cedant_cell == pytest.approx(25_000.0)
+
+    def test_return_on_capital_none_renders_as_na(self, tmp_path: Path) -> None:
+        export = DealPricingExport(
+            deal_meta=_make_deal_meta(),
+            assumptions_meta=_make_assumptions_meta(),
+            cedant_result=_make_capital_result(return_on_capital=None),
+            reinsurer_result=None,
+            net_cashflows=_make_cashflows("NET"),
+        )
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        ws = load_workbook(out)["Summary"]
+        row = _find_row_with_label(ws, "Return on Capital")
+        assert ws.cell(row=row, column=2).value == "N/A"
+
+    def test_reinsurer_capital_na_when_only_cedant_has_capital(self, tmp_path: Path) -> None:
+        """Mixed run: cedant has capital, reinsurer is plain — reinsurer cells = N/A."""
+        export = DealPricingExport(
+            deal_meta=_make_deal_meta(),
+            assumptions_meta=_make_assumptions_meta(),
+            cedant_result=_make_capital_result(),
+            reinsurer_result=_make_profit_result(),  # plain ProfitTestResult
+            net_cashflows=_make_cashflows("NET"),
+        )
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        ws = load_workbook(out)["Summary"]
+        row = _find_row_with_label(ws, "Return on Capital")
+        assert ws.cell(row=row, column=3).value == "N/A"

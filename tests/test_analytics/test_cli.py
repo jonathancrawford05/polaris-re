@@ -67,6 +67,53 @@ class TestPriceCommand:
 
 
 @pytest.mark.slow
+class TestPriceCommandCapital:
+    """Tests for `polaris price --capital licat` (ADR-049, Slice 3)."""
+
+    def test_capital_licat_emits_return_on_capital_in_json(self, tmp_path: Path):
+        """JSON output gains return_on_capital and peak_capital under --capital licat."""
+        out_file = tmp_path / "result.json"
+        result = runner.invoke(app, ["price", "--capital", "licat", "--output", str(out_file)])
+        assert result.exit_code == 0, result.output
+        data = json.loads(out_file.read_text())
+        # Both top-level (single-cohort back-compat) and per-cohort entries
+        # carry the capital block.
+        assert "return_on_capital" in data["cedant"]
+        assert "peak_capital" in data["cedant"]
+        assert "pv_capital" in data["cedant"]
+        assert "pv_capital_strain" in data["cedant"]
+        assert "capital_adjusted_irr" in data["cedant"]
+        assert "return_on_capital" in data["reinsurer"]
+        # Per-cohort schema mirrors the top-level fields
+        assert data["cohorts"][0]["cedant"].get("return_on_capital") is not None or (
+            data["cohorts"][0]["cedant"]["pv_capital"] >= 0.0
+        )
+
+    def test_capital_off_omits_return_on_capital_field(self, tmp_path: Path):
+        """Without --capital, JSON output is byte-equivalent for capital fields."""
+        out_file = tmp_path / "result_no_capital.json"
+        result = runner.invoke(app, ["price", "--output", str(out_file)])
+        assert result.exit_code == 0, result.output
+        data = json.loads(out_file.read_text())
+        assert "return_on_capital" not in data["cedant"]
+        assert "peak_capital" not in data["cedant"]
+        assert "return_on_capital" not in data["reinsurer"]
+
+    def test_capital_invalid_value_exits_non_zero(self):
+        """--capital with an unknown model id exits 1 with a clear message."""
+        result = runner.invoke(app, ["price", "--capital", "solvency2"])
+        assert result.exit_code == 1, result.output
+        assert "Unknown --capital value" in result.output
+
+    def test_capital_licat_renders_roc_in_console_table(self):
+        """Console output shows the Return on Capital row."""
+        result = runner.invoke(app, ["price", "--capital", "licat"])
+        assert result.exit_code == 0, result.output
+        assert "Return on Capital" in result.output
+        assert "Peak Capital" in result.output
+
+
+@pytest.mark.slow
 class TestScenarioCommand:
     def test_scenario_demo_mode_exits_zero(self):
         """scenario without config runs demo mode and exits 0."""
