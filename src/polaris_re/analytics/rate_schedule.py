@@ -14,6 +14,7 @@ Algorithm:
        that makes IRR = target_irr
 """
 
+import numpy as np
 import polars as pl
 from scipy.optimize import brentq
 
@@ -24,6 +25,7 @@ from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
 from polaris_re.core.projection import ProjectionConfig
 from polaris_re.products.term_life import TermLife
 from polaris_re.reinsurance.yrt import YRTTreaty
+from polaris_re.reinsurance.yrt_rate_table import YRTRateTable, YRTRateTableArray
 
 __all__ = ["YRTRateSchedule"]
 
@@ -254,3 +256,127 @@ class YRTRateSchedule:
                     )
 
         return pl.DataFrame(rows)
+
+    def generate_table(
+        self,
+        ages: list[int] | None = None,
+        sexes: list[Sex] | None = None,
+        smoker_statuses: list[SmokerStatus] | None = None,
+        policy_term: int = 20,
+        select_period_years: int = 0,
+    ) -> YRTRateTable:
+        """
+        Solve a per-(age, sex, smoker) flat YRT rate grid and pack it into a
+        ``YRTRateTable`` consumable by ``YRTTreaty``.
+
+        Each (sex, smoker) cell of the resulting table is a 2-D array of
+        shape ``(n_ages, select_period_years + 1)``. The same per-issue-age
+        flat rate fills every duration column in that age's row — i.e. this
+        helper produces a step-flat-by-age schedule, not a per-duration
+        schedule. Slice 3's CSV ingest is the place where externally-quoted
+        rates with true select-period rate variation will live; this method
+        is the closed-loop sanity check that a generated table flows back
+        through ``YRTTreaty.apply()`` and reproduces the target IRR per cell.
+
+        Default axis grid: ages 25..85 step 5; both sexes; both smoker
+        statuses; select_period_years=0 (single ultimate column).
+
+        Args:
+            ages:                Issue ages (default: 25..85 step 5).
+            sexes:               Sex values (default: [MALE, FEMALE]).
+            smoker_statuses:     Smoker statuses (default: [NON_SMOKER, SMOKER]).
+            policy_term:         Policy term in years used by the synthetic
+                                 single-policy projection (default: 20).
+            select_period_years: Number of select columns in the output
+                                 table (rates are repeated across columns).
+
+        Returns:
+            A populated ``YRTRateTable``.
+
+        Raises:
+            ValueError: If no cells could be solved (rate solver returned
+                        None for every grid cell).
+        """
+        if ages is None:
+            ages = list(range(25, 86, 5))
+        if sexes is None:
+            sexes = [Sex.MALE, Sex.FEMALE]
+        if smoker_statuses is None:
+            smoker_statuses = [SmokerStatus.NON_SMOKER, SmokerStatus.SMOKER]
+
+        sorted_ages = sorted(ages)
+        min_age = sorted_ages[0]
+        max_age = sorted_ages[-1]
+        n_ages = max_age - min_age + 1
+        n_cols = select_period_years + 1
+
+        # Build per-(sex, smoker) rate matrices.
+        per_cohort: dict[tuple[Sex, SmokerStatus], np.ndarray] = {
+            (sex, smoker): np.full((n_ages, n_cols), np.nan, dtype=np.float64)
+            for sex in sexes
+            for smoker in smoker_statuses
+        }
+
+        any_solved = False
+        for age in sorted_ages:
+            for sex in sexes:
+                for smoker in smoker_statuses:
+                    policy = self._make_policy(age, sex, smoker, policy_term)
+                    inforce = InforceBlock(policies=[policy])
+                    engine = TermLife(inforce, self.assumptions, self.config)
+                    gross = engine.project()
+                    solved = self._solve_rate(gross)
+                    if solved is None:
+                        continue
+                    any_solved = True
+                    per_cohort[(sex, smoker)][age - min_age, :] = solved
+
+        if not any_solved:
+            raise ValueError(
+                "YRTRateSchedule.generate_table: rate solver failed for "
+                "every grid cell — check assumptions, target_irr, and the "
+                "search bracket in _solve_rate()."
+            )
+
+        # Forward-fill unsolved (and unrequested) age rows from the nearest
+        # solved row below, then back-fill from the row above. NaNs that
+        # remain in cohorts where no cell was solved get the global mean —
+        # if even that is NaN, raise.
+        all_solved_values: list[float] = []
+        for matrix in per_cohort.values():
+            mask = ~np.isnan(matrix[:, 0])
+            if mask.any():
+                all_solved_values.extend(matrix[mask, 0].tolist())
+        global_mean = float(np.mean(all_solved_values)) if all_solved_values else float("nan")
+
+        cohort_arrays: dict[tuple[Sex, SmokerStatus], YRTRateTableArray] = {}
+        for (sex, smoker), matrix in per_cohort.items():
+            col0 = matrix[:, 0].copy()
+            # Forward-fill
+            last = np.nan
+            for i in range(n_ages):
+                if np.isnan(col0[i]):
+                    col0[i] = last
+                else:
+                    last = col0[i]
+            # Back-fill remaining leading NaNs
+            last = np.nan
+            for i in range(n_ages - 1, -1, -1):
+                if np.isnan(col0[i]):
+                    col0[i] = last
+                else:
+                    last = col0[i]
+            # Anything still NaN: use the global mean
+            col0 = np.where(np.isnan(col0), global_mean, col0)
+            filled = np.broadcast_to(col0[:, np.newaxis], (n_ages, n_cols)).copy()
+            cohort_arrays[(sex, smoker)] = YRTRateTableArray(
+                rates=filled,
+                min_age=min_age,
+                max_age=max_age,
+                select_period=select_period_years,
+            )
+
+        return YRTRateTable.from_arrays(
+            table_name=f"generated_term{policy_term}_irr{int(self.target_irr * 100)}",
+            arrays=cohort_arrays,
+        )

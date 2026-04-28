@@ -132,6 +132,78 @@ class TestYRTRateSchedule:
             assert rate_high < rate_low
 
 
+class TestGenerateTable:
+    """Tests for `YRTRateSchedule.generate_table()` (Slice 2 of YRT rate table)."""
+
+    def test_generate_table_returns_yrt_rate_table(self, assumptions, config):
+        """generate_table() returns a populated YRTRateTable."""
+        from polaris_re.reinsurance import YRTRateTable
+
+        scheduler = YRTRateSchedule(assumptions=assumptions, config=config)
+        table = scheduler.generate_table(
+            ages=[35, 40, 45],
+            sexes=[Sex.MALE],
+            smoker_statuses=[SmokerStatus.UNKNOWN],
+            policy_term=20,
+            select_period_years=0,
+        )
+        assert isinstance(table, YRTRateTable)
+        assert table.min_age == 35
+        assert table.max_age == 45
+        assert table.select_period_years == 0
+        # The (MALE, UNKNOWN) cohort must be loaded.
+        assert "M_U" in table.arrays
+
+    def test_generate_table_round_trips_through_treaty(self, assumptions, config):
+        """A generated table fed back into YRTTreaty.apply() produces a
+        non-empty ceded premium series with no errors. This is the closed-
+        loop sanity check for the Slice 2 contract."""
+        from polaris_re.core.inforce import InforceBlock
+        from polaris_re.core.policy import Policy, ProductType
+        from polaris_re.products.term_life import TermLife
+        from polaris_re.reinsurance import YRTTreaty
+
+        scheduler = YRTRateSchedule(assumptions=assumptions, config=config)
+        table = scheduler.generate_table(
+            ages=[40],
+            sexes=[Sex.MALE],
+            smoker_statuses=[SmokerStatus.UNKNOWN],
+            policy_term=20,
+            select_period_years=0,
+        )
+
+        policy = Policy(
+            policy_id="ROUND_TRIP",
+            issue_age=40,
+            attained_age=40,
+            sex=Sex.MALE,
+            smoker_status=SmokerStatus.UNKNOWN,
+            underwriting_class="STANDARD",
+            face_amount=1_000_000.0,
+            annual_premium=12_000.0,
+            product_type=ProductType.TERM,
+            policy_term=20,
+            duration_inforce=0,
+            reinsurance_cession_pct=1.0,
+            issue_date=date(2025, 1, 1),
+            valuation_date=date(2025, 1, 1),
+        )
+        block = InforceBlock(policies=[policy])
+        gross = TermLife(block, assumptions, config).project(seriatim=True)
+
+        treaty = YRTTreaty(
+            cession_pct=1.0,
+            total_face_amount=1_000_000.0,
+            yrt_rate_table=table,
+        )
+        net, ceded = treaty.apply(gross, inforce=block)
+        # No NaNs / Infs allowed in either output.
+        assert np.all(np.isfinite(ceded.gross_premiums))
+        assert np.all(np.isfinite(net.net_cash_flow))
+        # Some ceded premium must be collected.
+        assert ceded.gross_premiums.sum() > 0
+
+
 class TestExcelOutput:
     """Tests for Excel rate schedule export."""
 

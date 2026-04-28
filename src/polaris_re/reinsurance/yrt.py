@@ -11,22 +11,37 @@ Treaty Mechanics:
 3. ceded_claim_t = gross_claim_t * cession_pct
 4. Reserves stay fully with the cedant (not transferred).
 
-For aggregate cash flows (Phase 1 MVP), total in-force face amount at each
-time step is approximated using the premium runoff ratio as an in-force proxy:
-    inforce_ratio_t = gross_premiums[t] / gross_premiums[0]
-    total_face_t = total_face_amount * inforce_ratio_t
-    NAR_t = total_face_t - reserve_balance_t
+YRT premiums can be billed two ways:
+
+* **Flat rate** (legacy MVP path): ``flat_yrt_rate_per_1000`` is a single
+  annual rate per $1,000 NAR. Aggregate in-force face at each time step is
+  approximated using the premium runoff ratio.
+
+* **Tabular rate** (Slice 2, ADR-051): ``yrt_rate_table`` is a
+  ``YRTRateTable`` indexed by (age, sex, smoker, duration_years). When
+  set, ``apply()`` requires an ``InforceBlock`` and computes per-policy
+  ceded premiums; if ``gross.seriatim_lx`` and ``gross.seriatim_reserves``
+  are populated, NAR is taken per-policy from those arrays. Otherwise
+  the engine falls back to a face-weighted average rate applied to the
+  aggregate-runoff NAR (the same approximation as the flat path, but with
+  rates that drift upward as the block ages).
+
+The two pricing fields are mutually exclusive: setting both raises
+``PolarisValidationError`` at construction (PR #36 reviewer guidance —
+silent table-wins could mask a copy-paste error in deal config).
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
 import numpy as np
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from polaris_re.core.base import PolarisBaseModel
 from polaris_re.core.cashflow import CashFlowResult
-from polaris_re.core.exceptions import PolarisComputationError
+from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
+from polaris_re.core.policy import Sex, SmokerStatus
 from polaris_re.reinsurance.base_treaty import BaseTreaty
+from polaris_re.reinsurance.yrt_rate_table import YRTRateTable
 
 if TYPE_CHECKING:
     from polaris_re.core.inforce import InforceBlock
@@ -68,10 +83,29 @@ class YRTTreaty(PolarisBaseModel, BaseTreaty):
         ge=0.0,
         description=(
             "Simplified flat annual YRT rate per $1,000 NAR. "
-            "MVP placeholder - replaced by a full rate table in Phase 2."
+            "Mutually exclusive with `yrt_rate_table`."
+        ),
+    )
+    yrt_rate_table: YRTRateTable | None = Field(
+        default=None,
+        description=(
+            "Tabular YRT rate schedule indexed by (age, sex, smoker, "
+            "duration_years). When set, `apply()` requires an InforceBlock "
+            "and prefers per-policy seriatim NAR. Mutually exclusive with "
+            "`flat_yrt_rate_per_1000`."
         ),
     )
     treaty_name: str | None = Field(default=None, description="Optional treaty identifier.")
+
+    @model_validator(mode="after")
+    def _validate_rate_source_exclusive(self) -> Self:
+        if self.flat_yrt_rate_per_1000 is not None and self.yrt_rate_table is not None:
+            raise PolarisValidationError(
+                "YRTTreaty: `flat_yrt_rate_per_1000` and `yrt_rate_table` are "
+                "mutually exclusive — set exactly one (or neither, for a "
+                "claims-only cession). Both were provided."
+            )
+        return self
 
     def apply(
         self,
@@ -85,7 +119,8 @@ class YRTTreaty(PolarisBaseModel, BaseTreaty):
             gross:   GROSS basis CashFlowResult with reserve_balance populated.
             inforce: Optional InforceBlock for policy-level cession overrides.
                      When provided, face-weighted average cession is used
-                     instead of treaty-level cession_pct.
+                     instead of treaty-level cession_pct. Required when
+                     `yrt_rate_table` is set.
 
         Returns:
             (net, ceded) CashFlowResult tuple.
@@ -97,32 +132,23 @@ class YRTTreaty(PolarisBaseModel, BaseTreaty):
 
         c = self._resolve_cession(self.cession_pct, inforce)
 
-        # Ceded claims: proportional to gross
+        # Ceded claims: proportional to gross (face-weighted scalar).
         ceded_claims = gross.death_claims * c
         net_claims = gross.death_claims * (1.0 - c)
 
-        # YRT premiums: based on NAR
-        if self.flat_yrt_rate_per_1000 is not None:
-            # Approximate in-force face at each time step using premium runoff
-            initial_premium = gross.gross_premiums[0]
-            if initial_premium > 0:
-                inforce_ratio = gross.gross_premiums / initial_premium
-            else:
-                inforce_ratio = np.ones_like(gross.gross_premiums)
-
-            # Total in-force face at each time step
-            total_face_t = self.total_face_amount * inforce_ratio
-
-            # NAR = face - reserves (floored at 0)
-            nar = np.maximum(total_face_t - gross.reserve_balance, 0.0)
-
-            # Monthly YRT rate = annual rate / 12
-            monthly_rate_per_dollar = self.flat_yrt_rate_per_1000 / 12.0 / 1000.0
-
-            # Ceded YRT premiums = NAR * monthly_rate * cession_pct
-            ceded_yrt_premiums = nar * monthly_rate_per_dollar * c
+        # YRT premiums: dispatch on rate source.
+        if self.yrt_rate_table is not None:
+            if inforce is None:
+                raise PolarisComputationError(
+                    "YRT treaty with `yrt_rate_table` requires an InforceBlock "
+                    "argument for policy-level (age, sex, smoker, duration) "
+                    "rate lookups."
+                )
+            ceded_yrt_premiums, nar = self._compute_tabular_premiums(gross, inforce, c)
+        elif self.flat_yrt_rate_per_1000 is not None:
+            ceded_yrt_premiums, nar = self._compute_flat_premiums(gross, c)
         else:
-            # Without a YRT rate, ceded premiums are zero
+            # No rate source: ceded premiums are zero (claims-only cession).
             ceded_yrt_premiums = np.zeros_like(gross.gross_premiums)
             nar = None
 
@@ -190,3 +216,156 @@ class YRTTreaty(PolarisBaseModel, BaseTreaty):
         )
 
         return net, ceded
+
+    # ------------------------------------------------------------------
+    # Premium computation — flat-rate (legacy)
+    # ------------------------------------------------------------------
+
+    def _compute_flat_premiums(
+        self, gross: CashFlowResult, c: float
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Aggregate flat-rate ceded YRT premiums + NAR series, shape (T,)."""
+        assert self.flat_yrt_rate_per_1000 is not None
+        # Approximate in-force face at each time step using premium runoff
+        initial_premium = gross.gross_premiums[0]
+        if initial_premium > 0:
+            inforce_ratio = gross.gross_premiums / initial_premium
+        else:
+            inforce_ratio = np.ones_like(gross.gross_premiums)
+
+        total_face_t = self.total_face_amount * inforce_ratio
+        nar = np.maximum(total_face_t - gross.reserve_balance, 0.0)
+        monthly_rate_per_dollar = self.flat_yrt_rate_per_1000 / 12.0 / 1000.0
+        ceded_yrt_premiums = nar * monthly_rate_per_dollar * c
+        return ceded_yrt_premiums, nar
+
+    # ------------------------------------------------------------------
+    # Premium computation — tabular (ADR-051)
+    # ------------------------------------------------------------------
+
+    def _compute_tabular_premiums(
+        self,
+        gross: CashFlowResult,
+        inforce: "InforceBlock",
+        c_aggregate: float,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Tabular YRT ceded premiums and NAR series, shape (T,).
+
+        Prefers the per-policy seriatim path when ``gross.seriatim_lx`` and
+        ``gross.seriatim_reserves`` are populated. Falls back to a face-
+        weighted-average-rate approximation against aggregate-runoff NAR
+        when seriatim arrays are absent.
+        """
+        assert self.yrt_rate_table is not None
+        t = len(gross.gross_premiums)
+        n = inforce.n_policies
+
+        # Per-policy table-lookup inputs (constant across t for sex/smoker;
+        # vary with t for ages and duration_years).
+        face_vec = inforce.face_amount_vec  # (N,) float64
+        attained_age_vec = inforce.attained_age_vec_at(gross.valuation_date)  # (N,) int32
+        duration_inforce_vec = inforce.duration_inforce_vec_at(gross.valuation_date)  # (N,) int32
+        sex_list: list[Sex] = [p.sex for p in inforce.policies]
+        smoker_list: list[SmokerStatus] = [p.smoker_status for p in inforce.policies]
+
+        # Pre-compute the per-policy rate matrix R[i, t] (annual $/1000) by
+        # iterating once per (sex, smoker) cohort.
+        rates_per_1000 = np.zeros((n, t), dtype=np.float64)
+        unique_combos = set(zip(sex_list, smoker_list, strict=True))
+        for sex, smoker in unique_combos:
+            cohort_mask = np.array(
+                [s == sex and sm == smoker for s, sm in zip(sex_list, smoker_list, strict=True)],
+                dtype=bool,
+            )
+            if not np.any(cohort_mask):
+                continue
+            cohort_ages_at_issue = attained_age_vec[cohort_mask]
+            cohort_dur_inforce = duration_inforce_vec[cohort_mask]
+            for month in range(t):
+                total_dur_months = cohort_dur_inforce + month
+                age_increment = (total_dur_months // 12) - (cohort_dur_inforce // 12)
+                ages_at_t = (cohort_ages_at_issue + age_increment).astype(np.int32)
+                # Clamp ages to the table range to avoid lookup errors at the
+                # tail of long projections (the rate-table top age is the
+                # natural extrapolation cap).
+                ages_at_t = np.clip(
+                    ages_at_t,
+                    self.yrt_rate_table.min_age,
+                    self.yrt_rate_table.max_age,
+                )
+                durations_years = (total_dur_months // 12).astype(np.int32)
+                rates_per_1000[cohort_mask, month] = self.yrt_rate_table.get_rate_vector(
+                    ages_at_t, sex, smoker, durations_years
+                )
+
+        monthly_rate_per_dollar = rates_per_1000 / 12.0 / 1000.0  # (N, T)
+
+        if gross.seriatim_lx is not None and gross.seriatim_reserves is not None:
+            return self._tabular_premiums_seriatim(
+                gross, inforce, face_vec, monthly_rate_per_dollar
+            )
+        return self._tabular_premiums_aggregate(
+            gross, face_vec, monthly_rate_per_dollar, c_aggregate
+        )
+
+    def _tabular_premiums_seriatim(
+        self,
+        gross: CashFlowResult,
+        inforce: "InforceBlock",
+        face_vec: np.ndarray,
+        monthly_rate_per_dollar: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Per-policy NAR * rate * cession, summed across policies."""
+        assert gross.seriatim_lx is not None
+        assert gross.seriatim_reserves is not None
+
+        lx = gross.seriatim_lx  # (N, T)
+        v_per_policy = gross.seriatim_reserves  # (N, T) — raw V (not lx-weighted)
+        # Per-policy NAR at time t = face - V (floored at 0); the in-force
+        # weighting via lx is applied separately so a fully-lapsed policy
+        # contributes nothing.
+        nar_per_policy = np.maximum(face_vec[:, np.newaxis] - v_per_policy, 0.0)
+        # Effective per-policy cession (treaty default if policy override absent).
+        eff_cession = inforce.effective_cession_vec(self.cession_pct)  # (N,)
+        ceded_per_policy = (
+            lx * nar_per_policy * monthly_rate_per_dollar * eff_cession[:, np.newaxis]
+        )
+        ceded_yrt_premiums = ceded_per_policy.sum(axis=0)
+        # Aggregate NAR series for reporting parity with the flat path:
+        # in-force-weighted NAR (so it lines up with what the rates were
+        # applied to).
+        nar_series = (lx * nar_per_policy).sum(axis=0)
+        return ceded_yrt_premiums, nar_series
+
+    def _tabular_premiums_aggregate(
+        self,
+        gross: CashFlowResult,
+        face_vec: np.ndarray,
+        monthly_rate_per_dollar: np.ndarray,
+        c_aggregate: float,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Face-weighted average rate applied to aggregate-runoff NAR.
+
+        Used when seriatim arrays are absent. Loses per-policy lx weighting
+        but preserves the headline aging behaviour at the cohort level.
+        """
+        # Aggregate runoff (same approximation as the flat path).
+        initial_premium = gross.gross_premiums[0]
+        if initial_premium > 0:
+            inforce_ratio = gross.gross_premiums / initial_premium
+        else:
+            inforce_ratio = np.ones_like(gross.gross_premiums)
+        total_face_t = self.total_face_amount * inforce_ratio
+        nar = np.maximum(total_face_t - gross.reserve_balance, 0.0)
+
+        # Face-weighted avg per-dollar monthly rate at each t.
+        total_face = face_vec.sum()
+        if total_face <= 0:
+            avg_rate_t = np.zeros_like(gross.gross_premiums)
+        else:
+            avg_rate_t = (face_vec[:, np.newaxis] * monthly_rate_per_dollar).sum(
+                axis=0
+            ) / total_face
+        ceded_yrt_premiums = nar * avg_rate_t * c_aggregate
+        return ceded_yrt_premiums, nar
