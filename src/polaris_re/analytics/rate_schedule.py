@@ -20,6 +20,7 @@ from scipy.optimize import brentq
 
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.core.cashflow import CashFlowResult
+from polaris_re.core.exceptions import PolarisComputationError
 from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
 from polaris_re.core.projection import ProjectionConfig
@@ -294,8 +295,8 @@ class YRTRateSchedule:
             A populated ``YRTRateTable``.
 
         Raises:
-            ValueError: If no cells could be solved (rate solver returned
-                        None for every grid cell).
+            PolarisComputationError: If no cells could be solved (rate solver
+                returned None for every grid cell).
         """
         if ages is None:
             ages = list(range(25, 86, 5))
@@ -332,10 +333,10 @@ class YRTRateSchedule:
                     per_cohort[(sex, smoker)][age - min_age, :] = solved
 
         if not any_solved:
-            raise ValueError(
-                "YRTRateSchedule.generate_table: rate solver failed for "
-                "every grid cell — check assumptions, target_irr, and the "
-                "search bracket in _solve_rate()."
+            raise PolarisComputationError(
+                "YRTRateSchedule.generate_table: rate solver returned None "
+                "for every grid cell — check assumptions, target_irr, and "
+                "the search bracket in _solve_rate()."
             )
 
         # Forward-fill unsolved (and unrequested) age rows from the nearest

@@ -270,8 +270,10 @@ class YRTTreaty(PolarisBaseModel, BaseTreaty):
         smoker_list: list[SmokerStatus] = [p.smoker_status for p in inforce.policies]
 
         # Pre-compute the per-policy rate matrix R[i, t] (annual $/1000) by
-        # iterating once per (sex, smoker) cohort.
+        # iterating once per (sex, smoker) cohort. The (cohort, T) ages and
+        # durations are built fully vectorised — no Python loop over months.
         rates_per_1000 = np.zeros((n, t), dtype=np.float64)
+        months = np.arange(t, dtype=np.int32)  # (T,)
         unique_combos = set(zip(sex_list, smoker_list, strict=True))
         for sex, smoker in unique_combos:
             cohort_mask = np.array(
@@ -280,24 +282,33 @@ class YRTTreaty(PolarisBaseModel, BaseTreaty):
             )
             if not np.any(cohort_mask):
                 continue
-            cohort_ages_at_issue = attained_age_vec[cohort_mask]
-            cohort_dur_inforce = duration_inforce_vec[cohort_mask]
-            for month in range(t):
-                total_dur_months = cohort_dur_inforce + month
-                age_increment = (total_dur_months // 12) - (cohort_dur_inforce // 12)
-                ages_at_t = (cohort_ages_at_issue + age_increment).astype(np.int32)
-                # Clamp ages to the table range to avoid lookup errors at the
-                # tail of long projections (the rate-table top age is the
-                # natural extrapolation cap).
-                ages_at_t = np.clip(
-                    ages_at_t,
-                    self.yrt_rate_table.min_age,
-                    self.yrt_rate_table.max_age,
-                )
-                durations_years = (total_dur_months // 12).astype(np.int32)
-                rates_per_1000[cohort_mask, month] = self.yrt_rate_table.get_rate_vector(
-                    ages_at_t, sex, smoker, durations_years
-                )
+            cohort_attained_age_vec = attained_age_vec[cohort_mask]  # (N_c,)
+            cohort_dur_inforce = duration_inforce_vec[cohort_mask]  # (N_c,)
+            n_c = int(cohort_mask.sum())
+
+            # Total months in force at each projection step: shape (N_c, T).
+            total_dur_months_2d = cohort_dur_inforce[:, np.newaxis] + months[np.newaxis, :]
+            # Age increment vs valuation: each completed year of duration adds
+            # one year of age. Subtract the duration_inforce contribution so
+            # month 0 of a brand-new policy keeps the base attained age.
+            age_increment_2d = (total_dur_months_2d // 12) - (
+                cohort_dur_inforce[:, np.newaxis] // 12
+            )
+            ages_2d = (cohort_attained_age_vec[:, np.newaxis] + age_increment_2d).astype(np.int32)
+            # Clamp ages to the table range to avoid lookup errors at the
+            # tail of long projections — the rate-table top age is the
+            # natural extrapolation cap. Must happen before .ravel() because
+            # YRTRateTableArray.get_rate_vector raises on out-of-range ages.
+            ages_2d = np.clip(
+                ages_2d,
+                self.yrt_rate_table.min_age,
+                self.yrt_rate_table.max_age,
+            )
+            durs_2d = (total_dur_months_2d // 12).astype(np.int32)
+            cohort_rates = self.yrt_rate_table.get_rate_vector(
+                ages_2d.ravel(), sex, smoker, durs_2d.ravel()
+            ).reshape(n_c, t)
+            rates_per_1000[cohort_mask] = cohort_rates
 
         monthly_rate_per_dollar = rates_per_1000 / 12.0 / 1000.0  # (N, T)
 

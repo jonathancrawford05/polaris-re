@@ -373,6 +373,34 @@ class TestSeriatimVsAggregateFallback:
         # NCF additivity must still hold on the fallback path.
         treaty.verify_additivity(gross_aggregate, _net, ceded)
 
+    def test_aggregate_fallback_constant_rate_matches_flat(self, gross_aggregate, block) -> None:
+        """Aggregate fallback with a constant table reproduces the flat-rate
+        path. The face-weighted avg rate collapses to the constant rate, and
+        the aggregate-runoff NAR basis is identical to the flat path — so
+        ceded premium series must agree within float tolerance.
+
+        This is the closed-form anchor for `_tabular_premiums_aggregate`,
+        symmetric to `TestConstantTableMatchesFlat` for the seriatim path.
+        """
+        flat_treaty = YRTTreaty(
+            cession_pct=0.5,
+            total_face_amount=1_000_000.0,
+            flat_yrt_rate_per_1000=CONSTANT_RATE_PER_1000,
+        )
+        tab_treaty = YRTTreaty(
+            cession_pct=0.5,
+            total_face_amount=1_000_000.0,
+            yrt_rate_table=_make_constant_table(),
+        )
+        _nf, ceded_flat = flat_treaty.apply(gross_aggregate)
+        _nt, ceded_tab = tab_treaty.apply(gross_aggregate, inforce=block)
+        np.testing.assert_allclose(
+            ceded_tab.gross_premiums,
+            ceded_flat.gross_premiums,
+            rtol=1e-5,
+            err_msg=("Aggregate fallback: constant-rate table should match the flat-rate path"),
+        )
+
 
 # ----------------------------------------------------------------------
 # Multi-policy block with mixed (sex, smoker)
