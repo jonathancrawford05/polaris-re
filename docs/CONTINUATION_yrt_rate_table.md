@@ -2,9 +2,11 @@
 
 **Source:** PRODUCT_DIRECTION_2026-04-19.md — IMPORTANT (last item in
 the IMPORTANT list, "YRT rate schedule by age × duration")
-**Status:** IN PROGRESS
-**Total slices:** 3
-**Estimated total scope:** ~4 dev-days
+**Status:** IN PROGRESS — Slice 3 partially shipped; dashboard +
+`rate-schedule --table` flag deferred to Slice 4
+**Total slices:** 4 (re-decomposed from the original 3 — Slice 3 was
+too large for one session and split into 3a/4)
+**Estimated total scope:** ~4-5 dev-days
 
 ## Overall Goal
 
@@ -172,30 +174,102 @@ treaty consumption (Slice 2), schedule generation via brentq solver
     surfaces should display the seriatim NAR series when tabular
     rates are used.
 
-### Slice 3: CLI / API / Excel / dashboard surfacing + CSV loader
-- **Status:** PLANNED
-- **Depends on:** Slice 2 merged
+### Slice 3: CSV loader + CLI / API / Excel surfacing
+- **Status:** DONE (this session, 2026-04-29)
+- **Branch:** `claude/lucid-hawking-Gb00h`
+- **PR:** (draft; opened by this session)
+- **What was done:**
+  - `src/polaris_re/utils/table_io.py` — `load_yrt_rate_csv(path,
+    select_period, ...)` parser mirroring `load_mortality_csv`. The
+    YRT loader does NOT enforce the `[0, 1]` rate cap (rates are
+    $/$1,000 NAR, not probabilities); the non-negative + finite
+    checks are delegated to `YRTRateTableArray.__init__`. Module
+    docstring extended with the YRT CSV schema. New symbol
+    re-exported from `__all__`.
+  - `YRTRateTable.load(directory, select_period, table_name, ...)`
+    classmethod added to `reinsurance/yrt_rate_table.py`. Mirrors
+    `MortalityTable.load` — iterates over (sex × smoker) cohorts,
+    formats per-cohort filenames via a `file_pattern` template
+    (default `{label}_{sex}_{smoker}.csv`), and packs the result
+    through `YRTRateTable.from_arrays`. Smoker-distinct and
+    aggregate-only modes are both supported.
+  - CLI: `polaris price --yrt-rate-table DIR` plus three tuning
+    flags (`--yrt-rate-table-select-period`,
+    `--yrt-rate-table-label`,
+    `--yrt-rate-table-smoker-distinct/--yrt-rate-table-aggregate`).
+    When set: load the table once, force `seriatim=True` on the
+    gross projection, force `inforce` to be passed to
+    `YRTTreaty.apply()`, and construct `YRTTreaty` directly with
+    `yrt_rate_table=...` so the existing `build_treaty` factory's
+    flat-rate path is bypassed.
+  - API: `PriceRequest.yrt_rate_table_path: str | None` field
+    plus the same three tuning fields. The path is resolved
+    server-side relative to `POLARIS_DATA_DIR`, with rejection of
+    `..` traversal (HTTP 400) and missing-directory (HTTP 404).
+    `_run_gross_projection` now accepts `seriatim`. The legacy
+    per-policy `reinsurance_cession_pct=0.0` hardcoded by
+    `_build_components` was switched to `None` so the tabular
+    seriatim path falls back to the request-level `cession_pct`
+    (the flat path never observed this default since it didn't
+    pass `inforce` to `apply()`); all 38 existing API tests pass
+    byte-identically.
+  - Excel: optional `YRT Rate Table` sheet appended to the
+    deal-pricing workbook when `DealPricingExport.yrt_rate_table`
+    is populated. One block per (sex, smoker) cohort, rendered as
+    `[age, dur_1, ..., dur_N, ultimate]`. Workbook is byte-
+    identical to pre-Slice-3 when the table is None.
+  - Sample fixtures in `tests/fixtures/yrt_rate_tables/` (M/F × NS/SM,
+    ages 25-35) for the loader tests; CLI / API tests build their
+    own larger fixtures in `tmp_path`.
+  - ADR-052 added to `docs/DECISIONS.md`.
+  - 44 new tests (26 loader + 7 CLI + 7 API + 4 Excel). Full suite
+    is now 892 non-slow (up from 848); QA suite unchanged at 33/33.
+
+- **Acceptance criteria:**
+  - `from polaris_re.utils.table_io import load_yrt_rate_csv`
+    parses the four shipped fixtures into a `YRTRateTableArray`. ✅
+  - `YRTRateTable.load(...)` builds a four-cohort table from the
+    fixtures directory and round-trips through `YRTTreaty.apply()`. ✅
+  - `polaris price --yrt-rate-table` runs the demo and produces a
+    non-zero reinsurer view (verified with custom inforce CSV
+    overriding the demo's `reinsurance_cession_pct=0.00` quirk). ✅
+  - API `POST /api/v1/price` with `yrt_rate_table_path` returns 200
+    and a non-zero reinsurer pv_profits. ✅
+  - API rejects path-traversal with HTTP 400 / 422. ✅
+  - Deal-pricing Excel workbook gains a `YRT Rate Table` sheet
+    when tabular rates were used. ✅
+  - All 848 pre-existing non-slow tests still pass. ✅
+  - ADR-052 written. ✅
+
+- **Key decisions that affect Slice 4:**
+  - **CSV schema is locked** at `age,dur_1,...,dur_N,ultimate`
+    with the 1-based user-facing `dur_k` column convention
+    (matches `load_mortality_csv`). Slice 4's dashboard
+    file-uploader and `polaris rate-schedule --table` should
+    consume the same schema verbatim.
+  - **API path-resolution gates on `POLARIS_DATA_DIR`.** Slice 4's
+    dashboard uploader will need a different code path because the
+    file lives in browser-uploaded memory, not on the server's data
+    directory. Use `YRTRateTable.from_arrays(...)` after parsing
+    the uploaded CSV bytes in-process.
+  - **Default per-policy cession on the API is now `None`.** This
+    is now the canonical default; Slice 4 / future API additions
+    must not regress to `0.0` (would break the tabular path again).
+
+### Slice 4: Dashboard file-uploader + heatmap, `polaris rate-schedule --table`
+- **Status:** PLANNED (split off from the original Slice 3)
+- **Depends on:** Slice 3 merged
 - **Scope:**
-  - `src/polaris_re/utils/table_io.py` — `load_yrt_rate_csv(path)`
-    parser mirroring `load_mortality_csv` with the same schema (age
-    column, dur_1..dur_N, ultimate). Filename convention
-    `{label}_{sex}_{smoker}.csv`.
-  - `YRTRateTable.load(path)` classmethod with a directory and a
-    file_pattern, mirroring `MortalityTable.load`.
-  - `polaris price --yrt-rate-table PATH` CLI flag (one flag accepts
-    a directory of CSVs OR a single multi-sheet file — to be
-    decided in Slice 3 ADR).
   - `polaris rate-schedule --table` flag to emit a tabular schedule
     Excel via `YRTRateSchedule.generate_table(...)`.
-  - `api.main.PriceRequest.yrt_rate_table_path: str | None`
-    optional field; the API resolves and loads from server-side
-    storage (path is relative to a configured data directory, with
-    safety against path traversal).
-  - Excel deal-pricing workbook: add a `YRT Rate Table` sheet when
-    the run uses tabular rates.
-  - Dashboard pricing page: file-uploader for the rate table; render
-    a heatmap preview of the loaded grid.
-  - ADR-052 captures the CSV format and CLI ergonomics decisions.
+  - Streamlit dashboard pricing page: file-uploader for the rate
+    table directory or zip; render a heatmap preview of the loaded
+    grid (matplotlib `imshow` per cohort).
+  - Optional: a true per-duration solver in
+    `YRTRateSchedule.generate_table()` (currently broadcasts the
+    per-age flat rate across every duration column — see
+    ADR-051's "Out of scope").
+  - ADR-053 (or extend ADR-052) captures the dashboard UX choices.
 
 ## Context for Next Session
 
@@ -268,4 +342,7 @@ treaty consumption (Slice 2), schedule generation via brentq solver
    industry rate-table cell count of ~600 cells, brentq-feasible
    in seconds).
 
-When all slices are DONE, update Status to COMPLETE.
+When all slices are DONE, update Status to COMPLETE. With Slice 3
+shipped, the data path and primary actuarial surfaces (CLI / API /
+deal-pricing Excel) are complete. Slice 4 (dashboard + rate-schedule
+flag) remains.

@@ -535,3 +535,103 @@ class TestSummarySheetCapitalBlock:
         ws = load_workbook(out)["Summary"]
         row = _find_row_with_label(ws, "Return on Capital")
         assert ws.cell(row=row, column=3).value == "N/A"
+
+
+# ---------------------------------------------------------------------------
+# YRT Rate Table sheet (ADR-052)
+# ---------------------------------------------------------------------------
+
+
+def _make_yrt_rate_table():  # type: ignore[no-untyped-def]
+    """Build a small synthetic ``YRTRateTable`` for sheet-rendering tests."""
+    from polaris_re.core.policy import Sex, SmokerStatus
+    from polaris_re.reinsurance.yrt_rate_table import YRTRateTable, YRTRateTableArray
+
+    rates_male_ns = np.array(
+        [
+            [0.50, 0.55, 0.60, 1.00],
+            [0.55, 0.60, 0.65, 1.10],
+            [0.60, 0.65, 0.70, 1.20],
+        ],
+        dtype=np.float64,
+    )
+    rates_male_smoker = rates_male_ns * 1.6
+    arr_ns = YRTRateTableArray(rates=rates_male_ns, min_age=30, max_age=32, select_period=3)
+    arr_smoker = YRTRateTableArray(rates=rates_male_smoker, min_age=30, max_age=32, select_period=3)
+    return YRTRateTable.from_arrays(
+        table_name="synthetic-test",
+        arrays={
+            (Sex.MALE, SmokerStatus.NON_SMOKER): arr_ns,
+            (Sex.MALE, SmokerStatus.SMOKER): arr_smoker,
+        },
+    )
+
+
+class TestYRTRateTableSheet:
+    """`write_deal_pricing_excel` adds a ``YRT Rate Table`` sheet when set."""
+
+    def test_omitted_when_yrt_rate_table_is_none(
+        self, minimal_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(minimal_export, out)
+        wb = load_workbook(out)
+        assert "YRT Rate Table" not in wb.sheetnames
+
+    def test_added_when_yrt_rate_table_set(self, tmp_path: Path) -> None:
+        export = DealPricingExport(
+            deal_meta=_make_deal_meta(),
+            assumptions_meta=_make_assumptions_meta(),
+            cedant_result=_make_profit_result(),
+            reinsurer_result=None,
+            net_cashflows=_make_cashflows("NET"),
+            yrt_rate_table=_make_yrt_rate_table(),
+        )
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        wb = load_workbook(out)
+        assert "YRT Rate Table" in wb.sheetnames
+
+    def test_sheet_contains_table_name_and_cohorts(self, tmp_path: Path) -> None:
+        export = DealPricingExport(
+            deal_meta=_make_deal_meta(),
+            assumptions_meta=_make_assumptions_meta(),
+            cedant_result=_make_profit_result(),
+            reinsurer_result=None,
+            net_cashflows=_make_cashflows("NET"),
+            yrt_rate_table=_make_yrt_rate_table(),
+        )
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        ws = load_workbook(out)["YRT Rate Table"]
+        # Title (row 1) names the table.
+        assert "synthetic-test" in str(ws.cell(row=1, column=1).value)
+        # Find both cohort labels in column A.
+        labels = [str(ws.cell(row=r, column=1).value) for r in range(1, ws.max_row + 1)]
+        assert any("M_NS" in lbl for lbl in labels)
+        assert any("M_S" in lbl for lbl in labels)
+
+    def test_sheet_renders_known_rate_value(self, tmp_path: Path) -> None:
+        """Smoke check: at least one cell holds the expected rate value."""
+        export = DealPricingExport(
+            deal_meta=_make_deal_meta(),
+            assumptions_meta=_make_assumptions_meta(),
+            cedant_result=_make_profit_result(),
+            reinsurer_result=None,
+            net_cashflows=_make_cashflows("NET"),
+            yrt_rate_table=_make_yrt_rate_table(),
+        )
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        ws = load_workbook(out)["YRT Rate Table"]
+        # Walk every cell — at least one should equal one of our rates.
+        target = 0.50  # M_NS, age 30, dur_1
+        found = False
+        for row in ws.iter_rows():
+            for cell in row:
+                if isinstance(cell.value, (int, float)) and abs(cell.value - target) < 1e-9:
+                    found = True
+                    break
+            if found:
+                break
+        assert found

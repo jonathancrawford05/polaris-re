@@ -34,6 +34,7 @@ import polaris_re
 from polaris_re.analytics.profit_test import ProfitResultWithCapital, ProfitTestResult
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.core.cashflow import CashFlowResult
+from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
 
 if TYPE_CHECKING:
@@ -286,15 +287,51 @@ def _build_treaty_for_pipeline(
     gross: CashFlowResult,
     face_amount: float,
     inforce: object | None = None,
+    yrt_rate_table: object | None = None,
 ) -> tuple[object | None, bool]:
     """Build a treaty and apply it using the pipeline inputs.
 
-    Returns (treaty_object, use_policy_cession).
+    Args:
+        inputs:         Pipeline inputs (deal config, treaty type, etc.).
+        gross:          GROSS-basis cash flows for YRT-rate derivation.
+        face_amount:    Total in-force face amount.
+        inforce:        Reserved for future use (e.g. block-aware loadings).
+        yrt_rate_table: Optional pre-loaded ``YRTRateTable`` (ADR-052).
+                        When set with ``treaty_type == "YRT"``, the treaty
+                        is constructed with the table and the flat rate is
+                        suppressed (mutual exclusion enforced by
+                        ``YRTTreaty._validate_rate_source_exclusive``).
+
+    Returns:
+        (treaty_object, use_policy_cession). When a tabular YRT table is
+        supplied, ``use_policy_cession`` is forced to ``True`` so the
+        ``inforce`` argument flows through to ``YRTTreaty.apply()``,
+        which the tabular path requires.
     """
     deal = inputs.deal
     treaty_type = deal.treaty_type
     if treaty_type is None or str(treaty_type).lower() == "none":
         return None, False
+
+    # Tabular YRT path (ADR-052): construct directly so we can pass the
+    # rate table without polluting the generic ``build_treaty`` factory.
+    if treaty_type == "YRT" and yrt_rate_table is not None:
+        from polaris_re.reinsurance.yrt import YRTTreaty
+        from polaris_re.reinsurance.yrt_rate_table import YRTRateTable
+
+        if not isinstance(yrt_rate_table, YRTRateTable):
+            raise TypeError(
+                f"yrt_rate_table must be a YRTRateTable, got {type(yrt_rate_table).__name__}."
+            )
+        treaty = YRTTreaty(
+            treaty_name="YRT",
+            cession_pct=deal.cession_pct,
+            total_face_amount=face_amount,
+            yrt_rate_table=yrt_rate_table,
+        )
+        # Tabular YRT.apply() requires inforce → force the cohort inforce
+        # through, regardless of the deal's use_policy_cession flag.
+        return treaty, True
 
     # Resolve YRT rate
     yrt_rate = deal.yrt_rate_per_1000
@@ -323,6 +360,7 @@ def _price_single_cohort(
     hurdle_rate: float,
     parity_label: str,
     capital_model_id: str | None = None,
+    yrt_rate_table: object | None = None,
 ) -> CohortResult:
     """Run the full pricing pipeline on a single-product cohort.
 
@@ -352,14 +390,18 @@ def _price_single_cohort(
     """
     from polaris_re.products.dispatch import get_product_engine
 
-    # 1. Gross projection via product dispatch
+    # 1. Gross projection via product dispatch.
+    # Force ``seriatim=True`` when a tabular YRT rate table is in play so
+    # ``YRTTreaty.apply()`` can take the per-policy seriatim path
+    # (ADR-051 / ADR-052) rather than the face-weighted-average fallback.
     product = get_product_engine(inforce=cohort_inforce, assumptions=assumptions, config=config)
-    gross = product.project()
+    gross = product.project(seriatim=yrt_rate_table is not None)
 
-    # 2. Build treaty from pipeline inputs (YRT rate derived per-cohort)
+    # 2. Build treaty from pipeline inputs (YRT rate derived per-cohort,
+    # or tabular when a rate table is supplied).
     face_amount = cohort_inforce.total_face_amount()
     treaty, use_policy_cession = _build_treaty_for_pipeline(
-        inputs, gross, face_amount, cohort_inforce
+        inputs, gross, face_amount, cohort_inforce, yrt_rate_table=yrt_rate_table
     )
 
     # 3. Apply treaty
@@ -636,11 +678,14 @@ def _cohort_to_deal_pricing_export(
     config: ProjectionConfig,
     inputs: PipelineInputs,
     effective_hurdle: float,
+    yrt_rate_table: object | None = None,
 ) -> "DealPricingExport":
     """Translate a priced cohort into a DealPricingExport bundle.
 
     Keeps the CLI as the only translation site between pipeline state
     (``CohortResult`` + ``PipelineInputs``) and the writer's DTO surface.
+    When ``yrt_rate_table`` is supplied, it is embedded on the export so
+    the writer renders the ``YRT Rate Table`` sheet (ADR-052).
     """
     from polaris_re.utils.excel_output import (
         AssumptionsMetaExport,
@@ -681,6 +726,7 @@ def _cohort_to_deal_pricing_export(
         gross_cashflows=cohort.gross_cashflows,
         ceded_cashflows=cohort.ceded_cashflows,
         scenario_results=None,
+        yrt_rate_table=yrt_rate_table,  # type: ignore[arg-type]
     )
 
 
@@ -776,6 +822,53 @@ def price_cmd(
             ),
         ),
     ] = None,
+    yrt_rate_table_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--yrt-rate-table",
+            help=(
+                "Directory of tabular YRT rate CSVs (ADR-052). When set, "
+                "YRT premiums are billed from the table indexed by (age, "
+                "sex, smoker, duration) instead of the flat / "
+                "mortality-derived rate. The directory must contain one "
+                "CSV per (sex, smoker) cohort using the schema "
+                "'{label}_{sex}_{smoker}.csv'. Implies seriatim projection."
+            ),
+        ),
+    ] = None,
+    yrt_rate_table_select_period: Annotated[
+        int,
+        typer.Option(
+            "--yrt-rate-table-select-period",
+            help=(
+                "Number of select-period columns (dur_1..dur_N) in the "
+                "tabular YRT rate CSVs. Used only with --yrt-rate-table."
+            ),
+        ),
+    ] = 3,
+    yrt_rate_table_label: Annotated[
+        str | None,
+        typer.Option(
+            "--yrt-rate-table-label",
+            help=(
+                "Filename prefix in the YRT rate table directory. "
+                "Defaults to 'yrt' (so files are 'yrt_male_ns.csv' etc.). "
+                "Used only with --yrt-rate-table."
+            ),
+        ),
+    ] = None,
+    yrt_rate_table_smoker_distinct: Annotated[
+        bool,
+        typer.Option(
+            "--yrt-rate-table-smoker-distinct/--yrt-rate-table-aggregate",
+            help=(
+                "When --yrt-rate-table-smoker-distinct (default), expect "
+                "separate '_ns' and '_smoker' files per sex. When "
+                "--yrt-rate-table-aggregate, expect a single '_unknown' "
+                "file per sex."
+            ),
+        ),
+    ] = True,
 ) -> None:
     """
     [bold]Run a deal pricing pipeline.[/bold]
@@ -808,6 +901,35 @@ def price_cmd(
             )
             raise typer.Exit(code=1)
         capital_model_id = capital_norm
+
+    # Tabular YRT rate table (ADR-052) — loaded once and reused across
+    # cohorts. The label defaults to "yrt" so the typical filename is
+    # ``yrt_male_ns.csv`` etc. unless the user overrides it.
+    yrt_rate_table_obj: object | None = None
+    if yrt_rate_table_dir is not None:
+        if not yrt_rate_table_dir.exists() or not yrt_rate_table_dir.is_dir():
+            console.print(
+                f"[red]Error:[/red] --yrt-rate-table directory not found: {yrt_rate_table_dir}"
+            )
+            raise typer.Exit(code=1)
+        from polaris_re.reinsurance.yrt_rate_table import YRTRateTable
+
+        try:
+            yrt_rate_table_obj = YRTRateTable.load(
+                directory=yrt_rate_table_dir,
+                select_period=yrt_rate_table_select_period,
+                table_name=yrt_rate_table_label or "yrt",
+                label=yrt_rate_table_label,
+                smoker_distinct=yrt_rate_table_smoker_distinct,
+            )
+        except (FileNotFoundError, PolarisValidationError) as exc:
+            console.print(f"[red]Error loading YRT rate table:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
+        console.print(
+            f"[dim]Loaded tabular YRT rate table from {yrt_rate_table_dir} "
+            f"(ages {yrt_rate_table_obj.min_age}-{yrt_rate_table_obj.max_age}, "  # type: ignore[attr-defined]
+            f"{len(yrt_rate_table_obj.arrays)} cohorts)[/dim]"  # type: ignore[attr-defined]
+        )
 
     with Progress(
         SpinnerColumn(),
@@ -863,6 +985,7 @@ def price_cmd(
                     hurdle_rate=hurdle_rate,
                     parity_label=parity_label,
                     capital_model_id=capital_model_id,
+                    yrt_rate_table=yrt_rate_table_obj,
                 )
             )
 
@@ -961,6 +1084,7 @@ def price_cmd(
                 config=config,
                 inputs=inputs,
                 effective_hurdle=effective_hurdle,
+                yrt_rate_table=yrt_rate_table_obj,
             )
             out_path = _resolve_excel_path(excel_out, cohort.product_type, n_cohorts)
             write_deal_pricing_excel(export, out_path)

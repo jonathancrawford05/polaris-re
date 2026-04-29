@@ -38,6 +38,7 @@ which is a stronger guarantee we do not want to weaken. A small parallel
 array class keeps both invariants intact.
 """
 
+from pathlib import Path
 from typing import Self
 
 import numpy as np
@@ -48,6 +49,14 @@ from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.policy import Sex, SmokerStatus
 
 __all__ = ["YRTRateTable", "YRTRateTableArray"]
+
+
+_SEX_LABELS: dict[Sex, str] = {Sex.MALE: "male", Sex.FEMALE: "female"}
+_SMOKER_LABELS: dict[SmokerStatus, str] = {
+    SmokerStatus.SMOKER: "smoker",
+    SmokerStatus.NON_SMOKER: "ns",
+    SmokerStatus.UNKNOWN: "unknown",
+}
 
 
 class YRTRateTableArray:
@@ -230,6 +239,83 @@ class YRTRateTable(PolarisBaseModel):
                     f"{self.select_period_years}."
                 )
         return self
+
+    @classmethod
+    def load(
+        cls,
+        directory: Path,
+        select_period: int,
+        table_name: str,
+        file_pattern: str = "{label}_{sex}_{smoker}.csv",
+        label: str | None = None,
+        smoker_distinct: bool = True,
+        min_age: int | None = None,
+        max_age: int | None = None,
+    ) -> Self:
+        """Load a tabular YRT rate schedule from a directory of CSV files.
+
+        Mirrors ``MortalityTable.load`` (ADR-052). One CSV per (sex, smoker)
+        cohort is expected; the filename is built by formatting
+        ``file_pattern`` with ``label`` (the ``table_name`` lower-cased and
+        underscored if ``label is None``), ``sex`` (``"male"`` / ``"female"``)
+        and ``smoker`` (``"ns"`` / ``"smoker"`` when ``smoker_distinct``,
+        otherwise ``"unknown"``).
+
+        Args:
+            directory:        Directory containing the CSVs.
+            select_period:    Number of select-period columns (mirrors
+                              ``MortalityTable.select_period_years``).
+            table_name:       Human-readable table identifier. Used as the
+                              filename label by default and recorded on the
+                              returned ``YRTRateTable``.
+            file_pattern:     Filename template. Defaults to
+                              ``{label}_{sex}_{smoker}.csv``.
+            label:            Optional override for the ``{label}`` slot.
+                              Defaults to ``table_name`` lower-cased with
+                              non-alphanumeric characters mapped to ``_``.
+            smoker_distinct:  When True (default), expect separate
+                              ``_ns`` / ``_smoker`` files per sex. When
+                              False, expect a single ``_unknown`` file
+                              per sex.
+            min_age:          Optional minimum age (auto-detected if None).
+            max_age:          Optional maximum age (auto-detected if None).
+
+        Returns:
+            A validated ``YRTRateTable``.
+
+        Raises:
+            FileNotFoundError:        Any expected CSV is missing.
+            PolarisValidationError:   Schema or contents fail validation.
+        """
+        from polaris_re.utils.table_io import load_yrt_rate_csv
+
+        if label is None:
+            label = "".join(ch if ch.isalnum() else "_" for ch in table_name).strip("_").lower()
+
+        sexes = [Sex.MALE, Sex.FEMALE]
+        smoker_statuses = (
+            [SmokerStatus.SMOKER, SmokerStatus.NON_SMOKER]
+            if smoker_distinct
+            else [SmokerStatus.UNKNOWN]
+        )
+
+        arrays: dict[tuple[Sex, SmokerStatus], YRTRateTableArray] = {}
+        for sex in sexes:
+            for smoker in smoker_statuses:
+                filename = file_pattern.format(
+                    label=label,
+                    sex=_SEX_LABELS[sex],
+                    smoker=_SMOKER_LABELS[smoker],
+                )
+                filepath = directory / filename
+                arrays[(sex, smoker)] = load_yrt_rate_csv(
+                    filepath,
+                    select_period=select_period,
+                    min_age=min_age,
+                    max_age=max_age,
+                )
+
+        return cls.from_arrays(table_name=table_name, arrays=arrays)
 
     @classmethod
     def from_arrays(
