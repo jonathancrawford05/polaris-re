@@ -1,5 +1,5 @@
 """
-Table CSV loader and format utilities for mortality and lapse tables.
+Table CSV loader and format utilities for mortality, lapse, and YRT rate tables.
 
 MORTALITY CSV SCHEMA
 --------------------
@@ -23,20 +23,48 @@ Ultimate-only format:
     2           | 0.08
     ...
 
+YRT RATE CSV SCHEMA (ADR-052)
+-----------------------------
+Mirrors the mortality CSV: filename per (sex, smoker), header
+``age,dur_1,...,dur_N,ultimate``, one row per attained age. Rates are
+quoted as **annual dollars per $1,000 NAR** (NOT probabilities), so
+values >> 1 are normal at advanced ages and the [0,1] cap that applies
+to mortality is NOT applied here. The ``dur_k`` column is the rate when
+``duration_years == k - 1`` (so ``dur_1`` is the first policy year);
+``ultimate`` is used when ``duration_years >= select_period``. This
+1-indexed user-facing convention matches the mortality CSV; the
+internal storage indexes from ``[age-min_age, dur_k - 1]``.
+
+Example:
+    age,dur_1,dur_2,dur_3,ultimate
+    25,0.50,0.55,0.60,1.00
+    26,0.55,0.60,0.65,1.10
+    ...
+
 VALIDATION RULES:
-    1. All rates in [0.0, 1.0]
+    1. Mortality / lapse rates in [0.0, 1.0]; YRT rates non-negative & finite.
     2. Key column (age or policy_year) must be contiguous integers (no gaps)
     3. Ultimate column must be present for select tables
 """
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import polars as pl
 
 from polaris_re.core.exceptions import PolarisValidationError
 
-__all__ = ["LapseTableArray", "MortalityTableArray", "load_lapse_csv", "load_mortality_csv"]
+if TYPE_CHECKING:
+    from polaris_re.reinsurance.yrt_rate_table import YRTRateTableArray
+
+__all__ = [
+    "LapseTableArray",
+    "MortalityTableArray",
+    "load_lapse_csv",
+    "load_mortality_csv",
+    "load_yrt_rate_csv",
+]
 
 
 class MortalityTableArray:
@@ -333,4 +361,103 @@ def load_lapse_csv(
         rates=rates,
         max_policy_year=n_years,
         source_file=path,
+    )
+
+
+def load_yrt_rate_csv(
+    path: Path,
+    select_period: int,
+    min_age: int | None = None,
+    max_age: int | None = None,
+) -> "YRTRateTableArray":
+    """Load and validate a YRT rate CSV into a ``YRTRateTableArray`` (ADR-052).
+
+    Schema (mirrors the mortality CSV, see module docstring):
+        age,dur_1,dur_2,...,dur_N,ultimate
+        25,0.50,0.55,...,0.85,1.00
+
+    Rates are annual dollars per $1,000 NAR (not probabilities). The
+    ``dur_k`` column is the rate when ``duration_years == k - 1`` —
+    ``dur_1`` is the first policy year, ``dur_N`` is year ``select_period``,
+    and ``ultimate`` is used when ``duration_years >= select_period``.
+
+    Args:
+        path:           Full path to the CSV file.
+        select_period:  Number of select-period columns (>= 1). The CSV must
+                        have ``dur_1..dur_{select_period}`` plus ``ultimate``.
+        min_age:        Expected minimum age. If None, auto-detected.
+        max_age:        Maximum age. If None, auto-detected.
+
+    Returns:
+        Validated ``YRTRateTableArray``.
+
+    Raises:
+        FileNotFoundError:        CSV not found.
+        PolarisValidationError:   Schema, age range, or rate values invalid.
+    """
+    # Imported lazily to avoid a hard dep on the reinsurance package from a
+    # generic table-loading utility (and to match the lazy imports already
+    # used elsewhere in this module for cross-package boundaries).
+    from polaris_re.reinsurance.yrt_rate_table import YRTRateTableArray
+
+    if not path.exists():
+        raise FileNotFoundError(f"YRT rate table CSV not found: {path}")
+    if select_period < 1:
+        raise PolarisValidationError(
+            f"select_period must be >= 1 for YRT rate CSV, got {select_period}."
+        )
+
+    df = pl.read_csv(path)
+
+    if df.columns[0] != "age":
+        raise PolarisValidationError(
+            f"First column must be 'age' in YRT rate CSV, got '{df.columns[0]}'."
+        )
+
+    expected_cols = [f"dur_{i}" for i in range(1, select_period + 1)] + ["ultimate"]
+    missing = [c for c in expected_cols if c not in df.columns]
+    if missing:
+        raise PolarisValidationError(
+            f"YRT rate CSV {path.name} missing expected columns {missing}. "
+            f"Required schema: age, {', '.join(expected_cols)}."
+        )
+
+    ages_series = df["age"].to_numpy().astype(np.int32)
+    actual_min_age = int(ages_series.min())
+    actual_max_age = int(ages_series.max())
+
+    if min_age is None:
+        min_age = actual_min_age
+    if max_age is None:
+        max_age = actual_max_age
+
+    if actual_min_age > min_age:
+        raise PolarisValidationError(
+            f"YRT rate CSV {path.name}: table starts at age {actual_min_age}, "
+            f"requested min_age {min_age}."
+        )
+    if actual_max_age < max_age:
+        raise PolarisValidationError(
+            f"YRT rate CSV {path.name}: table ends at age {actual_max_age}, "
+            f"requested max_age {max_age}."
+        )
+
+    mask = (ages_series >= min_age) & (ages_series <= max_age)
+    filtered_ages = ages_series[mask]
+    expected_ages = np.arange(min_age, max_age + 1, dtype=np.int32)
+    if len(filtered_ages) != len(expected_ages) or not np.array_equal(filtered_ages, expected_ages):
+        raise PolarisValidationError(
+            f"YRT rate CSV {path.name}: age column must be contiguous integers "
+            f"with no gaps over [{min_age}, {max_age}]."
+        )
+
+    rate_data = df.select(expected_cols).to_numpy().astype(np.float64)
+    rates = rate_data[mask]
+
+    # YRTRateTableArray.__init__ validates non-negative + finite + shape.
+    return YRTRateTableArray(
+        rates=rates,
+        min_age=min_age,
+        max_age=max_age,
+        select_period=select_period,
     )

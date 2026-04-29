@@ -1779,3 +1779,171 @@ suite unchanged; golden baselines unchanged (the flat-rate path is the
 only one any existing pricing run takes — tabular consumption is
 opt-in via the new field).
 
+---
+
+## ADR-052: Tabular YRT — CSV loader, CLI / API / Excel surfacing (Slice 3 of 3)
+
+**Date:** 2026-04-29
+**Status:** Accepted (Slice 3 of "YRT rate schedule by age × duration"
+multi-session feature; depends on ADR-050 and ADR-051).
+
+**Context:**
+
+Slice 1 (ADR-050) added the standalone `YRTRateTable` data model.
+Slice 2 (ADR-051) wired tabular consumption into `YRTTreaty.apply()`.
+Both are reachable only programmatically: an actuarial user has no way
+to feed a real (age × sex × smoker × duration) rate table to a
+`polaris price` run, and the API has no field for it. This slice closes
+the loop by adding a CSV ingest path, a CLI flag, an API field, and an
+Excel sheet so a tabular YRT deal can be priced end-to-end without
+writing Python.
+
+**Decision:**
+
+1. **CSV schema mirrors `load_mortality_csv`.** One file per
+   (sex, smoker) cohort with header
+   `age,dur_1,...,dur_N,ultimate`. The user-facing column index is
+   1-based (`dur_1` is the first policy year, `ultimate` is the
+   `select_period+1`-th and applies for any duration ≥ select_period);
+   the internal `YRTRateTableArray` stores the rates in a 0-based
+   `(n_ages, select_period+1)` array. This 1-based user / 0-based
+   storage convention is identical to `load_mortality_csv` so the
+   actuarial reader has only one mental model. Resolves CONTINUATION
+   Open Question 3.
+
+2. **`load_yrt_rate_csv` lives in `utils/table_io.py`** (the same
+   module that hosts `load_mortality_csv` and `load_lapse_csv`). The
+   module's docstring is extended with a `YRT RATE CSV SCHEMA`
+   section so the three CSV formats are documented in one place.
+   Crucially, the YRT loader does **not** apply the `[0, 1]` rate cap
+   that `load_mortality_csv` enforces — YRT rates are dollars per
+   $1,000 NAR, not probabilities, and routinely exceed `1.0` at
+   advanced ages. The non-negative + finite checks are preserved
+   (delegated to `YRTRateTableArray.__init__`).
+
+3. **`YRTRateTable.load(directory, ...)` classmethod** mirrors
+   `MortalityTable.load`. It iterates over the standard
+   {(MALE/FEMALE) × (NS/SMOKER)} cohort grid (or {sex × UNKNOWN} when
+   `smoker_distinct=False`), formats the filename via a
+   `file_pattern` template (default `"{label}_{sex}_{smoker}.csv"`),
+   and packs the result through `YRTRateTable.from_arrays(...)`.
+
+4. **CLI: `polaris price --yrt-rate-table DIR`** plus three optional
+   tuning flags — `--yrt-rate-table-select-period`,
+   `--yrt-rate-table-label`, and the boolean
+   `--yrt-rate-table-smoker-distinct/--yrt-rate-table-aggregate`.
+   When `--yrt-rate-table` is set, the CLI:
+   - Loads the table once before the cohort loop.
+   - Forces `seriatim=True` on the gross projection (so
+     `YRTTreaty._compute_tabular_premiums` takes the per-policy
+     seriatim path rather than the face-weighted-average fallback).
+   - Forces `inforce` to be passed to `YRTTreaty.apply()` (the
+     tabular path requires it).
+   - Constructs `YRTTreaty(yrt_rate_table=...)` directly, bypassing
+     the generic `build_treaty` factory's flat-rate path.
+
+5. **API: `PriceRequest.yrt_rate_table_path: str | None`** plus the
+   same three tuning fields. The path is **server-side, relative to
+   `$POLARIS_DATA_DIR`**; `_resolve_yrt_rate_table_path` enforces
+   that the resolved path lives inside the data root (rejects
+   `..` traversal with HTTP 400) and that the directory exists
+   (HTTP 404 otherwise). This avoids letting an API client read
+   arbitrary server paths via the loader.
+
+6. **API per-policy cession is now `None` (was `0.0`).** The previous
+   hard-coded `0.0` was harmless under the flat-rate path because
+   `YRTTreaty.apply(gross)` was called without `inforce`, so
+   `_resolve_cession` returned the treaty default unchanged. Under the
+   tabular path the seriatim consumer always honours
+   `effective_cession_vec`, which would multiply premiums by zero for
+   every policy. Switching to `None` lets the policies fall through to
+   the request-level `cession_pct` (the long-standing default
+   behaviour for an API that does not carry per-policy overrides),
+   which preserves the flat-path response byte-for-byte and makes the
+   tabular path usable. All 38 existing API tests pass byte-identically.
+
+7. **Excel: optional `YRT Rate Table` sheet** appended to the deal-
+   pricing workbook when `DealPricingExport.yrt_rate_table` is
+   populated. The sheet renders one block per (sex, smoker) cohort
+   with the loaded `(age × duration)` grid in human-readable form.
+   When no tabular table was supplied, the sheet is omitted and the
+   workbook is byte-identical to pre-Slice-3.
+
+8. **Out of scope for this slice:** the dashboard file-uploader /
+   heatmap and `polaris rate-schedule --table` flag. Those surfaces
+   are deferred to a follow-on slice (CONTINUATION updated). The
+   data path, deal-pricing CLI, API, and committee Excel packet —
+   the surfaces an actuary uses to price a deal — are all delivered
+   here.
+
+**Rationale:**
+
+- **Data path before surfaces.** A working CSV loader and `load()`
+  classmethod is the linchpin; everything else (CLI / API / Excel) is
+  a thin shim above it. Building the loader first (with 26 dedicated
+  tests) means the surfaces inherit a verified contract.
+- **Mirroring mortality CSV** keeps the user's actuarial-CSV mental
+  model coherent — the same filename pattern, the same header
+  convention, the same (sex, smoker) cohort split. This was the
+  default the CONTINUATION recorded for Open Question 3.
+- **Path-traversal safety on the API** is non-negotiable for a
+  server-side load. Resolving against `POLARIS_DATA_DIR` and
+  asserting the resolved path is inside the data root catches the
+  obvious attacks (`..`, absolute paths) while still letting
+  legitimate requests reference a relative subdirectory.
+- **Forcing seriatim on tabular runs** at the CLI boundary
+  resolves the ADR-051 caveat: the CLI demo flow now lands on the
+  per-policy lx-weighted seriatim path automatically, so the
+  PRODUCT_DIRECTION_2026-04-19 declining-premium concern is fully
+  fixed end-to-end with no actuarial intervention.
+- **Defaulting per-policy cession to `None` on the API** is the
+  cleanest fix for the longstanding `0.0` quirk. The flat-rate path
+  never observed it because `apply(gross)` was called without
+  `inforce`; the tabular path observes it always. Setting `None`
+  makes both paths behave identically — the request-level
+  `cession_pct` is the single source of truth.
+- **Optional Excel sheet rather than always-on** preserves the
+  ADR-045 four-sheet workbook for legacy flat-rate runs and keeps
+  the workbook size proportional to the deal complexity.
+
+**Out of scope (deferred to a follow-on slice):**
+
+- `polaris rate-schedule --table` flag for emitting a tabular
+  schedule via `YRTRateSchedule.generate_table(...)`.
+- Streamlit dashboard file-uploader for the rate-table directory
+  and a heatmap preview of the loaded grid.
+- A true per-duration solver in `YRTRateSchedule.generate_table()`
+  (currently broadcasts the per-age flat rate across every duration
+  column — see ADR-051's "Out of scope").
+
+**Tests:**
+
+- `tests/test_utils/test_yrt_rate_csv.py` (26 new tests):
+  - `TestLoadYRTRateCSV` (15) — schema parsing, age filtering,
+    economic invariants (smoker > NS, male > female), missing
+    column detection, negative-rate rejection, age-gap rejection,
+    rates >> 1 acceptance.
+  - `TestYRTRateTableLoad` (9) — directory loading (smoker-distinct
+    and aggregate-only), label override, default slug, smoker
+    fallback after load, missing-CSV fail-fast, inconsistent-age-
+    range detection, end-to-end round-trip through `YRTTreaty.apply()`.
+  - `TestPublicExports` (2) — `__all__` re-export, polars round-trip.
+- `tests/test_analytics/test_cli_yrt_rate_table.py` (7 new tests):
+  - Demo runs with `--yrt-rate-table`, missing-dir fail-fast, label
+    override, aggregate mode, seriatim implication, no-flag
+    backward compat, non-zero ceded premium with custom inforce.
+- `tests/test_api/test_yrt_rate_table.py` (7 new tests):
+  - Tabular path returns 200 with non-zero reinsurer pv_profits,
+    field default is None, path-traversal rejection,
+    missing-directory error, missing-`POLARIS_DATA_DIR` error,
+    aggregate mode via API, select-period validation.
+- `tests/test_utils/test_excel_output.py::TestYRTRateTableSheet`
+  (4 new tests): sheet absent without table, sheet present with
+  table, table name + cohort labels rendered, known rate value
+  appears in cells.
+
+Total: 44 new tests (26 loader + 7 CLI + 7 API + 4 Excel). Full
+suite is now 892 non-slow (up from 848); QA suite unchanged at
+33/33; golden baselines unchanged because all of the new code is
+opt-in via the new field/flag.
+

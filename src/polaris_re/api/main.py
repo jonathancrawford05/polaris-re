@@ -26,6 +26,7 @@ Production:
 """
 
 from datetime import date
+from pathlib import Path
 from typing import Literal
 
 import numpy as np
@@ -151,6 +152,42 @@ class PriceRequest(BaseModel):
             "(ADR-047/048) and the response gains return_on_capital, "
             "peak_capital, pv_capital, pv_capital_strain, and "
             "capital_adjusted_irr (ADR-049). Default: not applied."
+        ),
+    )
+    yrt_rate_table_path: str | None = Field(
+        default=None,
+        description=(
+            "Server-side path (relative to ``POLARIS_DATA_DIR``) to a "
+            "directory of tabular YRT rate CSVs (ADR-052). When set, the "
+            "engine bills YRT premiums from the table indexed by (age, "
+            "sex, smoker, duration_years) instead of the implied flat "
+            "rate. Path traversal is rejected: the resolved path must "
+            "live within ``POLARIS_DATA_DIR``."
+        ),
+    )
+    yrt_rate_table_select_period: int = Field(
+        default=3,
+        ge=1,
+        le=50,
+        description=(
+            "Number of select-period columns (dur_1..dur_N) in the tabular "
+            "YRT rate CSVs. Used only with ``yrt_rate_table_path``."
+        ),
+    )
+    yrt_rate_table_label: str | None = Field(
+        default=None,
+        description=(
+            "Filename label for the tabular YRT rate CSVs. Defaults to "
+            "``'yrt'`` so files are ``yrt_male_ns.csv`` etc. Used only "
+            "with ``yrt_rate_table_path``."
+        ),
+    )
+    yrt_rate_table_smoker_distinct: bool = Field(
+        default=True,
+        description=(
+            "When True (default), expect separate ``_ns`` and ``_smoker`` "
+            "files per sex. When False, expect a single ``_unknown`` file "
+            "per sex. Used only with ``yrt_rate_table_path``."
         ),
     )
 
@@ -409,7 +446,7 @@ def _build_components(
             annual_premium=p.annual_premium,
             policy_term=p.policy_term,
             duration_inforce=p.duration_inforce,
-            reinsurance_cession_pct=0.0,
+            reinsurance_cession_pct=None,
             issue_date=p.issue_date,
             valuation_date=p.valuation_date,
             product_type=resolved_product_type,
@@ -435,9 +472,12 @@ def _run_gross_projection(
     inforce: InforceBlock,
     assumptions: AssumptionSet,
     config: ProjectionConfig,
+    seriatim: bool = False,
 ) -> CashFlowResult:
+    """Run a GROSS projection. ``seriatim=True`` populates the (N, T)
+    arrays required by tabular YRT consumption (ADR-051 / ADR-052)."""
     product = get_product_engine(inforce=inforce, assumptions=assumptions, config=config)
-    return product.project()
+    return product.project(seriatim=seriatim)
 
 
 def _derive_yrt_rate(
@@ -498,15 +538,39 @@ def _build_treaty(
     cession_pct: float = 0.90,
     yrt_loading: float = 0.10,
     modco_interest_rate: float = 0.045,
+    yrt_rate_table: object | None = None,
 ) -> BaseTreaty | None:
     """Build a treaty object based on treaty_type string.
 
     Returns None for gross-only (no treaty).
+
+    When ``yrt_rate_table`` is supplied with ``treaty_type == "YRT"``,
+    the treaty is constructed with the tabular schedule and the implied
+    flat rate is suppressed (mutual exclusion enforced by
+    ``YRTTreaty._validate_rate_source_exclusive``). The caller must pass
+    an ``InforceBlock`` to ``apply()`` for the tabular path.
     """
     if treaty_type is None:
         return None
 
     if treaty_type == "YRT":
+        if yrt_rate_table is not None:
+            from polaris_re.reinsurance.yrt_rate_table import YRTRateTable
+
+            if not isinstance(yrt_rate_table, YRTRateTable):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "yrt_rate_table must be a YRTRateTable instance, "
+                        f"got {type(yrt_rate_table).__name__}."
+                    ),
+                )
+            return YRTTreaty(
+                treaty_name="YRT-API",
+                cession_pct=cession_pct,
+                total_face_amount=face_amount,
+                yrt_rate_table=yrt_rate_table,
+            )
         yrt_rate = _derive_yrt_rate(gross, face_amount, yrt_loading)
         return YRTTreaty(
             cession_pct=cession_pct,
@@ -534,6 +598,41 @@ def _build_treaty(
         status_code=400,
         detail=f"Unknown treaty_type '{treaty_type}'. Use 'YRT', 'Coinsurance', 'Modco', or null.",
     )
+
+
+def _resolve_yrt_rate_table_path(rel_path: str) -> Path:
+    """Resolve a server-side YRT rate-table path safely (ADR-052).
+
+    The user-supplied ``yrt_rate_table_path`` is resolved relative to
+    ``$POLARIS_DATA_DIR``. Path traversal (``..``, absolute paths
+    escaping the data dir) is rejected with HTTP 400.
+    """
+    import os
+
+    data_dir_env = os.environ.get("POLARIS_DATA_DIR")
+    if data_dir_env is None:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "POLARIS_DATA_DIR environment variable must be set on the "
+                "server to resolve yrt_rate_table_path."
+            ),
+        )
+    data_root = Path(data_dir_env).resolve()
+    candidate = (data_root / rel_path).resolve()
+    try:
+        candidate.relative_to(data_root)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(f"yrt_rate_table_path must resolve inside POLARIS_DATA_DIR; got {rel_path!r}."),
+        ) from exc
+    if not candidate.is_dir():
+        raise HTTPException(
+            status_code=404,
+            detail=f"yrt_rate_table_path directory not found: {rel_path}",
+        )
+    return candidate
 
 
 # ---------------------------------------------------------------------------
@@ -579,7 +678,25 @@ def price(request: PriceRequest) -> PriceResponse:
             acquisition_cost_per_policy=request.acquisition_cost_per_policy,
             maintenance_cost_per_policy_per_year=request.maintenance_cost_per_policy_per_year,
         )
-        gross = _run_gross_projection(inforce, assumptions, config)
+
+        # Tabular YRT rate table (ADR-052) — server-side load before the
+        # gross projection so we know to enable seriatim.
+        yrt_rate_table = None
+        if request.yrt_rate_table_path is not None:
+            from polaris_re.reinsurance.yrt_rate_table import YRTRateTable
+
+            table_dir = _resolve_yrt_rate_table_path(request.yrt_rate_table_path)
+            yrt_rate_table = YRTRateTable.load(
+                directory=table_dir,
+                select_period=request.yrt_rate_table_select_period,
+                table_name=request.yrt_rate_table_label or "yrt",
+                label=request.yrt_rate_table_label,
+                smoker_distinct=request.yrt_rate_table_smoker_distinct,
+            )
+
+        gross = _run_gross_projection(
+            inforce, assumptions, config, seriatim=yrt_rate_table is not None
+        )
 
         # Build treaty from request parameters
         total_face = sum(p.face_amount for p in request.policies)
@@ -590,10 +707,18 @@ def price(request: PriceRequest) -> PriceResponse:
             cession_pct=request.cession_pct,
             yrt_loading=request.yrt_loading,
             modco_interest_rate=request.modco_interest_rate,
+            yrt_rate_table=yrt_rate_table,
         )
 
         if treaty is not None:
-            net, ceded = treaty.apply(gross)
+            # Tabular YRT requires inforce. The flat-rate path is
+            # backward-compatible because YRTTreaty.apply() ignores
+            # inforce when the tabular table is absent (cession is
+            # resolved via face-weighted average — same scalar as
+            # treaty.cession_pct when policies have no overrides).
+            net, ceded = treaty.apply(
+                gross, inforce=inforce if yrt_rate_table is not None else None
+            )
         else:
             net, ceded = gross, None
 

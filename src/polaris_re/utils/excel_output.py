@@ -33,6 +33,8 @@ if TYPE_CHECKING:
     from openpyxl.workbook.workbook import Workbook
     from openpyxl.worksheet.worksheet import Worksheet
 
+    from polaris_re.reinsurance.yrt_rate_table import YRTRateTable
+
 __all__ = [
     "AssumptionsMetaExport",
     "DealMetaExport",
@@ -90,6 +92,9 @@ class DealPricingExport:
     ``scenario_results=None`` suppresses the Sensitivity sheet. A
     ``reinsurer_result=None`` suppresses the reinsurer column on the
     Summary sheet — both signal "ceded side does not apply to this deal".
+    ``yrt_rate_table=None`` suppresses the ``YRT Rate Table`` sheet
+    (only added by ADR-052 when the deal was priced with a tabular
+    schedule).
     """
 
     deal_meta: DealMetaExport
@@ -100,6 +105,7 @@ class DealPricingExport:
     gross_cashflows: CashFlowResult | None = None
     ceded_cashflows: CashFlowResult | None = None
     scenario_results: list[ScenarioMetric] | None = None
+    yrt_rate_table: "YRTRateTable | None" = None
 
 
 # ---------------------------------------------------------------------------
@@ -230,16 +236,19 @@ _CAPITAL_METRICS: tuple[str, ...] = (
 
 
 def write_deal_pricing_excel(export: DealPricingExport, path: Path) -> None:
-    """Write a formatted deal-pricing workbook (see ADR-045).
+    """Write a formatted deal-pricing workbook (see ADR-045 / ADR-052).
 
     Sheets produced (in order):
-        1. Summary       — cedant (and optional reinsurer) profit metrics.
-        2. Cash Flows    — annual rollup of the NET CashFlowResult.
-        3. Assumptions   — deal + assumption-set metadata.
-        4. Sensitivity   — OMITTED when ``export.scenario_results`` is None.
+        1. Summary        — cedant (and optional reinsurer) profit metrics.
+        2. Cash Flows     — annual rollup of the NET CashFlowResult.
+        3. Assumptions    — deal + assumption-set metadata.
+        4. Sensitivity    — OMITTED when ``export.scenario_results`` is None.
+        5. YRT Rate Table — OMITTED when ``export.yrt_rate_table`` is None;
+                            otherwise one block per (sex, smoker) cohort
+                            (ADR-052).
 
     Args:
-        export: Bundle of all data required for the four sheets.
+        export: Bundle of all data required for the sheets.
         path:   Output .xlsx file path. Parent directory must exist.
 
     Raises:
@@ -261,6 +270,8 @@ def write_deal_pricing_excel(export: DealPricingExport, path: Path) -> None:
     _write_assumptions_sheet(wb, export)
     if export.scenario_results is not None:
         _write_sensitivity_sheet(wb, export.scenario_results)
+    if export.yrt_rate_table is not None:
+        _write_yrt_rate_table_sheet(wb, export.yrt_rate_table)
 
     wb.save(path)
 
@@ -540,3 +551,65 @@ def _write_sensitivity_sheet(wb: "Workbook", scenarios: list[ScenarioMetric]) ->
     ws.column_dimensions["A"].width = 28
     for col in "BCD":
         ws.column_dimensions[col].width = 16
+
+
+def _write_yrt_rate_table_sheet(wb: "Workbook", table: "YRTRateTable") -> None:
+    """Render the loaded YRT rate table on a single ``YRT Rate Table`` sheet.
+
+    Layout: one block per (sex, smoker) cohort, stacked vertically with a
+    blank row between blocks. Each block's header row labels the cohort
+    and each rate row is ``[age, dur_1, dur_2, ..., dur_N, ultimate]``
+    so the sheet is human-readable next to the source CSV (ADR-052).
+    """
+    from openpyxl.styles import Alignment, Font
+
+    ws = wb.create_sheet(title="YRT Rate Table")
+    title_font = Font(bold=True, size=14)
+    header_font = Font(bold=True)
+    cohort_font = Font(bold=True, italic=True)
+    centre = Alignment(horizontal="center")
+
+    ws.cell(row=1, column=1, value=f"YRT Rate Table — {table.table_name}").font = title_font
+    ws.cell(
+        row=2,
+        column=1,
+        value=(
+            f"Ages {table.min_age}-{table.max_age}, "
+            f"select period {table.select_period_years} years. "
+            f"Rates are annual $/$1,000 NAR."
+        ),
+    )
+
+    select_period = table.select_period_years
+    headers = ["Age"] + [f"dur_{i}" for i in range(1, select_period + 1)] + ["ultimate"]
+
+    row_idx = 4
+    for key in sorted(table.arrays.keys()):
+        arr = table.arrays[key]
+        # Cohort label.
+        ws.cell(row=row_idx, column=1, value=f"Cohort: {key}").font = cohort_font
+        row_idx += 1
+        # Header row.
+        for col_idx, header in enumerate(headers, start=1):
+            cell = ws.cell(row=row_idx, column=col_idx, value=header)
+            cell.font = header_font
+            cell.alignment = centre
+        row_idx += 1
+        # Data rows: one per attained age in the cohort.
+        for age_offset in range(arr.rates.shape[0]):
+            age = arr.min_age + age_offset
+            ws.cell(row=row_idx, column=1, value=age)
+            for col_offset in range(arr.rates.shape[1]):
+                rate_cell = ws.cell(
+                    row=row_idx,
+                    column=2 + col_offset,
+                    value=float(arr.rates[age_offset, col_offset]),
+                )
+                rate_cell.number_format = "0.0000"
+            row_idx += 1
+        # Blank row between cohorts.
+        row_idx += 1
+
+    ws.column_dimensions["A"].width = 12
+    for col_offset in range(select_period + 1):
+        ws.column_dimensions[chr(ord("B") + col_offset)].width = 14
