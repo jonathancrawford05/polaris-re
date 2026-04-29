@@ -167,6 +167,14 @@ class YRTRateTable(PolarisBaseModel):
     duration in years from issue. Use `from_arrays(...)` for in-memory
     construction or `get_rate_vector(...)` for vectorized lookup against a
     cohort. CSV file loading is deferred to Slice 3.
+
+    Note:
+        Do not branch on ``has_smoker_distinct_rates`` to decide lookup
+        behaviour — ``_resolve_key`` handles the smoker → UNKNOWN
+        fallback internally. The flag is display / metadata only and
+        is preserved purely so callers can label or audit the loaded
+        table. Slice 3's CSV ingest and API surface should also avoid
+        switching on it.
     """
 
     model_config = ConfigDict(

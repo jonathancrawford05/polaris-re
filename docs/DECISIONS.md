@@ -1617,3 +1617,165 @@ Total: 34 new tests; full suite is now 827 non-slow (up from 793); QA
 suite unchanged at 33/33; golden baselines unchanged because no
 existing pricing path consumes the new module.
 
+---
+
+## ADR-051: Tabular YRT consumption in `YRTTreaty.apply()` — seriatim default with aggregate fallback (Slice 2 of 3)
+
+**Date:** 2026-04-28
+**Status:** Accepted (Slice 2 of "YRT rate schedule by age × duration"
+multi-session feature; depends on ADR-050).
+
+**Context:**
+
+Slice 1 (ADR-050) added the standalone `YRTRateTable` data model.
+`YRTTreaty.apply()` still bills ceded YRT premiums solely from the
+`flat_yrt_rate_per_1000` scalar. This slice wires the rate table into
+the treaty so that a real (age, sex, smoker, duration) rate grid can
+drive ceded premiums end-to-end. Two design questions had to be settled
+to do this without breaking the existing flat-rate path or any QA
+golden:
+
+1. **Per-policy in-force projection method** — the table requires
+   per-policy ages and durations at every projection month, but the
+   current flat path uses an aggregate-runoff approximation
+   (`inforce_ratio_t = gross_premiums[t] / gross_premiums[0]`). A
+   tabular path can only honour the rate table per policy if it knows
+   each policy's lx[t] and V[t]. Two options were on the table at the
+   end of Slice 1: (a) consume `gross.seriatim_lx` and
+   `gross.seriatim_reserves` directly; (b) approximate per-policy
+   in-force by reusing the aggregate-runoff factor with face-weighted
+   rates.
+
+2. **Mutual exclusion of `flat_yrt_rate_per_1000` and `yrt_rate_table`**
+   — PR #36's reviewer flagged that silently letting one win could mask
+   a copy-paste error in deal config. The Slice 1 CONTINUATION recorded
+   this as RESOLVED in favour of mutual exclusion.
+
+**Decision:**
+
+1. **Add `yrt_rate_table: YRTRateTable | None = None`** to `YRTTreaty`.
+   Add a Pydantic `model_validator` that raises
+   `PolarisValidationError` when both `flat_yrt_rate_per_1000` and
+   `yrt_rate_table` are set. Setting neither is allowed (claims-only
+   cession, ceded premiums = 0) and is the long-standing behaviour
+   exercised by `TestYRTEdgeCases.test_no_yrt_rate_zero_premiums`.
+
+2. **`apply()` requires `inforce` when `yrt_rate_table` is set.** A
+   tabular rate cannot be looked up without policy-level (age, sex,
+   smoker, duration). When `yrt_rate_table` is set and `inforce is
+   None`, raise `PolarisComputationError` with a message naming
+   `InforceBlock` so the call site knows what to pass.
+
+3. **Default consumption is the seriatim path (option a).** When the
+   gross result was produced with `seriatim=True` (so
+   `gross.seriatim_lx` and `gross.seriatim_reserves` are populated),
+   `apply()` uses the per-policy formula
+
+       prem[i, t] = lx[i, t] * max(face[i] - V[i, t], 0)
+                    * (R[i, t] / 12 / 1000) * cession[i]
+
+   summed across policies. Per-policy effective cession comes from
+   `InforceBlock.effective_cession_vec(treaty_default)`, which respects
+   policy-level overrides (ADR-036). The aggregate `nar` series carried
+   on the ceded result is `(lx * NAR_per_policy).sum(axis=0)` so the
+   reported NAR matches the basis on which the rates were applied.
+
+4. **Aggregate fallback (option b) is used only when seriatim arrays
+   are absent.** In that case, per-policy rates `R[i, t]` are still
+   computed from the table, then face-weight-averaged to a single
+   `avg_R_t` per month; that average rate is applied to the same
+   `total_face * inforce_ratio - reserve_balance` aggregate NAR the
+   flat path uses. Cession is the face-weighted scalar. This loses
+   per-policy lx weighting but preserves cohort-level aging behaviour
+   and is documented as a degraded path — Slice 3 may force seriatim
+   for tabular runs at the CLI layer.
+
+5. **Per-(sex, smoker) cohort split.** Inside `_compute_tabular_premiums`,
+   the per-policy rate matrix is built once per (sex, smoker) cohort
+   and per-month, mirroring the pattern in
+   `TermLife._build_rate_arrays`. Ages outside the table range are
+   `np.clip`ed to `[min_age, max_age]` so a long projection past the
+   table top doesn't raise — the table top is the natural extrapolation
+   cap for ultimate-age rates.
+
+6. **Claims and reserves stay on the existing path.** Claims continue
+   to be cession-proportional via `_resolve_cession`'s face-weighted
+   scalar. Reserves still stay with the cedant (no transfer in YRT).
+   Only the YRT premium calculation is touched.
+
+7. **`YRTRateSchedule.generate_table(...)`** is added as a closed-loop
+   sanity check: solve the existing per-(age, sex, smoker) flat rate
+   for each grid cell, pack into a `YRTRateTable`, and verify that
+   feeding the result back through `YRTTreaty.apply()` produces a
+   well-formed CashFlowResult. This is an internal helper; Slice 3
+   will add a real per-duration solver and the CSV ingest path.
+
+**Rationale:**
+
+- **Seriatim-first** is the actuarially correct path: a YRT rate at
+  age 65 must be applied to the policies that actually reach age 65,
+  not to a face-weighted average of all policies that started in the
+  block. The aggregate-runoff approximation is a known limitation
+  flagged in PRODUCT_DIRECTION_2026-04-19 and the whole point of this
+  feature is to fix it.
+- **Aggregate fallback exists only because** several places in the
+  codebase (`YRTRateSchedule._solve_rate`, the demo CLI flow) call
+  `engine.project()` without `seriatim=True` for performance, and we
+  do not want a treaty re-quote there to fail loudly. The fallback is
+  documented as degraded; Slice 3 will likely flip the CLI to use
+  seriatim for tabular runs.
+- **Mutual exclusion at construction time** is the safest way to enforce
+  the PR #36 reviewer's guidance. A model_validator catches it once
+  per treaty instance, not once per `apply()` call, and the error is
+  raised before any pricing happens.
+- **Face-weighted average rate in the fallback path** is a defensible
+  simplification: the average rate is what an actuary would compute by
+  hand for a quick aggregate quote without seriatim machinery, and it
+  preserves additivity of net + ceded = gross with no special-casing.
+- **Backward compatibility is non-negotiable.** Every existing
+  flat-rate test and the QA goldens hit the same code path they did
+  before — the new tabular branch is mutually exclusive with the flat
+  branch and is only entered when `yrt_rate_table` is set.
+
+**Out of scope:**
+
+- CSV file format and `YRTRateTable.load(path)` classmethod (Slice 3).
+- `polaris price --yrt-rate-table PATH` CLI flag (Slice 3).
+- `api/main.py` `PriceRequest.yrt_rate_table_path` field (Slice 3).
+- Excel deal-pricing workbook `YRT Rate Table` sheet (Slice 3).
+- Dashboard heatmap of the loaded table (Slice 3).
+- A true per-duration rate solver in `YRTRateSchedule.generate_table()`
+  (the current implementation broadcasts the per-age flat rate across
+  every duration column; a real per-duration solver is deferred).
+
+**Tests:**
+
+- `tests/test_reinsurance/test_yrt_tabular.py` (12 new tests):
+  - `TestYRTTreatyValidation` (5) — both/table-only/flat-only/neither
+    constructors; table-without-inforce raises
+    `PolarisComputationError`.
+  - `TestFlatPathUnchanged` (1) — flat-rate output is identical with
+    and without an `inforce` argument.
+  - `TestConstantTableMatchesFlat` (2) — constant-rate table reproduces
+    the flat-rate path within `1e-6`; net + ceded = gross holds.
+  - `TestAgingBlockRisesWithAge` (2) — aging table collects strictly
+    more total ceded premium than a flat table at the same starting
+    rate; implied per-$1,000 rate (back-solved from prem / NAR) rises
+    monotonically across the first 10 policy years.
+  - `TestSeriatimVsAggregateFallback` (1) — gross without seriatim
+    uses the fallback path; output is finite and additivity holds.
+  - `TestMultiPolicyMixedCohort` (1) — UNKNOWN-only YRT table is
+    looked up correctly for a mixed (NS, S) male block via the smoker
+    fallback.
+- `tests/test_analytics/test_rate_schedule.py` (2 new tests under
+  `TestGenerateTable`):
+  - Returns a populated `YRTRateTable` with the expected min/max age
+    and select-period.
+  - Round-trip: a generated table fed into `YRTTreaty.apply()` produces
+    finite, non-zero ceded premiums with no errors.
+
+Total: 14 new tests; full suite is now 845 non-slow (up from 833); QA
+suite unchanged; golden baselines unchanged (the flat-rate path is the
+only one any existing pricing run takes — tabular consumption is
+opt-in via the new field).
+
