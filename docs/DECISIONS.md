@@ -1947,3 +1947,135 @@ suite is now 892 non-slow (up from 848); QA suite unchanged at
 33/33; golden baselines unchanged because all of the new code is
 opt-in via the new field/flag.
 
+---
+
+## ADR-053: `polaris rate-schedule --table` flag and standalone Excel writer (YRT Slice 4a)
+
+**Date:** 2026-04-30
+**Status:** Accepted
+**Slice:** 4a of the YRT rate-table feature (split off from the
+original Slice 4 which also bundled the dashboard upload + heatmap;
+the dashboard work is deferred to Slice 4b so the present surface is
+independently mergeable). See `CONTINUATION_yrt_rate_table.md`.
+
+**Context:**
+
+ADR-052 (Slice 3) added the CSV loader and CLI / API / Excel
+*consumption* surfaces for tabular YRT rates. The corresponding
+*production* surface — generating a tabular schedule from the
+existing `YRTRateSchedule` solver — was deferred. Without it, an
+actuary using Polaris cannot produce a deliverable rate-table
+workbook directly from the CLI; they must call
+`YRTRateSchedule.generate_table(...)` from Python and serialise the
+result by hand. The CLI already exposes `polaris rate-schedule`
+which solves a flat per-(age, sex, smoker) schedule and writes
+CSV / Excel / JSON; the natural extension is a `--table` flag that
+flips the solver call from `generate(...)` to `generate_table(...)`
+and the output writer from `write_rate_schedule_excel` to a new
+`write_yrt_rate_table_excel`.
+
+**Decision:**
+
+1. **`polaris rate-schedule --table/--no-table`** flag (default
+   `False`). When set, the command calls
+   `YRTRateSchedule.generate_table(...)` instead of `generate(...)`
+   and renders the resulting `YRTRateTable` instead of the flat
+   DataFrame. A companion `--select-period N` option (default `0`)
+   controls the number of select columns in the generated table;
+   `N=0` produces a single ultimate column.
+2. **Output format constraints under `--table`:**
+   - `-o NAME.xlsx` writes a workbook via the new
+     `write_yrt_rate_table_excel` (Summary sheet + the shared
+     `YRT Rate Table` sheet from ADR-052).
+   - `-o NAME.csv` is rejected with exit code 1 because CSV does
+     not preserve the cohort-keyed 2-D layout. The user-facing
+     message points to the `.xlsx` re-run.
+   - `--json PATH` emits a structured dict with `table_name`,
+     `min_age`, `max_age`, `select_period_years`, and a `cohorts`
+     map keyed by `f"{sex}_{smoker}"` carrying per-cohort
+     `min_age` / `max_age` / `select_period` / `rates` (nested
+     list, JSON-friendly via `arr.rates.tolist()`).
+3. **`write_yrt_rate_table_excel(table, path)`** is a new public
+   function in `src/polaris_re/utils/excel_output.py`. Internally
+   it delegates the rate-grid block to the existing
+   `_write_yrt_rate_table_sheet` helper so the layout is byte-
+   identical to the deal-pricing workbook's appended sheet (one
+   block per (sex, smoker) cohort, headers `Age | dur_1 ... dur_N |
+   ultimate`). A `Summary` sheet is added in front carrying the
+   table name, age range, select-period, cohort count, and total
+   rate-cell count.
+4. **Console rendering** when `--table` is set: one Rich `Table`
+   per cohort, sorted by cohort key for deterministic output.
+   Rows are `[age, dur_1, ..., dur_N, ultimate]` with rates
+   formatted as `{:.4f}`.
+5. **Backward compatibility:** the existing `--no-table` path is
+   byte-identical to the pre-Slice-4a behaviour. None of the
+   existing flags' semantics or defaults change. The new flags
+   default to `False` / `0`.
+
+**Why these choices:**
+
+- **`generate_table` already exists (ADR-051) and emits a
+  `YRTRateTable` directly.** The CLI flag is a thin orchestration
+  layer on top — no new actuarial logic is added in this slice. The
+  per-duration solver remains future work (called out in ADR-051's
+  "Out of scope").
+- **Reusing `_write_yrt_rate_table_sheet`** ensures the standalone
+  workbook produced by `polaris rate-schedule --table` is visually
+  consistent with the appended sheet in the deal-pricing workbook
+  produced by `polaris price --excel-out` (ADR-052). One layout to
+  learn, one regression to maintain.
+- **Rejecting `-o NAME.csv` under `--table`** is a deliberate
+  fail-fast. The actuarial reader expects the (age, duration) grid
+  to round-trip back through `YRTRateTable.load(...)` (ADR-052),
+  which requires the per-cohort filename convention; a single CSV
+  cannot carry the cohort keying without inventing a new schema.
+  Excel and JSON together cover both deliverable use cases.
+- **JSON serialisation via nested list** (not a flattened DataFrame)
+  matches the on-disk `YRTRateTable` structure and lets a
+  downstream consumer reconstruct the table via
+  `YRTRateTable.from_arrays(...)` after rebuilding `YRTRateTableArray`
+  objects from the cohorts dict. This keeps the JSON format
+  parallel to the in-memory model rather than the flat-schedule
+  DataFrame.
+- **No new actuarial defaults.** The grid axis defaults (ages,
+  policy_term, target_irr) come from the existing CLI options.
+  The only new defaults are `--table=False` and `--select-period=0`,
+  both of which preserve pre-Slice-4a behaviour.
+
+**Out of scope (deferred to Slice 4b):**
+
+- Streamlit dashboard file-uploader for the rate-table directory
+  (or zip), matplotlib heatmap preview per cohort, and wiring
+  through to the Pricing page.
+- A true per-duration solver in `YRTRateSchedule.generate_table()`
+  (currently broadcasts the per-age flat rate across every
+  duration column — ADR-051 "Out of scope"). The Slice 4b heatmap
+  will be visually flat-along-rows until this lands, which is an
+  acceptable interim signal.
+
+**Tests:**
+
+- `tests/test_utils/test_excel_output.py::TestWriteYrtRateTableExcel`
+  (new) — workbook is created, has both `Summary` and `YRT Rate
+  Table` sheets, the Summary sheet carries the cohort count and
+  table name, the YRT Rate Table sheet carries the expected rate
+  values per the existing `_write_yrt_rate_table_sheet` contract.
+- `tests/test_analytics/test_cli_rate_schedule_table.py` (new,
+  `@pytest.mark.slow`) — `polaris rate-schedule --table -o
+  out.xlsx` produces a workbook openable via
+  `YRTRateTable`-shaped inspection; `--json` emits the expected
+  cohorts dict shape; `-o NAME.csv` with `--table` exits 1; the
+  existing `--no-table` flat path still writes a CSV.
+- `tests/test_analytics/test_rate_schedule.py::TestYrtRateTableJsonHelper`
+  (new) — `_yrt_rate_table_to_dict` is a pure function on
+  `YRTRateTable` and is unit-tested without the CLI.
+
+**Backward compatibility:**
+
+`polaris rate-schedule` invoked without `--table` produces the
+exact same console output, CSV/Excel/JSON files, and exit codes as
+before. All eight pre-existing `TestYRTRateSchedule` /
+`TestExcelOutput` / `TestGenerateTable` tests remain green
+unchanged. Golden regression baselines are unaffected (rate-schedule
+is not part of the golden flat / YRT pricing harness).

@@ -22,6 +22,7 @@ from polaris_re.utils.excel_output import (
     DealPricingExport,
     ScenarioMetric,
     write_deal_pricing_excel,
+    write_yrt_rate_table_excel,
 )
 
 # ---------------------------------------------------------------------------
@@ -635,3 +636,69 @@ class TestYRTRateTableSheet:
             if found:
                 break
         assert found
+
+
+# ---------------------------------------------------------------------------
+# write_yrt_rate_table_excel — standalone workbook (ADR-053)
+# ---------------------------------------------------------------------------
+
+
+class TestWriteYrtRateTableExcel:
+    """``write_yrt_rate_table_excel`` produces a standalone workbook."""
+
+    def test_workbook_created(self, tmp_path: Path) -> None:
+        """Workbook file is written and non-empty."""
+        table = _make_yrt_rate_table()
+        out = tmp_path / "schedule.xlsx"
+        write_yrt_rate_table_excel(table, out)
+        assert out.exists()
+        assert out.stat().st_size > 0
+
+    def test_has_summary_and_rate_table_sheets(self, tmp_path: Path) -> None:
+        """Workbook carries both ``Summary`` and ``YRT Rate Table`` sheets."""
+        table = _make_yrt_rate_table()
+        out = tmp_path / "schedule.xlsx"
+        write_yrt_rate_table_excel(table, out)
+        wb = load_workbook(out)
+        assert "Summary" in wb.sheetnames
+        assert "YRT Rate Table" in wb.sheetnames
+
+    def test_summary_carries_table_metadata(self, tmp_path: Path) -> None:
+        """``Summary`` sheet shows the table name and cohort count."""
+        table = _make_yrt_rate_table()
+        out = tmp_path / "schedule.xlsx"
+        write_yrt_rate_table_excel(table, out)
+        ws = load_workbook(out)["Summary"]
+        cells = [str(ws.cell(row=r, column=1).value) for r in range(1, 10)]
+        assert any("synthetic-test" in c for c in cells)
+        # Two cohorts in the fixture.
+        assert any("Cohorts: 2" in c for c in cells)
+        # Total rate cells: 2 cohorts x 3 ages x 4 cols = 24.
+        assert any("Total rate cells: 24" in c for c in cells)
+
+    def test_rate_table_sheet_renders_known_value(self, tmp_path: Path) -> None:
+        """At least one cell carries the expected M_NS / age 30 / dur_1 rate."""
+        table = _make_yrt_rate_table()
+        out = tmp_path / "schedule.xlsx"
+        write_yrt_rate_table_excel(table, out)
+        ws = load_workbook(out)["YRT Rate Table"]
+        target = 0.50  # M_NS, age 30, dur_1
+        found = False
+        for row in ws.iter_rows():
+            for cell in row:
+                if isinstance(cell.value, (int, float)) and abs(cell.value - target) < 1e-9:
+                    found = True
+                    break
+            if found:
+                break
+        assert found
+
+    def test_workbook_omits_empty_default_sheet(self, tmp_path: Path) -> None:
+        """openpyxl's default ``Sheet`` is removed before adding the named sheets."""
+        table = _make_yrt_rate_table()
+        out = tmp_path / "schedule.xlsx"
+        write_yrt_rate_table_excel(table, out)
+        wb = load_workbook(out)
+        assert "Sheet" not in wb.sheetnames
+        # Only the two intentional sheets.
+        assert set(wb.sheetnames) == {"Summary", "YRT Rate Table"}

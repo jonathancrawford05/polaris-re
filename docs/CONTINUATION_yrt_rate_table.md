@@ -2,11 +2,12 @@
 
 **Source:** PRODUCT_DIRECTION_2026-04-19.md — IMPORTANT (last item in
 the IMPORTANT list, "YRT rate schedule by age × duration")
-**Status:** IN PROGRESS — Slice 3 partially shipped; dashboard +
-`rate-schedule --table` flag deferred to Slice 4
-**Total slices:** 4 (re-decomposed from the original 3 — Slice 3 was
-too large for one session and split into 3a/4)
-**Estimated total scope:** ~4-5 dev-days
+**Status:** IN PROGRESS — Slice 4a shipped 2026-04-30; Slice 4b
+(dashboard upload + heatmap + per-duration solver) PLANNED
+**Total slices:** 5 (re-decomposed: Slice 3 split into 3/4 in the
+prior session; Slice 4 split into 4a/4b in this session because the
+dashboard work is materially different in scope from the CLI flag)
+**Estimated total scope:** ~5 dev-days
 
 ## Overall Goal
 
@@ -256,20 +257,102 @@ treaty consumption (Slice 2), schedule generation via brentq solver
     is now the canonical default; Slice 4 / future API additions
     must not regress to `0.0` (would break the tabular path again).
 
-### Slice 4: Dashboard file-uploader + heatmap, `polaris rate-schedule --table`
-- **Status:** PLANNED (split off from the original Slice 3)
-- **Depends on:** Slice 3 merged
+### Slice 4a: `polaris rate-schedule --table` flag + standalone Excel writer
+- **Status:** DONE (this session, 2026-04-30)
+- **Branch:** `claude/lucid-hawking-4aujD`
+- **PR:** (draft; opened by this session)
+- **What was done:**
+  - Added `--table/--no-table` and `--select-period N` flags to
+    `polaris rate-schedule`. When `--table` is set, the command
+    calls `YRTRateSchedule.generate_table(...)` instead of
+    `generate(...)` and renders one Rich `Table` per cohort
+    (sorted by cohort key) with rates formatted as `{:.4f}`.
+  - Added `write_yrt_rate_table_excel(table, path)` to
+    `src/polaris_re/utils/excel_output.py`. Internally delegates the
+    rate-grid block to the existing `_write_yrt_rate_table_sheet`
+    helper so the workbook is byte-identical to the deal-pricing
+    workbook's appended sheet (ADR-052). A `Summary` sheet is added
+    in front carrying the table name, age range, select-period,
+    cohort count, and total rate-cell count.
+  - `-o NAME.xlsx` writes via the new function. `-o NAME.csv` is
+    rejected with exit code 1 because CSV does not preserve the
+    cohort-keyed 2-D layout. `--json PATH` emits a structured dict
+    (`table_name` / `min_age` / `max_age` / `select_period_years` /
+    `cohorts` map keyed by `f"{sex}_{smoker}"`) via the new
+    `_yrt_rate_table_to_dict` helper that round-trips through
+    `json.dumps`.
+  - ADR-053 added to `docs/DECISIONS.md`.
+  - 8 new fast tests + 5 new slow tests:
+    - `tests/test_utils/test_excel_output.py::TestWriteYrtRateTableExcel`
+      (5 fast) — workbook created, has Summary + YRT Rate Table
+      sheets, Summary carries cohort count + table name, rate
+      values appear, default empty Sheet removed.
+    - `tests/test_analytics/test_cli_rate_schedule_table.py`
+      `TestYrtRateTableJsonHelper` (3 fast) — top-level shape,
+      cohort dict round-trip, JSON-serialisable.
+    - `tests/test_analytics/test_cli_rate_schedule_table.py`
+      `TestRateScheduleTableCLI` (5 slow) — flat path
+      backward-compat, `--table -o .xlsx` emits workbook,
+      `--table -o .csv` rejected with exit 1, `--table --json`
+      emits cohort dict, `--select-period N` produces N+1 columns
+      and the per-row rate is constant (broadcast — ADR-051 "Out
+      of scope" until per-duration solver lands in Slice 4b).
+  - Full suite is now 886 non-slow (up from 878); QA suite
+    unchanged at 33/33; golden flat regression byte-identical
+    (numbers unchanged).
+- **Acceptance criteria:**
+  - `polaris rate-schedule --table -o out.xlsx` writes a workbook
+    with both `Summary` and `YRT Rate Table` sheets. ✅
+  - `polaris rate-schedule --table -o out.csv` exits 1 with a
+    user-facing message pointing to `.xlsx`. ✅
+  - `polaris rate-schedule --table --json out.json` writes the
+    cohort dict shape per ADR-053. ✅
+  - `polaris rate-schedule` (no flag) is byte-identical to the
+    pre-Slice-4a behaviour. ✅
+  - `--select-period N` produces `N+1` duration columns per cohort
+    (rates broadcast across columns until the per-duration solver
+    lands in Slice 4b). ✅
+  - Existing `TestYRTRateSchedule` / `TestExcelOutput` /
+    `TestGenerateTable` / `TestYRTRateTableSheet` tests remain
+    green unchanged. ✅
+  - ADR-053 written. ✅
+- **Key decisions that affect Slice 4b:**
+  - **`write_yrt_rate_table_excel` is the canonical writer.** Slice
+    4b's dashboard download button can call it directly (after
+    parsing the uploaded CSV bytes via
+    `YRTRateTable.from_arrays`). No duplication needed.
+  - **`_yrt_rate_table_to_dict`** is the canonical JSON helper.
+    Slice 4b can reuse it to emit the loaded table to the browser
+    (e.g. as a `st.json` preview) without duplicating the
+    serialisation logic. Both helpers live in `cli.py` for now;
+    if Slice 4b needs them outside the CLI, lift them into
+    `utils/yrt_rate_table_io.py` (or extend `utils/table_io.py`).
+  - **Console rendering uses one Rich `Table` per cohort.** Slice
+    4b's heatmap can mirror this layout (one matplotlib axis per
+    cohort) so the visual mental model is consistent.
+  - **Per-duration solver is still deferred.** The current
+    broadcast-along-rows behaviour is documented in ADR-053
+    "Out of scope" and is the same as ADR-051. Slice 4b's heatmap
+    will be visually flat-along-rows until this lands; an interim
+    note in the dashboard caption is acceptable.
+
+### Slice 4b: Dashboard file-uploader + heatmap (+ optional per-duration solver)
+- **Status:** PLANNED
+- **Depends on:** Slice 4a merged
 - **Scope:**
-  - `polaris rate-schedule --table` flag to emit a tabular schedule
-    Excel via `YRTRateSchedule.generate_table(...)`.
   - Streamlit dashboard pricing page: file-uploader for the rate
     table directory or zip; render a heatmap preview of the loaded
-    grid (matplotlib `imshow` per cohort).
+    grid (matplotlib `imshow` per cohort), backed by either the
+    uploaded payload or a server-side path.
+  - Choose UX between (a) zip-only, (b) one-file-per-cohort with a
+    form selector, or (c) a single multi-cohort CSV with
+    `sex` / `smoker` columns. ADR-052 deliberately left this open;
+    Slice 4b's ADR-054 documents the pick.
   - Optional: a true per-duration solver in
     `YRTRateSchedule.generate_table()` (currently broadcasts the
-    per-age flat rate across every duration column — see
-    ADR-051's "Out of scope").
-  - ADR-053 (or extend ADR-052) captures the dashboard UX choices.
+    per-age flat rate across every duration column).
+  - Wire the loaded table through the dashboard pricing flow so
+    users can run a deal end-to-end with an uploaded table.
 
 ## Context for Next Session
 
@@ -342,7 +425,9 @@ treaty consumption (Slice 2), schedule generation via brentq solver
    industry rate-table cell count of ~600 cells, brentq-feasible
    in seconds).
 
-When all slices are DONE, update Status to COMPLETE. With Slice 3
-shipped, the data path and primary actuarial surfaces (CLI / API /
-deal-pricing Excel) are complete. Slice 4 (dashboard + rate-schedule
-flag) remains.
+When all slices are DONE, update Status to COMPLETE. With Slice 4a
+shipped, the actuary-deliverable production path is complete: a
+tabular schedule can be generated end-to-end from
+`polaris rate-schedule --table` and consumed via `polaris price
+--yrt-rate-table` (Slice 3). Slice 4b (dashboard upload + heatmap +
+optional per-duration solver) remains.
