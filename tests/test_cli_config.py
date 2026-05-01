@@ -146,3 +146,21 @@ class TestBuildTreatyFromPipeline:
         inputs.deal.treaty_type = "None"
         treaty, _use_pc = _build_treaty_for_pipeline(inputs, gross, 500_000.0, inforce)
         assert treaty is None
+
+    def test_invalid_yrt_rate_table_type_raises_validation_error(self, gross_and_inputs) -> None:
+        """A non-``YRTRateTable`` for ``yrt_rate_table`` raises
+        ``PolarisValidationError`` (PR #39 P1: domain exception, not
+        Python's built-in ``TypeError``)."""
+        from polaris_re.core.exceptions import PolarisValidationError
+
+        gross, inputs, inforce = gross_and_inputs
+        inputs.deal.treaty_type = "YRT"
+        inputs.deal.cession_pct = 0.85
+        with pytest.raises(PolarisValidationError, match="yrt_rate_table must be a YRTRateTable"):
+            _build_treaty_for_pipeline(
+                inputs,
+                gross,
+                500_000.0,
+                inforce,
+                yrt_rate_table="not-a-table",
+            )

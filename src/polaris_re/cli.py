@@ -320,7 +320,7 @@ def _build_treaty_for_pipeline(
         from polaris_re.reinsurance.yrt_rate_table import YRTRateTable
 
         if not isinstance(yrt_rate_table, YRTRateTable):
-            raise TypeError(
+            raise PolarisValidationError(
                 f"yrt_rate_table must be a YRTRateTable, got {type(yrt_rate_table).__name__}."
             )
         treaty = YRTTreaty(
@@ -1501,6 +1501,30 @@ def rate_schedule_cmd(
         int,
         typer.Option("--term", help="Policy term in years"),
     ] = 20,
+    table: Annotated[
+        bool,
+        typer.Option(
+            "--table/--no-table",
+            help=(
+                "Emit a YRTRateTable (age x sex x smoker x duration grid) "
+                "via YRTRateSchedule.generate_table(). When set, --output "
+                ".xlsx writes a tabular workbook consumable by "
+                "`polaris price --yrt-rate-table` (ADR-053)."
+            ),
+        ),
+    ] = False,
+    select_period: Annotated[
+        int,
+        typer.Option(
+            "--select-period",
+            help=(
+                "Select period (years) for the generated rate table. "
+                "Only used with --table. Rates are broadcast across the "
+                "select columns until the per-duration solver lands."
+            ),
+            min=0,
+        ),
+    ] = 0,
     output: Annotated[
         Path | None,
         typer.Option("--output", "-o", help="Output CSV or Excel file"),
@@ -1513,8 +1537,14 @@ def rate_schedule_cmd(
     """
     Generate a YRT rate schedule — rates per $1,000 NAR that achieve a target IRR.
 
-    Uses synthetic mortality and lapse tables (demo mode). Output is a table
-    of solved rates by issue age, sex, and smoker status.
+    Uses synthetic mortality and lapse tables (demo mode). By default, prints
+    one row per (age, sex, smoker) and supports CSV / Excel / JSON export of
+    that flat schedule.
+
+    With ``--table`` the command instead emits a full ``YRTRateTable``
+    (cohort-keyed 2-D arrays of shape ``(n_ages, select_period + 1)``) that
+    can be loaded via ``YRTRateTable.from_arrays`` or fed to
+    ``polaris price --yrt-rate-table`` after writing the workbook to disk.
     """
     _header()
 
@@ -1564,49 +1594,132 @@ def rate_schedule_cmd(
         )
 
         age_list = [int(a.strip()) for a in ages.split(",")]
-        # Use only UNKNOWN smoker since we have aggregate tables in demo mode
-        result_df = scheduler.generate(
-            ages=age_list,
-            sexes=[Sex.MALE],
-            smoker_statuses=[SmokerStatus.UNKNOWN],
-            policy_term=term,
-        )
+        if table:
+            # Tabular path — solve the per-(age, sex, smoker) flat rate
+            # grid and pack it into a YRTRateTable. UNKNOWN smoker is
+            # used because the demo mortality table is aggregate.
+            rate_table = scheduler.generate_table(
+                ages=age_list,
+                sexes=[Sex.MALE],
+                smoker_statuses=[SmokerStatus.UNKNOWN],
+                policy_term=term,
+                select_period_years=select_period,
+            )
+            result_df = None
+        else:
+            # Flat schedule — one row per cohort.
+            result_df = scheduler.generate(
+                ages=age_list,
+                sexes=[Sex.MALE],
+                smoker_statuses=[SmokerStatus.UNKNOWN],
+                policy_term=term,
+            )
+            rate_table = None
 
-    # Display table
-    result_table = Table(title=f"YRT Rate Schedule (Target IRR = {target_irr:.1%})")
-    result_table.add_column("Issue Age", justify="center")
-    result_table.add_column("Sex")
-    result_table.add_column("Smoker")
-    result_table.add_column("Term")
-    result_table.add_column("Rate/$1000", justify="right")
+    if table and rate_table is not None:
+        _render_yrt_rate_table(rate_table, target_irr)
+    elif result_df is not None:
+        # Display table
+        result_table = Table(title=f"YRT Rate Schedule (Target IRR = {target_irr:.1%})")
+        result_table.add_column("Issue Age", justify="center")
+        result_table.add_column("Sex")
+        result_table.add_column("Smoker")
+        result_table.add_column("Term")
+        result_table.add_column("Rate/$1000", justify="right")
 
-    for row in result_df.iter_rows(named=True):
-        rate_str = f"{row['rate_per_1000']:.4f}" if not np.isnan(row["rate_per_1000"]) else "N/A"
-        result_table.add_row(
-            str(row["issue_age"]),
-            str(row["sex"]),
-            str(row["smoker_status"]),
-            str(row["policy_term"]),
-            rate_str,
-        )
+        for row in result_df.iter_rows(named=True):
+            rate_str = (
+                f"{row['rate_per_1000']:.4f}" if not np.isnan(row["rate_per_1000"]) else "N/A"
+            )
+            result_table.add_row(
+                str(row["issue_age"]),
+                str(row["sex"]),
+                str(row["smoker_status"]),
+                str(row["policy_term"]),
+                rate_str,
+            )
 
-    console.print(result_table)
+        console.print(result_table)
 
     if output is not None:
         output.parent.mkdir(parents=True, exist_ok=True)
-        if output.suffix == ".xlsx":
-            from polaris_re.utils.excel_output import write_rate_schedule_excel
+        if table and rate_table is not None:
+            if output.suffix != ".xlsx":
+                console.print(
+                    "[red]✗ --table output must be .xlsx (CSV does not preserve "
+                    "the cohort-keyed 2-D layout). Re-run with -o NAME.xlsx.[/red]"
+                )
+                raise typer.Exit(code=1)
+            from polaris_re.utils.excel_output import write_yrt_rate_table_excel
 
-            write_rate_schedule_excel(result_df, output)
-        else:
-            result_df.write_csv(output)
+            write_yrt_rate_table_excel(rate_table, output)
+        elif result_df is not None:
+            if output.suffix == ".xlsx":
+                from polaris_re.utils.excel_output import write_rate_schedule_excel
+
+                write_rate_schedule_excel(result_df, output)
+            else:
+                result_df.write_csv(output)
         console.print(f"\nResults written to {output}")
 
     if output_json is not None:
         output_json.parent.mkdir(parents=True, exist_ok=True)
-        json_data = result_df.to_dicts()
+        if table and rate_table is not None:
+            json_data = _yrt_rate_table_to_dict(rate_table)
+        else:
+            assert result_df is not None
+            json_data = result_df.to_dicts()
         output_json.write_text(json.dumps(json_data, indent=2, default=str))
         console.print(f"JSON written to {output_json}")
+
+
+def _render_yrt_rate_table(rate_table: object, target_irr: float) -> None:
+    """Print one Rich table per cohort for a generated ``YRTRateTable``."""
+    from polaris_re.reinsurance.yrt_rate_table import YRTRateTable
+
+    if not isinstance(rate_table, YRTRateTable):
+        raise PolarisValidationError(f"Expected YRTRateTable, got {type(rate_table).__name__}.")
+    select_period = rate_table.select_period_years
+    headers = ["Age"] + [f"dur_{i}" for i in range(1, select_period + 1)] + ["ultimate"]
+    for cohort_key in sorted(rate_table.arrays.keys()):
+        arr = rate_table.arrays[cohort_key]
+        title = (
+            f"YRT Rate Table — cohort {cohort_key} (Target IRR = {target_irr:.1%}, $/$1,000 NAR)"
+        )
+        rich_tbl = Table(title=title)
+        for h in headers:
+            rich_tbl.add_column(h, justify="right" if h != "Age" else "center")
+        for age_offset in range(arr.rates.shape[0]):
+            age_val = arr.min_age + age_offset
+            row_cells: list[str] = [str(age_val)]
+            for col_offset in range(arr.rates.shape[1]):
+                row_cells.append(f"{float(arr.rates[age_offset, col_offset]):.4f}")
+            rich_tbl.add_row(*row_cells)
+        console.print(rich_tbl)
+
+
+def _yrt_rate_table_to_dict(rate_table: object) -> dict[str, object]:
+    """Serialise a ``YRTRateTable`` to a JSON-friendly dict."""
+    from polaris_re.reinsurance.yrt_rate_table import YRTRateTable
+
+    if not isinstance(rate_table, YRTRateTable):
+        raise PolarisValidationError(f"Expected YRTRateTable, got {type(rate_table).__name__}.")
+    cohorts: dict[str, dict[str, object]] = {}
+    for key in sorted(rate_table.arrays.keys()):
+        arr = rate_table.arrays[key]
+        cohorts[key] = {
+            "min_age": int(arr.min_age),
+            "max_age": int(arr.max_age),
+            "select_period": int(arr.select_period),
+            "rates": arr.rates.tolist(),
+        }
+    return {
+        "table_name": rate_table.table_name,
+        "min_age": int(rate_table.min_age),
+        "max_age": int(rate_table.max_age),
+        "select_period_years": int(rate_table.select_period_years),
+        "cohorts": cohorts,
+    }
 
 
 @app.command()
