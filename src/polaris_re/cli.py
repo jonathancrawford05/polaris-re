@@ -320,7 +320,7 @@ def _build_treaty_for_pipeline(
         from polaris_re.reinsurance.yrt_rate_table import YRTRateTable
 
         if not isinstance(yrt_rate_table, YRTRateTable):
-            raise TypeError(
+            raise PolarisValidationError(
                 f"yrt_rate_table must be a YRTRateTable, got {type(yrt_rate_table).__name__}."
             )
         treaty = YRTTreaty(
@@ -1677,7 +1677,8 @@ def _render_yrt_rate_table(rate_table: object, target_irr: float) -> None:
     """Print one Rich table per cohort for a generated ``YRTRateTable``."""
     from polaris_re.reinsurance.yrt_rate_table import YRTRateTable
 
-    assert isinstance(rate_table, YRTRateTable)
+    if not isinstance(rate_table, YRTRateTable):
+        raise PolarisValidationError(f"Expected YRTRateTable, got {type(rate_table).__name__}.")
     select_period = rate_table.select_period_years
     headers = ["Age"] + [f"dur_{i}" for i in range(1, select_period + 1)] + ["ultimate"]
     for cohort_key in sorted(rate_table.arrays.keys()):
@@ -1701,7 +1702,8 @@ def _yrt_rate_table_to_dict(rate_table: object) -> dict[str, object]:
     """Serialise a ``YRTRateTable`` to a JSON-friendly dict."""
     from polaris_re.reinsurance.yrt_rate_table import YRTRateTable
 
-    assert isinstance(rate_table, YRTRateTable)
+    if not isinstance(rate_table, YRTRateTable):
+        raise PolarisValidationError(f"Expected YRTRateTable, got {type(rate_table).__name__}.")
     cohorts: dict[str, dict[str, object]] = {}
     for key in sorted(rate_table.arrays.keys()):
         arr = rate_table.arrays[key]

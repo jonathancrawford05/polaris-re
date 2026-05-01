@@ -2053,6 +2053,16 @@ and the output writer from `write_rate_schedule_excel` to a new
   duration column — ADR-051 "Out of scope"). The Slice 4b heatmap
   will be visually flat-along-rows until this lands, which is an
   acceptable interim signal.
+- **`generate_table()` fill-in transparency disclosure.** The current
+  implementation expands any sparse age grid to a contiguous
+  `[min_age, max_age]` array and silently forward/back-fills unsolved
+  rows. Console and Excel output render filled rows identically to
+  solved rows. ADR-054 will pick between (a) marking filled rows
+  visually and (b) restricting the table range to only requested ages;
+  neither approach requires changes to `YRTRateTableArray`'s storage
+  contract or `YRTTreaty.apply()`'s consumption logic. Raised in PR
+  #39 review (Comment 4) — the current behaviour must not be
+  presented as a production deliverable without disclosure.
 
 **Tests:**
 

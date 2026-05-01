@@ -127,7 +127,11 @@ class TestRateScheduleTableCLI:
         assert "M_U" in payload["cohorts"]
         cohort = payload["cohorts"]["M_U"]
         assert {"min_age", "max_age", "select_period", "rates"} <= set(cohort.keys())
-        # Ages 30..40 -> 11 rows. select_period=0 -> 1 column.
+        # Ages 30..40: n_ages = max(30,40) - min(30,40) + 1 = 11 rows.
+        # Only ages 30 and 40 are solved; intermediate rows (31..39)
+        # are forward/back-filled by generate_table to satisfy
+        # YRTRateTableArray's contiguous-age storage contract
+        # (ADR-051 documented behaviour). select_period=0 → 1 column.
         assert len(cohort["rates"]) == 11
         assert all(len(row) == 1 for row in cohort["rates"])
 
@@ -154,7 +158,9 @@ class TestRateScheduleTableCLI:
         assert payload["select_period_years"] == 3
         cohort = payload["cohorts"]["M_U"]
         assert cohort["select_period"] == 3
-        # Each row has select_period + 1 = 4 columns.
+        # Each row has select_period + 1 = 4 columns. 11 rows from the
+        # contiguous age expansion (ages 30..40); see
+        # test_table_json_emits_cohort_dict for the fill-in rationale.
         assert all(len(row) == 4 for row in cohort["rates"])
         # Generated table broadcasts the per-age flat rate across cols
         # (ADR-051 / ADR-053 "Out of scope") — verify the row is constant.
@@ -205,3 +211,23 @@ class TestYrtRateTableJsonHelper:
         d = _yrt_rate_table_to_dict(self._make_table())
         # Empty `default` callback so non-serialisable objects raise.
         json.dumps(d)
+
+
+class TestHelperTypeGuards:
+    """`_render_yrt_rate_table` and `_yrt_rate_table_to_dict` use explicit
+    `raise PolarisValidationError` (not bare `assert`) so the guard holds
+    under `python -O`. PR #39 P1 fix.
+    """
+
+    def test_render_rejects_non_table(self) -> None:
+        from polaris_re.cli import _render_yrt_rate_table
+        from polaris_re.core.exceptions import PolarisValidationError
+
+        with pytest.raises(PolarisValidationError, match="Expected YRTRateTable"):
+            _render_yrt_rate_table("not a table", target_irr=0.10)
+
+    def test_to_dict_rejects_non_table(self) -> None:
+        from polaris_re.core.exceptions import PolarisValidationError
+
+        with pytest.raises(PolarisValidationError, match="Expected YRTRateTable"):
+            _yrt_rate_table_to_dict({"not": "a table"})

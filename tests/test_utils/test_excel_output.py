@@ -702,3 +702,36 @@ class TestWriteYrtRateTableExcel:
         assert "Sheet" not in wb.sheetnames
         # Only the two intentional sheets.
         assert set(wb.sheetnames) == {"Summary", "YRT Rate Table"}
+
+    def test_wide_select_period_column_widths(self, tmp_path: Path) -> None:
+        """`select_period >= 25` does not crash or corrupt column widths.
+
+        Regression for PR #39 P1: ``chr(ord("B") + col_offset)`` produced
+        invalid Excel column keys (`'['`, `'\\\\'`, ...) for select periods
+        past 24, even though `YRTRateTable.select_period_years` allows up
+        to 50. The fix uses ``openpyxl.utils.get_column_letter`` which
+        wraps to two-letter columns (`AA`, `AB`, ...) past Z.
+        """
+        from polaris_re.core.policy import Sex, SmokerStatus
+        from polaris_re.reinsurance.yrt_rate_table import YRTRateTable, YRTRateTableArray
+
+        # select_period=30 → 31 duration columns (dur_1 .. ultimate),
+        # data columns B .. AF (need two-letter columns past Z).
+        select_period = 30
+        rates = np.full((2, select_period + 1), 0.5, dtype=np.float64)
+        arr = YRTRateTableArray(rates=rates, min_age=30, max_age=31, select_period=select_period)
+        table = YRTRateTable.from_arrays(
+            table_name="wide-select",
+            arrays={(Sex.MALE, SmokerStatus.NON_SMOKER): arr},
+        )
+        out = tmp_path / "wide.xlsx"
+        write_yrt_rate_table_excel(table, out)
+        wb = load_workbook(out)
+        ws = wb["YRT Rate Table"]
+        # Column B holds dur_1; column AF (= index 32) holds the ultimate.
+        # Both must have the explicit width set (14.0) by the loop.
+        assert ws.column_dimensions["B"].width == 14
+        assert ws.column_dimensions["AF"].width == 14
+        # And no corrupt non-letter keys (e.g. '[') made it in.
+        for key in ws.column_dimensions:
+            assert key.isalpha(), f"corrupt column key {key!r}"

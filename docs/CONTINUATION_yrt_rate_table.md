@@ -353,77 +353,84 @@ treaty consumption (Slice 2), schedule generation via brentq solver
     per-age flat rate across every duration column).
   - Wire the loaded table through the dashboard pricing flow so
     users can run a deal end-to-end with an uploaded table.
+  - **Fix `generate_table()` fill-in transparency.** The current
+    implementation expands the solved age grid to a contiguous
+    `[min_age, max_age]` array and forward/back-fills unsolved rows
+    silently. `_render_yrt_rate_table` renders filled rows
+    identically to solved rows, so a reviewer cannot distinguish
+    brentq-solved rates from interpolated fill-in (observed on
+    `--ages 30,40 --select-period 3`: ages 31–39 all show 1.8365,
+    a flat extrapolation from age 30). ADR-054 must pick one of:
+    (a) mark filled rows in the console/Excel output with a visual
+    flag, or (b) restrict the generated table's age range to only
+    the requested ages and let consumption-side clipping handle
+    out-of-range lookup. The current behaviour must not be
+    presented as a production deliverable without disclosure. See
+    PR #39 review (Comment 5) for the full discussion.
 
 ## Context for Next Session
 
-- The Slice 1 module is **completely standalone**: it imports only
-  from `polaris_re.core.base`, `polaris_re.core.exceptions`, and
-  `polaris_re.core.policy`. It does not import `YRTTreaty`,
-  `CashFlowResult`, or any pipeline machinery. Slice 2's integration
-  boundary is `YRTTreaty.apply()`.
-- The lookup contract is **annual dollars per $1,000 NAR**. Slice 2
-  must convert with `/12 / 1000` to match the units of the existing
-  flat-rate calculation. The current flat-rate code at
-  `reinsurance/yrt.py:120` is the canonical reference: `monthly_rate_per_dollar = self.flat_yrt_rate_per_1000 / 12.0 / 1000.0`.
-- The `(sex, smoker)` grouping for lookup means Slice 2 needs an
-  inforce split. The pattern is already used in product engines (see
-  `TermLife._build_rate_arrays`), where the inforce is split by
-  (sex, smoker) before calling `MortalityTable.get_qx_vector`. Slice
-  2 can borrow that pattern verbatim.
-- The current YRT aggregate-NAR approximation is
-  `total_face_t = total_face_amount * inforce_ratio_t` where
-  `inforce_ratio_t = gross.gross_premiums[t] / gross.gross_premiums[0]`
-  (see `reinsurance/yrt.py:106-114`). For per-policy tabular rates,
-  Slice 2 needs a per-policy in-force factor. Two options:
-  (a) project per-policy `lx[p, t]` via the product engine's seriatim
-  output (requires `gross.seriatim_premiums is not None`), or
-  (b) approximate per-policy inforce by scaling each policy's
-  initial face by the same aggregate runoff ratio. Option (a) is more
-  accurate but requires the product engine to populate the seriatim
-  arrays; option (b) is a wash on aggregate but loses per-policy age
-  drift. The Slice 2 ADR should pick one and document the trade-off.
-- The synthetic fixture pattern in Slice 1 tests
-  (`base_rate + age_slope * i + duration_slope * j`) is reused
-  across many tests — refactor into a fixture if Slice 2 needs more
-  than two new test files.
-- The `arrays` field on `YRTRateTable` is `exclude=True` so it does
-  not serialize via `model_dump()` (matching the `MortalityTable`
-  convention — large numpy arrays are not JSON-friendly). When Slice
-  3 wires the API, the request will carry a path or rate-table-id,
-  not the array values themselves.
+- **`write_yrt_rate_table_excel` is the canonical writer for Slice 4b.**
+  The dashboard download button should call it directly after parsing
+  uploaded CSV bytes in-process via `YRTRateTable.from_arrays(...)`. No
+  duplication needed.
+- **`_yrt_rate_table_to_dict` lives in `cli.py` for now.** If Slice 4b's
+  dashboard preview needs the JSON helper, lift it (and
+  `_render_yrt_rate_table`) into `utils/yrt_rate_table_io.py` before
+  introducing a second call site.
+- **Dashboard upload UX is the primary ADR-054 decision.** Streamlit
+  `st.file_uploader` does not natively accept directories; choose one of:
+  (a) zip upload unzipped in-process, (b) per-cohort multi-file selector,
+  (c) single multi-cohort CSV with `sex`/`smoker` columns. The ADR-052
+  CSV schema is locked at `age,dur_1,...,dur_N,ultimate` per cohort file;
+  option (c) would require a new format and a new loader.
+- **`generate_table()` fill-in transparency must be resolved before the
+  CLI output can be used as a deliverable.** See Slice 4b scope above and
+  ADR-053 "Out of scope". The fix is either visual disclosure (Option A)
+  or restricting the table to requested ages (Option B); the trade-off
+  is whether to preserve the contiguous storage model or adjust the
+  consumption-side clipping assumption.
+- **Per-duration solver is still deferred.** The heatmap in Slice 4b will
+  be visually flat-along-rows (broadcast from generate_table). An interim
+  caption — "Rates are age-banded; per-duration variation requires a
+  CSV-loaded table" — is acceptable for the Slice 4b dashboard.
+- **Column-width fix landed in PR #39 (Slice 4a P1 review).**
+  `_write_yrt_rate_table_sheet` now uses
+  `openpyxl.utils.get_column_letter(col_offset + 2)` instead of
+  `chr(ord("B") + col_offset)`, so wide select periods (>= 25) render
+  correctly. Slice 4b's per-duration solver will commonly produce
+  longer select periods — no further action needed here.
 
-## Open Questions (for human)
+## Open Questions (for human) — all resolved as of Slice 4a
 
 1. **Slice 2 per-policy inforce projection: seriatim vs aggregate
-   approximation?** The flat-rate path uses the aggregate-runoff-
-   ratio approximation, which is fine for a single rate but
-   under-specifies rate progression for tabular rates (every policy
-   ages at the same per-month rate, but the LX-weighted average age
-   drifts upward as younger / healthier policies persist). Option
-   (a) seriatim is more accurate; option (b) aggregate-runoff
-   preserves the existing approximation but doesn't fully resolve the
-   PRODUCT_DIRECTION concern. Default for Slice 2: **(a) seriatim**,
-   with a fallback to (b) when seriatim arrays are absent. ADR-051
-   to document.
+   approximation?**
+   **RESOLVED — seriatim default with aggregate fallback, ADR-051
+   (2026-04-28).** Seriatim is the default when `gross.seriatim_lx`
+   and `gross.seriatim_reserves` are populated; aggregate
+   face-weighted fallback when they are absent. The CLI forces
+   `seriatim=True` for any tabular run (Slice 3, ADR-052), so the
+   degraded aggregate path is not reachable from the standard user
+   workflow.
 2. **Precedence when both `flat_yrt_rate_per_1000` and
    `yrt_rate_table` are set on the same `YRTTreaty`?**
    **RESOLVED — raise `PolarisValidationError` if both are set**
    (PR #36 reviewer, 2026-04-27). The reviewer flagged that
    silent table-wins could mask a copy-paste error in deal
-   configuration, so Slice 2 must enforce mutual exclusion at
-   `YRTTreaty` model-validator time. The validator should produce
-   a clear error message naming both fields. ADR-051 will
-   document the choice.
-3. **CSV format for the YRT rate table** (Slice 3) — mirror the
-   mortality CSV (one file per (sex, smoker)) or a single CSV with
-   sex/smoker columns? Default: mirror mortality format for
-   consistency with the existing actuarial CSV ecosystem.
-4. **`YRTRateSchedule.generate_table(...)` axis grid** — which
-   ages, sexes, smokers, and durations to solve over by default?
-   Default proposal for Slice 2: ages 25..85 step 5, both sexes,
-   both smoker statuses, durations 0..30 (matches the typical
-   industry rate-table cell count of ~600 cells, brentq-feasible
-   in seconds).
+   configuration, so Slice 2 enforces mutual exclusion at
+   `YRTTreaty` model-validator time. ADR-051 documents the choice.
+3. **CSV format for the YRT rate table** (Slice 3).
+   **RESOLVED — one file per (sex, smoker), schema locked in
+   ADR-052 (2026-04-29).** `age,dur_1,...,dur_N,ultimate` per
+   cohort file, mirroring the mortality CSV convention.
+4. **`YRTRateSchedule.generate_table(...)` axis grid.**
+   **RESOLVED — ADR-051/053 (2026-04-28/30).** `generate_table()`
+   defaults to ages 25..85 step 5, both sexes, both smoker statuses,
+   `select_period_years=0`. The CLI `--ages` flag overrides the age
+   list and `--select-period` overrides the select period. Note: the
+   `polaris rate-schedule --ages` CLI default (25,30,...,65) is the
+   demo subset — intentionally narrower than the `generate_table()`
+   full grid (25..85). Both are configurable.
 
 When all slices are DONE, update Status to COMPLETE. With Slice 4a
 shipped, the actuary-deliverable production path is complete: a

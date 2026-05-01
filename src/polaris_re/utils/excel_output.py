@@ -563,6 +563,7 @@ def _write_yrt_rate_table_sheet(wb: "Workbook", table: "YRTRateTable") -> None:
     so the sheet is human-readable next to the source CSV (ADR-052).
     """
     from openpyxl.styles import Alignment, Font
+    from openpyxl.utils import get_column_letter
 
     ws = wb.create_sheet(title="YRT Rate Table")
     title_font = Font(bold=True, size=14)
@@ -612,8 +613,12 @@ def _write_yrt_rate_table_sheet(wb: "Workbook", table: "YRTRateTable") -> None:
         row_idx += 1
 
     ws.column_dimensions["A"].width = 12
+    # `get_column_letter(N)` handles columns past Z (PR #39 P1 fix —
+    # `chr(ord("B") + col_offset)` silently corrupted the column-width
+    # map for `select_period >= 25`, which is in-range per
+    # `YRTRateTable.select_period_years` (le=50).
     for col_offset in range(select_period + 1):
-        ws.column_dimensions[chr(ord("B") + col_offset)].width = 14
+        ws.column_dimensions[get_column_letter(col_offset + 2)].width = 14
 
 
 def write_yrt_rate_table_excel(table: "YRTRateTable", path: Path) -> None:
