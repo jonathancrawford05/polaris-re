@@ -2089,3 +2089,178 @@ before. All eight pre-existing `TestYRTRateSchedule` /
 `TestExcelOutput` / `TestGenerateTable` tests remain green
 unchanged. Golden regression baselines are unaffected (rate-schedule
 is not part of the golden flat / YRT pricing harness).
+
+
+---
+
+## ADR-054: Disclosure of forward/back-filled cells in `generate_table()` (YRT Slice 4b-1)
+
+**Status:** Accepted (2026-05-01)
+
+**Context:**
+
+`YRTRateSchedule.generate_table(...)` (introduced in ADR-051,
+surfaced in ADR-053) takes a sparse list of ages and produces a
+`YRTRateTable` whose `YRTRateTableArray` storage is contiguous from
+`min(ages)` to `max(ages)`. The brentq solver only runs at the
+explicitly requested ages; the intermediate rows are silently
+forward/back-filled from the nearest solved row to satisfy the
+contiguous-storage contract.
+
+This was flagged in PR #39 (Slice 4a) review as a deliverable
+blocker: the CLI / Excel / JSON renderers display filled rows
+identically to solved rows. On the example
+`polaris rate-schedule --table --ages 30,40 --select-period 3`,
+ages 31..39 all display the same rate (forward-filled from age
+30), and a reviewer cannot tell which rates are authoritative.
+ADR-053 explicitly listed this as out of scope for Slice 4a.
+
+**Two candidate fixes were considered (per CONTINUATION):**
+
+A. **Mark filled rows visually** in console / Excel / JSON output.
+   Storage shape stays contiguous; consumers (`YRTTreaty.apply`)
+   stay unchanged. Renderers gain a per-cell solver-provenance
+   signal.
+
+B. **Restrict the generated table to only requested ages** —
+   either by storing a sparse table or by making the consumer
+   responsible for clamping to the table's effective age range.
+   This would change the `YRTRateTable` storage contract and
+   require corresponding changes in `YRTTreaty.apply` and any
+   future loaders.
+
+**Decision: Option A — visual disclosure via an optional
+`solved_mask`.**
+
+- Added an optional `solved_mask: np.ndarray | None = None` field
+  to `YRTRateTableArray`. The mask is a boolean array of the same
+  shape as `rates`; True = the cell came from a successful brentq
+  solve at a requested age, False = the cell was forward/back-filled.
+- Default `None` means "no provenance recorded — every cell is
+  authoritative." This matches the CSV-loaded path
+  (`YRTRateTable.load`) and any in-memory table built by callers
+  who supply a complete grid. Renderers fall back to the
+  pre-ADR-054 behaviour when the mask is absent.
+- `YRTRateSchedule.generate_table()` now constructs the mask
+  alongside the rates matrix, marking only the brentq-solved cells
+  True.
+- CLI `_render_yrt_rate_table()` appends `*` to the formatted rate
+  string for any False cell and prints a footer caption per cohort
+  when at least one cell is filled:
+  `* = forward/back-filled from a solved row (age was not directly solved; ADR-054).`
+- CLI `_yrt_rate_table_to_dict()` includes a `solved_mask`
+  (`list[list[bool]]`) per cohort when the field is set; CSV-loaded
+  tables omit the field entirely so machine consumers can detect
+  the difference.
+- Excel `_write_yrt_rate_table_sheet()` styles filled cells with
+  italic + grey font (`#666666`) and a `#EEEEEE` `PatternFill`. A
+  note row is inserted under the title when any cohort has filled
+  cells:
+  `Italic / grey-filled cells were forward/back-filled from a solved row (age not directly solved; ADR-054).`
+- Excel `write_yrt_rate_table_excel()` Summary sheet adds
+  `Solved cells: N` / `Filled cells: M` rows plus an explanatory
+  italic note when any cohort carries a `solved_mask`. The four
+  pre-existing Summary rows (table name, age range, select period,
+  cohort count, total cells) are unchanged.
+
+**Why Option A over B:**
+
+1. **Backward compatibility.** Storage contract on `YRTRateTable`
+   is unchanged — Slice 2's `YRTTreaty.apply()` consumption logic
+   does not branch on solver provenance and never sees the mask.
+   CSV-loaded tables (mask `None`) render byte-identically to
+   pre-ADR-054 output.
+2. **Minimum blast radius.** Loaders, the API surface, the
+   dashboard, and the deal-pricing Excel sheet all keep their
+   existing behaviour. Only the generator and three renderers
+   change.
+3. **More information surfaced.** Users who request a sparse age
+   grid still get a contiguous output (useful for downstream
+   consumption by `YRTTreaty.apply`'s clamping path) and can now
+   distinguish the solved bookends from the interpolated middle.
+4. **Option B's discoverability cost.** Restricting the table to
+   only requested ages would either require sparse storage (a new
+   contract) or would silently drop intermediate ages in lookups,
+   shifting the disclosure problem to the consumer side without
+   removing it.
+
+**Acceptance criteria:**
+
+- `polaris rate-schedule --table --ages 30,40 --json out.json`
+  produces a JSON `cohorts.M_U.solved_mask` with True at indices 0
+  and 10 and False at indices 1..9. ✅
+- `_render_yrt_rate_table` prints `1.5000*` (with the trailing
+  asterisk) for filled cells and `1.0000` (no asterisk) for solved
+  cells. ✅
+- `_render_yrt_rate_table` prints the disclosure caption once per
+  cohort when any cell is filled, and never when all cells are
+  solved. ✅
+- `_write_yrt_rate_table_sheet` styles filled cells with italic
+  font + `#EEEEEE` `PatternFill`; the note row at row 3 explains
+  the convention. ✅
+- `write_yrt_rate_table_excel` Summary sheet records the solved
+  and filled cell counts when a mask is present. ✅
+- CSV-loaded tables (`YRTRateTable.load(...)`, mask `None`) render
+  exactly as pre-ADR-054 output: no asterisks, no caption, no
+  italic styling, no NOTE row, no Summary count rows. ✅
+- `YRTRateTableArray` defensive-copies the supplied mask; mutation
+  of the caller's reference does not bypass storage. ✅
+
+**Out of scope (deferred to Slice 4b-2):**
+
+- Streamlit dashboard file-uploader for a tabular YRT rate file
+  / zip / multi-cohort CSV (ADR-052 left this open).
+- Heatmap preview per cohort in the dashboard.
+- True per-duration solver in
+  `YRTRateSchedule.generate_table()` (currently broadcasts the
+  per-age flat rate across every duration column —
+  ADR-051 / ADR-053 "Out of scope"). When the per-duration solver
+  lands, the per-cell `solved_mask` will become genuinely 2-D
+  (rather than uniform-along-rows) and the visual disclosure will
+  immediately surface that finer-grained provenance with no
+  additional work in renderers.
+- Loader-side provenance for CSV-imported tables. CSV cells are
+  always treated as authoritative; if a cedant supplies a sparse
+  CSV with explicit fill-in markers in the future, that needs a
+  new ADR.
+
+**Tests:**
+
+- `tests/test_reinsurance/test_yrt_rate_table.py::TestYRTRateTableArraySolvedMask`
+  (6 new) — default-None construction, round-trip, all-True is
+  fully solved, shape mismatch raises, integer dtype coerced to
+  bool, defensive copy on caller mutation.
+- `tests/test_analytics/test_rate_schedule.py::TestGenerateTableSolvedMask`
+  (3 new) — dense grid is fully solved, sparse grid marks
+  intermediate rows False, mask broadcasts uniformly across
+  select-period columns (matches the per-row broadcast contract
+  from ADR-051 / ADR-053).
+- `tests/test_analytics/test_cli_rate_schedule_table.py::TestSolvedMaskDisclosure`
+  (5 new) — render emits `*` and caption for filled cells, render
+  is unchanged when mask is None, JSON includes / omits
+  `solved_mask` per provenance, JSON is `json.dumps`-clean.
+- `tests/test_analytics/test_cli_rate_schedule_table.py::TestSolvedMaskCLIIntegration`
+  (1 new, `@pytest.mark.slow`) — end-to-end
+  `polaris rate-schedule --table --ages 30,40 --json` writes a
+  JSON `solved_mask` with True at the bookends and False between.
+- `tests/test_utils/test_excel_output.py::TestSolvedMaskDisclosureExcel`
+  (5 new) — italic font on filled cells, `#EEEEEE` fill on filled
+  cells, note row at row 3 contains the disclosure text, Summary
+  records solved/filled counts, no-mask path is byte-identical
+  (no NOTE row, no italic, no fill, no Summary count rows).
+
+**Backward compatibility:**
+
+`YRTRateTableArray` constructed without `solved_mask` is
+indistinguishable from a pre-ADR-054 instance: `solved_mask` is
+`None`, `is_fully_solved` is True, all renderers fall back to the
+pre-ADR-054 visual layout. CSV-loaded `YRTRateTable.load(...)`
+results carry no mask. The deal-pricing Excel workbook (ADR-052
+`_write_yrt_rate_table_sheet` consumer) is byte-identical when the
+attached `yrt_rate_table` has no mask. The pre-existing
+`TestYRTRateSchedule` / `TestExcelOutput` / `TestGenerateTable` /
+`TestYRTRateTableSheet` / `TestWriteYrtRateTableExcel` /
+`TestRateScheduleTableCLI` / `TestYrtRateTableJsonHelper` /
+`TestHelperTypeGuards` test suites all remain green unchanged.
+Golden regression baselines are unaffected (rate-schedule is not
+part of the golden flat / YRT pricing harness).
