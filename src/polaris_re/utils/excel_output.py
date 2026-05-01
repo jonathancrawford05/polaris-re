@@ -561,8 +561,16 @@ def _write_yrt_rate_table_sheet(wb: "Workbook", table: "YRTRateTable") -> None:
     blank row between blocks. Each block's header row labels the cohort
     and each rate row is ``[age, dur_1, dur_2, ..., dur_N, ultimate]``
     so the sheet is human-readable next to the source CSV (ADR-052).
+
+    Filled cells (rows whose rate was forward/back-filled by
+    ``YRTRateSchedule.generate_table`` rather than directly solved by
+    brentq) are rendered in italic with a light-grey fill so reviewers
+    can distinguish them from authoritative cells (ADR-054). When any
+    cohort carries a ``solved_mask`` and at least one cell is filled, a
+    note row is inserted below the title explaining the convention.
+    CSV-loaded tables (mask ``None``) render exactly as before.
     """
-    from openpyxl.styles import Alignment, Font
+    from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
 
     ws = wb.create_sheet(title="YRT Rate Table")
@@ -570,6 +578,8 @@ def _write_yrt_rate_table_sheet(wb: "Workbook", table: "YRTRateTable") -> None:
     header_font = Font(bold=True)
     cohort_font = Font(bold=True, italic=True)
     centre = Alignment(horizontal="center")
+    filled_font = Font(italic=True, color="666666")
+    filled_fill = PatternFill(start_color="EEEEEE", end_color="EEEEEE", fill_type="solid")
 
     ws.cell(row=1, column=1, value=f"YRT Rate Table — {table.table_name}").font = title_font
     ws.cell(
@@ -582,10 +592,23 @@ def _write_yrt_rate_table_sheet(wb: "Workbook", table: "YRTRateTable") -> None:
         ),
     )
 
+    has_any_filled = any(
+        arr.solved_mask is not None and not arr.is_fully_solved for arr in table.arrays.values()
+    )
+    if has_any_filled:
+        ws.cell(
+            row=3,
+            column=1,
+            value=(
+                "Italic / grey-filled cells were forward/back-filled from a "
+                "solved row (age not directly solved; ADR-054)."
+            ),
+        ).font = Font(italic=True, color="666666")
+
     select_period = table.select_period_years
     headers = ["Age"] + [f"dur_{i}" for i in range(1, select_period + 1)] + ["ultimate"]
 
-    row_idx = 4
+    row_idx = 5 if has_any_filled else 4
     for key in sorted(table.arrays.keys()):
         arr = table.arrays[key]
         # Cohort label.
@@ -598,6 +621,7 @@ def _write_yrt_rate_table_sheet(wb: "Workbook", table: "YRTRateTable") -> None:
             cell.alignment = centre
         row_idx += 1
         # Data rows: one per attained age in the cohort.
+        mask = arr.solved_mask
         for age_offset in range(arr.rates.shape[0]):
             age = arr.min_age + age_offset
             ws.cell(row=row_idx, column=1, value=age)
@@ -608,6 +632,10 @@ def _write_yrt_rate_table_sheet(wb: "Workbook", table: "YRTRateTable") -> None:
                     value=float(arr.rates[age_offset, col_offset]),
                 )
                 rate_cell.number_format = "0.0000"
+                is_solved = True if mask is None else bool(mask[age_offset, col_offset])
+                if not is_solved:
+                    rate_cell.font = filled_font
+                    rate_cell.fill = filled_fill
             row_idx += 1
         # Blank row between cohorts.
         row_idx += 1
@@ -665,6 +693,34 @@ def write_yrt_rate_table_excel(table: "YRTRateTable", path: Path) -> None:
     ws_summary.cell(row=6, column=1, value=f"Cohorts: {len(table.arrays)}")
     n_cells = sum(int(arr.rates.size) for arr in table.arrays.values())
     ws_summary.cell(row=7, column=1, value=f"Total rate cells: {n_cells}")
+
+    # Solved / filled disclosure (ADR-054). Only emitted when the table
+    # was generated with per-cell solver provenance — CSV-loaded tables
+    # leave ``solved_mask`` as None and continue to render only the
+    # rows above.
+    n_solved = 0
+    n_filled = 0
+    any_mask = False
+    for arr in table.arrays.values():
+        if arr.solved_mask is None:
+            continue
+        any_mask = True
+        solved_count = int(arr.solved_mask.sum())
+        n_solved += solved_count
+        n_filled += int(arr.solved_mask.size) - solved_count
+    if any_mask:
+        ws_summary.cell(row=8, column=1, value=f"Solved cells: {n_solved}")
+        ws_summary.cell(row=9, column=1, value=f"Filled cells: {n_filled}")
+        ws_summary.cell(
+            row=10,
+            column=1,
+            value=(
+                "Filled cells were forward/back-filled from a solved row "
+                "(ADR-054) — they are visually distinguished on the rate "
+                "sheet by italic text and a light-grey fill."
+            ),
+        ).font = Font(italic=True, color="666666")
+
     ws_summary.column_dimensions["A"].width = 40
 
     _write_yrt_rate_table_sheet(wb, table)

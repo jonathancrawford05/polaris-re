@@ -231,3 +231,119 @@ class TestHelperTypeGuards:
 
         with pytest.raises(PolarisValidationError, match="Expected YRTRateTable"):
             _yrt_rate_table_to_dict({"not": "a table"})
+
+
+class TestSolvedMaskDisclosure:
+    """ADR-054 — disclosure of forward/back-filled cells in CLI / JSON output."""
+
+    def _build_partially_solved_table(self) -> YRTRateTable:
+        """Two-cohort table where one row is filled and others are solved."""
+        import numpy as np
+
+        rates = np.array([[1.0], [1.5], [2.0]], dtype=np.float64)
+        # First and last rows are solved; the middle row was filled in.
+        mask = np.array([[True], [False], [True]], dtype=np.bool_)
+        arr = YRTRateTableArray(
+            rates=rates,
+            min_age=40,
+            max_age=42,
+            select_period=0,
+            solved_mask=mask,
+        )
+        return YRTRateTable.from_arrays(
+            table_name="partial",
+            arrays={(Sex.MALE, SmokerStatus.UNKNOWN): arr},
+        )
+
+    def _build_no_mask_table(self) -> YRTRateTable:
+        """CSV-loaded-style table — no provenance recorded."""
+        import numpy as np
+
+        rates = np.array([[1.0], [1.5], [2.0]], dtype=np.float64)
+        arr = YRTRateTableArray(rates=rates, min_age=40, max_age=42, select_period=0)
+        return YRTRateTable.from_arrays(
+            table_name="no-mask",
+            arrays={(Sex.MALE, SmokerStatus.UNKNOWN): arr},
+        )
+
+    def test_render_marks_filled_cells_with_asterisk(self, capsys) -> None:
+        """Filled cells render with a trailing ``*``; solved cells do not."""
+        from polaris_re.cli import _render_yrt_rate_table
+
+        table = self._build_partially_solved_table()
+        _render_yrt_rate_table(table, target_irr=0.10)
+        out = capsys.readouterr().out
+        # Solved rows render the bare 4-decimal value.
+        assert "1.0000" in out
+        assert "2.0000" in out
+        # Filled row carries the asterisk suffix.
+        assert "1.5000*" in out
+        # Caption explaining the convention is printed once for the cohort.
+        assert "forward/back-filled" in out
+
+    def test_render_no_mask_is_unchanged(self, capsys) -> None:
+        """CSV-loaded tables render exactly as before — no asterisks, no caption."""
+        from polaris_re.cli import _render_yrt_rate_table
+
+        table = self._build_no_mask_table()
+        _render_yrt_rate_table(table, target_irr=0.10)
+        out = capsys.readouterr().out
+        assert "1.0000" in out
+        assert "2.0000" in out
+        # No asterisk on any cell.
+        assert "*" not in out
+        # No disclosure caption.
+        assert "forward/back-filled" not in out
+
+    def test_to_dict_includes_solved_mask_when_present(self) -> None:
+        """JSON helper carries ``solved_mask`` per cohort when set."""
+        d = _yrt_rate_table_to_dict(self._build_partially_solved_table())
+        cohort = d["cohorts"]["M_U"]
+        assert "solved_mask" in cohort
+        assert cohort["solved_mask"] == [[True], [False], [True]]
+
+    def test_to_dict_omits_solved_mask_when_absent(self) -> None:
+        """JSON helper omits ``solved_mask`` when no provenance is recorded."""
+        d = _yrt_rate_table_to_dict(self._build_no_mask_table())
+        cohort = d["cohorts"]["M_U"]
+        assert "solved_mask" not in cohort
+
+    def test_to_dict_solved_mask_is_json_serialisable(self) -> None:
+        """Ensure the mask survives ``json.dumps`` without a custom encoder."""
+        d = _yrt_rate_table_to_dict(self._build_partially_solved_table())
+        json.dumps(d)
+
+
+@pytest.mark.slow
+class TestSolvedMaskCLIIntegration:
+    """End-to-end: ``rate-schedule --table`` JSON output discloses fill-in."""
+
+    def test_sparse_ages_disclose_filled_rows_in_json(self, tmp_path: Path) -> None:
+        """`--ages 30,40` writes a JSON ``solved_mask`` with True at the bookends."""
+        out = tmp_path / "table.json"
+        result = runner.invoke(
+            app,
+            [
+                "rate-schedule",
+                "--table",
+                "--ages",
+                _FAST_AGES,  # "30,40"
+                "--term",
+                _FAST_TERM,
+                "--json",
+                str(out),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(out.read_text())
+        cohort = payload["cohorts"]["M_U"]
+        assert "solved_mask" in cohort
+        mask = cohort["solved_mask"]
+        # Ages 30..40 inclusive = 11 rows; select_period=0 → 1 col.
+        assert len(mask) == 11
+        assert all(len(row) == 1 for row in mask)
+        # Bookends solved by brentq, intermediates filled.
+        assert mask[0] == [True]  # age 30
+        assert mask[10] == [True]  # age 40
+        for i in range(1, 10):
+            assert mask[i] == [False], f"intermediate age offset {i} should be filled"

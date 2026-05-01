@@ -129,6 +129,94 @@ class TestYRTRateTableArrayConstruction:
         np.testing.assert_allclose(out, np.array([1.0, 2.0, 3.0]), rtol=1e-12)
 
 
+class TestYRTRateTableArraySolvedMask:
+    """ADR-054 — optional ``solved_mask`` for solver-provenance tracking."""
+
+    def test_default_mask_is_none(self) -> None:
+        """Omitting ``solved_mask`` keeps the field None (CSV-loaded default)."""
+        arr = _build_array()
+        assert arr.solved_mask is None
+        # ``is_fully_solved`` reports True when no mask is recorded — matches
+        # the CSV-loaded contract (every loaded cell is authoritative).
+        assert arr.is_fully_solved is True
+
+    def test_mask_round_trip(self) -> None:
+        """Construction with a mask preserves the boolean values."""
+        rates = np.ones((3, 2), dtype=np.float64)
+        mask = np.array(
+            [[True, True], [False, False], [True, False]],
+            dtype=np.bool_,
+        )
+        arr = YRTRateTableArray(
+            rates=rates,
+            min_age=40,
+            max_age=42,
+            select_period=1,
+            solved_mask=mask,
+        )
+        assert arr.solved_mask is not None
+        assert arr.solved_mask.shape == (3, 2)
+        assert arr.solved_mask[0, 0] is np.True_ or arr.solved_mask[0, 0]
+        assert not arr.solved_mask[1, 0]
+        assert arr.is_fully_solved is False
+
+    def test_mask_all_true_reports_fully_solved(self) -> None:
+        """A mask of all True is equivalent to None for ``is_fully_solved``."""
+        rates = np.ones((3, 2), dtype=np.float64)
+        mask = np.ones((3, 2), dtype=np.bool_)
+        arr = YRTRateTableArray(
+            rates=rates,
+            min_age=40,
+            max_age=42,
+            select_period=1,
+            solved_mask=mask,
+        )
+        assert arr.is_fully_solved is True
+
+    def test_mask_shape_mismatch_raises(self) -> None:
+        rates = np.ones((3, 2), dtype=np.float64)
+        bad_mask = np.ones((3, 3), dtype=np.bool_)
+        with pytest.raises(PolarisValidationError, match="solved_mask shape"):
+            YRTRateTableArray(
+                rates=rates,
+                min_age=40,
+                max_age=42,
+                select_period=1,
+                solved_mask=bad_mask,
+            )
+
+    def test_mask_int_dtype_coerced_to_bool(self) -> None:
+        """Integer mask is coerced to bool (anything non-zero becomes True)."""
+        rates = np.ones((3, 2), dtype=np.float64)
+        mask_int = np.array([[1, 0], [0, 1], [1, 1]], dtype=np.int32)
+        arr = YRTRateTableArray(
+            rates=rates,
+            min_age=40,
+            max_age=42,
+            select_period=1,
+            solved_mask=mask_int,
+        )
+        assert arr.solved_mask is not None
+        assert arr.solved_mask.dtype == np.bool_
+        assert bool(arr.solved_mask[0, 0]) is True
+        assert bool(arr.solved_mask[0, 1]) is False
+
+    def test_mask_caller_mutation_does_not_corrupt_stored_mask(self) -> None:
+        """Defensive copy: post-construction caller mutation does not leak in."""
+        rates = np.ones((3, 2), dtype=np.float64)
+        mask = np.ones((3, 2), dtype=np.bool_)
+        arr = YRTRateTableArray(
+            rates=rates,
+            min_age=40,
+            max_age=42,
+            select_period=1,
+            solved_mask=mask,
+        )
+        mask[0, 0] = False
+        assert arr.solved_mask is not None
+        assert bool(arr.solved_mask[0, 0]) is True
+
+
 class TestYRTRateTableArrayLookup:
     """Closed-form scalar and vector lookup."""
 

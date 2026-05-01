@@ -1674,7 +1674,14 @@ def rate_schedule_cmd(
 
 
 def _render_yrt_rate_table(rate_table: object, target_irr: float) -> None:
-    """Print one Rich table per cohort for a generated ``YRTRateTable``."""
+    """Print one Rich table per cohort for a generated ``YRTRateTable``.
+
+    Cells whose rate was forward/back-filled (rather than directly solved
+    by brentq) are marked with a trailing ``*`` so reviewers can
+    distinguish authoritative cells from interpolated fill-in (ADR-054).
+    A footer caption is printed once per cohort whenever any cell in
+    that cohort is filled.
+    """
     from polaris_re.reinsurance.yrt_rate_table import YRTRateTable
 
     if not isinstance(rate_table, YRTRateTable):
@@ -1689,17 +1696,34 @@ def _render_yrt_rate_table(rate_table: object, target_irr: float) -> None:
         rich_tbl = Table(title=title)
         for h in headers:
             rich_tbl.add_column(h, justify="right" if h != "Age" else "center")
+        mask = arr.solved_mask
         for age_offset in range(arr.rates.shape[0]):
             age_val = arr.min_age + age_offset
             row_cells: list[str] = [str(age_val)]
             for col_offset in range(arr.rates.shape[1]):
-                row_cells.append(f"{float(arr.rates[age_offset, col_offset]):.4f}")
+                rate = float(arr.rates[age_offset, col_offset])
+                is_solved = True if mask is None else bool(mask[age_offset, col_offset])
+                suffix = "" if is_solved else "*"
+                row_cells.append(f"{rate:.4f}{suffix}")
             rich_tbl.add_row(*row_cells)
         console.print(rich_tbl)
+        if not arr.is_fully_solved:
+            console.print(
+                "[dim italic]"
+                "* = forward/back-filled from a solved row "
+                "(age was not directly solved; ADR-054)."
+                "[/dim italic]"
+            )
 
 
 def _yrt_rate_table_to_dict(rate_table: object) -> dict[str, object]:
-    """Serialise a ``YRTRateTable`` to a JSON-friendly dict."""
+    """Serialise a ``YRTRateTable`` to a JSON-friendly dict.
+
+    Each cohort dict carries a ``solved_mask`` (``list[list[bool]]``)
+    when the table was generated with per-cell solver provenance
+    (ADR-054). CSV-loaded tables omit the field (mask is ``None``)
+    because every loaded cell is authoritative.
+    """
     from polaris_re.reinsurance.yrt_rate_table import YRTRateTable
 
     if not isinstance(rate_table, YRTRateTable):
@@ -1707,12 +1731,15 @@ def _yrt_rate_table_to_dict(rate_table: object) -> dict[str, object]:
     cohorts: dict[str, dict[str, object]] = {}
     for key in sorted(rate_table.arrays.keys()):
         arr = rate_table.arrays[key]
-        cohorts[key] = {
+        entry: dict[str, object] = {
             "min_age": int(arr.min_age),
             "max_age": int(arr.max_age),
             "select_period": int(arr.select_period),
             "rates": arr.rates.tolist(),
         }
+        if arr.solved_mask is not None:
+            entry["solved_mask"] = arr.solved_mask.tolist()
+        cohorts[key] = entry
     return {
         "table_name": rate_table.table_name,
         "min_age": int(rate_table.min_age),

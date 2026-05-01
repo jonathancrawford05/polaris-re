@@ -2,11 +2,15 @@
 
 **Source:** PRODUCT_DIRECTION_2026-04-19.md — IMPORTANT (last item in
 the IMPORTANT list, "YRT rate schedule by age × duration")
-**Status:** IN PROGRESS — Slice 4a shipped 2026-04-30; Slice 4b
-(dashboard upload + heatmap + per-duration solver) PLANNED
-**Total slices:** 5 (re-decomposed: Slice 3 split into 3/4 in the
-prior session; Slice 4 split into 4a/4b in this session because the
-dashboard work is materially different in scope from the CLI flag)
+**Status:** IN PROGRESS — Slice 4a shipped 2026-04-30; Slice 4b-1
+(fill-in transparency / ADR-054) shipped 2026-05-01; Slice 4b-2
+(dashboard upload + heatmap + optional per-duration solver) PLANNED
+**Total slices:** 6 (re-decomposed: Slice 3 split into 3/4 in an
+earlier session; Slice 4 split into 4a/4b in the previous session
+because the dashboard work is materially different in scope from the
+CLI flag; Slice 4b further split into 4b-1 / 4b-2 in this session
+because the fill-in transparency disclosure is a deliverable
+blocker that does not depend on dashboard wiring)
 **Estimated total scope:** ~5 dev-days
 
 ## Overall Goal
@@ -336,9 +340,101 @@ treaty consumption (Slice 2), schedule generation via brentq solver
     will be visually flat-along-rows until this lands; an interim
     note in the dashboard caption is acceptable.
 
-### Slice 4b: Dashboard file-uploader + heatmap (+ optional per-duration solver)
+### Slice 4b-1: `generate_table()` fill-in transparency (ADR-054)
+- **Status:** DONE (this session, 2026-05-01)
+- **Branch:** `claude/lucid-hawking-1lHD3`
+- **PR:** (draft; opened by this session)
+- **What was done:**
+  - Picked **Option A** from the prior CONTINUATION (visual
+    disclosure via an optional `solved_mask` field on
+    `YRTRateTableArray`). Option B was rejected because it would
+    have changed the contiguous-storage contract that
+    `YRTTreaty.apply` and CSV-loaded tables both depend on.
+  - Added optional `solved_mask: np.ndarray | None = None` to
+    `YRTRateTableArray.__init__` plus an `is_fully_solved`
+    convenience property. Default `None` preserves byte-identical
+    behaviour for CSV-loaded tables and any in-memory caller that
+    builds a complete grid. Mask is shape-validated against
+    `rates`, defensive-copied, and integer dtype is coerced to
+    bool.
+  - `YRTRateSchedule.generate_table()` now constructs the mask in
+    parallel with the rates matrix. Cells solved by brentq at a
+    requested age → True; rows expanded by the contiguous-storage
+    requirement and forward/back-filled → False. Mask is broadcast
+    uniformly across the select-period columns (matches the per-row
+    rate broadcast contract from ADR-051 / ADR-053).
+  - CLI `_render_yrt_rate_table()` appends `*` to filled rates and
+    prints a per-cohort caption when any cell is filled. CLI
+    `_yrt_rate_table_to_dict()` includes `solved_mask` per cohort
+    when set; CSV-loaded tables omit the field. Excel
+    `_write_yrt_rate_table_sheet()` styles filled cells with italic
+    + `#EEEEEE` `PatternFill`; a NOTE row at row 3 explains the
+    convention. `write_yrt_rate_table_excel()` Summary sheet adds
+    `Solved cells: N` / `Filled cells: M` rows + an explanatory
+    italic note when any cohort carries a mask.
+  - ADR-054 added to `docs/DECISIONS.md`.
+  - 19 new fast tests + 1 new slow test:
+    - `tests/test_reinsurance/test_yrt_rate_table.py::TestYRTRateTableArraySolvedMask`
+      (6) — default-None, round-trip, all-True is fully solved,
+      shape mismatch raises, int→bool coercion, defensive copy.
+    - `tests/test_analytics/test_rate_schedule.py::TestGenerateTableSolvedMask`
+      (3) — dense grid fully solved, sparse grid marks
+      intermediate rows False, mask broadcasts uniformly across
+      select-period columns.
+    - `tests/test_analytics/test_cli_rate_schedule_table.py::TestSolvedMaskDisclosure`
+      (5) — render `*` + caption for filled cells, render
+      unchanged when mask is None, JSON includes/omits per
+      provenance, JSON is `json.dumps`-clean.
+    - `tests/test_analytics/test_cli_rate_schedule_table.py::TestSolvedMaskCLIIntegration`
+      (1, `@pytest.mark.slow`) — end-to-end
+      `polaris rate-schedule --table --ages 30,40 --json` writes
+      `solved_mask` with True at indices 0/10 and False at
+      indices 1..9.
+    - `tests/test_utils/test_excel_output.py::TestSolvedMaskDisclosureExcel`
+      (5) — italic font on filled cells, `#EEEEEE` fill on filled
+      cells, NOTE row at row 3 contains the disclosure text,
+      Summary records solved/filled counts, no-mask path is
+      byte-identical (no NOTE row, no italic, no fill, no Summary
+      count rows).
+  - Full suite is now 909 non-slow (up from 890); QA suite
+    unchanged at 33/33; golden flat regression byte-identical
+    (purely additive change with default-None field).
+- **Acceptance criteria:**
+  - `polaris rate-schedule --table --ages 30,40 --json out.json`
+    produces a JSON `cohorts.M_U.solved_mask` with True at indices
+    0 and 10 and False at indices 1..9. ✅
+  - `_render_yrt_rate_table` prints `1.5000*` for filled cells
+    and `1.0000` for solved cells. ✅
+  - Disclosure caption printed once per cohort when any cell is
+    filled, never when all cells are solved. ✅
+  - Excel cells styled with italic + `#EEEEEE` `PatternFill` for
+    filled cells; NOTE row at row 3 explains the convention. ✅
+  - `write_yrt_rate_table_excel` Summary sheet records
+    Solved/Filled cell counts when a mask is present. ✅
+  - CSV-loaded tables (mask `None`) render exactly as
+    pre-ADR-054 output: no asterisks, no caption, no italic
+    styling, no NOTE row, no Summary count rows. ✅
+  - `YRTRateTableArray` defensive-copies the mask. ✅
+  - All 890 pre-existing non-slow tests still pass. ✅
+  - ADR-054 written. ✅
+- **Key decisions that affect Slice 4b-2:**
+  - **`solved_mask` is now part of the storage contract.** When
+    Slice 4b-2's per-duration solver lands, the mask becomes
+    genuinely 2-D (rather than uniform-along-rows) and the visual
+    disclosure surfaces the finer-grained provenance with no
+    additional renderer work.
+  - **Dashboard upload UX (the primary ADR-054 question listed in
+    the prior CONTINUATION) is now ADR-055's decision, not
+    ADR-054's.** ADR-054 is scoped purely to the disclosure
+    problem.
+  - **CSV-loaded tables remain mask-free.** Slice 4b-2's
+    dashboard upload path should construct `YRTRateTable` via
+    `YRTRateTable.from_arrays` with no mask, so renderers fall
+    back to the pre-ADR-054 layout for uploaded user data.
+
+### Slice 4b-2: Dashboard file-uploader + heatmap (+ optional per-duration solver)
 - **Status:** PLANNED
-- **Depends on:** Slice 4a merged
+- **Depends on:** Slice 4b-1 merged
 - **Scope:**
   - Streamlit dashboard pricing page: file-uploader for the rate
     table directory or zip; render a heatmap preview of the loaded
@@ -347,58 +443,52 @@ treaty consumption (Slice 2), schedule generation via brentq solver
   - Choose UX between (a) zip-only, (b) one-file-per-cohort with a
     form selector, or (c) a single multi-cohort CSV with
     `sex` / `smoker` columns. ADR-052 deliberately left this open;
-    Slice 4b's ADR-054 documents the pick.
+    Slice 4b-2's ADR-055 documents the pick.
   - Optional: a true per-duration solver in
     `YRTRateSchedule.generate_table()` (currently broadcasts the
-    per-age flat rate across every duration column).
+    per-age flat rate across every duration column). When this
+    lands, the per-cell `solved_mask` becomes genuinely 2-D and
+    the existing CLI / Excel / JSON renderers (ADR-054) surface
+    the finer provenance with no further changes.
   - Wire the loaded table through the dashboard pricing flow so
     users can run a deal end-to-end with an uploaded table.
-  - **Fix `generate_table()` fill-in transparency.** The current
-    implementation expands the solved age grid to a contiguous
-    `[min_age, max_age]` array and forward/back-fills unsolved rows
-    silently. `_render_yrt_rate_table` renders filled rows
-    identically to solved rows, so a reviewer cannot distinguish
-    brentq-solved rates from interpolated fill-in (observed on
-    `--ages 30,40 --select-period 3`: ages 31–39 all show 1.8365,
-    a flat extrapolation from age 30). ADR-054 must pick one of:
-    (a) mark filled rows in the console/Excel output with a visual
-    flag, or (b) restrict the generated table's age range to only
-    the requested ages and let consumption-side clipping handle
-    out-of-range lookup. The current behaviour must not be
-    presented as a production deliverable without disclosure. See
-    PR #39 review (Comment 5) for the full discussion.
 
 ## Context for Next Session
 
-- **`write_yrt_rate_table_excel` is the canonical writer for Slice 4b.**
+- **`write_yrt_rate_table_excel` is the canonical writer for Slice 4b-2.**
   The dashboard download button should call it directly after parsing
   uploaded CSV bytes in-process via `YRTRateTable.from_arrays(...)`. No
-  duplication needed.
-- **`_yrt_rate_table_to_dict` lives in `cli.py` for now.** If Slice 4b's
+  duplication needed. Uploaded user tables construct via `from_arrays`
+  with no mask — renderers fall back to the pre-ADR-054 layout.
+- **`_yrt_rate_table_to_dict` lives in `cli.py` for now.** If Slice 4b-2's
   dashboard preview needs the JSON helper, lift it (and
   `_render_yrt_rate_table`) into `utils/yrt_rate_table_io.py` before
   introducing a second call site.
-- **Dashboard upload UX is the primary ADR-054 decision.** Streamlit
+- **Dashboard upload UX is the primary ADR-055 decision.** Streamlit
   `st.file_uploader` does not natively accept directories; choose one of:
   (a) zip upload unzipped in-process, (b) per-cohort multi-file selector,
   (c) single multi-cohort CSV with `sex`/`smoker` columns. The ADR-052
   CSV schema is locked at `age,dur_1,...,dur_N,ultimate` per cohort file;
   option (c) would require a new format and a new loader.
-- **`generate_table()` fill-in transparency must be resolved before the
-  CLI output can be used as a deliverable.** See Slice 4b scope above and
-  ADR-053 "Out of scope". The fix is either visual disclosure (Option A)
-  or restricting the table to requested ages (Option B); the trade-off
-  is whether to preserve the contiguous storage model or adjust the
-  consumption-side clipping assumption.
-- **Per-duration solver is still deferred.** The heatmap in Slice 4b will
-  be visually flat-along-rows (broadcast from generate_table). An interim
-  caption — "Rates are age-banded; per-duration variation requires a
-  CSV-loaded table" — is acceptable for the Slice 4b dashboard.
+- **`generate_table()` fill-in transparency is RESOLVED.** ADR-054
+  shipped in this session via Option A (visual disclosure with
+  `solved_mask`). Renderers mark filled cells with `*` (CLI) /
+  italic + grey fill (Excel) / explicit `solved_mask` field (JSON).
+  The Slice 4b-2 dashboard heatmap should consume the same mask to
+  highlight filled cells in the matplotlib axis (e.g. hatched
+  overlay or reduced alpha).
+- **Per-duration solver is still deferred.** The heatmap in Slice 4b-2
+  will be visually flat-along-rows (broadcast from generate_table). An
+  interim caption — "Rates are age-banded; per-duration variation
+  requires a CSV-loaded table" — is acceptable for the Slice 4b-2
+  dashboard. When the per-duration solver lands, the per-cell
+  `solved_mask` becomes genuinely 2-D and the dashboard heatmap can
+  surface the finer provenance with no extra work in the renderers.
 - **Column-width fix landed in PR #39 (Slice 4a P1 review).**
   `_write_yrt_rate_table_sheet` now uses
   `openpyxl.utils.get_column_letter(col_offset + 2)` instead of
   `chr(ord("B") + col_offset)`, so wide select periods (>= 25) render
-  correctly. Slice 4b's per-duration solver will commonly produce
+  correctly. Slice 4b-2's per-duration solver will commonly produce
   longer select periods — no further action needed here.
 
 ## Open Questions (for human) — all resolved as of Slice 4a
@@ -436,5 +526,8 @@ When all slices are DONE, update Status to COMPLETE. With Slice 4a
 shipped, the actuary-deliverable production path is complete: a
 tabular schedule can be generated end-to-end from
 `polaris rate-schedule --table` and consumed via `polaris price
---yrt-rate-table` (Slice 3). Slice 4b (dashboard upload + heatmap +
-optional per-duration solver) remains.
+--yrt-rate-table` (Slice 3). With Slice 4b-1 shipped, the
+deliverable now discloses solver provenance — sparse-age generated
+tables visually distinguish brentq-solved rows from
+forward/back-filled rows in CLI / Excel / JSON output. Slice 4b-2
+(dashboard upload + heatmap + optional per-duration solver) remains.

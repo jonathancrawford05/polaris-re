@@ -204,6 +204,82 @@ class TestGenerateTable:
         assert ceded.gross_premiums.sum() > 0
 
 
+class TestGenerateTableSolvedMask:
+    """ADR-054 — ``generate_table()`` records per-cell solver provenance.
+
+    Sparse age inputs (e.g. ``ages=[30, 40]``) produce a table whose
+    ``YRTRateTableArray`` storage is contiguous from min to max age. The
+    ``solved_mask`` distinguishes brentq-solved rows (True) from rows
+    that were forward/back-filled to satisfy the contiguous-storage
+    contract (False). Renderers consume this to disclose interpolation;
+    consumption (``YRTTreaty.apply``) does not branch on it.
+    """
+
+    def test_dense_grid_is_fully_solved(self, assumptions, config):
+        """Every requested age is solved, so the mask is all True."""
+        scheduler = YRTRateSchedule(assumptions=assumptions, config=config)
+        table = scheduler.generate_table(
+            ages=[35, 36, 37],
+            sexes=[Sex.MALE],
+            smoker_statuses=[SmokerStatus.UNKNOWN],
+            policy_term=20,
+            select_period_years=0,
+        )
+        arr = table.arrays["M_U"]
+        assert arr.solved_mask is not None
+        assert arr.is_fully_solved
+        assert arr.solved_mask.shape == (3, 1)
+        assert bool(arr.solved_mask.all())
+
+    def test_sparse_grid_marks_filled_rows(self, assumptions, config):
+        """Unrequested intermediate ages are marked False in the mask."""
+        scheduler = YRTRateSchedule(assumptions=assumptions, config=config)
+        table = scheduler.generate_table(
+            ages=[35, 40],
+            sexes=[Sex.MALE],
+            smoker_statuses=[SmokerStatus.UNKNOWN],
+            policy_term=20,
+            select_period_years=0,
+        )
+        arr = table.arrays["M_U"]
+        # Storage is contiguous: ages 35..40 inclusive (6 rows). Only the
+        # bookend rows were solved by brentq.
+        assert arr.solved_mask is not None
+        assert arr.solved_mask.shape == (6, 1)
+        assert bool(arr.solved_mask[0, 0])  # age 35 — solved
+        assert bool(arr.solved_mask[5, 0])  # age 40 — solved
+        # Intermediate ages 36..39 were forward/back-filled.
+        for age_offset in (1, 2, 3, 4):
+            assert not bool(arr.solved_mask[age_offset, 0])
+        assert not arr.is_fully_solved
+
+    def test_mask_broadcasts_across_select_columns(self, assumptions, config):
+        """All select-period columns share the same per-row solved status.
+
+        Because ``generate_table`` broadcasts the per-age flat rate across
+        every duration column (ADR-051 / ADR-053 "Out of scope"), the
+        per-cell solved flag is also row-uniform: every column in a solved
+        row is True; every column in a filled row is False.
+        """
+        scheduler = YRTRateSchedule(assumptions=assumptions, config=config)
+        table = scheduler.generate_table(
+            ages=[35, 40],
+            sexes=[Sex.MALE],
+            smoker_statuses=[SmokerStatus.UNKNOWN],
+            policy_term=20,
+            select_period_years=3,
+        )
+        arr = table.arrays["M_U"]
+        assert arr.solved_mask is not None
+        assert arr.solved_mask.shape == (6, 4)
+        for age_offset in range(arr.solved_mask.shape[0]):
+            row = arr.solved_mask[age_offset, :]
+            assert bool(row.all()) or not bool(row.any()), (
+                f"row {age_offset} mask is mixed True/False; "
+                "broadcast contract requires uniform-by-row"
+            )
+
+
 class TestExcelOutput:
     """Tests for Excel rate schedule export."""
 

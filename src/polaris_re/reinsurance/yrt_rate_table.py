@@ -71,6 +71,15 @@ class YRTRateTableArray:
     Rates are quoted as annual dollars per $1,000 NAR. No upper bound is
     enforced (industry rates can exceed $50/$1,000 at advanced ages).
     Negative rates raise `PolarisValidationError`.
+
+    The optional ``solved_mask`` (ADR-054) is a boolean array of the same
+    shape as ``rates`` that marks which cells were directly solved by the
+    rate solver (True) vs forward/back-filled or interpolated (False).
+    The default ``None`` means "all cells are authoritative" — the case
+    for CSV-loaded tables and any in-memory table built from a complete
+    rate grid. Renderers (CLI / Excel / JSON) consult ``solved_mask`` to
+    visually disclose interpolated cells; consumers (``YRTTreaty.apply``)
+    do not branch on it.
     """
 
     def __init__(
@@ -79,6 +88,7 @@ class YRTRateTableArray:
         min_age: int,
         max_age: int,
         select_period: int,
+        solved_mask: np.ndarray | None = None,
     ) -> None:
         # Defensive copy + dtype promotion in one step. Storing the caller's
         # array by reference would let post-construction mutation silently
@@ -102,10 +112,25 @@ class YRTRateTableArray:
         if not np.all(np.isfinite(rates)):
             raise PolarisValidationError("YRT rates must be finite (no NaN/Inf).")
 
+        if solved_mask is not None:
+            mask = np.asarray(solved_mask, dtype=np.bool_).copy()
+            if mask.shape != rates.shape:
+                raise PolarisValidationError(
+                    f"solved_mask shape {mask.shape} must match rates shape {rates.shape}."
+                )
+            self.solved_mask: np.ndarray | None = mask
+        else:
+            self.solved_mask = None
+
         self.rates = rates
         self.min_age = int(min_age)
         self.max_age = int(max_age)
         self.select_period = int(select_period)
+
+    @property
+    def is_fully_solved(self) -> bool:
+        """True when every cell is authoritative (CSV-loaded or fully solved)."""
+        return self.solved_mask is None or bool(self.solved_mask.all())
 
     def get_rate(self, age: int, duration_years: int) -> float:
         """Single rate lookup. duration_years is capped at select_period."""

@@ -735,3 +735,122 @@ class TestWriteYrtRateTableExcel:
         # And no corrupt non-letter keys (e.g. '[') made it in.
         for key in ws.column_dimensions:
             assert key.isalpha(), f"corrupt column key {key!r}"
+
+
+# ---------------------------------------------------------------------------
+# Filled-cell disclosure (ADR-054) — visual styling + Summary count
+# ---------------------------------------------------------------------------
+
+
+def _make_partially_solved_table():
+    """Two-row cohort table with the second row marked as filled."""
+    from polaris_re.core.policy import Sex, SmokerStatus
+    from polaris_re.reinsurance.yrt_rate_table import YRTRateTable, YRTRateTableArray
+
+    rates = np.array([[1.0], [2.0]], dtype=np.float64)
+    mask = np.array([[True], [False]], dtype=np.bool_)
+    arr = YRTRateTableArray(
+        rates=rates,
+        min_age=40,
+        max_age=41,
+        select_period=0,
+        solved_mask=mask,
+    )
+    return YRTRateTable.from_arrays(
+        table_name="partial",
+        arrays={(Sex.MALE, SmokerStatus.UNKNOWN): arr},
+    )
+
+
+class TestSolvedMaskDisclosureExcel:
+    """ADR-054 — Excel surfaces disclose forward/back-filled cells."""
+
+    def test_filled_cell_is_italic(self, tmp_path: Path) -> None:
+        """Cells with mask False render in italic font."""
+        table = _make_partially_solved_table()
+        out = tmp_path / "partial.xlsx"
+        write_yrt_rate_table_excel(table, out)
+        ws = load_workbook(out)["YRT Rate Table"]
+        # Find the two data cells. Layout per ``_write_yrt_rate_table_sheet``:
+        # title row 1, age-range row 2, NOTE row 3 (because mask present),
+        # blank row 4, cohort label row 5, header row 6, data rows 7 & 8.
+        solved_cell = ws["B7"]
+        filled_cell = ws["B8"]
+        assert solved_cell.value == 1.0
+        assert filled_cell.value == 2.0
+        assert solved_cell.font.italic is False
+        assert filled_cell.font.italic is True
+
+    def test_filled_cell_has_grey_fill(self, tmp_path: Path) -> None:
+        """Cells with mask False render with a light-grey ``PatternFill``."""
+        table = _make_partially_solved_table()
+        out = tmp_path / "partial.xlsx"
+        write_yrt_rate_table_excel(table, out)
+        ws = load_workbook(out)["YRT Rate Table"]
+        filled_cell = ws["B8"]
+        # ``EEEEEE`` (defined in `_write_yrt_rate_table_sheet`) is the disclosure colour.
+        # openpyxl serialises it as ``00EEEEEE`` (alpha-prefixed), so check the suffix.
+        fg = filled_cell.fill.fgColor.rgb if filled_cell.fill.fgColor is not None else ""
+        assert "EEEEEE" in (fg or "").upper()
+
+    def test_disclosure_note_row_present(self, tmp_path: Path) -> None:
+        """Row 3 carries the human-readable note when any cohort has filled cells."""
+        table = _make_partially_solved_table()
+        out = tmp_path / "partial.xlsx"
+        write_yrt_rate_table_excel(table, out)
+        ws = load_workbook(out)["YRT Rate Table"]
+        note = str(ws.cell(row=3, column=1).value or "")
+        assert "forward/back-filled" in note
+        assert "ADR-054" in note
+
+    def test_summary_carries_solved_filled_counts(self, tmp_path: Path) -> None:
+        """The Summary sheet records solved- and filled-cell counts when masked."""
+        table = _make_partially_solved_table()
+        out = tmp_path / "partial.xlsx"
+        write_yrt_rate_table_excel(table, out)
+        ws = load_workbook(out)["Summary"]
+        cells = [str(ws.cell(row=r, column=1).value or "") for r in range(1, 12)]
+        assert any("Solved cells: 1" in c for c in cells)
+        assert any("Filled cells: 1" in c for c in cells)
+
+    def test_no_mask_renders_unchanged(self, tmp_path: Path) -> None:
+        """CSV-loaded tables (mask None) keep the pre-ADR-054 layout.
+
+        - Title at row 1
+        - Age-range row at row 2
+        - NO note row at row 3
+        - Cohort label at row 4
+        - No italic / no light-grey fill on data cells
+        - Summary lacks the Solved / Filled count rows
+        """
+        from polaris_re.core.policy import Sex, SmokerStatus
+        from polaris_re.reinsurance.yrt_rate_table import YRTRateTable, YRTRateTableArray
+
+        rates = np.array([[1.0], [2.0]], dtype=np.float64)
+        arr = YRTRateTableArray(rates=rates, min_age=40, max_age=41, select_period=0)
+        table = YRTRateTable.from_arrays(
+            table_name="loaded",
+            arrays={(Sex.MALE, SmokerStatus.UNKNOWN): arr},
+        )
+        out = tmp_path / "loaded.xlsx"
+        write_yrt_rate_table_excel(table, out)
+
+        wb = load_workbook(out)
+        ws = wb["YRT Rate Table"]
+        # Cohort label sits at the original row 4 (no NOTE row inserted).
+        assert "Cohort:" in str(ws.cell(row=4, column=1).value)
+        # Data rows at 6 & 7 (header at 5).
+        c1 = ws["B6"]
+        c2 = ws["B7"]
+        assert c1.font.italic is False
+        assert c2.font.italic is False
+        # No grey fill applied.
+        for cell in (c1, c2):
+            fg = cell.fill.fgColor.rgb if cell.fill.fgColor is not None else None
+            assert (fg is None) or ("EEEEEE" not in (fg or "").upper())
+
+        ws_summary = wb["Summary"]
+        cells = [str(ws_summary.cell(row=r, column=1).value or "") for r in range(1, 12)]
+        # The Solved / Filled disclosure is gated on mask presence — must NOT appear.
+        assert not any("Solved cells:" in c for c in cells)
+        assert not any("Filled cells:" in c for c in cells)

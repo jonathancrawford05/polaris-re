@@ -310,10 +310,21 @@ class YRTRateSchedule:
         max_age = sorted_ages[-1]
         n_ages = max_age - min_age + 1
         n_cols = select_period_years + 1
+        requested_ages: set[int] = set(sorted_ages)
 
         # Build per-(sex, smoker) rate matrices.
         per_cohort: dict[tuple[Sex, SmokerStatus], np.ndarray] = {
             (sex, smoker): np.full((n_ages, n_cols), np.nan, dtype=np.float64)
+            for sex in sexes
+            for smoker in smoker_statuses
+        }
+        # Per-cohort solved-mask (ADR-054): True iff the cell came from a
+        # successful brentq solve at a requested age. Cells that are
+        # forward/back-filled (because the user did not request that age,
+        # or because brentq failed at that age) stay False so renderers
+        # can disclose them.
+        per_cohort_solved: dict[tuple[Sex, SmokerStatus], np.ndarray] = {
+            (sex, smoker): np.zeros((n_ages, n_cols), dtype=np.bool_)
             for sex in sexes
             for smoker in smoker_statuses
         }
@@ -331,6 +342,8 @@ class YRTRateSchedule:
                         continue
                     any_solved = True
                     per_cohort[(sex, smoker)][age - min_age, :] = solved
+                    if age in requested_ages:
+                        per_cohort_solved[(sex, smoker)][age - min_age, :] = True
 
         if not any_solved:
             raise PolarisComputationError(
@@ -375,6 +388,7 @@ class YRTRateSchedule:
                 min_age=min_age,
                 max_age=max_age,
                 select_period=select_period_years,
+                solved_mask=per_cohort_solved[(sex, smoker)],
             )
 
         return YRTRateTable.from_arrays(
