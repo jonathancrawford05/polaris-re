@@ -33,6 +33,7 @@ from polaris_re.reinsurance.yrt_rate_table import YRTRateTable, YRTRateTableArra
 from polaris_re.utils.table_io import load_yrt_rate_csv_from_buffer
 
 __all__ = [
+    "find_uncovered_cohorts",
     "parse_uploaded_yrt_rate_table",
     "parse_yrt_rate_filename",
 ]
@@ -119,6 +120,19 @@ def parse_uploaded_yrt_rate_table(
     Raises:
         PolarisValidationError: empty uploads, unrecognised filename,
             duplicate cohort, or any per-CSV validation failure.
+
+    Caller responsibility — inforce coverage check:
+        Successful construction does NOT guarantee that every
+        ``(sex, smoker)`` cohort present in a downstream
+        ``InforceBlock`` is resolvable against the table. The
+        dashboard uploader cross-checks the loaded table against
+        ``st.session_state["inforce_block"]`` via
+        ``find_uncovered_cohorts`` and surfaces a UX warning before
+        the user clicks "Save All Assumptions"; CLI / API / scripted
+        callers should perform the equivalent check before invoking
+        ``YRTTreaty.apply()``, otherwise treaty application raises
+        ``PolarisValidationError`` from inside the per-cohort lookup
+        loop with no actionable context.
     """
     if not uploads:
         raise PolarisValidationError(
@@ -143,3 +157,50 @@ def parse_uploaded_yrt_rate_table(
         )
 
     return YRTRateTable.from_arrays(table_name=table_name, arrays=arrays)
+
+
+def find_uncovered_cohorts(
+    table: YRTRateTable,
+    inforce: object,
+) -> list[str]:
+    """Return inforce cohort keys that the YRT rate table cannot resolve.
+
+    Cross-checks every distinct ``(sex, smoker)`` combination present in
+    the inforce block against ``YRTRateTable._resolve_key`` (which
+    handles the smoker → UNKNOWN aggregate fallback). A missing cohort
+    means ``YRTTreaty.apply()`` would raise ``PolarisValidationError``
+    deep inside the per-cohort lookup loop at pricing time — surfacing
+    the gap up-front lets callers (dashboard uploader, CLI smoke
+    checks, API request handlers) present an actionable message.
+
+    Args:
+        table:    The candidate ``YRTRateTable`` (typically just-loaded
+                  from a multi-file upload).
+        inforce:  An ``InforceBlock`` whose ``policies`` list will be
+                  iterated for ``(sex, smoker_status)`` pairs. Typed as
+                  ``object`` to avoid a hard ``polaris_re.core.inforce``
+                  import from this utility module — the call site
+                  already owns that dependency.
+
+    Returns:
+        Sorted list of distinct ``"{sex}_{smoker}"`` keys present in
+        ``inforce`` but NOT resolvable by ``table``. Empty list when
+        the table covers every cohort the block needs (the happy path
+        the caller can treat as "OK to price").
+    """
+    policies = getattr(inforce, "policies", None)
+    if not policies:
+        return []
+    seen: set[tuple[Sex, SmokerStatus]] = set()
+    missing: set[str] = set()
+    for policy in policies:
+        sex = policy.sex
+        smoker = policy.smoker_status
+        if (sex, smoker) in seen:
+            continue
+        seen.add((sex, smoker))
+        try:
+            table._resolve_key(sex, smoker)
+        except PolarisValidationError:
+            missing.add(f"{sex.value}_{smoker.value}")
+    return sorted(missing)

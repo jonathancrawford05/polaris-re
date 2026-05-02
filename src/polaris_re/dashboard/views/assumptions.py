@@ -849,7 +849,10 @@ def _yrt_rate_table_uploader(current_table: object | None) -> object | None:
     from polaris_re.dashboard.components.yrt_rate_table import (
         yrt_rate_table_heatmap_per_cohort,
     )
-    from polaris_re.utils.yrt_rate_table_io import parse_uploaded_yrt_rate_table
+    from polaris_re.utils.yrt_rate_table_io import (
+        find_uncovered_cohorts,
+        parse_uploaded_yrt_rate_table,
+    )
 
     st.markdown(
         "**Tabular YRT Schedule** — upload one CSV per (sex, smoker) cohort. "
@@ -914,6 +917,23 @@ def _yrt_rate_table_uploader(current_table: object | None) -> object | None:
         current_table = new_table
 
     if current_table is not None:
+        # Cross-check the table's cohort coverage against the inforce
+        # block (when one is loaded). Surfacing the gap here lets the
+        # user upload missing CSVs before clicking Save — without it
+        # they would only learn of the gap as a deep-stack
+        # PolarisValidationError at treaty-application time.
+        inforce_block = st.session_state.get("inforce_block")
+        if inforce_block is not None:
+            missing_cohorts = find_uncovered_cohorts(current_table, inforce_block)
+            if missing_cohorts:
+                st.warning(
+                    "Uploaded YRT rate table is missing cohorts that the "
+                    f"loaded inforce block requires: {missing_cohorts}. "
+                    "Pricing will fail at treaty application time. Upload "
+                    "the missing CSVs (one per cohort) or replace the "
+                    "table with an aggregate (UNKNOWN-smoker) version."
+                )
+
         with st.expander("Rate heatmap preview", expanded=False):
             for cohort_key, fig in yrt_rate_table_heatmap_per_cohort(current_table):  # type: ignore[arg-type]
                 st.caption(f"Cohort `{cohort_key}`")

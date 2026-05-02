@@ -21,6 +21,7 @@ from polaris_re.utils.table_io import (
     load_yrt_rate_csv_from_buffer,
 )
 from polaris_re.utils.yrt_rate_table_io import (
+    find_uncovered_cohorts,
     parse_uploaded_yrt_rate_table,
     parse_yrt_rate_filename,
 )
@@ -279,3 +280,149 @@ class TestParseUploadedYRTRateTable:
                 table_name="x",
                 select_period=3,
             )
+
+
+# ----------------------------------------------------------------------- #
+# find_uncovered_cohorts                                                   #
+# ----------------------------------------------------------------------- #
+
+
+class TestFindUncoveredCohorts:
+    """Cross-check inforce (sex, smoker) cohorts against a YRT rate table."""
+
+    @staticmethod
+    def _block(*specs: tuple[Sex, SmokerStatus]):
+        from datetime import date
+
+        from polaris_re.core.inforce import InforceBlock
+        from polaris_re.core.policy import Policy, ProductType
+
+        val_date = date(2026, 1, 1)
+        policies = [
+            Policy(
+                policy_id=f"P{i:03d}",
+                issue_age=40,
+                attained_age=40,
+                sex=sex,
+                smoker_status=smoker,
+                underwriting_class="STANDARD",
+                face_amount=500_000.0,
+                annual_premium=1200.0,
+                product_type=ProductType.TERM,
+                policy_term=20,
+                duration_inforce=0,
+                reinsurance_cession_pct=None,
+                issue_date=val_date,
+                valuation_date=val_date,
+            )
+            for i, (sex, smoker) in enumerate(specs)
+        ]
+        return InforceBlock(policies=policies)
+
+    def _smoker_distinct_table(self) -> "object":
+        uploads = [
+            (name, (FIXTURES / name).read_bytes())
+            for name in (
+                "synthetic_male_ns.csv",
+                "synthetic_male_smoker.csv",
+                "synthetic_female_ns.csv",
+                "synthetic_female_smoker.csv",
+            )
+        ]
+        return parse_uploaded_yrt_rate_table(
+            uploads=uploads,
+            table_name="synthetic",
+            select_period=3,
+        )
+
+    def _aggregate_table(self) -> "object":
+        agg = b"age,dur_1,dur_2,dur_3,ultimate\n25,1.0,1.1,1.2,2.0\n26,1.1,1.2,1.3,2.2\n"
+        uploads = [
+            ("yrt_male_unknown.csv", agg),
+            ("yrt_female_unknown.csv", agg),
+        ]
+        return parse_uploaded_yrt_rate_table(
+            uploads=uploads,
+            table_name="agg",
+            select_period=3,
+        )
+
+    def test_full_coverage_returns_empty(self):
+        table = self._smoker_distinct_table()
+        block = self._block(
+            (Sex.MALE, SmokerStatus.NON_SMOKER),
+            (Sex.FEMALE, SmokerStatus.SMOKER),
+        )
+        assert find_uncovered_cohorts(table, block) == []
+
+    def test_missing_cohort_reported(self):
+        # Smoker-distinct table covers only male cohorts.
+        male_only_uploads = [
+            ("synthetic_male_ns.csv", _fixture_bytes("synthetic_male_ns.csv")),
+            ("synthetic_male_smoker.csv", _fixture_bytes("synthetic_male_smoker.csv")),
+        ]
+        table = parse_uploaded_yrt_rate_table(
+            uploads=male_only_uploads,
+            table_name="male-only",
+            select_period=3,
+        )
+        block = self._block(
+            (Sex.MALE, SmokerStatus.NON_SMOKER),
+            (Sex.FEMALE, SmokerStatus.NON_SMOKER),
+            (Sex.FEMALE, SmokerStatus.SMOKER),
+        )
+        missing = find_uncovered_cohorts(table, block)
+        assert missing == ["F_NS", "F_S"]
+
+    def test_aggregate_table_covers_smoker_distinct_block(self):
+        # Aggregate (UNKNOWN-smoker) tables resolve any smoker via the
+        # built-in fallback in YRTRateTable._resolve_key.
+        table = self._aggregate_table()
+        block = self._block(
+            (Sex.MALE, SmokerStatus.NON_SMOKER),
+            (Sex.MALE, SmokerStatus.SMOKER),
+            (Sex.FEMALE, SmokerStatus.NON_SMOKER),
+        )
+        assert find_uncovered_cohorts(table, block) == []
+
+    def test_smoker_distinct_table_does_not_cover_unknown_smoker_block(self):
+        # Reverse direction: distinct M_NS/M_S do NOT collapse to M_U,
+        # so an UNKNOWN-smoker policy on a smoker-distinct table is
+        # uncovered.
+        table = self._smoker_distinct_table()
+        block = self._block((Sex.MALE, SmokerStatus.UNKNOWN))
+        missing = find_uncovered_cohorts(table, block)
+        assert missing == ["M_U"]
+
+    def test_empty_block_returns_empty(self):
+        table = self._smoker_distinct_table()
+
+        class _Empty:
+            def __init__(self) -> None:
+                self.policies: list = []
+
+        assert find_uncovered_cohorts(table, _Empty()) == []
+
+    def test_none_inforce_returns_empty(self):
+        table = self._smoker_distinct_table()
+        # The dashboard call site passes whatever is in session_state —
+        # protect against the no-inforce-yet case.
+        assert find_uncovered_cohorts(table, object()) == []
+
+    def test_dedupes_repeated_cohorts(self):
+        # 1000 policies with the same (sex, smoker) — the result must
+        # be a single key, and the inner _resolve_key call is short-
+        # circuited via the seen set (perf invariant).
+        male_only_uploads = [
+            ("synthetic_male_ns.csv", _fixture_bytes("synthetic_male_ns.csv")),
+            ("synthetic_male_smoker.csv", _fixture_bytes("synthetic_male_smoker.csv")),
+        ]
+        table = parse_uploaded_yrt_rate_table(
+            uploads=male_only_uploads,
+            table_name="male-only",
+            select_period=3,
+        )
+        block = self._block(
+            *([(Sex.FEMALE, SmokerStatus.NON_SMOKER)] * 1000),
+        )
+        assert find_uncovered_cohorts(table, block) == ["F_NS"]
