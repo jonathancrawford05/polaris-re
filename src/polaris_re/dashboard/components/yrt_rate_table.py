@@ -66,18 +66,24 @@ def yrt_rate_table_heatmap_per_cohort(table: YRTRateTable) -> list[tuple[str, pl
         cbar.set_label("Rate ($/$1,000 NAR / year)", fontsize=8)
 
         # Hatched overlay for filled cells. ``imshow`` does not support a
-        # ``hatch`` kwarg, so we draw one ``Rectangle`` patch per filled
-        # cell — the hatching is a provenance disclosure rather than a
-        # value-hiding mask, so the underlying viridis colour stays visible.
+        # ``hatch`` kwarg, so we draw ``Rectangle`` patches — the hatching
+        # is a provenance disclosure rather than a value-hiding mask, so
+        # the underlying viridis colour stays visible. ``generate_table``
+        # currently broadcasts solver provenance row-wise (entire rows are
+        # either solved or filled — ADR-051 / ADR-053), so we draw one
+        # full-row patch per filled row instead of N patches per cell.
+        # The fallback per-cell loop handles future per-duration solvers
+        # whose mask is genuinely 2-D.
         if arr.solved_mask is not None and not arr.is_fully_solved:
             filled = ~arr.solved_mask
-            for i in range(n_ages):
-                for j in range(n_cols):
-                    if filled[i, j]:
+            row_uniform = bool(np.all(filled == filled[:, [0]]))
+            if row_uniform:
+                for i in range(n_ages):
+                    if filled[i, 0]:
                         ax.add_patch(
                             plt.Rectangle(  # type: ignore[attr-defined]
-                                (j - 0.5, i - 0.5),
-                                1,
+                                (-0.5, i - 0.5),
+                                n_cols,
                                 1,
                                 fill=False,
                                 hatch="//",
@@ -85,6 +91,21 @@ def yrt_rate_table_heatmap_per_cohort(table: YRTRateTable) -> list[tuple[str, pl
                                 linewidth=0.5,
                             )
                         )
+            else:
+                for i in range(n_ages):
+                    for j in range(n_cols):
+                        if filled[i, j]:
+                            ax.add_patch(
+                                plt.Rectangle(  # type: ignore[attr-defined]
+                                    (j - 0.5, i - 0.5),
+                                    1,
+                                    1,
+                                    fill=False,
+                                    hatch="//",
+                                    edgecolor="white",
+                                    linewidth=0.5,
+                                )
+                            )
 
         ax.set_xticks(np.arange(n_cols))
         ax.set_xticklabels(column_labels, rotation=45, ha="right", fontsize=8)

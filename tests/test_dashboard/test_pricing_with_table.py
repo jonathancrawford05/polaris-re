@@ -148,6 +148,33 @@ class TestRunTreatyProjectionTabular:
             gross.death_claims * 0.50,
             rtol=1e-10,
         )
+        # Additivity invariant: net + ceded == gross for premiums,
+        # claims, and net cash flow. Mirrors the canonical pattern in
+        # ``BaseTreaty.verify_additivity`` (used by
+        # ``test_reinsurance/test_yrt_tabular.py::test_ncf_additivity_preserved``).
+        # In YRT, ``net.gross_premiums = gross.gross_premiums - ceded_yrt``
+        # so the premium sum holds; claims are proportional; NCF nets out
+        # the YRT premium transfer.
+        np.testing.assert_allclose(
+            net.gross_premiums + ceded.gross_premiums,
+            gross.gross_premiums,
+            rtol=1e-10,
+            atol=1e-6,
+            err_msg="net + ceded gross_premiums != gross (additivity failure)",
+        )
+        np.testing.assert_allclose(
+            net.death_claims + ceded.death_claims,
+            gross.death_claims,
+            rtol=1e-10,
+            err_msg="net + ceded death_claims != gross (additivity failure)",
+        )
+        np.testing.assert_allclose(
+            net.net_cash_flow + ceded.net_cash_flow,
+            gross.net_cash_flow,
+            rtol=1e-10,
+            atol=1e-6,
+            err_msg="net + ceded net_cash_flow != gross (additivity failure)",
+        )
 
     def test_constant_rate_table_matches_flat_rate(self):
         """Closed-form: a uniform tabular schedule reproduces the flat path.
@@ -229,3 +256,35 @@ class TestRunTreatyProjectionTabular:
         gross = run_gross_projection(inforce, assumptions, config)
         assert gross.seriatim_lx is None
         assert gross.seriatim_reserves is None
+
+    def test_non_yrt_with_table_in_cfg_warns(self, monkeypatch):
+        """Non-YRT treaty + table in cfg must surface a UX warning.
+
+        The user might upload a tabular schedule, then switch the
+        treaty type to Coinsurance — without the warning the table
+        is silently ignored. Streamlit is unavailable in a bare
+        pytest run, so the helper falls back to ``warnings.warn``
+        (UserWarning); this test asserts on that fallback path.
+        """
+        import warnings as _warnings
+
+        from polaris_re.dashboard.components import projection as proj_mod
+
+        inforce, assumptions, config = _build_test_pipeline()
+        engine = get_product_engine(inforce=inforce, assumptions=assumptions, config=config)
+        gross = engine.project()
+        table = _constant_rate_table(2.0)
+        fake_cfg = {
+            "treaty_type": "Coinsurance",
+            "cession_pct": 0.50,
+            "yrt_rate_table": table,
+        }
+        monkeypatch.setattr(proj_mod, "get_deal_config", lambda: fake_cfg)
+
+        with _warnings.catch_warnings(record=True) as caught:
+            _warnings.simplefilter("always")
+            _net, _ceded = run_treaty_projection(gross, inforce)
+        messages = [str(w.message) for w in caught if issubclass(w.category, UserWarning)]
+        assert any("table is loaded but treaty type is 'Coinsurance'" in m for m in messages), (
+            f"Expected UX warning about ignored YRT rate table, got: {messages}"
+        )

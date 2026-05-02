@@ -19,6 +19,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt  # type: ignore[import-untyped]
 import numpy as np
 
+from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.policy import Sex, SmokerStatus
 from polaris_re.dashboard.components.projection import build_treaty
 from polaris_re.dashboard.components.yrt_rate_table import (
@@ -170,7 +171,13 @@ class TestBuildTreatyTabular:
     def test_non_yrt_rate_table_object_rejected(self):
         import pytest
 
-        with pytest.raises(TypeError, match="yrt_rate_table must be a YRTRateTable"):
+        # Uses the project-wide PolarisValidationError per CLAUDE.md
+        # ("business logic failures raise from the Polaris exception
+        # hierarchy") — matches the cli.py tabular-bypass guard.
+        with pytest.raises(
+            PolarisValidationError,
+            match="yrt_rate_table must be a YRTRateTable",
+        ):
             build_treaty(
                 treaty_type="YRT",
                 cession_pct=0.50,

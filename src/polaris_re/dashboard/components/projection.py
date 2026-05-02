@@ -12,6 +12,7 @@ shared with the CLI. Dashboard-specific UI glue lives here.
 from datetime import date
 
 from polaris_re.core.cashflow import CashFlowResult
+from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.pipeline import (
     build_treaty as _pipeline_build_treaty,
 )
@@ -101,7 +102,7 @@ def build_treaty(
         from polaris_re.reinsurance.yrt_rate_table import YRTRateTable
 
         if not isinstance(yrt_rate_table, YRTRateTable):
-            raise TypeError(
+            raise PolarisValidationError(
                 f"yrt_rate_table must be a YRTRateTable, got {type(yrt_rate_table).__name__}."
             )
         return YRTTreaty(
@@ -201,6 +202,34 @@ def run_treaty_projection(
     # bypass flat-rate derivation. Inforce is always passed because
     # tabular YRT requires per-policy (age, sex, smoker, duration) lookups.
     effective_table = yrt_rate_table if yrt_rate_table is not None else cfg.get("yrt_rate_table")
+
+    # Surface a UX warning when the user has uploaded a YRT rate table but
+    # selected a non-YRT treaty — the table cannot be applied to coinsurance
+    # or modco, so silent acceptance would hide a configuration mistake.
+    # Always emit a stdlib UserWarning (audit trail / pytest assertion
+    # surface); also call ``st.warning`` when Streamlit is importable so
+    # the dashboard user sees a visible banner. The two are not mutually
+    # exclusive — Streamlit's warning is the UX surface, the stdlib
+    # warning is the headless / scripted-call surface.
+    if effective_table is not None and tt != "YRT":
+        import warnings
+
+        msg = (
+            f"YRT rate table is loaded but treaty type is '{tt}'. "
+            "Tabular YRT rates only apply to YRT treaties — the table "
+            "is being ignored for this run. Switch the treaty type to "
+            "YRT or clear the uploaded table on the Assumptions page."
+        )
+        warnings.warn(msg, UserWarning, stacklevel=2)
+        try:
+            import streamlit as st  # type: ignore[import-untyped]
+
+            st.warning(msg)
+        except Exception:
+            # Streamlit unavailable (CLI smoke test that reuses these
+            # helpers). The stdlib warning above is the fallback.
+            pass
+
     if tt == "YRT" and effective_table is not None:
         treaty = build_treaty(tt, cp, face_amount, mr, yrt_rate_table=effective_table)
         if treaty is None:
