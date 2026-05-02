@@ -311,16 +311,26 @@ def _run_pricing_for_cohort(
     from polaris_re.core.pipeline import dump_parity_debug
 
     cfg = get_deal_config()
+    yrt_rate_table = cfg.get("yrt_rate_table") if treaty_type == "YRT" else None
 
-    # 1. Gross projection via product dispatch
-    gross = run_gross_projection(cohort_inforce, assumption_set, config)
+    # 1. Gross projection via product dispatch. Tabular YRT consumption
+    #    (ADR-051 / ADR-052) requires per-policy lx + reserves, so we
+    #    request seriatim mode whenever a rate table is in play.
+    gross = run_gross_projection(
+        cohort_inforce,
+        assumption_set,
+        config,
+        seriatim=yrt_rate_table is not None,
+    )
 
     face_amount_total = float(cohort_inforce.total_face_amount())
 
     # 2. Show derived YRT rate info (only for the single-cohort case to
     #    avoid cluttering the screen when there are many cohorts; per-cohort
-    #    rate info is still captured in the parity debug dump).
-    if show_yrt_info and treaty_type == "YRT":
+    #    rate info is still captured in the parity debug dump). Skipped when
+    #    a tabular schedule is loaded — the rate is per-(age, sex, smoker,
+    #    duration) and a single derived figure would be misleading.
+    if show_yrt_info and treaty_type == "YRT" and yrt_rate_table is None:
         yrt_loading = float(cfg.get("yrt_loading", 0.10))  # type: ignore[arg-type]
         yrt_manual_rate = cfg.get("yrt_rate_per_1000")
         rate_basis = str(cfg.get("yrt_rate_basis", "Mortality-based"))
@@ -332,12 +342,23 @@ def _run_pricing_for_cohort(
                 f"Derived YRT rate ({cohort_id}): {derived_rate:.3f} per $1,000 NAR "
                 f"(implied q_x = {implied_qx:.5f}, loading = {yrt_loading:.0%})"
             )
+    elif show_yrt_info and treaty_type == "YRT" and yrt_rate_table is not None:
+        n_cohorts_in_table = len(getattr(yrt_rate_table, "arrays", {}))
+        st.info(
+            f"Using uploaded YRT rate table ({cohort_id}): "
+            f"{n_cohorts_in_table} cohort(s), ages "
+            f"{getattr(yrt_rate_table, 'min_age', '?')}-"
+            f"{getattr(yrt_rate_table, 'max_age', '?')}, "
+            f"select period {getattr(yrt_rate_table, 'select_period_years', '?')} "
+            f"years (ADR-052)."
+        )
 
     # 3. Apply treaty
     net, ceded = run_treaty_projection(
         gross,
         cohort_inforce,
         use_policy_cession=use_policy_cession,
+        yrt_rate_table=yrt_rate_table,
     )
 
     # 4. Parity diagnostic dump (disambiguated per cohort)

@@ -684,15 +684,24 @@ def _treaty_section() -> dict[str, object]:
     yrt_rate_per_1000: float | None = None
     yrt_rate_basis = "Mortality-based"
     yrt_loading = 0.10
+    yrt_rate_table_obj = cfg.get("yrt_rate_table")
     if treaty_type == "YRT":
         yrt_rate_basis = st.selectbox(
             "YRT Rate Basis",
-            ["Mortality-based", "Manual Rate"],
+            ["Mortality-based", "Manual Rate", "Tabular Schedule"],
+            index=["Mortality-based", "Manual Rate", "Tabular Schedule"].index(
+                str(cfg.get("yrt_rate_basis", "Mortality-based"))
+                if str(cfg.get("yrt_rate_basis", "Mortality-based"))
+                in ("Mortality-based", "Manual Rate", "Tabular Schedule")
+                else "Mortality-based"
+            ),
             key="assum_yrt_basis",
             help=(
                 "Mortality-based: derives YRT rate from the portfolio's "
                 "average mortality rate with a configurable loading. "
-                "Manual: enter a flat rate per $1,000 NAR directly."
+                "Manual: enter a flat rate per $1,000 NAR directly. "
+                "Tabular Schedule: upload per-cohort CSVs with a full "
+                "(age x duration) rate grid (ADR-052 / ADR-055)."
             ),
         )
         if yrt_rate_basis == "Mortality-based":
@@ -710,7 +719,11 @@ def _treaty_section() -> dict[str, object]:
                 )
                 / 100.0
             )
-        else:
+            # Tabular schedule is mutually exclusive with the flat-rate
+            # paths — clear it when the user switches back so the pricing
+            # flow does not silently keep using the prior upload.
+            yrt_rate_table_obj = None
+        elif yrt_rate_basis == "Manual Rate":
             yrt_rate_per_1000 = float(
                 st.number_input(
                     "Flat YRT Rate per $1,000 NAR",
@@ -723,6 +736,9 @@ def _treaty_section() -> dict[str, object]:
                     key="assum_yrt_manual",
                 )
             )
+            yrt_rate_table_obj = None
+        else:
+            yrt_rate_table_obj = _yrt_rate_table_uploader(yrt_rate_table_obj)
 
     # Projection parameters
     st.subheader("Projection Parameters")
@@ -812,12 +828,103 @@ def _treaty_section() -> dict[str, object]:
         "yrt_loading": yrt_loading,
         "yrt_rate_per_1000": yrt_rate_per_1000,
         "yrt_rate_basis": yrt_rate_basis,
+        "yrt_rate_table": yrt_rate_table_obj,
         "modco_rate": modco_rate,
         "discount_rate": discount_rate,
         "hurdle_rate": hurdle_rate,
         "projection_years": projection_years,
         "valuation_date": valuation_date,
     }
+
+
+def _yrt_rate_table_uploader(current_table: object | None) -> object | None:
+    """Render the multi-file uploader and heatmap preview for tabular YRT (ADR-055).
+
+    Returns the current ``YRTRateTable`` (loaded into session state) so the
+    treaty section can persist it on ``deal_config["yrt_rate_table"]``. The
+    function intentionally does NOT mutate ``deal_config`` directly —
+    persistence happens in ``page_assumptions`` when the user clicks
+    "Save All Assumptions".
+    """
+    from polaris_re.dashboard.components.yrt_rate_table import (
+        yrt_rate_table_heatmap_per_cohort,
+    )
+    from polaris_re.utils.yrt_rate_table_io import parse_uploaded_yrt_rate_table
+
+    st.markdown(
+        "**Tabular YRT Schedule** — upload one CSV per (sex, smoker) cohort. "
+        "Each filename must end with `_{sex}_{smoker}.csv` "
+        "(e.g. `mytable_male_ns.csv`). Schema per CSV: "
+        "`age,dur_1,...,dur_N,ultimate` (ADR-052)."
+    )
+    cu1, cu2, cu3 = st.columns(3)
+    with cu1:
+        select_period = int(
+            st.number_input(
+                "Select Period (years)",
+                min_value=1,
+                max_value=50,
+                value=int(getattr(current_table, "select_period_years", 3) or 3),
+                step=1,
+                key="assum_yrt_table_select",
+            )
+        )
+    with cu2:
+        table_label = str(
+            st.text_input(
+                "Table Name",
+                value=str(getattr(current_table, "table_name", "uploaded-yrt") or "uploaded-yrt"),
+                key="assum_yrt_table_name",
+            )
+        )
+    with cu3:
+        st.caption(
+            "Per-duration variation requires a CSV — the analytics solver "
+            "currently broadcasts age-banded rates (ADR-053)."
+        )
+
+    uploaded_files = st.file_uploader(
+        "Upload YRT rate CSVs",
+        type=["csv"],
+        accept_multiple_files=True,
+        key="assum_yrt_table_uploader",
+        help=(
+            "Upload 1-4 CSVs. Filenames bind to cohorts via the "
+            "`_{sex}_{smoker}.csv` suffix — sex in male/female; "
+            "smoker in smoker/ns/unknown."
+        ),
+    )
+
+    if uploaded_files:
+        try:
+            uploads_payload = [(f.name, f.getvalue()) for f in uploaded_files]
+            new_table = parse_uploaded_yrt_rate_table(
+                uploads=uploads_payload,
+                table_name=table_label,
+                select_period=select_period,
+            )
+        except Exception as exc:
+            st.error(f"Failed to load YRT rate table: {exc}")
+            return current_table
+        st.success(
+            f"Loaded {len(new_table.arrays)} cohort(s), ages "
+            f"{new_table.min_age}-{new_table.max_age}, "
+            f"select period {new_table.select_period_years} years."
+        )
+        current_table = new_table
+
+    if current_table is not None:
+        with st.expander("Rate heatmap preview", expanded=False):
+            for cohort_key, fig in yrt_rate_table_heatmap_per_cohort(current_table):  # type: ignore[arg-type]
+                st.caption(f"Cohort `{cohort_key}`")
+                st.pyplot(fig)
+                import matplotlib.pyplot as _plt  # type: ignore[import-untyped]
+
+                _plt.close(fig)
+        if st.button("Clear uploaded YRT rate table", key="assum_yrt_table_clear"):
+            return None
+
+    return current_table
 
 
 # ------------------------------------------------------------------ #
