@@ -2264,3 +2264,197 @@ attached `yrt_rate_table` has no mask. The pre-existing
 `TestHelperTypeGuards` test suites all remain green unchanged.
 Golden regression baselines are unaffected (rate-schedule is not
 part of the golden flat / YRT pricing harness).
+
+---
+
+## ADR-055: Streamlit upload UX for the tabular YRT rate schedule (YRT Slice 4b-2)
+
+**Status:** Accepted (2026-05-02)
+
+**Context:**
+
+ADR-052 locked the on-disk YRT rate CSV layout at `age,dur_1,...,dur_N,
+ultimate` per `(sex, smoker)` cohort and shipped `YRTRateTable.load(directory,
+...)` for the CLI / API surfaces. The dashboard cannot accept a directory
+through `st.file_uploader` — the widget yields one or more `UploadedFile`
+objects backed by browser memory — so the tabular YRT path was unreachable
+from Streamlit. The CONTINUATION_yrt_rate_table.md plan listed three
+candidate UX patterns:
+
+(a) **Zip upload.** Single `.zip` containing per-cohort CSVs, unzipped
+    in-process. Familiar pattern for "directory upload" but adds a binary
+    handling layer (and a temp-file lifecycle / archive-traversal
+    surface) that does not exist on the CLI path.
+(b) **Multi-file selector.** `st.file_uploader(accept_multiple_files=True)`
+    accepts 1-4 CSVs. Filename suffix (`_{sex}_{smoker}.csv`) binds each
+    file to its cohort key, mirroring the on-disk filename convention
+    `YRTRateTable.load` already enforces (ADR-052).
+(c) **Single multi-cohort CSV.** New schema with `sex` / `smoker` columns
+    in the row dimension. Requires a new loader and breaks parity with
+    the on-disk format the CLI / API consume.
+
+**Decision:**
+
+Adopt **option (b) — multi-file selector — and reuse the ADR-052 filename
+convention as the cohort-binding mechanism.** The dashboard upload helper
+delegates to a new buffer-based loader (`load_yrt_rate_csv_from_buffer` in
+`utils/table_io.py`, refactored from the path-based `load_yrt_rate_csv` so
+both paths share `_parse_yrt_rate_df`) and packs the result into a
+`YRTRateTable` via `YRTRateTable.from_arrays`.
+
+This keeps **CLI ↔ dashboard parity at the file level**: a tester can
+prepare four CSVs once and consume them from either surface with no
+conversion. It also avoids a bespoke zip-handling code path, an additional
+multi-cohort schema, and the validation surprises that surround both.
+
+**Consequences (Implementation):**
+
+`src/polaris_re/utils/table_io.py`
+
+- Extract `_parse_yrt_rate_df(df, source_name, select_period, ...)` from
+  `load_yrt_rate_csv`. The existing path-based loader becomes a thin
+  wrapper that reads via `pl.read_csv(path)` then delegates.
+- Add `load_yrt_rate_csv_from_buffer(content: bytes, source_name: str, ...)`
+  for the in-memory upload path. Validation behaviour is identical to
+  `load_yrt_rate_csv`; `source_name` carries the uploaded filename into
+  any error message so the user can map an error back to the file they
+  uploaded.
+
+`src/polaris_re/utils/yrt_rate_table_io.py` (new)
+
+- `parse_yrt_rate_filename(filename) -> (Sex, SmokerStatus)`. Strips
+  directory components (POSIX and Windows separators), lowercases, and
+  decodes the trailing `_{sex}_{smoker}.csv`. `sex` ∈ `male` / `female`;
+  `smoker` ∈ `smoker` / `ns` / `unknown`. Anything else raises
+  `PolarisValidationError` with a message naming the offending suffix.
+- `parse_uploaded_yrt_rate_table(uploads, table_name, select_period,
+  min_age=None, max_age=None) -> YRTRateTable`. Iterates `(filename,
+  content_bytes)` tuples, parses each filename for the cohort key, calls
+  `load_yrt_rate_csv_from_buffer` for the array, then packs everything
+  into `YRTRateTable.from_arrays`. Duplicate cohorts raise
+  `PolarisValidationError`; per-CSV validation errors propagate verbatim.
+
+`src/polaris_re/dashboard/components/yrt_rate_table.py` (new)
+
+- `yrt_rate_table_heatmap_per_cohort(table) -> [(cohort_key, Figure)]`.
+  Renders one matplotlib heatmap per cohort (sorted by key) using
+  `imshow(viridis)` with a colour-bar in `$/$1,000 NAR / year`. Cells
+  flagged as forward/back-filled by `solved_mask` (ADR-054) get a
+  hatched white-edge `Rectangle` overlay; CSV-loaded uploads carry no
+  mask and render without the overlay. Title appends a "✧ =
+  forward/back-filled" marker only when at least one cell is filled.
+- Returned figures are not closed by the helper — callers
+  (`views/assumptions.py`) iterate, `st.pyplot(fig)`, then `plt.close`.
+
+`src/polaris_re/dashboard/components/projection.py`
+
+- `build_treaty(...)` gains a `yrt_rate_table: object | None = None` kwarg.
+  When `treaty_type == "YRT"` and the kwarg is set, the dashboard
+  constructs `YRTTreaty(... yrt_rate_table=...)` directly (the shared
+  `core.pipeline.build_treaty` factory does not yet accept the kwarg —
+  matching the CLI's tabular-bypass pattern in `cli.py:price`). A type
+  guard rejects non-`YRTRateTable` arguments at the boundary.
+- `run_gross_projection(...)` gains a `seriatim: bool = False` kwarg
+  forwarded to `BaseProduct.project(seriatim=...)`. Required by the
+  tabular YRT consumer (ADR-051).
+- `run_treaty_projection(...)` gains a `yrt_rate_table` kwarg and reads
+  `cfg["yrt_rate_table"]` as a fallback. When set, the function bypasses
+  the flat-rate derivation, builds a tabular `YRTTreaty`, and calls
+  `treaty.apply(gross, inforce=inforce)` — the inforce block is always
+  passed in this branch because the tabular path requires it.
+
+`src/polaris_re/dashboard/views/assumptions.py`
+
+- `_treaty_section()` adds a third "YRT Rate Basis" option,
+  `Tabular Schedule`, alongside `Mortality-based` and `Manual Rate`.
+  Selecting it renders the `_yrt_rate_table_uploader` helper, which
+  packs uploads via `parse_uploaded_yrt_rate_table` and previews the
+  loaded grid with `yrt_rate_table_heatmap_per_cohort`. The treaty
+  param dict gains a `yrt_rate_table` key persisted onto
+  `deal_config["yrt_rate_table"]` when the user clicks
+  "Save All Assumptions".
+
+`src/polaris_re/dashboard/views/pricing.py`
+
+- `_run_pricing_for_cohort(...)` reads `cfg["yrt_rate_table"]` (when
+  `treaty_type == "YRT"`) and forwards it to both `run_gross_projection`
+  (with `seriatim=True`) and `run_treaty_projection`. The "derived YRT
+  rate" `st.info` panel is suppressed when a tabular schedule is loaded
+  (the rate is per-cell and a single derived figure would be
+  misleading); a parallel `st.info` reports the loaded table's cohort
+  count, age range, and select period.
+
+**Consequences (Tests):**
+
+- `tests/test_utils/test_yrt_rate_table_io.py` (26 new):
+  - `TestLoadYRTRateCSVFromBuffer` (6) — round-trip parity with the
+    path loader, byte-level error handling, schema validation, negative
+    rates rejected via the array `__init__`, `select_period` floor.
+  - `TestParseYRTRateFilename` (12) — six suffix recognitions
+    (parametrised), POSIX/Windows path stripping, multi-token labels,
+    rejection of non-CSV / unrecognised sex / unrecognised smoker /
+    too-few-tokens cases.
+  - `TestParseUploadedYRTRateTable` (8) — four-cohort smoker-distinct
+    pack, full directory-loader round-trip, two-cohort aggregate-only
+    pack, empty-uploads / duplicate-cohort / inconsistent-age-range /
+    propagated per-file validation errors.
+- `tests/test_dashboard/test_yrt_rate_table_components.py` (8 new):
+  - `TestHeatmapRenderer` (4) — one figure per cohort, deterministic
+    sort order, axis labels, "forward/back-filled" title marker
+    omitted when fully solved and present when the mask flags any cell.
+  - `TestBuildTreatyTabular` (4) — YRT + table → `YRTTreaty` with the
+    table attached and no flat rate, YRT without table falls back to
+    pipeline factory, non-YRT silently drops the kwarg, non-table type
+    rejected at the boundary.
+- `tests/test_dashboard/test_pricing_with_table.py` (5 new):
+  - Tabular dispatch returns non-zero ceded premium and 50%-of-gross
+    ceded claims.
+  - Constant-rate uploaded table reproduces the flat-rate ceded series
+    within `rtol=1e-6, atol=1e-3`.
+  - `cfg["yrt_rate_table"]` fallback path runs when the kwarg is omitted.
+  - `run_gross_projection(seriatim=True)` populates `seriatim_lx` /
+    `seriatim_reserves`; default `seriatim=False` does not.
+- `tests/qa/test_dashboard_flows.py::TestTabularYRTUpload` (2 new):
+  - YRT Rate Basis selector exposes the new `Tabular Schedule` option.
+  - Injecting a `YRTRateTable` into `deal_config["yrt_rate_table"]`
+    drives the tabular pricing branch end-to-end through the Streamlit
+    `AppTest` harness.
+
+**Backward compatibility:**
+
+- The pricing flow defaults to `cfg.get("yrt_rate_table") = None`, so the
+  flat-rate pricing path is byte-identical for users who never select
+  "Tabular Schedule".
+- `DealConfig` dataclass intentionally unchanged. The `yrt_rate_table`
+  key lives only in the dashboard session-state dict; the CLI route
+  continues to load tables via `--yrt-rate-table DIR` and the API via
+  `yrt_rate_table_path` (ADR-052). Adding the field to `DealConfig`
+  was deliberately deferred — neither the CLI nor the API has a
+  natural way to round-trip a `YRTRateTable` through a JSON config.
+- `utils/__init__.py` does NOT re-export `parse_uploaded_yrt_rate_table`
+  / `parse_yrt_rate_filename` because the new module imports
+  `YRTRateTable` from `polaris_re.reinsurance`, which would create a
+  circular import via `utils.table_io.MortalityTableArray` if loaded as
+  the very first `polaris_re.utils` symbol. Callers import directly:
+  `from polaris_re.utils.yrt_rate_table_io import ...`. Documented in
+  the `utils/__init__.py` NOTE block.
+- All 909 pre-existing non-slow tests continue to pass; QA suite and
+  golden regressions are unaffected (the tabular branch is opt-in and
+  the flat-path code is untouched).
+
+**Out of scope (deferred to a future slice):**
+
+- **Per-duration solver in `YRTRateSchedule.generate_table()`.** The
+  generator still broadcasts a per-(age, sex, smoker) flat rate across
+  every duration column (ADR-051 / ADR-053). When the per-duration
+  solver lands, the per-cell `solved_mask` (ADR-054) becomes genuinely
+  2-D and the dashboard heatmap surfaces the finer provenance with no
+  changes here.
+- **In-dashboard generation of a tabular table.** Users who want a
+  generated table run `polaris rate-schedule --table -o out.xlsx`
+  on the CLI and upload the workbook elsewhere. A "Generate" button on
+  the dashboard would duplicate the CLI's solver wiring without adding
+  capability.
+- **Persisting uploaded tables to disk** (e.g. saving the upload to
+  `POLARIS_DATA_DIR` for later re-use). Out of scope; the upload lives
+  in session state for the duration of the browser session only.

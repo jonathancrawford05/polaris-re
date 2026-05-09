@@ -202,3 +202,105 @@ class TestDealPricingWithInjectedState:
         at.sidebar.radio[0].set_value("Deal Pricing")
         at.run()
         assert not at.exception, f"Deal Pricing raised with injected state: {at.exception}"
+
+
+class TestTabularYRTUpload:
+    """Slice 4b-2 / ADR-055 — tabular YRT upload UI on the Assumptions page."""
+
+    def test_yrt_basis_selector_includes_tabular(self):
+        """The YRT Rate Basis selector exposes the new 'Tabular Schedule' option."""
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        at.sidebar.radio[0].set_value("Assumptions")
+        at.run()
+        assert not at.exception
+        # YRT is the default treaty type, so the basis selector renders.
+        basis_selectboxes = [
+            sb
+            for sb in at.selectbox
+            if hasattr(sb, "label") and "yrt rate basis" in str(sb.label).lower()
+        ]
+        assert basis_selectboxes, "YRT Rate Basis selectbox not found on Assumptions page"
+        opts = list(basis_selectboxes[0].options)
+        assert "Tabular Schedule" in opts
+        assert "Mortality-based" in opts
+        assert "Manual Rate" in opts
+
+    def test_pricing_with_uploaded_table_via_session_state(self):
+        """End-to-end: injecting a YRTRateTable into deal_config drives pricing."""
+        from datetime import date
+        from pathlib import Path
+
+        from polaris_re.core.inforce import InforceBlock
+        from polaris_re.core.pipeline import (
+            DealConfig,
+            LapseConfig,
+            MortalityConfig,
+            PipelineInputs,
+            build_pipeline,
+        )
+        from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
+        from polaris_re.utils.yrt_rate_table_io import parse_uploaded_yrt_rate_table
+
+        fixtures = Path(__file__).parent.parent / "fixtures" / "yrt_rate_tables"
+        uploads = [
+            (name, (fixtures / name).read_bytes())
+            for name in (
+                "synthetic_male_ns.csv",
+                "synthetic_male_smoker.csv",
+                "synthetic_female_ns.csv",
+                "synthetic_female_smoker.csv",
+            )
+        ]
+        table = parse_uploaded_yrt_rate_table(
+            uploads=uploads,
+            table_name="dashboard-fixture",
+            select_period=3,
+        )
+
+        # Build a single-policy aged-30 block (covered by the fixture's
+        # ages 25-35) with reinsurance_cession_pct=None so the tabular
+        # treaty resolves cession from the treaty default (ADR-051).
+        val_date = date(2026, 1, 1)
+        policies = [
+            Policy(
+                policy_id="UPLOAD-001",
+                issue_age=30,
+                attained_age=30,
+                sex=Sex.MALE,
+                smoker_status=SmokerStatus.NON_SMOKER,
+                underwriting_class="STANDARD",
+                face_amount=500_000.0,
+                annual_premium=1200.0,
+                product_type=ProductType.TERM,
+                policy_term=20,
+                duration_inforce=0,
+                reinsurance_cession_pct=None,
+                issue_date=val_date,
+                valuation_date=val_date,
+            )
+        ]
+        inforce = InforceBlock(policies=policies)
+        inputs = PipelineInputs(
+            mortality=MortalityConfig(source="flat", flat_qx=0.005),
+            lapse=LapseConfig(),
+            deal=DealConfig(product_type="TERM", projection_years=5),
+        )
+        inf, assumptions, _config = build_pipeline(inforce, inputs)
+
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        at.session_state["inforce_block"] = inf
+        at.session_state["assumption_set"] = assumptions
+
+        # Inject the uploaded table into the deal config so the pricing
+        # page picks it up via the tabular branch.
+        cfg = dict(at.session_state["deal_config"])
+        cfg["yrt_rate_table"] = table
+        cfg["yrt_rate_basis"] = "Tabular Schedule"
+        cfg["projection_years"] = 5
+        at.session_state["deal_config"] = cfg
+
+        at.sidebar.radio[0].set_value("Deal Pricing")
+        at.run()
+        assert not at.exception, f"Deal Pricing raised with tabular state: {at.exception}"

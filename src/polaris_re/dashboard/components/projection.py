@@ -12,6 +12,7 @@ shared with the CLI. Dashboard-specific UI glue lives here.
 from datetime import date
 
 from polaris_re.core.cashflow import CashFlowResult
+from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.pipeline import (
     build_treaty as _pipeline_build_treaty,
 )
@@ -86,12 +87,31 @@ def build_treaty(
     face_amount: float,
     modco_rate: float = 0.045,
     yrt_rate_per_1000: float | None = None,
+    yrt_rate_table: object | None = None,
 ) -> object | None:
     """Construct a treaty object from the given parameters.
 
     Delegates to the shared ``core.pipeline.build_treaty`` with dashboard
-    treaty name convention.
+    treaty name convention. When ``yrt_rate_table`` is supplied for a YRT
+    treaty, it is wired directly onto the constructed ``YRTTreaty`` (the
+    pipeline factory does not yet know about tabular rates — the dashboard
+    constructs the treaty itself per ADR-052 / ADR-055).
     """
+    if treaty_type == "YRT" and yrt_rate_table is not None:
+        from polaris_re.reinsurance.yrt import YRTTreaty
+        from polaris_re.reinsurance.yrt_rate_table import YRTRateTable
+
+        if not isinstance(yrt_rate_table, YRTRateTable):
+            raise PolarisValidationError(
+                f"yrt_rate_table must be a YRTRateTable, got {type(yrt_rate_table).__name__}."
+            )
+        return YRTTreaty(
+            treaty_name="YRT",
+            cession_pct=cession_pct,
+            total_face_amount=face_amount,
+            yrt_rate_table=yrt_rate_table,
+        )
+
     return _pipeline_build_treaty(
         treaty_type=treaty_type,
         cession_pct=cession_pct,
@@ -105,6 +125,7 @@ def run_gross_projection(
     inforce: object,
     assumptions: object,
     config: ProjectionConfig,
+    seriatim: bool = False,
 ) -> CashFlowResult:
     """Run a gross projection using the appropriate product engine.
 
@@ -115,6 +136,9 @@ def run_gross_projection(
         inforce: InforceBlock.
         assumptions: AssumptionSet.
         config: ProjectionConfig.
+        seriatim: When True, request per-policy lx/reserves on the result
+            (required when downstream tabular YRT consumption needs them —
+            ADR-051 / ADR-052).
 
     Returns:
         GROSS basis CashFlowResult.
@@ -126,7 +150,7 @@ def run_gross_projection(
         assumptions=assumptions,  # type: ignore[arg-type]
         config=config,
     )
-    return product.project()
+    return product.project(seriatim=seriatim)
 
 
 def run_treaty_projection(
@@ -138,12 +162,16 @@ def run_treaty_projection(
     yrt_loading: float | None = None,
     modco_rate: float | None = None,
     use_policy_cession: bool = False,
+    yrt_rate_table: object | None = None,
 ) -> tuple[CashFlowResult, CashFlowResult | None]:
     """Apply a treaty to gross cash flows, deriving YRT rate if needed.
 
     Uses the centralised deal config for any parameters not explicitly
     overridden. For YRT with mortality-based pricing, derives the rate
-    from the gross projection.
+    from the gross projection. When ``yrt_rate_table`` is supplied (or
+    present in the deal config), the tabular path runs and the flat-rate
+    derivation is skipped — the underlying ``YRTTreaty.apply()`` requires
+    the inforce block (ADR-051), which is always passed here.
 
     Args:
         gross: GROSS basis CashFlowResult.
@@ -154,6 +182,8 @@ def run_treaty_projection(
         yrt_loading: Override for YRT loading (used when deriving rate).
         modco_rate: Override for Modco interest rate.
         use_policy_cession: Whether to use policy-level cession overrides.
+        yrt_rate_table: Optional pre-loaded ``YRTRateTable``. Takes precedence
+            over flat-rate derivation when ``treaty_type == "YRT"``.
 
     Returns:
         (net, ceded) tuple. ceded is None for "None (Gross)".
@@ -167,6 +197,45 @@ def run_treaty_projection(
         return gross, None
 
     face_amount = float(inforce.total_face_amount())  # type: ignore[union-attr]
+
+    # Tabular YRT path — wire the table directly onto the treaty and
+    # bypass flat-rate derivation. Inforce is always passed because
+    # tabular YRT requires per-policy (age, sex, smoker, duration) lookups.
+    effective_table = yrt_rate_table if yrt_rate_table is not None else cfg.get("yrt_rate_table")
+
+    # Surface a UX warning when the user has uploaded a YRT rate table but
+    # selected a non-YRT treaty — the table cannot be applied to coinsurance
+    # or modco, so silent acceptance would hide a configuration mistake.
+    # Always emit a stdlib UserWarning (audit trail / pytest assertion
+    # surface); also call ``st.warning`` when Streamlit is importable so
+    # the dashboard user sees a visible banner. The two are not mutually
+    # exclusive — Streamlit's warning is the UX surface, the stdlib
+    # warning is the headless / scripted-call surface.
+    if effective_table is not None and tt != "YRT":
+        import warnings
+
+        msg = (
+            f"YRT rate table is loaded but treaty type is '{tt}'. "
+            "Tabular YRT rates only apply to YRT treaties — the table "
+            "is being ignored for this run. Switch the treaty type to "
+            "YRT or clear the uploaded table on the Assumptions page."
+        )
+        warnings.warn(msg, UserWarning, stacklevel=2)
+        try:
+            import streamlit as st  # type: ignore[import-untyped]
+
+            st.warning(msg)
+        except Exception:
+            # Streamlit unavailable (CLI smoke test that reuses these
+            # helpers). The stdlib warning above is the fallback.
+            pass
+
+    if tt == "YRT" and effective_table is not None:
+        treaty = build_treaty(tt, cp, face_amount, mr, yrt_rate_table=effective_table)
+        if treaty is None:
+            return gross, None
+        net, ceded = treaty.apply(gross, inforce=inforce)  # type: ignore[union-attr]
+        return net, ceded
 
     # Resolve YRT rate
     effective_yrt_rate = yrt_rate_per_1000

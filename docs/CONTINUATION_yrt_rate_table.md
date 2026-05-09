@@ -2,9 +2,10 @@
 
 **Source:** PRODUCT_DIRECTION_2026-04-19.md — IMPORTANT (last item in
 the IMPORTANT list, "YRT rate schedule by age × duration")
-**Status:** IN PROGRESS — Slice 4a shipped 2026-04-30; Slice 4b-1
+**Status:** COMPLETE — Slice 4a shipped 2026-04-30; Slice 4b-1
 (fill-in transparency / ADR-054) shipped 2026-05-01; Slice 4b-2
-(dashboard upload + heatmap + optional per-duration solver) PLANNED
+(dashboard upload + heatmap, ADR-055) shipped 2026-05-02. Optional
+per-duration solver remains deferred (out of scope per ADR-055).
 **Total slices:** 6 (re-decomposed: Slice 3 split into 3/4 in an
 earlier session; Slice 4 split into 4a/4b in the previous session
 because the dashboard work is materially different in scope from the
@@ -432,64 +433,144 @@ treaty consumption (Slice 2), schedule generation via brentq solver
     `YRTRateTable.from_arrays` with no mask, so renderers fall
     back to the pre-ADR-054 layout for uploaded user data.
 
-### Slice 4b-2: Dashboard file-uploader + heatmap (+ optional per-duration solver)
-- **Status:** PLANNED
-- **Depends on:** Slice 4b-1 merged
-- **Scope:**
-  - Streamlit dashboard pricing page: file-uploader for the rate
-    table directory or zip; render a heatmap preview of the loaded
-    grid (matplotlib `imshow` per cohort), backed by either the
-    uploaded payload or a server-side path.
-  - Choose UX between (a) zip-only, (b) one-file-per-cohort with a
-    form selector, or (c) a single multi-cohort CSV with
-    `sex` / `smoker` columns. ADR-052 deliberately left this open;
-    Slice 4b-2's ADR-055 documents the pick.
-  - Optional: a true per-duration solver in
-    `YRTRateSchedule.generate_table()` (currently broadcasts the
-    per-age flat rate across every duration column). When this
-    lands, the per-cell `solved_mask` becomes genuinely 2-D and
-    the existing CLI / Excel / JSON renderers (ADR-054) surface
-    the finer provenance with no further changes.
-  - Wire the loaded table through the dashboard pricing flow so
-    users can run a deal end-to-end with an uploaded table.
+### Slice 4b-2: Dashboard file-uploader + heatmap (ADR-055)
+- **Status:** DONE (this session, 2026-05-02)
+- **Branch:** `feat/auto-yrt-rate-table-s4b2-2026-05-02`
+- **PR:** (draft; opened by this session)
+- **What was done:**
+  - Picked **option (b) — multi-file selector** from the prior
+    CONTINUATION's three candidates. ADR-055 documents the pick:
+    the on-disk filename convention `_{sex}_{smoker}.csv` doubles as
+    the cohort-binding mechanism for the upload path, so a tester
+    can prepare four CSVs once and consume them from either CLI or
+    dashboard with no conversion. Options (a) zip-only and
+    (c) single multi-cohort CSV were rejected to avoid a parallel
+    CSV format and a temp-file lifecycle.
+  - Refactored `utils/table_io.py`: extracted `_parse_yrt_rate_df`
+    from `load_yrt_rate_csv`; added `load_yrt_rate_csv_from_buffer`
+    for in-memory bytes (mirrors the path-based loader byte-for-byte
+    so error messages, validation, and shape are unchanged).
+  - New module `utils/yrt_rate_table_io.py`:
+    `parse_yrt_rate_filename(filename)` decodes the trailing
+    `_{sex}_{smoker}.csv`; `parse_uploaded_yrt_rate_table(uploads,
+    table_name, select_period, ...)` packs a list of `(filename,
+    bytes)` tuples into a validated `YRTRateTable`. Duplicate
+    cohorts and per-CSV validation errors raise
+    `PolarisValidationError` with the offending filename in the
+    message.
+  - New module `dashboard/components/yrt_rate_table.py`:
+    `yrt_rate_table_heatmap_per_cohort(table)` returns a list of
+    `(cohort_key, Figure)` tuples — one viridis `imshow` per
+    cohort with a colour-bar in `$/$1,000 NAR / year`. Cells flagged
+    by `solved_mask` (ADR-054) get a hatched white-edge `Rectangle`
+    overlay; CSV-loaded uploads carry no mask and render plain.
+  - Extended `dashboard/components/projection.py`:
+    `build_treaty(...)` accepts `yrt_rate_table=...` and constructs
+    `YRTTreaty(... yrt_rate_table=...)` directly when set;
+    `run_gross_projection(...)` accepts `seriatim=True` (forwarded
+    to the engine); `run_treaty_projection(...)` accepts a
+    `yrt_rate_table` kwarg and reads `cfg["yrt_rate_table"]` as a
+    fallback. Tabular branch always passes `inforce` to
+    `treaty.apply()` (required by ADR-051).
+  - Extended `dashboard/views/assumptions.py`: `_treaty_section`
+    adds a third "YRT Rate Basis" option `Tabular Schedule`.
+    Selecting it renders a multi-file uploader, invokes
+    `parse_uploaded_yrt_rate_table`, persists the table in the
+    treaty params dict, and renders a heatmap preview via
+    `yrt_rate_table_heatmap_per_cohort`. Switching basis back to
+    `Mortality-based` or `Manual Rate` clears the table so the
+    pricing path does not silently keep using the prior upload.
+  - Extended `dashboard/views/pricing.py`: `_run_pricing_for_cohort`
+    reads `cfg["yrt_rate_table"]` (when treaty is YRT) and forwards
+    it through `run_gross_projection(seriatim=True)` and
+    `run_treaty_projection(yrt_rate_table=...)`. The "derived YRT
+    rate" `st.info` panel is suppressed when a tabular schedule is
+    loaded; a parallel `st.info` reports cohort count, age range,
+    select period.
+  - ADR-055 added to `docs/DECISIONS.md`.
+  - 41 new tests:
+    - `tests/test_utils/test_yrt_rate_table_io.py` (26):
+      `TestLoadYRTRateCSVFromBuffer` (6),
+      `TestParseYRTRateFilename` (12),
+      `TestParseUploadedYRTRateTable` (8).
+    - `tests/test_dashboard/test_yrt_rate_table_components.py` (8):
+      `TestHeatmapRenderer` (4),
+      `TestBuildTreatyTabular` (4).
+    - `tests/test_dashboard/test_pricing_with_table.py` (5):
+      tabular dispatch returns non-zero ceded premium; constant-rate
+      uploaded table reproduces flat-rate ceded series within
+      `rtol=1e-6`; cfg-dict fallback path; seriatim arg propagates;
+      seriatim default omits arrays.
+    - `tests/qa/test_dashboard_flows.py::TestTabularYRTUpload` (2):
+      basis selector exposes `Tabular Schedule`; injecting a
+      `YRTRateTable` into deal config drives end-to-end pricing
+      via the AppTest harness.
+  - Full suite is now 950 non-slow (up from 909); QA suite
+    unchanged at 33/33; golden flat regression byte-identical
+    (tabular branch is opt-in).
+- **Acceptance criteria:**
+  - `parse_uploaded_yrt_rate_table([(filename, bytes), ...], ...)`
+    returns a validated `YRTRateTable` with `has_smoker_distinct_rates`
+    inferred from cohort keys. ✅
+  - Filename suffix `_male_ns.csv` / `_female_smoker.csv` /
+    `_male_unknown.csv` (case-insensitive) decodes to the right
+    `(Sex, SmokerStatus)` key. ✅
+  - Streamlit Assumptions page exposes a `Tabular Schedule` YRT
+    Rate Basis. ✅
+  - Heatmap renderer returns one matplotlib Figure per cohort with
+    age on y-axis and duration column on x-axis. ✅
+  - Filled cells (`solved_mask=False`) get a hatched overlay; title
+    appends "forward/back-filled" marker only when at least one
+    cell is filled. ✅
+  - Constant-rate uploaded table reproduces the flat-rate ceded
+    premium series within `rtol=1e-6`. ✅
+  - All 909 pre-existing non-slow tests still pass. ✅
+  - ADR-055 written. ✅
+- **Out of scope (deferred per ADR-055):**
+  - Per-duration solver in `YRTRateSchedule.generate_table()`
+    remains broadcast-along-rows (ADR-051 / ADR-053).
+  - In-dashboard generation of a tabular table — users continue to
+    use `polaris rate-schedule --table` on the CLI.
+  - Persisting uploaded tables to disk.
 
 ## Context for Next Session
 
-- **`write_yrt_rate_table_excel` is the canonical writer for Slice 4b-2.**
-  The dashboard download button should call it directly after parsing
-  uploaded CSV bytes in-process via `YRTRateTable.from_arrays(...)`. No
-  duplication needed. Uploaded user tables construct via `from_arrays`
-  with no mask — renderers fall back to the pre-ADR-054 layout.
-- **`_yrt_rate_table_to_dict` lives in `cli.py` for now.** If Slice 4b-2's
-  dashboard preview needs the JSON helper, lift it (and
-  `_render_yrt_rate_table`) into `utils/yrt_rate_table_io.py` before
-  introducing a second call site.
-- **Dashboard upload UX is the primary ADR-055 decision.** Streamlit
-  `st.file_uploader` does not natively accept directories; choose one of:
-  (a) zip upload unzipped in-process, (b) per-cohort multi-file selector,
-  (c) single multi-cohort CSV with `sex`/`smoker` columns. The ADR-052
-  CSV schema is locked at `age,dur_1,...,dur_N,ultimate` per cohort file;
-  option (c) would require a new format and a new loader.
-- **`generate_table()` fill-in transparency is RESOLVED.** ADR-054
-  shipped in this session via Option A (visual disclosure with
-  `solved_mask`). Renderers mark filled cells with `*` (CLI) /
-  italic + grey fill (Excel) / explicit `solved_mask` field (JSON).
-  The Slice 4b-2 dashboard heatmap should consume the same mask to
-  highlight filled cells in the matplotlib axis (e.g. hatched
-  overlay or reduced alpha).
-- **Per-duration solver is still deferred.** The heatmap in Slice 4b-2
-  will be visually flat-along-rows (broadcast from generate_table). An
-  interim caption — "Rates are age-banded; per-duration variation
-  requires a CSV-loaded table" — is acceptable for the Slice 4b-2
-  dashboard. When the per-duration solver lands, the per-cell
-  `solved_mask` becomes genuinely 2-D and the dashboard heatmap can
-  surface the finer provenance with no extra work in the renderers.
+The tabular YRT feature is complete end-to-end (CLI / API / Excel /
+dashboard). Two follow-ups remain explicitly deferred and would each
+warrant their own CONTINUATION if picked up:
+
+1. **Per-duration solver in `YRTRateSchedule.generate_table()`.** The
+   generator still broadcasts a per-(age, sex, smoker) flat rate across
+   every duration column. When this lands, the per-cell `solved_mask`
+   (ADR-054) becomes genuinely 2-D and the existing CLI / Excel / JSON
+   / dashboard renderers surface the finer provenance with no further
+   changes — the storage contract is already in place.
+2. **CLI / API config-driven tabular table loading.** `DealConfig` does
+   not carry `yrt_rate_table` because there is no JSON-friendly
+   representation; the CLI `--yrt-rate-table DIR` and API
+   `yrt_rate_table_path` flags are the canonical surfaces. Adding a
+   `yrt_rate_table_path` field to `DealConfig` would let the CLI
+   pick up the table from a YAML config, but this would require a new
+   resolution rule to share with the dashboard (which loads from
+   uploaded bytes, not paths).
+
+Other historical context preserved for reference:
+
+- **`write_yrt_rate_table_excel` is the canonical Excel writer.** The
+  dashboard does not yet have a "Download as XLSX" button for
+  uploaded tables; if added later, it can call `write_yrt_rate_table_excel`
+  directly with no duplication needed.
+- **`_yrt_rate_table_to_dict` and `_render_yrt_rate_table` still live
+  in `cli.py`.** Slice 4b-2 did not need a second call site (the
+  dashboard renders heatmaps, not Rich tables / dicts), so these
+  helpers were not lifted into `utils/yrt_rate_table_io.py`. If a
+  third surface (e.g. an HTTP `/yrt-rate-table` JSON endpoint) needs
+  them, lift on demand.
 - **Column-width fix landed in PR #39 (Slice 4a P1 review).**
-  `_write_yrt_rate_table_sheet` now uses
+  `_write_yrt_rate_table_sheet` uses
   `openpyxl.utils.get_column_letter(col_offset + 2)` instead of
   `chr(ord("B") + col_offset)`, so wide select periods (>= 25) render
-  correctly. Slice 4b-2's per-duration solver will commonly produce
-  longer select periods — no further action needed here.
+  correctly.
 
 ## Open Questions (for human) — all resolved as of Slice 4a
 
@@ -522,12 +603,18 @@ treaty consumption (Slice 2), schedule generation via brentq solver
    demo subset — intentionally narrower than the `generate_table()`
    full grid (25..85). Both are configurable.
 
-When all slices are DONE, update Status to COMPLETE. With Slice 4a
-shipped, the actuary-deliverable production path is complete: a
-tabular schedule can be generated end-to-end from
+All slices DONE. Status: **COMPLETE**.
+
+With Slice 4a shipped, the actuary-deliverable production path is
+complete: a tabular schedule can be generated end-to-end from
 `polaris rate-schedule --table` and consumed via `polaris price
---yrt-rate-table` (Slice 3). With Slice 4b-1 shipped, the
-deliverable now discloses solver provenance — sparse-age generated
-tables visually distinguish brentq-solved rows from
-forward/back-filled rows in CLI / Excel / JSON output. Slice 4b-2
-(dashboard upload + heatmap + optional per-duration solver) remains.
+--yrt-rate-table` (Slice 3). With Slice 4b-1 shipped, the deliverable
+discloses solver provenance — sparse-age generated tables visually
+distinguish brentq-solved rows from forward/back-filled rows in
+CLI / Excel / JSON output. With Slice 4b-2 shipped (ADR-055), the
+dashboard's tabular YRT path is live: actuaries upload per-cohort
+CSVs through Streamlit, preview the rate surface as a heatmap, and
+run end-to-end pricing without leaving the browser. The optional
+per-duration solver remains deferred — when it lands, the storage
+contract (`solved_mask`) and renderers (CLI / Excel / JSON /
+dashboard heatmap) are already wired.
