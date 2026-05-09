@@ -19,12 +19,13 @@ The page is purely a presentation layer; all calculations are delegated to
 """
 
 import io
-from typing import Any
+from typing import Protocol
 
 import matplotlib.pyplot as plt  # type: ignore[import-untyped]
 import numpy as np
 import polars as pl
 import streamlit as st  # type: ignore[import-untyped]
+from matplotlib.figure import Figure  # type: ignore[import-untyped]
 
 from polaris_re.analytics.experience_study import ExperienceStudy
 
@@ -34,7 +35,13 @@ __all__ = ["page_experience_study"]
 REQUIRED_COLUMNS: set[str] = {"actual", "expected", "exposure"}
 
 
-def _read_uploaded_csv(uploaded: Any) -> pl.DataFrame:
+class _BytesUpload(Protocol):
+    """Structural type for any object exposing Streamlit's ``UploadedFile.getvalue()``."""
+
+    def getvalue(self) -> bytes: ...
+
+
+def _read_uploaded_csv(uploaded: _BytesUpload) -> pl.DataFrame:
     """Parse an uploaded CSV's bytes into a Polars DataFrame.
 
     ``uploaded`` is a Streamlit ``UploadedFile``-like object exposing
@@ -56,7 +63,7 @@ def _sample_data() -> pl.DataFrame:
     )
 
 
-def _ae_bar_chart(summary: pl.DataFrame, group_col: str) -> Any:
+def _ae_bar_chart(summary: pl.DataFrame, group_col: str) -> Figure:
     """Bar chart of A/E ratio by ``group_col`` with a reference line at 1.0."""
     fig, ax = plt.subplots(figsize=(10, 4))
     labels = [str(v) for v in summary[group_col].to_list()]
@@ -75,7 +82,7 @@ def _ae_bar_chart(summary: pl.DataFrame, group_col: str) -> Any:
     return fig
 
 
-def _multiplier_chart(summary: pl.DataFrame, group_col: str) -> Any:
+def _multiplier_chart(summary: pl.DataFrame, group_col: str) -> Figure:
     """Side-by-side raw A/E vs credibility-adjusted multiplier."""
     fig, ax = plt.subplots(figsize=(10, 4))
     labels = [str(v) for v in summary[group_col].to_list()]
