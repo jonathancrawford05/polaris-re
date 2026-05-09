@@ -65,6 +65,7 @@ class TestPageNavigation:
             "Scenario Analysis",
             "Monte Carlo UQ",
             "IFRS 17",
+            "Experience Study",
         ],
     )
     def test_page_renders(self, page_name):
@@ -202,6 +203,56 @@ class TestDealPricingWithInjectedState:
         at.sidebar.radio[0].set_value("Deal Pricing")
         at.run()
         assert not at.exception, f"Deal Pricing raised with injected state: {at.exception}"
+
+
+class TestExperienceStudyPage:
+    """ADR-056 — Experience Study (A/E) page end-to-end via AppTest."""
+
+    def test_experience_study_in_navigation(self):
+        """Sidebar nav should expose 'Experience Study' as a page option."""
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        nav = at.sidebar.radio[0]
+        assert "Experience Study" in nav.options
+
+    def test_sample_data_path_runs_overall_ae(self):
+        """Switching to Sample data should run an overall A/E without error."""
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        at.sidebar.radio[0].set_value("Experience Study")
+        at.run()
+        assert not at.exception, f"Experience Study raised: {at.exception}"
+
+        # Find the data-source radio (separate from the sidebar nav).
+        ds_radios = [
+            r for r in at.radio if hasattr(r, "label") and "data source" in str(r.label).lower()
+        ]
+        assert ds_radios, "Data source radio not found"
+        ds_radios[0].set_value("Sample data")
+        at.run()
+        assert not at.exception, f"Sample data run raised: {at.exception}"
+
+    def test_groupby_renders_summary_chart(self):
+        """Selecting a grouping dimension should render the A/E chart cleanly."""
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        at.sidebar.radio[0].set_value("Experience Study")
+        at.run()
+        ds_radios = [
+            r for r in at.radio if hasattr(r, "label") and "data source" in str(r.label).lower()
+        ]
+        assert ds_radios
+        ds_radios[0].set_value("Sample data")
+        at.run()
+
+        # Group by 'sex' via the multiselect.
+        msel = [
+            m for m in at.multiselect if hasattr(m, "label") and "group by" in str(m.label).lower()
+        ]
+        assert msel, "Group By multiselect not found"
+        msel[0].set_value(["sex"])
+        at.run()
+        assert not at.exception, f"Group-by run raised: {at.exception}"
 
 
 class TestTabularYRTUpload:

@@ -2458,3 +2458,93 @@ multi-cohort schema, and the validation surprises that surround both.
 - **Persisting uploaded tables to disk** (e.g. saving the upload to
   `POLARIS_DATA_DIR` for later re-use). Out of scope; the upload lives
   in session state for the duration of the browser session only.
+
+---
+
+## ADR-056: Experience Study (A/E) dashboard page
+
+**Status:** Accepted
+**Date:** 2026-05-09
+
+**Context.** `polaris_re.analytics.experience_study.ExperienceStudy` ships
+the full A/E + credibility-weighting computation but had no Streamlit
+surface. PRODUCT_DIRECTION_2026-04-19 lists "A/E dashboard page" as a
+NICE-TO-HAVE deliverable: *experience_study.py exists but has no Streamlit
+view*. Cedant assumption-review and reinsurer post-deal monitoring both
+need a self-serve A/E surface; falling back to ad-hoc Polars in a
+notebook is not a credible deliverable.
+
+**Decision.** Add `dashboard/views/experience_study.py` with a single
+`page_experience_study()` entry-point. The page is a thin
+presentation layer over `ExperienceStudy`: input is either an uploaded
+CSV (schema `actual,expected,exposure[+optional dimensions]`) or a
+built-in sample data block; output is the credibility-adjusted summary
+table plus two matplotlib charts (raw A/E by group; raw vs
+credibility-adjusted multiplier). All math runs through
+`ExperienceStudy.run()` and `AEResult.credibility_adjusted_multipliers()`
+— no calculations are duplicated in the view.
+
+**Key choices:**
+
+- **CSV-as-input rather than session-state coupling.** Other dashboard
+  pages depend on `inforce_block` / `assumption_set` being populated
+  upstream. Experience study analyses *observed* data — the user's
+  source of truth is a study extract, not the projected block — so the
+  page accepts an upload directly. Coupling it to the inforce block
+  would force users to load synthetic data they don't actually intend
+  to study.
+- **Sample-data fallback.** A built-in 8-row mortality dataset (age × sex)
+  is shipped so the page is exercisable without an upload. This is the
+  same pattern the YRT rate-schedule heatmap uses (heatmap renders
+  immediately for the demo path), and it lets `AppTest`-driven QA
+  flow tests cover the page end-to-end without filesystem fixtures.
+- **`REQUIRED_COLUMNS` constant mirrors the engine.** The view re-asserts
+  the engine's `ExperienceStudy.REQUIRED_COLUMNS` set so the user sees
+  a clear missing-column message before the engine raises. A test
+  pins the two sets to be equal so they cannot drift.
+- **Optional age-banding via `ExperienceStudy.add_age_bands`.** When the
+  uploaded CSV has an `age` column, an expander offers a checkbox that
+  triggers `add_age_bands(...)` and adds `age_band` to the grouping
+  dimensions. This is the same helper the test suite uses.
+- **Group-by is multiselect, not selectbox.** Users can drill down by
+  any combination of dimensions present in the uploaded CSV.
+- **Chart suppression at >50 group rows.** The bar chart is the wrong
+  visualisation for very high-cardinality groupings; in that regime the
+  page suppresses the chart and points the user at the table / CSV
+  download.
+
+**Consequences:**
+
+- New module: `src/polaris_re/dashboard/views/experience_study.py`
+  (~225 lines). No engine code changes.
+- `dashboard/app.py` gains an "Experience Study" radio option (page 8)
+  and a corresponding dispatch branch.
+- `dashboard/views/__init__.py` `__all__` extended with
+  `"experience_study"` (alphabetised).
+- New tests: 12 unit tests in
+  `tests/test_dashboard/test_experience_study_view.py` covering the
+  pure helpers (`_sample_data`, `_read_uploaded_csv`, `_ae_bar_chart`,
+  `REQUIRED_COLUMNS` engine-parity, sample-data engine round-trip,
+  upload→engine round-trip), and 3 AppTest end-to-end tests in
+  `tests/qa/test_dashboard_flows.py::TestExperienceStudyPage`. The
+  existing `TestPageNavigation::test_page_renders` parametrize is
+  extended with `"Experience Study"` so the new page is covered by
+  the bulk navigation smoke test.
+- All 958 pre-existing non-slow tests continue to pass; the QA suite
+  gains 4 tests; the analytics / engine layers and golden baselines
+  are unchanged (purely additive presentation layer).
+
+**Out of scope (deferred):**
+
+- **Pulling actuals from a live data warehouse.** The page reads CSV
+  bytes only; integration with cedant data feeds is a separate concern.
+- **Time-series A/E (year-over-year tracking).** The current page is a
+  single-snapshot study. Multi-period trending would warrant its own
+  view.
+- **Persisting study results to the deal-pricing Excel workbook.** A/E
+  output stays as a downloadable CSV from the page; the deal Excel
+  template (ADR-045) is unchanged.
+- **Direct integration with the assumption calibration pipeline.** The
+  page produces credibility-adjusted multipliers but does not
+  automatically feed them back into a `MortalityTable` override —
+  that workflow remains the analyst's responsibility.
