@@ -503,6 +503,48 @@ class TestYRTRateTableLookup:
         np.testing.assert_allclose(ultimate_vals, np.full(3, rates[-1]), rtol=1e-12)
 
 
+class TestHasCohort:
+    """Public ``has_cohort`` method honours the smoker → UNKNOWN fallback."""
+
+    @staticmethod
+    def _smoker_distinct() -> YRTRateTable:
+        return YRTRateTable.from_arrays(
+            table_name="distinct",
+            arrays={
+                (Sex.MALE, SmokerStatus.SMOKER): _build_array(base_rate=2.0),
+                (Sex.MALE, SmokerStatus.NON_SMOKER): _build_array(base_rate=1.0),
+                (Sex.FEMALE, SmokerStatus.SMOKER): _build_array(base_rate=1.5),
+                (Sex.FEMALE, SmokerStatus.NON_SMOKER): _build_array(base_rate=0.7),
+            },
+        )
+
+    def test_smoker_distinct_returns_true_for_distinct_keys(self) -> None:
+        t = self._smoker_distinct()
+        assert t.has_cohort(Sex.MALE, SmokerStatus.NON_SMOKER) is True
+        assert t.has_cohort(Sex.MALE, SmokerStatus.SMOKER) is True
+        assert t.has_cohort(Sex.FEMALE, SmokerStatus.NON_SMOKER) is True
+        assert t.has_cohort(Sex.FEMALE, SmokerStatus.SMOKER) is True
+
+    def test_smoker_distinct_does_not_cover_unknown_smoker(self) -> None:
+        # Distinct M_NS / M_S do NOT collapse to M_U — the table cannot
+        # answer for an UNKNOWN-smoker policy.
+        t = self._smoker_distinct()
+        assert t.has_cohort(Sex.MALE, SmokerStatus.UNKNOWN) is False
+        assert t.has_cohort(Sex.FEMALE, SmokerStatus.UNKNOWN) is False
+
+    def test_aggregate_table_covers_any_smoker_via_fallback(self) -> None:
+        agg = YRTRateTable.from_arrays(
+            table_name="agg",
+            arrays={(Sex.MALE, SmokerStatus.UNKNOWN): _build_array(base_rate=1.0)},
+        )
+        # All three smoker statuses resolve under the (MALE, UNKNOWN) entry.
+        assert agg.has_cohort(Sex.MALE, SmokerStatus.NON_SMOKER) is True
+        assert agg.has_cohort(Sex.MALE, SmokerStatus.SMOKER) is True
+        assert agg.has_cohort(Sex.MALE, SmokerStatus.UNKNOWN) is True
+        # Female sex absent from the table → no coverage.
+        assert agg.has_cohort(Sex.FEMALE, SmokerStatus.NON_SMOKER) is False
+
+
 class TestPublicExports:
     """The Slice 1 contract for downstream slices is the package export."""
 
