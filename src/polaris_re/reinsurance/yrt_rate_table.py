@@ -399,6 +399,23 @@ class YRTRateTable(PolarisBaseModel):
             f"Available keys: {sorted(self.arrays.keys())}"
         )
 
+    def has_cohort(self, sex: Sex, smoker_status: SmokerStatus) -> bool:
+        """Return True when the table can resolve a rate for ``(sex, smoker_status)``.
+
+        Honours the same smoker → UNKNOWN aggregate fallback that
+        ``get_rate_vector`` uses internally, so callers get a faithful
+        "would this lookup succeed at pricing time?" signal without
+        catching exceptions or reaching into ``_resolve_key``. Used by
+        ``polaris_re.utils.yrt_rate_table_io.find_uncovered_cohorts`` to
+        cross-check uploaded tables against an inforce block before the
+        deal goes to the treaty engine.
+        """
+        try:
+            self._resolve_key(sex, smoker_status)
+        except PolarisValidationError:
+            return False
+        return True
+
     def get_rate_vector(
         self,
         ages: np.ndarray,

@@ -199,8 +199,6 @@ def find_uncovered_cohorts(
         if (sex, smoker) in seen:
             continue
         seen.add((sex, smoker))
-        try:
-            table._resolve_key(sex, smoker)
-        except PolarisValidationError:
+        if not table.has_cohort(sex, smoker):
             missing.add(f"{sex.value}_{smoker.value}")
     return sorted(missing)
