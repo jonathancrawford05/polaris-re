@@ -2548,3 +2548,85 @@ credibility-adjusted multiplier). All math runs through
   page produces credibility-adjusted multipliers but does not
   automatically feed them back into a `MortalityTable` override —
   that workflow remains the analyst's responsibility.
+
+---
+
+## ADR-057: Portfolio aggregation — multi-deal runner (Milestone 5.2, Slice 1)
+
+**Status:** Accepted
+**Date:** 2026-05-20
+
+**Context.** The engine prices one treaty at a time: `polaris price`
+and the dashboard each run a single inforce block under a single
+treaty. PRODUCT_DIRECTION_2026-04-19 lists "Portfolio aggregation
+(multi-deal runner)" as an IMPORTANT gap — *reinsurers don't price a
+single treaty in isolation; they need concentration metrics,
+cross-deal diversification, and aggregate RoC*. Roadmap Milestone 5.2
+specifies an `analytics/portfolio.py` `Portfolio` class that holds a
+list of deals, aggregates their `CashFlowResult`s, and reports
+portfolio-level profitability and concentration. This ADR covers
+Slice 1 — the core analytics module. CLI / API surfacing is Slice 2
+(see `docs/CONTINUATION_portfolio_aggregation.md`).
+
+**Decision.** Add `analytics/portfolio.py` with a `Portfolio` builder
+(`add_deal` → chainable), a `Deal` record, and `run(hurdle_rate)`
+returning a `PortfolioResult`. Each deal is projected independently via
+`get_product_engine`, its treaty is applied, and the *ceded* cash flow
+— the reinsurer's assumed position — is re-viewed as NET (via the
+canonical `ceded_to_reinsurer_view`, ADR-039) and profit-tested. The
+portfolio aggregate is the month-by-month sum of the per-deal reinsurer
+cash flows; total profitability is a single `ProfitTester` run on that
+aggregate, so it inherits the ADR-041 reporting guardrails.
+
+**Key choices:**
+
+- **Portfolio = the reinsurer's assumed book.** A portfolio aggregates
+  the *ceded* side of each deal. Concentration is grouped by **cedant**
+  (the ceding company), confirming the reinsurer-side framing.
+- **Proportional treaties only (this slice).** `add_deal` requires the
+  treaty to expose a `cession_pct` (YRT / coinsurance / modco).
+  Stop-loss and other non-proportional structures are rejected with a
+  clear error — `ceded_face` would not be a single proportional figure.
+- **Treaty-level cession governs; policy-level overrides are not
+  applied.** `treaty.apply(gross)` is called without an `InforceBlock`,
+  so `ceded_face = cession_pct × face` stays exact and consistent with
+  the aggregated cash flows. Per-policy `reinsurance_cession_pct`
+  blending (ADR-036) is deliberately out of scope for the portfolio
+  runner.
+- **Single-product deals.** Each deal's inforce block must contain
+  exactly one product type (validated in `add_deal`). A mixed cedant
+  block is modelled as one deal per product — the treaty applies per
+  block, and `get_product_engine` dispatches on a homogeneous block.
+- **Zero-pad to the longest horizon.** Deals may have different
+  projection horizons; shorter streams are zero-padded at the tail.
+  Cash-flow aggregation and PV both remain exactly linear, so
+  `total_pv_profits` equals the sum of the per-deal PV profits.
+- **Concentration = face shares + Herfindahl index.** Each dimension
+  (cedant / product / treaty) yields a label→share dict (shares of
+  total ceded face) plus an HHI (sum of squared shares, `1/k`..`1.0`).
+
+**Consequences:**
+
+- New module `src/polaris_re/analytics/portfolio.py` (~330 lines)
+  exporting `Deal`, `DealResult`, `Portfolio`, `PortfolioResult`.
+  `analytics/__init__.py` `__all__` extended (alphabetised).
+- No core data contracts changed — `CashFlowResult`, `Policy`,
+  `InforceBlock`, and `ProfitTestResult` are consumed unchanged. The
+  feature is purely additive; golden baselines are untouched.
+- New tests: 29 unit tests in
+  `tests/test_analytics/test_portfolio.py` — builder validation,
+  closed-form two-deal NCF additivity (including mismatched horizons),
+  PV-profit linearity, concentration shares / HHI, and a per-deal
+  breakdown cross-checked against an independent projection.
+
+**Out of scope (deferred to Slice 2 / later):**
+
+- **CLI + API surfacing.** `polaris portfolio run|report` and
+  `POST /api/v1/portfolio` are Slice 2.
+- **Aggregate return-on-capital.** `run_with_capital` exists per-deal
+  (ADR-048); a portfolio-level RoC roll-up is a follow-up once Slice 2
+  lands the reporting surface.
+- **Non-proportional treaties in a portfolio.** Stop-loss aggregation
+  needs a non-proportional `ceded_face` definition — separate work.
+- **Deal-specific hurdle rates.** `run` applies one hurdle to the whole
+  book; per-cedant hurdles would be a later extension.
