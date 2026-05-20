@@ -48,6 +48,7 @@ def main() -> None:
 
     from polaris_re.dashboard.components.state import init_session_state
     from polaris_re.dashboard.views.assumptions import page_assumptions
+    from polaris_re.dashboard.views.experience_study import page_experience_study
     from polaris_re.dashboard.views.ifrs17 import page_ifrs17
     from polaris_re.dashboard.views.inforce import page_inforce
     from polaris_re.dashboard.views.pricing import page_pricing
@@ -77,6 +78,7 @@ def main() -> None:
             "Scenario Analysis",
             "Monte Carlo UQ",
             "IFRS 17",
+            "Experience Study",
         ],
     )
 
@@ -94,6 +96,8 @@ def main() -> None:
         page_uq()
     elif page == "IFRS 17":
         page_ifrs17()
+    elif page == "Experience Study":
+        page_experience_study()
 
 
 if __name__ == "__main__":
