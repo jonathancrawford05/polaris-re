@@ -22,6 +22,8 @@ import pytest
 from polaris_re.dashboard.views.experience_study import (
     REQUIRED_COLUMNS,
     _ae_bar_chart,
+    _composite_group_labels,
+    _multiplier_chart,
     _read_uploaded_csv,
     _sample_data,
 )
@@ -80,11 +82,11 @@ class TestAEBarChart:
                 "ae_ratio": [1.10, 0.85],
             }
         )
-        fig = _ae_bar_chart(summary, "sex")
+        fig = _ae_bar_chart(summary, ["sex"])
         assert fig is not None
         ax = fig.axes[0]
         # Bars: matplotlib renders one Rectangle per bar (plus the chart frame).
-        bars = [p for p in ax.patches]
+        bars = list(ax.patches)
         assert len(bars) == 2
         # The reference A/E=1.0 line is drawn via axhline which inserts a Line2D.
         ylines = [line for line in ax.get_lines() if line.get_linestyle() == "--"]
@@ -92,11 +94,73 @@ class TestAEBarChart:
 
     def test_handles_single_row_summary(self) -> None:
         summary = pl.DataFrame({"sex": ["M"], "ae_ratio": [1.0]})
-        fig = _ae_bar_chart(summary, "sex")
+        fig = _ae_bar_chart(summary, ["sex"])
         assert fig is not None
         ax = fig.axes[0]
-        bars = [p for p in ax.patches]
+        bars = list(ax.patches)
         assert len(bars) == 1
+
+
+class TestMultiDimensionGrouping:
+    """Regression: charting with multiple group-by dimensions must produce
+    one bar per (dim_1, dim_2, ...) combination, not collapse the repeated
+    first-dimension values onto a single x tick.
+
+    This is the bug reported on the Experience Study page: grouping the
+    sample data by both `sex` and `age` produced charts where the per-age
+    bars within one sex overplotted onto the same categorical position.
+    """
+
+    def test_composite_labels_unique_per_row(self) -> None:
+        summary = pl.DataFrame(
+            {
+                "sex": ["M", "M", "F", "F"],
+                "age": [35, 40, 35, 40],
+                "ae_ratio": [1.1, 0.9, 1.2, 0.8],
+            }
+        )
+        labels = _composite_group_labels(summary, ["sex", "age"])
+        assert labels == ["M / 35", "M / 40", "F / 35", "F / 40"]
+        assert len(set(labels)) == len(labels), "composite labels must be unique per row"
+
+    def test_composite_labels_single_dimension(self) -> None:
+        summary = pl.DataFrame({"sex": ["M", "F"], "ae_ratio": [1.0, 1.1]})
+        assert _composite_group_labels(summary, ["sex"]) == ["M", "F"]
+
+    def test_ae_bar_chart_one_bar_per_combination(self) -> None:
+        """4 (sex, age) combinations must yield 4 bars, not 2."""
+        import matplotlib.pyplot as plt
+
+        summary = pl.DataFrame(
+            {
+                "sex": ["M", "M", "F", "F"],
+                "age": [35, 40, 35, 40],
+                "ae_ratio": [1.1, 0.9, 1.2, 0.8],
+            }
+        )
+        fig = _ae_bar_chart(summary, ["sex", "age"])
+        ax = fig.axes[0]
+        assert len(list(ax.patches)) == 4
+        # Each bar must sit at its own x position.
+        assert len(ax.get_xticks()) == 4
+        plt.close(fig)
+
+    def test_multiplier_chart_one_pair_per_combination(self) -> None:
+        """2 bar series x 4 combinations must yield 8 rectangles."""
+        import matplotlib.pyplot as plt
+
+        summary = pl.DataFrame(
+            {
+                "sex": ["M", "M", "F", "F"],
+                "age": [35, 40, 35, 40],
+                "ae_ratio": [1.1, 0.9, 1.2, 0.8],
+                "multiplier": [1.05, 0.95, 1.10, 0.90],
+            }
+        )
+        fig = _multiplier_chart(summary, ["sex", "age"])
+        ax = fig.axes[0]
+        assert len(list(ax.patches)) == 8
+        plt.close(fig)
 
 
 class TestRequiredColumnsConstant:
@@ -164,6 +228,6 @@ class TestAEBarChartCleanup:
         import matplotlib.pyplot as plt
 
         summary = pl.DataFrame({"sex": ["M", "F"], "ae_ratio": [1.0, 1.1]})
-        fig = _ae_bar_chart(summary, "sex")
+        fig = _ae_bar_chart(summary, ["sex"])
         plt.close(fig)
         assert not plt.get_fignums() or fig.number not in plt.get_fignums()

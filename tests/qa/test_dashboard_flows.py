@@ -254,6 +254,32 @@ class TestExperienceStudyPage:
         at.run()
         assert not at.exception, f"Group-by run raised: {at.exception}"
 
+    def test_multi_dimension_groupby_renders(self):
+        """Grouping by two dimensions (sex + age) must render cleanly.
+
+        Regression for the reported bug: charts collapsed the per-age bars
+        within one sex onto a single x position when more than one grouping
+        dimension was selected.
+        """
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        at.sidebar.radio[0].set_value("Experience Study")
+        at.run()
+        ds_radios = [
+            r for r in at.radio if hasattr(r, "label") and "data source" in str(r.label).lower()
+        ]
+        assert ds_radios
+        ds_radios[0].set_value("Sample data")
+        at.run()
+
+        msel = [
+            m for m in at.multiselect if hasattr(m, "label") and "group by" in str(m.label).lower()
+        ]
+        assert msel, "Group By multiselect not found"
+        msel[0].set_value(["sex", "age"])
+        at.run()
+        assert not at.exception, f"Multi-dimension group-by raised: {at.exception}"
+
 
 class TestTabularYRTUpload:
     """Slice 4b-2 / ADR-055 — tabular YRT upload UI on the Assumptions page."""

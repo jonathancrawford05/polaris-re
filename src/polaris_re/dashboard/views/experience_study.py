@@ -63,17 +63,34 @@ def _sample_data() -> pl.DataFrame:
     )
 
 
-def _ae_bar_chart(summary: pl.DataFrame, group_col: str) -> Figure:
-    """Bar chart of A/E ratio by ``group_col`` with a reference line at 1.0."""
+def _composite_group_labels(summary: pl.DataFrame, group_cols: list[str]) -> list[str]:
+    """Build one x-axis label per summary row across all grouping dimensions.
+
+    With a single dimension the label is that column's value. With multiple
+    dimensions the per-row values are joined with ' / ' so every
+    (dim_1, dim_2, ...) combination gets a distinct bar — otherwise repeated
+    first-dimension values (e.g. several ages within one sex) would collapse
+    onto the same x tick and overplot.
+    """
+    rows = summary.select(group_cols).rows()
+    return [" / ".join(str(v) for v in row) for row in rows]
+
+
+def _ae_bar_chart(summary: pl.DataFrame, group_cols: list[str]) -> Figure:
+    """Bar chart of A/E ratio by group with a reference line at 1.0."""
     fig, ax = plt.subplots(figsize=(10, 4))
-    labels = [str(v) for v in summary[group_col].to_list()]
+    labels = _composite_group_labels(summary, group_cols)
+    x = np.arange(len(labels))
     ae = summary["ae_ratio"].to_numpy()
     bar_colors = ["#e74c3c" if val > 1.0 else "#2ecc71" for val in ae]
-    ax.bar(labels, ae, color=bar_colors, alpha=0.75)
+    ax.bar(x, ae, color=bar_colors, alpha=0.75)
     ax.axhline(1.0, color="#34495e", linestyle="--", linewidth=1.0, label="Expected (A/E = 1.0)")
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    axis_label = " / ".join(group_cols)
     ax.set_ylabel("A/E Ratio")
-    ax.set_xlabel(group_col)
-    ax.set_title(f"Actual-to-Expected Ratio by {group_col}")
+    ax.set_xlabel(axis_label)
+    ax.set_title(f"Actual-to-Expected Ratio by {axis_label}")
     ax.legend()
     ax.grid(True, alpha=0.3, axis="y")
     if len(labels) > 6:
@@ -82,10 +99,10 @@ def _ae_bar_chart(summary: pl.DataFrame, group_col: str) -> Figure:
     return fig
 
 
-def _multiplier_chart(summary: pl.DataFrame, group_col: str) -> Figure:
+def _multiplier_chart(summary: pl.DataFrame, group_cols: list[str]) -> Figure:
     """Side-by-side raw A/E vs credibility-adjusted multiplier."""
     fig, ax = plt.subplots(figsize=(10, 4))
-    labels = [str(v) for v in summary[group_col].to_list()]
+    labels = _composite_group_labels(summary, group_cols)
     x = np.arange(len(labels))
     ae = summary["ae_ratio"].to_numpy()
     mult = summary["multiplier"].to_numpy()
@@ -95,8 +112,10 @@ def _multiplier_chart(summary: pl.DataFrame, group_col: str) -> Figure:
     ax.axhline(1.0, color="#34495e", linestyle="--", linewidth=1.0)
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
+    axis_label = " / ".join(group_cols)
     ax.set_ylabel("Ratio")
-    ax.set_title(f"Raw vs Credibility-Adjusted by {group_col}")
+    ax.set_xlabel(axis_label)
+    ax.set_title(f"Raw vs Credibility-Adjusted by {axis_label}")
     ax.legend()
     ax.grid(True, alpha=0.3, axis="y")
     if len(labels) > 6:
@@ -245,14 +264,15 @@ def page_experience_study() -> None:
     st.dataframe(display_df.to_pandas(), use_container_width=True)
 
     # --- Visualisations ---
-    if group_by and 1 < len(result.summary) <= 50:
+    group_cols = list(group_by)
+    if group_cols and 1 < len(result.summary) <= 50:
         st.subheader("A/E Ratio by Group")
-        fig_ae = _ae_bar_chart(multipliers, group_by[0])
+        fig_ae = _ae_bar_chart(multipliers, group_cols)
         st.pyplot(fig_ae)
         plt.close(fig_ae)
 
         st.subheader("Raw vs Credibility-Adjusted")
-        fig_mult = _multiplier_chart(multipliers, group_by[0])
+        fig_mult = _multiplier_chart(multipliers, group_cols)
         st.pyplot(fig_mult)
         plt.close(fig_mult)
     elif group_by and len(result.summary) > 50:
