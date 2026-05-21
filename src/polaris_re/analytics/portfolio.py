@@ -51,9 +51,10 @@ class Deal:
     """A single reinsurance deal held by a ``Portfolio``.
 
     Constructed and validated by ``Portfolio.add_deal`` — callers do not
-    instantiate this directly. ``product_type`` and ``treaty_type`` are
-    cached string labels derived at construction time for the per-deal
-    breakdown and concentration metrics.
+    instantiate this directly. ``product_type``, ``treaty_type``, and
+    ``cession_pct`` are cached at construction time (the latter validated
+    non-``None`` by ``add_deal``) for the per-deal breakdown and
+    concentration metrics.
     """
 
     deal_id: str
@@ -64,6 +65,7 @@ class Deal:
     treaty: BaseTreaty
     product_type: str
     treaty_type: str
+    cession_pct: float
 
 
 # ---------------------------------------------------------------------------
@@ -259,6 +261,7 @@ class Portfolio:
                 treaty=treaty,
                 product_type=next(iter(product_types)).value,
                 treaty_type=_treaty_label(treaty),
+                cession_pct=float(cession),
             )
         )
         return self
@@ -374,7 +377,7 @@ class Portfolio:
         profit_test = ProfitTester(reinsurer_view, hurdle_rate).run()
 
         face = deal.inforce.total_face_amount()
-        ceded_face = face * float(deal.treaty.cession_pct)  # type: ignore[attr-defined]
+        ceded_face = face * deal.cession_pct
 
         if ceded.nar is None:
             ceded_nar = np.zeros(ceded.projection_months, dtype=np.float64)
