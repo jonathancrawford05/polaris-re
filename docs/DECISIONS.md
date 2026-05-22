@@ -2601,6 +2601,12 @@ aggregate, so it inherits the ADR-041 reporting guardrails.
   projection horizons; shorter streams are zero-padded at the tail.
   Cash-flow aggregation and PV both remain exactly linear, so
   `total_pv_profits` equals the sum of the per-deal PV profits.
+- **Common valuation date enforced.** Aggregation sums cash flows by
+  month index, so month 0 must be the same calendar month for every
+  deal. `run()` rejects a portfolio whose deals do not share a
+  `valuation_date` rather than silently producing an out-of-phase
+  aggregate. Calendar-aligned aggregation (treaties with different
+  inception dates) is a deferred follow-up (PR #44 review).
 - **Concentration = face shares + Herfindahl index.** Each dimension
   (cedant / product / treaty) yields a label→share dict (shares of
   total ceded face) plus an HHI (sum of squared shares, `1/k`..`1.0`).
@@ -2629,4 +2635,11 @@ aggregate, so it inherits the ADR-041 reporting guardrails.
 - **Non-proportional treaties in a portfolio.** Stop-loss aggregation
   needs a non-proportional `ceded_face` definition — separate work.
 - **Deal-specific hurdle rates.** `run` applies one hurdle to the whole
-  book; per-cedant hurdles would be a later extension.
+  book; per-cedant hurdles would be a later extension. PV profits at
+  different discount rates do not sum, so this is a redesign of the
+  aggregate `ProfitTester` pattern, not a parameter (PR #44 review).
+- **Calendar-aligned aggregation.** Deals must currently share a
+  valuation date; aggregating treaties with different inception dates on
+  a common calendar grid is a separate slice. See
+  `docs/CONTINUATION_portfolio_aggregation.md` "Refinement Backlog" for
+  the full set of generality follow-ups raised in the PR #44 review.

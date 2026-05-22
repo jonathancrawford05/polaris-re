@@ -219,6 +219,19 @@ class TestPortfolioRun:
         with pytest.raises(PolarisValidationError, match="hurdle_rate must be"):
             portfolio.run(-1.5)
 
+    def test_mismatched_valuation_dates_rejected(self):
+        """Deals with different valuation dates cannot be index-summed."""
+        spec_a = _deal_spec("D1", "CedantA")
+        spec_b = _deal_spec("D2", "CedantB")
+        spec_b["config"] = ProjectionConfig(
+            valuation_date=date(2025, 7, 1),
+            projection_horizon_years=20,
+            discount_rate=0.05,
+        )
+        portfolio = Portfolio().add_deal(**spec_a).add_deal(**spec_b)
+        with pytest.raises(PolarisValidationError, match="same valuation date"):
+            portfolio.run(HURDLE)
+
     def test_run_returns_portfolio_result(self):
         portfolio = Portfolio().add_deal(**_deal_spec("D1", "CedantA"))
         result = portfolio.run(HURDLE)

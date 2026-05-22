@@ -81,8 +81,55 @@ like".
   `DealResult` (see `cli._profit_test_to_dict` for the existing
   pattern).
 
+## Refinement Backlog (from PR #44 generality review)
+
+The Slice 1 generality review flagged six items that are correctly out
+of scope for Slice 1 but should not become "discovered surprises". They
+are recorded here so later slices can plan for them.
+
+1. **Temporal alignment — partially addressed.** Aggregation sums cash
+   flows by month index, which is only valid when every deal shares a
+   calendar grid. Slice 1 now *guards* this: `Portfolio.run()` rejects
+   deals with mismatched `valuation_date`. The fuller fix — aggregating
+   on a common calendar grid so deals with different inception dates can
+   coexist — remains a follow-up. It touches the aggregation core
+   (arrays are indexed by offset, not by date), so it warrants its own
+   slice.
+2. **Aggregate `CashFlowResult` is a thin shell.** `run()` builds the
+   internal aggregate with only `gross_premiums` and `net_cash_flow`
+   (all `ProfitTester` needs). Death claims, expenses, and reserves are
+   left empty. This is fine while the aggregate is internal-only, but a
+   portfolio-level capital model or `loss_ratio()` would need the full
+   set. Cheap to add (a few more `_pad` + `np.sum` calls) — Slice 2's
+   `to_dict()` should decide whether to surface aggregate claims /
+   expenses / reserves, and a capital slice will need them.
+3. **No portfolio-level scenario analysis.** `ScenarioRunner` stresses a
+   single deal. `run()`'s iterate-then-aggregate shape extends naturally
+   to a `run_scenarios()` that applies a `ScenarioAdjustment` to every
+   deal before projection. Open design question: correlated vs.
+   independent stresses across cedants. High-value follow-up after
+   Slice 2.
+4. **Deal-specific hurdle rates need a redesign, not a parameter.** PV
+   profits at different discount rates do not sum. If per-deal hurdles
+   are introduced, `total_pv_profits` / `total_irr` must distinguish
+   "sum of per-deal PV at per-deal hurdles" from "PV of the aggregate at
+   a common benchmark rate" — the aggregate `ProfitTester` pattern is
+   what changes.
+5. **Concentration is face-weighted only.** The `_concentration` helper
+   takes generic `(label, weight)` pairs, so NAR-weighted,
+   PV-premium-weighted, or capital-weighted concentration is structurally
+   trivial to add — but `PortfolioResult` currently exposes only three
+   face-weighted dicts + one HHI dict. A future shape like
+   `concentration[dimension][weight_basis]` would generalise it.
+6. **Sequential execution, append-only builder.** `_run_deal` is
+   stateless and independent — trivially parallelisable — but the loop
+   is sequential. There is no `remove_deal()` and no per-deal result
+   caching, so every `run()` is a full re-projection. Fine for small
+   books; a 50+ deal portfolio would want a cached-by-`deal_id` pattern.
+
 ## Open Questions (for human)
 
 - None blocking. One design note: portfolio profit testing uses a
   single `hurdle_rate` for the whole book. If cedants warrant
-  deal-specific hurdle rates, that would be a Slice 2+ extension.
+  deal-specific hurdle rates, that would be a Slice 2+ extension (see
+  Refinement Backlog item 4 for the structural implication).

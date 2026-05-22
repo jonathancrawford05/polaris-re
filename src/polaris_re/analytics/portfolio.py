@@ -21,7 +21,10 @@ Scope (Slice 1 of Milestone 5.2): proportional treaties only — YRT,
 coinsurance, modco — each exposing a ``cession_pct``. Stop-loss and other
 non-proportional structures are out of scope. Policy-level cession overrides
 are not applied; the treaty-level ``cession_pct`` governs every deal. Each
-deal's inforce block must contain a single product type.
+deal's inforce block must contain a single product type. All deals must
+share a common valuation date — the aggregate is summed by month index, so
+mixed inception dates would be out of phase; ``run`` rejects them. Full
+calendar-aligned aggregation is a planned follow-up (see PR #44 review).
 """
 
 from dataclasses import dataclass
@@ -279,13 +282,26 @@ class Portfolio:
             metrics.
 
         Raises:
-            PolarisValidationError: If the portfolio is empty or
-                ``hurdle_rate`` is not greater than -1.
+            PolarisValidationError: If the portfolio is empty,
+                ``hurdle_rate`` is not greater than -1, or the deals do not
+                all share a common valuation date.
         """
         if not self._deals:
             raise PolarisValidationError("Cannot run an empty portfolio — add at least one deal.")
         if hurdle_rate <= -1.0:
             raise PolarisValidationError(f"hurdle_rate must be > -1, got {hurdle_rate}.")
+
+        # Aggregation sums cash flows by month index, so month 0 must be the
+        # same calendar month for every deal. Reject mixed valuation dates
+        # rather than silently producing an out-of-phase aggregate.
+        valuation_dates = {deal.config.valuation_date for deal in self._deals}
+        if len(valuation_dates) > 1:
+            raise PolarisValidationError(
+                "All deals in a portfolio must share the same valuation date — "
+                "aggregation sums cash flows by month index, which is only "
+                "actuarially valid on a common calendar grid. Got: "
+                f"{sorted(d.isoformat() for d in valuation_dates)}."
+            )
 
         deal_results: list[DealResult] = []
         reinsurer_views: list[CashFlowResult] = []
