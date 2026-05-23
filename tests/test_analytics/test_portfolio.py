@@ -488,3 +488,99 @@ class TestPortfolioDealBreakdown:
         expected = _independent_reinsurer_ncf(spec)
         result = Portfolio().add_deal(**spec).run(HURDLE)
         np.testing.assert_allclose(result.deal_results[0].net_cash_flow, expected, rtol=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# to_dict() — JSON-friendly serialisation
+# ---------------------------------------------------------------------------
+
+
+class TestPortfolioResultToDict:
+    """``PortfolioResult.to_dict`` flattens the result for JSON / Rich rendering."""
+
+    def test_returns_plain_dict(self):
+        result = Portfolio().add_deal(**_deal_spec("D1", "CedantA")).run(HURDLE)
+        d = result.to_dict()
+        assert isinstance(d, dict)
+
+    def test_top_level_keys(self):
+        result = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA"))
+            .add_deal(**_deal_spec("D2", "CedantB"))
+            .run(HURDLE)
+        )
+        d = result.to_dict()
+        expected_keys = {
+            "n_deals",
+            "hurdle_rate",
+            "projection_months",
+            "total_pv_profits",
+            "total_irr",
+            "breakeven_year",
+            "profit_margin",
+            "total_undiscounted_profit",
+            "total_face_amount",
+            "total_ceded_face",
+            "peak_ceded_nar",
+            "aggregate_net_cash_flow",
+            "aggregate_ceded_nar",
+            "deals",
+            "concentration",
+            "hhi",
+        }
+        assert expected_keys.issubset(d.keys())
+
+    def test_deals_block_is_list_of_dicts(self):
+        result = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA"))
+            .add_deal(**_deal_spec("D2", "CedantB"))
+            .run(HURDLE)
+        )
+        deals = result.to_dict()["deals"]
+        assert isinstance(deals, list)
+        assert len(deals) == 2
+        first = deals[0]
+        assert first["deal_id"] == "D1"
+        assert first["cedant"] == "CedantA"
+        assert first["product_type"] == "TERM"
+        assert first["treaty_type"] == "Coinsurance"
+        assert first["n_policies"] == 2
+        # Profit-test nested
+        assert "pv_profits" in first["profit_test"]
+        assert "irr" in first["profit_test"]
+
+    def test_arrays_serialised_as_lists(self):
+        """NumPy arrays must be plain lists so ``json.dumps`` works."""
+        import json
+
+        result = Portfolio().add_deal(**_deal_spec("D1", "CedantA")).run(HURDLE)
+        d = result.to_dict()
+        assert isinstance(d["aggregate_net_cash_flow"], list)
+        assert isinstance(d["aggregate_ceded_nar"], list)
+        assert len(d["aggregate_net_cash_flow"]) == d["projection_months"]
+        # JSON serialisable end-to-end
+        json.dumps(d)
+
+    def test_concentration_and_hhi_grouped(self):
+        result = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA"))
+            .add_deal(**_deal_spec("D2", "CedantB"))
+            .run(HURDLE)
+        )
+        d = result.to_dict()
+        # Concentration is grouped by dimension for ergonomic access
+        assert set(d["concentration"].keys()) == {"cedant", "product", "treaty"}
+        assert set(d["hhi"].keys()) == {"cedant", "product", "treaty"}
+        assert sum(d["concentration"]["cedant"].values()) == pytest.approx(1.0)
+
+    def test_profit_test_fields_match_source(self):
+        """The flattened deal block carries the same numbers as the ProfitTestResult."""
+        result = Portfolio().add_deal(**_deal_spec("D1", "CedantA")).run(HURDLE)
+        d = result.to_dict()
+        dr = result.deal_results[0]
+        first = d["deals"][0]
+        assert first["profit_test"]["pv_profits"] == dr.profit_test.pv_profits
+        assert first["profit_test"]["irr"] == dr.profit_test.irr

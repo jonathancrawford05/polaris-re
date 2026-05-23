@@ -1,7 +1,7 @@
 # Continuation: Portfolio Aggregation (Milestone 5.2)
 
 **Source:** PRODUCT_DIRECTION_2026-04-19.md — IMPORTANT
-**Status:** IN PROGRESS
+**Status:** COMPLETE (Slice 2 shipped 2026-05-23)
 **Total slices:** 2
 **Estimated total scope:** ~5 dev-days
 
@@ -48,23 +48,47 @@ like".
 
 ### Slice 2: CLI + API integration
 
-- **Status:** NEXT
-- **Depends on:** Slice 1 merged
-- **Files to create/modify:**
-  - `src/polaris_re/cli.py` — `polaris portfolio run --config deals.yaml`
-    (YAML-driven multi-deal runner) and `polaris portfolio report`
-    (Rich summary table of the per-deal breakdown + concentration).
-  - `src/polaris_re/api/main.py` — `POST /api/v1/portfolio` accepting a
-    list of deal configs, returning a serialised `PortfolioResult`.
-  - `analytics/portfolio.py` — add a `PortfolioResult.to_dict()` for
-    JSON/Rich consumption (kept out of Slice 1 to stay focused).
-  - Tests: CLI portfolio command, API endpoint.
+- **Status:** DONE
+- **Branch:** claude/lucid-hawking-zkLrV
+- **PR:** —
+- **What was done:** `PortfolioResult.to_dict()` flattens the result for
+  JSON / Rich consumption (numpy arrays → lists, per-deal breakdown
+  → list of plain dicts with nested `profit_test` blocks, concentration
+  grouped by dimension). `polaris portfolio run --config deals.yaml`
+  loads a YAML / JSON portfolio config (`hurdle_rate` + a `deals` list,
+  each deal a per-deal `mortality` / `lapse` / `deal` block plus inline
+  `policies` or an `inforce_csv` reference), projects every deal,
+  applies its proportional treaty, and writes the aggregated result as
+  JSON. `polaris portfolio report --result result.json` re-renders the
+  per-deal breakdown and three concentration tables without re-running.
+  `POST /api/v1/portfolio` accepts a list of deal configs and returns a
+  serialised `PortfolioResult`. YRT rate derivation in the CLI mirrors
+  `polaris price`: when `treaty_type='YRT'` and no rate is supplied, a
+  one-off gross projection feeds `derive_yrt_rate` so ceded premiums
+  are calibrated to the block's actual claims (rather than zero, which
+  would happen with a None rate / claims-only cession).
+- **Key decisions:**
+  - YAML and JSON are interchangeable for the portfolio config (format
+    inferred from suffix); JSON keeps error messages consistent with
+    the rest of the CLI, YAML is the documented primary format.
+  - Per-deal config blocks reuse `_parse_config_to_pipeline_inputs`, so
+    the same schema documented for `polaris price` works inside a
+    portfolio's `deals[]` array unchanged.
+  - `POST /api/v1/portfolio` reuses `_build_components` and `_build_treaty`
+    from the existing `/api/v1/price` endpoint — no schema duplication.
+    The endpoint returns a plain dict (the `to_dict()` shape) rather
+    than a dedicated Pydantic response model so concentration / per-deal
+    dicts pass through without coercion to fixed keys.
+  - Sample portfolio config shipped at
+    `data/configs/portfolio_demo.yaml` for quick CLI smoke testing.
 - **Acceptance criteria:**
   - `polaris portfolio run` on a 2-deal YAML produces a JSON result
     whose `total_pv_profits` equals the sum of the per-deal PV profits.
+    ✅ `test_json_output_total_equals_sum_of_per_deal_pv`
   - `polaris portfolio report` renders a per-deal table and the three
-    concentration breakdowns.
+    concentration breakdowns. ✅ `test_report_re_renders_from_result_json`
   - `POST /api/v1/portfolio` round-trips a 2-deal request.
+    ✅ `tests/test_api/test_portfolio.py` (8 tests).
 
 ## Context for Next Session
 

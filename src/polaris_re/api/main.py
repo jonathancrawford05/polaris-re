@@ -1248,3 +1248,136 @@ def api_rate_schedule(request: RateScheduleRequest) -> RateScheduleResponse:
         n_cells=len(schedule),
         schedule=schedule,
     )
+
+
+# =========================================================================
+# POST /api/v1/portfolio — Multi-deal portfolio aggregation (ADR-057 Slice 2)
+# =========================================================================
+
+
+class PortfolioDealRequest(BaseModel):
+    """One deal entry in a portfolio request.
+
+    Carries everything ``PriceRequest`` accepts (policies, treaty,
+    assumptions) plus a ``deal_id`` and ``cedant`` label used for the
+    portfolio's per-deal breakdown and concentration metrics. Stop-loss
+    and other non-proportional structures are out of scope for Slice 2 —
+    ``treaty_type`` must be one of ``YRT`` / ``Coinsurance`` / ``Modco``.
+    """
+
+    deal_id: str = Field(description="Unique identifier for the deal within the portfolio.")
+    cedant: str = Field(description="Ceding company label — used as the concentration key.")
+    policies: list[PolicyInput] = Field(
+        min_length=1, description="List of policies covered by this deal."
+    )
+    product_type: str = Field(
+        default="TERM", description="Product type: 'TERM', 'WHOLE_LIFE', or 'UL'."
+    )
+    treaty_type: str = Field(
+        default="YRT",
+        description=(
+            "Treaty type — proportional only: 'YRT', 'Coinsurance', or 'Modco'. "
+            "Stop-loss and 'None'/gross-only are rejected (a portfolio is a book "
+            "of ceded positions)."
+        ),
+    )
+    projection_horizon_years: int = Field(ge=1, le=40, default=20)
+    discount_rate: float = Field(ge=0.0, le=1.0, default=0.06)
+    cession_pct: float = Field(ge=0.0, le=1.0, default=0.90)
+    flat_qx: float = Field(ge=0.0, le=1.0, default=0.001)
+    flat_lapse: float = Field(ge=0.0, le=1.0, default=0.05)
+    acquisition_cost_per_policy: float = Field(default=0.0, ge=0.0)
+    maintenance_cost_per_policy_per_year: float = Field(default=0.0, ge=0.0)
+    yrt_loading: float = Field(default=0.10, ge=0.0, le=1.0)
+    modco_interest_rate: float = Field(default=0.045, ge=0.0, le=0.20)
+
+
+class PortfolioRequest(BaseModel):
+    """Request body for ``POST /api/v1/portfolio``."""
+
+    hurdle_rate: float = Field(
+        default=0.10,
+        ge=0.0,
+        le=1.0,
+        description="Annual hurdle rate applied uniformly to every deal and to the aggregate.",
+    )
+    deals: list[PortfolioDealRequest] = Field(
+        min_length=1, description="One entry per reinsurance deal in the portfolio."
+    )
+    name: str = Field(default="portfolio", description="Portfolio identifier (used in run id).")
+
+
+@app.post("/api/v1/portfolio", tags=["Pricing"])
+def api_portfolio(request: PortfolioRequest) -> dict:  # type: ignore[type-arg]
+    """Run a multi-deal portfolio and return aggregate reinsurer-level metrics.
+
+    Projects every deal, applies its proportional treaty, and aggregates
+    the reinsurer-side cash flows into total PV profits, total IRR, and
+    concentration metrics by cedant, product type, and treaty type. The
+    response shape mirrors ``PortfolioResult.to_dict()`` — see ADR-057.
+    """
+    from polaris_re.analytics.portfolio import Portfolio
+
+    try:
+        portfolio = Portfolio(name=request.name)
+        for deal_req in request.deals:
+            inforce, assumptions, config = _build_components(
+                policies_in=deal_req.policies,
+                projection_horizon_years=deal_req.projection_horizon_years,
+                discount_rate=deal_req.discount_rate,
+                flat_qx=deal_req.flat_qx,
+                flat_lapse=deal_req.flat_lapse,
+                product_type_str=deal_req.product_type,
+                acquisition_cost_per_policy=deal_req.acquisition_cost_per_policy,
+                maintenance_cost_per_policy_per_year=deal_req.maintenance_cost_per_policy_per_year,
+            )
+
+            # Portfolio rejects non-proportional treaties via Portfolio.add_deal,
+            # but reject empty/null treaties up front so the error is a clean 400.
+            if deal_req.treaty_type not in ("YRT", "Coinsurance", "Modco"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Deal {deal_req.deal_id!r}: treaty_type must be 'YRT', "
+                        f"'Coinsurance', or 'Modco'; got {deal_req.treaty_type!r}."
+                    ),
+                )
+
+            # YRT needs a rate — derive from the gross projection (mirrors /api/v1/price).
+            gross_for_yrt_rate = None
+            if deal_req.treaty_type == "YRT":
+                gross_for_yrt_rate = _run_gross_projection(inforce, assumptions, config)
+
+            total_face = sum(p.face_amount for p in deal_req.policies)
+            treaty = _build_treaty(
+                treaty_type=deal_req.treaty_type,
+                gross=gross_for_yrt_rate,  # type: ignore[arg-type]
+                face_amount=total_face,
+                cession_pct=deal_req.cession_pct,
+                yrt_loading=deal_req.yrt_loading,
+                modco_interest_rate=deal_req.modco_interest_rate,
+            )
+            if treaty is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Deal {deal_req.deal_id!r}: could not build a treaty for "
+                        f"treaty_type={deal_req.treaty_type!r}."
+                    ),
+                )
+            portfolio.add_deal(
+                deal_id=deal_req.deal_id,
+                cedant=deal_req.cedant,
+                inforce=inforce,
+                assumptions=assumptions,
+                config=config,
+                treaty=treaty,
+            )
+
+        result = portfolio.run(request.hurdle_rate)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return result.to_dict()

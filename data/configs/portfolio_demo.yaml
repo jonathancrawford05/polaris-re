@@ -1,0 +1,79 @@
+# Sample portfolio config — `polaris portfolio run --config data/configs/portfolio_demo.yaml`
+#
+# A portfolio is a list of independent reinsurance deals aggregated into a
+# single reinsurer-level view. Each deal carries the same `mortality`,
+# `lapse`, and `deal` blocks accepted by `polaris price`, plus a `deal_id`
+# and `cedant` label used for per-deal breakdowns and concentration metrics.
+# Policies may be inlined under `policies:` or referenced via `inforce_csv:`.
+
+name: demo_portfolio
+hurdle_rate: 0.10
+deals:
+  - deal_id: D1
+    cedant: BigLifeCo
+    mortality:
+      source: flat
+      flat_qx: 0.002
+    lapse:
+      duration_table:
+        "1": 0.05
+        "2": 0.04
+        "ultimate": 0.03
+    deal:
+      product_type: TERM
+      treaty_type: YRT
+      cession_pct: 0.80
+      yrt_loading: 0.10
+      discount_rate: 0.06
+      projection_years: 10
+    policies:
+      - policy_id: D1_001
+        issue_age: 40
+        attained_age: 40
+        sex: M
+        smoker: false
+        face_amount: 500000.0
+        annual_premium: 2500.0
+        policy_term: 20
+        duration_inforce: 0
+        issue_date: "2025-01-01"
+        valuation_date: "2025-01-01"
+      - policy_id: D1_002
+        issue_age: 45
+        attained_age: 45
+        sex: M
+        smoker: false
+        face_amount: 500000.0
+        annual_premium: 2700.0
+        policy_term: 20
+        duration_inforce: 0
+        issue_date: "2025-01-01"
+        valuation_date: "2025-01-01"
+
+  - deal_id: D2
+    cedant: SmallLifeCo
+    mortality:
+      source: flat
+      flat_qx: 0.003
+    lapse:
+      duration_table:
+        "1": 0.05
+        "ultimate": 0.03
+    deal:
+      product_type: WHOLE_LIFE
+      treaty_type: Coinsurance
+      cession_pct: 0.50
+      discount_rate: 0.06
+      projection_years: 10
+    policies:
+      - policy_id: D2_001
+        issue_age: 45
+        attained_age: 45
+        sex: F
+        smoker: false
+        face_amount: 300000.0
+        annual_premium: 4500.0
+        policy_term: null
+        duration_inforce: 0
+        issue_date: "2025-01-01"
+        valuation_date: "2025-01-01"

@@ -1749,6 +1749,311 @@ def _yrt_rate_table_to_dict(rate_table: object) -> dict[str, object]:
     }
 
 
+portfolio_app = typer.Typer(
+    name="portfolio",
+    help="Multi-deal portfolio aggregation — reinsurer-level book metrics (ADR-057).",
+    rich_markup_mode="rich",
+)
+app.add_typer(portfolio_app, name="portfolio")
+
+
+def _load_portfolio_config(config_path: Path) -> dict:  # type: ignore[type-arg]
+    """Load a portfolio config from YAML or JSON.
+
+    The format is inferred from the file suffix (``.yaml`` / ``.yml`` →
+    YAML; otherwise JSON). YAML is a superset of JSON so either format
+    parses identically through ``yaml.safe_load``, but JSON files are
+    routed through ``json.loads`` so error messages match the rest of the
+    CLI.
+    """
+    if not config_path.exists():
+        console.print(f"[red]Error:[/red] Portfolio config not found: {config_path}")
+        raise typer.Exit(code=1)
+    text = config_path.read_text()
+    suffix = config_path.suffix.lower()
+    try:
+        if suffix in (".yaml", ".yml"):
+            import yaml
+
+            data = yaml.safe_load(text)
+        else:
+            data = json.loads(text)
+    except (json.JSONDecodeError, Exception) as exc:  # yaml.YAMLError is broad
+        console.print(f"[red]Error parsing portfolio config:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    if not isinstance(data, dict):
+        console.print(
+            f"[red]Error:[/red] Portfolio config must be a mapping, got {type(data).__name__}."
+        )
+        raise typer.Exit(code=1)
+    return data
+
+
+def _build_portfolio_from_config(
+    config_path: Path,
+) -> tuple[object, float]:
+    """Build a ``Portfolio`` from a YAML / JSON portfolio config.
+
+    Returns ``(portfolio, hurdle_rate)``. Each entry in ``deals`` is parsed
+    through the same ``_parse_config_to_pipeline_inputs`` helper used by
+    ``polaris price`` so per-deal config keys (mortality, lapse, deal)
+    behave identically across single-deal and portfolio commands.
+    """
+    from polaris_re.analytics.portfolio import Portfolio
+
+    raw = _load_portfolio_config(config_path)
+
+    hurdle_rate = float(raw.get("hurdle_rate", 0.10))
+    deals_raw = raw.get("deals")
+    if not isinstance(deals_raw, list) or len(deals_raw) == 0:
+        console.print("[red]Error:[/red] Portfolio config must contain a non-empty 'deals' list.")
+        raise typer.Exit(code=1)
+
+    portfolio = Portfolio(name=str(raw.get("name", "portfolio")))
+    for idx, deal_raw in enumerate(deals_raw):
+        if not isinstance(deal_raw, dict):
+            console.print(
+                f"[red]Error:[/red] Deal #{idx} must be a mapping, got {type(deal_raw).__name__}."
+            )
+            raise typer.Exit(code=1)
+        deal_id = deal_raw.get("deal_id")
+        cedant = deal_raw.get("cedant")
+        if not deal_id or not cedant:
+            console.print(f"[red]Error:[/red] Deal #{idx} must specify 'deal_id' and 'cedant'.")
+            raise typer.Exit(code=1)
+
+        inputs, policies_raw = _parse_config_to_pipeline_inputs(deal_raw)
+
+        # Inforce: either an external CSV reference, or inline policies.
+        inforce_csv = deal_raw.get("inforce_csv")
+        if inforce_csv is not None:
+            inforce_path = Path(str(inforce_csv))
+            if not inforce_path.exists():
+                console.print(
+                    f"[red]Error:[/red] Deal {deal_id!r} inforce_csv not found: {inforce_path}"
+                )
+                raise typer.Exit(code=1)
+            inforce = load_inforce(csv_path=inforce_path)
+        elif policies_raw:
+            inforce = load_inforce(policies_dict=policies_raw)
+        else:
+            console.print(
+                f"[red]Error:[/red] Deal {deal_id!r} must specify 'inforce_csv' or 'policies'."
+            )
+            raise typer.Exit(code=1)
+
+        inforce, assumptions, config = build_pipeline(inforce, inputs)
+        face = inforce.total_face_amount()
+
+        # YRT rate derivation mirrors `polaris price`: when treaty_type is YRT
+        # and no flat rate is supplied, derive a mortality-based rate from a
+        # one-off gross projection so ceded premiums are calibrated to the
+        # block's actual claims, not zero (which would happen with a None
+        # rate and yield a claims-only cession).
+        yrt_rate = inputs.deal.yrt_rate_per_1000
+        if inputs.deal.treaty_type == "YRT" and yrt_rate is None:
+            from polaris_re.products.dispatch import get_product_engine
+
+            gross_for_rate = get_product_engine(
+                inforce=inforce, assumptions=assumptions, config=config
+            ).project()
+            yrt_rate = derive_yrt_rate(gross_for_rate, face, inputs.deal.yrt_loading)
+
+        treaty = build_treaty(
+            treaty_type=inputs.deal.treaty_type,
+            cession_pct=inputs.deal.cession_pct,
+            face_amount=face,
+            modco_rate=inputs.deal.modco_rate,
+            yrt_rate_per_1000=yrt_rate,
+            treaty_name=f"{deal_id}-{inputs.deal.treaty_type}",
+        )
+        if treaty is None:
+            console.print(
+                f"[red]Error:[/red] Deal {deal_id!r}: portfolio requires a proportional "
+                f"treaty (YRT / Coinsurance / Modco); got {inputs.deal.treaty_type!r}."
+            )
+            raise typer.Exit(code=1)
+        try:
+            portfolio.add_deal(
+                deal_id=str(deal_id),
+                cedant=str(cedant),
+                inforce=inforce,
+                assumptions=assumptions,
+                config=config,
+                treaty=treaty,
+            )
+        except PolarisValidationError as exc:
+            console.print(f"[red]Error adding deal {deal_id!r}:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
+
+    return portfolio, hurdle_rate
+
+
+def _render_portfolio_summary(result_dict: dict[str, object]) -> None:  # type: ignore[type-arg]
+    """Render Rich tables for a portfolio result dict.
+
+    Accepts either a fresh ``PortfolioResult.to_dict()`` output or a result
+    JSON re-loaded from disk — both share the same shape.
+    """
+    n_deals = int(result_dict["n_deals"])  # type: ignore[arg-type]
+    total_pv = float(result_dict["total_pv_profits"])  # type: ignore[arg-type]
+    total_irr = result_dict.get("total_irr")
+    total_face = float(result_dict["total_face_amount"])  # type: ignore[arg-type]
+    total_ceded_face = float(result_dict["total_ceded_face"])  # type: ignore[arg-type]
+    peak_nar = float(result_dict["peak_ceded_nar"])  # type: ignore[arg-type]
+
+    overview = Table(title="Portfolio Overview", border_style="cyan")
+    overview.add_column("Metric", style="bold")
+    overview.add_column("Value", justify="right")
+    overview.add_row("Deals", str(n_deals))
+    overview.add_row("Hurdle Rate", f"{float(result_dict['hurdle_rate']):.2%}")  # type: ignore[arg-type]
+    overview.add_row("Total PV Profits", f"${total_pv:,.0f}")
+    overview.add_row(
+        "Total IRR",
+        f"{float(total_irr):.2%}" if isinstance(total_irr, (int, float)) else "N/A",
+    )
+    overview.add_row("Total Face", f"${total_face:,.0f}")
+    overview.add_row("Total Ceded Face", f"${total_ceded_face:,.0f}")
+    overview.add_row("Peak Ceded NAR", f"${peak_nar:,.0f}")
+    console.print(overview)
+
+    # Per-deal breakdown
+    deals = Table(title="Per-Deal Breakdown", border_style="green")
+    deals.add_column("Deal ID", style="bold")
+    deals.add_column("Cedant")
+    deals.add_column("Product")
+    deals.add_column("Treaty")
+    deals.add_column("Policies", justify="right")
+    deals.add_column("Face", justify="right")
+    deals.add_column("Ceded Face", justify="right")
+    deals.add_column("PV Profits", justify="right")
+    deals.add_column("IRR", justify="right")
+    for deal in result_dict["deals"]:  # type: ignore[union-attr]
+        pt = deal["profit_test"]
+        irr_str = f"{float(pt['irr']):.2%}" if pt.get("irr") is not None else "N/A"
+        deals.add_row(
+            str(deal["deal_id"]),
+            str(deal["cedant"]),
+            str(deal["product_type"]),
+            str(deal["treaty_type"]),
+            f"{int(deal['n_policies']):,}",
+            f"${float(deal['face_amount']):,.0f}",
+            f"${float(deal['ceded_face']):,.0f}",
+            f"${float(pt['pv_profits']):,.0f}",
+            irr_str,
+        )
+    console.print(deals)
+
+    # Concentration tables
+    concentration = result_dict["concentration"]  # type: ignore[index]
+    hhi = result_dict["hhi"]  # type: ignore[index]
+    for dimension in ("cedant", "product", "treaty"):
+        shares = concentration[dimension]  # type: ignore[index]
+        if not shares:
+            continue
+        tbl = Table(
+            title=f"Concentration by {dimension.title()} (HHI = {float(hhi[dimension]):.3f})",
+            border_style="magenta",
+        )
+        tbl.add_column(dimension.title(), style="bold")
+        tbl.add_column("Share of Ceded Face", justify="right")
+        for label, share in sorted(shares.items(), key=lambda kv: -float(kv[1])):
+            tbl.add_row(str(label), f"{float(share):.2%}")
+        console.print(tbl)
+
+
+@portfolio_app.command("run")
+def portfolio_run_cmd(
+    config_path: Annotated[
+        Path,
+        typer.Option("--config", "-c", help="Portfolio config file (YAML or JSON)."),
+    ],
+    output_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Path to write the portfolio result as JSON. Default: stdout JSON.",
+        ),
+    ] = None,
+    hurdle_rate: Annotated[
+        float | None,
+        typer.Option(
+            "--hurdle-rate",
+            "-r",
+            help=(
+                "Override the portfolio-level hurdle rate from the config. "
+                "Applied uniformly to every deal and to the aggregate profit test."
+            ),
+        ),
+    ] = None,
+) -> None:
+    """
+    [bold]Run a multi-deal portfolio and aggregate reinsurer-level metrics.[/bold]
+
+    Loads a YAML or JSON portfolio config (a list of deals, each with its own
+    mortality / lapse / deal config plus inline policies or an inforce CSV
+    reference), projects every deal, applies its proportional treaty (YRT /
+    Coinsurance / Modco), and aggregates the reinsurer-side cash flows into
+    total PV profits, total IRR, and concentration metrics by cedant,
+    product type, and treaty type.
+    """
+    _header()
+
+    portfolio, configured_hurdle = _build_portfolio_from_config(config_path)
+    effective_hurdle = hurdle_rate if hurdle_rate is not None else configured_hurdle
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+        transient=True,
+    ) as progress:
+        progress.add_task(f"Running portfolio ({portfolio.n_deals} deals)...", total=None)
+        result = portfolio.run(effective_hurdle)
+
+    result_dict = result.to_dict()
+    _render_portfolio_summary(result_dict)
+
+    _write_output(result_dict, output_path, default_name="portfolio.json")
+
+
+@portfolio_app.command("report")
+def portfolio_report_cmd(
+    result_path: Annotated[
+        Path,
+        typer.Option(
+            "--result",
+            "-r",
+            help="Path to a portfolio result JSON file written by 'polaris portfolio run'.",
+        ),
+    ],
+) -> None:
+    """
+    [bold]Re-render a portfolio result JSON without re-running the projection.[/bold]
+
+    Reads a result JSON produced by ``polaris portfolio run --output`` and
+    prints the per-deal breakdown plus the cedant / product / treaty
+    concentration tables.
+    """
+    _header()
+    if not result_path.exists():
+        console.print(f"[red]Error:[/red] Result file not found: {result_path}")
+        raise typer.Exit(code=1)
+    try:
+        result_dict = json.loads(result_path.read_text())
+    except json.JSONDecodeError as exc:
+        console.print(f"[red]Error parsing result JSON:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    if not isinstance(result_dict, dict) or "deals" not in result_dict:
+        console.print(
+            "[red]Error:[/red] Result file does not look like a portfolio result "
+            "(missing 'deals' key)."
+        )
+        raise typer.Exit(code=1)
+    _render_portfolio_summary(result_dict)
+
+
 @app.command()
 def ingest(
     input_path: Annotated[
