@@ -6,6 +6,12 @@ stochastic rates, experience studies, and rate schedule generation.
 from polaris_re.analytics.capital import CapitalResult, LICATCapital, LICATFactors
 from polaris_re.analytics.experience_study import AEResult, ExperienceStudy
 from polaris_re.analytics.ifrs17 import IFRS17Measurement, IFRS17Result
+from polaris_re.analytics.portfolio import (
+    Deal,
+    DealResult,
+    Portfolio,
+    PortfolioResult,
+)
 from polaris_re.analytics.pricing import NetPremiumCalculator, NetPremiumResult
 from polaris_re.analytics.profit_test import (
     ProfitResultWithCapital,
@@ -21,6 +27,8 @@ __all__ = [
     "AEResult",
     "CIRModel",
     "CapitalResult",
+    "Deal",
+    "DealResult",
     "ExperienceStudy",
     "HullWhiteModel",
     "IFRS17Measurement",
@@ -30,6 +38,8 @@ __all__ = [
     "MonteCarloUQ",
     "NetPremiumCalculator",
     "NetPremiumResult",
+    "Portfolio",
+    "PortfolioResult",
     "ProfitResultWithCapital",
     "ProfitTestResult",
     "ProfitTester",
