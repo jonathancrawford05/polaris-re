@@ -1778,7 +1778,7 @@ def _load_portfolio_config(config_path: Path) -> dict:  # type: ignore[type-arg]
             data = yaml.safe_load(text)
         else:
             data = json.loads(text)
-    except (json.JSONDecodeError, Exception) as exc:  # yaml.YAMLError is broad
+    except Exception as exc:  # broad — catches yaml.YAMLError and json.JSONDecodeError
         console.print(f"[red]Error parsing portfolio config:[/red] {exc}")
         raise typer.Exit(code=1) from exc
     if not isinstance(data, dict):
