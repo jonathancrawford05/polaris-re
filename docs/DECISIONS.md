@@ -2643,3 +2643,98 @@ aggregate, so it inherits the ADR-041 reporting guardrails.
   a common calendar grid is a separate slice. See
   `docs/CONTINUATION_portfolio_aggregation.md` "Refinement Backlog" for
   the full set of generality follow-ups raised in the PR #44 review.
+
+---
+
+## ADR-058: Portfolio CLI + API surfacing (Milestone 5.2, Slice 2)
+
+**Status:** Accepted
+**Date:** 2026-05-23
+
+**Context.** ADR-057 introduced `analytics/portfolio.py` as a pure
+analytics module — `Portfolio.run()` returns a `PortfolioResult`, but
+nothing exposes it to end-users. Slice 2 wires the runner into the CLI
+and the FastAPI service so reinsurers can run a multi-deal book from a
+config file or an HTTP request.
+
+**Decision.** Add a `polaris portfolio` Typer sub-app with two
+sub-commands and a `POST /api/v1/portfolio` endpoint:
+
+- `polaris portfolio run --config deals.yaml [--output result.json]` —
+  loads a YAML or JSON portfolio config (format inferred from suffix),
+  builds and runs a `Portfolio`, renders Rich tables for the overview /
+  per-deal breakdown / three concentration dimensions, and writes the
+  full result as JSON when `--output` is supplied.
+- `polaris portfolio report --result result.json` — re-renders the
+  same Rich tables from a previously written result JSON without
+  re-running any projection. Cheap re-display of a stored run.
+- `POST /api/v1/portfolio` — accepts a `PortfolioRequest` (a
+  portfolio-level `hurdle_rate` + a list of `PortfolioDealRequest`
+  entries, each one carrying everything `PriceRequest` carries plus
+  `deal_id` and `cedant`) and returns the `PortfolioResult.to_dict()`
+  payload directly.
+
+A new `PortfolioResult.to_dict()` method flattens the dataclass for
+JSON / Rich consumption: numpy arrays become lists, the per-deal
+`DealResult` list becomes plain dicts each with a nested `profit_test`
+block carrying the `ProfitTestResult` fields, and the three
+`concentration_by_*` mappings are grouped under a single
+`concentration` key keyed by dimension (`cedant` / `product` /
+`treaty`). The CLI's Rich rendering and the API response consume the
+same shape.
+
+**Key choices:**
+
+- **Per-deal config schema reuses `_parse_config_to_pipeline_inputs`.**
+  Every entry in `deals[]` accepts the same `mortality` / `lapse` /
+  `deal` keys that `polaris price --config` accepts, plus `deal_id`,
+  `cedant`, and either inline `policies` or an `inforce_csv` reference.
+  Zero schema duplication — the per-deal pipeline path is identical to
+  a single-deal `polaris price` run.
+- **YAML primary, JSON also accepted.** The config format is inferred
+  from the file suffix (`.yaml` / `.yml` → YAML; otherwise JSON). YAML
+  is the documented primary format because nested deal blocks are more
+  readable, but JSON is supported so existing JSON consumers (CI
+  fixtures, dashboards) don't need a YAML serialiser.
+- **YRT rate derived when not supplied.** When `treaty_type='YRT'` and
+  no `yrt_rate_per_1000` is provided, the CLI runs a one-off gross
+  projection per deal and calls `derive_yrt_rate` (ADR-038) so ceded
+  premiums are calibrated to the block's actual mortality, mirroring
+  `polaris price`. Skipping this would yield a claims-only cession
+  (`peak_ceded_nar = 0`), which is rarely what the user wants.
+- **API endpoint returns a plain dict, not a fixed Pydantic response
+  model.** Concentration / HHI / per-deal blocks contain
+  caller-supplied keys (cedant labels, deal ids), so a typed schema
+  would have to coerce them into a flat list. Returning
+  `PortfolioResult.to_dict()` directly preserves the structure that
+  the CLI also consumes.
+- **Slice 1's API is preserved.** `Portfolio.add_deal` and `run` were
+  not modified — only `to_dict()` was added. Slice 2 lives entirely in
+  the CLI (`cli.py`) and the API (`api/main.py`), so the analytics
+  core stays the single source of truth for portfolio math.
+
+**Out of scope:**
+
+- **Non-proportional treaties.** The CLI / API both reject
+  stop-loss / null treaties — they need a non-proportional `ceded_face`
+  definition (see Slice 1's "Refinement Backlog" item 4).
+- **Aggregate return-on-capital.** Per-deal `run_with_capital` exists
+  (ADR-048) but the portfolio-level RoC roll-up is deferred — see the
+  CONTINUATION's refinement backlog.
+- **Streamlit dashboard page.** The Slice 2 CONTINUATION only covers
+  CLI + API; a portfolio dashboard view is a separate slice.
+
+**Impact.**
+
+- New `polaris portfolio run|report` Typer sub-commands in `cli.py`
+  (~240 lines including the YAML loader, deal-config parsing, and the
+  Rich rendering helper).
+- New `POST /api/v1/portfolio` endpoint with `PortfolioRequest` and
+  `PortfolioDealRequest` models in `api/main.py` (~110 lines).
+- New `PortfolioResult.to_dict()` method and `_deal_result_to_dict`
+  helper in `analytics/portfolio.py` (~70 lines).
+- Sample portfolio config shipped at
+  `data/configs/portfolio_demo.yaml`.
+- New tests: 6 unit tests for `to_dict()`, 12 CLI tests
+  (`test_cli_portfolio.py`), and 8 API tests (`test_portfolio.py`) —
+  26 new tests in total. Golden regression baselines untouched.

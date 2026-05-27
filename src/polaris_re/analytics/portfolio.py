@@ -134,6 +134,70 @@ class PortfolioResult:
     concentration_by_treaty: dict[str, float]
     hhi: dict[str, float]
 
+    def to_dict(self) -> dict[str, object]:
+        """Flatten the result into a JSON-serialisable plain dict.
+
+        Numpy arrays become lists, the per-deal breakdown becomes a list of
+        plain dicts (each with a nested ``profit_test`` block carrying the
+        ``ProfitTestResult`` fields), and the three ``concentration_by_*``
+        dimensions are grouped under a single ``concentration`` key for
+        ergonomic access by dimension. The shape matches what the CLI
+        ``polaris portfolio`` command and the ``POST /api/v1/portfolio`` API
+        endpoint emit.
+        """
+        return {
+            "n_deals": self.n_deals,
+            "hurdle_rate": self.hurdle_rate,
+            "projection_months": self.projection_months,
+            "total_pv_profits": self.total_pv_profits,
+            "total_irr": self.total_irr,
+            "breakeven_year": self.breakeven_year,
+            "profit_margin": self.profit_margin,
+            "total_undiscounted_profit": self.total_undiscounted_profit,
+            "total_face_amount": self.total_face_amount,
+            "total_ceded_face": self.total_ceded_face,
+            "peak_ceded_nar": self.peak_ceded_nar,
+            "aggregate_net_cash_flow": self.aggregate_net_cash_flow.tolist(),
+            "aggregate_ceded_nar": self.aggregate_ceded_nar.tolist(),
+            "deals": [_deal_result_to_dict(dr) for dr in self.deal_results],
+            "concentration": {
+                "cedant": dict(self.concentration_by_cedant),
+                "product": dict(self.concentration_by_product),
+                "treaty": dict(self.concentration_by_treaty),
+            },
+            "hhi": dict(self.hhi),
+        }
+
+
+def _deal_result_to_dict(dr: DealResult) -> dict[str, object]:
+    """Flatten a ``DealResult`` into a JSON-serialisable plain dict.
+
+    The nested ``profit_test`` block carries the standard ``ProfitTestResult``
+    fields (``pv_profits``, ``irr``, etc.). ``profit_by_year`` is converted
+    to a plain list. The ceded NAR vector is converted to a list too.
+    """
+    return {
+        "deal_id": dr.deal_id,
+        "cedant": dr.cedant,
+        "product_type": dr.product_type,
+        "treaty_type": dr.treaty_type,
+        "n_policies": dr.n_policies,
+        "face_amount": dr.face_amount,
+        "ceded_face": dr.ceded_face,
+        "profit_test": {
+            "hurdle_rate": dr.profit_test.hurdle_rate,
+            "pv_profits": dr.profit_test.pv_profits,
+            "pv_premiums": dr.profit_test.pv_premiums,
+            "profit_margin": dr.profit_test.profit_margin,
+            "irr": dr.profit_test.irr,
+            "breakeven_year": dr.profit_test.breakeven_year,
+            "total_undiscounted_profit": dr.profit_test.total_undiscounted_profit,
+            "profit_by_year": dr.profit_test.profit_by_year.tolist(),
+        },
+        "net_cash_flow": dr.net_cash_flow.tolist(),
+        "ceded_nar": dr.ceded_nar.tolist(),
+    }
+
 
 # ---------------------------------------------------------------------------
 # Helpers
