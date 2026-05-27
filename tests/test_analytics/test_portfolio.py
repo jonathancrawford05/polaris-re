@@ -29,6 +29,7 @@ from polaris_re.analytics.profit_test import ProfitTestResult
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.assumptions.lapse import LapseAssumption
 from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
+from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.pipeline import ceded_to_reinsurer_view
@@ -144,6 +145,11 @@ def _independent_reinsurer_ncf(spec: dict[str, object]) -> np.ndarray:
     directly, so the portfolio aggregate can be cross-checked against an
     independently computed figure.
     """
+    return _independent_reinsurer_view(spec).net_cash_flow
+
+
+def _independent_reinsurer_view(spec: dict[str, object]) -> CashFlowResult:
+    """Project a deal spec end-to-end and return the reinsurer CashFlowResult."""
     engine = get_product_engine(
         inforce=spec["inforce"],  # type: ignore[arg-type]
         assumptions=spec["assumptions"],  # type: ignore[arg-type]
@@ -151,7 +157,7 @@ def _independent_reinsurer_ncf(spec: dict[str, object]) -> np.ndarray:
     )
     gross = engine.project()
     _net, ceded = spec["treaty"].apply(gross)  # type: ignore[attr-defined]
-    return ceded_to_reinsurer_view(ceded).net_cash_flow
+    return ceded_to_reinsurer_view(ceded)
 
 
 # ---------------------------------------------------------------------------
@@ -584,3 +590,141 @@ class TestPortfolioResultToDict:
         first = d["deals"][0]
         assert first["profit_test"]["pv_profits"] == dr.profit_test.pv_profits
         assert first["profit_test"]["irr"] == dr.profit_test.irr
+
+
+# ---------------------------------------------------------------------------
+# Aggregate CashFlowResult — full reinsurer-side cash flow lines
+# ---------------------------------------------------------------------------
+
+
+class TestPortfolioAggregateCashFlow:
+    """``PortfolioResult.aggregate_cash_flow`` carries the full reinsurer view.
+
+    Slice 1 only summed gross_premiums + net_cash_flow (all that ProfitTester
+    needs). Loss-ratio reporting and portfolio-level RoC need claims,
+    expenses, and reserves too — see PRODUCT_DIRECTION_2026-05-23
+    "Aggregate CashFlowResult claims / expenses / reserves on Portfolio.run".
+    """
+
+    def test_aggregate_cash_flow_is_cashflow_result(self):
+        result = Portfolio().add_deal(**_deal_spec("D1", "CedantA")).run(HURDLE)
+        assert isinstance(result.aggregate_cash_flow, CashFlowResult)
+        assert result.aggregate_cash_flow.basis == "NET"
+        assert result.aggregate_cash_flow.product_type == "PORTFOLIO"
+
+    def test_aggregate_cash_flow_arrays_sum_per_deal_reinsurer_views(self):
+        """Every aggregated array equals the month-by-month sum across deals."""
+        spec_a = _deal_spec("D1", "CedantA")
+        spec_b = _deal_spec("D2", "CedantB")
+        view_a = _independent_reinsurer_view(spec_a)
+        view_b = _independent_reinsurer_view(spec_b)
+
+        result = Portfolio().add_deal(**spec_a).add_deal(**spec_b).run(HURDLE)
+        cf = result.aggregate_cash_flow
+
+        for field_name in (
+            "gross_premiums",
+            "death_claims",
+            "lapse_surrenders",
+            "expenses",
+            "reserve_balance",
+            "reserve_increase",
+            "net_cash_flow",
+        ):
+            expected = getattr(view_a, field_name) + getattr(view_b, field_name)
+            np.testing.assert_allclose(
+                getattr(cf, field_name),
+                expected,
+                rtol=1e-12,
+                err_msg=f"aggregate {field_name} mismatch",
+            )
+
+    def test_aggregate_cash_flow_pads_shorter_horizon_with_zeros(self):
+        """A 10y deal contributes zero claims/expenses beyond month 120."""
+        spec_a = _deal_spec("D1", "CedantA", horizon_years=20)
+        spec_b = _deal_spec("D2", "CedantB", horizon_years=10)
+        view_a = _independent_reinsurer_view(spec_a)
+        view_b = _independent_reinsurer_view(spec_b)
+
+        result = Portfolio().add_deal(**spec_a).add_deal(**spec_b).run(HURDLE)
+        cf = result.aggregate_cash_flow
+
+        assert cf.projection_months == 240
+        # Months 0-119: both contribute.
+        np.testing.assert_allclose(
+            cf.death_claims[:120],
+            view_a.death_claims[:120] + view_b.death_claims,
+            rtol=1e-12,
+        )
+        # Months 120-239: only the 20y deal contributes.
+        np.testing.assert_allclose(cf.death_claims[120:], view_a.death_claims[120:], rtol=1e-12)
+
+    def test_aggregate_loss_ratio_matches_independent_calculation(self):
+        """``loss_ratio()`` on the aggregate equals total claims / total premiums."""
+        spec_a = _deal_spec("D1", "CedantA")
+        spec_b = _deal_spec("D2", "CedantB")
+        view_a = _independent_reinsurer_view(spec_a)
+        view_b = _independent_reinsurer_view(spec_b)
+        expected = float(
+            (view_a.death_claims.sum() + view_b.death_claims.sum())
+            / (view_a.gross_premiums.sum() + view_b.gross_premiums.sum())
+        )
+
+        result = Portfolio().add_deal(**spec_a).add_deal(**spec_b).run(HURDLE)
+        assert result.aggregate_cash_flow.loss_ratio() == pytest.approx(expected, rel=1e-12)
+
+    def test_aggregate_cash_flow_arrays_have_consistent_length(self):
+        """All aggregated arrays carry ``projection_months`` entries."""
+        result = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", horizon_years=20))
+            .add_deal(**_deal_spec("D2", "CedantB", horizon_years=10))
+            .run(HURDLE)
+        )
+        cf = result.aggregate_cash_flow
+        for field_name in (
+            "gross_premiums",
+            "death_claims",
+            "lapse_surrenders",
+            "expenses",
+            "reserve_balance",
+            "reserve_increase",
+            "net_cash_flow",
+        ):
+            assert len(getattr(cf, field_name)) == cf.projection_months
+
+    def test_aggregate_net_cash_flow_property_unchanged(self):
+        """The pre-existing top-level ``aggregate_net_cash_flow`` still equals
+        the aggregate CashFlowResult's net_cash_flow — backward compatibility."""
+        result = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA"))
+            .add_deal(**_deal_spec("D2", "CedantB"))
+            .run(HURDLE)
+        )
+        np.testing.assert_array_equal(
+            result.aggregate_net_cash_flow, result.aggregate_cash_flow.net_cash_flow
+        )
+
+    def test_to_dict_exposes_aggregate_cash_flow_arrays(self):
+        """``to_dict`` carries the new aggregate arrays under ``aggregate_cash_flow``."""
+        import json
+
+        result = Portfolio().add_deal(**_deal_spec("D1", "CedantA")).run(HURDLE)
+        d = result.to_dict()
+        assert "aggregate_cash_flow" in d
+        block = d["aggregate_cash_flow"]
+        for field_name in (
+            "gross_premiums",
+            "death_claims",
+            "lapse_surrenders",
+            "expenses",
+            "reserve_balance",
+            "reserve_increase",
+            "net_cash_flow",
+        ):
+            assert field_name in block, f"missing {field_name} in aggregate_cash_flow dict"
+            assert isinstance(block[field_name], list)
+            assert len(block[field_name]) == d["projection_months"]
+        # Still JSON-serialisable end-to-end.
+        json.dumps(d)

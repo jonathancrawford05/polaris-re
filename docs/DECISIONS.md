@@ -2738,3 +2738,79 @@ same shape.
 - New tests: 6 unit tests for `to_dict()`, 12 CLI tests
   (`test_cli_portfolio.py`), and 8 API tests (`test_portfolio.py`) —
   26 new tests in total. Golden regression baselines untouched.
+
+---
+
+## ADR-059: Portfolio aggregate `CashFlowResult` — full reinsurer-side cash flow lines
+
+**Status:** Accepted
+**Date:** 2026-05-27
+
+**Context.** ADR-057 introduced `Portfolio.run()` and Slice 1 built the
+aggregate `CashFlowResult` carrying only `gross_premiums` and
+`net_cash_flow` — the minimum `ProfitTester` requires. That left
+portfolio-level loss-ratio reporting (which needs `death_claims` and
+`gross_premiums` together) and the planned portfolio-level
+return-on-capital roll-up (which needs aggregate reserves) blind: both
+consumers had to re-sum the per-deal reinsurer views themselves, which
+also requires re-running the engine. The "Aggregate `CashFlowResult`
+claims / expenses / reserves on `Portfolio.run()`" item in
+PRODUCT_DIRECTION_2026-05-23 (sourced from
+CONTINUATION_portfolio_aggregation — Refinement Backlog #2) called this
+out as a 1-day quick win that unblocks the next slice.
+
+**Decision.** Expand the aggregate `CashFlowResult` built inside
+`Portfolio.run()` to carry every per-month line summed across deals:
+`gross_premiums`, `death_claims`, `lapse_surrenders`, `expenses`,
+`reserve_balance`, `reserve_increase`, and `net_cash_flow`. Each array
+is the month-by-month sum of the per-deal reinsurer views, zero-padded
+to the longest projection horizon — identical semantics to the existing
+NCF aggregation, just applied uniformly across the seven cash-flow
+lines. Expose the full result on `PortfolioResult.aggregate_cash_flow`
+(new field of type `CashFlowResult`), and surface the seven arrays in
+`PortfolioResult.to_dict()` under a new top-level `aggregate_cash_flow`
+key.
+
+The pre-existing `aggregate_net_cash_flow: np.ndarray` and
+`aggregate_ceded_nar: np.ndarray` fields are kept as top-level
+convenience handles for backward compatibility — both are wired to the
+same data the new aggregate `CashFlowResult` carries, and a regression
+test pins this equivalence.
+
+**Rationale.** A single full-shape `CashFlowResult` is the right
+handoff to `ProfitTester.run_with_capital` (the next slice — aggregate
+RoC), and `CashFlowResult.loss_ratio()` already exists, so adding the
+field makes portfolio-level loss-ratio reporting a one-call answer.
+Re-using the existing month-by-month padded-sum pattern keeps the
+"aggregate equals the sum of per-deal reinsurer views" invariant exact,
+which is the property every existing portfolio aggregation test relies
+on. No `CashFlowResult` contract change is required — the new fields
+were already optional with default-empty arrays.
+
+**Consequences.**
+- `PortfolioResult` gains one new required dataclass field
+  (`aggregate_cash_flow: CashFlowResult`). The only constructor is
+  `Portfolio.run()`; no external code instantiates `PortfolioResult`.
+- `to_dict()` gains one new top-level key, `aggregate_cash_flow`, with
+  the seven arrays under it. Existing keys are untouched, so any
+  consumer reading the existing keys continues to work.
+- Backward-compatibility test (`test_aggregate_net_cash_flow_property_unchanged`)
+  pins `PortfolioResult.aggregate_net_cash_flow ==
+  aggregate_cash_flow.net_cash_flow`.
+
+**Out of scope (future work).**
+- Wiring the aggregate `CashFlowResult` into a portfolio-level
+  `run_with_capital` helper for aggregate return-on-capital — that is
+  the immediately-next item in PRODUCT_DIRECTION_2026-05-23
+  (depends-on for this ADR).
+- Exposing the new aggregate arrays in the CLI / API renderers. The
+  raw arrays are already in `to_dict()`; CLI Rich rendering of summary
+  metrics (e.g. aggregate loss ratio) is a small follow-up that can
+  ship with the RoC slice.
+- Dashboard surface — the Streamlit portfolio page does not yet exist
+  (separate NICE-TO-HAVE item).
+
+**Affected files.**
+- `src/polaris_re/analytics/portfolio.py` (+~35 / -~10 lines).
+- `tests/test_analytics/test_portfolio.py` (+~130 lines: 7 new tests
+  + a shared `_independent_reinsurer_view` helper).

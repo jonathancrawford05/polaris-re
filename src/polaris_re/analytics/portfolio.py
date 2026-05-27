@@ -108,6 +108,12 @@ class PortfolioResult:
     a ``ProfitTester`` run on the aggregate cash flow, so they inherit the
     standard reporting guardrails (ADR-041).
 
+    ``aggregate_cash_flow`` carries the full reinsurer-side cash flow
+    (premiums, claims, expenses, reserves, NCF) as the month-by-month sum
+    across every deal's reinsurer view, padded with zeros for deals with a
+    shorter horizon. Use this for loss-ratio reporting, portfolio-level
+    capital, and any downstream consumer that needs more than NCF.
+
     Concentration dictionaries map a category label to its share of total
     ceded face (shares sum to 1.0). ``hhi`` carries the Herfindahl-Hirschman
     index for each dimension ("cedant", "product", "treaty") — the sum of
@@ -118,6 +124,7 @@ class PortfolioResult:
     n_deals: int
     hurdle_rate: float
     projection_months: int
+    aggregate_cash_flow: CashFlowResult
     aggregate_net_cash_flow: np.ndarray
     aggregate_ceded_nar: np.ndarray
     total_pv_profits: float
@@ -145,6 +152,7 @@ class PortfolioResult:
         ``polaris portfolio`` command and the ``POST /api/v1/portfolio`` API
         endpoint emit.
         """
+        cf = self.aggregate_cash_flow
         return {
             "n_deals": self.n_deals,
             "hurdle_rate": self.hurdle_rate,
@@ -159,6 +167,15 @@ class PortfolioResult:
             "peak_ceded_nar": self.peak_ceded_nar,
             "aggregate_net_cash_flow": self.aggregate_net_cash_flow.tolist(),
             "aggregate_ceded_nar": self.aggregate_ceded_nar.tolist(),
+            "aggregate_cash_flow": {
+                "gross_premiums": cf.gross_premiums.tolist(),
+                "death_claims": cf.death_claims.tolist(),
+                "lapse_surrenders": cf.lapse_surrenders.tolist(),
+                "expenses": cf.expenses.tolist(),
+                "reserve_balance": cf.reserve_balance.tolist(),
+                "reserve_increase": cf.reserve_increase.tolist(),
+                "net_cash_flow": cf.net_cash_flow.tolist(),
+            },
             "deals": [_deal_result_to_dict(dr) for dr in self.deal_results],
             "concentration": {
                 "cedant": dict(self.concentration_by_cedant),
@@ -376,12 +393,20 @@ class Portfolio:
 
         t_max = max(view.projection_months for view in reinsurer_views)
 
-        aggregate_ncf = np.sum(
-            [_pad(view.net_cash_flow, t_max) for view in reinsurer_views], axis=0
-        )
-        aggregate_premiums = np.sum(
-            [_pad(view.gross_premiums, t_max) for view in reinsurer_views], axis=0
-        )
+        aggregate_arrays = {
+            field_name: np.sum(
+                [_pad(getattr(view, field_name), t_max) for view in reinsurer_views], axis=0
+            )
+            for field_name in (
+                "gross_premiums",
+                "death_claims",
+                "lapse_surrenders",
+                "expenses",
+                "reserve_balance",
+                "reserve_increase",
+                "net_cash_flow",
+            )
+        }
         aggregate_nar = np.sum(
             [_pad(deal_result.ceded_nar, t_max) for deal_result in deal_results], axis=0
         )
@@ -394,8 +419,7 @@ class Portfolio:
             product_type="PORTFOLIO",
             block_id=self.name,
             projection_months=t_max,
-            gross_premiums=aggregate_premiums,
-            net_cash_flow=aggregate_ncf,
+            **aggregate_arrays,
         )
         aggregate_test = ProfitTester(aggregate_cf, hurdle_rate).run()
 
@@ -416,7 +440,8 @@ class Portfolio:
             n_deals=len(deal_results),
             hurdle_rate=hurdle_rate,
             projection_months=t_max,
-            aggregate_net_cash_flow=aggregate_ncf,
+            aggregate_cash_flow=aggregate_cf,
+            aggregate_net_cash_flow=aggregate_arrays["net_cash_flow"],
             aggregate_ceded_nar=aggregate_nar,
             total_pv_profits=aggregate_test.pv_profits,
             total_irr=aggregate_test.irr,
