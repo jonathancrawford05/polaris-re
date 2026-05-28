@@ -27,6 +27,7 @@ mixed inception dates would be out of phase; ``run`` rejects them. Full
 calendar-aligned aggregation is a planned follow-up (see PR #44 review).
 """
 
+import dataclasses
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -601,28 +602,15 @@ class Portfolio:
                 distributable
             )
 
+        # Shallow-copy every base PortfolioResult field by name so this
+        # constructor does not need a parallel update if PortfolioResult
+        # gains a field. A shallow `fields()` splat (not `dataclasses.asdict`,
+        # which would recurse into the nested CashFlowResult / DealResult
+        # dataclasses and numpy arrays and convert them to dicts) preserves
+        # the nested types and references.
+        base_fields = {f.name: getattr(base, f.name) for f in dataclasses.fields(base)}
         return PortfolioResultWithCapital(
-            # Base PortfolioResult fields
-            n_deals=base.n_deals,
-            hurdle_rate=base.hurdle_rate,
-            projection_months=base.projection_months,
-            aggregate_cash_flow=base.aggregate_cash_flow,
-            aggregate_net_cash_flow=base.aggregate_net_cash_flow,
-            aggregate_ceded_nar=base.aggregate_ceded_nar,
-            total_pv_profits=base.total_pv_profits,
-            total_irr=base.total_irr,
-            breakeven_year=base.breakeven_year,
-            profit_margin=base.profit_margin,
-            total_undiscounted_profit=base.total_undiscounted_profit,
-            total_face_amount=base.total_face_amount,
-            total_ceded_face=base.total_ceded_face,
-            peak_ceded_nar=base.peak_ceded_nar,
-            deal_results=base.deal_results,
-            concentration_by_cedant=base.concentration_by_cedant,
-            concentration_by_product=base.concentration_by_product,
-            concentration_by_treaty=base.concentration_by_treaty,
-            hhi=base.hhi,
-            # Capital fields
+            **base_fields,
             initial_capital=capital.initial_capital,
             peak_capital=capital.peak_capital,
             pv_capital=pv_capital,
