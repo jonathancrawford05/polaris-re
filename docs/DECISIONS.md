@@ -2814,3 +2814,96 @@ were already optional with default-empty arrays.
 - `src/polaris_re/analytics/portfolio.py` (+~35 / -~10 lines).
 - `tests/test_analytics/test_portfolio.py` (+~130 lines: 7 new tests
   + a shared `_independent_reinsurer_view` helper).
+
+---
+
+## ADR-060: Portfolio aggregate return-on-capital — single LICAT call on the aggregate
+
+**Status:** Accepted
+**Date:** 2026-05-28
+
+**Context.** ADR-048 added `ProfitTester.run_with_capital` (per-deal RoC),
+ADR-057 added `Portfolio.run()` (deal aggregation), and ADR-059 expanded
+the aggregate `CashFlowResult` to carry every reinsurer-side cash flow
+line — reserves and all. The portfolio-level RoC roll-up was deferred to
+this slice (explicitly called out as "Out of scope" in ADR-058 and
+flagged as the depends-on follow-up in ADR-059). PRODUCT_DIRECTION_2026-
+05-23 promotes it as an IMPORTANT follow-up: "Aggregate return-on-capital
+on `Portfolio`" — needs a single LICATCapital call against an aggregate
+cash flow and aggregate NAR.
+
+**Decision.** Add `Portfolio.run_with_capital(hurdle_rate, capital_model)`
+returning a new `PortfolioResultWithCapital(PortfolioResult)` dataclass.
+The method calls `Portfolio.run(hurdle_rate)` internally, then makes a
+single `capital_model.required_capital(aggregate_cash_flow,
+nar=aggregate_ceded_nar)` call to build the aggregate capital schedule.
+The same metrics that `ProfitResultWithCapital` exposes per deal —
+`initial_capital`, `peak_capital`, `pv_capital`, `pv_capital_strain`,
+`return_on_capital`, `capital_adjusted_irr`, `capital_by_period` —
+appear at the portfolio level, computed against the aggregate.
+
+RoC denominator is `pv_capital` (stock at the hurdle rate), matching
+ADR-048. `return_on_capital` is `None` when `pv_capital <= 0` (zero-
+factor model or coinsurance-only book with no NAR). The capital-adjusted
+IRR is the IRR of `aggregate_net_cash_flow - strain` with terminal
+release of residual capital at month `T-1`, reusing the existing
+`ProfitTester._solve_irr` so the IRR suppression rules from ADR-041 stay
+consistent at deal and portfolio level.
+
+`PortfolioResultWithCapital.to_dict()` extends the base `to_dict()` with
+a new top-level `capital` block carrying the seven metrics. Every
+existing `PortfolioResult` key is preserved unchanged, so any consumer of
+the base contract — CLI, API endpoint, dashboard — keeps working.
+
+**Rationale.** The aggregate `CashFlowResult` and aggregate ceded NAR
+are already built inside `Portfolio.run()` (ADR-059 + ADR-057). With
+LICAT's linear factor structure (`c1 * reserve + c2 * NAR + c3 *
+reserve`), a single call against the aggregate inputs is identical to
+summing per-deal calls — `test_capital_linearity_matches_sum_of_per_deal_capital`
+pins this invariant. That equivalence is the actuarial justification the
+PRODUCT_DIRECTION item asks for: a single call is not a simplification,
+it IS the per-deal aggregation when the same factors apply across deals.
+
+The subclass-with-additional-fields pattern matches ADR-048 (`Profit
+ResultWithCapital` subclasses `ProfitTestResult`), so the analytics
+contract is consistent at deal and portfolio level. No change to
+`PortfolioResult` itself — purely additive.
+
+**Consequences.**
+- New public class `PortfolioResultWithCapital` exported from
+  `polaris_re.analytics`.
+- New method `Portfolio.run_with_capital`. The bare `Portfolio.run`
+  signature and behaviour are unchanged.
+- `to_dict()` gains a new `capital` block on
+  `PortfolioResultWithCapital`. The base `PortfolioResult.to_dict()`
+  output is unchanged.
+- Same hurdle rate is used for per-deal IRR / breakeven, the aggregate
+  profit test, and PV-capital — there is no separate "capital hurdle"
+  parameter yet (deal-specific hurdle rates are tracked separately in
+  PRODUCT_DIRECTION_2026-05-23 as NICE-TO-HAVE).
+
+**Out of scope (future work).**
+- CLI / API / Excel surfacing of the new `capital` block on the
+  `polaris portfolio` command. The raw fields are in `to_dict()` so any
+  JSON consumer can read them today; Rich rendering and Excel writer
+  rows are a small follow-up that should land with a coherent set of
+  portfolio-level summary numbers.
+- Heterogeneous-product factor handling. The single `LICATCapital`
+  applies one factor set to the whole portfolio. A mixed term / WL / UL
+  book may need different C-2 factors per product type — workaround
+  today: caller supplies a `LICATFactors` reflecting blended exposure,
+  or runs per-product sub-portfolios. A built-in product-aware
+  aggregation is a separate design ADR.
+- LICAT lapse-risk / morbidity-risk capital and the C-1 / C-3 interim
+  factors — tracked separately under PRODUCT_DIRECTION_2026-05-23
+  "LICAT lapse-risk and morbidity-risk capital components" and
+  "LICAT C-1 and C-3 capital components (interim)".
+
+**Affected files.**
+- `src/polaris_re/analytics/portfolio.py` (+~110 / -~5 lines: new
+  `PortfolioResultWithCapital` dataclass + `Portfolio.run_with_capital`
+  method + `__all__` update + capital import).
+- `src/polaris_re/analytics/__init__.py` (+2 lines: re-export
+  `PortfolioResultWithCapital`).
+- `tests/test_analytics/test_portfolio.py` (+~210 lines: 10 new tests
+  in `TestPortfolioRunWithCapital` + a small `_yrt` helper).

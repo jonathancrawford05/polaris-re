@@ -19,11 +19,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from polaris_re.analytics.capital import LICATCapital, LICATFactors
 from polaris_re.analytics.portfolio import (
     Deal,
     DealResult,
     Portfolio,
     PortfolioResult,
+    PortfolioResultWithCapital,
 )
 from polaris_re.analytics.profit_test import ProfitTestResult
 from polaris_re.assumptions.assumption_set import AssumptionSet
@@ -727,4 +729,241 @@ class TestPortfolioAggregateCashFlow:
             assert isinstance(block[field_name], list)
             assert len(block[field_name]) == d["projection_months"]
         # Still JSON-serialisable end-to-end.
+        json.dumps(d)
+
+
+# ---------------------------------------------------------------------------
+# Portfolio.run_with_capital — aggregate LICAT capital + return-on-capital
+# ---------------------------------------------------------------------------
+
+
+def _yrt(*, cession_pct: float = 0.5, total_face: float = 1_000_000.0) -> YRTTreaty:
+    """Build a YRTTreaty matching the default ``_deal_spec`` face (2x500k = 1M).
+
+    Tests for ``run_with_capital`` need YRT cessions so ``aggregate_ceded_nar``
+    is non-zero — otherwise the default C-2 factor cannot produce positive
+    capital.
+    """
+    return YRTTreaty(
+        treaty_name="yrt-test",
+        cession_pct=cession_pct,
+        total_face_amount=total_face,
+        flat_yrt_rate_per_1000=2.5,
+    )
+
+
+class TestPortfolioRunWithCapital:
+    """``Portfolio.run_with_capital`` rolls a single LICATCapital call onto
+    the aggregate reinsurer cash flow and aggregate ceded NAR, returning a
+    ``PortfolioResultWithCapital`` that carries every ``PortfolioResult``
+    field plus capital metrics (peak/initial/PV capital, return-on-capital,
+    capital-adjusted IRR).
+
+    Source: PRODUCT_DIRECTION_2026-05-23 — IMPORTANT, "Aggregate
+    return-on-capital on Portfolio" (depends on ADR-059).
+    """
+
+    def test_returns_portfolio_result_with_capital(self):
+        portfolio = Portfolio().add_deal(
+            **_deal_spec("D1", "CedantA", treaty=_yrt(cession_pct=0.5))
+        )
+        capital = LICATCapital.for_product(ProductType.TERM)
+        result = portfolio.run_with_capital(HURDLE, capital)
+
+        assert isinstance(result, PortfolioResultWithCapital)
+        # Must remain a PortfolioResult — every consumer of the base contract
+        # keeps working.
+        assert isinstance(result, PortfolioResult)
+        assert result.peak_capital > 0.0
+        assert result.pv_capital > 0.0
+        assert result.return_on_capital is not None
+
+    def test_base_portfolio_fields_preserved(self):
+        """run_with_capital preserves every PortfolioResult field unchanged
+        relative to a bare run() with the same hurdle rate."""
+        spec_a = _deal_spec("D1", "CedantA", treaty=_yrt(cession_pct=0.5))
+        spec_b = _deal_spec("D2", "CedantB", treaty=_yrt(cession_pct=0.5))
+        portfolio = Portfolio().add_deal(**spec_a).add_deal(**spec_b)
+        capital = LICATCapital.for_product(ProductType.TERM)
+
+        base = portfolio.run(HURDLE)
+        joint = portfolio.run_with_capital(HURDLE, capital)
+
+        assert joint.n_deals == base.n_deals
+        assert joint.hurdle_rate == base.hurdle_rate
+        assert joint.projection_months == base.projection_months
+        assert joint.total_pv_profits == pytest.approx(base.total_pv_profits)
+        assert joint.total_irr == base.total_irr
+        assert joint.breakeven_year == base.breakeven_year
+        assert joint.profit_margin == base.profit_margin
+        assert joint.total_undiscounted_profit == pytest.approx(base.total_undiscounted_profit)
+        assert joint.total_face_amount == base.total_face_amount
+        assert joint.total_ceded_face == base.total_ceded_face
+        assert joint.peak_ceded_nar == base.peak_ceded_nar
+        np.testing.assert_array_equal(joint.aggregate_net_cash_flow, base.aggregate_net_cash_flow)
+        np.testing.assert_array_equal(joint.aggregate_ceded_nar, base.aggregate_ceded_nar)
+
+    def test_capital_equals_single_call_on_aggregate(self):
+        """CLOSED-FORM: aggregate capital schedule equals a single LICATCapital
+        call on (aggregate_cash_flow, aggregate_ceded_nar)."""
+        spec_a = _deal_spec("D1", "CedantA", treaty=_yrt(cession_pct=0.5))
+        spec_b = _deal_spec("D2", "CedantB", treaty=_yrt(cession_pct=0.5))
+        portfolio = Portfolio().add_deal(**spec_a).add_deal(**spec_b)
+        capital = LICATCapital(factors=LICATFactors(c2_mortality_factor=0.10))
+
+        base = portfolio.run(HURDLE)
+        joint = portfolio.run_with_capital(HURDLE, capital)
+
+        expected_schedule = capital.required_capital(
+            base.aggregate_cash_flow, nar=base.aggregate_ceded_nar
+        )
+        np.testing.assert_allclose(
+            joint.capital_by_period, expected_schedule.capital_by_period, rtol=1e-12
+        )
+        assert joint.initial_capital == pytest.approx(expected_schedule.initial_capital)
+        assert joint.peak_capital == pytest.approx(expected_schedule.peak_capital)
+
+    def test_capital_linearity_matches_sum_of_per_deal_capital(self):
+        """CLOSED-FORM: with the same LICATFactors applied to every deal, the
+        single-call portfolio capital equals the month-by-month sum of the
+        per-deal capital schedules. This is the actuarial invariant the
+        "single LICATCapital call at the portfolio level" design relies on."""
+        spec_a = _deal_spec("D1", "CedantA", treaty=_yrt(cession_pct=0.5))
+        spec_b = _deal_spec("D2", "CedantB", treaty=_yrt(cession_pct=0.5))
+        portfolio = Portfolio().add_deal(**spec_a).add_deal(**spec_b)
+        capital = LICATCapital(
+            factors=LICATFactors(
+                c1_asset_default=0.005,
+                c2_mortality_factor=0.10,
+                c3_interest_rate=0.01,
+            )
+        )
+
+        joint = portfolio.run_with_capital(HURDLE, capital)
+
+        # Independently compute per-deal capital schedules. The reinsurer
+        # view (basis NET) carries the reserve_balance / net_cash_flow the
+        # calculator consumes; ``ceded_to_reinsurer_view`` does not forward
+        # ``nar``, so we extract it from the ``ceded`` cash flow directly.
+        per_deal_capitals = []
+        for spec in (spec_a, spec_b):
+            engine = get_product_engine(
+                inforce=spec["inforce"],
+                assumptions=spec["assumptions"],
+                config=spec["config"],
+            )
+            _net, ceded = spec["treaty"].apply(engine.project())
+            view = ceded_to_reinsurer_view(ceded)
+            nar = (
+                np.asarray(ceded.nar, dtype=np.float64)
+                if ceded.nar is not None
+                else np.zeros(ceded.projection_months, dtype=np.float64)
+            )
+            per_deal_capitals.append(capital.required_capital(view, nar=nar))
+
+        expected = per_deal_capitals[0].capital_by_period + per_deal_capitals[1].capital_by_period
+        np.testing.assert_allclose(joint.capital_by_period, expected, rtol=1e-12)
+
+    def test_roc_closed_form_pv_profits_over_pv_capital(self):
+        """CLOSED-FORM: return_on_capital == total_pv_profits / pv_capital."""
+        portfolio = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", treaty=_yrt(cession_pct=0.5)))
+            .add_deal(**_deal_spec("D2", "CedantB", treaty=_yrt(cession_pct=0.5)))
+        )
+        capital = LICATCapital(factors=LICATFactors(c2_mortality_factor=0.10))
+
+        result = portfolio.run_with_capital(HURDLE, capital)
+
+        assert result.pv_capital > 0.0
+        expected_roc = result.total_pv_profits / result.pv_capital
+        assert result.return_on_capital == pytest.approx(expected_roc)
+
+    def test_zero_capital_factor_yields_none_roc(self):
+        """A zero-factor capital model produces pv_capital == 0 -> RoC None."""
+        portfolio = Portfolio().add_deal(
+            **_deal_spec("D1", "CedantA", treaty=_yrt(cession_pct=0.5))
+        )
+        capital = LICATCapital(
+            factors=LICATFactors(
+                c1_asset_default=0.0, c2_mortality_factor=0.0, c3_interest_rate=0.0
+            )
+        )
+
+        result = portfolio.run_with_capital(HURDLE, capital)
+
+        assert result.pv_capital == 0.0
+        assert result.return_on_capital is None
+
+    def test_doubling_c2_factor_halves_roc(self):
+        """Sensitivity: with a YRT-only portfolio (capital comes from C-2 on
+        NAR), doubling the C-2 factor doubles pv_capital and halves RoC."""
+        portfolio = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", treaty=_yrt(cession_pct=0.5)))
+            .add_deal(**_deal_spec("D2", "CedantB", treaty=_yrt(cession_pct=0.5)))
+        )
+        cap_low = LICATCapital(factors=LICATFactors(c2_mortality_factor=0.05))
+        cap_high = LICATCapital(factors=LICATFactors(c2_mortality_factor=0.10))
+
+        r_low = portfolio.run_with_capital(HURDLE, cap_low)
+        r_high = portfolio.run_with_capital(HURDLE, cap_high)
+
+        assert r_low.return_on_capital is not None
+        assert r_high.return_on_capital is not None
+        assert r_high.pv_capital == pytest.approx(2.0 * r_low.pv_capital)
+        assert r_high.return_on_capital == pytest.approx(r_low.return_on_capital / 2.0)
+
+    def test_empty_portfolio_run_with_capital_rejected(self):
+        """An empty portfolio still rejects, just like ``run``."""
+        capital = LICATCapital.for_product(ProductType.TERM)
+        with pytest.raises(PolarisValidationError, match="empty portfolio"):
+            Portfolio().run_with_capital(HURDLE, capital)
+
+    def test_capital_by_period_shape_matches_projection_months(self):
+        portfolio = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", treaty=_yrt(cession_pct=0.5), horizon_years=20))
+            .add_deal(**_deal_spec("D2", "CedantB", treaty=_yrt(cession_pct=0.5), horizon_years=10))
+        )
+        capital = LICATCapital.for_product(ProductType.TERM)
+
+        result = portfolio.run_with_capital(HURDLE, capital)
+
+        assert result.capital_by_period.shape == (result.projection_months,)
+        # Beyond the shorter deal's horizon (months 120-239), only D1
+        # contributes NAR -> capital strictly decreases at the seam, not
+        # increases.
+        assert result.capital_by_period[120] <= result.capital_by_period[119]
+
+    def test_to_dict_exposes_capital_block(self):
+        """``to_dict`` carries the new capital block alongside the base keys."""
+        import json
+
+        portfolio = Portfolio().add_deal(
+            **_deal_spec("D1", "CedantA", treaty=_yrt(cession_pct=0.5))
+        )
+        capital = LICATCapital.for_product(ProductType.TERM)
+        result = portfolio.run_with_capital(HURDLE, capital)
+
+        d = result.to_dict()
+        # Base keys still present
+        assert "aggregate_cash_flow" in d
+        assert "concentration" in d
+        # New capital block
+        assert "capital" in d
+        cap_block = d["capital"]
+        for key in (
+            "initial_capital",
+            "peak_capital",
+            "pv_capital",
+            "pv_capital_strain",
+            "return_on_capital",
+            "capital_adjusted_irr",
+            "capital_by_period",
+        ):
+            assert key in cap_block, f"missing {key!r} in capital block"
+        assert isinstance(cap_block["capital_by_period"], list)
+        assert len(cap_block["capital_by_period"]) == d["projection_months"]
+        # Round-trip JSON serialisable.
         json.dumps(d)

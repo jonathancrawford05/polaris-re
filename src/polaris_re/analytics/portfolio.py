@@ -27,10 +27,12 @@ mixed inception dates would be out of phase; ``run`` rejects them. Full
 calendar-aligned aggregation is a planned follow-up (see PR #44 review).
 """
 
-from dataclasses import dataclass
+import dataclasses
+from dataclasses import dataclass, field
 
 import numpy as np
 
+from polaris_re.analytics.capital import LICATCapital
 from polaris_re.analytics.profit_test import ProfitTester, ProfitTestResult
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.core.cashflow import CashFlowResult
@@ -41,7 +43,13 @@ from polaris_re.core.projection import ProjectionConfig
 from polaris_re.products.dispatch import get_product_engine
 from polaris_re.reinsurance.base_treaty import BaseTreaty
 
-__all__ = ["Deal", "DealResult", "Portfolio", "PortfolioResult"]
+__all__ = [
+    "Deal",
+    "DealResult",
+    "Portfolio",
+    "PortfolioResult",
+    "PortfolioResultWithCapital",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +192,63 @@ class PortfolioResult:
             },
             "hhi": dict(self.hhi),
         }
+
+
+@dataclass(frozen=True)
+class PortfolioResultWithCapital(PortfolioResult):
+    """``PortfolioResult`` augmented with aggregate LICAT capital metrics.
+
+    Built by :meth:`Portfolio.run_with_capital`. Every ``PortfolioResult``
+    field is preserved unchanged (the joint result IS a ``PortfolioResult``
+    for any consumer of the base contract). Additional fields:
+
+    - ``initial_capital``: required capital at projection month 0 on the
+      aggregate cash flow + aggregate ceded NAR.
+    - ``peak_capital``: maximum required capital across the projection.
+    - ``pv_capital``: PV of the capital STOCK at the hurdle rate — default
+      RoC denominator per ADR-048.
+    - ``pv_capital_strain``: PV of the capital STRAIN (period-over-period
+      increases) at the hurdle rate.
+    - ``return_on_capital``: ``total_pv_profits / pv_capital``. ``None`` when
+      ``pv_capital <= 0`` (e.g. zero-factor capital model on a coinsurance-
+      only portfolio).
+    - ``capital_adjusted_irr``: IRR of ``aggregate_net_cash_flow - strain``
+      with terminal release of residual capital at month ``T-1``.
+    - ``capital_by_period``: full ``(T,)`` aggregate capital schedule.
+
+    The schedule comes from a single ``LICATCapital.required_capital`` call
+    on the aggregate ``CashFlowResult`` with the aggregate ceded NAR.
+    Because the calculator's components are linear in ``reserve_balance``
+    and ``NAR``, and the aggregate is a per-month sum, this is identical to
+    summing per-deal capital schedules when the same factors are applied
+    to every deal — see ``test_capital_linearity_matches_sum_of_per_deal_capital``.
+    """
+
+    initial_capital: float = 0.0
+    peak_capital: float = 0.0
+    pv_capital: float = 0.0
+    pv_capital_strain: float = 0.0
+    return_on_capital: float | None = None
+    capital_adjusted_irr: float | None = None
+    capital_by_period: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
+
+    def to_dict(self) -> dict[str, object]:
+        """Flatten the joint result into a JSON-serialisable plain dict.
+
+        Returns every key from ``PortfolioResult.to_dict()`` plus a new
+        top-level ``capital`` block with the aggregate capital metrics.
+        """
+        out = super().to_dict()
+        out["capital"] = {
+            "initial_capital": self.initial_capital,
+            "peak_capital": self.peak_capital,
+            "pv_capital": self.pv_capital,
+            "pv_capital_strain": self.pv_capital_strain,
+            "return_on_capital": self.return_on_capital,
+            "capital_adjusted_irr": self.capital_adjusted_irr,
+            "capital_by_period": self.capital_by_period.tolist(),
+        }
+        return out
 
 
 def _deal_result_to_dict(dr: DealResult) -> dict[str, object]:
@@ -460,6 +525,99 @@ class Portfolio:
                 "product": _herfindahl(concentration_by_product),
                 "treaty": _herfindahl(concentration_by_treaty),
             },
+        )
+
+    def run_with_capital(
+        self,
+        hurdle_rate: float,
+        capital_model: LICATCapital,
+    ) -> PortfolioResultWithCapital:
+        """Project, aggregate, and roll a single LICAT capital call onto the
+        portfolio.
+
+        Wraps :meth:`run` and joins the aggregate ``CashFlowResult`` and
+        aggregate ceded NAR with a single ``LICATCapital.required_capital``
+        call. The result carries every ``PortfolioResult`` field plus
+        portfolio-level capital metrics and return-on-capital — see
+        :class:`PortfolioResultWithCapital`.
+
+        Args:
+            hurdle_rate: Annual hurdle rate applied uniformly to every deal,
+                the aggregate profit test, and the PV-capital denominator.
+            capital_model: An instantiated ``LICATCapital`` (e.g. built via
+                ``LICATCapital.for_product(product_type)``). The same factor
+                set is applied to the entire portfolio — for a heterogeneous
+                book, supply a model whose factors reflect the blended
+                exposure.
+
+        Returns:
+            A :class:`PortfolioResultWithCapital` with aggregate cash flows,
+            profitability metrics, per-deal breakdown, concentration metrics,
+            and aggregate capital metrics.
+
+        Raises:
+            PolarisValidationError: Conditions identical to :meth:`run`
+                (empty portfolio, invalid hurdle rate, mismatched valuation
+                dates).
+        """
+        base = self.run(hurdle_rate)
+
+        # Single LICAT call at the portfolio level. The aggregate
+        # CashFlowResult carries reserve_balance (C-1 / C-3 inputs); the
+        # aggregate ceded NAR is the C-2 input. With linear factor models,
+        # this equals the month-by-month sum of per-deal capital schedules
+        # (see test_capital_linearity_matches_sum_of_per_deal_capital).
+        capital = capital_model.required_capital(
+            base.aggregate_cash_flow, nar=base.aggregate_ceded_nar
+        )
+
+        pv_capital = capital.pv_capital(hurdle_rate)
+        pv_capital_strain = capital.pv_capital_strain(hurdle_rate)
+
+        # RoC denominator is pv_capital (stock) per ADR-048. Suppress when
+        # the stock is non-positive — the ratio is not meaningful for
+        # zero-factor models or coinsurance-only books with no NAR.
+        return_on_capital: float | None = (
+            base.total_pv_profits / pv_capital if pv_capital > 0.0 else None
+        )
+
+        # Capital-adjusted IRR: IRR of distributable cash flow,
+        # net_cash_flow_t - strain_t with a terminal release of residual
+        # capital at month T-1. Mirrors ProfitTester.run_with_capital so
+        # the two metrics are comparable at the deal and portfolio levels.
+        ncf = base.aggregate_net_cash_flow
+        strain = capital.capital_strain()
+        n = len(ncf)
+        if n == 0 or len(strain) != n:
+            distributable = ncf.copy()
+        else:
+            distributable = ncf - strain
+            distributable[-1] += float(capital.capital_by_period[-1])
+
+        capital_adjusted_irr: float | None = None
+        if n > 0:
+            # Reuse the deal-level IRR solver to keep the suppression rules
+            # consistent with the standalone profit test (ADR-041).
+            capital_adjusted_irr = ProfitTester(base.aggregate_cash_flow, hurdle_rate)._solve_irr(
+                distributable
+            )
+
+        # Shallow-copy every base PortfolioResult field by name so this
+        # constructor does not need a parallel update if PortfolioResult
+        # gains a field. A shallow `fields()` splat (not `dataclasses.asdict`,
+        # which would recurse into the nested CashFlowResult / DealResult
+        # dataclasses and numpy arrays and convert them to dicts) preserves
+        # the nested types and references.
+        base_fields = {f.name: getattr(base, f.name) for f in dataclasses.fields(base)}
+        return PortfolioResultWithCapital(
+            **base_fields,
+            initial_capital=capital.initial_capital,
+            peak_capital=capital.peak_capital,
+            pv_capital=pv_capital,
+            pv_capital_strain=pv_capital_strain,
+            return_on_capital=return_on_capital,
+            capital_adjusted_irr=capital_adjusted_irr,
+            capital_by_period=capital.capital_by_period.copy(),
         )
 
     # ------------------------------------------------------------------
