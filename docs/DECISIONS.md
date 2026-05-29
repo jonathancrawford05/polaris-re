@@ -2907,3 +2907,87 @@ contract is consistent at deal and portfolio level. No change to
   `PortfolioResultWithCapital`).
 - `tests/test_analytics/test_portfolio.py` (+~210 lines: 10 new tests
   in `TestPortfolioRunWithCapital` + a small `_yrt` helper).
+
+---
+
+## ADR-061: Calendar-aligned portfolio aggregation — opt-in `align` mode
+
+**Status:** Accepted
+**Date:** 2026-05-29
+
+**Context.** `Portfolio.run()` (ADR-057) aggregates per-deal reinsurer cash
+flows by month index: month 0 of one deal lines up with month 0 of every
+other deal. That is only actuarially valid when every deal shares a
+valuation date, so Slice 1 *guarded* the invariant by rejecting mixed
+valuation dates. A real reinsurer's assumed book, however, has treaties
+inception-dated across years — the production workflow needs to aggregate
+deals that start on different calendar dates. PRODUCT_DIRECTION_2026-05-23
+promotes this as the lead IMPORTANT item ("Calendar-aligned portfolio
+aggregation", Refinement Backlog #1 from CONTINUATION_portfolio_aggregation),
+noting it "Just surfaced as a direct question on PR #45."
+
+**Decision.** Add an opt-in `align` parameter to `Portfolio.run()` and
+`Portfolio.run_with_capital()`:
+
+- `align="strict"` (default) is the pre-existing behaviour: sum by month
+  index, reject mixed valuation dates. The aggregate PV equals the sum of
+  per-deal PVs. The default preserves every existing caller (CLI, API) and
+  the `test_mismatched_valuation_dates_rejected` contract.
+- `align="calendar"` keys a common monthly grid off the *earliest* deal
+  valuation date and places each deal's cash flows at its whole-month offset
+  from that origin. The generalised placement primitive `_place(arr, offset,
+  length)` replaces the old trailing-only `_pad`; `_place(arr, 0, length)` is
+  a plain zero-pad, so strict mode (all offsets zero) is byte-for-byte
+  identical to the prior implementation.
+
+Calendar mode requires all valuation dates to fall on the same day-of-month
+(it raises otherwise), so the monthly grids line up exactly rather than
+introducing a sub-month phase error. The aggregate `CashFlowResult`'s
+`valuation_date` becomes the grid origin, and `projection_months` becomes
+the span `max(offset_i + T_i)`.
+
+**Rationale — the PV-summation subtlety.** PV in this engine discounts from
+the array's month 0 (`v**arange(1, T+1)`). When a deal is placed at calendar
+offset `o`, its cash flows are discounted by `v**o` extra relative to its
+standalone profit test. Therefore, under `align="calendar"`,
+`total_pv_profits` (the aggregate `ProfitTester` on the calendar-aligned
+NCF) is the **portfolio NPV as of the common origin** and equals
+`Σ_i v**(o_i) · PV_i`, which is *not* the naive `Σ_i PV_i` once inception
+dates differ. This is the economically correct number — a deal that starts a
+year later is worth less today — and is pinned by
+`test_aggregate_pv_discounts_offset_deal_by_v_to_the_offset` (single offset
+deal contributes exactly `v**o ·` its standalone PV). Per-deal `DealResult`
+PVs remain as-of each deal's own inception, so both views are available to
+the caller. This is the structural distinction Refinement Backlog #4
+flagged: PV at different discount origins does not sum.
+
+**Consequences.**
+- `Portfolio.run` / `run_with_capital` gain a keyword-only `align` argument
+  defaulting to `"strict"`. No existing caller changes behaviour.
+- The strict error message now names `align='calendar'` as the alternative,
+  but keeps the matched substring "same valuation date".
+- No data-contract change: `PortfolioResult` / `PortfolioResultWithCapital`
+  fields are unchanged. The grid origin is surfaced via the existing
+  `aggregate_cash_flow.valuation_date`.
+- `run_with_capital` threads `align` through unchanged — the single LICAT
+  call (ADR-060) now operates on the calendar-aligned aggregate, and the
+  linear-factor capital invariant still holds per deal at its grid offset.
+
+**Out of scope (future work — Slice 2 and beyond).**
+- CLI / API surfacing: `polaris portfolio run --align {strict,calendar}` and
+  a `POST /api/v1/portfolio` `align` field, plus exposing the grid origin and
+  per-deal grid offsets in `to_dict()` for transparent JSON consumption.
+  Tracked in CONTINUATION_calendar_aligned_portfolio (Slice 2).
+- Sub-month / non-common day-of-month inception dates. Today these are
+  rejected; supporting them would require a finer (daily) grid or
+  fractional-month discounting and is not warranted for monthly projections.
+- Deal-specific hurdle rates interact with the PV-origin question
+  (Refinement Backlog #4) and remain a separate NICE-TO-HAVE.
+
+**Affected files.**
+- `src/polaris_re/analytics/portfolio.py` (+~70 / -~15 lines: `align`
+  parameter on `run` / `run_with_capital`, new `_grid_offsets` helper,
+  `_pad` → offset-aware `_place`, `months_between` import, docstrings).
+- `tests/test_analytics/test_portfolio.py` (+~180 lines: new
+  `TestPortfolioCalendarAlignment` class — 10 tests — plus `start`-date
+  parameters on the shared spec builders).

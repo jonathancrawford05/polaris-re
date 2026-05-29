@@ -116,15 +116,6 @@ NICE-TO-HAVE; none of them block first-deal submission)
   `PortfolioResult.aggregate_*` fields, tests.
   *Source: CONTINUATION_portfolio_aggregation — Refinement Backlog #1.*
 
-- **Aggregate `CashFlowResult` claims / expenses / reserves on
-  `Portfolio.run()`.** The aggregate currently carries only
-  `gross_premiums` and `net_cash_flow` because that is all
-  `ProfitTester` needs. Portfolio-level capital (`run_with_capital`)
-  and loss-ratio reporting both need the full set. **Scope:** ~1
-  dev-day. **Affected:** `analytics/portfolio.py:_run`, `to_dict`,
-  tests.
-  *Source: CONTINUATION_portfolio_aggregation — Refinement Backlog #2.*
-
 - **Portfolio-level scenario analysis (`Portfolio.run_scenarios`).**
   `ScenarioRunner` stresses a single deal at a time; reinsurers need
   to stress the whole book under correlated mortality / lapse /
@@ -132,15 +123,6 @@ NICE-TO-HAVE; none of them block first-deal submission)
   stresses across cedants. **Scope:** ~3 dev-days. **Affected:**
   `analytics/portfolio.py`, `analytics/scenario.py`, tests.
   *Source: CONTINUATION_portfolio_aggregation — Refinement Backlog #3.*
-
-- **Aggregate return-on-capital on `Portfolio`.** Per-deal
-  `ProfitTester.run_with_capital` exists (ADR-048) but the
-  portfolio-level RoC roll-up is unimplemented. Needs a NAR
-  aggregation per deal and a single `LICATCapital` call at the
-  portfolio level. **Scope:** ~2 dev-days. **Affected:**
-  `analytics/portfolio.py`, tests; depends on the aggregate
-  `CashFlowResult` fix above.
-  *Source: ADR-058 "Out of scope" + ADR-057 "Out of scope".*
 
 - **Per-duration solver in `YRTRateSchedule.generate_table()`.** The
   generator broadcasts a per-(age, sex, smoker) flat rate across every
@@ -264,31 +246,36 @@ NICE-TO-HAVE; none of them block first-deal submission)
 
 ## Recommended Next Sprint
 
+**Progress update (2026-05-29).** Two of the four items below have shipped
+and one is in progress:
+
+- ~~Aggregate `CashFlowResult` claims / expenses / reserves on
+  `Portfolio`~~ — **shipped 2026-05-27 (ADR-059, commit 8a3d5a5)**. Entry
+  removed from the Promoted Follow-ups queue above.
+- ~~Aggregate return-on-capital on `Portfolio`~~ — **shipped 2026-05-28
+  (ADR-060, commit b133978)**. Entry removed from the Promoted Follow-ups
+  queue above.
+- **Calendar-aligned portfolio aggregation** — **in progress** (Slice 1
+  shipped, ADR-061; see CONTINUATION_calendar_aligned_portfolio). Slice 2
+  (CLI + API) is NEXT.
+
 Given that all BLOCKERs from 2026-04-19 have shipped and the
 commercial-readiness gap is now production polish rather than
-first-deal fundamentals, the recommended priority is:
+first-deal fundamentals, the remaining recommended priority is:
 
-1. **Calendar-aligned portfolio aggregation.** (3 days, IMPORTANT) —
-   the most-asked-about portfolio gap; required for real reinsurer
-   books with mixed inception dates. *Just surfaced as a direct
-   question on PR #45 — this is the right item to lead with.*
+1. **Calendar-aligned portfolio aggregation — Slice 2 (CLI + API).**
+   (IMPORTANT) — Slice 1 (core `align="calendar"` mode) is done; wire the
+   mode into `polaris portfolio run --align` and the API request, and
+   surface the grid origin / per-deal offsets in `to_dict()`. See
+   CONTINUATION_calendar_aligned_portfolio.
 
-2. **Aggregate `CashFlowResult` claims / expenses / reserves on
-   `Portfolio`.** (1 day, IMPORTANT) — quick win, unblocks both
-   loss-ratio reporting and aggregate-RoC.
-
-3. **Aggregate return-on-capital on `Portfolio`.** (2 days, IMPORTANT)
-   — depends on item 2. Together items 2 + 3 close the
-   "portfolio-level RoC" story that ADR-058 deferred.
-
-4. **Per-duration solver in `YRTRateSchedule.generate_table()`.** (3
+2. **Per-duration solver in `YRTRateSchedule.generate_table()`.** (3
    days, IMPORTANT) — the storage contract (`solved_mask`) and
    renderers are already in place; this lights them up.
 
-Items 1–4 together are roughly two weeks. Reserve-basis matching and
-IFRS 17 movement table are larger (10 dev-days each); they are
-genuinely Phase 5.3+ work and should be scoped as a dedicated
-roadmap entry rather than picked up mid-sprint.
+Reserve-basis matching and IFRS 17 movement table are larger (10
+dev-days each); they are genuinely Phase 5.3+ work and should be scoped
+as a dedicated roadmap entry rather than picked up mid-sprint.
 
 ## Comparison with Previous Assessment
 

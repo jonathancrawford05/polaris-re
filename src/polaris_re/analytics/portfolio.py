@@ -17,18 +17,31 @@ of the per-deal reinsurer cash flows (deals with a shorter horizon contribute
 zero beyond their last month), so ``total_pv_profits`` equals the sum of the
 per-deal PV profits.
 
-Scope (Slice 1 of Milestone 5.2): proportional treaties only — YRT,
-coinsurance, modco — each exposing a ``cession_pct``. Stop-loss and other
-non-proportional structures are out of scope. Policy-level cession overrides
-are not applied; the treaty-level ``cession_pct`` governs every deal. Each
-deal's inforce block must contain a single product type. All deals must
-share a common valuation date — the aggregate is summed by month index, so
-mixed inception dates would be out of phase; ``run`` rejects them. Full
-calendar-aligned aggregation is a planned follow-up (see PR #44 review).
+Scope: proportional treaties only — YRT, coinsurance, modco — each exposing
+a ``cession_pct``. Stop-loss and other non-proportional structures are out
+of scope. Policy-level cession overrides are not applied; the treaty-level
+``cession_pct`` governs every deal. Each deal's inforce block must contain a
+single product type.
+
+Time alignment (ADR-061). ``run`` takes an ``align`` mode:
+
+- ``align="strict"`` (default) sums cash flows by month index and requires
+  every deal to share a valuation date — mixed inception dates would be out
+  of phase, so they are rejected. In this mode the aggregate PV equals the
+  sum of the per-deal PVs.
+- ``align="calendar"`` places each deal on a common monthly calendar grid
+  keyed off the earliest valuation date, so a real reinsurer book with
+  treaties inception-dated across years aggregates correctly. Because PV
+  discounts from the common origin, a deal inception-dated ``o`` months late
+  contributes ``v**o`` times its standalone PV: the aggregate ``total_pv_profits``
+  is the portfolio NPV as of the common origin, which is NOT the naive sum
+  of per-deal PVs once inception dates differ.
 """
 
 import dataclasses
 from dataclasses import dataclass, field
+from datetime import date
+from typing import Literal
 
 import numpy as np
 
@@ -42,6 +55,9 @@ from polaris_re.core.pipeline import ceded_to_reinsurer_view
 from polaris_re.core.projection import ProjectionConfig
 from polaris_re.products.dispatch import get_product_engine
 from polaris_re.reinsurance.base_treaty import BaseTreaty
+from polaris_re.utils.date_utils import months_between
+
+type AlignMode = Literal["strict", "calendar"]
 
 __all__ = [
     "Deal",
@@ -292,10 +308,16 @@ def _treaty_label(treaty: BaseTreaty) -> str:
     return name[: -len("Treaty")] if name.endswith("Treaty") else name
 
 
-def _pad(arr: np.ndarray, length: int) -> np.ndarray:
-    """Zero-pad a 1-D array to ``length`` months (no-op when already sized)."""
+def _place(arr: np.ndarray, offset: int, length: int) -> np.ndarray:
+    """Place a 1-D array onto a zero-filled grid of ``length`` months at ``offset``.
+
+    Generalises a trailing zero-pad to a leading calendar offset:
+    ``_place(arr, 0, length)`` is a plain zero-pad (the strict-mode case);
+    a positive ``offset`` shifts the array forward on the common grid for
+    calendar-aligned aggregation of deals with different inception dates.
+    """
     out = np.zeros(length, dtype=np.float64)
-    out[: len(arr)] = arr
+    out[offset : offset + len(arr)] = arr
     return out
 
 
@@ -415,39 +437,39 @@ class Portfolio:
         )
         return self
 
-    def run(self, hurdle_rate: float) -> PortfolioResult:
+    def run(self, hurdle_rate: float, *, align: AlignMode = "strict") -> PortfolioResult:
         """Project and aggregate every deal in the portfolio.
 
         Args:
             hurdle_rate: Annual hurdle rate applied uniformly to every deal
                 and to the aggregate profit test (e.g. 0.10 for 10%).
+            align: Time-alignment mode (ADR-061). ``"strict"`` (default) sums
+                cash flows by month index and requires every deal to share a
+                valuation date. ``"calendar"`` places each deal on a common
+                monthly grid keyed off the earliest valuation date, so deals
+                with different inception dates aggregate correctly — at the
+                cost that ``total_pv_profits`` (the portfolio NPV as of the
+                common origin) no longer equals the naive sum of per-deal PVs.
 
         Returns:
             A :class:`PortfolioResult` with aggregate cash flows, total
             profitability metrics, the per-deal breakdown, and concentration
-            metrics.
+            metrics. ``aggregate_cash_flow.valuation_date`` is the grid origin
+            (the earliest deal valuation date under ``"calendar"``).
 
         Raises:
-            PolarisValidationError: If the portfolio is empty,
-                ``hurdle_rate`` is not greater than -1, or the deals do not
-                all share a common valuation date.
+            PolarisValidationError: If the portfolio is empty, ``hurdle_rate``
+                is not greater than -1, ``align`` is not a recognised mode,
+                the deals do not share a valuation date under ``"strict"``, or
+                their valuation dates fall on different days-of-month under
+                ``"calendar"``.
         """
         if not self._deals:
             raise PolarisValidationError("Cannot run an empty portfolio — add at least one deal.")
         if hurdle_rate <= -1.0:
             raise PolarisValidationError(f"hurdle_rate must be > -1, got {hurdle_rate}.")
 
-        # Aggregation sums cash flows by month index, so month 0 must be the
-        # same calendar month for every deal. Reject mixed valuation dates
-        # rather than silently producing an out-of-phase aggregate.
-        valuation_dates = {deal.config.valuation_date for deal in self._deals}
-        if len(valuation_dates) > 1:
-            raise PolarisValidationError(
-                "All deals in a portfolio must share the same valuation date — "
-                "aggregation sums cash flows by month index, which is only "
-                "actuarially valid on a common calendar grid. Got: "
-                f"{sorted(d.isoformat() for d in valuation_dates)}."
-            )
+        origin, offsets = self._grid_offsets(align)
 
         deal_results: list[DealResult] = []
         reinsurer_views: list[CashFlowResult] = []
@@ -456,11 +478,18 @@ class Portfolio:
             deal_results.append(deal_result)
             reinsurer_views.append(reinsurer_view)
 
-        t_max = max(view.projection_months for view in reinsurer_views)
+        t_max = max(
+            offset + view.projection_months
+            for offset, view in zip(offsets, reinsurer_views, strict=True)
+        )
 
         aggregate_arrays = {
             field_name: np.sum(
-                [_pad(getattr(view, field_name), t_max) for view in reinsurer_views], axis=0
+                [
+                    _place(getattr(view, field_name), offset, t_max)
+                    for offset, view in zip(offsets, reinsurer_views, strict=True)
+                ],
+                axis=0,
             )
             for field_name in (
                 "gross_premiums",
@@ -473,12 +502,16 @@ class Portfolio:
             )
         }
         aggregate_nar = np.sum(
-            [_pad(deal_result.ceded_nar, t_max) for deal_result in deal_results], axis=0
+            [
+                _place(deal_result.ceded_nar, offset, t_max)
+                for offset, deal_result in zip(offsets, deal_results, strict=True)
+            ],
+            axis=0,
         )
 
         aggregate_cf = CashFlowResult(
             run_id=f"portfolio-{self.name}",
-            valuation_date=self._deals[0].config.valuation_date,
+            valuation_date=origin,
             basis="NET",
             assumption_set_version="portfolio-aggregate",
             product_type="PORTFOLIO",
@@ -531,6 +564,8 @@ class Portfolio:
         self,
         hurdle_rate: float,
         capital_model: LICATCapital,
+        *,
+        align: AlignMode = "strict",
     ) -> PortfolioResultWithCapital:
         """Project, aggregate, and roll a single LICAT capital call onto the
         portfolio.
@@ -549,6 +584,7 @@ class Portfolio:
                 set is applied to the entire portfolio — for a heterogeneous
                 book, supply a model whose factors reflect the blended
                 exposure.
+            align: Time-alignment mode forwarded to :meth:`run` (ADR-061).
 
         Returns:
             A :class:`PortfolioResultWithCapital` with aggregate cash flows,
@@ -557,10 +593,10 @@ class Portfolio:
 
         Raises:
             PolarisValidationError: Conditions identical to :meth:`run`
-                (empty portfolio, invalid hurdle rate, mismatched valuation
-                dates).
+                (empty portfolio, invalid hurdle rate, invalid ``align`` mode,
+                mismatched valuation dates).
         """
-        base = self.run(hurdle_rate)
+        base = self.run(hurdle_rate, align=align)
 
         # Single LICAT call at the portfolio level. The aggregate
         # CashFlowResult carries reserve_balance (C-1 / C-3 inputs); the
@@ -619,6 +655,49 @@ class Portfolio:
             capital_adjusted_irr=capital_adjusted_irr,
             capital_by_period=capital.capital_by_period.copy(),
         )
+
+    # ------------------------------------------------------------------
+    # Internal — calendar grid alignment
+    # ------------------------------------------------------------------
+
+    def _grid_offsets(self, align: AlignMode) -> tuple[date, list[int]]:
+        """Resolve the common grid origin and each deal's month offset onto it.
+
+        ``"strict"`` requires a shared valuation date (offsets are all zero).
+        ``"calendar"`` keys the grid off the earliest valuation date and
+        returns each deal's whole-month offset from it; it requires a common
+        day-of-month so the monthly grids line up exactly. The returned
+        offsets are aligned with ``self._deals`` order.
+        """
+        valuation_dates = [deal.config.valuation_date for deal in self._deals]
+        distinct = set(valuation_dates)
+
+        if align == "strict":
+            # Aggregation sums cash flows by month index, so month 0 must be
+            # the same calendar month for every deal. Reject mixed valuation
+            # dates rather than silently producing an out-of-phase aggregate.
+            if len(distinct) > 1:
+                raise PolarisValidationError(
+                    "All deals in a portfolio must share the same valuation date when "
+                    "align='strict' — aggregation sums cash flows by month index, which "
+                    "is only actuarially valid on a common calendar grid. Pass "
+                    "align='calendar' to aggregate deals with different inception dates. "
+                    f"Got: {sorted(d.isoformat() for d in distinct)}."
+                )
+            return valuation_dates[0], [0] * len(valuation_dates)
+
+        if align == "calendar":
+            if len({d.day for d in distinct}) > 1:
+                raise PolarisValidationError(
+                    "Calendar-aligned aggregation requires every deal's valuation date "
+                    "to fall on the same day-of-month so the monthly grids line up; got "
+                    f"days {sorted({d.day for d in distinct})}. Align inception dates to a "
+                    "common day-of-month (typically the first) before aggregating."
+                )
+            origin = min(valuation_dates)
+            return origin, [months_between(origin, d) for d in valuation_dates]
+
+        raise PolarisValidationError(f"align must be 'strict' or 'calendar', got {align!r}.")
 
     # ------------------------------------------------------------------
     # Internal — single-deal projection
