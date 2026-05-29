@@ -77,7 +77,12 @@ def _assumptions() -> AssumptionSet:
     return AssumptionSet(mortality=_mortality(), lapse=lapse, version="portfolio-test-v1")
 
 
-def _policy(policy_id: str, product: ProductType, face: float) -> Policy:
+def _policy(
+    policy_id: str,
+    product: ProductType,
+    face: float,
+    start: date = date(2025, 1, 1),
+) -> Policy:
     is_term = product == ProductType.TERM
     return Policy(
         policy_id=policy_id,
@@ -92,8 +97,8 @@ def _policy(policy_id: str, product: ProductType, face: float) -> Policy:
         policy_term=20 if is_term else None,
         duration_inforce=0,
         reinsurance_cession_pct=0.0,
-        issue_date=date(2025, 1, 1),
-        valuation_date=date(2025, 1, 1),
+        issue_date=start,
+        valuation_date=start,
     )
 
 
@@ -102,15 +107,16 @@ def _block(
     product: ProductType = ProductType.TERM,
     n_policies: int = 2,
     face: float = 500_000.0,
+    start: date = date(2025, 1, 1),
 ) -> InforceBlock:
     return InforceBlock(
-        policies=[_policy(f"{prefix}_{i:03d}", product, face) for i in range(n_policies)],
+        policies=[_policy(f"{prefix}_{i:03d}", product, face, start) for i in range(n_policies)],
     )
 
 
-def _config(horizon_years: int = 20) -> ProjectionConfig:
+def _config(horizon_years: int = 20, start: date = date(2025, 1, 1)) -> ProjectionConfig:
     return ProjectionConfig(
-        valuation_date=date(2025, 1, 1),
+        valuation_date=start,
         projection_horizon_years=horizon_years,
         discount_rate=0.05,
     )
@@ -125,9 +131,16 @@ def _deal_spec(
     horizon_years: int = 20,
     n_policies: int = 2,
     face: float = 500_000.0,
+    start: date = date(2025, 1, 1),
 ) -> dict[str, object]:
-    """Return a kwargs dict ready to splat into `Portfolio.add_deal`."""
-    block = _block(deal_id, product, n_policies, face)
+    """Return a kwargs dict ready to splat into `Portfolio.add_deal`.
+
+    ``start`` shifts both the policies' ``issue_date`` and the config
+    ``valuation_date`` together, so a deal's duration-driven projection is
+    identical regardless of its calendar inception — only its position on a
+    calendar-aligned portfolio grid changes.
+    """
+    block = _block(deal_id, product, n_policies, face, start)
     if treaty is None:
         treaty = CoinsuranceTreaty(cession_pct=0.5, treaty_name=f"{deal_id}-coins")
     return {
@@ -135,7 +148,7 @@ def _deal_spec(
         "cedant": cedant,
         "inforce": block,
         "assumptions": _assumptions(),
-        "config": _config(horizon_years),
+        "config": _config(horizon_years, start),
         "treaty": treaty,
     }
 
@@ -967,3 +980,169 @@ class TestPortfolioRunWithCapital:
         assert len(cap_block["capital_by_period"]) == d["projection_months"]
         # Round-trip JSON serialisable.
         json.dumps(d)
+
+
+# ---------------------------------------------------------------------------
+# Calendar-aligned aggregation (ADR-061)
+# ---------------------------------------------------------------------------
+
+
+class TestPortfolioCalendarAlignment:
+    """``Portfolio.run(align="calendar")`` aggregates deals with different
+    inception dates onto a common monthly calendar grid keyed off the
+    earliest valuation date.
+
+    Closed-form checks pin the two behaviours that distinguish calendar
+    alignment from the default ``align="strict"`` month-index sum:
+      1. A deal inception-dated ``o`` months after the grid origin has its
+         cash flows placed at grid offset ``o`` (zeros before it starts).
+      2. Because PV discounts from the common origin, a deal at offset ``o``
+         contributes ``v**o`` times its standalone PV — so the aggregate PV
+         is NOT the naive sum of per-deal PVs once inception dates differ.
+    """
+
+    def test_calendar_mode_accepts_mixed_valuation_dates(self):
+        """Unlike strict mode, calendar mode does not reject mixed dates."""
+        portfolio = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", start=date(2025, 1, 1)))
+            .add_deal(**_deal_spec("D2", "CedantB", start=date(2025, 7, 1)))
+        )
+        result = portfolio.run(HURDLE, align="calendar")
+        assert isinstance(result, PortfolioResult)
+        assert result.n_deals == 2
+
+    def test_grid_origin_is_earliest_valuation_date(self):
+        portfolio = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", start=date(2025, 7, 1)))
+            .add_deal(**_deal_spec("D2", "CedantB", start=date(2025, 1, 1)))
+        )
+        result = portfolio.run(HURDLE, align="calendar")
+        assert result.aggregate_cash_flow.valuation_date == date(2025, 1, 1)
+
+    def test_offset_deal_cash_flows_placed_on_common_grid(self):
+        """CLOSED-FORM: aggregate NCF[k] = ncf_a[k] + ncf_b[k - 6], with the
+        6-month-later deal contributing zero before it starts."""
+        spec_a = _deal_spec("D1", "CedantA", start=date(2025, 1, 1))
+        spec_b = _deal_spec("D2", "CedantB", start=date(2025, 7, 1))
+        ncf_a = _independent_reinsurer_ncf(spec_a)
+        ncf_b = _independent_reinsurer_ncf(spec_b)
+
+        result = Portfolio().add_deal(**spec_a).add_deal(**spec_b).run(HURDLE, align="calendar")
+
+        offset = 6
+        t_a, t_b = len(ncf_a), len(ncf_b)
+        assert result.projection_months == max(t_a, offset + t_b)
+        expected = np.zeros(result.projection_months, dtype=np.float64)
+        expected[:t_a] += ncf_a
+        expected[offset : offset + t_b] += ncf_b
+        np.testing.assert_allclose(result.aggregate_net_cash_flow, expected, rtol=1e-12)
+        # The later deal contributes nothing in the months before it starts.
+        np.testing.assert_allclose(
+            result.aggregate_net_cash_flow[:offset], ncf_a[:offset], rtol=1e-12
+        )
+
+    def test_aggregate_pv_discounts_offset_deal_by_v_to_the_offset(self):
+        """CLOSED-FORM: with identical specs, the deal offset by 6 months
+        contributes v**6 times its standalone PV, so the aggregate PV is
+        P + v**6 * P, NOT the naive sum 2 * P."""
+        offset = 6
+        spec_a = _deal_spec("D1", "CedantA", start=date(2025, 1, 1))
+        spec_b = _deal_spec("D2", "CedantB", start=date(2025, 7, 1))
+        result = Portfolio().add_deal(**spec_a).add_deal(**spec_b).run(HURDLE, align="calendar")
+
+        pv_a = result.deal_results[0].profit_test.pv_profits
+        pv_b = result.deal_results[1].profit_test.pv_profits
+        # Identical specs ⇒ identical standalone PVs.
+        np.testing.assert_allclose(pv_a, pv_b, rtol=1e-12)
+
+        v = (1.0 + HURDLE) ** (-1.0 / 12.0)
+        expected_total = pv_a + (v**offset) * pv_b
+        np.testing.assert_allclose(result.total_pv_profits, expected_total, rtol=1e-9)
+        # And the calendar PV is strictly below the naive sum (offset discounting).
+        assert result.total_pv_profits < pv_a + pv_b
+
+    def test_calendar_matches_strict_when_dates_equal(self):
+        """When every deal shares a valuation date, calendar mode reduces to
+        the strict month-index aggregate exactly."""
+        strict = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA"))
+            .add_deal(**_deal_spec("D2", "CedantB", horizon_years=15))
+            .run(HURDLE)
+        )
+        calendar = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA"))
+            .add_deal(**_deal_spec("D2", "CedantB", horizon_years=15))
+            .run(HURDLE, align="calendar")
+        )
+        assert calendar.projection_months == strict.projection_months
+        np.testing.assert_allclose(
+            calendar.aggregate_net_cash_flow, strict.aggregate_net_cash_flow, rtol=1e-12
+        )
+        np.testing.assert_allclose(calendar.total_pv_profits, strict.total_pv_profits, rtol=1e-12)
+        assert calendar.aggregate_cash_flow.valuation_date == date(2025, 1, 1)
+
+    def test_aggregate_ceded_nar_aligned_for_yrt(self):
+        """A YRT deal inception-dated later contributes NAR at the grid offset
+        and zero before it starts."""
+        yrt = _yrt(cession_pct=0.8)
+        spec = _deal_spec("D2", "CedantB", treaty=yrt, start=date(2025, 7, 1))
+        result = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", start=date(2025, 1, 1)))
+            .add_deal(**spec)
+            .run(HURDLE, align="calendar")
+        )
+        # Coinsurance deal A carries no NAR; all NAR comes from the offset YRT.
+        np.testing.assert_array_equal(result.aggregate_ceded_nar[:6], np.zeros(6, dtype=np.float64))
+        assert np.any(result.aggregate_ceded_nar[6:] > 0.0)
+
+    def test_strict_mode_default_still_rejects_mixed_dates(self):
+        """The default mode is unchanged — mixed dates are rejected."""
+        portfolio = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", start=date(2025, 1, 1)))
+            .add_deal(**_deal_spec("D2", "CedantB", start=date(2025, 7, 1)))
+        )
+        with pytest.raises(PolarisValidationError, match="same valuation date"):
+            portfolio.run(HURDLE)
+
+    def test_calendar_requires_common_day_of_month(self):
+        portfolio = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", start=date(2025, 1, 1)))
+            .add_deal(**_deal_spec("D2", "CedantB", start=date(2025, 7, 15)))
+        )
+        with pytest.raises(PolarisValidationError, match="day-of-month"):
+            portfolio.run(HURDLE, align="calendar")
+
+    def test_invalid_align_mode_rejected(self):
+        portfolio = Portfolio().add_deal(**_deal_spec("D1", "CedantA"))
+        with pytest.raises(PolarisValidationError, match="align must be"):
+            portfolio.run(HURDLE, align="bogus")  # type: ignore[arg-type]
+
+    def test_run_with_capital_threads_calendar_alignment(self):
+        """``run_with_capital(align="calendar")`` aggregates on the calendar
+        grid and rolls the capital schedule over the full aligned horizon."""
+        capital = LICATCapital(factors=LICATFactors(c2_mortality_factor=0.10))
+        portfolio = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", treaty=_yrt(), start=date(2025, 1, 1)))
+            .add_deal(**_deal_spec("D2", "CedantB", treaty=_yrt(), start=date(2025, 7, 1)))
+        )
+        base = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", treaty=_yrt(), start=date(2025, 1, 1)))
+            .add_deal(**_deal_spec("D2", "CedantB", treaty=_yrt(), start=date(2025, 7, 1)))
+            .run(HURDLE, align="calendar")
+        )
+        result = portfolio.run_with_capital(HURDLE, capital, align="calendar")
+        assert isinstance(result, PortfolioResultWithCapital)
+        assert result.projection_months == base.projection_months
+        np.testing.assert_allclose(
+            result.aggregate_net_cash_flow, base.aggregate_net_cash_flow, rtol=1e-12
+        )
+        assert len(result.capital_by_period) == base.projection_months
