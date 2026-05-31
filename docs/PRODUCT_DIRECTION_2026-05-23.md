@@ -107,15 +107,6 @@ NICE-TO-HAVE; none of them block first-deal submission)
 
 ### IMPORTANT
 
-- **Calendar-aligned portfolio aggregation.** Today `Portfolio.run()`
-  rejects deals with mismatched `valuation_date` (Slice 1 guard). A
-  reinsurer's real book has treaties inception-dated across years, so
-  the production workflow requires aggregating on a common calendar
-  grid (arrays indexed by date, not by month-offset). **Scope:** ~3
-  dev-days. **Affected:** `analytics/portfolio.py` aggregation core,
-  `PortfolioResult.aggregate_*` fields, tests.
-  *Source: CONTINUATION_portfolio_aggregation — Refinement Backlog #1.*
-
 - **Portfolio-level scenario analysis (`Portfolio.run_scenarios`).**
   `ScenarioRunner` stresses a single deal at a time; reinsurers need
   to stress the whole book under correlated mortality / lapse /
@@ -244,10 +235,31 @@ NICE-TO-HAVE; none of them block first-deal submission)
   dev-day. **Affected:** `core/pipeline.py:DealConfig`, CLI, tests.
   *Source: CONTINUATION_yrt_rate_table — "follow-up #2".*
 
+- **Streamlit dashboard page for calendar-aligned portfolios.** The
+  dashboard prices one deal at a time today. A portfolio page would
+  consume the same `PortfolioResult.to_dict()` shape and surface
+  `grid_origin` / per-deal `grid_offset` alongside the per-deal table.
+  Distinct from the broader "Streamlit dashboard page for portfolio
+  runs" entry above in that the calendar-aware view is the production
+  workflow (mixed-inception books). **Scope:** ~3 dev-days. **Affected:**
+  new `src/polaris_re/dashboard/views/portfolio.py`, navigation, tests.
+  *Source: CONTINUATION_calendar_aligned_portfolio — Refinement Backlog #1
+  + ADR-062 Out of scope.*
+
+- **Sub-month / non-common day-of-month inception dates in calendar mode.**
+  `align="calendar"` today requires every deal's valuation date to fall on
+  the same day-of-month so the monthly grids line up. Supporting arbitrary
+  inception days would require a finer (daily) grid or fractional-month
+  discounting. **Scope:** design ADR + ~2 dev-days implementation.
+  **Affected:** `analytics/portfolio.py:_grid_offsets`,
+  `core/cashflow.py` if a sub-month time index is needed.
+  *Source: CONTINUATION_calendar_aligned_portfolio — Refinement Backlog #2
+  / ADR-061 Out of scope (carried forward in ADR-062).*
+
 ## Recommended Next Sprint
 
-**Progress update (2026-05-29).** Two of the four items below have shipped
-and one is in progress:
+**Progress update (2026-05-31).** All three items in the prior sprint have
+shipped:
 
 - ~~Aggregate `CashFlowResult` claims / expenses / reserves on
   `Portfolio`~~ — **shipped 2026-05-27 (ADR-059, commit 8a3d5a5)**. Entry
@@ -255,23 +267,22 @@ and one is in progress:
 - ~~Aggregate return-on-capital on `Portfolio`~~ — **shipped 2026-05-28
   (ADR-060, commit b133978)**. Entry removed from the Promoted Follow-ups
   queue above.
-- **Calendar-aligned portfolio aggregation** — **in progress** (Slice 1
-  shipped, ADR-061; see CONTINUATION_calendar_aligned_portfolio). Slice 2
-  (CLI + API) is NEXT.
+- ~~Calendar-aligned portfolio aggregation~~ — **shipped** (Slice 1
+  2026-05-29 ADR-061; Slice 2 CLI + API 2026-05-31 ADR-062). The
+  CONTINUATION is now COMPLETE; surviving refinement items have been
+  promoted below.
 
 Given that all BLOCKERs from 2026-04-19 have shipped and the
 commercial-readiness gap is now production polish rather than
 first-deal fundamentals, the remaining recommended priority is:
 
-1. **Calendar-aligned portfolio aggregation — Slice 2 (CLI + API).**
-   (IMPORTANT) — Slice 1 (core `align="calendar"` mode) is done; wire the
-   mode into `polaris portfolio run --align` and the API request, and
-   surface the grid origin / per-deal offsets in `to_dict()`. See
-   CONTINUATION_calendar_aligned_portfolio.
-
-2. **Per-duration solver in `YRTRateSchedule.generate_table()`.** (3
+1. **Per-duration solver in `YRTRateSchedule.generate_table()`.** (3
    days, IMPORTANT) — the storage contract (`solved_mask`) and
    renderers are already in place; this lights them up.
+
+2. **Portfolio-level scenario analysis (`Portfolio.run_scenarios`).**
+   (IMPORTANT) — the remaining IMPORTANT portfolio follow-up after
+   calendar alignment closed.
 
 Reserve-basis matching and IFRS 17 movement table are larger (10
 dev-days each); they are genuinely Phase 5.3+ work and should be scoped

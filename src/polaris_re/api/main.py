@@ -1305,6 +1305,17 @@ class PortfolioRequest(BaseModel):
         min_length=1, description="One entry per reinsurance deal in the portfolio."
     )
     name: str = Field(default="portfolio", description="Portfolio identifier (used in run id).")
+    align: Literal["strict", "calendar"] = Field(
+        default="strict",
+        description=(
+            "Time-alignment mode (ADR-061). 'strict' (default) sums cash flows by "
+            "month index and requires every deal to share a valuation date. "
+            "'calendar' places each deal on a common monthly grid keyed off the "
+            "earliest valuation date so deals with different inception dates "
+            "aggregate correctly; total_pv_profits then reports the portfolio "
+            "NPV as of the common origin (NOT the naive sum of per-deal PVs)."
+        ),
+    )
 
 
 @app.post("/api/v1/portfolio", tags=["Pricing"])
@@ -1374,7 +1385,7 @@ def api_portfolio(request: PortfolioRequest) -> dict:  # type: ignore[type-arg]
                 treaty=treaty,
             )
 
-        result = portfolio.run(request.hurdle_rate)
+        result = portfolio.run(request.hurdle_rate, align=request.align)
     except HTTPException:
         raise
     except Exception as exc:

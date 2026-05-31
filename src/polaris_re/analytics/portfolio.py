@@ -60,6 +60,7 @@ from polaris_re.utils.date_utils import months_between
 type AlignMode = Literal["strict", "calendar"]
 
 __all__ = [
+    "AlignMode",
     "Deal",
     "DealResult",
     "Portfolio",
@@ -109,6 +110,13 @@ class DealResult:
     cash flow vector, shape ``(T_deal,)``. ``ceded_nar`` is the ceded Net
     Amount at Risk, shape ``(T_deal,)`` — zeros when the treaty exposes no
     NAR vector (coinsurance / modco).
+
+    ``valuation_date`` carries the deal's own valuation date (the projection
+    start). ``grid_offset`` is the deal's whole-month offset onto the
+    portfolio's common calendar grid: 0 under ``align="strict"`` and under
+    ``align="calendar"`` for the earliest-dated deal, positive for later
+    deals. Together they let JSON consumers reconstruct calendar placement
+    without re-deriving dates (ADR-061).
     """
 
     deal_id: str
@@ -121,6 +129,8 @@ class DealResult:
     profit_test: ProfitTestResult
     net_cash_flow: np.ndarray
     ceded_nar: np.ndarray
+    valuation_date: date | None = None
+    grid_offset: int = 0
 
 
 @dataclass(frozen=True)
@@ -175,12 +185,20 @@ class PortfolioResult:
         ergonomic access by dimension. The shape matches what the CLI
         ``polaris portfolio`` command and the ``POST /api/v1/portfolio`` API
         endpoint emit.
+
+        ``grid_origin`` (ISO date) is the common monthly grid origin —
+        identical to every deal's valuation date under ``align="strict"``,
+        the earliest deal's valuation date under ``align="calendar"``. Each
+        per-deal block carries its own ``valuation_date`` and
+        ``grid_offset`` (months from origin) so JSON consumers can
+        reconstruct placement without re-deriving dates (ADR-061).
         """
         cf = self.aggregate_cash_flow
         return {
             "n_deals": self.n_deals,
             "hurdle_rate": self.hurdle_rate,
             "projection_months": self.projection_months,
+            "grid_origin": cf.valuation_date.isoformat(),
             "total_pv_profits": self.total_pv_profits,
             "total_irr": self.total_irr,
             "breakeven_year": self.breakeven_year,
@@ -282,6 +300,8 @@ def _deal_result_to_dict(dr: DealResult) -> dict[str, object]:
         "n_policies": dr.n_policies,
         "face_amount": dr.face_amount,
         "ceded_face": dr.ceded_face,
+        "valuation_date": dr.valuation_date.isoformat() if dr.valuation_date else None,
+        "grid_offset": dr.grid_offset,
         "profit_test": {
             "hurdle_rate": dr.profit_test.hurdle_rate,
             "pv_profits": dr.profit_test.pv_profits,
@@ -473,9 +493,9 @@ class Portfolio:
 
         deal_results: list[DealResult] = []
         reinsurer_views: list[CashFlowResult] = []
-        for deal in self._deals:
+        for deal, offset in zip(self._deals, offsets, strict=True):
             deal_result, reinsurer_view = self._run_deal(deal, hurdle_rate)
-            deal_results.append(deal_result)
+            deal_results.append(dataclasses.replace(deal_result, grid_offset=offset))
             reinsurer_views.append(reinsurer_view)
 
         t_max = max(
@@ -737,5 +757,7 @@ class Portfolio:
             profit_test=profit_test,
             net_cash_flow=np.asarray(reinsurer_view.net_cash_flow, dtype=np.float64),
             ceded_nar=ceded_nar,
+            valuation_date=deal.config.valuation_date,
+            grid_offset=0,
         )
         return deal_result, reinsurer_view

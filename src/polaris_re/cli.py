@@ -1907,6 +1907,9 @@ def _render_portfolio_summary(result_dict: dict[str, object]) -> None:  # type: 
     overview.add_column("Value", justify="right")
     overview.add_row("Deals", str(n_deals))
     overview.add_row("Hurdle Rate", f"{float(result_dict['hurdle_rate']):.2%}")  # type: ignore[arg-type]
+    grid_origin = result_dict.get("grid_origin")
+    if grid_origin is not None:
+        overview.add_row("Grid Origin", str(grid_origin))
     overview.add_row("Total PV Profits", f"${total_pv:,.0f}")
     overview.add_row(
         "Total IRR",
@@ -1928,6 +1931,7 @@ def _render_portfolio_summary(result_dict: dict[str, object]) -> None:  # type: 
     deals.add_column("Ceded Face", justify="right")
     deals.add_column("PV Profits", justify="right")
     deals.add_column("IRR", justify="right")
+    deals.add_column("Offset (mo)", justify="right")
     for deal in result_dict["deals"]:  # type: ignore[union-attr]
         pt = deal["profit_test"]
         irr_str = f"{float(pt['irr']):.2%}" if pt.get("irr") is not None else "N/A"
@@ -1941,6 +1945,7 @@ def _render_portfolio_summary(result_dict: dict[str, object]) -> None:  # type: 
             f"${float(deal['ceded_face']):,.0f}",
             f"${float(pt['pv_profits']):,.0f}",
             irr_str,
+            str(int(deal.get("grid_offset", 0))),
         )
     console.print(deals)
 
@@ -1987,6 +1992,20 @@ def portfolio_run_cmd(
             ),
         ),
     ] = None,
+    align: Annotated[
+        str,
+        typer.Option(
+            "--align",
+            help=(
+                "Time-alignment mode (ADR-061). 'strict' (default) sums cash flows "
+                "by month index and requires every deal to share a valuation date. "
+                "'calendar' places each deal on a common monthly grid keyed off the "
+                "earliest valuation date so deals with different inception dates "
+                "aggregate correctly; total_pv_profits then reports the portfolio "
+                "NPV as of the common origin."
+            ),
+        ),
+    ] = "strict",
 ) -> None:
     """
     [bold]Run a multi-deal portfolio and aggregate reinsurer-level metrics.[/bold]
@@ -2000,6 +2019,10 @@ def portfolio_run_cmd(
     """
     _header()
 
+    if align not in ("strict", "calendar"):
+        console.print(f"[red]Error:[/red] --align must be 'strict' or 'calendar'; got {align!r}.")
+        raise typer.Exit(code=1)
+
     portfolio, configured_hurdle = _build_portfolio_from_config(config_path)
     effective_hurdle = hurdle_rate if hurdle_rate is not None else configured_hurdle
 
@@ -2010,7 +2033,11 @@ def portfolio_run_cmd(
         transient=True,
     ) as progress:
         progress.add_task(f"Running portfolio ({portfolio.n_deals} deals)...", total=None)
-        result = portfolio.run(effective_hurdle)
+        try:
+            result = portfolio.run(effective_hurdle, align=align)
+        except PolarisValidationError as exc:
+            console.print(f"[red]Error running portfolio:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
 
     result_dict = result.to_dict()
     _render_portfolio_summary(result_dict)

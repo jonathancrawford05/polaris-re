@@ -2,7 +2,7 @@
 
 **Source:** PRODUCT_DIRECTION_2026-05-23.md — IMPORTANT (Recommended Next
 Sprint #1; Refinement Backlog #1 from CONTINUATION_portfolio_aggregation)
-**Status:** IN PROGRESS
+**Status:** COMPLETE (Slice 2 shipped 2026-05-31)
 **Total slices:** 2
 **Estimated total scope:** ~3 dev-days
 
@@ -52,37 +52,52 @@ serialised result carries the grid origin and per-deal grid offsets.
 
 ### Slice 2: CLI + API integration
 
-- **Status:** NEXT
-- **Depends on:** Slice 1 merged
-- **Files to create/modify:**
-  - `src/polaris_re/cli.py` — add `--align {strict,calendar}` to the
-    `polaris portfolio run` command (default `strict`); pass through to
-    `portfolio.run(effective_hurdle, align=...)`. Consider rendering the
-    grid origin in the Rich summary.
-  - `src/polaris_re/api/main.py` — add an optional `align` field to the
-    portfolio request model (default `"strict"`); pass through to
-    `portfolio.run(request.hurdle_rate, align=...)`.
-  - `src/polaris_re/analytics/portfolio.py` — surface the grid origin
-    (`aggregate_cash_flow.valuation_date`) and, ideally, each deal's grid
-    offset in `PortfolioResult.to_dict()` so JSON consumers can reconstruct
-    placement without re-deriving dates. Adding a per-deal `grid_offset`
-    requires either a new `DealResult` field (defaulted, additive) or
-    computing offsets in `to_dict()` — decide in Slice 2.
-  - `data/configs/portfolio_demo.yaml` — optionally add a second deal with a
-    later inception date to demo calendar mode.
-- **Tests to add:**
-  - `tests/test_analytics/test_cli_portfolio.py` — `--align calendar` on a
-    mixed-date 2-deal config produces a result whose `projection_months`
-    spans the calendar grid; `--align strict` (default) still rejects mixed
-    dates.
-  - `tests/test_api/test_portfolio.py` — `align="calendar"` round-trips a
-    mixed-date 2-deal request; default rejects mixed dates.
-- **Acceptance criteria:**
-  - `polaris portfolio run --align calendar` aggregates a YAML config whose
-    deals have different valuation dates and writes a JSON result.
-  - `POST /api/v1/portfolio` with `align="calendar"` aggregates mixed-date
-    deals; omitting `align` preserves the strict default.
-  - `to_dict()` exposes the grid origin (and per-deal offsets if added).
+- **Status:** DONE
+- **Branch:** claude/vibrant-turing-knGTC
+- **PR:** — (draft, this session)
+- **What was done:** Added `--align {strict,calendar}` (default `strict`) to
+  `polaris portfolio run`; routed it through
+  `portfolio.run(effective_hurdle, align=align)`. Added an `align:
+  Literal["strict","calendar"]` field to `PortfolioRequest` and passed it
+  through to `portfolio.run` in `api_portfolio`. Surfaced grid metadata in
+  `PortfolioResult.to_dict()`: a top-level `grid_origin` (ISO date,
+  equal to `aggregate_cash_flow.valuation_date`) plus per-deal
+  `valuation_date` and `grid_offset` (months from origin). Chose to add
+  defaulted `valuation_date: date | None = None` and `grid_offset: int = 0`
+  fields on `DealResult` rather than computing offsets in `to_dict()` — the
+  dataclass already owns the per-deal serialisation site and the additive
+  defaults keep every existing reader untouched. `Portfolio.run` builds
+  each `DealResult` with offset 0 inside `_run_deal` and uses
+  `dataclasses.replace` to inject the resolved offset before appending.
+  The Rich overview gains a `Grid Origin` row; the per-deal table grows an
+  `Offset (mo)` column (always shown — `0` for the strict / earliest-deal
+  case). ADR-062 records the design.
+- **Key decisions:**
+  - **`DealResult` additive fields over external offset store.** Per-deal
+    JSON already flows through `_deal_result_to_dict`; carrying the date
+    stamp on `DealResult` keeps `to_dict()` from reaching across two
+    structures. Defaults preserve backward compatibility for any external
+    constructor.
+  - **`Offset (mo)` column always rendered.** The CONTINUATION suggested
+    conditional rendering based on whether any deal was off-origin, but
+    that required iterating `result_dict["deals"]` twice through the
+    `dict[str, object]` interface and added a mypy-ignore hop. Always
+    rendering the column keeps the table shape stable across
+    strict/calendar runs and matches the JSON output's permanent
+    `grid_offset` field.
+- **Tests added (12 total):**
+  - `tests/test_analytics/test_cli_portfolio.py::TestPortfolioRunAlignFlag`
+    (7 tests): strict-default rejection of mixed dates, calendar mode
+    accepting mixed dates with correct `grid_origin` and
+    `projection_months = 6 + 120 = 126`, per-deal `valuation_date` /
+    `grid_offset` exposure, strict-mode zero offsets with origin equal to
+    shared date, Rich overview's `Grid Origin` row rendered, invalid
+    `--align` value rejected, common-day-of-month requirement.
+  - `tests/test_api/test_portfolio.py::TestPortfolioEndpointAlignField`
+    (5 tests): default-strict 422 on mixed dates, `align="calendar"` 200
+    with `grid_origin` and `projection_months = 126`, per-deal offsets
+    exposed, explicit `align="strict"` matches default, Pydantic 422 on
+    bogus align values.
 
 ## Context for Next Session
 
@@ -115,3 +130,38 @@ serialised result carries the grid origin and per-deal grid offsets.
 When all slices are DONE, update Status to COMPLETE — and first run the
 HARVEST FOLLOW-UPS step so this CONTINUATION's surviving refinement items and
 ADR-061's "Out of scope" list are promoted to the latest PRODUCT_DIRECTION.
+
+## Refinement Backlog (harvested 2026-05-31 into PRODUCT_DIRECTION_2026-05-23)
+
+These items are documented as out-of-scope for the two-slice feature and
+have been promoted (via the Daily Dev HARVEST step) to
+PRODUCT_DIRECTION_2026-05-23 so future routine runs can pick them up. They
+remain listed here as the audit trail.
+
+1. **Streamlit dashboard page for calendar-aligned portfolios.** The
+   dashboard prices one deal at a time today. A portfolio page would
+   consume the same `to_dict()` shape and surface `grid_origin` /
+   `grid_offset` alongside the per-deal table. NICE-TO-HAVE; ~3 dev-days.
+   Source: ADR-062 Out of scope.
+
+2. **Sub-month / non-common day-of-month inception dates.** Calendar mode
+   today requires all valuation dates on the same day-of-month. Supporting
+   arbitrary days would require a daily grid or fractional-month
+   discounting. NICE-TO-HAVE; design ADR + ~2 dev-days. Source: ADR-061
+   Out of scope (carried forward in ADR-062).
+
+3. **Deal-specific hurdle rates on `Portfolio`.** The PV-origin question
+   under calendar alignment makes this even more pointed — `Σ_i v**(o_i,
+   r_i) · PV_i` does not collapse to a single discount factor. Still
+   NICE-TO-HAVE and tracked in PRODUCT_DIRECTION_2026-05-23 already; no
+   change required from Slice 2 beyond noting the interaction. Source:
+   CONTINUATION_portfolio_aggregation Refinement Backlog #4 (existing).
+
+## Open Questions — resolved
+
+The Slice 1 open question on whether to report `total_irr` under calendar
+alignment is **answered: yes, keep reporting it.** Slice 2 took no
+action — the aggregate IRR is the IRR of the calendar-aligned NCF, which
+is the well-defined book-level metric reviewers consume. The naive
+weighted blend remains derivable from per-deal `profit_test.irr` for
+callers who want it.
