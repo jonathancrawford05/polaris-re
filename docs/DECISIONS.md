@@ -3176,3 +3176,96 @@ was flat-broadcast or per-duration-solved.
   mask shapes, the closed-form equivalence with flat mode at
   `select_period_years=0`, the YRTTreaty round-trip, and rejection of
   invalid `solve_mode` values).
+
+## ADR-064: Portfolio-level scenario analysis (`Portfolio.run_scenarios`)
+
+**Status.** Accepted.
+
+**Context.** `ScenarioRunner` stresses one deal at a time, but a reinsurer
+sees its book as a single portfolio: the deal-committee question is "what
+happens to total PV / IRR / capital under a +10% mortality stress across
+every cedant?", not "what happens to one deal in isolation?". The
+`Portfolio` aggregator (ADR-057 / ADR-058 / ADR-059 / ADR-060 /
+ADR-061 / ADR-062) supplies the aggregation surface; what was missing was
+the per-scenario re-projection loop. The promoted follow-up
+(PRODUCT_DIRECTION_2026-05-23, "Source: CONTINUATION_portfolio_aggregation —
+Refinement Backlog #3") flagged the open design question between correlated
+and independent stresses across cedants.
+
+**Decision.** Add `Portfolio.run_scenarios(hurdle_rate, scenarios=None, *,
+align="strict") -> PortfolioScenarioResult`. The semantics are:
+
+- The same `ScenarioAdjustment` is applied uniformly to every deal — i.e.
+  a "correlated" stress where every cedant experiences the shock
+  simultaneously. This is the conservative reinsurer view: a +10%
+  mortality scenario is "+10% on the entire book at once", not "the
+  expected outcome under independent +10% shocks per cedant" (the latter
+  reduces variance via diversification and would understate tail risk).
+- For each scenario, a fresh `Portfolio` is built whose deals share the
+  original inforce blocks, treaties, configs, and `cession_pct` but carry
+  a scaled `AssumptionSet` (mortality + lapse multipliers via
+  `apply_scenario_to_assumptions`). The full :meth:`Portfolio.run`
+  pipeline then projects → applies treaties → aggregates → profit-tests
+  the aggregate, producing a full :class:`PortfolioResult` for that
+  scenario.
+- `align` threads through to :meth:`run` unchanged so calendar-aligned
+  portfolios (ADR-061 / ADR-062) participate in scenario analysis on the
+  same grid.
+- `_apply_scenario` is promoted to a public helper
+  `apply_scenario_to_assumptions`. The same helper is reused by
+  `uq.py`, keeping a single point of truth for the multiplier semantics.
+- `PortfolioScenarioResult` carries `list[tuple[str, PortfolioResult]]`
+  in the order scenarios were supplied. Helpers (`base_case`,
+  `worst_case`, `irr_range`, `to_dict`) mirror
+  :class:`~polaris_re.analytics.scenario.ScenarioResult`. `worst_case`
+  picks the lowest aggregate `total_irr`, respecting the ADR-041
+  suppression rules — scenarios whose IRR is `None` are skipped, not
+  treated as `-inf`. Default scenarios (when `scenarios=None`) match
+  `ScenarioRunner.standard_stress_scenarios()` so the deal-committee
+  six-scenario set is the out-of-the-box default.
+
+**Consequences.**
+- The original portfolio is not mutated: `_with_scenario` builds a fresh
+  `Portfolio` per scenario. A test verifies that calling
+  :meth:`run` after :meth:`run_scenarios` reproduces the BASE result
+  exactly.
+- PV profits move in the expected direction under correlated stresses
+  (+10% mortality reduces aggregate PV; -10% increases it), and every
+  per-deal profit test inside each scenario also moves — there is no
+  partial-stress regression where the scenario reaches only the first
+  deal.
+- Wall-clock cost scales as `len(scenarios) × cost(Portfolio.run)`. With
+  the default six scenarios this is a 6x multiplier over a single
+  :meth:`run`. Parallel execution is out of scope per the existing
+  CONTINUATION_portfolio_aggregation backlog item (sequential `_run_deal`
+  was a deliberate Slice 1 choice; the same constraint applies here).
+
+**Out of scope.**
+- **Per-deal scenario overrides ("independent / heterogeneous stresses").**
+  The open design question from
+  `CONTINUATION_portfolio_aggregation` Refinement Backlog #3 — where one
+  cedant carries a +20% mortality stress while another stays at BASE —
+  is deferred to a future ADR. The correlated-stress baseline shipped
+  here is the actuarially conservative case and is the default deal-
+  committee ask; the heterogeneous case requires a new
+  `ScenarioAdjustment`-per-deal contract and result-shape changes.
+- **CLI / API surfacing of `polaris portfolio --scenarios`.** The
+  internal helper is in place; surfacing through the CLI / FastAPI
+  endpoint is a NICE-TO-HAVE follow-up — separate JSON shape, separate
+  golden baseline regenerations.
+- **Streamlit dashboard page for scenario results.** Same story: a
+  surface concern, not a contract concern.
+
+**Affected files.**
+- `src/polaris_re/analytics/scenario.py` (rename `_apply_scenario` →
+  `apply_scenario_to_assumptions`, public alias added to `__all__`,
+  internal callers updated, ~+15 lines / 0 net behaviour change).
+- `src/polaris_re/analytics/uq.py` (single import + call-site rename).
+- `src/polaris_re/analytics/portfolio.py` (+`PortfolioScenarioResult`
+  dataclass with `base_case` / `worst_case` / `irr_range` / `to_dict`
+  helpers, +`Portfolio.run_scenarios`, +`Portfolio._with_scenario`,
+  ~+150 lines).
+- `tests/test_analytics/test_portfolio.py` (+`TestPortfolioRunScenarios`
+  with 14 closed-form / sensitivity / validation tests +
+  `TestPortfolioScenarioResultHelpers` with 8 helper unit-tests; new
+  `_stub_portfolio_result` builder, ~+260 lines).

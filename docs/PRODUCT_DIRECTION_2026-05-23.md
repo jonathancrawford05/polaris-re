@@ -115,17 +115,6 @@ NICE-TO-HAVE; none of them block first-deal submission)
   `analytics/portfolio.py`, `analytics/scenario.py`, tests.
   *Source: CONTINUATION_portfolio_aggregation — Refinement Backlog #3.*
 
-- **Per-duration solver in `YRTRateSchedule.generate_table()`.** The
-  generator broadcasts a per-(age, sex, smoker) flat rate across every
-  duration column. A real per-duration solver lights up `solved_mask`
-  as a genuinely 2-D map and is what the schedule's storage contract
-  was designed for. CLI / Excel / JSON / dashboard renderers already
-  consume the 2-D solved_mask, so this lands without surface changes.
-  **Scope:** ~3 dev-days. **Affected:** `analytics/rate_schedule.py`,
-  tests.
-  *Source: CONTINUATION_yrt_rate_table — "Out of scope per ADR-055"
-  follow-up #1 + ADR-053.*
-
 - **LICAT lapse-risk and morbidity-risk capital components.** LICAT
   2024 has separate factors for these; Slice 1 omitted them as a
   factor-model extension that doesn't change the `ProfitTester`
@@ -274,19 +263,27 @@ shipped:
 
 Given that all BLOCKERs from 2026-04-19 have shipped and the
 commercial-readiness gap is now production polish rather than
-first-deal fundamentals, the remaining recommended priority is:
+first-deal fundamentals, the recommended priority list has been
+worked down to:
 
-1. **Per-duration solver in `YRTRateSchedule.generate_table()`.** (3
-   days, IMPORTANT) — the storage contract (`solved_mask`) and
-   renderers are already in place; this lights them up.
+1. ~~**Per-duration solver in `YRTRateSchedule.generate_table()`.**~~ —
+   **shipped 2026-06-01 (ADR-063, commit efd2b58)**. Entry removed from
+   the Promoted Follow-ups queue above.
 
-2. **Portfolio-level scenario analysis (`Portfolio.run_scenarios`).**
-   (IMPORTANT) — the remaining IMPORTANT portfolio follow-up after
-   calendar alignment closed.
+2. ~~**Portfolio-level scenario analysis (`Portfolio.run_scenarios`).**~~ —
+   **shipped 2026-06-01 (ADR-064)**. The correlated-stress baseline is
+   in place; per-deal scenario overrides ("heterogeneous stresses across
+   cedants") are a separate follow-up tracked under
+   `CONTINUATION_portfolio_aggregation` Refinement Backlog #3 and
+   ADR-064 "Out of scope".
 
 Reserve-basis matching and IFRS 17 movement table are larger (10
 dev-days each); they are genuinely Phase 5.3+ work and should be scoped
-as a dedicated roadmap entry rather than picked up mid-sprint.
+as a dedicated roadmap entry rather than picked up mid-sprint. The next
+sprint pick is one of the remaining IMPORTANT items —
+`LICAT lapse-risk and morbidity-risk capital components` is the
+narrowest in scope (~3 dev-days, factor-model extension that does not
+change any contract).
 
 ## Comparison with Previous Assessment
 

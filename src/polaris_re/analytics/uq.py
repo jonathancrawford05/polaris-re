@@ -24,7 +24,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from polaris_re.analytics.profit_test import ProfitTester, ProfitTestResult
-from polaris_re.analytics.scenario import ScenarioAdjustment, _apply_scenario
+from polaris_re.analytics.scenario import ScenarioAdjustment, apply_scenario_to_assumptions
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.projection import ProjectionConfig
@@ -238,7 +238,7 @@ class MonteCarloUQ:
                 mortality_multiplier=float(mort_multipliers[i]),
                 lapse_multiplier=float(lapse_multipliers[i]),
             )
-            scenario_assumptions = _apply_scenario(self.base_assumptions, scenario)
+            scenario_assumptions = apply_scenario_to_assumptions(self.base_assumptions, scenario)
             scenario_config = self._make_config(float(rate_shifts[i]))
 
             result = self._run_single(scenario_assumptions, scenario_config)
