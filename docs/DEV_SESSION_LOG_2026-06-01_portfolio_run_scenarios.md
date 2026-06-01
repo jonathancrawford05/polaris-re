@@ -186,3 +186,55 @@ Follow-ups (IMPORTANT):
   2026-06-01). Entry removed from the IMPORTANT block; the
   Recommended Next Sprint annotation updated to reference the shipping
   ADR.
+
+## Promoted Follow-ups (post-merge harvest)
+
+The following NICE-TO-HAVE items were promoted into
+`PRODUCT_DIRECTION_2026-05-23.md` so they appear in the next session's
+candidate scan. All carry explicit provenance back to ADR-064 (or
+ADR-063 for the per-duration solver derivatives that did not fit the
+prior session's promotion pass):
+
+From ADR-064 Out of scope:
+
+- **Per-deal scenario overrides (heterogeneous stresses across
+  cedants).** Design ADR + ~3 dev-days. Touches the result shape.
+- **`polaris portfolio --scenarios` CLI + `POST /api/v1/portfolio/
+  scenarios` API surfacing.** ~2 dev-days, serialisation work.
+- **Streamlit dashboard page for portfolio scenario results.** ~3
+  dev-days, surface concern only.
+- **Parallel `run_scenarios` execution.** Rolls into the existing
+  parallel-portfolio backlog item.
+
+From ADR-063 Out of scope (not promoted in the prior session — caught
+on the post-merge harvest pass):
+
+- **CLI surfacing of `--solve-mode` on `polaris rate-schedule
+  --table`.** ~1 dev-day, single CLI flag + serialisation.
+- **Per-duration cell-failure interpolation.** ~1 dev-day, quality
+  improvement on a fallback path.
+- **Warm-start `brentq` across adjacent per-duration cells.** ~1
+  dev-day, pure performance.
+
+## Post-merge Activity
+
+- **PR #51 review (2026-06-01).** Automated review approved. Two P2
+  suggestions:
+  1. `rate_schedule.py:_forward_back_fill` Python loop — non-blocking,
+     reviewer noted "fine for rate-table construction (~60 ages) and
+     not on the policy-projection hot path." Skipped; deferred to the
+     promoted "Warm-start `brentq` across adjacent per-duration cells"
+     follow-up which addresses the same wall-clock concern at a
+     higher leverage point.
+  2. `portfolio.py:worst_case` had `# type: ignore[arg-type,
+     return-value]` from the comprehension losing the `not None`
+     narrowing — addressed in follow-up commit `36b7f55`
+     ("refactor(analytics): drop type ignore in
+     PortfolioScenarioResult.worst_case (PR #51 P2)"). The fix
+     projects `total_irr` alongside the tuple inside the comprehension
+     so the `min()` key function has a non-`None` float type. No
+     behaviour change; 3 `worst_case` tests still green.
+- **CI green throughout.** All four checks (Lint Ruff+mypy, Test
+  Python 3.12, Test Python 3.13, Docker build & test) PASS on
+  `8359a2b` and `36b7f55`. Upload coverage is `skipped` (the standard
+  draft-PR behaviour).
