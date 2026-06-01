@@ -280,6 +280,207 @@ class TestGenerateTableSolvedMask:
             )
 
 
+class TestGenerateTablePerDuration:
+    """ADR-063 — ``generate_table(solve_mode="per_duration")`` solves each
+    (age, duration) cell independently.
+
+    The default ``solve_mode="flat"`` mode (covered by ``TestGenerateTable``
+    above) solves one flat rate per (age, sex, smoker) and broadcasts it
+    across every duration column — the row-uniform contract enforced by
+    ``test_mask_broadcasts_across_select_columns``. The ``"per_duration"``
+    mode solves a separate rate per cell by projecting a synthetic policy
+    that has been inforce for ``d`` years at the row's issue age, lighting
+    up ``solved_mask`` as a genuinely 2-D per-cell map.
+    """
+
+    def test_per_duration_yields_distinct_rates_across_columns(self, assumptions, config):
+        """Per-duration mode produces different rates per column (not a broadcast)."""
+        scheduler = YRTRateSchedule(assumptions=assumptions, config=config)
+        table = scheduler.generate_table(
+            ages=[40],
+            sexes=[Sex.MALE],
+            smoker_statuses=[SmokerStatus.UNKNOWN],
+            policy_term=20,
+            select_period_years=3,
+            solve_mode="per_duration",
+        )
+        arr = table.arrays["M_U"]
+        assert arr.rates.shape == (1, 4)
+        row = arr.rates[0, :]
+        # Per-duration mode: at least one column should differ from column 0
+        # (flat mode would have all four columns identical).
+        assert not np.allclose(row, row[0]), (
+            f"Per-duration rates should not be row-uniform, got {row}"
+        )
+
+    def test_per_duration_rates_increase_within_select_period(self, assumptions, config):
+        """Rates rise across the select period as underwriting durability wears off.
+
+        The fixture's mortality is select-distinct and ascending with
+        duration (dur_1 < dur_2 < dur_3 < ultimate), so the solved YRT
+        rate at duration d should also increase with d.
+        """
+        scheduler = YRTRateSchedule(assumptions=assumptions, config=config)
+        table = scheduler.generate_table(
+            ages=[40],
+            sexes=[Sex.MALE],
+            smoker_statuses=[SmokerStatus.UNKNOWN],
+            policy_term=20,
+            select_period_years=3,
+            solve_mode="per_duration",
+        )
+        row = table.arrays["M_U"].rates[0, :]
+        for d in range(len(row) - 1):
+            assert row[d + 1] >= row[d], (
+                f"YRT rate at duration {d + 1} ({row[d + 1]:.4f}) should be "
+                f">= rate at duration {d} ({row[d]:.4f}) given select-rising mortality"
+            )
+        # And the rate at the ultimate column should strictly exceed the rate
+        # at duration 0 — the fixture's ultimate rate is markedly higher than
+        # any select cell, so the IRR solver must reflect that.
+        assert row[-1] > row[0]
+
+    def test_per_duration_dense_grid_is_fully_solved(self, assumptions, config):
+        """A dense grid in per-duration mode yields an all-True 2-D mask."""
+        scheduler = YRTRateSchedule(assumptions=assumptions, config=config)
+        table = scheduler.generate_table(
+            ages=[35, 36, 37],
+            sexes=[Sex.MALE],
+            smoker_statuses=[SmokerStatus.UNKNOWN],
+            policy_term=20,
+            select_period_years=2,
+            solve_mode="per_duration",
+        )
+        arr = table.arrays["M_U"]
+        assert arr.solved_mask is not None
+        assert arr.solved_mask.shape == (3, 3)
+        assert bool(arr.solved_mask.all())
+        assert arr.is_fully_solved
+
+    def test_per_duration_sparse_ages_mark_only_solved_cells(self, assumptions, config):
+        """Sparse age input: only the requested-age rows have True cells.
+
+        Forward/back-filled age rows must show False across every column,
+        and the requested rows must show True across every column (each
+        column was solved independently for that age).
+        """
+        scheduler = YRTRateSchedule(assumptions=assumptions, config=config)
+        table = scheduler.generate_table(
+            ages=[35, 40],
+            sexes=[Sex.MALE],
+            smoker_statuses=[SmokerStatus.UNKNOWN],
+            policy_term=20,
+            select_period_years=2,
+            solve_mode="per_duration",
+        )
+        arr = table.arrays["M_U"]
+        assert arr.solved_mask is not None
+        assert arr.solved_mask.shape == (6, 3)
+        # Requested ages: rows 0 (age 35) and 5 (age 40) — every column True.
+        assert bool(arr.solved_mask[0, :].all())
+        assert bool(arr.solved_mask[5, :].all())
+        # Filled ages: rows 1..4 (ages 36..39) — every column False.
+        for age_offset in (1, 2, 3, 4):
+            assert not bool(arr.solved_mask[age_offset, :].any())
+        assert not arr.is_fully_solved
+
+    def test_per_duration_select_period_zero_matches_flat(self, assumptions, config):
+        """At select_period_years=0 both modes reduce to the same single-column solve.
+
+        The flat-mode solver runs once per (age, sex, smoker) and broadcasts.
+        At a one-column table there is nothing to broadcast, and the
+        per-duration solve at d=0 is the same underlying optimisation, so
+        the produced rates must agree to within solver tolerance.
+        """
+        scheduler = YRTRateSchedule(assumptions=assumptions, config=config)
+        flat = scheduler.generate_table(
+            ages=[35, 40],
+            sexes=[Sex.MALE],
+            smoker_statuses=[SmokerStatus.UNKNOWN],
+            policy_term=20,
+            select_period_years=0,
+            solve_mode="flat",
+        )
+        per_dur = scheduler.generate_table(
+            ages=[35, 40],
+            sexes=[Sex.MALE],
+            smoker_statuses=[SmokerStatus.UNKNOWN],
+            policy_term=20,
+            select_period_years=0,
+            solve_mode="per_duration",
+        )
+        np.testing.assert_allclose(
+            per_dur.arrays["M_U"].rates,
+            flat.arrays["M_U"].rates,
+            rtol=1e-3,
+        )
+
+    def test_per_duration_round_trips_through_treaty(self, assumptions, config):
+        """A per-duration table feeds back into YRTTreaty.apply without errors.
+
+        Closed-loop check: synthetic table consumed by YRTTreaty.apply
+        produces finite ceded cash flows and a non-zero ceded premium.
+        """
+        from polaris_re.core.inforce import InforceBlock
+        from polaris_re.core.policy import Policy, ProductType
+        from polaris_re.products.term_life import TermLife
+        from polaris_re.reinsurance import YRTTreaty
+
+        scheduler = YRTRateSchedule(assumptions=assumptions, config=config)
+        table = scheduler.generate_table(
+            ages=[40],
+            sexes=[Sex.MALE],
+            smoker_statuses=[SmokerStatus.UNKNOWN],
+            policy_term=20,
+            select_period_years=2,
+            solve_mode="per_duration",
+        )
+
+        policy = Policy(
+            policy_id="ROUND_TRIP_PD",
+            issue_age=40,
+            attained_age=40,
+            sex=Sex.MALE,
+            smoker_status=SmokerStatus.UNKNOWN,
+            underwriting_class="STANDARD",
+            face_amount=1_000_000.0,
+            annual_premium=12_000.0,
+            product_type=ProductType.TERM,
+            policy_term=20,
+            duration_inforce=0,
+            reinsurance_cession_pct=1.0,
+            issue_date=date(2025, 1, 1),
+            valuation_date=date(2025, 1, 1),
+        )
+        block = InforceBlock(policies=[policy])
+        gross = TermLife(block, assumptions, config).project(seriatim=True)
+
+        treaty = YRTTreaty(
+            cession_pct=1.0,
+            total_face_amount=1_000_000.0,
+            yrt_rate_table=table,
+        )
+        net, ceded = treaty.apply(gross, inforce=block)
+        assert np.all(np.isfinite(ceded.gross_premiums))
+        assert np.all(np.isfinite(net.net_cash_flow))
+        assert ceded.gross_premiums.sum() > 0
+
+    def test_invalid_solve_mode_raises(self, assumptions, config):
+        """Unknown solve_mode is rejected up-front (no silent fallback)."""
+        from polaris_re.core.exceptions import PolarisValidationError
+
+        scheduler = YRTRateSchedule(assumptions=assumptions, config=config)
+        with pytest.raises(PolarisValidationError):
+            scheduler.generate_table(
+                ages=[40],
+                sexes=[Sex.MALE],
+                smoker_statuses=[SmokerStatus.UNKNOWN],
+                policy_term=20,
+                select_period_years=2,
+                solve_mode="bogus",  # type: ignore[arg-type]
+            )
+
+
 class TestExcelOutput:
     """Tests for Excel rate schedule export."""
 

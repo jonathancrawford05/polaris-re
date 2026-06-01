@@ -12,7 +12,21 @@ Algorithm:
     2. Project via TermLife
     3. Binary search (brentq) for the flat YRT rate per $1,000 NAR
        that makes IRR = target_irr
+
+``generate_table`` supports two ``solve_mode`` values (ADR-063):
+
+* ``"flat"`` (default, backward-compatible): solve a single flat rate per
+  ``(age, sex, smoker)`` row and broadcast it across every duration
+  column. ``solved_mask`` is row-uniform.
+* ``"per_duration"``: solve a separate rate per ``(age, duration)`` cell
+  by projecting a synthetic policy that has been inforce for ``d`` years
+  at the row's issue age. ``solved_mask`` becomes a genuinely 2-D
+  per-cell map. Renderers (CLI / Excel / JSON / dashboard) consume the
+  same ``YRTRateTableArray`` contract, so no surface changes are needed.
 """
+
+from datetime import date as date_type
+from typing import Literal
 
 import numpy as np
 import polars as pl
@@ -20,7 +34,7 @@ from scipy.optimize import brentq
 
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.core.cashflow import CashFlowResult
-from polaris_re.core.exceptions import PolarisComputationError
+from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
 from polaris_re.core.projection import ProjectionConfig
@@ -28,7 +42,10 @@ from polaris_re.products.term_life import TermLife
 from polaris_re.reinsurance.yrt import YRTTreaty
 from polaris_re.reinsurance.yrt_rate_table import YRTRateTable, YRTRateTableArray
 
-__all__ = ["YRTRateSchedule"]
+__all__ = ["SolveMode", "YRTRateSchedule"]
+
+type SolveMode = Literal["flat", "per_duration"]
+_VALID_SOLVE_MODES: tuple[str, ...] = ("flat", "per_duration")
 
 
 class YRTRateSchedule:
@@ -71,13 +88,33 @@ class YRTRateSchedule:
         sex: Sex,
         smoker_status: SmokerStatus,
         policy_term: int,
+        duration_inforce_years: int = 0,
     ) -> Policy:
-        """Create a synthetic single policy for rate solving."""
+        """Create a synthetic single policy for rate solving.
+
+        ``duration_inforce_years > 0`` models a policy issued
+        ``duration_inforce_years`` years before the valuation date — used
+        by ``generate_table(solve_mode="per_duration")`` to solve a rate
+        for the column representing that select-period duration.
+        """
         premium = self.reference_face / 1_000 * self.reference_premium_rate
+        val_date = self.config.valuation_date
+        if duration_inforce_years > 0:
+            issue_year = val_date.year - duration_inforce_years
+            try:
+                issue_date = date_type(issue_year, val_date.month, val_date.day)
+            except ValueError:
+                # Feb 29 valuation dates land on Feb 28 of the issue year.
+                issue_date = date_type(issue_year, val_date.month, 28)
+        else:
+            issue_date = val_date
         return Policy(
-            policy_id=f"RATE_{issue_age}_{sex.value}_{smoker_status.value}_{policy_term}",
+            policy_id=(
+                f"RATE_{issue_age}_{sex.value}_{smoker_status.value}_"
+                f"{policy_term}_d{duration_inforce_years}"
+            ),
             issue_age=issue_age,
-            attained_age=issue_age,
+            attained_age=issue_age + duration_inforce_years,
             sex=sex,
             smoker_status=smoker_status,
             underwriting_class="STANDARD",
@@ -85,10 +122,10 @@ class YRTRateSchedule:
             annual_premium=premium,
             product_type=ProductType.TERM,
             policy_term=policy_term,
-            duration_inforce=0,
+            duration_inforce=duration_inforce_years * 12,
             reinsurance_cession_pct=self.cession_pct,
-            issue_date=self.config.valuation_date,
-            valuation_date=self.config.valuation_date,
+            issue_date=issue_date,
+            valuation_date=val_date,
         )
 
     @staticmethod
@@ -258,6 +295,28 @@ class YRTRateSchedule:
 
         return pl.DataFrame(rows)
 
+    def _solve_cell(
+        self,
+        age: int,
+        sex: Sex,
+        smoker: SmokerStatus,
+        policy_term: int,
+        duration_inforce_years: int,
+    ) -> float | None:
+        """Project a synthetic policy and solve a flat YRT rate for it.
+
+        With ``duration_inforce_years > 0`` the synthetic policy starts in
+        the middle of its select period; the resulting rate is the
+        per-duration value for ``solve_mode="per_duration"``.
+        """
+        policy = self._make_policy(
+            age, sex, smoker, policy_term, duration_inforce_years=duration_inforce_years
+        )
+        inforce = InforceBlock(policies=[policy])
+        engine = TermLife(inforce, self.assumptions, self.config)
+        gross = engine.project()
+        return self._solve_rate(gross)
+
     def generate_table(
         self,
         ages: list[int] | None = None,
@@ -265,19 +324,24 @@ class YRTRateSchedule:
         smoker_statuses: list[SmokerStatus] | None = None,
         policy_term: int = 20,
         select_period_years: int = 0,
+        solve_mode: SolveMode = "flat",
     ) -> YRTRateTable:
         """
-        Solve a per-(age, sex, smoker) flat YRT rate grid and pack it into a
-        ``YRTRateTable`` consumable by ``YRTTreaty``.
+        Solve a YRT rate grid and pack it into a ``YRTRateTable``
+        consumable by ``YRTTreaty``.
 
         Each (sex, smoker) cell of the resulting table is a 2-D array of
-        shape ``(n_ages, select_period_years + 1)``. The same per-issue-age
-        flat rate fills every duration column in that age's row — i.e. this
-        helper produces a step-flat-by-age schedule, not a per-duration
-        schedule. Slice 3's CSV ingest is the place where externally-quoted
-        rates with true select-period rate variation will live; this method
-        is the closed-loop sanity check that a generated table flows back
-        through ``YRTTreaty.apply()`` and reproduces the target IRR per cell.
+        shape ``(n_ages, select_period_years + 1)``.
+
+        ``solve_mode`` (ADR-063):
+
+        * ``"flat"`` (default): solve one flat rate per ``(age, sex,
+          smoker)`` row and broadcast it across every duration column.
+          ``solved_mask`` is row-uniform.
+        * ``"per_duration"``: solve a separate rate per ``(age, duration)``
+          cell by projecting a synthetic policy with
+          ``duration_inforce = d * 12`` months at the row's issue age.
+          ``solved_mask`` is per-cell.
 
         Default axis grid: ages 25..85 step 5; both sexes; both smoker
         statuses; select_period_years=0 (single ultimate column).
@@ -289,15 +353,27 @@ class YRTRateSchedule:
             policy_term:         Policy term in years used by the synthetic
                                  single-policy projection (default: 20).
             select_period_years: Number of select columns in the output
-                                 table (rates are repeated across columns).
+                                 table (rates are repeated across columns
+                                 in ``"flat"`` mode, solved independently
+                                 in ``"per_duration"`` mode).
+            solve_mode:          ``"flat"`` (default) or ``"per_duration"``.
 
         Returns:
             A populated ``YRTRateTable``.
 
         Raises:
-            PolarisComputationError: If no cells could be solved (rate solver
-                returned None for every grid cell).
+            PolarisValidationError:   ``solve_mode`` is not a recognised value.
+            PolarisComputationError:  Rate solver returned None for every grid
+                                      cell (flat mode) or for every cell in a
+                                      cohort that has no fallback (per-duration
+                                      mode).
         """
+        if solve_mode not in _VALID_SOLVE_MODES:
+            raise PolarisValidationError(
+                f"YRTRateSchedule.generate_table: solve_mode={solve_mode!r} "
+                f"is not recognised. Expected one of {_VALID_SOLVE_MODES}."
+            )
+
         if ages is None:
             ages = list(range(25, 86, 5))
         if sexes is None:
@@ -312,7 +388,7 @@ class YRTRateSchedule:
         n_cols = select_period_years + 1
         requested_ages: set[int] = set(sorted_ages)
 
-        # Build per-(sex, smoker) rate matrices.
+        # Per-(sex, smoker) rate matrices.
         per_cohort: dict[tuple[Sex, SmokerStatus], np.ndarray] = {
             (sex, smoker): np.full((n_ages, n_cols), np.nan, dtype=np.float64)
             for sex in sexes
@@ -320,9 +396,7 @@ class YRTRateSchedule:
         }
         # Per-cohort solved-mask (ADR-054): True iff the cell came from a
         # successful brentq solve at a requested age. Cells that are
-        # forward/back-filled (because the user did not request that age,
-        # or because brentq failed at that age) stay False so renderers
-        # can disclose them.
+        # forward/back-filled stay False so renderers can disclose them.
         per_cohort_solved: dict[tuple[Sex, SmokerStatus], np.ndarray] = {
             (sex, smoker): np.zeros((n_ages, n_cols), dtype=np.bool_)
             for sex in sexes
@@ -333,17 +407,31 @@ class YRTRateSchedule:
         for age in sorted_ages:
             for sex in sexes:
                 for smoker in smoker_statuses:
-                    policy = self._make_policy(age, sex, smoker, policy_term)
-                    inforce = InforceBlock(policies=[policy])
-                    engine = TermLife(inforce, self.assumptions, self.config)
-                    gross = engine.project()
-                    solved = self._solve_rate(gross)
-                    if solved is None:
-                        continue
-                    any_solved = True
-                    per_cohort[(sex, smoker)][age - min_age, :] = solved
-                    if age in requested_ages:
-                        per_cohort_solved[(sex, smoker)][age - min_age, :] = True
+                    if solve_mode == "flat":
+                        solved = self._solve_cell(
+                            age, sex, smoker, policy_term, duration_inforce_years=0
+                        )
+                        if solved is None:
+                            continue
+                        any_solved = True
+                        per_cohort[(sex, smoker)][age - min_age, :] = solved
+                        if age in requested_ages:
+                            per_cohort_solved[(sex, smoker)][age - min_age, :] = True
+                    else:  # per_duration
+                        for d in range(n_cols):
+                            if d >= policy_term:
+                                # No remaining term to project — leave NaN
+                                # so column-wise fill picks up the cell.
+                                continue
+                            solved = self._solve_cell(
+                                age, sex, smoker, policy_term, duration_inforce_years=d
+                            )
+                            if solved is None:
+                                continue
+                            any_solved = True
+                            per_cohort[(sex, smoker)][age - min_age, d] = solved
+                            if age in requested_ages:
+                                per_cohort_solved[(sex, smoker)][age - min_age, d] = True
 
         if not any_solved:
             raise PolarisComputationError(
@@ -352,37 +440,87 @@ class YRTRateSchedule:
                 "the search bracket in _solve_rate()."
             )
 
-        # Forward-fill unsolved (and unrequested) age rows from the nearest
-        # solved row below, then back-fill from the row above. NaNs that
-        # remain in cohorts where no cell was solved get the global mean —
-        # if even that is NaN, raise.
+        cohort_arrays = self._fill_and_pack_cohorts(
+            per_cohort=per_cohort,
+            per_cohort_solved=per_cohort_solved,
+            min_age=min_age,
+            max_age=max_age,
+            n_ages=n_ages,
+            n_cols=n_cols,
+            select_period_years=select_period_years,
+            solve_mode=solve_mode,
+        )
+
+        return YRTRateTable.from_arrays(
+            table_name=(
+                f"generated_term{policy_term}_irr{int(self.target_irr * 100)}_{solve_mode}"
+            ),
+            arrays=cohort_arrays,
+        )
+
+    @staticmethod
+    def _forward_back_fill(col: np.ndarray) -> np.ndarray:
+        """Forward-fill then back-fill NaNs in a 1-D array in place-safe form."""
+        out = col.copy()
+        n = out.shape[0]
+        last = np.nan
+        for i in range(n):
+            if np.isnan(out[i]):
+                out[i] = last
+            else:
+                last = out[i]
+        last = np.nan
+        for i in range(n - 1, -1, -1):
+            if np.isnan(out[i]):
+                out[i] = last
+            else:
+                last = out[i]
+        return out
+
+    def _fill_and_pack_cohorts(
+        self,
+        per_cohort: dict[tuple[Sex, SmokerStatus], np.ndarray],
+        per_cohort_solved: dict[tuple[Sex, SmokerStatus], np.ndarray],
+        min_age: int,
+        max_age: int,
+        n_ages: int,
+        n_cols: int,
+        select_period_years: int,
+        solve_mode: SolveMode,
+    ) -> dict[tuple[Sex, SmokerStatus], YRTRateTableArray]:
+        """Fill NaN rate cells and pack each cohort matrix into a
+        ``YRTRateTableArray``.
+
+        Flat mode: the per-row solve already broadcasts across columns, so
+        only the age axis can have gaps. Forward/back-fill the first
+        column and broadcast.
+
+        Per-duration mode: each column may have gaps independently.
+        Forward/back-fill each column on the age axis, then forward/back-
+        fill any cohort that still has all-NaN rows from the cohort
+        global mean (computed across solved cells).
+        """
+        # Global mean of every successfully-solved cell across every cohort.
+        # Used as a last-resort fill in cohorts that have no solved cells.
         all_solved_values: list[float] = []
         for matrix in per_cohort.values():
-            mask = ~np.isnan(matrix[:, 0])
+            mask = ~np.isnan(matrix)
             if mask.any():
-                all_solved_values.extend(matrix[mask, 0].tolist())
+                all_solved_values.extend(matrix[mask].tolist())
         global_mean = float(np.mean(all_solved_values)) if all_solved_values else float("nan")
 
         cohort_arrays: dict[tuple[Sex, SmokerStatus], YRTRateTableArray] = {}
         for (sex, smoker), matrix in per_cohort.items():
-            col0 = matrix[:, 0].copy()
-            # Forward-fill
-            last = np.nan
-            for i in range(n_ages):
-                if np.isnan(col0[i]):
-                    col0[i] = last
-                else:
-                    last = col0[i]
-            # Back-fill remaining leading NaNs
-            last = np.nan
-            for i in range(n_ages - 1, -1, -1):
-                if np.isnan(col0[i]):
-                    col0[i] = last
-                else:
-                    last = col0[i]
-            # Anything still NaN: use the global mean
-            col0 = np.where(np.isnan(col0), global_mean, col0)
-            filled = np.broadcast_to(col0[:, np.newaxis], (n_ages, n_cols)).copy()
+            if solve_mode == "flat":
+                col0 = self._forward_back_fill(matrix[:, 0])
+                col0 = np.where(np.isnan(col0), global_mean, col0)
+                filled = np.broadcast_to(col0[:, np.newaxis], (n_ages, n_cols)).copy()
+            else:
+                filled = np.empty((n_ages, n_cols), dtype=np.float64)
+                for d in range(n_cols):
+                    col = self._forward_back_fill(matrix[:, d])
+                    col = np.where(np.isnan(col), global_mean, col)
+                    filled[:, d] = col
             cohort_arrays[(sex, smoker)] = YRTRateTableArray(
                 rates=filled,
                 min_age=min_age,
@@ -390,8 +528,4 @@ class YRTRateSchedule:
                 select_period=select_period_years,
                 solved_mask=per_cohort_solved[(sex, smoker)],
             )
-
-        return YRTRateTable.from_arrays(
-            table_name=f"generated_term{policy_term}_irr{int(self.target_irr * 100)}",
-            arrays=cohort_arrays,
-        )
+        return cohort_arrays

@@ -3089,3 +3089,90 @@ origin) while letting `run` produce frozen results with the correct offsets.
   `valuation_date` kwarg on the shared `_deal_request` helper).
 - `data/configs/portfolio_demo.yaml` (commentary describing how to flip the
   demo to calendar mode).
+
+## ADR-063: Per-duration solver in `YRTRateSchedule.generate_table()`
+
+**Status.** Accepted.
+
+**Context.** `generate_table()` solves one flat YRT rate per `(age, sex, smoker)`
+row and broadcasts it across every duration column of the resulting
+`YRTRateTableArray`. The storage contract for `YRTRateTableArray` is 2-D
+`(n_ages, select_period + 1)` and the `solved_mask` it carries (ADR-054) was
+explicitly designed to disclose per-cell provenance, but the broadcast solver
+produced a row-uniform mask, leaving the duration axis under-utilised. A real
+per-duration solver was promoted to IMPORTANT in
+PRODUCT_DIRECTION_2026-05-23 ("Source: CONTINUATION_yrt_rate_table — Out of
+scope per ADR-055 follow-up #1 + ADR-053"); the renderers (CLI / Excel / JSON /
+dashboard) already consume the 2-D `solved_mask`, so adding a per-duration
+solver lands without surface changes.
+
+**Decision.** `generate_table()` gains a `solve_mode: Literal["flat",
+"per_duration"] = "flat"` parameter. The default `"flat"` preserves the
+prior contract (and the existing row-uniform mask test). The new
+`"per_duration"` mode solves a separate rate per `(age, duration)` cell by
+projecting a synthetic policy that has been inforce for `d` years at the
+row's issue age:
+
+- `issue_age = age`, `attained_age = age + d`
+- `duration_inforce = d * 12` months
+- `issue_date = valuation_date` shifted back `d` years
+- `policy_term` unchanged (so the projection covers `policy_term - d` years
+  of remaining coverage)
+
+The mortality lookup picks up at column `d` of the select-period table,
+giving the actuarially correct "rate quoted today for a policy at duration
+`d`" semantics. `solved_mask` becomes genuinely 2-D: True only for cells
+that were directly solved at requested ages; cells filled by the column-
+wise forward/back-fill (for unrequested age rows or brentq failures) stay
+False.
+
+A shared `_fill_and_pack_cohorts` helper handles the post-solve fill /
+pack step for both modes. Column-wise forward/back-fill in per-duration
+mode runs independently per duration column; the global cohort mean is
+the last-resort fill for cohorts where no cell solved (same fallback as
+the flat mode). At `select_period_years = 0` the two modes collapse to
+the same single-column solve and produce numerically identical rates
+(closed-form sanity test).
+
+The `solve_mode` value also appears in the generated table's `table_name`
+suffix so downstream artifacts can tell at a glance whether a schedule
+was flat-broadcast or per-duration-solved.
+
+**Consequences.**
+- `YRTRateSchedule.generate_table(solve_mode="per_duration")` now produces
+  schedules whose `solved_mask` is a genuinely 2-D per-cell map.
+  Downstream renderers continue to work unchanged (they already loop over
+  the 2-D mask).
+- Default behaviour is unchanged: every call site that does not pass
+  `solve_mode` keeps the row-uniform contract and the existing test fixtures
+  (`TestGenerateTableSolvedMask`) keep passing.
+- The new mode runs the rate solver `select_period_years + 1` times per
+  `(age, sex, smoker)` instead of once, so wall-clock cost is roughly
+  `(select_period_years + 1)x` the flat mode for the same grid. Acceptable
+  for the deal-pricing workflows that consume this helper; future
+  optimisation (warm-starting brentq from the adjacent column's solution)
+  is left as a follow-up.
+
+**Out of scope.**
+- CLI / API surfacing of the `solve_mode` flag. The internal helper now
+  supports it; surfacing through `polaris rate-schedule --table` is a
+  separate (NICE-TO-HAVE) follow-up tracked in PRODUCT_DIRECTION.
+- True per-duration cell-failure interpolation (e.g. linear across the
+  duration axis when an interior column fails to solve). The current
+  column-wise forward/back-fill is sufficient for the dense-grid case
+  and is what `solved_mask` discloses; a richer interpolator can be
+  added without changing the storage contract.
+- Warm-starting `brentq` across adjacent cells.
+
+**Affected files.**
+- `src/polaris_re/analytics/rate_schedule.py` (~+150 / -~50 lines: new
+  `_solve_cell` helper, `solve_mode` dispatch in `generate_table`,
+  extracted `_forward_back_fill` and `_fill_and_pack_cohorts` helpers,
+  `duration_inforce_years` kwarg on `_make_policy`, module docstring
+  update).
+- `tests/test_analytics/test_rate_schedule.py` (+~170 lines: new
+  `TestGenerateTablePerDuration` class — 7 tests covering distinct
+  per-column rates, monotonic select-period rates, dense and sparse
+  mask shapes, the closed-form equivalence with flat mode at
+  `select_period_years=0`, the YRTTreaty round-trip, and rejection of
+  invalid `solve_mode` values).
