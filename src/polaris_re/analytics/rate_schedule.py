@@ -42,10 +42,10 @@ from polaris_re.products.term_life import TermLife
 from polaris_re.reinsurance.yrt import YRTTreaty
 from polaris_re.reinsurance.yrt_rate_table import YRTRateTable, YRTRateTableArray
 
-__all__ = ["YRTRateSchedule"]
+__all__ = ["SolveMode", "YRTRateSchedule"]
 
-SolveMode = Literal["flat", "per_duration"]
-_VALID_SOLVE_MODES: tuple[SolveMode, ...] = ("flat", "per_duration")
+type SolveMode = Literal["flat", "per_duration"]
+_VALID_SOLVE_MODES: tuple[str, ...] = ("flat", "per_duration")
 
 
 class YRTRateSchedule:
