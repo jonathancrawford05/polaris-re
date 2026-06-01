@@ -2991,3 +2991,101 @@ flagged: PV at different discount origins does not sum.
 - `tests/test_analytics/test_portfolio.py` (+~180 lines: new
   `TestPortfolioCalendarAlignment` class — 10 tests — plus `start`-date
   parameters on the shared spec builders).
+
+---
+
+## ADR-062: Calendar-aligned portfolio aggregation — CLI / API surfacing (Slice 2)
+
+**Status:** Accepted
+**Date:** 2026-05-31
+
+**Context.** ADR-061 introduced the `align="calendar"` mode on
+`Portfolio.run` / `Portfolio.run_with_capital`, but Slice 1 stopped at the
+core analytics layer. The CLI (`polaris portfolio run`) and the API
+(`POST /api/v1/portfolio`) still called `portfolio.run(hurdle_rate)` with no
+`align` kwarg, so the calendar-aligned mode was unreachable from any
+user-facing surface and the grid origin / per-deal offsets were not
+discoverable in JSON output. CONTINUATION_calendar_aligned_portfolio (Slice
+2) tracks this gap.
+
+**Decision.**
+
+1. **CLI flag.** `polaris portfolio run` gains a `--align {strict,calendar}`
+   option defaulting to `strict`. An unrecognised value exits cleanly. The
+   Rich overview table grows a `Grid Origin` row, and the per-deal table
+   carries an `Offset (mo)` column (always shown — `0` under strict / for
+   the earliest deal under calendar; informative for the caller).
+
+2. **API field.** `PortfolioRequest` gains an `align: Literal["strict",
+   "calendar"]` field defaulting to `"strict"`. Pydantic's `Literal`
+   validation rejects unrecognised values with a 422 before the endpoint
+   logic runs. The endpoint passes `align=request.align` through to
+   `portfolio.run`. Omitting `align` preserves the prior strict default.
+
+3. **Grid metadata in `to_dict()`.** A top-level `grid_origin` key (ISO
+   date) is added to `PortfolioResult.to_dict()`, equal to
+   `aggregate_cash_flow.valuation_date`. Each per-deal block gains
+   `valuation_date` (ISO date, the deal's projection start) and
+   `grid_offset` (int, whole months from origin). JSON consumers can now
+   reconstruct calendar placement without re-deriving dates from external
+   state.
+
+**Rationale for surfacing offsets on `DealResult`.** The CONTINUATION
+flagged two options: stash the offsets on the `Portfolio` runner side, or
+add a defaulted `valuation_date` / `grid_offset` field on `DealResult`. The
+dataclass route is chosen because (a) `DealResult` is the per-deal artefact
+already serialised by `_deal_result_to_dict`, so `to_dict()` does not need
+to reach across two structures to render one row; (b) the additive defaults
+(`valuation_date=None`, `grid_offset=0`) keep the dataclass
+backward-compatible — only the internal `_run_deal` site constructs
+`DealResult`, and existing tests that read `dr.deal_id`, `dr.cedant`, etc.
+are untouched; and (c) future per-deal capital / IFRS17 hooks will want the
+same date stamp on the deal record.
+
+`Portfolio.run` constructs each `DealResult` with `grid_offset=0` inside
+`_run_deal` and then uses `dataclasses.replace(dr, grid_offset=offset)` to
+inject the resolved offset before appending — this keeps `_run_deal`
+ignorant of grid alignment (single-deal projection has no notion of grid
+origin) while letting `run` produce frozen results with the correct offsets.
+
+**Consequences.**
+- `--align calendar` and `align="calendar"` now unblock the production
+  workflow described in ADR-061 from both CLI and API.
+- `PortfolioResult.to_dict()` gains three keys (`grid_origin` top-level and
+  `valuation_date` / `grid_offset` per deal). Existing top-level keys are
+  unchanged. The portfolio-report dashboard re-renderer (`polaris portfolio
+  report`) consumes the same dict shape and continues to work.
+- The Rich per-deal table always shows the `Offset (mo)` column. For the
+  common single-date case it shows `0` everywhere; for mixed-date calendar
+  runs it shows each deal's whole-month offset from the origin.
+- `DealResult` is additive: two new fields with safe defaults
+  (`valuation_date: date | None = None`, `grid_offset: int = 0`). The
+  single in-tree construction site is updated.
+
+**Out of scope.**
+- A Streamlit dashboard surface for calendar-aligned portfolios. The
+  dashboard prices one deal at a time today (NICE-TO-HAVE in
+  PRODUCT_DIRECTION_2026-05-23). A portfolio dashboard page would consume
+  the same `to_dict()` shape but is its own feature.
+- Backfilling grid metadata into prior dashboard portfolio JSON exports.
+- Deal-specific hurdle rates (Refinement Backlog #4 / ADR-061 Out of
+  scope) — still NICE-TO-HAVE, unchanged by this slice.
+
+**Affected files.**
+- `src/polaris_re/analytics/portfolio.py` (+~25 lines: `valuation_date` /
+  `grid_offset` on `DealResult`, `grid_origin` in `to_dict()`,
+  `dataclasses.replace` in `run` to thread offsets, `_deal_result_to_dict`
+  surfaces new fields, `AlignMode` in `__all__`).
+- `src/polaris_re/cli.py` (+~25 / -~5 lines: `--align` option,
+  `PolarisValidationError` handling around `portfolio.run`, grid-origin row
+  and offset column in the renderer).
+- `src/polaris_re/api/main.py` (+~12 lines: `align` field on
+  `PortfolioRequest`, passed through to `portfolio.run`).
+- `tests/test_analytics/test_cli_portfolio.py` (+~120 lines: new
+  `TestPortfolioRunAlignFlag` class — 7 tests — plus a `valuation_date`
+  kwarg on the shared `_deal_block` helper).
+- `tests/test_api/test_portfolio.py` (+~80 lines: new
+  `TestPortfolioEndpointAlignField` class — 5 tests — plus a
+  `valuation_date` kwarg on the shared `_deal_request` helper).
+- `data/configs/portfolio_demo.yaml` (commentary describing how to flip the
+  demo to calendar mode).

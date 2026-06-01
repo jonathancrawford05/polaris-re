@@ -54,23 +54,32 @@ def _deal_block(
     n_policies: int = 2,
     face: float = 500_000.0,
     projection_years: int = 10,
+    valuation_date: str | None = None,
 ) -> dict:
-    """Return one deal entry for the portfolio YAML config."""
+    """Return one deal entry for the portfolio YAML config.
+
+    When ``valuation_date`` (ISO string) is supplied, it is stamped on the
+    deal config so the runner builds a ``ProjectionConfig`` with that date —
+    used by the calendar-alignment tests to build mixed-date portfolios.
+    """
+    deal: dict = {
+        "product_type": product,
+        "treaty_type": treaty_type,
+        "cession_pct": cession_pct,
+        "yrt_loading": 0.10,
+        "modco_rate": 0.045,
+        "discount_rate": 0.06,
+        "hurdle_rate": 0.10,
+        "projection_years": projection_years,
+    }
+    if valuation_date is not None:
+        deal["valuation_date"] = valuation_date
     return {
         "deal_id": deal_id,
         "cedant": cedant,
         "mortality": {"source": "flat", "flat_qx": 0.002},
         "lapse": {"duration_table": {"1": 0.05, "2": 0.04, "ultimate": 0.03}},
-        "deal": {
-            "product_type": product,
-            "treaty_type": treaty_type,
-            "cession_pct": cession_pct,
-            "yrt_loading": 0.10,
-            "modco_rate": 0.045,
-            "discount_rate": 0.06,
-            "hurdle_rate": 0.10,
-            "projection_years": projection_years,
-        },
+        "deal": deal,
         "policies": [
             _policy(f"{deal_id}_{i:03d}", face=face, product=product) for i in range(n_policies)
         ],
@@ -292,3 +301,144 @@ class TestPortfolioReportCommand:
             app, ["portfolio", "report", "--result", str(tmp_path / "missing.json")]
         )
         assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# polaris portfolio run --align (ADR-061 Slice 2)
+# ---------------------------------------------------------------------------
+
+
+def _mixed_date_two_deal_config() -> dict:
+    """Two deals on different valuation dates — exercises calendar alignment."""
+    return {
+        "hurdle_rate": 0.10,
+        "deals": [
+            _deal_block("D1", "CedantA", valuation_date="2025-01-01"),
+            _deal_block("D2", "CedantB", valuation_date="2025-07-01"),
+        ],
+    }
+
+
+class TestPortfolioRunAlignFlag:
+    """``polaris portfolio run --align`` threads the calendar-align mode."""
+
+    def test_strict_default_rejects_mixed_dates(self, tmp_path: Path) -> None:
+        """Without ``--align``, mixed inception dates fail with a clean error."""
+        config_path = _write_yaml(tmp_path, _mixed_date_two_deal_config())
+        result = runner.invoke(app, ["portfolio", "run", "--config", str(config_path)])
+        assert result.exit_code != 0
+        # The portfolio runner's strict-mode message is surfaced. Rich may
+        # line-wrap arbitrarily, so collapse whitespace before searching.
+        flat = " ".join(result.output.split())
+        assert "same valuation date" in flat
+
+    def test_calendar_mode_accepts_mixed_dates(self, tmp_path: Path) -> None:
+        """``--align calendar`` aggregates the mixed-date config."""
+        config_path = _write_yaml(tmp_path, _mixed_date_two_deal_config())
+        out_path = tmp_path / "result.json"
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "run",
+                "--config",
+                str(config_path),
+                "--align",
+                "calendar",
+                "--output",
+                str(out_path),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(out_path.read_text())
+        # Grid origin is the earliest valuation date (D1 at 2025-01-01)
+        assert payload["grid_origin"] == "2025-01-01"
+        # Projection extends to cover the later deal's horizon: 6 months
+        # offset + 10 years horizon = 126 months.
+        assert payload["projection_months"] == 126
+
+    def test_calendar_mode_exposes_per_deal_offsets_in_json(self, tmp_path: Path) -> None:
+        """Each deal block carries its own ``valuation_date`` and ``grid_offset``."""
+        config_path = _write_yaml(tmp_path, _mixed_date_two_deal_config())
+        out_path = tmp_path / "result.json"
+        runner.invoke(
+            app,
+            [
+                "portfolio",
+                "run",
+                "--config",
+                str(config_path),
+                "--align",
+                "calendar",
+                "--output",
+                str(out_path),
+            ],
+        )
+        payload = json.loads(out_path.read_text())
+        deals_by_id = {d["deal_id"]: d for d in payload["deals"]}
+        assert deals_by_id["D1"]["valuation_date"] == "2025-01-01"
+        assert deals_by_id["D1"]["grid_offset"] == 0
+        assert deals_by_id["D2"]["valuation_date"] == "2025-07-01"
+        assert deals_by_id["D2"]["grid_offset"] == 6
+
+    def test_strict_mode_zero_offsets_and_origin_equals_valuation(self, tmp_path: Path) -> None:
+        """Default ``strict`` puts every deal at offset 0; origin == shared date."""
+        cfg = {
+            "hurdle_rate": 0.10,
+            "deals": [
+                _deal_block("D1", "CedantA", valuation_date="2025-03-01"),
+                _deal_block("D2", "CedantB", valuation_date="2025-03-01"),
+            ],
+        }
+        config_path = _write_yaml(tmp_path, cfg)
+        out_path = tmp_path / "result.json"
+        result = runner.invoke(
+            app,
+            ["portfolio", "run", "--config", str(config_path), "--output", str(out_path)],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(out_path.read_text())
+        assert payload["grid_origin"] == "2025-03-01"
+        for deal in payload["deals"]:
+            assert deal["grid_offset"] == 0
+            assert deal["valuation_date"] == "2025-03-01"
+
+    def test_calendar_renders_grid_origin_in_overview(self, tmp_path: Path) -> None:
+        """The Rich overview table includes the grid origin row."""
+        config_path = _write_yaml(tmp_path, _mixed_date_two_deal_config())
+        result = runner.invoke(
+            app,
+            ["portfolio", "run", "--config", str(config_path), "--align", "calendar"],
+        )
+        assert result.exit_code == 0, result.output
+        assert "Grid Origin" in result.output
+        assert "2025-01-01" in result.output
+
+    def test_invalid_align_value_rejected(self, tmp_path: Path) -> None:
+        """An unrecognised ``--align`` value exits cleanly with a helpful error."""
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        result = runner.invoke(
+            app,
+            ["portfolio", "run", "--config", str(config_path), "--align", "bogus"],
+        )
+        assert result.exit_code != 0
+        flat = " ".join(result.output.split())
+        assert "strict" in flat and "calendar" in flat
+
+    def test_calendar_requires_common_day_of_month(self, tmp_path: Path) -> None:
+        """Calendar mode rejects valuation dates on different days-of-month."""
+        cfg = {
+            "hurdle_rate": 0.10,
+            "deals": [
+                _deal_block("D1", "CedantA", valuation_date="2025-01-01"),
+                _deal_block("D2", "CedantB", valuation_date="2025-07-15"),
+            ],
+        }
+        config_path = _write_yaml(tmp_path, cfg)
+        result = runner.invoke(
+            app,
+            ["portfolio", "run", "--config", str(config_path), "--align", "calendar"],
+        )
+        assert result.exit_code != 0
+        flat = " ".join(result.output.split())
+        assert "day-of-month" in flat

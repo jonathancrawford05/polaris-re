@@ -5,6 +5,15 @@
 # `lapse`, and `deal` blocks accepted by `polaris price`, plus a `deal_id`
 # and `cedant` label used for per-deal breakdowns and concentration metrics.
 # Policies may be inlined under `policies:` or referenced via `inforce_csv:`.
+#
+# The two deals below share a 2025-01-01 valuation date, so the default
+# `--align strict` mode aggregates them. To demonstrate the calendar-aligned
+# mode (ADR-061), change one deal's `valuation_date` (and its policies'
+# `valuation_date`) to a later same-day-of-month date and re-run with
+# `polaris portfolio run --config ... --align calendar`. The aggregate then
+# places the later deal at its month offset from the earliest deal and the
+# response carries `grid_origin` + per-deal `grid_offset` so downstream
+# consumers can reconstruct calendar placement.
 
 name: demo_portfolio
 hurdle_rate: 0.10

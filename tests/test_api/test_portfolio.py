@@ -35,18 +35,30 @@ DEMO_POLICY = {
 }
 
 
-def _deal_request(deal_id: str, cedant: str, **overrides) -> dict:
-    """Build one deal entry for the /api/v1/portfolio request body."""
+def _deal_request(
+    deal_id: str,
+    cedant: str,
+    valuation_date: str = "2025-01-01",
+    **overrides,
+) -> dict:
+    """Build one deal entry for the /api/v1/portfolio request body.
+
+    ``valuation_date`` is stamped on every policy (the API resolves the
+    deal's projection date from the first policy when no explicit date is
+    supplied at the deal level) so calendar-alignment tests can build
+    mixed-date payloads.
+    """
+    policies = [
+        dict(DEMO_POLICY, policy_id=f"{deal_id}_001", valuation_date=valuation_date),
+        dict(DEMO_POLICY, policy_id=f"{deal_id}_002", valuation_date=valuation_date),
+    ]
     base = {
         "deal_id": deal_id,
         "cedant": cedant,
         "product_type": "TERM",
         "treaty_type": "Coinsurance",
         "cession_pct": 0.5,
-        "policies": [
-            dict(DEMO_POLICY, policy_id=f"{deal_id}_001"),
-            dict(DEMO_POLICY, policy_id=f"{deal_id}_002"),
-        ],
+        "policies": policies,
         "projection_horizon_years": 10,
         "discount_rate": 0.06,
         "flat_qx": 0.002,
@@ -153,3 +165,88 @@ class TestPortfolioEndpoint:
         }
         response = client.post("/api/v1/portfolio", json=payload)
         assert response.status_code in (400, 422)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/portfolio align field (ADR-061 Slice 2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+class TestPortfolioEndpointAlignField:
+    """``align`` field on ``POST /api/v1/portfolio`` (ADR-061 Slice 2)."""
+
+    def test_default_strict_rejects_mixed_valuation_dates(self):
+        """Omitting ``align`` preserves the strict default — mixed dates 422."""
+        payload = {
+            "hurdle_rate": 0.10,
+            "deals": [
+                _deal_request("D1", "CedantA", valuation_date="2025-01-01"),
+                _deal_request("D2", "CedantB", valuation_date="2025-07-01"),
+            ],
+        }
+        response = client.post("/api/v1/portfolio", json=payload)
+        assert response.status_code == 422
+        assert "same valuation date" in response.text
+
+    def test_calendar_mode_accepts_mixed_valuation_dates(self):
+        """``align="calendar"`` round-trips a mixed-date 2-deal request."""
+        payload = {
+            "hurdle_rate": 0.10,
+            "align": "calendar",
+            "deals": [
+                _deal_request("D1", "CedantA", valuation_date="2025-01-01"),
+                _deal_request("D2", "CedantB", valuation_date="2025-07-01"),
+            ],
+        }
+        response = client.post("/api/v1/portfolio", json=payload)
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["n_deals"] == 2
+        assert data["grid_origin"] == "2025-01-01"
+        # Earliest deal at offset 0, later deal at 6 months
+        assert data["projection_months"] == 126
+
+    def test_calendar_mode_exposes_per_deal_offsets(self):
+        """Each deal carries its own ``valuation_date`` and ``grid_offset``."""
+        payload = {
+            "hurdle_rate": 0.10,
+            "align": "calendar",
+            "deals": [
+                _deal_request("D1", "CedantA", valuation_date="2025-01-01"),
+                _deal_request("D2", "CedantB", valuation_date="2025-07-01"),
+            ],
+        }
+        data = client.post("/api/v1/portfolio", json=payload).json()
+        deals_by_id = {d["deal_id"]: d for d in data["deals"]}
+        assert deals_by_id["D1"]["valuation_date"] == "2025-01-01"
+        assert deals_by_id["D1"]["grid_offset"] == 0
+        assert deals_by_id["D2"]["valuation_date"] == "2025-07-01"
+        assert deals_by_id["D2"]["grid_offset"] == 6
+
+    def test_strict_explicit_matches_default(self):
+        """Explicit ``align="strict"`` is identical to the default."""
+        payload = {
+            "hurdle_rate": 0.10,
+            "align": "strict",
+            "deals": [
+                _deal_request("D1", "CedantA"),
+                _deal_request("D2", "CedantB"),
+            ],
+        }
+        data = client.post("/api/v1/portfolio", json=payload).json()
+        assert data["n_deals"] == 2
+        # All on shared 2025-01-01 — strict and calendar agree.
+        assert data["grid_origin"] == "2025-01-01"
+        for deal in data["deals"]:
+            assert deal["grid_offset"] == 0
+
+    def test_invalid_align_value_rejected_by_pydantic(self):
+        """Pydantic's ``Literal`` rejects unrecognised align modes with 422."""
+        payload = {
+            "hurdle_rate": 0.10,
+            "align": "bogus",
+            "deals": [_deal_request("D1", "CedantA")],
+        }
+        response = client.post("/api/v1/portfolio", json=payload)
+        assert response.status_code == 422
