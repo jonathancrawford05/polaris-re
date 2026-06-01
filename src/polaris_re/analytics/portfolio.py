@@ -321,10 +321,13 @@ class PortfolioScenarioResult:
         standard reporting guardrails) are skipped. Returns ``None`` when
         no scenario has a comparable IRR.
         """
-        valid = [(n, r) for n, r in self.scenarios if r.total_irr is not None]
+        valid: list[tuple[str, PortfolioResult, float]] = [
+            (n, r, r.total_irr) for n, r in self.scenarios if r.total_irr is not None
+        ]
         if not valid:
             return None
-        return min(valid, key=lambda item: item[1].total_irr)  # type: ignore[arg-type, return-value]
+        name, result, _irr = min(valid, key=lambda item: item[2])
+        return (name, result)
 
     def irr_range(self) -> tuple[float | None, float | None]:
         """``(min IRR, max IRR)`` across scenarios with valid aggregate IRRs."""
