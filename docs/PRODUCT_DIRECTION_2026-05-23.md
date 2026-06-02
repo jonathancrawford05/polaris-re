@@ -115,17 +115,6 @@ NICE-TO-HAVE; none of them block first-deal submission)
   `analytics/portfolio.py`, `analytics/scenario.py`, tests.
   *Source: CONTINUATION_portfolio_aggregation — Refinement Backlog #3.*
 
-- **Per-duration solver in `YRTRateSchedule.generate_table()`.** The
-  generator broadcasts a per-(age, sex, smoker) flat rate across every
-  duration column. A real per-duration solver lights up `solved_mask`
-  as a genuinely 2-D map and is what the schedule's storage contract
-  was designed for. CLI / Excel / JSON / dashboard renderers already
-  consume the 2-D solved_mask, so this lands without surface changes.
-  **Scope:** ~3 dev-days. **Affected:** `analytics/rate_schedule.py`,
-  tests.
-  *Source: CONTINUATION_yrt_rate_table — "Out of scope per ADR-055"
-  follow-up #1 + ADR-053.*
-
 - **LICAT lapse-risk and morbidity-risk capital components.** LICAT
   2024 has separate factors for these; Slice 1 omitted them as a
   factor-model extension that doesn't change the `ProfitTester`
@@ -256,6 +245,80 @@ NICE-TO-HAVE; none of them block first-deal submission)
   *Source: CONTINUATION_calendar_aligned_portfolio — Refinement Backlog #2
   / ADR-061 Out of scope (carried forward in ADR-062).*
 
+- **Per-deal scenario overrides (heterogeneous stresses across cedants).**
+  `Portfolio.run_scenarios` (ADR-064) applies the same `ScenarioAdjustment`
+  uniformly to every deal — the conservative correlated-stress baseline.
+  Some deal committees want differentiated stresses (Cedant A at +20%
+  mortality, Cedant B at +5%) to model book-specific risk concentrations.
+  Open design question: a `ScenarioAdjustmentMap` keyed by `deal_id`,
+  versus a `Portfolio.run_scenarios(per_deal=...)` parameter, versus a
+  per-deal scenario set on `add_deal`. Touches the result shape since the
+  scenario "name" no longer applies uniformly. **Scope:** design ADR +
+  ~3 dev-days implementation. **Affected:** `analytics/portfolio.py`,
+  `analytics/scenario.py`, tests.
+  *Source: CONTINUATION_portfolio_aggregation — Refinement Backlog #3 /
+  ADR-064 Out of scope.*
+
+- **`polaris portfolio --scenarios` CLI + `POST /api/v1/portfolio/scenarios`
+  API surfacing.** `Portfolio.run_scenarios` is in place at the analytics
+  layer; the CLI's `polaris portfolio` command doesn't yet accept a
+  `--scenarios` flag, and the FastAPI endpoint doesn't expose the
+  multi-scenario shape. Adding a flag that accepts named scenarios
+  (`BASE,MORT_110,...`) or "standard" for the default six, plus a
+  serialised `PortfolioScenarioResult.to_dict()` JSON shape, lights up
+  the deal-committee workflow end-to-end. **Scope:** ~2 dev-days.
+  **Affected:** `src/polaris_re/cli.py`, `src/polaris_re/api/main.py`,
+  CLI/API tests.
+  *Source: ADR-064 Out of scope.*
+
+- **Streamlit dashboard page for portfolio scenario results.** A
+  scenario view consuming `PortfolioScenarioResult.to_dict()`: per-scenario
+  PV / IRR / capital table, a waterfall chart from BASE to worst case,
+  and the worst-case per-deal breakdown. Distinct from the "Streamlit
+  dashboard page for portfolio runs" entry above in that this view is
+  scenario-pivoted, not deal-pivoted. **Scope:** ~3 dev-days. **Affected:**
+  new `src/polaris_re/dashboard/views/portfolio_scenarios.py`, navigation,
+  tests.
+  *Source: ADR-064 Out of scope.*
+
+- **Parallel `run_scenarios` execution.** Sequential by default — wall-
+  clock cost is `len(scenarios) × cost(Portfolio.run)`. Overlaps with
+  the existing "Parallel portfolio execution" backlog item but is
+  particularly impactful for the default six-scenario set (6x today).
+  **Scope:** rolls into the existing parallel-execution work; not a
+  separate dev-day estimate.
+  *Source: ADR-064 Out of scope + CONTINUATION_portfolio_aggregation
+  Refinement Backlog #6.*
+
+- **CLI surfacing of `--solve-mode` on `polaris rate-schedule --table`.**
+  The internal `generate_table(solve_mode="per_duration")` helper exists
+  (ADR-063); the CLI command currently always calls it with the default
+  `"flat"` mode. A `--solve-mode {flat,per_duration}` flag would light
+  up the per-duration solver from the command line, with the generated
+  table's `table_name` already suffix-tagged to disclose which mode
+  produced it. **Scope:** ~1 dev-day. **Affected:**
+  `src/polaris_re/cli.py`, CLI tests.
+  *Source: ADR-063 Out of scope.*
+
+- **Per-duration cell-failure interpolation.** `generate_table(solve_mode=
+  "per_duration")` falls back to column-wise forward/back-fill when an
+  individual `(age, duration)` cell fails to solve. A richer interpolator
+  (e.g. linear across the duration axis for an interior column failure)
+  would be a quality improvement but is not needed for the dense-grid
+  case the test suite covers. `solved_mask` already discloses which
+  cells came from a fill rather than a direct solve. **Scope:** ~1
+  dev-day. **Affected:** `analytics/rate_schedule.py`, tests.
+  *Source: ADR-063 Out of scope.*
+
+- **Warm-start `brentq` across adjacent per-duration cells.** Per-
+  duration mode runs the solver `select_period_years + 1` times per
+  `(age, sex, smoker)`. Warm-starting from the adjacent column's
+  solution would cut wall-clock cost meaningfully on long select
+  periods (typical 15-25 year selects); pure performance, no contract
+  change. **Scope:** ~1 dev-day. **Affected:**
+  `analytics/rate_schedule.py`.
+  *Source: ADR-063 Out of scope.*
+
 ## Recommended Next Sprint
 
 **Progress update (2026-05-31).** All three items in the prior sprint have
@@ -274,19 +337,39 @@ shipped:
 
 Given that all BLOCKERs from 2026-04-19 have shipped and the
 commercial-readiness gap is now production polish rather than
-first-deal fundamentals, the remaining recommended priority is:
+first-deal fundamentals, the recommended priority list has been
+worked down to:
 
-1. **Per-duration solver in `YRTRateSchedule.generate_table()`.** (3
-   days, IMPORTANT) — the storage contract (`solved_mask`) and
-   renderers are already in place; this lights them up.
+1. ~~**Per-duration solver in `YRTRateSchedule.generate_table()`.**~~ —
+   **shipped 2026-06-01 (ADR-063, commit efd2b58)**. Entry removed from
+   the Promoted Follow-ups queue above; three derived NICE-TO-HAVE
+   follow-ups (CLI surfacing of `--solve-mode`, per-duration cell-failure
+   interpolation, warm-start `brentq` across adjacent cells) have been
+   promoted below.
 
-2. **Portfolio-level scenario analysis (`Portfolio.run_scenarios`).**
-   (IMPORTANT) — the remaining IMPORTANT portfolio follow-up after
-   calendar alignment closed.
+2. ~~**Portfolio-level scenario analysis (`Portfolio.run_scenarios`).**~~ —
+   **shipped 2026-06-01 (ADR-064, PR #51)**. The correlated-stress
+   baseline is in place; four derived follow-ups (per-deal scenario
+   overrides for heterogeneous stresses across cedants, `polaris
+   portfolio --scenarios` CLI + API surfacing, dashboard scenario page,
+   parallel `run_scenarios` execution) have been promoted below.
 
-Reserve-basis matching and IFRS 17 movement table are larger (10
-dev-days each); they are genuinely Phase 5.3+ work and should be scoped
-as a dedicated roadmap entry rather than picked up mid-sprint.
+**What the next session should consider.** With both prior-sprint items
+shipped, the active queue is:
+
+- One IMPORTANT item remains scoped to fit in a single session: **LICAT
+  lapse-risk and morbidity-risk capital components** (~3 dev-days,
+  factor-model extension that does not change the `ProfitTester`
+  integration surface). This is the recommended pick.
+- The other two IMPORTANT items — **Reserve-basis matching** and
+  **IFRS 17 period-to-period movement table** — are 10 dev-days each.
+  They are genuinely Phase 5.3+ work and should be scoped as a
+  dedicated roadmap entry rather than picked up mid-sprint.
+- The NICE-TO-HAVE queue is well-stocked with sub-day to 3-day items
+  (12 entries spanning portfolio dashboard, scenario surfacing, YRT
+  table refinements, LICAT extensions, Excel polish, ingestion strict
+  modes, and so on); any of these is a valid fallback if a session
+  needs an isolated, low-risk pick.
 
 ## Comparison with Previous Assessment
 

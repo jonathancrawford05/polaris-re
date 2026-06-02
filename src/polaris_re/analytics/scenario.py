@@ -24,7 +24,12 @@ from polaris_re.products.dispatch import get_product_engine
 from polaris_re.reinsurance.base_treaty import BaseTreaty
 from polaris_re.utils.table_io import MortalityTableArray
 
-__all__ = ["ScenarioAdjustment", "ScenarioResult", "ScenarioRunner"]
+__all__ = [
+    "ScenarioAdjustment",
+    "ScenarioResult",
+    "ScenarioRunner",
+    "apply_scenario_to_assumptions",
+]
 
 
 @dataclass
@@ -103,8 +108,17 @@ def _scale_lapse(base_lapse: LapseAssumption, multiplier: float) -> LapseAssumpt
     )
 
 
-def _apply_scenario(base_assumptions: AssumptionSet, scenario: ScenarioAdjustment) -> AssumptionSet:
-    """Create a new AssumptionSet with scenario adjustments applied."""
+def apply_scenario_to_assumptions(
+    base_assumptions: AssumptionSet, scenario: ScenarioAdjustment
+) -> AssumptionSet:
+    """Return a new ``AssumptionSet`` with the scenario's multiplicative
+    adjustments applied to the mortality and lapse components.
+
+    The base assumptions are not mutated. The returned set carries a
+    ``version`` suffixed with the scenario name so downstream consumers can
+    tell which scenario produced it. Other fields (``effective_date``,
+    ``notes``) are copied through unchanged.
+    """
     scaled_mortality = _scale_mortality(base_assumptions.mortality, scenario.mortality_multiplier)
     scaled_lapse = _scale_lapse(base_assumptions.lapse, scenario.lapse_multiplier)
     return AssumptionSet(
@@ -174,7 +188,7 @@ class ScenarioRunner:
 
         for scenario in scenarios:
             # Apply scenario adjustments to create a new AssumptionSet
-            adjusted_assumptions = _apply_scenario(self.base_assumptions, scenario)
+            adjusted_assumptions = apply_scenario_to_assumptions(self.base_assumptions, scenario)
 
             # Run projection with adjusted assumptions
             engine = get_product_engine(self.inforce, adjusted_assumptions, self.config)

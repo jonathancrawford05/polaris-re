@@ -47,6 +47,7 @@ import numpy as np
 
 from polaris_re.analytics.capital import LICATCapital
 from polaris_re.analytics.profit_test import ProfitTester, ProfitTestResult
+from polaris_re.analytics.scenario import ScenarioAdjustment, apply_scenario_to_assumptions
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.exceptions import PolarisValidationError
@@ -66,6 +67,7 @@ __all__ = [
     "Portfolio",
     "PortfolioResult",
     "PortfolioResultWithCapital",
+    "PortfolioScenarioResult",
 ]
 
 
@@ -283,6 +285,68 @@ class PortfolioResultWithCapital(PortfolioResult):
             "capital_by_period": self.capital_by_period.tolist(),
         }
         return out
+
+
+@dataclass(frozen=True)
+class PortfolioScenarioResult:
+    """Aggregate portfolio results across a list of stress scenarios.
+
+    Produced by :meth:`Portfolio.run_scenarios`. Each entry in
+    ``scenarios`` is a ``(name, PortfolioResult)`` pair where ``name`` is
+    the originating ``ScenarioAdjustment.name`` and ``PortfolioResult`` is
+    the full aggregate result for that scenario — the same shape as
+    :meth:`Portfolio.run` returns, just with the scenario's mortality /
+    lapse multipliers applied uniformly to every deal in the book
+    ("correlated" stress, ADR-064). The list order matches the order in
+    which scenarios were supplied so callers can index by position.
+
+    Helpers mirror :class:`~polaris_re.analytics.scenario.ScenarioResult`:
+    ``base_case``, ``worst_case``, and ``irr_range`` operate on the
+    aggregate portfolio metrics rather than a single-deal profit test.
+    """
+
+    scenarios: list[tuple[str, PortfolioResult]] = field(default_factory=list)
+
+    def base_case(self) -> PortfolioResult | None:
+        """The ``BASE`` scenario's aggregate result, if present."""
+        for name, result in self.scenarios:
+            if name == "BASE":
+                return result
+        return None
+
+    def worst_case(self) -> tuple[str, PortfolioResult] | None:
+        """The scenario with the lowest aggregate ``total_irr``.
+
+        Scenarios whose aggregate IRR is ``None`` (suppressed by the
+        standard reporting guardrails) are skipped. Returns ``None`` when
+        no scenario has a comparable IRR.
+        """
+        valid: list[tuple[str, PortfolioResult, float]] = [
+            (n, r, r.total_irr) for n, r in self.scenarios if r.total_irr is not None
+        ]
+        if not valid:
+            return None
+        name, result, _irr = min(valid, key=lambda item: item[2])
+        return (name, result)
+
+    def irr_range(self) -> tuple[float | None, float | None]:
+        """``(min IRR, max IRR)`` across scenarios with valid aggregate IRRs."""
+        irrs = [r.total_irr for _, r in self.scenarios if r.total_irr is not None]
+        return (min(irrs), max(irrs)) if irrs else (None, None)
+
+    def to_dict(self) -> dict[str, object]:
+        """Flatten the result into a JSON-serialisable plain dict.
+
+        Each scenario block carries the scenario name and the full nested
+        ``PortfolioResult.to_dict()`` output, so downstream consumers
+        (CLI / API / dashboard) see the same shape they consume from a
+        single-portfolio run, plus the scenario label.
+        """
+        return {
+            "scenarios": [
+                {"name": name, "result": result.to_dict()} for name, result in self.scenarios
+            ],
+        }
 
 
 def _deal_result_to_dict(dr: DealResult) -> dict[str, object]:
@@ -675,6 +739,90 @@ class Portfolio:
             capital_adjusted_irr=capital_adjusted_irr,
             capital_by_period=capital.capital_by_period.copy(),
         )
+
+    def run_scenarios(
+        self,
+        hurdle_rate: float,
+        scenarios: list[ScenarioAdjustment] | None = None,
+        *,
+        align: AlignMode = "strict",
+    ) -> PortfolioScenarioResult:
+        """Project the portfolio under each scenario and return the
+        aggregate result per scenario (ADR-064).
+
+        Each scenario's multiplicative mortality and lapse adjustments are
+        applied uniformly to every deal — i.e. the same shock is assumed
+        across every cedant simultaneously ("correlated" stress). The
+        treaty, projection config, inforce block, and ``cession_pct`` of
+        each deal are unchanged. For every scenario the portfolio is
+        re-projected end-to-end and the same aggregation that
+        :meth:`run` performs is applied, so each entry of the returned
+        :class:`PortfolioScenarioResult` is a full :class:`PortfolioResult`
+        with concentration metrics, per-deal breakdown, and the aggregate
+        ``CashFlowResult``.
+
+        Args:
+            hurdle_rate: Annual hurdle rate applied uniformly to every
+                scenario's aggregate profit test (matches the
+                :meth:`run` convention).
+            scenarios: Scenarios to run. ``None`` (default) runs
+                ``ScenarioRunner.standard_stress_scenarios()`` — BASE plus
+                five standard mortality / lapse stresses.
+            align: Time-alignment mode forwarded to :meth:`run` for every
+                scenario (ADR-061). ``"strict"`` (default) requires a shared
+                valuation date across deals; ``"calendar"`` aligns deals on
+                a common monthly grid.
+
+        Returns:
+            A :class:`PortfolioScenarioResult` with one entry per scenario
+            in the order they were supplied (default-order matches
+            ``standard_stress_scenarios()``).
+
+        Raises:
+            PolarisValidationError: If the portfolio is empty,
+                ``hurdle_rate`` is not greater than -1, ``align`` is not a
+                recognised mode (every :meth:`run` failure mode applies),
+                or ``scenarios`` is an empty list (the empty case is
+                rejected up front rather than silently returning an empty
+                result).
+        """
+        from polaris_re.analytics.scenario import ScenarioRunner
+
+        if scenarios is None:
+            scenarios = ScenarioRunner.standard_stress_scenarios()
+        if not scenarios:
+            raise PolarisValidationError(
+                "Portfolio.run_scenarios: scenarios list is empty. "
+                "Pass at least one ScenarioAdjustment, or pass scenarios=None "
+                "for the standard stress set."
+            )
+
+        results: list[tuple[str, PortfolioResult]] = []
+        for scenario in scenarios:
+            scenario_portfolio = self._with_scenario(scenario)
+            scenario_result = scenario_portfolio.run(hurdle_rate, align=align)
+            results.append((scenario.name, scenario_result))
+
+        return PortfolioScenarioResult(scenarios=results)
+
+    def _with_scenario(self, scenario: ScenarioAdjustment) -> "Portfolio":
+        """Return a new ``Portfolio`` with every deal's assumptions
+        adjusted by ``scenario`` and every other field copied through.
+
+        ``Deal`` is frozen, so the scenario is applied by building a fresh
+        ``Portfolio`` whose deals share the original inforce blocks,
+        treaties, configs, and ``cession_pct`` but carry a scaled
+        :class:`AssumptionSet`. The original portfolio is not mutated.
+        """
+        scenario_portfolio = Portfolio(name=f"{self.name}_{scenario.name}")
+        for deal in self._deals:
+            scenario_portfolio._deals.append(
+                dataclasses.replace(
+                    deal,
+                    assumptions=apply_scenario_to_assumptions(deal.assumptions, scenario),
+                )
+            )
+        return scenario_portfolio
 
     # ------------------------------------------------------------------
     # Internal — calendar grid alignment

@@ -26,8 +26,10 @@ from polaris_re.analytics.portfolio import (
     Portfolio,
     PortfolioResult,
     PortfolioResultWithCapital,
+    PortfolioScenarioResult,
 )
 from polaris_re.analytics.profit_test import ProfitTestResult
+from polaris_re.analytics.scenario import ScenarioAdjustment, ScenarioRunner
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.assumptions.lapse import LapseAssumption
 from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
@@ -1146,3 +1148,348 @@ class TestPortfolioCalendarAlignment:
             result.aggregate_net_cash_flow, base.aggregate_net_cash_flow, rtol=1e-12
         )
         assert len(result.capital_by_period) == base.projection_months
+
+
+# ---------------------------------------------------------------------------
+# run_scenarios() — portfolio-level stress aggregation (ADR-064)
+# ---------------------------------------------------------------------------
+
+
+def _two_deal_portfolio() -> Portfolio:
+    """A two-deal portfolio that's heavy enough to exhibit scenario sensitivity."""
+    return (
+        Portfolio(name="scenario-test")
+        .add_deal(**_deal_spec("D1", "CedantA", n_policies=3, face=500_000.0))
+        .add_deal(**_deal_spec("D2", "CedantB", n_policies=2, face=750_000.0))
+    )
+
+
+def _stub_portfolio_result(
+    *, total_irr: float | None, total_pv_profits: float = 0.0
+) -> PortfolioResult:
+    """Build a minimal :class:`PortfolioResult` for helper unit-tests.
+
+    Only the fields exercised by :class:`PortfolioScenarioResult` helpers
+    (``total_irr``, ``total_pv_profits``) carry meaningful values; the
+    remaining fields are zero / empty placeholders.
+    """
+    empty_cf = CashFlowResult(
+        run_id="stub",
+        valuation_date=date(2025, 1, 1),
+        basis="NET",
+        assumption_set_version="stub",
+        product_type="PORTFOLIO",
+        block_id="stub",
+        projection_months=0,
+        time_index=np.zeros(0, dtype=np.int32),
+        gross_premiums=np.zeros(0, dtype=np.float64),
+        death_claims=np.zeros(0, dtype=np.float64),
+        lapse_surrenders=np.zeros(0, dtype=np.float64),
+        expenses=np.zeros(0, dtype=np.float64),
+        reserve_balance=np.zeros(0, dtype=np.float64),
+        reserve_increase=np.zeros(0, dtype=np.float64),
+        net_cash_flow=np.zeros(0, dtype=np.float64),
+    )
+    return PortfolioResult(
+        n_deals=0,
+        hurdle_rate=HURDLE,
+        projection_months=0,
+        aggregate_cash_flow=empty_cf,
+        aggregate_net_cash_flow=np.zeros(0, dtype=np.float64),
+        aggregate_ceded_nar=np.zeros(0, dtype=np.float64),
+        total_pv_profits=total_pv_profits,
+        total_irr=total_irr,
+        breakeven_year=None,
+        profit_margin=None,
+        total_undiscounted_profit=0.0,
+        total_face_amount=0.0,
+        total_ceded_face=0.0,
+        peak_ceded_nar=0.0,
+        deal_results=[],
+        concentration_by_cedant={},
+        concentration_by_product={},
+        concentration_by_treaty={},
+        hhi={},
+    )
+
+
+class TestPortfolioRunScenarios:
+    """Closed-form and sensitivity tests for the multi-scenario portfolio runner."""
+
+    def test_returns_portfolio_scenario_result(self):
+        portfolio = _two_deal_portfolio()
+        result = portfolio.run_scenarios(HURDLE, scenarios=[ScenarioAdjustment("BASE", 1.0, 1.0)])
+        assert isinstance(result, PortfolioScenarioResult)
+        assert len(result.scenarios) == 1
+        name, payload = result.scenarios[0]
+        assert name == "BASE"
+        assert isinstance(payload, PortfolioResult)
+
+    def test_default_scenarios_match_standard_set(self):
+        """Default scenarios match ``ScenarioRunner.standard_stress_scenarios()``."""
+        portfolio = _two_deal_portfolio()
+        result = portfolio.run_scenarios(HURDLE)
+        expected = [s.name for s in ScenarioRunner.standard_stress_scenarios()]
+        assert [name for name, _ in result.scenarios] == expected
+
+    def test_base_scenario_matches_direct_portfolio_run(self):
+        """Closed-form: BASE scenario aggregate == portfolio.run() directly."""
+        portfolio = _two_deal_portfolio()
+        direct = _two_deal_portfolio().run(HURDLE)
+        scenario_result = portfolio.run_scenarios(
+            HURDLE, scenarios=[ScenarioAdjustment("BASE", 1.0, 1.0)]
+        )
+        base = scenario_result.scenarios[0][1]
+        np.testing.assert_allclose(base.total_pv_profits, direct.total_pv_profits, rtol=1e-10)
+        np.testing.assert_allclose(
+            base.aggregate_net_cash_flow, direct.aggregate_net_cash_flow, rtol=1e-12
+        )
+        np.testing.assert_allclose(base.aggregate_ceded_nar, direct.aggregate_ceded_nar, rtol=1e-12)
+        assert base.n_deals == direct.n_deals
+        assert base.total_face_amount == pytest.approx(direct.total_face_amount)
+
+    def test_adverse_mortality_reduces_aggregate_pv_profits(self):
+        """Reinsurer assuming coinsurance loses PV under +10% mortality."""
+        portfolio = _two_deal_portfolio()
+        result = portfolio.run_scenarios(
+            HURDLE,
+            scenarios=[
+                ScenarioAdjustment("BASE", 1.0, 1.0),
+                ScenarioAdjustment("MORT_110", 1.10, 1.0),
+            ],
+        )
+        base_pv = result.scenarios[0][1].total_pv_profits
+        adverse_pv = result.scenarios[1][1].total_pv_profits
+        assert adverse_pv < base_pv
+
+    def test_favorable_mortality_increases_aggregate_pv_profits(self):
+        """The symmetric leg: -10% mortality improves PV profits."""
+        portfolio = _two_deal_portfolio()
+        result = portfolio.run_scenarios(
+            HURDLE,
+            scenarios=[
+                ScenarioAdjustment("BASE", 1.0, 1.0),
+                ScenarioAdjustment("MORT_90", 0.90, 1.0),
+            ],
+        )
+        base_pv = result.scenarios[0][1].total_pv_profits
+        favorable_pv = result.scenarios[1][1].total_pv_profits
+        assert favorable_pv > base_pv
+
+    def test_stress_is_correlated_across_deals(self):
+        """Every deal sees the same multiplier — the stress is uniform.
+
+        Under +10% mortality, every per-deal reinsurer profit test should
+        drop versus BASE. This guards against accidental partial-stress
+        regressions (e.g. only applying the scenario to the first deal).
+        """
+        portfolio = _two_deal_portfolio()
+        result = portfolio.run_scenarios(
+            HURDLE,
+            scenarios=[
+                ScenarioAdjustment("BASE", 1.0, 1.0),
+                ScenarioAdjustment("MORT_110", 1.10, 1.0),
+            ],
+        )
+        base_deals = {dr.deal_id: dr for dr in result.scenarios[0][1].deal_results}
+        adverse_deals = {dr.deal_id: dr for dr in result.scenarios[1][1].deal_results}
+        assert set(base_deals) == set(adverse_deals) == {"D1", "D2"}
+        for deal_id in ("D1", "D2"):
+            base_pv = base_deals[deal_id].profit_test.pv_profits
+            adverse_pv = adverse_deals[deal_id].profit_test.pv_profits
+            assert adverse_pv < base_pv, (
+                f"Deal {deal_id}: adverse mortality did not reduce PV "
+                f"(base={base_pv}, adverse={adverse_pv})"
+            )
+
+    def test_run_scenarios_does_not_mutate_portfolio(self):
+        """Running scenarios leaves the original portfolio's deals unchanged.
+
+        Each scenario applies a fresh multiplier to the base assumptions;
+        calling :meth:`run` afterward must still match the BASE result.
+        """
+        portfolio = _two_deal_portfolio()
+        original_versions = [deal.assumptions.version for deal in portfolio.deals]
+        scenario_result = portfolio.run_scenarios(
+            HURDLE,
+            scenarios=[
+                ScenarioAdjustment("BASE", 1.0, 1.0),
+                ScenarioAdjustment("MORT_110", 1.10, 1.0),
+            ],
+        )
+        post_versions = [deal.assumptions.version for deal in portfolio.deals]
+        assert post_versions == original_versions
+
+        base_pv = scenario_result.scenarios[0][1].total_pv_profits
+        post_run_pv = portfolio.run(HURDLE).total_pv_profits
+        np.testing.assert_allclose(post_run_pv, base_pv, rtol=1e-10)
+
+    def test_run_scenarios_threads_calendar_alignment(self):
+        """Mixed inception dates flow through ``align='calendar'``."""
+        portfolio = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", start=date(2025, 1, 1)))
+            .add_deal(**_deal_spec("D2", "CedantB", start=date(2025, 7, 1)))
+        )
+        result = portfolio.run_scenarios(
+            HURDLE,
+            scenarios=[
+                ScenarioAdjustment("BASE", 1.0, 1.0),
+                ScenarioAdjustment("MORT_110", 1.10, 1.0),
+            ],
+            align="calendar",
+        )
+        base = result.scenarios[0][1]
+        adverse = result.scenarios[1][1]
+        # Calendar alignment preserves the projection horizon and deal count.
+        assert base.n_deals == adverse.n_deals == 2
+        assert base.projection_months == adverse.projection_months
+        # Sensitivity must still hold under calendar alignment.
+        assert adverse.total_pv_profits < base.total_pv_profits
+
+    def test_run_scenarios_calendar_rejects_mixed_day_of_month(self):
+        """Validation in ``run`` propagates through every scenario."""
+        portfolio = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", start=date(2025, 1, 1)))
+            .add_deal(**_deal_spec("D2", "CedantB", start=date(2025, 7, 15)))
+        )
+        with pytest.raises(PolarisValidationError, match="day-of-month"):
+            portfolio.run_scenarios(
+                HURDLE,
+                scenarios=[ScenarioAdjustment("BASE", 1.0, 1.0)],
+                align="calendar",
+            )
+
+    def test_empty_scenarios_list_rejected(self):
+        portfolio = _two_deal_portfolio()
+        with pytest.raises(PolarisValidationError, match="scenarios list is empty"):
+            portfolio.run_scenarios(HURDLE, scenarios=[])
+
+    def test_empty_portfolio_rejected(self):
+        with pytest.raises(PolarisValidationError, match="empty portfolio"):
+            Portfolio().run_scenarios(HURDLE, scenarios=[ScenarioAdjustment("BASE", 1.0, 1.0)])
+
+    def test_invalid_hurdle_rate_rejected(self):
+        portfolio = _two_deal_portfolio()
+        with pytest.raises(PolarisValidationError, match="hurdle_rate"):
+            portfolio.run_scenarios(-1.5, scenarios=[ScenarioAdjustment("BASE", 1.0, 1.0)])
+
+    def test_invalid_align_mode_rejected(self):
+        portfolio = _two_deal_portfolio()
+        with pytest.raises(PolarisValidationError, match="align must be"):
+            portfolio.run_scenarios(
+                HURDLE,
+                scenarios=[ScenarioAdjustment("BASE", 1.0, 1.0)],
+                align="bogus",  # type: ignore[arg-type]
+            )
+
+    def test_lapse_stress_changes_aggregate_pv(self):
+        """Lapse multiplier flows into the aggregate (LAPSE_80 vs BASE)."""
+        portfolio = _two_deal_portfolio()
+        result = portfolio.run_scenarios(
+            HURDLE,
+            scenarios=[
+                ScenarioAdjustment("BASE", 1.0, 1.0),
+                ScenarioAdjustment("LAPSE_80", 1.0, 0.80),
+            ],
+        )
+        base_pv = result.scenarios[0][1].total_pv_profits
+        lapse_pv = result.scenarios[1][1].total_pv_profits
+        # Lapse-sensitivity sign depends on cash-flow pattern; require only
+        # that the scenario actually moved the aggregate (i.e. the lapse
+        # multiplier reached every deal's projection).
+        assert lapse_pv != pytest.approx(base_pv, rel=1e-6)
+
+
+class TestPortfolioScenarioResultHelpers:
+    """``PortfolioScenarioResult`` helpers mirror ``ScenarioResult``."""
+
+    def test_base_case_returns_base_portfolio_result(self):
+        portfolio = _two_deal_portfolio()
+        result = portfolio.run_scenarios(HURDLE)
+        base = result.base_case()
+        assert base is not None
+        assert isinstance(base, PortfolioResult)
+        assert base.n_deals == 2
+
+    def test_base_case_returns_none_when_absent(self):
+        portfolio = _two_deal_portfolio()
+        result = portfolio.run_scenarios(
+            HURDLE, scenarios=[ScenarioAdjustment("MORT_110", 1.10, 1.0)]
+        )
+        assert result.base_case() is None
+
+    def test_worst_case_picks_lowest_aggregate_irr(self):
+        """``worst_case`` picks by ``total_irr``, skipping ``None`` values.
+
+        Unit-tests the helper directly against a hand-built
+        :class:`PortfolioScenarioResult` so the assertion does not depend on
+        synthetic projection setups producing valid IRRs (the standard
+        coinsurance fixture's reserve-heavy cash flow trips the ADR-041
+        suppression guardrail).
+        """
+        result = PortfolioScenarioResult(
+            scenarios=[
+                ("BASE", _stub_portfolio_result(total_irr=0.12)),
+                ("MORT_110", _stub_portfolio_result(total_irr=0.07)),
+                ("MORT_90", _stub_portfolio_result(total_irr=0.16)),
+            ]
+        )
+        worst = result.worst_case()
+        assert worst is not None
+        assert worst[0] == "MORT_110"
+
+    def test_worst_case_skips_none_irrs(self):
+        """Scenarios with ``total_irr=None`` are skipped, not treated as -inf."""
+        result = PortfolioScenarioResult(
+            scenarios=[
+                ("BASE", _stub_portfolio_result(total_irr=None)),
+                ("MORT_110", _stub_portfolio_result(total_irr=0.07)),
+            ]
+        )
+        worst = result.worst_case()
+        assert worst is not None
+        assert worst[0] == "MORT_110"
+
+    def test_worst_case_returns_none_when_all_irrs_suppressed(self):
+        result = PortfolioScenarioResult(
+            scenarios=[
+                ("BASE", _stub_portfolio_result(total_irr=None)),
+                ("MORT_110", _stub_portfolio_result(total_irr=None)),
+            ]
+        )
+        assert result.worst_case() is None
+
+    def test_irr_range_is_ordered(self):
+        portfolio = _two_deal_portfolio()
+        result = portfolio.run_scenarios(HURDLE)
+        irr_min, irr_max = result.irr_range()
+        if irr_min is not None and irr_max is not None:
+            assert irr_min <= irr_max
+
+    def test_empty_result_helpers_return_none(self):
+        result = PortfolioScenarioResult()
+        assert result.base_case() is None
+        assert result.worst_case() is None
+        assert result.irr_range() == (None, None)
+
+    def test_to_dict_shape(self):
+        portfolio = _two_deal_portfolio()
+        result = portfolio.run_scenarios(
+            HURDLE,
+            scenarios=[
+                ScenarioAdjustment("BASE", 1.0, 1.0),
+                ScenarioAdjustment("MORT_110", 1.10, 1.0),
+            ],
+        )
+        flat = result.to_dict()
+        assert set(flat) == {"scenarios"}
+        assert len(flat["scenarios"]) == 2  # type: ignore[arg-type]
+        first = flat["scenarios"][0]  # type: ignore[index]
+        assert first["name"] == "BASE"
+        # Nested result must carry the full PortfolioResult.to_dict shape.
+        assert "total_pv_profits" in first["result"]
+        assert "deals" in first["result"]
+        assert "concentration" in first["result"]
+        assert "hhi" in first["result"]
