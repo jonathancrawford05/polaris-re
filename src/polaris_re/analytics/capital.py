@@ -2,23 +2,24 @@
 LICAT regulatory capital module — simplified factor-based v1.
 
 Implements the C-1 / C-2 / C-3 component model used in OSFI's Life
-Insurance Capital Adequacy Test (LICAT). Phase 1 of the capital module
-focuses on **C-2 mortality risk** via a Net-Amount-at-Risk (NAR) factor
-approach; **C-1 (asset default)** and **C-3 (interest-rate)** are zero
-stubs that future slices and Phase 5.4 (asset/ALM) will populate.
+Insurance Capital Adequacy Test (LICAT). The C-2 (insurance risk)
+component is split into three factor-based sub-components:
+
+- **C-2 mortality risk** — `factor * NAR` (ADR-047, Slice 1).
+- **C-2 lapse risk** — `factor * reserve_balance` (ADR-065).
+- **C-2 morbidity risk** — `factor * NAR` for DI / CI products
+  (ADR-065).
+
+**C-1 (asset default)** and **C-3 (interest-rate)** remain zero stubs
+that Phase 5.4 (asset/ALM) will populate.
 
 Sign convention: required capital is a positive, time-varying scalar that
 the reinsurer must hold against the business. It is NOT discounted at the
 hurdle rate — the time-value adjustment lives in the return-on-capital
-metric (Slice 2).
+metric (`ProfitTester.run_with_capital`).
 
-See ADR-047 in `docs/DECISIONS.md` for OSFI calibration notes and the
-factor approximations used as defaults.
-
-This module is standalone in Slice 1: it does not call back into
-`ProfitTester` or the CLI. Slice 2 will wire it through
-`ProfitTester.run_with_capital`; Slice 3 surfaces it via CLI / API /
-Excel.
+See ADR-047 / ADR-065 in `docs/DECISIONS.md` for OSFI calibration notes
+and the factor approximations used as defaults.
 """
 
 from dataclasses import dataclass, field
@@ -51,14 +52,45 @@ _C2_DEFAULT_BY_PRODUCT: dict[ProductType, float] = {
     ProductType.ANNUITY: 0.03,
 }
 
+# ----------------------------------------------------------------------
+# Default C-2 lapse / morbidity factors per product type (ADR-065)
+# ----------------------------------------------------------------------
+# Lapse factor applies to `reserve_balance` and approximates the implicit
+# mass-lapse shock from OSFI's 2024 LICAT lapse risk framework. Morbidity
+# factor applies to NAR and is non-zero only for products with explicit
+# morbidity coverage (DI / CI). For mortality-only products (TERM / WL /
+# UL / ANN) the morbidity factor defaults to zero. Both factors are
+# placeholder approximations for committee-stage screening; calibration
+# against shock-based modelling is Phase 5.4 work.
+_C2_LAPSE_DEFAULT_BY_PRODUCT: dict[ProductType, float] = {
+    ProductType.TERM: 0.05,
+    ProductType.WHOLE_LIFE: 0.03,
+    ProductType.UNIVERSAL_LIFE: 0.04,
+    ProductType.DISABILITY: 0.02,
+    ProductType.CRITICAL_ILLNESS: 0.02,
+    ProductType.ANNUITY: 0.06,
+}
+
+_C2_MORBIDITY_DEFAULT_BY_PRODUCT: dict[ProductType, float] = {
+    ProductType.TERM: 0.00,
+    ProductType.WHOLE_LIFE: 0.00,
+    ProductType.UNIVERSAL_LIFE: 0.00,
+    ProductType.DISABILITY: 0.15,
+    ProductType.CRITICAL_ILLNESS: 0.12,
+    ProductType.ANNUITY: 0.00,
+}
+
 
 class LICATFactors(PolarisBaseModel):
     """
     LICAT C-1 / C-2 / C-3 risk factors.
 
-    Defaults are calibrated to the C-2 mortality factor for an individual
-    life book; C-1 and C-3 are zero stubs and will be populated by Slice
-    2 / Phase 5.4 once an asset / ALM model is available.
+    C-2 is split into three insurance-risk sub-factors (mortality, lapse,
+    morbidity). Defaults preserve backward compatibility: the mortality
+    factor defaults to 0.10 for an individual life book and the lapse /
+    morbidity factors default to zero so a bare `LICATFactors()` produces
+    the same capital number as before ADR-065. C-1 and C-3 are zero stubs
+    populated by Phase 5.4.
     """
 
     c2_mortality_factor: float = Field(
@@ -68,6 +100,26 @@ class LICATFactors(PolarisBaseModel):
         description=(
             "Multiplier applied to NAR to produce required C-2 mortality capital. "
             "Approximates the OSFI 2024 LICAT mortality shock for an individual life book."
+        ),
+    )
+    c2_lapse_factor: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Multiplier applied to reserve_balance to produce required C-2 lapse capital. "
+            "Approximates the OSFI 2024 LICAT mass-lapse shock; zero by default to preserve "
+            "pre-ADR-065 behaviour. See ADR-065."
+        ),
+    )
+    c2_morbidity_factor: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Multiplier applied to NAR to produce required C-2 morbidity capital. "
+            "Non-zero only for products with morbidity coverage (DI / CI); zero by default "
+            "for mortality-only products and to preserve pre-ADR-065 behaviour. See ADR-065."
         ),
     )
     c1_asset_default: float = Field(
@@ -97,15 +149,30 @@ class CapitalResult:
 
     All array fields have shape `(T,)` where `T = projection_months`.
     Values are in dollars at each monthly step.
+
+    `c2_component` is the C-2 mortality sub-component (preserved name for
+    backward compatibility). `c2_lapse_component` and
+    `c2_morbidity_component` are the additional C-2 insurance-risk
+    sub-components introduced in ADR-065. `c2_insurance_risk` is the
+    aggregate of all three.
     """
 
     projection_months: int
     c1_component: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
     c2_component: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
+    c2_lapse_component: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
+    c2_morbidity_component: np.ndarray = field(
+        default_factory=lambda: np.array([], dtype=np.float64)
+    )
     c3_component: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
     capital_by_period: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
     initial_capital: float = 0.0
     peak_capital: float = 0.0
+
+    @property
+    def c2_insurance_risk(self) -> np.ndarray:
+        """Aggregate C-2 insurance risk = mortality + lapse + morbidity."""
+        return self.c2_component + self.c2_lapse_component + self.c2_morbidity_component
 
     def pv_capital(self, discount_rate: float) -> float:
         """
@@ -184,11 +251,33 @@ class LICATCapital(PolarisBaseModel):
     @classmethod
     def for_product(cls, product_type: ProductType) -> "LICATCapital":
         """
-        Construct a calculator pre-populated with the default C-2 factor
-        for the given product type. C-1 and C-3 remain zero.
+        Construct a calculator pre-populated with the default C-2 mortality
+        factor for the given product type. Lapse / morbidity factors and
+        C-1 / C-3 remain zero (pre-ADR-065 behaviour, preserved for backward
+        compatibility). Use :meth:`for_product_extended` to populate all
+        three C-2 sub-factors.
         """
         c2 = _C2_DEFAULT_BY_PRODUCT.get(product_type, 0.10)
         return cls(factors=LICATFactors(c2_mortality_factor=c2))
+
+    @classmethod
+    def for_product_extended(cls, product_type: ProductType) -> "LICATCapital":
+        """
+        Construct a calculator pre-populated with all three C-2 sub-factors
+        (mortality, lapse, morbidity) per product type. See ADR-065 for the
+        factor calibration and the default schedule. C-1 and C-3 remain
+        zero pending Phase 5.4.
+        """
+        mortality = _C2_DEFAULT_BY_PRODUCT.get(product_type, 0.10)
+        lapse = _C2_LAPSE_DEFAULT_BY_PRODUCT.get(product_type, 0.0)
+        morbidity = _C2_MORBIDITY_DEFAULT_BY_PRODUCT.get(product_type, 0.0)
+        return cls(
+            factors=LICATFactors(
+                c2_mortality_factor=mortality,
+                c2_lapse_factor=lapse,
+                c2_morbidity_factor=morbidity,
+            )
+        )
 
     def required_capital(
         self,
@@ -205,7 +294,8 @@ class LICATCapital(PolarisBaseModel):
                 overrides `cashflows.nar`. If neither is supplied, raises.
 
         Returns:
-            CapitalResult with c1/c2/c3 components and aggregate.
+            CapitalResult with C-1, C-2 (mortality + lapse + morbidity),
+            and C-3 components plus the aggregate.
         """
         if cashflows.basis == "CEDED":
             raise ValueError(
@@ -218,9 +308,11 @@ class LICATCapital(PolarisBaseModel):
         reserve_vec = np.asarray(cashflows.reserve_balance, dtype=np.float64)
 
         c1 = self.factors.c1_asset_default * reserve_vec
-        c2 = self.factors.c2_mortality_factor * nar_vec
+        c2_mortality = self.factors.c2_mortality_factor * nar_vec
+        c2_lapse = self.factors.c2_lapse_factor * reserve_vec
+        c2_morbidity = self.factors.c2_morbidity_factor * nar_vec
         c3 = self.factors.c3_interest_rate * reserve_vec
-        total = c1 + c2 + c3
+        total = c1 + c2_mortality + c2_lapse + c2_morbidity + c3
 
         initial = float(total[0]) if n > 0 else 0.0
         peak = float(total.max()) if n > 0 else 0.0
@@ -228,7 +320,9 @@ class LICATCapital(PolarisBaseModel):
         return CapitalResult(
             projection_months=n,
             c1_component=c1.astype(np.float64),
-            c2_component=c2.astype(np.float64),
+            c2_component=c2_mortality.astype(np.float64),
+            c2_lapse_component=c2_lapse.astype(np.float64),
+            c2_morbidity_component=c2_morbidity.astype(np.float64),
             c3_component=c3.astype(np.float64),
             capital_by_period=total.astype(np.float64),
             initial_capital=initial,
