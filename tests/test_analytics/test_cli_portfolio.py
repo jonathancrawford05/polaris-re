@@ -442,3 +442,308 @@ class TestPortfolioRunAlignFlag:
         assert result.exit_code != 0
         flat = " ".join(result.output.split())
         assert "day-of-month" in flat
+
+
+# ---------------------------------------------------------------------------
+# polaris portfolio scenarios (ADR-066)
+# ---------------------------------------------------------------------------
+
+
+class TestPortfolioScenariosCommand:
+    """``polaris portfolio scenarios`` surfaces ``Portfolio.run_scenarios``.
+
+    The internal helper landed in ADR-064; this subcommand wires it through
+    the CLI so the deal-committee six-scenario stress workflow is reachable
+    end-to-end without the Python API.
+    """
+
+    def test_runs_standard_scenarios_on_two_deal_yaml(self, tmp_path: Path) -> None:
+        """``--scenarios standard`` runs the default six-scenario stress set."""
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        out_path = tmp_path / "scenarios.json"
+
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "scenarios",
+                "--config",
+                str(config_path),
+                "--scenarios",
+                "standard",
+                "--output",
+                str(out_path),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert out_path.exists()
+        payload = json.loads(out_path.read_text())
+        # PortfolioScenarioResult.to_dict() returns {"scenarios": [...]}
+        assert "scenarios" in payload
+        names = [entry["name"] for entry in payload["scenarios"]]
+        assert names == [
+            "BASE",
+            "MORT_110",
+            "MORT_90",
+            "LAPSE_80",
+            "LAPSE_120",
+            "MORT_110_LAPSE_80",
+        ]
+
+    def test_standard_is_default_when_flag_omitted(self, tmp_path: Path) -> None:
+        """Omitting ``--scenarios`` runs the standard six-scenario set."""
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        out_path = tmp_path / "scenarios.json"
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "scenarios",
+                "--config",
+                str(config_path),
+                "--output",
+                str(out_path),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(out_path.read_text())
+        assert len(payload["scenarios"]) == 6
+
+    def test_named_subset_filters_to_requested_scenarios(self, tmp_path: Path) -> None:
+        """A comma-separated list filters the standard set in order supplied."""
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        out_path = tmp_path / "scenarios.json"
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "scenarios",
+                "--config",
+                str(config_path),
+                "--scenarios",
+                "BASE,MORT_110",
+                "--output",
+                str(out_path),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(out_path.read_text())
+        assert [s["name"] for s in payload["scenarios"]] == ["BASE", "MORT_110"]
+
+    def test_each_scenario_entry_carries_full_portfolio_result(self, tmp_path: Path) -> None:
+        """Each scenario's nested result mirrors PortfolioResult.to_dict()."""
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        out_path = tmp_path / "scenarios.json"
+        runner.invoke(
+            app,
+            [
+                "portfolio",
+                "scenarios",
+                "--config",
+                str(config_path),
+                "--scenarios",
+                "BASE",
+                "--output",
+                str(out_path),
+            ],
+        )
+        payload = json.loads(out_path.read_text())
+        base = payload["scenarios"][0]["result"]
+        # Same keys as PortfolioResult.to_dict()
+        for k in (
+            "n_deals",
+            "hurdle_rate",
+            "total_pv_profits",
+            "total_irr",
+            "total_face_amount",
+            "deals",
+            "concentration",
+            "hhi",
+        ):
+            assert k in base, f"missing key: {k}"
+        assert base["n_deals"] == 2
+
+    def test_mortality_stress_lowers_pv_relative_to_base(self, tmp_path: Path) -> None:
+        """+10% mortality stress reduces aggregate PV profits vs. BASE."""
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        out_path = tmp_path / "scenarios.json"
+        runner.invoke(
+            app,
+            [
+                "portfolio",
+                "scenarios",
+                "--config",
+                str(config_path),
+                "--scenarios",
+                "BASE,MORT_110",
+                "--output",
+                str(out_path),
+            ],
+        )
+        payload = json.loads(out_path.read_text())
+        by_name = {s["name"]: s["result"] for s in payload["scenarios"]}
+        assert by_name["MORT_110"]["total_pv_profits"] < by_name["BASE"]["total_pv_profits"]
+
+    def test_unknown_scenario_name_rejected(self, tmp_path: Path) -> None:
+        """An unknown scenario name exits cleanly with a helpful error."""
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "scenarios",
+                "--config",
+                str(config_path),
+                "--scenarios",
+                "BOGUS",
+            ],
+        )
+        assert result.exit_code != 0
+        flat = " ".join(result.output.split())
+        assert "BOGUS" in flat
+
+    def test_renders_per_scenario_table(self, tmp_path: Path) -> None:
+        """The console output includes a per-scenario summary table."""
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "scenarios",
+                "--config",
+                str(config_path),
+                "--scenarios",
+                "BASE,MORT_110",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        # Scenario names appear in the rendered table
+        assert "BASE" in result.output
+        assert "MORT_110" in result.output
+
+    def test_hurdle_rate_flag_overrides_config(self, tmp_path: Path) -> None:
+        """``--hurdle-rate`` overrides the config value for every scenario."""
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        out_path = tmp_path / "scenarios.json"
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "scenarios",
+                "--config",
+                str(config_path),
+                "--scenarios",
+                "BASE",
+                "--hurdle-rate",
+                "0.08",
+                "--output",
+                str(out_path),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(out_path.read_text())
+        assert payload["scenarios"][0]["result"]["hurdle_rate"] == pytest.approx(0.08)
+
+    def test_calendar_align_threads_through_to_scenarios(self, tmp_path: Path) -> None:
+        """``--align calendar`` runs every scenario on the common grid."""
+        config_path = _write_yaml(tmp_path, _mixed_date_two_deal_config())
+        out_path = tmp_path / "scenarios.json"
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "scenarios",
+                "--config",
+                str(config_path),
+                "--scenarios",
+                "BASE",
+                "--align",
+                "calendar",
+                "--output",
+                str(out_path),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(out_path.read_text())
+        # The BASE scenario carries the calendar-aligned grid metadata
+        assert payload["scenarios"][0]["result"]["grid_origin"] == "2025-01-01"
+
+    def test_strict_default_rejects_mixed_dates(self, tmp_path: Path) -> None:
+        """Without ``--align calendar``, mixed dates fail with a clean error."""
+        config_path = _write_yaml(tmp_path, _mixed_date_two_deal_config())
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "scenarios",
+                "--config",
+                str(config_path),
+                "--scenarios",
+                "BASE",
+            ],
+        )
+        assert result.exit_code != 0
+        flat = " ".join(result.output.split())
+        assert "same valuation date" in flat
+
+    def test_missing_config_file_errors(self, tmp_path: Path) -> None:
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "scenarios",
+                "--config",
+                str(tmp_path / "nope.yaml"),
+            ],
+        )
+        assert result.exit_code != 0
+
+    def test_invalid_align_value_rejected(self, tmp_path: Path) -> None:
+        """An unrecognised ``--align`` value exits cleanly."""
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "scenarios",
+                "--config",
+                str(config_path),
+                "--align",
+                "bogus",
+            ],
+        )
+        assert result.exit_code != 0
+
+    def test_empty_scenarios_value_rejected(self, tmp_path: Path) -> None:
+        """An empty ``--scenarios`` value exits cleanly with a helpful error."""
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "scenarios",
+                "--config",
+                str(config_path),
+                "--scenarios",
+                "",
+            ],
+        )
+        assert result.exit_code != 0
+
+    def test_duplicate_scenario_names_deduplicated(self, tmp_path: Path) -> None:
+        """``BASE,BASE`` is rejected — a scenario set should be a unique list."""
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "scenarios",
+                "--config",
+                str(config_path),
+                "--scenarios",
+                "BASE,BASE",
+            ],
+        )
+        assert result.exit_code != 0
+        flat = " ".join(result.output.split())
+        assert "duplicate" in flat.lower() or "unique" in flat.lower()

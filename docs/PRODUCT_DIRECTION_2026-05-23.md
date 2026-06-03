@@ -107,21 +107,14 @@ NICE-TO-HAVE; none of them block first-deal submission)
 
 ### IMPORTANT
 
-- **Portfolio-level scenario analysis (`Portfolio.run_scenarios`).**
-  `ScenarioRunner` stresses a single deal at a time; reinsurers need
-  to stress the whole book under correlated mortality / lapse /
-  interest shocks. Open design question: correlated vs. independent
-  stresses across cedants. **Scope:** ~3 dev-days. **Affected:**
-  `analytics/portfolio.py`, `analytics/scenario.py`, tests.
-  *Source: CONTINUATION_portfolio_aggregation — Refinement Backlog #3.*
-
-- **LICAT lapse-risk and morbidity-risk capital components.** LICAT
-  2024 has separate factors for these; Slice 1 omitted them as a
-  factor-model extension that doesn't change the `ProfitTester`
-  integration surface. **Scope:** ~3 dev-days. **Affected:**
-  `analytics/capital.py`, ADR for the factor sources, tests.
-  *Source: CONTINUATION_licat_capital — Open Question #4 (deferred
-  to a Phase 5.1.b ADR).*
+(Two harvested items previously listed here — Portfolio-level scenario
+analysis and LICAT lapse-risk / morbidity-risk capital components —
+have shipped since this file was first published. Both were promoted-
+follow-up items from `CONTINUATION_portfolio_aggregation` and
+`CONTINUATION_licat_capital`. **Closed by inspection:**
+"Portfolio-level scenario analysis" via ADR-064 (PR #51, commit
+8359a2b); "LICAT lapse-risk and morbidity-risk capital components"
+via ADR-065 (PR #52, commit c88db82).)
 
 ### NICE-TO-HAVE
 
@@ -259,17 +252,14 @@ NICE-TO-HAVE; none of them block first-deal submission)
   *Source: CONTINUATION_portfolio_aggregation — Refinement Backlog #3 /
   ADR-064 Out of scope.*
 
-- **`polaris portfolio --scenarios` CLI + `POST /api/v1/portfolio/scenarios`
-  API surfacing.** `Portfolio.run_scenarios` is in place at the analytics
-  layer; the CLI's `polaris portfolio` command doesn't yet accept a
-  `--scenarios` flag, and the FastAPI endpoint doesn't expose the
-  multi-scenario shape. Adding a flag that accepts named scenarios
-  (`BASE,MORT_110,...`) or "standard" for the default six, plus a
-  serialised `PortfolioScenarioResult.to_dict()` JSON shape, lights up
-  the deal-committee workflow end-to-end. **Scope:** ~2 dev-days.
-  **Affected:** `src/polaris_re/cli.py`, `src/polaris_re/api/main.py`,
-  CLI/API tests.
-  *Source: ADR-064 Out of scope.*
+- ~~**`polaris portfolio --scenarios` CLI + `POST /api/v1/portfolio/scenarios`
+  API surfacing.**~~ — **shipped 2026-06-03 (ADR-066)** as a
+  `polaris portfolio scenarios` subcommand + `POST
+  /api/v1/portfolio/scenarios` endpoint; both consume the standard six-
+  scenario set by default and accept comma-separated / list filters
+  drawn from it. Both surfaces return the flat
+  `PortfolioScenarioResult.to_dict()` shape. The Streamlit dashboard
+  scenario page below remains open. *Source: ADR-064 Out of scope.*
 
 - **Streamlit dashboard page for portfolio scenario results.** A
   scenario view consuming `PortfolioScenarioResult.to_dict()`: per-scenario
@@ -354,22 +344,31 @@ worked down to:
    portfolio --scenarios` CLI + API surfacing, dashboard scenario page,
    parallel `run_scenarios` execution) have been promoted below.
 
-**What the next session should consider.** With both prior-sprint items
-shipped, the active queue is:
+3. ~~**LICAT lapse-risk and morbidity-risk capital components.**~~ —
+   **shipped 2026-06-02 (ADR-065, PR #52)**. Entry removed from the
+   Promoted Follow-ups queue above.
 
-- One IMPORTANT item remains scoped to fit in a single session: **LICAT
-  lapse-risk and morbidity-risk capital components** (~3 dev-days,
-  factor-model extension that does not change the `ProfitTester`
-  integration surface). This is the recommended pick.
-- The other two IMPORTANT items — **Reserve-basis matching** and
-  **IFRS 17 period-to-period movement table** — are 10 dev-days each.
-  They are genuinely Phase 5.3+ work and should be scoped as a
-  dedicated roadmap entry rather than picked up mid-sprint.
+4. ~~**`polaris portfolio --scenarios` CLI + `POST
+   /api/v1/portfolio/scenarios` API surfacing.**~~ — **shipped 2026-06-03
+   (ADR-066)** as a `polaris portfolio scenarios` subcommand plus a
+   sibling FastAPI endpoint. Both consume the standard six-scenario set
+   by default and return the flat `PortfolioScenarioResult.to_dict()`
+   shape. The corresponding entry under Promoted Follow-ups above has
+   been crossed out.
+
+**What the next session should consider.** With the four prior-sprint
+IMPORTANT items shipped, the active queue is:
+
+- No IMPORTANT item remains that fits a single session. The two
+  surviving IMPORTANT items — **Reserve-basis matching** and **IFRS 17
+  period-to-period movement table** — are 10 dev-days each. They are
+  genuinely Phase 5.3+ work and should be scoped as a dedicated roadmap
+  entry rather than picked up mid-sprint.
 - The NICE-TO-HAVE queue is well-stocked with sub-day to 3-day items
-  (12 entries spanning portfolio dashboard, scenario surfacing, YRT
-  table refinements, LICAT extensions, Excel polish, ingestion strict
-  modes, and so on); any of these is a valid fallback if a session
-  needs an isolated, low-risk pick.
+  spanning portfolio dashboard, scenario dashboard page, YRT table
+  refinements, LICAT extensions, Excel polish, ingestion strict modes,
+  and so on; any of these is a valid fallback for a session that needs
+  an isolated, low-risk pick.
 
 ## Comparison with Previous Assessment
 

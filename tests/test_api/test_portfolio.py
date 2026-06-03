@@ -250,3 +250,146 @@ class TestPortfolioEndpointAlignField:
         }
         response = client.post("/api/v1/portfolio", json=payload)
         assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/portfolio/scenarios (ADR-066)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+class TestPortfolioScenariosEndpoint:
+    """``POST /api/v1/portfolio/scenarios`` surfaces ``Portfolio.run_scenarios``.
+
+    ADR-064 added the analytics-layer scenario runner; this endpoint exposes
+    it through the API so the same correlated-stress shape consumed by the
+    CLI is reachable over HTTP.
+    """
+
+    def test_post_returns_200_with_standard_default(self):
+        payload = {
+            "hurdle_rate": 0.10,
+            "deals": [_deal_request("D1", "CedantA"), _deal_request("D2", "CedantB")],
+        }
+        response = client.post("/api/v1/portfolio/scenarios", json=payload)
+        assert response.status_code == 200, response.text
+
+    def test_default_runs_six_standard_scenarios(self):
+        payload = {
+            "hurdle_rate": 0.10,
+            "deals": [_deal_request("D1", "CedantA"), _deal_request("D2", "CedantB")],
+        }
+        data = client.post("/api/v1/portfolio/scenarios", json=payload).json()
+        assert "scenarios" in data
+        names = [entry["name"] for entry in data["scenarios"]]
+        assert names == [
+            "BASE",
+            "MORT_110",
+            "MORT_90",
+            "LAPSE_80",
+            "LAPSE_120",
+            "MORT_110_LAPSE_80",
+        ]
+
+    def test_named_subset_filters_in_order(self):
+        payload = {
+            "hurdle_rate": 0.10,
+            "scenarios": ["BASE", "MORT_110"],
+            "deals": [_deal_request("D1", "CedantA"), _deal_request("D2", "CedantB")],
+        }
+        data = client.post("/api/v1/portfolio/scenarios", json=payload).json()
+        assert [s["name"] for s in data["scenarios"]] == ["BASE", "MORT_110"]
+
+    def test_each_scenario_entry_carries_full_portfolio_result(self):
+        payload = {
+            "hurdle_rate": 0.10,
+            "scenarios": ["BASE"],
+            "deals": [_deal_request("D1", "CedantA"), _deal_request("D2", "CedantB")],
+        }
+        data = client.post("/api/v1/portfolio/scenarios", json=payload).json()
+        base = data["scenarios"][0]["result"]
+        for k in (
+            "n_deals",
+            "hurdle_rate",
+            "total_pv_profits",
+            "total_irr",
+            "deals",
+            "concentration",
+            "hhi",
+        ):
+            assert k in base
+        assert base["n_deals"] == 2
+
+    def test_mortality_stress_lowers_pv_relative_to_base(self):
+        payload = {
+            "hurdle_rate": 0.10,
+            "scenarios": ["BASE", "MORT_110"],
+            "deals": [_deal_request("D1", "CedantA"), _deal_request("D2", "CedantB")],
+        }
+        data = client.post("/api/v1/portfolio/scenarios", json=payload).json()
+        by_name = {s["name"]: s["result"] for s in data["scenarios"]}
+        assert by_name["MORT_110"]["total_pv_profits"] < by_name["BASE"]["total_pv_profits"]
+
+    def test_unknown_scenario_name_rejected(self):
+        payload = {
+            "hurdle_rate": 0.10,
+            "scenarios": ["BOGUS"],
+            "deals": [_deal_request("D1", "CedantA")],
+        }
+        response = client.post("/api/v1/portfolio/scenarios", json=payload)
+        assert response.status_code in (400, 422)
+        assert "BOGUS" in response.text
+
+    def test_duplicate_scenario_names_rejected(self):
+        payload = {
+            "hurdle_rate": 0.10,
+            "scenarios": ["BASE", "BASE"],
+            "deals": [_deal_request("D1", "CedantA")],
+        }
+        response = client.post("/api/v1/portfolio/scenarios", json=payload)
+        assert response.status_code in (400, 422)
+
+    def test_empty_scenarios_list_rejected(self):
+        payload = {
+            "hurdle_rate": 0.10,
+            "scenarios": [],
+            "deals": [_deal_request("D1", "CedantA")],
+        }
+        response = client.post("/api/v1/portfolio/scenarios", json=payload)
+        assert response.status_code == 422
+
+    def test_calendar_align_threads_through_to_every_scenario(self):
+        payload = {
+            "hurdle_rate": 0.10,
+            "align": "calendar",
+            "scenarios": ["BASE"],
+            "deals": [
+                _deal_request("D1", "CedantA", valuation_date="2025-01-01"),
+                _deal_request("D2", "CedantB", valuation_date="2025-07-01"),
+            ],
+        }
+        response = client.post("/api/v1/portfolio/scenarios", json=payload)
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["scenarios"][0]["result"]["grid_origin"] == "2025-01-01"
+
+    def test_strict_default_rejects_mixed_dates(self):
+        payload = {
+            "hurdle_rate": 0.10,
+            "scenarios": ["BASE"],
+            "deals": [
+                _deal_request("D1", "CedantA", valuation_date="2025-01-01"),
+                _deal_request("D2", "CedantB", valuation_date="2025-07-01"),
+            ],
+        }
+        response = client.post("/api/v1/portfolio/scenarios", json=payload)
+        assert response.status_code == 422
+
+    def test_non_proportional_treaty_rejected(self):
+        payload = {
+            "hurdle_rate": 0.10,
+            "scenarios": ["BASE"],
+            "deals": [_deal_request("D1", "CedantA", treaty_type="StopLoss")],
+        }
+        response = client.post("/api/v1/portfolio/scenarios", json=payload)
+        assert response.status_code in (400, 422)

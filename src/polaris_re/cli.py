@@ -4,13 +4,16 @@ Polaris RE — Command Line Interface.
 Entry point: `polaris` (registered in pyproject.toml [project.scripts])
 
 Commands:
-    polaris price          — run a deal pricing pipeline from YAML/JSON config
-    polaris scenario       — run scenario analysis with tabular output
-    polaris uq             — run Monte Carlo UQ with summary statistics
-    polaris validate       — validate inforce CSV, mortality tables, assumption sets
-    polaris rate-schedule  — generate a YRT rate schedule for a target IRR
-    polaris ingest         — ingest and normalise raw cedant inforce data
-    polaris version        — display package version information
+    polaris price                — run a deal pricing pipeline from YAML/JSON config
+    polaris scenario             — run scenario analysis with tabular output
+    polaris uq                   — run Monte Carlo UQ with summary statistics
+    polaris validate             — validate inforce CSV, mortality tables, assumption sets
+    polaris rate-schedule        — generate a YRT rate schedule for a target IRR
+    polaris ingest               — ingest and normalise raw cedant inforce data
+    polaris portfolio run        — aggregate a multi-deal book of reinsurance treaties
+    polaris portfolio scenarios  — run a portfolio under the deal-committee stress set
+    polaris portfolio report     — re-render a portfolio result JSON
+    polaris version              — display package version information
 
 Rich is used for all terminal output: coloured tables, progress bars, panels.
 All commands accept --config / --output arguments and write JSON results to disk.
@@ -2043,6 +2046,206 @@ def portfolio_run_cmd(
     _render_portfolio_summary(result_dict)
 
     _write_output(result_dict, output_path, default_name="portfolio.json")
+
+
+_STANDARD_SCENARIO_KEYWORD = "standard"
+
+
+def _resolve_scenarios_argument(scenarios_arg: str | None) -> "list[object]":
+    """Resolve the ``--scenarios`` CLI argument to a list of ``ScenarioAdjustment``.
+
+    Accepts either ``"standard"`` / ``None`` (the default deal-committee six-
+    scenario set from :meth:`ScenarioRunner.standard_stress_scenarios`) or a
+    comma-separated list of names drawn from that set (e.g. ``"BASE,MORT_110"``).
+    The returned list preserves the order the caller supplied so downstream
+    consumers can index scenarios positionally.
+
+    Raises :class:`typer.Exit` with a Rich error message when the argument is
+    empty, contains duplicates, or references an unknown scenario name.
+    """
+    from polaris_re.analytics.scenario import ScenarioRunner
+
+    standard = ScenarioRunner.standard_stress_scenarios()
+    if scenarios_arg is None or scenarios_arg == _STANDARD_SCENARIO_KEYWORD:
+        return list(standard)
+
+    raw = scenarios_arg.strip()
+    if not raw:
+        console.print(
+            "[red]Error:[/red] --scenarios value is empty. Pass 'standard' for the "
+            "default six-scenario set, or a comma-separated list of names "
+            "(e.g. 'BASE,MORT_110')."
+        )
+        raise typer.Exit(code=1)
+
+    names = [tok.strip() for tok in raw.split(",") if tok.strip()]
+    if not names:
+        console.print(
+            "[red]Error:[/red] --scenarios value parsed to an empty list. "
+            "Pass 'standard' or a comma-separated list of scenario names."
+        )
+        raise typer.Exit(code=1)
+
+    if len(names) != len(set(names)):
+        counts: dict[str, int] = {}
+        for n in names:
+            counts[n] = counts.get(n, 0) + 1
+        duplicates = sorted(n for n, c in counts.items() if c > 1)
+        console.print(
+            f"[red]Error:[/red] duplicate scenario names in --scenarios: {duplicates}. "
+            "Each scenario should appear at most once."
+        )
+        raise typer.Exit(code=1)
+
+    by_name = {sc.name: sc for sc in standard}
+    unknown = [n for n in names if n not in by_name]
+    if unknown:
+        valid = ", ".join(sc.name for sc in standard)
+        console.print(
+            f"[red]Error:[/red] unknown scenario name(s): {unknown}. Valid names: {valid}."
+        )
+        raise typer.Exit(code=1)
+
+    return [by_name[n] for n in names]
+
+
+def _render_portfolio_scenarios_summary(
+    result_dict: dict[str, object],
+) -> None:  # type: ignore[type-arg]
+    """Render a Rich table summarising the per-scenario aggregate result.
+
+    Consumes the flat ``PortfolioScenarioResult.to_dict()`` shape — a
+    ``{"scenarios": [{"name", "result"}, ...]}`` mapping where each ``result``
+    is itself a ``PortfolioResult.to_dict()`` output.
+    """
+    scenarios = result_dict.get("scenarios")
+    if not isinstance(scenarios, list) or not scenarios:
+        return
+
+    table = Table(title="Portfolio Scenario Analysis", border_style="cyan")
+    table.add_column("Scenario", style="bold")
+    table.add_column("Total PV Profits", justify="right")
+    table.add_column("Total IRR", justify="right")
+    table.add_column("Total Face", justify="right")
+    table.add_column("Peak Ceded NAR", justify="right")
+
+    for entry in scenarios:
+        name = str(entry["name"])  # type: ignore[index]
+        res = entry["result"]  # type: ignore[index]
+        pv = float(res["total_pv_profits"])  # type: ignore[arg-type, index]
+        irr = res.get("total_irr")  # type: ignore[union-attr]
+        face = float(res["total_face_amount"])  # type: ignore[arg-type, index]
+        nar = float(res["peak_ceded_nar"])  # type: ignore[arg-type, index]
+        irr_str = f"{float(irr):.2%}" if isinstance(irr, (int, float)) else "N/A"
+        table.add_row(
+            name,
+            f"${pv:,.0f}",
+            irr_str,
+            f"${face:,.0f}",
+            f"${nar:,.0f}",
+        )
+    console.print(table)
+
+
+@portfolio_app.command("scenarios")
+def portfolio_scenarios_cmd(
+    config_path: Annotated[
+        Path,
+        typer.Option("--config", "-c", help="Portfolio config file (YAML or JSON)."),
+    ],
+    scenarios_arg: Annotated[
+        str | None,
+        typer.Option(
+            "--scenarios",
+            "-s",
+            help=(
+                "Scenario set to run. 'standard' (default) is the deal-committee "
+                "six-scenario stress set (BASE, MORT_110, MORT_90, LAPSE_80, "
+                "LAPSE_120, MORT_110_LAPSE_80). Pass a comma-separated list "
+                "(e.g. 'BASE,MORT_110') to filter to a named subset; "
+                "names must come from the standard set."
+            ),
+        ),
+    ] = None,
+    output_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help=("Path to write the PortfolioScenarioResult JSON. Default: stdout JSON."),
+        ),
+    ] = None,
+    hurdle_rate: Annotated[
+        float | None,
+        typer.Option(
+            "--hurdle-rate",
+            "-r",
+            help=(
+                "Override the portfolio-level hurdle rate from the config. "
+                "Applied uniformly to every scenario's aggregate profit test."
+            ),
+        ),
+    ] = None,
+    align: Annotated[
+        str,
+        typer.Option(
+            "--align",
+            help=(
+                "Time-alignment mode (ADR-061). 'strict' (default) requires every "
+                "deal to share a valuation date. 'calendar' places each deal on a "
+                "common monthly grid keyed off the earliest valuation date. The "
+                "mode is forwarded unchanged to every scenario's aggregate run."
+            ),
+        ),
+    ] = "strict",
+) -> None:
+    """
+    [bold]Run a multi-deal portfolio under a stress-scenario set (ADR-064).[/bold]
+
+    Wires :meth:`polaris_re.analytics.portfolio.Portfolio.run_scenarios`
+    through to the CLI. Each scenario applies its multiplicative mortality
+    and lapse stresses uniformly to every deal in the book (the "correlated"
+    reinsurer-conservative view from ADR-064) and the full per-scenario
+    aggregate result is returned in a flat
+    ``{"scenarios": [{"name", "result"}, ...]}`` JSON shape — the same
+    ``PortfolioResult.to_dict()`` payload ``polaris portfolio run`` writes,
+    nested under each scenario's name.
+    """
+    _header()
+
+    if align not in ("strict", "calendar"):
+        console.print(f"[red]Error:[/red] --align must be 'strict' or 'calendar'; got {align!r}.")
+        raise typer.Exit(code=1)
+
+    scenarios = _resolve_scenarios_argument(scenarios_arg)
+
+    portfolio, configured_hurdle = _build_portfolio_from_config(config_path)
+    effective_hurdle = hurdle_rate if hurdle_rate is not None else configured_hurdle
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+        transient=True,
+    ) as progress:
+        progress.add_task(
+            f"Running {len(scenarios)} scenario(s) on portfolio ({portfolio.n_deals} deals)...",
+            total=None,
+        )
+        try:
+            result = portfolio.run_scenarios(  # type: ignore[attr-defined]
+                effective_hurdle,
+                scenarios=scenarios,  # type: ignore[arg-type]
+                align=align,  # type: ignore[arg-type]
+            )
+        except PolarisValidationError as exc:
+            console.print(f"[red]Error running portfolio scenarios:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
+
+    result_dict = result.to_dict()
+    _render_portfolio_scenarios_summary(result_dict)
+
+    _write_output(result_dict, output_path, default_name="portfolio_scenarios.json")
 
 
 @portfolio_app.command("report")

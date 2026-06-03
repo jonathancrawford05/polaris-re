@@ -3396,3 +3396,149 @@ out of scope by construction.
   +`TestForProductBackwardCompat` with 6 parametrised tests,
   +`TestForProductExtended` with 8 default / sensitivity tests,
   ~+250 lines).
+
+## ADR-066: `polaris portfolio scenarios` CLI + `POST /api/v1/portfolio/scenarios` API surfacing
+
+**Status.** Accepted.
+
+**Date.** 2026-06-03.
+
+**Context.** ADR-064 added `Portfolio.run_scenarios` at the analytics
+layer with `PortfolioScenarioResult` and the deal-committee six-scenario
+default set, but explicitly deferred CLI / API surfacing as "out of
+scope — separate JSON shape, separate golden baseline regenerations". The
+internal helper is only reachable from Python today; the deal-committee
+workflow ("what happens to the whole book under +10% mortality?") still
+requires hand-written notebook code rather than a one-liner from the
+ops shell or a downstream system. The follow-up was promoted to
+`PRODUCT_DIRECTION_2026-05-23.md` as a NICE-TO-HAVE ~2 dev-day item
+(source: ADR-064 Out of scope).
+
+**Decision.** Add a dedicated `polaris portfolio scenarios` CLI
+subcommand and a `POST /api/v1/portfolio/scenarios` API endpoint that
+both wrap :meth:`Portfolio.run_scenarios` and return the flat
+:meth:`PortfolioScenarioResult.to_dict()` shape:
+
+1. **CLI.** A new `portfolio_scenarios_cmd` subcommand on `portfolio_app`
+   accepts:
+   - `--config` (required) — the same YAML / JSON portfolio config the
+     `run` subcommand consumes, parsed through the shared
+     `_build_portfolio_from_config` helper so per-deal configuration is
+     identical across the two paths.
+   - `--scenarios` (optional, default `"standard"`) — comma-separated
+     scenario names drawn from
+     :meth:`ScenarioRunner.standard_stress_scenarios`, or the literal
+     `"standard"` for the full six-scenario set. The order supplied is
+     preserved in the JSON output. Empty values, duplicates, and unknown
+     names exit cleanly with a Rich-rendered error message.
+   - `--output` — optional path for the
+     `PortfolioScenarioResult.to_dict()` JSON. When omitted the JSON
+     prints to stdout via `console.print_json` (matches the existing
+     `run` and `report` subcommand conventions).
+   - `--hurdle-rate` — overrides the portfolio-level rate from the config,
+     applied uniformly to every scenario.
+   - `--align {strict,calendar}` — threaded through to every scenario's
+     aggregate run unchanged so calendar-aligned portfolios from ADR-061 /
+     ADR-062 participate in scenario analysis on the same grid.
+
+2. **Rich console output.** A new `_render_portfolio_scenarios_summary`
+   prints a one-row-per-scenario table with the scenario name, total PV
+   profits, total IRR, total face, and peak ceded NAR — the same metric
+   set the per-deal renderer surfaces from `PortfolioResult`. The full
+   nested per-deal breakdown stays in the JSON output rather than the
+   console (a six-scenario × N-deal table would dominate the terminal).
+
+3. **API.** A new `POST /api/v1/portfolio/scenarios` endpoint accepts a
+   :class:`PortfolioScenariosRequest` Pydantic model carrying the same
+   `deals` / `hurdle_rate` / `align` / `name` fields as
+   :class:`PortfolioRequest` plus an optional `scenarios: list[str] | None`
+   field. The deal-build phase is shared with `POST /api/v1/portfolio` via
+   a new private helper `_portfolio_from_request_deals` so the two
+   endpoints consume identical per-deal payload shapes. Validation
+   mirrors the CLI: an empty list 422s, duplicates 400, unknown names
+   400, `None` (or omitted) defaults to the standard six.
+
+4. **Shape.** The endpoint's response and the CLI's JSON output are
+   both `PortfolioScenarioResult.to_dict()` unchanged — a flat
+   `{"scenarios": [{"name", "result"}, ...]}` mapping where every
+   `result` is itself a `PortfolioResult.to_dict()` payload. No new
+   shape is introduced at the analytics layer; this is pure surfacing.
+
+**Rationale for a separate `scenarios` subcommand (vs. a `--scenarios`
+flag on `portfolio run`).** Two options were considered:
+
+- (a) Add `--scenarios` to `portfolio run`. The output shape would then
+  depend on whether the flag was set: `PortfolioResult.to_dict()` shape
+  without it, `PortfolioScenarioResult.to_dict()` shape with it. Tools
+  that consume the JSON would need to dispatch on the presence of a
+  `scenarios` key.
+- (b) Add a separate `scenarios` subcommand. Each command produces a
+  single, predictable JSON shape. The shared
+  `_build_portfolio_from_config` helper means there's no code
+  duplication, and the existing `portfolio report` subcommand naturally
+  consumes the single-portfolio shape without ambiguity.
+
+Option (b) is the cleaner pattern: it composes with the existing
+subcommand grammar (`portfolio run`, `portfolio report`,
+`portfolio scenarios`), avoids polymorphic output, and leaves a clean
+extension point for ADR-064's deferred "per-deal scenario overrides"
+follow-up (a future `portfolio scenarios --per-deal-config X.json`).
+
+**Consequences.**
+- The deal-committee six-scenario workflow is now reachable via
+  `polaris portfolio scenarios --config book.yaml --output stress.json`
+  and via `POST /api/v1/portfolio/scenarios` without writing any Python.
+- The `ScenarioRunner.standard_stress_scenarios()` set is the
+  single point of truth for what `"standard"` and the API default mean.
+  Adding scenarios there propagates automatically; deal-committee
+  workflows must add explicit `--scenarios "BASE,...,NEW"` arguments to
+  pin a fixed set against new defaults if reproducibility matters.
+- Wall-clock cost on the CLI matches the analytics layer:
+  `len(scenarios) × cost(Portfolio.run)`. Six scenarios on a 2-deal,
+  10-policy test config completes in well under a second; parallel
+  execution is still tracked separately (CONTINUATION_portfolio
+  refinement #6 and the ADR-064 out-of-scope follow-up).
+- `PortfolioRequest` and `PortfolioScenariosRequest` carry the same
+  `deals` shape but are intentionally separate Pydantic models. A future
+  refactor could lift the deal-list field into a shared mixin, but the
+  per-endpoint validation difference (mandatory vs. optional `scenarios`)
+  reads more clearly as two siblings than as a single class with a
+  variant flag.
+
+**Out of scope.**
+- **Per-deal scenario overrides ("heterogeneous stresses across
+  cedants").** Still tracked under PRODUCT_DIRECTION_2026-05-23 — Source:
+  CONTINUATION_portfolio_aggregation Refinement Backlog #3 / ADR-064 Out
+  of scope. This ADR ships the correlated-stress baseline only.
+- **Streamlit dashboard page for portfolio scenario results.** A
+  scenario-pivoted view consuming the same `to_dict()` shape — still a
+  surface concern, separate work item.
+- **Parallel `run_scenarios` execution.** Sequential by default; same
+  scope as the parallel-portfolio-execution backlog item.
+- **YAML config schema extension to embed a default scenario set.**
+  Today the scenario set is a CLI flag / API field only. Embedding a
+  `scenarios: [BASE, MORT_110]` field in the portfolio config YAML
+  would let ops scripts pin a specific stress set per deal; deferred
+  pending a deal-committee ask.
+- **Golden baseline JSON for the scenarios endpoint.** Existing
+  `tests/qa/` golden regression tests cover single-deal pricing
+  pipelines. Adding a portfolio-scenarios golden requires a stable
+  multi-deal fixture; out of scope for this slice.
+
+**Affected files.**
+- `src/polaris_re/cli.py` (+`portfolio_scenarios_cmd` subcommand,
+  +`_resolve_scenarios_argument` helper, +`_render_portfolio_scenarios_summary`
+  helper, +`_STANDARD_SCENARIO_KEYWORD` constant, updated module
+  docstring header, ~+200 lines).
+- `src/polaris_re/api/main.py` (+`PortfolioScenariosRequest` Pydantic
+  model, +`api_portfolio_scenarios` endpoint, refactored shared
+  `_portfolio_from_request_deals` helper used by both portfolio
+  endpoints, updated module docstring header, ~+120 lines net).
+- `tests/test_analytics/test_cli_portfolio.py`
+  (+`TestPortfolioScenariosCommand` with 14 tests covering default
+  standard set, named subset filtering, output shape, mortality-stress
+  ordering, hurdle-rate override, calendar alignment, and validation
+  failures, ~+260 lines).
+- `tests/test_api/test_portfolio.py` (+`TestPortfolioScenariosEndpoint`
+  with 11 tests covering endpoint contract, validation failures, and
+  calendar-mode threading, ~+135 lines).
