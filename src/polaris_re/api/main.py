@@ -29,13 +29,16 @@ Production:
 
 from datetime import date
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 import polaris_re
+
+if TYPE_CHECKING:
+    from polaris_re.analytics.portfolio import Portfolio
 from polaris_re.analytics.capital import LICATCapital
 from polaris_re.analytics.ifrs17 import IFRS17Measurement
 from polaris_re.analytics.profit_test import (
@@ -1323,7 +1326,7 @@ class PortfolioRequest(BaseModel):
 def _portfolio_from_request_deals(
     name: str,
     deals: list[PortfolioDealRequest],
-) -> object:
+) -> "Portfolio":
     """Build a :class:`~polaris_re.analytics.portfolio.Portfolio` from a
     sequence of :class:`PortfolioDealRequest` payloads.
 
@@ -1406,7 +1409,7 @@ def api_portfolio(request: PortfolioRequest) -> dict:  # type: ignore[type-arg]
     """
     try:
         portfolio = _portfolio_from_request_deals(request.name, request.deals)
-        result = portfolio.run(request.hurdle_rate, align=request.align)  # type: ignore[attr-defined]
+        result = portfolio.run(request.hurdle_rate, align=request.align)
     except HTTPException:
         raise
     except Exception as exc:
@@ -1512,7 +1515,7 @@ def api_portfolio_scenarios(request: PortfolioScenariosRequest) -> dict:  # type
 
     try:
         portfolio = _portfolio_from_request_deals(request.name, request.deals)
-        result = portfolio.run_scenarios(  # type: ignore[attr-defined]
+        result = portfolio.run_scenarios(
             request.hurdle_rate,
             scenarios=scenario_objs,
             align=request.align,

@@ -41,6 +41,7 @@ from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
 
 if TYPE_CHECKING:
+    from polaris_re.analytics.scenario import ScenarioAdjustment
     from polaris_re.assumptions.lapse import LapseAssumption
     from polaris_re.utils.excel_output import DealPricingExport
 from polaris_re.core.pipeline import (
@@ -2051,7 +2052,7 @@ def portfolio_run_cmd(
 _STANDARD_SCENARIO_KEYWORD = "standard"
 
 
-def _resolve_scenarios_argument(scenarios_arg: str | None) -> "list[object]":
+def _resolve_scenarios_argument(scenarios_arg: str | None) -> "list[ScenarioAdjustment]":
     """Resolve the ``--scenarios`` CLI argument to a list of ``ScenarioAdjustment``.
 
     Accepts either ``"standard"`` / ``None`` (the default deal-committee six-
@@ -2235,8 +2236,8 @@ def portfolio_scenarios_cmd(
         try:
             result = portfolio.run_scenarios(  # type: ignore[attr-defined]
                 effective_hurdle,
-                scenarios=scenarios,  # type: ignore[arg-type]
-                align=align,  # type: ignore[arg-type]
+                scenarios=scenarios,
+                align=align,
             )
         except PolarisValidationError as exc:
             console.print(f"[red]Error running portfolio scenarios:[/red] {exc}")
