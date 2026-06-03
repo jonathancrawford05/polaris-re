@@ -3269,3 +3269,130 @@ align="strict") -> PortfolioScenarioResult`. The semantics are:
   with 14 closed-form / sensitivity / validation tests +
   `TestPortfolioScenarioResultHelpers` with 8 helper unit-tests; new
   `_stub_portfolio_result` builder, ~+260 lines).
+
+## ADR-065: LICAT C-2 lapse-risk and morbidity-risk capital components
+
+**Status.** Accepted.
+
+**Context.** ADR-047 introduced `LICATCapital` with a single C-2 sub-
+component — mortality risk — exposed as `c2_component = factor × NAR`.
+OSFI's 2024 LICAT framework treats C-2 (insurance risk) as a basket that
+also includes **lapse risk** (mass-lapse + level-lapse shocks) and
+**morbidity risk** (incidence + termination shocks on DI / CI products).
+Open Question #4 in `CONTINUATION_licat_capital.md` flagged this as a
+straight extension of the factor model, and the harvest into
+`PRODUCT_DIRECTION_2026-05-23.md` promoted it as an IMPORTANT follow-up
+(source: CONTINUATION_licat_capital — Open Question #4 deferred to a
+Phase 5.1.b ADR). Deal-committee work on multi-product books needs the
+full C-2 number, not just the mortality slice, to defend a RoC tile.
+
+**Decision.** Extend `LICATFactors` and `CapitalResult` additively, keep
+the existing API surface stable:
+
+- Add two new fields on `LICATFactors`:
+  - `c2_lapse_factor: float` (default `0.0`, range `[0, 1]`) — applied
+    to `reserve_balance` because mass-lapse exposure scales with the
+    in-force reserve, not the NAR. This mirrors the LICAT 2024 mass-
+    lapse-on-reserve formulation.
+  - `c2_morbidity_factor: float` (default `0.0`, range `[0, 1]`) —
+    applied to `NAR` because DI / CI morbidity capital scales with
+    face-amount-at-risk under the standard incidence × benefit model.
+    Zero by default for mortality-only products.
+- Add two new array fields on `CapitalResult`:
+  - `c2_lapse_component` — shape `(T,)`, dtype `float64`.
+  - `c2_morbidity_component` — shape `(T,)`, dtype `float64`.
+- Add a derived property `CapitalResult.c2_insurance_risk` that returns
+  `c2_component + c2_lapse_component + c2_morbidity_component` — the
+  aggregate C-2 figure that maps to the OSFI line item.
+- `capital_by_period` now sums all five factor components
+  (C-1 + mortality + lapse + morbidity + C-3). Existing test
+  expectations `c2_component == factor × NAR` still pass because the
+  field-name semantics for `c2_component` (mortality only) are
+  preserved; the addition is a sibling field, not a redefinition.
+- Add a new constructor `LICATCapital.for_product_extended(product_type)`
+  that populates all three C-2 sub-factors per product. The existing
+  `for_product` constructor is left unchanged — lapse and morbidity stay
+  at zero — so any caller that has been audited against ADR-047 (the
+  CLI `--capital licat` flag and the FastAPI `capital_model="licat"`
+  surface) keeps the same capital number until it opts in.
+
+**Default factor schedule.** Calibrated to the conservative committee-
+screening range OSFI's 2024 LICAT documentation implies for each product
+type; both factors are placeholders pending Phase 5.4 shock-based
+calibration. Documented in `_C2_LAPSE_DEFAULT_BY_PRODUCT` and
+`_C2_MORBIDITY_DEFAULT_BY_PRODUCT`:
+
+| ProductType        | mortality | lapse | morbidity |
+|--------------------|-----------|-------|-----------|
+| TERM               | 0.15      | 0.05  | 0.00      |
+| WHOLE_LIFE         | 0.10      | 0.03  | 0.00      |
+| UNIVERSAL_LIFE     | 0.08      | 0.04  | 0.00      |
+| DISABILITY         | 0.05      | 0.02  | 0.15      |
+| CRITICAL_ILLNESS   | 0.05      | 0.02  | 0.12      |
+| ANNUITY            | 0.03      | 0.06  | 0.00      |
+
+The lapse factor on ANNUITY is the highest in the schedule because
+deferred-annuity mass-lapse exposure on the in-force reserve is large
+relative to mortality-only liabilities. Morbidity is non-zero only on
+DI and CI as those are the products where the C-2 incidence shock
+applies; for mortality-only products the LICAT morbidity component is
+out of scope by construction.
+
+**Consequences.**
+- Backward compatibility: bare `LICATFactors()` and
+  `LICATCapital.for_product(product_type)` produce the same capital
+  number as before — both leave the new factors at zero. Existing
+  ADR-047 / ADR-048 / ADR-049 wiring (CLI `--capital licat`, FastAPI
+  `capital_model="licat"`, dashboard checkbox, Excel `_CAPITAL_METRICS`
+  rows) keeps the same RoC tile. `ProfitTester.run_with_capital`
+  integration surface is unchanged.
+- A caller that wants the full LICAT 2024 C-2 number passes
+  `LICATCapital.for_product_extended(...)` or constructs `LICATFactors`
+  with explicit `c2_lapse_factor` / `c2_morbidity_factor`. The opt-in
+  pattern matches ADR-049's "opt-in everywhere" stance on capital
+  surfacing.
+- `c2_component` field-name semantics (mortality only) are preserved.
+  The aggregate insurance risk is available via the new
+  `c2_insurance_risk` property; callers that prefer the aggregate to
+  the mortality slice use that property without changing existing
+  serialisation code.
+
+**Out of scope.**
+- **CLI / API / Excel / dashboard surfacing of the extended factors.**
+  ADR-049's `--capital licat` integration uses `for_product(...)` and
+  thus inherits the backward-compatible defaults. Switching the CLI to
+  `for_product_extended(...)` is a behaviour change (golden baselines
+  for capital tiles would move) and is a separate follow-up — promote
+  to the next PRODUCT_DIRECTION once factor calibration is firmer.
+- **Longevity risk for annuities.** OSFI's 2024 LICAT has a separate
+  longevity component that flips the sign of the mortality shock for
+  annuity products. The current `for_product(ANNUITY)` C-2 mortality
+  factor of 0.03 is a placeholder that the annuity-specific factor
+  follow-up (already in PRODUCT_DIRECTION_2026-05-23) will replace.
+- **Diversification credits across C-1 / C-2 / C-3.** OSFI's
+  standard-formula LICAT includes a diversification benefit between
+  insurance and asset risks. The current sum-of-components approach is
+  the conservative, no-diversification path. A future ADR can add a
+  correlation matrix once the C-1 / C-3 components are non-zero.
+- **Mass-lapse vs level-lapse decomposition.** The lapse factor here
+  collapses both into a single number. Splitting into a transient
+  mass-lapse shock and a permanent level-lapse shock is a Phase 5.4
+  refinement.
+- **Calibration against published OSFI factor tables.** The default
+  schedule is a placeholder for committee screening. A QA-loop ADR
+  will benchmark against published LICAT factor disclosures once a
+  cedant provides annotated capital working papers.
+
+**Affected files.**
+- `src/polaris_re/analytics/capital.py` (+`c2_lapse_factor` /
+  `c2_morbidity_factor` on `LICATFactors`, +`c2_lapse_component` /
+  `c2_morbidity_component` on `CapitalResult`, +`c2_insurance_risk`
+  property, +`for_product_extended` classmethod, updated
+  `required_capital`, module docstring refresh, ~+85 lines).
+- `tests/test_analytics/test_capital.py` (+`TestLICATFactorsExtendedC2`
+  with 6 validation tests, +`TestLapseRiskComponent` with 4 closed-form
+  tests, +`TestMorbidityRiskComponent` with 4 closed-form tests,
+  +`TestExtendedC2Aggregate` with 4 sum / shape tests,
+  +`TestForProductBackwardCompat` with 6 parametrised tests,
+  +`TestForProductExtended` with 8 default / sensitivity tests,
+  ~+250 lines).

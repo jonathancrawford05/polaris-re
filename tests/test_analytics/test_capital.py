@@ -338,6 +338,288 @@ class TestC2ClosedFormOSFI:
         np.testing.assert_allclose(result.c2_component, np.full(n, 200_000.0, dtype=np.float64))
 
 
+# ----------------------------------------------------------------------
+# Lapse-risk and morbidity-risk factor components (ADR-065)
+# ----------------------------------------------------------------------
+
+
+class TestLICATFactorsExtendedC2:
+    """LICATFactors gains c2_lapse_factor and c2_morbidity_factor (ADR-065)."""
+
+    def test_default_lapse_factor_is_zero(self) -> None:
+        f = LICATFactors()
+        assert f.c2_lapse_factor == 0.0
+
+    def test_default_morbidity_factor_is_zero(self) -> None:
+        f = LICATFactors()
+        assert f.c2_morbidity_factor == 0.0
+
+    def test_lapse_factor_must_be_non_negative(self) -> None:
+        with pytest.raises(ValueError):
+            LICATFactors(c2_lapse_factor=-0.01)
+
+    def test_morbidity_factor_must_be_non_negative(self) -> None:
+        with pytest.raises(ValueError):
+            LICATFactors(c2_morbidity_factor=-0.05)
+
+    def test_lapse_factor_capped_at_one(self) -> None:
+        with pytest.raises(ValueError):
+            LICATFactors(c2_lapse_factor=1.2)
+
+    def test_morbidity_factor_capped_at_one(self) -> None:
+        with pytest.raises(ValueError):
+            LICATFactors(c2_morbidity_factor=1.5)
+
+
+class TestLapseRiskComponent:
+    """c2_lapse_component = c2_lapse_factor * reserve_balance (ADR-065)."""
+
+    def test_lapse_equals_factor_times_reserve(self) -> None:
+        n = 12
+        reserve = 250_000.0
+        nar = np.full(n, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow(n=n, reserve=reserve, nar=nar)
+        cap = LICATCapital(factors=LICATFactors(c2_lapse_factor=0.04))
+        result = cap.required_capital(cf)
+
+        np.testing.assert_allclose(
+            result.c2_lapse_component, np.full(n, 0.04 * reserve, dtype=np.float64)
+        )
+
+    def test_zero_lapse_factor_zero_lapse_component(self) -> None:
+        n = 12
+        nar = np.full(n, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow(n=n, nar=nar)
+        cap = LICATCapital(factors=LICATFactors(c2_lapse_factor=0.0))
+        result = cap.required_capital(cf)
+
+        np.testing.assert_array_equal(result.c2_lapse_component, np.zeros(n))
+
+    def test_doubling_lapse_factor_doubles_lapse_component(self) -> None:
+        n = 6
+        reserve = 100_000.0
+        nar = np.full(n, 500_000.0, dtype=np.float64)
+        cf = _make_cashflow(n=n, reserve=reserve, nar=nar)
+        cap_low = LICATCapital(factors=LICATFactors(c2_lapse_factor=0.03))
+        cap_high = LICATCapital(factors=LICATFactors(c2_lapse_factor=0.06))
+
+        r_low = cap_low.required_capital(cf)
+        r_high = cap_high.required_capital(cf)
+
+        np.testing.assert_allclose(r_high.c2_lapse_component, 2.0 * r_low.c2_lapse_component)
+
+    def test_lapse_component_tracks_reserve_balance(self) -> None:
+        """Lapse capital follows the time-shape of reserve_balance, not NAR."""
+        n = 5
+        nar = np.array([1000.0, 1000.0, 1000.0, 1000.0, 1000.0], dtype=np.float64)
+        # Build a cashflow with a stepped reserve schedule.
+        reserve_arr = np.array([100.0, 200.0, 400.0, 300.0, 150.0], dtype=np.float64)
+        cf = CashFlowResult(
+            run_id="lapse-shape",
+            valuation_date=date(2025, 1, 1),
+            basis="GROSS",
+            assumption_set_version="test-v1",
+            product_type="TERM",
+            projection_months=n,
+            time_index=np.arange("2025-01", n + 1, dtype="datetime64[M]")[:n],
+            gross_premiums=np.full(n, 1000.0, dtype=np.float64),
+            death_claims=np.full(n, 200.0, dtype=np.float64),
+            lapse_surrenders=np.zeros(n, dtype=np.float64),
+            expenses=np.full(n, 50.0, dtype=np.float64),
+            reserve_balance=reserve_arr,
+            reserve_increase=np.zeros(n, dtype=np.float64),
+            net_cash_flow=np.full(n, 750.0, dtype=np.float64),
+            nar=nar,
+        )
+        cap = LICATCapital(factors=LICATFactors(c2_lapse_factor=0.05))
+        result = cap.required_capital(cf)
+
+        np.testing.assert_allclose(result.c2_lapse_component, 0.05 * reserve_arr)
+
+
+class TestMorbidityRiskComponent:
+    """c2_morbidity_component = c2_morbidity_factor * NAR (ADR-065)."""
+
+    def test_morbidity_equals_factor_times_nar(self) -> None:
+        n = 12
+        nar = np.full(n, 800_000.0, dtype=np.float64)
+        cf = _make_cashflow(n=n, nar=nar)
+        cap = LICATCapital(factors=LICATFactors(c2_morbidity_factor=0.12))
+        result = cap.required_capital(cf)
+
+        np.testing.assert_allclose(result.c2_morbidity_component, 0.12 * nar)
+
+    def test_zero_morbidity_factor_zero_morbidity_component(self) -> None:
+        n = 12
+        nar = np.full(n, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow(n=n, nar=nar)
+        cap = LICATCapital(factors=LICATFactors(c2_morbidity_factor=0.0))
+        result = cap.required_capital(cf)
+
+        np.testing.assert_array_equal(result.c2_morbidity_component, np.zeros(n))
+
+    def test_doubling_morbidity_factor_doubles_morbidity_component(self) -> None:
+        n = 6
+        nar = np.full(n, 500_000.0, dtype=np.float64)
+        cf = _make_cashflow(n=n, nar=nar)
+        cap_low = LICATCapital(factors=LICATFactors(c2_morbidity_factor=0.05))
+        cap_high = LICATCapital(factors=LICATFactors(c2_morbidity_factor=0.10))
+
+        r_low = cap_low.required_capital(cf)
+        r_high = cap_high.required_capital(cf)
+
+        np.testing.assert_allclose(
+            r_high.c2_morbidity_component, 2.0 * r_low.c2_morbidity_component
+        )
+
+    def test_morbidity_uses_explicit_nar_override(self) -> None:
+        n = 6
+        cf_nar = np.full(n, 100.0, dtype=np.float64)
+        explicit_nar = np.full(n, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow(n=n, nar=cf_nar)
+        cap = LICATCapital(factors=LICATFactors(c2_morbidity_factor=0.10))
+        result = cap.required_capital(cf, nar=explicit_nar)
+
+        np.testing.assert_allclose(result.c2_morbidity_component, 0.10 * explicit_nar)
+
+
+class TestExtendedC2Aggregate:
+    """capital_by_period and c2_insurance_risk aggregate all C-2 components."""
+
+    def test_total_capital_sums_all_components(self) -> None:
+        n = 8
+        reserve = 100_000.0
+        nar = np.full(n, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow(n=n, reserve=reserve, nar=nar)
+        cap = LICATCapital(
+            factors=LICATFactors(
+                c2_mortality_factor=0.10,
+                c2_lapse_factor=0.04,
+                c2_morbidity_factor=0.05,
+                c1_asset_default=0.01,
+                c3_interest_rate=0.02,
+            )
+        )
+        result = cap.required_capital(cf)
+
+        expected = (
+            result.c1_component
+            + result.c2_component
+            + result.c2_lapse_component
+            + result.c2_morbidity_component
+            + result.c3_component
+        )
+        np.testing.assert_allclose(result.capital_by_period, expected)
+
+    def test_c2_insurance_risk_sums_mortality_lapse_morbidity(self) -> None:
+        n = 6
+        reserve = 200_000.0
+        nar = np.full(n, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow(n=n, reserve=reserve, nar=nar)
+        cap = LICATCapital(
+            factors=LICATFactors(
+                c2_mortality_factor=0.10,
+                c2_lapse_factor=0.04,
+                c2_morbidity_factor=0.05,
+            )
+        )
+        result = cap.required_capital(cf)
+
+        expected = result.c2_component + result.c2_lapse_component + result.c2_morbidity_component
+        np.testing.assert_allclose(result.c2_insurance_risk, expected)
+
+    def test_components_have_consistent_shape_and_dtype(self) -> None:
+        n = 24
+        nar = np.full(n, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow(n=n, nar=nar)
+        cap = LICATCapital(factors=LICATFactors(c2_lapse_factor=0.04, c2_morbidity_factor=0.03))
+        result = cap.required_capital(cf)
+
+        assert result.c2_lapse_component.shape == (n,)
+        assert result.c2_morbidity_component.shape == (n,)
+        assert result.c2_lapse_component.dtype == np.float64
+        assert result.c2_morbidity_component.dtype == np.float64
+        assert result.c2_insurance_risk.shape == (n,)
+        assert result.c2_insurance_risk.dtype == np.float64
+
+    def test_peak_capital_includes_extended_components(self) -> None:
+        n = 6
+        reserve = 100_000.0
+        nar = np.full(n, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow(n=n, reserve=reserve, nar=nar)
+        cap = LICATCapital(
+            factors=LICATFactors(
+                c2_mortality_factor=0.10,
+                c2_lapse_factor=0.04,
+                c2_morbidity_factor=0.05,
+            )
+        )
+        result = cap.required_capital(cf)
+
+        # 0.10 * 1M + 0.04 * 100K + 0.05 * 1M = 100K + 4K + 50K = 154K
+        expected_peak = 0.10 * 1_000_000.0 + 0.04 * 100_000.0 + 0.05 * 1_000_000.0
+        assert result.peak_capital == pytest.approx(expected_peak)
+        assert result.initial_capital == pytest.approx(expected_peak)
+
+
+class TestForProductBackwardCompat:
+    """`for_product` is unchanged — lapse and morbidity remain at zero."""
+
+    @pytest.mark.parametrize(
+        "product_type",
+        [
+            ProductType.TERM,
+            ProductType.WHOLE_LIFE,
+            ProductType.UNIVERSAL_LIFE,
+            ProductType.DISABILITY,
+            ProductType.CRITICAL_ILLNESS,
+            ProductType.ANNUITY,
+        ],
+    )
+    def test_for_product_leaves_extended_factors_at_zero(self, product_type: ProductType) -> None:
+        cap = LICATCapital.for_product(product_type)
+        assert cap.factors.c2_lapse_factor == 0.0
+        assert cap.factors.c2_morbidity_factor == 0.0
+
+
+class TestForProductExtended:
+    """`for_product_extended` populates all three C-2 sub-factors per product."""
+
+    @pytest.mark.parametrize(
+        "product_type, expected_mortality, expected_lapse, expected_morbidity",
+        [
+            (ProductType.TERM, 0.15, 0.05, 0.00),
+            (ProductType.WHOLE_LIFE, 0.10, 0.03, 0.00),
+            (ProductType.UNIVERSAL_LIFE, 0.08, 0.04, 0.00),
+            (ProductType.DISABILITY, 0.05, 0.02, 0.15),
+            (ProductType.CRITICAL_ILLNESS, 0.05, 0.02, 0.12),
+            (ProductType.ANNUITY, 0.03, 0.06, 0.00),
+        ],
+    )
+    def test_for_product_extended_factors_per_product(
+        self,
+        product_type: ProductType,
+        expected_mortality: float,
+        expected_lapse: float,
+        expected_morbidity: float,
+    ) -> None:
+        cap = LICATCapital.for_product_extended(product_type)
+        assert cap.factors.c2_mortality_factor == pytest.approx(expected_mortality)
+        assert cap.factors.c2_lapse_factor == pytest.approx(expected_lapse)
+        assert cap.factors.c2_morbidity_factor == pytest.approx(expected_morbidity)
+
+    def test_for_product_extended_c1_c3_remain_zero(self) -> None:
+        cap = LICATCapital.for_product_extended(ProductType.TERM)
+        assert cap.factors.c1_asset_default == 0.0
+        assert cap.factors.c3_interest_rate == 0.0
+
+    def test_for_product_extended_di_has_higher_morbidity_than_term(self) -> None:
+        di = LICATCapital.for_product_extended(ProductType.DISABILITY)
+        term = LICATCapital.for_product_extended(ProductType.TERM)
+        assert di.factors.c2_morbidity_factor > term.factors.c2_morbidity_factor
+        assert term.factors.c2_morbidity_factor == 0.0
+
+
 def test_module_exports() -> None:
     """LICAT capital symbols are exposed via the analytics package."""
     from polaris_re.analytics import (
