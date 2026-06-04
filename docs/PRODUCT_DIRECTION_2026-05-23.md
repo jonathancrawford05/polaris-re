@@ -354,22 +354,53 @@ worked down to:
    portfolio --scenarios` CLI + API surfacing, dashboard scenario page,
    parallel `run_scenarios` execution) have been promoted below.
 
-**What the next session should consider.** With both prior-sprint items
-shipped, the active queue is:
+**What the next session should consider (updated 2026-06-04).** All
+BLOCKERs and sprint-scoped IMPORTANT items have shipped (including
+ADR-066, the CLI/API scenario surfacing). The remaining work falls
+into three tiers:
 
-- One IMPORTANT item remains scoped to fit in a single session: **LICAT
-  lapse-risk and morbidity-risk capital components** (~3 dev-days,
-  factor-model extension that does not change the `ProfitTester`
-  integration surface). This is the recommended pick.
-- The other two IMPORTANT items — **Reserve-basis matching** and
-  **IFRS 17 period-to-period movement table** — are 10 dev-days each.
-  They are genuinely Phase 5.3+ work and should be scoped as a
-  dedicated roadmap entry rather than picked up mid-sprint.
-- The NICE-TO-HAVE queue is well-stocked with sub-day to 3-day items
-  (12 entries spanning portfolio dashboard, scenario surfacing, YRT
-  table refinements, LICAT extensions, Excel polish, ingestion strict
-  modes, and so on); any of these is a valid fallback if a session
-  needs an isolated, low-risk pick.
+**Tier A — High-impact NICE-TO-HAVEs (single-session, ≤ 3 dev-days):**
+Best candidates for the next session — self-contained, well-scoped,
+and delivering visible user value:
+
+1. **Streamlit dashboard: portfolio scenarios page** (~3 dev-days) —
+   Wraps `Portfolio.run_scenarios` / `PortfolioScenarioResult.to_dict()`
+   with a per-scenario table, waterfall chart (BASE → worst case), and
+   worst-case per-deal breakdown. Closes the deal-committee workflow
+   gap: CLI/API can now run portfolio scenarios, but the dashboard
+   cannot.
+2. **Streamlit dashboard: portfolio runs page** (~3 dev-days) —
+   Multi-deal portfolio runner with file upload, per-deal table,
+   concentration heatmaps.
+3. **CLI surfacing of `--solve-mode` on `polaris rate-schedule --table`**
+   (~1 dev-day) — Lights up the per-duration solver (ADR-063) from the
+   command line.
+4. **`polaris price --with-sensitivity` inline scenarios** (~1 dev-day) —
+   Populates the empty Sensitivity sheet in deal-pricing Excel export.
+
+**Tier B — Multi-session IMPORTANT items (≥ 10 dev-days each):**
+Scope as dedicated roadmap entries (Phase 5.3+), not single sessions:
+
+- **Reserve-basis matching** (~10 dev-days) — `ReserveBasis` enum +
+  CRVM/VM-20 alternatives.
+- **IFRS 17 movement table** (~10 dev-days) — Period-to-period
+  reconciliation with annual cohort tracking.
+
+**Tier C — Low-risk polish (≤ 1 dev-day each):**
+Good fillers if time remains at the end of a session:
+
+- Rated-block panel on Excel Assumptions sheet (~0.5 dev-day)
+- Ingestion strict-mode for unknown rating codes (~0.5 dev-day)
+- Weighted concentration variants on `PortfolioResult` (~1 dev-day)
+- LICAT C-1/C-3 interim flat-factor (~1 dev-day)
+
+**Dashboard alignment note (2026-06-04):** The Streamlit dashboard's
+"Scenario Analysis" tab uses `ScenarioRunner` for single-deal stress
+testing (with custom scenario support via UI sliders). The new CLI/API
+`portfolio scenarios` surfaces use `Portfolio.run_scenarios` for multi-
+deal correlated stresses. These are complementary, not divergent — a
+portfolio scenarios dashboard page (Tier A #1 above) would complete
+the picture without modifying either existing surface.
 
 ## Comparison with Previous Assessment
 

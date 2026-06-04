@@ -251,19 +251,23 @@ IRR vs hurdle rate. Without a capital model, the profit tester gives an
 incomplete picture. LICAT is the Canadian standard; equivalent modules for
 RBC (US) and Solvency II (EU) follow the same pattern.
 
-- [ ] `analytics/capital.py` — `LICATCapital` class:
+- [x] `analytics/capital.py` — `LICATCapital` class:
       - C-1 (asset default risk), C-2 (insurance risk), C-3 (interest rate
         risk) component calculations on `CashFlowResult`
       - `required_capital(cashflows, treaty)` → scalar capital amount
       - `return_on_capital(profit_result, capital)` → RoC metric
-- [ ] `ProfitTester` extended: `run_with_capital(capital_model)` returns
+      *(Shipped: ADR-047/048/049; C-2 lapse-risk and morbidity-risk
+      components added ADR-065)*
+- [x] `ProfitTester` extended: `run_with_capital(capital_model)` returns
       `ProfitResultWithCapital` including RoC and capital-adjusted IRR
-- [ ] `polaris price --capital licat` — CLI flag to include capital metrics
-- [ ] `api/main.py` — `capital_model` optional field in `PriceRequest`;
+- [x] `polaris price --capital licat` — CLI flag to include capital metrics
+- [x] `api/main.py` — `capital_model` optional field in `PriceRequest`;
       `return_on_capital` in `PriceResponse`
-- [ ] Tests: C-2 insurance risk factor verification vs OSFI published factors;
+- [x] Tests: C-2 insurance risk factor verification vs OSFI published factors;
       RoC formula closed-form check; 20+ tests
-- [ ] `docs/DECISIONS.md` — ADR-036: LICAT scope and simplifying assumptions
+- [x] `docs/DECISIONS.md` — ADR-036: LICAT scope and simplifying assumptions
+      *(Note: C-1 and C-3 are stubbed at zero pending Phase 5.4 asset/ALM
+      model; see NICE-TO-HAVE in PRODUCT_DIRECTION for interim C-3 factor)*
 
 ---
 
@@ -272,18 +276,20 @@ RBC (US) and Solvency II (EU) follow the same pattern.
 A reinsurer never prices a single treaty. Portfolio-level risk metrics require
 aggregation across multiple independent projection runs.
 
-- [ ] `analytics/portfolio.py` — `Portfolio` class:
+- [x] `analytics/portfolio.py` — `Portfolio` class:
       - Holds a list of `(InforceBlock, AssumptionSet, BaseTreaty)` tuples
       - `run()` → `PortfolioResult` aggregating `CashFlowResult` across all
         deals into aggregate NCF, total ceded NAR, total ceded face
       - `add_deal(inforce, assumptions, treaty, deal_id)` builder pattern
-- [ ] `PortfolioResult`: total IRR, total PV profits, deal-level breakdown
+      *(Shipped: ADR-057/058; calendar-aligned aggregation ADR-061/062;
+      portfolio scenarios ADR-064/066)*
+- [x] `PortfolioResult`: total IRR, total PV profits, deal-level breakdown
       table, concentration by cedant / product type / treaty type
-- [ ] `polaris portfolio run --config deals.yaml` — YAML-driven multi-deal
+- [x] `polaris portfolio run --config deals.yaml` — YAML-driven multi-deal
       runner; `polaris portfolio report` — Rich summary table
-- [ ] `api/main.py` — `POST /api/v1/portfolio` endpoint accepting a list
+- [x] `api/main.py` — `POST /api/v1/portfolio` endpoint accepting a list
       of deal configs
-- [ ] Tests: two-deal additivity (aggregate NCF = sum of individual NCFs);
+- [x] Tests: two-deal additivity (aggregate NCF = sum of individual NCFs);
       concentration metrics; 15+ tests
 
 ---

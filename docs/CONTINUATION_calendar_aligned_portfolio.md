@@ -3,6 +3,8 @@
 **Source:** PRODUCT_DIRECTION_2026-05-23.md — IMPORTANT (Recommended Next
 Sprint #1; Refinement Backlog #1 from CONTINUATION_portfolio_aggregation)
 **Status:** COMPLETE (Slice 2 shipped 2026-05-31)
+**Harvest status:** All surviving refinement items promoted to
+PRODUCT_DIRECTION_2026-05-23.md (confirmed 2026-06-04).
 **Total slices:** 2
 **Estimated total scope:** ~3 dev-days
 
