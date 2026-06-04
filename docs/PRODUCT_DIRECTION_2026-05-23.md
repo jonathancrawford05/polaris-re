@@ -280,15 +280,13 @@ via ADR-065 (PR #52, commit c88db82).)
   *Source: ADR-064 Out of scope + CONTINUATION_portfolio_aggregation
   Refinement Backlog #6.*
 
-- **CLI surfacing of `--solve-mode` on `polaris rate-schedule --table`.**
-  The internal `generate_table(solve_mode="per_duration")` helper exists
-  (ADR-063); the CLI command currently always calls it with the default
-  `"flat"` mode. A `--solve-mode {flat,per_duration}` flag would light
-  up the per-duration solver from the command line, with the generated
-  table's `table_name` already suffix-tagged to disclose which mode
-  produced it. **Scope:** ~1 dev-day. **Affected:**
-  `src/polaris_re/cli.py`, CLI tests.
-  *Source: ADR-063 Out of scope.*
+- ~~**CLI surfacing of `--solve-mode` on `polaris rate-schedule --table`.**~~ —
+  **shipped 2026-06-04 (ADR-067)** as a Typer `Literal["flat",
+  "per_duration"]` option on `polaris rate-schedule`. Default `"flat"`
+  preserves prior behaviour; `--solve-mode per_duration` requires
+  `--table` and exits 1 with a clear error otherwise. The generated
+  `table_name` suffix (already encoded by ADR-063) discloses the mode in
+  the JSON / Excel output. *Source: ADR-063 Out of scope.*
 
 - **Per-duration cell-failure interpolation.** `generate_table(solve_mode=
   "per_duration")` falls back to column-wise forward/back-fill when an
