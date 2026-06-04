@@ -2112,7 +2112,7 @@ def _resolve_scenarios_argument(scenarios_arg: str | None) -> "list[ScenarioAdju
 
 def _render_portfolio_scenarios_summary(
     result_dict: dict[str, object],
-) -> None:  # type: ignore[type-arg]
+) -> None:
     """Render a Rich table summarising the per-scenario aggregate result.
 
     Consumes the flat ``PortfolioScenarioResult.to_dict()`` shape — a
