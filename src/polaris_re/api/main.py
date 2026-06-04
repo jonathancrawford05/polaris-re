@@ -5,15 +5,17 @@ Exposes the core Polaris RE pricing engine over HTTP for integration
 with downstream systems, dashboards, and workflow automation.
 
 Endpoints:
-    GET  /health                  — liveness / readiness probe
-    GET  /version                 — package version information
-    POST /api/v1/price            — run full pricing pipeline (cedant + reinsurer views)
-    POST /api/v1/scenario         — run scenario analysis
-    POST /api/v1/uq               — run Monte Carlo uncertainty quantification
-    POST /api/v1/ifrs17/bba       — compute IFRS 17 BBA measurement
-    POST /api/v1/ifrs17/paa       — compute IFRS 17 PAA measurement
-    POST /api/v1/ingest           — ingest raw cedant inforce data
-    POST /api/v1/rate-schedule    — generate YRT rate schedule for a target IRR
+    GET  /health                       — liveness / readiness probe
+    GET  /version                      — package version information
+    POST /api/v1/price                 — run full pricing pipeline (cedant + reinsurer views)
+    POST /api/v1/scenario              — run scenario analysis
+    POST /api/v1/uq                    — run Monte Carlo uncertainty quantification
+    POST /api/v1/ifrs17/bba            — compute IFRS 17 BBA measurement
+    POST /api/v1/ifrs17/paa            — compute IFRS 17 PAA measurement
+    POST /api/v1/ingest                — ingest raw cedant inforce data
+    POST /api/v1/rate-schedule         — generate YRT rate schedule for a target IRR
+    POST /api/v1/portfolio             — aggregate a multi-deal book
+    POST /api/v1/portfolio/scenarios   — run a portfolio under a stress-scenario set
 
 All request and response bodies are JSON, validated via Pydantic models.
 NumPy arrays are serialised as lists. Dates are ISO-8601 strings.
@@ -27,13 +29,16 @@ Production:
 
 from datetime import date
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 import polaris_re
+
+if TYPE_CHECKING:
+    from polaris_re.analytics.portfolio import Portfolio
 from polaris_re.analytics.capital import LICATCapital
 from polaris_re.analytics.ifrs17 import IFRS17Measurement
 from polaris_re.analytics.profit_test import (
@@ -1318,6 +1323,81 @@ class PortfolioRequest(BaseModel):
     )
 
 
+def _portfolio_from_request_deals(
+    name: str,
+    deals: list[PortfolioDealRequest],
+) -> "Portfolio":
+    """Build a :class:`~polaris_re.analytics.portfolio.Portfolio` from a
+    sequence of :class:`PortfolioDealRequest` payloads.
+
+    Mirrors the per-deal build pipeline used by :func:`api_portfolio` so that
+    both ``POST /api/v1/portfolio`` and the scenarios endpoint
+    (:func:`api_portfolio_scenarios`) consume identical request shapes and
+    produce identical book objects.
+
+    Raises :class:`HTTPException` for any validation failure (bad treaty
+    type, unbuildable treaty, etc.) so the FastAPI handler can re-raise
+    without losing the 400 status code.
+    """
+    from polaris_re.analytics.portfolio import Portfolio
+
+    portfolio = Portfolio(name=name)
+    for deal_req in deals:
+        inforce, assumptions, config = _build_components(
+            policies_in=deal_req.policies,
+            projection_horizon_years=deal_req.projection_horizon_years,
+            discount_rate=deal_req.discount_rate,
+            flat_qx=deal_req.flat_qx,
+            flat_lapse=deal_req.flat_lapse,
+            product_type_str=deal_req.product_type,
+            acquisition_cost_per_policy=deal_req.acquisition_cost_per_policy,
+            maintenance_cost_per_policy_per_year=deal_req.maintenance_cost_per_policy_per_year,
+        )
+
+        # Portfolio rejects non-proportional treaties via Portfolio.add_deal,
+        # but reject empty/null treaties up front so the error is a clean 400.
+        if deal_req.treaty_type not in ("YRT", "Coinsurance", "Modco"):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Deal {deal_req.deal_id!r}: treaty_type must be 'YRT', "
+                    f"'Coinsurance', or 'Modco'; got {deal_req.treaty_type!r}."
+                ),
+            )
+
+        # YRT needs a rate — derive from the gross projection (mirrors /api/v1/price).
+        gross_for_yrt_rate = None
+        if deal_req.treaty_type == "YRT":
+            gross_for_yrt_rate = _run_gross_projection(inforce, assumptions, config)
+
+        total_face = sum(p.face_amount for p in deal_req.policies)
+        treaty = _build_treaty(
+            treaty_type=deal_req.treaty_type,
+            gross=gross_for_yrt_rate,  # type: ignore[arg-type]
+            face_amount=total_face,
+            cession_pct=deal_req.cession_pct,
+            yrt_loading=deal_req.yrt_loading,
+            modco_interest_rate=deal_req.modco_interest_rate,
+        )
+        if treaty is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Deal {deal_req.deal_id!r}: could not build a treaty for "
+                    f"treaty_type={deal_req.treaty_type!r}."
+                ),
+            )
+        portfolio.add_deal(
+            deal_id=deal_req.deal_id,
+            cedant=deal_req.cedant,
+            inforce=inforce,
+            assumptions=assumptions,
+            config=config,
+            treaty=treaty,
+        )
+    return portfolio
+
+
 @app.post("/api/v1/portfolio", tags=["Pricing"])
 def api_portfolio(request: PortfolioRequest) -> dict:  # type: ignore[type-arg]
     """Run a multi-deal portfolio and return aggregate reinsurer-level metrics.
@@ -1327,65 +1407,119 @@ def api_portfolio(request: PortfolioRequest) -> dict:  # type: ignore[type-arg]
     concentration metrics by cedant, product type, and treaty type. The
     response shape mirrors ``PortfolioResult.to_dict()`` — see ADR-057.
     """
-    from polaris_re.analytics.portfolio import Portfolio
+    try:
+        portfolio = _portfolio_from_request_deals(request.name, request.deals)
+        result = portfolio.run(request.hurdle_rate, align=request.align)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return result.to_dict()
+
+
+# =========================================================================
+# POST /api/v1/portfolio/scenarios — Multi-scenario portfolio stress (ADR-066)
+# =========================================================================
+
+
+class PortfolioScenariosRequest(BaseModel):
+    """Request body for ``POST /api/v1/portfolio/scenarios``.
+
+    Carries the same deal list as :class:`PortfolioRequest` plus an optional
+    ``scenarios`` list of scenario names drawn from
+    :meth:`polaris_re.analytics.scenario.ScenarioRunner.standard_stress_scenarios`.
+    When omitted, the deal-committee six-scenario set is used.
+    """
+
+    hurdle_rate: float = Field(
+        default=0.10,
+        ge=0.0,
+        le=1.0,
+        description="Annual hurdle rate applied uniformly to every scenario's aggregate.",
+    )
+    deals: list[PortfolioDealRequest] = Field(
+        min_length=1, description="One entry per reinsurance deal in the portfolio."
+    )
+    name: str = Field(default="portfolio", description="Portfolio identifier (used in run id).")
+    align: Literal["strict", "calendar"] = Field(
+        default="strict",
+        description=(
+            "Time-alignment mode (ADR-061). 'strict' (default) requires every "
+            "deal to share a valuation date. 'calendar' places each deal on a "
+            "common monthly grid keyed off the earliest valuation date. The "
+            "mode is forwarded unchanged to every scenario's aggregate run."
+        ),
+    )
+    scenarios: list[str] | None = Field(
+        default=None,
+        description=(
+            "Optional list of scenario names drawn from the standard six-scenario "
+            "set (BASE, MORT_110, MORT_90, LAPSE_80, LAPSE_120, MORT_110_LAPSE_80). "
+            "Order is preserved in the response. Omit (or pass null) to run the "
+            "full standard set. An empty list is rejected — pass null instead."
+        ),
+    )
+
+
+@app.post("/api/v1/portfolio/scenarios", tags=["Pricing"])
+def api_portfolio_scenarios(request: PortfolioScenariosRequest) -> dict:  # type: ignore[type-arg]
+    """Run a multi-deal portfolio under a stress-scenario set (ADR-066).
+
+    Wires :meth:`polaris_re.analytics.portfolio.Portfolio.run_scenarios`
+    through to the API. The response shape mirrors
+    :meth:`PortfolioScenarioResult.to_dict()` — a flat
+    ``{"scenarios": [{"name", "result"}, ...]}`` mapping where every
+    ``result`` is itself a :meth:`PortfolioResult.to_dict()` payload. The
+    same correlated-stress semantics ADR-064 defines apply: each scenario's
+    mortality / lapse multipliers are applied uniformly to every deal in
+    the book.
+    """
+    from polaris_re.analytics.scenario import ScenarioRunner
+
+    standard = ScenarioRunner.standard_stress_scenarios()
+    by_name = {sc.name: sc for sc in standard}
+
+    if request.scenarios is None:
+        scenario_objs = list(standard)
+    else:
+        if len(request.scenarios) == 0:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "scenarios: empty list. Omit the field (or pass null) to run "
+                    "the standard six-scenario set; otherwise supply at least one "
+                    "scenario name."
+                ),
+            )
+        if len(request.scenarios) != len(set(request.scenarios)):
+            counts: dict[str, int] = {}
+            for n in request.scenarios:
+                counts[n] = counts.get(n, 0) + 1
+            duplicates = sorted(n for n, c in counts.items() if c > 1)
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"scenarios: duplicate names {duplicates}. Each scenario must "
+                    "appear at most once."
+                ),
+            )
+        unknown = [n for n in request.scenarios if n not in by_name]
+        if unknown:
+            valid = ", ".join(sc.name for sc in standard)
+            raise HTTPException(
+                status_code=400,
+                detail=f"scenarios: unknown name(s) {unknown}. Valid names: {valid}.",
+            )
+        scenario_objs = [by_name[n] for n in request.scenarios]
 
     try:
-        portfolio = Portfolio(name=request.name)
-        for deal_req in request.deals:
-            inforce, assumptions, config = _build_components(
-                policies_in=deal_req.policies,
-                projection_horizon_years=deal_req.projection_horizon_years,
-                discount_rate=deal_req.discount_rate,
-                flat_qx=deal_req.flat_qx,
-                flat_lapse=deal_req.flat_lapse,
-                product_type_str=deal_req.product_type,
-                acquisition_cost_per_policy=deal_req.acquisition_cost_per_policy,
-                maintenance_cost_per_policy_per_year=deal_req.maintenance_cost_per_policy_per_year,
-            )
-
-            # Portfolio rejects non-proportional treaties via Portfolio.add_deal,
-            # but reject empty/null treaties up front so the error is a clean 400.
-            if deal_req.treaty_type not in ("YRT", "Coinsurance", "Modco"):
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"Deal {deal_req.deal_id!r}: treaty_type must be 'YRT', "
-                        f"'Coinsurance', or 'Modco'; got {deal_req.treaty_type!r}."
-                    ),
-                )
-
-            # YRT needs a rate — derive from the gross projection (mirrors /api/v1/price).
-            gross_for_yrt_rate = None
-            if deal_req.treaty_type == "YRT":
-                gross_for_yrt_rate = _run_gross_projection(inforce, assumptions, config)
-
-            total_face = sum(p.face_amount for p in deal_req.policies)
-            treaty = _build_treaty(
-                treaty_type=deal_req.treaty_type,
-                gross=gross_for_yrt_rate,  # type: ignore[arg-type]
-                face_amount=total_face,
-                cession_pct=deal_req.cession_pct,
-                yrt_loading=deal_req.yrt_loading,
-                modco_interest_rate=deal_req.modco_interest_rate,
-            )
-            if treaty is None:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"Deal {deal_req.deal_id!r}: could not build a treaty for "
-                        f"treaty_type={deal_req.treaty_type!r}."
-                    ),
-                )
-            portfolio.add_deal(
-                deal_id=deal_req.deal_id,
-                cedant=deal_req.cedant,
-                inforce=inforce,
-                assumptions=assumptions,
-                config=config,
-                treaty=treaty,
-            )
-
-        result = portfolio.run(request.hurdle_rate, align=request.align)
+        portfolio = _portfolio_from_request_deals(request.name, request.deals)
+        result = portfolio.run_scenarios(
+            request.hurdle_rate,
+            scenarios=scenario_objs,
+            align=request.align,
+        )
     except HTTPException:
         raise
     except Exception as exc:

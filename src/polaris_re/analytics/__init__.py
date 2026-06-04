@@ -12,6 +12,7 @@ from polaris_re.analytics.portfolio import (
     Portfolio,
     PortfolioResult,
     PortfolioResultWithCapital,
+    PortfolioScenarioResult,
 )
 from polaris_re.analytics.pricing import NetPremiumCalculator, NetPremiumResult
 from polaris_re.analytics.profit_test import (
@@ -20,7 +21,12 @@ from polaris_re.analytics.profit_test import (
     ProfitTestResult,
 )
 from polaris_re.analytics.rate_schedule import SolveMode, YRTRateSchedule
-from polaris_re.analytics.scenario import ScenarioResult, ScenarioRunner
+from polaris_re.analytics.scenario import (
+    ScenarioAdjustment,
+    ScenarioResult,
+    ScenarioRunner,
+    apply_scenario_to_assumptions,
+)
 from polaris_re.analytics.stochastic import CIRModel, HullWhiteModel, RateScenarios
 from polaris_re.analytics.uq import MonteCarloUQ, UQParameters, UQResult
 
@@ -42,14 +48,17 @@ __all__ = [
     "Portfolio",
     "PortfolioResult",
     "PortfolioResultWithCapital",
+    "PortfolioScenarioResult",
     "ProfitResultWithCapital",
     "ProfitTestResult",
     "ProfitTester",
     "RateScenarios",
+    "ScenarioAdjustment",
     "ScenarioResult",
     "ScenarioRunner",
     "SolveMode",
     "UQParameters",
     "UQResult",
     "YRTRateSchedule",
+    "apply_scenario_to_assumptions",
 ]
