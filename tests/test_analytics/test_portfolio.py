@@ -484,6 +484,184 @@ class TestPortfolioConcentration:
 
 
 # ---------------------------------------------------------------------------
+# Weighted concentration variants (ADR-069)
+# ---------------------------------------------------------------------------
+
+
+class TestPortfolioConcentrationByBasis:
+    """``concentration_by_basis`` exposes share-of-total under multiple weight bases.
+
+    The default ``ceded_face`` basis matches the flat ``concentration_by_*`` fields
+    bit-for-bit. ``ceded_nar_peak`` and ``pv_premium`` re-weight by per-deal
+    risk and revenue exposure so a coinsurance / YRT mix concentrates differently
+    on each basis (ADR-069).
+    """
+
+    def test_supported_bases_present(self):
+        result = Portfolio().add_deal(**_deal_spec("D1", "CedantA")).run(HURDLE)
+        assert set(result.concentration_by_basis.keys()) == {
+            "ceded_face",
+            "ceded_nar_peak",
+            "pv_premium",
+        }
+        for basis in result.concentration_by_basis.values():
+            assert set(basis.keys()) == {"cedant", "product", "treaty"}
+
+    def test_ceded_face_basis_matches_flat_concentration(self):
+        """``concentration_by_basis['ceded_face']`` reproduces the flat fields."""
+        result = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", face=300_000.0))
+            .add_deal(**_deal_spec("D2", "CedantB", face=700_000.0))
+            .add_deal(**_deal_spec("D3", "CedantC", face=100_000.0))
+            .run(HURDLE)
+        )
+        face_basis = result.concentration_by_basis["ceded_face"]
+        assert face_basis["cedant"] == result.concentration_by_cedant
+        assert face_basis["product"] == result.concentration_by_product
+        assert face_basis["treaty"] == result.concentration_by_treaty
+
+    def test_ceded_face_hhi_matches_flat_hhi(self):
+        result = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", face=400_000.0))
+            .add_deal(**_deal_spec("D2", "CedantB", face=600_000.0))
+            .run(HURDLE)
+        )
+        face_hhi = result.hhi_by_basis["ceded_face"]
+        for dimension in ("cedant", "product", "treaty"):
+            assert face_hhi[dimension] == pytest.approx(result.hhi[dimension])
+
+    def test_all_bases_shares_sum_to_one(self):
+        """Every (basis, dimension) share dict sums to 1.0."""
+        result = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", face=300_000.0))
+            .add_deal(**_deal_spec("D2", "CedantB", face=700_000.0))
+            .run(HURDLE)
+        )
+        for basis, dims in result.concentration_by_basis.items():
+            for dimension, shares in dims.items():
+                assert sum(shares.values()) == pytest.approx(1.0), (
+                    f"basis={basis} dimension={dimension} shares={shares}"
+                )
+
+    def test_nar_peak_basis_concentrates_on_yrt(self):
+        """YRT exposes ceded NAR; coinsurance does not — NAR-peak weight
+        should put 100% of the cedant share on the YRT deal."""
+        yrt = YRTTreaty(
+            treaty_name="y",
+            cession_pct=0.5,
+            total_face_amount=1_000_000.0,
+            flat_yrt_rate_per_1000=2.0,
+        )
+        result = (
+            Portfolio()
+            .add_deal(**_deal_spec("YRT_DEAL", "CedantA", treaty=yrt))
+            .add_deal(
+                **_deal_spec(
+                    "COIN_DEAL",
+                    "CedantB",
+                    treaty=CoinsuranceTreaty(cession_pct=0.5, treaty_name="c"),
+                )
+            )
+            .run(HURDLE)
+        )
+        nar_basis = result.concentration_by_basis["ceded_nar_peak"]
+        # All NAR comes from the YRT deal (CedantA), so CedantA share = 1.0.
+        assert nar_basis["cedant"]["CedantA"] == pytest.approx(1.0)
+        assert nar_basis["cedant"].get("CedantB", 0.0) == pytest.approx(0.0)
+        # Treaty dimension: 100% YRT under NAR-peak weighting.
+        assert nar_basis["treaty"]["YRT"] == pytest.approx(1.0)
+        # On ceded-face basis the same portfolio splits 50/50 — the bases differ.
+        assert result.concentration_by_basis["ceded_face"]["treaty"]["YRT"] == pytest.approx(0.5)
+
+    def test_pv_premium_basis_weights_by_revenue(self):
+        """Closed-form: a deal with 3x the premium dominates the PV-premium share.
+
+        With identical assumptions, mortality, and cession_pct, doubling the
+        face amount on a TERM deal exactly doubles its reinsurer-side
+        pv_premiums — so a 300K/900K split concentrates 25%/75% by PV-premium.
+        """
+        result = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", face=300_000.0))
+            .add_deal(**_deal_spec("D2", "CedantB", face=900_000.0))
+            .run(HURDLE)
+        )
+        pv_basis = result.concentration_by_basis["pv_premium"]
+        assert pv_basis["cedant"]["CedantA"] == pytest.approx(0.25)
+        assert pv_basis["cedant"]["CedantB"] == pytest.approx(0.75)
+
+    def test_pv_premium_basis_matches_per_deal_pv_premiums(self):
+        """Direct closed-form: PV-premium share equals each deal's
+        ``profit_test.pv_premiums`` divided by the portfolio total."""
+        result = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", face=400_000.0))
+            .add_deal(**_deal_spec("D2", "CedantB", face=600_000.0))
+            .run(HURDLE)
+        )
+        per_deal_pv_premiums = {dr.cedant: dr.profit_test.pv_premiums for dr in result.deal_results}
+        total = sum(per_deal_pv_premiums.values())
+        expected = {cedant: pv / total for cedant, pv in per_deal_pv_premiums.items()}
+        pv_basis = result.concentration_by_basis["pv_premium"]
+        for cedant, share in expected.items():
+            assert pv_basis["cedant"][cedant] == pytest.approx(share)
+
+    def test_hhi_by_basis_matches_squared_shares(self):
+        """HHI per basis is the sum of squared shares for each dimension."""
+        result = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", face=300_000.0))
+            .add_deal(**_deal_spec("D2", "CedantB", face=700_000.0))
+            .run(HURDLE)
+        )
+        for basis, dims in result.concentration_by_basis.items():
+            for dimension, shares in dims.items():
+                expected_hhi = sum(s * s for s in shares.values())
+                assert result.hhi_by_basis[basis][dimension] == pytest.approx(expected_hhi)
+
+    def test_single_deal_all_bases_concentrate_fully(self):
+        """A single deal owns 100% of every (basis, dimension)."""
+        result = Portfolio().add_deal(**_deal_spec("D1", "CedantA")).run(HURDLE)
+        for basis, dims in result.concentration_by_basis.items():
+            for dimension in ("cedant", "product", "treaty"):
+                assert sum(dims[dimension].values()) == pytest.approx(1.0)
+                assert result.hhi_by_basis[basis][dimension] == pytest.approx(1.0)
+
+    def test_concentration_by_basis_in_to_dict(self):
+        """``to_dict`` carries the nested ``concentration_by_basis`` + ``hhi_by_basis``."""
+        result = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA"))
+            .add_deal(**_deal_spec("D2", "CedantB"))
+            .run(HURDLE)
+        )
+        d = result.to_dict()
+        assert "concentration_by_basis" in d
+        assert "hhi_by_basis" in d
+        cbb = d["concentration_by_basis"]
+        assert set(cbb.keys()) == {"ceded_face", "ceded_nar_peak", "pv_premium"}
+        # The flat ``concentration`` key is unchanged for backward compatibility.
+        assert d["concentration"]["cedant"] == result.concentration_by_cedant
+        # The new nested key matches the flat one on the ceded_face basis.
+        assert cbb["ceded_face"]["cedant"] == result.concentration_by_cedant
+
+    def test_to_dict_is_json_serialisable(self):
+        """The whole flattened result, including the new keys, round-trips through JSON."""
+        import json
+
+        result = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA"))
+            .add_deal(**_deal_spec("D2", "CedantB"))
+            .run(HURDLE)
+        )
+        json.dumps(result.to_dict())
+
+
+# ---------------------------------------------------------------------------
 # Per-deal breakdown
 # ---------------------------------------------------------------------------
 

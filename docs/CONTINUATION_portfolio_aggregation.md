@@ -139,12 +139,18 @@ are recorded here so later slices can plan for them.
    "sum of per-deal PV at per-deal hurdles" from "PV of the aggregate at
    a common benchmark rate" — the aggregate `ProfitTester` pattern is
    what changes.
-5. **Concentration is face-weighted only.** The `_concentration` helper
+5. **Concentration is face-weighted only.** ~~The `_concentration` helper
    takes generic `(label, weight)` pairs, so NAR-weighted,
    PV-premium-weighted, or capital-weighted concentration is structurally
    trivial to add — but `PortfolioResult` currently exposes only three
    face-weighted dicts + one HHI dict. A future shape like
-   `concentration[dimension][weight_basis]` would generalise it.
+   `concentration[dimension][weight_basis]` would generalise it.~~ —
+   **in flight on PR #56 (ADR-069 — awaiting merge)** as
+   `concentration_by_basis` and `hhi_by_basis` fields on
+   `PortfolioResult` keyed `{basis: {dimension: {label: share}}}` with
+   `ceded_face`, `ceded_nar_peak`, and `pv_premium` bases. The capital-
+   weighted basis was deliberately deferred and has been promoted as a
+   standalone follow-up in PRODUCT_DIRECTION_2026-05-23.md.
 6. **Sequential execution, append-only builder.** `_run_deal` is
    stateless and independent — trivially parallelisable — but the loop
    is sequential. There is no `remove_deal()` and no per-deal result

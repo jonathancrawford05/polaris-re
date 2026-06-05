@@ -41,7 +41,7 @@ Time alignment (ADR-061). ``run`` takes an ``align`` mode:
 import dataclasses
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Literal
+from typing import Final, Literal
 
 import numpy as np
 
@@ -59,9 +59,18 @@ from polaris_re.reinsurance.base_treaty import BaseTreaty
 from polaris_re.utils.date_utils import months_between
 
 type AlignMode = Literal["strict", "calendar"]
+type ConcentrationBasis = Literal["ceded_face", "ceded_nar_peak", "pv_premium"]
+
+CONCENTRATION_BASES: Final[tuple[ConcentrationBasis, ...]] = (
+    "ceded_face",
+    "ceded_nar_peak",
+    "pv_premium",
+)
 
 __all__ = [
+    "CONCENTRATION_BASES",
     "AlignMode",
+    "ConcentrationBasis",
     "Deal",
     "DealResult",
     "Portfolio",
@@ -155,6 +164,17 @@ class PortfolioResult:
     index for each dimension ("cedant", "product", "treaty") — the sum of
     squared shares, ranging from ``1/k`` (perfectly diversified across ``k``
     categories) to ``1.0`` (fully concentrated).
+
+    ``concentration_by_basis`` exposes the same per-dimension shares under
+    multiple weight bases — ``ceded_face`` (the static face-weighted view that
+    matches the flat fields above), ``ceded_nar_peak`` (each deal weighted by
+    its peak ceded NAR — risk exposure), and ``pv_premium`` (revenue
+    exposure, taken from each deal's reinsurer-view profit test). Shape is
+    ``{basis: {dimension: {label: share}}}`` with each label-share dict
+    summing to 1.0. ``hhi_by_basis`` carries the matching Herfindahl indices
+    as ``{basis: {dimension: hhi}}``. The ``ceded_face`` basis reproduces the
+    flat ``concentration_by_*`` / ``hhi`` fields bit-for-bit so the two
+    surfaces never drift (ADR-069).
     """
 
     n_deals: int
@@ -176,6 +196,8 @@ class PortfolioResult:
     concentration_by_product: dict[str, float]
     concentration_by_treaty: dict[str, float]
     hhi: dict[str, float]
+    concentration_by_basis: dict[str, dict[str, dict[str, float]]] = field(default_factory=dict)
+    hhi_by_basis: dict[str, dict[str, float]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         """Flatten the result into a JSON-serialisable plain dict.
@@ -227,6 +249,11 @@ class PortfolioResult:
                 "treaty": dict(self.concentration_by_treaty),
             },
             "hhi": dict(self.hhi),
+            "concentration_by_basis": {
+                basis: {dim: dict(shares) for dim, shares in dims.items()}
+                for basis, dims in self.concentration_by_basis.items()
+            },
+            "hhi_by_basis": {basis: dict(dims) for basis, dims in self.hhi_by_basis.items()},
         }
 
 
@@ -427,6 +454,46 @@ def _herfindahl(shares: dict[str, float]) -> float:
     return float(sum(share * share for share in shares.values()))
 
 
+def _deal_weight(deal_result: DealResult, basis: ConcentrationBasis) -> float:
+    """Return the weight a single deal contributes under ``basis`` (ADR-069).
+
+    - ``ceded_face`` is the static face-weighted view used by the flat
+      ``concentration_by_*`` fields — exposure as of the projection start.
+    - ``ceded_nar_peak`` is the peak ceded NAR across the projection;
+      proportional treaties without a NAR vector (coinsurance, modco) report
+      zero, matching their on-statement risk exposure.
+    - ``pv_premium`` is the reinsurer-view present value of premiums from the
+      deal's own profit test, capturing revenue exposure consistently with
+      the per-deal hurdle rate.
+    """
+    if basis == "ceded_face":
+        return float(deal_result.ceded_face)
+    if basis == "ceded_nar_peak":
+        nar = deal_result.ceded_nar
+        return float(nar.max()) if nar.size > 0 else 0.0
+    if basis == "pv_premium":
+        return float(deal_result.profit_test.pv_premiums)
+    raise PolarisValidationError(f"Unknown concentration basis: {basis!r}.")
+
+
+def _concentration_for_basis(
+    deal_results: list[DealResult],
+    basis: ConcentrationBasis,
+) -> dict[str, dict[str, float]]:
+    """Compute share-of-total per dimension under one weight basis.
+
+    Returns ``{dimension: {label: share}}`` for the cedant / product / treaty
+    dimensions. Delegates to :func:`_concentration`, which handles the
+    zero-total degenerate case by assigning equal shares.
+    """
+    weights = [(dr, _deal_weight(dr, basis)) for dr in deal_results]
+    return {
+        "cedant": _concentration([(dr.cedant, w) for dr, w in weights]),
+        "product": _concentration([(dr.product_type, w) for dr, w in weights]),
+        "treaty": _concentration([(dr.treaty_type, w) for dr, w in weights]),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Portfolio
 # ---------------------------------------------------------------------------
@@ -608,15 +675,18 @@ class Portfolio:
         total_face = sum(deal_result.face_amount for deal_result in deal_results)
         total_ceded_face = sum(deal_result.ceded_face for deal_result in deal_results)
 
-        concentration_by_cedant = _concentration(
-            [(dr.cedant, dr.ceded_face) for dr in deal_results]
-        )
-        concentration_by_product = _concentration(
-            [(dr.product_type, dr.ceded_face) for dr in deal_results]
-        )
-        concentration_by_treaty = _concentration(
-            [(dr.treaty_type, dr.ceded_face) for dr in deal_results]
-        )
+        # Weighted concentration variants — face / NAR-peak / PV-premium.
+        # The ``ceded_face`` basis IS the flat concentration view (ADR-069).
+        concentration_by_basis: dict[str, dict[str, dict[str, float]]] = {
+            basis: _concentration_for_basis(deal_results, basis) for basis in CONCENTRATION_BASES
+        }
+        hhi_by_basis: dict[str, dict[str, float]] = {
+            basis: {dim: _herfindahl(shares) for dim, shares in dims.items()}
+            for basis, dims in concentration_by_basis.items()
+        }
+        concentration_by_cedant = concentration_by_basis["ceded_face"]["cedant"]
+        concentration_by_product = concentration_by_basis["ceded_face"]["product"]
+        concentration_by_treaty = concentration_by_basis["ceded_face"]["treaty"]
 
         return PortfolioResult(
             n_deals=len(deal_results),
@@ -637,11 +707,9 @@ class Portfolio:
             concentration_by_cedant=concentration_by_cedant,
             concentration_by_product=concentration_by_product,
             concentration_by_treaty=concentration_by_treaty,
-            hhi={
-                "cedant": _herfindahl(concentration_by_cedant),
-                "product": _herfindahl(concentration_by_product),
-                "treaty": _herfindahl(concentration_by_treaty),
-            },
+            hhi=hhi_by_basis["ceded_face"],
+            concentration_by_basis=concentration_by_basis,
+            hhi_by_basis=hhi_by_basis,
         )
 
     def run_with_capital(
