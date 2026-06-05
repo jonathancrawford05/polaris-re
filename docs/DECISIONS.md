@@ -3871,3 +3871,124 @@ emits.
   HHI-by-basis equals squared shares, single-deal full concentration,
   `to_dict` shape, JSON round-trip; ~+155 lines).
 
+---
+
+## ADR-070: `--concentration-basis` flag on `polaris portfolio run` / `report`
+
+**Date:** 2026-06-05
+**Status:** Accepted
+
+**Context.** ADR-069 added `concentration_by_basis` and `hhi_by_basis`
+to `PortfolioResult.to_dict()` — a three-basis nested view of
+`{basis: {dimension: {label: share}}}` for the `ceded_face`,
+`ceded_nar_peak`, and `pv_premium` weight bases. The JSON payload was
+the contract change; the CLI was left to a follow-up. The
+`polaris portfolio run` Rich tables and the `polaris portfolio report`
+re-renderer continued to consume only the flat `concentration` /
+`hhi` keys, so the new bases were reachable from a Python REPL or
+the JSON output but not from the command line — which is the
+production interface for an ops-driven deal committee. The follow-up
+was promoted to `PRODUCT_DIRECTION_2026-05-23.md` as a NICE-TO-HAVE
+1–2 dev-day item (source: ADR-069 Out of scope).
+
+**Decision.** Add a `--concentration-basis` Typer option to both
+`portfolio_run_cmd` and `portfolio_report_cmd`. The option accepts
+`ceded_face` (default), `ceded_nar_peak`, `pv_premium`, or `all`.
+Typer auto-validates the choice from a `Literal[...]` annotation —
+matching the ADR-067 pattern for `--solve-mode` — so an unknown value
+exits with the standard Click usage error before any projection runs.
+
+The renderer was refactored to consume the new field. The
+concentration / HHI block of `_render_portfolio_summary` is now a
+loop over the basis tuple (one entry for the explicit single-basis
+case, three entries for `"all"`), each rendered by a new
+`_render_concentration_tables_for_basis` helper. The helper reads
+from `result_dict["concentration_by_basis"][basis]` when the key is
+present and from the flat `concentration` / `hhi` keys when it is not
+(legacy result JSON written before ADR-069). Non-face bases on a
+legacy file emit a one-line warning and skip rendering for that basis
+rather than failing — `polaris portfolio report` is the upgrade-path
+surface, and refusing to render a legacy file would force users to
+re-run prior portfolio jobs just to view them.
+
+Every concentration table title now discloses the weight basis:
+"Concentration by Cedant — weighted by Ceded Face (HHI = 0.500)".
+Previously the title was the unqualified
+"Concentration by Cedant (HHI = 0.500)" which silently meant
+face-weighting. Disclosing the basis costs nothing on the default
+path and prevents the off-by-default misreading of the non-default
+sections under `--concentration-basis all`.
+
+**Rationale for `"all"` over multiple flag invocations.** A single
+`--concentration-basis all` is friendlier than a hypothetical
+multi-valued flag (`--concentration-basis ceded_face
+--concentration-basis ceded_nar_peak`) and avoids defining a
+custom Typer parameter parser. The deal committee's most common
+read is "show me everything"; the per-basis values exist for the
+narrower "I only care about NAR" case.
+
+**Rationale for in-CLI fallback to flat keys.** The fallback is
+~10 lines and removes a class of upgrade-path failure: a polaris-re
+upgrade does not invalidate prior portfolio JSON outputs. The
+warning-and-skip behaviour for non-face bases on legacy files keeps
+the failure mode obvious without an abort.
+
+**Rationale for changing every title to disclose the basis.** No
+test asserts on the title strings, so this is a free clarity win.
+Inside `--concentration-basis all`, the three sections would
+otherwise be visually indistinguishable. The renderer never wins by
+leaving the weight basis implicit.
+
+**Consequences.**
+- `polaris portfolio run --concentration-basis ceded_nar_peak` and
+  `--concentration-basis pv_premium` surface the new bases without
+  changing the JSON output (which still carries all three under
+  `concentration_by_basis`).
+- `polaris portfolio report --concentration-basis all` re-renders a
+  result JSON in all three weighting views without re-running the
+  projection — useful for committee-room review of an already-priced
+  portfolio.
+- The JSON output is unchanged by this ADR. The flag only controls
+  the rendered Rich tables.
+- The `--concentration-basis` flag is not added to `polaris portfolio
+  scenarios` because the scenarios renderer (one row per scenario,
+  no concentration tables) does not consume concentration data. The
+  per-scenario JSON still carries `concentration_by_basis` for every
+  scenario sub-result.
+
+**Impact on golden baselines.** None. `polaris price` does not flow
+through `Portfolio.run`. The default-basis rendered output is
+visually similar to the prior format (only the title gains a
+"— weighted by Ceded Face" suffix) and no test asserts on the prior
+title text.
+
+**Out of scope.**
+- **Dashboard concentration-basis selector.** The Streamlit dashboard
+  portfolio view (when it lands — currently in the NICE-TO-HAVE queue)
+  would expose the same three bases via a Streamlit selectbox. Still
+  tracked under PRODUCT_DIRECTION_2026-05-23 — Source: ADR-069 Out of
+  scope.
+- **Capital-weighted basis.** Same reasoning as ADR-069: capital
+  weights only exist on `PortfolioResultWithCapital`. The CLI flag
+  signature is forward-compatible with a fourth `capital` choice;
+  adding it is a follow-up if the deal committee asks. Still tracked
+  under PRODUCT_DIRECTION_2026-05-23 — Source: ADR-069 Out of scope.
+
+**Affected files.**
+- `src/polaris_re/cli.py` (+`_PORTFOLIO_CONCENTRATION_BASES` tuple
+  and `_PORTFOLIO_CONCENTRATION_BASIS_LABELS` mapping;
+  +`_render_concentration_tables_for_basis` helper;
+  +`concentration_basis` parameter on `_render_portfolio_summary`;
+  +`--concentration-basis` Typer option on `portfolio_run_cmd` and
+  `portfolio_report_cmd`; ~+85 lines, ~-25 lines).
+- `tests/test_analytics/test_cli_portfolio.py`
+  (+`TestPortfolioRunConcentrationBasisFlag` with 7 tests:
+  default basis matches face, explicit ceded_face matches default,
+  ceded_nar_peak renders NAR-only section, pv_premium renders
+  PV-only section, "all" renders three sections, invalid basis
+  rejected by Typer, JSON output carries all three bases regardless
+  of flag; +`TestPortfolioReportConcentrationBasisFlag` with 3 tests:
+  report supports "all", report falls back to flat keys on legacy
+  JSON, report warns and skips on non-face basis with legacy JSON;
+  ~+225 lines).
+

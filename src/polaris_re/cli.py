@@ -1937,11 +1937,83 @@ def _build_portfolio_from_config(
     return portfolio, hurdle_rate
 
 
-def _render_portfolio_summary(result_dict: dict[str, object]) -> None:  # type: ignore[type-arg]
+_PORTFOLIO_CONCENTRATION_BASES: tuple[str, ...] = (
+    "ceded_face",
+    "ceded_nar_peak",
+    "pv_premium",
+)
+
+_PORTFOLIO_CONCENTRATION_BASIS_LABELS: dict[str, str] = {
+    "ceded_face": "Ceded Face",
+    "ceded_nar_peak": "Peak Ceded NAR",
+    "pv_premium": "PV Premium",
+}
+
+
+def _render_concentration_tables_for_basis(
+    result_dict: dict[str, object],  # type: ignore[type-arg]
+    basis: str,
+) -> None:
+    """Render the cedant / product / treaty concentration tables for one weight basis.
+
+    ADR-069 surfaces a three-basis nested view at
+    ``result_dict["concentration_by_basis"][basis][dimension][label]``.
+    For legacy result JSON files written before ADR-069 the nested key is
+    absent; the ``ceded_face`` basis falls back to the flat
+    ``concentration`` / ``hhi`` keys so ``polaris portfolio report`` still
+    renders pre-ADR-069 JSON correctly. Any non-face basis on a legacy file
+    emits a one-line warning and skips rendering for that basis.
+    """
+    nested = result_dict.get("concentration_by_basis")
+    nested_hhi = result_dict.get("hhi_by_basis")
+    if isinstance(nested, dict) and basis in nested:
+        concentration = nested[basis]
+        hhi = nested_hhi[basis] if isinstance(nested_hhi, dict) else {}
+    elif basis == "ceded_face":
+        concentration = result_dict["concentration"]
+        hhi = result_dict["hhi"]
+    else:
+        console.print(
+            f"[yellow]Warning:[/yellow] Result JSON does not include "
+            f"weight basis {basis!r} (only 'ceded_face' is available on "
+            "pre-ADR-069 outputs); skipping this section."
+        )
+        return
+
+    basis_label = _PORTFOLIO_CONCENTRATION_BASIS_LABELS[basis]
+    for dimension in ("cedant", "product", "treaty"):
+        shares = concentration[dimension]  # type: ignore[index]
+        if not shares:
+            continue
+        tbl = Table(
+            title=(
+                f"Concentration by {dimension.title()} — weighted by "
+                f"{basis_label} (HHI = {float(hhi[dimension]):.3f})"  # type: ignore[index]
+            ),
+            border_style="magenta",
+        )
+        tbl.add_column(dimension.title(), style="bold")
+        tbl.add_column(f"Share of {basis_label}", justify="right")
+        for label, share in sorted(shares.items(), key=lambda kv: -float(kv[1])):
+            tbl.add_row(str(label), f"{float(share):.2%}")
+        console.print(tbl)
+
+
+def _render_portfolio_summary(
+    result_dict: dict[str, object],  # type: ignore[type-arg]
+    concentration_basis: Literal["ceded_face", "ceded_nar_peak", "pv_premium", "all"] = (
+        "ceded_face"
+    ),
+) -> None:
     """Render Rich tables for a portfolio result dict.
 
     Accepts either a fresh ``PortfolioResult.to_dict()`` output or a result
     JSON re-loaded from disk — both share the same shape.
+
+    ``concentration_basis`` selects which weight basis is rendered for the
+    concentration / HHI tables (ADR-069). Defaults to ``"ceded_face"`` to
+    preserve the historical face-weighted view. Pass ``"all"`` to render
+    all three bases stacked.
     """
     n_deals = int(result_dict["n_deals"])  # type: ignore[arg-type]
     total_pv = float(result_dict["total_pv_profits"])  # type: ignore[arg-type]
@@ -1997,22 +2069,11 @@ def _render_portfolio_summary(result_dict: dict[str, object]) -> None:  # type: 
         )
     console.print(deals)
 
-    # Concentration tables
-    concentration = result_dict["concentration"]  # type: ignore[index]
-    hhi = result_dict["hhi"]  # type: ignore[index]
-    for dimension in ("cedant", "product", "treaty"):
-        shares = concentration[dimension]  # type: ignore[index]
-        if not shares:
-            continue
-        tbl = Table(
-            title=f"Concentration by {dimension.title()} (HHI = {float(hhi[dimension]):.3f})",
-            border_style="magenta",
-        )
-        tbl.add_column(dimension.title(), style="bold")
-        tbl.add_column("Share of Ceded Face", justify="right")
-        for label, share in sorted(shares.items(), key=lambda kv: -float(kv[1])):
-            tbl.add_row(str(label), f"{float(share):.2%}")
-        console.print(tbl)
+    bases_to_render: tuple[str, ...] = (
+        _PORTFOLIO_CONCENTRATION_BASES if concentration_basis == "all" else (concentration_basis,)
+    )
+    for basis in bases_to_render:
+        _render_concentration_tables_for_basis(result_dict, basis)
 
 
 @portfolio_app.command("run")
@@ -2054,6 +2115,22 @@ def portfolio_run_cmd(
             ),
         ),
     ] = "strict",
+    concentration_basis: Annotated[
+        Literal["ceded_face", "ceded_nar_peak", "pv_premium", "all"],
+        typer.Option(
+            "--concentration-basis",
+            help=(
+                "Weight basis for the rendered concentration / HHI tables (ADR-069). "
+                "'ceded_face' (default) — share of total ceded face. "
+                "'ceded_nar_peak' — share weighted by each deal's peak ceded NAR, "
+                "the production view for YRT-heavy books. "
+                "'pv_premium' — share weighted by ceded PV-premium revenue. "
+                "'all' — render all three bases stacked. The JSON output always "
+                "carries all three under 'concentration_by_basis'; this flag "
+                "only controls the rendered Rich tables."
+            ),
+        ),
+    ] = "ceded_face",
 ) -> None:
     """
     [bold]Run a multi-deal portfolio and aggregate reinsurer-level metrics.[/bold]
@@ -2088,7 +2165,7 @@ def portfolio_run_cmd(
             raise typer.Exit(code=1) from exc
 
     result_dict = result.to_dict()
-    _render_portfolio_summary(result_dict)
+    _render_portfolio_summary(result_dict, concentration_basis=concentration_basis)
 
     _write_output(result_dict, output_path, default_name="portfolio.json")
 
@@ -2303,6 +2380,19 @@ def portfolio_report_cmd(
             help="Path to a portfolio result JSON file written by 'polaris portfolio run'.",
         ),
     ],
+    concentration_basis: Annotated[
+        Literal["ceded_face", "ceded_nar_peak", "pv_premium", "all"],
+        typer.Option(
+            "--concentration-basis",
+            help=(
+                "Weight basis for the rendered concentration / HHI tables "
+                "(ADR-069). 'ceded_face' (default), 'ceded_nar_peak', "
+                "'pv_premium', or 'all'. Pre-ADR-069 result JSON only carries "
+                "the face-weighted view; non-face bases warn and skip when "
+                "the input is a legacy file."
+            ),
+        ),
+    ] = "ceded_face",
 ) -> None:
     """
     [bold]Re-render a portfolio result JSON without re-running the projection.[/bold]
@@ -2326,7 +2416,7 @@ def portfolio_report_cmd(
             "(missing 'deals' key)."
         )
         raise typer.Exit(code=1)
-    _render_portfolio_summary(result_dict)
+    _render_portfolio_summary(result_dict, concentration_basis=concentration_basis)
 
 
 @app.command()
