@@ -20,6 +20,7 @@ from polaris_re.utils.excel_output import (
     AssumptionsMetaExport,
     DealMetaExport,
     DealPricingExport,
+    RatedBlockExport,
     ScenarioMetric,
     write_deal_pricing_excel,
     write_yrt_rate_table_excel,
@@ -357,6 +358,147 @@ class TestAssumptionsSheet:
         assert ws.cell(row=row, column=2).value == pytest.approx(
             minimal_export.deal_meta.hurdle_rate
         )
+
+
+# ---------------------------------------------------------------------------
+# Rated-block panel on the Assumptions sheet (ADR-068)
+# ---------------------------------------------------------------------------
+
+
+def _make_rated_block(
+    *,
+    n_policies: int = 500,
+    n_rated: int = 60,
+    pct_rated_by_count: float = 0.12,
+    pct_rated_by_face: float = 0.18,
+    face_weighted_mean_multiplier: float = 1.075,
+    max_multiplier: float = 3.0,
+    max_flat_extra_per_1000: float = 5.0,
+) -> RatedBlockExport:
+    return RatedBlockExport(
+        n_policies=n_policies,
+        n_rated=n_rated,
+        pct_rated_by_count=pct_rated_by_count,
+        pct_rated_by_face=pct_rated_by_face,
+        face_weighted_mean_multiplier=face_weighted_mean_multiplier,
+        max_multiplier=max_multiplier,
+        max_flat_extra_per_1000=max_flat_extra_per_1000,
+    )
+
+
+class TestRatedBlockPanel:
+    """Open Question #3 from CONTINUATION_deal_pricing_excel (ADR-068).
+
+    The Assumptions sheet picks up an optional panel of substandard-rating
+    composition. Suppressed when ``rated_block is None`` or when no rated
+    lives are present, so all-standard blocks remain byte-identical to
+    pre-ADR-068 output.
+    """
+
+    def test_panel_absent_by_default(
+        self, minimal_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(minimal_export, out)
+        ws = load_workbook(out)["Assumptions"]
+        labels = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+        assert "Rated Block" not in labels
+        assert "Policies Rated" not in labels
+
+    def test_panel_suppressed_when_n_rated_zero(self, tmp_path: Path) -> None:
+        export = DealPricingExport(
+            deal_meta=_make_deal_meta(),
+            assumptions_meta=_make_assumptions_meta(),
+            cedant_result=_make_profit_result(),
+            reinsurer_result=None,
+            net_cashflows=_make_cashflows("NET"),
+            rated_block=_make_rated_block(
+                n_rated=0,
+                pct_rated_by_count=0.0,
+                pct_rated_by_face=0.0,
+                face_weighted_mean_multiplier=1.0,
+                max_multiplier=1.0,
+                max_flat_extra_per_1000=0.0,
+            ),
+        )
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        ws = load_workbook(out)["Assumptions"]
+        labels = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+        assert "Policies Rated" not in labels
+
+    def test_panel_renders_when_rated_lives_present(self, tmp_path: Path) -> None:
+        export = DealPricingExport(
+            deal_meta=_make_deal_meta(),
+            assumptions_meta=_make_assumptions_meta(),
+            cedant_result=_make_profit_result(),
+            reinsurer_result=None,
+            net_cashflows=_make_cashflows("NET"),
+            rated_block=_make_rated_block(),
+        )
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        ws = load_workbook(out)["Assumptions"]
+        labels = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+        # Section header + the six labelled rows from `rating_composition`.
+        assert "Rated Block" in labels
+        assert "Policies Rated" in labels
+        assert "% Rated (by count)" in labels
+        assert "% Rated (by face)" in labels
+        assert "Face-weighted Avg Multiplier" in labels
+        assert "Max Multiplier" in labels
+        assert "Max Flat Extra / $1,000" in labels
+
+    def test_panel_n_rated_value(self, tmp_path: Path) -> None:
+        rated = _make_rated_block(n_rated=73)
+        export = DealPricingExport(
+            deal_meta=_make_deal_meta(),
+            assumptions_meta=_make_assumptions_meta(),
+            cedant_result=_make_profit_result(),
+            reinsurer_result=None,
+            net_cashflows=_make_cashflows("NET"),
+            rated_block=rated,
+        )
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        ws = load_workbook(out)["Assumptions"]
+        row = _find_row_with_label(ws, "Policies Rated")
+        assert ws.cell(row=row, column=2).value == 73
+
+    def test_panel_face_weighted_multiplier_value(self, tmp_path: Path) -> None:
+        rated = _make_rated_block(face_weighted_mean_multiplier=1.234)
+        export = DealPricingExport(
+            deal_meta=_make_deal_meta(),
+            assumptions_meta=_make_assumptions_meta(),
+            cedant_result=_make_profit_result(),
+            reinsurer_result=None,
+            net_cashflows=_make_cashflows("NET"),
+            rated_block=rated,
+        )
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        ws = load_workbook(out)["Assumptions"]
+        row = _find_row_with_label(ws, "Face-weighted Avg Multiplier")
+        assert ws.cell(row=row, column=2).value == pytest.approx(1.234)
+
+    def test_panel_percentage_formatting(self, tmp_path: Path) -> None:
+        """`pct_rated_*` cells render with a percent number format."""
+        rated = _make_rated_block(pct_rated_by_count=0.123, pct_rated_by_face=0.21)
+        export = DealPricingExport(
+            deal_meta=_make_deal_meta(),
+            assumptions_meta=_make_assumptions_meta(),
+            cedant_result=_make_profit_result(),
+            reinsurer_result=None,
+            net_cashflows=_make_cashflows("NET"),
+            rated_block=rated,
+        )
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        ws = load_workbook(out)["Assumptions"]
+        row = _find_row_with_label(ws, "% Rated (by count)")
+        cell = ws.cell(row=row, column=2)
+        assert cell.value == pytest.approx(0.123)
+        assert "%" in cell.number_format
 
 
 # ---------------------------------------------------------------------------
