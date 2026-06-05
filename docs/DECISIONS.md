@@ -3733,3 +3733,141 @@ regression tests (`TestGoldenYRT`, `TestGoldenFlat`) and the
   suppression, label presence when rated lives present, n_rated
   value, face-weighted multiplier value, percentage formatting;
   ~+115 lines).
+
+## ADR-069: Weighted concentration variants on `PortfolioResult`
+
+**Date:** 2026-06-05
+**Status:** Accepted
+
+**Context.** Through ADR-058 the `Portfolio` runner exposed
+concentration shares (cedant / product / treaty) and Herfindahl
+indices weighted by **ceded face amount** — a static, point-in-time
+view of exposure as of the projection start. Two reinsurer use cases
+that the deal committee asks for are not well served by face-weighting:
+
+- **Risk concentration.** A coinsurance treaty exposes the reinsurer
+  to claim risk roughly proportional to ceded face, but a YRT treaty
+  exposes the reinsurer only to the net amount at risk (NAR).
+  Mixed-treaty books look very different concentrated by NAR than by
+  face, and the NAR view is the one risk officers actually price.
+- **Revenue concentration.** Two deals with equal ceded face but very
+  different premium structures (term vs. permanent, different rate
+  bases) contribute very differently to the reinsurer's revenue.
+  Concentrating by PV of premiums surfaces the revenue-side
+  concentration that finance committees ask about.
+
+`CONTINUATION_portfolio_aggregation`'s Refinement Backlog #5 flagged
+that `_concentration` already accepts generic `(label, weight)` pairs,
+so surfacing additional weight bases is structurally trivial — the
+work is design (which bases, how to name them, what to expose) plus
+wiring.
+
+**Decision.** Add a `concentration_by_basis: dict[str, dict[str,
+dict[str, float]]]` field to `PortfolioResult` keyed as
+`{basis: {dimension: {label: share}}}` and a matching
+`hhi_by_basis: dict[str, dict[str, float]]` field keyed as
+`{basis: {dimension: hhi}}`. Both default to `{}` so any caller that
+constructs a `PortfolioResult` directly (test stubs, downstream
+adapters) keeps working untouched.
+
+Three weight bases are computed in `Portfolio.run`:
+
+| Basis             | Per-deal weight                                  |
+|-------------------|--------------------------------------------------|
+| `ceded_face`      | `DealResult.ceded_face` (matches the flat view)  |
+| `ceded_nar_peak`  | `DealResult.ceded_nar.max()` (zero when no NAR)  |
+| `pv_premium`      | `DealResult.profit_test.pv_premiums`             |
+
+`concentration_by_basis["ceded_face"]["cedant"]` IS
+`concentration_by_cedant` — by construction, since the flat fields are
+now populated from `concentration_by_basis["ceded_face"]`. Likewise
+`hhi_by_basis["ceded_face"]` IS `hhi`. The two surfaces cannot drift.
+
+`PortfolioResult.to_dict()` gains two new top-level keys —
+`concentration_by_basis` and `hhi_by_basis` — alongside the unchanged
+`concentration` and `hhi` keys. The CLI's `portfolio run` renderer
+keeps consuming the flat `concentration` block; JSON downstream
+consumers can pick up the nested view without breaking changes.
+
+**Rationale.** A dictionary-of-dictionaries keyed by basis is the
+ergonomic shape for the `concentration[dimension][weight_basis]` API
+the routine's PRODUCT_DIRECTION entry proposed, and it matches the
+existing `hhi: dict[str, float]` shape so the new field reads like a
+natural extension rather than a parallel API. Pre-computing all three
+bases in `Portfolio.run` (rather than exposing a `concentration(basis)`
+method) is the simpler ergonomics — the cost is three calls to
+`_concentration` per portfolio run, which is negligible next to the
+projection itself.
+
+Surfacing the three bases that were named in the original backlog
+(face, NAR, PV-premium) is enough to cover the two use cases above
+without picking up the capital-weighted basis suggested in the
+backlog. Capital weights depend on a `LICATCapital` instance and only
+exist on `PortfolioResultWithCapital`; folding them into the base
+`PortfolioResult` would require either threading the capital model
+into `run()` or restricting the field to the subclass. Defer until any
+committee asks for it.
+
+The peak-NAR weight (versus, say, time-integrated NAR or average NAR)
+matches how risk capacity is typically allocated — the per-deal cap on
+how much NAR the reinsurer is willing to assume at any one point. The
+PV-premium weight comes from the deal's own profit test, so it
+inherits the portfolio's hurdle rate consistently and does not
+introduce a separate discount-rate choice.
+
+**Consequences.**
+
+- `PortfolioResult` and its `to_dict()` payload grow two additional
+  keys. Every existing consumer (`polaris portfolio run` CLI, the
+  Streamlit dashboard portfolio view, the `POST /api/v1/portfolio`
+  endpoint) continues to work — the flat `concentration` / `hhi` keys
+  are unchanged bit-for-bit on every test fixture and on the golden
+  regression run (the bases agree on a single-deal portfolio).
+- `PortfolioResultWithCapital` inherits the new fields without code
+  changes because it shallow-copies `PortfolioResult` fields by name
+  in `run_with_capital`.
+- `PortfolioScenarioResult.to_dict()` carries the new keys for every
+  scenario sub-result because each scenario is a `PortfolioResult`.
+- A new public symbol `CONCENTRATION_BASES` (and the type alias
+  `ConcentrationBasis`) is exported so downstream consumers can
+  iterate the bases without re-listing the literal strings.
+
+**Impact on golden baselines.** None. The `polaris price` golden
+regression (`/tmp/dev_check.json`) is unchanged because the price
+pipeline does not flow through `Portfolio.run`. The new keys appear
+only on `PortfolioResult.to_dict()`, which only `polaris portfolio`
+emits.
+
+**Out of scope.**
+
+- **Capital-weighted concentration.** Requires a `LICATCapital`
+  instance per deal and only meaningfully exists on
+  `PortfolioResultWithCapital`. Defer until any committee asks for
+  the per-deal capital share alongside face / NAR / PV.
+- **Surfacing `concentration_by_basis` in the CLI / dashboard.** The
+  Rich table in `polaris portfolio run` renders only the
+  face-weighted view. A `--concentration-basis` flag (or three
+  per-basis tables, or a switchable dashboard control) would surface
+  the new bases interactively; the JSON output already carries them
+  for any downstream consumer.
+- **Time-integrated or PV-NAR weighting.** Peak NAR is the natural
+  capacity-allocation metric; PV-NAR or time-averaged NAR would
+  weight more like revenue. If a use case lands, add as additional
+  bases — the dict-of-dicts shape accommodates them without a
+  contract change.
+
+**Affected files.**
+
+- `src/polaris_re/analytics/portfolio.py` (+`ConcentrationBasis` type
+  alias and `CONCENTRATION_BASES` constant; +`_deal_weight` and
+  +`_concentration_for_basis` helpers; +`concentration_by_basis` and
+  +`hhi_by_basis` fields on `PortfolioResult`; rewires `Portfolio.run`
+  to populate the flat fields from the `ceded_face` basis; +panels in
+  `to_dict()`; ~+60 lines).
+- `tests/test_analytics/test_portfolio.py` (+`TestPortfolioConcentrationByBasis`
+  with 11 tests covering: supported bases, ceded-face equivalence,
+  shares-sum-to-one across bases, NAR-peak concentrates on YRT,
+  PV-premium weights by revenue, PV-premium matches per-deal pv_premiums,
+  HHI-by-basis equals squared shares, single-deal full concentration,
+  `to_dict` shape, JSON round-trip; ~+155 lines).
+
