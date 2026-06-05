@@ -134,12 +134,51 @@ via ADR-065 (PR #52, commit c88db82).)
   + ~3 dev-days implementation.
   *Source: CONTINUATION_portfolio_aggregation — Refinement Backlog #4.*
 
-- **Weighted concentration variants on `PortfolioResult`.** The
-  `_concentration` helper already takes generic `(label, weight)`
-  pairs — NAR-weighted, PV-premium-weighted, and capital-weighted
-  concentrations are structurally trivial. Surface as
-  `concentration[dimension][weight_basis]`. **Scope:** ~1 dev-day.
-  *Source: CONTINUATION_portfolio_aggregation — Refinement Backlog #5.*
+- ~~**Weighted concentration variants on `PortfolioResult`.**~~ —
+  **in flight on PR #56 (ADR-069 — awaiting merge)** as
+  `concentration_by_basis` and `hhi_by_basis` fields on
+  `PortfolioResult` keyed `{basis: {dimension: {label: share}}}` with
+  three weight bases (`ceded_face`, `ceded_nar_peak`, `pv_premium`).
+  The flat `concentration_by_*` / `hhi` fields are now derived from
+  the `ceded_face` basis by construction, so the two surfaces cannot
+  drift. Capital-weighted basis deliberately deferred (see new
+  promoted follow-up below). *Source: CONTINUATION_portfolio_aggregation
+  — Refinement Backlog #5.*
+
+- **CLI / dashboard surfacing of `concentration_by_basis`.** ADR-069
+  surfaces the three-basis nested view on `PortfolioResult.to_dict()`,
+  but the `polaris portfolio run` Rich table still renders only the
+  face-weighted view, and the Streamlit dashboard does not yet expose
+  the basis selector. Add either a `--concentration-basis` flag (one
+  table at a time) or three stacked tables to the CLI, plus a
+  dashboard control. **Scope:** ~1-2 dev-days. **Affected:**
+  `src/polaris_re/cli.py` (portfolio renderer), dashboard portfolio
+  view, tests. **Depends on:** PR #56 merge.
+  *Source: ADR-069 Out of scope.*
+
+- **Capital-weighted concentration basis on
+  `PortfolioResultWithCapital`.** ADR-069 deliberately omitted a
+  capital-weighted basis because capital weights only exist on the
+  `PortfolioResultWithCapital` subclass — they require a per-deal
+  `LICATCapital` call. Adding a fourth basis means either threading
+  the capital model into `run()` or restricting the field to the
+  subclass. The dict-of-dicts shape already accommodates the
+  extension without a contract change. **Scope:** ~1-2 dev-days.
+  **Depends on:** PR #56 merge.
+  *Source: ADR-069 Out of scope.*
+
+- **Dimension-outer transposed view on `concentration_by_basis`.**
+  The PRODUCT_DIRECTION wording originally proposed
+  `concentration[dimension][weight_basis]` (dimension outer); ADR-069
+  shipped `{basis: {dimension: {label: share}}}` (basis outer) to
+  mirror the existing `hhi: dict[dimension, value]` shape and to
+  enable `CONCENTRATION_BASES` iteration. If a downstream consumer
+  (e.g. a dashboard control that flips weight basis for a fixed
+  dimension) needs the transposed view, add a ~5-line helper that
+  produces it without duplicating storage. **Scope:** ~0.5 dev-day.
+  **Depends on:** PR #56 merge.
+  *Source: ADR-069 Open Question / DEV_SESSION_LOG_2026-06-05
+  follow-up.*
 
 - **Parallel portfolio execution + `remove_deal` + per-deal result
   caching.** `_run_deal` is stateless and trivially parallelisable;
@@ -358,8 +397,17 @@ worked down to:
    shape. The corresponding entry under Promoted Follow-ups above has
    been crossed out.
 
+**Update (2026-06-05).** The "Weighted concentration variants on
+`PortfolioResult`" follow-up is in flight on PR #56 (ADR-069) and is
+NOT available for re-selection until merged. Three derived follow-ups
+have been promoted above (CLI / dashboard surfacing of the new bases,
+capital-weighted basis, dimension-outer transposed view); all three
+**depend on PR #56 merge** and should be skipped by the next session
+until that lands on `main`.
+
 **What the next session should consider.** With the four prior-sprint
-IMPORTANT items shipped, the active queue is:
+IMPORTANT items shipped and the concentration variants follow-up in
+flight, the active queue is:
 
 - No IMPORTANT item remains that fits a single session. The two
   surviving IMPORTANT items — **Reserve-basis matching** and **IFRS 17
@@ -371,6 +419,13 @@ IMPORTANT items shipped, the active queue is:
   refinements, LICAT extensions, Excel polish, ingestion strict modes,
   and so on; any of these is a valid fallback for a session that needs
   an isolated, low-risk pick.
+- Items explicitly safe for next-session pick-up (no dependency on
+  any open PR): LICAT C-1 / C-3 interim factor, Gross / ceded cash
+  flow sheets in deal-pricing Excel, `polaris price --with-sensitivity`
+  inline scenarios, Treaty-level rated-YRT override, CI / DI
+  substandard rating, Ingestion strict-mode for unknown rating codes,
+  `yrt_rate_table_path` on `DealConfig`, Per-duration cell-failure
+  interpolation, Warm-start `brentq` across adjacent cells.
 
 ## Comparison with Previous Assessment
 
