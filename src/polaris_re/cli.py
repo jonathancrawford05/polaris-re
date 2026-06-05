@@ -24,7 +24,7 @@ import sys
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Literal
 
 import numpy as np
 import typer
@@ -1524,11 +1524,24 @@ def rate_schedule_cmd(
             help=(
                 "Select period (years) for the generated rate table. "
                 "Only used with --table. Rates are broadcast across the "
-                "select columns until the per-duration solver lands."
+                "select columns in --solve-mode flat; --solve-mode "
+                "per_duration solves each column independently (ADR-063)."
             ),
             min=0,
         ),
     ] = 0,
+    solve_mode: Annotated[
+        Literal["flat", "per_duration"],
+        typer.Option(
+            "--solve-mode",
+            help=(
+                "Rate-table solver mode (ADR-063). 'flat' solves one rate per "
+                "(age, sex, smoker) row and broadcasts across the select "
+                "columns. 'per_duration' solves each (age, duration) cell "
+                "independently. Only meaningful with --table."
+            ),
+        ),
+    ] = "flat",
     output: Annotated[
         Path | None,
         typer.Option("--output", "-o", help="Output CSV or Excel file"),
@@ -1551,6 +1564,13 @@ def rate_schedule_cmd(
     ``polaris price --yrt-rate-table`` after writing the workbook to disk.
     """
     _header()
+
+    if not table and solve_mode != "flat":
+        console.print(
+            "[red]✗ --solve-mode is only meaningful with --table "
+            "(the flat-schedule path has no per-duration solver).[/red]"
+        )
+        raise typer.Exit(code=1)
 
     from polaris_re.analytics.rate_schedule import YRTRateSchedule
     from polaris_re.assumptions.assumption_set import AssumptionSet
@@ -1599,15 +1619,19 @@ def rate_schedule_cmd(
 
         age_list = [int(a.strip()) for a in ages.split(",")]
         if table:
-            # Tabular path — solve the per-(age, sex, smoker) flat rate
-            # grid and pack it into a YRTRateTable. UNKNOWN smoker is
-            # used because the demo mortality table is aggregate.
+            # Tabular path — solve the per-(age, sex, smoker) grid and pack
+            # it into a YRTRateTable. solve_mode selects between flat
+            # (single rate per row, broadcast across select columns) and
+            # per_duration (independent solve per (age, duration) cell)
+            # — ADR-063. UNKNOWN smoker is used because the demo mortality
+            # table is aggregate.
             rate_table = scheduler.generate_table(
                 ages=age_list,
                 sexes=[Sex.MALE],
                 smoker_statuses=[SmokerStatus.UNKNOWN],
                 policy_term=term,
                 select_period_years=select_period,
+                solve_mode=solve_mode,
             )
             result_df = None
         else:

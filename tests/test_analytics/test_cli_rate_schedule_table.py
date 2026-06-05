@@ -347,3 +347,206 @@ class TestSolvedMaskCLIIntegration:
         assert mask[10] == [True]  # age 40
         for i in range(1, 10):
             assert mask[i] == [False], f"intermediate age offset {i} should be filled"
+
+
+class TestSolveModeFlagValidation:
+    """``--solve-mode`` flag input validation — no projection runs."""
+
+    def test_invalid_solve_mode_value_rejected(self, tmp_path: Path) -> None:
+        """Typer rejects values outside the Literal choice set."""
+        out = tmp_path / "table.json"
+        result = runner.invoke(
+            app,
+            [
+                "rate-schedule",
+                "--table",
+                "--solve-mode",
+                "bogus",
+                "--ages",
+                _FAST_AGES,
+                "--term",
+                _FAST_TERM,
+                "--json",
+                str(out),
+            ],
+        )
+        # Typer Choice validation exits with code 2 (Click's usage error).
+        assert result.exit_code != 0
+        assert not out.exists()
+
+    def test_per_duration_without_table_rejected(self, tmp_path: Path) -> None:
+        """`--solve-mode per_duration` requires `--table` — error if omitted."""
+        out = tmp_path / "out.csv"
+        result = runner.invoke(
+            app,
+            [
+                "rate-schedule",
+                "--solve-mode",
+                "per_duration",
+                "--ages",
+                _FAST_AGES,
+                "--term",
+                _FAST_TERM,
+                "-o",
+                str(out),
+            ],
+        )
+        assert result.exit_code == 1
+        assert "--table" in result.output
+        assert not out.exists()
+
+    def test_flat_solve_mode_without_table_runs_unchanged(self, tmp_path: Path) -> None:
+        """The default `flat` mode is the existing no-op when `--table` is unset."""
+        out = tmp_path / "flat.csv"
+        result = runner.invoke(
+            app,
+            [
+                "rate-schedule",
+                "--solve-mode",
+                "flat",
+                "--ages",
+                _FAST_AGES,
+                "--term",
+                _FAST_TERM,
+                "-o",
+                str(out),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert out.exists()
+
+
+@pytest.mark.slow
+class TestSolveModePerDurationCLI:
+    """End-to-end: ``rate-schedule --table --solve-mode per_duration``."""
+
+    def test_per_duration_table_name_carries_suffix(self, tmp_path: Path) -> None:
+        """`table_name` ends with `_per_duration` so reviewers can identify the mode."""
+        out = tmp_path / "table.json"
+        result = runner.invoke(
+            app,
+            [
+                "rate-schedule",
+                "--table",
+                "--solve-mode",
+                "per_duration",
+                "--ages",
+                _FAST_AGES,
+                "--term",
+                _FAST_TERM,
+                "--select-period",
+                "2",
+                "--json",
+                str(out),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(out.read_text())
+        assert payload["table_name"].endswith("_per_duration")
+
+    def test_flat_table_name_carries_flat_suffix(self, tmp_path: Path) -> None:
+        """Default `flat` mode tags `table_name` with `_flat` (ADR-063)."""
+        out = tmp_path / "table.json"
+        result = runner.invoke(
+            app,
+            [
+                "rate-schedule",
+                "--table",
+                "--ages",
+                _FAST_AGES,
+                "--term",
+                _FAST_TERM,
+                "--json",
+                str(out),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(out.read_text())
+        assert payload["table_name"].endswith("_flat")
+
+    def test_per_duration_produces_per_cell_rates(self, tmp_path: Path) -> None:
+        """`--solve-mode per_duration` with select-period > 0 yields non-uniform rows.
+
+        Under `--solve-mode flat` (default) every column of a given age row
+        is the same broadcast rate. Under `per_duration` the solver runs
+        independently per (age, duration) cell, so at least one column
+        should differ from column 0 on the demo synthetic table.
+        """
+        out = tmp_path / "table.json"
+        result = runner.invoke(
+            app,
+            [
+                "rate-schedule",
+                "--table",
+                "--solve-mode",
+                "per_duration",
+                "--ages",
+                _FAST_AGES,
+                "--term",
+                _FAST_TERM,
+                "--select-period",
+                "3",
+                "--json",
+                str(out),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(out.read_text())
+        cohort = payload["cohorts"]["M_U"]
+        assert cohort["select_period"] == 3
+        # At least one solved row should have a non-uniform column profile.
+        # (Filled rows are forward/back-filled and may be uniform; the
+        # bookend rows for ages 30 and 40 are solved.)
+        rates = cohort["rates"]
+        mask = cohort["solved_mask"]
+        solved_rows = [r for r, m in zip(rates, mask, strict=True) if all(m)]
+        assert solved_rows, "expected at least one fully solved row"
+        # `max(r) != min(r)` is an intentional float-equality check: flat
+        # mode broadcasts a single solved rate across every column, so the
+        # row's max and min are bitwise-identical. per_duration mode runs
+        # an independent brentq solve per cell, producing distinct floats.
+        # We're testing for broadcast identity, not numerical tolerance.
+        non_uniform = [r for r in solved_rows if max(r) != min(r)]
+        assert non_uniform, (
+            "per_duration mode should produce at least one non-uniform "
+            f"solved row, got rows={solved_rows}"
+        )
+
+    def test_per_duration_solved_mask_is_per_cell(self, tmp_path: Path) -> None:
+        """Under `per_duration` the solved_mask is genuinely 2-D per-cell.
+
+        For sparse age input each requested-age row is solved cell-by-cell
+        (every column True), while filled rows show all-False — matching
+        the analytics-layer contract in
+        `test_per_duration_sparse_ages_mark_only_solved_cells`.
+        """
+        out = tmp_path / "table.json"
+        result = runner.invoke(
+            app,
+            [
+                "rate-schedule",
+                "--table",
+                "--solve-mode",
+                "per_duration",
+                "--ages",
+                _FAST_AGES,  # "30,40"
+                "--term",
+                _FAST_TERM,
+                "--select-period",
+                "2",
+                "--json",
+                str(out),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(out.read_text())
+        mask = payload["cohorts"]["M_U"]["solved_mask"]
+        # Ages 30..40 = 11 rows; select_period=2 → 3 cols.
+        assert len(mask) == 11
+        assert all(len(row) == 3 for row in mask)
+        # Bookends (rows 0 and 10) — every column solved.
+        assert mask[0] == [True, True, True]
+        assert mask[10] == [True, True, True]
+        # Filled rows — every column False.
+        for i in range(1, 10):
+            assert mask[i] == [False, False, False]

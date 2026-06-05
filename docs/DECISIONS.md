@@ -3542,3 +3542,100 @@ follow-up (a future `portfolio scenarios --per-deal-config X.json`).
 - `tests/test_api/test_portfolio.py` (+`TestPortfolioScenariosEndpoint`
   with 11 tests covering endpoint contract, validation failures, and
   calendar-mode threading, ~+135 lines).
+
+---
+
+## ADR-067: `--solve-mode` flag on `polaris rate-schedule --table`
+
+**Status.** Accepted.
+
+**Date.** 2026-06-04.
+
+**Context.** ADR-063 added a `solve_mode` parameter to
+`YRTRateSchedule.generate_table()` with two modes — `"flat"` (default;
+single rate per `(age, sex, smoker)` broadcast across the select columns)
+and `"per_duration"` (independent solve per `(age, duration)` cell).
+The internal helper is exercised by `TestGenerateTablePerDuration` at
+the analytics layer, and the generated `YRTRateTable.table_name` is
+already suffix-tagged with the mode (`..._flat` / `..._per_duration`).
+What was missing: a CLI surface. `polaris rate-schedule --table` always
+called `generate_table()` with the default `"flat"`, so ops users had no
+way to opt into the per-duration solver from the command line. The
+follow-up was promoted to `PRODUCT_DIRECTION_2026-05-23.md` as a
+NICE-TO-HAVE ~1 dev-day item (source: ADR-063 Out of scope).
+
+**Decision.** Add a `--solve-mode {flat,per_duration}` Typer option to
+`rate_schedule_cmd` and thread it straight through to
+`scheduler.generate_table(solve_mode=...)`. The option uses
+`Annotated[Literal["flat", "per_duration"], typer.Option(...)]` so
+Typer's auto-derived choice validation does the input check; an unknown
+value exits with the standard Click usage error before any projection
+runs.
+
+The flag is only meaningful with `--table`. When `--table` is unset and
+the user passes `--solve-mode per_duration`, the command exits with code
+1 and a Rich-rendered error message ("--solve-mode is only meaningful
+with --table"). The default `"flat"` is treated as a no-op without
+`--table` so existing flat-schedule invocations are unchanged.
+
+**Rationale for upfront rejection vs. silent ignore.** A silent ignore
+would let users submit a flag combination that does nothing; the explicit
+rejection means the CLI never silently does less than what was asked.
+This matches the existing pattern from the `--table -o NAME.csv`
+combination which also exits 1 with a clear error rather than silently
+falling back to a different format. The `flat` default is allowed through
+without `--table` only because it is the no-op identity — typing
+`--solve-mode flat` is the same as omitting it.
+
+**Rationale for Typer's `Literal` over `click.Choice`.** Typer 0.24
+auto-derives choice validation from `Literal` annotations on options;
+the `click.Choice` import is no longer needed. The `Literal` type also
+flows through to the analytics layer (`SolveMode = Literal["flat",
+"per_duration"]` in `analytics/rate_schedule.py`) so the CLI signature
+and the helper signature carry the same type discipline.
+
+**Consequences.**
+- `polaris rate-schedule --table --solve-mode per_duration` now
+  exercises the per-duration solver end-to-end from the command line.
+  With `--select-period 0` the two modes produce identical output (one
+  column to solve, nothing to differentiate), matching the analytics
+  contract from `test_per_duration_select_period_zero_matches_flat`.
+- The generated `YRTRateTable.table_name` already encodes the mode
+  (`generated_term20_irr10_per_duration` vs. `..._flat`), so downstream
+  consumers of the JSON / Excel output can detect the mode without a
+  separate flag.
+- The `--select-period` help text was updated to reflect that
+  per-duration cells are no longer "until the per-duration solver
+  lands" — the solver is here, and the flag controls whether it runs.
+- No analytics-layer contract changes. `generate_table()` is unchanged;
+  the CLI just exposes its existing parameter.
+
+**Impact on golden baselines.** None. `polaris price` and the deal-
+pricing pipeline do not call `rate-schedule`; the default `"flat"`
+behaviour of `rate-schedule --table` is byte-identical to the prior
+implementation. Existing CLI tests (`test_table_emits_xlsx`,
+`test_table_json_emits_cohort_dict`, etc.) pass without modification.
+
+**Out of scope.**
+- **Per-duration cell-failure interpolation.** `generate_table(
+  solve_mode="per_duration")` falls back to column-wise forward/back-fill
+  when an individual `(age, duration)` cell fails to solve; a richer
+  interpolator (e.g. linear across the duration axis) would be a quality
+  improvement. Still tracked under PRODUCT_DIRECTION_2026-05-23 — Source:
+  ADR-063 Out of scope.
+- **Warm-start `brentq` across adjacent per-duration cells.** Pure
+  performance, no contract change. Still tracked under
+  PRODUCT_DIRECTION_2026-05-23 — Source: ADR-063 Out of scope.
+
+**Affected files.**
+- `src/polaris_re/cli.py` (+`Literal` import; +`--solve-mode` Typer
+  option on `rate_schedule_cmd`; +upfront-rejection guard for
+  `--solve-mode != "flat"` without `--table`; pass-through to
+  `generate_table(solve_mode=...)`; tightened `--select-period` help
+  text; ~+25 lines).
+- `tests/test_analytics/test_cli_rate_schedule_table.py`
+  (+`TestSolveModeFlagValidation` with 3 fast tests for input
+  validation and the no-table guard; +`TestSolveModePerDurationCLI`
+  with 4 slow end-to-end tests for the `_per_duration` table_name
+  suffix, the `_flat` table_name suffix, per-cell distinct rates, and
+  the genuinely 2-D `solved_mask`; ~+170 lines).
