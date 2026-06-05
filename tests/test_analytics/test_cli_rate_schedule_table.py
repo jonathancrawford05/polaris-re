@@ -501,6 +501,11 @@ class TestSolveModePerDurationCLI:
         mask = cohort["solved_mask"]
         solved_rows = [r for r, m in zip(rates, mask, strict=True) if all(m)]
         assert solved_rows, "expected at least one fully solved row"
+        # `max(r) != min(r)` is an intentional float-equality check: flat
+        # mode broadcasts a single solved rate across every column, so the
+        # row's max and min are bitwise-identical. per_duration mode runs
+        # an independent brentq solve per cell, producing distinct floats.
+        # We're testing for broadcast identity, not numerical tolerance.
         non_uniform = [r for r in solved_rows if max(r) != min(r)]
         assert non_uniform, (
             "per_duration mode should produce at least one non-uniform "
