@@ -197,6 +197,10 @@ that writes the workbook alongside the existing JSON output.
    sheet also include a block-rating panel (n_rated, % rated,
    face-weighted avg multiplier)? Default for Slice 2 is yes —
    committee reviewers will ask.
+   **RESOLVED 2026-06-05 (ADR-068):** Yes. `DealPricingExport` gained
+   an optional `RatedBlockExport` and `_write_assumptions_sheet`
+   appends the panel when `n_rated > 0`. Suppression on all-standard
+   blocks keeps pre-ADR-068 workbooks byte-identical.
 4. **Sensitivity source.** `scenario_results` in
    `DealPricingExport` is a flat list of `ScenarioMetric`. The CLI
    does not currently couple `polaris price` to `polaris scenario`

@@ -39,6 +39,7 @@ __all__ = [
     "AssumptionsMetaExport",
     "DealMetaExport",
     "DealPricingExport",
+    "RatedBlockExport",
     "ScenarioMetric",
     "write_deal_pricing_excel",
     "write_rate_schedule_excel",
@@ -87,6 +88,26 @@ class ScenarioMetric:
 
 
 @dataclass(frozen=True)
+class RatedBlockExport:
+    """Block-level substandard-rating composition (ADR-068).
+
+    Mirrors the dict returned by ``polaris_re.utils.rating.rating_composition``
+    in typed form so the deal-pricing workbook's Assumptions sheet can
+    render the same numbers the CLI Rich panel shows. The writer suppresses
+    the panel when ``n_rated == 0``, so all-standard blocks stay
+    byte-identical to pre-ADR-068 output.
+    """
+
+    n_policies: int
+    n_rated: int
+    pct_rated_by_count: float
+    pct_rated_by_face: float
+    face_weighted_mean_multiplier: float
+    max_multiplier: float
+    max_flat_extra_per_1000: float
+
+
+@dataclass(frozen=True)
 class DealPricingExport:
     """Bundle of everything a deal-pricing workbook needs.
 
@@ -95,7 +116,8 @@ class DealPricingExport:
     Summary sheet — both signal "ceded side does not apply to this deal".
     ``yrt_rate_table=None`` suppresses the ``YRT Rate Table`` sheet
     (only added by ADR-052 when the deal was priced with a tabular
-    schedule).
+    schedule). ``rated_block=None`` (or ``n_rated == 0``) suppresses the
+    rated-block panel appended to the Assumptions sheet (ADR-068).
     """
 
     deal_meta: DealMetaExport
@@ -107,6 +129,7 @@ class DealPricingExport:
     ceded_cashflows: CashFlowResult | None = None
     scenario_results: list[ScenarioMetric] | None = None
     yrt_rate_table: "YRTRateTable | None" = None
+    rated_block: RatedBlockExport | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -521,8 +544,48 @@ def _write_assumptions_sheet(wb: "Workbook", export: DealPricingExport) -> None:
         if fmt is not None:
             cell.number_format = fmt
 
+    next_row = 3 + len(rows)
+    if export.rated_block is not None and export.rated_block.n_rated > 0:
+        _write_rated_block_panel(ws, export.rated_block, start_row=next_row + 1)
+
     ws.column_dimensions["A"].width = 28
     ws.column_dimensions["B"].width = 32
+
+
+def _write_rated_block_panel(
+    ws: "Worksheet",
+    rated: RatedBlockExport,
+    *,
+    start_row: int,
+) -> None:
+    """Append a block-rating panel to the Assumptions sheet (ADR-068).
+
+    Mirrors the labels and ordering of the CLI Rich
+    ``_render_rated_block_table`` so committee reviewers see the same
+    numbers across surfaces. ``start_row`` is the row of the section
+    title; subsequent rows hold one labelled metric each.
+    """
+    from openpyxl.styles import Font
+
+    section_font = Font(bold=True, italic=True)
+    header_font = Font(bold=True)
+
+    ws.cell(row=start_row, column=1, value="Rated Block").font = section_font
+
+    panel_rows: list[tuple[str, object, str | None]] = [
+        ("Policies Rated", rated.n_rated, "#,##0"),
+        ("% Rated (by count)", rated.pct_rated_by_count, "0.0%"),
+        ("% Rated (by face)", rated.pct_rated_by_face, "0.0%"),
+        ("Face-weighted Avg Multiplier", rated.face_weighted_mean_multiplier, "0.000"),
+        ("Max Multiplier", rated.max_multiplier, "0.00"),
+        ("Max Flat Extra / $1,000", rated.max_flat_extra_per_1000, "$#,##0.00"),
+    ]
+    for offset, (label, value, fmt) in enumerate(panel_rows, start=1):
+        row_idx = start_row + offset
+        ws.cell(row=row_idx, column=1, value=label).font = header_font
+        cell = ws.cell(row=row_idx, column=2, value=value)
+        if fmt is not None:
+            cell.number_format = fmt
 
 
 def _write_sensitivity_sheet(wb: "Workbook", scenarios: list[ScenarioMetric]) -> None:

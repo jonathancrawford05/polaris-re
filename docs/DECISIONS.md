@@ -3639,3 +3639,97 @@ implementation. Existing CLI tests (`test_table_emits_xlsx`,
   with 4 slow end-to-end tests for the `_per_duration` table_name
   suffix, the `_flat` table_name suffix, per-cell distinct rates, and
   the genuinely 2-D `solved_mask`; ~+170 lines).
+
+---
+
+## ADR-068: Rated-block panel on the deal-pricing Excel Assumptions sheet
+
+**Date:** 2026-06-05
+**Status:** Accepted
+
+**Context.** ADR-044 (Slice 3 of the substandard-rating feature) surfaced
+the block-level rating composition via `polaris_re.utils.rating.
+rating_composition` and rendered a Rich table in `polaris price` and a
+metric panel in the dashboard. `CONTINUATION_deal_pricing_excel` Open
+Question #3 noted that the deal-pricing Excel workbook's Assumptions
+sheet should carry the same panel — committee reviewers will ask "how
+much of this block is rated" when reading the workbook offline. The
+question was deferred from Slice 2 of ADR-046 because the substandard
+contract was not finalised at the time. Both contracts are now stable.
+
+**Decision.** Add an optional `rated_block: RatedBlockExport | None`
+field to `DealPricingExport`. The `RatedBlockExport` dataclass mirrors
+the seven keys returned by `rating_composition` in typed form. When
+populated AND `n_rated > 0`, `_write_assumptions_sheet` appends a
+"Rated Block" section below the existing assumption rows containing:
+
+- Policies Rated
+- % Rated (by count)
+- % Rated (by face)
+- Face-weighted Avg Multiplier
+- Max Multiplier
+- Max Flat Extra / $1,000
+
+The CLI builds the DTO once from the block-level `rating_composition`
+result and passes the same instance into every per-cohort workbook in
+mixed-cohort runs. This matches the once-per-run CLI Rich panel —
+committee packets are block-level documents, so block-level rating
+composition is the right number to embed even when the cohort is
+sliced.
+
+**Rationale.** A typed `RatedBlockExport` dataclass — rather than
+threading the raw `dict[str, float | int]` returned by
+`rating_composition` — keeps the writer signature stable and lets
+`mypy` catch field renames at the boundary. Every other writer DTO in
+`excel_output.py` (`DealMetaExport`, `AssumptionsMetaExport`,
+`ScenarioMetric`) follows the same frozen-dataclass pattern.
+
+Suppressing the panel when `n_rated == 0` keeps all-standard workbooks
+byte-identical to pre-ADR-068 output. The CLI Rich panel applies the
+same guard (`if int(rated_summary["n_rated"]) > 0: ...`), so the two
+surfaces stay in lockstep.
+
+**Consequences.**
+- The Assumptions sheet grows by one section header + six labelled
+  rows whenever the priced block contains at least one rated policy.
+  All other sheets are unaffected.
+- `DealPricingExport` gains a new optional field with default `None`,
+  so callers that do not populate `rated_block` (test fixtures,
+  downstream consumers) keep working untouched.
+- The CLI's `_cohort_to_deal_pricing_export` gains a `rated_block`
+  parameter (also default `None`). The Excel-out branch of
+  `price_cmd` constructs the DTO from the existing block-level
+  `rated_summary` dict — no new computation, just typed re-bundling.
+
+**Impact on golden baselines.** None. The golden inforce
+(`data/qa/golden_inforce.csv`) carries no substandard-rating columns,
+so `n_rated == 0` and the panel is suppressed. The two golden
+regression tests (`TestGoldenYRT`, `TestGoldenFlat`) and the
+`polaris price` regression check produce byte-identical output.
+
+**Out of scope.**
+- **Per-cohort rated-block panels in mixed-cohort runs.** The
+  workbook today reflects block-level composition (matching the CLI
+  Rich panel). Mixed-cohort books that need per-cohort rating
+  composition would require threading the per-cohort `InforceBlock`
+  through `_cohort_to_deal_pricing_export` and calling
+  `rating_composition` once per cohort. Defer until any committee
+  asks for it.
+- **Rated-block histogram / band breakdown on the workbook.** The
+  dashboard renders a `_rating_histogram` (Standard / Flat-extra-only /
+  Table 2 / Table 3+) — useful for a one-screen view but harder to
+  reproduce in an openpyxl chart and not requested by Open Question #3.
+
+**Affected files.**
+- `src/polaris_re/utils/excel_output.py` (+`RatedBlockExport`
+  dataclass; +`rated_block` field on `DealPricingExport`;
+  +`_write_rated_block_panel` helper; +panel call site in
+  `_write_assumptions_sheet`; ~+55 lines).
+- `src/polaris_re/cli.py` (+`rated_block` parameter on
+  `_cohort_to_deal_pricing_export`; +`RatedBlockExport` construction
+  in the `excel_out` branch of `price_cmd`; ~+15 lines).
+- `tests/test_utils/test_excel_output.py` (+`TestRatedBlockPanel`
+  class with 6 tests covering: default-None suppression, n_rated=0
+  suppression, label presence when rated lives present, n_rated
+  value, face-weighted multiplier value, percentage formatting;
+  ~+115 lines).

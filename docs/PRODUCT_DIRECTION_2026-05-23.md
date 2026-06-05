@@ -171,11 +171,15 @@ via ADR-065 (PR #52, commit c88db82).)
   fields. **Scope:** ~1 dev-day.
   *Source: CONTINUATION_deal_pricing_excel — Open Question #2.*
 
-- **Rated-block panel on the Excel Assumptions sheet.** `rated_block`
-  is in the CLI JSON output; the workbook's Assumptions sheet does not
-  yet include a block-rating panel (n_rated, % rated, face-weighted
-  avg multiplier). **Scope:** ~0.5 dev-days.
-  *Source: CONTINUATION_deal_pricing_excel — Open Question #3.*
+- ~~**Rated-block panel on the Excel Assumptions sheet.**~~ —
+  **shipped 2026-06-05 (ADR-068)** as an optional `RatedBlockExport`
+  bundle on `DealPricingExport`. When populated and `n_rated > 0`,
+  `_write_assumptions_sheet` appends a "Rated Block" section with the
+  six labelled rows from `rating_composition` (policies rated,
+  % rated by count / by face, face-weighted avg multiplier, max
+  multiplier, max flat-extra). All-standard blocks remain byte-
+  identical to pre-ADR-068 output. *Source: CONTINUATION_deal_pricing_excel
+  — Open Question #3.*
 
 - **`polaris price --with-sensitivity` inline scenarios.** The
   Sensitivity sheet of the deal-pricing workbook is empty on a bare

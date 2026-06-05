@@ -683,13 +683,17 @@ def _cohort_to_deal_pricing_export(
     inputs: PipelineInputs,
     effective_hurdle: float,
     yrt_rate_table: object | None = None,
+    rated_block: object | None = None,
 ) -> "DealPricingExport":
     """Translate a priced cohort into a DealPricingExport bundle.
 
     Keeps the CLI as the only translation site between pipeline state
     (``CohortResult`` + ``PipelineInputs``) and the writer's DTO surface.
     When ``yrt_rate_table`` is supplied, it is embedded on the export so
-    the writer renders the ``YRT Rate Table`` sheet (ADR-052).
+    the writer renders the ``YRT Rate Table`` sheet (ADR-052). When
+    ``rated_block`` is supplied, it is embedded on the export so the
+    writer appends the rated-block panel to the Assumptions sheet
+    (ADR-068).
     """
     from polaris_re.utils.excel_output import (
         AssumptionsMetaExport,
@@ -731,6 +735,7 @@ def _cohort_to_deal_pricing_export(
         ceded_cashflows=cohort.ceded_cashflows,
         scenario_results=None,
         yrt_rate_table=yrt_rate_table,  # type: ignore[arg-type]
+        rated_block=rated_block,  # type: ignore[arg-type]
     )
 
 
@@ -1076,9 +1081,23 @@ def price_cmd(
         _render_rated_block_table(rated_summary)
 
     if excel_out is not None:
-        from polaris_re.utils.excel_output import write_deal_pricing_excel
+        from polaris_re.utils.excel_output import RatedBlockExport, write_deal_pricing_excel
 
         effective_hurdle = hurdle_rate if hurdle_rate != 0.10 else inputs.deal.hurdle_rate
+        # Block-level rated-block panel, reused across per-cohort workbooks
+        # (ADR-068). Matches the once-per-run CLI Rich panel above. When
+        # ``n_rated == 0`` the writer suppresses the panel even though we
+        # pass the DTO, keeping all-standard workbooks byte-identical to
+        # pre-ADR-068 output.
+        rated_block_export = RatedBlockExport(
+            n_policies=int(rated_summary["n_policies"]),
+            n_rated=int(rated_summary["n_rated"]),
+            pct_rated_by_count=float(rated_summary["pct_rated_by_count"]),
+            pct_rated_by_face=float(rated_summary["pct_rated_by_face"]),
+            face_weighted_mean_multiplier=float(rated_summary["face_weighted_mean_multiplier"]),
+            max_multiplier=float(rated_summary["max_multiplier"]),
+            max_flat_extra_per_1000=float(rated_summary["max_flat_extra_per_1000"]),
+        )
         excel_out.parent.mkdir(parents=True, exist_ok=True)
         written_paths: list[Path] = []
         for cohort in cohort_results:
@@ -1089,6 +1108,7 @@ def price_cmd(
                 inputs=inputs,
                 effective_hurdle=effective_hurdle,
                 yrt_rate_table=yrt_rate_table_obj,
+                rated_block=rated_block_export,
             )
             out_path = _resolve_excel_path(excel_out, cohort.product_type, n_cohorts)
             write_deal_pricing_excel(export, out_path)
