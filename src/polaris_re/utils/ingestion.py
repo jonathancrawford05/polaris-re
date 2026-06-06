@@ -131,7 +131,20 @@ class RatingCodeMap(PolarisBaseModel):
         default_factory=RatingCodeEntry,
         description=(
             "Fallback rating for codes not present in the 'codes' dict. "
-            "Defaults to standard (multiplier=1.0, flat_extra=0.0)."
+            "Defaults to standard (multiplier=1.0, flat_extra=0.0). Ignored "
+            "when ``strict`` is True — unknown codes raise instead of falling "
+            "back."
+        ),
+    )
+    strict: bool = Field(
+        default=False,
+        description=(
+            "When True, ingestion raises PolarisValidationError if the source "
+            "column contains any code not registered in ``codes``. When False "
+            "(default), unknown codes silently fall back to ``default``. "
+            "Strict mode is the recommended setting for production pipelines "
+            "where an unrecognised cedant code is more likely a data error "
+            "than a deliberate standard-life signal."
         ),
     )
 
@@ -219,6 +232,26 @@ def _apply_rating_code_map(df: pl.DataFrame, mapping: RatingCodeMap) -> pl.DataF
     """
     if mapping.source_column not in df.columns:
         return df
+
+    if mapping.strict:
+        present = df[mapping.source_column].cast(pl.Utf8)
+        unknown_mask = ~present.is_in(list(mapping.codes.keys()))
+        if bool(unknown_mask.any()):
+            unknown_codes = sorted(
+                {str(c) for c in present.filter(unknown_mask).unique().to_list()}
+            )
+            example_ids: list[str] = []
+            if "policy_id" in df.columns:
+                example_ids = [
+                    str(pid) for pid in df.filter(unknown_mask)["policy_id"].head(5).to_list()
+                ]
+            id_hint = f" (e.g. policy_id={example_ids})" if example_ids else ""
+            raise PolarisValidationError(
+                f"Unknown rating code(s) in column '{mapping.source_column}' "
+                f"with strict=True: {unknown_codes}{id_hint}. Add them to "
+                f"rating_code_map.codes or set strict=False to fall back to "
+                f"the default rating."
+            )
 
     mult_lookup = {code: entry.mortality_multiplier for code, entry in mapping.codes.items()}
     extra_lookup = {code: entry.flat_extra_per_1000 for code, entry in mapping.codes.items()}

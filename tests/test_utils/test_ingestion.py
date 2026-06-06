@@ -505,6 +505,151 @@ class TestRatingCodeMap:
         with pytest.raises(ValidationError):
             RatingCodeEntry(flat_extra_per_1000=150.0)
 
+    def test_strict_default_is_false_preserves_backcompat(self):
+        """Default ``strict`` is False so existing configs silently default unknown codes."""
+        rmap = RatingCodeMap(source_column="rate", codes={"STD": RatingCodeEntry()})
+        assert rmap.strict is False
+
+    def test_strict_mode_raises_on_unknown_code(self, tmp_path):
+        """``strict=True`` rejects rows whose rating code is not registered in ``codes``."""
+        csv_path = tmp_path / "rated.csv"
+        _write_rated_cedant_csv(csv_path)
+        cfg = _rating_config()
+        strict_cfg = IngestConfig(
+            column_mapping=cfg.column_mapping,
+            rating_code_map=RatingCodeMap(
+                source_column="rating_code",
+                codes=cfg.rating_code_map.codes,  # type: ignore[union-attr]
+                strict=True,
+            ),
+        )
+
+        with pytest.raises(PolarisValidationError) as exc_info:
+            ingest_cedant_data(csv_path, strict_cfg)
+
+        # R004 carries UNKNOWN_CODE — surface it AND the offending policy_id.
+        msg = str(exc_info.value)
+        assert "UNKNOWN_CODE" in msg
+        assert "R004" in msg
+
+    def test_strict_mode_passes_when_all_codes_known(self, tmp_path):
+        """``strict=True`` ingests cleanly when every rating code is registered."""
+        csv_path = tmp_path / "all_known.csv"
+        rows = [
+            {
+                "policy_id": "K001",
+                "issue_age": 30,
+                "attained_age": 35,
+                "sex": "M",
+                "smoker_status": "NS",
+                "underwriting_class": "STANDARD",
+                "face_amount": 500_000,
+                "annual_premium": 1000.0,
+                "product_type": "TERM",
+                "policy_term": 20,
+                "duration_inforce": 24,
+                "issue_date": "2024-01-01",
+                "valuation_date": "2026-01-01",
+                "RATE_CLASS": "STD",
+            },
+            {
+                "policy_id": "K002",
+                "issue_age": 45,
+                "attained_age": 50,
+                "sex": "F",
+                "smoker_status": "NS",
+                "underwriting_class": "RATED",
+                "face_amount": 1_000_000,
+                "annual_premium": 5000.0,
+                "product_type": "TERM",
+                "policy_term": 15,
+                "duration_inforce": 12,
+                "issue_date": "2025-01-01",
+                "valuation_date": "2026-01-01",
+                "RATE_CLASS": "TBL2",
+            },
+        ]
+        pl.DataFrame(rows).write_csv(csv_path)
+        cfg = _rating_config()
+        strict_cfg = IngestConfig(
+            column_mapping=cfg.column_mapping,
+            rating_code_map=RatingCodeMap(
+                source_column="rating_code",
+                codes=cfg.rating_code_map.codes,  # type: ignore[union-attr]
+                strict=True,
+            ),
+        )
+
+        df = ingest_cedant_data(csv_path, strict_cfg)
+
+        rows_by_id = {row["policy_id"]: row for row in df.iter_rows(named=True)}
+        assert rows_by_id["K001"]["mortality_multiplier"] == pytest.approx(1.0)
+        assert rows_by_id["K002"]["mortality_multiplier"] == pytest.approx(2.0)
+
+    def test_strict_mode_lists_all_unknown_codes_deduped(self, tmp_path):
+        """Error message lists every distinct unknown code, deduped and sorted."""
+        csv_path = tmp_path / "many_unknown.csv"
+        base = {
+            "issue_age": 35,
+            "attained_age": 40,
+            "sex": "M",
+            "smoker_status": "NS",
+            "underwriting_class": "STANDARD",
+            "face_amount": 500_000,
+            "annual_premium": 1000.0,
+            "product_type": "TERM",
+            "policy_term": 20,
+            "duration_inforce": 24,
+            "issue_date": "2024-01-01",
+            "valuation_date": "2026-01-01",
+        }
+        rows = [
+            {"policy_id": "P1", **base, "RATE_CLASS": "ZZZ"},
+            {"policy_id": "P2", **base, "RATE_CLASS": "AAA"},
+            {"policy_id": "P3", **base, "RATE_CLASS": "ZZZ"},  # duplicate
+            {"policy_id": "P4", **base, "RATE_CLASS": "STD"},  # known
+        ]
+        pl.DataFrame(rows).write_csv(csv_path)
+        cfg = _rating_config()
+        strict_cfg = IngestConfig(
+            column_mapping=cfg.column_mapping,
+            rating_code_map=RatingCodeMap(
+                source_column="rating_code",
+                codes=cfg.rating_code_map.codes,  # type: ignore[union-attr]
+                strict=True,
+            ),
+        )
+
+        with pytest.raises(PolarisValidationError) as exc_info:
+            ingest_cedant_data(csv_path, strict_cfg)
+
+        msg = str(exc_info.value)
+        # Both unknown codes listed; "STD" (known) not flagged.
+        assert "AAA" in msg
+        assert "ZZZ" in msg
+        # AAA should appear before ZZZ (sorted) and ZZZ should not be duplicated.
+        assert msg.count("ZZZ") == 1
+        assert msg.index("AAA") < msg.index("ZZZ")
+        assert "STD" not in msg
+
+    def test_strict_mode_yaml_roundtrip(self, tmp_path):
+        """``strict`` flag round-trips through YAML config."""
+        yaml_path = tmp_path / "strict_mapping.yaml"
+        config_dict = {
+            "column_mapping": {"policy_id": "id"},
+            "rating_code_map": {
+                "source_column": "rate_cls",
+                "codes": {"STD": {"mortality_multiplier": 1.0}},
+                "strict": True,
+            },
+        }
+        with open(yaml_path, "w") as f:
+            yaml.safe_dump(config_dict, f)
+
+        cfg = IngestConfig.from_yaml(yaml_path)
+        assert cfg.rating_code_map is not None
+        assert cfg.rating_code_map.strict is True
+
     def test_rating_map_loads_from_yaml(self, tmp_path):
         """Rating-code registry is serialisable via YAML like the rest of IngestConfig."""
         yaml_path = tmp_path / "mapping.yaml"
