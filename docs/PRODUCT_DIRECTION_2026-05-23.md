@@ -145,16 +145,16 @@ via ADR-065 (PR #52, commit c88db82).)
   promoted follow-up below). *Source: CONTINUATION_portfolio_aggregation
   — Refinement Backlog #5.*
 
-- **CLI / dashboard surfacing of `concentration_by_basis`.** ADR-069
-  surfaces the three-basis nested view on `PortfolioResult.to_dict()`,
-  but the `polaris portfolio run` Rich table still renders only the
-  face-weighted view, and the Streamlit dashboard does not yet expose
-  the basis selector. Add either a `--concentration-basis` flag (one
-  table at a time) or three stacked tables to the CLI, plus a
-  dashboard control. **Scope:** ~1-2 dev-days. **Affected:**
-  `src/polaris_re/cli.py` (portfolio renderer), dashboard portfolio
-  view, tests. **Depends on:** PR #56 merge.
-  *Source: ADR-069 Out of scope.*
+- **Dashboard surfacing of `concentration_by_basis`.** The CLI half of
+  this item shipped 2026-06-05 (ADR-070) as a `--concentration-basis
+  {ceded_face,ceded_nar_peak,pv_premium,all}` flag on both
+  `polaris portfolio run` and `polaris portfolio report`. The Streamlit
+  dashboard portfolio view does not yet exist (see "Streamlit dashboard
+  page for portfolio runs" / "...for calendar-aligned portfolios" below);
+  the basis selector should ride along with whichever lands first.
+  **Scope:** rolls into the dashboard portfolio view work; ~0.5 dev-day
+  on top of that.
+  *Source: ADR-069 Out of scope; CLI half closed by ADR-070.*
 
 - **Capital-weighted concentration basis on
   `PortfolioResultWithCapital`.** ADR-069 deliberately omitted a

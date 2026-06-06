@@ -747,3 +747,294 @@ class TestPortfolioScenariosCommand:
         assert result.exit_code != 0
         flat = " ".join(result.output.split())
         assert "duplicate" in flat.lower() or "unique" in flat.lower()
+
+
+# ---------------------------------------------------------------------------
+# polaris portfolio run / report --concentration-basis (ADR-070)
+# ---------------------------------------------------------------------------
+
+
+def _yrt_vs_coinsurance_config() -> dict:
+    """Mixed-treaty portfolio so concentration views differ across bases.
+
+    The YRT deal exposes a non-zero ceded NAR vector; the coinsurance deal
+    reports peak NAR of zero. NAR-peak weighting concentrates 100% on the
+    YRT deal regardless of face split — distinct from the equal-face
+    50/50 face-weighted view.
+    """
+    return {
+        "hurdle_rate": 0.10,
+        "deals": [
+            _deal_block("D1", "CedantA", treaty_type="YRT", cession_pct=0.8),
+            _deal_block("D2", "CedantB", treaty_type="Coinsurance", cession_pct=0.5),
+        ],
+    }
+
+
+class TestPortfolioRunConcentrationBasisFlag:
+    """``polaris portfolio run --concentration-basis`` surfaces ADR-069 bases."""
+
+    def test_default_basis_renders_ceded_face_view(self, tmp_path: Path) -> None:
+        """Without the flag, the rendered concentration tables show face weighting."""
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        result = runner.invoke(app, ["portfolio", "run", "--config", str(config_path)])
+        assert result.exit_code == 0, result.output
+        flat = " ".join(result.output.split())
+        # The default basis label is rendered in every concentration title.
+        assert "weighted by Ceded Face" in flat
+        assert "weighted by Peak Ceded NAR" not in flat
+        assert "weighted by PV Premium" not in flat
+
+    def test_explicit_ceded_face_matches_default(self, tmp_path: Path) -> None:
+        """``--concentration-basis ceded_face`` produces the default view."""
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "run",
+                "--config",
+                str(config_path),
+                "--concentration-basis",
+                "ceded_face",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        flat = " ".join(result.output.split())
+        assert "weighted by Ceded Face" in flat
+
+    def test_nar_peak_basis_renders_nar_section_only(self, tmp_path: Path) -> None:
+        """``--concentration-basis ceded_nar_peak`` shows the NAR-weighted basis only."""
+        config_path = _write_yaml(tmp_path, _yrt_vs_coinsurance_config())
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "run",
+                "--config",
+                str(config_path),
+                "--concentration-basis",
+                "ceded_nar_peak",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        flat = " ".join(result.output.split())
+        assert "weighted by Peak Ceded NAR" in flat
+        assert "weighted by Ceded Face" not in flat
+        assert "weighted by PV Premium" not in flat
+
+    def test_pv_premium_basis_renders_pv_section_only(self, tmp_path: Path) -> None:
+        """``--concentration-basis pv_premium`` shows the PV-premium-weighted basis."""
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "run",
+                "--config",
+                str(config_path),
+                "--concentration-basis",
+                "pv_premium",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        flat = " ".join(result.output.split())
+        assert "weighted by PV Premium" in flat
+        assert "weighted by Ceded Face" not in flat
+        assert "weighted by Peak Ceded NAR" not in flat
+
+    def test_all_basis_renders_three_sections(self, tmp_path: Path) -> None:
+        """``--concentration-basis all`` stacks all three weighted views."""
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "run",
+                "--config",
+                str(config_path),
+                "--concentration-basis",
+                "all",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        flat = " ".join(result.output.split())
+        assert "weighted by Ceded Face" in flat
+        assert "weighted by Peak Ceded NAR" in flat
+        assert "weighted by PV Premium" in flat
+
+    def test_invalid_basis_rejected(self, tmp_path: Path) -> None:
+        """An unknown ``--concentration-basis`` value exits cleanly via Typer."""
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "run",
+                "--config",
+                str(config_path),
+                "--concentration-basis",
+                "bogus",
+            ],
+        )
+        assert result.exit_code != 0
+
+    def test_json_output_carries_all_bases_regardless_of_flag(self, tmp_path: Path) -> None:
+        """The JSON ``concentration_by_basis`` payload always carries all three bases.
+
+        The flag only controls the rendered Rich tables — the persisted JSON
+        is unaffected so downstream consumers see the full view.
+        """
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        out_path = tmp_path / "result.json"
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "run",
+                "--config",
+                str(config_path),
+                "--concentration-basis",
+                "pv_premium",
+                "--output",
+                str(out_path),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(out_path.read_text())
+        assert set(payload["concentration_by_basis"].keys()) == {
+            "ceded_face",
+            "ceded_nar_peak",
+            "pv_premium",
+        }
+
+
+class TestPortfolioReportConcentrationBasisFlag:
+    """``polaris portfolio report --concentration-basis`` mirrors the run flag."""
+
+    def test_report_supports_all_basis(self, tmp_path: Path) -> None:
+        """Round-trip: run with no flag, then report with ``--concentration-basis all``."""
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        result_path = tmp_path / "result.json"
+        run_res = runner.invoke(
+            app,
+            ["portfolio", "run", "--config", str(config_path), "--output", str(result_path)],
+        )
+        assert run_res.exit_code == 0, run_res.output
+
+        report_res = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "report",
+                "--result",
+                str(result_path),
+                "--concentration-basis",
+                "all",
+            ],
+        )
+        assert report_res.exit_code == 0, report_res.output
+        flat = " ".join(report_res.output.split())
+        assert "weighted by Ceded Face" in flat
+        assert "weighted by Peak Ceded NAR" in flat
+        assert "weighted by PV Premium" in flat
+
+    def test_report_legacy_json_falls_back_to_flat_keys(self, tmp_path: Path) -> None:
+        """Pre-ADR-069 result JSON (no ``concentration_by_basis``) still renders.
+
+        The default ``ceded_face`` basis falls back to the flat
+        ``concentration`` / ``hhi`` keys for backward compatibility — so users
+        upgrading polaris-re do not have to re-run prior portfolio jobs to
+        regenerate result files just to view them.
+        """
+        legacy_payload = {
+            "n_deals": 1,
+            "hurdle_rate": 0.10,
+            "total_pv_profits": 100_000.0,
+            "total_irr": 0.12,
+            "total_face_amount": 1_000_000.0,
+            "total_ceded_face": 500_000.0,
+            "peak_ceded_nar": 0.0,
+            "deals": [
+                {
+                    "deal_id": "L1",
+                    "cedant": "LegacyCo",
+                    "product_type": "TERM",
+                    "treaty_type": "Coinsurance",
+                    "n_policies": 1,
+                    "face_amount": 1_000_000.0,
+                    "ceded_face": 500_000.0,
+                    "grid_offset": 0,
+                    "profit_test": {"pv_profits": 100_000.0, "irr": 0.12},
+                    "ceded_nar": [0.0],
+                    "net_cash_flow": [100_000.0],
+                }
+            ],
+            "concentration": {
+                "cedant": {"LegacyCo": 1.0},
+                "product": {"TERM": 1.0},
+                "treaty": {"Coinsurance": 1.0},
+            },
+            "hhi": {"cedant": 1.0, "product": 1.0, "treaty": 1.0},
+        }
+        legacy_path = tmp_path / "legacy_result.json"
+        legacy_path.write_text(json.dumps(legacy_payload))
+
+        result = runner.invoke(app, ["portfolio", "report", "--result", str(legacy_path)])
+        assert result.exit_code == 0, result.output
+        # The default-basis (ceded_face) rendering survives via the fallback.
+        flat = " ".join(result.output.split())
+        assert "LegacyCo" in flat
+        assert "weighted by Ceded Face" in flat
+
+    def test_report_legacy_json_warns_on_nonface_basis(self, tmp_path: Path) -> None:
+        """A legacy result JSON cannot supply non-face bases — should warn and skip."""
+        legacy_payload = {
+            "n_deals": 1,
+            "hurdle_rate": 0.10,
+            "total_pv_profits": 0.0,
+            "total_irr": None,
+            "total_face_amount": 1_000_000.0,
+            "total_ceded_face": 500_000.0,
+            "peak_ceded_nar": 0.0,
+            "deals": [
+                {
+                    "deal_id": "L1",
+                    "cedant": "LegacyCo",
+                    "product_type": "TERM",
+                    "treaty_type": "Coinsurance",
+                    "n_policies": 1,
+                    "face_amount": 1_000_000.0,
+                    "ceded_face": 500_000.0,
+                    "grid_offset": 0,
+                    "profit_test": {"pv_profits": 0.0, "irr": None},
+                    "ceded_nar": [0.0],
+                    "net_cash_flow": [0.0],
+                }
+            ],
+            "concentration": {
+                "cedant": {"LegacyCo": 1.0},
+                "product": {"TERM": 1.0},
+                "treaty": {"Coinsurance": 1.0},
+            },
+            "hhi": {"cedant": 1.0, "product": 1.0, "treaty": 1.0},
+        }
+        legacy_path = tmp_path / "legacy_result.json"
+        legacy_path.write_text(json.dumps(legacy_payload))
+
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "report",
+                "--result",
+                str(legacy_path),
+                "--concentration-basis",
+                "pv_premium",
+            ],
+        )
+        # Renders successfully — the warning is non-fatal.
+        assert result.exit_code == 0, result.output
+        flat = " ".join(result.output.split()).lower()
+        assert "warning" in flat
+        assert "pv_premium" in flat
