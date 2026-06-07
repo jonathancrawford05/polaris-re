@@ -374,6 +374,8 @@ class InforceBlock(PolarisBaseModel):
 
             multiplier_raw = row.get("mortality_multiplier")
             flat_extra_raw = row.get("flat_extra_per_1000")
+            account_value_raw = row.get("account_value")
+            credited_rate_raw = row.get("credited_rate")
             policy = Policy(
                 policy_id=str(row["policy_id"]),
                 issue_age=int(row["issue_age"]),
@@ -393,6 +395,8 @@ class InforceBlock(PolarisBaseModel):
                     if row.get("reinsurance_cession_pct") is not None
                     else None
                 ),
+                account_value=(float(account_value_raw) if account_value_raw is not None else None),
+                credited_rate=(float(credited_rate_raw) if credited_rate_raw is not None else None),
                 issue_date=issue_date_val,
                 valuation_date=val_date_val,
             )
