@@ -23,9 +23,11 @@ unchanged.
 
 import tempfile
 from pathlib import Path
+from typing import cast
 
 import typer
 
+from polaris_re.analytics.portfolio import Portfolio
 from polaris_re.core.exceptions import PolarisValidationError
 
 __all__ = [
@@ -34,7 +36,7 @@ __all__ = [
 ]
 
 
-def load_portfolio_from_config_path(config_path: Path) -> tuple[object, float]:
+def load_portfolio_from_config_path(config_path: Path) -> tuple[Portfolio, float]:
     """Build a ``Portfolio`` from a YAML / JSON config on disk.
 
     Thin wrapper around the CLI's ``_build_portfolio_from_config`` that
@@ -50,7 +52,10 @@ def load_portfolio_from_config_path(config_path: Path) -> tuple[object, float]:
     if not config_path.exists():
         raise PolarisValidationError(f"Portfolio config not found: {config_path}")
     try:
-        return _build_portfolio_from_config(config_path)
+        # CLI helper's return type is tuple[object, float] for historical
+        # reasons (lazy import of Portfolio in the CLI module); cast to the
+        # precise type for downstream callers.
+        return cast(tuple[Portfolio, float], _build_portfolio_from_config(config_path))
     except typer.Exit as exc:
         raise PolarisValidationError(
             f"Failed to build portfolio from {config_path.name}: the CLI "
@@ -62,7 +67,7 @@ def load_portfolio_from_uploaded(
     yaml_text: str,
     csv_files: dict[str, bytes],
     workdir: Path | None = None,
-) -> tuple[object, float]:
+) -> tuple[Portfolio, float]:
     """Build a ``Portfolio`` from an in-memory YAML string + uploaded CSV bytes.
 
     Persists ``csv_files`` (filename → bytes) and a path-rewritten YAML to
