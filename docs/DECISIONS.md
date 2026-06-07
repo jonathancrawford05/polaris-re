@@ -3992,3 +3992,71 @@ title text.
   JSON, report warns and skips on non-face basis with legacy JSON;
   ~+225 lines).
 
+
+---
+
+## ADR-071: Ingestion strict mode for unknown rating codes
+
+**Date:** 2026-06-06
+**Status:** Accepted
+
+**Context:** `RatingCodeMap` (ADR-044) silently falls back to its
+`default` entry when a row's rating code is not registered in `codes`.
+On a production pipeline this is the wrong default — a cedant feed
+that suddenly contains `TBL3` because of an upstream code-list change
+gets silently treated as standard mortality, and the resulting deal
+is mispriced with no signal. The fallback is correct as a *default*
+because it preserves backward compatibility (and is sometimes what a
+small cedant actually wants for sparsely-rated books), but it must
+be opt-out-able.
+
+This was tracked as "Ingestion strict-mode for unknown rating codes"
+under PRODUCT_DIRECTION_2026-05-23 — Source: CONTINUATION_substandard_
+rating — Slice 3 follow-up.
+
+**Decision:** Add a `strict: bool = False` field to `RatingCodeMap`.
+When `True`, `_apply_rating_code_map` collects every distinct unknown
+code in the source column (sorted, deduped), gathers up to five
+example `policy_id`s if that column is present, and raises
+`PolarisValidationError` with a message that names the column, the
+unknown codes, and the example IDs. The `default` entry is not
+consulted in strict mode.
+
+**Rationale:**
+- Default-False preserves byte-identical behaviour for every existing
+  ingestion config — including the golden CSV path which carries no
+  rating column at all.
+- Reusing `PolarisValidationError` keeps the exception type
+  consistent with the surrounding ingestion failure modes (missing
+  required columns, out-of-range bounds on `RatingCodeEntry`).
+- Listing **all** distinct unknown codes (not just the first) lets
+  the user fix the rating-code map in one pass rather than
+  whack-a-mole.
+- Example policy_ids are capped at five to keep the error message
+  bounded on large blocks; the codes themselves are unbounded
+  because they are typically a small finite set.
+- Implementation lives entirely in `_apply_rating_code_map` and is a
+  single early-exit branch — no impact on the success path's
+  performance.
+
+**Out of scope.**
+- Warn-mode (log a warning but continue) — the binary default-vs-
+  strict choice is the recommended pattern; warn-mode would add a
+  third behaviour to reason about with no clear use case.
+- Per-row strict (allow some codes to default, others to fail) —
+  this is a rating-code-registry curation problem, not an ingestion
+  one. The user should curate `codes` instead.
+
+**Affected files.**
+- `src/polaris_re/utils/ingestion.py` (+`strict` field on
+  `RatingCodeMap`; +unknown-code detection in
+  `_apply_rating_code_map`; ~+25 lines).
+- `tests/test_utils/test_ingestion.py`
+  (+5 tests on `TestRatingCodeMap`: default is False, strict raises
+  on unknown code with policy_id surfaced, strict passes when all
+  codes known, error lists every distinct unknown code deduped and
+  sorted, YAML round-trip of the strict flag; ~+135 lines).
+
+**Impact on golden baselines.** None. The default value of `False`
+preserves the existing behaviour everywhere. The flag only changes
+behaviour when explicitly opted in.
