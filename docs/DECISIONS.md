@@ -4060,3 +4060,116 @@ consulted in strict mode.
 **Impact on golden baselines.** None. The default value of `False`
 preserves the existing behaviour everywhere. The flag only changes
 behaviour when explicitly opted in.
+
+## ADR-072: Interim C-1 / C-3 LICAT factors via `for_product_interim`
+
+**Date:** 2026-06-07
+**Status:** Accepted
+
+**Context.** ADR-047 / ADR-049 introduced `LICATCapital` with C-1
+(asset default) and C-3 (interest-rate) as zero stubs, deferred to
+Phase 5.4's shock-based asset / ALM model. ADR-065 extended C-2 into
+three sub-components (mortality, lapse, morbidity). Today's capital
+tile on a `for_product(...)` or `for_product_extended(...)` run is
+therefore C-2 only — visibly incomplete on a deal-committee deck where
+"LICAT capital" reads as a single number that should include asset and
+rate risk. Open Question #3 in `CONTINUATION_licat_capital.md` flagged
+this gap and the 2026-05-23 PRODUCT_DIRECTION harvest promoted it as a
+NICE-TO-HAVE follow-up ("an interim C-3 factor (e.g. 1% of reserves)
+makes the capital number less visibly incomplete"). The fix needs to
+be opt-in so existing capital surfaces (CLI `--capital licat`, FastAPI
+`capital_model="licat"`, dashboard checkbox, Excel `_CAPITAL_METRICS`
+rows wired to `for_product`) keep byte-identical output.
+
+**Decision.** Add `LICATCapital.for_product_interim(product_type)`
+classmethod that populates all five LICAT factors with conservative
+committee-stage placeholders:
+
+- C-2 mortality / lapse / morbidity: identical to
+  `for_product_extended` (ADR-065 schedule, unchanged).
+- C-1 asset default: uniform 0.005 (0.5% of reserves) across every
+  product type — an investment-grade portfolio default-risk loading
+  that does not vary by liability product.
+- C-3 interest rate: scales with effective reserve duration:
+
+  | ProductType        | C-1   | C-3   |
+  |--------------------|-------|-------|
+  | TERM               | 0.005 | 0.005 |
+  | WHOLE_LIFE         | 0.005 | 0.010 |
+  | UNIVERSAL_LIFE     | 0.005 | 0.015 |
+  | DISABILITY         | 0.005 | 0.005 |
+  | CRITICAL_ILLNESS   | 0.005 | 0.005 |
+  | ANNUITY            | 0.005 | 0.020 |
+
+  TERM has short reserves; WL longer; UL has crediting-rate exposure
+  on the account value; ANNUITY has the longest duration and the
+  largest rate sensitivity. C-1 stays uniform because the asset mix
+  backing life reserves does not differ materially by liability
+  product in the committee-screening regime.
+
+The constructor is purely additive — it does not change `for_product`,
+`for_product_extended`, the `LICATFactors` field defaults, or any of
+the existing wiring. The new `_C1_INTERIM_DEFAULT_BY_PRODUCT` and
+`_C3_INTERIM_DEFAULT_BY_PRODUCT` constants live alongside the existing
+C-2 default tables.
+
+**Rationale.**
+- Opt-in surface preserves backward compatibility everywhere ADR-047 /
+  ADR-049 was wired. No golden baselines move; the dashboard /
+  CLI / API capital tile reads the same number until a caller
+  explicitly switches to `for_product_interim`.
+- Uniform C-1 reflects the reality that a reinsurer backing the
+  business with an investment-grade portfolio carries roughly the
+  same default-risk loading regardless of the liability product. A
+  cedant-specific calibration is a Phase 5.4 refinement.
+- C-3 schedule mirrors the qualitative duration ordering deal
+  committees expect: ANNUITY > UL > WL > TERM ≈ DI ≈ CI. The
+  absolute levels (50-200 bps of reserves) are intentionally
+  conservative placeholders; Phase 5.4's shock-based engine will
+  replace them with KRD-driven numbers.
+- Naming `for_product_interim` (not `for_product_full`) makes the
+  placeholder status explicit at the call site — readers see "this is
+  a stop-gap until Phase 5.4" rather than mistaking it for the
+  definitive LICAT calculation.
+
+**Out of scope.**
+- **CLI / API / dashboard / Excel surfacing of `for_product_interim`.**
+  All of those wire through `for_product` today. Switching them to
+  `for_product_interim` would move every capital tile and every
+  golden capital number — a behaviour change that needs its own ADR
+  and explicit baseline regeneration. Promote as a follow-up once
+  the deal committee asks for the interim factors in the standard
+  output.
+- **Per-cedant C-1 / C-3 calibration.** The uniform C-1 and the
+  product-typed C-3 are committee-screening placeholders. A cedant
+  that supplies asset portfolio composition could justify a finer
+  C-1 (e.g. high-grade vs lower-grade weighted average) and a finer
+  C-3 (e.g. KRD-weighted). That work belongs in the per-cedant
+  calibration pipeline, not in the default schedule.
+- **Phase 5.4 shock-based replacement.** This ADR explicitly stops at
+  a factor placeholder. The OSFI 2024 LICAT interest-rate component
+  is a parallel-shift + curve-twist shock applied to the discounted
+  liability cash flows under multiple rate scenarios; implementing
+  that is the Phase 5.4 asset / ALM engine and will deprecate the
+  flat-factor C-3 here. The same holds for C-1 once a stochastic
+  default-loss model is in place.
+- **Diversification credit between C-1 / C-2 / C-3.** Capital is
+  still the sum of components; LICAT's standard-formula
+  diversification benefit between insurance and asset risks is a
+  later refinement (already noted in ADR-065 Out of scope).
+
+**Affected files.**
+- `src/polaris_re/analytics/capital.py` (+`_C1_INTERIM_DEFAULT_BY_PRODUCT`
+  and `_C3_INTERIM_DEFAULT_BY_PRODUCT` constants, +`for_product_interim`
+  classmethod, module docstring refresh; ~+55 lines).
+- `tests/test_analytics/test_capital.py` (+`TestForProductInterim` with
+  4 parametrised + closed-form tests on the new factor schedule,
+  +`TestForProductInterimBackwardCompat` with 12 parametrised tests
+  confirming `for_product` and `for_product_extended` still produce
+  zero C-1 / C-3, +`TestForProductInterimAppliesToCapital` with 4
+  closed-form tests on the capital arithmetic; ~+170 lines).
+
+**Impact on golden baselines.** None. The interim factors only affect
+the capital number when the caller explicitly invokes
+`for_product_interim`; every existing surface continues to use
+`for_product(...)` and produces the same numbers as before.

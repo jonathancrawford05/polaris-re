@@ -188,12 +188,17 @@ via ADR-065 (PR #52, commit c88db82).)
   `analytics/portfolio.py`.
   *Source: CONTINUATION_portfolio_aggregation — Refinement Backlog #6.*
 
-- **LICAT C-1 and C-3 capital components (interim).** Slice 1 stubs
-  these at zero pending Phase 5.4's asset / ALM model and stochastic-
-  rate integration. For deal-committee credibility before Phase 5.4
-  lands, an interim C-3 factor (e.g. 1% of reserves) makes the capital
-  number less visibly incomplete. **Scope:** ~1 dev-day for an interim
-  flat-factor; full Phase 5.4 work tracked separately.
+- ~~**LICAT C-1 and C-3 capital components (interim).**~~ — **shipped
+  2026-06-07 (ADR-072)** as a `LICATCapital.for_product_interim(product_type)`
+  opt-in classmethod that populates all five LICAT factors with
+  conservative committee-stage placeholders (uniform C-1 = 0.5% of
+  reserves; C-3 scales with effective reserve duration, ANNUITY 2.0%
+  → TERM 0.5%). The existing `for_product` / `for_product_extended`
+  constructors keep C-1 / C-3 at zero so CLI / API / dashboard / Excel
+  capital tiles are byte-identical; opting the standard surfaces over
+  to `for_product_interim` is a follow-up that requires golden
+  baseline regeneration. **Phase 5.4 will replace these placeholders
+  with shock-based asset / ALM modelling.**
   *Source: CONTINUATION_licat_capital — Open Question #3.*
 
 - **Annuity-product LICAT factor.** The C-2 factor model treats
@@ -247,9 +252,12 @@ via ADR-065 (PR #52, commit c88db82).)
   dev-day; touches `CashFlowResult` so plan a contract review.
   *Source: CONTINUATION_substandard_rating — Open Question #1.*
 
-- **Ingestion strict-mode for unknown rating codes.** Cedant code →
-  multiplier mapping silently defaults on unknown codes; a strict
-  mode would refuse unknown codes. **Scope:** ~0.5 dev-day.
+- ~~**Ingestion strict-mode for unknown rating codes.**~~ — **shipped
+  2026-06-06 (ADR-071, PR #58, commit b470ff4)** as a `strict: bool =
+  False` field on `RatingCodeMap`; when `True`, `_apply_rating_code_map`
+  raises `PolarisValidationError` listing every distinct unknown code
+  with up to five example `policy_id`s. The default-`False` preserves
+  byte-identical behaviour for every existing ingestion path.
   *Source: CONTINUATION_substandard_rating — Slice 3 follow-up.*
 
 - **`yrt_rate_table_path` field on `DealConfig` for CLI YAML configs.**
@@ -420,12 +428,13 @@ flight, the active queue is:
   and so on; any of these is a valid fallback for a session that needs
   an isolated, low-risk pick.
 - Items explicitly safe for next-session pick-up (no dependency on
-  any open PR): LICAT C-1 / C-3 interim factor, Gross / ceded cash
-  flow sheets in deal-pricing Excel, `polaris price --with-sensitivity`
-  inline scenarios, Treaty-level rated-YRT override, CI / DI
-  substandard rating, Ingestion strict-mode for unknown rating codes,
+  any open PR): Gross / ceded cash flow sheets in deal-pricing Excel,
+  `polaris price --with-sensitivity` inline scenarios, Treaty-level
+  rated-YRT override, CI / DI substandard rating,
   `yrt_rate_table_path` on `DealConfig`, Per-duration cell-failure
-  interpolation, Warm-start `brentq` across adjacent cells.
+  interpolation, Warm-start `brentq` across adjacent cells. (Ingestion
+  strict-mode shipped 2026-06-06 via ADR-071; LICAT C-1 / C-3 interim
+  factor shipped 2026-06-07 via ADR-072 — both crossed out above.)
 
 ## Comparison with Previous Assessment
 

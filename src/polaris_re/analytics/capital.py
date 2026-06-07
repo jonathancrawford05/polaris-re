@@ -10,16 +10,21 @@ component is split into three factor-based sub-components:
 - **C-2 morbidity risk** — `factor * NAR` for DI / CI products
   (ADR-065).
 
-**C-1 (asset default)** and **C-3 (interest-rate)** remain zero stubs
-that Phase 5.4 (asset/ALM) will populate.
+**C-1 (asset default)** and **C-3 (interest-rate)** default to zero so that
+existing capital surfaces (`for_product`, `for_product_extended`) remain
+byte-identical. Callers that need a committee-screening capital number
+that includes a placeholder for asset and rate risk can opt in via
+`LICATCapital.for_product_interim(product_type)`, which populates all
+five factors with conservative defaults (ADR-072). Phase 5.4 will
+replace these placeholders with a shock-based asset / ALM model.
 
 Sign convention: required capital is a positive, time-varying scalar that
 the reinsurer must hold against the business. It is NOT discounted at the
 hurdle rate — the time-value adjustment lives in the return-on-capital
 metric (`ProfitTester.run_with_capital`).
 
-See ADR-047 / ADR-065 in `docs/DECISIONS.md` for OSFI calibration notes
-and the factor approximations used as defaults.
+See ADR-047 / ADR-065 / ADR-072 in `docs/DECISIONS.md` for OSFI
+calibration notes and the factor approximations used as defaults.
 """
 
 from dataclasses import dataclass, field
@@ -78,6 +83,37 @@ _C2_MORBIDITY_DEFAULT_BY_PRODUCT: dict[ProductType, float] = {
     ProductType.DISABILITY: 0.15,
     ProductType.CRITICAL_ILLNESS: 0.12,
     ProductType.ANNUITY: 0.00,
+}
+
+# ----------------------------------------------------------------------
+# Interim C-1 / C-3 factors per product type (ADR-072)
+# ----------------------------------------------------------------------
+# Conservative committee-stage placeholders that make the LICAT capital
+# number less visibly incomplete before the Phase 5.4 shock-based asset /
+# ALM model lands. C-1 is uniform at 0.5% of reserves — an investment-
+# grade portfolio default-risk loading independent of liability product.
+# C-3 scales with effective reserve duration: TERM has short reserves,
+# WL longer, UL has crediting-rate exposure, and ANNUITY has the longest
+# duration and the largest interest-rate sensitivity. These factors are
+# only applied when the caller opts into `for_product_interim`; the
+# pre-existing `for_product` / `for_product_extended` constructors keep
+# C-1 / C-3 at zero.
+_C1_INTERIM_DEFAULT_BY_PRODUCT: dict[ProductType, float] = {
+    ProductType.TERM: 0.005,
+    ProductType.WHOLE_LIFE: 0.005,
+    ProductType.UNIVERSAL_LIFE: 0.005,
+    ProductType.DISABILITY: 0.005,
+    ProductType.CRITICAL_ILLNESS: 0.005,
+    ProductType.ANNUITY: 0.005,
+}
+
+_C3_INTERIM_DEFAULT_BY_PRODUCT: dict[ProductType, float] = {
+    ProductType.TERM: 0.005,
+    ProductType.WHOLE_LIFE: 0.010,
+    ProductType.UNIVERSAL_LIFE: 0.015,
+    ProductType.DISABILITY: 0.005,
+    ProductType.CRITICAL_ILLNESS: 0.005,
+    ProductType.ANNUITY: 0.020,
 }
 
 
@@ -276,6 +312,34 @@ class LICATCapital(PolarisBaseModel):
                 c2_mortality_factor=mortality,
                 c2_lapse_factor=lapse,
                 c2_morbidity_factor=morbidity,
+            )
+        )
+
+    @classmethod
+    def for_product_interim(cls, product_type: ProductType) -> "LICATCapital":
+        """
+        Construct a calculator pre-populated with all five LICAT factors
+        using interim committee-stage placeholders.
+
+        Extends `for_product_extended` by adding non-zero C-1 (asset
+        default) and C-3 (interest-rate) factors so the capital number
+        carries a placeholder for asset and rate risk pending the Phase
+        5.4 shock-based asset / ALM model. The C-2 schedule is identical
+        to `for_product_extended`. See ADR-072 for the calibration
+        rationale and the default schedule.
+        """
+        mortality = _C2_DEFAULT_BY_PRODUCT.get(product_type, 0.10)
+        lapse = _C2_LAPSE_DEFAULT_BY_PRODUCT.get(product_type, 0.0)
+        morbidity = _C2_MORBIDITY_DEFAULT_BY_PRODUCT.get(product_type, 0.0)
+        c1 = _C1_INTERIM_DEFAULT_BY_PRODUCT.get(product_type, 0.0)
+        c3 = _C3_INTERIM_DEFAULT_BY_PRODUCT.get(product_type, 0.0)
+        return cls(
+            factors=LICATFactors(
+                c2_mortality_factor=mortality,
+                c2_lapse_factor=lapse,
+                c2_morbidity_factor=morbidity,
+                c1_asset_default=c1,
+                c3_interest_rate=c3,
             )
         )
 
