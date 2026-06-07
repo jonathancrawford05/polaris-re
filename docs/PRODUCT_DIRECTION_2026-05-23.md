@@ -167,18 +167,17 @@ via ADR-065 (PR #52, commit c88db82).)
   **Status:** PR #56 merged 2026-06-05 → now AVAILABLE for selection.
   *Source: ADR-069 Out of scope.*
 
-- **Dimension-outer transposed view on `concentration_by_basis`.**
-  The PRODUCT_DIRECTION wording originally proposed
-  `concentration[dimension][weight_basis]` (dimension outer); ADR-069
-  shipped `{basis: {dimension: {label: share}}}` (basis outer) to
-  mirror the existing `hhi: dict[dimension, value]` shape and to
-  enable `CONCENTRATION_BASES` iteration. If a downstream consumer
-  (e.g. a dashboard control that flips weight basis for a fixed
-  dimension) needs the transposed view, add a ~5-line helper that
-  produces it without duplicating storage. **Scope:** ~0.5 dev-day.
-  **Status:** PR #56 merged 2026-06-05 → now AVAILABLE for selection.
-  *Source: ADR-069 Open Question / DEV_SESSION_LOG_2026-06-05
-  follow-up.*
+- ~~**Dimension-outer transposed view on `concentration_by_basis`.**~~ —
+  **shipped 2026-06-07 (ADR-073, PR #60)** as
+  `PortfolioResult.concentration_by_dimension()` and
+  `hhi_by_dimension()` helpers backed by a generic
+  `_transpose_basis_outer` swap. The basis-outer storage stays the
+  single source of truth; the helpers return the dimension-outer view
+  by reference (no storage duplication). `to_dict()` is intentionally
+  unchanged so the JSON surface is byte-identical. Primary downstream
+  consumer is the deferred Streamlit dashboard portfolio page (see
+  `docs/PLAN_dashboard_portfolio.md`). *Source: ADR-069 Open Question /
+  DEV_SESSION_LOG_2026-06-05 follow-up.*
 
 - **Parallel portfolio execution + `remove_deal` + per-deal result
   caching.** `_run_deal` is stateless and trivially parallelisable;
@@ -459,48 +458,70 @@ flight, the active queue is:
   is a valid fallback for a session that needs an isolated, low-risk
   pick.
 
+**Update (2026-06-07, end of day).** Candidate pick #1 (Dimension-outer
+transposed view on `concentration_by_basis`) shipped today as ADR-073
+/ PR #60 — entry crossed out under Promoted Follow-ups above.
+
+A multi-session plan for the Streamlit dashboard portfolio page
+(previously deferred as the largest commercial-visibility lever in
+the NICE-TO-HAVE queue, and the primary consumer of ADR-073) was
+authored: `docs/PLAN_dashboard_portfolio.md`. The plan decomposes the
+work into 3 slices (sample data + loader → page + per-deal table →
+concentration / scenarios / capital sub-sections) and folds together
+the three formerly-separate dashboard items ("portfolio runs",
+"calendar-aligned portfolio", "Dashboard surfacing of
+`concentration_by_basis`"). The next session should follow that plan
+rather than re-decompose the work; subsequent daily-dev runs should
+continue against `CONTINUATION_dashboard_portfolio.md` once Slice 1
+lands.
+
 **Candidate pick list for the 2026-06-08 session.** Cross-checked
 against `git log main` and `gh pr list --state open` on 2026-06-07.
 Items are grouped by approximate session fit:
 
+*Multi-session MEDIUM pick (recommended next focus):*
+0. **Streamlit dashboard portfolio page** — plan in
+   `docs/PLAN_dashboard_portfolio.md`. 3 slices, ~3 dev-days total.
+   Primary downstream consumer of ADR-073 / ADR-069 / ADR-064 /
+   ADR-072. *Sources: ADR-073 Out of scope (immediate); promoted
+   follow-ups "Streamlit dashboard page for portfolio runs", "...for
+   calendar-aligned portfolios", "Dashboard surfacing of
+   `concentration_by_basis`" (rolled together).*
+
 *Single-session SMALL picks (≤1 dev-day, no contract changes, no
 unmerged-PR dependency):*
-1. **Dimension-outer transposed view on `concentration_by_basis`**
-   (~0.5 dev-day). Smallest item in the queue — a transposing helper
-   over the existing dict-of-dicts. PR #56 merged; AVAILABLE.
-   *Source: ADR-069 Open Question.*
-2. **Per-duration cell-failure interpolation** (~1 dev-day). Pure
+1. **Per-duration cell-failure interpolation** (~1 dev-day). Pure
    quality improvement to `analytics/rate_schedule.py`; the
    `solved_mask` already surfaces which cells came from a fill. No
    contract change. *Source: ADR-063 Out of scope.*
-3. **Warm-start `brentq` across adjacent per-duration cells**
+2. **Warm-start `brentq` across adjacent per-duration cells**
    (~1 dev-day). Pure performance optimisation in
    `analytics/rate_schedule.py`. No contract change. *Source:
    ADR-063 Out of scope.*
-4. **`yrt_rate_table_path` field on `DealConfig` for CLI YAML
+3. **`yrt_rate_table_path` field on `DealConfig` for CLI YAML
    configs** (~1 dev-day). Adds a path field to the YAML schema;
    touches `core/pipeline.py`, CLI, tests. *Source:
    CONTINUATION_yrt_rate_table — follow-up #2.*
-5. **Gross / ceded cash flow sheets in deal-pricing Excel**
+4. **Gross / ceded cash flow sheets in deal-pricing Excel**
    (~1 dev-day). Writes the three-sheet section from DTO fields
    that already exist. *Source: CONTINUATION_deal_pricing_excel —
    Open Question #2.*
-6. **`polaris price --with-sensitivity` inline scenarios**
+5. **`polaris price --with-sensitivity` inline scenarios**
    (~1 dev-day). Couples `price` to the standard scenarios so the
    Excel Sensitivity sheet populates on a bare `--excel-out` run.
    *Source: CONTINUATION_deal_pricing_excel — Open Question #4.*
-7. **Treaty-level rated-YRT override (`yrt_rate × multiplier`)**
+6. **Treaty-level rated-YRT override (`yrt_rate × multiplier`)**
    (~1 dev-day). Optional flag on YRT treaty for cedants that scale
    YRT rates by mortality multiplier. *Source:
    CONTINUATION_substandard_rating — Open Question #3.*
 
 *Single-session SMALL picks with a behaviour-change caveat:*
-8. **Switch standard capital surfaces to `for_product_interim`**
+7. **Switch standard capital surfaces to `for_product_interim`**
    (~1-2 dev-days incl. baseline regeneration). Surfaces today's
    ADR-072 interim factors to every consumer; needs its own ADR
    plus coordinated golden baseline regeneration. *Source: ADR-072
    Out of scope.*
-9. **Capital-weighted concentration basis on
+8. **Capital-weighted concentration basis on
    `PortfolioResultWithCapital`** (~1-2 dev-days). Adds a fourth
    basis to `concentration_by_basis` for the with-capital subclass.
    PR #56 merged; AVAILABLE. *Source: ADR-069 Out of scope.*
@@ -509,16 +530,13 @@ unmerged-PR dependency):*
 - **CI / DI substandard rating** — defer until any cedant ingestion
   surface confirms a need. *Source: CONTINUATION_substandard_rating
   — Open Question #4.*
-- **Streamlit dashboard pages** (portfolio runs / calendar-aligned
-  portfolio / portfolio scenarios) — each is ~3 dev-days, MEDIUM
-  scope, plan as a multi-session feature with a CONTINUATION file.
 - **Flat-extra as a separate cash-flow line** — touches
   `CashFlowResult` contract; needs a contract review.
 
-Recommended first pick: item #1 (dimension-outer transposed view) —
-smallest scope, zero risk, unblocks downstream dashboard work. If a
-larger pick is desired, items #5 / #6 are the most directly
-deal-committee-visible (Excel deliverables).
+Recommended next focus: item #0 (dashboard portfolio page) — biggest
+commercial-visibility lever in the queue, plan already written. If a
+session is constrained to a single-shot pick, items #4 / #5 are the
+most directly deal-committee-visible (Excel deliverables).
 
 ## Comparison with Previous Assessment
 

@@ -4173,3 +4173,86 @@ C-2 default tables.
 the capital number when the caller explicitly invokes
 `for_product_interim`; every existing surface continues to use
 `for_product(...)` and produces the same numbers as before.
+
+---
+
+## ADR-073: Dimension-outer transpose helpers on `PortfolioResult`
+
+**Date:** 2026-06-07
+**Status:** Accepted
+
+**Context.** ADR-069 added `concentration_by_basis` and `hhi_by_basis`
+to `PortfolioResult` keyed as `{basis: {dimension: {label: share}}}`
+and `{basis: {dimension: hhi}}`. The basis-outer shape mirrors
+`hhi: dict[dimension, value]` and enables iteration over the
+`CONCENTRATION_BASES` tuple. PRODUCT_DIRECTION_2026-05-23 originally
+proposed `concentration[dimension][weight_basis]` (dimension outer)
+and the ADR-069 session log flagged the shape choice as a follow-up
+for any consumer that needs to hold the dimension fixed and flip the
+weight basis (e.g. a dashboard control comparing cedant concentration
+under face / NAR / PV weights).
+
+**Decision.** Add two helper methods to `PortfolioResult`:
+
+- `concentration_by_dimension()` returns the dimension-outer transpose
+  `{dimension: {basis: {label: share}}}`.
+- `hhi_by_dimension()` returns the dimension-outer transpose
+  `{dimension: {basis: hhi}}`.
+
+Both are read-only helpers backed by a generic
+`_transpose_basis_outer` function. The transposed mappings are
+freshly constructed, but the innermost values (share dicts or HHI
+floats) are returned by reference — no storage is duplicated, the
+basis-outer fields remain the single source of truth.
+
+**Rationale.** The basis-outer shape stays the canonical storage
+because it matches the existing `hhi` field layout, lets
+`Portfolio.run` iterate `CONCENTRATION_BASES` ergonomically, and is
+what `to_dict()` and the API / Excel surfaces already emit. The
+dimension-outer view is purely a consumer convenience — adding a
+field would double the on-`PortfolioResult` footprint for zero
+information gain and create two surfaces that could drift. A
+read-only method that transposes on call is the ~5-line helper the
+PRODUCT_DIRECTION follow-up scoped.
+
+`to_dict()` is intentionally unchanged: the JSON surface remains
+backward-compatible bit-for-bit, and downstream JSON consumers that
+want the dimension-outer shape can run the same transpose locally
+(the helper is ~3 lines of pure dict manipulation).
+
+**Consequences.**
+
+- `PortfolioResult` grows two methods; no new fields, no breaking
+  changes. `PortfolioResultWithCapital` inherits them.
+- `concentration_by_dimension()[dim][basis] is concentration_by_basis[basis][dim]`
+  by reference, so callers that mutate the returned share dicts would
+  also mutate the underlying field. The helper is documented as
+  read-only; for callers that want an independent copy, a single-line
+  `copy.deepcopy` at the call site is sufficient.
+- The transposed view is well-defined even when
+  `concentration_by_basis == {}` (the default for constructors that
+  bypass `Portfolio.run`): it returns `{}` and matches the original.
+
+**Impact on golden baselines.** None. `to_dict()` is untouched and
+the new helpers are pure derivations from existing fields.
+
+**Out of scope.**
+
+- **Surfacing the transposed view in the CLI / dashboard.** ADR-070
+  shipped a `--concentration-basis` flag on `polaris portfolio
+  run` / `report` that picks a single basis; the dimension-outer view
+  is more naturally consumed by a dashboard widget that fixes the
+  dimension and flips the basis. The Streamlit dashboard portfolio
+  page is itself a deferred multi-session item; the transpose helper
+  will be wired in when that page lands.
+
+**Affected files.**
+
+- `src/polaris_re/analytics/portfolio.py` (+`_transpose_basis_outer`
+  generic helper; +`concentration_by_dimension` and
+  +`hhi_by_dimension` methods on `PortfolioResult`; ~+40 lines).
+- `tests/test_analytics/test_portfolio.py`
+  (+`TestPortfolioConcentrationByDimension` with 8 tests covering:
+  top-level keys are dimensions, inner keys are bases (for both
+  helpers), value preservation, round-trip via the basis-outer view,
+  HHI value preservation, no storage duplication; ~+100 lines).

@@ -199,6 +199,28 @@ class PortfolioResult:
     concentration_by_basis: dict[str, dict[str, dict[str, float]]] = field(default_factory=dict)
     hhi_by_basis: dict[str, dict[str, float]] = field(default_factory=dict)
 
+    def concentration_by_dimension(self) -> dict[str, dict[str, dict[str, float]]]:
+        """Return the dimension-outer transpose of ``concentration_by_basis``.
+
+        Shape: ``{dimension: {basis: {label: share}}}`` — the
+        ``concentration[dimension][weight_basis]`` access pattern originally
+        proposed in PRODUCT_DIRECTION_2026-05-23. Useful when a downstream
+        consumer holds the dimension fixed and flips weight basis (e.g. a
+        dashboard control comparing cedant concentration under face / NAR /
+        PV weights). The returned mapping is freshly constructed but the
+        inner share dicts are returned by reference — no storage is
+        duplicated (ADR-073).
+        """
+        return _transpose_basis_outer(self.concentration_by_basis)
+
+    def hhi_by_dimension(self) -> dict[str, dict[str, float]]:
+        """Return the dimension-outer transpose of ``hhi_by_basis``.
+
+        Shape: ``{dimension: {basis: hhi}}``. The dual of
+        :meth:`concentration_by_dimension` for the Herfindahl indices.
+        """
+        return _transpose_basis_outer(self.hhi_by_basis)
+
     def to_dict(self) -> dict[str, object]:
         """Flatten the result into a JSON-serialisable plain dict.
 
@@ -474,6 +496,24 @@ def _deal_weight(deal_result: DealResult, basis: ConcentrationBasis) -> float:
     if basis == "pv_premium":
         return float(deal_result.profit_test.pv_premiums)
     raise PolarisValidationError(f"Unknown concentration basis: {basis!r}.")
+
+
+def _transpose_basis_outer[V](
+    by_basis: dict[str, dict[str, V]],
+) -> dict[str, dict[str, V]]:
+    """Swap the outer two keys of a ``{basis: {dimension: V}}`` mapping.
+
+    Returns a fresh ``{dimension: {basis: V}}`` mapping; the inner ``V``
+    values are returned by reference, so for nested-dict ``V`` no storage
+    is duplicated. Used to produce the dimension-outer view of
+    ``concentration_by_basis`` / ``hhi_by_basis`` without holding a
+    second copy of the values on ``PortfolioResult`` (ADR-073).
+    """
+    out: dict[str, dict[str, V]] = {}
+    for basis, dims in by_basis.items():
+        for dimension, value in dims.items():
+            out.setdefault(dimension, {})[basis] = value
+    return out
 
 
 def _concentration_for_basis(

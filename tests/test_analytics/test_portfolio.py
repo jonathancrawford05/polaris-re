@@ -661,6 +661,104 @@ class TestPortfolioConcentrationByBasis:
         json.dumps(result.to_dict())
 
 
+class TestPortfolioConcentrationByDimension:
+    """``concentration_by_dimension`` and ``hhi_by_dimension`` transpose
+    the basis-outer fields into a dimension-outer view (ADR-073).
+
+    The transposed shape ``{dimension: {basis: ...}}`` mirrors the
+    ``concentration[dimension][weight_basis]`` access pattern originally
+    proposed in PRODUCT_DIRECTION_2026-05-23 and reads naturally for a
+    consumer (e.g. a dashboard control) that flips weight basis for a
+    fixed dimension. The helpers do not duplicate storage — every value
+    comes directly from the underlying ``concentration_by_basis`` /
+    ``hhi_by_basis`` fields.
+    """
+
+    def test_concentration_by_dimension_top_level_keys_are_dimensions(self):
+        result = Portfolio().add_deal(**_deal_spec("D1", "CedantA")).run(HURDLE)
+        transposed = result.concentration_by_dimension()
+        assert set(transposed.keys()) == {"cedant", "product", "treaty"}
+
+    def test_concentration_by_dimension_inner_keys_are_bases(self):
+        result = Portfolio().add_deal(**_deal_spec("D1", "CedantA")).run(HURDLE)
+        transposed = result.concentration_by_dimension()
+        for dimension, by_basis in transposed.items():
+            assert set(by_basis.keys()) == {
+                "ceded_face",
+                "ceded_nar_peak",
+                "pv_premium",
+            }, f"dimension={dimension}"
+
+    def test_concentration_by_dimension_preserves_values(self):
+        """Every (basis, dimension, label) value matches the basis-outer view bit-for-bit."""
+        result = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", face=300_000.0))
+            .add_deal(**_deal_spec("D2", "CedantB", face=700_000.0))
+            .run(HURDLE)
+        )
+        transposed = result.concentration_by_dimension()
+        for basis, dims in result.concentration_by_basis.items():
+            for dimension, shares in dims.items():
+                assert transposed[dimension][basis] == shares
+
+    def test_concentration_by_dimension_round_trips_via_basis_outer(self):
+        """Re-transposing the dimension-outer view returns the basis-outer original."""
+        result = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", face=300_000.0))
+            .add_deal(**_deal_spec("D2", "CedantB", face=700_000.0))
+            .run(HURDLE)
+        )
+        transposed = result.concentration_by_dimension()
+        round_trip: dict[str, dict[str, dict[str, float]]] = {}
+        for dimension, by_basis in transposed.items():
+            for basis, shares in by_basis.items():
+                round_trip.setdefault(basis, {})[dimension] = shares
+        assert round_trip == result.concentration_by_basis
+
+    def test_hhi_by_dimension_top_level_keys_are_dimensions(self):
+        result = Portfolio().add_deal(**_deal_spec("D1", "CedantA")).run(HURDLE)
+        transposed = result.hhi_by_dimension()
+        assert set(transposed.keys()) == {"cedant", "product", "treaty"}
+
+    def test_hhi_by_dimension_inner_keys_are_bases(self):
+        result = Portfolio().add_deal(**_deal_spec("D1", "CedantA")).run(HURDLE)
+        transposed = result.hhi_by_dimension()
+        for dimension, by_basis in transposed.items():
+            assert set(by_basis.keys()) == {
+                "ceded_face",
+                "ceded_nar_peak",
+                "pv_premium",
+            }, f"dimension={dimension}"
+
+    def test_hhi_by_dimension_preserves_values(self):
+        result = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", face=300_000.0))
+            .add_deal(**_deal_spec("D2", "CedantB", face=700_000.0))
+            .run(HURDLE)
+        )
+        transposed = result.hhi_by_dimension()
+        for basis, dims in result.hhi_by_basis.items():
+            for dimension, hhi in dims.items():
+                assert transposed[dimension][basis] == pytest.approx(hhi)
+
+    def test_dimension_outer_does_not_duplicate_storage(self):
+        """The transposed view returns the same nested share dict instances as the
+        underlying ``concentration_by_basis`` field — no copying."""
+        result = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA"))
+            .add_deal(**_deal_spec("D2", "CedantB"))
+            .run(HURDLE)
+        )
+        transposed = result.concentration_by_dimension()
+        for basis, dims in result.concentration_by_basis.items():
+            for dimension, shares in dims.items():
+                assert transposed[dimension][basis] is shares
+
+
 # ---------------------------------------------------------------------------
 # Per-deal breakdown
 # ---------------------------------------------------------------------------
