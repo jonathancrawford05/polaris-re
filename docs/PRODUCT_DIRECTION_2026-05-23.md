@@ -164,7 +164,7 @@ via ADR-065 (PR #52, commit c88db82).)
   the capital model into `run()` or restricting the field to the
   subclass. The dict-of-dicts shape already accommodates the
   extension without a contract change. **Scope:** ~1-2 dev-days.
-  **Depends on:** PR #56 merge.
+  **Status:** PR #56 merged 2026-06-05 → now AVAILABLE for selection.
   *Source: ADR-069 Out of scope.*
 
 - **Dimension-outer transposed view on `concentration_by_basis`.**
@@ -176,7 +176,7 @@ via ADR-065 (PR #52, commit c88db82).)
   (e.g. a dashboard control that flips weight basis for a fixed
   dimension) needs the transposed view, add a ~5-line helper that
   produces it without duplicating storage. **Scope:** ~0.5 dev-day.
-  **Depends on:** PR #56 merge.
+  **Status:** PR #56 merged 2026-06-05 → now AVAILABLE for selection.
   *Source: ADR-069 Open Question / DEV_SESSION_LOG_2026-06-05
   follow-up.*
 
@@ -200,6 +200,23 @@ via ADR-065 (PR #52, commit c88db82).)
   baseline regeneration. **Phase 5.4 will replace these placeholders
   with shock-based asset / ALM modelling.**
   *Source: CONTINUATION_licat_capital — Open Question #3.*
+
+- **Switch standard capital surfaces from `for_product` to
+  `for_product_interim`.** ADR-072 left the CLI `--capital licat`,
+  FastAPI `capital_model="licat"`, dashboard checkbox, and Excel
+  `_CAPITAL_METRICS` rows wired to `for_product(...)` so the capital
+  tile stayed byte-identical. Switching to `for_product_interim(...)`
+  surfaces the interim C-1 / C-3 placeholders to every consumer
+  without requiring an explicit opt-in. **This is a behaviour change:**
+  every capital tile and every golden capital number moves. Needs its
+  own ADR (calibration justification + dashboard / Excel labelling so
+  the placeholder status remains visible), explicit golden baseline
+  regeneration with rationale, and a coordinated update to QA
+  reference numbers. **Scope:** ~1-2 dev-days including baseline
+  regeneration. **Affected:** `src/polaris_re/cli.py`,
+  `src/polaris_re/api/main.py`, `src/polaris_re/dashboard/`,
+  `src/polaris_re/utils/excel_output.py`, `tests/qa/`.
+  *Source: ADR-072 Out of scope.*
 
 - **Annuity-product LICAT factor.** The C-2 factor model treats
   insurance risk as `factor × NAR`; annuities have no NAR. A correct
@@ -413,6 +430,20 @@ capital-weighted basis, dimension-outer transposed view); all three
 **depend on PR #56 merge** and should be skipped by the next session
 until that lands on `main`.
 
+**Update (2026-06-07).** PR #56 (ADR-069) merged 2026-06-05; both
+ADR-069-derived follow-ups (capital-weighted concentration basis,
+dimension-outer transposed view) are now AVAILABLE for selection —
+their entries have been re-marked from "Depends on" to "Status:
+... AVAILABLE for selection" above. ADR-070 has since closed the CLI
+half of "Dashboard surfacing of `concentration_by_basis`" so only the
+dashboard-view half remains open there. Two NICE-TO-HAVE items shipped
+since 2026-06-05: ADR-071 (Ingestion strict-mode, PR #58, commit
+b470ff4) and ADR-072 (LICAT C-1 / C-3 interim factor, PR #59) — both
+crossed out above. A new derived follow-up has been added to the
+queue: "Switch standard capital surfaces from `for_product` to
+`for_product_interim`" (source: ADR-072 Out of scope) — flagged as a
+behaviour change requiring golden baseline regeneration.
+
 **What the next session should consider.** With the four prior-sprint
 IMPORTANT items shipped and the concentration variants follow-up in
 flight, the active queue is:
@@ -424,17 +455,70 @@ flight, the active queue is:
   entry rather than picked up mid-sprint.
 - The NICE-TO-HAVE queue is well-stocked with sub-day to 3-day items
   spanning portfolio dashboard, scenario dashboard page, YRT table
-  refinements, LICAT extensions, Excel polish, ingestion strict modes,
-  and so on; any of these is a valid fallback for a session that needs
-  an isolated, low-risk pick.
-- Items explicitly safe for next-session pick-up (no dependency on
-  any open PR): Gross / ceded cash flow sheets in deal-pricing Excel,
-  `polaris price --with-sensitivity` inline scenarios, Treaty-level
-  rated-YRT override, CI / DI substandard rating,
-  `yrt_rate_table_path` on `DealConfig`, Per-duration cell-failure
-  interpolation, Warm-start `brentq` across adjacent cells. (Ingestion
-  strict-mode shipped 2026-06-06 via ADR-071; LICAT C-1 / C-3 interim
-  factor shipped 2026-06-07 via ADR-072 — both crossed out above.)
+  refinements, LICAT extensions, Excel polish, and so on; any of these
+  is a valid fallback for a session that needs an isolated, low-risk
+  pick.
+
+**Candidate pick list for the 2026-06-08 session.** Cross-checked
+against `git log main` and `gh pr list --state open` on 2026-06-07.
+Items are grouped by approximate session fit:
+
+*Single-session SMALL picks (≤1 dev-day, no contract changes, no
+unmerged-PR dependency):*
+1. **Dimension-outer transposed view on `concentration_by_basis`**
+   (~0.5 dev-day). Smallest item in the queue — a transposing helper
+   over the existing dict-of-dicts. PR #56 merged; AVAILABLE.
+   *Source: ADR-069 Open Question.*
+2. **Per-duration cell-failure interpolation** (~1 dev-day). Pure
+   quality improvement to `analytics/rate_schedule.py`; the
+   `solved_mask` already surfaces which cells came from a fill. No
+   contract change. *Source: ADR-063 Out of scope.*
+3. **Warm-start `brentq` across adjacent per-duration cells**
+   (~1 dev-day). Pure performance optimisation in
+   `analytics/rate_schedule.py`. No contract change. *Source:
+   ADR-063 Out of scope.*
+4. **`yrt_rate_table_path` field on `DealConfig` for CLI YAML
+   configs** (~1 dev-day). Adds a path field to the YAML schema;
+   touches `core/pipeline.py`, CLI, tests. *Source:
+   CONTINUATION_yrt_rate_table — follow-up #2.*
+5. **Gross / ceded cash flow sheets in deal-pricing Excel**
+   (~1 dev-day). Writes the three-sheet section from DTO fields
+   that already exist. *Source: CONTINUATION_deal_pricing_excel —
+   Open Question #2.*
+6. **`polaris price --with-sensitivity` inline scenarios**
+   (~1 dev-day). Couples `price` to the standard scenarios so the
+   Excel Sensitivity sheet populates on a bare `--excel-out` run.
+   *Source: CONTINUATION_deal_pricing_excel — Open Question #4.*
+7. **Treaty-level rated-YRT override (`yrt_rate × multiplier`)**
+   (~1 dev-day). Optional flag on YRT treaty for cedants that scale
+   YRT rates by mortality multiplier. *Source:
+   CONTINUATION_substandard_rating — Open Question #3.*
+
+*Single-session SMALL picks with a behaviour-change caveat:*
+8. **Switch standard capital surfaces to `for_product_interim`**
+   (~1-2 dev-days incl. baseline regeneration). Surfaces today's
+   ADR-072 interim factors to every consumer; needs its own ADR
+   plus coordinated golden baseline regeneration. *Source: ADR-072
+   Out of scope.*
+9. **Capital-weighted concentration basis on
+   `PortfolioResultWithCapital`** (~1-2 dev-days). Adds a fourth
+   basis to `concentration_by_basis` for the with-capital subclass.
+   PR #56 merged; AVAILABLE. *Source: ADR-069 Out of scope.*
+
+*Deferred (out of scope for a single session):*
+- **CI / DI substandard rating** — defer until any cedant ingestion
+  surface confirms a need. *Source: CONTINUATION_substandard_rating
+  — Open Question #4.*
+- **Streamlit dashboard pages** (portfolio runs / calendar-aligned
+  portfolio / portfolio scenarios) — each is ~3 dev-days, MEDIUM
+  scope, plan as a multi-session feature with a CONTINUATION file.
+- **Flat-extra as a separate cash-flow line** — touches
+  `CashFlowResult` contract; needs a contract review.
+
+Recommended first pick: item #1 (dimension-outer transposed view) —
+smallest scope, zero risk, unblocks downstream dashboard work. If a
+larger pick is desired, items #5 / #6 are the most directly
+deal-committee-visible (Excel deliverables).
 
 ## Comparison with Previous Assessment
 
