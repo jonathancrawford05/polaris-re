@@ -620,6 +620,184 @@ class TestForProductExtended:
         assert term.factors.c2_morbidity_factor == 0.0
 
 
+# ----------------------------------------------------------------------
+# `for_product_interim` — interim C-1 / C-3 placeholders (ADR-072)
+# ----------------------------------------------------------------------
+
+
+class TestForProductInterim:
+    """
+    `for_product_interim` populates all five LICAT factors with conservative
+    committee-stage placeholders. The interim C-1 / C-3 factors are intended
+    to make the capital number less visibly incomplete before the Phase 5.4
+    shock-based asset / ALM model lands. See ADR-072.
+    """
+
+    @pytest.mark.parametrize(
+        "product_type, expected_mortality, expected_lapse, expected_morbidity",
+        [
+            (ProductType.TERM, 0.15, 0.05, 0.00),
+            (ProductType.WHOLE_LIFE, 0.10, 0.03, 0.00),
+            (ProductType.UNIVERSAL_LIFE, 0.08, 0.04, 0.00),
+            (ProductType.DISABILITY, 0.05, 0.02, 0.15),
+            (ProductType.CRITICAL_ILLNESS, 0.05, 0.02, 0.12),
+            (ProductType.ANNUITY, 0.03, 0.06, 0.00),
+        ],
+    )
+    def test_interim_preserves_extended_c2_factors_per_product(
+        self,
+        product_type: ProductType,
+        expected_mortality: float,
+        expected_lapse: float,
+        expected_morbidity: float,
+    ) -> None:
+        """C-2 factors match `for_product_extended` — interim only adds C-1 / C-3."""
+        cap = LICATCapital.for_product_interim(product_type)
+        assert cap.factors.c2_mortality_factor == pytest.approx(expected_mortality)
+        assert cap.factors.c2_lapse_factor == pytest.approx(expected_lapse)
+        assert cap.factors.c2_morbidity_factor == pytest.approx(expected_morbidity)
+
+    @pytest.mark.parametrize(
+        "product_type, expected_c1, expected_c3",
+        [
+            (ProductType.TERM, 0.005, 0.005),
+            (ProductType.WHOLE_LIFE, 0.005, 0.010),
+            (ProductType.UNIVERSAL_LIFE, 0.005, 0.015),
+            (ProductType.DISABILITY, 0.005, 0.005),
+            (ProductType.CRITICAL_ILLNESS, 0.005, 0.005),
+            (ProductType.ANNUITY, 0.005, 0.020),
+        ],
+    )
+    def test_interim_c1_c3_factors_per_product(
+        self,
+        product_type: ProductType,
+        expected_c1: float,
+        expected_c3: float,
+    ) -> None:
+        cap = LICATCapital.for_product_interim(product_type)
+        assert cap.factors.c1_asset_default == pytest.approx(expected_c1)
+        assert cap.factors.c3_interest_rate == pytest.approx(expected_c3)
+
+    def test_interim_annuity_has_highest_c3(self) -> None:
+        """Long-duration annuity reserves carry the most interest-rate risk."""
+        annuity = LICATCapital.for_product_interim(ProductType.ANNUITY)
+        term = LICATCapital.for_product_interim(ProductType.TERM)
+        wl = LICATCapital.for_product_interim(ProductType.WHOLE_LIFE)
+        assert annuity.factors.c3_interest_rate > wl.factors.c3_interest_rate
+        assert wl.factors.c3_interest_rate > term.factors.c3_interest_rate
+
+    def test_interim_c1_uniform_across_products(self) -> None:
+        """Asset-default C-1 is the same placeholder for all products in the interim schedule."""
+        factors_seen = {
+            LICATCapital.for_product_interim(p).factors.c1_asset_default for p in ProductType
+        }
+        assert len(factors_seen) == 1
+        assert factors_seen == {0.005}
+
+
+class TestForProductInterimBackwardCompat:
+    """`for_product` and `for_product_extended` are unchanged — C-1 / C-3 stay zero."""
+
+    @pytest.mark.parametrize(
+        "product_type",
+        [
+            ProductType.TERM,
+            ProductType.WHOLE_LIFE,
+            ProductType.UNIVERSAL_LIFE,
+            ProductType.DISABILITY,
+            ProductType.CRITICAL_ILLNESS,
+            ProductType.ANNUITY,
+        ],
+    )
+    def test_for_product_c1_c3_remain_zero(self, product_type: ProductType) -> None:
+        cap = LICATCapital.for_product(product_type)
+        assert cap.factors.c1_asset_default == 0.0
+        assert cap.factors.c3_interest_rate == 0.0
+
+    @pytest.mark.parametrize(
+        "product_type",
+        [
+            ProductType.TERM,
+            ProductType.WHOLE_LIFE,
+            ProductType.UNIVERSAL_LIFE,
+            ProductType.DISABILITY,
+            ProductType.CRITICAL_ILLNESS,
+            ProductType.ANNUITY,
+        ],
+    )
+    def test_for_product_extended_c1_c3_remain_zero(self, product_type: ProductType) -> None:
+        cap = LICATCapital.for_product_extended(product_type)
+        assert cap.factors.c1_asset_default == 0.0
+        assert cap.factors.c3_interest_rate == 0.0
+
+
+class TestForProductInterimAppliesToCapital:
+    """
+    Closed-form check: when the interim constructor is used, C-1 and C-3
+    contribute the expected factor * reserve to `capital_by_period`.
+    """
+
+    def test_term_interim_c1_and_c3_applied(self) -> None:
+        n = 12
+        reserve = 100_000.0
+        nar = np.full(n, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow(n=n, reserve=reserve, nar=nar)
+        cap = LICATCapital.for_product_interim(ProductType.TERM)
+        result = cap.required_capital(cf)
+
+        # TERM: C-1 = 0.005 * 100K = 500; C-3 = 0.005 * 100K = 500
+        np.testing.assert_allclose(result.c1_component, np.full(n, 500.0, dtype=np.float64))
+        np.testing.assert_allclose(result.c3_component, np.full(n, 500.0, dtype=np.float64))
+
+    def test_annuity_interim_c3_largest(self) -> None:
+        n = 6
+        reserve = 1_000_000.0
+        nar = np.zeros(n, dtype=np.float64)  # annuities have no NAR
+        cf = _make_cashflow(n=n, reserve=reserve, nar=nar)
+        cap = LICATCapital.for_product_interim(ProductType.ANNUITY)
+        result = cap.required_capital(cf)
+
+        # ANNUITY: C-3 = 0.02 * 1M = 20K
+        np.testing.assert_allclose(result.c3_component, np.full(n, 20_000.0, dtype=np.float64))
+
+    def test_interim_capital_sums_all_five_components(self) -> None:
+        n = 8
+        reserve = 200_000.0
+        nar = np.full(n, 500_000.0, dtype=np.float64)
+        cf = _make_cashflow(n=n, reserve=reserve, nar=nar)
+        cap = LICATCapital.for_product_interim(ProductType.WHOLE_LIFE)
+        result = cap.required_capital(cf)
+
+        # WL interim: mortality=0.10, lapse=0.03, morbidity=0.00, C-1=0.005, C-3=0.010
+        expected_mortality = 0.10 * 500_000.0
+        expected_lapse = 0.03 * 200_000.0
+        expected_morbidity = 0.0
+        expected_c1 = 0.005 * 200_000.0
+        expected_c3 = 0.010 * 200_000.0
+        expected_total = (
+            expected_mortality + expected_lapse + expected_morbidity + expected_c1 + expected_c3
+        )
+        np.testing.assert_allclose(
+            result.capital_by_period, np.full(n, expected_total, dtype=np.float64)
+        )
+
+    def test_interim_increases_capital_vs_extended(self) -> None:
+        """Interim adds non-zero C-1 and C-3 on top of extended → higher capital."""
+        n = 6
+        reserve = 100_000.0
+        nar = np.full(n, 500_000.0, dtype=np.float64)
+        cf = _make_cashflow(n=n, reserve=reserve, nar=nar)
+        extended = LICATCapital.for_product_extended(ProductType.WHOLE_LIFE).required_capital(cf)
+        interim = LICATCapital.for_product_interim(ProductType.WHOLE_LIFE).required_capital(cf)
+
+        # Interim is strictly higher because c1 and c3 are positive and reserves > 0.
+        assert (interim.capital_by_period > extended.capital_by_period).all()
+        # Difference is exactly the C-1 + C-3 contribution.
+        diff = interim.capital_by_period - extended.capital_by_period
+        expected_diff = (0.005 + 0.010) * reserve
+        np.testing.assert_allclose(diff, np.full(n, expected_diff, dtype=np.float64))
+
+
 def test_module_exports() -> None:
     """LICAT capital symbols are exposed via the analytics package."""
     from polaris_re.analytics import (
