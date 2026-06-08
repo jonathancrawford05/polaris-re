@@ -1,7 +1,7 @@
 # Continuation: Streamlit Dashboard — Portfolio Page
 
 **Source:** `docs/PLAN_dashboard_portfolio.md` (NICE-TO-HAVE per PRODUCT_DIRECTION_2026-05-23)
-**Status:** IN PROGRESS (Slice 1 shipped 2026-06-07; Slice 2 NEXT)
+**Status:** IN PROGRESS (Slice 1 shipped 2026-06-07; Slice 2 shipped 2026-06-08; Slice 3 NEXT)
 **Total slices:** 3
 **Estimated total scope:** ~4 dev-days
 
@@ -76,23 +76,59 @@ an existing `Portfolio.*` call. This is presentation-only.
   - `pytest tests/qa/` — 36 passed, 4 skipped.
   - Golden regression byte-identical to baseline.
 
-### Slice 2: Portfolio page — Overview + per-deal breakdown (NEXT)
+### Slice 2: Portfolio page — Overview + per-deal breakdown — DONE
 
-- **Status:** PLANNED
-- **Scope (from PLAN §4):**
-  - `dashboard/views/portfolio.py` with `page_portfolio()`: two
-    `st.file_uploader` widgets (YAML config + multi-CSV), a "Run
-    portfolio" button, aggregate tiles + per-deal table, an
-    `st.selectbox` for `align="strict" | "calendar"`.
-  - Wire `"Portfolio"` into `dashboard/app.py`'s sidebar radio.
-  - Add `portfolio_result` to `components/state.py`.
-  - AppTest smoke tests in
-    `tests/qa/test_dashboard_flows.py::TestPortfolioPage` driving via
-    session-state injection (file_uploader cannot be driven directly
-    by AppTest — pattern documented in the test module).
-- **Acceptance (from PLAN §4):** Portfolio entry visible in sidebar;
-  upload + Run populates tiles / table; `align="calendar"` surfaces
-  `grid_origin` + per-deal `grid_offset`. AppTest suite green.
+- **Status:** DONE (2026-06-08)
+- **Branch:** claude/dashboard-portfolio-slice-2-DZe4j
+- **PR:** (draft — see open PRs)
+- **What was done:**
+  - Added `src/polaris_re/dashboard/views/portfolio.py` with
+    `page_portfolio()` entry point:
+    - Two `st.file_uploader` widgets in side-by-side columns (YAML/JSON
+      portfolio config + multi-file inforce CSVs).
+    - `st.selectbox` for `align` mode (`"strict"` default, `"calendar"`
+      option) with full ADR-061/062 help text.
+    - "Run portfolio" button that delegates to
+      `load_portfolio_from_uploaded` (the Slice-1 loader) then calls
+      `portfolio.run(hurdle_rate, align=align)`.
+    - Empty-state `st.info` prompt when no result is in session state.
+    - Six aggregate tiles: Deals, Total Ceded Face, Total PV Profits,
+      Total IRR, Profit Margin, Peak Ceded NAR.
+    - Calendar-alignment banner showing `grid_origin` and directing
+      attention to the per-deal offset column when any offset ≠ 0.
+    - Per-deal breakdown `st.dataframe` with columns: Deal ID, Cedant,
+      Product, Treaty, Policies, Face Amount, Ceded Face, PV Profits,
+      IRR, Profit Margin, and (when calendar mode) Grid Offset (months).
+  - Wired `"Portfolio"` into `dashboard/app.py` sidebar radio immediately
+    after "Deal Pricing" and added the `elif` dispatch + import.
+  - Added `portfolio_result` to `KEYS` in `dashboard/components/state.py`,
+    initialised to `None` by `init_session_state`.
+  - Added `tests/qa/test_dashboard_flows.py::TestPortfolioPage` (7 tests)
+    using session-state injection pattern: `load_portfolio_from_config_path`
+    builds the full 4-deal sample result once per class (fixture); tests
+    inject it into `st.session_state["portfolio_result"]` and assert the
+    page renders correctly (all 6 tile labels present, deal count / PV
+    profits values correct, per-deal dataframe has one row per deal with
+    the right deal IDs).
+- **Key decisions:**
+  - **grid_origin banner conditional on any_offset**: under
+    `align="strict"` all offsets are 0, so the banner is suppressed. Under
+    `align="calendar"` with same-month valuation dates (the current sample),
+    `months_between` also returns 0 — banner suppressed. The banner fires
+    correctly when treaties have different-month inception dates.
+  - **Metric label "Deals"** (not "Number of Deals") keeps tile concise and
+    matches the assertion in the test.
+  - **list[dict[str, object]] for dataframe rows**: avoids a heavy pandas
+    import in the dashboard module; Streamlit converts the list of dicts
+    to a DataFrame internally.
+- **Quality gate:**
+  - `make format` + `make lint` clean.
+  - `pytest tests/qa/test_dashboard_flows.py` — 28 passed (21 existing
+    + 7 new).
+  - `pytest tests/ -m "not slow"` — 1148 passed, 6 pre-existing failures
+    (4 missing SOA table CSVs + 2 openpyxl tests) unchanged.
+  - Golden price regression ran successfully (no baseline diff file in
+    env, but pipeline output unchanged).
 
 ### Slice 3: Concentration + Scenarios + Capital sub-sections (PLANNED)
 
@@ -115,10 +151,16 @@ an existing `Portfolio.*` call. This is presentation-only.
   emitted by `polaris portfolio scenarios`. Capital sub-section
   reproduces `PortfolioResultWithCapital.to_dict()["capital"]`.
 
-## Refinement Backlog (carry-overs flagged during Slice 1)
+## Refinement Backlog (carry-overs flagged during Slice 1 / 2)
 
-- **None yet.** Slice 1 was tight to the PLAN; any follow-ups will be
-  recorded here as Slice 2 and Slice 3 land.
+- **Calendar-aligned sample dates**: the sample portfolio's DEAL_C / DEAL_D
+  valuation dates (2026-01-15) differ from DEAL_A / DEAL_B (2026-01-01) by
+  only 14 days — both in January, so `months_between` returns 0 and the
+  calendar grid_offset is 0 for all deals. The "grid_origin / per-deal offset"
+  banner therefore never fires on the current sample. Consider a follow-up
+  that moves DEAL_C / DEAL_D to February 2026 to produce non-zero offsets
+  and fully exercise the calendar-alignment UI path. Track in
+  PRODUCT_DIRECTION as "Calendar-aligned portfolio UX polish".
 
 ## Out of Scope (per PLAN §9)
 
