@@ -27,6 +27,8 @@ KEYS = [
     "pricing_treaty_type",
     # Centralised deal configuration — set on the Assumptions page
     "deal_config",
+    # Portfolio analysis result — set on the Portfolio page
+    "portfolio_result",
 ]
 
 # Default deal configuration values — derived from the shared DealConfig

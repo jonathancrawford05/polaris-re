@@ -51,6 +51,7 @@ def main() -> None:
     from polaris_re.dashboard.views.experience_study import page_experience_study
     from polaris_re.dashboard.views.ifrs17 import page_ifrs17
     from polaris_re.dashboard.views.inforce import page_inforce
+    from polaris_re.dashboard.views.portfolio import page_portfolio
     from polaris_re.dashboard.views.pricing import page_pricing
     from polaris_re.dashboard.views.scenario import page_scenario
     from polaris_re.dashboard.views.treaty_compare import page_treaty_compare
@@ -74,6 +75,7 @@ def main() -> None:
             "Inforce Block",
             "Assumptions",
             "Deal Pricing",
+            "Portfolio",
             "Treaty Comparison",
             "Scenario Analysis",
             "Monte Carlo UQ",
@@ -88,6 +90,8 @@ def main() -> None:
         page_assumptions()
     elif page == "Deal Pricing":
         page_pricing()
+    elif page == "Portfolio":
+        page_portfolio()
     elif page == "Treaty Comparison":
         page_treaty_compare()
     elif page == "Scenario Analysis":

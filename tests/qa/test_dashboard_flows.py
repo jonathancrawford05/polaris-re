@@ -281,6 +281,108 @@ class TestExperienceStudyPage:
         assert not at.exception, f"Multi-dimension group-by raised: {at.exception}"
 
 
+class TestPortfolioPage:
+    """Slice 2 — Portfolio page smoke tests via AppTest session-state injection.
+
+    AppTest cannot drive st.file_uploader directly, so a pre-built
+    PortfolioResult is injected into st.session_state["portfolio_result"]
+    before navigating to the page. The fixture builds the result using the
+    Slice-1 loader against the committed sample portfolio, giving a realistic
+    4-deal result that exercises all rendering paths.
+    """
+
+    @pytest.fixture(scope="class")
+    def sample_portfolio_result(self):
+        """Build the 4-deal sample portfolio result once for the whole class."""
+        from pathlib import Path
+
+        from polaris_re.dashboard.components.portfolio_loader import (
+            load_portfolio_from_config_path,
+        )
+
+        sample_config = Path("data/inputs/portfolio_sample/portfolio.yaml")
+        portfolio, hurdle_rate = load_portfolio_from_config_path(sample_config)
+        return portfolio.run(hurdle_rate, align="strict")
+
+    def test_portfolio_in_navigation(self):
+        """Sidebar nav must expose 'Portfolio' as a page option."""
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        nav = at.sidebar.radio[0]
+        assert "Portfolio" in nav.options
+
+    def test_portfolio_empty_state_renders(self):
+        """Portfolio page renders without exception when no result is in state."""
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        at.sidebar.radio[0].set_value("Portfolio")
+        at.run()
+        assert not at.exception, f"Portfolio empty state raised: {at.exception}"
+
+    def test_portfolio_tiles_with_injected_result(self, sample_portfolio_result):
+        """Page renders all six aggregate tiles when result is in session state."""
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        at.session_state["portfolio_result"] = sample_portfolio_result
+        at.sidebar.radio[0].set_value("Portfolio")
+        at.run()
+        assert not at.exception, f"Portfolio page with injected result raised: {at.exception}"
+        labels = [m.label for m in at.metric]
+        assert "Deals" in labels
+        assert "Total Ceded Face" in labels
+        assert "Total PV Profits" in labels
+        assert "Total IRR" in labels
+        assert "Profit Margin" in labels
+        assert "Peak Ceded NAR" in labels
+
+    def test_aggregate_tile_n_deals(self, sample_portfolio_result):
+        """'Deals' metric displays the correct deal count from the injected result."""
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        at.session_state["portfolio_result"] = sample_portfolio_result
+        at.sidebar.radio[0].set_value("Portfolio")
+        at.run()
+        assert not at.exception
+        metrics = {m.label: m.value for m in at.metric}
+        assert metrics["Deals"] == str(sample_portfolio_result.n_deals)
+
+    def test_aggregate_tile_pv_profits(self, sample_portfolio_result):
+        """'Total PV Profits' metric displays the formatted value from the result."""
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        at.session_state["portfolio_result"] = sample_portfolio_result
+        at.sidebar.radio[0].set_value("Portfolio")
+        at.run()
+        assert not at.exception
+        metrics = {m.label: m.value for m in at.metric}
+        expected = f"${sample_portfolio_result.total_pv_profits:,.0f}"
+        assert metrics["Total PV Profits"] == expected
+
+    def test_per_deal_table_rendered(self, sample_portfolio_result):
+        """A dataframe (per-deal breakdown table) is rendered when result is present."""
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        at.session_state["portfolio_result"] = sample_portfolio_result
+        at.sidebar.radio[0].set_value("Portfolio")
+        at.run()
+        assert not at.exception
+        assert len(at.dataframe) > 0
+
+    def test_per_deal_table_contains_all_deal_ids(self, sample_portfolio_result):
+        """Per-deal table contains a row for every deal_id in the result."""
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        at.session_state["portfolio_result"] = sample_portfolio_result
+        at.sidebar.radio[0].set_value("Portfolio")
+        at.run()
+        assert not at.exception
+        assert len(at.dataframe) > 0
+        df = at.dataframe[0].value
+        expected_ids = {dr.deal_id for dr in sample_portfolio_result.deal_results}
+        actual_ids = set(df["Deal ID"].tolist())
+        assert actual_ids == expected_ids
+
+
 class TestTabularYRTUpload:
     """Slice 4b-2 / ADR-055 — tabular YRT upload UI on the Assumptions page."""
 
