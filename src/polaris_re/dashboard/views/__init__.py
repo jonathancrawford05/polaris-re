@@ -5,6 +5,7 @@ __all__ = [
     "experience_study",
     "ifrs17",
     "inforce",
+    "portfolio",
     "pricing",
     "scenario",
     "treaty_compare",
