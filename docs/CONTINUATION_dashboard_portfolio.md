@@ -144,7 +144,13 @@ an existing `Portfolio.*` call. This is presentation-only.
   - **Capital:** `st.checkbox` toggle →
     `portfolio.run_with_capital(hurdle, LICATCapital.for_product_interim(...))`
     → initial / peak / PV capital + RoC + capital-adjusted IRR tiles
-    + capital-by-period line chart.
+    + capital-by-period line chart. `capital_adjusted_irr` is also the
+    canonical portfolio IRR (see Refinement Backlog note on Total IRR
+    N/A); surface it prominently alongside the other capital tiles.
+  - **IRR caption on the Overview tiles**: when `total_irr` is `None`,
+    add a `st.caption` below the tile row explaining why (matching the
+    `_irr_explanation` pattern from `views/pricing.py`) and directing
+    the user to enable LICAT capital for `capital_adjusted_irr`.
 - **Acceptance:** Dimension picker drives the bar charts through
   `concentration_by_dimension()`. HHI matrix uses
   `hhi_by_dimension()`. Scenarios sub-section reproduces the shape
@@ -161,6 +167,33 @@ an existing `Portfolio.*` call. This is presentation-only.
   that moves DEAL_C / DEAL_D to February 2026 to produce non-zero offsets
   and fully exercise the calendar-alignment UI path. Track in
   PRODUCT_DIRECTION as "Calendar-aligned portfolio UX polish".
+
+- **Error handling — PolarisComputationError**: the Run button's `except`
+  clause catches `PolarisValidationError` only. If `portfolio.run()` raises
+  `PolarisComputationError` (numerical failure, e.g. singular matrix during
+  IRR root-finding) the user sees a raw Streamlit traceback. This is
+  consistent with the existing dashboard pages (`pricing.py`, `scenario.py`)
+  which also only guard validation errors; widening the catch to include
+  `PolarisComputationError` across all pages is the appropriate scope for
+  this fix rather than a one-off change here. Log as a cross-cutting
+  dashboard hardening task in PRODUCT_DIRECTION.
+
+- **Portfolio aggregate IRR shows N/A for the sample portfolio**: this is
+  correct behaviour per ADR-041. The aggregate reinsurer NCF for the 4-deal
+  sample is positive in every projection month — a YRT + coinsurance + modco
+  mix where the reinsurer earns net premiums from day one with no upfront
+  capital deployment creates no sign change, so scipy's IRR root-finder
+  returns `None`. This is not a bug; it reflects the economics of this
+  particular book. The correct metric for a meaningful portfolio-level IRR
+  is **`capital_adjusted_irr`** on `PortfolioResultWithCapital` (Slice 3
+  capital sub-section): subtracting per-period capital strain from NCF —
+  and releasing residual capital at the terminal month — creates the sign
+  change that makes IRR well-defined. Slice 3 is therefore the right moment
+  to surface a portfolio IRR, not Slice 2. In the interim, per-deal IRRs
+  in the breakdown table provide the most useful deal-level signal.
+  Optionally add a `st.caption` to the "Total IRR" tile explaining the N/A
+  (matching the `_irr_explanation` pattern on the Deal Pricing page) — log
+  as a low-priority UX polish item for Slice 3.
 
 ## Out of Scope (per PLAN §9)
 
