@@ -118,12 +118,13 @@ via ADR-065 (PR #52, commit c88db82).)
 
 ### NICE-TO-HAVE
 
-- **Streamlit dashboard page for portfolio runs.** Dashboard prices
+- ~~**Streamlit dashboard page for portfolio runs.** Dashboard prices
   one deal at a time; a portfolio page would expose the same workflow
   with file upload + a per-deal table view + concentration heatmaps.
   **Scope:** ~3 dev-days. **Affected:** new
   `src/polaris_re/dashboard/views/portfolio.py`, navigation, tests.
-  *Source: ADR-058 "Out of scope" + CONTINUATION_portfolio_aggregation.*
+  *Source: ADR-058 "Out of scope" + CONTINUATION_portfolio_aggregation.*~~
+  — **SHIPPED** (PR #61 + PR #62; Slice 3 concentration/scenarios/capital in flight)
 
 - **Deal-specific hurdle rates on `Portfolio`.** Open design question:
   PV profits at different discount rates do not sum, so
@@ -284,7 +285,7 @@ via ADR-065 (PR #52, commit c88db82).)
   dev-day. **Affected:** `core/pipeline.py:DealConfig`, CLI, tests.
   *Source: CONTINUATION_yrt_rate_table — "follow-up #2".*
 
-- **Streamlit dashboard page for calendar-aligned portfolios.** The
+- ~~**Streamlit dashboard page for calendar-aligned portfolios.** The
   dashboard prices one deal at a time today. A portfolio page would
   consume the same `PortfolioResult.to_dict()` shape and surface
   `grid_origin` / per-deal `grid_offset` alongside the per-deal table.
@@ -293,7 +294,8 @@ via ADR-065 (PR #52, commit c88db82).)
   workflow (mixed-inception books). **Scope:** ~3 dev-days. **Affected:**
   new `src/polaris_re/dashboard/views/portfolio.py`, navigation, tests.
   *Source: CONTINUATION_calendar_aligned_portfolio — Refinement Backlog #1
-  + ADR-062 Out of scope.*
+  + ADR-062 Out of scope.*~~
+  — **SHIPPED** (PR #61 + PR #62; `align` selectbox live; UX polish tracked in CONTINUATION backlog)
 
 - **Sub-month / non-common day-of-month inception dates in calendar mode.**
   `align="calendar"` today requires every deal's valuation date to fall on
