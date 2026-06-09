@@ -383,6 +383,211 @@ class TestPortfolioPage:
         assert actual_ids == expected_ids
 
 
+class TestPortfolioPageConcentration:
+    """Slice 3 — Concentration sub-section (ADR-069 / ADR-073)."""
+
+    @pytest.fixture(scope="class")
+    def sample_portfolio_result(self):
+        from pathlib import Path
+
+        from polaris_re.dashboard.components.portfolio_loader import (
+            load_portfolio_from_config_path,
+        )
+
+        portfolio, hurdle_rate = load_portfolio_from_config_path(
+            Path("data/inputs/portfolio_sample/portfolio.yaml")
+        )
+        return portfolio.run(hurdle_rate, align="strict")
+
+    def _open_page(self, sample_portfolio_result):
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        at.session_state["portfolio_result"] = sample_portfolio_result
+        at.sidebar.radio[0].set_value("Portfolio")
+        at.run()
+        return at
+
+    def test_dimension_selector_renders_default_cedant(self, sample_portfolio_result):
+        """Default dimension (Cedant) is selected and the page renders cleanly."""
+        at = self._open_page(sample_portfolio_result)
+        assert not at.exception, f"Concentration default raised: {at.exception}"
+        dim_boxes = [
+            sb
+            for sb in at.selectbox
+            if hasattr(sb, "label") and "group by" in str(sb.label).lower()
+        ]
+        assert dim_boxes, "Concentration dimension selectbox not found"
+        assert dim_boxes[0].value == "Cedant"
+
+    def test_dimension_selector_switches_to_product(self, sample_portfolio_result):
+        """Switching Group By to Product re-renders without exception."""
+        at = self._open_page(sample_portfolio_result)
+        dim_boxes = [
+            sb
+            for sb in at.selectbox
+            if hasattr(sb, "label") and "group by" in str(sb.label).lower()
+        ]
+        assert dim_boxes
+        dim_boxes[0].set_value("Product")
+        at.run()
+        assert not at.exception, f"Switching to Product raised: {at.exception}"
+
+    def test_dimension_selector_switches_to_treaty(self, sample_portfolio_result):
+        """Switching Group By to Treaty re-renders without exception."""
+        at = self._open_page(sample_portfolio_result)
+        dim_boxes = [
+            sb
+            for sb in at.selectbox
+            if hasattr(sb, "label") and "group by" in str(sb.label).lower()
+        ]
+        assert dim_boxes
+        dim_boxes[0].set_value("Treaty")
+        at.run()
+        assert not at.exception, f"Switching to Treaty raised: {at.exception}"
+
+    def test_hhi_table_has_three_bases_and_three_dimensions(self, sample_portfolio_result):
+        """HHI matrix contains 3 bases (rows) by 3 dimensions (columns)."""
+        at = self._open_page(sample_portfolio_result)
+        assert not at.exception
+        # The page renders two dataframes: per-deal breakdown and HHI table.
+        # The HHI table is the one whose first column is 'Basis'.
+        hhi_dfs = [df for df in at.dataframe if "Basis" in df.value.columns]
+        assert hhi_dfs, "HHI dataframe not found"
+        hhi = hhi_dfs[0].value
+        assert len(hhi) == 3, f"Expected 3 basis rows, got {len(hhi)}"
+        # Three dimension columns: Cedant, Product, Treaty.
+        for col in ("Cedant", "Product", "Treaty"):
+            assert col in hhi.columns, f"HHI table missing column {col!r}"
+
+    def test_csv_export_contains_every_basis_dimension_label(self, sample_portfolio_result):
+        """CSV export contains a row for every (basis, dimension, label) triple."""
+        from polaris_re.dashboard.views.portfolio import _concentration_to_csv_bytes
+
+        by_dim = sample_portfolio_result.concentration_by_dimension()
+        csv_bytes = _concentration_to_csv_bytes(by_dim)
+        text = csv_bytes.decode("utf-8")
+        lines = [line for line in text.splitlines() if line]
+        # Header + one row per (dimension, basis, label).
+        expected_rows = sum(len(labels) for dim in by_dim.values() for labels in dim.values())
+        assert lines[0] == "dimension,basis,label,share"
+        assert len(lines) - 1 == expected_rows
+        # Sanity check: every dimension key appears.
+        for dim_key in ("cedant", "product", "treaty"):
+            assert (
+                f",{dim_key}," in text or text.startswith(dim_key + ",") or f"\n{dim_key}," in text
+            )
+
+
+class TestPortfolioPageScenarios:
+    """Slice 3 — Scenarios sub-section (ADR-064)."""
+
+    @pytest.fixture(scope="class")
+    def sample_runtime(self):
+        from pathlib import Path
+
+        from polaris_re.dashboard.components.portfolio_loader import (
+            load_portfolio_from_config_path,
+        )
+
+        portfolio, hurdle_rate = load_portfolio_from_config_path(
+            Path("data/inputs/portfolio_sample/portfolio.yaml")
+        )
+        result = portfolio.run(hurdle_rate, align="strict")
+        return portfolio, hurdle_rate, result
+
+    def test_scenarios_runs_and_renders_table(self, sample_runtime):
+        """Pre-injecting a scenario result renders the scenario table cleanly."""
+        portfolio, hurdle_rate, result = sample_runtime
+        # Pre-compute scenarios so the test does not need to drive the button.
+        scen_result = portfolio.run_scenarios(hurdle_rate, align="strict")
+
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        at.session_state["portfolio_result"] = result
+        at.session_state["portfolio_scenarios"] = scen_result
+        at.sidebar.radio[0].set_value("Portfolio")
+        at.run()
+        assert not at.exception, f"Scenarios sub-section raised: {at.exception}"
+
+        # The scenario dataframe is the one whose first column is 'Scenario'.
+        scen_dfs = [df for df in at.dataframe if "Scenario" in df.value.columns]
+        assert scen_dfs, "Scenarios dataframe not found"
+        df = scen_dfs[0].value
+        scenario_names = set(df["Scenario"].tolist())
+        for expected in ("BASE", "MORT_110", "MORT_90"):
+            assert expected in scenario_names
+
+    def test_worst_case_callout_renders(self, sample_runtime):
+        """Worst-case callout appears when scenarios produce a valid worst case."""
+        portfolio, hurdle_rate, result = sample_runtime
+        scen_result = portfolio.run_scenarios(hurdle_rate, align="strict")
+
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        at.session_state["portfolio_result"] = result
+        at.session_state["portfolio_scenarios"] = scen_result
+        at.sidebar.radio[0].set_value("Portfolio")
+        at.run()
+        assert not at.exception
+        worst = scen_result.worst_case()
+        worst_messages = list(at.warning) + list(at.info)
+        rendered_text = " ".join(str(m.value) for m in worst_messages)
+        if worst is None:
+            assert "Worst case: N/A" in rendered_text
+        else:
+            assert "Worst case" in rendered_text
+
+
+class TestPortfolioPageCapital:
+    """Slice 3 — Capital sub-section (ADR-060 / ADR-072)."""
+
+    @pytest.fixture(scope="class")
+    def capital_result(self):
+        from pathlib import Path
+
+        from polaris_re.analytics.capital import LICATCapital
+        from polaris_re.core.policy import ProductType
+        from polaris_re.dashboard.components.portfolio_loader import (
+            load_portfolio_from_config_path,
+        )
+
+        portfolio, hurdle_rate = load_portfolio_from_config_path(
+            Path("data/inputs/portfolio_sample/portfolio.yaml")
+        )
+        capital_model = LICATCapital.for_product_interim(ProductType.TERM)
+        return portfolio.run_with_capital(hurdle_rate, capital_model, align="strict")
+
+    def test_capital_tiles_rendered(self, capital_result):
+        """Capital tiles (Initial / Peak / PV / RoC / Capital-Adjusted IRR) render."""
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        # Toggle the checkbox via session state pre-population.
+        at.session_state["portfolio_result"] = capital_result
+        at.session_state["portfolio_capital_result"] = capital_result
+        at.session_state["portfolio_capital_toggle"] = True
+        at.sidebar.radio[0].set_value("Portfolio")
+        at.run()
+        assert not at.exception, f"Capital sub-section raised: {at.exception}"
+        labels = [m.label for m in at.metric]
+        assert "Initial Capital" in labels
+        assert "Peak Capital" in labels
+        assert "PV Capital" in labels
+        assert "Return on Capital" in labels
+
+    def test_capital_adjusted_irr_tile_present(self, capital_result):
+        """capital_adjusted_irr is surfaced as its own tile (Refinement Backlog)."""
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        at.session_state["portfolio_result"] = capital_result
+        at.session_state["portfolio_capital_result"] = capital_result
+        at.session_state["portfolio_capital_toggle"] = True
+        at.sidebar.radio[0].set_value("Portfolio")
+        at.run()
+        assert not at.exception
+        labels = [m.label for m in at.metric]
+        assert "Capital-Adjusted IRR" in labels
+
+
 class TestTabularYRTUpload:
     """Slice 4b-2 / ADR-055 — tabular YRT upload UI on the Assumptions page."""
 

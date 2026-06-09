@@ -1,7 +1,7 @@
 # Continuation: Streamlit Dashboard — Portfolio Page
 
 **Source:** `docs/PLAN_dashboard_portfolio.md` (NICE-TO-HAVE per PRODUCT_DIRECTION_2026-05-23)
-**Status:** IN PROGRESS (Slice 1 shipped 2026-06-07; Slice 2 shipped 2026-06-08; Slice 3 NEXT)
+**Status:** COMPLETE (Slice 1 shipped 2026-06-07; Slice 2 shipped 2026-06-08; Slice 3 shipped 2026-06-09)
 **Total slices:** 3
 **Estimated total scope:** ~4 dev-days
 
@@ -130,32 +130,107 @@ an existing `Portfolio.*` call. This is presentation-only.
   - Golden price regression ran successfully (no baseline diff file in
     env, but pipeline output unchanged).
 
-### Slice 3: Concentration + Scenarios + Capital sub-sections (PLANNED)
+### Slice 3: Concentration + Scenarios + Capital sub-sections — DONE
 
-- **Status:** PLANNED
-- **Scope (from PLAN §4):**
-  - **Concentration:** `st.selectbox` over Cedant / Product / Treaty
-    drives `result.concentration_by_dimension()[dim]` → three side-by-
-    side bar charts (face / NAR-peak / PV-premium). HHI matrix table.
-    CSV export (long format: dimension, basis, label, share).
-  - **Scenarios:** `st.multiselect` of standard six-scenario set →
-    `portfolio.run_scenarios(hurdle, scenarios)` → PV / IRR / margin
-    table with BASE pinned. Worst-case callout.
-  - **Capital:** `st.checkbox` toggle →
-    `portfolio.run_with_capital(hurdle, LICATCapital.for_product_interim(...))`
-    → initial / peak / PV capital + RoC + capital-adjusted IRR tiles
-    + capital-by-period line chart. `capital_adjusted_irr` is also the
-    canonical portfolio IRR (see Refinement Backlog note on Total IRR
-    N/A); surface it prominently alongside the other capital tiles.
-  - **IRR caption on the Overview tiles**: when `total_irr` is `None`,
-    add a `st.caption` below the tile row explaining why (matching the
-    `_irr_explanation` pattern from `views/pricing.py`) and directing
-    the user to enable LICAT capital for `capital_adjusted_irr`.
-- **Acceptance:** Dimension picker drives the bar charts through
-  `concentration_by_dimension()`. HHI matrix uses
-  `hhi_by_dimension()`. Scenarios sub-section reproduces the shape
-  emitted by `polaris portfolio scenarios`. Capital sub-section
-  reproduces `PortfolioResultWithCapital.to_dict()["capital"]`.
+- **Status:** DONE (2026-06-09)
+- **Branch:** claude/nifty-babbage-n7hemq
+- **PR:** (draft — see open PRs)
+- **What was done:**
+  - **Concentration sub-section** (in `views/portfolio.py`):
+    `st.selectbox("Group by", ["Cedant", "Product", "Treaty"])` →
+    `result.concentration_by_dimension()[dim_key]` → three side-by-side
+    horizontal bar charts (one per basis: ceded face / peak ceded NAR /
+    PV premiums) via a new `concentration_bar()` helper in
+    `components/charts.py`. HHI table below the charts: rows = bases,
+    columns = dimensions, values from
+    `result.hhi_by_dimension()`. `st.download_button` emits a long-format
+    CSV (`dimension, basis, label, share`) via the page-local
+    `_concentration_to_csv_bytes` helper. A one-line comment at the call
+    site explicitly links ADR-073 — this page is the primary consumer.
+  - **Scenarios sub-section**: `st.multiselect` over the six
+    `ScenarioRunner.standard_stress_scenarios()` (default: all selected)
+    plus a "Run scenarios" button → `portfolio.run_scenarios(hurdle,
+    scenarios, align=align)` → stored under
+    `st.session_state["portfolio_scenarios"]`. PV / IRR / margin table
+    with the BASE row pinned at the top. Worst-case callout fed by
+    `PortfolioScenarioResult.worst_case()` with the `None` branch
+    rendering "Worst case: N/A".
+  - **Capital sub-section**: `st.checkbox("Include LICAT capital metrics")`
+    + `st.selectbox` over `ProductType` (default TERM) +
+    "Compute LICAT capital" button →
+    `portfolio.run_with_capital(hurdle,
+    LICATCapital.for_product_interim(product_type), align=align)` →
+    stored under `st.session_state["portfolio_capital_result"]`. Tiles
+    for `initial_capital`, `peak_capital`, `pv_capital`,
+    `return_on_capital`, and `capital_adjusted_irr` (surfaced
+    prominently as the canonical portfolio IRR per the Slice 2
+    Refinement Backlog). Line chart of `capital_by_period` via a new
+    `portfolio_capital_chart()` helper.
+  - **Total-IRR caption on the Overview tiles**: new
+    `_irr_explanation()` matching the `views/pricing._irr_explanation`
+    pattern. When `total_irr is None`, a `st.caption` below the tile
+    row points the user to LICAT capital for `capital_adjusted_irr`.
+  - **Session state extended** (`components/state.py`):
+    `portfolio_scenarios` and `portfolio_capital_result` keys
+    initialised to `None` by `init_session_state`. An additional
+    `portfolio_runtime` key (not declared in `KEYS` — set on demand by
+    the Run button) holds the live `Portfolio` object + hurdle rate +
+    align mode so the Scenarios and Capital sub-sections can re-invoke
+    the engine across Streamlit reruns without re-uploading the config.
+  - **Tests — 8 new** in `tests/qa/test_dashboard_flows.py`:
+    - `TestPortfolioPageConcentration` (5 tests): default Cedant
+      dimension renders, Group By switches to Product and Treaty without
+      exception, HHI dataframe has 3 basis rows and Cedant / Product /
+      Treaty columns, `_concentration_to_csv_bytes` emits one row per
+      (basis, dimension, label) triple.
+    - `TestPortfolioPageScenarios` (2 tests): scenario dataframe
+      contains BASE / MORT_110 / MORT_90 when scenarios are
+      pre-computed and injected into session state; worst-case callout
+      renders (warning or info depending on the `None` branch).
+    - `TestPortfolioPageCapital` (2 tests): all five capital tiles
+      render when `portfolio_capital_result` is injected; the
+      Capital-Adjusted IRR tile is present (Refinement Backlog item).
+- **Key decisions:**
+  - **Pin BASE at the top of the scenarios table** by sorting rows with
+    `key=lambda row: 0 if row["Scenario"] == "BASE" else 1` rather than
+    a `st.dataframe` styler — keeps the dependency on a single
+    `list[dict]` shape and avoids importing pandas just for visual
+    formatting.
+  - **Capital model is per-product, applied uniformly**: `run_with_capital`
+    takes a single `LICATCapital`, so the page exposes a product-type
+    selectbox (default TERM) and applies `for_product_interim` of that
+    type to the entire portfolio. ADR-060 explicitly out-of-scopes
+    per-deal factor maps; the inline help on the selectbox documents
+    the simplification.
+  - **`portfolio_runtime` not in `KEYS`**: the live `Portfolio` object
+    is set imperatively by the Run button and consumed only by the
+    Scenarios / Capital sub-sections. Initialising it to `None` in
+    `init_session_state` would suggest it is a stable public surface;
+    keeping it out of `KEYS` matches its on-demand nature. The two
+    derived result keys (`portfolio_scenarios`,
+    `portfolio_capital_result`) ARE in `KEYS` because tests inject them
+    directly via session-state pre-population.
+  - **Test pattern: pre-compute, inject, render**: the scenario and
+    capital sub-sections gate their compute on a button click that
+    AppTest does not drive (the live `Portfolio` is built on upload,
+    which AppTest cannot simulate). Tests therefore call
+    `portfolio.run_scenarios(...)` / `portfolio.run_with_capital(...)`
+    directly, inject the result via `at.session_state[...]`, and
+    assert on the rendered output. Same pattern as the Slice 2
+    `TestPortfolioPage`.
+- **Quality gate:**
+  - `uv run ruff format src/ tests/` — clean (2 files reformatted to
+    match existing style).
+  - `uv run ruff check src/ tests/` — All checks passed.
+  - `uv run pytest tests/qa/test_dashboard_flows.py -v` — 37 passed
+    (29 existing + 8 new).
+  - `uv run pytest tests/ -m "not slow"` — 1157 passed, 1 skipped,
+    6 pre-existing failures unrelated to this change (4 missing SOA
+    table CSVs + 2 openpyxl-dependent tests; 3 collection errors from
+    the same missing module; identical baseline to Slice 2).
+  - Golden price regression ran successfully against
+    `data/qa/golden_inforce.csv` + `golden_config_flat.json` — output
+    matches the baseline shape.
 
 ## Refinement Backlog (carry-overs flagged during Slice 1 / 2)
 

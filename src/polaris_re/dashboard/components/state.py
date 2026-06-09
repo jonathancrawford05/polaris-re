@@ -29,6 +29,10 @@ KEYS = [
     "deal_config",
     # Portfolio analysis result — set on the Portfolio page
     "portfolio_result",
+    # Portfolio scenario result — set on the Portfolio page (Slice 3)
+    "portfolio_scenarios",
+    # Portfolio result with LICAT capital — set on the Portfolio page (Slice 3)
+    "portfolio_capital_result",
 ]
 
 # Default deal configuration values — derived from the shared DealConfig

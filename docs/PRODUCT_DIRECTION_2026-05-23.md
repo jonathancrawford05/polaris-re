@@ -376,6 +376,33 @@ via ADR-065 (PR #52, commit c88db82).)
   `analytics/rate_schedule.py`.
   *Source: ADR-063 Out of scope.*
 
+- **Dashboard error handling — widen exception catches to
+  `PolarisComputationError`.** Every dashboard page's Run button
+  (`views/pricing.py`, `views/scenario.py`, `views/portfolio.py`, etc.)
+  catches `PolarisValidationError` only. If the engine raises
+  `PolarisComputationError` (numerical failure, e.g. singular matrix
+  during IRR root-finding) the user sees a raw Streamlit traceback
+  instead of a friendly error tile. The right scope is a cross-cutting
+  pass over every dashboard page rather than a one-off widen on the
+  Portfolio page. **Scope:** ~0.5 dev-day. **Affected:** every
+  `dashboard/views/*.py` Run button, no analytics changes.
+  *Source: CONTINUATION_dashboard_portfolio — Refinement Backlog (Slice 2/3).*
+
+- **Calendar-aligned portfolio UX polish — non-zero grid offsets in
+  the sample.** The dashboard portfolio page's `align="calendar"`
+  banner ("Grid origin: ... per-deal offsets shown in the table below")
+  is suppressed on the in-tree sample because DEAL_C / DEAL_D
+  `valuation_date = 2026-01-15` sits in the same calendar month as
+  DEAL_A / DEAL_B's 2026-01-01, so `months_between` returns 0 for
+  every deal. Moving DEAL_C / DEAL_D to 2026-02-15 (or adding a
+  second sample portfolio) would let the calendar-alignment UI path
+  light up end-to-end and exercise the per-deal `grid_offset` column.
+  **Scope:** ~0.5 dev-day. **Affected:**
+  `data/inputs/portfolio_sample/portfolio.yaml`, the four per-deal
+  CSV `valuation_date` columns, the loader's test fixtures if any
+  assertion pins the current dates.
+  *Source: CONTINUATION_dashboard_portfolio — Refinement Backlog (Slice 2/3).*
+
 ## Recommended Next Sprint
 
 **Progress update (2026-05-31).** All three items in the prior sprint have
