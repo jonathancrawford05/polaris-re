@@ -28,7 +28,7 @@ import streamlit as st  # type: ignore[import-untyped]
 from polaris_re.analytics.capital import LICATCapital
 from polaris_re.analytics.portfolio import Portfolio, PortfolioResult
 from polaris_re.analytics.scenario import ScenarioAdjustment, ScenarioRunner
-from polaris_re.core.exceptions import PolarisValidationError
+from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 from polaris_re.core.policy import ProductType
 from polaris_re.dashboard.components.charts import (
     concentration_bar,
@@ -115,7 +115,7 @@ def page_portfolio() -> None:
                         f"Portfolio run complete — {run_result.n_deals} deals, "
                         f"total PV profits ${run_result.total_pv_profits:,.0f}."
                     )
-                except PolarisValidationError as exc:
+                except (PolarisValidationError, PolarisComputationError) as exc:
                     st.error(f"Portfolio error: {exc}")
 
     # ── Render result from session state ─────────────────────────────────────
@@ -351,7 +351,7 @@ def _render_scenarios(result: PortfolioResult) -> None:
                         hurdle_rate, scenarios_to_run, align=align
                     )
                     st.session_state["portfolio_scenarios"] = scen_result
-                except PolarisValidationError as exc:
+                except (PolarisValidationError, PolarisComputationError) as exc:
                     st.error(f"Scenario error: {exc}")
 
     scen_result = st.session_state.get("portfolio_scenarios")
@@ -443,7 +443,7 @@ def _render_capital(result: PortfolioResult) -> None:
                         hurdle_rate, capital_model, align=align
                     )
                     st.session_state["portfolio_capital_result"] = capital_result
-                except PolarisValidationError as exc:
+                except (PolarisValidationError, PolarisComputationError) as exc:
                     st.error(f"Capital error: {exc}")
 
     if not include:

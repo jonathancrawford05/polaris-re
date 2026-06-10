@@ -19,6 +19,7 @@ import streamlit as st  # type: ignore[import-untyped]
 from polaris_re.analytics.profit_test import ProfitResultWithCapital, ProfitTestResult
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.core.cashflow import CashFlowResult
+from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.pipeline import derive_capital_nar, iter_cohorts
 from polaris_re.core.projection import ProjectionConfig
@@ -749,25 +750,31 @@ def page_pricing() -> None:
 
     if st.button("Run Pricing", type="primary"):
         with st.spinner("Running projection..."):
-            config = build_projection_config()
-            hurdle_rate = float(cfg.get("hurdle_rate", 0.10))  # type: ignore[arg-type]
+            try:
+                config = build_projection_config()
+                hurdle_rate = float(cfg.get("hurdle_rate", 0.10))  # type: ignore[arg-type]
 
-            cohort_data_map: dict[str, CohortPricingData] = {}
-            for product_type, cohort_inforce in cohorts:
-                cohort_id = product_type.value
-                parity_label = f"dashboard_{cohort_id.lower()}" if n_cohorts > 1 else "dashboard"
-                cohort_data_map[cohort_id] = _run_pricing_for_cohort(
-                    cohort_id=cohort_id,
-                    cohort_inforce=cohort_inforce,
-                    assumption_set=assumption_set,
-                    config=config,
-                    treaty_type=treaty_type,
-                    use_policy_cession=use_policy_cession,
-                    hurdle_rate=hurdle_rate,
-                    parity_label=parity_label,
-                    show_yrt_info=(n_cohorts == 1),
-                    capital_model_id=capital_model_id,
-                )
+                cohort_data_map: dict[str, CohortPricingData] = {}
+                for product_type, cohort_inforce in cohorts:
+                    cohort_id = product_type.value
+                    parity_label = (
+                        f"dashboard_{cohort_id.lower()}" if n_cohorts > 1 else "dashboard"
+                    )
+                    cohort_data_map[cohort_id] = _run_pricing_for_cohort(
+                        cohort_id=cohort_id,
+                        cohort_inforce=cohort_inforce,
+                        assumption_set=assumption_set,
+                        config=config,
+                        treaty_type=treaty_type,
+                        use_policy_cession=use_policy_cession,
+                        hurdle_rate=hurdle_rate,
+                        parity_label=parity_label,
+                        show_yrt_info=(n_cohorts == 1),
+                        capital_model_id=capital_model_id,
+                    )
+            except (PolarisValidationError, PolarisComputationError) as exc:
+                st.error(f"Pricing error: {exc}")
+                return
 
         # Store multi-cohort results
         st.session_state["pricing_cohorts"] = cohort_data_map

@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt  # type: ignore[import-untyped]
 import numpy as np
 import streamlit as st  # type: ignore[import-untyped]
 
+from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 from polaris_re.dashboard.components.charts import uq_histogram
 from polaris_re.dashboard.components.projection import (
     build_projection_config,
@@ -80,38 +81,42 @@ def page_uq() -> None:
         from polaris_re.reinsurance.yrt import YRTTreaty
 
         with st.spinner(f"Running {n_scenarios} scenarios..."):
-            config = build_projection_config()
-            face_total = float(inforce_block.total_face_amount())
+            try:
+                config = build_projection_config()
+                face_total = float(inforce_block.total_face_amount())
 
-            # Derive YRT rate consistently with Deal Pricing
-            yrt_loading = float(cfg.get("yrt_loading", 0.10))
-            _base_gross = run_gross_projection(inforce_block, assumption_set, config)
-            yrt_rate = derive_yrt_rate(_base_gross, face_total, yrt_loading)
-            st.info(
-                f"Derived YRT rate: {yrt_rate:.3f} per $1,000 NAR (loading = {yrt_loading:.0%})"
-            )
+                # Derive YRT rate consistently with Deal Pricing
+                yrt_loading = float(cfg.get("yrt_loading", 0.10))
+                _base_gross = run_gross_projection(inforce_block, assumption_set, config)
+                yrt_rate = derive_yrt_rate(_base_gross, face_total, yrt_loading)
+                st.info(
+                    f"Derived YRT rate: {yrt_rate:.3f} per $1,000 NAR (loading = {yrt_loading:.0%})"
+                )
 
-            treaty = YRTTreaty(
-                treaty_name="YRT-UQ",
-                cession_pct=cession_pct,
-                total_face_amount=face_total,
-                flat_yrt_rate_per_1000=yrt_rate,
-            )
-            uq = MonteCarloUQ(
-                inforce=inforce_block,
-                base_assumptions=assumption_set,
-                base_config=config,
-                treaty=treaty,
-                hurdle_rate=hurdle_rate,
-                n_scenarios=n_scenarios,
-                seed=seed,
-                params=UQParameters(
-                    mortality_log_sigma=mort_sigma,
-                    lapse_log_sigma=lapse_sigma,
-                    interest_rate_sigma=rate_sigma,
-                ),
-            )
-            result = uq.run()
+                treaty = YRTTreaty(
+                    treaty_name="YRT-UQ",
+                    cession_pct=cession_pct,
+                    total_face_amount=face_total,
+                    flat_yrt_rate_per_1000=yrt_rate,
+                )
+                uq = MonteCarloUQ(
+                    inforce=inforce_block,
+                    base_assumptions=assumption_set,
+                    base_config=config,
+                    treaty=treaty,
+                    hurdle_rate=hurdle_rate,
+                    n_scenarios=n_scenarios,
+                    seed=seed,
+                    params=UQParameters(
+                        mortality_log_sigma=mort_sigma,
+                        lapse_log_sigma=lapse_sigma,
+                        interest_rate_sigma=rate_sigma,
+                    ),
+                )
+                result = uq.run()
+            except (PolarisValidationError, PolarisComputationError) as exc:
+                st.error(f"Monte Carlo error: {exc}")
+                return
 
         # Metrics
         col_a, col_b, col_c, col_d = st.columns(4)

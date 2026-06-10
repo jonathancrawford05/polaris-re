@@ -9,6 +9,7 @@ import matplotlib.ticker as mticker  # type: ignore[import-untyped]
 import numpy as np
 import streamlit as st  # type: ignore[import-untyped]
 
+from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 from polaris_re.dashboard.components.state import require_single_product_cohort
 
 __all__ = ["page_ifrs17"]
@@ -57,13 +58,19 @@ def page_ifrs17() -> None:
         from polaris_re.analytics.ifrs17 import IFRS17Measurement
 
         with st.spinner("Computing IFRS 17 measurement..."):
-            measurement = IFRS17Measurement(
-                cashflows=gross_result,
-                discount_rate=ifrs_discount_rate,
-                ra_factor=ra_factor,
-            )
+            try:
+                measurement = IFRS17Measurement(
+                    cashflows=gross_result,
+                    discount_rate=ifrs_discount_rate,
+                    ra_factor=ra_factor,
+                )
 
-            result = measurement.measure_bba() if approach == "BBA" else measurement.measure_paa()
+                result = (
+                    measurement.measure_bba() if approach == "BBA" else measurement.measure_paa()
+                )
+            except (PolarisValidationError, PolarisComputationError) as exc:
+                st.error(f"IFRS 17 measurement error: {exc}")
+                return
 
         # Initial recognition metrics
         st.subheader("Initial Recognition")

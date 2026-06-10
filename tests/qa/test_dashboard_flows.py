@@ -688,3 +688,179 @@ class TestTabularYRTUpload:
         at.sidebar.radio[0].set_value("Deal Pricing")
         at.run()
         assert not at.exception, f"Deal Pricing raised with tabular state: {at.exception}"
+
+
+def _raise_computation(*_args, **_kwargs):
+    """Stand-in engine entry point that simulates a numerical failure."""
+    from polaris_re.core.exceptions import PolarisComputationError
+
+    raise PolarisComputationError("forced numerical failure (singular matrix in IRR solve)")
+
+
+class TestDashboardComputationErrorHandling:
+    """Regression: dashboard Run buttons render a friendly ``st.error`` tile
+    (rather than propagating a raw traceback) when the engine raises
+    ``PolarisComputationError``.
+
+    Each test monkeypatches the relevant engine entry point to raise
+    ``PolarisComputationError``, drives the page's Run button via AppTest,
+    and asserts the page caught it and surfaced an ``st.error`` with no
+    propagated exception. This guards the widened
+    ``(PolarisValidationError, PolarisComputationError)`` catches.
+
+    The Portfolio page's primary "Run portfolio" button is gated behind a
+    ``file_uploader`` (undriveable by AppTest, per the module docstring), so
+    it is covered indirectly via the session-state-driven "Run scenarios"
+    sub-button, which shares the same widened catch tuple.
+    """
+
+    @staticmethod
+    def _term_pipeline():
+        """Build a minimal single-TERM-policy (inforce, assumptions, config)."""
+        from polaris_re.core.pipeline import (
+            DealConfig,
+            LapseConfig,
+            MortalityConfig,
+            PipelineInputs,
+            build_pipeline,
+            load_inforce,
+        )
+
+        policies = [
+            {
+                "policy_id": "CERR-001",
+                "issue_age": 40,
+                "attained_age": 40,
+                "sex": "M",
+                "smoker": False,
+                "face_amount": 500000.0,
+                "annual_premium": 1200.0,
+                "policy_term": 20,
+                "duration_inforce": 0,
+                "issue_date": "2026-04-01",
+                "valuation_date": "2026-04-01",
+                "product_type": "TERM",
+            }
+        ]
+        inforce = load_inforce(policies_dict=policies)
+        inputs = PipelineInputs(
+            mortality=MortalityConfig(source="flat", flat_qx=0.003),
+            lapse=LapseConfig(),
+            deal=DealConfig(product_type="TERM", projection_years=10),
+        )
+        return build_pipeline(inforce, inputs)
+
+    def _app_with_term_state(self):
+        inf, assumptions, config = self._term_pipeline()
+        at = AppTest.from_file(APP_PATH, default_timeout=60)
+        at.run()
+        at.session_state["inforce_block"] = inf
+        at.session_state["assumption_set"] = assumptions
+        return at, config
+
+    @staticmethod
+    def _click(at, label):
+        matches = [b for b in at.button if b.label == label]
+        assert matches, f"Run button {label!r} not found; saw {[b.label for b in at.button]}"
+        matches[0].click()
+        at.run()
+
+    @staticmethod
+    def _assert_friendly_error(at, prefix):
+        assert not at.exception, f"Page propagated a raw exception: {at.exception}"
+        messages = [str(e.value) for e in at.error]
+        assert any(prefix in m for m in messages), (
+            f"Expected an st.error starting with {prefix!r}; saw {messages}"
+        )
+
+    def test_pricing_page(self, monkeypatch):
+        monkeypatch.setattr(
+            "polaris_re.dashboard.views.pricing._run_pricing_for_cohort",
+            _raise_computation,
+        )
+        at, _config = self._app_with_term_state()
+        at.sidebar.radio[0].set_value("Deal Pricing")
+        at.run()
+        self._click(at, "Run Pricing")
+        self._assert_friendly_error(at, "Pricing error:")
+
+    def test_scenario_page(self, monkeypatch):
+        monkeypatch.setattr(
+            "polaris_re.dashboard.views.scenario.run_gross_projection",
+            _raise_computation,
+        )
+        at, _config = self._app_with_term_state()
+        at.sidebar.radio[0].set_value("Scenario Analysis")
+        at.run()
+        self._click(at, "Run Scenarios")
+        self._assert_friendly_error(at, "Scenario error:")
+
+    def test_uq_page(self, monkeypatch):
+        monkeypatch.setattr(
+            "polaris_re.dashboard.views.uq.run_gross_projection",
+            _raise_computation,
+        )
+        at, _config = self._app_with_term_state()
+        at.sidebar.radio[0].set_value("Monte Carlo UQ")
+        at.run()
+        self._click(at, "Run Monte Carlo")
+        self._assert_friendly_error(at, "Monte Carlo error:")
+
+    def test_treaty_compare_page(self, monkeypatch):
+        monkeypatch.setattr(
+            "polaris_re.dashboard.views.treaty_compare.run_gross_projection",
+            _raise_computation,
+        )
+        at, _config = self._app_with_term_state()
+        at.sidebar.radio[0].set_value("Treaty Comparison")
+        at.run()
+        self._click(at, "Run Comparison")
+        self._assert_friendly_error(at, "Treaty comparison error:")
+
+    def test_ifrs17_page(self, monkeypatch):
+        from polaris_re.dashboard.components.projection import run_gross_projection
+
+        # IFRS 17 measures a cached gross projection; inject one into state.
+        inf, assumptions, config = self._term_pipeline()
+        gross = run_gross_projection(inf, assumptions, config)
+
+        monkeypatch.setattr(
+            "polaris_re.analytics.ifrs17.IFRS17Measurement",
+            _raise_computation,
+        )
+        at = AppTest.from_file(APP_PATH, default_timeout=60)
+        at.run()
+        at.session_state["gross_result"] = gross
+        at.sidebar.radio[0].set_value("IFRS 17")
+        at.run()
+        self._click(at, "Run IFRS 17 Measurement")
+        self._assert_friendly_error(at, "IFRS 17 measurement error:")
+
+    def test_portfolio_scenarios_button(self, monkeypatch):
+        from pathlib import Path
+
+        from polaris_re.analytics.portfolio import Portfolio
+        from polaris_re.dashboard.components.portfolio_loader import (
+            load_portfolio_from_config_path,
+        )
+
+        portfolio, hurdle_rate = load_portfolio_from_config_path(
+            Path("data/inputs/portfolio_sample/portfolio.yaml")
+        )
+        result = portfolio.run(hurdle_rate, align="strict")
+
+        # Force the scenario engine to fail numerically.
+        monkeypatch.setattr(Portfolio, "run_scenarios", _raise_computation)
+
+        at = AppTest.from_file(APP_PATH, default_timeout=60)
+        at.run()
+        at.session_state["portfolio_result"] = result
+        at.session_state["portfolio_runtime"] = {
+            "portfolio": portfolio,
+            "hurdle_rate": hurdle_rate,
+            "align": "strict",
+        }
+        at.sidebar.radio[0].set_value("Portfolio")
+        at.run()
+        self._click(at, "Run scenarios")
+        self._assert_friendly_error(at, "Scenario error:")
