@@ -759,14 +759,14 @@ class TestDashboardComputationErrorHandling:
         return at, config
 
     @staticmethod
-    def _click(at, label):
+    def _click(at: "AppTest", label: str) -> None:
         matches = [b for b in at.button if b.label == label]
         assert matches, f"Run button {label!r} not found; saw {[b.label for b in at.button]}"
         matches[0].click()
         at.run()
 
     @staticmethod
-    def _assert_friendly_error(at, prefix):
+    def _assert_friendly_error(at: "AppTest", prefix: str) -> None:
         assert not at.exception, f"Page propagated a raw exception: {at.exception}"
         messages = [str(e.value) for e in at.error]
         assert any(prefix in m for m in messages), (
