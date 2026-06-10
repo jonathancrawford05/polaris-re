@@ -41,10 +41,15 @@ deal_d_cedant_south_ul_modco.csv                 ← 25 policies (UL — adds ac
 - **Rated lives** — 7 rated policies across the book (3 in A, 2 in B,
   2 in D) so the rated-block panel (ADR-068) renders non-empty when any
   of these CSVs is run through `polaris price`.
-- **Calendar offsets** — DEAL_A / DEAL_B have `valuation_date =
-  2026-01-01`; DEAL_C / DEAL_D have `2026-01-15`. Running with
-  `--align calendar` (ADR-061) produces a non-zero `grid_offset` for
-  the two later deals.
+- **Mixed CSV valuation dates** — DEAL_A / DEAL_B policies carry
+  `valuation_date = 2026-01-01`; DEAL_C / DEAL_D carry `2026-01-15`.
+  Note these per-policy CSV dates do NOT drive calendar-grid placement:
+  the grid is keyed off each deal's YAML `deal.valuation_date`
+  (`DealConfig` → `ProjectionConfig`), which this config does not set,
+  so every deal defaults to the run date and all `grid_offset` values
+  are 0 under `--align calendar` (ADR-061). For a sample that produces
+  non-zero offsets and exercises the calendar-mode path end to end,
+  use `data/inputs/portfolio_staggered_sample/`.
 
 ## Running
 

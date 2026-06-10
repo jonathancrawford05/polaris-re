@@ -102,11 +102,12 @@ which now needs the new fixture — same class of fix PR #61 made).
 
 - `src/polaris_re/analytics/portfolio.py` — guardrail; sample-data
   only.
-- `data/inputs/portfolio_sample/` — guardrail; byte-identical
-  (verified via `git status`). Note its README's "Calendar offsets"
-  paragraph claims the 2026-01-15 CSV dates produce non-zero
-  offsets — stale per the investigation finding above; left untouched
-  per the guardrail and flagged as a follow-up below.
+- `data/inputs/portfolio_sample/` YAML + CSVs — guardrail;
+  byte-identical (verified via `git status`). Its README's stale
+  "Calendar offsets" paragraph (claimed the 2026-01-15 CSV dates
+  produce non-zero offsets) was corrected in a follow-up commit on
+  this branch with explicit permission to deviate from the guardrail —
+  docs-only, the sample data itself is unchanged.
 - `data/qa/golden_*.json` — guardrail; untouched.
 
 ## What the change achieves (demo path)
@@ -164,11 +165,10 @@ uv run polaris price --inforce data/qa/golden_inforce.csv \
 
 ## Follow-ups
 
-- `data/inputs/portfolio_sample/README.md` "Calendar offsets" bullet
-  is stale (claims the CSV dates drive non-zero offsets; they don't,
-  and offsets are 0 on that sample). Untouched this session per the
-  "never modify portfolio_sample/" guardrail — fold the correction
-  into the next session that's allowed to touch that directory.
+- ~~`data/inputs/portfolio_sample/README.md` "Calendar offsets" bullet
+  is stale~~ — corrected on this branch after explicit permission to
+  deviate from the "never modify portfolio_sample/" guardrail
+  (docs-only change; YAML + CSVs untouched).
 - After this PR merges, strike out "Calendar-aligned portfolio UX
   polish — non-zero grid offsets in the sample" in the NICE-TO-HAVE
   section of `docs/PRODUCT_DIRECTION_2026-05-23.md` (post-merge
