@@ -1,0 +1,103 @@
+# Staggered-date sample portfolio for the calendar-aligned aggregator
+# (ADR-061 / ADR-062) and the dashboard portfolio page's
+# align="calendar" UI path.
+#
+# Same 4-deal composition as data/inputs/portfolio_sample/ but with
+# explicit per-deal valuation dates two months apart: DEAL_A / DEAL_B
+# at 2026-01-01 and DEAL_C / DEAL_D at 2026-03-01. All dates share the
+# same day-of-month (the calendar-mode constraint), so running with
+# align="calendar" places DEAL_C / DEAL_D at grid_offset = 2 and the
+# dashboard's grid-origin banner + "Grid Offset (months)" column light
+# up. Running with align="strict" errors by design (mixed valuation
+# dates) — use data/inputs/portfolio_sample/ for the strict-mode demo.
+#
+# Run via:
+#     uv run polaris portfolio run --config \
+#         data/inputs/portfolio_staggered_sample/portfolio.yaml \
+#         --align calendar
+#
+# Or from the Streamlit dashboard's Portfolio page (Slice 2+).
+
+name: portfolio_staggered_sample
+hurdle_rate: 0.10
+
+deals:
+  - deal_id: DEAL_A
+    cedant: CedantNorth
+    inforce_csv: data/inputs/portfolio_staggered_sample/deal_a_cedant_north_term_yrt.csv
+    mortality:
+      source: flat
+      flat_qx: 0.0020
+    lapse:
+      duration_table:
+        "1": 0.08
+        "2": 0.06
+        "3": 0.05
+        "ultimate": 0.04
+    deal:
+      product_type: TERM
+      treaty_type: YRT
+      cession_pct: 0.80
+      yrt_loading: 0.10
+      discount_rate: 0.06
+      projection_years: 20
+      valuation_date: 2026-01-01
+
+  - deal_id: DEAL_B
+    cedant: CedantNorth
+    inforce_csv: data/inputs/portfolio_staggered_sample/deal_b_cedant_north_wl_coinsurance.csv
+    mortality:
+      source: flat
+      flat_qx: 0.0035
+    lapse:
+      duration_table:
+        "1": 0.05
+        "2": 0.04
+        "ultimate": 0.03
+    deal:
+      product_type: WHOLE_LIFE
+      treaty_type: Coinsurance
+      cession_pct: 0.50
+      discount_rate: 0.06
+      projection_years: 20
+      valuation_date: 2026-01-01
+
+  - deal_id: DEAL_C
+    cedant: CedantSouth
+    inforce_csv: data/inputs/portfolio_staggered_sample/deal_c_cedant_south_term_coinsurance.csv
+    mortality:
+      source: flat
+      flat_qx: 0.0018
+    lapse:
+      duration_table:
+        "1": 0.10
+        "2": 0.08
+        "3": 0.06
+        "ultimate": 0.05
+    deal:
+      product_type: TERM
+      treaty_type: Coinsurance
+      cession_pct: 0.60
+      discount_rate: 0.06
+      projection_years: 15
+      valuation_date: 2026-03-01
+
+  - deal_id: DEAL_D
+    cedant: CedantWest
+    inforce_csv: data/inputs/portfolio_staggered_sample/deal_d_cedant_south_ul_modco.csv
+    mortality:
+      source: flat
+      flat_qx: 0.0030
+    lapse:
+      duration_table:
+        "1": 0.07
+        "2": 0.05
+        "ultimate": 0.04
+    deal:
+      product_type: UL
+      treaty_type: Modco
+      cession_pct: 0.70
+      modco_rate: 0.04
+      discount_rate: 0.06
+      projection_years: 15
+      valuation_date: 2026-03-01

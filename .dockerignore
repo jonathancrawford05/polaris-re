@@ -43,6 +43,7 @@ notebooks/output/
 # Large data files (mount at runtime via -v flag instead)
 # data/qa/ is allowed through — small golden fixtures required by test suite
 # data/inputs/portfolio_sample/ — small fixture for the dashboard portfolio loader tests
+# data/inputs/portfolio_staggered_sample/ — calendar-mode (ADR-061) fixture for the same tests
 data/*
 !data/qa/
 !data/qa/**
@@ -50,6 +51,8 @@ data/*
 data/inputs/*
 !data/inputs/portfolio_sample/
 !data/inputs/portfolio_sample/**
+!data/inputs/portfolio_staggered_sample/
+!data/inputs/portfolio_staggered_sample/**
 *.parquet
 *.csv
 
