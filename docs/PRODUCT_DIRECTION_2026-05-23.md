@@ -124,7 +124,7 @@ via ADR-065 (PR #52, commit c88db82).)
   **Scope:** ~3 dev-days. **Affected:** new
   `src/polaris_re/dashboard/views/portfolio.py`, navigation, tests.
   *Source: ADR-058 "Out of scope" + CONTINUATION_portfolio_aggregation.*~~
-  — **SHIPPED** (PR #61 + PR #62; Slice 3 concentration/scenarios/capital in flight)
+  — **SHIPPED** (PR #61 + PR #62 + PR #63 — all three slices merged 2026-06-07/08/09)
 
 - **Deal-specific hurdle rates on `Portfolio`.** Open design question:
   PV profits at different discount rates do not sum, so
@@ -146,7 +146,7 @@ via ADR-065 (PR #52, commit c88db82).)
   promoted follow-up below). *Source: CONTINUATION_portfolio_aggregation
   — Refinement Backlog #5.*
 
-- **Dashboard surfacing of `concentration_by_basis`.** The CLI half of
+- ~~**Dashboard surfacing of `concentration_by_basis`.** The CLI half of
   this item shipped 2026-06-05 (ADR-070) as a `--concentration-basis
   {ceded_face,ceded_nar_peak,pv_premium,all}` flag on both
   `polaris portfolio run` and `polaris portfolio report`. The Streamlit
@@ -155,7 +155,10 @@ via ADR-065 (PR #52, commit c88db82).)
   the basis selector should ride along with whichever lands first.
   **Scope:** rolls into the dashboard portfolio view work; ~0.5 dev-day
   on top of that.
-  *Source: ADR-069 Out of scope; CLI half closed by ADR-070.*
+  *Source: ADR-069 Out of scope; CLI half closed by ADR-070.*~~ —
+  **SHIPPED** (PR #63, Slice 3): the dashboard portfolio page surfaces
+  all three bases via dimension-first `concentration_by_dimension()`
+  bar charts plus an HHI matrix and long-format CSV export.
 
 - **Capital-weighted concentration basis on
   `PortfolioResultWithCapital`.** ADR-069 deliberately omitted a
@@ -295,7 +298,8 @@ via ADR-065 (PR #52, commit c88db82).)
   new `src/polaris_re/dashboard/views/portfolio.py`, navigation, tests.
   *Source: CONTINUATION_calendar_aligned_portfolio — Refinement Backlog #1
   + ADR-062 Out of scope.*~~
-  — **SHIPPED** (PR #61 + PR #62; `align` selectbox live; UX polish tracked in CONTINUATION backlog)
+  — **SHIPPED** (PR #61 + PR #62 + PR #63 — all three slices merged; `align`
+  selectbox live; UX polish promoted as its own NICE-TO-HAVE follow-up below)
 
 - **Sub-month / non-common day-of-month inception dates in calendar mode.**
   `align="calendar"` today requires every deal's valuation date to fall on
