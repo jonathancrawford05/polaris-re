@@ -9,6 +9,7 @@ import matplotlib.ticker as mticker  # type: ignore[import-untyped]
 import numpy as np
 import streamlit as st  # type: ignore[import-untyped]
 
+from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 from polaris_re.dashboard.components.projection import (
     build_projection_config,
     build_treaty,
@@ -95,64 +96,68 @@ def page_treaty_compare() -> None:
         from polaris_re.analytics.profit_test import ProfitTester
 
         with st.spinner("Running treaty comparison..."):
-            config = build_projection_config()
+            try:
+                config = build_projection_config()
 
-            # Run gross projection (consistent with Deal Pricing)
-            gross = run_gross_projection(inforce_block, assumption_set, config)
-            st.session_state["gross_result"] = gross
+                # Run gross projection (consistent with Deal Pricing)
+                gross = run_gross_projection(inforce_block, assumption_set, config)
+                st.session_state["gross_result"] = gross
 
-            face_amount = float(inforce_block.total_face_amount())
+                face_amount = float(inforce_block.total_face_amount())
 
-            # Derive YRT rate from the gross projection (critical fix!)
-            yrt_loading = float(cfg.get("yrt_loading", 0.10))
-            rate_basis = str(cfg.get("yrt_rate_basis", "Mortality-based"))
-            yrt_rate = cfg.get("yrt_rate_per_1000")  # type: ignore[assignment]
-            if rate_basis == "Mortality-based" or yrt_rate is None:
-                yrt_rate = derive_yrt_rate(gross, face_amount, yrt_loading)
-            st.info(
-                f"YRT rate: {yrt_rate:.3f} per $1,000 NAR "  # type: ignore[union-attr]
-                f"(loading = {yrt_loading:.0%})"
-            )
+                # Derive YRT rate from the gross projection (critical fix!)
+                yrt_loading = float(cfg.get("yrt_loading", 0.10))
+                rate_basis = str(cfg.get("yrt_rate_basis", "Mortality-based"))
+                yrt_rate = cfg.get("yrt_rate_per_1000")  # type: ignore[assignment]
+                if rate_basis == "Mortality-based" or yrt_rate is None:
+                    yrt_rate = derive_yrt_rate(gross, face_amount, yrt_loading)
+                st.info(
+                    f"YRT rate: {yrt_rate:.3f} per $1,000 NAR "  # type: ignore[union-attr]
+                    f"(loading = {yrt_loading:.0%})"
+                )
 
-            results: dict[str, object] = {}
-            ncf_curves: dict[str, np.ndarray] = {}
-            reserve_peaks: dict[str, float] = {}
-            reserve_curves: dict[str, np.ndarray] = {}
-            reinsurer_results: dict[str, object] = {}
-            ceded_ncf_curves: dict[str, np.ndarray] = {}
+                results: dict[str, object] = {}
+                ncf_curves: dict[str, np.ndarray] = {}
+                reserve_peaks: dict[str, float] = {}
+                reserve_curves: dict[str, np.ndarray] = {}
+                reinsurer_results: dict[str, object] = {}
+                ceded_ncf_curves: dict[str, np.ndarray] = {}
 
-            for treaty_name in treaties_to_compare:
-                if treaty_name == "Gross (No Treaty)":
-                    net = gross
-                    ceded = None
-                else:
-                    # Build treaty with proper YRT rate
-                    effective_yrt = yrt_rate if treaty_name == "YRT" else None
-                    treaty = build_treaty(
-                        treaty_name,
-                        cession_pct,
-                        face_amount,
-                        modco_rate,
-                        effective_yrt,  # type: ignore[arg-type]
-                    )
-                    if treaty is None:
-                        continue
-                    net, ceded = treaty.apply(gross)  # type: ignore[union-attr]
-                    reserve_peaks[treaty_name] = float(ceded.reserve_balance.max())
-                    reserve_curves[treaty_name] = ceded.reserve_balance
+                for treaty_name in treaties_to_compare:
+                    if treaty_name == "Gross (No Treaty)":
+                        net = gross
+                        ceded = None
+                    else:
+                        # Build treaty with proper YRT rate
+                        effective_yrt = yrt_rate if treaty_name == "YRT" else None
+                        treaty = build_treaty(
+                            treaty_name,
+                            cession_pct,
+                            face_amount,
+                            modco_rate,
+                            effective_yrt,  # type: ignore[arg-type]
+                        )
+                        if treaty is None:
+                            continue
+                        net, ceded = treaty.apply(gross)  # type: ignore[union-attr]
+                        reserve_peaks[treaty_name] = float(ceded.reserve_balance.max())
+                        reserve_curves[treaty_name] = ceded.reserve_balance
 
-                    # Reinsurer profit test (on ceded cash flows)
-                    reinsurer_profit = ProfitTester(
-                        cashflows=ceded_to_reinsurer_view(ceded),
-                        hurdle_rate=hurdle_rate,
-                    ).run()
-                    reinsurer_results[treaty_name] = reinsurer_profit
-                    ceded_ncf_curves[treaty_name] = ceded.net_cash_flow
+                        # Reinsurer profit test (on ceded cash flows)
+                        reinsurer_profit = ProfitTester(
+                            cashflows=ceded_to_reinsurer_view(ceded),
+                            hurdle_rate=hurdle_rate,
+                        ).run()
+                        reinsurer_results[treaty_name] = reinsurer_profit
+                        ceded_ncf_curves[treaty_name] = ceded.net_cash_flow
 
-                # Cedant profit test (on net cash flows)
-                profit_result = ProfitTester(cashflows=net, hurdle_rate=hurdle_rate).run()
-                results[treaty_name] = profit_result
-                ncf_curves[treaty_name] = net.net_cash_flow
+                    # Cedant profit test (on net cash flows)
+                    profit_result = ProfitTester(cashflows=net, hurdle_rate=hurdle_rate).run()
+                    results[treaty_name] = profit_result
+                    ncf_curves[treaty_name] = net.net_cash_flow
+            except (PolarisValidationError, PolarisComputationError) as exc:
+                st.error(f"Treaty comparison error: {exc}")
+                return
 
         # ========== CEDANT COMPARISON ==========
         st.subheader("Cedant Metrics Comparison")

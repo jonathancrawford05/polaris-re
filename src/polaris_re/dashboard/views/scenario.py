@@ -6,6 +6,7 @@ Uses the shared projection helpers for consistent YRT rate derivation.
 
 import streamlit as st  # type: ignore[import-untyped]
 
+from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 from polaris_re.dashboard.components.charts import scenario_tornado
 from polaris_re.dashboard.components.projection import (
     build_projection_config,
@@ -147,44 +148,49 @@ def page_scenario() -> None:
         from polaris_re.reinsurance.yrt import YRTTreaty
 
         with st.spinner("Running scenario analysis..."):
-            config = build_projection_config()
-            face_total = float(inforce_block.total_face_amount())
+            try:
+                config = build_projection_config()
+                face_total = float(inforce_block.total_face_amount())
 
-            # Derive YRT rate from a base gross projection (consistent with Deal Pricing)
-            _base_gross = run_gross_projection(inforce_block, assumption_set, config)
-            _yrt_rate = derive_yrt_rate(_base_gross, face_total, yrt_loading)
-            st.info(
-                f"Derived YRT rate: {_yrt_rate:.3f} per $1,000 NAR (loading = {yrt_loading:.0%})"
-            )
-
-            treaty = YRTTreaty(
-                treaty_name="YRT-SCENARIO",
-                cession_pct=cession_pct,
-                total_face_amount=face_total,
-                flat_yrt_rate_per_1000=_yrt_rate,
-            )
-
-            # Build scenario list: standard + custom
-            custom_adjustments = [
-                ScenarioAdjustment(
-                    name=cs_name,
-                    mortality_multiplier=cs_m,
-                    lapse_multiplier=cs_l,
-                    description=f"Custom: mort={cs_m:.2f}, lapse={cs_l:.2f}",
+                # Derive YRT rate from a base gross projection (consistent with Deal Pricing)
+                _base_gross = run_gross_projection(inforce_block, assumption_set, config)
+                _yrt_rate = derive_yrt_rate(_base_gross, face_total, yrt_loading)
+                st.info(
+                    f"Derived YRT rate: {_yrt_rate:.3f} per $1,000 NAR "
+                    f"(loading = {yrt_loading:.0%})"
                 )
-                for cs_name, cs_m, cs_l in st.session_state.get("custom_scenarios", [])
-            ]
 
-            runner = ScenarioRunner(
-                inforce=inforce_block,
-                base_assumptions=assumption_set,
-                config=config,
-                treaty=treaty,
-                hurdle_rate=hurdle_rate,
-            )
+                treaty = YRTTreaty(
+                    treaty_name="YRT-SCENARIO",
+                    cession_pct=cession_pct,
+                    total_face_amount=face_total,
+                    flat_yrt_rate_per_1000=_yrt_rate,
+                )
 
-            all_scenarios = ScenarioRunner.standard_stress_scenarios() + custom_adjustments
-            results = runner.run(scenarios=all_scenarios)
+                # Build scenario list: standard + custom
+                custom_adjustments = [
+                    ScenarioAdjustment(
+                        name=cs_name,
+                        mortality_multiplier=cs_m,
+                        lapse_multiplier=cs_l,
+                        description=f"Custom: mort={cs_m:.2f}, lapse={cs_l:.2f}",
+                    )
+                    for cs_name, cs_m, cs_l in st.session_state.get("custom_scenarios", [])
+                ]
+
+                runner = ScenarioRunner(
+                    inforce=inforce_block,
+                    base_assumptions=assumption_set,
+                    config=config,
+                    treaty=treaty,
+                    hurdle_rate=hurdle_rate,
+                )
+
+                all_scenarios = ScenarioRunner.standard_stress_scenarios() + custom_adjustments
+                results = runner.run(scenarios=all_scenarios)
+            except (PolarisValidationError, PolarisComputationError) as exc:
+                st.error(f"Scenario error: {exc}")
+                return
 
         results_dict = {name: res for name, res in results.scenarios}
         base_case = results.base_case()
