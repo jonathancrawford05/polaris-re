@@ -4,7 +4,13 @@ import matplotlib.pyplot as plt  # type: ignore[import-untyped]
 import matplotlib.ticker as mticker  # type: ignore[import-untyped]
 import numpy as np
 
-__all__ = ["cashflow_waterfall", "scenario_tornado", "uq_histogram"]
+__all__ = [
+    "cashflow_waterfall",
+    "concentration_bar",
+    "portfolio_capital_chart",
+    "scenario_tornado",
+    "uq_histogram",
+]
 
 
 def cashflow_waterfall(
@@ -57,6 +63,49 @@ def uq_histogram(
     ax.set_title(title)
     ax.legend()
     ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+    fig.tight_layout()
+    return fig
+
+
+def concentration_bar(
+    shares: dict[str, float],
+    title: str,
+    color: str = "#3498db",
+) -> plt.Figure:
+    """Horizontal bar chart of {label: share} concentration weights."""
+    labels = list(shares.keys())
+    values = [shares[label] for label in labels]
+    pairs = sorted(zip(values, labels, strict=True), key=lambda x: x[0])
+    values_sorted = [p[0] for p in pairs]
+    labels_sorted = [p[1] for p in pairs]
+
+    fig, ax = plt.subplots(figsize=(6, max(2.5, 0.5 * len(labels_sorted) + 1)))
+    y_pos = np.arange(len(labels_sorted))
+    ax.barh(y_pos, values_sorted, color=color, edgecolor="white")
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(labels_sorted)
+    ax.set_xlim(0.0, 1.0)
+    ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.0%}"))
+    ax.set_xlabel("Share")
+    ax.set_title(title)
+    fig.tight_layout()
+    return fig
+
+
+def portfolio_capital_chart(
+    capital_by_period: np.ndarray,
+    title: str = "Required Capital Over Time",
+) -> plt.Figure:
+    """Line chart of aggregate required capital by month."""
+    months = np.arange(len(capital_by_period))
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(months / 12, capital_by_period, color="#8e44ad", linewidth=1.8)
+    ax.fill_between(months / 12, capital_by_period, alpha=0.2, color="#8e44ad")
+    ax.set_xlabel("Year")
+    ax.set_ylabel("Required Capital ($)")
+    ax.set_title(title)
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+    ax.grid(True, alpha=0.3)
     fig.tight_layout()
     return fig
 
