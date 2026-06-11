@@ -1,10 +1,12 @@
 # Sample portfolio config for the Streamlit dashboard portfolio page.
 #
 # 4 deals across 3 cedants, 3 product types, 3 treaty types, 100 policies
-# total. Exercises the multi-basis concentration surface (ADR-069),
-# dimension-outer transpose (ADR-073), and calendar alignment (ADR-061):
-# DEAL_C and DEAL_D have valuation_date = 2026-01-15, two weeks after
-# DEAL_A / DEAL_B's 2026-01-01.
+# total. Exercises the multi-basis concentration surface (ADR-069) and
+# dimension-outer transpose (ADR-073). All deals share valuation_date
+# 2026-01-01 (from the CSVs — ADR-074 block-date resolution), making this
+# the canonical strict-mode demo; for the calendar-aligned path with
+# non-zero grid offsets (ADR-061) use
+# data/inputs/portfolio_staggered_sample/.
 #
 # Run via:
 #     uv run polaris portfolio run --config \

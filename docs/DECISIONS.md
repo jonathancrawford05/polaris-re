@@ -4256,3 +4256,150 @@ the new helpers are pure derivations from existing fields.
   top-level keys are dimensions, inner keys are bases (for both
   helpers), value preservation, round-trip via the basis-outer view,
   HHI value preservation, no storage duplication; ~+100 lines).
+
+---
+
+## ADR-074: Canonical valuation-date resolution — block-owned dates, no silent wall-clock fallback
+
+**Date:** 2026-06-11
+**Status:** Accepted
+
+**Context.** The effective `ProjectionConfig.valuation_date` had three
+intended sources — explicit config, the inforce block's own (validated,
+uniform) policy `valuation_date`, and `date.today()` as a last resort —
+but the chain was dead code everywhere: `DealConfig.valuation_date` was
+declared with `default_factory=date.today`, so the field was never
+`None` and every documented fallback to the block date was unreachable.
+This held in `core.pipeline.build_pipeline` (docstring promised
+deal → policy → today; step "policy" could never fire), in the
+dashboard's `components/projection.build_projection_config` (docstring
+promised "identical results on the same CSV" via the block date; the
+branch was unreachable because session `deal_config` is seeded from
+`DealConfig` defaults), and in the CLI parser (an omitted
+`valuation_date` key became today at parse time). Only the REST API
+resolved correctly (it builds `ProjectionConfig` from
+`policies[0].valuation_date` directly).
+
+Consequences observed in practice:
+
+- **Non-reproducibility.** The same CSV + same saved assumptions priced
+  differently on different calendar days, because the date-derived
+  age/duration recomputation (`*_vec_at`) shifted with the wall clock.
+  Measured on `data/inputs/portfolio_sample/`: +0.73% total PV drift
+  between a pinned 2026-01-01 valuation and a 2026-06-10 run date.
+- **Untestable by goldens.** The golden harness pins explicit dates, so
+  the drifting branch was structurally outside test coverage.
+- **Two notions of seasoning in one projection.** Rate lookups used
+  date-derived `duration_inforce_vec_at(config.valuation_date)` /
+  `attained_age_vec_at(...)` while the acquisition-cost gate used the
+  stored CSV scalar `duration_inforce_vec == 0`. The stored
+  `attained_age` / `duration_inforce` columns were otherwise decorative
+  — editable with no effect on results — and nothing validated them
+  against the dates they allegedly summarise.
+
+**Decision.**
+
+1. **`DealConfig.valuation_date: date | None = None`.** `None` means
+   "defer to the inforce block". The wall-clock default is removed;
+   every resolution chain below becomes live.
+2. **One canonical resolution order, everywhere:** explicit caller
+   override → deal config (CLI/YAML `deal.valuation_date`, dashboard
+   widget) → the inforce block's validated uniform policy
+   `valuation_date` → `date.today()`. The final fallback is reachable
+   only when no block exists (e.g. generated demographic input such as
+   `polaris rate-schedule demo` / the API rate-schedule endpoint),
+   which is the one place a wall-clock date is semantically honest.
+   `core.pipeline.build_projection_config` (no block access) keeps a
+   terminal today fallback; `build_pipeline` (block access) inserts the
+   block date before it. The CLI parser passes `None` through when the
+   config omits the key instead of stamping today.
+3. **Single notion of seasoning per projection.** The acquisition-cost
+   new-business gate in `TermLife` / `WholeLife` now uses
+   `duration_inforce_vec_at(config.valuation_date) == 0`, matching the
+   rate-lookup arrays. For date-consistent data this is behaviour-
+   identical; under re-valuation at a later date it now correctly
+   treats seasoned policies as seasoned.
+4. **Load-time consistency guard.** New
+   `InforceBlock.validate_date_consistency()` checks, per policy, that
+   the stored `duration_inforce` is within ±1 month of
+   `months_between(issue_date, valuation_date)` and the stored
+   `attained_age` is within ±1 year of
+   `issue_age + derived_months // 12`, raising
+   `PolarisValidationError` listing offending policy ids. Invoked from
+   `InforceBlock.from_csv` (CLI CSV + dashboard upload path) and from
+   `load_inforce`'s list-of-dicts branch. Tolerances absorb
+   partial-month conventions and ANB/ALB age-rounding without letting
+   real drift (months/years) through. The stored scalars are thereby
+   demoted to validated ingestion provenance; projections derive both
+   age and duration from `issue_date` + the resolved valuation date.
+
+**Rationale.** Reproducibility is a precondition for auditability
+(project principle #1): a pricing artifact must not depend on the day
+the run button is pressed. Making the block own its valuation date
+matches the existing `InforceBlock` validator (all policies must share
+one date) and the API's existing behaviour, so this aligns CLI,
+dashboard, and API on the strictest already-shipped semantics rather
+than inventing new ones. Collapsing the seasoning notion removes the
+silent disagreement between rate lookups and the expense gate. The
+guard converts "decorative columns silently ignored" into a loud
+ingestion failure, which is the cheapest place to catch bad CSVs.
+
+**Consequences.**
+
+- `polaris price` / `polaris portfolio run` on a config without
+  `valuation_date` now project from the CSV's block date instead of
+  the run date — results become stable across days. Configs that pin a
+  date (including all golden configs) are unaffected.
+- The canonical `data/inputs/portfolio_sample/` previously ran under
+  `align="strict"` only because every deal silently got the run date;
+  with block-date resolution its mixed CSV dates (2026-01-01 /
+  2026-01-15) would make strict mode raise. The sample's DEAL_C /
+  DEAL_D dates are unified to 2026-01-01 (durations preserved), making
+  it an honest, reproducible strict-mode demo. The staggered sample
+  (ADR-061 demo) is unaffected — its explicit YAML dates win at step 2.
+- `data/inputs/demo.csv` had one internally inconsistent row
+  (issue 2026-01-01, valuation 2026-04-06, stored duration 0); the
+  stored duration is corrected to 3 to pass the guard.
+- Test fixtures that paired `issue_date=2020-01-01` with
+  `valuation_date=date.today()` and `duration_inforce=0` were
+  internally inconsistent and clock-dependent; they are fixed to
+  consistent, fixed dates (also making those tests deterministic).
+- `st.session_state["deal_config"]["valuation_date"]` starts as `None`;
+  the Assumptions-page date widget and the projection helper fall back
+  to the block date exactly as their docstrings always claimed.
+
+**Impact on golden baselines.** None. `golden_config_flat.json` pins
+`valuation_date: 2026-04-01`; `data/qa/golden_inforce.csv` is
+internally consistent (verified by full-tree scan) so the new guard
+accepts it unchanged.
+
+**Out of scope.**
+
+- **API-path guard.** The REST API constructs `Policy` objects
+  directly (not via `load_inforce`); wiring
+  `validate_date_consistency()` into the API needs an error-mapping
+  decision (422 vs 500) and is deferred.
+- **ANB vs ALB age convention.** `attained_age_vec_at` is
+  age-last-birthday-flavoured (`months // 12`); the `Policy` docstring
+  language and any table-convention implications are a separate
+  decision. The ±1 year guard tolerance absorbs the discrepancy.
+- **Re-valuation UX.** Projecting a block at a date other than its
+  own valuation date remains supported via explicit config; a
+  dedicated "as-of re-valuation" workflow (with re-derived durations
+  surfaced to the user) is future work.
+
+**Affected files.**
+
+- `src/polaris_re/core/pipeline.py` (DealConfig default, resolution,
+  guard call)
+- `src/polaris_re/core/inforce.py` (`validate_date_consistency`,
+  `from_csv` hook)
+- `src/polaris_re/cli.py` (parser passes None when key absent)
+- `src/polaris_re/products/term_life.py`,
+  `src/polaris_re/products/whole_life.py` (derived new-business mask)
+- `data/inputs/demo.csv`, `data/inputs/portfolio_sample/` (consistent
+  dates), sample READMEs
+- `tests/test_core/test_valuation_date.py` (resolution + guard tests),
+  `tests/test_cli_streamlit_parity.py`, `tests/test_cli_config.py`
+  (fixture consistency), `tests/qa/test_dashboard_flows.py`,
+  `tests/test_dashboard/test_portfolio_loader.py` (QA-gap coverage)

@@ -9,14 +9,15 @@ dashboard portfolio page's `align="calendar"` UI path end to end.
 
 | Sample | Deal valuation dates | `align="strict"` | `align="calendar"` |
 |--------|----------------------|------------------|--------------------|
-| `portfolio_sample/` (canonical strict-mode demo) | Not set in the YAML — every deal defaults to the run date, so all four share one date | Works — aggregate PV equals the sum of per-deal PVs | Works, but every `grid_offset` is 0, so the calendar path is indistinguishable from strict |
+| `portfolio_sample/` (canonical strict-mode demo) | Not set in the YAML — every deal resolves to its CSVs' shared `2026-01-01` block date (ADR-074) | Works — aggregate PV equals the sum of per-deal PVs | Works, but every `grid_offset` is 0, so the calendar path is indistinguishable from strict |
 | `portfolio_staggered_sample/` (this directory) | Explicit in each `deal:` block — DEAL_A / DEAL_B at `2026-01-01`, DEAL_C / DEAL_D at `2026-03-01` | Errors by design (mixed valuation dates) | Works — DEAL_C / DEAL_D land at `grid_offset = 2` |
 
-The deal-level `valuation_date` in the YAML `deal:` block is what drives
-the grid placement (`ProjectionConfig.valuation_date`); the per-policy
-`valuation_date` column in the CSVs is shifted to match for consistency.
-All dates fall on the same day-of-month (the 1st) because calendar-mode
-aggregation requires monthly grids that line up exactly.
+The grid placement is driven by each deal's resolved
+`ProjectionConfig.valuation_date` — an explicit YAML `deal.valuation_date`
+when set, else the block's own validated date (ADR-074). This sample sets
+explicit YAML dates and shifts the per-policy CSV dates to match, so both
+sources agree. All dates fall on the same day-of-month (the 1st) because
+calendar-mode aggregation requires monthly grids that line up exactly.
 
 What the staggered dates surface:
 

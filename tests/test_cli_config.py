@@ -2,7 +2,6 @@
 
 import json
 import tempfile
-from datetime import date
 from pathlib import Path
 
 import pytest
@@ -36,9 +35,11 @@ def _base_config(product_type: str = "TERM", **overrides: object) -> dict:  # ty
                 "face_amount": 500000.0,
                 "annual_premium": 2000.0,
                 "policy_term": 20 if product_type == "TERM" else None,
+                # Consistent fixed dates (issue == valuation, duration 0) —
+                # the ADR-074 load guard rejects mismatched stored scalars.
                 "duration_inforce": 0,
-                "issue_date": "2020-01-01",
-                "valuation_date": date.today().isoformat(),
+                "issue_date": "2025-01-01",
+                "valuation_date": "2025-01-01",
             }
         ],
         "projection_horizon_years": 10,

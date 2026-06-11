@@ -163,12 +163,13 @@ def _parse_config_to_pipeline_inputs(
         lapse_cfg = LapseConfig(
             duration_table={1: flat_lapse, 2: flat_lapse, 3: flat_lapse, "ultimate": flat_lapse}
         )
-        # Parse optional valuation_date (ISO format string)
+        # Parse optional valuation_date (ISO format string). None defers to
+        # the inforce block's valuation date in build_pipeline (ADR-074).
         legacy_val_date_raw = raw.get("valuation_date")
         legacy_val_date = (
             date.fromisoformat(str(legacy_val_date_raw))
             if legacy_val_date_raw is not None
-            else date.today()
+            else None
         )
         deal_cfg = DealConfig(
             product_type=raw.get("product_type", "TERM"),  # type: ignore[arg-type]
@@ -217,12 +218,12 @@ def _parse_config_to_pipeline_inputs(
     else:
         lapse_cfg = LapseConfig(multiplier=float(lapse_raw.get("multiplier", 1.0)))
 
-    # Parse optional valuation_date (ISO format string) from deal config
+    # Parse optional valuation_date (ISO format string) from deal config.
+    # None defers to the inforce block's valuation date in build_pipeline
+    # (ADR-074) — do not stamp date.today() here.
     deal_val_date_raw = deal_raw.get("valuation_date")
     deal_val_date = (
-        date.fromisoformat(str(deal_val_date_raw))
-        if deal_val_date_raw is not None
-        else date.today()
+        date.fromisoformat(str(deal_val_date_raw)) if deal_val_date_raw is not None else None
     )
     deal_cfg = DealConfig(
         product_type=deal_raw.get("product_type", "TERM"),

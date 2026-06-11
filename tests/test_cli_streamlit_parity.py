@@ -7,7 +7,6 @@ that prompted this refactor.
 
 import json
 import tempfile
-from datetime import date
 from pathlib import Path
 
 import pytest
@@ -81,8 +80,8 @@ class TestPipelineBuilder:
                     "annual_premium": 2000.0,
                     "policy_term": 20,
                     "duration_inforce": 0,
-                    "issue_date": "2020-01-01",
-                    "valuation_date": date.today().isoformat(),
+                    "issue_date": "2025-01-01",
+                    "valuation_date": "2025-01-01",
                     "product_type": "TERM",
                 }
             ]
@@ -135,8 +134,8 @@ class TestDeriveYRTRate:
                     "annual_premium": 5000.0,
                     "policy_term": 20,
                     "duration_inforce": 0,
-                    "issue_date": "2020-01-01",
-                    "valuation_date": date.today().isoformat(),
+                    "issue_date": "2025-01-01",
+                    "valuation_date": "2025-01-01",
                     "product_type": "TERM",
                 }
             ]
@@ -253,8 +252,8 @@ class TestLegacyConfigCompat:
                     "annual_premium": 2000.0,
                     "policy_term": 20,
                     "duration_inforce": 0,
-                    "issue_date": "2020-01-01",
-                    "valuation_date": date.today().isoformat(),
+                    "issue_date": "2025-01-01",
+                    "valuation_date": "2025-01-01",
                 }
             ],
         }
@@ -290,8 +289,8 @@ class TestLegacyConfigCompat:
             "policy_id,issue_age,attained_age,sex,smoker_status,"
             "face_amount,annual_premium,product_type,duration_inforce,"
             "issue_date,valuation_date\n"
-            f"CSV-001,35,35,M,NS,100000.0,500.0,TERM,0,"
-            f"2020-01-01,{date.today().isoformat()}\n"
+            "CSV-001,35,35,M,NS,100000.0,500.0,TERM,0,"
+            "2025-01-01,2025-01-01\n"
         )
         with tempfile.NamedTemporaryFile(suffix=".csv", mode="w", delete=False) as csv_tmp:
             csv_tmp.write(csv_content)
@@ -326,8 +325,8 @@ def _policy_dict(
         "annual_premium": 1_000.0,
         "policy_term": 20 if product_type == "TERM" else None,
         "duration_inforce": 0,
-        "issue_date": "2020-01-01",
-        "valuation_date": date.today().isoformat(),
+        "issue_date": "2025-01-01",
+        "valuation_date": "2025-01-01",
         "product_type": product_type,
     }
 
@@ -413,13 +412,12 @@ class TestMixedCohortCLI:
         from polaris_re.cli import app
 
         # Minimal CSV with one TERM and one WHOLE_LIFE policy
-        today = date.today().isoformat()
         csv_content = (
             "policy_id,issue_age,attained_age,sex,smoker_status,"
             "face_amount,annual_premium,product_type,policy_term,"
             "duration_inforce,issue_date,valuation_date\n"
-            f"T1,40,40,M,NS,250000.0,600.0,TERM,20,0,2020-01-01,{today}\n"
-            f"W1,45,45,F,NS,500000.0,3500.0,WHOLE_LIFE,,0,2020-01-01,{today}\n"
+            "T1,40,40,M,NS,250000.0,600.0,TERM,20,0,2025-01-01,2025-01-01\n"
+            "W1,45,45,F,NS,500000.0,3500.0,WHOLE_LIFE,,0,2025-01-01,2025-01-01\n"
         )
         csv_path = tmp_path / "mixed.csv"
         csv_path.write_text(csv_content)
@@ -486,13 +484,12 @@ class TestMixedCohortCLI:
 
         from polaris_re.cli import app
 
-        today = date.today().isoformat()
         csv_content = (
             "policy_id,issue_age,attained_age,sex,smoker_status,"
             "face_amount,annual_premium,product_type,policy_term,"
             "duration_inforce,issue_date,valuation_date\n"
-            f"T1,40,40,M,NS,250000.0,600.0,TERM,20,0,2020-01-01,{today}\n"
-            f"W1,45,45,F,NS,500000.0,3500.0,WHOLE_LIFE,,0,2020-01-01,{today}\n"
+            "T1,40,40,M,NS,250000.0,600.0,TERM,20,0,2025-01-01,2025-01-01\n"
+            "W1,45,45,F,NS,500000.0,3500.0,WHOLE_LIFE,,0,2025-01-01,2025-01-01\n"
         )
         csv_path = tmp_path / "mixed.csv"
         csv_path.write_text(csv_content)

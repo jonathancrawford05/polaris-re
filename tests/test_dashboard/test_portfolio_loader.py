@@ -54,6 +54,19 @@ class TestLoadFromConfigPath:
         with pytest.raises(PolarisValidationError):
             load_portfolio_from_config_path(tmp_path / "does_not_exist.yaml")
 
+    def test_sample_resolves_block_valuation_date(self) -> None:
+        """Every deal resolves to the CSVs' 2026-01-01 block date (ADR-074).
+
+        The YAML sets no deal-level valuation_date, so the block-date
+        fallback must fire — never date.today() — making the sample's
+        numbers reproducible across run days.
+        """
+        from datetime import date
+
+        portfolio, _ = load_portfolio_from_config_path(SAMPLE_YAML)
+        resolved = {d.config.valuation_date for d in portfolio.deals}
+        assert resolved == {date(2026, 1, 1)}
+
 
 class TestLoadStaggeredSample:
     """The staggered-date sample (ADR-061 calendar-mode demo) loads and runs.

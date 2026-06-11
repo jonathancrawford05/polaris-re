@@ -204,6 +204,29 @@ class TestDealPricingWithInjectedState:
         at.run()
         assert not at.exception, f"Deal Pricing raised with injected state: {at.exception}"
 
+    def test_pricing_resolves_block_valuation_date(self, app_with_inforce):
+        """A pricing run projects from the block's valuation date, not the clock.
+
+        ADR-074 QA-gap regression: deal_config starts with
+        valuation_date=None, and the projection helper must resolve the
+        inforce block's date (2026-04-01 in this fixture) — never
+        date.today() — so the same CSV prices identically on any run day.
+        """
+        from datetime import date
+
+        at = app_with_inforce
+        assert at.session_state["deal_config"]["valuation_date"] is None
+        at.sidebar.radio[0].set_value("Deal Pricing")
+        at.run()
+        run_buttons = [b for b in at.button if b.label == "Run Pricing"]
+        assert run_buttons, f"Run Pricing button not found; saw {[b.label for b in at.button]}"
+        run_buttons[0].click()
+        at.run()
+        assert not at.exception, f"Pricing run raised: {at.exception}"
+        gross = at.session_state["gross_result"]
+        assert gross is not None, "Pricing run did not store gross_result"
+        assert gross.valuation_date == date(2026, 4, 1)
+
 
 class TestExperienceStudyPage:
     """ADR-056 — Experience Study (A/E) page end-to-end via AppTest."""

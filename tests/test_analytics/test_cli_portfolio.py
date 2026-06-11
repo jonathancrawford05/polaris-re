@@ -8,7 +8,6 @@ JSON output against the in-process ``Portfolio.run().to_dict()`` numbers.
 """
 
 import json
-from datetime import date
 from pathlib import Path
 
 import pytest
@@ -26,7 +25,9 @@ runner = CliRunner()
 
 
 def _policy(policy_id: str, face: float = 500_000.0, product: str = "TERM") -> dict:
-    today = date.today().isoformat()
+    # Fixed, internally consistent dates (issue == valuation, duration 0):
+    # the load-time guard (ADR-074) rejects mismatched stored scalars, and
+    # fixed dates keep these tests deterministic across run days.
     return {
         "policy_id": policy_id,
         "issue_age": 40,
@@ -39,7 +40,7 @@ def _policy(policy_id: str, face: float = 500_000.0, product: str = "TERM") -> d
         "policy_term": 20 if product == "TERM" else None,
         "duration_inforce": 0,
         "issue_date": "2025-01-01",
-        "valuation_date": today,
+        "valuation_date": "2025-01-01",
         "product_type": product,
     }
 
@@ -183,14 +184,13 @@ class TestPortfolioRunCommand:
 
     def test_inforce_csv_path_overrides_inline_policies(self, tmp_path: Path) -> None:
         """When a deal specifies ``inforce_csv``, policies come from the CSV."""
-        today = date.today().isoformat()
         csv_path = tmp_path / "d1.csv"
         csv_path.write_text(
             "policy_id,issue_age,attained_age,sex,smoker_status,"
             "face_amount,annual_premium,product_type,policy_term,"
             "duration_inforce,issue_date,valuation_date\n"
-            f"P1,40,40,M,NS,500000.0,2500.0,TERM,20,0,2020-01-01,{today}\n"
-            f"P2,40,40,M,NS,500000.0,2500.0,TERM,20,0,2020-01-01,{today}\n"
+            "P1,40,40,M,NS,500000.0,2500.0,TERM,20,0,2025-01-01,2025-01-01\n"
+            "P2,40,40,M,NS,500000.0,2500.0,TERM,20,0,2025-01-01,2025-01-01\n"
         )
 
         deal = _deal_block("D1", "CedantA")
