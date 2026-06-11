@@ -136,6 +136,16 @@ uv run polaris price --inforce data/qa/golden_inforce.csv \
 
 ## Out of scope / follow-ups (tracked in ADR-074)
 
-- API-path consistency guard (needs an HTTP error-mapping decision).
+- ~~API-path consistency guard (needs an HTTP error-mapping
+  decision).~~ Completed same-day on owner request: guard wired into
+  `_build_components` (the API's single `InforceBlock` construction
+  site); the existing per-endpoint ``except Exception →
+  HTTPException(422)`` convention resolves the error-mapping question
+  — inconsistent inforce data surfaces as 422, the same status FastAPI
+  uses for schema-invalid payloads. One pre-existing API fixture
+  (`test_api/test_portfolio.py::_deal_request`) stamped mixed
+  valuation dates without shifting issue dates and was repaired to
+  stay internally consistent. New `TestPriceDateConsistencyGuard` (3
+  tests) + `TestPortfolioDateConsistencyGuard` (1 test).
 - ANB vs ALB attained-age convention cleanup.
 - Dedicated as-of re-valuation workflow.

@@ -461,6 +461,12 @@ def _build_components(
         for p in policies_in
     ]
     inforce = InforceBlock(policies=policies)
+    # ADR-074 ingestion guard: stored duration_inforce / attained_age must
+    # agree with the issue/valuation dates. Raises PolarisValidationError,
+    # which every endpoint's catch-all maps to HTTP 422 — the same status
+    # FastAPI uses for schema-invalid payloads, since this is the semantic
+    # half of request validation.
+    inforce.validate_date_consistency()
 
     config = ProjectionConfig(
         valuation_date=policies_in[0].valuation_date,

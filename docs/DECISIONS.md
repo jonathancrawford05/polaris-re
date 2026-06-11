@@ -4375,10 +4375,20 @@ accepts it unchanged.
 
 **Out of scope.**
 
-- **API-path guard.** The REST API constructs `Policy` objects
+- ~~**API-path guard.** The REST API constructs `Policy` objects
   directly (not via `load_inforce`); wiring
   `validate_date_consistency()` into the API needs an error-mapping
-  decision (422 vs 500) and is deferred.
+  decision (422 vs 500) and is deferred.~~ **Resolved same-day:** the
+  guard is invoked in `_build_components`, the single `InforceBlock`
+  construction site shared by every endpoint and the portfolio deal
+  builder. No new error-mapping decision was needed — every endpoint
+  already wraps engine work in ``except Exception →
+  HTTPException(422)``, and 422 is the right status: it is what
+  FastAPI emits for schema-invalid payloads, and inconsistent inforce
+  data is the semantic half of the same request validation (400 stays
+  reserved for malformed inputs such as unknown treaty types, 404 for
+  not-found). Covered by `TestPriceDateConsistencyGuard` and
+  `TestPortfolioDateConsistencyGuard`.
 - **ANB vs ALB age convention.** `attained_age_vec_at` is
   age-last-birthday-flavoured (`months // 12`); the `Policy` docstring
   language and any table-convention implications are a separate
