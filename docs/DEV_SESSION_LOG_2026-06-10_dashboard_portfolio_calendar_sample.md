@@ -169,10 +169,12 @@ uv run polaris price --inforce data/qa/golden_inforce.csv \
   is stale~~ — corrected on this branch after explicit permission to
   deviate from the "never modify portfolio_sample/" guardrail
   (docs-only change; YAML + CSVs untouched).
-- After this PR merges, strike out "Calendar-aligned portfolio UX
+- ~~After this PR merges, strike out "Calendar-aligned portfolio UX
   polish — non-zero grid offsets in the sample" in the NICE-TO-HAVE
   section of `docs/PRODUCT_DIRECTION_2026-05-23.md` (post-merge
-  crossout session, same pattern as PR #64).
+  crossout session, same pattern as PR #64).~~ — Done on this branch
+  pre-merge at owner request (avoids a docs-only follow-up PR); the
+  PR #65 error-handling entry was crossed out in the same pass.
 
 ## Next session
 
@@ -182,5 +184,6 @@ the daily-dev cadence:
 - `polaris portfolio` Excel writer rows for the `capital` block
   (ADR-060 Out of scope: "CLI / API / Excel surfacing of the new
   `capital` block").
-- Post-merge crossout for this session's entry (can ride along with
-  the next feature PR).
+- ~~Post-merge crossout for this session's entry (can ride along with
+  the next feature PR).~~ — Done pre-merge on this branch at owner
+  request.

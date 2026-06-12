@@ -380,7 +380,7 @@ via ADR-065 (PR #52, commit c88db82).)
   `analytics/rate_schedule.py`.
   *Source: ADR-063 Out of scope.*
 
-- **Dashboard error handling — widen exception catches to
+- ~~**Dashboard error handling — widen exception catches to
   `PolarisComputationError`.** Every dashboard page's Run button
   (`views/pricing.py`, `views/scenario.py`, `views/portfolio.py`, etc.)
   catches `PolarisValidationError` only. If the engine raises
@@ -390,9 +390,13 @@ via ADR-065 (PR #52, commit c88db82).)
   pass over every dashboard page rather than a one-off widen on the
   Portfolio page. **Scope:** ~0.5 dev-day. **Affected:** every
   `dashboard/views/*.py` Run button, no analytics changes.
-  *Source: CONTINUATION_dashboard_portfolio — Refinement Backlog (Slice 2/3).*
+  *Source: CONTINUATION_dashboard_portfolio — Refinement Backlog (Slice 2/3).*~~
+  — **SHIPPED** (PR #65): every Run button now catches
+  `(PolarisValidationError, PolarisComputationError)` and renders a
+  friendly `st.error` tile; regression-tested per page in
+  `tests/qa/test_dashboard_flows.py::TestDashboardComputationErrorHandling`.
 
-- **Calendar-aligned portfolio UX polish — non-zero grid offsets in
+- ~~**Calendar-aligned portfolio UX polish — non-zero grid offsets in
   the sample.** The dashboard portfolio page's `align="calendar"`
   banner ("Grid origin: ... per-deal offsets shown in the table below")
   is suppressed on the in-tree sample because DEAL_C / DEAL_D
@@ -405,7 +409,14 @@ via ADR-065 (PR #52, commit c88db82).)
   `data/inputs/portfolio_sample/portfolio.yaml`, the four per-deal
   CSV `valuation_date` columns, the loader's test fixtures if any
   assertion pins the current dates.
-  *Source: CONTINUATION_dashboard_portfolio — Refinement Backlog (Slice 2/3).*
+  *Source: CONTINUATION_dashboard_portfolio — Refinement Backlog (Slice 2/3).*~~
+  — **SHIPPED** (PR #66): second sample
+  `data/inputs/portfolio_staggered_sample/` with explicit per-deal YAML
+  dates two months apart (grid offsets 0/0/2/2) exercises the
+  calendar-mode UI path end to end; the investigation also exposed and
+  fixed the wall-clock valuation-date fallback (ADR-074 — note the
+  entry's premise was partly wrong: grid placement is YAML/block-driven,
+  not CSV-column-driven).
 
 ## Recommended Next Sprint
 
