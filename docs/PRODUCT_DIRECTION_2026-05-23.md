@@ -418,6 +418,37 @@ via ADR-065 (PR #52, commit c88db82).)
   entry's premise was partly wrong: grid placement is YAML/block-driven,
   not CSV-column-driven).
 
+- **ANB vs ALB attained-age convention.**
+  `InforceBlock.attained_age_vec_at` derives age as
+  `issue_age + months_between // 12` (age-last-birthday-flavoured),
+  while the `Policy` docstring describes attained age as
+  age-nearest-birthday. The ADR-074 consistency guard's ±1 year
+  tolerance absorbs the discrepancy at load time, but the engine
+  should commit to one convention, document it, and align the
+  docstring, the derivation, and any mortality-table expectations
+  (industry tables are published on a stated ANB/ALB basis).
+  **Scope:** ~0.5–1 dev-day (decision ADR + docstring/derivation
+  alignment; check table loaders for basis assumptions).
+  **Affected:** `core/inforce.py`, `core/policy.py` docstring,
+  possibly `assumptions/mortality.py` documentation.
+  *Source: ADR-074 Out of scope.*
+
+- **As-of re-valuation workflow.** Projecting a block at a date other
+  than its own valuation date remains supported via explicit config
+  (`deal.valuation_date` / `--valuation-date`-style overrides), but
+  there is no dedicated UX: re-derived ages/durations are not surfaced
+  to the user, and the ADR-074 guard validates only internal
+  consistency at the block's own date. A first-class "re-value as of"
+  flow would show the re-derived seasoning next to the stored values
+  and warn when the override moves policies across select-period or
+  term boundaries. If large-cedant load profiling ever flags the
+  per-policy consistency guard, vectorise it in the same pass
+  (PR #66 review P2 — currently negligible next to per-row Policy
+  construction). **Scope:** design sketch + ~1–2 dev-days.
+  **Affected:** dashboard Assumptions/Pricing pages, CLI flag
+  surface, `core/inforce.py`.
+  *Source: ADR-074 Out of scope.*
+
 ## Recommended Next Sprint
 
 **Progress update (2026-05-31).** All three items in the prior sprint have
