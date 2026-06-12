@@ -234,6 +234,63 @@ class InforceBlock(PolarisBaseModel):
             dtype=np.int32,
         )
 
+    def validate_date_consistency(
+        self,
+        max_duration_gap_months: int = 1,
+        max_age_gap_years: int = 1,
+    ) -> None:
+        """Verify stored age/duration scalars agree with the policy dates (ADR-074).
+
+        Projections derive attained age and duration in force from
+        ``issue_date`` and the resolved valuation date; the stored
+        ``attained_age`` / ``duration_inforce`` columns are ingestion
+        provenance. When the two disagree the stored values are silently
+        ignored downstream, so this guard rejects inconsistent data at
+        load time instead.
+
+        Tolerances absorb benign convention differences: ±1 month covers
+        partial-month duration counting, ±1 year covers ANB vs ALB age
+        rounding.
+
+        Raises:
+            PolarisValidationError: Listing every policy whose stored
+                ``duration_inforce`` differs from
+                ``months_between(issue_date, valuation_date)`` by more
+                than ``max_duration_gap_months``, or whose stored
+                ``attained_age`` differs from
+                ``issue_age + derived_months // 12`` by more than
+                ``max_age_gap_years``.
+        """
+        from polaris_re.utils.date_utils import months_between
+
+        offenders: list[str] = []
+        for p in self.policies:
+            derived_months = months_between(p.issue_date, p.valuation_date)
+            derived_age = p.issue_age + derived_months // 12
+            if abs(derived_months - p.duration_inforce) > max_duration_gap_months:
+                offenders.append(
+                    f"{p.policy_id}: stored duration_inforce={p.duration_inforce} but "
+                    f"issue_date {p.issue_date.isoformat()} → valuation_date "
+                    f"{p.valuation_date.isoformat()} implies {derived_months} months"
+                )
+            elif abs(derived_age - p.attained_age) > max_age_gap_years:
+                offenders.append(
+                    f"{p.policy_id}: stored attained_age={p.attained_age} but "
+                    f"issue_age {p.issue_age} + {derived_months} months in force "
+                    f"implies {derived_age}"
+                )
+        if offenders:
+            shown = "; ".join(offenders[:5])
+            more = f" (+{len(offenders) - 5} more)" if len(offenders) > 5 else ""
+            raise PolarisValidationError(
+                f"Inforce data is internally inconsistent — stored age/duration "
+                f"columns disagree with the issue/valuation dates for "
+                f"{len(offenders)} of {len(self.policies)} policies: {shown}{more}. "
+                f"Correct the duration_inforce / attained_age columns (projections "
+                f"derive both from the dates, so inconsistent stored values would "
+                f"be silently ignored)."
+            )
+
     @property
     def remaining_term_months_vec(self) -> np.ndarray:
         """Remaining coverage term (months), shape (N,), dtype int32. -1 for permanent products."""
@@ -402,7 +459,9 @@ class InforceBlock(PolarisBaseModel):
             )
             policies.append(policy)
 
-        return cls(policies=policies, block_id=block_id)  # type: ignore[return-value]
+        block = cls(policies=policies, block_id=block_id)
+        block.validate_date_consistency()
+        return block  # type: ignore[return-value]
 
     # ------------------------------------------------------------------
     # Filtering

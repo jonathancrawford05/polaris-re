@@ -179,12 +179,17 @@ class TestDurationInforceVecAt:
 
 
 class TestDealConfigValuationDate:
-    """Verify DealConfig valuation_date propagation."""
+    """Verify DealConfig valuation_date propagation (ADR-074)."""
 
-    def test_default_is_today(self):
-        """DealConfig.valuation_date defaults to date.today()."""
+    def test_default_is_none(self):
+        """DealConfig.valuation_date defaults to None — defer to the block.
+
+        A wall-clock default here would make the block-date fallback in
+        build_pipeline unreachable and let results drift with the run
+        date (ADR-074).
+        """
         cfg = DealConfig()
-        assert cfg.valuation_date == date.today()
+        assert cfg.valuation_date is None
 
     def test_explicit_valuation_date(self):
         """DealConfig accepts an explicit valuation_date."""
@@ -210,6 +215,135 @@ class TestDealConfigValuationDate:
         inputs = PipelineInputs(deal=deal)
         config = build_projection_config(inputs, valuation_date=date(2023, 12, 31))
         assert config.valuation_date == date(2023, 12, 31)
+
+    def test_build_projection_config_today_only_without_deal_date(self):
+        """With no explicit arg and no deal date, today is the terminal fallback.
+
+        This is the generated-data path — build_projection_config has no
+        block access; block-aware callers go through build_pipeline.
+        """
+        config = build_projection_config(PipelineInputs())
+        assert config.valuation_date == date.today()
+
+
+class TestBuildPipelineResolution:
+    """build_pipeline resolution chain: explicit → deal → block → today (ADR-074)."""
+
+    @staticmethod
+    def _block(valuation_date: date) -> InforceBlock:
+        return InforceBlock(
+            policies=[
+                _make_policy(
+                    issue_date=valuation_date,
+                    valuation_date=valuation_date,
+                    policy_id="RES_1",
+                )
+            ]
+        )
+
+    @staticmethod
+    def _inputs(deal: DealConfig | None = None) -> PipelineInputs:
+        # Flat mortality so no SOA table CSVs are required.
+        from polaris_re.core.pipeline import MortalityConfig
+
+        kwargs = {"mortality": MortalityConfig(source="flat", flat_qx=0.003)}
+        if deal is not None:
+            kwargs["deal"] = deal
+        return PipelineInputs(**kwargs)
+
+    def test_block_date_wins_when_deal_date_unset(self):
+        """Default DealConfig (valuation_date=None) resolves to the block date.
+
+        This is the QA-gap regression: the resolved config must never
+        silently land on date.today() when the block carries real dates.
+        """
+        from polaris_re.core.pipeline import build_pipeline
+
+        block_date = date(2025, 7, 1)
+        _inf, _assumptions, config = build_pipeline(self._block(block_date), self._inputs())
+        assert config.valuation_date == block_date
+        assert config.valuation_date != date.today()
+
+    def test_deal_date_overrides_block_date(self):
+        """An explicit DealConfig.valuation_date beats the block date."""
+        from polaris_re.core.pipeline import build_pipeline
+
+        inputs = self._inputs(DealConfig(valuation_date=date(2025, 9, 1)))
+        _inf, _assumptions, config = build_pipeline(self._block(date(2025, 7, 1)), inputs)
+        assert config.valuation_date == date(2025, 9, 1)
+
+    def test_explicit_arg_overrides_everything(self):
+        """The explicit valuation_date argument beats deal and block dates."""
+        from polaris_re.core.pipeline import build_pipeline
+
+        inputs = self._inputs(DealConfig(valuation_date=date(2025, 9, 1)))
+        _inf, _assumptions, config = build_pipeline(
+            self._block(date(2025, 7, 1)), inputs, valuation_date=date(2025, 11, 1)
+        )
+        assert config.valuation_date == date(2025, 11, 1)
+
+
+class TestValidateDateConsistency:
+    """InforceBlock.validate_date_consistency — load-time guard (ADR-074)."""
+
+    def test_consistent_block_passes(self):
+        """Stored scalars matching the dates pass silently."""
+        p = _make_policy(issue_date=date(2020, 1, 1), valuation_date=date(2025, 1, 1))
+        InforceBlock(policies=[p]).validate_date_consistency()
+
+    def test_duration_mismatch_raises(self):
+        """Stored duration far from the date-derived months is rejected."""
+        import pytest
+
+        from polaris_re.core.exceptions import PolarisValidationError
+
+        p = _make_policy(issue_date=date(2020, 1, 1), valuation_date=date(2025, 1, 1))
+        p = p.model_copy(update={"duration_inforce": 0})  # dates imply 60
+        with pytest.raises(PolarisValidationError, match="duration_inforce=0"):
+            InforceBlock(policies=[p]).validate_date_consistency()
+
+    def test_attained_age_mismatch_raises(self):
+        """Stored attained_age far from issue_age + elapsed years is rejected."""
+        import pytest
+
+        from polaris_re.core.exceptions import PolarisValidationError
+
+        p = _make_policy(issue_age=40, issue_date=date(2020, 1, 1), valuation_date=date(2025, 1, 1))
+        p = p.model_copy(update={"attained_age": 49})  # derived is 45
+        with pytest.raises(PolarisValidationError, match="attained_age=49"):
+            InforceBlock(policies=[p]).validate_date_consistency()
+
+    def test_one_month_tolerance_accepted(self):
+        """±1 month duration gap (partial-month conventions) is tolerated."""
+        p = _make_policy(issue_date=date(2020, 1, 1), valuation_date=date(2025, 1, 1))
+        p = p.model_copy(update={"duration_inforce": 59})  # derived is 60
+        InforceBlock(policies=[p]).validate_date_consistency()
+
+    def test_load_inforce_runs_guard_on_dicts(self):
+        """load_inforce(policies_dict=...) rejects inconsistent rows."""
+        import pytest
+
+        from polaris_re.core.exceptions import PolarisValidationError
+        from polaris_re.core.pipeline import load_inforce
+
+        with pytest.raises(PolarisValidationError, match="internally inconsistent"):
+            load_inforce(
+                policies_dict=[
+                    {
+                        "policy_id": "BAD-1",
+                        "issue_age": 40,
+                        "attained_age": 40,
+                        "sex": "M",
+                        "smoker": False,
+                        "face_amount": 100_000.0,
+                        "annual_premium": 500.0,
+                        "policy_term": 20,
+                        "duration_inforce": 0,
+                        "issue_date": "2020-01-01",
+                        "valuation_date": "2025-01-01",
+                    }
+                ]
+            )
 
 
 class TestConsistencyBetweenStaticAndDynamic:

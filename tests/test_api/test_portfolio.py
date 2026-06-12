@@ -46,11 +46,23 @@ def _deal_request(
     ``valuation_date`` is stamped on every policy (the API resolves the
     deal's projection date from the first policy when no explicit date is
     supplied at the deal level) so calendar-alignment tests can build
-    mixed-date payloads.
+    mixed-date payloads. ``issue_date`` is stamped to match — new issue at
+    the deal's inception — keeping ``duration_inforce=0`` consistent with
+    the dates (the ADR-074 guard rejects mismatches).
     """
     policies = [
-        dict(DEMO_POLICY, policy_id=f"{deal_id}_001", valuation_date=valuation_date),
-        dict(DEMO_POLICY, policy_id=f"{deal_id}_002", valuation_date=valuation_date),
+        dict(
+            DEMO_POLICY,
+            policy_id=f"{deal_id}_001",
+            issue_date=valuation_date,
+            valuation_date=valuation_date,
+        ),
+        dict(
+            DEMO_POLICY,
+            policy_id=f"{deal_id}_002",
+            issue_date=valuation_date,
+            valuation_date=valuation_date,
+        ),
     ]
     base = {
         "deal_id": deal_id,
@@ -173,6 +185,19 @@ class TestPortfolioEndpoint:
 
 
 @pytest.mark.slow
+class TestPortfolioDateConsistencyGuard:
+    """ADR-074 ingestion guard on the portfolio endpoint — a deal whose
+    policies carry stored scalars contradicting their dates is a 422."""
+
+    def test_inconsistent_deal_returns_422(self):
+        bad_deal = _deal_request("D1", "CedantA")
+        bad_deal["policies"][0]["issue_date"] = "2020-01-01"  # dates imply 60 months
+        payload = {"name": "guarded", "hurdle_rate": 0.10, "deals": [bad_deal]}
+        response = client.post("/api/v1/portfolio", json=payload)
+        assert response.status_code == 422, response.text
+        assert "internally inconsistent" in response.json()["detail"]
+
+
 class TestPortfolioEndpointAlignField:
     """``align`` field on ``POST /api/v1/portfolio`` (ADR-061 Slice 2)."""
 

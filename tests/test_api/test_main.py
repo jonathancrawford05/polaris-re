@@ -187,6 +187,51 @@ class TestPriceEndpoint:
 
 
 @pytest.mark.slow
+class TestPriceDateConsistencyGuard:
+    """ADR-074 ingestion guard on the API path — inconsistent stored
+    age/duration scalars are rejected with HTTP 422 (the same status the
+    endpoints use for every semantic validation failure), never silently
+    ignored."""
+
+    def test_inconsistent_duration_returns_422(self):
+        """Stored duration_inforce contradicting the dates is a 422."""
+        bad = dict(
+            DEMO_POLICY,
+            issue_date="2020-01-01",
+            valuation_date="2025-01-01",
+            duration_inforce=0,  # dates imply 60 months
+        )
+        response = client.post("/api/v1/price", json={"policies": [bad]})
+        assert response.status_code == 422, response.text
+        assert "internally inconsistent" in response.json()["detail"]
+        assert "duration_inforce=0" in response.json()["detail"]
+
+    def test_inconsistent_attained_age_returns_422(self):
+        """Stored attained_age contradicting issue_age + elapsed is a 422."""
+        bad = dict(
+            DEMO_POLICY,
+            issue_date="2020-01-01",
+            valuation_date="2025-01-01",
+            duration_inforce=60,
+            attained_age=40,  # issue_age 40 + 5 years implies 45
+        )
+        response = client.post("/api/v1/price", json={"policies": [bad]})
+        assert response.status_code == 422, response.text
+        assert "attained_age=40" in response.json()["detail"]
+
+    def test_consistent_seasoned_policy_returns_200(self):
+        """A seasoned policy whose scalars match the dates prices fine."""
+        seasoned = dict(
+            DEMO_POLICY,
+            issue_date="2020-01-01",
+            valuation_date="2025-01-01",
+            duration_inforce=60,
+            attained_age=45,
+        )
+        response = client.post("/api/v1/price", json={"policies": [seasoned]})
+        assert response.status_code == 200, response.text
+
+
 class TestScenarioEndpoint:
     def test_scenario_returns_200(self):
         payload = {"policies": [DEMO_POLICY]}

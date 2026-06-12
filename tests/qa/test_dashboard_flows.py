@@ -204,6 +204,29 @@ class TestDealPricingWithInjectedState:
         at.run()
         assert not at.exception, f"Deal Pricing raised with injected state: {at.exception}"
 
+    def test_pricing_resolves_block_valuation_date(self, app_with_inforce):
+        """A pricing run projects from the block's valuation date, not the clock.
+
+        ADR-074 QA-gap regression: deal_config starts with
+        valuation_date=None, and the projection helper must resolve the
+        inforce block's date (2026-04-01 in this fixture) — never
+        date.today() — so the same CSV prices identically on any run day.
+        """
+        from datetime import date
+
+        at = app_with_inforce
+        assert at.session_state["deal_config"]["valuation_date"] is None
+        at.sidebar.radio[0].set_value("Deal Pricing")
+        at.run()
+        run_buttons = [b for b in at.button if b.label == "Run Pricing"]
+        assert run_buttons, f"Run Pricing button not found; saw {[b.label for b in at.button]}"
+        run_buttons[0].click()
+        at.run()
+        assert not at.exception, f"Pricing run raised: {at.exception}"
+        gross = at.session_state["gross_result"]
+        assert gross is not None, "Pricing run did not store gross_result"
+        assert gross.valuation_date == date(2026, 4, 1)
+
 
 class TestExperienceStudyPage:
     """ADR-056 — Experience Study (A/E) page end-to-end via AppTest."""
@@ -381,6 +404,70 @@ class TestPortfolioPage:
         expected_ids = {dr.deal_id for dr in sample_portfolio_result.deal_results}
         actual_ids = set(df["Deal ID"].tolist())
         assert actual_ids == expected_ids
+
+
+class TestPortfolioPageCalendarAlignment:
+    """Calendar-aligned UI path (ADR-061) via the staggered-date sample.
+
+    The canonical sample (``portfolio_sample/``) has uniform deal
+    valuation dates, so every ``grid_offset`` is 0 and the grid-origin
+    banner / "Grid Offset (months)" column are suppressed. The
+    staggered sample sets explicit deal-level valuation dates two
+    months apart (DEAL_A / DEAL_B at 2026-01-01, DEAL_C / DEAL_D at
+    2026-03-01) so ``align="calendar"`` produces non-zero offsets and
+    the calendar-mode rendering path is exercised end to end.
+    """
+
+    @pytest.fixture(scope="class")
+    def staggered_portfolio_result(self):
+        """Run the staggered-date sample under align='calendar' once per class."""
+        from pathlib import Path
+
+        from polaris_re.dashboard.components.portfolio_loader import (
+            load_portfolio_from_config_path,
+        )
+
+        portfolio, hurdle_rate = load_portfolio_from_config_path(
+            Path("data/inputs/portfolio_staggered_sample/portfolio.yaml")
+        )
+        return portfolio.run(hurdle_rate, align="calendar")
+
+    def _open_page(self, result):
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        at.session_state["portfolio_result"] = result
+        at.sidebar.radio[0].set_value("Portfolio")
+        at.run()
+        return at
+
+    def test_grid_origin_banner_renders(self, staggered_portfolio_result):
+        """The grid-origin st.info banner fires when any grid_offset is non-zero."""
+        at = self._open_page(staggered_portfolio_result)
+        assert not at.exception, f"Calendar-aligned page raised: {at.exception}"
+        info_texts = [str(i.value) for i in at.info]
+        banner = [t for t in info_texts if "Grid origin" in t]
+        assert banner, f"Grid-origin banner not rendered; saw info boxes: {info_texts}"
+        assert "2026-01-01" in banner[0], (
+            f"Banner should name the earliest valuation date; got: {banner[0]}"
+        )
+
+    def test_per_deal_table_has_grid_offset_column(self, staggered_portfolio_result):
+        """The breakdown table includes 'Grid Offset (months)' when offsets exist."""
+        at = self._open_page(staggered_portfolio_result)
+        assert not at.exception
+        deal_dfs = [df for df in at.dataframe if "Deal ID" in df.value.columns]
+        assert deal_dfs, "Per-deal breakdown dataframe not found"
+        assert "Grid Offset (months)" in deal_dfs[0].value.columns
+
+    def test_deal_c_and_d_offset_by_two_months(self, staggered_portfolio_result):
+        """DEAL_C / DEAL_D land two months from the origin; DEAL_A / DEAL_B at zero."""
+        at = self._open_page(staggered_portfolio_result)
+        assert not at.exception
+        deal_dfs = [df for df in at.dataframe if "Deal ID" in df.value.columns]
+        assert deal_dfs
+        df = deal_dfs[0].value
+        offsets = dict(zip(df["Deal ID"], df["Grid Offset (months)"], strict=True))
+        assert offsets == {"DEAL_A": 0, "DEAL_B": 0, "DEAL_C": 2, "DEAL_D": 2}
 
 
 class TestPortfolioPageConcentration:

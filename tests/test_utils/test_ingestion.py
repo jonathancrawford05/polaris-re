@@ -341,7 +341,9 @@ def _write_rated_cedant_csv(path: Path) -> None:
         {
             "policy_id": "R003",
             "issue_age": 50,
-            "attained_age": 55,
+            # 36 months in force from 2023-01-01 → attained 53 (the ADR-074
+            # guard rejects stored ages that contradict the dates).
+            "attained_age": 53,
             "sex": "M",
             "smoker_status": "S",
             "underwriting_class": "SUBSTANDARD",

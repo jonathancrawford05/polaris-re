@@ -316,9 +316,13 @@ class WholeLife(BaseProduct):
         acq_cost = self.config.acquisition_cost_per_policy
         maint_cost_monthly = self.config.maintenance_cost_per_policy_per_year / 12.0
         if acq_cost > 0.0:
-            # Acquisition cost only for genuine new business (duration_inforce == 0).
-            # Seasoned inforce policies already incurred acquisition at original issue.
-            new_biz_mask = self.inforce.duration_inforce_vec == 0  # (N,)
+            # Acquisition cost only for genuine new business — zero months in
+            # force at the projection valuation date. Derived from the dates,
+            # matching the seasoning notion used by the rate lookups
+            # (ADR-074), not the stored duration_inforce column.
+            new_biz_mask = (
+                self.inforce.duration_inforce_vec_at(self.config.valuation_date) == 0
+            )  # (N,)
             ser_expenses[new_biz_mask, 0] += acq_cost
         if maint_cost_monthly > 0.0:
             ser_expenses += lx * maint_cost_monthly

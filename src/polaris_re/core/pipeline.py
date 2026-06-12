@@ -106,7 +106,12 @@ class DealConfig:
     acquisition_cost: float = 500.0
     maintenance_cost: float = 75.0
     use_policy_cession: bool = False
-    valuation_date: date = field(default_factory=date.today)
+    # None defers to the inforce block's validated uniform valuation_date
+    # (ADR-074). Resolution order lives in build_pipeline /
+    # build_projection_config — never default to date.today() here, or the
+    # block-date fallback becomes unreachable and results drift with the
+    # wall clock.
+    valuation_date: date | None = None
 
     def to_dict(self) -> dict[str, object]:
         """Return a plain dict suitable for dashboard session state."""
@@ -148,6 +153,12 @@ def load_inforce(
     """Load an inforce block from either a CSV file or a list-of-dicts.
 
     Exactly one of csv_path / policies_dict must be provided.
+
+    Both paths run ``InforceBlock.validate_date_consistency`` (ADR-074):
+    the stored ``duration_inforce`` / ``attained_age`` columns must agree
+    with what ``issue_date`` → ``valuation_date`` implies, since
+    projections derive age and duration from the dates and would
+    otherwise silently ignore inconsistent stored values.
     """
     if csv_path is not None and policies_dict is not None:
         raise PolarisValidationError("Provide either csv_path or policies_dict, not both.")
@@ -189,7 +200,9 @@ def load_inforce(
             )
         )
 
-    return InforceBlock(policies=policies)
+    block = InforceBlock(policies=policies)
+    block.validate_date_consistency()
+    return block
 
 
 # ------------------------------------------------------------------ #
@@ -331,12 +344,14 @@ def build_projection_config(
 ) -> ProjectionConfig:
     """Build a ProjectionConfig matching dashboard.components.projection.
 
-    Resolution order for valuation_date:
+    Resolution order for valuation_date (ADR-074):
     1. Explicit ``valuation_date`` argument (caller override).
     2. ``inputs.deal.valuation_date`` (from config JSON / dashboard).
-    3. ``date.today()`` (fallback).
+    3. ``date.today()`` — reachable only for generated data with no
+       inforce block; block-aware callers go through ``build_pipeline``,
+       which inserts the block's valuation date before this fallback.
     """
-    resolved_date = valuation_date or inputs.deal.valuation_date
+    resolved_date = valuation_date or inputs.deal.valuation_date or date.today()
     return ProjectionConfig(
         valuation_date=resolved_date,
         projection_horizon_years=inputs.deal.projection_years,
@@ -358,11 +373,13 @@ def build_pipeline(
 ) -> tuple[InforceBlock, AssumptionSet, ProjectionConfig]:
     """One-shot builder that produces the full pipeline tuple.
 
-    Resolution order for valuation_date:
+    Resolution order for valuation_date (ADR-074):
     1. Explicit ``valuation_date`` argument.
-    2. ``inputs.deal.valuation_date`` (from DealConfig).
-    3. First policy's ``valuation_date`` in the inforce block.
-    4. ``date.today()``.
+    2. ``inputs.deal.valuation_date`` (from DealConfig; ``None`` when the
+       config did not pin a date).
+    3. The inforce block's validated uniform ``valuation_date``
+       (first policy — InforceBlock enforces a single shared date).
+    4. ``date.today()`` — only reachable with an empty block.
     """
     assumptions = build_assumption_set(inputs)
     effective_date = (
