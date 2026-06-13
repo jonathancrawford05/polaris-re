@@ -106,6 +106,16 @@ class DealConfig:
     acquisition_cost: float = 500.0
     maintenance_cost: float = 75.0
     use_policy_cession: bool = False
+    # Optional tabular YRT rate table (ADR-052/ADR-075). When set, YRT
+    # premiums are billed from a directory of (age x duration) rate CSVs
+    # instead of the flat / mortality-derived rate — the YAML/JSON config
+    # equivalent of the ``--yrt-rate-table`` CLI flag, which takes
+    # precedence when both are supplied. None (default) preserves the
+    # flat-rate path. The auxiliary fields mirror the CLI flag defaults.
+    yrt_rate_table_path: Path | None = None
+    yrt_rate_table_select_period: int = 3
+    yrt_rate_table_label: str | None = None
+    yrt_rate_table_smoker_distinct: bool = True
     # None defers to the inforce block's validated uniform valuation_date
     # (ADR-074). Resolution order lives in build_pipeline /
     # build_projection_config — never default to date.today() here, or the
@@ -114,7 +124,13 @@ class DealConfig:
     valuation_date: date | None = None
 
     def to_dict(self) -> dict[str, object]:
-        """Return a plain dict suitable for dashboard session state."""
+        """Return a plain dict suitable for dashboard session state.
+
+        The tabular ``yrt_rate_table_*`` fields are intentionally omitted:
+        this dict backs the dashboard ``DEFAULTS`` (the dashboard manages
+        its own table-upload state separately) and is a CLI/Streamlit
+        parity surface, not a full serialisation of every config field.
+        """
         return {
             "product_type": self.product_type,
             "treaty_type": self.treaty_type,

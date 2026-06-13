@@ -225,6 +225,11 @@ def _parse_config_to_pipeline_inputs(
     deal_val_date = (
         date.fromisoformat(str(deal_val_date_raw)) if deal_val_date_raw is not None else None
     )
+    # Optional tabular YRT rate table (ADR-075). Path used as-is, mirroring
+    # the MortalityConfig.data_dir precedent (no relative-to-config
+    # resolution). None leaves the flat-rate path unchanged.
+    yrt_table_path_raw = deal_raw.get("yrt_rate_table_path")
+    yrt_table_path = Path(str(yrt_table_path_raw)) if yrt_table_path_raw is not None else None
     deal_cfg = DealConfig(
         product_type=deal_raw.get("product_type", "TERM"),
         treaty_type=deal_raw.get("treaty_type", "YRT"),
@@ -240,6 +245,10 @@ def _parse_config_to_pipeline_inputs(
         maintenance_cost=float(deal_raw.get("maintenance_cost", 75.0)),
         use_policy_cession=bool(deal_raw.get("use_policy_cession", False)),
         valuation_date=deal_val_date,
+        yrt_rate_table_path=yrt_table_path,
+        yrt_rate_table_select_period=int(deal_raw.get("yrt_rate_table_select_period", 3)),
+        yrt_rate_table_label=deal_raw.get("yrt_rate_table_label"),
+        yrt_rate_table_smoker_distinct=bool(deal_raw.get("yrt_rate_table_smoker_distinct", True)),
     )
 
     # Stamp product_type onto each policy dict for load_inforce
@@ -740,6 +749,47 @@ def _cohort_to_deal_pricing_export(
     )
 
 
+def _load_yrt_rate_table_from_dir(
+    directory: Path,
+    select_period: int,
+    label: str | None,
+    smoker_distinct: bool,
+    source_hint: str,
+) -> object:
+    """Load a tabular ``YRTRateTable`` from a directory, exiting on error.
+
+    Shared by the ``--yrt-rate-table`` CLI flag and the
+    ``deal.yrt_rate_table_path`` config field (ADR-075) so both surfaces
+    apply identical validation, loading, and console reporting. ``source_hint``
+    is interpolated into the "directory not found" message so the user can
+    tell which surface supplied the bad path.
+    """
+    if not directory.exists() or not directory.is_dir():
+        console.print(
+            f"[red]Error:[/red] YRT rate table directory not found ({source_hint}): {directory}"
+        )
+        raise typer.Exit(code=1)
+    from polaris_re.reinsurance.yrt_rate_table import YRTRateTable
+
+    try:
+        table = YRTRateTable.load(
+            directory=directory,
+            select_period=select_period,
+            table_name=label or "yrt",
+            label=label,
+            smoker_distinct=smoker_distinct,
+        )
+    except (FileNotFoundError, PolarisValidationError) as exc:
+        console.print(f"[red]Error loading YRT rate table:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    console.print(
+        f"[dim]Loaded tabular YRT rate table from {directory} "
+        f"(ages {table.min_age}-{table.max_age}, "  # type: ignore[attr-defined]
+        f"{len(table.arrays)} cohorts)[/dim]"  # type: ignore[attr-defined]
+    )
+    return table
+
+
 def _resolve_excel_path(base: Path, cohort_id: str, n_cohorts: int) -> Path:
     """Derive the per-cohort Excel path.
 
@@ -914,31 +964,19 @@ def price_cmd(
 
     # Tabular YRT rate table (ADR-052) — loaded once and reused across
     # cohorts. The label defaults to "yrt" so the typical filename is
-    # ``yrt_male_ns.csv`` etc. unless the user overrides it.
+    # ``yrt_male_ns.csv`` etc. unless the user overrides it. The CLI flag is
+    # loaded here (eagerly, so bad paths fail before any projection work);
+    # the config-driven ``deal.yrt_rate_table_path`` equivalent (ADR-075) is
+    # resolved after the config is parsed, below, and the flag takes
+    # precedence over it.
     yrt_rate_table_obj: object | None = None
     if yrt_rate_table_dir is not None:
-        if not yrt_rate_table_dir.exists() or not yrt_rate_table_dir.is_dir():
-            console.print(
-                f"[red]Error:[/red] --yrt-rate-table directory not found: {yrt_rate_table_dir}"
-            )
-            raise typer.Exit(code=1)
-        from polaris_re.reinsurance.yrt_rate_table import YRTRateTable
-
-        try:
-            yrt_rate_table_obj = YRTRateTable.load(
-                directory=yrt_rate_table_dir,
-                select_period=yrt_rate_table_select_period,
-                table_name=yrt_rate_table_label or "yrt",
-                label=yrt_rate_table_label,
-                smoker_distinct=yrt_rate_table_smoker_distinct,
-            )
-        except (FileNotFoundError, PolarisValidationError) as exc:
-            console.print(f"[red]Error loading YRT rate table:[/red] {exc}")
-            raise typer.Exit(code=1) from exc
-        console.print(
-            f"[dim]Loaded tabular YRT rate table from {yrt_rate_table_dir} "
-            f"(ages {yrt_rate_table_obj.min_age}-{yrt_rate_table_obj.max_age}, "  # type: ignore[attr-defined]
-            f"{len(yrt_rate_table_obj.arrays)} cohorts)[/dim]"  # type: ignore[attr-defined]
+        yrt_rate_table_obj = _load_yrt_rate_table_from_dir(
+            directory=yrt_rate_table_dir,
+            select_period=yrt_rate_table_select_period,
+            label=yrt_rate_table_label,
+            smoker_distinct=yrt_rate_table_smoker_distinct,
+            source_hint="--yrt-rate-table",
         )
 
     with Progress(
@@ -962,6 +1000,25 @@ def price_cmd(
                 demo_config, demo_csv if demo_csv.exists() else None
             )
             console.print("[dim]No --config supplied — running demo mode[/dim]")
+
+    # Config-driven tabular YRT table (deal.yrt_rate_table_path, ADR-075).
+    # The --yrt-rate-table flag, loaded above, takes precedence; the config
+    # field is the YAML/JSON equivalent for configs that want to reference a
+    # table directory without a flag. Resolved here (after config parse) so
+    # inputs.deal is populated, using the table params from the deal config.
+    if inputs.deal.yrt_rate_table_path is not None:
+        if yrt_rate_table_obj is not None:
+            console.print(
+                "[dim]--yrt-rate-table flag overrides deal.yrt_rate_table_path from config.[/dim]"
+            )
+        else:
+            yrt_rate_table_obj = _load_yrt_rate_table_from_dir(
+                directory=inputs.deal.yrt_rate_table_path,
+                select_period=inputs.deal.yrt_rate_table_select_period,
+                label=inputs.deal.yrt_rate_table_label,
+                smoker_distinct=inputs.deal.yrt_rate_table_smoker_distinct,
+                source_hint="deal.yrt_rate_table_path",
+            )
 
     # Partition the block into per-product cohorts. Homogeneous blocks
     # pass through as a single-element list (zero overhead).
