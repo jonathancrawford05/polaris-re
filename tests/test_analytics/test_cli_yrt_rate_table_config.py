@@ -190,6 +190,10 @@ class TestPriceConfigYRTRateTablePath:
 
         d_cfg = json.loads(out_cfg.read_text())
         d_flag = json.loads(out_flag.read_text())
+        # Exact equality (not assert_allclose) by construction: both paths feed
+        # the same directory through the same _load_yrt_rate_table_from_dir
+        # helper into the same projection, so the floats are bit-identical. A
+        # tolerance would weaken the "same code path" guarantee being asserted.
         assert d_cfg["reinsurer"]["pv_premiums"] == d_flag["reinsurer"]["pv_premiums"]
         assert d_cfg["reinsurer"]["pv_profits"] == d_flag["reinsurer"]["pv_profits"]
         assert d_cfg["cedant"]["pv_profits"] == d_flag["cedant"]["pv_profits"]

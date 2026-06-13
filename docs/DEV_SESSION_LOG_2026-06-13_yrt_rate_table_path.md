@@ -1,5 +1,7 @@
 # Dev Session Log — 2026-06-13
 
+**Branch:** `claude/confident-davinci-p1n3j0` (environment-designated; PR #67)
+
 ## Item Selected
 - **Source:** PRODUCT_DIRECTION_2026-05-23.md — Promoted Follow-ups
 - **Priority:** NICE-TO-HAVE
