@@ -24,8 +24,14 @@ from dataclasses import dataclass
 import numpy as np
 
 from polaris_re.analytics.profit_test import ProfitTester, ProfitTestResult
-from polaris_re.analytics.scenario import ScenarioAdjustment, apply_scenario_to_assumptions
+from polaris_re.analytics.scenario import (
+    Perspective,
+    ScenarioAdjustment,
+    apply_scenario_to_assumptions,
+    select_perspective_cashflows,
+)
 from polaris_re.assumptions.assumption_set import AssumptionSet
+from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.projection import ProjectionConfig
 from polaris_re.products.dispatch import get_product_engine
@@ -86,6 +92,9 @@ class UQResult:
 
     rate_shifts: np.ndarray
     """Sampled interest rate shifts, shape (n_scenarios,)."""
+
+    perspective: str = "cedant"
+    """Whose profit position these results describe (ADR-077)."""
 
     def percentile(self, pct: float) -> dict[str, float]:
         """
@@ -153,6 +162,13 @@ class MonteCarloUQ:
         n_scenarios:      Number of Monte Carlo scenarios. Default 1000.
         seed:             Random seed for reproducibility. Default 42.
         params:           Distribution parameters. Default UQParameters().
+        perspective:      Whose profit position to report (ADR-077).
+                          ``"cedant"`` (default) profit-tests the retained
+                          ``net`` position — the pre-ADR-077 behaviour.
+                          ``"reinsurer"`` profit-tests the ceded cash flows
+                          re-viewed as NET, matching ``polaris price``. With
+                          no treaty the reinsurer view is undefined and the
+                          gross cash flows are used for both.
     """
 
     def __init__(
@@ -165,7 +181,12 @@ class MonteCarloUQ:
         n_scenarios: int = 1000,
         seed: int = 42,
         params: UQParameters | None = None,
+        perspective: Perspective = "cedant",
     ) -> None:
+        if perspective not in ("reinsurer", "cedant"):
+            raise PolarisValidationError(
+                f"Unknown perspective {perspective!r}. Choose 'reinsurer' or 'cedant'."
+            )
         self.inforce = inforce
         self.base_assumptions = base_assumptions
         self.base_config = base_config
@@ -174,6 +195,7 @@ class MonteCarloUQ:
         self.n_scenarios = n_scenarios
         self.seed = seed
         self.params = params or UQParameters()
+        self.perspective: Perspective = perspective
 
     def _run_single(
         self,
@@ -195,10 +217,12 @@ class MonteCarloUQ:
 
         if self.treaty is not None:
             if needs_seriatim:
-                _net, _ = self.treaty.apply(gross, inforce=self.inforce)
+                net, ceded = self.treaty.apply(gross, inforce=self.inforce)
             else:
-                _net, _ = self.treaty.apply(gross)
-            cashflows = _net
+                net, ceded = self.treaty.apply(gross)
+            # Select the reporting perspective (ADR-077): cedant net (default)
+            # or the reinsurer's ceded-as-net view.
+            cashflows = select_perspective_cashflows(self.perspective, net, ceded)
         else:
             cashflows = gross
 
@@ -268,4 +292,5 @@ class MonteCarloUQ:
             mort_multipliers=mort_multipliers,
             lapse_multipliers=lapse_multipliers,
             rate_shifts=rate_shifts,
+            perspective=self.perspective,
         )
