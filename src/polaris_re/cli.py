@@ -790,6 +790,28 @@ def _load_yrt_rate_table_from_dir(
     return table
 
 
+def _resolve_config_yrt_rate_table(inputs: PipelineInputs) -> object | None:
+    """Load the tabular YRT table referenced by ``deal.yrt_rate_table_path``.
+
+    Returns ``None`` when the config does not reference a table (the common
+    flat-rate path). Shared by the ``scenario`` and ``uq`` commands (ADR-076)
+    so a config that carries ``deal.yrt_rate_table_path`` is honoured there,
+    not silently dropped. ``price`` keeps its own ``--yrt-rate-table``
+    flag-vs-config precedence handling but resolves the config field the same
+    way via :func:`_load_yrt_rate_table_from_dir`.
+    """
+    deal = inputs.deal
+    if deal.yrt_rate_table_path is None:
+        return None
+    return _load_yrt_rate_table_from_dir(
+        directory=deal.yrt_rate_table_path,
+        select_period=deal.yrt_rate_table_select_period,
+        label=deal.yrt_rate_table_label,
+        smoker_distinct=deal.yrt_rate_table_smoker_distinct,
+        source_hint="deal.yrt_rate_table_path",
+    )
+
+
 def _resolve_excel_path(base: Path, cohort_id: str, n_cohorts: int) -> Path:
     """Derive the per-cohort Excel path.
 
@@ -1246,14 +1268,20 @@ def scenario_cmd(
 
         _fail_on_mixed_cohorts(inforce, "scenario")
 
-        # Derive YRT rate from base gross projection (ADR-038)
-        gross = get_product_engine(
-            inforce=inforce, assumptions=assumptions, config=config
-        ).project()
+        # Config-driven tabular YRT table (deal.yrt_rate_table_path, ADR-075).
+        # Wired into scenario analysis by ADR-076 so a config that references a
+        # table is no longer silently priced on the flat derived rate.
+        yrt_rate_table_obj = _resolve_config_yrt_rate_table(inputs)
+
+        # Derive YRT rate from base gross projection (ADR-038). The tabular
+        # path needs a seriatim projection for the parity dump + treaty apply.
+        gross = get_product_engine(inforce=inforce, assumptions=assumptions, config=config).project(
+            seriatim=yrt_rate_table_obj is not None
+        )
         face_amount = inforce.total_face_amount()
 
         treaty_obj, use_policy_cession = _build_treaty_for_pipeline(
-            inputs, gross, face_amount, inforce
+            inputs, gross, face_amount, inforce, yrt_rate_table=yrt_rate_table_obj
         )
 
         # Parity diagnostic dump (set POLARIS_PARITY_DEBUG=1 to enable)
@@ -1389,14 +1417,20 @@ def uq_cmd(
 
         _fail_on_mixed_cohorts(inforce, "uq")
 
-        # Derive YRT rate from base gross projection (ADR-038)
-        gross = get_product_engine(
-            inforce=inforce, assumptions=assumptions, config=config
-        ).project()
+        # Config-driven tabular YRT table (deal.yrt_rate_table_path, ADR-075).
+        # Wired into Monte Carlo UQ by ADR-076 so a config that references a
+        # table is no longer silently priced on the flat derived rate.
+        yrt_rate_table_obj = _resolve_config_yrt_rate_table(inputs)
+
+        # Derive YRT rate from base gross projection (ADR-038). The tabular
+        # path needs a seriatim projection for the parity dump + treaty apply.
+        gross = get_product_engine(inforce=inforce, assumptions=assumptions, config=config).project(
+            seriatim=yrt_rate_table_obj is not None
+        )
         face_amount = inforce.total_face_amount()
 
         treaty_obj, use_policy_cession = _build_treaty_for_pipeline(
-            inputs, gross, face_amount, inforce
+            inputs, gross, face_amount, inforce, yrt_rate_table=yrt_rate_table_obj
         )
 
         # Parity diagnostic dump (set POLARIS_PARITY_DEBUG=1 to enable)

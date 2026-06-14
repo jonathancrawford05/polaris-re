@@ -186,16 +186,26 @@ class ScenarioRunner:
 
         result = ScenarioResult()
 
+        # A tabular YRT treaty (``yrt_rate_table`` set) looks rates up per
+        # policy and so requires a seriatim projection plus the InforceBlock
+        # passed into ``apply`` (mirrors ``cli._price_single_cohort``). For a
+        # flat/proportional treaty ``needs_seriatim`` is False, so both calls
+        # below are byte-identical to the pre-ADR-076 aggregate path.
+        needs_seriatim = getattr(self.treaty, "yrt_rate_table", None) is not None
+
         for scenario in scenarios:
             # Apply scenario adjustments to create a new AssumptionSet
             adjusted_assumptions = apply_scenario_to_assumptions(self.base_assumptions, scenario)
 
             # Run projection with adjusted assumptions
             engine = get_product_engine(self.inforce, adjusted_assumptions, self.config)
-            gross = engine.project()
+            gross = engine.project(seriatim=needs_seriatim)
 
             # Apply treaty
-            net, _ceded = self.treaty.apply(gross)
+            if needs_seriatim:
+                net, _ceded = self.treaty.apply(gross, inforce=self.inforce)
+            else:
+                net, _ceded = self.treaty.apply(gross)
 
             # Profit test
             tester = ProfitTester(net, self.hurdle_rate)

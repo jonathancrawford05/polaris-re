@@ -116,6 +116,23 @@ follow-up items from `CONTINUATION_portfolio_aggregation` and
 8359a2b); "LICAT lapse-risk and morbidity-risk capital components"
 via ADR-065 (PR #52, commit c88db82).)
 
+- **Reinsurer-vs-cedant profit-test convention in `scenario` / `uq`.**
+  `ScenarioRunner` and `MonteCarloUQ` profit-test the cedant `net` position
+  (`treaty.apply` returns `(net, ceded)`; both runners take `net`), whereas
+  `polaris price` reports the *reinsurer* view (the ceded cash flow
+  re-viewed as NET). For a reinsurer-facing tool the scenario / UQ PV and
+  IRR figures therefore describe the cedant's retained book, not the
+  reinsurer's — a likely surprise on the primary use case. Surfaced by
+  ADR-076 (the tabular-YRT wiring made the two surfaces directly
+  comparable and the mismatch visible). Decide whether the runners should
+  report the reinsurer (ceded) view, expose both, or document the cedant
+  convention explicitly. This is a behaviour question that may move
+  published scenario / UQ numbers, so it needs its own ADR (and a golden /
+  QA reference update if the convention changes). **Scope:** design ADR +
+  ~1 dev-day. **Affected:** `analytics/scenario.py`, `analytics/uq.py`,
+  `cli.py` (`scenario_cmd`, `uq_cmd`), tests/QA references.
+  *Source: ADR-076 Out of scope.*
+
 ### NICE-TO-HAVE
 
 - ~~**Streamlit dashboard page for portfolio runs.** Dashboard prices
@@ -294,7 +311,7 @@ via ADR-065 (PR #52, commit c88db82).)
   (`MortalityConfig.data_dir` precedent). Closed-form test asserts
   config-driven pricing is byte-identical to the flag.
 
-- **`deal.yrt_rate_table_path` on `scenario` / `uq` CLI commands.** ADR-075
+- ~~**`deal.yrt_rate_table_path` on `scenario` / `uq` CLI commands.** ADR-075
   wired the config-driven tabular YRT table into `polaris price` only —
   the only command that consumes a tabular table today. `scenario` and
   `uq` parse the same `deal` config block but have no table-loading wiring,
@@ -302,7 +319,15 @@ via ADR-065 (PR #52, commit c88db82).)
   the same `_load_yrt_rate_table_from_dir` resolution to those commands if
   scenario / UQ analysis on a tabular YRT basis is wanted. **Scope:** ~1
   dev-day. **Affected:** `cli.py` (`scenario_cmd`, `uq_cmd`), tests.
-  *Source: ADR-075 Out of scope.*
+  *Source: ADR-075 Out of scope.*~~ — **SHIPPED** (ADR-076): both commands
+  resolve `deal.yrt_rate_table_path` through a shared
+  `_resolve_config_yrt_rate_table` helper, and `ScenarioRunner` /
+  `MonteCarloUQ` now project seriatim + pass the `InforceBlock` to
+  `YRTTreaty.apply` when the treaty is tabular (flat/proportional path
+  byte-identical). **Scope correction:** the original "Affected" line was
+  wrong — the fix also required `analytics/scenario.py` + `analytics/uq.py`,
+  not `cli.py` alone (the tabular path needs seriatim projection). Closed-form
+  BASE / base-case identity verified to `rtol=1e-12`.
 
 - **Relative-to-config path resolution for `yrt_rate_table_path`.** ADR-075
   uses the configured path as-is (cwd-relative), matching the
@@ -321,6 +346,16 @@ via ADR-065 (PR #52, commit c88db82).)
   directory, add the corresponding upload-flow wiring. **Scope:** ~1
   dev-day. **Affected:** `dashboard/` config import/export, tests.
   *Source: ADR-075 Out of scope.*
+
+- **`--yrt-rate-table` CLI flag on `scenario` / `uq`.** ADR-076 wired the
+  config field (`deal.yrt_rate_table_path`) into both commands but, unlike
+  `price`, neither exposes the ad-hoc `--yrt-rate-table DIR` flag. Adding it
+  (with the same flag-over-config precedence `price` uses) would give the
+  three commands a uniform table-loading surface. Config-only was the
+  minimal scope that closed the silent-drop gap; the flag is purely
+  additive. **Scope:** ~0.5 dev-day. **Affected:** `cli.py`
+  (`scenario_cmd`, `uq_cmd` options), tests.
+  *Source: ADR-076 Out of scope.*
 
 - ~~**Streamlit dashboard page for calendar-aligned portfolios.** The
   dashboard prices one deal at a time today. A portfolio page would
