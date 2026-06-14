@@ -280,13 +280,47 @@ via ADR-065 (PR #52, commit c88db82).)
   byte-identical behaviour for every existing ingestion path.
   *Source: CONTINUATION_substandard_rating — Slice 3 follow-up.*
 
-- **`yrt_rate_table_path` field on `DealConfig` for CLI YAML configs.**
+- ~~**`yrt_rate_table_path` field on `DealConfig` for CLI YAML configs.**
   Today the tabular YRT rate table is loaded via CLI flag /
   API field, not the YAML config schema, because there's no
   JSON-friendly representation. Adding a path field to `DealConfig`
   would let YAML configs reference a table directory. **Scope:** ~1
   dev-day. **Affected:** `core/pipeline.py:DealConfig`, CLI, tests.
-  *Source: CONTINUATION_yrt_rate_table — "follow-up #2".*
+  *Source: CONTINUATION_yrt_rate_table — "follow-up #2".*~~ —
+  **SHIPPED** (PR #67, ADR-075): four optional `yrt_rate_table_*` fields on
+  `DealConfig` parsed from the nested `deal` block; a shared
+  `_load_yrt_rate_table_from_dir` helper serves both the `--yrt-rate-table`
+  flag (precedence) and the config field. Path used as-is
+  (`MortalityConfig.data_dir` precedent). Closed-form test asserts
+  config-driven pricing is byte-identical to the flag.
+
+- **`deal.yrt_rate_table_path` on `scenario` / `uq` CLI commands.** ADR-075
+  wired the config-driven tabular YRT table into `polaris price` only —
+  the only command that consumes a tabular table today. `scenario` and
+  `uq` parse the same `deal` config block but have no table-loading wiring,
+  so a config with `yrt_rate_table_path` is silently ignored there. Add
+  the same `_load_yrt_rate_table_from_dir` resolution to those commands if
+  scenario / UQ analysis on a tabular YRT basis is wanted. **Scope:** ~1
+  dev-day. **Affected:** `cli.py` (`scenario_cmd`, `uq_cmd`), tests.
+  *Source: ADR-075 Out of scope.*
+
+- **Relative-to-config path resolution for `yrt_rate_table_path`.** ADR-075
+  uses the configured path as-is (cwd-relative), matching the
+  `MortalityConfig.data_dir` precedent. A portable config bundle (config +
+  table dir shipped together) would benefit from resolving relative paths
+  against the config file's parent directory. This is a cross-cutting
+  decision (it would ideally also cover `mortality.data_dir`), so it needs
+  its own small ADR. **Scope:** ~0.5–1 dev-day. **Affected:** `cli.py`
+  config parsing, tests. *Source: ADR-075 Out of scope.*
+
+- **Dashboard upload-flow key for a tabular YRT table.** The Streamlit
+  dashboard manages its own table-upload state and does not read
+  `deal.yrt_rate_table_path` (deliberately omitted from
+  `DealConfig.to_dict()`, which backs the dashboard `DEFAULTS`). If config
+  import/export on the dashboard should round-trip a referenced table
+  directory, add the corresponding upload-flow wiring. **Scope:** ~1
+  dev-day. **Affected:** `dashboard/` config import/export, tests.
+  *Source: ADR-075 Out of scope.*
 
 - ~~**Streamlit dashboard page for calendar-aligned portfolios.** The
   dashboard prices one deal at a time today. A portfolio page would

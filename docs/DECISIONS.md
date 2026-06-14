@@ -4413,3 +4413,74 @@ accepts it unchanged.
   `tests/test_cli_streamlit_parity.py`, `tests/test_cli_config.py`
   (fixture consistency), `tests/qa/test_dashboard_flows.py`,
   `tests/test_dashboard/test_portfolio_loader.py` (QA-gap coverage)
+
+## ADR-075: Config-driven tabular YRT rate table (`deal.yrt_rate_table_path`)
+
+**Date:** 2026-06-13
+**Status:** Accepted
+
+**Context.** ADR-052 added tabular YRT pricing — billing ceded premiums
+from a directory of `(age x duration)` rate CSVs instead of the flat /
+mortality-derived rate. That table could only be reached two ways: the
+`polaris price --yrt-rate-table DIR` CLI flag and the REST API's table
+field. The YAML/JSON config schema (`deal` block, parsed by
+`_parse_config_to_pipeline_inputs`) had no representation for it, so a
+saved config could not pin a tabular YRT basis — the user had to remember
+to pass the flag on every invocation, and the config was an incomplete
+record of the deal. This was tracked as a promoted follow-up in
+PRODUCT_DIRECTION_2026-05-23 ("`yrt_rate_table_path` field on `DealConfig`
+for CLI YAML configs"; *Source: CONTINUATION_yrt_rate_table — follow-up #2*).
+
+**Decision.** Add four optional fields to `DealConfig`, mirroring the CLI
+flag set:
+
+- `yrt_rate_table_path: Path | None = None` — directory of rate CSVs;
+  `None` (default) preserves the flat-rate path.
+- `yrt_rate_table_select_period: int = 3`
+- `yrt_rate_table_label: str | None = None`
+- `yrt_rate_table_smoker_distinct: bool = True`
+
+`_parse_config_to_pipeline_inputs` reads these from the nested `deal`
+block (the legacy flat schema is left untouched). In `price_cmd`, the
+table is loaded through a new shared helper, `_load_yrt_rate_table_from_dir`,
+which both the `--yrt-rate-table` flag and the config field call so the
+two surfaces apply byte-identical validation, loading, and console
+reporting. The flag is loaded eagerly (bad paths fail before any
+projection work); the config field is resolved after config parse.
+
+**Precedence.** When both are supplied the CLI flag wins and a one-line
+`[dim]` notice is printed; the config path is not consulted. This keeps
+the flag as an ad-hoc override of a saved config rather than a conflicting
+second source.
+
+**Rationale.**
+
+- **Additive, zero behaviour change.** All four fields default to the
+  flat-rate path / CLI-flag defaults, so every existing config and golden
+  baseline is byte-identical. Verified by a closed-form test asserting the
+  config-driven and flag-driven runs produce identical reinsurer
+  `pv_premiums` / `pv_profits` and cedant `pv_profits`.
+- **Path used as-is.** No relative-to-config resolution, following the
+  existing `MortalityConfig.data_dir` precedent. (Relative-to-config
+  resolution is a possible future refinement — see Out of scope.)
+- **`DealConfig.to_dict()` intentionally unchanged.** That dict backs the
+  dashboard `DEFAULTS` and the CLI/Streamlit parity surface; the dashboard
+  manages its own table-upload state, so the new fields are deliberately
+  omitted from it.
+
+**Out of scope.** (1) Surfacing the field on `scenario` / `uq` CLI
+commands — only `price` consumes a tabular table today; the other commands
+parse the same config but would need their own loading wiring. (2)
+Relative-to-config path resolution for portable config bundles. (3) A
+matching YAML key on the dashboard upload flow. These are filed as
+follow-ups.
+
+**Affected files.**
+
+- `src/polaris_re/core/pipeline.py` (`DealConfig` fields + `to_dict`
+  docstring)
+- `src/polaris_re/cli.py` (`_parse_config_to_pipeline_inputs` mapping,
+  `_load_yrt_rate_table_from_dir` helper, `price_cmd` resolution +
+  precedence)
+- `tests/test_analytics/test_cli_yrt_rate_table_config.py` (parse unit
+  tests + closed-form flag-vs-config equality + precedence + bad-path)

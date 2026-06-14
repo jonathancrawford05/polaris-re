@@ -543,8 +543,45 @@ Options:
                            (ADR-049). When set, JSON output and the workbook
                            Summary sheet gain RoC, peak capital, and PV capital
                            rows. See §10 for usage.
+      --yrt-rate-table DIR Bill YRT premiums from a tabular (age × duration) rate
+                           table directory instead of the flat / mortality-derived
+                           rate (ADR-052). See "Tabular YRT rate table" below; the
+                           config-file equivalent is deal.yrt_rate_table_path
+                           (ADR-075).
       --help               Show this message and exit.
 ```
+
+### Tabular YRT rate table
+
+By default YRT premiums use a flat / mortality-derived rate. To bill premiums
+from an `(age × duration)` rate table instead (ADR-052), point `polaris price`
+at a directory holding one CSV per `(sex, smoker)` cohort, named
+`{label}_{sex}_{smoker}.csv` (e.g. `yrt_male_ns.csv`):
+
+```bash
+polaris price --config deal.json --inforce block.csv \
+  --yrt-rate-table data/rate_tables/deal2026 \
+  --yrt-rate-table-label deal2026
+```
+
+Equivalently, reference the same directory from the config's `deal` block
+(ADR-075) so a saved config fully captures the tabular basis — no flag needed:
+
+```json
+{
+  "deal": {
+    "treaty_type": "YRT",
+    "yrt_rate_table_path": "data/rate_tables/deal2026",
+    "yrt_rate_table_select_period": 3,
+    "yrt_rate_table_label": "deal2026",
+    "yrt_rate_table_smoker_distinct": true
+  }
+}
+```
+
+The `--yrt-rate-table` flag takes precedence when both are supplied (a one-line
+notice is printed). Paths are used as-is — resolved relative to the current
+working directory, matching the `mortality.data_dir` convention.
 
 ### Workbook contents
 
