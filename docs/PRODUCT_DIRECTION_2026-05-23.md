@@ -131,7 +131,7 @@ via ADR-065 (PR #52, commit c88db82).)
   QA reference update if the convention changes). **Scope:** design ADR +
   ~1 dev-day. **Affected:** `analytics/scenario.py`, `analytics/uq.py`,
   `cli.py` (`scenario_cmd`, `uq_cmd`), tests/QA references.
-  *Source: ADR-076 Out of scope.*~~ — **SHIPPED** (ADR-077): chose "expose
+  *Source: ADR-076 Out of scope.*~~ — **SHIPPED** (PR #69, ADR-077): chose "expose
   both" — an additive `perspective` parameter on both runners (default
   `cedant`, byte-identical library behaviour, no existing test changed) plus
   a `--perspective` flag on the `scenario` / `uq` CLI **defaulting to

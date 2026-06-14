@@ -93,7 +93,7 @@ class UQResult:
     rate_shifts: np.ndarray
     """Sampled interest rate shifts, shape (n_scenarios,)."""
 
-    perspective: str = "cedant"
+    perspective: Perspective = "cedant"
     """Whose profit position these results describe (ADR-077)."""
 
     def percentile(self, pct: float) -> dict[str, float]:

@@ -145,7 +145,11 @@ class TestScenarioPerspective:
         reinsurer_run = ScenarioRunner(
             block, assumptions, config, treaty, hurdle_rate=0.10, perspective="reinsurer"
         ).run(scenarios=[ScenarioAdjustment("BASE", 1.0, 1.0)])
-        assert cedant_run.scenarios[0][1].pv_profits != reinsurer_run.scenarios[0][1].pv_profits
+        assert not np.isclose(
+            cedant_run.scenarios[0][1].pv_profits,
+            reinsurer_run.scenarios[0][1].pv_profits,
+            rtol=1e-9,
+        )
 
     def test_invalid_perspective_raises(self, setup):
         """An unknown perspective is rejected at construction."""
@@ -323,7 +327,7 @@ class TestScenarioCLIPerspective:
         base_c = next(
             s for s in json.loads(out_c.read_text())["scenarios"] if s["scenario"] == "BASE"
         )
-        assert base_r["pv_profits"] != base_c["pv_profits"]
+        assert not np.isclose(base_r["pv_profits"], base_c["pv_profits"], rtol=1e-9)
 
     def test_invalid_perspective_exits_nonzero(self, tmp_path):
         inforce = tmp_path / "inforce.csv"
@@ -422,7 +426,8 @@ class TestUQCLIPerspective:
             ],
         )
         assert r2.exit_code == 0, r2.output
-        assert (
-            json.loads(out_r.read_text())["base_pv_profit"]
-            != json.loads(out_c.read_text())["base_pv_profit"]
+        assert not np.isclose(
+            json.loads(out_r.read_text())["base_pv_profit"],
+            json.loads(out_c.read_text())["base_pv_profit"],
+            rtol=1e-9,
         )
