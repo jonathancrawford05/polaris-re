@@ -186,10 +186,18 @@ class MonteCarloUQ:
             assumptions=assumptions,
             config=config,
         )
-        gross = product.project()
+        # A tabular YRT treaty needs a seriatim projection and the InforceBlock
+        # passed into ``apply`` for its per-policy rate lookups (ADR-076). For a
+        # flat/proportional treaty (or no treaty) ``needs_seriatim`` is False,
+        # so the calls below stay byte-identical to the prior aggregate path.
+        needs_seriatim = getattr(self.treaty, "yrt_rate_table", None) is not None
+        gross = product.project(seriatim=needs_seriatim)
 
         if self.treaty is not None:
-            _net, _ = self.treaty.apply(gross)
+            if needs_seriatim:
+                _net, _ = self.treaty.apply(gross, inforce=self.inforce)
+            else:
+                _net, _ = self.treaty.apply(gross)
             cashflows = _net
         else:
             cashflows = gross

@@ -4484,3 +4484,83 @@ follow-ups.
   precedence)
 - `tests/test_analytics/test_cli_yrt_rate_table_config.py` (parse unit
   tests + closed-form flag-vs-config equality + precedence + bad-path)
+
+---
+
+## ADR-076: Tabular YRT rate table in `scenario` / `uq` (`ScenarioRunner`, `MonteCarloUQ`)
+
+**Date:** 2026-06-14
+**Status:** Accepted
+
+**Context.** ADR-075 added the `deal.yrt_rate_table_path` config field and
+wired it into `polaris price` only. `polaris scenario` and `polaris uq`
+parse the same `deal` config block (via `_build_pipeline_from_config`), so a
+config carrying `yrt_rate_table_path` loaded cleanly there too — but the
+field was then silently dropped: both commands built the treaty with
+`_build_treaty_for_pipeline(inputs, gross, face_amount, inforce)`, passing
+no `yrt_rate_table`. The analytics runners (`ScenarioRunner.run`,
+`MonteCarloUQ._run_single`) projected at the aggregate level
+(`engine.project()`) and applied the treaty without an `InforceBlock`. A
+config that referenced a tabular YRT basis was therefore priced on the
+*flat* mortality-derived rate instead — no error, just a wrong number.
+Reproduced before the fix: the same config priced reinsurer
+`pv_profits = 10645.36` under `price` (table honoured) but the `scenario`
+BASE moved to a flat-rate value, confirming the silent drop. Tracked as
+ADR-075 Out-of-scope follow-up #1.
+
+**Scope correction.** The PRODUCT_DIRECTION entry for this follow-up listed
+only `cli.py (scenario_cmd, uq_cmd), tests` as affected. That was
+incomplete: the tabular YRT path requires a *seriatim* projection
+(`gross.seriatim_lx` / `seriatim_reserves`) plus the `InforceBlock` passed
+into `YRTTreaty.apply`, and the analytics runners did neither. The fix
+therefore also touches `analytics/scenario.py` and `analytics/uq.py`. This
+correction was verified by reproduction before any code was written.
+
+**Decision.** Teach both runners to detect a tabular YRT treaty and switch
+to the seriatim path — the exact pattern `cli._price_single_cohort` already
+uses:
+
+```python
+needs_seriatim = getattr(self.treaty, "yrt_rate_table", None) is not None
+gross = engine.project(seriatim=needs_seriatim)
+net, _ = self.treaty.apply(gross, inforce=self.inforce) if needs_seriatim \
+    else self.treaty.apply(gross)
+```
+
+`getattr` duck-typing means coinsurance / modco / flat-YRT treaties (no
+`yrt_rate_table` attribute, or `None`) take `needs_seriatim = False`, so
+`project(seriatim=False)` (the default) and `apply(gross)` are byte-identical
+to the prior aggregate path. In the CLI, `scenario_cmd` / `uq_cmd` resolve
+the config table through a new shared helper, `_resolve_config_yrt_rate_table`,
+which calls the existing `_load_yrt_rate_table_from_dir` (same validation,
+loading, and console reporting as `price`). The CLI-level `gross` used for
+the parity-debug dump is projected seriatim when a table is present so the
+diagnostic matches the real projection.
+
+**Rationale.** This is a correctness fix — a saved deal config is meant to
+be a complete record, and ADR-075 made `yrt_rate_table_path` part of that
+record. Honouring it everywhere `price` honours it removes a silent
+flat-vs-tabular discrepancy. Backward compatibility is total: the flat /
+proportional path is unchanged byte-for-byte (golden regression exit 0;
+1274 prior tests unchanged). The closed-form anchor is the BASE / base-case
+identity: with unit stress multipliers the runner's first scenario
+reproduces a direct seriatim projection + tabular apply + profit test to
+`rtol=1e-12`.
+
+**Out of scope (filed as follow-ups).** (1) A `--yrt-rate-table` CLI *flag*
+on `scenario` / `uq` to match `price`'s flag-and-config parity (config-only
+here closes the stated silent-drop gap; the flag is additive). (2) The
+reinsurer-vs-cedant profit-test convention: `ScenarioRunner` / `MonteCarloUQ`
+profit-test the cedant `net` position, whereas `price` reports the reinsurer
+view — pre-existing and unchanged here, but worth a deliberate decision.
+(3) Relative-to-config path resolution (carried from ADR-075).
+
+**Affected files.**
+
+- `src/polaris_re/analytics/scenario.py` (`ScenarioRunner.run` seriatim branch)
+- `src/polaris_re/analytics/uq.py` (`MonteCarloUQ._run_single` seriatim branch)
+- `src/polaris_re/cli.py` (`_resolve_config_yrt_rate_table` helper;
+  `scenario_cmd` / `uq_cmd` table resolution + seriatim parity projection)
+- `tests/test_analytics/test_scenario_uq_yrt_rate_table.py` (closed-form
+  BASE / base-case identity + tabular-vs-flat differential + CLI config
+  integration + bad-path)
