@@ -4564,3 +4564,75 @@ view — pre-existing and unchanged here, but worth a deliberate decision.
 - `tests/test_analytics/test_scenario_uq_yrt_rate_table.py` (closed-form
   BASE / base-case identity + tabular-vs-flat differential + CLI config
   integration + bad-path)
+
+## ADR-077: Reinsurer-vs-cedant profit-test perspective in `scenario` / `uq`
+
+**Date:** 2026-06-14
+**Status:** Accepted
+
+**Context.** `ScenarioRunner.run` and `MonteCarloUQ._run_single` profit-test
+the cedant `net` position: `treaty.apply()` returns `(net, ceded)` and both
+runners took `net`. By contrast `polaris price` reports the *reinsurer* view
+— the ceded cash flows re-viewed as NET via `ceded_to_reinsurer_view`
+(ADR-039). On a reinsurer-facing pricing tool the scenario / UQ PV and IRR
+therefore described the cedant's retained book, not the reinsurer's — a
+surprise on the primary use case (flagged in ADR-076 Out-of-scope #2 and
+promoted to PRODUCT_DIRECTION as an IMPORTANT follow-up). Reproduced before
+the fix: an 80% coinsurance deal gave a `ScenarioRunner` BASE
+`pv_profits = 5,716.78` (the cedant's retained 20%) while the reinsurer's
+ceded 80% economics were `22,867.13` — ~4x apart. A 50% coinsurance is
+degenerate (net == ceded), which is why the pre-existing
+`test_base_matches_direct_profit_test` (50% cession) never surfaced the gap.
+
+**Decision.** Add an additive `perspective: Literal["reinsurer", "cedant"]`
+parameter to both runners, plus a shared `select_perspective_cashflows(perspective,
+net, ceded)` helper. `"reinsurer"` profit-tests `ceded_to_reinsurer_view(ceded)`;
+`"cedant"` profit-tests `net`. When `ceded is None` (UQ with no treaty) the
+reinsurer view is undefined, so the gross cash flows are used for both. The
+runner default is **`"cedant"`** — this keeps the library API byte-identical
+for every existing programmatic caller and every existing test (no test
+assertion was changed). The `scenario` / `uq` *CLI commands* default to
+**`"reinsurer"`** via a new `--perspective` flag, so the opinionated product
+surface agrees with `polaris price`. `ScenarioResult` / `UQResult` and the CLI
+JSON now carry the `perspective` that produced them.
+
+**Rationale.** The library stays a neutral primitive (cedant net is the
+literal `treaty.apply()[0]`), while the CLI — like `price` — is the
+reinsurer-facing surface and so defaults to the reinsurer view. Splitting the
+defaults this way fixes the user-facing correctness gap (the CLI is where the
+"surprise" actually manifests) while preserving total backward compatibility
+at the library level, honouring the "never change existing test assertions"
+guardrail. The closed-form anchors are the BASE / base-case identities:
+`perspective="reinsurer"` reproduces `ProfitTester(ceded_to_reinsurer_view(ceded))`
+and `perspective="cedant"` reproduces `ProfitTester(net)` to `rtol=1e-12`. No
+golden / QA baseline moved — the golden suite pins only `price` outputs
+(`golden_flat.json`, `golden_yrt.json`); scenario / uq are not numerically
+pinned, and the one CLI scenario QA test asserts mixed-block rejection only.
+
+**No-treaty handling.** `scenario` builds a zero-cession YRT fallback so the
+runner always has a treaty; `uq` accepts `treaty=None` directly. In both, when
+the config carries no real treaty a requested `reinsurer` perspective is
+downgraded to `cedant` with a console notice ("reinsurer view not available"),
+mirroring `price`. The effective perspective is always printed.
+
+**Out of scope (filed as follow-ups).** (1) The FastAPI scenario / UQ
+endpoints (`POST /api/v1/scenario`, `/uq`) and the Streamlit dashboard
+scenario / UQ views still report the cedant `net` view — same correctness gap,
+other surfaces. They can pass `perspective="reinsurer"` to the runners now;
+deferred here to keep the PR to the harvested item's stated scope
+(analytics + CLI). (2) `Portfolio.run_scenarios` aggregates per-deal `net`
+positions and is unaffected by this change; whether portfolio scenario output
+should also move to the reinsurer view is a separate question.
+
+**Affected files.**
+
+- `src/polaris_re/analytics/scenario.py` (`Perspective` alias,
+  `select_perspective_cashflows`, `ScenarioRunner.perspective`,
+  `ScenarioResult.perspective`)
+- `src/polaris_re/analytics/uq.py` (`MonteCarloUQ.perspective`,
+  `UQResult.perspective`)
+- `src/polaris_re/cli.py` (`_resolve_cli_perspective` helper; `--perspective`
+  flag + effective-perspective resolution on `scenario_cmd` / `uq_cmd`)
+- `tests/test_analytics/test_scenario_uq_perspective.py` (closed-form
+  reinsurer / cedant BASE identities + non-half-cession differential +
+  no-treaty fallback + invalid-value + CLI integration)

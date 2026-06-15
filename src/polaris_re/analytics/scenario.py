@@ -11,6 +11,7 @@ Standard stress scenarios:
 """
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 import numpy as np
 
@@ -18,18 +19,60 @@ from polaris_re.analytics.profit_test import ProfitTester, ProfitTestResult
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.assumptions.lapse import LapseAssumption
 from polaris_re.assumptions.mortality import MortalityTable
+from polaris_re.core.cashflow import CashFlowResult
+from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
+from polaris_re.core.pipeline import ceded_to_reinsurer_view
 from polaris_re.core.projection import ProjectionConfig
 from polaris_re.products.dispatch import get_product_engine
 from polaris_re.reinsurance.base_treaty import BaseTreaty
 from polaris_re.utils.table_io import MortalityTableArray
 
 __all__ = [
+    "Perspective",
     "ScenarioAdjustment",
     "ScenarioResult",
     "ScenarioRunner",
     "apply_scenario_to_assumptions",
+    "select_perspective_cashflows",
 ]
+
+type Perspective = Literal["reinsurer", "cedant"]
+"""Whose profit position a runner reports.
+
+- ``"reinsurer"`` — the ceded cash flows re-viewed as NET (the reinsurer's
+  own economics), matching what ``polaris price`` reports. Correct primary
+  surface for a reinsurer-facing tool.
+- ``"cedant"`` — the cedant's retained ``net`` position (``treaty.apply()[0]``).
+"""
+
+_VALID_PERSPECTIVES: tuple[Perspective, ...] = ("reinsurer", "cedant")
+
+
+def select_perspective_cashflows(
+    perspective: Perspective,
+    net: CashFlowResult,
+    ceded: CashFlowResult | None,
+) -> CashFlowResult:
+    """Pick the cash flows to profit-test for a given reporting perspective.
+
+    ``"reinsurer"`` returns ``ceded_to_reinsurer_view(ceded)`` — the ceded
+    portion re-labelled NET so ``ProfitTester`` accepts it (ADR-039). When
+    ``ceded is None`` (no treaty), the reinsurer view is undefined, so the
+    ``net`` cash flows (which equal ``gross`` in that case) are returned
+    unchanged. ``"cedant"`` always returns ``net``.
+    """
+    if perspective == "reinsurer" and ceded is not None:
+        return ceded_to_reinsurer_view(ceded)
+    return net
+
+
+def _validate_perspective(perspective: str) -> Perspective:
+    if perspective not in _VALID_PERSPECTIVES:
+        raise PolarisValidationError(
+            f"Unknown perspective {perspective!r}. Choose one of {', '.join(_VALID_PERSPECTIVES)}."
+        )
+    return perspective  # type: ignore[return-value]
 
 
 @dataclass
@@ -47,6 +90,8 @@ class ScenarioResult:
     """Aggregated results from a multi-scenario run."""
 
     scenarios: list[tuple[str, ProfitTestResult]] = field(default_factory=list)
+    perspective: Perspective = "cedant"
+    """Whose profit position these results describe (ADR-077)."""
 
     def irr_range(self) -> tuple[float | None, float | None]:
         """(min IRR, max IRR) across scenarios with valid IRRs."""
@@ -140,6 +185,10 @@ class ScenarioRunner:
         config: Projection configuration.
         treaty: Reinsurance treaty to apply after each projection.
         hurdle_rate: Annual hurdle rate for profit testing.
+        perspective: Whose profit position to report (ADR-077). ``"cedant"``
+            (default) profit-tests the retained ``net`` position — the
+            pre-ADR-077 behaviour. ``"reinsurer"`` profit-tests the ceded
+            cash flows re-viewed as NET, matching ``polaris price``.
     """
 
     def __init__(
@@ -149,12 +198,14 @@ class ScenarioRunner:
         config: ProjectionConfig,
         treaty: BaseTreaty,
         hurdle_rate: float,
+        perspective: Perspective = "cedant",
     ) -> None:
         self.inforce = inforce
         self.base_assumptions = base_assumptions
         self.config = config
         self.treaty = treaty
         self.hurdle_rate = hurdle_rate
+        self.perspective: Perspective = _validate_perspective(perspective)
 
     @classmethod
     def standard_stress_scenarios(cls) -> list[ScenarioAdjustment]:
@@ -184,7 +235,7 @@ class ScenarioRunner:
         if scenarios is None:
             scenarios = self.standard_stress_scenarios()
 
-        result = ScenarioResult()
+        result = ScenarioResult(perspective=self.perspective)
 
         # A tabular YRT treaty (``yrt_rate_table`` set) looks rates up per
         # policy and so requires a seriatim projection plus the InforceBlock
@@ -203,12 +254,16 @@ class ScenarioRunner:
 
             # Apply treaty
             if needs_seriatim:
-                net, _ceded = self.treaty.apply(gross, inforce=self.inforce)
+                net, ceded = self.treaty.apply(gross, inforce=self.inforce)
             else:
-                net, _ceded = self.treaty.apply(gross)
+                net, ceded = self.treaty.apply(gross)
+
+            # Select the reporting perspective (ADR-077): cedant net (default)
+            # or the reinsurer's ceded-as-net view.
+            cashflows = select_perspective_cashflows(self.perspective, net, ceded)
 
             # Profit test
-            tester = ProfitTester(net, self.hurdle_rate)
+            tester = ProfitTester(cashflows, self.hurdle_rate)
             profit_result = tester.run()
 
             result.scenarios.append((scenario.name, profit_result))

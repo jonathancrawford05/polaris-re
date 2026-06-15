@@ -116,7 +116,7 @@ follow-up items from `CONTINUATION_portfolio_aggregation` and
 8359a2b); "LICAT lapse-risk and morbidity-risk capital components"
 via ADR-065 (PR #52, commit c88db82).)
 
-- **Reinsurer-vs-cedant profit-test convention in `scenario` / `uq`.**
+- ~~**Reinsurer-vs-cedant profit-test convention in `scenario` / `uq`.**
   `ScenarioRunner` and `MonteCarloUQ` profit-test the cedant `net` position
   (`treaty.apply` returns `(net, ceded)`; both runners take `net`), whereas
   `polaris price` reports the *reinsurer* view (the ceded cash flow
@@ -131,9 +131,43 @@ via ADR-065 (PR #52, commit c88db82).)
   QA reference update if the convention changes). **Scope:** design ADR +
   ~1 dev-day. **Affected:** `analytics/scenario.py`, `analytics/uq.py`,
   `cli.py` (`scenario_cmd`, `uq_cmd`), tests/QA references.
-  *Source: ADR-076 Out of scope.*
+  *Source: ADR-076 Out of scope.*~~ — **SHIPPED** (PR #69, ADR-077): chose "expose
+  both" — an additive `perspective` parameter on both runners (default
+  `cedant`, byte-identical library behaviour, no existing test changed) plus
+  a `--perspective` flag on the `scenario` / `uq` CLI **defaulting to
+  `reinsurer`** so the product surface agrees with `price`. Closed-form
+  reinsurer / cedant BASE identities to `rtol=1e-12`. **Premise confirmed:**
+  reproduced an 80% coinsurance deal where the runner reported the cedant's
+  5,716.78 vs the reinsurer's 22,867.13 (~4x). No golden moved (the suite
+  pins only `price`). API + dashboard surfacing filed as follow-ups below.
+
+- **Reinsurer-view perspective on the scenario / UQ API + dashboard surfaces.**
+  ADR-077 added the `perspective` parameter to `ScenarioRunner` /
+  `MonteCarloUQ` and defaulted the **CLI** `scenario` / `uq` commands to the
+  reinsurer view, but the FastAPI endpoints (`POST /api/v1/scenario`,
+  `/api/v1/uq`) and the Streamlit dashboard scenario / UQ views still report
+  the cedant `net` view — the same primary-use-case correctness gap on the
+  other product surfaces. The mechanism already exists: each just needs to
+  pass `perspective="reinsurer"` (and, ideally, expose a selector). Deferred
+  from ADR-077 to keep that PR to the harvested item's stated analytics + CLI
+  scope. This is a behaviour change on those surfaces — check whether any
+  API / dashboard QA test pins the current cedant numbers and update with
+  rationale. **Scope:** ~1 dev-day. **Affected:** `api/main.py`
+  (scenario + uq endpoints), `dashboard/views/scenario.py`,
+  `dashboard/views/uq.py`, their tests. *Source: ADR-077 Out of scope #1.*
 
 ### NICE-TO-HAVE
+
+- **Reinsurer-vs-cedant perspective on `Portfolio.run_scenarios`.** ADR-077
+  resolved the perspective question for the single-deal `ScenarioRunner` /
+  `MonteCarloUQ` runners, but `Portfolio.run_scenarios` (ADR-064) aggregates
+  per-deal `net` positions and was untouched. Whether portfolio scenario
+  output should also offer a reinsurer view is a separate design question
+  (the aggregate ceded position would need to flow through
+  `Portfolio.aggregate_cash_flow`). Lower priority than the per-deal CLI fix
+  because portfolio scenario analysis is a later-stage workflow. **Scope:**
+  design sketch + ~1 dev-day. **Affected:** `analytics/portfolio.py`,
+  tests. *Source: ADR-077 Out of scope #2.*
 
 - ~~**Streamlit dashboard page for portfolio runs.** Dashboard prices
   one deal at a time; a portfolio page would expose the same workflow

@@ -812,6 +812,31 @@ def _resolve_config_yrt_rate_table(inputs: PipelineInputs) -> object | None:
     )
 
 
+def _resolve_cli_perspective(perspective: str, *, has_treaty: bool) -> str:
+    """Validate and resolve the ``--perspective`` flag for scenario / uq (ADR-077).
+
+    Raises ``typer.BadParameter`` on an unknown value. When the deal has no
+    real treaty the reinsurer view is undefined, so a requested
+    ``"reinsurer"`` perspective is downgraded to ``"cedant"`` with a console
+    notice — mirroring ``polaris price`` ("reinsurer view not available").
+    The effective perspective is printed so it is always visible in the
+    output.
+    """
+    if perspective not in ("reinsurer", "cedant"):
+        raise typer.BadParameter(
+            f"Unknown perspective '{perspective}'. Choose 'reinsurer' or 'cedant'."
+        )
+    effective = perspective
+    if perspective == "reinsurer" and not has_treaty:
+        console.print(
+            "[yellow]No treaty configured — reporting cedant view "
+            "(reinsurer view not available).[/yellow]"
+        )
+        effective = "cedant"
+    console.print(f"[dim]Profit-test perspective: {effective}[/dim]")
+    return effective
+
+
 def _resolve_excel_path(base: Path, cohort_id: str, n_cohorts: int) -> Path:
     """Derive the per-cohort Excel path.
 
@@ -1217,6 +1242,16 @@ def scenario_cmd(
         float,
         typer.Option("--hurdle-rate", "-r", help="Annual hurdle rate for profit test."),
     ] = 0.10,
+    perspective: Annotated[
+        str,
+        typer.Option(
+            "--perspective",
+            help=(
+                "Profit-test perspective: 'reinsurer' (ceded economics, matches "
+                "polaris price) or 'cedant' (retained net). Default reinsurer."
+            ),
+        ),
+    ] = "reinsurer",
 ) -> None:
     """
     [bold]Run scenario analysis.[/bold]
@@ -1283,6 +1318,9 @@ def scenario_cmd(
         treaty_obj, use_policy_cession = _build_treaty_for_pipeline(
             inputs, gross, face_amount, inforce, yrt_rate_table=yrt_rate_table_obj
         )
+        # Whether the config carries a real treaty (before the gross-only
+        # fallback below). Drives the reinsurer-view availability (ADR-077).
+        has_real_treaty = treaty_obj is not None
 
         # Parity diagnostic dump (set POLARIS_PARITY_DEBUG=1 to enable)
         if treaty_obj is not None:
@@ -1301,6 +1339,7 @@ def scenario_cmd(
                 flat_yrt_rate_per_1000=yrt_rate,
             )
 
+        effective_perspective = _resolve_cli_perspective(perspective, has_treaty=has_real_treaty)
         effective_hurdle = hurdle_rate if hurdle_rate != 0.10 else inputs.deal.hurdle_rate
         runner = ScenarioRunner(
             inforce=inforce,
@@ -1308,11 +1347,12 @@ def scenario_cmd(
             config=config,
             treaty=treaty_obj,
             hurdle_rate=effective_hurdle,
+            perspective=effective_perspective,  # type: ignore[arg-type]
         )
         results = runner.run()
 
     # Display scenario table
-    table = Table(title="Scenario Analysis", border_style="cyan")
+    table = Table(title=f"Scenario Analysis ({effective_perspective} view)", border_style="cyan")
     table.add_column("Scenario", style="bold")
     table.add_column("PV Profits", justify="right")
     table.add_column("Profit Margin", justify="right")
@@ -1338,7 +1378,11 @@ def scenario_cmd(
         )
 
     console.print(table)
-    _write_output({"scenarios": all_rows}, output_path, "scenario_result")
+    _write_output(
+        {"perspective": effective_perspective, "scenarios": all_rows},
+        output_path,
+        "scenario_result",
+    )
 
 
 @app.command("uq")
@@ -1367,6 +1411,16 @@ def uq_cmd(
         int,
         typer.Option("--seed", "-s", help="Random seed for reproducibility."),
     ] = 42,
+    perspective: Annotated[
+        str,
+        typer.Option(
+            "--perspective",
+            help=(
+                "Profit-test perspective: 'reinsurer' (ceded economics, matches "
+                "polaris price) or 'cedant' (retained net). Default reinsurer."
+            ),
+        ),
+    ] = "reinsurer",
 ) -> None:
     """
     [bold]Run Monte Carlo uncertainty quantification.[/bold]
@@ -1433,6 +1487,10 @@ def uq_cmd(
             inputs, gross, face_amount, inforce, yrt_rate_table=yrt_rate_table_obj
         )
 
+        # Whether the config carries a real treaty. Drives the reinsurer-view
+        # availability (ADR-077). MonteCarloUQ accepts treaty=None directly.
+        has_real_treaty = treaty_obj is not None
+
         # Parity diagnostic dump (set POLARIS_PARITY_DEBUG=1 to enable)
         if treaty_obj is not None:
             inforce_arg = inforce if use_policy_cession else None
@@ -1441,6 +1499,7 @@ def uq_cmd(
         else:
             dump_parity_debug("cli_uq", gross)
 
+        effective_perspective = _resolve_cli_perspective(perspective, has_treaty=has_real_treaty)
         effective_hurdle = hurdle_rate if hurdle_rate != 0.10 else inputs.deal.hurdle_rate
         uq = MonteCarloUQ(
             inforce=inforce,
@@ -1450,11 +1509,15 @@ def uq_cmd(
             hurdle_rate=effective_hurdle,
             n_scenarios=n_scenarios,
             seed=seed,
+            perspective=effective_perspective,  # type: ignore[arg-type]
         )
         result = uq.run()
 
     # Display summary statistics
-    table = Table(title=f"Monte Carlo UQ Summary (n={n_scenarios})", border_style="cyan")
+    table = Table(
+        title=f"Monte Carlo UQ Summary (n={n_scenarios}, {effective_perspective} view)",
+        border_style="cyan",
+    )
     table.add_column("Statistic", style="bold")
     table.add_column("PV Profits", justify="right")
     table.add_column("IRR", justify="right")
@@ -1494,6 +1557,7 @@ def uq_cmd(
     console.print(table)
 
     output_data = {
+        "perspective": effective_perspective,
         "n_scenarios": result.n_scenarios,
         "seed": result.seed,
         "base_pv_profit": result.base_pv_profit,
