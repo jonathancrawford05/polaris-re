@@ -264,6 +264,16 @@ class ScenarioRequest(BaseModel):
         description="Loading over expected mortality for YRT rate derivation.",
     )
     modco_interest_rate: float = Field(default=0.045, ge=0.0, le=0.20)
+    perspective: Literal["reinsurer", "cedant"] = Field(
+        default="reinsurer",
+        description=(
+            "Profit-test perspective (ADR-078). 'reinsurer' reports the ceded "
+            "economics re-viewed as NET (matches POST /api/v1/price and "
+            "polaris price / scenario); 'cedant' reports the cedant's retained "
+            "net position. When no treaty is configured the reinsurer view is "
+            "undefined and is downgraded to 'cedant'."
+        ),
+    )
 
 
 class ScenarioSummary(BaseModel):
@@ -280,6 +290,9 @@ class ScenarioResponse(BaseModel):
 
     scenarios: list[ScenarioSummary]
     n_scenarios: int
+    perspective: Literal["reinsurer", "cedant"] = Field(
+        description="Effective profit-test perspective that produced these results (ADR-078)."
+    )
 
 
 class UQRequest(BaseModel):
@@ -312,6 +325,16 @@ class UQRequest(BaseModel):
         description="Loading over expected mortality for YRT rate derivation.",
     )
     modco_interest_rate: float = Field(default=0.045, ge=0.0, le=0.20)
+    perspective: Literal["reinsurer", "cedant"] = Field(
+        default="reinsurer",
+        description=(
+            "Profit-test perspective (ADR-078). 'reinsurer' reports the ceded "
+            "economics re-viewed as NET (matches polaris price / scenario / uq); "
+            "'cedant' reports the cedant's retained net position. When no treaty "
+            "is configured the reinsurer view is undefined and is downgraded to "
+            "'cedant'."
+        ),
+    )
 
 
 class UQResponse(BaseModel):
@@ -329,6 +352,9 @@ class UQResponse(BaseModel):
     p5_profit_margin: float
     p50_profit_margin: float
     p95_profit_margin: float
+    perspective: Literal["reinsurer", "cedant"] = Field(
+        description="Effective profit-test perspective that produced these results (ADR-078)."
+    )
 
 
 class IFRS17Request(BaseModel):
@@ -833,6 +859,22 @@ def _capital_block(result: ProfitTestResult) -> dict[str, float | None]:
     }
 
 
+def _resolve_api_perspective(
+    perspective: Literal["reinsurer", "cedant"], *, has_treaty: bool
+) -> Literal["reinsurer", "cedant"]:
+    """Resolve the requested profit-test perspective for scenario / uq (ADR-078).
+
+    When the deal carries no real treaty the reinsurer (ceded) view is
+    undefined, so a requested ``"reinsurer"`` perspective is downgraded to
+    ``"cedant"`` — mirroring ``polaris price`` ("reinsurer view not
+    available") and the CLI ``scenario`` / ``uq`` commands (ADR-077). The
+    effective perspective is returned so it can be surfaced in the response.
+    """
+    if perspective == "reinsurer" and not has_treaty:
+        return "cedant"
+    return perspective
+
+
 @app.post("/api/v1/scenario", response_model=ScenarioResponse, tags=["Pricing"])
 def scenario(request: ScenarioRequest) -> ScenarioResponse:
     """
@@ -864,6 +906,11 @@ def scenario(request: ScenarioRequest) -> ScenarioResponse:
             yrt_loading=request.yrt_loading,
             modco_interest_rate=request.modco_interest_rate,
         )
+        # Reinsurer view requires a real ceded position (ADR-078); resolve
+        # before the zero-cession passthrough fallback below.
+        effective_perspective = _resolve_api_perspective(
+            request.perspective, has_treaty=treaty is not None
+        )
         # ScenarioRunner requires a treaty; use zero-cession YRT as passthrough if None
         if treaty is None:
             yrt_rate = _derive_yrt_rate(gross, total_face)
@@ -878,6 +925,7 @@ def scenario(request: ScenarioRequest) -> ScenarioResponse:
             config=config,
             treaty=treaty,
             hurdle_rate=request.hurdle_rate,
+            perspective=effective_perspective,
         )
         results = runner.run()
     except Exception as exc:
@@ -892,7 +940,11 @@ def scenario(request: ScenarioRequest) -> ScenarioResponse:
         )
         for name, res in results.scenarios
     ]
-    return ScenarioResponse(scenarios=summaries, n_scenarios=len(summaries))
+    return ScenarioResponse(
+        scenarios=summaries,
+        n_scenarios=len(summaries),
+        perspective=effective_perspective,
+    )
 
 
 @app.post("/api/v1/uq", response_model=UQResponse, tags=["Pricing"])
@@ -926,6 +978,11 @@ def uq(request: UQRequest) -> UQResponse:
             yrt_loading=request.yrt_loading,
             modco_interest_rate=request.modco_interest_rate,
         )
+        # Reinsurer view requires a real ceded position (ADR-078); MonteCarloUQ
+        # accepts treaty=None directly, so resolve against treaty presence.
+        effective_perspective = _resolve_api_perspective(
+            request.perspective, has_treaty=treaty is not None
+        )
         uq_runner = MonteCarloUQ(
             inforce=inforce,
             base_assumptions=assumptions,
@@ -939,6 +996,7 @@ def uq(request: UQRequest) -> UQResponse:
                 lapse_log_sigma=request.lapse_log_sigma,
                 interest_rate_sigma=request.interest_rate_sigma,
             ),
+            perspective=effective_perspective,
         )
         result = uq_runner.run()
     except Exception as exc:
@@ -961,6 +1019,7 @@ def uq(request: UQRequest) -> UQResponse:
         p5_profit_margin=p5["profit_margin"],
         p50_profit_margin=p50["profit_margin"],
         p95_profit_margin=p95["profit_margin"],
+        perspective=effective_perspective,
     )
 
 

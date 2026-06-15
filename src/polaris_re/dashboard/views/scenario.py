@@ -88,6 +88,21 @@ def page_scenario() -> None:
                 )
                 / 100.0
             )
+            perspective = (
+                "reinsurer"
+                if st.selectbox(
+                    "Profit-test perspective",
+                    options=["Reinsurer (ceded economics)", "Cedant (retained net)"],
+                    index=0,
+                    key="sc_perspective",
+                    help=(
+                        "Whose profit position to report (ADR-078). 'Reinsurer' "
+                        "matches Deal Pricing and the CLI; 'Cedant' reports the "
+                        "ceding company's retained net book."
+                    ),
+                ).startswith("Reinsurer")
+                else "cedant"
+            )
 
     st.caption(
         "Projection horizon, discount rate, and expenses are inherited from the "
@@ -184,6 +199,7 @@ def page_scenario() -> None:
                     config=config,
                     treaty=treaty,
                     hurdle_rate=hurdle_rate,
+                    perspective=perspective,
                 )
 
                 all_scenarios = ScenarioRunner.standard_stress_scenarios() + custom_adjustments
@@ -195,6 +211,12 @@ def page_scenario() -> None:
         results_dict = {name: res for name, res in results.scenarios}
         base_case = results.base_case()
         base_pv = base_case.pv_profits if base_case else results.scenarios[0][1].pv_profits
+        _persp_note = (
+            "ceded economics — matches Deal Pricing"
+            if results.perspective == "reinsurer"
+            else "cedant retained net"
+        )
+        st.caption(f"Profit-test perspective: **{results.perspective}** ({_persp_note}).")
         st.pyplot(scenario_tornado(results_dict, base_pv))
 
         # Scenario comparison table

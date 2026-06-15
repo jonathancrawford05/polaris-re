@@ -71,6 +71,22 @@ def page_uq() -> None:
 
     hurdle_rate = float(cfg.get("hurdle_rate", 0.10))
 
+    perspective = (
+        "reinsurer"
+        if st.selectbox(
+            "Profit-test perspective",
+            options=["Reinsurer (ceded economics)", "Cedant (retained net)"],
+            index=0,
+            key="uq_perspective",
+            help=(
+                "Whose profit position to report (ADR-078). 'Reinsurer' matches "
+                "Deal Pricing and the CLI; 'Cedant' reports the ceding company's "
+                "retained net book."
+            ),
+        ).startswith("Reinsurer")
+        else "cedant"
+    )
+
     st.caption(
         "Projection horizon, discount rate, expenses, and hurdle rate are inherited "
         "from the Assumptions page. Cession % can be adjusted above."
@@ -112,6 +128,7 @@ def page_uq() -> None:
                         lapse_log_sigma=lapse_sigma,
                         interest_rate_sigma=rate_sigma,
                     ),
+                    perspective=perspective,
                 )
                 result = uq.run()
             except (PolarisValidationError, PolarisComputationError) as exc:
@@ -119,6 +136,12 @@ def page_uq() -> None:
                 return
 
         # Metrics
+        _persp_note = (
+            "ceded economics — matches Deal Pricing"
+            if result.perspective == "reinsurer"
+            else "cedant retained net"
+        )
+        st.caption(f"Profit-test perspective: **{result.perspective}** ({_persp_note}).")
         col_a, col_b, col_c, col_d = st.columns(4)
         col_a.metric(
             "VaR 95%",

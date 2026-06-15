@@ -951,3 +951,122 @@ class TestDashboardComputationErrorHandling:
         at.run()
         self._click(at, "Run scenarios")
         self._assert_friendly_error(at, "Scenario error:")
+
+
+class TestScenarioUQPerspective:
+    """ADR-078: the Scenario and Monte Carlo UQ dashboard pages expose a
+    profit-test perspective selector (default reinsurer, matching Deal Pricing
+    and the CLI) and thread the chosen perspective through to the runner.
+
+    The closed-form correctness of each perspective is covered at the analytics
+    layer (``test_scenario_uq_perspective.py``) and the API layer
+    (``test_api/test_scenario_uq_perspective.py``). These tests verify the
+    dashboard wiring: that the selector value reaches the runner, evidenced by
+    the perspective the result reports back in the page caption.
+    """
+
+    @staticmethod
+    def _term_pipeline():
+        from polaris_re.core.pipeline import (
+            DealConfig,
+            LapseConfig,
+            MortalityConfig,
+            PipelineInputs,
+            build_pipeline,
+            load_inforce,
+        )
+
+        policies = [
+            {
+                "policy_id": "PERSP-001",
+                "issue_age": 40,
+                "attained_age": 40,
+                "sex": "M",
+                "smoker": False,
+                "face_amount": 500000.0,
+                "annual_premium": 1200.0,
+                "policy_term": 20,
+                "duration_inforce": 0,
+                "issue_date": "2026-04-01",
+                "valuation_date": "2026-04-01",
+                "product_type": "TERM",
+            }
+        ]
+        inforce = load_inforce(policies_dict=policies)
+        inputs = PipelineInputs(
+            mortality=MortalityConfig(source="flat", flat_qx=0.003),
+            lapse=LapseConfig(),
+            deal=DealConfig(product_type="TERM", projection_years=10),
+        )
+        return build_pipeline(inforce, inputs)
+
+    def _app(self):
+        inf, assumptions, _config = self._term_pipeline()
+        at = AppTest.from_file(APP_PATH, default_timeout=60)
+        at.run()
+        at.session_state["inforce_block"] = inf
+        at.session_state["assumption_set"] = assumptions
+        return at
+
+    @staticmethod
+    def _set_perspective(at, key, label):
+        sb = next(s for s in at.selectbox if s.key == key)
+        sb.set_value(label)
+        at.run()
+
+    @staticmethod
+    def _click(at, label):
+        matches = [b for b in at.button if b.label == label]
+        assert matches, f"Button {label!r} not found; saw {[b.label for b in at.button]}"
+        matches[0].click()
+        at.run()
+
+    @staticmethod
+    def _caption_says(at, needle):
+        return any(needle in str(c.value) for c in at.caption)
+
+    def test_scenario_selector_present_default_reinsurer(self):
+        at = self._app()
+        at.sidebar.radio[0].set_value("Scenario Analysis")
+        at.run()
+        keys = [s.key for s in at.selectbox]
+        assert "sc_perspective" in keys, f"perspective selector missing; saw {keys}"
+        self._click(at, "Run Scenarios")
+        assert not at.exception, f"Scenario page raised: {at.exception}"
+        assert self._caption_says(at, "perspective: **reinsurer**"), (
+            f"Expected reinsurer perspective caption; saw {[str(c.value) for c in at.caption]}"
+        )
+
+    def test_scenario_cedant_selection_threads_through(self):
+        at = self._app()
+        at.sidebar.radio[0].set_value("Scenario Analysis")
+        at.run()
+        self._set_perspective(at, "sc_perspective", "Cedant (retained net)")
+        self._click(at, "Run Scenarios")
+        assert not at.exception, f"Scenario page raised: {at.exception}"
+        assert self._caption_says(at, "perspective: **cedant**"), (
+            f"Expected cedant perspective caption; saw {[str(c.value) for c in at.caption]}"
+        )
+
+    def test_uq_selector_present_default_reinsurer(self):
+        at = self._app()
+        at.sidebar.radio[0].set_value("Monte Carlo UQ")
+        at.run()
+        keys = [s.key for s in at.selectbox]
+        assert "uq_perspective" in keys, f"perspective selector missing; saw {keys}"
+        self._click(at, "Run Monte Carlo")
+        assert not at.exception, f"UQ page raised: {at.exception}"
+        assert self._caption_says(at, "perspective: **reinsurer**"), (
+            f"Expected reinsurer perspective caption; saw {[str(c.value) for c in at.caption]}"
+        )
+
+    def test_uq_cedant_selection_threads_through(self):
+        at = self._app()
+        at.sidebar.radio[0].set_value("Monte Carlo UQ")
+        at.run()
+        self._set_perspective(at, "uq_perspective", "Cedant (retained net)")
+        self._click(at, "Run Monte Carlo")
+        assert not at.exception, f"UQ page raised: {at.exception}"
+        assert self._caption_says(at, "perspective: **cedant**"), (
+            f"Expected cedant perspective caption; saw {[str(c.value) for c in at.caption]}"
+        )
