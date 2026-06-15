@@ -4761,3 +4761,66 @@ still open) are unchanged here.
   (`TestScenarioCommandTabularYRTFlag`, `TestUQCommandTabularYRTFlag`: flag
   loads the table, flag == config field closed-form `rtol=1e-12`, flag overrides
   config field, bad path exits 1 — for both commands)
+
+## ADR-080: Gross / Ceded cash-flow sheets in the deal-pricing workbook
+
+**Date:** 2026-06-15
+**Status:** Accepted
+
+**Context.** `write_deal_pricing_excel` (ADR-045) renders a single annual
+cash-flow rollup sheet, "Cash Flows", from `DealPricingExport.net_cashflows` —
+the NET (cedant-retained) basis. The `DealPricingExport` DTO already carried
+optional `gross_cashflows` and `ceded_cashflows` fields, and the CLI already
+populates them on every `polaris price` run (`cli.py` builds the export with
+`gross_cashflows=cohort.gross_cashflows`, `ceded_cashflows=cohort.ceded_cashflows`),
+but no sheet consumed them. A deal committee reviewing a ceded block wants the
+gross business, the reinsurer's ceded share, and the cedant's retained net side
+by side; only the net side was reaching the workbook. The follow-up offered a
+binary choice: write the sheets, or drop the unused DTO fields
+(`CONTINUATION_deal_pricing_excel` — Open Question #2).
+
+**Decision.** Write the sheets. When `export.gross_cashflows` is populated, emit
+a "Gross Cash Flows" sheet; when `export.ceded_cashflows` is populated, emit a
+"Ceded Cash Flows" sheet. Both use the identical annual-rollup layout
+(`_CASH_FLOW_COLUMNS`, via the shared `_aggregate_monthly_to_annual` helper) as
+the NET "Cash Flows" sheet, so the three read consistently. `_write_cash_flows_sheet`
+was refactored from `(_, export)` to `(_, cashflows, title)` so one builder
+serves all three bases. Sheet order is Summary → Gross → Ceded → Cash Flows
+(Net) → Assumptions → [Sensitivity] → [YRT Rate Table]: the committee reading
+order is the Gross / Ceded / Net waterfall (Net = Gross − Ceded), and the NET
+sheet keeps its canonical "Cash Flows" title.
+
+**Rationale.** Additive surfacing of data already flowing into the export. Each
+new sheet is suppressed when its DTO field is `None`, so a net-only export (the
+synthetic-fixture path, and any caller that does not set the optional fields)
+produces a byte-identical workbook — every existing exact-`sheetnames`
+assertion in `tests/test_utils/test_excel_output.py` stays green. The golden CLI
+workbook test (`tests/qa/test_cli_golden.py::TestCLIExcelOut`) asserts a superset
+of sheet names, so the new sheets are tolerated there. No core data contract is
+touched (the DTO fields already existed and are unchanged), no pricing math is
+touched, and no golden / QA baseline moves (the golden suite pins only the
+`price` JSON, which is unchanged).
+
+**Behaviour change.** A real `polaris price --excel-out` run now emits "Gross
+Cash Flows" and "Ceded Cash Flows" sheets in addition to the existing "Cash
+Flows" (Net) sheet (Ceded only when the deal has a treaty). This is the intended
+deal-committee-visible improvement; consumers that parse the workbook by sheet
+name are unaffected (the "Cash Flows" sheet is unchanged in name, layout, and
+contents).
+
+**Out of scope (filed as follow-ups).** A per-sheet perspective caption /
+title cell clarifying that "Net Cash Flow" on the Ceded sheet is the reinsurer's
+ceded net (rather than adding a label, the sheet title carries the basis); and a
+fourth combined sheet placing Gross / Ceded / Net columns side by side for direct
+visual differencing. Neither is needed for the three-sheet deliverable.
+
+**Affected files.**
+
+- `src/polaris_re/utils/excel_output.py` (`write_deal_pricing_excel` dispatcher
+  writes Gross / Ceded sheets when populated; `_write_cash_flows_sheet`
+  refactored to `(wb, cashflows, title)`; module / DTO / writer docstrings)
+- `tests/test_utils/test_excel_output.py` (`TestGrossCededCashFlowSheets`:
+  sheets absent when fields None, present + ordered when populated, gross-only
+  when ceded None, each sheet carries its own basis — parametrized closed-form
+  check that no cross-wiring occurs, gross > net sanity; `_make_cashflows` gains
+  a `scale` parameter and a `three_basis_export` fixture)
