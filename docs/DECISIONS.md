@@ -4636,3 +4636,77 @@ should also move to the reinsurer view is a separate question.
 - `tests/test_analytics/test_scenario_uq_perspective.py` (closed-form
   reinsurer / cedant BASE identities + non-half-cession differential +
   no-treaty fallback + invalid-value + CLI integration)
+
+---
+
+## ADR-078: Reinsurer-vs-cedant perspective on the scenario / UQ API + dashboard surfaces
+
+**Date:** 2026-06-15
+**Status:** Accepted
+
+**Context.** ADR-077 added the additive `perspective` parameter to
+`ScenarioRunner` / `MonteCarloUQ` (library default `cedant`) and defaulted the
+`scenario` / `uq` **CLI** commands to the reinsurer view so they agree with
+`polaris price`. It deliberately left two other product surfaces on the old
+cedant `net` view: the FastAPI endpoints `POST /api/v1/scenario` and
+`/api/v1/uq`, and the Streamlit dashboard Scenario / Monte Carlo UQ pages.
+Both constructed the runners without passing `perspective`, so they inherited
+the library `cedant` default — the same primary-use-case correctness gap the
+CLI fix addressed, on the other surfaces. Reproduced before the fix: an 80%
+coinsurance deal returned `POST /api/v1/scenario` BASE `pv_profits = 897.03`
+(the cedant's retained 20%) while the reinsurer's ceded 80% economics were
+`3,588.14` — ~4x apart. (A 50% cession is degenerate, net == ceded.)
+
+**Decision.** Surface the existing `perspective` mechanism on both surfaces,
+defaulting to **`reinsurer`** to match `price`, the CLI, and the other product
+frontends:
+
+- **API** — add an optional `perspective: Literal["reinsurer", "cedant"]`
+  field (default `"reinsurer"`) to `ScenarioRequest` and `UQRequest`, pass it
+  to the runner, and echo the *effective* perspective on `ScenarioResponse` /
+  `UQResponse` (new additive field). A shared `_resolve_api_perspective`
+  helper downgrades `reinsurer → cedant` when no treaty is configured (the
+  reinsurer view is undefined), mirroring `price` and the CLI. An invalid
+  value is rejected by Pydantic as `422` before the handler runs.
+- **Dashboard** — add a "Profit-test perspective" `st.selectbox` (default
+  "Reinsurer (ceded economics)") to the Scenario and UQ pages, pass the mapped
+  value to the runner, and print the effective perspective the result reports
+  back as a caption above the results. The dashboard always builds a real YRT
+  treaty (cession ≥ 50%), so no downgrade path is exercised there.
+
+**Rationale.** The mechanism and its closed-form anchors already existed
+(ADR-077); this ADR is pure surfacing. Defaulting both surfaces to `reinsurer`
+makes every reinsurer-facing frontend (price, CLI scenario/uq, API, dashboard)
+report the same economic view, removing the cross-surface inconsistency. The
+library runner default stays `cedant`, so every programmatic caller and every
+existing test is byte-identical (no test assertion changed). No golden / QA
+baseline moved: the golden suite pins only `price`, and the existing API
+scenario / uq tests assert schema and distribution ordering (var ≤ median,
+cvar ≤ var, percentile monotonicity) — all of which still hold for the
+reinsurer view — not pinned PV numbers.
+
+**Backward-compatibility note.** This *is* a behaviour change on the API and
+dashboard surfaces: a client that omits `perspective` now receives the
+reinsurer view where it previously received the cedant view. The change is
+deliberate (consistency with `price` / CLI) and is made discoverable by the
+new `perspective` field echoed in every response and the dashboard caption. A
+client wanting the prior numbers passes `perspective="cedant"`.
+
+**Out of scope (filed as follow-ups).** `Portfolio.run_scenarios` and its CLI
+/ API / dashboard surfaces still aggregate per-deal `net` — already tracked as
+the NICE-TO-HAVE "Reinsurer-vs-cedant perspective on `Portfolio.run_scenarios`"
+follow-up (ADR-077 Out of scope #2); unchanged here.
+
+**Affected files.**
+
+- `src/polaris_re/api/main.py` (`perspective` field on `ScenarioRequest` /
+  `UQRequest` and `ScenarioResponse` / `UQResponse`; `_resolve_api_perspective`
+  helper; wiring in the `scenario` / `uq` endpoints)
+- `src/polaris_re/dashboard/views/scenario.py`,
+  `src/polaris_re/dashboard/views/uq.py` (perspective selectbox + runner wiring
+  + effective-perspective caption)
+- `tests/test_api/test_scenario_uq_perspective.py` (default-reinsurer,
+  cedant-vs-reinsurer differential at 80% cession, closed-form match to a
+  direct runner, invalid-value `422`, no-treaty downgrade — for both endpoints)
+- `tests/qa/test_dashboard_flows.py::TestScenarioUQPerspective` (selector
+  present, default reinsurer, cedant selection threads through to the runner)

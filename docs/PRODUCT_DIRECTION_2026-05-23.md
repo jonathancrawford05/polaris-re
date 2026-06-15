@@ -141,7 +141,7 @@ via ADR-065 (PR #52, commit c88db82).)
   5,716.78 vs the reinsurer's 22,867.13 (~4x). No golden moved (the suite
   pins only `price`). API + dashboard surfacing filed as follow-ups below.
 
-- **Reinsurer-view perspective on the scenario / UQ API + dashboard surfaces.**
+- ~~**Reinsurer-view perspective on the scenario / UQ API + dashboard surfaces.**
   ADR-077 added the `perspective` parameter to `ScenarioRunner` /
   `MonteCarloUQ` and defaulted the **CLI** `scenario` / `uq` commands to the
   reinsurer view, but the FastAPI endpoints (`POST /api/v1/scenario`,
@@ -154,7 +154,20 @@ via ADR-065 (PR #52, commit c88db82).)
   API / dashboard QA test pins the current cedant numbers and update with
   rationale. **Scope:** ~1 dev-day. **Affected:** `api/main.py`
   (scenario + uq endpoints), `dashboard/views/scenario.py`,
-  `dashboard/views/uq.py`, their tests. *Source: ADR-077 Out of scope #1.*
+  `dashboard/views/uq.py`, their tests. *Source: ADR-077 Out of scope #1.*~~
+  — **SHIPPED** (PR #70, ADR-078): both API endpoints take an optional
+  `perspective: Literal["reinsurer","cedant"]` (default `reinsurer`) echoed as
+  an effective-perspective field on the response, with a no-treaty
+  `reinsurer → cedant` downgrade and `422` on invalid values; both dashboard
+  pages gained a "Profit-test perspective" selectbox (default reinsurer) and a
+  caption surfacing the effective view. **Premise confirmed:** reproduced an
+  80% coinsurance `POST /api/v1/scenario` reporting the cedant's `897.03` vs
+  the reinsurer's `3,588.14` (~4x). Closed-form API reinsurer/cedant BASE
+  identities to `rtol=1e-12`; no golden moved (the suite pins only `price`).
+  Library runner default unchanged (`cedant`), so no existing test assertion
+  changed. **Behaviour change:** a client omitting `perspective` now gets the
+  reinsurer view (was cedant) — pass `perspective="cedant"` for the prior
+  numbers.
 
 ### NICE-TO-HAVE
 
