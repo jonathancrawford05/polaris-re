@@ -415,7 +415,7 @@ via ADR-065 (PR #52, commit c88db82).)
   minimal scope that closed the silent-drop gap; the flag is purely
   additive. **Scope:** ~0.5 dev-day. **Affected:** `cli.py`
   (`scenario_cmd`, `uq_cmd` options), tests.
-  *Source: ADR-076 Out of scope.*~~ — **SHIPPED** (PR #TBD, ADR-079): added
+  *Source: ADR-076 Out of scope.*~~ — **SHIPPED** (PR #71, ADR-079): added
   the four `--yrt-rate-table*` options to `scenario_cmd` / `uq_cmd` mirroring
   `price`, with a shared `_resolve_yrt_rate_table_flag_over_config` helper
   applying the same flag-over-config precedence. Flag loaded eagerly
