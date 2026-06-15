@@ -128,7 +128,7 @@ def page_uq() -> None:
                         lapse_log_sigma=lapse_sigma,
                         interest_rate_sigma=rate_sigma,
                     ),
-                    perspective=perspective,
+                    perspective=perspective,  # type: ignore[arg-type]
                 )
                 result = uq.run()
             except (PolarisValidationError, PolarisComputationError) as exc:

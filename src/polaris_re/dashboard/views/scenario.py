@@ -199,7 +199,7 @@ def page_scenario() -> None:
                     config=config,
                     treaty=treaty,
                     hurdle_rate=hurdle_rate,
-                    perspective=perspective,
+                    perspective=perspective,  # type: ignore[arg-type]
                 )
 
                 all_scenarios = ScenarioRunner.standard_stress_scenarios() + custom_adjustments
