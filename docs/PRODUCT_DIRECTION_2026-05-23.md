@@ -155,7 +155,7 @@ via ADR-065 (PR #52, commit c88db82).)
   rationale. **Scope:** ~1 dev-day. **Affected:** `api/main.py`
   (scenario + uq endpoints), `dashboard/views/scenario.py`,
   `dashboard/views/uq.py`, their tests. *Source: ADR-077 Out of scope #1.*~~
-  — **SHIPPED** (ADR-078): both API endpoints take an optional
+  — **SHIPPED** (PR #70, ADR-078): both API endpoints take an optional
   `perspective: Literal["reinsurer","cedant"]` (default `reinsurer`) echoed as
   an effective-perspective field on the response, with a no-treaty
   `reinsurer → cedant` downgrade and `422` on invalid values; both dashboard
