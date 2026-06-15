@@ -181,6 +181,19 @@ via ADR-065 (PR #52, commit c88db82).)
   because portfolio scenario analysis is a later-stage workflow. **Scope:**
   design sketch + ~1 dev-day. **Affected:** `analytics/portfolio.py`,
   tests. *Source: ADR-077 Out of scope #2.*
+  > **Premise correction (2026-06-15, observed while implementing ADR-079).**
+  > The stated premise — that `Portfolio.run_scenarios` "aggregates per-deal
+  > `net`" — is stale. `Portfolio._run_deal` (`analytics/portfolio.py:982`)
+  > already re-labels the ceded cash flow as the reinsurer view via
+  > `ceded_to_reinsurer_view(ceded)` and profit-tests *that*, so
+  > `Portfolio.run` and `Portfolio.run_scenarios` already report the
+  > **reinsurer** perspective (the desired default). The same stale phrasing
+  > appears in ADR-078's Out-of-scope note. The *actual* residual gap is the
+  > inverse: the portfolio offers no `perspective="cedant"` option for
+  > symmetry with the per-deal runners. Re-scope this item accordingly (add an
+  > optional cedant view) — or close it as already-satisfied if a cedant
+  > portfolio view is not wanted on a reinsurer-facing tool. Confirm before
+  > acting.
 
 - ~~**Streamlit dashboard page for portfolio runs.** Dashboard prices
   one deal at a time; a portfolio page would expose the same workflow
@@ -394,7 +407,7 @@ via ADR-065 (PR #52, commit c88db82).)
   dev-day. **Affected:** `dashboard/` config import/export, tests.
   *Source: ADR-075 Out of scope.*
 
-- **`--yrt-rate-table` CLI flag on `scenario` / `uq`.** ADR-076 wired the
+- ~~**`--yrt-rate-table` CLI flag on `scenario` / `uq`.** ADR-076 wired the
   config field (`deal.yrt_rate_table_path`) into both commands but, unlike
   `price`, neither exposes the ad-hoc `--yrt-rate-table DIR` flag. Adding it
   (with the same flag-over-config precedence `price` uses) would give the
@@ -402,7 +415,12 @@ via ADR-065 (PR #52, commit c88db82).)
   minimal scope that closed the silent-drop gap; the flag is purely
   additive. **Scope:** ~0.5 dev-day. **Affected:** `cli.py`
   (`scenario_cmd`, `uq_cmd` options), tests.
-  *Source: ADR-076 Out of scope.*
+  *Source: ADR-076 Out of scope.*~~ — **SHIPPED** (PR #TBD, ADR-079): added
+  the four `--yrt-rate-table*` options to `scenario_cmd` / `uq_cmd` mirroring
+  `price`, with a shared `_resolve_yrt_rate_table_flag_over_config` helper
+  applying the same flag-over-config precedence. Flag loaded eagerly
+  (fail-fast on bad path); flag == config-field result verified closed-form to
+  `rtol=1e-12`. Config-only path byte-identical to ADR-076; no golden moved.
 
 - ~~**Streamlit dashboard page for calendar-aligned portfolios.** The
   dashboard prices one deal at a time today. A portfolio page would

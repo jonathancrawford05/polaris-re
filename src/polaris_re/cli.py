@@ -812,6 +812,27 @@ def _resolve_config_yrt_rate_table(inputs: PipelineInputs) -> object | None:
     )
 
 
+def _resolve_yrt_rate_table_flag_over_config(
+    flag_table: object | None, inputs: PipelineInputs
+) -> object | None:
+    """Resolve the tabular YRT table for ``scenario`` / ``uq`` with the
+    ``--yrt-rate-table`` flag taking precedence over ``deal.yrt_rate_table_path``.
+
+    Mirrors the precedence ``price`` applies (ADR-075): an explicitly supplied
+    flag table wins; otherwise fall back to the config-driven table (ADR-076)
+    resolved by :func:`_resolve_config_yrt_rate_table`. When both are present a
+    console notice records that the flag overrides the config field, matching
+    the message ``price`` prints.
+    """
+    if flag_table is not None:
+        if inputs.deal.yrt_rate_table_path is not None:
+            console.print(
+                "[dim]--yrt-rate-table flag overrides deal.yrt_rate_table_path from config.[/dim]"
+            )
+        return flag_table
+    return _resolve_config_yrt_rate_table(inputs)
+
+
 def _resolve_cli_perspective(perspective: str, *, has_treaty: bool) -> str:
     """Validate and resolve the ``--perspective`` flag for scenario / uq (ADR-077).
 
@@ -1252,6 +1273,50 @@ def scenario_cmd(
             ),
         ),
     ] = "reinsurer",
+    yrt_rate_table_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--yrt-rate-table",
+            help=(
+                "Directory of tabular YRT rate CSVs (ADR-052). Ad-hoc equivalent "
+                "of the config field deal.yrt_rate_table_path; the flag takes "
+                "precedence when both are supplied. Implies seriatim projection."
+            ),
+        ),
+    ] = None,
+    yrt_rate_table_select_period: Annotated[
+        int,
+        typer.Option(
+            "--yrt-rate-table-select-period",
+            help=(
+                "Number of select-period columns (dur_1..dur_N) in the "
+                "tabular YRT rate CSVs. Used only with --yrt-rate-table."
+            ),
+        ),
+    ] = 3,
+    yrt_rate_table_label: Annotated[
+        str | None,
+        typer.Option(
+            "--yrt-rate-table-label",
+            help=(
+                "Filename prefix in the YRT rate table directory. "
+                "Defaults to 'yrt' (so files are 'yrt_male_ns.csv' etc.). "
+                "Used only with --yrt-rate-table."
+            ),
+        ),
+    ] = None,
+    yrt_rate_table_smoker_distinct: Annotated[
+        bool,
+        typer.Option(
+            "--yrt-rate-table-smoker-distinct/--yrt-rate-table-aggregate",
+            help=(
+                "When --yrt-rate-table-smoker-distinct (default), expect "
+                "separate '_ns' and '_smoker' files per sex. When "
+                "--yrt-rate-table-aggregate, expect a single '_unknown' "
+                "file per sex."
+            ),
+        ),
+    ] = True,
 ) -> None:
     """
     [bold]Run scenario analysis.[/bold]
@@ -1280,6 +1345,19 @@ def scenario_cmd(
     from polaris_re.products.dispatch import get_product_engine
     from polaris_re.reinsurance.yrt import YRTTreaty
 
+    # Ad-hoc tabular YRT rate table (--yrt-rate-table), loaded eagerly so a bad
+    # path fails before any projection work. Takes precedence over the
+    # config-driven deal.yrt_rate_table_path, matching price (ADR-075).
+    flag_yrt_rate_table: object | None = None
+    if yrt_rate_table_dir is not None:
+        flag_yrt_rate_table = _load_yrt_rate_table_from_dir(
+            directory=yrt_rate_table_dir,
+            select_period=yrt_rate_table_select_period,
+            label=yrt_rate_table_label,
+            smoker_distinct=yrt_rate_table_smoker_distinct,
+            source_hint="--yrt-rate-table",
+        )
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -1303,10 +1381,10 @@ def scenario_cmd(
 
         _fail_on_mixed_cohorts(inforce, "scenario")
 
-        # Config-driven tabular YRT table (deal.yrt_rate_table_path, ADR-075).
-        # Wired into scenario analysis by ADR-076 so a config that references a
-        # table is no longer silently priced on the flat derived rate.
-        yrt_rate_table_obj = _resolve_config_yrt_rate_table(inputs)
+        # Tabular YRT table: the --yrt-rate-table flag (loaded above) takes
+        # precedence over the config-driven deal.yrt_rate_table_path (ADR-076),
+        # matching price's flag-over-config precedence (ADR-075).
+        yrt_rate_table_obj = _resolve_yrt_rate_table_flag_over_config(flag_yrt_rate_table, inputs)
 
         # Derive YRT rate from base gross projection (ADR-038). The tabular
         # path needs a seriatim projection for the parity dump + treaty apply.
@@ -1421,6 +1499,50 @@ def uq_cmd(
             ),
         ),
     ] = "reinsurer",
+    yrt_rate_table_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--yrt-rate-table",
+            help=(
+                "Directory of tabular YRT rate CSVs (ADR-052). Ad-hoc equivalent "
+                "of the config field deal.yrt_rate_table_path; the flag takes "
+                "precedence when both are supplied. Implies seriatim projection."
+            ),
+        ),
+    ] = None,
+    yrt_rate_table_select_period: Annotated[
+        int,
+        typer.Option(
+            "--yrt-rate-table-select-period",
+            help=(
+                "Number of select-period columns (dur_1..dur_N) in the "
+                "tabular YRT rate CSVs. Used only with --yrt-rate-table."
+            ),
+        ),
+    ] = 3,
+    yrt_rate_table_label: Annotated[
+        str | None,
+        typer.Option(
+            "--yrt-rate-table-label",
+            help=(
+                "Filename prefix in the YRT rate table directory. "
+                "Defaults to 'yrt' (so files are 'yrt_male_ns.csv' etc.). "
+                "Used only with --yrt-rate-table."
+            ),
+        ),
+    ] = None,
+    yrt_rate_table_smoker_distinct: Annotated[
+        bool,
+        typer.Option(
+            "--yrt-rate-table-smoker-distinct/--yrt-rate-table-aggregate",
+            help=(
+                "When --yrt-rate-table-smoker-distinct (default), expect "
+                "separate '_ns' and '_smoker' files per sex. When "
+                "--yrt-rate-table-aggregate, expect a single '_unknown' "
+                "file per sex."
+            ),
+        ),
+    ] = True,
 ) -> None:
     """
     [bold]Run Monte Carlo uncertainty quantification.[/bold]
@@ -1448,6 +1570,19 @@ def uq_cmd(
     from polaris_re.analytics.uq import MonteCarloUQ
     from polaris_re.products.dispatch import get_product_engine
 
+    # Ad-hoc tabular YRT rate table (--yrt-rate-table), loaded eagerly so a bad
+    # path fails before any projection work. Takes precedence over the
+    # config-driven deal.yrt_rate_table_path, matching price (ADR-075).
+    flag_yrt_rate_table: object | None = None
+    if yrt_rate_table_dir is not None:
+        flag_yrt_rate_table = _load_yrt_rate_table_from_dir(
+            directory=yrt_rate_table_dir,
+            select_period=yrt_rate_table_select_period,
+            label=yrt_rate_table_label,
+            smoker_distinct=yrt_rate_table_smoker_distinct,
+            source_hint="--yrt-rate-table",
+        )
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -1471,10 +1606,10 @@ def uq_cmd(
 
         _fail_on_mixed_cohorts(inforce, "uq")
 
-        # Config-driven tabular YRT table (deal.yrt_rate_table_path, ADR-075).
-        # Wired into Monte Carlo UQ by ADR-076 so a config that references a
-        # table is no longer silently priced on the flat derived rate.
-        yrt_rate_table_obj = _resolve_config_yrt_rate_table(inputs)
+        # Tabular YRT table: the --yrt-rate-table flag (loaded above) takes
+        # precedence over the config-driven deal.yrt_rate_table_path (ADR-076),
+        # matching price's flag-over-config precedence (ADR-075).
+        yrt_rate_table_obj = _resolve_yrt_rate_table_flag_over_config(flag_yrt_rate_table, inputs)
 
         # Derive YRT rate from base gross projection (ADR-038). The tabular
         # path needs a seriatim projection for the parity dump + treaty apply.

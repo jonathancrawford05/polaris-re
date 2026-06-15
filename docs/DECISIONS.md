@@ -4710,3 +4710,54 @@ follow-up (ADR-077 Out of scope #2); unchanged here.
   direct runner, invalid-value `422`, no-treaty downgrade — for both endpoints)
 - `tests/qa/test_dashboard_flows.py::TestScenarioUQPerspective` (selector
   present, default reinsurer, cedant selection threads through to the runner)
+
+## ADR-079: Ad-hoc `--yrt-rate-table` flag on `scenario` / `uq`
+
+**Date:** 2026-06-15
+**Status:** Accepted
+
+**Context.** `polaris price` exposes an ad-hoc `--yrt-rate-table DIR` flag (plus
+`--yrt-rate-table-select-period`, `--yrt-rate-table-label`,
+`--yrt-rate-table-smoker-distinct/--yrt-rate-table-aggregate`) for loading a
+tabular age x duration YRT rate table without a config file, and applies a
+flag-over-config precedence against the YAML/JSON `deal.yrt_rate_table_path`
+field (ADR-075). ADR-076 wired the *config field* into `scenario` and `uq` (so a
+config referencing a table is no longer silently dropped) but, unlike `price`,
+neither command exposed the ad-hoc flag. A user wanting to run scenario / UQ
+analysis on a tabular YRT basis therefore had to author a YAML config; passing
+`--yrt-rate-table DIR` was rejected (`No such option: --yrt-rate-table`),
+leaving the three table-capable commands with an inconsistent loading surface.
+
+**Decision.** Add the same four `--yrt-rate-table*` options to `scenario_cmd`
+and `uq_cmd`, mirroring `price` exactly (option names, defaults, help). The flag
+is loaded eagerly via the shared `_load_yrt_rate_table_from_dir` helper before
+any projection work (so a bad path fails fast with exit 1), and a new shared
+helper `_resolve_yrt_rate_table_flag_over_config(flag_table, inputs)` applies the
+flag-over-config precedence used by `price`: an explicitly supplied flag table
+wins (with a console notice when `deal.yrt_rate_table_path` is also present),
+otherwise it falls back to `_resolve_config_yrt_rate_table` (ADR-076).
+
+**Rationale.** Purely additive surfacing of an existing mechanism — no new
+loading, validation, or projection logic. It gives `price`, `scenario`, and `uq`
+a uniform table-loading surface, which is the natural completion of the
+ADR-075 / ADR-076 family. The default (no flag) path is byte-identical to the
+ADR-076 behaviour: when the flag is omitted the commands resolve exactly the
+config field as before, so every existing test and every config-only invocation
+is unchanged. No core data contract is touched and no golden / QA baseline
+moves (the golden suite pins only `price`).
+
+**Out of scope (filed as follow-ups).** Relative-to-config path resolution for
+`yrt_rate_table_path` (ADR-075 Out of scope, still open) and the dashboard
+table-upload round-trip of `deal.yrt_rate_table_path` (ADR-075 Out of scope,
+still open) are unchanged here.
+
+**Affected files.**
+
+- `src/polaris_re/cli.py` (`--yrt-rate-table*` options on `scenario_cmd` /
+  `uq_cmd`; eager flag load; `_resolve_yrt_rate_table_flag_over_config` helper;
+  precedence wiring replacing the bare `_resolve_config_yrt_rate_table` call in
+  both commands)
+- `tests/test_analytics/test_scenario_uq_yrt_rate_table.py`
+  (`TestScenarioCommandTabularYRTFlag`, `TestUQCommandTabularYRTFlag`: flag
+  loads the table, flag == config field closed-form `rtol=1e-12`, flag overrides
+  config field, bad path exits 1 — for both commands)
