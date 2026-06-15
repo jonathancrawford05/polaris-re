@@ -377,3 +377,323 @@ class TestUQCommandTabularYRT:
         d_tab = json.loads(out_tab.read_text())
         d_flat = json.loads(out_flat.read_text())
         assert d_tab["base_pv_profit"] != d_flat["base_pv_profit"]
+
+
+# ---------------------------------------------------------------------------
+# CLI integration — ad-hoc ``--yrt-rate-table`` flag (ADR-079)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def yrt_rate_table_dir_alt(tmp_path: Path) -> Path:
+    """A second four-cohort table with distinctly higher rates than the
+    primary fixture, so a flag-vs-config precedence test can tell which
+    table actually drove the result."""
+    d = tmp_path / "yrt_alt"
+    d.mkdir()
+    _write_synthetic_yrt_csv(d / "yrt_male_ns.csv", base_rate=1.20, age_slope=0.12)
+    _write_synthetic_yrt_csv(d / "yrt_male_smoker.csv", base_rate=1.80, age_slope=0.20)
+    _write_synthetic_yrt_csv(d / "yrt_female_ns.csv", base_rate=1.10, age_slope=0.10)
+    _write_synthetic_yrt_csv(d / "yrt_female_smoker.csv", base_rate=1.60, age_slope=0.16)
+    return d
+
+
+class TestScenarioCommandTabularYRTFlag:
+    """`polaris scenario --yrt-rate-table DIR` is the ad-hoc equivalent of the
+    config field, with flag-over-config precedence (ADR-079)."""
+
+    def test_flag_loads_table(self, yrt_rate_table_dir: Path, tmp_path: Path) -> None:
+        """The flag loads the table (console notice) and the run exits 0."""
+        inforce_csv = tmp_path / "inforce.csv"
+        _write_inforce_csv(inforce_csv)
+        config_path = tmp_path / "config.json"
+        _write_config(config_path, _base_deal())
+        result = runner.invoke(
+            app,
+            [
+                "scenario",
+                "-c",
+                str(config_path),
+                "-i",
+                str(inforce_csv),
+                "--yrt-rate-table",
+                str(yrt_rate_table_dir),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "Loaded tabular YRT rate table" in result.output
+
+    def test_flag_matches_config_field(self, yrt_rate_table_dir: Path, tmp_path: Path) -> None:
+        """Closed-form: the flag and the config field produce byte-identical
+        scenario PV profits for the same table directory."""
+        inforce_csv = tmp_path / "inforce.csv"
+        _write_inforce_csv(inforce_csv)
+
+        cfg_flag = tmp_path / "flag.json"
+        _write_config(cfg_flag, _base_deal())
+        out_flag = tmp_path / "flag_out.json"
+        r1 = runner.invoke(
+            app,
+            [
+                "scenario",
+                "-c",
+                str(cfg_flag),
+                "-i",
+                str(inforce_csv),
+                "-o",
+                str(out_flag),
+                "--yrt-rate-table",
+                str(yrt_rate_table_dir),
+            ],
+        )
+        assert r1.exit_code == 0, r1.output
+
+        cfg_field = tmp_path / "field.json"
+        _write_config(cfg_field, {**_base_deal(), "yrt_rate_table_path": str(yrt_rate_table_dir)})
+        out_field = tmp_path / "field_out.json"
+        r2 = runner.invoke(
+            app,
+            ["scenario", "-c", str(cfg_field), "-i", str(inforce_csv), "-o", str(out_field)],
+        )
+        assert r2.exit_code == 0, r2.output
+
+        flag_rows = {
+            s["scenario"]: s["pv_profits"] for s in json.loads(out_flag.read_text())["scenarios"]
+        }
+        field_rows = {
+            s["scenario"]: s["pv_profits"] for s in json.loads(out_field.read_text())["scenarios"]
+        }
+        assert flag_rows.keys() == field_rows.keys()
+        for name, pv in flag_rows.items():
+            np.testing.assert_allclose(pv, field_rows[name], rtol=1e-12)
+
+    def test_flag_overrides_config(
+        self, yrt_rate_table_dir: Path, yrt_rate_table_dir_alt: Path, tmp_path: Path
+    ) -> None:
+        """When both the flag and deal.yrt_rate_table_path are present, the flag
+        wins (console notice) and the result equals a flag-only run."""
+        inforce_csv = tmp_path / "inforce.csv"
+        _write_inforce_csv(inforce_csv)
+
+        # Config points at the alt (high-rate) table; flag points at the primary.
+        cfg_both = tmp_path / "both.json"
+        _write_config(
+            cfg_both, {**_base_deal(), "yrt_rate_table_path": str(yrt_rate_table_dir_alt)}
+        )
+        out_both = tmp_path / "both_out.json"
+        r1 = runner.invoke(
+            app,
+            [
+                "scenario",
+                "-c",
+                str(cfg_both),
+                "-i",
+                str(inforce_csv),
+                "-o",
+                str(out_both),
+                "--yrt-rate-table",
+                str(yrt_rate_table_dir),
+            ],
+        )
+        assert r1.exit_code == 0, r1.output
+        assert "overrides deal.yrt_rate_table_path" in r1.output
+
+        # Flag-only baseline (config carries no table path).
+        cfg_flag = tmp_path / "flag.json"
+        _write_config(cfg_flag, _base_deal())
+        out_flag = tmp_path / "flag_out.json"
+        r2 = runner.invoke(
+            app,
+            [
+                "scenario",
+                "-c",
+                str(cfg_flag),
+                "-i",
+                str(inforce_csv),
+                "-o",
+                str(out_flag),
+                "--yrt-rate-table",
+                str(yrt_rate_table_dir),
+            ],
+        )
+        assert r2.exit_code == 0, r2.output
+
+        both_rows = {
+            s["scenario"]: s["pv_profits"] for s in json.loads(out_both.read_text())["scenarios"]
+        }
+        flag_rows = {
+            s["scenario"]: s["pv_profits"] for s in json.loads(out_flag.read_text())["scenarios"]
+        }
+        for name, pv in both_rows.items():
+            np.testing.assert_allclose(pv, flag_rows[name], rtol=1e-12)
+
+    def test_flag_missing_dir_exits_nonzero(self, tmp_path: Path) -> None:
+        """A bad --yrt-rate-table path fails fast rather than silently."""
+        inforce_csv = tmp_path / "inforce.csv"
+        _write_inforce_csv(inforce_csv)
+        config_path = tmp_path / "config.json"
+        _write_config(config_path, _base_deal())
+        result = runner.invoke(
+            app,
+            [
+                "scenario",
+                "-c",
+                str(config_path),
+                "-i",
+                str(inforce_csv),
+                "--yrt-rate-table",
+                str(tmp_path / "missing"),
+            ],
+        )
+        assert result.exit_code == 1
+
+
+class TestUQCommandTabularYRTFlag:
+    """`polaris uq --yrt-rate-table DIR` is the ad-hoc equivalent of the config
+    field, with flag-over-config precedence (ADR-079)."""
+
+    def test_flag_loads_table(self, yrt_rate_table_dir: Path, tmp_path: Path) -> None:
+        """The flag loads the table (console notice) and the run exits 0."""
+        inforce_csv = tmp_path / "inforce.csv"
+        _write_inforce_csv(inforce_csv)
+        config_path = tmp_path / "config.json"
+        _write_config(config_path, _base_deal())
+        result = runner.invoke(
+            app,
+            [
+                "uq",
+                "-c",
+                str(config_path),
+                "-i",
+                str(inforce_csv),
+                "-n",
+                "16",
+                "--yrt-rate-table",
+                str(yrt_rate_table_dir),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "Loaded tabular YRT rate table" in result.output
+
+    def test_flag_matches_config_field(self, yrt_rate_table_dir: Path, tmp_path: Path) -> None:
+        """Closed-form: the flag and the config field produce byte-identical
+        base-case PV profit for the same table directory and seed."""
+        inforce_csv = tmp_path / "inforce.csv"
+        _write_inforce_csv(inforce_csv)
+
+        cfg_flag = tmp_path / "flag.json"
+        _write_config(cfg_flag, _base_deal())
+        out_flag = tmp_path / "flag_out.json"
+        r1 = runner.invoke(
+            app,
+            [
+                "uq",
+                "-c",
+                str(cfg_flag),
+                "-i",
+                str(inforce_csv),
+                "-n",
+                "16",
+                "-o",
+                str(out_flag),
+                "--yrt-rate-table",
+                str(yrt_rate_table_dir),
+            ],
+        )
+        assert r1.exit_code == 0, r1.output
+
+        cfg_field = tmp_path / "field.json"
+        _write_config(cfg_field, {**_base_deal(), "yrt_rate_table_path": str(yrt_rate_table_dir)})
+        out_field = tmp_path / "field_out.json"
+        r2 = runner.invoke(
+            app,
+            ["uq", "-c", str(cfg_field), "-i", str(inforce_csv), "-n", "16", "-o", str(out_field)],
+        )
+        assert r2.exit_code == 0, r2.output
+
+        np.testing.assert_allclose(
+            json.loads(out_flag.read_text())["base_pv_profit"],
+            json.loads(out_field.read_text())["base_pv_profit"],
+            rtol=1e-12,
+        )
+
+    def test_flag_overrides_config(
+        self, yrt_rate_table_dir: Path, yrt_rate_table_dir_alt: Path, tmp_path: Path
+    ) -> None:
+        """The flag wins over deal.yrt_rate_table_path (console notice + result
+        equals a flag-only run)."""
+        inforce_csv = tmp_path / "inforce.csv"
+        _write_inforce_csv(inforce_csv)
+
+        cfg_both = tmp_path / "both.json"
+        _write_config(
+            cfg_both, {**_base_deal(), "yrt_rate_table_path": str(yrt_rate_table_dir_alt)}
+        )
+        out_both = tmp_path / "both_out.json"
+        r1 = runner.invoke(
+            app,
+            [
+                "uq",
+                "-c",
+                str(cfg_both),
+                "-i",
+                str(inforce_csv),
+                "-n",
+                "16",
+                "-o",
+                str(out_both),
+                "--yrt-rate-table",
+                str(yrt_rate_table_dir),
+            ],
+        )
+        assert r1.exit_code == 0, r1.output
+        assert "overrides deal.yrt_rate_table_path" in r1.output
+
+        cfg_flag = tmp_path / "flag.json"
+        _write_config(cfg_flag, _base_deal())
+        out_flag = tmp_path / "flag_out.json"
+        r2 = runner.invoke(
+            app,
+            [
+                "uq",
+                "-c",
+                str(cfg_flag),
+                "-i",
+                str(inforce_csv),
+                "-n",
+                "16",
+                "-o",
+                str(out_flag),
+                "--yrt-rate-table",
+                str(yrt_rate_table_dir),
+            ],
+        )
+        assert r2.exit_code == 0, r2.output
+
+        np.testing.assert_allclose(
+            json.loads(out_both.read_text())["base_pv_profit"],
+            json.loads(out_flag.read_text())["base_pv_profit"],
+            rtol=1e-12,
+        )
+
+    def test_flag_missing_dir_exits_nonzero(self, tmp_path: Path) -> None:
+        """A bad --yrt-rate-table path fails fast rather than silently."""
+        inforce_csv = tmp_path / "inforce.csv"
+        _write_inforce_csv(inforce_csv)
+        config_path = tmp_path / "config.json"
+        _write_config(config_path, _base_deal())
+        result = runner.invoke(
+            app,
+            [
+                "uq",
+                "-c",
+                str(config_path),
+                "-i",
+                str(inforce_csv),
+                "-n",
+                "16",
+                "--yrt-rate-table",
+                str(tmp_path / "missing"),
+            ],
+        )
+        assert result.exit_code == 1
