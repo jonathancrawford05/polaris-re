@@ -1278,9 +1278,14 @@ def scenario_cmd(
         typer.Option(
             "--yrt-rate-table",
             help=(
-                "Directory of tabular YRT rate CSVs (ADR-052). Ad-hoc equivalent "
-                "of the config field deal.yrt_rate_table_path; the flag takes "
-                "precedence when both are supplied. Implies seriatim projection."
+                "Directory of tabular YRT rate CSVs (ADR-052). Ad-hoc "
+                "equivalent of the config field deal.yrt_rate_table_path (the "
+                "flag takes precedence when both are supplied). YRT premiums "
+                "are billed from the table indexed by (age, sex, smoker, "
+                "duration) instead of the flat / mortality-derived rate; the "
+                "directory must contain one CSV per (sex, smoker) cohort using "
+                "the schema '{label}_{sex}_{smoker}.csv'. Implies seriatim "
+                "projection."
             ),
         ),
     ] = None,
@@ -1504,9 +1509,14 @@ def uq_cmd(
         typer.Option(
             "--yrt-rate-table",
             help=(
-                "Directory of tabular YRT rate CSVs (ADR-052). Ad-hoc equivalent "
-                "of the config field deal.yrt_rate_table_path; the flag takes "
-                "precedence when both are supplied. Implies seriatim projection."
+                "Directory of tabular YRT rate CSVs (ADR-052). Ad-hoc "
+                "equivalent of the config field deal.yrt_rate_table_path (the "
+                "flag takes precedence when both are supplied). YRT premiums "
+                "are billed from the table indexed by (age, sex, smoker, "
+                "duration) instead of the flat / mortality-derived rate; the "
+                "directory must contain one CSV per (sex, smoker) cohort using "
+                "the schema '{label}_{sex}_{smoker}.csv'. Implies seriatim "
+                "projection."
             ),
         ),
     ] = None,
