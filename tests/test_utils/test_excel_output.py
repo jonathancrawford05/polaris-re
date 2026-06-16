@@ -434,9 +434,14 @@ class TestGrossCededCashFlowSheets:
         out = tmp_path / "deal.xlsx"
         write_deal_pricing_excel(three_basis_export, out)
         wb = load_workbook(out)
-        gross_y1 = wb["Gross Cash Flows"].cell(row=2, column=2).value
-        net_y1 = wb["Cash Flows"].cell(row=2, column=2).value
-        assert gross_y1 > net_y1
+
+        def _year1_premium(sheet: str) -> float:
+            ws = wb[sheet]
+            headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
+            prem_col = headers.index("Gross Premiums") + 1
+            return ws.cell(row=2, column=prem_col).value
+
+        assert _year1_premium("Gross Cash Flows") > _year1_premium("Cash Flows")
 
 
 # ---------------------------------------------------------------------------
