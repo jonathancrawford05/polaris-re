@@ -4962,3 +4962,86 @@ for the screening-stage adequacy verdict this analyzer delivers.
   zero-premium None-guard, invalid-`target_margin` rejection, basis-agnostic
   CEDED input, reserve-exclusion invariance, and a TermLife GROSS integration
   coherence check)
+
+## ADR-083: Surface premium-sufficiency across CLI / API / dashboard / Excel
+
+**Date:** 2026-06-16
+**Status:** Accepted
+
+**Context.** ADR-082 shipped `PremiumSufficiencyTester` as a library primitive
+only; no user-facing surface consumed it, so the deal-screening value ("is this
+deal pre-priced well?") was not actually reachable. The ADR-082 follow-up
+"Surface premium-sufficiency ratios on the product surfaces" was promoted into
+`PRODUCT_DIRECTION_2026-05-23.md`. The maintainer asked to wire all four
+surfaces.
+
+**Decision.** Surface premium sufficiency on the deal-pricing path of every
+consumer, computed from the cash flows the profit test already uses — no
+re-projection:
+
+- **CLI (`polaris price`)** — a "Premium Sufficiency" Rich table per cohort
+  (cedant + reinsurer), a `premium_sufficiency` block in the JSON output
+  (per-cohort, and top-level for single-cohort runs mirroring the existing
+  `cedant`/`reinsurer` back-compat block), and a new
+  `--sufficiency-target-margin` option.
+- **REST API (`POST /api/v1/price`)** — an optional `sufficiency_target_margin`
+  request field and always-populated `premium_sufficiency` /
+  `reinsurer_premium_sufficiency` response blocks.
+- **Dashboard (Deal Pricing page)** — "Premium Sufficiency" metric tiles
+  (combined / loss ratio, sufficiency margin, verdict) under the cedant and
+  reinsurer views, plus a target-margin number input.
+- **Excel (deal-pricing workbook)** — a "Premium Sufficiency" panel appended to
+  the Summary sheet (cedant column always; reinsurer column when a reinsurer
+  result + sufficiency are present), driven by two optional
+  `DealPricingExport` fields.
+
+Both views are computed: the cedant view on the NET cash flows, the reinsurer
+view on the ceded cash flows re-viewed as NET (`ceded_to_reinsurer_view`),
+mirroring the established dual profit-test layout. With no treaty the reinsurer
+view mirrors the cedant view (matching the existing API behaviour).
+
+**Rationale.**
+- *Discount rate = valuation rate, not the profit hurdle.* Each surface feeds
+  the analyzer the deal's valuation `discount_rate` (CLI/dashboard:
+  `config.discount_rate`; API: `request.discount_rate`), NOT the profit
+  `hurdle_rate`. Premium adequacy is a gross-premium-valuation comparison of
+  premium against benefit + expense outflow (ADR-082), not a cost-of-capital
+  test, so the valuation rate is the correct basis. This is documented on every
+  surface's help text / field description.
+- *No golden regeneration.* The CLI/pipeline golden harness builds its own
+  metric dict from pricing math (unchanged) and the CLI golden test is purely
+  structural; the price JSON gains additive keys only. The golden suite pins
+  only `polaris price` numeric pricing output, which is byte-identical
+  (verified: reinsurer total PV $45,386 unchanged). No baseline was
+  regenerated.
+- *Backward compatible everywhere.* The API blocks are additive (existing
+  schema tests use `issubset`); the Excel panel is suppressed when the new DTO
+  fields are `None`, so pre-ADR-083 workbooks are byte-identical; the CLI JSON
+  only gains keys; the dashboard tiles are additive. `target_margin` defaults
+  to 0.0 (bare cost coverage) and is validated to `[0, 1)` on every surface
+  (CLI → `typer.BadParameter`/exit 1; API → 422; analyzer → `ValueError`).
+
+**Out of scope (filed as follow-ups).** Surfacing sufficiency on the
+`scenario` / `uq` commands and on the portfolio surfaces; a per-line-item
+(premiums / claims / expenses) sufficiency breakdown rather than the aggregate
+ratios; and the premium-deficiency-reserve extension already filed under
+ADR-082. None is needed for the deal-screening verdict this PR delivers.
+
+**Affected files.**
+
+- `src/polaris_re/cli.py` (`--sufficiency-target-margin` option;
+  `_compute_cohort_sufficiency`, `_sufficiency_to_dict`,
+  `_render_sufficiency_table`, `_render_cohort_sufficiency_tables`; JSON +
+  Excel-export wiring)
+- `src/polaris_re/api/main.py` (`sufficiency_target_margin` request field;
+  `premium_sufficiency` / `reinsurer_premium_sufficiency` response fields;
+  `_sufficiency_block`; handler wiring)
+- `src/polaris_re/dashboard/views/pricing.py` (target-margin input;
+  `CohortPricingData` fields; `_render_sufficiency_tiles`; run + render wiring)
+- `src/polaris_re/utils/excel_output.py` (`DealPricingExport`
+  `premium_sufficiency_cedant` / `_reinsurer` fields; `_SUFFICIENCY_METRICS`;
+  `_write_sufficiency_cell`; Summary-sheet panel)
+- Tests: `tests/test_api/test_price_sufficiency.py`,
+  `tests/test_analytics/test_cli_premium_sufficiency.py`,
+  `tests/test_utils/test_excel_output.py::TestPremiumSufficiencyPanel`,
+  `tests/qa/test_dashboard_flows.py` (sufficiency tile + input tests)

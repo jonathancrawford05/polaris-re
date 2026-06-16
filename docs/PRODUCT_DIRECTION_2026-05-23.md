@@ -372,7 +372,7 @@ via ADR-065 (PR #52, commit c88db82).)
   `src/polaris_re/utils/excel_output.py`, tests.
   *Source: ADR-080 Out of scope.*
 
-- **Surface premium-sufficiency ratios on the product surfaces.** ADR-082
+- ~~**Surface premium-sufficiency ratios on the product surfaces.** ADR-082
   shipped `PremiumSufficiencyTester` as a library primitive only. The
   present-value loss / expense / combined ratios and the `is_sufficient`
   verdict are not yet exposed anywhere a user sees: a sufficiency line on the
@@ -384,7 +384,33 @@ via ADR-065 (PR #52, commit c88db82).)
   only once at least one surface consumes it. **Scope:** ~1 dev-day per surface
   (decompose if more than one). **Affected:** `cli.py`, `api/main.py`,
   `dashboard/views/pricing.py`, `utils/excel_output.py`, tests.
-  *Source: ADR-082 Out of scope.*
+  *Source: ADR-082 Out of scope.*~~ — **SHIPPED** (PR #75, ADR-083): all four
+  surfaces wired on the deal-pricing path (chose "block on the price response"
+  for the API, not a separate endpoint). CLI gains a "Premium Sufficiency" Rich
+  table + JSON block + `--sufficiency-target-margin`; the API gains a
+  `sufficiency_target_margin` field and `premium_sufficiency` /
+  `reinsurer_premium_sufficiency` response blocks; the dashboard gains tiles +
+  a target-margin input; the Excel Summary sheet gains a sufficiency panel.
+  Computed at the valuation discount rate (not the profit hurdle), cedant on
+  NET + reinsurer on the ceded view. Additive everywhere; no golden moved
+  (price JSON byte-identical, reinsurer PV $45,386 unchanged).
+
+- **Premium sufficiency on `scenario` / `uq` and the portfolio surfaces.**
+  ADR-083 surfaced sufficiency on the single-deal `price` path (CLI / API /
+  dashboard / Excel) only. The `scenario` / `uq` commands and the portfolio
+  run / dashboard surfaces do not yet report it; each would compute the
+  analyzer from its already-projected cash flows at the valuation discount
+  rate. **Scope:** ~1 dev-day per surface. **Affected:** `cli.py`
+  (`scenario_cmd` / `uq_cmd`), `analytics/portfolio.py`, `api/main.py`,
+  `dashboard/`, tests. *Source: ADR-083 Out of scope.*
+
+- **Per-line-item premium-sufficiency breakdown.** ADR-083 surfaces the
+  aggregate loss / expense / combined ratios and the verdict. A committee may
+  want the PV premium / claim / surrender / expense components broken out
+  line-by-line (the analyzer already returns `pv_claims` / `pv_surrenders` /
+  `pv_expenses`, so this is presentation only). **Scope:** ~0.5 dev-day.
+  **Affected:** `utils/excel_output.py`, `dashboard/views/pricing.py`, tests.
+  *Source: ADR-083 Out of scope.*
 
 - **Premium-deficiency reserve / loss-recognition extension.** When the
   present-value combined ratio exceeds 1 (`is_sufficient` False at

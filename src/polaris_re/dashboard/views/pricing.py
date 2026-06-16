@@ -16,6 +16,10 @@ import matplotlib.ticker as mticker  # type: ignore[import-untyped]
 import numpy as np
 import streamlit as st  # type: ignore[import-untyped]
 
+from polaris_re.analytics.premium_sufficiency import (
+    PremiumSufficiencyResult,
+    PremiumSufficiencyTester,
+)
 from polaris_re.analytics.profit_test import ProfitResultWithCapital, ProfitTestResult
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.core.cashflow import CashFlowResult
@@ -55,6 +59,8 @@ class CohortPricingData:
     reinsurer_result: ProfitTestResult | None
     treaty_type: str
     loss_ratio_msg: tuple[str, str] | None
+    premium_sufficiency: PremiumSufficiencyResult | None = None
+    reinsurer_premium_sufficiency: PremiumSufficiencyResult | None = None
 
 
 # Flat session-state keys preserved for single-cohort backward compatibility.
@@ -302,6 +308,7 @@ def _run_pricing_for_cohort(
     parity_label: str,
     show_yrt_info: bool,
     capital_model_id: str | None = None,
+    sufficiency_target_margin: float = 0.0,
 ) -> CohortPricingData:
     """Run the full pricing pipeline for a single-product cohort.
 
@@ -433,6 +440,20 @@ def _run_pricing_for_cohort(
                 f"total premiums = ${total_premiums:,.0f}",
             )
 
+    # 8. Premium sufficiency (ADR-083), at the valuation discount rate (not
+    #    the profit hurdle). Cedant on NET; reinsurer on the ceded cash flows
+    #    re-viewed as NET when a treaty produced a ceded leg.
+    premium_sufficiency = PremiumSufficiencyTester(
+        net, config.discount_rate, target_margin=sufficiency_target_margin
+    ).run()
+    reinsurer_premium_sufficiency: PremiumSufficiencyResult | None = None
+    if ceded is not None:
+        reinsurer_premium_sufficiency = PremiumSufficiencyTester(
+            ceded_to_reinsurer_view(ceded),
+            config.discount_rate,
+            target_margin=sufficiency_target_margin,
+        ).run()
+
     return CohortPricingData(
         cohort_id=cohort_id,
         n_policies=cohort_inforce.n_policies,
@@ -444,6 +465,45 @@ def _run_pricing_for_cohort(
         reinsurer_result=reinsurer_result,
         treaty_type=treaty_type,
         loss_ratio_msg=loss_ratio_msg,
+        premium_sufficiency=premium_sufficiency,
+        reinsurer_premium_sufficiency=reinsurer_premium_sufficiency,
+    )
+
+
+def _render_sufficiency_tiles(result: PremiumSufficiencyResult, view: str) -> None:
+    """Render premium-sufficiency metric tiles for one view (ADR-083).
+
+    ``view`` is "Cedant" or "Reinsurer" and labels the verdict tile. The
+    discount rate is the valuation rate the analyzer used, not the profit
+    hurdle.
+    """
+    st.markdown(f"**Premium Sufficiency ({view})**")
+
+    def _pct(value: float | None) -> str:
+        return f"{value:.2%}" if value is not None else "N/A"
+
+    col_a, col_b, col_c, col_d = st.columns(4)
+    col_a.metric(
+        "Combined Ratio",
+        _pct(result.combined_ratio),
+        help=(
+            "PV(Benefits + Expenses) / PV(Premiums) at the valuation discount "
+            "rate (ADR-083). Benefits = death claims + surrenders; the reserve "
+            "movement is excluded (it is a timing item, not an economic cost). "
+            "< 100% means the premium covers expected costs."
+        ),
+    )
+    col_b.metric("Loss Ratio", _pct(result.loss_ratio))
+    col_c.metric("Sufficiency Margin", f"${result.sufficiency_margin:,.0f}")
+    verdict = "✅ Sufficient" if result.is_sufficient else "❌ Insufficient"
+    col_d.metric(
+        f"Verdict (≥ {result.target_margin:.0%} margin)",
+        verdict,
+        help=(
+            "Sufficient when the post-cost margin ratio (1 - combined ratio) "
+            "meets the target margin. Default target 0% tests bare cost "
+            "coverage."
+        ),
     )
 
 
@@ -533,6 +593,9 @@ def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: Assum
         _cash_flow_decomposition(net, title_suffix=basis_label, annotate_reserve_release=True)
     )
 
+    if cohort_data.premium_sufficiency is not None:
+        _render_sufficiency_tiles(cohort_data.premium_sufficiency, "Cedant")
+
     # ========== REINSURER VIEW ==========
     if ceded is not None and reinsurer_result is not None:
         st.subheader("Reinsurer View (Ceded)")
@@ -611,6 +674,9 @@ def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: Assum
             )
 
         st.pyplot(_reinsurer_cash_flow_chart(ceded, cached_treaty_type))
+
+        if cohort_data.reinsurer_premium_sufficiency is not None:
+            _render_sufficiency_tiles(cohort_data.reinsurer_premium_sufficiency, "Reinsurer")
 
     # ========== GROSS RESERVE ==========
     st.subheader("Reserve Balance")
@@ -748,6 +814,24 @@ def page_pricing() -> None:
     )
     capital_model_id: str | None = "licat" if compute_capital else None
 
+    sufficiency_target_margin = (
+        st.number_input(
+            "Premium-sufficiency target margin (%)",
+            min_value=0.0,
+            max_value=99.0,
+            value=0.0,
+            step=1.0,
+            help=(
+                "Target profit margin as a percentage of PV premiums for the "
+                "premium-sufficiency verdict (ADR-083). The premium is reported "
+                "'Sufficient' when its post-cost margin ratio meets this target. "
+                "0% tests bare cost coverage. Discounted at the valuation "
+                "discount rate, not the profit hurdle."
+            ),
+        )
+        / 100.0
+    )
+
     if st.button("Run Pricing", type="primary"):
         with st.spinner("Running projection..."):
             try:
@@ -771,6 +855,7 @@ def page_pricing() -> None:
                         parity_label=parity_label,
                         show_yrt_info=(n_cohorts == 1),
                         capital_model_id=capital_model_id,
+                        sufficiency_target_margin=sufficiency_target_margin,
                     )
             except (PolarisValidationError, PolarisComputationError) as exc:
                 st.error(f"Pricing error: {exc}")

@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 from openpyxl import load_workbook
 
+from polaris_re.analytics.premium_sufficiency import PremiumSufficiencyTester
 from polaris_re.analytics.profit_test import ProfitResultWithCapital, ProfitTestResult
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.utils.excel_output import (
@@ -1212,3 +1213,123 @@ class TestSolvedMaskDisclosureExcel:
         # The Solved / Filled disclosure is gated on mask presence — must NOT appear.
         assert not any("Solved cells:" in c for c in cells)
         assert not any("Filled cells:" in c for c in cells)
+
+
+# ---------------------------------------------------------------------------
+# Premium-sufficiency panel (ADR-083)
+# ---------------------------------------------------------------------------
+
+
+def _make_sufficiency(scale: float = 1.0, *, target_margin: float = 0.0):
+    """Run the analyzer on a deterministic GROSS cash flow for panel tests."""
+    cf = _make_cashflows("GROSS", scale=scale)
+    return PremiumSufficiencyTester(cf, discount_rate=0.06, target_margin=target_margin).run()
+
+
+@pytest.fixture
+def sufficiency_export() -> DealPricingExport:
+    """Full export carrying cedant + reinsurer premium-sufficiency results."""
+    return DealPricingExport(
+        deal_meta=_make_deal_meta(),
+        assumptions_meta=_make_assumptions_meta(),
+        cedant_result=_make_profit_result(),
+        reinsurer_result=_make_profit_result(irr=0.095, profit_margin=0.04, breakeven_year=7),
+        net_cashflows=_make_cashflows("NET"),
+        premium_sufficiency_cedant=_make_sufficiency(scale=1.0, target_margin=0.05),
+        premium_sufficiency_reinsurer=_make_sufficiency(scale=0.9, target_margin=0.05),
+    )
+
+
+class TestPremiumSufficiencyPanel:
+    _ROWS = (
+        "Sufficiency Discount Rate",
+        "Sufficiency Target Margin",
+        "PV Benefits",
+        "PV Expenses",
+        "Sufficiency Margin",
+        "Loss Ratio",
+        "Expense Ratio",
+        "Combined Ratio",
+        "Premium Sufficient",
+    )
+
+    def test_panel_absent_when_not_populated(
+        self, minimal_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        """Backward compat: no sufficiency data -> no panel rows."""
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(minimal_export, out)
+        ws = load_workbook(out)["Summary"]
+        labels = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+        for row in self._ROWS:
+            assert row not in labels
+
+    def test_panel_rows_present_when_populated(
+        self, sufficiency_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(sufficiency_export, out)
+        ws = load_workbook(out)["Summary"]
+        labels = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+        for row in self._ROWS:
+            assert row in labels, f"missing {row!r} on Summary sheet"
+
+    def test_cedant_combined_ratio_cell_matches(
+        self, sufficiency_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(sufficiency_export, out)
+        ws = load_workbook(out)["Summary"]
+        row = _find_row_with_label(ws, "Combined Ratio")
+        cell = ws.cell(row=row, column=2).value
+        assert cell == pytest.approx(sufficiency_export.premium_sufficiency_cedant.combined_ratio)
+
+    def test_sufficiency_margin_cell_matches(
+        self, sufficiency_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(sufficiency_export, out)
+        ws = load_workbook(out)["Summary"]
+        row = _find_row_with_label(ws, "Sufficiency Margin")
+        cell = ws.cell(row=row, column=2).value
+        assert cell == pytest.approx(
+            sufficiency_export.premium_sufficiency_cedant.sufficiency_margin
+        )
+
+    def test_verdict_cell_is_yes_or_no(
+        self, sufficiency_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(sufficiency_export, out)
+        ws = load_workbook(out)["Summary"]
+        row = _find_row_with_label(ws, "Premium Sufficient")
+        expected = "Yes" if sufficiency_export.premium_sufficiency_cedant.is_sufficient else "No"
+        assert ws.cell(row=row, column=2).value == expected
+
+    def test_reinsurer_column_present(
+        self, sufficiency_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(sufficiency_export, out)
+        ws = load_workbook(out)["Summary"]
+        row = _find_row_with_label(ws, "Combined Ratio")
+        cell = ws.cell(row=row, column=3).value
+        assert cell == pytest.approx(
+            sufficiency_export.premium_sufficiency_reinsurer.combined_ratio
+        )
+
+    def test_cedant_only_no_reinsurer_column(self, tmp_path: Path) -> None:
+        """Reinsurer column suppressed when no reinsurer result/sufficiency."""
+        export = DealPricingExport(
+            deal_meta=_make_deal_meta(),
+            assumptions_meta=_make_assumptions_meta(),
+            cedant_result=_make_profit_result(),
+            reinsurer_result=None,
+            net_cashflows=_make_cashflows("NET"),
+            premium_sufficiency_cedant=_make_sufficiency(),
+        )
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        ws = load_workbook(out)["Summary"]
+        row = _find_row_with_label(ws, "Combined Ratio")
+        assert ws.cell(row=row, column=3).value is None

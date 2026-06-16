@@ -34,6 +34,10 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 import polaris_re
+from polaris_re.analytics.premium_sufficiency import (
+    PremiumSufficiencyResult,
+    PremiumSufficiencyTester,
+)
 from polaris_re.analytics.profit_test import ProfitResultWithCapital, ProfitTestResult
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.core.cashflow import CashFlowResult
@@ -552,6 +556,99 @@ def _profit_test_to_dict(result: ProfitTestResult) -> dict[str, object]:
     return out
 
 
+def _compute_cohort_sufficiency(
+    cohort: CohortResult,
+    discount_rate: float,
+    target_margin: float,
+) -> tuple[PremiumSufficiencyResult, PremiumSufficiencyResult | None]:
+    """Compute cedant + reinsurer premium-sufficiency results for a cohort (ADR-083).
+
+    Mirrors the dual profit-test layout: the cedant view runs on the NET
+    cash flows, the reinsurer view on the ceded cash flows re-labelled NET
+    (``ceded_to_reinsurer_view``) when a treaty produced a ceded leg. The
+    discount rate is the deal's valuation discount rate, NOT the profit
+    hurdle — premium adequacy is a valuation comparison of premium against
+    benefit + expense outflow, not a cost-of-capital test (ADR-082).
+    """
+    cedant = PremiumSufficiencyTester(
+        cohort.net_cashflows, discount_rate, target_margin=target_margin
+    ).run()
+    reinsurer: PremiumSufficiencyResult | None = None
+    if cohort.ceded_cashflows is not None:
+        reinsurer = PremiumSufficiencyTester(
+            ceded_to_reinsurer_view(cohort.ceded_cashflows),
+            discount_rate,
+            target_margin=target_margin,
+        ).run()
+    return cedant, reinsurer
+
+
+def _sufficiency_to_dict(result: PremiumSufficiencyResult) -> dict[str, object]:
+    """Flatten a PremiumSufficiencyResult into a plain dict for JSON output."""
+    return {
+        "discount_rate": result.discount_rate,
+        "target_margin": result.target_margin,
+        "pv_premiums": result.pv_premiums,
+        "pv_claims": result.pv_claims,
+        "pv_surrenders": result.pv_surrenders,
+        "pv_benefits": result.pv_benefits,
+        "pv_expenses": result.pv_expenses,
+        "sufficiency_margin": result.sufficiency_margin,
+        "sufficiency_ratio": result.sufficiency_ratio,
+        "loss_ratio": result.loss_ratio,
+        "expense_ratio": result.expense_ratio,
+        "combined_ratio": result.combined_ratio,
+        "is_sufficient": result.is_sufficient,
+    }
+
+
+def _render_sufficiency_table(
+    result: PremiumSufficiencyResult,
+    title: str,
+    border_style: str,
+) -> None:
+    """Render a Rich table for one premium-sufficiency result (ADR-083)."""
+    table = Table(title=title, border_style=border_style)
+    table.add_column("Metric", style="bold")
+    table.add_column("Value", justify="right")
+
+    def _pct(value: float | None) -> str:
+        return f"{value:.2%}" if value is not None else "N/A"
+
+    verdict = "[green]SUFFICIENT[/green]" if result.is_sufficient else "[red]INSUFFICIENT[/red]"
+    table.add_row("Discount Rate", f"{result.discount_rate:.2%}")
+    table.add_row("Target Margin", f"{result.target_margin:.2%}")
+    table.add_row("PV Premiums", f"${result.pv_premiums:,.0f}")
+    table.add_row("PV Benefits", f"${result.pv_benefits:,.0f}")
+    table.add_row("PV Expenses", f"${result.pv_expenses:,.0f}")
+    table.add_row("Sufficiency Margin", f"${result.sufficiency_margin:,.0f}")
+    table.add_row("Loss Ratio", _pct(result.loss_ratio))
+    table.add_row("Expense Ratio", _pct(result.expense_ratio))
+    table.add_row("Combined Ratio", _pct(result.combined_ratio))
+    table.add_row("Verdict", verdict)
+    console.print(table)
+
+
+def _render_cohort_sufficiency_tables(
+    cohort: CohortResult,
+    discount_rate: float,
+    target_margin: float,
+) -> None:
+    """Render the cedant (and reinsurer) premium-sufficiency tables (ADR-083)."""
+    cedant, reinsurer = _compute_cohort_sufficiency(cohort, discount_rate, target_margin)
+    _render_sufficiency_table(
+        cedant,
+        title=f"Premium Sufficiency — Cedant (NET) View · {cohort.product_type}",
+        border_style="cyan",
+    )
+    if reinsurer is not None:
+        _render_sufficiency_table(
+            reinsurer,
+            title=f"Premium Sufficiency — Reinsurer View · {cohort.product_type}",
+            border_style="green",
+        )
+
+
 def _render_rated_block_table(summary: dict[str, object]) -> None:
     """Render a small Rich table summarising substandard-rating composition."""
     table = Table(title="Block Substandard Rating", border_style="magenta")
@@ -692,6 +789,7 @@ def _cohort_to_deal_pricing_export(
     config: ProjectionConfig,
     inputs: PipelineInputs,
     effective_hurdle: float,
+    sufficiency_target_margin: float = 0.0,
     yrt_rate_table: object | None = None,
     rated_block: object | None = None,
 ) -> "DealPricingExport":
@@ -735,6 +833,11 @@ def _cohort_to_deal_pricing_export(
         lapse_description=_describe_lapse(assumptions.lapse),
         assumption_set_version=assumptions.version,
     )
+    # Premium-sufficiency panel (ADR-083). Computed at the valuation
+    # discount rate, mirroring the cedant / reinsurer profit-test split.
+    suff_cedant, suff_reinsurer = _compute_cohort_sufficiency(
+        cohort, config.discount_rate, sufficiency_target_margin
+    )
     return DealPricingExport(
         deal_meta=deal_meta,
         assumptions_meta=assumptions_meta,
@@ -746,6 +849,8 @@ def _cohort_to_deal_pricing_export(
         scenario_results=None,
         yrt_rate_table=yrt_rate_table,  # type: ignore[arg-type]
         rated_block=rated_block,  # type: ignore[arg-type]
+        premium_sufficiency_cedant=suff_cedant,
+        premium_sufficiency_reinsurer=suff_reinsurer,
     )
 
 
@@ -926,6 +1031,18 @@ def price_cmd(
         float,
         typer.Option("--hurdle-rate", "-r", help="Annual hurdle rate for profit test (e.g. 0.10)."),
     ] = 0.10,
+    sufficiency_target_margin: Annotated[
+        float,
+        typer.Option(
+            "--sufficiency-target-margin",
+            help=(
+                "Premium-sufficiency target profit margin as a fraction of PV "
+                "premiums, in [0, 1) (ADR-083). The premium is reported "
+                "'sufficient' when its post-cost margin ratio meets this target. "
+                "Default 0.0 tests bare cost coverage."
+            ),
+        ),
+    ] = 0.0,
     excel_out: Annotated[
         Path | None,
         typer.Option(
@@ -1099,6 +1216,13 @@ def price_cmd(
             f"({n_cohorts} cohorts: {detected}). Pricing each cohort independently."
         )
 
+    # Fail fast on an out-of-range sufficiency target margin (ADR-083) so the
+    # user sees a clean CLI error rather than a traceback mid-projection.
+    if not 0.0 <= sufficiency_target_margin < 1.0:
+        raise typer.BadParameter(
+            f"--sufficiency-target-margin must be in [0, 1), got {sufficiency_target_margin}."
+        )
+
     cohort_results: list[CohortResult] = []
     with Progress(
         SpinnerColumn(),
@@ -1139,6 +1263,7 @@ def price_cmd(
                 )
             )
         _render_cohort_pricing_tables(cohort)
+        _render_cohort_sufficiency_tables(cohort, config.discount_rate, sufficiency_target_margin)
 
     # Build JSON output. Always includes a "cohorts" list; for the common
     # single-cohort case, mirror the cohort's cedant/reinsurer dicts at the
@@ -1151,6 +1276,9 @@ def price_cmd(
         reinsurer_dict = (
             _profit_test_to_dict(c.reinsurer_result) if c.reinsurer_result is not None else None
         )
+        suff_cedant, suff_reinsurer = _compute_cohort_sufficiency(
+            c, config.discount_rate, sufficiency_target_margin
+        )
         cohorts_out.append(
             {
                 "product_type": c.product_type,
@@ -1158,6 +1286,12 @@ def price_cmd(
                 "face_amount": c.face_amount,
                 "cedant": cedant_dict,
                 "reinsurer": reinsurer_dict,
+                "premium_sufficiency": {
+                    "cedant": _sufficiency_to_dict(suff_cedant),
+                    "reinsurer": (
+                        _sufficiency_to_dict(suff_reinsurer) if suff_reinsurer is not None else None
+                    ),
+                },
             }
         )
         total_cedant_pv += c.cedant_result.pv_profits
@@ -1185,6 +1319,15 @@ def price_cmd(
         output_data["cedant"] = _profit_test_to_dict(first.cedant_result)
         if first.reinsurer_result is not None:
             output_data["reinsurer"] = _profit_test_to_dict(first.reinsurer_result)
+        suff_cedant, suff_reinsurer = _compute_cohort_sufficiency(
+            first, config.discount_rate, sufficiency_target_margin
+        )
+        output_data["premium_sufficiency"] = {
+            "cedant": _sufficiency_to_dict(suff_cedant),
+            "reinsurer": (
+                _sufficiency_to_dict(suff_reinsurer) if suff_reinsurer is not None else None
+            ),
+        }
 
     if n_cohorts > 1:
         summary_table = Table(title="Mixed-Cohort Summary", border_style="magenta")
@@ -1233,6 +1376,7 @@ def price_cmd(
                 config=config,
                 inputs=inputs,
                 effective_hurdle=effective_hurdle,
+                sufficiency_target_margin=sufficiency_target_margin,
                 yrt_rate_table=yrt_rate_table_obj,
                 rated_block=rated_block_export,
             )
