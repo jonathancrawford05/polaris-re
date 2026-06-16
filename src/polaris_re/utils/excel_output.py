@@ -114,6 +114,10 @@ class DealPricingExport:
     ``scenario_results=None`` suppresses the Sensitivity sheet. A
     ``reinsurer_result=None`` suppresses the reinsurer column on the
     Summary sheet — both signal "ceded side does not apply to this deal".
+    ``gross_cashflows=None`` / ``ceded_cashflows=None`` suppress the
+    ``Gross Cash Flows`` / ``Ceded Cash Flows`` sheets respectively
+    (ADR-080); when populated they render the same annual-rollup layout as
+    the NET ``Cash Flows`` sheet.
     ``yrt_rate_table=None`` suppresses the ``YRT Rate Table`` sheet
     (only added by ADR-052 when the deal was priced with a tabular
     schedule). ``rated_block=None`` (or ``n_rated == 0``) suppresses the
@@ -263,13 +267,19 @@ def write_deal_pricing_excel(export: DealPricingExport, path: Path) -> None:
     """Write a formatted deal-pricing workbook (see ADR-045 / ADR-052).
 
     Sheets produced (in order):
-        1. Summary        — cedant (and optional reinsurer) profit metrics.
-        2. Cash Flows     — annual rollup of the NET CashFlowResult.
-        3. Assumptions    — deal + assumption-set metadata.
-        4. Sensitivity    — OMITTED when ``export.scenario_results`` is None.
-        5. YRT Rate Table — OMITTED when ``export.yrt_rate_table`` is None;
-                            otherwise one block per (sex, smoker) cohort
-                            (ADR-052).
+        1. Summary           — cedant (and optional reinsurer) profit metrics.
+        2. Gross Cash Flows  — OMITTED when ``export.gross_cashflows`` is None;
+                               otherwise the annual rollup of the GROSS
+                               CashFlowResult (ADR-080).
+        3. Ceded Cash Flows  — OMITTED when ``export.ceded_cashflows`` is None;
+                               otherwise the annual rollup of the CEDED
+                               CashFlowResult (ADR-080).
+        4. Cash Flows        — annual rollup of the NET CashFlowResult.
+        5. Assumptions       — deal + assumption-set metadata.
+        6. Sensitivity       — OMITTED when ``export.scenario_results`` is None.
+        7. YRT Rate Table    — OMITTED when ``export.yrt_rate_table`` is None;
+                               otherwise one block per (sex, smoker) cohort
+                               (ADR-052).
 
     Args:
         export: Bundle of all data required for the sheets.
@@ -290,7 +300,15 @@ def write_deal_pricing_excel(export: DealPricingExport, path: Path) -> None:
         wb.remove(wb.active)
 
     _write_summary_sheet(wb, export)
-    _write_cash_flows_sheet(wb, export)
+    # Gross / Ceded / Net cash-flow block (ADR-080). The Gross and Ceded
+    # sheets are written only when their optional DTO fields are populated,
+    # so a net-only export remains byte-identical (the NET sheet keeps its
+    # canonical "Cash Flows" title and immediately follows Summary).
+    if export.gross_cashflows is not None:
+        _write_cash_flows_sheet(wb, export.gross_cashflows, "Gross Cash Flows")
+    if export.ceded_cashflows is not None:
+        _write_cash_flows_sheet(wb, export.ceded_cashflows, "Ceded Cash Flows")
+    _write_cash_flows_sheet(wb, export.net_cashflows, "Cash Flows")
     _write_assumptions_sheet(wb, export)
     if export.scenario_results is not None:
         _write_sensitivity_sheet(wb, export.scenario_results)
@@ -430,10 +448,16 @@ def _write_capital_cell(
             cell.number_format = "0.00%"
 
 
-def _write_cash_flows_sheet(wb: "Workbook", export: DealPricingExport) -> None:
+def _write_cash_flows_sheet(wb: "Workbook", cashflows: CashFlowResult, title: str) -> None:
+    """Render one annual cash-flow rollup sheet for the given basis.
+
+    Used for the NET ("Cash Flows"), GROSS ("Gross Cash Flows") and CEDED
+    ("Ceded Cash Flows") bases; the column layout (``_CASH_FLOW_COLUMNS``)
+    is identical across all three so the sheets read consistently.
+    """
     from openpyxl.styles import Alignment, Font
 
-    ws = wb.create_sheet(title="Cash Flows")
+    ws = wb.create_sheet(title=title)
     header_font = Font(bold=True)
     centre = Alignment(horizontal="center")
 
@@ -442,7 +466,7 @@ def _write_cash_flows_sheet(wb: "Workbook", export: DealPricingExport) -> None:
         cell.font = header_font
         cell.alignment = centre
 
-    annual = _aggregate_monthly_to_annual(export.net_cashflows)
+    annual = _aggregate_monthly_to_annual(cashflows)
     for row_idx, row in enumerate(annual, start=2):
         ws.cell(row=row_idx, column=1, value=row["Year"])
         ws.cell(row=row_idx, column=2, value=row["Gross Premiums"]).number_format = "$#,##0"

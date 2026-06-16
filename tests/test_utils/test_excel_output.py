@@ -35,15 +35,20 @@ PROJECTION_YEARS: int = 20
 PROJECTION_MONTHS: int = PROJECTION_YEARS * 12
 
 
-def _make_cashflows(basis: str = "NET") -> CashFlowResult:
-    """Build a deterministic CashFlowResult with 240 months of cash flows."""
+def _make_cashflows(basis: str = "NET", *, scale: float = 1.0) -> CashFlowResult:
+    """Build a deterministic CashFlowResult with 240 months of cash flows.
+
+    ``scale`` multiplies every monthly flow so distinct gross / ceded / net
+    bases can be built with identifiable magnitudes (used to prove each basis
+    lands on its own sheet without cross-wiring).
+    """
     t = PROJECTION_MONTHS
     # Monthly arrays — small numbers that aggregate to easy-to-check annual sums.
-    premiums = np.full(t, 1_000.0, dtype=np.float64)  # $12,000 / yr
-    claims = np.full(t, 200.0, dtype=np.float64)  # $2,400 / yr
+    premiums = np.full(t, 1_000.0 * scale, dtype=np.float64)  # $12,000 / yr @ scale 1
+    claims = np.full(t, 200.0 * scale, dtype=np.float64)  # $2,400 / yr @ scale 1
     surrenders = np.zeros(t, dtype=np.float64)
-    expenses = np.full(t, 50.0, dtype=np.float64)  # $600 / yr
-    reserve_balance = np.linspace(0.0, 10_000.0, t, dtype=np.float64)
+    expenses = np.full(t, 50.0 * scale, dtype=np.float64)  # $600 / yr @ scale 1
+    reserve_balance = np.linspace(0.0, 10_000.0 * scale, t, dtype=np.float64)
     reserve_increase = np.diff(reserve_balance, prepend=0.0)
     ncf = premiums - claims - surrenders - expenses - reserve_increase
 
@@ -133,6 +138,28 @@ def full_export() -> DealPricingExport:
                 name="Mortality +25%", pv_profits=-12_000.0, irr=0.045, profit_margin=-0.04
             ),
             ScenarioMetric(name="Lapse +50%", pv_profits=18_000.0, irr=0.108, profit_margin=0.06),
+        ],
+    )
+
+
+@pytest.fixture
+def three_basis_export() -> DealPricingExport:
+    """Cedant + reinsurer + scenarios, with distinct gross / ceded / net flows.
+
+    Gross is scale 1.0 (premiums $1,000/mo), ceded scale 0.9 (90% cession ->
+    $900/mo), net scale 0.1 ($100/mo). Distinct magnitudes let each sheet be
+    checked for its own basis without cross-wiring.
+    """
+    return DealPricingExport(
+        deal_meta=_make_deal_meta(),
+        assumptions_meta=_make_assumptions_meta(),
+        cedant_result=_make_profit_result(),
+        reinsurer_result=_make_profit_result(irr=0.095, profit_margin=0.04, breakeven_year=7),
+        net_cashflows=_make_cashflows("NET", scale=0.1),
+        gross_cashflows=_make_cashflows("GROSS", scale=1.0),
+        ceded_cashflows=_make_cashflows("CEDED", scale=0.9),
+        scenario_results=[
+            ScenarioMetric(name="Base", pv_profits=25_000.0, irr=0.125, profit_margin=0.08),
         ],
     )
 
@@ -323,6 +350,98 @@ class TestCashFlowsSheet:
         )
         expected = float(minimal_export.net_cashflows.net_cash_flow.sum())
         assert total == pytest.approx(expected, rel=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# Gross / Ceded cash flow sheets
+# ---------------------------------------------------------------------------
+
+
+class TestGrossCededCashFlowSheets:
+    """Gross / Ceded cash-flow sheets are written only when their DTO fields
+    are populated (purely additive — a None field suppresses the sheet)."""
+
+    def test_sheets_absent_when_fields_none(
+        self, minimal_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(minimal_export, out)
+        names = load_workbook(out).sheetnames
+        assert "Gross Cash Flows" not in names
+        assert "Ceded Cash Flows" not in names
+
+    def test_sheets_present_and_ordered_when_populated(
+        self, three_basis_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(three_basis_export, out)
+        names = load_workbook(out).sheetnames
+        # Gross / Ceded / Net cash-flow block in committee reading order,
+        # with the NET sheet keeping its canonical "Cash Flows" title.
+        assert names == [
+            "Summary",
+            "Gross Cash Flows",
+            "Ceded Cash Flows",
+            "Cash Flows",
+            "Assumptions",
+            "Sensitivity",
+        ]
+
+    def test_gross_sheet_only_when_ceded_none(self, tmp_path: Path) -> None:
+        export = DealPricingExport(
+            deal_meta=_make_deal_meta(),
+            assumptions_meta=_make_assumptions_meta(),
+            cedant_result=_make_profit_result(),
+            reinsurer_result=None,
+            net_cashflows=_make_cashflows("NET", scale=0.1),
+            gross_cashflows=_make_cashflows("GROSS", scale=1.0),
+        )
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        names = load_workbook(out).sheetnames
+        assert names == ["Summary", "Gross Cash Flows", "Cash Flows", "Assumptions"]
+
+    @pytest.mark.parametrize(
+        ("sheet", "scale"),
+        [
+            ("Gross Cash Flows", 1.0),
+            ("Ceded Cash Flows", 0.9),
+            ("Cash Flows", 0.1),
+        ],
+    )
+    def test_each_sheet_carries_its_own_basis(
+        self,
+        three_basis_export: DealPricingExport,
+        tmp_path: Path,
+        sheet: str,
+        scale: float,
+    ) -> None:
+        """Year-1 Gross Premiums cell on each sheet equals that basis' own
+        annual premium sum — proves no cross-wiring between bases."""
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(three_basis_export, out)
+        ws = load_workbook(out)[sheet]
+        headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
+        prem_col = headers.index("Gross Premiums") + 1
+        year1_prem = ws.cell(row=2, column=prem_col).value
+        expected = 12 * 1_000.0 * scale  # 12 months at $1,000 * scale
+        assert year1_prem == pytest.approx(expected)
+
+    def test_gross_and_net_premiums_differ(
+        self, three_basis_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        """Sanity: gross premiums exceed net premiums on the rendered sheets."""
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(three_basis_export, out)
+        wb = load_workbook(out)
+
+        def _year1_premium(sheet: str) -> float:
+            ws = wb[sheet]
+            headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
+            prem_col = headers.index("Gross Premiums") + 1
+            return ws.cell(row=2, column=prem_col).value
+
+        assert _year1_premium("Gross Cash Flows") > _year1_premium("Cash Flows")
 
 
 # ---------------------------------------------------------------------------

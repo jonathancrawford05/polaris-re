@@ -305,12 +305,41 @@ via ADR-065 (PR #52, commit c88db82).)
   Phase 5.4 engine; flag here so the gap is visible.
   *Source: CONTINUATION_licat_capital — Slice 1 design note.*
 
-- **Gross / ceded cash flow sheets in deal-pricing Excel.** Slice 1
+- ~~**Gross / ceded cash flow sheets in deal-pricing Excel.** Slice 1
   deliberately omitted these — DTO fields exist but no sheets are
   written. If the deal committee needs a three-sheet Gross / Ceded /
   Net cash-flow section, add the writer; otherwise drop the unused DTO
   fields. **Scope:** ~1 dev-day.
-  *Source: CONTINUATION_deal_pricing_excel — Open Question #2.*
+  *Source: CONTINUATION_deal_pricing_excel — Open Question #2.*~~ —
+  **SHIPPED** (PR #72, ADR-080): chose "add the writer". `write_deal_pricing_excel`
+  now emits "Gross Cash Flows" / "Ceded Cash Flows" sheets (Gross / Ceded / Net
+  reading order) whenever the optional `gross_cashflows` / `ceded_cashflows` DTO
+  fields are populated — which the CLI already sets on every `polaris price`
+  run. `_write_cash_flows_sheet` refactored to `(wb, cashflows, title)` so one
+  builder serves all three bases. A None field suppresses its sheet, so net-only
+  exports stay byte-identical (every exact-`sheetnames` test green); the golden
+  CLI test uses a superset assertion. **Premise confirmed:** real
+  `polaris price --excel-out` previously wrote only the NET "Cash Flows" sheet
+  despite `cli.py` populating gross/ceded; post-change it writes
+  `[Summary, Gross Cash Flows, Ceded Cash Flows, Cash Flows, Assumptions]`.
+
+- **Combined Gross / Ceded / Net cash-flow comparison sheet.** ADR-080 added
+  three separate basis sheets (Gross / Ceded / Net). A committee doing a direct
+  visual diff (Net = Gross − Ceded per year) would benefit from one extra sheet
+  placing the three bases' columns side by side (or a delta column). Purely
+  additive on top of the existing `_aggregate_monthly_to_annual` helper.
+  **Scope:** ~0.5 dev-day. **Affected:**
+  `src/polaris_re/utils/excel_output.py`, tests.
+  *Source: ADR-080 Out of scope.*
+
+- **Per-sheet perspective caption on the Ceded cash-flow sheet.** On the
+  "Ceded Cash Flows" sheet the "Net Cash Flow" column is the reinsurer's ceded
+  net; ADR-080 relies on the sheet title alone to convey basis. A small caption
+  / title cell (or a perspective note) would make the reinsurer-vs-cedant
+  reading unambiguous, consistent with the perspective captions ADR-078 added on
+  the dashboard. **Scope:** ~0.5 dev-day. **Affected:**
+  `src/polaris_re/utils/excel_output.py`, tests.
+  *Source: ADR-080 Out of scope.*
 
 - ~~**Rated-block panel on the Excel Assumptions sheet.**~~ —
   **shipped 2026-06-05 (ADR-068)** as an optional `RatedBlockExport`
