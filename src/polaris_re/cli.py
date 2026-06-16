@@ -631,11 +631,10 @@ def _render_sufficiency_table(
 
 def _render_cohort_sufficiency_tables(
     cohort: CohortResult,
-    discount_rate: float,
-    target_margin: float,
+    sufficiency: tuple[PremiumSufficiencyResult, PremiumSufficiencyResult | None],
 ) -> None:
     """Render the cedant (and reinsurer) premium-sufficiency tables (ADR-083)."""
-    cedant, reinsurer = _compute_cohort_sufficiency(cohort, discount_rate, target_margin)
+    cedant, reinsurer = sufficiency
     _render_sufficiency_table(
         cedant,
         title=f"Premium Sufficiency — Cedant (NET) View · {cohort.product_type}",
@@ -789,7 +788,7 @@ def _cohort_to_deal_pricing_export(
     config: ProjectionConfig,
     inputs: PipelineInputs,
     effective_hurdle: float,
-    sufficiency_target_margin: float = 0.0,
+    sufficiency: tuple[PremiumSufficiencyResult, PremiumSufficiencyResult | None],
     yrt_rate_table: object | None = None,
     rated_block: object | None = None,
 ) -> "DealPricingExport":
@@ -833,11 +832,9 @@ def _cohort_to_deal_pricing_export(
         lapse_description=_describe_lapse(assumptions.lapse),
         assumption_set_version=assumptions.version,
     )
-    # Premium-sufficiency panel (ADR-083). Computed at the valuation
-    # discount rate, mirroring the cedant / reinsurer profit-test split.
-    suff_cedant, suff_reinsurer = _compute_cohort_sufficiency(
-        cohort, config.discount_rate, sufficiency_target_margin
-    )
+    # Premium-sufficiency panel (ADR-083), precomputed once per cohort by
+    # the caller at the valuation discount rate.
+    suff_cedant, suff_reinsurer = sufficiency
     return DealPricingExport(
         deal_meta=deal_meta,
         assumptions_meta=assumptions_meta,
@@ -1250,6 +1247,16 @@ def price_cmd(
 
         progress.update(task, completed=True)
 
+    # Premium sufficiency is computed once per cohort here (ADR-083) and
+    # reused by the Rich tables, the JSON block, and the Excel export — the
+    # PV math is cheap but recomputing it per consumer is needless work.
+    sufficiency_by_cohort: dict[
+        int, tuple[PremiumSufficiencyResult, PremiumSufficiencyResult | None]
+    ] = {
+        id(c): _compute_cohort_sufficiency(c, config.discount_rate, sufficiency_target_margin)
+        for c in cohort_results
+    }
+
     # Render per-cohort tables
     for cohort in cohort_results:
         if n_cohorts > 1:
@@ -1263,7 +1270,7 @@ def price_cmd(
                 )
             )
         _render_cohort_pricing_tables(cohort)
-        _render_cohort_sufficiency_tables(cohort, config.discount_rate, sufficiency_target_margin)
+        _render_cohort_sufficiency_tables(cohort, sufficiency_by_cohort[id(cohort)])
 
     # Build JSON output. Always includes a "cohorts" list; for the common
     # single-cohort case, mirror the cohort's cedant/reinsurer dicts at the
@@ -1276,9 +1283,7 @@ def price_cmd(
         reinsurer_dict = (
             _profit_test_to_dict(c.reinsurer_result) if c.reinsurer_result is not None else None
         )
-        suff_cedant, suff_reinsurer = _compute_cohort_sufficiency(
-            c, config.discount_rate, sufficiency_target_margin
-        )
+        suff_cedant, suff_reinsurer = sufficiency_by_cohort[id(c)]
         cohorts_out.append(
             {
                 "product_type": c.product_type,
@@ -1319,9 +1324,7 @@ def price_cmd(
         output_data["cedant"] = _profit_test_to_dict(first.cedant_result)
         if first.reinsurer_result is not None:
             output_data["reinsurer"] = _profit_test_to_dict(first.reinsurer_result)
-        suff_cedant, suff_reinsurer = _compute_cohort_sufficiency(
-            first, config.discount_rate, sufficiency_target_margin
-        )
+        suff_cedant, suff_reinsurer = sufficiency_by_cohort[id(first)]
         output_data["premium_sufficiency"] = {
             "cedant": _sufficiency_to_dict(suff_cedant),
             "reinsurer": (
@@ -1376,7 +1379,7 @@ def price_cmd(
                 config=config,
                 inputs=inputs,
                 effective_hurdle=effective_hurdle,
-                sufficiency_target_margin=sufficiency_target_margin,
+                sufficiency=sufficiency_by_cohort[id(cohort)],
                 yrt_rate_table=yrt_rate_table_obj,
                 rated_block=rated_block_export,
             )
