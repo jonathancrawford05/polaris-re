@@ -4824,3 +4824,63 @@ visual differencing. Neither is needed for the three-sheet deliverable.
   when ceded None, each sheet carries its own basis — parametrized closed-form
   check that no cross-wiring occurs, gross > net sanity; `_make_cashflows` gains
   a `scale` parameter and a `three_basis_export` fixture)
+
+---
+
+## ADR-081: Combined Gross / Ceded / Net cash-flow comparison sheet
+
+**Date:** 2026-06-16
+**Status:** Accepted
+
+**Context.** ADR-080 added separate "Gross Cash Flows" / "Ceded Cash Flows"
+sheets next to the NET "Cash Flows" sheet in the deal-pricing workbook. A
+committee verifying the treaty waterfall (Net = Gross − Ceded per year) must
+read three separate sheets and diff the corresponding rows by hand. ADR-080
+filed the combined side-by-side sheet as an explicit out-of-scope follow-up,
+which `PRODUCT_DIRECTION_2026-05-23.md` promoted as a NICE-TO-HAVE.
+
+**Decision.** Add a "Cash Flow Comparison" sheet, written only when BOTH
+`export.gross_cashflows` and `export.ceded_cashflows` are populated (a
+comparison is meaningless with a missing basis). It places the per-year Net
+Cash Flow of all three bases side by side — columns `Year | Gross | Ceded |
+Net | Gross - Ceded` — where the trailing `Gross - Ceded` column is a visual
+check that equals the `Net` column by construction (`treaty.apply` returns
+`net = gross − ceded`). Annual rollups reuse the same
+`_aggregate_monthly_to_annual` helper as the basis sheets, so the Year axis
+and per-year values match those sheets exactly. The sheet follows the NET
+"Cash Flows" sheet: Summary → Gross → Ceded → Cash Flows (Net) → Cash Flow
+Comparison → Assumptions → [Sensitivity] → [YRT Rate Table].
+
+**Rationale.** Purely additive surfacing of data already on the export; no
+new DTO field, no core contract change, no pricing math, no CLI change. The
+sheet is suppressed unless both ceded-side bases are present, so net-only and
+gross-only exports stay byte-identical (every existing exact-`sheetnames`
+assertion stays green). The golden CLI workbook test asserts a superset of
+sheet names, so the new sheet is tolerated there; the golden suite pins only
+the `price` JSON, which is unchanged. The closed-form `Gross - Ceded == Net`
+identity is verified per year in the test suite, reproduced on the golden
+config before implementation.
+
+**Behaviour change.** A real `polaris price --excel-out` run on a deal with a
+treaty (which populates both gross and ceded) now emits a "Cash Flow
+Comparison" sheet in addition to the ADR-080 basis sheets. Consumers that
+parse the workbook by sheet name are unaffected (existing sheets are unchanged
+in name, layout, and contents).
+
+**Out of scope (filed as follow-ups).** A richer comparison that breaks down
+each cash-flow line item (premiums, claims, expenses, reserves) across the
+three bases rather than only the Net Cash Flow waterfall; and the still-open
+ADR-080 follow-up of a per-sheet perspective caption on the Ceded sheet.
+Neither is needed for the Net = Gross − Ceded waterfall this sheet delivers.
+
+**Affected files.**
+
+- `src/polaris_re/utils/excel_output.py` (`write_deal_pricing_excel`
+  dispatcher writes the comparison sheet when both ceded-side bases are
+  populated; new `_write_cash_flow_comparison_sheet` builder and
+  `_CASH_FLOW_COMPARISON_COLUMNS`; module / DTO / dispatcher docstrings)
+- `tests/test_utils/test_excel_output.py` (`TestCashFlowComparisonSheet`:
+  absent when net-only / ceded-missing, present when all three bases, exact
+  column layout, row count, columns match the basis sheets, and the
+  closed-form `Gross - Ceded == Net` identity; updated the ADR-080 ordering
+  assertion to include the new sheet)

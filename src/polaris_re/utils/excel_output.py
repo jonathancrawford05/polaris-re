@@ -6,8 +6,10 @@ Two workbooks are produced from this module:
 * ``write_rate_schedule_excel`` — YRT rate schedule, one sheet per
   sex/smoker combination, used by ``polaris rate-schedule`` (pre-existing).
 * ``write_deal_pricing_excel`` — deal-pricing committee packet, covering
-  Summary / Cash Flows / Assumptions / Sensitivity. See ADR-045 for the
-  workbook schema and the rationale for the four fixed sheets.
+  Summary / Cash Flows / Assumptions / Sensitivity, plus optional
+  Gross / Ceded basis sheets (ADR-080) and a combined Gross / Ceded / Net
+  comparison sheet (ADR-081). See ADR-045 for the workbook schema and the
+  rationale for the fixed sheets.
 
 The deal-pricing export takes a ``DealPricingExport`` dataclass bundling
 the ``ProfitTestResult`` objects, the ``CashFlowResult`` used by the
@@ -117,7 +119,10 @@ class DealPricingExport:
     ``gross_cashflows=None`` / ``ceded_cashflows=None`` suppress the
     ``Gross Cash Flows`` / ``Ceded Cash Flows`` sheets respectively
     (ADR-080); when populated they render the same annual-rollup layout as
-    the NET ``Cash Flows`` sheet.
+    the NET ``Cash Flows`` sheet. When BOTH are populated, a combined
+    ``Cash Flow Comparison`` sheet (ADR-081) is also written, placing the
+    three bases' per-year Net Cash Flow side by side with a ``Gross - Ceded``
+    check column.
     ``yrt_rate_table=None`` suppresses the ``YRT Rate Table`` sheet
     (only added by ADR-052 when the deal was priced with a tabular
     schedule). ``rated_block=None`` (or ``n_rated == 0``) suppresses the
@@ -241,6 +246,18 @@ _CASH_FLOW_COLUMNS: tuple[str, ...] = (
     "Net Cash Flow",
 )
 
+# Columns for the combined Gross / Ceded / Net comparison sheet (ADR-081).
+# Each value is that basis' per-year Net Cash Flow; "Gross - Ceded" is a
+# visual check column that equals the "Net" column by construction
+# (Net = Gross - Ceded — the treaty decomposition).
+_CASH_FLOW_COMPARISON_COLUMNS: tuple[str, ...] = (
+    "Year",
+    "Gross",
+    "Ceded",
+    "Net",
+    "Gross - Ceded",
+)
+
 _SUMMARY_METRICS: tuple[str, ...] = (
     "Hurdle Rate",
     "PV Profits",
@@ -275,9 +292,14 @@ def write_deal_pricing_excel(export: DealPricingExport, path: Path) -> None:
                                otherwise the annual rollup of the CEDED
                                CashFlowResult (ADR-080).
         4. Cash Flows        — annual rollup of the NET CashFlowResult.
-        5. Assumptions       — deal + assumption-set metadata.
-        6. Sensitivity       — OMITTED when ``export.scenario_results`` is None.
-        7. YRT Rate Table    — OMITTED when ``export.yrt_rate_table`` is None;
+        5. Cash Flow Comparison — OMITTED unless BOTH ``export.gross_cashflows``
+                               and ``export.ceded_cashflows`` are populated;
+                               otherwise the per-year Net Cash Flow of all
+                               three bases side by side with a ``Gross - Ceded``
+                               check column (ADR-081).
+        6. Assumptions       — deal + assumption-set metadata.
+        7. Sensitivity       — OMITTED when ``export.scenario_results`` is None.
+        8. YRT Rate Table    — OMITTED when ``export.yrt_rate_table`` is None;
                                otherwise one block per (sex, smoker) cohort
                                (ADR-052).
 
@@ -309,6 +331,13 @@ def write_deal_pricing_excel(export: DealPricingExport, path: Path) -> None:
     if export.ceded_cashflows is not None:
         _write_cash_flows_sheet(wb, export.ceded_cashflows, "Ceded Cash Flows")
     _write_cash_flows_sheet(wb, export.net_cashflows, "Cash Flows")
+    # Combined Gross / Ceded / Net comparison sheet (ADR-081). Written only
+    # when both ceded-side bases are present, so net-only and gross-only
+    # exports stay byte-identical (the comparison needs all three bases).
+    if export.gross_cashflows is not None and export.ceded_cashflows is not None:
+        _write_cash_flow_comparison_sheet(
+            wb, export.gross_cashflows, export.ceded_cashflows, export.net_cashflows
+        )
     _write_assumptions_sheet(wb, export)
     if export.scenario_results is not None:
         _write_sensitivity_sheet(wb, export.scenario_results)
@@ -478,6 +507,56 @@ def _write_cash_flows_sheet(wb: "Workbook", cashflows: CashFlowResult, title: st
 
     ws.column_dimensions["A"].width = 8
     for col in "BCDEFG":
+        ws.column_dimensions[col].width = 18
+
+
+def _write_cash_flow_comparison_sheet(
+    wb: "Workbook",
+    gross: CashFlowResult,
+    ceded: CashFlowResult,
+    net: CashFlowResult,
+) -> None:
+    """Render the combined Gross / Ceded / Net comparison sheet (ADR-081).
+
+    Places the per-year Net Cash Flow of all three bases side by side so a
+    committee can read the waterfall (Net = Gross - Ceded) on one sheet
+    instead of diffing across the three separate basis sheets. The trailing
+    ``Gross - Ceded`` column is a visual check that equals the ``Net`` column
+    by construction (``treaty.apply`` returns ``net = gross - ceded``).
+
+    Each basis is rolled up to annual rows with the same
+    ``_aggregate_monthly_to_annual`` helper the basis sheets use, so the
+    Year axis and per-year values match those sheets exactly.
+    """
+    from openpyxl.styles import Alignment, Font
+
+    ws = wb.create_sheet(title="Cash Flow Comparison")
+    header_font = Font(bold=True)
+    centre = Alignment(horizontal="center")
+
+    for col_idx, header in enumerate(_CASH_FLOW_COMPARISON_COLUMNS, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.font = header_font
+        cell.alignment = centre
+
+    gross_annual = _aggregate_monthly_to_annual(gross)
+    ceded_annual = _aggregate_monthly_to_annual(ceded)
+    net_annual = _aggregate_monthly_to_annual(net)
+
+    for row_idx, (g_row, c_row, n_row) in enumerate(
+        zip(gross_annual, ceded_annual, net_annual, strict=True), start=2
+    ):
+        g = g_row["Net Cash Flow"]
+        c = c_row["Net Cash Flow"]
+        n = n_row["Net Cash Flow"]
+        ws.cell(row=row_idx, column=1, value=n_row["Year"])
+        ws.cell(row=row_idx, column=2, value=g).number_format = "$#,##0"
+        ws.cell(row=row_idx, column=3, value=c).number_format = "$#,##0"
+        ws.cell(row=row_idx, column=4, value=n).number_format = "$#,##0"
+        ws.cell(row=row_idx, column=5, value=g - c).number_format = "$#,##0"
+
+    ws.column_dimensions["A"].width = 8
+    for col in "BCDE":
         ws.column_dimensions[col].width = 18
 
 
