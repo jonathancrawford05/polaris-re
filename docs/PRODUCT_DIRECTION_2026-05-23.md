@@ -323,14 +323,33 @@ via ADR-065 (PR #52, commit c88db82).)
   despite `cli.py` populating gross/ceded; post-change it writes
   `[Summary, Gross Cash Flows, Ceded Cash Flows, Cash Flows, Assumptions]`.
 
-- **Combined Gross / Ceded / Net cash-flow comparison sheet.** ADR-080 added
+- ~~**Combined Gross / Ceded / Net cash-flow comparison sheet.** ADR-080 added
   three separate basis sheets (Gross / Ceded / Net). A committee doing a direct
   visual diff (Net = Gross − Ceded per year) would benefit from one extra sheet
   placing the three bases' columns side by side (or a delta column). Purely
   additive on top of the existing `_aggregate_monthly_to_annual` helper.
   **Scope:** ~0.5 dev-day. **Affected:**
   `src/polaris_re/utils/excel_output.py`, tests.
-  *Source: ADR-080 Out of scope.*
+  *Source: ADR-080 Out of scope.*~~ — **SHIPPED** (PR #73, ADR-081):
+  `write_deal_pricing_excel` now emits a "Cash Flow Comparison" sheet (after the
+  NET "Cash Flows" sheet) whenever BOTH `gross_cashflows` and `ceded_cashflows`
+  are populated. Columns `Year | Gross | Ceded | Net | Gross - Ceded` place each
+  basis' per-year Net Cash Flow side by side, with the trailing `Gross - Ceded`
+  column a visual check that equals `Net` by construction. Suppressed when a
+  ceded-side basis is missing, so net-only / gross-only exports stay
+  byte-identical. **Premise confirmed:** the golden `price --excel-out` workbook
+  had no comparison sheet and the basis sheets satisfied `Gross − Ceded = Net`
+  exactly per year. Closed-form `Gross - Ceded == Net` verified in tests; no
+  golden moved (suite pins only `price` JSON, unchanged).
+
+- **Per-line-item Gross / Ceded / Net comparison.** ADR-081's comparison sheet
+  diffs only the Net Cash Flow line across the three bases. A committee may want
+  the same side-by-side treatment for each individual cash-flow line item
+  (premiums, claims, expenses, reserve increase) to see where the ceded share
+  concentrates, not just the bottom line. Purely additive on top of the existing
+  `_aggregate_monthly_to_annual` helper. **Scope:** ~0.5–1 dev-day. **Affected:**
+  `src/polaris_re/utils/excel_output.py`, tests.
+  *Source: ADR-081 Out of scope.*
 
 - **Per-sheet perspective caption on the Ceded cash-flow sheet.** On the
   "Ceded Cash Flows" sheet the "Net Cash Flow" column is the reinsurer's ceded

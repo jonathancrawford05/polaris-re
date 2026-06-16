@@ -377,12 +377,15 @@ class TestGrossCededCashFlowSheets:
         write_deal_pricing_excel(three_basis_export, out)
         names = load_workbook(out).sheetnames
         # Gross / Ceded / Net cash-flow block in committee reading order,
-        # with the NET sheet keeping its canonical "Cash Flows" title.
+        # with the NET sheet keeping its canonical "Cash Flows" title. The
+        # combined "Cash Flow Comparison" sheet (ADR-081) follows the NET
+        # sheet — written only when both gross and ceded bases are present.
         assert names == [
             "Summary",
             "Gross Cash Flows",
             "Ceded Cash Flows",
             "Cash Flows",
+            "Cash Flow Comparison",
             "Assumptions",
             "Sensitivity",
         ]
@@ -442,6 +445,100 @@ class TestGrossCededCashFlowSheets:
             return ws.cell(row=2, column=prem_col).value
 
         assert _year1_premium("Gross Cash Flows") > _year1_premium("Cash Flows")
+
+
+# ---------------------------------------------------------------------------
+# Combined Gross / Ceded / Net cash-flow comparison sheet (ADR-081)
+# ---------------------------------------------------------------------------
+
+
+class TestCashFlowComparisonSheet:
+    """The combined "Cash Flow Comparison" sheet places the per-year Net Cash
+    Flow of all three bases side by side with a ``Gross - Ceded`` check column.
+    It is written only when BOTH gross and ceded bases are populated (the
+    comparison is meaningless with a missing basis), so net-only and
+    gross-only exports stay byte-identical."""
+
+    def test_absent_when_net_only(self, minimal_export: DealPricingExport, tmp_path: Path) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(minimal_export, out)
+        assert "Cash Flow Comparison" not in load_workbook(out).sheetnames
+
+    def test_absent_when_ceded_missing(self, tmp_path: Path) -> None:
+        """Gross present but ceded None — no comparison sheet (incomplete bases)."""
+        export = DealPricingExport(
+            deal_meta=_make_deal_meta(),
+            assumptions_meta=_make_assumptions_meta(),
+            cedant_result=_make_profit_result(),
+            reinsurer_result=None,
+            net_cashflows=_make_cashflows("NET", scale=0.1),
+            gross_cashflows=_make_cashflows("GROSS", scale=1.0),
+        )
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        assert "Cash Flow Comparison" not in load_workbook(out).sheetnames
+
+    def test_present_when_all_three_bases(
+        self, three_basis_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(three_basis_export, out)
+        assert "Cash Flow Comparison" in load_workbook(out).sheetnames
+
+    def test_columns(self, three_basis_export: DealPricingExport, tmp_path: Path) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(three_basis_export, out)
+        ws = load_workbook(out)["Cash Flow Comparison"]
+        headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
+        assert headers == ["Year", "Gross", "Ceded", "Net", "Gross - Ceded"]
+
+    def test_row_count_equals_projection_years(
+        self, three_basis_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(three_basis_export, out)
+        ws = load_workbook(out)["Cash Flow Comparison"]
+        assert ws.max_row == PROJECTION_YEARS + 1  # header + one row per year
+
+    def test_columns_match_basis_sheets(
+        self, three_basis_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        """Each basis column equals that basis sheet's own annual Net Cash Flow."""
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(three_basis_export, out)
+        wb = load_workbook(out)
+        comp = wb["Cash Flow Comparison"]
+
+        def _ncf_column(sheet: str) -> list[float]:
+            ws = wb[sheet]
+            headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
+            col = headers.index("Net Cash Flow") + 1
+            return [ws.cell(row=r, column=col).value for r in range(2, ws.max_row + 1)]
+
+        gross_basis = _ncf_column("Gross Cash Flows")
+        ceded_basis = _ncf_column("Ceded Cash Flows")
+        net_basis = _ncf_column("Cash Flows")
+        for i, r in enumerate(range(2, comp.max_row + 1)):
+            assert comp.cell(row=r, column=2).value == pytest.approx(gross_basis[i])
+            assert comp.cell(row=r, column=3).value == pytest.approx(ceded_basis[i])
+            assert comp.cell(row=r, column=4).value == pytest.approx(net_basis[i])
+
+    def test_gross_minus_ceded_identity(
+        self, three_basis_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        """Closed-form: the ``Gross - Ceded`` column equals both the arithmetic
+        difference of the Gross/Ceded columns and the Net column per year
+        (Net = Gross - Ceded — the core treaty decomposition)."""
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(three_basis_export, out)
+        ws = load_workbook(out)["Cash Flow Comparison"]
+        for r in range(2, ws.max_row + 1):
+            gross = ws.cell(row=r, column=2).value
+            ceded = ws.cell(row=r, column=3).value
+            net = ws.cell(row=r, column=4).value
+            check = ws.cell(row=r, column=5).value
+            assert check == pytest.approx(gross - ceded)
+            assert check == pytest.approx(net)
 
 
 # ---------------------------------------------------------------------------
