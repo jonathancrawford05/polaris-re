@@ -73,10 +73,10 @@ class TestClosedFormFlatBlock:
     def _result(self, target_margin: float = 0.0) -> PremiumSufficiencyResult:
         t = 24
         cf = _make_cashflow(
-            premiums=np.full(t, 100.0),
-            claims=np.full(t, 40.0),
-            surrenders=np.full(t, 5.0),
-            expenses=np.full(t, 10.0),
+            premiums=np.full(t, 100.0, dtype=np.float64),
+            claims=np.full(t, 40.0, dtype=np.float64),
+            surrenders=np.full(t, 5.0, dtype=np.float64),
+            expenses=np.full(t, 10.0, dtype=np.float64),
         )
         return PremiumSufficiencyTester(cf, discount_rate=0.0, target_margin=target_margin).run()
 
@@ -135,9 +135,9 @@ class TestSufficiencyVerdict:
     def test_target_margin_sensitivity(self, target_margin: float, expected: bool) -> None:
         t = 12
         cf = _make_cashflow(
-            premiums=np.full(t, 100.0),
-            claims=np.full(t, 45.0),
-            expenses=np.full(t, 10.0),
+            premiums=np.full(t, 100.0, dtype=np.float64),
+            claims=np.full(t, 45.0, dtype=np.float64),
+            expenses=np.full(t, 10.0, dtype=np.float64),
         )
         # loss 0.45, expense 0.10, combined 0.55, sufficiency ratio 0.45
         r = PremiumSufficiencyTester(cf, discount_rate=0.0, target_margin=target_margin).run()
@@ -147,9 +147,9 @@ class TestSufficiencyVerdict:
     def test_insufficient_block_negative_margin(self) -> None:
         t = 12
         cf = _make_cashflow(
-            premiums=np.full(t, 100.0),
-            claims=np.full(t, 95.0),
-            expenses=np.full(t, 20.0),  # benefits + expenses = 115 > 100
+            premiums=np.full(t, 100.0, dtype=np.float64),
+            claims=np.full(t, 95.0, dtype=np.float64),
+            expenses=np.full(t, 20.0, dtype=np.float64),  # benefits + expenses = 115 > 100
         )
         r = PremiumSufficiencyTester(cf, discount_rate=0.0).run()
         assert r.sufficiency_margin < 0.0
@@ -160,8 +160,13 @@ class TestSufficiencyVerdict:
 class TestEdgeCases:
     def test_zero_premium_ratios_none_and_insufficient(self) -> None:
         t = 6
-        cf = _make_cashflow(premiums=np.zeros(t), claims=np.full(t, 10.0))
+        cf = _make_cashflow(
+            premiums=np.zeros(t, dtype=np.float64),
+            claims=np.full(t, 10.0, dtype=np.float64),
+        )
         r = PremiumSufficiencyTester(cf, discount_rate=0.05).run()
+        # Exact-zero check (not an approximate value comparison): premiums are
+        # all zeros so the PV is identically 0.0 — `== 0.0` is the intended test.
         assert r.pv_premiums == 0.0
         assert r.sufficiency_ratio is None
         assert r.loss_ratio is None
@@ -173,15 +178,15 @@ class TestEdgeCases:
 
     @pytest.mark.parametrize("bad", [-0.01, 1.0, 1.5])
     def test_invalid_target_margin_rejected(self, bad: float) -> None:
-        cf = _make_cashflow(premiums=np.full(12, 100.0))
+        cf = _make_cashflow(premiums=np.full(12, 100.0, dtype=np.float64))
         with pytest.raises(ValueError, match="target_margin"):
             PremiumSufficiencyTester(cf, discount_rate=0.0, target_margin=bad)
 
     def test_basis_agnostic_net_input_accepted(self) -> None:
         # Unlike ProfitTester, sufficiency accepts any basis (incl. CEDED).
         cf = _make_cashflow(
-            premiums=np.full(12, 50.0),
-            claims=np.full(12, 20.0),
+            premiums=np.full(12, 50.0, dtype=np.float64),
+            claims=np.full(12, 20.0, dtype=np.float64),
             basis="CEDED",
         )
         r = PremiumSufficiencyTester(cf, discount_rate=0.0).run()
@@ -194,19 +199,21 @@ class TestReserveExcluded:
 
     def test_reserve_increase_does_not_change_result(self) -> None:
         t = 12
-        premiums = np.full(t, 100.0)
-        claims = np.full(t, 40.0)
-        expenses = np.full(t, 10.0)
+        premiums = np.full(t, 100.0, dtype=np.float64)
+        claims = np.full(t, 40.0, dtype=np.float64)
+        expenses = np.full(t, 10.0, dtype=np.float64)
         cf_no_reserve = _make_cashflow(premiums=premiums, claims=claims, expenses=expenses)
         cf_with_reserve = _make_cashflow(premiums=premiums, claims=claims, expenses=expenses)
         # Inject a large reserve movement; net_cash_flow would change for a
         # profit test, but premium sufficiency must be identical.
-        cf_with_reserve.reserve_increase = np.full(t, 25.0)
+        cf_with_reserve.reserve_increase = np.full(t, 25.0, dtype=np.float64)
         cf_with_reserve.net_cash_flow = cf_with_reserve.net_cash_flow - 25.0
 
         r1 = PremiumSufficiencyTester(cf_no_reserve, discount_rate=0.03).run()
         r2 = PremiumSufficiencyTester(cf_with_reserve, discount_rate=0.03).run()
         np.testing.assert_allclose(r1.sufficiency_margin, r2.sufficiency_margin)
+        # Bit-identical equality (not approximate): the analyzer never reads the
+        # reserve arrays, so the two results are computed from identical inputs.
         assert r1.combined_ratio == r2.combined_ratio
 
 
