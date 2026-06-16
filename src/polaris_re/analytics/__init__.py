@@ -14,6 +14,10 @@ from polaris_re.analytics.portfolio import (
     PortfolioResultWithCapital,
     PortfolioScenarioResult,
 )
+from polaris_re.analytics.premium_sufficiency import (
+    PremiumSufficiencyResult,
+    PremiumSufficiencyTester,
+)
 from polaris_re.analytics.pricing import NetPremiumCalculator, NetPremiumResult
 from polaris_re.analytics.profit_test import (
     ProfitResultWithCapital,
@@ -49,6 +53,8 @@ __all__ = [
     "PortfolioResult",
     "PortfolioResultWithCapital",
     "PortfolioScenarioResult",
+    "PremiumSufficiencyResult",
+    "PremiumSufficiencyTester",
     "ProfitResultWithCapital",
     "ProfitTestResult",
     "ProfitTester",

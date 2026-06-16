@@ -62,10 +62,22 @@ queue.
 
 ### NICE-TO-HAVE
 
-- **Premium sufficiency testing.** Does the cedant's premium cover
+- ~~**Premium sufficiency testing.** Does the cedant's premium cover
   expected claims + expenses + target margin? Useful for "is this deal
   pre-priced well" commentary. **Scope:** ~2 dev-days.
-  *Source: PRODUCT_DIRECTION_2026-04-19.*
+  *Source: PRODUCT_DIRECTION_2026-04-19.*~~ — **SHIPPED** (PR #74, ADR-082):
+  `analytics/premium_sufficiency.py` — `PremiumSufficiencyTester(cashflows,
+  discount_rate, *, target_margin=0.0)` returns present-value loss / expense /
+  combined ratios and an `is_sufficient` verdict
+  (`sufficiency_ratio = 1 − combined_ratio >= target_margin`). Compares
+  PV(premiums) against PV(benefits = claims + surrenders) + PV(expenses),
+  **excluding the reserve movement** (a balance-sheet timing item, not an
+  economic cost — this is what distinguishes it from `ProfitTester`).
+  Basis-agnostic (GROSS = cedant premium adequacy; reinsurer-view NET =
+  reinsurance premium adequacy). Library primitive only this slice; CLI / API /
+  dashboard / Excel surfacing harvested as a follow-up below. Closed-form
+  ratio + discounting + reserve-exclusion tests; no golden moved (suite pins
+  only `price`, byte-identical).
 
 - **Sliding-scale expense allowances / experience refunds.** Common in
   large YRT deals; currently not modelled. **Scope:** ~3 dev-days in
@@ -359,6 +371,31 @@ via ADR-065 (PR #52, commit c88db82).)
   the dashboard. **Scope:** ~0.5 dev-day. **Affected:**
   `src/polaris_re/utils/excel_output.py`, tests.
   *Source: ADR-080 Out of scope.*
+
+- **Surface premium-sufficiency ratios on the product surfaces.** ADR-082
+  shipped `PremiumSufficiencyTester` as a library primitive only. The
+  present-value loss / expense / combined ratios and the `is_sufficient`
+  verdict are not yet exposed anywhere a user sees: a sufficiency line on the
+  `polaris price` summary (or a dedicated `polaris sufficiency` command), a
+  `POST /api/v1/sufficiency` (or a block on the price response), a dashboard
+  pricing-page tile, and a panel on the Excel Summary sheet. Each just
+  constructs the tester from the already-computed gross/net cash flows and a
+  discount rate. The deal-screening value ("is this pre-priced well") lands
+  only once at least one surface consumes it. **Scope:** ~1 dev-day per surface
+  (decompose if more than one). **Affected:** `cli.py`, `api/main.py`,
+  `dashboard/views/pricing.py`, `utils/excel_output.py`, tests.
+  *Source: ADR-082 Out of scope.*
+
+- **Premium-deficiency reserve / loss-recognition extension.** When the
+  present-value combined ratio exceeds 1 (`is_sufficient` False at
+  `target_margin=0`), the premium is deficient and a premium-deficiency
+  reserve / loss-recognition adjustment may be warranted. `PremiumSufficiencyTester`
+  surfaces the deficiency (negative `sufficiency_margin`) but does not feed any
+  reserve floor. A follow-up could compute the deficiency reserve and optionally
+  thread it into the projection's reserve basis. This touches reserve mechanics,
+  so it needs its own ADR. **Scope:** design ADR + ~1–2 dev-days. **Affected:**
+  `analytics/premium_sufficiency.py`, possibly `core/projection.py`, tests.
+  *Source: ADR-082 Out of scope.*
 
 - ~~**Rated-block panel on the Excel Assumptions sheet.**~~ —
   **shipped 2026-06-05 (ADR-068)** as an optional `RatedBlockExport`

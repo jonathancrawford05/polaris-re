@@ -4884,3 +4884,81 @@ Neither is needed for the Net = Gross − Ceded waterfall this sheet delivers.
   column layout, row count, columns match the basis sheets, and the
   closed-form `Gross - Ceded == Net` identity; updated the ADR-080 ordering
   assertion to include the new sheet)
+
+## ADR-082: Premium-sufficiency (gross-premium-adequacy) analyzer
+
+**Date:** 2026-06-16
+**Status:** Accepted
+
+**Context.** `PRODUCT_DIRECTION_2026-05-23.md` carried "Premium sufficiency
+testing" (a NICE-TO-HAVE from `PRODUCT_DIRECTION_2026-04-19`): *does the
+cedant's premium cover expected claims + expenses + target margin?* — useful
+for "is this deal pre-priced well" commentary at the screening stage. The
+engine had no such analyzer. `ProfitTester` measures economic profit but
+includes the reserve movement and discounts at a profit hurdle, so it answers
+a different question; `CashFlowResult.loss_ratio()` exists but is undiscounted
+and claims-only (it ignores surrenders, expenses, and the time value of
+money). Reproduced before building: no `analytics/` module computes a
+present-value loss / expense / combined ratio or a sufficiency verdict.
+
+**Decision.** Add `analytics/premium_sufficiency.py` with a
+`PremiumSufficiencyTester(cashflows, discount_rate, *, target_margin=0.0)` and
+a `PremiumSufficiencyResult` dataclass. It compares the PV of premiums against
+the PV of benefits + expenses, deliberately **excluding the reserve
+movement**:
+
+    sufficiency_margin = PV(premiums) - PV(benefits) - PV(expenses)
+
+where `PV(benefits) = PV(death_claims + lapse_surrenders)`. It reports the
+present-value loss / expense / combined ratios and the verdict
+`is_sufficient ⇔ sufficiency_ratio (= 1 − combined_ratio) >= target_margin`.
+Discounting uses the established monthly convention `v = (1+rate)**(-1/12)`,
+factors `v ** [1..T]` — identical to `ProfitTester` and
+`CashFlowResult.pv_premiums`.
+
+**Rationale.**
+- *Reserve exclusion.* A reserve increase is a balance-sheet timing item that
+  reverses over the life of the block; it is not an economic cost of the
+  coverage. Premium *adequacy* is a gross-premium-valuation comparison of
+  premium against benefit + expense outflow, so the reserve line is excluded.
+  This is what distinguishes the analyzer from `ProfitTester` (which keeps
+  `ΔReserve` in `net_cash_flow`). A dedicated test asserts injecting a reserve
+  movement leaves the sufficiency result unchanged.
+- *Basis-agnostic.* Unlike `ProfitTester` (which rejects CEDED), the analyzer
+  accepts any basis. On a GROSS result it asks "is the cedant's direct premium
+  adequate"; on a reinsurer-view NET result (the basis `polaris price`
+  reports) it asks "is the reinsurance premium adequate for the risk assumed"
+  — both first-class questions on a reinsurer-facing tool.
+- *Ratio None-guard.* Ratios are `None` when `pv_premiums <= 0` (mirrors the
+  `ProfitTester.profit_margin` guardrail; a ratio with a non-positive premium
+  denominator is not interpretable), and `is_sufficient` is `False` in that
+  case.
+- *`target_margin` validation.* Constrained to `[0, 1)` — it is a profit
+  margin expressed as a fraction of premium. Default `0.0` tests bare cost
+  coverage.
+
+**Library-only (no surface wiring).** This slice ships the analytics primitive
+fully tested. It is not yet wired into the CLI, REST API, Streamlit dashboard,
+or the deal-pricing Excel workbook — surfacing is filed as a follow-up so the
+primitive lands isolated and low-risk, with no golden / QA reference moved (the
+golden suite pins only `polaris price`, whose output is byte-identical).
+
+**Out of scope (filed as follow-ups).** Surfacing the sufficiency ratios on
+the CLI (`price` summary / a dedicated command), the REST API, the dashboard
+pricing page, and a panel on the Excel Summary sheet; and an optional
+premium-deficiency reserve / loss-recognition extension (when the combined
+ratio exceeds 1, the deficiency could feed a reserve floor). Neither is needed
+for the screening-stage adequacy verdict this analyzer delivers.
+
+**Affected files.**
+
+- `src/polaris_re/analytics/premium_sufficiency.py` (new module:
+  `PremiumSufficiencyTester`, `PremiumSufficiencyResult`)
+- `src/polaris_re/analytics/__init__.py` (export both names in `__all__`)
+- `tests/test_analytics/test_premium_sufficiency.py` (closed-form flat-block
+  ratios at rate 0, exact `v**12` discounting, ratio identities
+  `combined = loss + expense` and `sufficiency = 1 − combined`, parametrized
+  `target_margin` verdict incl. boundary, insufficient-block negative margin,
+  zero-premium None-guard, invalid-`target_margin` rejection, basis-agnostic
+  CEDED input, reserve-exclusion invariance, and a TermLife GROSS integration
+  coherence check)
