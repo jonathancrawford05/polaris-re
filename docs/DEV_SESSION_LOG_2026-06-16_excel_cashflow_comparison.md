@@ -138,5 +138,3 @@ matches the recorded 2026-06-15 baseline (1332 at HEAD `932cc15` after PR #72
 merged). CIA tables MISSING from the pymort conversion as usual; SOA tables
 converted, so no SOA failures. No new or changed failures vs baseline.
 Post-change: 1339 passed (+7 new tests), 0 failures.
-</content>
-</invoke>
