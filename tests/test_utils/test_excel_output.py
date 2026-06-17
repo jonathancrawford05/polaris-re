@@ -1244,6 +1244,8 @@ class TestPremiumSufficiencyPanel:
     _ROWS = (
         "Sufficiency Discount Rate",
         "Sufficiency Target Margin",
+        "PV Claims",
+        "PV Surrenders",
         "PV Benefits",
         "PV Expenses",
         "Sufficiency Margin",
@@ -1295,6 +1297,33 @@ class TestPremiumSufficiencyPanel:
         assert cell == pytest.approx(
             sufficiency_export.premium_sufficiency_cedant.sufficiency_margin
         )
+
+    def test_pv_claims_and_surrenders_cells_match(
+        self, sufficiency_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        """ADR-084: the PV Claims / PV Surrenders breakdown rows carry the
+        analyzer's per-line-item components."""
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(sufficiency_export, out)
+        ws = load_workbook(out)["Summary"]
+        result = sufficiency_export.premium_sufficiency_cedant
+        claims_row = _find_row_with_label(ws, "PV Claims")
+        surr_row = _find_row_with_label(ws, "PV Surrenders")
+        assert ws.cell(row=claims_row, column=2).value == pytest.approx(result.pv_claims)
+        assert ws.cell(row=surr_row, column=2).value == pytest.approx(result.pv_surrenders)
+
+    def test_claims_plus_surrenders_equals_benefits(
+        self, sufficiency_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        """ADR-084 closed-form: the two breakdown rows sum to the PV Benefits
+        row on the sheet (PV Benefits = PV Claims + PV Surrenders)."""
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(sufficiency_export, out)
+        ws = load_workbook(out)["Summary"]
+        claims = ws.cell(row=_find_row_with_label(ws, "PV Claims"), column=2).value
+        surrenders = ws.cell(row=_find_row_with_label(ws, "PV Surrenders"), column=2).value
+        benefits = ws.cell(row=_find_row_with_label(ws, "PV Benefits"), column=2).value
+        assert claims + surrenders == pytest.approx(benefits)
 
     def test_verdict_cell_is_yes_or_no(
         self, sufficiency_export: DealPricingExport, tmp_path: Path

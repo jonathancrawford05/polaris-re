@@ -240,6 +240,12 @@ class TestDealPricingWithInjectedState:
         labels = {m.label for m in at.metric}
         assert "Combined Ratio" in labels
         assert "Sufficiency Margin" in labels
+        # ADR-084: the per-line-item PV breakdown tiles render alongside the
+        # ratios.
+        assert "PV Premiums" in labels
+        assert "PV Claims" in labels
+        assert "PV Surrenders" in labels
+        assert "PV Expenses" in labels
         # The cohort sufficiency result is stored on the cohort data.
         cohorts = at.session_state["pricing_cohorts"]
         only = next(iter(cohorts.values()))
