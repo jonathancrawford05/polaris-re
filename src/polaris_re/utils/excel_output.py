@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import polars as pl
 
+from polaris_re.analytics.premium_sufficiency import PremiumSufficiencyResult
 from polaris_re.analytics.profit_test import ProfitResultWithCapital, ProfitTestResult
 from polaris_re.core.cashflow import CashFlowResult
 
@@ -139,6 +140,13 @@ class DealPricingExport:
     scenario_results: list[ScenarioMetric] | None = None
     yrt_rate_table: "YRTRateTable | None" = None
     rated_block: RatedBlockExport | None = None
+    # Premium-sufficiency panel (ADR-083). When ``premium_sufficiency_cedant``
+    # is populated, a "Premium Sufficiency" block is appended to the Summary
+    # sheet (cedant column always; reinsurer column when
+    # ``premium_sufficiency_reinsurer`` is also populated). ``None`` suppresses
+    # the panel entirely, keeping pre-ADR-083 workbooks byte-identical.
+    premium_sufficiency_cedant: PremiumSufficiencyResult | None = None
+    premium_sufficiency_reinsurer: PremiumSufficiencyResult | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +287,21 @@ _CAPITAL_METRICS: tuple[str, ...] = (
     "Capital-Adjusted IRR",
 )
 
+# Premium-sufficiency rows appended to the Summary sheet when
+# ``premium_sufficiency_cedant`` is populated (ADR-083). The discount rate
+# here is the valuation rate used by the analyzer, not the profit hurdle.
+_SUFFICIENCY_METRICS: tuple[str, ...] = (
+    "Sufficiency Discount Rate",
+    "Sufficiency Target Margin",
+    "PV Benefits",
+    "PV Expenses",
+    "Sufficiency Margin",
+    "Loss Ratio",
+    "Expense Ratio",
+    "Combined Ratio",
+    "Premium Sufficient",
+)
+
 
 def write_deal_pricing_excel(export: DealPricingExport, path: Path) -> None:
     """Write a formatted deal-pricing workbook (see ADR-045 / ADR-052).
@@ -393,14 +416,33 @@ def _write_summary_sheet(wb: "Workbook", export: DealPricingExport) -> None:
         export.reinsurer_result is not None
         and isinstance(export.reinsurer_result, ProfitResultWithCapital)
     )
+    next_row = 4 + len(_SUMMARY_METRICS)
     if capital_present:
-        capital_start = 4 + len(_SUMMARY_METRICS)
         for i, metric in enumerate(_CAPITAL_METRICS):
-            row_idx = capital_start + i
+            row_idx = next_row + i
             ws.cell(row=row_idx, column=1, value=metric).font = header_font
             _write_capital_cell(ws, row_idx, 2, metric, export.cedant_result)
             if export.reinsurer_result is not None:
                 _write_capital_cell(ws, row_idx, 3, metric, export.reinsurer_result)
+        next_row += len(_CAPITAL_METRICS)
+
+    # Optional premium-sufficiency block — appended only when populated
+    # (ADR-083). Workbooks produced without sufficiency data remain
+    # byte-identical to pre-ADR-083 output. The reinsurer column is written
+    # only when both a reinsurer profit result and a reinsurer sufficiency
+    # result are present.
+    if export.premium_sufficiency_cedant is not None:
+        for i, metric in enumerate(_SUFFICIENCY_METRICS):
+            row_idx = next_row + i
+            ws.cell(row=row_idx, column=1, value=metric).font = header_font
+            _write_sufficiency_cell(ws, row_idx, 2, metric, export.premium_sufficiency_cedant)
+            if (
+                export.reinsurer_result is not None
+                and export.premium_sufficiency_reinsurer is not None
+            ):
+                _write_sufficiency_cell(
+                    ws, row_idx, 3, metric, export.premium_sufficiency_reinsurer
+                )
 
     ws.column_dimensions["A"].width = 26
     ws.column_dimensions["B"].width = 20
@@ -475,6 +517,46 @@ def _write_capital_cell(
         cell.value = _fmt_rate(result.capital_adjusted_irr)
         if isinstance(cell.value, float):
             cell.number_format = "0.00%"
+
+
+def _write_sufficiency_cell(
+    ws: "Worksheet",
+    row: int,
+    col: int,
+    metric: str,
+    result: PremiumSufficiencyResult,
+) -> None:
+    """Write one Summary-sheet premium-sufficiency cell (ADR-083)."""
+    cell = ws.cell(row=row, column=col)
+    if metric == "Sufficiency Discount Rate":
+        cell.value = float(result.discount_rate)
+        cell.number_format = "0.00%"
+    elif metric == "Sufficiency Target Margin":
+        cell.value = float(result.target_margin)
+        cell.number_format = "0.00%"
+    elif metric == "PV Benefits":
+        cell.value = float(result.pv_benefits)
+        cell.number_format = "$#,##0"
+    elif metric == "PV Expenses":
+        cell.value = float(result.pv_expenses)
+        cell.number_format = "$#,##0"
+    elif metric == "Sufficiency Margin":
+        cell.value = float(result.sufficiency_margin)
+        cell.number_format = "$#,##0"
+    elif metric == "Loss Ratio":
+        cell.value = _fmt_rate(result.loss_ratio)
+        if isinstance(cell.value, float):
+            cell.number_format = "0.00%"
+    elif metric == "Expense Ratio":
+        cell.value = _fmt_rate(result.expense_ratio)
+        if isinstance(cell.value, float):
+            cell.number_format = "0.00%"
+    elif metric == "Combined Ratio":
+        cell.value = _fmt_rate(result.combined_ratio)
+        if isinstance(cell.value, float):
+            cell.number_format = "0.00%"
+    elif metric == "Premium Sufficient":
+        cell.value = "Yes" if result.is_sufficient else "No"
 
 
 def _write_cash_flows_sheet(wb: "Workbook", cashflows: CashFlowResult, title: str) -> None:

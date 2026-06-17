@@ -41,6 +41,10 @@ if TYPE_CHECKING:
     from polaris_re.analytics.portfolio import Portfolio
 from polaris_re.analytics.capital import LICATCapital
 from polaris_re.analytics.ifrs17 import IFRS17Measurement
+from polaris_re.analytics.premium_sufficiency import (
+    PremiumSufficiencyResult,
+    PremiumSufficiencyTester,
+)
 from polaris_re.analytics.profit_test import (
     ProfitResultWithCapital,
     ProfitTester,
@@ -195,6 +199,18 @@ class PriceRequest(BaseModel):
             "per sex. Used only with ``yrt_rate_table_path``."
         ),
     )
+    sufficiency_target_margin: float = Field(
+        default=0.0,
+        ge=0.0,
+        lt=1.0,
+        description=(
+            "Premium-sufficiency target profit margin as a fraction of PV "
+            "premiums, in [0, 1) (ADR-083). The response's premium_sufficiency "
+            "block reports the premium 'sufficient' when its post-cost margin "
+            "ratio meets this target. Default 0.0 tests bare cost coverage. "
+            "Discounted at the valuation discount_rate, not the profit hurdle."
+        ),
+    )
 
 
 class PriceResponse(BaseModel):
@@ -234,6 +250,12 @@ class PriceResponse(BaseModel):
     reinsurer_pv_capital_strain: float | None = None
     reinsurer_return_on_capital: float | None = None
     reinsurer_capital_adjusted_irr: float | None = None
+    # Premium-sufficiency block (ADR-083). Always populated: the cedant view
+    # on the NET cash flows, the reinsurer view on the ceded cash flows
+    # re-viewed as NET (mirrors the cedant view when no treaty is configured).
+    # Discounted at the valuation discount_rate, not the profit hurdle.
+    premium_sufficiency: dict[str, float | bool | None] | None = None
+    reinsurer_premium_sufficiency: dict[str, float | bool | None] | None = None
     # Metadata
     n_policies: int
     projection_months: int
@@ -799,6 +821,23 @@ def price(request: PriceRequest) -> PriceResponse:
             else:
                 # Gross-only: reinsurer mirrors cedant view (existing behaviour)
                 reinsurer = cedant
+
+        # Premium sufficiency (ADR-083), computed at the valuation discount
+        # rate (not the profit hurdle). Cedant on NET; reinsurer on the ceded
+        # cash flows re-viewed as NET, mirroring cedant when no treaty.
+        cedant_sufficiency = PremiumSufficiencyTester(
+            cashflows=net,
+            discount_rate=request.discount_rate,
+            target_margin=request.sufficiency_target_margin,
+        ).run()
+        if ceded is not None:
+            reinsurer_sufficiency = PremiumSufficiencyTester(
+                cashflows=_ceded_to_reinsurer_view(ceded),
+                discount_rate=request.discount_rate,
+                target_margin=request.sufficiency_target_margin,
+            ).run()
+        else:
+            reinsurer_sufficiency = cedant_sufficiency
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -830,6 +869,8 @@ def price(request: PriceRequest) -> PriceResponse:
         reinsurer_pv_capital_strain=reinsurer_capital["pv_capital_strain"],
         reinsurer_return_on_capital=reinsurer_capital["return_on_capital"],
         reinsurer_capital_adjusted_irr=reinsurer_capital["capital_adjusted_irr"],
+        premium_sufficiency=_sufficiency_block(cedant_sufficiency),
+        reinsurer_premium_sufficiency=_sufficiency_block(reinsurer_sufficiency),
         n_policies=len(request.policies),
         projection_months=config.projection_months,
     )
@@ -856,6 +897,25 @@ def _capital_block(result: ProfitTestResult) -> dict[str, float | None]:
         "pv_capital_strain": float(result.pv_capital_strain),
         "return_on_capital": result.return_on_capital,
         "capital_adjusted_irr": result.capital_adjusted_irr,
+    }
+
+
+def _sufficiency_block(result: PremiumSufficiencyResult) -> dict[str, float | bool | None]:
+    """Flatten a PremiumSufficiencyResult into a response dict (ADR-083)."""
+    return {
+        "discount_rate": result.discount_rate,
+        "target_margin": result.target_margin,
+        "pv_premiums": result.pv_premiums,
+        "pv_claims": result.pv_claims,
+        "pv_surrenders": result.pv_surrenders,
+        "pv_benefits": result.pv_benefits,
+        "pv_expenses": result.pv_expenses,
+        "sufficiency_margin": result.sufficiency_margin,
+        "sufficiency_ratio": result.sufficiency_ratio,
+        "loss_ratio": result.loss_ratio,
+        "expense_ratio": result.expense_ratio,
+        "combined_ratio": result.combined_ratio,
+        "is_sufficient": result.is_sufficient,
     }
 
 

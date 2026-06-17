@@ -227,6 +227,34 @@ class TestDealPricingWithInjectedState:
         assert gross is not None, "Pricing run did not store gross_result"
         assert gross.valuation_date == date(2026, 4, 1)
 
+    def test_pricing_renders_sufficiency_tiles(self, app_with_inforce):
+        """ADR-083: a pricing run renders the premium-sufficiency tiles."""
+        at = app_with_inforce
+        at.sidebar.radio[0].set_value("Deal Pricing")
+        at.run()
+        run_buttons = [b for b in at.button if b.label == "Run Pricing"]
+        assert run_buttons, f"Run Pricing button not found; saw {[b.label for b in at.button]}"
+        run_buttons[0].click()
+        at.run()
+        assert not at.exception, f"Pricing run raised: {at.exception}"
+        labels = {m.label for m in at.metric}
+        assert "Combined Ratio" in labels
+        assert "Sufficiency Margin" in labels
+        # The cohort sufficiency result is stored on the cohort data.
+        cohorts = at.session_state["pricing_cohorts"]
+        only = next(iter(cohorts.values()))
+        assert only.premium_sufficiency is not None
+
+    def test_pricing_has_sufficiency_target_margin_input(self, app_with_inforce):
+        """ADR-083: the Deal Pricing page exposes a target-margin input."""
+        at = app_with_inforce
+        at.sidebar.radio[0].set_value("Deal Pricing")
+        at.run()
+        labels = [ni.label for ni in at.number_input]
+        assert any("target margin" in label.lower() for label in labels), (
+            f"target-margin input not found; saw {labels}"
+        )
+
 
 class TestExperienceStudyPage:
     """ADR-056 — Experience Study (A/E) page end-to-end via AppTest."""
