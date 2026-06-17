@@ -519,12 +519,12 @@ def _render_sufficiency_tiles(result: PremiumSufficiencyResult, view: str) -> No
     pv_b.metric(
         "PV Claims",
         f"${result.pv_claims:,.0f}",
-        help="Present value of death claims (the larger half of PV Benefits).",
+        help="Present value of death claims; with PV Surrenders sums to PV Benefits.",
     )
     pv_c.metric(
         "PV Surrenders",
         f"${result.pv_surrenders:,.0f}",
-        help="Present value of lapse surrenders (the other half of PV Benefits).",
+        help="Present value of lapse surrenders; with PV Claims sums to PV Benefits.",
     )
     pv_d.metric(
         "PV Expenses",

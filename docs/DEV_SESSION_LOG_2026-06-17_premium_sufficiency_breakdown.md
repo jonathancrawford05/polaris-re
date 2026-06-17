@@ -122,7 +122,8 @@ pre-change run). No baseline regenerated.
 
 ## Baseline Note
 
-Branch cut from `main` at `5093d9a` (PR #75 merge). Baseline fast suite: 1380
+Branch `claude/confident-davinci-nx23yy`, cut from `main` at `5093d9a` (PR #75
+merge). Baseline fast suite: 1380
 passed, 0 failures (CIA tables MISSING from pymort as usual; SOA converted) —
 matches the previous session log's recorded baseline, so no NEW/CHANGED
 failures; proceeded per the tolerance-aware check.
