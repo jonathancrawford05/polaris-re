@@ -290,9 +290,14 @@ _CAPITAL_METRICS: tuple[str, ...] = (
 # Premium-sufficiency rows appended to the Summary sheet when
 # ``premium_sufficiency_cedant`` is populated (ADR-083). The discount rate
 # here is the valuation rate used by the analyzer, not the profit hurdle.
+# ``PV Claims`` / ``PV Surrenders`` break out ``PV Benefits`` into its two
+# components so the combined ratio's numerator is readable line-by-line
+# (ADR-084); they sum to ``PV Benefits`` by construction.
 _SUFFICIENCY_METRICS: tuple[str, ...] = (
     "Sufficiency Discount Rate",
     "Sufficiency Target Margin",
+    "PV Claims",
+    "PV Surrenders",
     "PV Benefits",
     "PV Expenses",
     "Sufficiency Margin",
@@ -534,6 +539,14 @@ def _write_sufficiency_cell(
     elif metric == "Sufficiency Target Margin":
         cell.value = float(result.target_margin)
         cell.number_format = "0.00%"
+    elif metric == "PV Claims":
+        # Per-line-item breakdown of PV Benefits (ADR-084).
+        cell.value = float(result.pv_claims)
+        cell.number_format = "$#,##0"
+    elif metric == "PV Surrenders":
+        # Per-line-item breakdown of PV Benefits (ADR-084).
+        cell.value = float(result.pv_surrenders)
+        cell.number_format = "$#,##0"
     elif metric == "PV Benefits":
         cell.value = float(result.pv_benefits)
         cell.number_format = "$#,##0"

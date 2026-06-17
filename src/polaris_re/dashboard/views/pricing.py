@@ -475,7 +475,8 @@ def _render_sufficiency_tiles(result: PremiumSufficiencyResult, view: str) -> No
 
     ``view`` is "Cedant" or "Reinsurer" and labels the verdict tile. The
     discount rate is the valuation rate the analyzer used, not the profit
-    hurdle.
+    hurdle. A second tile row breaks out the PV premium / claim / surrender /
+    expense components that drive the ratios (ADR-084).
     """
     st.markdown(f"**Premium Sufficiency ({view})**")
 
@@ -504,6 +505,31 @@ def _render_sufficiency_tiles(result: PremiumSufficiencyResult, view: str) -> No
             "meets the target margin. Default target 0% tests bare cost "
             "coverage."
         ),
+    )
+
+    # Per-line-item PV breakdown (ADR-084): the premium / claim / surrender /
+    # expense components that drive the ratios above, all at the valuation
+    # discount rate. PV Claims + PV Surrenders = PV Benefits by construction.
+    pv_a, pv_b, pv_c, pv_d = st.columns(4)
+    pv_a.metric(
+        "PV Premiums",
+        f"${result.pv_premiums:,.0f}",
+        help="Present value of gross premiums at the valuation discount rate.",
+    )
+    pv_b.metric(
+        "PV Claims",
+        f"${result.pv_claims:,.0f}",
+        help="Present value of death claims; with PV Surrenders sums to PV Benefits.",
+    )
+    pv_c.metric(
+        "PV Surrenders",
+        f"${result.pv_surrenders:,.0f}",
+        help="Present value of lapse surrenders; with PV Claims sums to PV Benefits.",
+    )
+    pv_d.metric(
+        "PV Expenses",
+        f"${result.pv_expenses:,.0f}",
+        help="Present value of expenses at the valuation discount rate.",
     )
 
 

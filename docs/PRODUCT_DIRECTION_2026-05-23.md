@@ -404,13 +404,36 @@ via ADR-065 (PR #52, commit c88db82).)
   (`scenario_cmd` / `uq_cmd`), `analytics/portfolio.py`, `api/main.py`,
   `dashboard/`, tests. *Source: ADR-083 Out of scope.*
 
-- **Per-line-item premium-sufficiency breakdown.** ADR-083 surfaces the
+- ~~**Per-line-item premium-sufficiency breakdown.** ADR-083 surfaces the
   aggregate loss / expense / combined ratios and the verdict. A committee may
   want the PV premium / claim / surrender / expense components broken out
   line-by-line (the analyzer already returns `pv_claims` / `pv_surrenders` /
   `pv_expenses`, so this is presentation only). **Scope:** ~0.5 dev-day.
   **Affected:** `utils/excel_output.py`, `dashboard/views/pricing.py`, tests.
-  *Source: ADR-083 Out of scope.*
+  *Source: ADR-083 Out of scope.*~~ — **SHIPPED** (PR #76, ADR-084): the Excel
+  Summary sufficiency panel gains `PV Claims` / `PV Surrenders` rows before the
+  existing `PV Benefits` row (they sum to it by construction); the dashboard
+  pricing sufficiency tiles gain a second row of `PV Premiums` / `PV Claims` /
+  `PV Surrenders` / `PV Expenses` tiles. Presentation-only on the two surfaces
+  where the components were not visible (`PV Premiums` / `PV Expenses` already
+  on the Excel Summary, so not duplicated there). Additive; net-only workbooks
+  byte-identical; no golden moved (price JSON byte-identical). The matching
+  breakdown on the CLI table / JSON and the API response is harvested as a
+  follow-up below.
+
+- **Per-line-item premium-sufficiency breakdown on the CLI + API surfaces.**
+  ADR-084 broke the sufficiency benefit total out into `PV Claims` /
+  `PV Surrenders` (plus the full PV premium / claim / surrender / expense
+  decomposition) on the Excel Summary panel and the dashboard pricing tiles —
+  the two surfaces where the components were not visible. The CLI "Premium
+  Sufficiency" Rich table / `premium_sufficiency` JSON block and the API
+  `premium_sufficiency` response block still report only the aggregate ratios
+  + margin + verdict. The analyzer already returns every component
+  (`pv_premiums` / `pv_claims` / `pv_surrenders` / `pv_expenses`), so this is
+  presentation-only and additive (extra table rows / JSON keys). **Scope:**
+  ~0.5 dev-day. **Affected:** `cli.py` (`_render_sufficiency_table`,
+  `_sufficiency_to_dict`), `api/main.py` (`_sufficiency_block`), tests.
+  *Source: ADR-084 Out of scope.*
 
 - **Premium-deficiency reserve / loss-recognition extension.** When the
   present-value combined ratio exceeds 1 (`is_sufficient` False at

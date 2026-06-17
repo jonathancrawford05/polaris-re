@@ -5045,3 +5045,67 @@ ADR-082. None is needed for the deal-screening verdict this PR delivers.
   `tests/test_analytics/test_cli_premium_sufficiency.py`,
   `tests/test_utils/test_excel_output.py::TestPremiumSufficiencyPanel`,
   `tests/qa/test_dashboard_flows.py` (sufficiency tile + input tests)
+
+---
+
+## ADR-084: Per-line-item premium-sufficiency breakdown on Excel + dashboard
+
+**Date:** 2026-06-17
+**Status:** Accepted
+
+**Context.** ADR-083 surfaced the aggregate premium-sufficiency ratios (loss /
+expense / combined) plus the verdict on all four product surfaces, but reported
+benefits only as the single `PV Benefits` line (Excel) or not at all (dashboard
+tiles showed ratios + margin + verdict). A deal committee reading the combined
+ratio cannot see *where* the cost concentrates — death claims versus lapse
+surrenders versus expenses — without re-deriving it. The
+`PremiumSufficiencyResult` (ADR-082) already carries every component
+(`pv_premiums`, `pv_claims`, `pv_surrenders`, `pv_benefits`, `pv_expenses`), so
+exposing the breakdown is presentation-only. Filed as the ADR-083 out-of-scope
+follow-up "Per-line-item premium-sufficiency breakdown" in
+`PRODUCT_DIRECTION_2026-05-23.md`.
+
+**Decision.** Break the sufficiency benefit total out into its line items on the
+two surfaces where the analyzer's components are not yet visible:
+
+- *Excel Summary panel.* Insert `PV Claims` and `PV Surrenders` rows immediately
+  before the existing `PV Benefits` row in `_SUFFICIENCY_METRICS`, with cell
+  writers reading `result.pv_claims` / `result.pv_surrenders`. The two rows sum
+  to `PV Benefits` by construction. `PV Premiums` and `PV Expenses` are already
+  on the Summary sheet (the former from the profit-test block), so they are not
+  duplicated — adding a second `PV Premiums` row would collide on the
+  label-based row lookup.
+- *Dashboard pricing tiles.* Add a second `st.columns(4)` row under the existing
+  ratio/verdict row in `_render_sufficiency_tiles` showing `PV Premiums`,
+  `PV Claims`, `PV Surrenders`, `PV Expenses` — the full premium-vs-cost
+  decomposition, all at the valuation discount rate the analyzer used. The
+  dashboard had no PV component tiles previously, so the premium tile is added
+  here (no collision; tiles are scoped per cohort view).
+
+**Consequences.**
+
+- *Additive / backward compatible.* The Excel panel only gains rows and is still
+  suppressed entirely when `premium_sufficiency_cedant` is `None`, so net-only
+  pre-ADR-083 workbooks remain byte-identical. Existing panel tests find rows by
+  label (`_find_row_with_label`), not by index, so the inserted rows do not
+  shift any existing assertion. The dashboard change only adds tiles.
+- *No pricing-math change.* Presentation-only; reads existing
+  `PremiumSufficiencyResult` fields. The golden suite pins only `polaris price`
+  numeric output, which is unchanged; no baseline regenerated.
+
+**Out of scope (filed as follow-ups).** A matching per-line-item breakdown on
+the CLI Rich table / JSON block and the API response (this PR covers the Excel
+and dashboard surfaces, where the gap was visible); the per-line-item
+Gross / Ceded / Net cash-flow comparison (separate ADR-081 follow-up); and
+extending sufficiency to the `scenario` / `uq` / portfolio surfaces (separate
+ADR-083 follow-up).
+
+**Affected files.**
+
+- `src/polaris_re/utils/excel_output.py` (`_SUFFICIENCY_METRICS`;
+  `_write_sufficiency_cell` PV Claims / PV Surrenders branches)
+- `src/polaris_re/dashboard/views/pricing.py` (`_render_sufficiency_tiles`
+  second tile row)
+- Tests: `tests/test_utils/test_excel_output.py::TestPremiumSufficiencyPanel`
+  (breakdown rows + claims+surrenders=benefits identity);
+  `tests/qa/test_dashboard_flows.py` (breakdown tiles render)
