@@ -134,32 +134,34 @@ class TestCLISufficiencyTableBreakdown:
     line items (PV Claims / PV Surrenders), matching the Excel Summary panel
     (ADR-084). The JSON block already carried the breakdown since ADR-083."""
 
-    def _render(self, result: PremiumSufficiencyResult, monkeypatch) -> str:
+    def _render(self, result: PremiumSufficiencyResult, monkeypatch: pytest.MonkeyPatch) -> str:
         recorder = Console(width=200, record=True)
         monkeypatch.setattr(cli_mod, "console", recorder)
         cli_mod._render_sufficiency_table(result, title="T", border_style="cyan")
         return recorder.export_text()
 
-    def test_table_includes_claims_and_surrenders_rows(self, monkeypatch) -> None:
+    def test_table_includes_claims_and_surrenders_rows(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         text = self._render(_make_result(), monkeypatch)
         assert "PV Claims" in text
         assert "PV Surrenders" in text
 
-    def test_breakdown_rows_precede_pv_benefits(self, monkeypatch) -> None:
+    def test_breakdown_rows_precede_pv_benefits(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # ADR-084 reading order: the two components sit before their total.
         text = self._render(_make_result(), monkeypatch)
         assert text.index("PV Premiums") < text.index("PV Claims")
         assert text.index("PV Claims") < text.index("PV Surrenders")
         assert text.index("PV Surrenders") < text.index("PV Benefits")
 
-    def test_breakdown_values_sum_to_benefits(self, monkeypatch) -> None:
+    def test_breakdown_values_sum_to_benefits(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # Closed-form: rendered PV Claims + PV Surrenders == PV Benefits.
         text = self._render(_make_result(), monkeypatch)
         assert "$8,000" in text  # PV Claims
         assert "$2,000" in text  # PV Surrenders
         assert "$10,000" in text  # PV Benefits = 8,000 + 2,000
 
-    def test_existing_rows_preserved(self, monkeypatch) -> None:
+    def test_existing_rows_preserved(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # Additive change: the pre-ADR rows are all still rendered.
         text = self._render(_make_result(), monkeypatch)
         for label in (

@@ -433,7 +433,7 @@ via ADR-065 (PR #52, commit c88db82).)
   presentation-only and additive (extra table rows / JSON keys). **Scope:**
   ~0.5 dev-day. **Affected:** `cli.py` (`_render_sufficiency_table`,
   `_sufficiency_to_dict`), `api/main.py` (`_sufficiency_block`), tests.
-  *Source: ADR-084 Out of scope.*~~ — **SHIPPED** (PR #TBD, ADR-085):
+  *Source: ADR-084 Out of scope.*~~ — **SHIPPED** (PR #77, ADR-085):
   **premise corrected** (routine step 7b). The entry's claim that the CLI JSON
   block and the API response block "still report only the aggregate ratios" was
   factually wrong — both `_sufficiency_to_dict` (CLI JSON) and
