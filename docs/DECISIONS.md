@@ -5109,3 +5109,62 @@ ADR-083 follow-up).
 - Tests: `tests/test_utils/test_excel_output.py::TestPremiumSufficiencyPanel`
   (breakdown rows + claims+surrenders=benefits identity);
   `tests/qa/test_dashboard_flows.py` (breakdown tiles render)
+
+## ADR-085: Per-line-item premium-sufficiency breakdown on the CLI Rich table
+
+**Date:** 2026-06-17
+**Status:** Accepted
+
+**Context.** ADR-084 broke `PV Benefits` into its `PV Claims` / `PV Surrenders`
+line items on the Excel Summary panel and the dashboard pricing tiles, and filed
+an out-of-scope follow-up for "a matching per-line-item breakdown on the CLI Rich
+table / JSON block and the API response." That follow-up was promoted into
+`PRODUCT_DIRECTION_2026-05-23.md` ("Per-line-item premium-sufficiency breakdown
+on the CLI + API surfaces") with the stated premise that the CLI
+`premium_sufficiency` JSON block and the API `premium_sufficiency` response block
+"still report only the aggregate ratios + margin + verdict."
+
+**Premise correction (verified before implementing, routine step 7b).** The
+premise is factually wrong on two of its three claimed surfaces. The CLI JSON
+block (`_sufficiency_to_dict`) and the API response block (`_sufficiency_block`)
+*already* carry the full component breakdown — `pv_premiums`, `pv_claims`,
+`pv_surrenders`, `pv_benefits`, `pv_expenses` — added back at ADR-083 (PR #75,
+commit ad1ba89), not deferred. A live `polaris price -o` run confirms all five
+component keys in `cohorts[].premium_sufficiency.cedant`. The ADR-084
+out-of-scope note conflated the human-readable CLI **Rich table** with the JSON
+block; only the Rich table (`_render_sufficiency_table`) was actually missing the
+split — it rendered `PV Premiums` / `PV Benefits` / `PV Expenses` but never the
+`PV Claims` / `PV Surrenders` components, inconsistent with the Excel panel and
+dashboard tiles. Following the entry literally would have shipped a no-op on the
+JSON and API surfaces.
+
+**Decision.** Insert `PV Claims` and `PV Surrenders` rows immediately before the
+existing `PV Benefits` row in `_render_sufficiency_table`, reading
+`result.pv_claims` / `result.pv_surrenders`, formatted identically to the other
+monetary rows (`${:,.0f}`). The two rows sum to `PV Benefits` by construction.
+This brings the CLI Rich table into line with the Excel Summary panel (ADR-084)
+and the dashboard tiles. No change to the JSON block or the API response — they
+already carry the breakdown.
+
+**Consequences.**
+
+- *Additive / backward compatible.* The table only gains two rows; the JSON
+  output, the API response, and every numeric value are unchanged. Existing CLI
+  sufficiency tests assert on the JSON block (by key), not the table layout, so
+  none are affected.
+- *No pricing-math change.* Presentation-only; reads existing
+  `PremiumSufficiencyResult` fields. The golden suite pins only `polaris price`
+  numeric output, which is unchanged; no baseline regenerated.
+
+**Out of scope (filed as follow-ups).** Extending sufficiency to the `scenario` /
+`uq` / portfolio surfaces (separate ADR-083 follow-up, still open). No CLI/API
+JSON follow-up remains — that gap did not exist.
+
+**Affected files.**
+
+- `src/polaris_re/cli.py` (`_render_sufficiency_table` PV Claims / PV Surrenders
+  rows)
+- Tests:
+  `tests/test_analytics/test_cli_premium_sufficiency.py::TestCLISufficiencyTableBreakdown`
+  (breakdown rows present, ordered before PV Benefits, claims+surrenders=benefits
+  identity, existing rows preserved)

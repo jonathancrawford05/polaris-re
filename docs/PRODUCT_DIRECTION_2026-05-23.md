@@ -421,7 +421,7 @@ via ADR-065 (PR #52, commit c88db82).)
   breakdown on the CLI table / JSON and the API response is harvested as a
   follow-up below.
 
-- **Per-line-item premium-sufficiency breakdown on the CLI + API surfaces.**
+- ~~**Per-line-item premium-sufficiency breakdown on the CLI + API surfaces.**
   ADR-084 broke the sufficiency benefit total out into `PV Claims` /
   `PV Surrenders` (plus the full PV premium / claim / surrender / expense
   decomposition) on the Excel Summary panel and the dashboard pricing tiles —
@@ -433,7 +433,18 @@ via ADR-065 (PR #52, commit c88db82).)
   presentation-only and additive (extra table rows / JSON keys). **Scope:**
   ~0.5 dev-day. **Affected:** `cli.py` (`_render_sufficiency_table`,
   `_sufficiency_to_dict`), `api/main.py` (`_sufficiency_block`), tests.
-  *Source: ADR-084 Out of scope.*
+  *Source: ADR-084 Out of scope.*~~ — **SHIPPED** (PR #77, ADR-085):
+  **premise corrected** (routine step 7b). The entry's claim that the CLI JSON
+  block and the API response block "still report only the aggregate ratios" was
+  factually wrong — both `_sufficiency_to_dict` (CLI JSON) and
+  `_sufficiency_block` (API) already carried the full `pv_premiums` /
+  `pv_claims` / `pv_surrenders` / `pv_benefits` / `pv_expenses` breakdown since
+  ADR-083 (PR #75, commit ad1ba89), confirmed by a live `polaris price -o` run.
+  The only genuine gap was the human-readable CLI **Rich table**
+  (`_render_sufficiency_table`), which showed aggregate `PV Benefits` but never
+  the `PV Claims` / `PV Surrenders` split. Shipped just that: two rows inserted
+  before `PV Benefits`, matching the Excel panel (ADR-084) reading order; they
+  sum to `PV Benefits` by construction. No JSON / API change (no-op there).
 
 - **Premium-deficiency reserve / loss-recognition extension.** When the
   present-value combined ratio exceeds 1 (`is_sufficient` False at
