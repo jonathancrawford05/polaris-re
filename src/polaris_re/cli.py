@@ -619,6 +619,11 @@ def _render_sufficiency_table(
     table.add_row("Discount Rate", f"{result.discount_rate:.2%}")
     table.add_row("Target Margin", f"{result.target_margin:.2%}")
     table.add_row("PV Premiums", f"${result.pv_premiums:,.0f}")
+    # PV Claims / PV Surrenders break out PV Benefits into its two line items
+    # (ADR-085); they sum to PV Benefits by construction. Matches the Excel
+    # Summary panel (ADR-084) and the dashboard pricing tiles.
+    table.add_row("PV Claims", f"${result.pv_claims:,.0f}")
+    table.add_row("PV Surrenders", f"${result.pv_surrenders:,.0f}")
     table.add_row("PV Benefits", f"${result.pv_benefits:,.0f}")
     table.add_row("PV Expenses", f"${result.pv_expenses:,.0f}")
     table.add_row("Sufficiency Margin", f"${result.sufficiency_margin:,.0f}")
