@@ -5168,3 +5168,81 @@ JSON follow-up remains — that gap did not exist.
   `tests/test_analytics/test_cli_premium_sufficiency.py::TestCLISufficiencyTableBreakdown`
   (breakdown rows present, ordered before PV Benefits, claims+surrenders=benefits
   identity, existing rows preserved)
+
+## ADR-086: Per-line-item Gross / Ceded / Net comparison sheet
+
+**Date:** 2026-06-17
+**Status:** Accepted
+
+**Context.** ADR-081 added a "Cash Flow Comparison" sheet that places the
+per-year *Net Cash Flow* of the Gross / Ceded / Net bases side by side with a
+`Gross - Ceded` check column. It diffs only the bottom line, so a committee
+asking *where* the ceded share concentrates — which line item (premiums,
+claims, surrenders, expenses, reserve increase) the cession actually moves —
+must still read the three separate basis sheets (ADR-080) and diff the
+corresponding rows by hand. ADR-081 filed this richer per-line-item comparison
+as an explicit out-of-scope follow-up, promoted as a NICE-TO-HAVE in
+`PRODUCT_DIRECTION_2026-05-23.md` ("Per-line-item Gross / Ceded / Net
+comparison").
+
+**Premise (verified before implementing, routine step 7b).** A real
+`polaris price --excel-out` on the golden inputs writes a "Cash Flow
+Comparison" sheet whose columns are `Year | Gross | Ceded | Net | Gross -
+Ceded`, each value the per-year *Net Cash Flow* of that basis — confirmed no
+per-line-item breakdown sheet exists. The `net = gross − ceded` identity was
+checked to hold component-by-component (max `|Gross − Ceded − Net|` ≈ 1e-12
+across all five line items on the golden TERM cohort), so the per-line-item Net
+column is a sound closed-form check, not only the bottom-line total.
+
+**Decision.** Add a "Line Item Comparison" sheet, written under the same gate
+as ADR-081's comparison sheet (only when BOTH `export.gross_cashflows` and
+`export.ceded_cashflows` are populated). For each of the five component line
+items it places a `(Gross, Ceded, Net)` triplet side by side — header
+`Year | Gross Premiums (Gross) | Gross Premiums (Ceded) | Gross Premiums (Net)
+| Death Claims (Gross) | …` — so each component's three bases sit together. The
+bottom-line Net Cash Flow is deliberately *excluded* (ADR-081's comparison
+sheet already diffs it). Flat per-basis column headers are used instead of
+merged group-header cells to keep the layout trivially testable and
+parser-friendly. Annual rollups reuse the same `_aggregate_monthly_to_annual`
+helper as the basis sheets, so the Year axis and per-year values match those
+sheets exactly. The sheet immediately follows "Cash Flow Comparison": Summary →
+Gross → Ceded → Cash Flows (Net) → Cash Flow Comparison → Line Item Comparison
+→ Assumptions → [Sensitivity] → [YRT Rate Table].
+
+**Rationale.** Purely additive surfacing of data already on the export; no new
+DTO field, no core contract change, no pricing math, no CLI change. The sheet
+is suppressed unless both ceded-side bases are present, so net-only and
+gross-only exports stay byte-identical (every existing exact-`sheetnames`
+assertion stays green except the ADR-080 ordering assertion, which was updated
+to include the new sheet). The golden CLI workbook test asserts a superset of
+sheet names, so the new sheet is tolerated there; the golden suite pins only
+the `price` JSON, which is unchanged. The closed-form `Net == Gross − Ceded`
+identity is verified per line item and per year in the test suite.
+
+**Behaviour change.** A real `polaris price --excel-out` run on a deal with a
+treaty (which populates both gross and ceded) now emits a "Line Item
+Comparison" sheet in addition to the ADR-080 / ADR-081 sheets. Consumers that
+parse the workbook by sheet name are unaffected (existing sheets are unchanged
+in name, layout, and contents).
+
+**Out of scope (filed as follow-ups).** A per-sheet perspective caption on the
+Ceded cash-flow sheet (the still-open ADR-080 follow-up); and grouped /
+merged-cell two-level headers (line-item label spanning its three basis
+columns) if a committee prefers that visual grouping over the flat
+`{item} ({basis})` headers chosen here. Neither is needed for the
+per-line-item comparison this sheet delivers.
+
+**Affected files.**
+
+- `src/polaris_re/utils/excel_output.py` (`write_deal_pricing_excel`
+  dispatcher writes the line-item sheet alongside the ADR-081 comparison sheet
+  when both ceded-side bases are populated; new
+  `_write_line_item_comparison_sheet` builder,
+  `_LINE_ITEM_COMPARISON_LINE_ITEMS` and `_LINE_ITEM_COMPARISON_COLUMNS`
+  constants; module / dispatcher docstrings)
+- `tests/test_utils/test_excel_output.py` (`TestLineItemComparisonSheet`:
+  absent when net-only / ceded-missing, present and ordered after Cash Flow
+  Comparison when all three bases, exact column layout, row count, columns
+  match the basis sheets, and the closed-form `Net == Gross − Ceded` identity
+  per line item; updated the ADR-080 ordering assertion to include the new
+  sheet)

@@ -387,6 +387,7 @@ class TestGrossCededCashFlowSheets:
             "Ceded Cash Flows",
             "Cash Flows",
             "Cash Flow Comparison",
+            "Line Item Comparison",
             "Assumptions",
             "Sensitivity",
         ]
@@ -540,6 +541,128 @@ class TestCashFlowComparisonSheet:
             check = ws.cell(row=r, column=5).value
             assert check == pytest.approx(gross - ceded)
             assert check == pytest.approx(net)
+
+
+# ---------------------------------------------------------------------------
+# Per-line-item Gross / Ceded / Net comparison sheet (ADR-086)
+# ---------------------------------------------------------------------------
+
+
+# Component cash-flow line items broken out on the Line Item Comparison sheet
+# (every basis-sheet column except "Year" and the bottom-line "Net Cash Flow",
+# which the Cash Flow Comparison sheet already diffs).
+_LINE_ITEMS: tuple[str, ...] = (
+    "Gross Premiums",
+    "Death Claims",
+    "Lapse Surrenders",
+    "Expenses",
+    "Reserve Increase",
+)
+
+
+class TestLineItemComparisonSheet:
+    """The "Line Item Comparison" sheet places each component cash-flow line
+    item (premiums, claims, surrenders, expenses, reserve increase) of all
+    three bases side by side, so a committee can see where the ceded share
+    concentrates rather than only the bottom-line Net Cash Flow. It is written
+    only when BOTH gross and ceded bases are populated (the same gate as the
+    Cash Flow Comparison sheet), so net-only / gross-only exports stay
+    byte-identical."""
+
+    def test_absent_when_net_only(self, minimal_export: DealPricingExport, tmp_path: Path) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(minimal_export, out)
+        assert "Line Item Comparison" not in load_workbook(out).sheetnames
+
+    def test_absent_when_ceded_missing(self, tmp_path: Path) -> None:
+        """Gross present but ceded None — no line-item sheet (incomplete bases)."""
+        export = DealPricingExport(
+            deal_meta=_make_deal_meta(),
+            assumptions_meta=_make_assumptions_meta(),
+            cedant_result=_make_profit_result(),
+            reinsurer_result=None,
+            net_cashflows=_make_cashflows("NET", scale=0.1),
+            gross_cashflows=_make_cashflows("GROSS", scale=1.0),
+        )
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        assert "Line Item Comparison" not in load_workbook(out).sheetnames
+
+    def test_present_and_ordered_when_all_three_bases(
+        self, three_basis_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(three_basis_export, out)
+        names = load_workbook(out).sheetnames
+        assert "Line Item Comparison" in names
+        # Follows the bottom-line Cash Flow Comparison sheet immediately.
+        assert names.index("Line Item Comparison") == names.index("Cash Flow Comparison") + 1
+
+    def test_columns(self, three_basis_export: DealPricingExport, tmp_path: Path) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(three_basis_export, out)
+        ws = load_workbook(out)["Line Item Comparison"]
+        headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
+        expected = ["Year"]
+        for item in _LINE_ITEMS:
+            expected += [f"{item} (Gross)", f"{item} (Ceded)", f"{item} (Net)"]
+        assert headers == expected
+
+    def test_row_count_equals_projection_years(
+        self, three_basis_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(three_basis_export, out)
+        ws = load_workbook(out)["Line Item Comparison"]
+        assert ws.max_row == PROJECTION_YEARS + 1  # header + one row per year
+
+    def test_columns_match_basis_sheets(
+        self, three_basis_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        """Each (line item, basis) triplet column equals that basis sheet's own
+        annual value for the same line item — proves no cross-wiring."""
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(three_basis_export, out)
+        wb = load_workbook(out)
+        comp = wb["Line Item Comparison"]
+        comp_headers = [comp.cell(row=1, column=c).value for c in range(1, comp.max_column + 1)]
+
+        def _basis_column(sheet: str, item: str) -> list[float]:
+            ws = wb[sheet]
+            headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
+            col = headers.index(item) + 1
+            return [ws.cell(row=r, column=col).value for r in range(2, ws.max_row + 1)]
+
+        for item in _LINE_ITEMS:
+            for basis_label, sheet in (
+                ("Gross", "Gross Cash Flows"),
+                ("Ceded", "Ceded Cash Flows"),
+                ("Net", "Cash Flows"),
+            ):
+                comp_col = comp_headers.index(f"{item} ({basis_label})") + 1
+                basis_vals = _basis_column(sheet, item)
+                for i, r in enumerate(range(2, comp.max_row + 1)):
+                    assert comp.cell(row=r, column=comp_col).value == pytest.approx(basis_vals[i])
+
+    def test_net_equals_gross_minus_ceded_per_line_item(
+        self, three_basis_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        """Closed-form: for every line item and every year the Net column equals
+        Gross - Ceded (the treaty decomposition holds component-by-component,
+        not only on the bottom-line Net Cash Flow)."""
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(three_basis_export, out)
+        ws = load_workbook(out)["Line Item Comparison"]
+        headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
+        for item in _LINE_ITEMS:
+            g_col = headers.index(f"{item} (Gross)") + 1
+            c_col = headers.index(f"{item} (Ceded)") + 1
+            n_col = headers.index(f"{item} (Net)") + 1
+            for r in range(2, ws.max_row + 1):
+                gross = ws.cell(row=r, column=g_col).value
+                ceded = ws.cell(row=r, column=c_col).value
+                net = ws.cell(row=r, column=n_col).value
+                assert net == pytest.approx(gross - ceded)
 
 
 # ---------------------------------------------------------------------------

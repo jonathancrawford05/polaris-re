@@ -354,14 +354,36 @@ via ADR-065 (PR #52, commit c88db82).)
   exactly per year. Closed-form `Gross - Ceded == Net` verified in tests; no
   golden moved (suite pins only `price` JSON, unchanged).
 
-- **Per-line-item Gross / Ceded / Net comparison.** ADR-081's comparison sheet
+- ~~**Per-line-item Gross / Ceded / Net comparison.** ADR-081's comparison sheet
   diffs only the Net Cash Flow line across the three bases. A committee may want
   the same side-by-side treatment for each individual cash-flow line item
   (premiums, claims, expenses, reserve increase) to see where the ceded share
   concentrates, not just the bottom line. Purely additive on top of the existing
   `_aggregate_monthly_to_annual` helper. **Scope:** ~0.5–1 dev-day. **Affected:**
   `src/polaris_re/utils/excel_output.py`, tests.
-  *Source: ADR-081 Out of scope.*
+  *Source: ADR-081 Out of scope.*~~ — **SHIPPED** (PR #78, ADR-086): a
+  "Line Item Comparison" sheet, written under the same gate as the ADR-081
+  comparison sheet (both ceded-side bases present), places a
+  `(Gross, Ceded, Net)` triplet side by side for each of the five component
+  line items (Gross Premiums / Death Claims / Lapse Surrenders / Expenses /
+  Reserve Increase) — header `Year | {item} (Gross) | {item} (Ceded) |
+  {item} (Net)` per item. The bottom-line Net Cash Flow is excluded (ADR-081's
+  sheet already diffs it). Flat per-basis headers (not merged group cells) keep
+  it parser-friendly. **Premise confirmed:** the golden `price --excel-out`
+  workbook had a "Cash Flow Comparison" sheet diffing only Net Cash Flow and no
+  per-line-item breakdown; `Net = Gross − Ceded` holds component-by-component to
+  ~1e-12. Additive; net-only / gross-only exports byte-identical; no golden moved
+  (price JSON unchanged).
+
+- **Grouped / merged-cell two-level header on the Line Item Comparison sheet.**
+  ADR-086 uses flat `{item} ({basis})` column headers (16 columns) so the sheet
+  stays trivially parser- and test-friendly. A committee that prefers a visual
+  grouping could get a two-level header — the line-item label merged across its
+  three basis columns on row 1, with `Gross | Ceded | Net` repeated on row 2.
+  Purely presentational; the data layout is unchanged. **Scope:** ~0.5 dev-day.
+  **Affected:** `src/polaris_re/utils/excel_output.py`
+  (`_write_line_item_comparison_sheet`), tests.
+  *Source: ADR-086 Out of scope.*
 
 - **Per-sheet perspective caption on the Ceded cash-flow sheet.** On the
   "Ceded Cash Flows" sheet the "Net Cash Flow" column is the reinsurer's ceded

@@ -123,7 +123,9 @@ class DealPricingExport:
     the NET ``Cash Flows`` sheet. When BOTH are populated, a combined
     ``Cash Flow Comparison`` sheet (ADR-081) is also written, placing the
     three bases' per-year Net Cash Flow side by side with a ``Gross - Ceded``
-    check column.
+    check column, followed by a ``Line Item Comparison`` sheet (ADR-086) that
+    breaks the same three-basis comparison out per component line item
+    (premiums, claims, surrenders, expenses, reserve increase).
     ``yrt_rate_table=None`` suppresses the ``YRT Rate Table`` sheet
     (only added by ADR-052 when the deal was priced with a tabular
     schedule). ``rated_block=None`` (or ``n_rated == 0``) suppresses the
@@ -266,6 +268,31 @@ _CASH_FLOW_COMPARISON_COLUMNS: tuple[str, ...] = (
     "Gross - Ceded",
 )
 
+# Component cash-flow line items broken out on the per-line-item comparison
+# sheet (ADR-086): every basis-sheet column except "Year" and the bottom-line
+# "Net Cash Flow" (which the Cash Flow Comparison sheet already diffs). Kept as
+# a module-level constant so tests and docs reference the same list; the order
+# mirrors ``_CASH_FLOW_COLUMNS``.
+_LINE_ITEM_COMPARISON_LINE_ITEMS: tuple[str, ...] = (
+    "Gross Premiums",
+    "Death Claims",
+    "Lapse Surrenders",
+    "Expenses",
+    "Reserve Increase",
+)
+
+# Header row for the per-line-item comparison sheet: "Year" followed by a
+# (Gross, Ceded, Net) triplet per line item, so each component's three bases
+# sit side by side.
+_LINE_ITEM_COMPARISON_COLUMNS: tuple[str, ...] = (
+    "Year",
+    *(
+        f"{item} ({basis})"
+        for item in _LINE_ITEM_COMPARISON_LINE_ITEMS
+        for basis in ("Gross", "Ceded", "Net")
+    ),
+)
+
 _SUMMARY_METRICS: tuple[str, ...] = (
     "Hurdle Rate",
     "PV Profits",
@@ -325,9 +352,15 @@ def write_deal_pricing_excel(export: DealPricingExport, path: Path) -> None:
                                otherwise the per-year Net Cash Flow of all
                                three bases side by side with a ``Gross - Ceded``
                                check column (ADR-081).
-        6. Assumptions       — deal + assumption-set metadata.
-        7. Sensitivity       — OMITTED when ``export.scenario_results`` is None.
-        8. YRT Rate Table    — OMITTED when ``export.yrt_rate_table`` is None;
+        6. Line Item Comparison — OMITTED under the same gate as sheet 5;
+                               otherwise each component line item (premiums,
+                               claims, surrenders, expenses, reserve increase)
+                               of all three bases side by side, so the ceded
+                               share is visible per line, not just on the net
+                               total (ADR-086).
+        7. Assumptions       — deal + assumption-set metadata.
+        8. Sensitivity       — OMITTED when ``export.scenario_results`` is None.
+        9. YRT Rate Table    — OMITTED when ``export.yrt_rate_table`` is None;
                                otherwise one block per (sex, smoker) cohort
                                (ADR-052).
 
@@ -364,6 +397,12 @@ def write_deal_pricing_excel(export: DealPricingExport, path: Path) -> None:
     # exports stay byte-identical (the comparison needs all three bases).
     if export.gross_cashflows is not None and export.ceded_cashflows is not None:
         _write_cash_flow_comparison_sheet(
+            wb, export.gross_cashflows, export.ceded_cashflows, export.net_cashflows
+        )
+        # Per-line-item Gross / Ceded / Net comparison (ADR-086). Same gate as
+        # the bottom-line comparison sheet above: written only when all three
+        # bases are present, so net-only / gross-only exports stay byte-identical.
+        _write_line_item_comparison_sheet(
             wb, export.gross_cashflows, export.ceded_cashflows, export.net_cashflows
         )
     _write_assumptions_sheet(wb, export)
@@ -653,6 +692,57 @@ def _write_cash_flow_comparison_sheet(
     ws.column_dimensions["A"].width = 8
     for col in "BCDE":
         ws.column_dimensions[col].width = 18
+
+
+def _write_line_item_comparison_sheet(
+    wb: "Workbook",
+    gross: CashFlowResult,
+    ceded: CashFlowResult,
+    net: CashFlowResult,
+) -> None:
+    """Render the per-line-item Gross / Ceded / Net comparison sheet (ADR-086).
+
+    The ``Cash Flow Comparison`` sheet (ADR-081) diffs only the bottom-line Net
+    Cash Flow across the three bases. This sheet extends that side-by-side
+    treatment to every *component* line item (premiums, claims, surrenders,
+    expenses, reserve increase), so a committee can see where the ceded share
+    concentrates rather than only the net result. For each line item the three
+    bases sit in a (Gross, Ceded, Net) triplet; the Net column equals
+    Gross - Ceded component-by-component (``treaty.apply`` returns
+    ``net = gross - ceded`` for every cash-flow line, not just the total).
+
+    Each basis is rolled up to annual rows with the same
+    ``_aggregate_monthly_to_annual`` helper the basis sheets use, so the Year
+    axis and per-year values match those sheets exactly.
+    """
+    from openpyxl.styles import Alignment, Font
+
+    ws = wb.create_sheet(title="Line Item Comparison")
+    header_font = Font(bold=True)
+    centre = Alignment(horizontal="center")
+
+    for col_idx, header in enumerate(_LINE_ITEM_COMPARISON_COLUMNS, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.font = header_font
+        cell.alignment = centre
+
+    gross_annual = _aggregate_monthly_to_annual(gross)
+    ceded_annual = _aggregate_monthly_to_annual(ceded)
+    net_annual = _aggregate_monthly_to_annual(net)
+
+    for row_idx, (g_row, c_row, n_row) in enumerate(
+        zip(gross_annual, ceded_annual, net_annual, strict=True), start=2
+    ):
+        ws.cell(row=row_idx, column=1, value=n_row["Year"])
+        col = 2
+        for item in _LINE_ITEM_COMPARISON_LINE_ITEMS:
+            for basis_row in (g_row, c_row, n_row):
+                ws.cell(row=row_idx, column=col, value=basis_row[item]).number_format = "$#,##0"
+                col += 1
+
+    ws.column_dimensions["A"].width = 8
+    for col_idx in range(2, len(_LINE_ITEM_COMPARISON_COLUMNS) + 1):
+        ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = 18
 
 
 def _aggregate_monthly_to_annual(cf: CashFlowResult) -> list[dict[str, float]]:
