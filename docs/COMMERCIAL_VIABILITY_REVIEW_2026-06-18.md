@@ -119,18 +119,30 @@ slices.
 
 | # | Feature | Value | Effort | Phases | Source |
 |---|---------|-------|--------|--------|--------|
-| A1 | **Reserve-basis matching** (CRVM, VM-20 simplified, GAAP) — reproduce the *cedant's* reserves, not just net-premium | ★★★★★ | ~10 d | 3–4 | PD-04-19 IMPORTANT |
+| A1 | **Reserve-basis matching** (CRVM, VM-20 simplified, GAAP) — reproduce the *cedant's* reserves, not just net-premium; also closes the WL terminal-reserve artefact (see below) | ★★★★★ | ~10 d | 3–4 | PD-04-19 IMPORTANT |
 | A2 | **IFRS 17 period-to-period movement table** — opening→experience→unwinding→closing by annual cohort, locked-in rates | ★★★★★ | ~10 d | 3 | ROADMAP 5.3 |
 | A3 | **US RBC + Solvency II capital modules** — RoC for US/EU clients (LICAT is Canada-only today) | ★★★★★ | ~15 d (both) | 4 | PD-04-19 BLOCKER (RBC) |
-| A4 | **Asset / ALM model** (`core/asset.py`) — bond cash flows, investment income, duration/convexity; completes Modco economics and embedded value | ★★★★☆ | ~20 d | 4 | ROADMAP 5.4 |
 
-**Why these first.** A1 and A2 are the only two items both PRODUCT_DIRECTION
-files have carried as IMPORTANT for two months without progress. A reinsurer
-that cannot reproduce the cedant's statutory reserve basis cannot trust the
-profit number — this is the single biggest *credibility* gap. A3 is a hard
-*market-access* gate: the engine cannot quote a US or EU deal on a
-return-on-capital basis at all today. A4 is what makes Modco (already shipped)
-and embedded value actually correct rather than approximate.
+**Why these three first.** A1 and A2 are the only two items both
+PRODUCT_DIRECTION files have carried as IMPORTANT for two months without
+progress. A reinsurer that cannot reproduce the cedant's statutory reserve
+basis cannot trust the profit number — this is the single biggest *credibility*
+gap. A3 is a hard *market-access* gate: the engine cannot quote a US or EU deal
+on a return-on-capital basis at all today (confirmed worth retaining by the
+maintainer, 2026-06-18; the 2026-04-19 baseline rated US RBC a BLOCKER). The
+**Asset / ALM model** (formerly listed here as A4) is a genuine big rock but a
+*lower-priority* one — Modco prices on a fixed credited rate today, so the
+engine is usable without it — and has been moved to Tier C (C0) to be scheduled
+after these three (maintainer direction, 2026-06-18).
+
+> **Folded-in flag — WL prospective terminal reserve.** The nightly
+> `PRODUCT_DIRECTION_2026-06-18` surfaced a concrete reasonability artefact:
+> on the golden WL block the reserve declines from $7.18M (yr 10) to **$56k
+> (yr 20)** on a $25M permanent block — an ARCHITECTURE §4 horizon-edge
+> limitation a deal-committee actuary would query. This is **the same body of
+> work as A1**: a true prospective / cedant-reproduced WL reserve basis should
+> close the artefact. It is therefore a named **acceptance test inside Epic 1**,
+> not a standalone item.
 
 ### Tier B — High value, single-to-short (quick credibility wins)
 
@@ -145,6 +157,7 @@ and embedded value actually correct rather than approximate.
 
 | # | Feature | Value | Effort | Phases | Source |
 |---|---------|-------|--------|--------|--------|
+| C0 | **Asset / ALM model** (`core/asset.py`) — bond cash flows, investment income, duration/convexity; completes Modco economics and embedded value. *Big rock, but lower priority than A1–A3 — Modco works on a fixed credited rate today (maintainer direction, 2026-06-18). Schedule after the three Tier-A epics.* | ★★★★☆ | ~20 d | 4 | ROADMAP 5.4 |
 | C1 | **Production hardening & observability** — API auth, rate limiting, structured logging, K8s/Helm | ★★★☆☆ | ~8 d | 3 | ROADMAP 6.2 |
 | C2 | **Experience-monitoring automation loop** — study→export→retrain; the ML self-improvement story | ★★★☆☆ | ~6 d | 2–3 | ROADMAP 6.1 |
 | C3 | **Funds-withheld coinsurance** (`FWCoinsuranceTreaty`) | ★★★☆☆ | ~2 d | 1 | PD-04-19 NICE |
@@ -165,7 +178,7 @@ when a session genuinely cannot advance a Tier A–C epic.
 ```
         HIGH VALUE
             │  A3 RBC/SolvII      A1 Reserve basis
-            │  A4 Asset/ALM       A2 IFRS17 movement
+            │  (C0 Asset/ALM*)    A2 IFRS17 movement
             │                     B1 capital surfaces
             │  C1 hardening       B2 scale benchmark
             │  C2 experience loop B3 expense allowances
@@ -176,10 +189,14 @@ when a session genuinely cannot advance a Tier A–C epic.
         LOW │
             └──────────────────────────────────────────
               HIGH EFFORT                    LOW EFFORT
+
+  * C0 Asset/ALM is high-value/high-effort but deliberately scheduled
+    AFTER the three Tier-A epics (Modco is usable without it today).
 ```
 
 Upper-right (high value, low effort) = **do now**: B1, B2.
-Upper-left (high value, high effort) = **schedule as epics**: A1–A4.
+Upper-left (high value, high effort) = **schedule as epics**: A1–A3 first,
+then C0 (Asset/ALM).
 Lower-right = opportunistic fill: B4, C3.
 Lower-left = only with a deliberate decision: C5.
 
@@ -211,10 +228,12 @@ with occasional **quick wins** (Tier B), and reserve Tier D only as filler.
 - US RBC (C-0…C-4) first (largest market), then Solvency II SCR, sharing the
   `CapitalModel` protocol LICAT already established.
 
-**Epic 4 — Asset / ALM (A4), ~4 sessions**
-- Lands last because Modco works today on a fixed credited rate; the asset
-  model upgrades it from "approximate" to "correct" and unlocks embedded
-  value.
+**After the ladder — Asset / ALM (C0), ~4 sessions**
+- Deliberately *not* one of the three lead epics (maintainer direction,
+  2026-06-18): Modco works today on a fixed credited rate, so the engine is
+  usable without it. Scheduled after Epics 1–3, where it upgrades Modco from
+  "approximate" to "correct" and unlocks embedded value. Run it as a fourth
+  epic once the three credibility/market-access gaps are closed.
 
 Tier B3/B4 and Tier C items slot between epics as single-session picks when
 an epic is blocked or a session is time-boxed.
@@ -252,11 +271,34 @@ The detailed routine edits are in
 Polaris RE crossed the "can it price a first deal" threshold a month ago. The
 last ten PRs added genuine polish but did not move the commercial needle,
 because the routine is optimised to finish *something* every session rather
-than to advance the *highest-value* thing across sessions. The four Tier-A
-epics — reserve-basis matching, IFRS 17 movement, US/EU capital, and the
-asset model — are what a sophisticated buyer will probe in diligence, and
-none can be done in a single session. The recommended fix is an epic-driven
-routine that decomposes large features into staggered slices and treats the
-sub-day polish queue as fallback, not as the main road.
-</content>
-</invoke>
+than to advance the *highest-value* thing across sessions. The three Tier-A
+epics — reserve-basis matching, IFRS 17 movement, and US/EU capital — are what
+a sophisticated buyer will probe in diligence, followed by the Asset/ALM model
+once those gaps close; none can be done in a single session. The recommended
+fix is an epic-driven routine that decomposes large features into staggered
+slices and treats the sub-day polish queue as fallback, not as the main road.
+
+---
+
+## 7. Reconciliation with the nightly `PRODUCT_DIRECTION_2026-06-18`
+
+This review and the routine-authored nightly `PRODUCT_DIRECTION_2026-06-18.md`
+(PR #79) were produced independently the same day. They **agree on the
+destination** — both name Reserve-basis matching and the IFRS 17 movement
+table as the enduring IMPORTANT gaps, both put Reserve-basis matching first,
+and the nightly even concludes it is "the highest-impact direction shift
+available." They **disagreed on the route**, and that disagreement is resolved
+in this revision (maintainer direction, 2026-06-18):
+
+| Point | Nightly (as merged) | This review / resolution |
+|---|---|---|
+| Next-step prescription | "pick the cleanest small win on the freshest thread" | **Epic-first**: advance one decomposed IMPORTANT epic per session before any fallback pick |
+| Ranking method | single scalar `impact × (1/effort)` (rewards smallest) | 2-D value × effort (separates "do-now small" from "schedule-as-epic large") |
+| Big items | "out of scope for single-session pickup → dedicated roadmap slot" | **Decompose, don't defer** — driven through daily-dev as `PLAN_*` + `CONTINUATION_*` slices |
+| US RBC / Solvency II | dropped from gap analysis | **Restored to IMPORTANT** (A3); maintainer confirmed worth retaining |
+| Asset / ALM | not surfaced as a gap | Big rock but **lower priority** (C0); scheduled after A1–A3 |
+| WL terminal reserve | free-floating NICE-TO-HAVE sub-item | **Folded into Epic 1** as a named acceptance test |
+
+The corrections above have been applied directly to
+`PRODUCT_DIRECTION_2026-06-18.md` in this same change, so the nightly doc and
+this review now agree on both destination and route.

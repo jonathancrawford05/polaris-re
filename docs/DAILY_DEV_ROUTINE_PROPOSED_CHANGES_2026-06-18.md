@@ -150,4 +150,3 @@ check that step 5b runs before step 6.
 - **Drop the single-session constraint entirely.** Sessions are still
   one-slice; the change is that slices now ladder up to a large feature
   instead of being the whole deliverable.
-</content>
