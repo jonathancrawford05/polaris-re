@@ -177,6 +177,7 @@ class TermLife(BaseProduct):
 
         Terminal condition: V_T = 0
         """
+        self._check_reserve_basis()
         q, _w = self._build_rate_arrays()
         n, t = q.shape
 

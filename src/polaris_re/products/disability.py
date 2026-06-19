@@ -199,6 +199,7 @@ class DisabilityProduct(BaseProduct):
         """
         For Phase 2, returns zero reserves (DI GAAP reserves deferred to Phase 3).
         """
+        self._check_reserve_basis()
         n = self.inforce.n_policies
         t = self.config.projection_months
         return np.zeros((n, t), dtype=np.float64)
