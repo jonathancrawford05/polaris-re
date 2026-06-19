@@ -5595,3 +5595,93 @@ selector surfacing on CLI / API / Excel / notebook (Slice 4).
   integration)
 - `tests/test_products/test_reserve_basis_dispatch.py` (Term no longer raises on
   VM20; WL still raises on VM20/GAAP)
+
+## ADR-091: VM-20 simplified reserve for WholeLife via to-omega DR (Epic 1, Slice 3b)
+
+**Date:** 2026-06-19
+**Status:** Accepted
+
+**Context.** ADR-090 shipped VM-20 simplified (`max(NPR, DR)`, deterministic path
+only) for TermLife as Slice 3a, deferring WholeLife to 3b because the WL
+deterministic reserve is prospective beyond the projection horizon. A DR computed
+over the truncated grid with terminal `DR_T = 0` collapses at the horizon edge —
+the same artefact ADR-089 solved for the WL CRVM via a prospective-to-omega
+valuation. Term has a finite horizon (the projection covers the whole policy), so
+its DR is exact; WL needs the to-omega treatment. This ADR completes the WL VM-20
+basis.
+
+**Premise (verified before implementing, routine step 7b).** Selecting
+`reserve_basis=VM20` on a WholeLife block raised `PolarisComputationError` (basis
+not yet implemented; supported bases CRVM, NET_PREMIUM). The to-omega CRVM (NPR)
+reserve grades monotonically toward face (191k at yr10 → 493k at yr20 on the
+probe block), confirming the floor the VM-20 `max` builds on does not collapse.
+
+**Decision.** `WholeLife._supported_reserve_bases` gains VM20;
+`compute_reserves()` dispatches VM20 to `_compute_reserves_vm20()`, which returns
+`max(NPR, DR)` floored at 0, with **both** components valued to omega:
+
+1. **NPR** is the to-omega CRVM reserve (`_compute_reserves_crvm`, ADR-089),
+   reusing the tested Slice-2b machinery. It raises for short limited-pay
+   (< 20 years) via the CRVM 20-pay guard, so WL VM-20 inherits that limitation.
+2. **DR** is the to-omega deterministic gross-premium reserve
+   (`_compute_deterministic_reserve`): the per-in-force prospective present value
+   of future death benefits and maintenance expenses less future gross premiums,
+   under **both** decrements (mortality `q` and lapse `w`), via the backward
+   recursion `DR_t = (E_t − G_t) + v·[q_t·face + (1−q_t)(1−w_t)·DR_{t+1}]`,
+   terminal `DR_{omega} = 0`. The valuation grid runs to omega
+   (`_valuation_months_to_omega`, ADR-089) and the result is sliced back to the
+   projection horizon, so the DR grades toward face rather than collapsing. The
+   mortality grid is the existing `_build_valuation_mortality`; lapse over the
+   to-omega grid is supplied by a new `_build_valuation_lapse` (duration-based
+   lookup, lapse zeroed at/after max age) that matches `_build_rate_arrays` over
+   the projection horizon. `G_t` is the monthly gross premium (zeroed after the
+   limited-pay period); `E_t` is maintenance per in-force policy plus the
+   one-time month-0 acquisition cost for genuine new business — matching the cash
+   flows `project()` emits. Whole life carries no surrender value here, so
+   survivors of both decrements carry the only continuation value. The DR is
+   **not** floored (a well-priced block has DR < NPR, which is what makes
+   `max(NPR, DR)` defer to the floor).
+
+**Result.** For a well-priced WL block the gross premium exceeds the net premium,
+so DR < NPR while the reserve builds and VM20 coincides with the CRVM floor; for
+an underpriced block the realistic DR exceeds the NPR floor across the durations
+and drives the reserve above it — the deficiency signal. Because the NPR grades
+to face, VM20 (≥ NPR) does **not** collapse at the horizon. The DR is pinned
+closed-form by an independent forward prospective-PV sum (to omega) reproducing
+the backward recursion with lapse and expenses on. The YRT layer reprices
+automatically: a higher VM-20 reserve lowers the NAR and the ceded premium, with
+no treaty-layer change.
+
+**NPR := CRVM simplification.** As in ADR-090, mapping the NPR to the CRVM
+reserve is the "simplified" in "VM-20 simplified"; the exact VM-20 NPR
+refinements (mortality `X` factors / select grading, deficiency, the prescribed
+valuation table) are not reproduced and remain follow-ups. The DR is the
+realistic-projection component and is valued to omega (exact in the prospective
+sense, modulo the modelled expense set).
+
+**Behaviour change.** None on the default path (NET_PREMIUM goldens
+byte-identical, no rebaseline). A caller selecting `reserve_basis=VM20` on a
+WholeLife block now gets `max(NPR, DR)` instead of a `PolarisComputationError`.
+Short limited-pay WL (< 20 years) still raises via the CRVM guard. UL and DI
+still raise on VM20.
+
+**Out of scope (filed as follow-ups).** The VM-20 stochastic reserve (SR — its
+own multi-session epic, explicitly excluded by PLAN §2); the exact VM-20 NPR
+refinements (the NPR := CRVM simplification, carried from ADR-090); broader DR
+expense components (commissions, premium tax — the DR models maintenance +
+acquisition only); the 20-pay expense-allowance cap for short limited-pay WL
+(carried from ADR-089, still required before short-pay WL CRVM/VM-20); and
+selector surfacing on CLI / API / Excel / notebook (Slice 4, the final slice).
+
+**Affected files.**
+
+- `src/polaris_re/products/whole_life.py` (`_supported_reserve_bases` widened;
+  `compute_reserves()` dispatch branches VM20; `_compute_reserves_vm20()`,
+  `_compute_deterministic_reserve()`, `_build_valuation_lapse()` added)
+- `tests/test_products/test_whole_life_vm20_reserve.py` (new — independent
+  to-omega forward-PV match, expense monotonicity, no-collapse, `max(NPR, DR)`
+  semantics, well-priced floor-governs vs underpriced DR-governs regimes,
+  NET_PREMIUM byte-identical, valuation-lapse-matches-projection, short
+  limited-pay raises, YRT NAR integration)
+- `tests/test_products/test_reserve_basis_dispatch.py` (WL no longer raises on
+  VM20; only GAAP remains unimplemented on both engines)

@@ -440,14 +440,17 @@ Items harvested from completed/in-flight work by the daily-dev routine
   rebaseline authorization).
   *Source: ADR-089 Out of scope + DEV_SESSION_LOG_2026-06-19_reserve_basis_slice2b Open Questions (1st-order).*
 
-- **IMPORTANT — VM-20 simplified for Whole Life (Slice 3b).** Reserve-basis
+- ~~**IMPORTANT — VM-20 simplified for Whole Life (Slice 3b).** Reserve-basis
   Slice 3 was decomposed into 3a (TermLife VM-20, shipped) and 3b. Slice 3b owns
   WholeLife VM-20 `max(NPR, DR)`: the WL NPR reuses the WL CRVM reserve (ADR-089),
   but the **deterministic reserve must be valued prospectively to omega** (reusing
   `_build_valuation_mortality` / `_valuation_months_to_omega` from 2b) so it does
   not collapse at the horizon — the WL analogue of the 3a finite-horizon DR.
   Tracked as the NEXT slice in `CONTINUATION_reserve_basis.md`. Completes VM-20
-  across both Phase-1 life products → IMPORTANT.
+  across both Phase-1 life products → IMPORTANT.~~ — **SHIPPED** (PR for slice
+  3b): WholeLife VM-20 `max(NPR, DR)` with both NPR (to-omega CRVM) and DR
+  (new `_compute_deterministic_reserve` + `_build_valuation_lapse`) valued to
+  omega; VM20 (≥ the to-omega NPR) does not collapse at the horizon. ADR-091.
   *Source: ADR-090 Out of scope (1st-order).*
 
 - **NICE-TO-HAVE — Exact VM-20 NPR refinements (X factors / deficiency).**
