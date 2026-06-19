@@ -36,12 +36,17 @@ class TermLife(BaseProduct):
     All calculations are vectorized over the N policies in the inforce block.
     """
 
-    #: TermLife supports the net level premium reserve (default) and the CRVM
-    #: modified reserve. CRVM is implemented as Full Preliminary Term (FPT),
-    #: which is exact CRVM for level term — renewal valuation premiums stay
-    #: well below the 20-pay expense-allowance cap, so the cap never binds
-    #: (ADR-088). VM20 / GAAP remain unimplemented and raise via the guard.
-    _supported_reserve_bases = frozenset({ReserveBasis.NET_PREMIUM, ReserveBasis.CRVM})
+    #: TermLife supports the net level premium reserve (default), the CRVM
+    #: modified reserve, and the VM-20 simplified reserve. CRVM is implemented
+    #: as Full Preliminary Term (FPT), which is exact CRVM for level term —
+    #: renewal valuation premiums stay well below the 20-pay expense-allowance
+    #: cap, so the cap never binds (ADR-088). VM20 is the simplified VM-20
+    #: reserve ``max(NPR, DR)`` with the CRVM reserve as the net-premium-reserve
+    #: floor and a deterministic gross-premium reserve (ADR-090). GAAP remains
+    #: unimplemented and raises via the guard.
+    _supported_reserve_bases = frozenset(
+        {ReserveBasis.NET_PREMIUM, ReserveBasis.CRVM, ReserveBasis.VM20}
+    )
 
     def __init__(
         self,
@@ -182,16 +187,20 @@ class TermLife(BaseProduct):
         * ``NET_PREMIUM`` (default) — net level premium reserve.
         * ``CRVM`` — Commissioners Reserve Valuation Method, implemented as
           Full Preliminary Term (see :meth:`_compute_reserves_crvm`).
+        * ``VM20`` — VM-20 simplified reserve ``max(NPR, DR)`` (see
+          :meth:`_compute_reserves_vm20`).
 
         Unimplemented bases raise ``PolarisComputationError`` via the guard.
         """
         basis = self._check_reserve_basis()
-        q, _w = self._build_rate_arrays()
+        q, w = self._build_rate_arrays()
         i_val = self.config.effective_valuation_rate
         v_monthly = (1.0 + i_val) ** (-1.0 / 12.0)  # monthly discount factor
 
         if basis is ReserveBasis.CRVM:
             return self._compute_reserves_crvm(q, v_monthly)
+        if basis is ReserveBasis.VM20:
+            return self._compute_reserves_vm20(q, w, v_monthly)
         return self._compute_reserves_net_premium(q, v_monthly)
 
     def _compute_reserves_net_premium(self, q: np.ndarray, v_monthly: float) -> np.ndarray:
@@ -317,6 +326,101 @@ class TermLife(BaseProduct):
         alpha = np.where(ad_year1 > 0.0, a_year1 / ad_year1, 0.0)
         beta = np.where(ad_renewal > 0.0, a_renewal / ad_renewal, 0.0)
         return alpha, beta
+
+    def _compute_reserves_vm20(self, q: np.ndarray, w: np.ndarray, v_monthly: float) -> np.ndarray:
+        """
+        VM-20 simplified reserve, shape (N, T): ``max(NPR, DR)`` floored at 0.
+
+        VM-20 (the US principle-based reserve, VM-20 of the NAIC Valuation
+        Manual) sets the minimum reserve to the greatest of the Net Premium
+        Reserve (NPR), the Deterministic Reserve (DR), and the Stochastic
+        Reserve (SR). This simplified implementation covers the **deterministic
+        path only** — ``max(NPR, DR)`` — which is the scope agreed for the
+        reserve-basis epic (no stochastic scenarios; ADR-090, PLAN §3 Slice 3).
+
+        * **NPR** is mapped to the CRVM reserve (:meth:`_compute_reserves_crvm`):
+          a net-premium reserve with the first-year expense allowance graded in,
+          which is the formulaic floor VM-20 prescribes for the NPR. The exact
+          VM-20 NPR refinements (the term-specific mortality ``X`` factors, the
+          2017 CSO valuation table, deficiency where gross < net) are a
+          documented simplification — see ADR-090 "Out of scope".
+        * **DR** is the deterministic gross-premium reserve
+          (:meth:`_compute_deterministic_reserve`): the prospective present
+          value of future benefits and maintenance expenses less future gross
+          premiums, on best-estimate (mortality + lapse) decrements.
+
+        The NPR is non-negative, so ``max(NPR, DR)`` is non-negative; the final
+        ``maximum(..., 0.0)`` is a numerical-safety floor. For a well-priced
+        block the gross premium exceeds the net premium, so DR < NPR and the
+        formulaic floor governs (VM20 == CRVM); for an underpriced block the
+        realistic DR can exceed the NPR floor and then drives the reserve — the
+        deficiency signal a reinsurer relies on.
+        """
+        npr = self._compute_reserves_crvm(q, v_monthly)
+        dr = self._compute_deterministic_reserve(q, w, v_monthly)
+        return np.maximum(np.maximum(npr, dr), 0.0)
+
+    def _compute_deterministic_reserve(
+        self, q: np.ndarray, w: np.ndarray, v_monthly: float
+    ) -> np.ndarray:
+        """
+        Deterministic gross-premium reserve, shape (N, T) (per in-force policy).
+
+        Prospective present value, conditional on being in force at month ``t``,
+        of future death benefits and maintenance expenses less future gross
+        premiums, under **both** decrements (mortality ``q`` and lapse ``w``):
+
+            DR_t = (E_t - G_t) + v * [ q_t * face
+                                       + (1 - q_t) * (1 - w_t) * DR_{t+1} ]
+
+        with terminal ``DR_T = 0``. Here ``G_t`` is the monthly gross premium and
+        ``E_t`` the monthly expense (maintenance per in-force policy, plus the
+        one-time acquisition cost in month 0 for genuine new business), both
+        zeroed after term expiry — matching the cash flows :meth:`project`
+        actually emits. Lapsing policies leave with no surrender value (term
+        insurance has no cash value), so the only continuation value is for
+        survivors of both decrements.
+
+        The reserve is **not** floored here: a well-priced block has DR < 0 in
+        the early durations (the policy is an asset), and that negative value is
+        what makes the VM-20 ``max(NPR, DR)`` correctly defer to the NPR floor.
+        """
+        n, t = q.shape
+        face_vec = self.inforce.face_amount_vec  # (N,)
+        monthly_prem_vec = self.inforce.monthly_premium_vec  # (N,)
+
+        # Active mask: True while the policy term has not expired, shape (N, T).
+        remaining_months = self.inforce.remaining_term_months_vec  # (N,)
+        months = np.arange(t, dtype=np.int32)[np.newaxis, :]  # (1, T)
+        active = months < remaining_months[:, np.newaxis]  # (N, T)
+
+        # Gross premium per in-force policy (annuity-due timing), zeroed post-term.
+        gross_prem = monthly_prem_vec[:, np.newaxis] * active  # (N, T)
+
+        # Expenses per in-force policy: ongoing maintenance, plus the one-time
+        # acquisition cost in month 0 for genuine new business (duration 0 at the
+        # valuation date) — the same seasoning notion project() uses (ADR-074).
+        maint_monthly = self.config.maintenance_cost_per_policy_per_year / 12.0
+        expenses = np.zeros((n, t), dtype=np.float64)
+        if maint_monthly > 0.0:
+            expenses += maint_monthly * active
+        acq_cost = self.config.acquisition_cost_per_policy
+        if acq_cost > 0.0:
+            new_biz_mask = (
+                self.inforce.duration_inforce_vec_at(self.config.valuation_date) == 0
+            )  # (N,)
+            expenses[new_biz_mask, 0] += acq_cost
+
+        # Backward recursion. next_dr carries DR_{t+1}; DR_T = 0.
+        dr = np.zeros((n, t), dtype=np.float64)
+        next_dr = np.zeros(n, dtype=np.float64)
+        for month in range(t - 1, -1, -1):
+            survive = (1.0 - q[:, month]) * (1.0 - w[:, month])  # (N,)
+            dr[:, month] = (expenses[:, month] - gross_prem[:, month]) + v_monthly * (
+                q[:, month] * face_vec + survive * next_dr
+            )
+            next_dr = dr[:, month]
+        return dr
 
     def _compute_net_premiums(self, q: np.ndarray, v_monthly: float) -> np.ndarray:
         """

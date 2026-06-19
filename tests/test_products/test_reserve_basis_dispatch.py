@@ -28,9 +28,10 @@ from polaris_re.utils.table_io import load_mortality_csv
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
 # Bases still unimplemented per product. CRVM landed for TermLife in slice 2a
-# (ADR-088) and for WholeLife in slice 2b (ADR-089); both now raise only on
-# VM20 / GAAP.
-TERM_UNIMPLEMENTED_BASES = [ReserveBasis.VM20, ReserveBasis.GAAP]
+# (ADR-088) and for WholeLife in slice 2b (ADR-089). VM-20 simplified landed for
+# TermLife in slice 3a (ADR-090); WholeLife VM-20 (the to-omega DR) is deferred
+# to slice 3b, so WholeLife still raises on VM20. GAAP is unimplemented on both.
+TERM_UNIMPLEMENTED_BASES = [ReserveBasis.GAAP]
 WL_UNIMPLEMENTED_BASES = [ReserveBasis.VM20, ReserveBasis.GAAP]
 
 
@@ -149,8 +150,8 @@ class TestUnimplementedBasisRaises:
             engine.compute_reserves()
 
     def test_error_message_names_supported_basis(self, assumption_set: AssumptionSet):
-        # VM20 is still unimplemented for TermLife; the error names the
-        # supported bases (which now include CRVM).
-        engine = TermLife(_term_block(), assumption_set, _config(ReserveBasis.VM20))
+        # GAAP is still unimplemented for TermLife; the error names the
+        # supported bases (which now include CRVM and VM20).
+        engine = TermLife(_term_block(), assumption_set, _config(ReserveBasis.GAAP))
         with pytest.raises(PolarisComputationError, match="NET_PREMIUM"):
             engine.compute_reserves()
