@@ -5403,3 +5403,97 @@ distinct statutory valuation mortality table (2001 CSO); VM-20 simplified (Slice
   FPT identities, independent-recursion match, YRT NAR integration)
 - `tests/test_products/test_reserve_basis_dispatch.py` (Term no longer raises on
   CRVM; WL still raises on all non-NET_PREMIUM bases)
+
+## ADR-089: CRVM reserve for WholeLife via prospective-to-omega FPT (Epic 1, Slice 2b)
+
+**Date:** 2026-06-19
+**Status:** Accepted
+
+**Context.** Slice 2a (ADR-088) landed CRVM for TermLife as Full Preliminary
+Term (FPT) on the truncated projection horizon, deferring WholeLife because two
+WL-specific problems entangle: (1) the WL reserve is prospective to omega, so a
+recursion seeded by the historical one-period terminal estimate
+`V_T = face·q_T·v` collapses near the horizon (ARCHITECTURE §4 lists this as a
+known limitation), and (2) the 20-payment-whole-life expense-allowance cap can
+bind for short-pay WL. This slice lands WholeLife CRVM and, as the PLAN's
+folded-in named acceptance test, closes the WL terminal-reserve artefact.
+
+**Premise (verified before implementing, routine step 7b).** On the golden WL
+block ($25.5M, 6 policies, SOA VBT 2015, 6% discount, 20-year horizon) the
+net-premium `reserve_balance` measured **$7,171,356 at year 10 collapsing to
+$56,433 at year 20** — reproducing the documented $7.18M→$56k artefact exactly.
+The collapse is the one-period terminal estimate dragging the late durations
+down through the backward recursion, not genuine reserve runoff (a whole-life
+per-survivor reserve must grade monotonically toward face).
+
+**Decision.** WholeLife CRVM is computed **prospectively to omega**, independent
+of the projection horizon:
+
+1. Build a mortality-only valuation grid `q_val` out to omega (max table age)
+   for the youngest in-force policy — `_build_valuation_mortality(t_val)` —
+   reusing the per-(sex, smoker) lookup, substandard rating, and max-age
+   forcing of `_build_rate_arrays`, but with no lapse (a per-survivor valuation
+   reserve is mortality-only). Over the projection horizon `q_val` equals the
+   projection `q` exactly (regression-tested).
+2. Split the modified net premium into a first-year `alpha` and level renewal
+   `beta` on the equivalence principle, with benefits valued to omega and the
+   renewal-premium annuity restricted to the premium-paying window (so
+   limited-pay concentrates `beta` while still funding the to-omega benefit).
+3. Form the reserve as the per-survivor prospective value
+   `V_t = [Σ_{s≥t} f_s − Σ_{s≥t} P_s·g_s] / (v^t·tpx_t)` via reverse cumulative
+   sums, where `f_s`/`g_s` are the time-0 PVs of the benefit/annuity and `P_s`
+   is `alpha` (months 0–11) then `beta` over the premium window.
+
+`WholeLife._supported_reserve_bases` gains CRVM; `compute_reserves()` dispatches
+CRVM to `_compute_reserves_crvm()` and leaves the NET_PREMIUM body byte-identical
+(extracted unchanged into `_compute_reserves_net_premium()`).
+
+**Result.** The CRVM reserve grades monotonically toward face and does **not**
+collapse at the horizon: on the golden WL block the year-20 aggregate
+`reserve_balance` rises from the net-premium $56k to ~$2.35M (>40×), and the
+per-survivor aggregate increases from year 10 to year 20 rather than collapsing.
+FPT gives `0V = 0` and `12V = 0`, and the first-year CRVM reserve sits below the
+net-premium reserve — the first-year expense allowance graded in. The YRT layer
+reprices automatically (NAR moves) with no treaty change.
+
+**20-pay expense-allowance cap.** For whole-life pay and limited-pay ≥ 20 years
+the FPT expense allowance stays at or below the 20-payment-whole-life cap, so
+FPT is **exact CRVM** and no cap arithmetic is needed (the same reasoning as
+Term in 2a). For premium-paying periods **< 20 years** the cap binds and FPT
+would overstate the allowance; rather than ship a knowingly-uncapped reserve
+mislabelled CRVM, `_compute_reserves_crvm()` raises `PolarisComputationError`
+for that narrow case. Implementing the cap is filed as a follow-up.
+
+**Valuation mortality basis.** As in 2a, CRVM values on the **projection
+(best-estimate) mortality**, not a distinct statutory table (2001 CSO). The
+to-omega valuation needs mortality beyond the projection horizon, which the
+projection table supplies; wiring a separate `valuation_mortality` slot remains
+a deferred controlled core-contract change.
+
+**Behaviour change.** None on the default path (NET_PREMIUM goldens
+byte-identical, no rebaseline). A caller selecting `reserve_basis=CRVM` on a
+WholeLife block now gets the prospective FPT/CRVM reserve instead of a
+`PolarisComputationError` (except short-pay WL, which still raises). UL / DI
+still raise on CRVM.
+
+**Out of scope (filed as follow-ups).** The 20-pay expense-allowance cap for
+short-pay WL (CRVM currently raises there); the distinct statutory valuation
+mortality table (2001 CSO); closing the artefact on the **NET_PREMIUM** basis
+itself (a separate rebaseline-bearing change — this slice closes it only under
+CRVM, leaving NET_PREMIUM byte-identical per the epic's golden constraint);
+VM-20 simplified (Slice 3); and selector surfacing on CLI / API / Excel /
+notebook (Slice 4).
+
+**Affected files.**
+
+- `src/polaris_re/products/whole_life.py` (`_supported_reserve_bases` widened;
+  `compute_reserves()` dispatch; `_compute_reserves_net_premium()` extracted;
+  `_compute_reserves_crvm()`, `_compute_crvm_modified_premiums()`,
+  `_build_valuation_mortality()`, `_valuation_months_to_omega()` added)
+- `tests/test_products/test_whole_life_crvm_reserve.py` (new — FPT identities,
+  no-collapse / monotonicity, expense-allowance grading, omega convergence, YRT
+  NAR integration, short-pay raises, NET_PREMIUM byte-identical, and the named
+  golden-WL terminal-reserve acceptance test pinning $7.18M→$56k)
+- `tests/test_products/test_reserve_basis_dispatch.py` (WL no longer raises on
+  CRVM)
+- `ARCHITECTURE.md` (§4 note that CRVM values WL prospectively to omega)

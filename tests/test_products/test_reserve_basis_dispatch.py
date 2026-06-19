@@ -28,9 +28,10 @@ from polaris_re.utils.table_io import load_mortality_csv
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
 # Bases still unimplemented per product. CRVM landed for TermLife in slice 2a
-# (ADR-088); WholeLife still raises on every non-NET_PREMIUM basis.
+# (ADR-088) and for WholeLife in slice 2b (ADR-089); both now raise only on
+# VM20 / GAAP.
 TERM_UNIMPLEMENTED_BASES = [ReserveBasis.VM20, ReserveBasis.GAAP]
-WL_UNIMPLEMENTED_BASES = [ReserveBasis.CRVM, ReserveBasis.VM20, ReserveBasis.GAAP]
+WL_UNIMPLEMENTED_BASES = [ReserveBasis.VM20, ReserveBasis.GAAP]
 
 
 @pytest.fixture()

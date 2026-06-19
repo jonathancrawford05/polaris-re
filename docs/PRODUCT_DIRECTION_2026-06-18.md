@@ -397,18 +397,48 @@ Items harvested from completed/in-flight work by the daily-dev routine
   Term/WL first-deal path → NICE-TO-HAVE.
   *Source: ADR-087 Out of scope (1st-order).*
 
-- **IMPORTANT — Whole-life CRVM + prospective terminal reserve (Slice 2b).**
+- ~~**IMPORTANT — Whole-life CRVM + prospective terminal reserve (Slice 2b).**
   Reserve-basis Slice 2 was decomposed into 2a (TermLife CRVM, shipped) and 2b.
   Slice 2b owns: WholeLife CRVM (Full Preliminary Term), the **WL prospective
   terminal reserve to omega** that closes the $7.18M→$56k horizon-edge artefact,
   the distinct **statutory valuation mortality table** (2001 CSO — TermLife CRVM
   currently values on the projection table), and the **20-pay expense-allowance
-  cap** (binds for short-pay/high-premium WL, never for level term). This is the
-  next slice of the active Epic and is tracked in
-  `docs/CONTINUATION_reserve_basis.md` (IN PROGRESS) — listed here for the audit
-  trail, **not** as un-started fallback work. Common-path WL correctness →
-  IMPORTANT.
+  cap** (binds for short-pay/high-premium WL, never for level term).~~ —
+  **SHIPPED** (PR for slice 2b): WholeLife CRVM via prospective-to-omega FPT;
+  the $7.18M→$56k artefact is closed under the CRVM basis (golden-WL yr20
+  reserve_balance ~$2.35M, >40×). The 2001 CSO table and 20-pay cap were
+  **deferred** and are re-promoted as their own items below.
   *Source: ADR-088 Out of scope + DEV_SESSION_LOG_2026-06-19_reserve_basis_slice2a Open Questions (1st-order).*
+
+- **IMPORTANT — Statutory valuation mortality table (2001 CSO) for CRVM.**
+  Both TermLife (2a) and WholeLife (2b) CRVM value on the **projection
+  best-estimate mortality**, not the prescribed statutory valuation table
+  (2001 CSO). Exact reproduction of a cedant's US statutory CRVM reserve — the
+  whole point of the epic — requires wiring a distinct `valuation_mortality`
+  slot (a controlled core-contract change → ADR + backward-compat default). This
+  is a real gap to "match the cedant's basis exactly," not polish → IMPORTANT.
+  *Source: ADR-089 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — 20-pay expense-allowance cap for short-pay whole life.**
+  WholeLife CRVM (FPT) is exact for whole-life pay and limited-pay ≥ 20 years;
+  for premium-paying periods < 20 years the 20-payment-whole-life cap binds and
+  `_compute_reserves_crvm()` currently **raises** `PolarisComputationError`
+  (never a silently-wrong reserve). Implementing the cap unblocks CRVM on
+  short-pay/high-premium WL. Narrow product subset, and the safe-raise means no
+  correctness risk on the common path → NICE-TO-HAVE.
+  *Source: ADR-089 Out of scope (1st-order).*
+
+- **IMPORTANT — Close the WL terminal-reserve artefact on the NET_PREMIUM
+  basis.** Slice 2b closes the $7.18M→$56k horizon-edge collapse only under the
+  **CRVM** basis; the **default NET_PREMIUM** WL reserve still uses the
+  one-period terminal estimate `V_T = face·q_T·v` and still collapses (left
+  byte-identical to honour the epic's golden constraint). Replacing the
+  NET_PREMIUM terminal estimate with the same prospective-to-omega valuation
+  would close the artefact on the default path, but **moves the goldens** and so
+  needs its own ADR + coordinated baseline regeneration + human review. Affects
+  the default reserve number on every WL block → IMPORTANT (gated on
+  rebaseline authorization).
+  *Source: ADR-089 Out of scope + DEV_SESSION_LOG_2026-06-19_reserve_basis_slice2b Open Questions (1st-order).*
 
 ## Carried Forward
 
