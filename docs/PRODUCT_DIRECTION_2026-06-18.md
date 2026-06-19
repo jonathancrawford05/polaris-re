@@ -125,13 +125,17 @@ across every surface. Premium sufficiency now reports on the deal-pricing path
 end-to-end (CLI / API / dashboard / Excel) with per-line-item PV breakdown.
 
 What still **gates production use at a large reinsurer** is the same two
-items the 2026-05-23 file flagged: (1) the engine carries a single net-
-premium reserve basis with a horizon-edge approximation; reproducing the
-cedant's stated reserves (GAAP, STAT VM-20, CRVM, deficiency reserves) is not
-yet possible, and (2) IFRS 17 only produces point-in-time recognition figures,
-not the period-to-period movement table required for a real filing. Both are
-documented in the queue with ~10 dev-day scope estimates and explicitly scoped
-to a dedicated Phase 5.3+ roadmap entry rather than mid-sprint pickup.
+items the 2026-05-23 file flagged, plus a third gap restored at maintainer
+direction this run: (1) the engine carries a single net-premium reserve basis
+with a horizon-edge approximation; reproducing the cedant's stated reserves
+(GAAP, STAT VM-20, CRVM, deficiency reserves) is not yet possible, (2) IFRS 17
+only produces point-in-time recognition figures, not the period-to-period
+movement table required for a real filing, and (3) regulatory capital is
+LICAT-only (Canada), so US and EU deals cannot be evaluated on a
+return-on-capital basis at all. These are scoped as **staggered epics**
+(see `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md`), decomposed into
+session-sized slices and driven by daily-dev — not deferred to an
+unscheduled roadmap slot.
 
 ## Feature Gap Analysis
 
@@ -143,9 +147,12 @@ follow-up queue.
 
 ### IMPORTANT
 
-Both surviving IMPORTANT items are unchanged from 2026-05-23 — neither was
-selected by daily-dev in the intervening 26 days, per their explicit scope
-caveat:
+Two IMPORTANT items are unchanged from 2026-05-23 — neither was selected by
+daily-dev in the intervening 26 days, per their (now-removed) "out of scope
+for single-session pickup" caveat. A third (cross-jurisdiction capital) is
+restored this run at maintainer direction. All three are now treated as
+**epics to decompose and drive**, not items to defer (see
+`docs/DAILY_DEV_ROUTINE_PROPOSED_CHANGES_2026-06-18.md`):
 
 - **Reserve basis matching (cedant reproduction).** `core/projection.py`
   supports one reserve basis. Reinsurers must reproduce the cedant's reserves
@@ -163,18 +170,39 @@ caveat:
   `analytics/ifrs17.py`. *Carried from PRODUCT_DIRECTION_2026-05-23 →
   2026-04-19.*
 
-Today's run surfaces a **third item that would warrant IMPORTANT status if
-it begins to show up in cedant submissions**, currently filed
-NICE-TO-HAVE in the queue but worth re-reading:
+- **Cross-jurisdiction regulatory capital (US RBC + Solvency II).** LICAT
+  capital (C-1 / C-2 / C-3, with lapse and morbidity risk) ships today, but
+  it is the **Canadian** standard only. A reinsurer cannot evaluate a US or
+  EU deal on a return-on-capital basis — the primary decision metric for a
+  reinsurer — without the equivalent RBC (US) and Solvency II SCR (EU)
+  modules. **This is a market-access gate, not polish:** the 2026-04-19
+  baseline listed US RBC as a BLOCKER; it was dropped from the gap analysis
+  in the intervening nightlies and is restored here at maintainer direction
+  (2026-06-18). Both reuse the `CapitalModel` protocol LICAT already
+  established. **Scope:** ~15 dev-days for both (US RBC first, ~8 d;
+  Solvency II SCR, ~7 d). **Affected:** new `analytics/capital.py` siblings
+  to `LICATCapital`, `ProfitTester` surfacing, CLI `--capital {rbc,solvency2}`,
+  API `capital_model` field, new ADRs. *Restored from
+  PRODUCT_DIRECTION_2026-04-19 (was BLOCKER); see
+  `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` Tier A (A3).*
+
+A further item surfaced this run **would warrant IMPORTANT status if it
+begins to show up in cedant submissions**, currently filed NICE-TO-HAVE in
+the queue but worth re-reading. Unlike 2026-05-23, it is now explicitly
+**folded into the Reserve-basis-matching epic as a motivating acceptance
+test**, not left as a free-floating sub-item:
 
 - **WL prospective terminal reserve.** The horizon-edge artefact (WL reserve
   declining from $7.18M at yr 10 to $56k at yr 20) is an ARCHITECTURE-
   documented limitation rather than a regression, but a deal-committee actuary
   would query why a $25M WL block carries near-zero reserves at projection
   end. ARCHITECTURE.md §4 already foreshadows "Phase 3 will extend to true
-  prospective reserves" — this remains open. Flagged for visibility this
-  nightly. *No promotion proposed — keep on the carried-forward NICE-TO-HAVE
-  queue (Reserve-basis matching covers the user need; this is a sub-item).*
+  prospective reserves" — this remains open. **Disposition:** carried on the
+  NICE-TO-HAVE queue, but named as an acceptance test inside Epic 1
+  (Reserve-basis matching) — a true prospective / cedant-reproduced WL basis
+  should close the $56k-at-horizon artefact, so the two are the same body of
+  work. *Cross-referenced in `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md`
+  Epic 1.*
 
 ### NICE-TO-HAVE
 
@@ -230,10 +258,28 @@ queue covers:
 
 ## Recommended Next Sprint
 
-With no BLOCKERs, no IMPORTANT item that fits a single session, and a
-well-stocked NICE-TO-HAVE queue, the recommendation for the next several
-daily-dev sessions remains "pick the cleanest small win on the freshest
-thread". Concretely, ranked by `(commercial impact) × (1 / effort)`:
+**Direction change (2026-06-18, maintainer-approved).** The prior nightlies
+ranked work by `(commercial impact) × (1 / effort)` and recommended "pick the
+cleanest small win on the freshest thread". That single scalar structurally
+rewards the *smallest* available item, which is why ten consecutive PRs
+(#69–#78) were sub-day polish while the IMPORTANT items sat untouched for
+~56 days (see `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md`). Selection is
+now **epic-first**: advance one decomposed IMPORTANT epic every session before
+any fallback pick, and order fallback work by a 2-D value × effort read rather
+than by `1 / effort` alone.
+
+**Lead item — Epic 1: Reserve-basis matching.** Highest-impact direction shift
+available; gates cedant reproduction in the deal-committee workflow and closes
+the WL terminal-reserve flag above. Decompose per
+`docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` §4 into 3–4 session-sized
+slices (slice 1: `ReserveBasis` enum + plumbing, goldens byte-identical) and
+ship slice 1 next session. Write `docs/PLAN_reserve_basis.md` and open
+`docs/CONTINUATION_reserve_basis.md` (IN PROGRESS) before any fallback pick.
+Epics 2 (IFRS 17 movement) and 3 (US RBC + Solvency II) follow.
+
+**Fallback queue (between-epic / blocked-epic picks only).** When the active
+epic's next slice is blocked or complete and the session has capacity, these
+are the cleanest small wins, ordered by value-per-day:
 
 1. **Premium sufficiency on `scenario` / `uq` / portfolio surfaces.**
    Single-deal price has surfaced sufficiency end-to-end since ADR-085
@@ -284,10 +330,14 @@ thread". Concretely, ranked by `(commercial impact) × (1 / effort)`:
    Reserve for a session with the explicit goal of regenerating goldens, not
    a quick small pick. ~1-2 dev-days.
 
-The two IMPORTANT items (Reserve-basis matching, IFRS 17 movement table)
-remain out of scope for single-session pickup; they should be slated as a
-dedicated Phase 5.3+ roadmap entry with explicit scope, golden plan, and
-review milestones.
+The three IMPORTANT items (Reserve-basis matching, IFRS 17 movement table,
+US RBC + Solvency II capital) are **no longer** treated as out of scope for
+daily-dev. Each is an epic: scoped, decomposed into session-sized slices, and
+driven to completion one slice per session via a `PLAN_*.md` + `CONTINUATION_*.md`
+pair, exactly as the dashboard-portfolio work was (PR #61 / #62 / #63). The
+Asset / ALM model (Roadmap 5.4) remains a lower-priority big rock than these
+three — Modco prices on a fixed credited rate today — and is scheduled after
+the three epics above (see review §3, Tier C).
 
 ## Recently Completed (by daily dev routine)
 
@@ -356,16 +406,23 @@ work (grouped Line Item Comparison header, per-sheet perspective caption,
 sufficiency-on-scenario/UQ/portfolio surfaces, premium-deficiency reserve).
 Net queue movement is consistent with the daily-dev routine's design — finish
 small follow-ups, harvest the next batch of follow-ups from the ADRs of the
-work just shipped.
+work just shipped. **That design is exactly what `COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md`
+identifies as the "polish spiral": the queue grows in the polish direction
+faster than it shrinks, and the highest-value work never starts.** Two
+corrections are applied this run: (a) **US RBC + Solvency II capital** is
+restored to IMPORTANT (the 2026-04-19 baseline had US RBC as a BLOCKER; it
+had silently dropped out of the gap analysis), and (b) the **WL terminal
+reserve** flag is folded into the Reserve-basis epic as an acceptance test
+rather than left as a free-floating NICE-TO-HAVE.
 
-The two enduring IMPORTANT items (Reserve-basis matching and IFRS 17
-period-to-period movement table) have not been touched in 56 days and remain
-correctly out of scope for single-session pickup. They are the canonical
-candidates for a dedicated Phase 5.3+ roadmap entry. If the maintainer wants
-to compress the gap-to-real-deal timeline, scoping a focused 2-week roadmap
-slot for one of these — most likely Reserve-basis matching, since it
-gates cedant reproduction in the deal-committee workflow — is the highest-
-impact direction shift available from here.
+The three IMPORTANT items (Reserve-basis matching, IFRS 17 period-to-period
+movement table, US RBC + Solvency II) are the gap-to-real-deal at a large
+reinsurer. Reserve-basis matching is the highest-impact and is the lead epic;
+IFRS 17 movement and cross-jurisdiction capital follow. Rather than a
+"dedicated 2-week roadmap slot" carved out of daily-dev, the maintainer
+direction (2026-06-18) is to **drive these through daily-dev as decomposed
+epics** — one session-sized slice at a time, byte-identical goldens until the
+final surfacing slice — per `docs/DAILY_DEV_ROUTINE_PROPOSED_CHANGES_2026-06-18.md`.
 
 The actuarial reasonability profile is unchanged from prior nightlies — flat
 YRT rate vs rising mortality on the WL block, WL prospective terminal
