@@ -7,6 +7,7 @@
   COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md).
 - **Title:** CRVM for Whole Life + prospective terminal-reserve artefact.
 - **Slice:** 2b of 5 (slices 1, 2a complete).
+- **Branch:** claude/epic-euler-oy7sfj
 
 ## Selection Rationale
 Step 5 found CONTINUATION_reserve_basis IN PROGRESS; slice 2a (PR #82) is merged,
