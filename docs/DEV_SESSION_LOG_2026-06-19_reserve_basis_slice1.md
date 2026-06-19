@@ -6,6 +6,7 @@
 - **Priority:** Tier A (highest-value, ~10 dev-days, #1 unstarted epic)
 - **Title:** Reserve-basis matching — Slice 1: `ReserveBasis` enum + plumbing
 - **Slice:** 1 of 4
+- **Branch:** `claude/epic-euler-uiauq2` (PR #81)
 
 ## Selection Rationale
 Step 5 found **no IN PROGRESS CONTINUATION** — every existing CONTINUATION is
