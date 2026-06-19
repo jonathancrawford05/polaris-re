@@ -20,6 +20,7 @@ from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.policy import ProductType
 from polaris_re.core.projection import ProjectionConfig
+from polaris_re.core.reserve_basis import ReserveBasis
 from polaris_re.products.base_product import BaseProduct
 from polaris_re.utils.date_utils import projection_date_index
 
@@ -34,6 +35,13 @@ class TermLife(BaseProduct):
     Net premium reserves are computed using backward recursion.
     All calculations are vectorized over the N policies in the inforce block.
     """
+
+    #: TermLife supports the net level premium reserve (default) and the CRVM
+    #: modified reserve. CRVM is implemented as Full Preliminary Term (FPT),
+    #: which is exact CRVM for level term — renewal valuation premiums stay
+    #: well below the 20-pay expense-allowance cap, so the cap never binds
+    #: (ADR-088). VM20 / GAAP remain unimplemented and raise via the guard.
+    _supported_reserve_bases = frozenset({ReserveBasis.NET_PREMIUM, ReserveBasis.CRVM})
 
     def __init__(
         self,
@@ -167,6 +175,27 @@ class TermLife(BaseProduct):
 
     def compute_reserves(self) -> np.ndarray:
         """
+        Compute policy reserves, shape (N, T), on the configured basis.
+
+        Dispatches on ``config.reserve_basis``:
+
+        * ``NET_PREMIUM`` (default) — net level premium reserve.
+        * ``CRVM`` — Commissioners Reserve Valuation Method, implemented as
+          Full Preliminary Term (see :meth:`_compute_reserves_crvm`).
+
+        Unimplemented bases raise ``PolarisComputationError`` via the guard.
+        """
+        basis = self._check_reserve_basis()
+        q, _w = self._build_rate_arrays()
+        i_val = self.config.effective_valuation_rate
+        v_monthly = (1.0 + i_val) ** (-1.0 / 12.0)  # monthly discount factor
+
+        if basis is ReserveBasis.CRVM:
+            return self._compute_reserves_crvm(q, v_monthly)
+        return self._compute_reserves_net_premium(q, v_monthly)
+
+    def _compute_reserves_net_premium(self, q: np.ndarray, v_monthly: float) -> np.ndarray:
+        """
         Backward recursion for net premium reserves, shape (N, T).
 
         Uses net premium reserve formula:
@@ -177,13 +206,8 @@ class TermLife(BaseProduct):
 
         Terminal condition: V_T = 0
         """
-        self._check_reserve_basis()
-        q, _w = self._build_rate_arrays()
         n, t = q.shape
-
         face_vec = self.inforce.face_amount_vec  # (N,)
-        i_val = self.config.effective_valuation_rate
-        v_monthly = (1.0 + i_val) ** (-1.0 / 12.0)  # monthly discount factor
 
         # Compute net premium (level net premium for term life)
         # P_net = APV(benefits) / APV(annuity-due)
@@ -203,6 +227,96 @@ class TermLife(BaseProduct):
         reserves = np.maximum(reserves, 0.0)
 
         return reserves
+
+    def _compute_reserves_crvm(self, q: np.ndarray, v_monthly: float) -> np.ndarray:
+        """
+        Backward recursion for the CRVM modified reserve, shape (N, T).
+
+        CRVM (Commissioners Reserve Valuation Method) grades in the first-year
+        acquisition expense allowance by splitting the valuation net premium
+        into a smaller first-year premium (alpha) and a level renewal premium
+        (beta). For level term insurance the renewal valuation premium never
+        exceeds the 20-pay expense-allowance cap, so CRVM coincides exactly
+        with **Full Preliminary Term (FPT)**: the first policy year is valued
+        as one-year term (alpha funds exactly the first year's mortality), and
+        the renewal reserve from the end of year 1 onward is the net premium
+        reserve of an otherwise-identical policy issued one year later.
+
+        The recursion is identical to the net premium recursion but deducts
+        alpha in the first 12 months and beta thereafter:
+
+            V_t = [q_t * face + (1 - q_t) * V_{t+1}] * v - P_t
+            P_t = alpha (months 0..11), beta (months 12..T-1)
+
+        Consequences (used as closed-form checks in the tests):
+        * ``0V = 0`` and the year-1 terminal reserve ``12V = 0`` (FPT).
+        * From month 12 on, the reserve equals the net premium reserve of the
+          one-year-later policy, so the CRVM reserve is below the net premium
+          reserve during the early durations — exactly the expense allowance.
+
+        Reserves are floored at 0 (the within-first-year preliminary-term
+        reserve can dip slightly negative; a negative reserve is meaningless
+        for the downstream NAR calculation).
+        """
+        n, t = q.shape
+        face_vec = self.inforce.face_amount_vec  # (N,)
+
+        alpha, beta = self._compute_crvm_modified_premiums(q, v_monthly)  # (N,), (N,)
+
+        reserves = np.zeros((n, t), dtype=np.float64)
+        # V_T = 0 (terminal condition, already zeros)
+        for month in range(t - 2, -1, -1):
+            p_month = alpha if month < 12 else beta  # (N,)
+            reserves[:, month] = (
+                q[:, month] * face_vec + (1.0 - q[:, month]) * reserves[:, month + 1]
+            ) * v_monthly - p_month
+
+        reserves = np.maximum(reserves, 0.0)
+        return reserves
+
+    def _compute_crvm_modified_premiums(
+        self, q: np.ndarray, v_monthly: float
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        CRVM (Full Preliminary Term) modified valuation net premiums, shape (N,).
+
+        Splits the policy into year 1 (months 0..11) and renewal (months
+        12..T-1) and solves each segment on the equivalence principle:
+
+            alpha = APV(year-1 benefits)   / APV(year-1 annuity-due)
+            beta  = APV(renewal benefits)  / APV(renewal annuity-due)
+
+        All APVs are taken as of issue using mortality-only survival ``tpx``
+        (lapse does not enter a per-survivor valuation reserve), so that
+        ``alpha * ad_year1 + beta * ad_renewal == APV(all benefits)`` and hence
+        ``0V = 0``. Degenerate segments (no renewal exposure, e.g. a policy
+        whose remaining term is under a year) yield a zero premium for that
+        segment via the divide-by-zero guard.
+        """
+        n, t = q.shape
+        face_vec = self.inforce.face_amount_vec  # (N,)
+
+        # Mortality-only survival to the start of each month: tpx[:, 0] = 1.
+        tpx = np.ones((n, t), dtype=np.float64)
+        for month in range(1, t):
+            tpx[:, month] = tpx[:, month - 1] * (1.0 - q[:, month - 1])
+
+        v_powers = v_monthly ** np.arange(t, dtype=np.float64)  # v^0 .. v^(T-1)
+        v_powers_plus1 = v_monthly ** np.arange(1, t + 1, dtype=np.float64)  # v^1 .. v^T
+
+        benefit_pv = v_powers_plus1[np.newaxis, :] * tpx * q * face_vec[:, np.newaxis]  # (N, T)
+        annuity_pv = v_powers[np.newaxis, :] * tpx  # (N, T)
+
+        year1 = np.arange(t) < 12  # (T,) boolean split: first policy year vs renewal
+
+        a_year1 = benefit_pv[:, year1].sum(axis=1)  # (N,)
+        ad_year1 = annuity_pv[:, year1].sum(axis=1)  # (N,)
+        a_renewal = benefit_pv[:, ~year1].sum(axis=1)  # (N,)
+        ad_renewal = annuity_pv[:, ~year1].sum(axis=1)  # (N,)
+
+        alpha = np.where(ad_year1 > 0.0, a_year1 / ad_year1, 0.0)
+        beta = np.where(ad_renewal > 0.0, a_renewal / ad_renewal, 0.0)
+        return alpha, beta
 
     def _compute_net_premiums(self, q: np.ndarray, v_monthly: float) -> np.ndarray:
         """

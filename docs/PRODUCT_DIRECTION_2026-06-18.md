@@ -397,6 +397,19 @@ Items harvested from completed/in-flight work by the daily-dev routine
   Term/WL first-deal path → NICE-TO-HAVE.
   *Source: ADR-087 Out of scope (1st-order).*
 
+- **IMPORTANT — Whole-life CRVM + prospective terminal reserve (Slice 2b).**
+  Reserve-basis Slice 2 was decomposed into 2a (TermLife CRVM, shipped) and 2b.
+  Slice 2b owns: WholeLife CRVM (Full Preliminary Term), the **WL prospective
+  terminal reserve to omega** that closes the $7.18M→$56k horizon-edge artefact,
+  the distinct **statutory valuation mortality table** (2001 CSO — TermLife CRVM
+  currently values on the projection table), and the **20-pay expense-allowance
+  cap** (binds for short-pay/high-premium WL, never for level term). This is the
+  next slice of the active Epic and is tracked in
+  `docs/CONTINUATION_reserve_basis.md` (IN PROGRESS) — listed here for the audit
+  trail, **not** as un-started fallback work. Common-path WL correctness →
+  IMPORTANT.
+  *Source: ADR-088 Out of scope + DEV_SESSION_LOG_2026-06-19_reserve_basis_slice2a Open Questions (1st-order).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log
