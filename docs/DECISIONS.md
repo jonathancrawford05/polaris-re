@@ -5497,3 +5497,101 @@ notebook (Slice 4).
 - `tests/test_products/test_reserve_basis_dispatch.py` (WL no longer raises on
   CRVM)
 - `ARCHITECTURE.md` (§4 note that CRVM values WL prospectively to omega)
+
+## ADR-090: VM-20 simplified reserve for TermLife (Epic 1, Slice 3a)
+
+**Date:** 2026-06-19
+**Status:** Accepted
+
+**Context.** Slices 1–2b landed the `ReserveBasis` selector (ADR-087) and the
+CRVM concrete basis for TermLife (ADR-088) and WholeLife (ADR-089). The PLAN's
+Slice 3 is **VM-20 simplified** — the deterministic path of the US
+principle-based reserve (VM-20 of the NAIC Valuation Manual). VM-20 sets the
+minimum reserve to the greatest of the Net Premium Reserve (NPR), the
+Deterministic Reserve (DR), and the Stochastic Reserve (SR); the epic scope
+(PLAN §2, CONTINUATION Slice 3) is the **deterministic path only** —
+`max(NPR, DR)`, no stochastic scenarios.
+
+Slice 3 is split (as Slice 2 was) into **3a TermLife** (this ADR) and **3b
+WholeLife**. The WL deterministic reserve is prospective beyond the projection
+horizon, so a DR computed over the truncated grid with terminal `DR_T = 0`
+collapses at the horizon edge — the same problem ADR-089 solved for the WL CRVM
+via a to-omega valuation. Term has a finite horizon (the projection covers the
+whole policy), so the DR is exact there; shipping Term VM-20 now avoids guessing
+on the WL to-omega DR, which 3b will handle by reusing the ADR-089 machinery.
+
+**Premise (verified before implementing, routine step 7b).** Selecting
+`reserve_basis=VM20` on a TermLife block raised `PolarisComputationError` (basis
+not yet implemented). The net-level-premium reserve sits above CRVM everywhere
+(the first-year expense allowance), confirming the floor relationships the VM-20
+`max` relies on.
+
+**Decision.** `TermLife._supported_reserve_bases` gains VM20;
+`compute_reserves()` dispatches VM20 to `_compute_reserves_vm20(q, w, v)`, which
+returns `max(NPR, DR)` floored at 0:
+
+1. **NPR** is mapped to the CRVM reserve (`_compute_reserves_crvm`): a
+   net-premium reserve with the first-year expense allowance graded in, which is
+   the formulaic net-premium floor VM-20 prescribes for the NPR. This reuses the
+   tested Slice-2a machinery.
+2. **DR** is the deterministic gross-premium reserve
+   (`_compute_deterministic_reserve`): the per-in-force prospective present value
+   of future death benefits and maintenance expenses less future gross premiums,
+   under **both** decrements (mortality `q` and lapse `w`), via the backward
+   recursion
+   `DR_t = (E_t − G_t) + v·[q_t·face + (1−q_t)(1−w_t)·DR_{t+1}]`, terminal
+   `DR_T = 0`. `G_t` is the monthly gross premium; `E_t` is maintenance per
+   in-force policy plus the one-time acquisition cost in month 0 for genuine new
+   business — both zeroed after term expiry, matching the cash flows `project()`
+   emits. Lapsing policies leave with no surrender value (term has no cash
+   value), so survivors of both decrements carry the only continuation value.
+   The DR is **not** floored: a well-priced block has DR < 0 early (the policy is
+   an asset), which is exactly what makes `max(NPR, DR)` defer to the NPR floor.
+
+**Result.** For a well-priced block the gross premium exceeds the net premium,
+so DR < NPR while the reserve builds and VM20 coincides with the CRVM floor; for
+an underpriced block the realistic DR exceeds the NPR floor across the durations
+and drives the reserve above it — the deficiency signal a reinsurer relies on.
+The DR is pinned closed-form by an independent forward prospective-PV sum
+reproducing the backward recursion (with lapse and expenses on). The YRT layer
+reprices automatically: a higher VM-20 reserve lowers the NAR and the ceded
+premium, with no treaty-layer change.
+
+**NPR := CRVM simplification.** The exact VM-20 NPR has term-specific
+refinements (the mortality `X` factors / select-period grading, deficiency where
+the gross premium falls below the net premium, and the prescribed valuation
+table) that this slice does not reproduce; mapping NPR to the CRVM reserve is the
+"simplified" in "VM-20 simplified" and is documented as a follow-up. The DR is
+the realistic-projection component and is exact for term over its finite horizon.
+
+**Final-coverage-month note.** The existing net-premium / CRVM recursions leave
+the final projected month at `V_{T-1} = 0` (a terminal-truncation convention).
+The DR values that last coverage month properly, so for a well-priced block VM20
+can exceed CRVM by a small amount in the final months purely from this
+convention difference. This is the more-correct value (the policy is still in
+force that month); it does not affect any golden (VM20 is opt-in).
+
+**Behaviour change.** None on the default path (NET_PREMIUM goldens
+byte-identical, no rebaseline). A caller selecting `reserve_basis=VM20` on a
+TermLife block now gets `max(NPR, DR)` instead of a `PolarisComputationError`.
+WholeLife (to-omega DR, Slice 3b), UL, and DI still raise on VM20.
+
+**Out of scope (filed as follow-ups).** WholeLife VM-20 (the to-omega DR, Slice
+3b); the VM-20 stochastic reserve (SR — its own multi-session epic, explicitly
+excluded by PLAN §2); the exact VM-20 NPR refinements (term `X` factors,
+deficiency, the prescribed 2017 CSO valuation table — the NPR := CRVM
+simplification); broader DR expense components (commissions, premium tax — the DR
+models maintenance + acquisition only, the expenses the engine carries); and
+selector surfacing on CLI / API / Excel / notebook (Slice 4).
+
+**Affected files.**
+
+- `src/polaris_re/products/term_life.py` (`_supported_reserve_bases` widened;
+  `compute_reserves()` dispatch captures `w` and branches VM20;
+  `_compute_reserves_vm20()`, `_compute_deterministic_reserve()` added)
+- `tests/test_products/test_term_vm20_reserve.py` (new — independent forward-PV
+  match, expense monotonicity, `max(NPR, DR)` semantics, well-priced floor-governs
+  vs underpriced DR-governs regimes, NET_PREMIUM byte-identical, YRT NAR
+  integration)
+- `tests/test_products/test_reserve_basis_dispatch.py` (Term no longer raises on
+  VM20; WL still raises on VM20/GAAP)

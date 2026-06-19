@@ -4,7 +4,8 @@
 (also PRODUCT_DIRECTION_2026-04-19 IMPORTANT "reserve-basis matching").
 **Plan:** docs/PLAN_reserve_basis.md
 **Status:** IN PROGRESS
-**Total slices:** 5 (Slice 2 split into 2a Term + 2b WL on 2026-06-19)
+**Total slices:** 5 (Slice 2 split into 2a Term + 2b WL; Slice 3 split into 3a
+Term + 3b WL — both on 2026-06-19)
 **Estimated total scope:** ~10 dev-days
 
 ## Overall Goal
@@ -95,16 +96,54 @@ NET_PREMIUM default byte-identical.
     CRVM. Rather than ship a knowingly-uncapped reserve, short-pay WL **raises**
     `PolarisComputationError`. Implementing the cap is a promoted follow-up.
 
-### Slice 3: VM-20 simplified (deterministic reserve / NPR floor)
+### Slice 3 — split into 3a (Term, DONE) + 3b (WL, NEXT)
+
+Planned Slice 3 (VM-20 simplified for Term **and** WL) was decomposed during the
+2026-06-19 session for the same reason Slice 2 was: the WL deterministic reserve
+(DR) is prospective beyond the projection horizon, so a DR computed over the
+truncated grid with terminal `DR_T = 0` collapses at the horizon edge — the same
+problem ADR-089 solved for the WL CRVM via a to-omega valuation. Term has a
+finite horizon (the projection covers the whole policy), so its DR is exact.
+Term VM-20 ships as 3a; WL VM-20 (the to-omega DR) as 3b. Both keep the
+NET_PREMIUM default byte-identical.
+
+### Slice 3a: VM-20 simplified (Term)
+- **Status:** DONE
+- **Branch:** claude/epic-euler-5adps2
+- **What was done:** Implemented VM-20 simplified for `TermLife` as
+  `max(NPR, DR)` floored at 0, the deterministic path only (no stochastic
+  reserve). **NPR** is mapped to the CRVM reserve (the formulaic net-premium
+  floor with the first-year expense allowance). **DR** is the deterministic
+  gross-premium reserve (`_compute_deterministic_reserve`): the per-in-force
+  prospective PV of future death benefits + maintenance expenses − future gross
+  premiums, under both decrements (mortality + lapse), via a backward recursion
+  with terminal `DR_T = 0`. Widened `_supported_reserve_bases` to include VM20;
+  `compute_reserves()` now captures `w` and dispatches. ADR-090.
+- **Key decisions:**
+  - **NPR := CRVM** is the "simplified" mapping; the exact VM-20 NPR refinements
+    (term `X` factors, deficiency, prescribed valuation table) are deferred and
+    promoted. The DR is exact for term over its finite horizon.
+  - The DR is **not** floored individually — a well-priced block's DR is
+    negative early (the policy is an asset), which is what makes `max(NPR, DR)`
+    correctly defer to the NPR floor. Final `max(..., 0)` is a numerical floor.
+  - Two regimes verified: well-priced → DR < NPR, floor governs (VM20 == CRVM
+    in the building durations); underpriced → DR > NPR, deficiency drives the
+    reserve above the floor. Closed-form anchor: an independent forward
+    prospective-PV sum reproduces the backward recursion.
+
+### Slice 3b: VM-20 simplified for Whole Life (to-omega DR)
 - **Status:** NEXT
-- **Depends on:** Slice 2b merged.
-- **Scope:** deterministic reserve = max(NPR, modelled reserve) on prescribed
-  valuation assumptions; NPR floor only, no stochastic scenarios. Closed-form
-  test vs a worked simplified-PBR example.
+- **Depends on:** Slice 3a merged.
+- **Scope:** WholeLife VM-20 `max(NPR, DR)`. NPR reuses the WL CRVM reserve
+  (ADR-089). The DR must be valued prospectively to omega (reusing
+  `_build_valuation_mortality` / `_valuation_months_to_omega` from 2b) so it does
+  not collapse at the horizon — the WL analogue of the 3a finite-horizon DR.
+  Closed-form: independent forward-PV match + the well-priced/underpriced regime
+  split, plus a no-collapse check mirroring 2b.
 
 ### Slice 4: Surface the basis selector
 - **Status:** PLANNED
-- **Depends on:** Slice 3 merged.
+- **Depends on:** Slice 3b merged.
 - **Scope:** CLI `--reserve-basis`, API request schema, Excel reserve-sheet
   label, validation notebook comparing profit signature across bases. This is
   the only slice that may move goldens — and only for non-default basis runs;
