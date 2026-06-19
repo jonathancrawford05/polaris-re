@@ -247,6 +247,7 @@ class WholeLife(BaseProduct):
 
         Premium payments cease after premium_payment_years (limited pay).
         """
+        self._check_reserve_basis()
         q, _w = self._build_rate_arrays()
         lx = self._compute_inforce_factors(q, _w)
         n, t = q.shape

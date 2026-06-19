@@ -275,6 +275,7 @@ class UniversalLife(BaseProduct):
         Returns:
             Account value array, shape (N, T), dtype float64.
         """
+        self._check_reserve_basis()
         q = self._build_mortality_arrays()
         w = self._build_lapse_arrays()
         av, _coi, _lx, _lapse_cv = self._roll_forward_account_values(q, w)

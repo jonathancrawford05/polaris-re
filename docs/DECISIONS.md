@@ -5246,3 +5246,77 @@ per-line-item comparison this sheet delivers.
   match the basis sheets, and the closed-form `Net == Gross − Ceded` identity
   per line item; updated the ADR-080 ordering assertion to include the new
   sheet)
+
+---
+
+## ADR-087: ReserveBasis selector + dispatch (Epic 1, Slice 1)
+
+**Date:** 2026-06-19
+**Status:** Accepted
+
+**Context.** A reinsurer pricing an inforce block must reproduce the *cedant's*
+reserve, not just the engine's single net-premium reserve. The reserve drives
+the Net Amount at Risk (YRT ceded premium), the proportional reserve transfer
+(coinsurance / modco), and the profit signature, so a reinsurer that cannot
+reproduce the cedant's statutory/accounting basis cannot trust the profit
+number. `COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` ranks reserve-basis
+matching the #1 Tier-A epic (A1, ★★★★★, ~10 dev-days) and both
+`PRODUCT_DIRECTION_2026-04-19` and `PRODUCT_DIRECTION_2026-06-18` carry it as a
+long-standing IMPORTANT gap. This is the first slice of that epic (see
+`docs/PLAN_reserve_basis.md` / `docs/CONTINUATION_reserve_basis.md`).
+
+**Premise (verified before implementing, routine step 7b).** Inspected every
+product's `compute_reserves()`: Term and Whole Life compute a net level
+premium reserve via backward recursion on the *projection* mortality; UL
+returns the account value; DI returns zero. There is no `reserve_basis`
+selector anywhere and `ProjectionConfig` has no such field — confirmed the
+engine cannot today produce a CRVM / VM-20 / GAAP reserve. The premise holds:
+exactly one reserve method exists.
+
+**Decision.** Add a `ReserveBasis` StrEnum (`core/reserve_basis.py`, exported
+from `polaris_re.core`) with members NET_PREMIUM / CRVM / VM20 / GAAP, and a
+`ProjectionConfig.reserve_basis` field defaulting to NET_PREMIUM. Add a
+dispatch guard on `BaseProduct`: a `_supported_reserve_bases` frozenset
+(NET_PREMIUM only at this layer) plus `_check_reserve_basis()`, which returns
+the active basis and raises `PolarisComputationError` when the configured
+basis is not in the engine's supported set. Each product's `compute_reserves()`
+calls the guard first. Concrete actuarial bases (CRVM, VM-20, GAAP) are
+implemented in Slices 2–3; this slice is plumbing only.
+
+**Rationale.** A not-yet-implemented basis **raises** rather than silently
+falling back to net premium, so a pricing run can never report a reserve on a
+basis the engine did not actually compute (a silent fallback would be an
+auditability failure — the cardinal sin per ARCHITECTURE §1). The guard lives
+on `BaseProduct` via a per-engine `_supported_reserve_bases` set that concrete
+engines widen as bases land, keeping the dispatch declarative. NET_PREMIUM is
+the default, so the entire change is invisible unless a caller opts in: the
+default reserve recursion bodies are untouched and the golden `price` JSON is
+byte-identical (verified — no rebaseline).
+
+**Behaviour change.** None on the default path. A caller that sets
+`reserve_basis` to CRVM / VM20 / GAAP now gets a clear `PolarisComputationError`
+naming the supported bases and pointing at the plan, instead of the field
+being silently ignored.
+
+**Out of scope (filed as follow-ups).** The concrete CRVM basis + the
+whole-life terminal-reserve acceptance test (Slice 2); VM-20 simplified
+deterministic reserve (Slice 3); CLI / API / Excel / notebook surfacing of the
+selector (Slice 4); and statutory bases for UL (CRVM-for-UL) and DI (GAAP DI
+reserves), which this epic deliberately does not address — those engines keep
+raising on non-NET_PREMIUM bases. The valuation-mortality-table design (2001
+CSO is distinct from the projection table) is deferred to Slice 2, where it is
+a controlled core-contract change requiring its own ADR.
+
+**Affected files.**
+
+- `src/polaris_re/core/reserve_basis.py` (new — `ReserveBasis` StrEnum)
+- `src/polaris_re/core/projection.py` (`ProjectionConfig.reserve_basis` field)
+- `src/polaris_re/core/__init__.py` (export `ReserveBasis`)
+- `src/polaris_re/products/base_product.py` (`_supported_reserve_bases`,
+  `_check_reserve_basis()`)
+- `src/polaris_re/products/{term_life,whole_life,universal_life,disability}.py`
+  (call the guard at the top of `compute_reserves()`)
+- `tests/test_core/test_reserve_basis.py` (enum + config plumbing,
+  serialization round-trip)
+- `tests/test_products/test_reserve_basis_dispatch.py` (default == explicit
+  NET_PREMIUM byte-identical; unimplemented bases raise per product)

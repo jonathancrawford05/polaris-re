@@ -382,6 +382,21 @@ Throughput: ~30 shipped items across 26 calendar days, all crossed out in the
 crossouts in 2026-05-23 in isolation gives the same accounting as the table
 above — this file does not duplicate the SHIPPED-footer detail.
 
+## Promoted Follow-ups
+
+Items harvested from completed/in-flight work by the daily-dev routine
+(step 17), with provenance. These are first-class work items, not commentary.
+
+- **NICE-TO-HAVE — Statutory reserve bases for UL and DI.** The reserve-basis
+  epic (A1) implements CRVM / VM-20 / GAAP for Term and Whole Life only. UL
+  keeps reserve = account value and DI keeps reserve = 0; both raise
+  `PolarisComputationError` on any non-NET_PREMIUM basis. Extending statutory
+  bases to UL (CRVM-for-UL) and DI (GAAP DI reserves) is deliberately out of
+  the epic's scope and would otherwise be invisible once the epic closes.
+  Affects only UL/DI blocks valued on a statutory basis, not the common
+  Term/WL first-deal path → NICE-TO-HAVE.
+  *Source: ADR-087 Out of scope (1st-order).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

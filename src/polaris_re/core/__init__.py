@@ -19,6 +19,7 @@ from polaris_re.core.pipeline import (
 )
 from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
 from polaris_re.core.projection import ProjectionConfig
+from polaris_re.core.reserve_basis import ReserveBasis
 
 __all__ = [
     "CashFlowResult",
@@ -33,6 +34,7 @@ __all__ = [
     "Policy",
     "ProductType",
     "ProjectionConfig",
+    "ReserveBasis",
     "Sex",
     "SmokerStatus",
     "build_pipeline",

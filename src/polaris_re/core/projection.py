@@ -10,6 +10,7 @@ from datetime import date
 from pydantic import Field, field_validator
 
 from polaris_re.core.base import PolarisBaseModel
+from polaris_re.core.reserve_basis import ReserveBasis
 
 __all__ = ["ProjectionConfig"]
 
@@ -49,6 +50,16 @@ class ProjectionConfig(PolarisBaseModel):
             "Annual interest rate used for reserve calculations (net premium reserve recursion). "
             "If None, defaults to discount_rate. "
             "Regulatory: IFRS 17 uses a risk-free rate; US GAAP uses a locked-in rate."
+        ),
+    )
+    reserve_basis: ReserveBasis = Field(
+        default=ReserveBasis.NET_PREMIUM,
+        description=(
+            "Statutory/accounting basis used to value policy reserves. "
+            "NET_PREMIUM (default) reproduces the engine's historical net level "
+            "premium reserve. CRVM, VM20, and GAAP bases let a reinsurer match "
+            "the cedant's reserve method; they are added in later slices and "
+            "raise PolarisComputationError until implemented."
         ),
     )
 

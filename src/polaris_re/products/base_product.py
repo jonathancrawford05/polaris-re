@@ -15,8 +15,10 @@ import numpy as np
 
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.core.cashflow import CashFlowResult
+from polaris_re.core.exceptions import PolarisComputationError
 from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.projection import ProjectionConfig
+from polaris_re.core.reserve_basis import ReserveBasis
 
 __all__ = ["BaseProduct"]
 
@@ -64,3 +66,31 @@ class BaseProduct(ABC):
             Called by project() and by treaty engines that need reserves
             (YRT NAR calculation, coinsurance reserve transfer).
         """
+
+    # --- Reserve basis dispatch ---------------------------------------
+
+    #: Reserve bases this product engine can currently compute. Concrete
+    #: engines override this as additional bases are implemented in later
+    #: slices of the reserve-basis epic. NET_PREMIUM is always supported.
+    _supported_reserve_bases: frozenset[ReserveBasis] = frozenset({ReserveBasis.NET_PREMIUM})
+
+    def _check_reserve_basis(self) -> ReserveBasis:
+        """
+        Validate that this engine implements the configured reserve basis.
+
+        Returns the active basis so callers can dispatch on it. Raises
+        PolarisComputationError (never silently falls back) when the
+        configured basis is not yet implemented for this product, so a
+        pricing run can never report a reserve on a basis the engine did
+        not actually compute.
+        """
+        basis = self.config.reserve_basis
+        if basis not in self._supported_reserve_bases:
+            supported = ", ".join(sorted(b.value for b in self._supported_reserve_bases))
+            raise PolarisComputationError(
+                f"Reserve basis {basis.value!r} is not yet implemented for "
+                f"{type(self).__name__}. Supported bases: {supported}. "
+                "CRVM / VM20 / GAAP bases are added in later slices of the "
+                "reserve-basis epic (see docs/PLAN_reserve_basis.md)."
+            )
+        return basis
