@@ -681,7 +681,8 @@ class WholeLife(BaseProduct):
         q_val = self._build_valuation_mortality(t_val)
         w_val = self._build_valuation_lapse(t_val)
         dr = self._compute_deterministic_reserve(q_val, w_val, v_monthly)
-        return np.maximum(np.maximum(npr, dr), 0.0)
+        reserves: np.ndarray = np.maximum(np.maximum(npr, dr), 0.0)
+        return reserves
 
     def project(self, seriatim: bool = False) -> CashFlowResult:
         """
