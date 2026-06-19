@@ -186,6 +186,7 @@ def _parse_config_to_pipeline_inputs(
             projection_years=int(raw.get("projection_horizon_years", 20)),
             acquisition_cost=float(raw.get("acquisition_cost_per_policy", 500.0)),
             maintenance_cost=float(raw.get("maintenance_cost_per_policy_per_year", 75.0)),
+            reserve_basis=str(raw.get("reserve_basis", "NET_PREMIUM")),
             valuation_date=legacy_val_date,
         )
         # Stamp product_type onto each policy dict for load_inforce
@@ -248,6 +249,7 @@ def _parse_config_to_pipeline_inputs(
         acquisition_cost=float(deal_raw.get("acquisition_cost", 500.0)),
         maintenance_cost=float(deal_raw.get("maintenance_cost", 75.0)),
         use_policy_cession=bool(deal_raw.get("use_policy_cession", False)),
+        reserve_basis=str(deal_raw.get("reserve_basis", "NET_PREMIUM")),
         valuation_date=deal_val_date,
         yrt_rate_table_path=yrt_table_path,
         yrt_rate_table_select_period=int(deal_raw.get("yrt_rate_table_select_period", 3)),
@@ -266,6 +268,7 @@ def _parse_config_to_pipeline_inputs(
 def _build_pipeline_from_config(
     config_path: Path,
     inforce_path: Path | None = None,
+    reserve_basis_override: str | None = None,
 ) -> tuple:  # type: ignore[type-arg]
     """Build an inforce pipeline from a JSON config file.
 
@@ -275,11 +278,18 @@ def _build_pipeline_from_config(
     When inforce_path is provided, policies are loaded from CSV rather than
     the embedded policies list in the config.
 
+    When ``reserve_basis_override`` is provided (the ``--reserve-basis`` CLI
+    flag), it takes precedence over any ``reserve_basis`` in the config — the
+    same flag-over-config precedence the YRT-rate-table surfaces use. An
+    unknown value raises ``PolarisValidationError`` via ``build_projection_config``.
+
     Returns:
         (inforce, assumptions, config, pipeline_inputs) tuple.
     """
     raw = _load_json_config(config_path)
     inputs, policies_raw = _parse_config_to_pipeline_inputs(raw)
+    if reserve_basis_override is not None:
+        inputs.deal.reserve_basis = reserve_basis_override
 
     # Load inforce
     if inforce_path is not None:
@@ -830,6 +840,7 @@ def _cohort_to_deal_pricing_export(
         discount_rate=config.discount_rate,
         projection_years=config.projection_horizon_years,
         valuation_date=config.valuation_date,
+        reserve_basis=str(config.reserve_basis),
     )
     assumptions_meta = AssumptionsMetaExport(
         mortality_source=assumptions.mortality.source.value,
@@ -1116,6 +1127,22 @@ def price_cmd(
             ),
         ),
     ] = True,
+    reserve_basis: Annotated[
+        str | None,
+        typer.Option(
+            "--reserve-basis",
+            help=(
+                "Reserve valuation basis: NET_PREMIUM (default), CRVM, VM20, "
+                "or GAAP (reserve-basis epic). Lets a reinsurer reproduce the "
+                "cedant's reserve method, which drives the YRT NAR, the "
+                "coinsurance reserve transfer, and the profit signature. "
+                "Overrides any 'reserve_basis' in the config. Selecting a "
+                "non-default basis changes the reserve (and therefore the "
+                "priced numbers); NET_PREMIUM is byte-identical to prior runs. "
+                "An unsupported basis for the product raises an error."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """
     [bold]Run a deal pricing pipeline.[/bold]
@@ -1149,6 +1176,23 @@ def price_cmd(
             raise typer.Exit(code=1)
         capital_model_id = capital_norm
 
+    # Validate the reserve-basis flag eagerly (before any projection work) so a
+    # typo fails with a clear message and the list of valid bases, mirroring
+    # the --capital validation above. The resolved value (or None to defer to
+    # the config) is threaded into the pipeline builder below.
+    from polaris_re.core.reserve_basis import ReserveBasis
+
+    if reserve_basis is not None:
+        try:
+            reserve_basis = ReserveBasis(reserve_basis.strip().upper()).value
+        except ValueError:
+            valid = ", ".join(b.value for b in ReserveBasis)
+            console.print(
+                f"[red]Error:[/red] Unknown --reserve-basis value '{reserve_basis}'. "
+                f"Valid values: {valid}."
+            )
+            raise typer.Exit(code=1) from None
+
     # Tabular YRT rate table (ADR-052) — loaded once and reused across
     # cohorts. The label defaults to "yrt" so the typical filename is
     # ``yrt_male_ns.csv`` etc. unless the user overrides it. The CLI flag is
@@ -1175,7 +1219,7 @@ def price_cmd(
         progress.add_task("Building pipeline...", total=None)
         if config_path is not None:
             inforce, assumptions, config, inputs = _build_pipeline_from_config(
-                config_path, inforce_path
+                config_path, inforce_path, reserve_basis_override=reserve_basis
             )
             console.print(f"[dim]Loaded config from {config_path}[/dim]")
         else:
@@ -1184,7 +1228,9 @@ def price_cmd(
             demo_config = demo_dir / "data" / "configs" / "demo.json"
             demo_csv = demo_dir / "data" / "inputs" / "demo.csv"
             inforce, assumptions, config, inputs = _build_pipeline_from_config(
-                demo_config, demo_csv if demo_csv.exists() else None
+                demo_config,
+                demo_csv if demo_csv.exists() else None,
+                reserve_basis_override=reserve_basis,
             )
             console.print("[dim]No --config supplied — running demo mode[/dim]")
 
@@ -1318,6 +1364,7 @@ def price_cmd(
             "n_cohorts": n_cohorts,
             "total_pv_profits_cedant": total_cedant_pv,
             "total_pv_profits_reinsurer": total_reinsurer_pv,
+            "reserve_basis": str(config.reserve_basis),
         },
         "rated_block": rated_summary,
     }

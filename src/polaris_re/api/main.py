@@ -60,6 +60,7 @@ from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.pipeline import derive_capital_nar
 from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
 from polaris_re.core.projection import ProjectionConfig
+from polaris_re.core.reserve_basis import ReserveBasis
 from polaris_re.products.dispatch import get_product_engine
 from polaris_re.reinsurance.base_treaty import BaseTreaty
 from polaris_re.reinsurance.yrt import YRTTreaty
@@ -211,6 +212,18 @@ class PriceRequest(BaseModel):
             "Discounted at the valuation discount_rate, not the profit hurdle."
         ),
     )
+    reserve_basis: ReserveBasis = Field(
+        default=ReserveBasis.NET_PREMIUM,
+        description=(
+            "Reserve valuation basis (reserve-basis epic): NET_PREMIUM "
+            "(default), CRVM, VM20, or GAAP. Lets a reinsurer reproduce the "
+            "cedant's reserve method, which drives the YRT NAR, the coinsurance "
+            "reserve transfer, and the profit signature. NET_PREMIUM is "
+            "byte-identical to prior responses; a non-default basis changes the "
+            "reserve (and therefore the priced numbers). An unsupported basis "
+            "for the product yields HTTP 422."
+        ),
+    )
 
 
 class PriceResponse(BaseModel):
@@ -259,6 +272,10 @@ class PriceResponse(BaseModel):
     # Metadata
     n_policies: int
     projection_months: int
+    # Reserve basis the run was priced on (reserve-basis epic). Echoes the
+    # request's reserve_basis so a client can confirm which basis drove the
+    # reserve, NAR, and profit numbers in this response.
+    reserve_basis: ReserveBasis = ReserveBasis.NET_PREMIUM
 
 
 class ScenarioRequest(BaseModel):
@@ -424,6 +441,7 @@ def _build_components(
     product_type_str: str = "TERM",
     acquisition_cost_per_policy: float = 0.0,
     maintenance_cost_per_policy_per_year: float = 0.0,
+    reserve_basis: ReserveBasis = ReserveBasis.NET_PREMIUM,
 ) -> tuple[InforceBlock, AssumptionSet, ProjectionConfig]:
     """Convert API request data into core pipeline components (no treaty).
 
@@ -522,6 +540,7 @@ def _build_components(
         discount_rate=discount_rate,
         acquisition_cost_per_policy=acquisition_cost_per_policy,
         maintenance_cost_per_policy_per_year=maintenance_cost_per_policy_per_year,
+        reserve_basis=reserve_basis,
     )
 
     return inforce, assumptions, config
@@ -736,6 +755,7 @@ def price(request: PriceRequest) -> PriceResponse:
             product_type_str=request.product_type,
             acquisition_cost_per_policy=request.acquisition_cost_per_policy,
             maintenance_cost_per_policy_per_year=request.maintenance_cost_per_policy_per_year,
+            reserve_basis=request.reserve_basis,
         )
 
         # Tabular YRT rate table (ADR-052) — server-side load before the
@@ -873,6 +893,7 @@ def price(request: PriceRequest) -> PriceResponse:
         reinsurer_premium_sufficiency=_sufficiency_block(reinsurer_sufficiency),
         n_policies=len(request.policies),
         projection_months=config.projection_months,
+        reserve_basis=config.reserve_basis,
     )
 
 

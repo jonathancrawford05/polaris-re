@@ -21,6 +21,7 @@ from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.policy import ProductType, Sex, SmokerStatus
 from polaris_re.core.projection import ProjectionConfig
+from polaris_re.core.reserve_basis import ReserveBasis
 from polaris_re.utils.table_io import MortalityTableArray
 
 __all__ = [
@@ -106,6 +107,12 @@ class DealConfig:
     acquisition_cost: float = 500.0
     maintenance_cost: float = 75.0
     use_policy_cession: bool = False
+    # Reserve valuation basis (ADR-087 epic, slice 4). String form of the
+    # ``ReserveBasis`` StrEnum ("NET_PREMIUM" | "CRVM" | "VM20" | "GAAP").
+    # Default NET_PREMIUM preserves the engine's historical reserve and keeps
+    # every existing config byte-identical; ``build_projection_config`` coerces
+    # this to the ``ReserveBasis`` enum on the ``ProjectionConfig``.
+    reserve_basis: str = "NET_PREMIUM"
     # Optional tabular YRT rate table (ADR-052/ADR-075). When set, YRT
     # premiums are billed from a directory of (age x duration) rate CSVs
     # instead of the flat / mortality-derived rate — the YAML/JSON config
@@ -144,6 +151,7 @@ class DealConfig:
             "projection_years": self.projection_years,
             "acquisition_cost": self.acquisition_cost,
             "maintenance_cost": self.maintenance_cost,
+            "reserve_basis": self.reserve_basis,
             "valuation_date": self.valuation_date,
         }
 
@@ -354,6 +362,26 @@ def build_assumption_set(inputs: PipelineInputs) -> AssumptionSet:
 # ------------------------------------------------------------------ #
 
 
+def _coerce_reserve_basis(value: str | ReserveBasis) -> ReserveBasis:
+    """Coerce a reserve-basis string into the ``ReserveBasis`` enum.
+
+    Accepts the enum itself (passthrough) or its string value, case-insensitively
+    (e.g. ``"crvm"`` → ``ReserveBasis.CRVM``). Raises ``PolarisValidationError``
+    with the list of valid names on an unrecognised value, so a bad config or CLI
+    flag fails with a clear message instead of a bare ``ValueError`` deep in
+    Pydantic validation.
+    """
+    if isinstance(value, ReserveBasis):
+        return value
+    try:
+        return ReserveBasis(str(value).strip().upper())
+    except ValueError as exc:
+        valid = ", ".join(b.value for b in ReserveBasis)
+        raise PolarisValidationError(
+            f"Unknown reserve_basis '{value}'. Valid values: {valid}."
+        ) from exc
+
+
 def build_projection_config(
     inputs: PipelineInputs,
     valuation_date: date | None = None,
@@ -374,6 +402,7 @@ def build_projection_config(
         discount_rate=inputs.deal.discount_rate,
         acquisition_cost_per_policy=inputs.deal.acquisition_cost,
         maintenance_cost_per_policy_per_year=inputs.deal.maintenance_cost,
+        reserve_basis=_coerce_reserve_basis(inputs.deal.reserve_basis),
     )
 
 
