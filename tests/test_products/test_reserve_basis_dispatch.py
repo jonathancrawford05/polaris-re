@@ -29,10 +29,10 @@ FIXTURES = Path(__file__).parent.parent / "fixtures"
 
 # Bases still unimplemented per product. CRVM landed for TermLife in slice 2a
 # (ADR-088) and for WholeLife in slice 2b (ADR-089). VM-20 simplified landed for
-# TermLife in slice 3a (ADR-090); WholeLife VM-20 (the to-omega DR) is deferred
-# to slice 3b, so WholeLife still raises on VM20. GAAP is unimplemented on both.
+# TermLife in slice 3a (ADR-090) and for WholeLife (the to-omega DR) in slice 3b
+# (ADR-091). GAAP remains unimplemented on both.
 TERM_UNIMPLEMENTED_BASES = [ReserveBasis.GAAP]
-WL_UNIMPLEMENTED_BASES = [ReserveBasis.VM20, ReserveBasis.GAAP]
+WL_UNIMPLEMENTED_BASES = [ReserveBasis.GAAP]
 
 
 @pytest.fixture()

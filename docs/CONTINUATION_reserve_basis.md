@@ -132,17 +132,30 @@ NET_PREMIUM default byte-identical.
     prospective-PV sum reproduces the backward recursion.
 
 ### Slice 3b: VM-20 simplified for Whole Life (to-omega DR)
-- **Status:** NEXT
-- **Depends on:** Slice 3a merged.
-- **Scope:** WholeLife VM-20 `max(NPR, DR)`. NPR reuses the WL CRVM reserve
-  (ADR-089). The DR must be valued prospectively to omega (reusing
-  `_build_valuation_mortality` / `_valuation_months_to_omega` from 2b) so it does
-  not collapse at the horizon — the WL analogue of the 3a finite-horizon DR.
-  Closed-form: independent forward-PV match + the well-priced/underpriced regime
-  split, plus a no-collapse check mirroring 2b.
+- **Status:** DONE
+- **Branch:** claude/epic-euler-5z2pj2 (environment-designated)
+- **What was done:** Implemented WholeLife VM-20 `max(NPR, DR)` floored at 0,
+  the deterministic path only. **NPR** reuses the to-omega WL CRVM reserve
+  (`_compute_reserves_crvm`, ADR-089). **DR** is the new to-omega deterministic
+  gross-premium reserve (`_compute_deterministic_reserve`): the per-in-force
+  prospective PV of future death benefits + maintenance expenses − future gross
+  premiums, under both decrements, via the backward recursion
+  `DR_t = (E_t − G_t) + v·[q_t·face + (1−q_t)(1−w_t)·DR_{t+1}]` valued on the
+  to-omega grid (`_valuation_months_to_omega`) and sliced to the projection
+  horizon, so it grades toward face rather than collapsing — the WL analogue of
+  the 3a finite-horizon DR. Lapse over the to-omega grid is supplied by a new
+  `_build_valuation_lapse` (mortality reuses `_build_valuation_mortality`).
+  Widened `_supported_reserve_bases` to include VM20; `compute_reserves()`
+  dispatches. ADR-091.
+- **Key decisions:**
+  - Both NPR and DR are valued **to omega**; VM20 (≥ the to-omega NPR) does not
+    collapse at the horizon.
+  - NPR := CRVM (the "simplified" mapping, carried from ADR-090). Short
+    limited-pay WL (< 20 years) **raises** via the inherited CRVM 20-pay guard.
+  - NET_PREMIUM default byte-identical — no golden rebaseline.
 
 ### Slice 4: Surface the basis selector
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 3b merged.
 - **Scope:** CLI `--reserve-basis`, API request schema, Excel reserve-sheet
   label, validation notebook comparing profit signature across bases. This is

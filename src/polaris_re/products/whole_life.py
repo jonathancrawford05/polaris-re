@@ -67,15 +67,21 @@ class WholeLife(BaseProduct):
         premium_payment_years:  Limited pay period in years. None = whole-life pay.
     """
 
-    #: WholeLife supports the net level premium reserve (default) and the CRVM
-    #: modified reserve. CRVM is implemented as Full Preliminary Term (FPT) with
-    #: a **prospective valuation to omega** (max age), which both grades in the
-    #: first-year expense allowance and closes the horizon-edge terminal-reserve
-    #: artefact of the net-premium path (ADR-089). FPT is exact CRVM for
-    #: whole-life pay and limited-pay >= 20 years; shorter pay periods (where
-    #: the 20-pay expense-allowance cap binds) raise via the dispatch guard.
-    #: VM20 / GAAP remain unimplemented and raise via the base-class guard.
-    _supported_reserve_bases = frozenset({ReserveBasis.NET_PREMIUM, ReserveBasis.CRVM})
+    #: WholeLife supports the net level premium reserve (default), the CRVM
+    #: modified reserve, and the VM-20 simplified reserve. CRVM is implemented as
+    #: Full Preliminary Term (FPT) with a **prospective valuation to omega** (max
+    #: age), which both grades in the first-year expense allowance and closes the
+    #: horizon-edge terminal-reserve artefact of the net-premium path (ADR-089).
+    #: FPT is exact CRVM for whole-life pay and limited-pay >= 20 years; shorter
+    #: pay periods (where the 20-pay expense-allowance cap binds) raise via the
+    #: dispatch guard. VM20 is the simplified VM-20 reserve ``max(NPR, DR)`` with
+    #: the CRVM reserve as the net-premium-reserve floor and a deterministic
+    #: gross-premium reserve valued **to omega** (so the DR does not collapse at
+    #: the projection horizon — the WL analogue of the finite-horizon Term DR;
+    #: ADR-091). GAAP remains unimplemented and raises via the base-class guard.
+    _supported_reserve_bases = frozenset(
+        {ReserveBasis.NET_PREMIUM, ReserveBasis.CRVM, ReserveBasis.VM20}
+    )
 
     def __init__(
         self,
@@ -267,11 +273,17 @@ class WholeLife(BaseProduct):
           horizon-edge terminal-reserve artefact (ARCHITECTURE §4) that the
           net-premium recursion exhibits when the projection ends before omega.
 
+        * ``VM20`` — VM-20 simplified reserve ``max(NPR, DR)`` (see
+          :meth:`_compute_reserves_vm20`). NPR reuses the to-omega CRVM reserve;
+          DR is the to-omega deterministic gross-premium reserve.
+
         Unimplemented bases raise ``PolarisComputationError`` via the guard.
         """
         basis = self._check_reserve_basis()
         if basis is ReserveBasis.CRVM:
             return self._compute_reserves_crvm()
+        if basis is ReserveBasis.VM20:
+            return self._compute_reserves_vm20()
         return self._compute_reserves_net_premium()
 
     def _compute_reserves_net_premium(self) -> np.ndarray:
@@ -537,6 +549,139 @@ class WholeLife(BaseProduct):
             )
 
         reserves = np.maximum(reserves_val[:, :t_proj], 0.0)
+        return reserves
+
+    # --- VM-20 simplified (deterministic reserve / NPR floor, to omega) ----
+
+    def _build_valuation_lapse(self, t_val: int) -> np.ndarray:
+        """
+        Monthly lapse rate array ``w`` for valuation, shape (N, t_val).
+
+        Mirrors the lapse logic of :meth:`_build_rate_arrays` (duration-based
+        lookup, lapse zeroed at/after max age) but extended to ``t_val`` months —
+        out to omega rather than the projection horizon. The deterministic
+        reserve (unlike the per-survivor CRVM/NPR reserve) is realised under
+        **both** decrements, so it needs lapse over the full to-omega grid; over
+        the first ``projection_months`` columns it returns exactly the same w
+        values as :meth:`_build_rate_arrays` (verified by a regression test).
+        """
+        n = self.inforce.n_policies
+        w = np.zeros((n, t_val), dtype=np.float64)
+
+        duration_inforce = self.inforce.duration_inforce_vec_at(self.config.valuation_date)  # (N,)
+        attained_ages = self.inforce.attained_age_vec_at(self.config.valuation_date)  # (N,)
+        max_age = self.assumptions.mortality.max_age
+
+        for month in range(t_val):
+            current_durations = duration_inforce + month
+            age_increment = (current_durations // 12) - (duration_inforce // 12)
+            current_ages = attained_ages + age_increment
+            w_col = self.assumptions.lapse.get_lapse_vector(current_durations)
+            at_max_age = current_ages >= max_age
+            w[:, month] = np.where(at_max_age, 0.0, w_col)
+
+        return w
+
+    def _compute_deterministic_reserve(
+        self, q_val: np.ndarray, w_val: np.ndarray, v_monthly: float
+    ) -> np.ndarray:
+        """
+        Deterministic gross-premium reserve, shape (N, T) (per in-force policy).
+
+        The WL analogue of the TermLife DR (ADR-090), but valued **prospectively
+        to omega** rather than over the finite projection horizon. Whole life has
+        no expiry, so a DR computed over the truncated grid with terminal
+        ``DR_T = 0`` would collapse at the horizon edge — the same artefact the
+        to-omega CRVM valuation (ADR-089) closes. The valuation grid therefore
+        runs to omega (:meth:`_valuation_months_to_omega`) and the result is
+        sliced back to the projection horizon.
+
+        Conditional on being in force at month ``t``, it is the present value of
+        future death benefits and maintenance expenses less future gross
+        premiums, under **both** decrements (mortality ``q`` and lapse ``w``):
+
+            DR_t = (E_t - G_t) + v * [ q_t * face
+                                       + (1 - q_t) * (1 - w_t) * DR_{t+1} ]
+
+        with terminal ``DR_{omega} = 0`` (q is forced to 1 at max age, so the
+        policy is certain to have died by the end of the to-omega grid). ``G_t``
+        is the monthly gross premium (zeroed after the limited-pay period, if
+        any); ``E_t`` is maintenance per in-force policy, plus the one-time
+        acquisition cost in month 0 for genuine new business — matching the cash
+        flows :meth:`project` emits. Whole life carries no surrender value here,
+        so survivors of both decrements carry the only continuation value.
+
+        The reserve is **not** floored: a well-priced block has DR < 0 in the
+        early durations (the policy is an asset), which is what makes the VM-20
+        ``max(NPR, DR)`` correctly defer to the NPR floor.
+        """
+        n, t_val = q_val.shape
+        t_proj = self.config.projection_months
+        face_vec = self.inforce.face_amount_vec  # (N,)
+        monthly_prem_vec = self.inforce.monthly_premium_vec  # (N,)
+
+        months = np.arange(t_val)
+        if self.premium_payment_years is not None:
+            prem_active = months < self.premium_payment_years * 12  # (t_val,)
+        else:
+            prem_active = np.ones(t_val, dtype=bool)
+        gross_prem = monthly_prem_vec[:, np.newaxis] * prem_active[np.newaxis, :]  # (N, t_val)
+
+        # Expenses per in-force policy: ongoing maintenance to omega, plus the
+        # one-time acquisition cost in month 0 for genuine new business (duration
+        # 0 at the valuation date) — the same seasoning notion project() uses.
+        maint_monthly = self.config.maintenance_cost_per_policy_per_year / 12.0
+        expenses = np.zeros((n, t_val), dtype=np.float64)
+        if maint_monthly > 0.0:
+            expenses += maint_monthly
+        acq_cost = self.config.acquisition_cost_per_policy
+        if acq_cost > 0.0:
+            new_biz_mask = (
+                self.inforce.duration_inforce_vec_at(self.config.valuation_date) == 0
+            )  # (N,)
+            expenses[new_biz_mask, 0] += acq_cost
+
+        # Backward recursion to omega; next_dr carries DR_{t+1}, terminal 0.
+        dr = np.zeros((n, t_val), dtype=np.float64)
+        next_dr = np.zeros(n, dtype=np.float64)
+        for month in range(t_val - 1, -1, -1):
+            survive = (1.0 - q_val[:, month]) * (1.0 - w_val[:, month])  # (N,)
+            dr[:, month] = (expenses[:, month] - gross_prem[:, month]) + v_monthly * (
+                q_val[:, month] * face_vec + survive * next_dr
+            )
+            next_dr = dr[:, month]
+
+        return dr[:, :t_proj]
+
+    def _compute_reserves_vm20(self) -> np.ndarray:
+        """
+        VM-20 simplified reserve, shape (N, T): ``max(NPR, DR)`` floored at 0.
+
+        The deterministic path of the US principle-based reserve (no stochastic
+        scenarios; PLAN §2). Both components are valued **to omega**:
+
+        * **NPR** is the to-omega CRVM reserve (:meth:`_compute_reserves_crvm`):
+          a net-premium reserve with the first-year expense allowance graded in.
+          It raises for short limited-pay (< 20 years) via the CRVM guard, so
+          VM-20 inherits that limitation.
+        * **DR** is the to-omega deterministic gross-premium reserve
+          (:meth:`_compute_deterministic_reserve`).
+
+        The NPR grades monotonically toward face (ADR-089), so VM-20 — being at
+        least the NPR — does **not** collapse at the projection horizon. For a
+        well-priced block the gross premium exceeds the net premium, so DR < NPR
+        and the formulaic floor governs (VM20 == CRVM); for an underpriced block
+        the realistic DR can exceed the NPR floor and then drives the reserve —
+        the deficiency signal a reinsurer relies on.
+        """
+        npr = self._compute_reserves_crvm()  # raises for short limited-pay
+        t_val = self._valuation_months_to_omega()
+        i_val = self.config.effective_valuation_rate
+        v_monthly = (1.0 + i_val) ** (-1.0 / 12.0)
+        q_val = self._build_valuation_mortality(t_val)
+        w_val = self._build_valuation_lapse(t_val)
+        dr = self._compute_deterministic_reserve(q_val, w_val, v_monthly)
+        reserves: np.ndarray = np.maximum(np.maximum(npr, dr), 0.0)
         return reserves
 
     def project(self, seriatim: bool = False) -> CashFlowResult:
