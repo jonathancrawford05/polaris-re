@@ -115,7 +115,7 @@ Reserves are required for coinsurance, modco, and profit testing. The reserve me
 
 **Term Life:** Net premium reserves with terminal condition V_T = 0 at policy expiry.
 
-**Whole Life:** Net premium reserves with prospective terminal estimate V_T = face * q_T * v. Backward recursion proceeds from this approximation. (Phase 3 will extend to true prospective reserves.)
+**Whole Life:** Net premium reserves with prospective terminal estimate V_T = face * q_T * v. Backward recursion proceeds from this approximation. (Phase 3 will extend to true prospective reserves.) The **CRVM** basis (`reserve_basis=CRVM`, ADR-089) instead values the WL reserve *prospectively to omega* — independent of the projection horizon — so it grades monotonically toward the face amount and does not exhibit the horizon-edge collapse of the net-premium terminal estimate (the $7.18M→$56k golden-WL artefact). NET_PREMIUM keeps the historical terminal estimate unchanged.
 
 **Universal Life:** Reserve = account value (simplified). The AV roll-forward itself is the reserve.
 

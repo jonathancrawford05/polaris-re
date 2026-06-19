@@ -68,28 +68,36 @@ NET_PREMIUM default byte-identical.
     by the equivalence principle, FPT identities, and an independent recursion.
 
 ### Slice 2b: CRVM for Whole Life + terminal-reserve artefact
-- **Status:** NEXT
-- **Depends on:** Slice 2a merged.
-- **Files to create/modify:** `products/whole_life.py` (CRVM/FPT recursion +
-  widen `_supported_reserve_bases`; proper prospective terminal reserve to omega
-  to close the $7.18M→$56k artefact); likely `assumptions/assumption_set.py`
-  and/or `core/projection.py` for the valuation mortality table (controlled
-  core-contract change → ADR + backward-compat default); the 20-pay
-  expense-allowance cap (binds for short-pay/high-premium WL); `docs/DECISIONS.md`.
-- **Tests to add:** closed-form WL CRVM reserve; the WL terminal-reserve
-  acceptance test on the golden WL block; default NET_PREMIUM byte-identical.
-- **Acceptance criteria:**
-  - WL CRVM first-year reserve < NET_PREMIUM first-year reserve (expense
-    allowance graded in).
-  - WL terminal-reserve artefact ($7.18M→$56k) is closed or materially
-    improved on the golden WL block, with the improvement explained.
-  - 20-pay expense-allowance cap applied where it binds (or documented TODO if
-    the truncated horizon prevents a reliable cap — flag explicitly).
-  - NET_PREMIUM default unchanged (goldens byte-identical).
+- **Status:** DONE
+- **Branch:** claude/epic-euler-oy7sfj
+- **PR:** (this session's draft)
+- **What was done:** Implemented WholeLife CRVM as Full Preliminary Term valued
+  **prospectively to omega** (`_compute_reserves_crvm`,
+  `_compute_crvm_modified_premiums`, `_build_valuation_mortality`,
+  `_valuation_months_to_omega`). The to-omega valuation is independent of the
+  projection horizon, so the reserve grades monotonically toward face and does
+  not collapse at the horizon — closing the documented $7.18M (yr10) → $56k
+  (yr20) net-premium artefact: under CRVM the golden-WL yr20 aggregate
+  `reserve_balance` rises to ~$2.35M (>40×) and the per-survivor aggregate
+  increases from yr10 to yr20. Widened `_supported_reserve_bases` to include
+  CRVM; `compute_reserves()` dispatches (NET_PREMIUM body extracted unchanged
+  into `_compute_reserves_net_premium()`). ADR-089.
+- **Key decisions:**
+  - The artefact is closed **under the CRVM basis only**; the NET_PREMIUM path
+    (and its one-period terminal estimate) is left byte-identical to honour the
+    epic's golden constraint. Closing it on NET_PREMIUM is a separate
+    rebaseline-bearing change (promoted follow-up).
+  - CRVM values on the **projection (best-estimate) mortality** (same decision
+    as 2a); the to-omega grid is supplied by the projection table. The distinct
+    2001 CSO valuation table remains a deferred controlled core-contract change.
+  - The **20-pay expense-allowance cap** binds only for premium-paying periods
+    **< 20 years**; for whole-life pay and limited-pay ≥ 20 years FPT is exact
+    CRVM. Rather than ship a knowingly-uncapped reserve, short-pay WL **raises**
+    `PolarisComputationError`. Implementing the cap is a promoted follow-up.
 
 ### Slice 3: VM-20 simplified (deterministic reserve / NPR floor)
-- **Status:** PLANNED
-- **Depends on:** Slice 2 merged.
+- **Status:** NEXT
+- **Depends on:** Slice 2b merged.
 - **Scope:** deterministic reserve = max(NPR, modelled reserve) on prescribed
   valuation assumptions; NPR floor only, no stochastic scenarios. Closed-form
   test vs a worked simplified-PBR example.

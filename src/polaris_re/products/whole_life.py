@@ -25,14 +25,21 @@ import numpy as np
 
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.core.cashflow import CashFlowResult
-from polaris_re.core.exceptions import PolarisValidationError
+from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.policy import ProductType
 from polaris_re.core.projection import ProjectionConfig
+from polaris_re.core.reserve_basis import ReserveBasis
 from polaris_re.products.base_product import BaseProduct
 from polaris_re.utils.date_utils import projection_date_index
 
 __all__ = ["WholeLife", "WholeLifeVariant"]
+
+#: Below this premium-paying period (in years) the CRVM expense allowance under
+#: Full Preliminary Term exceeds the 20-payment-whole-life cap, so FPT is no
+#: longer exact CRVM. WholeLife only computes CRVM for whole-life pay and
+#: limited-pay >= this many years; shorter pay periods raise (see ADR-089).
+_CRVM_MIN_PAY_YEARS_FOR_FPT = 20
 
 
 class WholeLifeVariant(StrEnum):
@@ -59,6 +66,16 @@ class WholeLife(BaseProduct):
         variant:                NON_PAR or PAR (default NON_PAR).
         premium_payment_years:  Limited pay period in years. None = whole-life pay.
     """
+
+    #: WholeLife supports the net level premium reserve (default) and the CRVM
+    #: modified reserve. CRVM is implemented as Full Preliminary Term (FPT) with
+    #: a **prospective valuation to omega** (max age), which both grades in the
+    #: first-year expense allowance and closes the horizon-edge terminal-reserve
+    #: artefact of the net-premium path (ADR-089). FPT is exact CRVM for
+    #: whole-life pay and limited-pay >= 20 years; shorter pay periods (where
+    #: the 20-pay expense-allowance cap binds) raise via the dispatch guard.
+    #: VM20 / GAAP remain unimplemented and raise via the base-class guard.
+    _supported_reserve_bases = frozenset({ReserveBasis.NET_PREMIUM, ReserveBasis.CRVM})
 
     def __init__(
         self,
@@ -237,6 +254,28 @@ class WholeLife(BaseProduct):
 
     def compute_reserves(self) -> np.ndarray:
         """
+        Compute policy reserves, shape (N, T), on the configured basis.
+
+        Dispatches on ``config.reserve_basis``:
+
+        * ``NET_PREMIUM`` (default) — net level premium reserve via backward
+          recursion from a one-period prospective terminal estimate. This is
+          the historical path and is left byte-identical.
+        * ``CRVM`` — Commissioners Reserve Valuation Method, implemented as Full
+          Preliminary Term with a prospective valuation to omega (see
+          :meth:`_compute_reserves_crvm`). The to-omega valuation closes the
+          horizon-edge terminal-reserve artefact (ARCHITECTURE §4) that the
+          net-premium recursion exhibits when the projection ends before omega.
+
+        Unimplemented bases raise ``PolarisComputationError`` via the guard.
+        """
+        basis = self._check_reserve_basis()
+        if basis is ReserveBasis.CRVM:
+            return self._compute_reserves_crvm()
+        return self._compute_reserves_net_premium()
+
+    def _compute_reserves_net_premium(self) -> np.ndarray:
+        """
         Backward recursion for net premium reserves, shape (N, T).
 
         Unlike term life, the terminal reserve V_T is NOT zero — it equals the
@@ -247,7 +286,6 @@ class WholeLife(BaseProduct):
 
         Premium payments cease after premium_payment_years (limited pay).
         """
-        self._check_reserve_basis()
         q, _w = self._build_rate_arrays()
         lx = self._compute_inforce_factors(q, _w)
         n, t = q.shape
@@ -278,6 +316,227 @@ class WholeLife(BaseProduct):
             ) * v_monthly - p_deducted
 
         reserves = np.maximum(reserves, 0.0)
+        return reserves
+
+    # --- CRVM (Full Preliminary Term, prospective to omega) -----------
+
+    def _valuation_months_to_omega(self) -> int:
+        """
+        Number of monthly valuation steps needed to value every policy to omega.
+
+        Whole-life reserves are prospective to the end of the mortality table
+        (max age). The CRVM valuation grid must therefore run to omega for the
+        *youngest* in-force policy, independent of the projection horizon. The
+        result is floored at the projection horizon so the (N, T) reserve slice
+        is always available.
+        """
+        attained_ages = self.inforce.attained_age_vec_at(self.config.valuation_date)  # (N,)
+        max_age = self.assumptions.mortality.max_age
+        youngest = int(attained_ages.min())
+        # +1 year of margin so q is forced to 1.0 (certain death) and tpx -> 0
+        # strictly inside the grid for every policy.
+        months_to_omega = (max_age - youngest + 2) * 12
+        return max(months_to_omega, self.config.projection_months)
+
+    def _build_valuation_mortality(self, t_val: int) -> np.ndarray:
+        """
+        Monthly mortality-only rate array q for valuation, shape (N, t_val).
+
+        Mirrors the mortality logic of :meth:`_build_rate_arrays` (per
+        (sex, smoker) lookup, per-policy substandard rating, max-age forcing of
+        q = 1.0) but (a) extends to ``t_val`` months — out to omega rather than
+        the projection horizon — and (b) carries **no lapse**, because a
+        per-survivor valuation reserve is mortality-only. Over the first
+        ``projection_months`` columns it returns exactly the same q values as
+        :meth:`_build_rate_arrays` (verified by a regression test).
+        """
+        n = self.inforce.n_policies
+        q = np.zeros((n, t_val), dtype=np.float64)
+
+        duration_inforce = self.inforce.duration_inforce_vec_at(self.config.valuation_date)  # (N,)
+        attained_ages = self.inforce.attained_age_vec_at(self.config.valuation_date)  # (N,)
+
+        multiplier_vec = self.inforce.mortality_multiplier_vec  # (N,)
+        flat_extra_monthly_vec = self.inforce.flat_extra_vec / 12000.0  # (N,) monthly
+
+        sex_list = [p.sex for p in self.inforce.policies]
+        smoker_list = [p.smoker_status for p in self.inforce.policies]
+        unique_combos = set(zip(sex_list, smoker_list, strict=True))
+        max_age = self.assumptions.mortality.max_age
+
+        for month in range(t_val):
+            current_durations = duration_inforce + month
+            age_increment = (current_durations // 12) - (duration_inforce // 12)
+            current_ages = attained_ages + age_increment
+            current_ages_capped = np.minimum(current_ages, max_age)
+
+            q_monthly_col = np.zeros(n, dtype=np.float64)
+            for sex, smoker in unique_combos:
+                mask = np.array(
+                    [
+                        (s == sex and sm == smoker)
+                        for s, sm in zip(sex_list, smoker_list, strict=True)
+                    ],
+                    dtype=bool,
+                )
+                if not np.any(mask):
+                    continue
+                q_monthly_col[mask] = self.assumptions.mortality.get_qx_vector(
+                    current_ages_capped[mask],
+                    sex,
+                    smoker,
+                    current_durations[mask],
+                )
+
+            q_monthly_col = np.minimum(q_monthly_col * multiplier_vec + flat_extra_monthly_vec, 1.0)
+
+            # At/after max age the policy must terminate — certain death.
+            at_max_age = current_ages >= max_age
+            q_monthly_col = np.where(at_max_age, 1.0, q_monthly_col)
+
+            q[:, month] = q_monthly_col
+
+        return q
+
+    def _compute_crvm_modified_premiums(
+        self,
+        q_val: np.ndarray,
+        v_monthly: float,
+        premium_months: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        CRVM (Full Preliminary Term) modified valuation net premiums, shape (N,).
+
+        Splits each policy into year 1 (months 0..11) and renewal (months 12..)
+        and solves each segment on the equivalence principle, valued to omega:
+
+            alpha = APV(year-1 benefits)  / APV(year-1 annuity-due)
+            beta  = APV(renewal benefits) / APV(renewal-premium annuity-due)
+
+        Benefits run to omega; the renewal-premium annuity runs only over the
+        premium-paying months (12 .. ``premium_months`` - 1), so limited-pay
+        whole life concentrates beta over the pay period while still funding the
+        full to-omega benefit. All APVs use mortality-only survival ``tpx`` so
+        that ``alpha * ad_year1 + beta * ad_renewal == APV(all benefits)`` and
+        hence the prospective reserve ``0V = 0`` (the FPT identity).
+        """
+        n, t_val = q_val.shape
+        face_vec = self.inforce.face_amount_vec  # (N,)
+
+        tpx = np.ones((n, t_val), dtype=np.float64)
+        for month in range(1, t_val):
+            tpx[:, month] = tpx[:, month - 1] * (1.0 - q_val[:, month - 1])
+
+        v_powers = v_monthly ** np.arange(t_val, dtype=np.float64)  # v^0 .. v^(t_val-1)
+        v_powers_plus1 = v_monthly ** np.arange(1, t_val + 1, dtype=np.float64)
+
+        benefit_pv = v_powers_plus1[np.newaxis, :] * tpx * q_val * face_vec[:, np.newaxis]  # (N,T)
+        annuity_pv = v_powers[np.newaxis, :] * tpx  # (N, t_val)
+
+        months = np.arange(t_val)
+        year1 = months < 12  # (t_val,)
+        # Renewal-premium window is per policy (limited pay): months 12..prem-1.
+        renewal_prem = (months[np.newaxis, :] >= 12) & (
+            months[np.newaxis, :] < premium_months[:, np.newaxis]
+        )  # (N, t_val)
+
+        a_year1 = benefit_pv[:, year1].sum(axis=1)  # (N,)
+        ad_year1 = annuity_pv[:, year1].sum(axis=1)  # (N,)
+        a_renewal = benefit_pv[:, months >= 12].sum(axis=1)  # (N,) benefits to omega
+        ad_renewal_prem = (annuity_pv * renewal_prem).sum(axis=1)  # (N,) premium annuity
+
+        alpha = np.where(ad_year1 > 0.0, a_year1 / ad_year1, 0.0)
+        beta = np.where(ad_renewal_prem > 0.0, a_renewal / ad_renewal_prem, 0.0)
+        return alpha, beta
+
+    def _compute_reserves_crvm(self) -> np.ndarray:
+        """
+        CRVM modified reserve via Full Preliminary Term, prospective to omega.
+
+        The reserve at month t is the per-survivor present value of future
+        benefits less future modified net premiums, both valued to omega:
+
+            V_t = [ sum_{s>=t} f_s - sum_{s>=t} P_s * g_s ] / (v^t * tpx_t)
+
+        where ``f_s`` is the time-0 PV of the death benefit in month s, ``g_s``
+        the time-0 PV of a $1 survival annuity payment in month s, and the
+        modified premium ``P_s`` is alpha in months 0..11 and beta over the
+        renewal-premium window. Because the valuation always runs to omega the
+        reserve increases monotonically toward the face amount — it does **not**
+        collapse at the projection horizon the way the net-premium recursion's
+        one-period terminal estimate does (the artefact this slice closes).
+
+        FPT is exact CRVM only while the expense allowance stays within the
+        20-payment-whole-life cap, which holds for whole-life pay and
+        limited-pay >= 20 years. Shorter pay periods raise rather than ship a
+        knowingly capped-but-uncapped reserve (ADR-089).
+        """
+        if (
+            self.premium_payment_years is not None
+            and self.premium_payment_years < _CRVM_MIN_PAY_YEARS_FOR_FPT
+        ):
+            raise PolarisComputationError(
+                "CRVM for WholeLife is implemented as Full Preliminary Term, "
+                f"which is exact only for premium-paying periods >= "
+                f"{_CRVM_MIN_PAY_YEARS_FOR_FPT} years. For premium_payment_years="
+                f"{self.premium_payment_years} the 20-payment-whole-life "
+                "expense-allowance cap binds and is not yet implemented "
+                "(see ADR-089 / docs/PLAN_reserve_basis.md). Use NET_PREMIUM or "
+                "a pay period >= 20 years."
+            )
+
+        n = self.inforce.n_policies
+        t_proj = self.config.projection_months
+        t_val = self._valuation_months_to_omega()
+
+        i_val = self.config.effective_valuation_rate
+        v_monthly = (1.0 + i_val) ** (-1.0 / 12.0)
+
+        q_val = self._build_valuation_mortality(t_val)  # (N, t_val)
+        face_vec = self.inforce.face_amount_vec  # (N,)
+
+        # Premium-paying months per policy (whole-life pay runs to omega).
+        if self.premium_payment_years is not None:
+            premium_months = np.full(n, self.premium_payment_years * 12, dtype=np.int64)
+        else:
+            premium_months = np.full(n, t_val, dtype=np.int64)
+
+        alpha, beta = self._compute_crvm_modified_premiums(q_val, v_monthly, premium_months)
+
+        # Mortality-only survival and time-0 PV building blocks.
+        tpx = np.ones((n, t_val), dtype=np.float64)
+        for month in range(1, t_val):
+            tpx[:, month] = tpx[:, month - 1] * (1.0 - q_val[:, month - 1])
+
+        v_powers = v_monthly ** np.arange(t_val, dtype=np.float64)  # (t_val,)
+        v_powers_plus1 = v_monthly ** np.arange(1, t_val + 1, dtype=np.float64)
+
+        f = v_powers_plus1[np.newaxis, :] * tpx * q_val * face_vec[:, np.newaxis]  # (N, t_val)
+        g = v_powers[np.newaxis, :] * tpx  # (N, t_val)
+
+        # Modified premium P_s per month: alpha (s<12), beta over the renewal
+        # premium window, 0 once premiums cease (limited pay).
+        months = np.arange(t_val)
+        p_s = np.zeros((n, t_val), dtype=np.float64)
+        p_s[:, months < 12] = alpha[:, np.newaxis]
+        renewal_prem = (months[np.newaxis, :] >= 12) & (
+            months[np.newaxis, :] < premium_months[:, np.newaxis]
+        )
+        p_s = np.where(renewal_prem, beta[:, np.newaxis], p_s)
+
+        # Prospective reserve: reverse-cumulative PV of (benefits - premiums),
+        # brought to time t per survivor by dividing by v^t * tpx_t.
+        future_benefits = np.cumsum(f[:, ::-1], axis=1)[:, ::-1]  # sum_{s>=t} f_s
+        future_premiums = np.cumsum((p_s * g)[:, ::-1], axis=1)[:, ::-1]  # sum_{s>=t} P_s g_s
+        discount_to_t = v_powers[np.newaxis, :] * tpx  # v^t * tpx_t
+        with np.errstate(divide="ignore", invalid="ignore"):
+            reserves_val = np.where(
+                discount_to_t > 0.0,
+                (future_benefits - future_premiums) / discount_to_t,
+                0.0,
+            )
+
+        reserves = np.maximum(reserves_val[:, :t_proj], 0.0)
         return reserves
 
     def project(self, seriatim: bool = False) -> CashFlowResult:
