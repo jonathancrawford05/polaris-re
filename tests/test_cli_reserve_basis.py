@@ -103,21 +103,21 @@ class TestReserveBasisFlag:
 
 
 class TestReserveBasisConfigField:
-    def test_config_field_honoured(self) -> None:
+    def test_config_field_honoured(self, tmp_path: Path) -> None:
         """``deal.reserve_basis`` in the config drives the ProjectionConfig basis."""
         raw = json.loads(GOLDEN_CONFIG_FLAT.read_text())
         raw.setdefault("deal", {})["reserve_basis"] = "CRVM"
-        cfg_path = Path("/tmp/_rb_cfg.json")
+        cfg_path = tmp_path / "rb_cfg.json"
         cfg_path.write_text(json.dumps(raw))
         _inforce, _assumptions, config, inputs = _build_pipeline_from_config(cfg_path, GOLDEN_CSV)
         assert config.reserve_basis == ReserveBasis.CRVM
         assert inputs.deal.reserve_basis == "CRVM"
 
-    def test_flag_overrides_config(self) -> None:
+    def test_flag_overrides_config(self, tmp_path: Path) -> None:
         """An explicit override beats ``deal.reserve_basis`` in the config."""
         raw = json.loads(GOLDEN_CONFIG_FLAT.read_text())
         raw.setdefault("deal", {})["reserve_basis"] = "CRVM"
-        cfg_path = Path("/tmp/_rb_cfg2.json")
+        cfg_path = tmp_path / "rb_cfg.json"
         cfg_path.write_text(json.dumps(raw))
         _inforce, _assumptions, config, _inputs = _build_pipeline_from_config(
             cfg_path, GOLDEN_CSV, reserve_basis_override="NET_PREMIUM"

@@ -65,7 +65,9 @@ def test_crvm_changes_priced_numbers() -> None:
     assert crvm.status_code == 200, crvm.text
     crvm_json = crvm.json()
     assert crvm_json["reserve_basis"] == "CRVM"
-    assert net["pv_profits"] != crvm_json["pv_profits"]
+    # CRVM moves the WL reserve materially vs the net-premium basis; assert a
+    # tolerance-based difference rather than a bare float inequality.
+    assert abs(net["pv_profits"] - crvm_json["pv_profits"]) > 1.0
 
 
 def test_unsupported_basis_for_product_is_422() -> None:
