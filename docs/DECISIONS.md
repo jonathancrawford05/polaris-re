@@ -5320,3 +5320,86 @@ a controlled core-contract change requiring its own ADR.
   serialization round-trip)
 - `tests/test_products/test_reserve_basis_dispatch.py` (default == explicit
   NET_PREMIUM byte-identical; unimplemented bases raise per product)
+
+---
+
+## ADR-088: CRVM reserve for TermLife via Full Preliminary Term (Epic 1, Slice 2a)
+
+**Date:** 2026-06-19
+**Status:** Accepted
+
+**Context.** Slice 1 (ADR-087) added the `ReserveBasis` selector and a dispatch
+guard; every concrete actuarial basis still raised. This slice lands the first
+concrete basis — **CRVM** (Commissioners Reserve Valuation Method, US statutory)
+— for **TermLife**. The planned Slice 2 also covered Whole Life and the
+WL terminal-reserve acceptance test, but implementing those *correctly* entangles
+two genuinely separate hard problems — the prospective WL terminal reserve to
+omega and the 20-pay expense-allowance cap — so Slice 2 was decomposed into
+**2a (TermLife CRVM, this ADR)** and **2b (WholeLife CRVM + terminal-reserve
+artefact)** rather than guess on the WL pieces (CLAUDE.md: actuarial correctness
+above all; routine guardrail: decompose, don't defer; don't guess).
+
+**Premise (verified before implementing, routine step 7b).** With
+`reserve_basis=CRVM`, `TermLife.compute_reserves()` raised
+`PolarisComputationError` via the slice-1 guard — confirmed the engine could not
+produce a CRVM reserve. The net-premium reserve was non-trivial and positive in
+early durations, so a distinct CRVM (lower early reserve) is observable.
+
+**Decision.** CRVM for level term is implemented as **Full Preliminary Term
+(FPT)**. The valuation net premium is split into a first-year premium `alpha`
+and a level renewal premium `beta`, each solved on the equivalence principle
+over its segment (months 0–11 vs 12–T−1):
+
+```
+alpha = APV(year-1 benefits)  / APV(year-1 annuity-due)
+beta  = APV(renewal benefits) / APV(renewal annuity-due)
+```
+
+The reserve uses the existing backward recursion, deducting `alpha` in the first
+12 months and `beta` thereafter. Because `alpha·ä_year1 + beta·ä_renewal`
+equals the APV of all benefits, the issue reserve `0V = 0`; FPT additionally
+gives a zero first-year terminal reserve (`12V = 0`), and from month 12 the
+reserve equals the net premium reserve of the otherwise-identical policy issued
+one year later. `TermLife._supported_reserve_bases` gains CRVM; the
+`compute_reserves()` dispatch routes CRVM to `_compute_reserves_crvm()` and
+leaves the NET_PREMIUM body byte-identical (extracted unchanged into
+`_compute_reserves_net_premium()`).
+
+**Rationale.** For level term the renewal valuation premium stays well below the
+20-pay-whole-life expense-allowance limit, so the Commissioners cap never binds
+and **FPT is exact CRVM** — no cap arithmetic is needed (and the cap would in any
+case require a whole-life annuity to omega that the truncated projection horizon
+cannot supply reliably; that is the WL problem deferred to 2b). FPT reserves are
+uniformly at or below the net premium reserve, correctly grading in the
+first-year acquisition expense allowance, which raises the early-duration Net
+Amount at Risk and therefore the YRT ceded premium — the treaty layer reprices
+automatically with no change, because YRT consumes `compute_reserves()` output.
+
+**Valuation mortality basis.** CRVM here values on the **projection
+(best-estimate) mortality** the engine already builds, not a distinct statutory
+table. Real US CRVM prescribes 2001 CSO; wiring a separate
+`valuation_mortality` table (with the attendant select/improvement questions) is
+a controlled core-contract change deferred to Slice 2b / a follow-up. Documenting
+this as the current simplification keeps the slice complete and honest rather
+than shipping a half-wired contract change.
+
+**Behaviour change.** None on the default path (goldens byte-identical, no
+rebaseline). A caller selecting `reserve_basis=CRVM` on a TermLife block now gets
+the FPT/CRVM reserve instead of a `PolarisComputationError`. WholeLife / UL / DI
+still raise on CRVM.
+
+**Out of scope (filed as follow-ups).** WholeLife CRVM and the WL prospective
+terminal-reserve artefact ($7.18M→$56k); the 20-pay expense-allowance cap
+(needed only for high-premium / short-pay policies, not level term); the
+distinct statutory valuation mortality table (2001 CSO); VM-20 simplified (Slice
+3); and selector surfacing on CLI / API / Excel / notebook (Slice 4).
+
+**Affected files.**
+
+- `src/polaris_re/products/term_life.py` (`_supported_reserve_bases` widened;
+  `compute_reserves()` dispatch; `_compute_reserves_net_premium()`,
+  `_compute_reserves_crvm()`, `_compute_crvm_modified_premiums()`)
+- `tests/test_products/test_term_crvm_reserve.py` (new — equivalence principle,
+  FPT identities, independent-recursion match, YRT NAR integration)
+- `tests/test_products/test_reserve_basis_dispatch.py` (Term no longer raises on
+  CRVM; WL still raises on all non-NET_PREMIUM bases)

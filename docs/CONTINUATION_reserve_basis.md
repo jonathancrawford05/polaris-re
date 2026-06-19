@@ -4,7 +4,7 @@
 (also PRODUCT_DIRECTION_2026-04-19 IMPORTANT "reserve-basis matching").
 **Plan:** docs/PLAN_reserve_basis.md
 **Status:** IN PROGRESS
-**Total slices:** 4
+**Total slices:** 5 (Slice 2 split into 2a Term + 2b WL on 2026-06-19)
 **Estimated total scope:** ~10 dev-days
 
 ## Overall Goal
@@ -37,23 +37,54 @@ whole-life terminal-reserve artefact is folded in as a named acceptance test
     all currently support only NET_PREMIUM.
   - Default path is byte-identical — no golden rebaseline.
 
-### Slice 2: CRVM concrete basis (Term + WL)
+### Slice 2 — split into 2a (Term, DONE) + 2b (WL, NEXT)
+
+Planned Slice 2 (CRVM for Term **and** WL, plus the WL terminal-reserve
+acceptance test) was decomposed during the 2026-06-19 session: implementing the
+WL pieces *correctly* entangles two separate hard problems — the prospective WL
+terminal reserve to omega and the 20-pay expense-allowance cap — that the
+truncated projection horizon makes non-trivial. Rather than guess on the
+actuarially sensitive WL paths (CLAUDE.md: correctness above all), Term CRVM
+ships as 2a and WL CRVM + the terminal-reserve artefact as 2b. Both keep the
+NET_PREMIUM default byte-identical.
+
+### Slice 2a: CRVM concrete basis (Term)
+- **Status:** DONE
+- **Branch:** claude/epic-euler-807ipt
+- **PR:** (this session's draft)
+- **What was done:** Implemented CRVM for `TermLife` as Full Preliminary Term
+  (FPT) — exact CRVM for level term, since the renewal valuation premium never
+  reaches the 20-pay expense-allowance cap. Split the valuation net premium into
+  a first-year `alpha` and level renewal `beta` (each solved on the equivalence
+  principle), reused the existing backward recursion deducting `alpha` in months
+  0–11 and `beta` after. Widened `TermLife._supported_reserve_bases` to include
+  CRVM; `compute_reserves()` now dispatches (NET_PREMIUM body extracted unchanged
+  into `_compute_reserves_net_premium()`). ADR-088.
+- **Key decisions:**
+  - CRVM values on the **projection (best-estimate) mortality** for now; the
+    distinct statutory valuation table (2001 CSO) is deferred to 2b / a
+    follow-up rather than shipping a half-wired core-contract change.
+  - FPT gives `0V = 0`, `12V = 0`, and CRVM ≤ NET_PREMIUM everywhere — verified
+    by the equivalence principle, FPT identities, and an independent recursion.
+
+### Slice 2b: CRVM for Whole Life + terminal-reserve artefact
 - **Status:** NEXT
-- **Depends on:** Slice 1 merged.
-- **Files to create/modify:** `products/term_life.py`, `products/whole_life.py`
-  (CRVM recursion + widen `_supported_reserve_bases`); likely
-  `assumptions/assumption_set.py` and/or `core/projection.py` for the
-  valuation mortality table (controlled core-contract change → ADR + default
-  preserving backward compat); `docs/DECISIONS.md`.
-- **Tests to add:** closed-form CRVM reserve vs a worked textbook example;
-  the WL terminal-reserve acceptance test; default NET_PREMIUM still
-  byte-identical.
+- **Depends on:** Slice 2a merged.
+- **Files to create/modify:** `products/whole_life.py` (CRVM/FPT recursion +
+  widen `_supported_reserve_bases`; proper prospective terminal reserve to omega
+  to close the $7.18M→$56k artefact); likely `assumptions/assumption_set.py`
+  and/or `core/projection.py` for the valuation mortality table (controlled
+  core-contract change → ADR + backward-compat default); the 20-pay
+  expense-allowance cap (binds for short-pay/high-premium WL); `docs/DECISIONS.md`.
+- **Tests to add:** closed-form WL CRVM reserve; the WL terminal-reserve
+  acceptance test on the golden WL block; default NET_PREMIUM byte-identical.
 - **Acceptance criteria:**
-  - CRVM reserve matches a cited worked example within closed-form tolerance.
-  - CRVM first-year reserve < NET_PREMIUM first-year reserve (expense
+  - WL CRVM first-year reserve < NET_PREMIUM first-year reserve (expense
     allowance graded in).
   - WL terminal-reserve artefact ($7.18M→$56k) is closed or materially
     improved on the golden WL block, with the improvement explained.
+  - 20-pay expense-allowance cap applied where it binds (or documented TODO if
+    the truncated horizon prevents a reliable cap — flag explicitly).
   - NET_PREMIUM default unchanged (goldens byte-identical).
 
 ### Slice 3: VM-20 simplified (deterministic reserve / NPR floor)

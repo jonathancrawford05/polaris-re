@@ -27,8 +27,10 @@ from polaris_re.utils.table_io import load_mortality_csv
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
-# Every basis that is NOT yet implemented in slice 1.
-UNIMPLEMENTED_BASES = [ReserveBasis.CRVM, ReserveBasis.VM20, ReserveBasis.GAAP]
+# Bases still unimplemented per product. CRVM landed for TermLife in slice 2a
+# (ADR-088); WholeLife still raises on every non-NET_PREMIUM basis.
+TERM_UNIMPLEMENTED_BASES = [ReserveBasis.VM20, ReserveBasis.GAAP]
+WL_UNIMPLEMENTED_BASES = [ReserveBasis.CRVM, ReserveBasis.VM20, ReserveBasis.GAAP]
 
 
 @pytest.fixture()
@@ -133,19 +135,21 @@ class TestDefaultBasisUnchanged:
 class TestUnimplementedBasisRaises:
     """Selecting an unimplemented basis must raise, never silently fall back."""
 
-    @pytest.mark.parametrize("basis", UNIMPLEMENTED_BASES)
+    @pytest.mark.parametrize("basis", TERM_UNIMPLEMENTED_BASES)
     def test_term_raises(self, assumption_set: AssumptionSet, basis: ReserveBasis):
         engine = TermLife(_term_block(), assumption_set, _config(basis))
         with pytest.raises(PolarisComputationError, match="not yet implemented"):
             engine.compute_reserves()
 
-    @pytest.mark.parametrize("basis", UNIMPLEMENTED_BASES)
+    @pytest.mark.parametrize("basis", WL_UNIMPLEMENTED_BASES)
     def test_whole_life_raises(self, assumption_set: AssumptionSet, basis: ReserveBasis):
         engine = WholeLife(_wl_block(), assumption_set, _config(basis))
         with pytest.raises(PolarisComputationError, match="not yet implemented"):
             engine.compute_reserves()
 
     def test_error_message_names_supported_basis(self, assumption_set: AssumptionSet):
-        engine = TermLife(_term_block(), assumption_set, _config(ReserveBasis.CRVM))
+        # VM20 is still unimplemented for TermLife; the error names the
+        # supported bases (which now include CRVM).
+        engine = TermLife(_term_block(), assumption_set, _config(ReserveBasis.VM20))
         with pytest.raises(PolarisComputationError, match="NET_PREMIUM"):
             engine.compute_reserves()
