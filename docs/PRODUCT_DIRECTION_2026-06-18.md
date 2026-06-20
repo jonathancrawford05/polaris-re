@@ -154,13 +154,19 @@ restored this run at maintainer direction. All three are now treated as
 **epics to decompose and drive**, not items to defer (see
 `docs/DAILY_DEV_ROUTINE_PROPOSED_CHANGES_2026-06-18.md`):
 
-- **Reserve basis matching (cedant reproduction).** `core/projection.py`
+- ~~**Reserve basis matching (cedant reproduction).** `core/projection.py`
   supports one reserve basis. Reinsurers must reproduce the cedant's reserves
   (GAAP, STAT VM-20, CRVM, CIA net premium, or deficiency reserves) to give a
   consistent profit-test. **Scope:** ~10 dev-days for a `ReserveBasis` enum +
   two concrete alternatives (CRVM, VM-20 PBR simplified). **Affected:**
   `core/projection.py`, all four products, new test suite vs published cedant
-  filings. *Carried from PRODUCT_DIRECTION_2026-05-23 → 2026-04-19.*
+  filings. *Carried from PRODUCT_DIRECTION_2026-05-23 → 2026-04-19.*~~ —
+  **SHIPPED** (PRs #81–#86): `ReserveBasis` enum + plumbing (#81), CRVM for
+  Term (#82) and WL to-omega FPT (#83), VM-20 simplified for Term (#84) and WL
+  (#85), and the CLI/API/Excel/notebook selector (#86). Epic 1 COMPLETE; see
+  `CONTINUATION_reserve_basis.md`. Residual refinements (GAAP basis, 2001 CSO
+  valuation table, 20-pay cap, exact VM-20 NPR, stochastic VM-20,
+  scenario/uq/dashboard surfacing) live in Promoted Follow-ups below.
 
 - **IFRS 17 period-to-period movement table.** Current implementation gives
   BEL / RA / CSM at initial recognition only (`analytics/ifrs17.py`).
@@ -202,7 +208,11 @@ test**, not left as a free-floating sub-item:
   (Reserve-basis matching) — a true prospective / cedant-reproduced WL basis
   should close the $56k-at-horizon artefact, so the two are the same body of
   work. *Cross-referenced in `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md`
-  Epic 1.*
+  Epic 1.* — **SHIPPED (CRVM/VM-20 bases only)** (PR #83): the to-omega WL CRVM
+  reserve (ADR-089) closes the artefact under CRVM/VM-20 — golden-WL yr20
+  aggregate `reserve_balance` rises to ~$2.35M (>40×). The NET_PREMIUM-basis
+  artefact closure remains open (rebaseline-bearing) and is tracked in Promoted
+  Follow-ups.
 
 ### NICE-TO-HAVE
 
@@ -506,6 +516,31 @@ Items harvested from completed/in-flight work by the daily-dev routine
   Parity polish for the dashboard surface, not first-deal correctness →
   NICE-TO-HAVE.
   *Source: ADR-092 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — Heterogeneous-term IFRS 17 cohort calendar alignment.** The
+  new `IFRS17CohortManager` (Epic 2, Slice 1) requires all contracts to share a
+  projection grid (`projection_months` / `valuation_date` / `time_index`) so the
+  cohort aggregate is well defined. Different policy terms issued the same year
+  need a common calendar grid before they can be aggregated into one cohort.
+  Affects multi-term books; the first filing-grade movement table works on a
+  shared grid → NICE-TO-HAVE.
+  *Source: ADR-093 Out of scope + CONTINUATION_ifrs17_movement Open Questions
+  (1st-order).*
+
+- **NICE-TO-HAVE — IFRS 17 cohort measurement under PAA / VFA.** Slice 1 cohorts
+  measure **BBA only**; the PAA (short-duration) and VFA (direct-participating)
+  measurement models are not yet available at the cohort level. The movement
+  table targets BBA (the general model); PAA/VFA cohort movement is a later
+  refinement → NICE-TO-HAVE.
+  *Source: ADR-093 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — Onerous-contract sub-grouping within an annual IFRS 17
+  cohort.** IFRS 17.16 requires an annual cohort to be split into onerous /
+  no-significant-possibility-of-becoming-onerous / remaining sub-groups. Slice 1
+  groups by issue year only. The movement table proceeds on issue-year cohorts;
+  onerous sub-grouping is a disclosure refinement, not a blocker for the first
+  movement table → NICE-TO-HAVE.
+  *Source: ADR-093 Out of scope (1st-order).*
 
 ## Carried Forward
 

@@ -5765,3 +5765,67 @@ promoted from ADR-088/089/090/091.
   `tests/test_core/test_pipeline_reserve_basis.py` (new); Excel
   Assumptions-sheet reserve-basis tests added to
   `tests/test_utils/test_excel_output.py`
+
+## ADR-093: IFRS 17 annual issue-year cohorts + locked-in rate (Epic 2, Slice 1)
+
+**Date:** 2026-06-20
+**Status:** Accepted
+
+**Context.** `analytics/ifrs17.py` measures BEL / RA / CSM at a single point in
+time (initial recognition, with prospective schedules) for one block. A
+production IFRS 17 filer must publish a period-to-period **movement / analysis
+of change** table, which requires two capabilities the point-in-time model does
+not have: (1) grouping contracts into **annual issue-year cohorts**, and (2)
+accreting each cohort's CSM at the **discount rate locked in at that cohort's
+initial recognition** (IFRS 17 B72(b); cohorts cannot be netted against one
+another). This is the first slice of Epic 2 (A2 in
+`COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md`, ROADMAP 5.3); it builds the cohort
+container the movement table (Slice 2) rolls forward.
+
+**Premise (verified before implementing, routine step 7b).** `grep` confirmed
+`analytics/ifrs17.py` exported only `IFRS17Measurement` / `IFRS17Result` with no
+cohort or locked-in-rate-per-cohort concept; the existing tests measure a single
+block at a single discount rate. The gap is real — there is no way today to
+value two issue-year cohorts at two locked-in rates and aggregate them.
+
+**Decision.**
+
+1. **Types.** Add `IFRS17ContractInput` (frozen dataclass: GROSS `cashflows`,
+   `issue_date`, `locked_in_rate`, `ra_factor`), `IFRS17Cohort` (the aggregated
+   cohort: `issue_year`, `locked_in_rate`, `ra_factor`, `n_contracts`,
+   aggregated `cashflows`, and the per-cohort `IFRS17Result`), and
+   `IFRS17CohortManager`.
+2. **Grouping.** The manager groups contracts by `issue_date.year`, sums the
+   GROSS cash-flow lines within each cohort, and measures each cohort
+   **BBA at its own `locked_in_rate`** by composing
+   `IFRS17Measurement.measure_bba()` — it does NOT re-derive the BEL/RA/CSM
+   recursions. Cohorts are ordered by issue year.
+3. **Common projection grid.** All contracts must share `projection_months`,
+   `valuation_date`, and `time_index`, so the aggregate balance-sheet schedules
+   are the index-wise sum across cohorts. The intended usage is an inforce block
+   valued at one common date, cohorted by historical issue year, each cohort
+   carrying its issue-era locked-in rate. Heterogeneous-term calendar alignment
+   (different policy terms issued the same year) is a promoted follow-up.
+4. **Intra-cohort consistency.** Contracts within one cohort must agree on
+   `locked_in_rate` and `ra_factor` (the cohort is recognised together); a
+   mismatch raises `PolarisValidationError`, as do empty input, a non-GROSS
+   contract, and a misaligned grid.
+5. **Aggregate accessors.** `aggregate_bel/ra/csm/insurance_liability()` (Σ over
+   cohorts) and `total_initial_liability()`.
+
+**Closed-form / verification anchors.** (a) A single-contract cohort reproduces
+a direct `IFRS17Measurement.measure_bba()` exactly (BEL/RA/CSM `allclose`). (b)
+Cohort aggregation is linear: two identical profitable contracts give exactly
+2× the BEL/RA/CSM of one. (c) Two cohorts at distinct locked-in rates produce
+distinct CSM schedules (the locked-in rate genuinely drives accretion). (d) The
+aggregate schedules equal the sum across cohorts.
+
+**Behaviour change.** None. New additive types, nothing wired into the pricing
+pipeline; the golden CLI/pipeline outputs are byte-identical (verified — 1482
+passed incl. the QA golden suite, 72 passed).
+
+**Out of scope (filed as follow-ups).** The opening→…→closing movement table
+itself (Slice 2, `IFRS17MovementTable` + the additivity test); surfacing on
+API/Excel/CLI (Slice 3); heterogeneous-term cohort calendar alignment; cohort
+support for the PAA / VFA measurement models (Slice 1 cohorts measure BBA only);
+the onerous-contract sub-grouping within an annual cohort (IFRS 17.16).

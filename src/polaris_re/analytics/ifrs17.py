@@ -32,8 +32,15 @@ from typing import Literal
 import numpy as np
 
 from polaris_re.core.cashflow import CashFlowResult
+from polaris_re.core.exceptions import PolarisValidationError
 
-__all__ = ["IFRS17Measurement", "IFRS17Result"]
+__all__ = [
+    "IFRS17Cohort",
+    "IFRS17CohortManager",
+    "IFRS17ContractInput",
+    "IFRS17Measurement",
+    "IFRS17Result",
+]
 
 
 @dataclass
@@ -576,3 +583,243 @@ class IFRS17Measurement:
             initial_csm=initial_csm,
             loss_component=loss_component,
         )
+
+
+# ======================================================================
+# IFRS 17 annual issue-year cohorts (Epic 2 — movement table, Slice 1)
+# ======================================================================
+
+
+@dataclass(frozen=True)
+class IFRS17ContractInput:
+    """
+    A single contract (or pre-aggregated block) entering IFRS 17 cohort
+    aggregation.
+
+    IFRS 17 groups contracts into **annual issue-year cohorts** and locks the
+    discount rate at each cohort's initial recognition. This input carries the
+    minimum needed to do that grouping and per-cohort measurement.
+
+    Attributes:
+        cashflows:
+            GROSS basis CashFlowResult from a product projection. All contracts
+            passed to an `IFRS17CohortManager` must share the same projection
+            grid (`projection_months`, `valuation_date`, `time_index`) so the
+            cohort aggregate is calendar-consistent.
+        issue_date:
+            The contract's original issue date. Its calendar year determines the
+            annual cohort.
+        locked_in_rate:
+            The discount rate locked in at the cohort's initial recognition,
+            used for BEL discounting and CSM accretion (IFRS 17 B72(b)).
+            Contracts within one cohort must agree on this rate.
+        ra_factor:
+            Risk Adjustment as a proportion of |BEL| (simplified cost-of-capital
+            method). Contracts within one cohort must agree on this factor.
+    """
+
+    cashflows: CashFlowResult
+    issue_date: date
+    locked_in_rate: float
+    ra_factor: float = 0.05
+
+
+@dataclass
+class IFRS17Cohort:
+    """
+    One annual issue-year cohort: the aggregated contracts issued in a single
+    calendar year, measured BBA at that cohort's locked-in discount rate.
+
+    Attributes:
+        issue_year:
+            The calendar year of issue that defines this cohort.
+        locked_in_rate:
+            The cohort's locked-in discount rate (shared by all members).
+        ra_factor:
+            The cohort's Risk Adjustment factor (shared by all members).
+        n_contracts:
+            Number of `IFRS17ContractInput`s aggregated into this cohort.
+        cashflows:
+            The aggregated GROSS CashFlowResult for the cohort.
+        result:
+            The BBA `IFRS17Result` for the cohort, measured at `locked_in_rate`.
+    """
+
+    issue_year: int
+    locked_in_rate: float
+    ra_factor: float
+    n_contracts: int
+    cashflows: CashFlowResult
+    result: IFRS17Result
+
+
+class IFRS17CohortManager:
+    """
+    Groups IFRS 17 contracts into annual issue-year cohorts and measures each
+    cohort BBA at its own locked-in discount rate.
+
+    This is the cohort/aggregation layer beneath the IFRS 17 period-to-period
+    movement table (ROADMAP 5.3). It deliberately **composes**
+    `IFRS17Measurement.measure_bba()` per cohort rather than re-deriving the
+    BEL / RA / CSM recursions — the movement table (a later slice) rolls each
+    cohort's schedules forward into an opening→closing analysis of change.
+
+    All contracts must share the same projection grid (`projection_months`,
+    `valuation_date`, and `time_index`), so the aggregate balance-sheet
+    schedules are the index-wise sum across cohorts. The typical usage is an
+    inforce block valued at a common date, cohorted by historical issue year,
+    each cohort carrying its issue-era locked-in rate.
+
+    Args:
+        contracts:
+            Non-empty list of `IFRS17ContractInput`. Each must be GROSS basis.
+            Contracts sharing an issue year are aggregated into one cohort and
+            must agree on `locked_in_rate` and `ra_factor`.
+
+    Raises:
+        PolarisValidationError:
+            On empty input, a non-GROSS contract, a misaligned projection grid,
+            or inconsistent `locked_in_rate` / `ra_factor` within a cohort.
+    """
+
+    def __init__(self, contracts: list[IFRS17ContractInput]) -> None:
+        if not contracts:
+            raise PolarisValidationError("IFRS17CohortManager requires at least one contract.")
+
+        self._validate_alignment(contracts)
+
+        # Group by issue year (deterministic ascending order).
+        groups: dict[int, list[IFRS17ContractInput]] = {}
+        for contract in contracts:
+            groups.setdefault(contract.issue_date.year, []).append(contract)
+
+        self.cohorts: list[IFRS17Cohort] = [
+            self._build_cohort(year, groups[year]) for year in sorted(groups)
+        ]
+        # All cohorts share the common grid validated above.
+        self._n_periods = self.cohorts[0].result.n_periods
+
+    # ------------------------------------------------------------------
+    # Construction helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _validate_alignment(contracts: list[IFRS17ContractInput]) -> None:
+        """All contracts must be GROSS and share one projection grid."""
+        base = contracts[0].cashflows
+        for contract in contracts:
+            cf = contract.cashflows
+            if cf.basis != "GROSS":
+                raise PolarisValidationError(
+                    "IFRS17CohortManager requires GROSS basis cash flows; "
+                    f"contract issued {contract.issue_date} has basis {cf.basis!r}."
+                )
+            if cf.projection_months != base.projection_months:
+                raise PolarisValidationError(
+                    "All contracts must share projection_months; got "
+                    f"{cf.projection_months} != {base.projection_months}."
+                )
+            if cf.valuation_date != base.valuation_date:
+                raise PolarisValidationError(
+                    "All contracts must share valuation_date; got "
+                    f"{cf.valuation_date} != {base.valuation_date}."
+                )
+            if not np.array_equal(cf.time_index, base.time_index):
+                raise PolarisValidationError(
+                    "All contracts must share an identical time_index grid."
+                )
+
+    def _build_cohort(self, issue_year: int, members: list[IFRS17ContractInput]) -> IFRS17Cohort:
+        rates = {m.locked_in_rate for m in members}
+        if len(rates) != 1:
+            raise PolarisValidationError(
+                f"Cohort {issue_year} has inconsistent locked_in_rate values: "
+                f"{sorted(rates)}. Contracts in one cohort share a locked-in rate."
+            )
+        ra_factors = {m.ra_factor for m in members}
+        if len(ra_factors) != 1:
+            raise PolarisValidationError(
+                f"Cohort {issue_year} has inconsistent ra_factor values: "
+                f"{sorted(ra_factors)}. Contracts in one cohort share a factor."
+            )
+
+        locked_in_rate = members[0].locked_in_rate
+        ra_factor = members[0].ra_factor
+        aggregated = self._aggregate_cashflows(issue_year, members)
+        result = IFRS17Measurement(
+            aggregated, discount_rate=locked_in_rate, ra_factor=ra_factor
+        ).measure_bba()
+        return IFRS17Cohort(
+            issue_year=issue_year,
+            locked_in_rate=locked_in_rate,
+            ra_factor=ra_factor,
+            n_contracts=len(members),
+            cashflows=aggregated,
+            result=result,
+        )
+
+    @staticmethod
+    def _aggregate_cashflows(issue_year: int, members: list[IFRS17ContractInput]) -> CashFlowResult:
+        """Sum the GROSS cash-flow lines of a cohort's members (aligned grid)."""
+        base = members[0].cashflows
+
+        def total(attr: str) -> np.ndarray:
+            stacked = np.stack([getattr(m.cashflows, attr) for m in members], axis=0)
+            return stacked.sum(axis=0).astype(np.float64)
+
+        return CashFlowResult(
+            run_id=f"ifrs17_cohort_{issue_year}",
+            valuation_date=base.valuation_date,
+            basis="GROSS",
+            assumption_set_version=base.assumption_set_version,
+            product_type=base.product_type,
+            projection_months=base.projection_months,
+            time_index=base.time_index,
+            gross_premiums=total("gross_premiums"),
+            death_claims=total("death_claims"),
+            lapse_surrenders=total("lapse_surrenders"),
+            expenses=total("expenses"),
+            reserve_balance=total("reserve_balance"),
+            reserve_increase=total("reserve_increase"),
+            net_cash_flow=total("net_cash_flow"),
+        )
+
+    # ------------------------------------------------------------------
+    # Aggregate balance-sheet schedules (Σ over cohorts)
+    # ------------------------------------------------------------------
+
+    @property
+    def n_cohorts(self) -> int:
+        """Number of distinct annual issue-year cohorts."""
+        return len(self.cohorts)
+
+    @property
+    def n_periods(self) -> int:
+        """Projection periods on the shared grid."""
+        return self._n_periods
+
+    def _aggregate(self, attr: str) -> np.ndarray:
+        out = np.zeros(self._n_periods, dtype=np.float64)
+        for cohort in self.cohorts:
+            out = out + getattr(cohort.result, attr)
+        return out
+
+    def aggregate_bel(self) -> np.ndarray:
+        """Best Estimate Liability summed across cohorts, shape (T,)."""
+        return self._aggregate("bel")
+
+    def aggregate_ra(self) -> np.ndarray:
+        """Risk Adjustment summed across cohorts, shape (T,)."""
+        return self._aggregate("risk_adjustment")
+
+    def aggregate_csm(self) -> np.ndarray:
+        """Contractual Service Margin summed across cohorts, shape (T,)."""
+        return self._aggregate("csm")
+
+    def aggregate_insurance_liability(self) -> np.ndarray:
+        """Total insurance liability (BEL + RA + CSM) summed across cohorts."""
+        return self._aggregate("insurance_liability")
+
+    def total_initial_liability(self) -> float:
+        """Total insurance liability at initial recognition, summed over cohorts."""
+        return float(sum(cohort.result.total_initial_liability() for cohort in self.cohorts))

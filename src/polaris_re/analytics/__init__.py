@@ -5,7 +5,13 @@ stochastic rates, experience studies, and rate schedule generation.
 
 from polaris_re.analytics.capital import CapitalResult, LICATCapital, LICATFactors
 from polaris_re.analytics.experience_study import AEResult, ExperienceStudy
-from polaris_re.analytics.ifrs17 import IFRS17Measurement, IFRS17Result
+from polaris_re.analytics.ifrs17 import (
+    IFRS17Cohort,
+    IFRS17CohortManager,
+    IFRS17ContractInput,
+    IFRS17Measurement,
+    IFRS17Result,
+)
 from polaris_re.analytics.portfolio import (
     Deal,
     DealResult,
@@ -42,6 +48,9 @@ __all__ = [
     "DealResult",
     "ExperienceStudy",
     "HullWhiteModel",
+    "IFRS17Cohort",
+    "IFRS17CohortManager",
+    "IFRS17ContractInput",
     "IFRS17Measurement",
     "IFRS17Result",
     "LICATCapital",
