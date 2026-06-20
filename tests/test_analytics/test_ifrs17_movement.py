@@ -334,9 +334,11 @@ def test_component_movement_to_dict_round_trips_fields():
         "closing",
         "footing_error",
     }
-    assert d["opening"] == comp.opening
-    assert d["closing"] == comp.closing
-    assert d["footing_error"] == comp.footing_error()
+    # Round-trip: the serialiser stores the identical floats (assert_allclose
+    # rather than bare == per the repo's float-comparison rule).
+    np.testing.assert_allclose(d["opening"], comp.opening)
+    np.testing.assert_allclose(d["closing"], comp.closing)
+    np.testing.assert_allclose(d["footing_error"], comp.footing_error())
     # Every value is a plain float (JSON-serialisable, no numpy scalars).
     for value in d.values():
         assert isinstance(value, float)
@@ -369,7 +371,7 @@ def test_movement_table_to_dict_metadata_and_rows():
     }
     assert d["months_per_period"] == cohort_table.months_per_period
     assert d["issue_year"] == cohort_table.issue_year
-    assert d["locked_in_rate"] == cohort_table.locked_in_rate
+    np.testing.assert_allclose(d["locked_in_rate"], cohort_table.locked_in_rate)
     assert d["n_periods"] == cohort_table.n_periods
     assert len(d["rows"]) == cohort_table.n_periods
     # The serialised table foots (max footing residual ~ 0).
@@ -395,4 +397,4 @@ def test_movement_table_to_dict_is_json_serialisable():
     }
     # Round-trips through JSON without a custom encoder.
     restored = json.loads(json.dumps(payload))
-    assert restored["cohorts"][0]["rows"][0]["bel"]["opening"] == 0.0
+    np.testing.assert_allclose(restored["cohorts"][0]["rows"][0]["bel"]["opening"], 0.0)
