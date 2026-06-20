@@ -5916,3 +5916,69 @@ opening = current in-force balance instead of 0 + new business); an explicit RA
 finance/unwinding line (the simplified RA carries none); the insurance-finance
 income/OCI split and the LRC/LIC reconciliation for PAA; movement tables for the
 PAA / VFA measurement models (this slice rolls BBA results forward only).
+
+## ADR-095: Surface the IFRS 17 movement table on the REST API (Epic 2, Slice 3a)
+
+**Date:** 2026-06-20
+**Status:** Accepted
+
+**Context.** ADR-093/094 (Slices 1–2) built the IFRS 17 cohort layer and the
+analysis-of-change (movement) table in `analytics/ifrs17.py`, fully tested and
+footing by construction — but nothing consumes it. The disclosure is only useful
+once a filer can pull it out of the engine. PLAN_ifrs17_movement Slice 3 is the
+surfacing slice (API + Excel + CLI). Following the repo's sub-slicing convention
+(e.g. reserve-basis Slice 4 / 2a / 2b), Slice 3 is decomposed into **3a (REST
+API + serialiser)**, 3b (Excel sheet), 3c (CLI surface). 3a ships the serialiser
+that all three surfaces consume, plus the first surface (the API).
+
+**Premise (verified before implementing, routine step 7b).** With the baseline
+suite green (1500 passed, 83 deselected), `grep` over `src/` confirmed there was
+no `/api/v1/ifrs17/movement` route and no `to_dict` on any movement type — the
+movement table existed only as in-process Python objects. The gap is real.
+
+**Decision.**
+
+1. **Serialiser.** Add `to_dict()` to `IFRS17ComponentMovement` (its five
+   movement lines + `footing_error`, all plain `float`), `IFRS17MovementRow`
+   (`period`, `start_month`, `end_month`, and the BEL / RA / CSM / total
+   columns), and `IFRS17MovementTable` (table metadata — `months_per_period`,
+   `issue_year`, `locked_in_rate`, `n_periods`, `max_footing_error` — plus the
+   serialised rows). The output is plain-Python / JSON-serialisable with no
+   custom encoder, and carries the footing residual so a consumer can assert the
+   disclosure foots without re-deriving it.
+2. **Endpoint.** `POST /api/v1/ifrs17/movement` (`IFRS17MovementRequest` →
+   `IFRS17MovementResponse`). The request reuses the BBA/PAA policy + assumption
+   fields and adds `months_per_period` (annual default) and an optional
+   `locked_in_rates` map (issue year → rate). The handler groups the request's
+   policies into annual issue-year cohorts by `issue_date.year`, projects each
+   group GROSS on the shared calendar grid, builds one `IFRS17ContractInput` per
+   cohort (each at its own locked-in rate, defaulting to `discount_rate`), and
+   feeds them to `IFRS17CohortManager`. The response returns the aggregate table,
+   the per-cohort tables (ordered by issue year), and the worst footing residual
+   across the whole response.
+3. **Alignment / errors.** Cohorts must share one valuation date (the cohort
+   manager's existing ADR-093 alignment check enforces this); a mismatch raises
+   `PolarisValidationError`, which the endpoint's catch-all maps to HTTP 422 — the
+   same status the BBA/PAA endpoints use for semantic request errors.
+
+**Closed-form / verification anchors.** API tests: two issue years → two cohorts
+ordered `[2023, 2025]`; `max_footing_error < 1e-6` (the disclosure foots through
+the serialised round-trip); aggregate carries null `issue_year` / `locked_in_rate`;
+annual default gives `n_periods == horizon_years` and `months_per_period=6` gives
+twice as many; `locked_in_rates` override is echoed per cohort; mixed valuation
+dates → HTTP 422. Serialiser tests: field round-trip with plain floats; row total
+== BEL + RA + CSM field-by-field; table metadata; aggregate null cohort metadata;
+`json.dumps` round-trips without a custom encoder.
+
+**Behaviour change.** None to existing endpoints or the pricing pipeline — a new
+additive route plus new serialiser methods on existing types. Golden CLI /
+pipeline outputs are byte-identical (verified — QA golden suite 72 passed, golden
+`polaris price` run reproduced). No golden rebaseline.
+
+**Out of scope (filed as follow-ups).** Slice 3b — the "IFRS 17 Movement" Excel
+sheet in the deal-pricing workbook. Slice 3c — a CLI surface (`polaris price`
+opt-in flag or a `polaris ifrs17` subcommand). The dashboard movement view
+(the dashboard currently shows only point-in-time IFRS 17). Carried forward from
+ADR-094: the mid-life in-force opening variant; an explicit RA finance line;
+movement tables for PAA / VFA. Driving the cohorts' locked-in rates from real
+issue-era rate curves rather than a flat per-year override.

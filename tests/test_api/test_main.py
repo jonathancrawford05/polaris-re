@@ -354,3 +354,131 @@ class TestIFRS17Endpoints:
         payload = {"policies": [DEMO_POLICY]}
         data = client.post("/api/v1/ifrs17/paa", json=payload).json()
         assert data["approach"] == "PAA"
+
+
+# A valuation date shared by every movement-table cohort policy below.
+_MOVEMENT_VALUATION_DATE = "2025-01-01"
+
+# Two issue-year cohorts valued at a common date (2025-01-01):
+#   - 2025 cohort: issued at valuation, duration 0, attained == issue age.
+#   - 2023 cohort: issued two years earlier, duration 24m, attained age + 2.
+MOVEMENT_POLICY_2025 = {
+    "policy_id": "MOV2025",
+    "issue_age": 40,
+    "attained_age": 40,
+    "sex": "M",
+    "smoker": False,
+    "underwriting_class": "PREFERRED",
+    "face_amount": 500_000.0,
+    "annual_premium": 1_200.0,
+    "policy_term": 20,
+    "duration_inforce": 0,
+    "issue_date": "2025-01-01",
+    "valuation_date": _MOVEMENT_VALUATION_DATE,
+}
+MOVEMENT_POLICY_2023 = {
+    "policy_id": "MOV2023",
+    "issue_age": 45,
+    "attained_age": 47,
+    "sex": "F",
+    "smoker": False,
+    "underwriting_class": "STANDARD",
+    "face_amount": 250_000.0,
+    "annual_premium": 900.0,
+    "policy_term": 20,
+    "duration_inforce": 24,
+    "issue_date": "2023-01-01",
+    "valuation_date": _MOVEMENT_VALUATION_DATE,
+}
+
+
+@pytest.mark.slow
+class TestIFRS17MovementEndpoint:
+    """POST /api/v1/ifrs17/movement — analysis-of-change (movement) table."""
+
+    def _payload(self, **overrides):
+        payload = {
+            "policies": [MOVEMENT_POLICY_2025, MOVEMENT_POLICY_2023],
+            "projection_horizon_years": 10,
+            "discount_rate": 0.04,
+            "ra_factor": 0.05,
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_returns_200(self):
+        response = client.post("/api/v1/ifrs17/movement", json=self._payload())
+        assert response.status_code == 200, response.text
+
+    def test_response_schema(self):
+        data = client.post("/api/v1/ifrs17/movement", json=self._payload()).json()
+        assert set(data) == {
+            "months_per_period",
+            "n_cohorts",
+            "max_footing_error",
+            "aggregate",
+            "cohorts",
+        }
+
+    def test_two_issue_years_form_two_cohorts(self):
+        data = client.post("/api/v1/ifrs17/movement", json=self._payload()).json()
+        assert data["n_cohorts"] == 2
+        assert len(data["cohorts"]) == 2
+
+    def test_cohorts_ordered_by_issue_year(self):
+        data = client.post("/api/v1/ifrs17/movement", json=self._payload()).json()
+        years = [c["issue_year"] for c in data["cohorts"]]
+        assert years == [2023, 2025]
+
+    def test_table_foots(self):
+        """The headline disclosure property: opening + Σ movements == closing."""
+        data = client.post("/api/v1/ifrs17/movement", json=self._payload()).json()
+        assert data["max_footing_error"] < 1e-6
+
+    def test_aggregate_has_null_cohort_metadata(self):
+        data = client.post("/api/v1/ifrs17/movement", json=self._payload()).json()
+        assert data["aggregate"]["issue_year"] is None
+        assert data["aggregate"]["locked_in_rate"] is None
+
+    def test_annual_reporting_periods_default(self):
+        data = client.post("/api/v1/ifrs17/movement", json=self._payload()).json()
+        assert data["months_per_period"] == 12
+        # 10-year horizon → 10 annual reporting periods.
+        assert data["aggregate"]["n_periods"] == 10
+
+    def test_months_per_period_override(self):
+        data = client.post(
+            "/api/v1/ifrs17/movement", json=self._payload(months_per_period=6)
+        ).json()
+        assert data["months_per_period"] == 6
+        assert data["aggregate"]["n_periods"] == 20
+
+    def test_per_cohort_locked_in_rate_override(self):
+        """`locked_in_rates` sets each cohort's rate; it is echoed on the table."""
+        data = client.post(
+            "/api/v1/ifrs17/movement",
+            json=self._payload(locked_in_rates={2023: 0.02, 2025: 0.06}),
+        ).json()
+        by_year = {c["issue_year"]: c["locked_in_rate"] for c in data["cohorts"]}
+        assert by_year[2023] == pytest.approx(0.02)
+        assert by_year[2025] == pytest.approx(0.06)
+
+    def test_row_has_all_components(self):
+        data = client.post("/api/v1/ifrs17/movement", json=self._payload()).json()
+        row = data["aggregate"]["rows"][0]
+        assert {"bel", "ra", "csm", "total"}.issubset(row)
+        assert {"opening", "new_business", "interest_accretion", "release", "closing"}.issubset(
+            row["bel"]
+        )
+
+    def test_mixed_valuation_dates_rejected(self):
+        """Cohorts must share one valuation date — the manager raises → HTTP 422."""
+        bad = dict(MOVEMENT_POLICY_2023)
+        bad["valuation_date"] = "2024-06-01"
+        bad["duration_inforce"] = 17
+        bad["attained_age"] = 46
+        response = client.post(
+            "/api/v1/ifrs17/movement",
+            json=self._payload(policies=[MOVEMENT_POLICY_2025, bad]),
+        )
+        assert response.status_code == 422

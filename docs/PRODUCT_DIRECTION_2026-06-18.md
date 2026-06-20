@@ -551,6 +551,23 @@ Items harvested from completed/in-flight work by the daily-dev routine
   filing artefact a user actually consumes, and the only slice that may move
   goldens (and only for runs that request the table) → IMPORTANT.
   *Source: ADR-094 Out of scope + CONTINUATION_ifrs17_movement Slice 3 (1st-order).*
+  **PARTIALLY SHIPPED** (this draft, Slice 3a): the `to_dict()` serialiser on all
+  movement types and `POST /api/v1/ifrs17/movement` are shipped (ADR-095). The
+  Excel sheet (3b) and CLI surface (3c) remain — see the two items below.
+
+- **IMPORTANT — IFRS 17 movement Excel sheet (Epic 2, Slice 3b).** Add an
+  "IFRS 17 Movement" sheet to the deal-pricing workbook (`utils/excel_output.py`),
+  consuming the `IFRS17MovementTable.to_dict()` serialiser shipped in Slice 3a.
+  The Excel workbook is the deliverable a pricing actuary hands to a filer, so the
+  movement table belongs in it → IMPORTANT. May move goldens only for runs that
+  request the sheet.
+  *Source: ADR-095 Out of scope + CONTINUATION_ifrs17_movement Slice 3b (1st-order).*
+
+- **IMPORTANT — IFRS 17 movement CLI surface (Epic 2, Slice 3c).** A
+  `polaris price` opt-in flag or a dedicated `polaris ifrs17` subcommand emitting
+  the movement table (JSON / Rich), reusing the Slice-3a serialiser. Completes the
+  surfacing epic so the disclosure is reachable from every entry point → IMPORTANT.
+  *Source: ADR-095 Out of scope + CONTINUATION_ifrs17_movement Slice 3c (1st-order).*
 
 - **NICE-TO-HAVE — Mid-life in-force IFRS 17 movement opening.** The shipped
   movement table is a from-recognition roll-forward: the cohort's first reporting
@@ -567,6 +584,22 @@ Items harvested from completed/in-flight work by the daily-dev routine
   risk release. A more complete RA model would split out an RA finance line.
   Affects disclosure granularity only, not the BEL/CSM mechanics → NICE-TO-HAVE.
   *Source: ADR-094 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — IFRS 17 movement table on the dashboard.** The dashboard's
+  IFRS 17 view currently shows only the point-in-time BEL/RA/CSM schedules. Once
+  the movement table is surfaced on API/Excel/CLI (Slices 3a–3c), a dashboard
+  analysis-of-change view would consume the same `to_dict()` serialiser. The
+  original Slice-3 plan named only API/Excel/CLI, so this is an additional surface
+  → NICE-TO-HAVE.
+  *Source: ADR-095 Out of scope (2nd-order).*
+
+- **NICE-TO-HAVE — Drive IFRS 17 cohort locked-in rates from issue-era rate
+  curves.** The movement API takes a flat per-issue-year `locked_in_rates`
+  override (defaulting to one `discount_rate`). A production filer locks each
+  cohort's rate to the risk-free + illiquidity curve prevailing at that cohort's
+  recognition; wiring a real issue-era curve lookup would remove the manual
+  override. Refinement of the surfacing follow-up → NICE-TO-HAVE.
+  *Source: ADR-095 Out of scope (2nd-order).*
 
 ## Carried Forward
 

@@ -12,6 +12,7 @@ Endpoints:
     POST /api/v1/uq                    — run Monte Carlo uncertainty quantification
     POST /api/v1/ifrs17/bba            — compute IFRS 17 BBA measurement
     POST /api/v1/ifrs17/paa            — compute IFRS 17 PAA measurement
+    POST /api/v1/ifrs17/movement       — IFRS 17 analysis-of-change (movement) table
     POST /api/v1/ingest                — ingest raw cedant inforce data
     POST /api/v1/rate-schedule         — generate YRT rate schedule for a target IRR
     POST /api/v1/portfolio             — aggregate a multi-deal book
@@ -40,7 +41,11 @@ import polaris_re
 if TYPE_CHECKING:
     from polaris_re.analytics.portfolio import Portfolio
 from polaris_re.analytics.capital import LICATCapital
-from polaris_re.analytics.ifrs17 import IFRS17Measurement
+from polaris_re.analytics.ifrs17 import (
+    IFRS17CohortManager,
+    IFRS17ContractInput,
+    IFRS17Measurement,
+)
 from polaris_re.analytics.premium_sufficiency import (
     PremiumSufficiencyResult,
     PremiumSufficiencyTester,
@@ -425,6 +430,58 @@ class IFRS17Response(BaseModel):
     csm_release: list[float]
     insurance_revenue: list[float]
     insurance_service_result: list[float]
+
+
+class IFRS17MovementRequest(BaseModel):
+    """Request body for the IFRS 17 analysis-of-change (movement) table.
+
+    Policies are grouped into **annual issue-year cohorts** by their
+    ``issue_date``; each cohort is measured BBA at its own locked-in discount
+    rate and rolled forward into an opening→closing movement table. All policies
+    must share a common ``valuation_date`` so the cohort schedules align on one
+    calendar grid (the cohort manager raises otherwise).
+    """
+
+    policies: list[PolicyInput] = Field(min_length=1)
+    projection_horizon_years: int = Field(ge=1, le=40, default=20)
+    discount_rate: float = Field(
+        ge=0.0,
+        le=1.0,
+        default=0.04,
+        description="Default IFRS 17 locked-in rate for any cohort not listed in "
+        "`locked_in_rates`.",
+    )
+    ra_factor: float = Field(ge=0.0, le=0.50, default=0.05, description="RA as % of BEL.")
+    flat_qx: float = Field(ge=0.0, le=1.0, default=0.001)
+    flat_lapse: float = Field(ge=0.0, le=1.0, default=0.05)
+    months_per_period: int = Field(
+        ge=1,
+        le=120,
+        default=12,
+        description="Months aggregated into each reporting period (12 = annual).",
+    )
+    locked_in_rates: dict[int, float] | None = Field(
+        default=None,
+        description="Optional per-issue-year locked-in discount rate "
+        "(issue year → rate). Cohorts without an entry use `discount_rate`.",
+    )
+
+
+class IFRS17MovementResponse(BaseModel):
+    """Response body for the IFRS 17 movement table.
+
+    ``aggregate`` and each entry of ``cohorts`` are the serialised
+    :class:`~polaris_re.analytics.ifrs17.IFRS17MovementTable` (table metadata +
+    per-period rows, each row carrying the BEL / RA / CSM / total analysis of
+    change). ``max_footing_error`` is the worst footing residual across the whole
+    response — a filer can assert the disclosure foots from this single number.
+    """
+
+    months_per_period: int
+    n_cohorts: int
+    max_footing_error: float
+    aggregate: dict[str, object]
+    cohorts: list[dict[str, object]]
 
 
 # ---------------------------------------------------------------------------
@@ -1187,6 +1244,70 @@ def ifrs17_paa(request: IFRS17Request) -> IFRS17Response:
         csm_release=result.csm_release.tolist(),
         insurance_revenue=result.insurance_revenue.tolist(),
         insurance_service_result=result.insurance_service_result.tolist(),
+    )
+
+
+@app.post(
+    "/api/v1/ifrs17/movement",
+    response_model=IFRS17MovementResponse,
+    tags=["IFRS 17"],
+)
+def ifrs17_movement(request: IFRS17MovementRequest) -> IFRS17MovementResponse:
+    """
+    Compute the IFRS 17 analysis-of-change (movement) table.
+
+    Policies are grouped into annual issue-year cohorts; each cohort is measured
+    BBA at its own locked-in discount rate and rolled forward into an
+    opening → new business → interest accretion → release → closing
+    reconciliation for BEL, RA and CSM. Returns the per-cohort tables (ordered by
+    issue year) and the aggregate, each foots by construction.
+    """
+    try:
+        # Group the request's policies by issue-year cohort, project each group
+        # on the shared calendar grid, and feed one aggregated contract per
+        # cohort to the IFRS 17 cohort manager.
+        cohort_groups: dict[int, list[PolicyInput]] = {}
+        for policy in request.policies:
+            cohort_groups.setdefault(policy.issue_date.year, []).append(policy)
+
+        rate_overrides = request.locked_in_rates or {}
+        contracts: list[IFRS17ContractInput] = []
+        for issue_year in sorted(cohort_groups):
+            members = cohort_groups[issue_year]
+            locked_in_rate = rate_overrides.get(issue_year, request.discount_rate)
+            inforce, assumptions, config = _build_components(
+                policies_in=members,
+                projection_horizon_years=request.projection_horizon_years,
+                discount_rate=locked_in_rate,
+                flat_qx=request.flat_qx,
+                flat_lapse=request.flat_lapse,
+            )
+            gross = _run_gross_projection(inforce, assumptions, config)
+            contracts.append(
+                IFRS17ContractInput(
+                    cashflows=gross,
+                    issue_date=members[0].issue_date,
+                    locked_in_rate=locked_in_rate,
+                    ra_factor=request.ra_factor,
+                )
+            )
+
+        manager = IFRS17CohortManager(contracts)
+        aggregate = manager.aggregate_movement_table(months_per_period=request.months_per_period)
+        cohort_tables = manager.cohort_movement_tables(months_per_period=request.months_per_period)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    max_footing_error = max(
+        [aggregate.max_footing_error(), *(t.max_footing_error() for t in cohort_tables)]
+    )
+
+    return IFRS17MovementResponse(
+        months_per_period=request.months_per_period,
+        n_cohorts=manager.n_cohorts,
+        max_footing_error=max_footing_error,
+        aggregate=aggregate.to_dict(),
+        cohorts=[t.to_dict() for t in cohort_tables],
     )
 
 
