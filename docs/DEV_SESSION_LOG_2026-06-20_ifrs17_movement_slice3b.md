@@ -121,5 +121,4 @@ movement-sheet tests). `convert_soa_tables` left the 4 CIA tables MISSING as in
 prior sessions (source unreachable; SOA VBT / 2001 CSO converted OK; no
 CIA-dependent failures). mypy not run locally per routine (CI's job; ~207
 inherited baseline errors).
-</content>
-</invoke>
+
