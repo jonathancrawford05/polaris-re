@@ -37,9 +37,13 @@ from polaris_re.core.exceptions import PolarisValidationError
 __all__ = [
     "IFRS17Cohort",
     "IFRS17CohortManager",
+    "IFRS17ComponentMovement",
     "IFRS17ContractInput",
     "IFRS17Measurement",
+    "IFRS17MovementRow",
+    "IFRS17MovementTable",
     "IFRS17Result",
+    "build_movement_table",
 ]
 
 
@@ -653,6 +657,235 @@ class IFRS17Cohort:
     result: IFRS17Result
 
 
+@dataclass
+class IFRS17ComponentMovement:
+    """
+    The analysis of change for ONE liability component (BEL, RA, or CSM) over a
+    single reporting period: opening balance, the named movements, and closing
+    balance.
+
+    The defining invariant (IFRS 17 analysis of change) is that the movements
+    foot exactly::
+
+        opening + new_business + interest_accretion + release == closing
+
+    Movement-line meaning per component:
+
+    - **BEL**: ``interest_accretion`` is the unwinding of the discount on the
+      best-estimate liability; ``release`` is the expected fulfilment cash flows
+      that run off the BEL during the period (claims/expenses paid less premiums
+      received — i.e. ``-Σ FCF``).
+    - **RA**: under the simplified cost-of-capital RA (a proportion of |BEL|),
+      there is no separate finance line, so ``interest_accretion`` is 0 and the
+      whole period change is the risk ``release``.
+    - **CSM**: ``interest_accretion`` is the accretion at the cohort's
+      **locked-in** discount rate; ``release`` is the CSM amortised to P&L over
+      the period's coverage units.
+
+    A ``new_business`` amount is non-zero only in the cohort's first reporting
+    period, where it carries the initial-recognition balance (opening is 0 at
+    that point — pre-recognition).
+    """
+
+    opening: float
+    new_business: float
+    interest_accretion: float
+    release: float
+    closing: float
+
+    def footing_error(self) -> float:
+        """Residual of ``opening + Σ movements - closing`` (0 when it foots)."""
+        return (
+            self.opening + self.new_business + self.interest_accretion + self.release - self.closing
+        )
+
+    def __add__(self, other: "IFRS17ComponentMovement") -> "IFRS17ComponentMovement":
+        """Element-wise sum (used to aggregate cohorts / build the total column)."""
+        return IFRS17ComponentMovement(
+            opening=self.opening + other.opening,
+            new_business=self.new_business + other.new_business,
+            interest_accretion=self.interest_accretion + other.interest_accretion,
+            release=self.release + other.release,
+            closing=self.closing + other.closing,
+        )
+
+
+@dataclass
+class IFRS17MovementRow:
+    """
+    One reporting period's IFRS 17 analysis of change across all three liability
+    components, matching the IASB reconciliation layout (columns BEL / RA / CSM /
+    total; rows opening → movements → closing).
+
+    Attributes:
+        period:
+            Zero-based reporting-period index (annual by default).
+        start_month / end_month:
+            The half-open monthly range ``[start_month, end_month)`` of the
+            underlying schedule that this reporting period aggregates.
+        bel / ra / csm:
+            The per-component analysis of change for the period.
+    """
+
+    period: int
+    start_month: int
+    end_month: int
+    bel: IFRS17ComponentMovement
+    ra: IFRS17ComponentMovement
+    csm: IFRS17ComponentMovement
+
+    @property
+    def total(self) -> IFRS17ComponentMovement:
+        """Total insurance liability movement = BEL + RA + CSM (the total column)."""
+        return self.bel + self.ra + self.csm
+
+
+@dataclass
+class IFRS17MovementTable:
+    """
+    A full IFRS 17 analysis-of-change (movement) table: one
+    :class:`IFRS17MovementRow` per reporting period, reconciling the opening
+    insurance-liability balance to the closing balance through named movements.
+
+    Attributes:
+        rows:
+            Reporting-period rows, ordered by period.
+        months_per_period:
+            Months aggregated into each reporting period (12 = annual).
+        issue_year:
+            The cohort's issue year for a per-cohort table; ``None`` for the
+            aggregate table (mixed cohorts).
+        locked_in_rate:
+            The cohort's locked-in discount rate for a per-cohort table;
+            ``None`` for the aggregate table (rates differ across cohorts).
+    """
+
+    rows: list[IFRS17MovementRow]
+    months_per_period: int = 12
+    issue_year: int | None = None
+    locked_in_rate: float | None = None
+
+    @property
+    def n_periods(self) -> int:
+        """Number of reporting periods in the table."""
+        return len(self.rows)
+
+    def max_footing_error(self) -> float:
+        """Largest absolute footing residual over every component and period.
+
+        Zero (to floating tolerance) confirms ``opening + Σ movements == closing``
+        for BEL, RA, CSM and the total in every reporting period.
+        """
+        worst = 0.0
+        for row in self.rows:
+            for component in (row.bel, row.ra, row.csm, row.total):
+                worst = max(worst, abs(component.footing_error()))
+        return worst
+
+
+def build_movement_table(
+    result: IFRS17Result,
+    locked_in_rate: float,
+    *,
+    months_per_period: int = 12,
+    issue_year: int | None = None,
+) -> IFRS17MovementTable:
+    """
+    Roll a point-in-time :class:`IFRS17Result` forward into an IFRS 17 analysis
+    of change (movement) table.
+
+    The monthly BBA schedules (``bel``, ``risk_adjustment``, ``csm`` — each the
+    balance at the *start* of the month) are aggregated into reporting periods of
+    ``months_per_period`` months. For each period and component the change is
+    decomposed into opening, new business (first period only), interest
+    accretion / unwinding, release, and closing. The decomposition foots by
+    construction: within a month the BEL change is ``interest - FCF`` and the CSM
+    change is ``accretion - release``, so summing the per-month movements over a
+    reporting period telescopes to ``closing - opening``.
+
+    Args:
+        result:
+            A BBA :class:`IFRS17Result` (the cohort's point-in-time measurement).
+        locked_in_rate:
+            The cohort's locked-in discount rate. Drives both the BEL unwinding
+            and the CSM accretion (IFRS 17 B72(b)). Must equal the rate the
+            ``result`` was measured at.
+        months_per_period:
+            Months per reporting period; 12 (annual) by default.
+        issue_year:
+            Optional cohort issue year recorded on the table.
+
+    Returns:
+        An :class:`IFRS17MovementTable` whose rows reconcile opening → closing
+        for BEL / RA / CSM in every reporting period.
+    """
+    n_per = result.n_periods
+    monthly_accretion_factor = (1.0 + locked_in_rate) ** (1.0 / 12.0) - 1.0
+
+    # Pad each start-of-month schedule with a terminal zero: the balance at the
+    # start of month T (after full run-off) is 0 for BEL, RA and CSM.
+    bel = np.append(result.bel.astype(np.float64), 0.0)
+    ra = np.append(result.risk_adjustment.astype(np.float64), 0.0)
+    csm = np.append(result.csm.astype(np.float64), 0.0)
+
+    # Per-month movement primitives.
+    # BEL: unwinding = BEL[t] * monthly_rate; release (expected cash flows) is the
+    # residual change, which equals -FCF[t] by the BEL recursion.
+    bel_interest = bel[:-1] * monthly_accretion_factor
+    bel_release = (bel[1:] - bel[:-1]) - bel_interest
+
+    # RA: no separate finance line under the simplified cost-of-capital RA; the
+    # whole period change is the risk release.
+    ra_interest = np.zeros(n_per, dtype=np.float64)
+    ra_release = ra[1:] - ra[:-1]
+
+    # CSM: accretion at the locked-in rate and coverage-unit release come straight
+    # from the engine's roll-forward (release reduces the CSM, hence negated).
+    csm_interest = result.csm_interest_accretion.astype(np.float64)
+    csm_release = -result.csm_release.astype(np.float64)
+
+    def _component(
+        schedule: np.ndarray,
+        interest: np.ndarray,
+        release: np.ndarray,
+        start: int,
+        end: int,
+    ) -> IFRS17ComponentMovement:
+        first = start == 0
+        return IFRS17ComponentMovement(
+            opening=0.0 if first else float(schedule[start]),
+            new_business=float(schedule[0]) if first else 0.0,
+            interest_accretion=float(interest[start:end].sum()),
+            release=float(release[start:end].sum()),
+            closing=float(schedule[end]),
+        )
+
+    rows: list[IFRS17MovementRow] = []
+    period = 0
+    start = 0
+    while start < n_per:
+        end = min(start + months_per_period, n_per)
+        rows.append(
+            IFRS17MovementRow(
+                period=period,
+                start_month=start,
+                end_month=end,
+                bel=_component(bel, bel_interest, bel_release, start, end),
+                ra=_component(ra, ra_interest, ra_release, start, end),
+                csm=_component(csm, csm_interest, csm_release, start, end),
+            )
+        )
+        period += 1
+        start = end
+
+    return IFRS17MovementTable(
+        rows=rows,
+        months_per_period=months_per_period,
+        issue_year=issue_year,
+        locked_in_rate=locked_in_rate,
+    )
+
+
 class IFRS17CohortManager:
     """
     Groups IFRS 17 contracts into annual issue-year cohorts and measures each
@@ -823,3 +1056,62 @@ class IFRS17CohortManager:
     def total_initial_liability(self) -> float:
         """Total insurance liability at initial recognition, summed over cohorts."""
         return float(sum(cohort.result.total_initial_liability() for cohort in self.cohorts))
+
+    # ------------------------------------------------------------------
+    # IFRS 17 analysis of change (movement table)
+    # ------------------------------------------------------------------
+
+    def cohort_movement_tables(self, months_per_period: int = 12) -> list[IFRS17MovementTable]:
+        """Per-cohort IFRS 17 movement tables, ordered by issue year.
+
+        Each cohort's table rolls its own BBA schedules forward using the
+        cohort's **locked-in** discount rate, so the CSM accretes at the rate
+        locked at that cohort's recognition (cohorts cannot be netted).
+        """
+        return [
+            build_movement_table(
+                cohort.result,
+                cohort.locked_in_rate,
+                months_per_period=months_per_period,
+                issue_year=cohort.issue_year,
+            )
+            for cohort in self.cohorts
+        ]
+
+    def aggregate_movement_table(self, months_per_period: int = 12) -> IFRS17MovementTable:
+        """Aggregate IFRS 17 movement table = the per-period sum of the cohort tables.
+
+        Because all cohorts share the projection grid, the reporting-period
+        boundaries align and the aggregate movement equals the sum of the
+        per-cohort movements, period by period and component by component. The
+        aggregate table carries no single ``locked_in_rate`` — rates differ
+        across cohorts.
+        """
+        cohort_tables = self.cohort_movement_tables(months_per_period=months_per_period)
+        first = cohort_tables[0]
+        rows: list[IFRS17MovementRow] = []
+        for period_idx, template in enumerate(first.rows):
+            bel = template.bel
+            ra = template.ra
+            csm = template.csm
+            for other in cohort_tables[1:]:
+                other_row = other.rows[period_idx]
+                bel = bel + other_row.bel
+                ra = ra + other_row.ra
+                csm = csm + other_row.csm
+            rows.append(
+                IFRS17MovementRow(
+                    period=template.period,
+                    start_month=template.start_month,
+                    end_month=template.end_month,
+                    bel=bel,
+                    ra=ra,
+                    csm=csm,
+                )
+            )
+        return IFRS17MovementTable(
+            rows=rows,
+            months_per_period=months_per_period,
+            issue_year=None,
+            locked_in_rate=None,
+        )

@@ -8,9 +8,13 @@ from polaris_re.analytics.experience_study import AEResult, ExperienceStudy
 from polaris_re.analytics.ifrs17 import (
     IFRS17Cohort,
     IFRS17CohortManager,
+    IFRS17ComponentMovement,
     IFRS17ContractInput,
     IFRS17Measurement,
+    IFRS17MovementRow,
+    IFRS17MovementTable,
     IFRS17Result,
+    build_movement_table,
 )
 from polaris_re.analytics.portfolio import (
     Deal,
@@ -50,8 +54,11 @@ __all__ = [
     "HullWhiteModel",
     "IFRS17Cohort",
     "IFRS17CohortManager",
+    "IFRS17ComponentMovement",
     "IFRS17ContractInput",
     "IFRS17Measurement",
+    "IFRS17MovementRow",
+    "IFRS17MovementTable",
     "IFRS17Result",
     "LICATCapital",
     "LICATFactors",
@@ -76,4 +83,5 @@ __all__ = [
     "UQResult",
     "YRTRateSchedule",
     "apply_scenario_to_assumptions",
+    "build_movement_table",
 ]

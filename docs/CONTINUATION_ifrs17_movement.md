@@ -45,22 +45,34 @@ schedules; the movement table IS the disclosure a filer must publish.
     nothing wired into pricing).
 
 ### Slice 2: `IFRS17MovementTable` (analysis of change)
-- **Status:** NEXT
-- **Depends on:** Slice 1 merged
-- **Files to create/modify:** `analytics/ifrs17.py` (add `IFRS17MovementRow`,
-  `IFRS17MovementTable`, a `build_movement_table()` on the manager);
-  `tests/test_analytics/test_ifrs17_movement.py`.
-- **Tests to add:** the **additivity** test (opening + Σ movements = closing for
-  BEL / RA / CSM, every period); CSM exhaustion at contract expiry; locked-in
-  rate preserved across periods; aggregate movement == Σ cohort movements.
-- **Acceptance criteria:**
-  - Per cohort and aggregate, a structured movement table whose components foot:
-    `opening + Σ movements == closing` to `assert_allclose`.
-  - CSM accretes at the cohort's locked-in rate (not a single global rate).
-  - Annual reporting periods derived consistently from the monthly schedules.
+- **Status:** DONE
+- **Branch:** claude/awesome-bardeen-g9282o (environment-designated)
+- **PR:** (this session's draft)
+- **What was done:** Added `IFRS17ComponentMovement` (one component's
+  opening / new_business / interest_accretion / release / closing, with
+  `footing_error()` + `__add__`), `IFRS17MovementRow` (one reporting period
+  across BEL / RA / CSM with a derived `total` column), `IFRS17MovementTable`
+  (ordered rows + `max_footing_error()`), and a module-level
+  `build_movement_table(result, locked_in_rate, *, months_per_period=12,
+  issue_year=None)`. The manager gained `cohort_movement_tables()` and
+  `aggregate_movement_table()` (the per-period, per-component sum of the cohort
+  tables). The roll-forward foots by construction (the per-month BEL/CSM change
+  telescopes to `closing − opening`); CSM accretes at the cohort's locked-in
+  rate. ADR-094. Goldens byte-identical (additive analytics, not wired into
+  pricing).
+- **Key decisions:**
+  - **Annual reporting periods** (`months_per_period=12` default); a trailing
+    partial period is handled and still foots.
+  - **Period-0 new-business convention:** the cohort's first reporting period
+    opens at 0 and carries the initial-recognition balance in `new_business`;
+    later periods open at the prior closing. The mid-life in-force opening
+    variant (period-0 opening = current in-force balance) is a promoted
+    follow-up for Slice 3 / future.
+  - **RA carries no finance line** under the simplified cost-of-capital RA; its
+    whole period change is the risk release.
 
 ### Slice 3: Surface the movement table
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 2 merged
 - **Scope:** `POST /api/v1/ifrs17/movement`; an "IFRS 17 Movement" Excel sheet;
   CLI surfacing (flag on `polaris price` or a dedicated subcommand). This is the
@@ -68,16 +80,24 @@ schedules; the movement table IS the disclosure a filer must publish.
 
 ## Context for Next Session
 
-- Slice 1's `IFRS17CohortManager.cohorts` is a list of `IFRS17Cohort`, each
-  carrying its `result: IFRS17Result` and `locked_in_rate`. Slice 2 rolls each
-  cohort's monthly schedules into annual reporting-period movements; the
-  locked-in rate for CSM accretion is `cohort.locked_in_rate`.
-- The aggregate schedules (`aggregate_bel()` etc.) already sum index-wise across
-  cohorts because Slice 1 enforces a common projection grid — Slice 2's
-  aggregate movement table is the sum of the per-cohort movement tables on the
-  same grid.
-- Reporting-period granularity (annual) is the one real design decision in
-  Slice 2 — document the monthly→annual aggregation convention in ADR-094.
+- **Slice 3 (surfacing) is NEXT.** The movement table is built and tested; Slice
+  3 wires it to `POST /api/v1/ifrs17/movement`, an "IFRS 17 Movement" Excel
+  sheet, and CLI (a `polaris price` opt-in flag or a `polaris ifrs17`
+  subcommand — decide in the slice). This is the only slice that may move
+  goldens, and only for runs that request the table.
+- The data the surfacing layer consumes:
+  `IFRS17CohortManager.cohort_movement_tables()` (per cohort, ordered by issue
+  year) and `.aggregate_movement_table()` (the aggregate). Each
+  `IFRS17MovementTable` has `.rows` (`IFRS17MovementRow`), and each row exposes
+  `.bel/.ra/.csm/.total` as `IFRS17ComponentMovement`
+  (`opening / new_business / interest_accretion / release / closing`). A
+  `to_dict`/serialiser for the API/Excel does not yet exist — add it in Slice 3.
+- Reporting periods are annual; `build_movement_table(..., months_per_period=N)`
+  supports other groupings if the surface wants them.
+- Open follow-up to weigh in Slice 3: the **mid-life in-force opening** variant
+  (period-0 opening = current in-force balance rather than 0 + new business) —
+  the from-recognition roll-forward shipped here is the natural fit for a
+  cohort projected from inception; a mid-life filing may want the other opening.
 
 ## Open Questions (for human)
 
