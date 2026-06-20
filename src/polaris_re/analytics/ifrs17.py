@@ -699,6 +699,21 @@ class IFRS17ComponentMovement:
             self.opening + self.new_business + self.interest_accretion + self.release - self.closing
         )
 
+    def to_dict(self) -> dict[str, float]:
+        """JSON-serialisable view of the component's analysis of change.
+
+        Carries the footing residual so a consumer (API / Excel / CLI) can
+        assert the disclosure foots without re-deriving it.
+        """
+        return {
+            "opening": self.opening,
+            "new_business": self.new_business,
+            "interest_accretion": self.interest_accretion,
+            "release": self.release,
+            "closing": self.closing,
+            "footing_error": self.footing_error(),
+        }
+
     def __add__(self, other: "IFRS17ComponentMovement") -> "IFRS17ComponentMovement":
         """Element-wise sum (used to aggregate cohorts / build the total column)."""
         return IFRS17ComponentMovement(
@@ -738,6 +753,18 @@ class IFRS17MovementRow:
     def total(self) -> IFRS17ComponentMovement:
         """Total insurance liability movement = BEL + RA + CSM (the total column)."""
         return self.bel + self.ra + self.csm
+
+    def to_dict(self) -> dict[str, object]:
+        """JSON-serialisable view of one reporting period (all four columns)."""
+        return {
+            "period": self.period,
+            "start_month": self.start_month,
+            "end_month": self.end_month,
+            "bel": self.bel.to_dict(),
+            "ra": self.ra.to_dict(),
+            "csm": self.csm.to_dict(),
+            "total": self.total.to_dict(),
+        }
 
 
 @dataclass
@@ -781,6 +808,22 @@ class IFRS17MovementTable:
             for component in (row.bel, row.ra, row.csm, row.total):
                 worst = max(worst, abs(component.footing_error()))
         return worst
+
+    def to_dict(self) -> dict[str, object]:
+        """JSON-serialisable view of the full movement table.
+
+        Includes the table-level metadata (reporting-period width, cohort issue
+        year / locked-in rate where applicable), the worst footing residual, and
+        the per-period rows. Consumed by the API, Excel and CLI surfaces.
+        """
+        return {
+            "months_per_period": self.months_per_period,
+            "issue_year": self.issue_year,
+            "locked_in_rate": self.locked_in_rate,
+            "n_periods": self.n_periods,
+            "max_footing_error": self.max_footing_error(),
+            "rows": [row.to_dict() for row in self.rows],
+        }
 
 
 def build_movement_table(

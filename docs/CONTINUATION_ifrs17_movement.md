@@ -72,32 +72,60 @@ schedules; the movement table IS the disclosure a filer must publish.
     whole period change is the risk release.
 
 ### Slice 3: Surface the movement table
+Decomposed into three sub-slices (repo sub-slicing convention). Goldens stay
+byte-identical for 3a (additive API); 3b/3c may move goldens only for runs that
+request the table.
+
+#### Slice 3a: REST API + serialiser
+- **Status:** DONE
+- **Branch:** claude/awesome-bardeen-rv9uuj (environment-designated)
+- **PR:** (this session's draft)
+- **What was done:** Added `to_dict()` to `IFRS17ComponentMovement`,
+  `IFRS17MovementRow`, `IFRS17MovementTable` (plain-Python / JSON-serialisable,
+  carrying the footing residual). Added `POST /api/v1/ifrs17/movement`
+  (`IFRS17MovementRequest` → `IFRS17MovementResponse`): groups the request's
+  policies into annual issue-year cohorts, projects each group GROSS, builds one
+  `IFRS17ContractInput` per cohort at its own locked-in rate (optional
+  `locked_in_rates` override map; `months_per_period` annual default), and
+  returns the aggregate + per-cohort serialised tables plus the worst footing
+  residual. ADR-095. Goldens byte-identical (additive route).
+- **Key decisions:** the serialiser is shared by all three 3x surfaces;
+  per-cohort locked-in rate defaults to the request `discount_rate`; mixed
+  valuation dates surface the cohort manager's alignment error as HTTP 422.
+
+#### Slice 3b: Excel "IFRS 17 Movement" sheet
 - **Status:** NEXT
-- **Depends on:** Slice 2 merged
-- **Scope:** `POST /api/v1/ifrs17/movement`; an "IFRS 17 Movement" Excel sheet;
-  CLI surfacing (flag on `polaris price` or a dedicated subcommand). This is the
-  only slice that may move goldens, and only for runs that request the table.
+- **Depends on:** Slice 3a merged
+- **Scope:** an "IFRS 17 Movement" sheet in the deal-pricing workbook
+  (`utils/excel_output.py`), consuming the `to_dict()` serialiser shipped in 3a.
+- May move goldens only for runs that request the movement sheet.
+
+#### Slice 3c: CLI surface
+- **Status:** PLANNED
+- **Depends on:** Slice 3b merged
+- **Scope:** a `polaris price` opt-in flag or a dedicated `polaris ifrs17`
+  subcommand emitting the movement table (JSON / Rich), reusing the 3a serialiser.
 
 ## Context for Next Session
 
-- **Slice 3 (surfacing) is NEXT.** The movement table is built and tested; Slice
-  3 wires it to `POST /api/v1/ifrs17/movement`, an "IFRS 17 Movement" Excel
-  sheet, and CLI (a `polaris price` opt-in flag or a `polaris ifrs17`
-  subcommand — decide in the slice). This is the only slice that may move
-  goldens, and only for runs that request the table.
+- **Slice 3b (Excel) is NEXT.** The serialiser (`IFRS17MovementTable.to_dict()`
+  and friends) shipped in 3a is the data source — it returns table metadata
+  (`months_per_period`, `issue_year`, `locked_in_rate`, `n_periods`,
+  `max_footing_error`) plus `rows`, each row carrying `bel/ra/csm/total` as
+  `{opening, new_business, interest_accretion, release, closing, footing_error}`.
+- The API endpoint `POST /api/v1/ifrs17/movement` is the reference consumer:
+  it groups policies by `issue_date.year`, projects each group, and feeds
+  `IFRS17CohortManager`. The Excel/CLI surfaces should mirror that cohorting.
 - The data the surfacing layer consumes:
   `IFRS17CohortManager.cohort_movement_tables()` (per cohort, ordered by issue
-  year) and `.aggregate_movement_table()` (the aggregate). Each
-  `IFRS17MovementTable` has `.rows` (`IFRS17MovementRow`), and each row exposes
-  `.bel/.ra/.csm/.total` as `IFRS17ComponentMovement`
-  (`opening / new_business / interest_accretion / release / closing`). A
-  `to_dict`/serialiser for the API/Excel does not yet exist — add it in Slice 3.
+  year) and `.aggregate_movement_table()` (the aggregate).
 - Reporting periods are annual; `build_movement_table(..., months_per_period=N)`
   supports other groupings if the surface wants them.
-- Open follow-up to weigh in Slice 3: the **mid-life in-force opening** variant
-  (period-0 opening = current in-force balance rather than 0 + new business) —
-  the from-recognition roll-forward shipped here is the natural fit for a
-  cohort projected from inception; a mid-life filing may want the other opening.
+- Open follow-up to weigh in Slice 3b/3c: the **mid-life in-force opening**
+  variant (period-0 opening = current in-force balance rather than 0 + new
+  business) — the from-recognition roll-forward shipped here is the natural fit
+  for a cohort projected from inception; a mid-life filing may want the other
+  opening.
 
 ## Open Questions (for human)
 

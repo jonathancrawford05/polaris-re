@@ -103,13 +103,27 @@ goldens byte-identical until the final surfacing slice.
 - ADR-094. Goldens byte-identical (additive analytics, not wired into pricing).
 
 ### Slice 3 — Surface the movement table
+Decomposed into three sub-slices (repo sub-slicing convention; goldens stay
+byte-identical for 3a, may move only for 3b/3c runs that request the table).
+
+#### Slice 3a — REST API + serialiser  ✅ SHIPPED
+- `analytics/ifrs17.py`: `to_dict()` on `IFRS17ComponentMovement` /
+  `IFRS17MovementRow` / `IFRS17MovementTable` (JSON-serialisable, carries the
+  footing residual).
 - `api/main.py`: `POST /api/v1/ifrs17/movement` returning the per-cohort and
-  aggregate movement rows.
-- Excel: a "IFRS 17 Movement" sheet in the deal-pricing workbook.
+  aggregate serialised movement tables; groups policies into annual issue-year
+  cohorts, optional per-year `locked_in_rates`, `months_per_period` annual
+  default. ADR-095. Goldens byte-identical (additive route).
+
+#### Slice 3b — Excel "IFRS 17 Movement" sheet
+- Excel: a "IFRS 17 Movement" sheet in the deal-pricing workbook
+  (`utils/excel_output.py`), consuming the 3a serialiser. May move goldens only
+  for runs that request the sheet.
+
+#### Slice 3c — CLI surface
 - CLI: a movement summary on `polaris price` (opt-in flag) or a dedicated
-  `polaris ifrs17` subcommand — decide in the slice.
-- This is the slice that *can* move goldens, and only for runs that request the
-  movement table. Document any regenerated baselines with the reason.
+  `polaris ifrs17` subcommand — decide in the slice. Document any regenerated
+  baselines with the reason.
 
 ## 4. Key constraints (from CLAUDE.md / ARCHITECTURE.md)
 

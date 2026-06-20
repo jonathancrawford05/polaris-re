@@ -314,3 +314,85 @@ def test_build_movement_table_is_returned_type():
     table = build_movement_table(result, 0.05)
     assert isinstance(table, IFRS17MovementTable)
     assert table.n_periods == math.ceil(result.n_periods / 12)
+
+
+# ---------------------------------------------------------------------------
+# 8. Serialisation — to_dict() (Slice 3a: surfacing foundation)
+# ---------------------------------------------------------------------------
+
+
+def test_component_movement_to_dict_round_trips_fields():
+    result = IFRS17Measurement(_make_gross_cashflow(), discount_rate=0.05).measure_bba()
+    table = build_movement_table(result, 0.05)
+    comp = table.rows[0].bel
+    d = comp.to_dict()
+    assert set(d) == {
+        "opening",
+        "new_business",
+        "interest_accretion",
+        "release",
+        "closing",
+        "footing_error",
+    }
+    assert d["opening"] == comp.opening
+    assert d["closing"] == comp.closing
+    assert d["footing_error"] == comp.footing_error()
+    # Every value is a plain float (JSON-serialisable, no numpy scalars).
+    for value in d.values():
+        assert isinstance(value, float)
+
+
+def test_movement_row_to_dict_has_four_columns_and_total_foots():
+    result = IFRS17Measurement(_make_gross_cashflow(), discount_rate=0.05).measure_bba()
+    row = build_movement_table(result, 0.05).rows[0]
+    d = row.to_dict()
+    assert d["period"] == row.period
+    assert d["start_month"] == row.start_month
+    assert d["end_month"] == row.end_month
+    assert set(d) == {"period", "start_month", "end_month", "bel", "ra", "csm", "total"}
+    # total == BEL + RA + CSM, field by field.
+    for fld in ("opening", "new_business", "interest_accretion", "release", "closing"):
+        np.testing.assert_allclose(d["total"][fld], d["bel"][fld] + d["ra"][fld] + d["csm"][fld])
+
+
+def test_movement_table_to_dict_metadata_and_rows():
+    manager = _multi_cohort_manager()
+    cohort_table = manager.cohort_movement_tables()[0]
+    d = cohort_table.to_dict()
+    assert set(d) == {
+        "months_per_period",
+        "issue_year",
+        "locked_in_rate",
+        "n_periods",
+        "max_footing_error",
+        "rows",
+    }
+    assert d["months_per_period"] == cohort_table.months_per_period
+    assert d["issue_year"] == cohort_table.issue_year
+    assert d["locked_in_rate"] == cohort_table.locked_in_rate
+    assert d["n_periods"] == cohort_table.n_periods
+    assert len(d["rows"]) == cohort_table.n_periods
+    # The serialised table foots (max footing residual ~ 0).
+    np.testing.assert_allclose(d["max_footing_error"], 0.0, atol=1e-9)
+
+
+def test_aggregate_table_to_dict_has_null_cohort_metadata():
+    manager = _multi_cohort_manager()
+    d = manager.aggregate_movement_table().to_dict()
+    # The aggregate spans mixed cohorts: no single issue year / locked-in rate.
+    assert d["issue_year"] is None
+    assert d["locked_in_rate"] is None
+    assert len(d["rows"]) > 0
+
+
+def test_movement_table_to_dict_is_json_serialisable():
+    import json
+
+    manager = _multi_cohort_manager()
+    payload = {
+        "aggregate": manager.aggregate_movement_table().to_dict(),
+        "cohorts": [t.to_dict() for t in manager.cohort_movement_tables()],
+    }
+    # Round-trips through JSON without a custom encoder.
+    restored = json.loads(json.dumps(payload))
+    assert restored["cohorts"][0]["rows"][0]["bel"]["opening"] == 0.0
