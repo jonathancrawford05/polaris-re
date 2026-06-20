@@ -141,11 +141,12 @@ def test_new_business_only_in_first_period_equals_initial_recognition():
     np.testing.assert_allclose(row0.ra.new_business, cohort.result.risk_adjustment[0])
     np.testing.assert_allclose(row0.csm.new_business, cohort.result.csm[0])
 
-    # No new business after the first reporting period.
+    # No new business after the first reporting period (exact 0.0 sentinel —
+    # atol=0 keeps the file consistent with the "never bare == for floats" rule).
     for row in table.rows[1:]:
-        assert row.bel.new_business == 0.0
-        assert row.ra.new_business == 0.0
-        assert row.csm.new_business == 0.0
+        np.testing.assert_allclose(row.bel.new_business, 0.0, atol=0.0)
+        np.testing.assert_allclose(row.ra.new_business, 0.0, atol=0.0)
+        np.testing.assert_allclose(row.csm.new_business, 0.0, atol=0.0)
 
 
 def test_opening_chains_to_prior_closing():
