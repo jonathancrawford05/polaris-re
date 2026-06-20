@@ -88,7 +88,7 @@ goldens byte-identical until the final surfacing slice.
   basis / empty-input validation; cohorts ordered by issue year.
 - ADR-093. Goldens byte-identical (new types, nothing wired into pricing).
 
-### Slice 2 — `IFRS17MovementTable` (analysis of change)
+### Slice 2 — `IFRS17MovementTable` (analysis of change)  ✅ SHIPPED
 - For each cohort and each annual reporting period, decompose the change in
   BEL / RA / CSM into named movements: opening, new business (period 0 only),
   unwinding / CSM accretion at the **locked-in** rate, expected experience /

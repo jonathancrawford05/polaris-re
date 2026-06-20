@@ -542,6 +542,32 @@ Items harvested from completed/in-flight work by the daily-dev routine
   movement table → NICE-TO-HAVE.
   *Source: ADR-093 Out of scope (1st-order).*
 
+- **IMPORTANT — Surface the IFRS 17 movement table (Epic 2, Slice 3).** Slice 2
+  built `IFRS17MovementTable` + `IFRS17CohortManager.cohort_movement_tables()` /
+  `.aggregate_movement_table()`, but nothing is wired to a user surface yet.
+  Slice 3 owns `POST /api/v1/ifrs17/movement`, an "IFRS 17 Movement" Excel sheet,
+  and a CLI surface (a `polaris price` opt-in flag or a `polaris ifrs17`
+  subcommand), plus a `to_dict`/serialiser on the movement types. This is the
+  filing artefact a user actually consumes, and the only slice that may move
+  goldens (and only for runs that request the table) → IMPORTANT.
+  *Source: ADR-094 Out of scope + CONTINUATION_ifrs17_movement Slice 3 (1st-order).*
+
+- **NICE-TO-HAVE — Mid-life in-force IFRS 17 movement opening.** The shipped
+  movement table is a from-recognition roll-forward: the cohort's first reporting
+  period opens at 0 and recognises the initial balance as `new_business`. A
+  mid-life filing on an in-force block may instead want period-0 opening = the
+  current in-force balance with no new-business line. The from-recognition view
+  is correct for a cohort projected from inception; the alternate opening is a
+  presentation variant → NICE-TO-HAVE.
+  *Source: ADR-094 Out of scope + DEV_SESSION_LOG_2026-06-20_ifrs17_movement_slice2 Open Questions (1st-order).*
+
+- **NICE-TO-HAVE — Explicit RA finance/unwinding line in the movement table.**
+  Under the simplified cost-of-capital RA (`ra_factor·|BEL|`) the movement table
+  carries no RA interest-accretion line; the whole period RA change is booked as
+  risk release. A more complete RA model would split out an RA finance line.
+  Affects disclosure granularity only, not the BEL/CSM mechanics → NICE-TO-HAVE.
+  *Source: ADR-094 Out of scope (1st-order).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

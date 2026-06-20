@@ -5829,3 +5829,90 @@ itself (Slice 2, `IFRS17MovementTable` + the additivity test); surfacing on
 API/Excel/CLI (Slice 3); heterogeneous-term cohort calendar alignment; cohort
 support for the PAA / VFA measurement models (Slice 1 cohorts measure BBA only);
 the onerous-contract sub-grouping within an annual cohort (IFRS 17.16).
+
+---
+
+## ADR-094: IFRS 17 analysis-of-change (movement) table (Epic 2, Slice 2)
+
+**Date:** 2026-06-20
+**Status:** Accepted
+
+**Context.** ADR-093 (Slice 1) built the cohort container: contracts grouped
+into annual issue-year cohorts, each measured BBA at its own locked-in rate, with
+per-cohort and aggregate point-in-time BEL/RA/CSM schedules. The disclosure a
+filer must actually publish is the **analysis of change** (movement) table — for
+each reporting period, a reconciliation of the *opening* insurance-liability
+balance to the *closing* balance through named movements (new business,
+unwinding/accretion, expected experience/release), per component (BEL / RA / CSM)
+and in total. This slice rolls the Slice-1 schedules forward into that table.
+
+**Premise (verified before implementing, routine step 7b).** With the baseline
+suite green (1482 passed), `IFRS17CohortManager` exposed only point-in-time
+schedules (`aggregate_bel/ra/csm`) — there was no opening→closing decomposition,
+no `IFRS17MovementTable`, and no additivity guarantee. The gap is real; the
+movement table IS the filing artefact and did not exist.
+
+**Decision.**
+
+1. **Types.** Add `IFRS17ComponentMovement` (one component's analysis of change:
+   `opening`, `new_business`, `interest_accretion`, `release`, `closing`, plus a
+   `footing_error()` and `__add__` for aggregation), `IFRS17MovementRow` (one
+   reporting period across BEL / RA / CSM with a derived `total` column), and
+   `IFRS17MovementTable` (the ordered rows + `max_footing_error()`).
+2. **Builder.** A module-level `build_movement_table(result, locked_in_rate, *,
+   months_per_period=12, issue_year=None)` rolls an `IFRS17Result` forward. It
+   pads each start-of-month schedule with a terminal zero (full run-off) and
+   derives the per-month movement primitives:
+   - **BEL**: `interest_accretion = BEL[t]·((1+r)^(1/12)−1)` (unwinding of
+     discount); `release = (BEL[t+1]−BEL[t]) − interest`, which equals `−FCF[t]`
+     by the BEL recursion (the expected fulfilment cash flows running off).
+   - **CSM**: `interest_accretion` and `release` taken straight from the engine's
+     roll-forward (`result.csm_interest_accretion`, `−result.csm_release`) so the
+     CSM accretes at the cohort's **locked-in** rate.
+   - **RA**: under the simplified cost-of-capital RA (`ra_factor·|BEL|`) there is
+     no separate finance line, so `interest_accretion = 0` and the whole period
+     change is the risk `release`.
+3. **Reporting-period granularity (the one real design choice).** Annual
+   (`months_per_period=12`) by default — IFRS 17 cohorts are annual, the
+   underlying schedules monthly. A reporting period aggregates the monthly
+   movements over its months; opening is the start-of-period balance, closing the
+   end-of-period balance. Because the per-month change telescopes
+   (`BEL[t+1]−BEL[t] = interest − FCF`, `CSM[t+1]−CSM[t] = accretion − release`),
+   the period movements foot to `closing − opening` **by construction**. A
+   trailing partial period (T not a multiple of 12) is handled and still foots.
+4. **New-business vs in-force opening.** The cohort's **first** reporting period
+   opens at 0 (pre-recognition) and carries the initial-recognition balance in
+   the `new_business` line; later periods open at the prior closing. This treats
+   the projection as a from-recognition roll-forward (which is exactly what the
+   Slice-1 cohort measurement computes — initial-recognition CSM at t=0). For a
+   true mid-life in-force movement table, period-0 opening would instead be the
+   current in-force balance with no new-business line; that variant is a filed
+   follow-up.
+5. **Aggregate table.** `IFRS17CohortManager.aggregate_movement_table()` is the
+   per-period, per-component sum of the per-cohort tables (`cohort_movement_tables()`).
+   The shared projection grid (ADR-093) aligns the reporting periods, so the
+   aggregate movement equals Σ cohort movements; the aggregate table carries no
+   single `locked_in_rate` (rates differ across cohorts).
+
+**Closed-form / verification anchors.** (a) **Additivity (headline):**
+`max_footing_error()` is 0 (`atol=1e-9`) for every cohort table and the aggregate
+— `opening + Σ movements == closing` for BEL/RA/CSM/total in every period, at
+both annual and monthly granularity. (b) BEL `release == −Σ FCF` and
+`new_business == BEL[0]` for a constant-cash-flow contract. (c) CSM accretion is
+strictly larger at a higher locked-in rate (identical cash flows, 0.08 vs 0.03),
+and per-period CSM accretion/release tie out to the engine's monthly arrays. (d)
+Every component exhausts to 0 at full run-off. (e) Each period's opening equals
+the prior period's closing. (f) Aggregate == Σ cohorts, field by field.
+
+**Behaviour change.** None. New additive analytics, nothing wired into the
+pricing pipeline; the golden CLI/pipeline outputs are byte-identical (verified —
+QA golden suite 72 passed; analytics suite 559 passed incl. 18 new movement
+tests). No golden rebaseline.
+
+**Out of scope (filed as follow-ups).** Surfacing the movement table on
+API / Excel / CLI (Slice 3 — the only slice that may move goldens, and only for
+runs that request the table); the mid-life in-force opening variant (period-0
+opening = current in-force balance instead of 0 + new business); an explicit RA
+finance/unwinding line (the simplified RA carries none); the insurance-finance
+income/OCI split and the LRC/LIC reconciliation for PAA; movement tables for the
+PAA / VFA measurement models (this slice rolls BBA results forward only).
