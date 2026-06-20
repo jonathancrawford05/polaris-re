@@ -551,23 +551,34 @@ Items harvested from completed/in-flight work by the daily-dev routine
   filing artefact a user actually consumes, and the only slice that may move
   goldens (and only for runs that request the table) → IMPORTANT.
   *Source: ADR-094 Out of scope + CONTINUATION_ifrs17_movement Slice 3 (1st-order).*
-  **PARTIALLY SHIPPED** (this draft, Slice 3a): the `to_dict()` serialiser on all
-  movement types and `POST /api/v1/ifrs17/movement` are shipped (ADR-095). The
-  Excel sheet (3b) and CLI surface (3c) remain — see the two items below.
+  **PARTIALLY SHIPPED**: Slice 3a — `to_dict()` serialiser + `POST
+  /api/v1/ifrs17/movement` — merged (PR #89, ADR-095). Slice 3b — the
+  "IFRS 17 Movement" Excel sheet — shipped this draft (ADR-096). The CLI surface
+  (3c) remains — see the item below.
 
-- **IMPORTANT — IFRS 17 movement Excel sheet (Epic 2, Slice 3b).** Add an
+- ~~**IMPORTANT — IFRS 17 movement Excel sheet (Epic 2, Slice 3b).** Add an
   "IFRS 17 Movement" sheet to the deal-pricing workbook (`utils/excel_output.py`),
   consuming the `IFRS17MovementTable.to_dict()` serialiser shipped in Slice 3a.
   The Excel workbook is the deliverable a pricing actuary hands to a filer, so the
   movement table belongs in it → IMPORTANT. May move goldens only for runs that
   request the sheet.
-  *Source: ADR-095 Out of scope + CONTINUATION_ifrs17_movement Slice 3b (1st-order).*
+  *Source: ADR-095 Out of scope + CONTINUATION_ifrs17_movement Slice 3b (1st-order).*~~
+  — **SHIPPED** (this draft, Slice 3b): `IFRS17MovementExport` DTO +
+  `DealPricingExport.ifrs17_movement` field; `write_deal_pricing_excel` appends an
+  "IFRS 17 Movement" sheet (aggregate + per-cohort blocks, each BEL/RA/CSM/total
+  as a Year x movement-line sub-table that foots) when populated; suppressed by
+  default → goldens byte-identical (ADR-096). The CLI does not yet populate the
+  field — that is Slice 3c (below).
 
 - **IMPORTANT — IFRS 17 movement CLI surface (Epic 2, Slice 3c).** A
   `polaris price` opt-in flag or a dedicated `polaris ifrs17` subcommand emitting
   the movement table (JSON / Rich), reusing the Slice-3a serialiser. Completes the
   surfacing epic so the disclosure is reachable from every entry point → IMPORTANT.
-  *Source: ADR-095 Out of scope + CONTINUATION_ifrs17_movement Slice 3c (1st-order).*
+  When wiring `polaris price`, also populate `DealPricingExport.ifrs17_movement`
+  (the Slice-3b field) so the Excel "IFRS 17 Movement" sheet appears on the same
+  run — building the `IFRS17CohortManager` from the priced block (issue-year
+  grouping + per-year locked-in rates) is the shared input for both surfaces.
+  *Source: ADR-095/096 Out of scope + CONTINUATION_ifrs17_movement Slice 3c (1st-order).*
 
 - **NICE-TO-HAVE — Mid-life in-force IFRS 17 movement opening.** The shipped
   movement table is a from-recognition roll-forward: the cohort's first reporting

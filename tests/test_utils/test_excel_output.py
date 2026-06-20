@@ -14,6 +14,10 @@ import numpy as np
 import pytest
 from openpyxl import load_workbook
 
+from polaris_re.analytics.ifrs17 import (
+    IFRS17CohortManager,
+    IFRS17ContractInput,
+)
 from polaris_re.analytics.premium_sufficiency import PremiumSufficiencyTester
 from polaris_re.analytics.profit_test import ProfitResultWithCapital, ProfitTestResult
 from polaris_re.core.cashflow import CashFlowResult
@@ -21,6 +25,7 @@ from polaris_re.utils.excel_output import (
     AssumptionsMetaExport,
     DealMetaExport,
     DealPricingExport,
+    IFRS17MovementExport,
     RatedBlockExport,
     ScenarioMetric,
     write_deal_pricing_excel,
@@ -1513,3 +1518,165 @@ class TestPremiumSufficiencyPanel:
         ws = load_workbook(out)["Summary"]
         row = _find_row_with_label(ws, "Combined Ratio")
         assert ws.cell(row=row, column=3).value is None
+
+
+# ---------------------------------------------------------------------------
+# IFRS 17 Movement sheet (ADR-096, Epic 2 Slice 3b)
+# ---------------------------------------------------------------------------
+
+
+def _make_ifrs17_gross_cashflow(run_id: str, n_per: int = 36) -> CashFlowResult:
+    """Synthetic GROSS CashFlowResult on a common grid for cohort aggregation."""
+    premiums = np.full(n_per, 100.0, dtype=np.float64)
+    claims = np.full(n_per, 10.0, dtype=np.float64)
+    expenses = np.full(n_per, 5.0, dtype=np.float64)
+    lapses = np.full(n_per, 2.0, dtype=np.float64)
+    reserves = np.zeros(n_per, dtype=np.float64)
+    return CashFlowResult(
+        run_id=run_id,
+        valuation_date=date(2025, 1, 1),
+        basis="GROSS",
+        assumption_set_version="v1",
+        product_type="TERM",
+        projection_months=n_per,
+        time_index=np.arange(
+            np.datetime64("2025-01"),
+            np.datetime64("2025-01") + n_per,
+            dtype="datetime64[M]",
+        ),
+        gross_premiums=premiums,
+        death_claims=claims,
+        lapse_surrenders=lapses,
+        expenses=expenses,
+        reserve_balance=reserves,
+        reserve_increase=reserves.copy(),
+        net_cash_flow=premiums - claims - lapses - expenses,
+    )
+
+
+def _make_movement_export() -> IFRS17MovementExport:
+    """Two distinct issue-year cohorts (2022 @ 4%, 2024 @ 6%) valued 2025-01-01."""
+    manager = IFRS17CohortManager(
+        [
+            IFRS17ContractInput(
+                cashflows=_make_ifrs17_gross_cashflow("c2022"),
+                issue_date=date(2022, 6, 1),
+                locked_in_rate=0.04,
+                ra_factor=0.05,
+            ),
+            IFRS17ContractInput(
+                cashflows=_make_ifrs17_gross_cashflow("c2024"),
+                issue_date=date(2024, 6, 1),
+                locked_in_rate=0.06,
+                ra_factor=0.05,
+            ),
+        ]
+    )
+    return IFRS17MovementExport(
+        aggregate=manager.aggregate_movement_table(),
+        cohorts=manager.cohort_movement_tables(),
+    )
+
+
+@pytest.fixture
+def movement_export() -> DealPricingExport:
+    """Minimal export augmented with the IFRS 17 movement tables."""
+    return DealPricingExport(
+        deal_meta=_make_deal_meta(),
+        assumptions_meta=_make_assumptions_meta(),
+        cedant_result=_make_profit_result(),
+        reinsurer_result=None,
+        net_cashflows=_make_cashflows("NET"),
+        ifrs17_movement=_make_movement_export(),
+    )
+
+
+class TestIFRS17MovementSheet:
+    def test_sheet_omitted_when_none(
+        self, minimal_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(minimal_export, out)
+        assert "IFRS 17 Movement" not in load_workbook(out).sheetnames
+
+    def test_sheet_present_and_appended_last(
+        self, movement_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(movement_export, out)
+        names = load_workbook(out).sheetnames
+        assert "IFRS 17 Movement" in names
+        # Appended last so all other sheet positions are unchanged.
+        assert names[-1] == "IFRS 17 Movement"
+
+    def test_title_and_aggregate_block(
+        self, movement_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(movement_export, out)
+        ws = load_workbook(out)["IFRS 17 Movement"]
+        assert ws.cell(row=1, column=1).value == "IFRS 17 Analysis of Change (Movement)"
+        # Aggregate block label present.
+        _find_row_with_label(ws, "Aggregate (all cohorts)")
+
+    def test_cohort_block_titles_carry_year_and_rate(
+        self, movement_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(movement_export, out)
+        ws = load_workbook(out)["IFRS 17 Movement"]
+        # Ordered by issue year; each carries its locked-in rate.
+        _find_row_with_label(ws, "Cohort 2022 — locked-in 4.00%")
+        _find_row_with_label(ws, "Cohort 2024 — locked-in 6.00%")
+
+    def test_component_labels_present(
+        self, movement_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(movement_export, out)
+        ws = load_workbook(out)["IFRS 17 Movement"]
+        for label in (
+            "Best Estimate Liability (BEL)",
+            "Risk Adjustment (RA)",
+            "Contractual Service Margin (CSM)",
+            "Total Insurance Liability",
+        ):
+            _find_row_with_label(ws, label)
+
+    def test_every_rendered_row_foots(
+        self, movement_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        """The disclosure's defining property — Opening + Σ movements == Closing —
+        holds on every rendered data row (BEL / RA / CSM / total, aggregate and
+        every cohort)."""
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(movement_export, out)
+        ws = load_workbook(out)["IFRS 17 Movement"]
+        checked = 0
+        for r in range(1, ws.max_row + 1):
+            year = ws.cell(row=r, column=1).value
+            vals = [ws.cell(row=r, column=c).value for c in range(2, 7)]
+            if isinstance(year, int) and all(isinstance(v, (int, float)) for v in vals):
+                opening, new_business, interest, release, closing = vals
+                np.testing.assert_allclose(
+                    opening + new_business + interest + release, closing, atol=1e-6
+                )
+                checked += 1
+        # 3 periods x 4 components x (1 aggregate + 2 cohorts) = 36 data rows.
+        assert checked == 36
+
+    def test_year_axis_is_one_based(
+        self, movement_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(movement_export, out)
+        ws = load_workbook(out)["IFRS 17 Movement"]
+        # The first data row under the first "Year" header is reporting Year 1.
+        header_row = _find_row_with_label(ws, "Year")
+        assert ws.cell(row=header_row + 1, column=1).value == 1
+
+    def test_workbook_roundtrips(self, movement_export: DealPricingExport, tmp_path: Path) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(movement_export, out)
+        wb = load_workbook(out)
+        assert wb["IFRS 17 Movement"].max_row > 0

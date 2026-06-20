@@ -94,34 +94,60 @@ request the table.
   valuation dates surface the cohort manager's alignment error as HTTP 422.
 
 #### Slice 3b: Excel "IFRS 17 Movement" sheet
-- **Status:** NEXT
-- **Depends on:** Slice 3a merged
-- **Scope:** an "IFRS 17 Movement" sheet in the deal-pricing workbook
-  (`utils/excel_output.py`), consuming the `to_dict()` serialiser shipped in 3a.
-- May move goldens only for runs that request the movement sheet.
+- **Status:** DONE
+- **Branch:** claude/awesome-bardeen-g66b30 (environment-designated)
+- **PR:** (this session's draft)
+- **What was done:** Added `IFRS17MovementExport` (frozen dataclass bundling the
+  `aggregate` + per-cohort `IFRS17MovementTable`s) and an
+  `ifrs17_movement: IFRS17MovementExport | None = None` field on
+  `DealPricingExport`. `write_deal_pricing_excel` now appends an
+  "IFRS 17 Movement" sheet **last** when the field is populated: the aggregate
+  block first, then one block per issue-year cohort (titled with its locked-in
+  rate), each rendering BEL / RA / CSM / total as a Year x movement-line
+  sub-table (Opening / New Business / Interest Accretion / Release / Closing) and
+  printing its `max_footing_error`. `None` (the default, and every current
+  `polaris price` run) suppresses the sheet → goldens byte-identical. ADR-096.
+- **Key decisions:**
+  - The export carries the **typed** `IFRS17MovementTable` objects, matching the
+    `DealPricingExport` precedent (`PremiumSufficiencyResult` ADR-083,
+    `YRTRateTable` ADR-052 are likewise typed objects), giving the writer
+    type-safe field access. The rendered fields are exactly those the 3a
+    `to_dict()` serialiser exposes, so Excel and JSON agree.
+  - The sheet is **appended last** so every other sheet position is unchanged.
+  - The CLI does NOT populate `ifrs17_movement` yet — that is Slice 3c, which
+    decides the cohorting inputs (issue-year grouping + per-year locked-in rates)
+    for the `polaris price` path.
 
 #### Slice 3c: CLI surface
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 3b merged
 - **Scope:** a `polaris price` opt-in flag or a dedicated `polaris ifrs17`
   subcommand emitting the movement table (JSON / Rich), reusing the 3a serialiser.
+  When wiring `polaris price`, also populate `DealPricingExport.ifrs17_movement`
+  (Slice 3b's field) so the Excel sheet appears on the same run. May move goldens
+  only for runs that request the movement table.
 
 ## Context for Next Session
 
-- **Slice 3b (Excel) is NEXT.** The serialiser (`IFRS17MovementTable.to_dict()`
-  and friends) shipped in 3a is the data source — it returns table metadata
-  (`months_per_period`, `issue_year`, `locked_in_rate`, `n_periods`,
-  `max_footing_error`) plus `rows`, each row carrying `bel/ra/csm/total` as
-  `{opening, new_business, interest_accretion, release, closing, footing_error}`.
-- The API endpoint `POST /api/v1/ifrs17/movement` is the reference consumer:
-  it groups policies by `issue_date.year`, projects each group, and feeds
-  `IFRS17CohortManager`. The Excel/CLI surfaces should mirror that cohorting.
+- **Slice 3c (CLI) is NEXT.** Slices 3a (API) and 3b (Excel) are merged-pending;
+  the CLI is the last surface. The Excel sheet (3b) is wired to the writer but
+  is only emitted when `DealPricingExport.ifrs17_movement` is populated — nothing
+  populates it yet, so Slice 3c must build the cohort manager from the priced
+  block and set that field (and/or emit a JSON/Rich movement table directly).
 - The data the surfacing layer consumes:
   `IFRS17CohortManager.cohort_movement_tables()` (per cohort, ordered by issue
-  year) and `.aggregate_movement_table()` (the aggregate).
+  year) and `.aggregate_movement_table()` (the aggregate). The API endpoint
+  `POST /api/v1/ifrs17/movement` is the reference consumer: it groups policies by
+  `issue_date.year`, projects each group GROSS, and feeds `IFRS17CohortManager`.
+  The CLI should mirror that cohorting.
+- The serialiser (`IFRS17MovementTable.to_dict()` and friends, ADR-095) is the
+  shared JSON contract — table metadata (`months_per_period`, `issue_year`,
+  `locked_in_rate`, `n_periods`, `max_footing_error`) plus `rows`, each row
+  carrying `bel/ra/csm/total` as
+  `{opening, new_business, interest_accretion, release, closing, footing_error}`.
 - Reporting periods are annual; `build_movement_table(..., months_per_period=N)`
   supports other groupings if the surface wants them.
-- Open follow-up to weigh in Slice 3b/3c: the **mid-life in-force opening**
+- Open follow-up to weigh in Slice 3c: the **mid-life in-force opening**
   variant (period-0 opening = current in-force balance rather than 0 + new
   business) — the from-recognition roll-forward shipped here is the natural fit
   for a cohort projected from inception; a mid-life filing may want the other
