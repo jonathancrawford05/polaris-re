@@ -5982,3 +5982,72 @@ opt-in flag or a `polaris ifrs17` subcommand). The dashboard movement view
 ADR-094: the mid-life in-force opening variant; an explicit RA finance line;
 movement tables for PAA / VFA. Driving the cohorts' locked-in rates from real
 issue-era rate curves rather than a flat per-year override.
+
+---
+
+## ADR-096: Surface the IFRS 17 movement table on the deal-pricing Excel workbook (Epic 2, Slice 3b)
+
+**Date:** 2026-06-20
+**Status:** Accepted
+
+**Context.** ADR-093/094 built the IFRS 17 cohort layer and the analysis-of-change
+(movement) table; ADR-095 (Slice 3a) shipped the `to_dict()` serialiser and the
+`POST /api/v1/ifrs17/movement` REST surface. PLAN_ifrs17_movement Slice 3 is the
+surfacing slice, sub-sliced into 3a (API), 3b (Excel), 3c (CLI). This ADR is
+**Slice 3b** — the committee-grade deal-pricing workbook (ADR-045) is where a
+deal actuary actually reads the numbers, so the analysis of change belongs there
+as a sheet, not only on the JSON API.
+
+**Premise (verified before implementing, routine step 7b).** With the baseline
+suite green (1505 passed, 94 deselected), `grep` over `src/polaris_re/utils/`
+confirmed `excel_output.py` had no IFRS 17 / movement sheet — the workbook
+covered Summary / Cash Flows / Assumptions / Sensitivity / YRT Rate Table only.
+The gap is real.
+
+**Decision.**
+
+1. **DTO.** Add `IFRS17MovementExport` (frozen dataclass) bundling the
+   `aggregate: IFRS17MovementTable` and `cohorts: list[IFRS17MovementTable]`
+   exactly as `IFRS17CohortManager.aggregate_movement_table()` /
+   `.cohort_movement_tables()` produce them. Carrying the typed movement tables
+   (not the serialised dict) follows the established `DealPricingExport`
+   precedent — `PremiumSufficiencyResult` (ADR-083) and `YRTRateTable` (ADR-052)
+   are likewise carried as typed objects — and gives the writer type-safe field
+   access. The rendered fields are exactly those the 3a `to_dict()` serialiser /
+   the API expose, so the Excel and JSON surfaces report identical numbers.
+2. **Export field.** Add `ifrs17_movement: IFRS17MovementExport | None = None` to
+   `DealPricingExport`. `None` (the default) suppresses the sheet, so every
+   pre-ADR-096 export — and every current `polaris price` run, which does not yet
+   populate the field — stays byte-identical.
+3. **Sheet.** `write_deal_pricing_excel` appends an "IFRS 17 Movement" sheet
+   **last** (so all other sheet positions are unchanged) when the field is
+   populated. The sheet stacks the aggregate block first, then one block per
+   issue-year cohort (ordered by issue year, each titled with its locked-in
+   rate). Each block renders BEL / RA / CSM / total as a familiar Year x
+   movement-line sub-table (`Opening`, `New Business`, `Interest Accretion`,
+   `Release`, `Closing`), matching the IASB reconciliation layout and the repo's
+   1-based Year axis. Each block also prints its `max_footing_error` so the
+   disclosure's footing property is visible on the sheet.
+
+**Closed-form / verification anchors.** Excel tests: sheet omitted when the
+field is `None`; present and appended last when populated; aggregate + per-cohort
+block titles carry the issue year and locked-in rate, ordered by year; the four
+component labels present; **every rendered data row foots** —
+`Opening + New Business + Interest Accretion + Release == Closing` to
+`assert_allclose` across all 36 data rows (3 periods x 4 components x (aggregate +
+2 cohorts)); Year axis is 1-based; the workbook re-opens.
+
+**Behaviour change.** None to existing workbooks or the pricing pipeline — a new
+optional DTO field and a sheet written only when it is populated. Golden CLI /
+pipeline outputs are byte-identical (the CLI does not populate the field; that is
+Slice 3c). No golden rebaseline.
+
+**Out of scope (filed as follow-ups).** Slice 3c — the CLI surface (`polaris
+price` opt-in flag or a `polaris ifrs17` subcommand) that actually populates
+`ifrs17_movement` on a real run. Wiring the CLI's deal-pricing export to compute
+the cohort manager from the priced block (the natural home for that is Slice 3c,
+since it decides the cohorting inputs — issue-year grouping and per-year
+locked-in rates — for the `polaris price` path). The dashboard movement view.
+Carried forward from ADR-094/095: the mid-life in-force opening variant; an
+explicit RA finance line; movement tables for PAA / VFA; issue-era rate-curve
+locked-in rates.

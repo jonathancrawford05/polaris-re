@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import polars as pl
 
+from polaris_re.analytics.ifrs17 import IFRS17ComponentMovement, IFRS17MovementTable
 from polaris_re.analytics.premium_sufficiency import PremiumSufficiencyResult
 from polaris_re.analytics.profit_test import ProfitResultWithCapital, ProfitTestResult
 from polaris_re.core.cashflow import CashFlowResult
@@ -42,6 +43,7 @@ __all__ = [
     "AssumptionsMetaExport",
     "DealMetaExport",
     "DealPricingExport",
+    "IFRS17MovementExport",
     "RatedBlockExport",
     "ScenarioMetric",
     "write_deal_pricing_excel",
@@ -115,6 +117,25 @@ class RatedBlockExport:
 
 
 @dataclass(frozen=True)
+class IFRS17MovementExport:
+    """IFRS 17 analysis-of-change (movement) tables for the deal-pricing workbook.
+
+    Bundles the across-cohort ``aggregate`` movement table and the per-issue-year
+    ``cohorts`` tables (ordered by issue year), exactly as produced by
+    ``IFRS17CohortManager.aggregate_movement_table()`` /
+    ``.cohort_movement_tables()`` (Epic 2, Slices 1-2). The workbook's
+    "IFRS 17 Movement" sheet renders the same fields the 3a ``to_dict()``
+    serialiser / ``POST /api/v1/ifrs17/movement`` API expose — opening → new
+    business → interest accretion → release → closing, per BEL / RA / CSM /
+    total — so the Excel surface and the JSON surface report identical numbers
+    (ADR-096).
+    """
+
+    aggregate: IFRS17MovementTable
+    cohorts: list[IFRS17MovementTable]
+
+
+@dataclass(frozen=True)
 class DealPricingExport:
     """Bundle of everything a deal-pricing workbook needs.
 
@@ -153,6 +174,11 @@ class DealPricingExport:
     # the panel entirely, keeping pre-ADR-083 workbooks byte-identical.
     premium_sufficiency_cedant: PremiumSufficiencyResult | None = None
     premium_sufficiency_reinsurer: PremiumSufficiencyResult | None = None
+    # IFRS 17 analysis-of-change (movement) tables (ADR-096, Epic 2 Slice 3b).
+    # When populated, an "IFRS 17 Movement" sheet is appended to the workbook
+    # rendering the aggregate + per-cohort opening→closing reconciliation.
+    # ``None`` suppresses the sheet, keeping pre-ADR-096 workbooks byte-identical.
+    ifrs17_movement: IFRS17MovementExport | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -297,6 +323,28 @@ _LINE_ITEM_COMPARISON_COLUMNS: tuple[str, ...] = (
     ),
 )
 
+# IFRS 17 movement sheet (ADR-096). Each component sub-table is a familiar
+# Year x movement-line grid; the five movement columns foot row-wise
+# (Opening + New Business + Interest Accretion + Release == Closing).
+_IFRS17_MOVEMENT_COLUMNS: tuple[str, ...] = (
+    "Year",
+    "Opening",
+    "New Business",
+    "Interest Accretion",
+    "Release",
+    "Closing",
+)
+
+# The four liability components rendered as stacked sub-tables, in the IASB
+# reconciliation order. Each entry maps the IFRS17MovementRow attribute to its
+# display label.
+_IFRS17_MOVEMENT_COMPONENTS: tuple[tuple[str, str], ...] = (
+    ("bel", "Best Estimate Liability (BEL)"),
+    ("ra", "Risk Adjustment (RA)"),
+    ("csm", "Contractual Service Margin (CSM)"),
+    ("total", "Total Insurance Liability"),
+)
+
 _SUMMARY_METRICS: tuple[str, ...] = (
     "Hurdle Rate",
     "PV Profits",
@@ -367,6 +415,11 @@ def write_deal_pricing_excel(export: DealPricingExport, path: Path) -> None:
         9. YRT Rate Table    — OMITTED when ``export.yrt_rate_table`` is None;
                                otherwise one block per (sex, smoker) cohort
                                (ADR-052).
+       10. IFRS 17 Movement  — OMITTED when ``export.ifrs17_movement`` is None;
+                               otherwise the aggregate and per-issue-year
+                               analysis-of-change (movement) tables — opening →
+                               new business → interest accretion → release →
+                               closing for BEL / RA / CSM / total (ADR-096).
 
     Args:
         export: Bundle of all data required for the sheets.
@@ -414,6 +467,11 @@ def write_deal_pricing_excel(export: DealPricingExport, path: Path) -> None:
         _write_sensitivity_sheet(wb, export.scenario_results)
     if export.yrt_rate_table is not None:
         _write_yrt_rate_table_sheet(wb, export.yrt_rate_table)
+    # IFRS 17 analysis-of-change sheet (ADR-096). Appended last and written only
+    # when the movement tables are supplied, so every pre-ADR-096 export stays
+    # byte-identical regardless of which other optional sheets it carries.
+    if export.ifrs17_movement is not None:
+        _write_ifrs17_movement_sheet(wb, export.ifrs17_movement)
 
     wb.save(path)
 
@@ -1003,6 +1061,98 @@ def _write_yrt_rate_table_sheet(wb: "Workbook", table: "YRTRateTable") -> None:
     # `YRTRateTable.select_period_years` (le=50).
     for col_offset in range(select_period + 1):
         ws.column_dimensions[get_column_letter(col_offset + 2)].width = 14
+
+
+def _write_movement_table_block(
+    ws: "Worksheet",
+    start_row: int,
+    table: IFRS17MovementTable,
+    title: str,
+) -> int:
+    """Render one IFRS 17 movement table (4 component sub-tables) and return the
+    next free row.
+
+    Each component (BEL / RA / CSM / total) is a Year x movement-line grid
+    matching the IASB analysis-of-change layout; the five movement columns foot
+    row-wise by construction. Used for both the aggregate block and each
+    per-cohort block on the "IFRS 17 Movement" sheet.
+    """
+    from openpyxl.styles import Alignment, Font
+
+    block_font = Font(bold=True, size=12)
+    header_font = Font(bold=True)
+    centre = Alignment(horizontal="center")
+
+    row = start_row
+    ws.cell(row=row, column=1, value=title).font = block_font
+    row += 1
+    # Metadata line: reporting-period width, period count, and the worst footing
+    # residual (so the disclosure's "opening + Σ movements == closing" property
+    # is visible on the sheet without re-deriving it).
+    ws.cell(
+        row=row,
+        column=1,
+        value=(
+            f"Reporting period: {table.months_per_period} months   "
+            f"Periods: {table.n_periods}   "
+            f"Max footing error: {table.max_footing_error():.2e}"
+        ),
+    )
+    row += 2
+
+    for attr, label in _IFRS17_MOVEMENT_COMPONENTS:
+        ws.cell(row=row, column=1, value=label).font = header_font
+        row += 1
+        for col_idx, header in enumerate(_IFRS17_MOVEMENT_COLUMNS, start=1):
+            cell = ws.cell(row=row, column=col_idx, value=header)
+            cell.font = header_font
+            cell.alignment = centre
+        row += 1
+        for movement_row in table.rows:
+            component: IFRS17ComponentMovement = getattr(movement_row, attr)
+            # Period index is zero-based; render as Year 1..N to match the
+            # Cash Flows sheets' 1-based Year axis.
+            ws.cell(row=row, column=1, value=movement_row.period + 1)
+            ws.cell(row=row, column=2, value=component.opening).number_format = "$#,##0"
+            ws.cell(row=row, column=3, value=component.new_business).number_format = "$#,##0"
+            ws.cell(row=row, column=4, value=component.interest_accretion).number_format = "$#,##0"
+            ws.cell(row=row, column=5, value=component.release).number_format = "$#,##0"
+            ws.cell(row=row, column=6, value=component.closing).number_format = "$#,##0"
+            row += 1
+        # Blank row between component sub-tables.
+        row += 1
+
+    # Trailing blank row between table blocks.
+    return row + 1
+
+
+def _write_ifrs17_movement_sheet(wb: "Workbook", movement: IFRS17MovementExport) -> None:
+    """Render the "IFRS 17 Movement" sheet (ADR-096).
+
+    Stacks the aggregate analysis-of-change table first, then one block per
+    issue-year cohort (ordered by issue year, carrying its locked-in rate). Each
+    block renders BEL / RA / CSM / total as Year x movement-line sub-tables,
+    mirroring the fields the 3a ``to_dict()`` serialiser / the
+    ``POST /api/v1/ifrs17/movement`` API expose, so the Excel and JSON surfaces
+    report identical numbers.
+    """
+    from openpyxl.styles import Font
+
+    ws = wb.create_sheet(title="IFRS 17 Movement")
+    ws.cell(row=1, column=1, value="IFRS 17 Analysis of Change (Movement)").font = Font(
+        bold=True, size=14
+    )
+
+    row = 3
+    row = _write_movement_table_block(ws, row, movement.aggregate, "Aggregate (all cohorts)")
+    for cohort in movement.cohorts:
+        rate = "" if cohort.locked_in_rate is None else f" — locked-in {cohort.locked_in_rate:.2%}"
+        title = f"Cohort {cohort.issue_year}{rate}"
+        row = _write_movement_table_block(ws, row, cohort, title)
+
+    ws.column_dimensions["A"].width = 10
+    for col in "BCDEF":
+        ws.column_dimensions[col].width = 18
 
 
 def write_yrt_rate_table_excel(table: "YRTRateTable", path: Path) -> None:

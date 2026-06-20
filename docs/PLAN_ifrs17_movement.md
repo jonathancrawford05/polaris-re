@@ -115,10 +115,12 @@ byte-identical for 3a, may move only for 3b/3c runs that request the table).
   cohorts, optional per-year `locked_in_rates`, `months_per_period` annual
   default. ADR-095. Goldens byte-identical (additive route).
 
-#### Slice 3b — Excel "IFRS 17 Movement" sheet
-- Excel: a "IFRS 17 Movement" sheet in the deal-pricing workbook
-  (`utils/excel_output.py`), consuming the 3a serialiser. May move goldens only
-  for runs that request the sheet.
+#### Slice 3b — Excel "IFRS 17 Movement" sheet  ✅ SHIPPED
+- Excel: an "IFRS 17 Movement" sheet in the deal-pricing workbook
+  (`utils/excel_output.py`) — `IFRS17MovementExport` DTO +
+  `DealPricingExport.ifrs17_movement` field; aggregate + per-cohort blocks, each
+  BEL / RA / CSM / total as a Year x movement-line sub-table that foots. Sheet
+  appended last; suppressed (default `None`) → goldens byte-identical. ADR-096.
 
 #### Slice 3c — CLI surface
 - CLI: a movement summary on `polaris price` (opt-in flag) or a dedicated
