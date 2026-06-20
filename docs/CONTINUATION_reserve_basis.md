@@ -3,7 +3,8 @@
 **Source:** COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md — Tier A, item A1
 (also PRODUCT_DIRECTION_2026-04-19 IMPORTANT "reserve-basis matching").
 **Plan:** docs/PLAN_reserve_basis.md
-**Status:** IN PROGRESS
+**Status:** COMPLETE (all slices shipped; Slice 4 surfaced the selector on
+2026-06-19)
 **Total slices:** 5 (Slice 2 split into 2a Term + 2b WL; Slice 3 split into 3a
 Term + 3b WL — both on 2026-06-19)
 **Estimated total scope:** ~10 dev-days
@@ -155,12 +156,28 @@ NET_PREMIUM default byte-identical.
   - NET_PREMIUM default byte-identical — no golden rebaseline.
 
 ### Slice 4: Surface the basis selector
-- **Status:** NEXT
-- **Depends on:** Slice 3b merged.
-- **Scope:** CLI `--reserve-basis`, API request schema, Excel reserve-sheet
-  label, validation notebook comparing profit signature across bases. This is
-  the only slice that may move goldens — and only for non-default basis runs;
-  document any rebaseline.
+- **Status:** DONE
+- **Branch:** claude/epic-euler-sb3e44 (environment-designated)
+- **Depends on:** Slice 3b merged (PR #85).
+- **What was done:** Surfaced the `ReserveBasis` selector on the CLI
+  (`polaris price --reserve-basis`, flag-over-config precedence, eager
+  validation, JSON summary echo), the API (`PriceRequest.reserve_basis` →
+  `PriceResponse.reserve_basis`, unsupported basis → HTTP 422), the Excel
+  workbook ("Reserve Basis" row on the Assumptions sheet), and a new validation
+  notebook (`notebooks/02_reserve_basis_comparison.ipynb`) comparing the profit
+  signature across NET_PREMIUM / CRVM / VM20 and showing the WL terminal-reserve
+  artefact closing on the to-omega bases. `DealConfig` gained a `reserve_basis`
+  field; `build_projection_config` coerces it via `_coerce_reserve_basis`.
+  ADR-092.
+- **Key decisions:**
+  - Scoped to the `price` surface (CLI + API), mirroring `polaris price`;
+    `scenario`/`uq`/dashboard reserve-basis are promoted follow-ups.
+  - Default NET_PREMIUM everywhere → priced numbers byte-identical; the only
+    additive outputs are the echoed-basis metadata and a single Assumptions-sheet
+    row. No golden rebaseline needed (no non-default basis is exercised by any
+    golden).
+  - The flag overrides `deal.reserve_basis` in the config (matching the
+    YRT-rate-table flag-over-config precedence).
 
 ## Context for Next Session
 
@@ -185,8 +202,17 @@ NET_PREMIUM default byte-identical.
 
 ## Open Questions (for human)
 
-- Confirm the intended VM-20 scope is the **deterministic reserve / NPR floor
-  only** (no stochastic scenario reserve). The PLAN assumes so; stochastic
-  VM-20 would be its own multi-session epic.
-- Which worked CRVM example should be the closed-form anchor? (A cited
-  textbook level-premium whole-life CRVM reserve is the plan's default.)
+- ~~Confirm the intended VM-20 scope is the **deterministic reserve / NPR floor
+  only** (no stochastic scenario reserve).~~ RESOLVED — shipped deterministic
+  only per PLAN §2; stochastic VM-20 (SR) promoted as its own NICE-TO-HAVE epic
+  in PRODUCT_DIRECTION_2026-06-18 Promoted Follow-ups.
+- ~~Which worked CRVM example should be the closed-form anchor?~~ RESOLVED —
+  each concrete basis is anchored by an **independent recursion / forward
+  prospective-PV** computation plus FPT identities (ADR-088/089/090/091), rather
+  than a single cited textbook value.
+
+The epic is COMPLETE. Remaining reserve-basis work (GAAP concrete basis, 2001
+CSO valuation table, 20-pay cap, exact VM-20 NPR refinements, stochastic VM-20,
+NET_PREMIUM WL artefact closure, scenario/uq/dashboard surfacing) is promoted in
+PRODUCT_DIRECTION_2026-06-18 "Promoted Follow-ups" — first-class items for future
+runs, not part of this CONTINUATION.

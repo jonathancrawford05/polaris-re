@@ -5685,3 +5685,83 @@ selector surfacing on CLI / API / Excel / notebook (Slice 4, the final slice).
   limited-pay raises, YRT NAR integration)
 - `tests/test_products/test_reserve_basis_dispatch.py` (WL no longer raises on
   VM20; only GAAP remains unimplemented on both engines)
+
+## ADR-092: Surface the reserve-basis selector on CLI / API / Excel / notebook (Epic 1, Slice 4)
+
+**Date:** 2026-06-19
+**Status:** Accepted
+
+**Context.** Slices 1–3b built the reserve-basis machinery: `ProjectionConfig.reserve_basis`
+(ADR-087), CRVM for Term (ADR-088) and Whole Life (ADR-089), and VM-20 simplified
+for Term (ADR-090) and Whole Life (ADR-091). All of it was reachable only by
+constructing a `ProjectionConfig` in Python — the CLI, the REST API, the Excel
+workbook, and the validation notebooks had no way to select or report the basis.
+This final slice surfaces the selector so a reinsurer can actually price a deal on
+the cedant's basis from the supported entry points, and closes the epic.
+
+**Premise (verified before implementing, routine step 7b).** `polaris price --help`
+showed no `--reserve-basis` flag; the API `PriceRequest` and the Excel
+`DealMetaExport` had no `reserve_basis`; a golden run reported nothing about the
+basis. Confirmed the gap was a surfacing gap, not a logic gap.
+
+**Decision.**
+
+1. **Config / pipeline.** `DealConfig` gains a `reserve_basis: str` field
+   (default `"NET_PREMIUM"`); `build_projection_config` coerces it to the
+   `ReserveBasis` enum via a new `_coerce_reserve_basis` helper that accepts the
+   enum or a case-insensitive string and raises `PolarisValidationError` (listing
+   the valid values) on an unknown one. No core-contract change — the
+   `ProjectionConfig.reserve_basis` field already existed from Slice 1.
+2. **CLI.** `polaris price` gains a `--reserve-basis` flag, validated eagerly
+   (clean error + valid list, mirroring `--capital`). It is threaded into
+   `_build_pipeline_from_config(..., reserve_basis_override=...)` and **overrides**
+   any `deal.reserve_basis` in the config (flag-over-config precedence, matching
+   the YRT-rate-table surfaces). The CLI JSON `summary` echoes the resolved basis.
+   Both the nested and legacy config schemas parse `reserve_basis`.
+3. **API.** `PriceRequest` gains `reserve_basis: ReserveBasis` (default
+   NET_PREMIUM); it is threaded into `_build_components` and the `PriceResponse`
+   echoes it. An unsupported basis for the product surfaces the
+   `PolarisComputationError` as the endpoint's existing HTTP 422; an invalid enum
+   string is rejected by Pydantic (also 422). Scoped to `/price` to mirror the CLI
+   `polaris price` surface; `scenario` / `uq` are promoted follow-ups.
+4. **Excel.** `DealMetaExport` gains `reserve_basis: str` (default NET_PREMIUM for
+   backward compatibility) and the Assumptions sheet always labels "Reserve Basis"
+   so a committee reviewer sees which basis drove the numbers.
+5. **Notebook.** `notebooks/02_reserve_basis_comparison.ipynb` prices one WL block
+   under NET_PREMIUM / CRVM / VM20, comparing the profit signature and showing the
+   WL terminal-reserve artefact closing on the to-omega bases (NET_PREMIUM reserve
+   stays ~flat to yr20; CRVM/VM20 grade ~28× higher).
+
+**Behaviour change.** None on the default path: NET_PREMIUM is the default
+everywhere, the priced numbers are byte-identical, and the only additive outputs
+are the echoed-basis metadata (CLI summary key, API response field) and a single
+"Reserve Basis: NET_PREMIUM" row on the Excel Assumptions sheet (no Excel
+byte-golden exists; the label-based Excel tests are unaffected). Selecting a
+non-default basis intentionally changes the reserve — and therefore the NAR, the
+reserve transfer, and the profit numbers — as the epic intends.
+
+**Out of scope (filed as follow-ups).** Reserve-basis selection on the
+`scenario` / `uq` CLI commands and API endpoints (this slice covers `price`
+only); the dashboard reserve-basis control (CLI/Streamlit parity); GAAP concrete
+basis (only the enum + guard exist — selecting it raises). The deferred
+actuarial-precision items (2001 CSO valuation table, 20-pay cap, exact VM-20 NPR
+refinements, VM-20 stochastic reserve, NET_PREMIUM WL artefact closure) remain
+promoted from ADR-088/089/090/091.
+
+**Affected files.**
+
+- `src/polaris_re/core/pipeline.py` (`DealConfig.reserve_basis` + `to_dict`;
+  `_coerce_reserve_basis`; `build_projection_config` wiring)
+- `src/polaris_re/cli.py` (`--reserve-basis` flag + eager validation;
+  `_build_pipeline_from_config` override param; config parse both schemas;
+  JSON summary echo; `DealMetaExport.reserve_basis` wiring)
+- `src/polaris_re/api/main.py` (`PriceRequest.reserve_basis`,
+  `PriceResponse.reserve_basis`, `_build_components` wiring, `/price` echo)
+- `src/polaris_re/utils/excel_output.py` (`DealMetaExport.reserve_basis`;
+  "Reserve Basis" row on the Assumptions sheet)
+- `notebooks/02_reserve_basis_comparison.ipynb` (new — cross-basis profit
+  signature + artefact-closure validation)
+- `tests/test_cli_reserve_basis.py`, `tests/test_api/test_reserve_basis.py`,
+  `tests/test_core/test_pipeline_reserve_basis.py` (new); Excel
+  Assumptions-sheet reserve-basis tests added to
+  `tests/test_utils/test_excel_output.py`

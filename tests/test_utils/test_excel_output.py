@@ -699,6 +699,34 @@ class TestAssumptionsSheet:
             minimal_export.deal_meta.hurdle_rate
         )
 
+    def test_reserve_basis_row_defaults_to_net_premium(
+        self, minimal_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        """The Assumptions sheet always labels the reserve basis (reserve-basis epic)."""
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(minimal_export, out)
+        ws = load_workbook(out)["Assumptions"]
+        row = _find_row_with_label(ws, "Reserve Basis")
+        assert row is not None
+        assert ws.cell(row=row, column=2).value == "NET_PREMIUM"
+
+    def test_reserve_basis_row_reflects_non_default(self, tmp_path: Path) -> None:
+        """A non-default basis on the DealMetaExport is rendered verbatim."""
+        from dataclasses import replace
+
+        export = DealPricingExport(
+            deal_meta=replace(_make_deal_meta(), reserve_basis="CRVM"),
+            assumptions_meta=_make_assumptions_meta(),
+            cedant_result=_make_profit_result(),
+            reinsurer_result=None,
+            net_cashflows=_make_cashflows("NET"),
+        )
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        ws = load_workbook(out)["Assumptions"]
+        row = _find_row_with_label(ws, "Reserve Basis")
+        assert ws.cell(row=row, column=2).value == "CRVM"
+
 
 # ---------------------------------------------------------------------------
 # Rated-block panel on the Assumptions sheet (ADR-068)

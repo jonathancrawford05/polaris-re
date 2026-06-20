@@ -68,6 +68,10 @@ class DealMetaExport:
     discount_rate: float
     projection_years: int
     valuation_date: date
+    # Reserve valuation basis label (reserve-basis epic, slice 4). Default
+    # "NET_PREMIUM" keeps the Assumptions sheet byte-identical for the default
+    # path and for any caller that constructs a DealMetaExport without it.
+    reserve_basis: str = "NET_PREMIUM"
 
 
 @dataclass(frozen=True)
@@ -820,6 +824,7 @@ def _write_assumptions_sheet(wb: "Workbook", export: DealPricingExport) -> None:
         ("Discount Rate", deal.discount_rate, "0.00%"),
         ("Projection Years", deal.projection_years, "#,##0"),
         ("Valuation Date", deal.valuation_date.isoformat(), None),
+        ("Reserve Basis", deal.reserve_basis, None),
         ("Mortality Source", asm.mortality_source, None),
         ("Mortality Multiplier", asm.mortality_multiplier, "0.000"),
         ("Lapse Description", asm.lapse_description, None),

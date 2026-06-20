@@ -404,7 +404,7 @@ Items harvested from completed/in-flight work by the daily-dev routine
   the distinct **statutory valuation mortality table** (2001 CSO — TermLife CRVM
   currently values on the projection table), and the **20-pay expense-allowance
   cap** (binds for short-pay/high-premium WL, never for level term).~~ —
-  **SHIPPED** (PR for slice 2b): WholeLife CRVM via prospective-to-omega FPT;
+  **SHIPPED** (PR #83): WholeLife CRVM via prospective-to-omega FPT;
   the $7.18M→$56k artefact is closed under the CRVM basis (golden-WL yr20
   reserve_balance ~$2.35M, >40×). The 2001 CSO table and 20-pay cap were
   **deferred** and are re-promoted as their own items below.
@@ -447,8 +447,8 @@ Items harvested from completed/in-flight work by the daily-dev routine
   `_build_valuation_mortality` / `_valuation_months_to_omega` from 2b) so it does
   not collapse at the horizon — the WL analogue of the 3a finite-horizon DR.
   Tracked as the NEXT slice in `CONTINUATION_reserve_basis.md`. Completes VM-20
-  across both Phase-1 life products → IMPORTANT.~~ — **SHIPPED** (PR for slice
-  3b): WholeLife VM-20 `max(NPR, DR)` with both NPR (to-omega CRVM) and DR
+  across both Phase-1 life products → IMPORTANT.~~ — **SHIPPED** (PR #85):
+  WholeLife VM-20 `max(NPR, DR)` with both NPR (to-omega CRVM) and DR
   (new `_compute_deterministic_reserve` + `_build_valuation_lapse`) valued to
   omega; VM20 (≥ the to-omega NPR) does not collapse at the horizon. ADR-091.
   *Source: ADR-090 Out of scope (1st-order).*
@@ -479,6 +479,33 @@ Items harvested from completed/in-flight work by the daily-dev routine
   adding them is a config/assumption extension, not a reserve-math change → 
   NICE-TO-HAVE.
   *Source: ADR-090 Out of scope (1st-order).*
+
+- **IMPORTANT — GAAP (FAS 60) concrete reserve basis.** The reserve-basis epic
+  shipped NET_PREMIUM / CRVM / VM-20 for Term and Whole Life and surfaced the
+  selector (Slice 4), but **GAAP** has only the `ReserveBasis.GAAP` enum value
+  and the dispatch guard — selecting it raises `PolarisComputationError`. US
+  GAAP (net-premium benefit reserve with locked-in best-estimate assumptions +
+  PAD) is a basis a US cedant commonly reports on, so reproducing it is part of
+  "match the cedant's basis," not polish → IMPORTANT.
+  *Source: ADR-092 Out of scope + PLAN_reserve_basis §1 (1st-order).*
+
+- **NICE-TO-HAVE — Reserve-basis selector on `scenario` / `uq` surfaces.**
+  Slice 4 surfaced `--reserve-basis` (CLI) and `reserve_basis` (API) on the
+  **`price`** path only, mirroring the CLI `polaris price` surface. The
+  `scenario` and `uq` CLI commands and API endpoints still always value on
+  NET_PREMIUM. A deal committee that wants stress / UQ runs on the cedant's
+  basis needs the same selector wired there (`_resolve_*` plumbing already
+  exists for the other deal params). The basis-correct base case is available
+  via `price`, so this is design-completeness, not common-path correctness →
+  NICE-TO-HAVE.
+  *Source: ADR-092 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — Dashboard reserve-basis control (CLI/Streamlit parity).**
+  The Streamlit dashboard has no reserve-basis selector; `DealConfig.to_dict()`
+  now carries `reserve_basis` so the wiring is one control + a state default.
+  Parity polish for the dashboard surface, not first-deal correctness →
+  NICE-TO-HAVE.
+  *Source: ADR-092 Out of scope (1st-order).*
 
 ## Carried Forward
 
