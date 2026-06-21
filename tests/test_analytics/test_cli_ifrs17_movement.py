@@ -1,5 +1,5 @@
 """
-CLI IFRS 17 movement-table surfacing tests (IFRS 17 epic, Slice 3c — ADR-096).
+CLI IFRS 17 movement-table surfacing tests (IFRS 17 epic, Slice 3c — ADR-097).
 
 ``polaris price --ifrs17-movement`` emits the IFRS 17 analysis-of-change
 (movement) table per product cohort: the cohort's policies are grouped into
@@ -27,8 +27,6 @@ REPO_ROOT = Path(__file__).parent.parent.parent
 GOLDEN_DIR = REPO_ROOT / "data" / "qa"
 GOLDEN_CSV = GOLDEN_DIR / "golden_inforce.csv"
 GOLDEN_CONFIG = GOLDEN_DIR / "golden_config_flat.json"
-DEMO_CSV = REPO_ROOT / "data" / "inputs" / "demo.csv"
-DEMO_CONFIG = REPO_ROOT / "data" / "configs" / "demo.json"
 
 # golden_config_flat uses discount_rate 0.06; that is the locked-in rate the CLI
 # applies to every issue-year cohort (a per-year override is a promoted
@@ -37,6 +35,25 @@ GOLDEN_DISCOUNT_RATE = 0.06
 
 _MOVEMENT_KEYS = {"months_per_period", "n_cohorts", "max_footing_error", "aggregate", "cohorts"}
 _COMPONENT_KEYS = {"opening", "new_business", "interest_accretion", "release", "closing"}
+
+# A single-product (TERM), single-issue-year inforce block → exactly one IFRS 17
+# issue-year cohort, so the movement table is mirrored at the JSON top level.
+# Written to tmp_path so the test is hermetic: it does not depend on the demo
+# fixtures, which are not shipped in the runtime Docker image that runs the suite.
+_SINGLE_COHORT_CSV = (
+    "policy_id,issue_age,attained_age,sex,smoker_status,underwriting_class,"
+    "face_amount,annual_premium,product_type,policy_term,duration_inforce,"
+    "reinsurance_cession_pct,issue_date,valuation_date\n"
+    "SC-001,30,35,M,NS,PREFERRED,500000.00,300.00,TERM,20,60,,2021-04-01,2026-04-01\n"
+    "SC-002,45,50,F,NS,STANDARD,1000000.00,1200.00,TERM,20,60,,2021-04-01,2026-04-01\n"
+)
+
+
+def _single_cohort_csv(tmp_path: Path) -> Path:
+    """Write a single-product, single-issue-year inforce CSV under ``tmp_path``."""
+    csv = tmp_path / "single_cohort_inforce.csv"
+    csv.write_text(_SINGLE_COHORT_CSV)
+    return csv
 
 
 def _run(csv: Path, config: Path, tmp_path: Path, *extra: str) -> dict:
@@ -67,7 +84,7 @@ class TestCLIIFRS17MovementBackwardCompat:
         assert all("ifrs17_movement" not in c for c in payload["cohorts"])
 
     def test_no_flag_no_top_level_key(self, tmp_path: Path) -> None:
-        payload = _run(DEMO_CSV, DEMO_CONFIG, tmp_path)
+        payload = _run(_single_cohort_csv(tmp_path), GOLDEN_CONFIG, tmp_path)
         assert "ifrs17_movement" not in payload
 
 
@@ -82,9 +99,9 @@ class TestCLIIFRS17MovementJSON:
             assert set(cohort["ifrs17_movement"]) == _MOVEMENT_KEYS
 
     def test_single_cohort_top_level_mirror(self, tmp_path: Path) -> None:
-        # demo.csv is a single-product, single-issue-year block → one IFRS 17
-        # cohort, mirrored at the top level for the common single-cohort case.
-        payload = _run(DEMO_CSV, DEMO_CONFIG, tmp_path, "--ifrs17-movement")
+        # A single-product, single-issue-year block → one IFRS 17 cohort,
+        # mirrored at the top level for the common single-cohort case.
+        payload = _run(_single_cohort_csv(tmp_path), GOLDEN_CONFIG, tmp_path, "--ifrs17-movement")
         assert set(payload["ifrs17_movement"]) == _MOVEMENT_KEYS
         assert payload["ifrs17_movement"]["n_cohorts"] == 1
 
