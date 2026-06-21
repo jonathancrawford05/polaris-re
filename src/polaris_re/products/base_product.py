@@ -90,7 +90,8 @@ class BaseProduct(ABC):
             raise PolarisComputationError(
                 f"Reserve basis {basis.value!r} is not yet implemented for "
                 f"{type(self).__name__}. Supported bases: {supported}. "
-                "CRVM / VM20 / GAAP bases are added in later slices of the "
-                "reserve-basis epic (see docs/PLAN_reserve_basis.md)."
+                "NET_PREMIUM / CRVM / VM20 are implemented for TermLife and "
+                "WholeLife; GAAP is not yet implemented (see ADR-087..092 and "
+                "docs/PLAN_reserve_basis.md)."
             )
         return basis

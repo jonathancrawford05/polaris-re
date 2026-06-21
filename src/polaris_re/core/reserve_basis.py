@@ -18,10 +18,13 @@ different reserve methods:
 - ``GAAP`` — US GAAP (FAS 60) net-premium benefit reserve with locked-in
   best-estimate assumptions and a provision for adverse deviation.
 
-Only ``NET_PREMIUM`` is implemented today; the remaining bases are added in
-later slices of the reserve-basis epic. Selecting an unimplemented basis raises
-``PolarisComputationError`` rather than silently falling back, so a pricing run
-can never report a reserve on a basis the engine did not actually compute.
+``NET_PREMIUM``, ``CRVM``, and ``VM20`` are implemented for ``TermLife`` and
+``WholeLife`` (ADR-087..092); ``GAAP`` is recognised by the enum but not yet
+implemented, and no basis beyond ``NET_PREMIUM`` is implemented for the other
+products. Each product declares the bases it supports; selecting an
+unimplemented basis raises ``PolarisComputationError`` rather than silently
+falling back, so a pricing run can never report a reserve on a basis the engine
+did not actually compute.
 """
 
 from enum import StrEnum
