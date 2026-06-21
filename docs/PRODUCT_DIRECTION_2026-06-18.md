@@ -168,13 +168,21 @@ restored this run at maintainer direction. All three are now treated as
   valuation table, 20-pay cap, exact VM-20 NPR, stochastic VM-20,
   scenario/uq/dashboard surfacing) live in Promoted Follow-ups below.
 
-- **IFRS 17 period-to-period movement table.** Current implementation gives
+- ~~**IFRS 17 period-to-period movement table.** Current implementation gives
   BEL / RA / CSM at initial recognition only (`analytics/ifrs17.py`).
   Production filers need the opening → experience adjustments → unwinding →
   closing movement table by annual cohort with locked-in discount rates
   (Roadmap Phase 5.3). **Scope:** ~10 dev-days. **Affected:**
   `analytics/ifrs17.py`. *Carried from PRODUCT_DIRECTION_2026-05-23 →
-  2026-04-19.*
+  2026-04-19.*~~ — **SHIPPED** (PRs #87–#91): `IFRS17CohortManager` +
+  annual-cohort locked-in rates (#87), `IFRS17MovementTable`
+  opening→experience→unwinding→closing with the additivity/footing test (#88),
+  and the REST (#89), Excel (#90), and CLI (#91, `polaris price
+  --ifrs17-movement`) surfaces. Epic 2 COMPLETE; see
+  `CONTINUATION_ifrs17_movement.md` (Status COMPLETE). Residual refinements
+  (per-issue-year locked-in-rate override on the CLI, dedicated `polaris
+  ifrs17` subcommand, dashboard movement view, block-wide cross-product
+  movement) live in Promoted Follow-ups below.
 
 - **Cross-jurisdiction regulatory capital (US RBC + Solvency II).** LICAT
   capital (C-1 / C-2 / C-3, with lapse and morbidity risk) ships today, but
@@ -396,6 +404,18 @@ above — this file does not duplicate the SHIPPED-footer detail.
 
 Items harvested from completed/in-flight work by the daily-dev routine
 (step 17), with provenance. These are first-class work items, not commentary.
+
+- **NICE-TO-HAVE — Configurable held-capital basis (target multiple of ACL)
+  for US RBC.** The US RBC module (Epic 3 Slice 1) fixes the held-capital basis
+  fed to return-on-capital at the **Company Action Level** (= 2× Authorized
+  Control Level = the covariance result). Reinsurers commonly hold a *target
+  multiple* of ACL (typically 300–400%); a configurable multiple would let the
+  RoC denominator reflect a cedant's actual capital target rather than the
+  regulatory floor. Affects the magnitude of the RBC return-on-capital number,
+  not first-deal correctness or the LICAT/common path → NICE-TO-HAVE. Resolve
+  the design (where the multiple is set — on `RBCCapital` vs `run_with_capital`)
+  in Epic 3 Slice 2/4.
+  *Source: ADR-098 Out of scope + CONTINUATION_cross_jurisdiction_capital Open Questions (1st-order).*
 
 - **NICE-TO-HAVE — Statutory reserve bases for UL and DI.** The reserve-basis
   epic (A1) implements CRVM / VM-20 / GAAP for Term and Whole Life only. UL

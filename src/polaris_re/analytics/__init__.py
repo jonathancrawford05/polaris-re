@@ -4,6 +4,7 @@ stochastic rates, experience studies, and rate schedule generation.
 """
 
 from polaris_re.analytics.capital import CapitalResult, LICATCapital, LICATFactors
+from polaris_re.analytics.capital_base import CapitalModel, CapitalSchedule
 from polaris_re.analytics.experience_study import AEResult, ExperienceStudy
 from polaris_re.analytics.ifrs17 import (
     IFRS17Cohort,
@@ -35,6 +36,7 @@ from polaris_re.analytics.profit_test import (
     ProfitTestResult,
 )
 from polaris_re.analytics.rate_schedule import SolveMode, YRTRateSchedule
+from polaris_re.analytics.rbc import RBCCapital, RBCFactors, RBCResult
 from polaris_re.analytics.scenario import (
     ScenarioAdjustment,
     ScenarioResult,
@@ -47,7 +49,9 @@ from polaris_re.analytics.uq import MonteCarloUQ, UQParameters, UQResult
 __all__ = [
     "AEResult",
     "CIRModel",
+    "CapitalModel",
     "CapitalResult",
+    "CapitalSchedule",
     "Deal",
     "DealResult",
     "ExperienceStudy",
@@ -74,6 +78,9 @@ __all__ = [
     "ProfitResultWithCapital",
     "ProfitTestResult",
     "ProfitTester",
+    "RBCCapital",
+    "RBCFactors",
+    "RBCResult",
     "RateScenarios",
     "ScenarioAdjustment",
     "ScenarioResult",
