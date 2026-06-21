@@ -20,13 +20,18 @@ Polaris RE provides:
 - ✅ **ML-ready** — assumptions can be driven by XGBoost or scikit-learn models
 - ✅ **Modern stack** — Python 3.12+, Pydantic v2, Polars 1.0+, NumPy 2.0+, fully typed
 - ✅ **API-first** — full REST API (FastAPI), CLI (Typer), and Streamlit dashboard
-- ✅ **IFRS 17** — BBA, PAA, and VFA measurement models
+- ✅ **IFRS 17** — BBA, PAA, and VFA measurement plus the period-to-period movement table
+- ✅ **Return-on-capital** — LICAT regulatory capital today; US RBC and Solvency II in progress
+- ✅ **Statutory reserves** — reproduce the cedant's basis (CRVM, VM-20) alongside net-premium
 
 ---
 
 ## Status
 
-All three phases are complete. 439 tests, 94% coverage.
+Phases 1–4 are complete and Phase 5 (capital, portfolio & IFRS 17 production) is
+substantially delivered. 1,500+ tests, coverage ≥ 90% enforced in CI, ADRs
+through ADR-098. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the milestone-level
+breakdown.
 
 | Module | Feature | Status |
 |---|---|---|
@@ -39,19 +44,29 @@ All three phases are complete. 439 tests, 94% coverage.
 | `products/` | Whole Life — par/non-par, limited pay, prospective reserves | ✅ |
 | `products/` | Universal Life — COI charges, account value roll-forward, forced lapse | ✅ |
 | `products/` | Disability / Critical Illness — DI multi-state, CI single-decrement | ✅ |
+| `products/` | Per-policy substandard rating — mortality multiplier + flat extra | ✅ |
+| `core/` | Reserve-basis matching — NET_PREMIUM, CRVM (Full Preliminary Term), VM-20 simplified, for Term + Whole Life | ✅ |
 | `reinsurance/` | YRT — NAR-based premiums, ceded claims | ✅ |
 | `reinsurance/` | Coinsurance — proportional split, reserve transfer | ✅ |
 | `reinsurance/` | Modco — cedant retains assets, modco interest | ✅ |
 | `reinsurance/` | Stop Loss — aggregate cover, attachment/exhaustion, pro-ration | ✅ |
 | `analytics/` | Profit Testing — IRR, PV profits, break-even, margin | ✅ |
-| `analytics/` | Scenario Analysis — 6 standard stress scenarios | ✅ |
+| `analytics/` | Premium Sufficiency — PV loss/expense/combined ratios, sufficiency verdict | ✅ |
+| `analytics/` | Scenario Analysis — 6 standard stress scenarios; reinsurer/cedant perspective | ✅ |
 | `analytics/` | Monte Carlo UQ — LogNormal/Normal sampling, VaR, CVaR | ✅ |
-| `analytics/` | IFRS 17 — BBA (BEL/RA/CSM), PAA (LRC/LIC), VFA | ✅ |
+| `analytics/` | IFRS 17 — BBA (BEL/RA/CSM), PAA (LRC/LIC), VFA; period-to-period **movement table** by annual cohort | ✅ |
 | `analytics/` | Stochastic Rates — Hull-White one-factor, CIR | ✅ |
 | `analytics/` | Experience Studies — A/E, limited-fluctuation credibility, blended rates | ✅ |
-| `api/` | REST API — FastAPI with full OpenAPI docs | ✅ |
-| `cli.py` | CLI — `polaris price / scenario / uq / validate / version`; `price --excel-out` for committee workbooks; `price --capital licat` for LICAT RoC (ADR-049) | ✅ |
-| `dashboard/` | Streamlit dashboard — pricing, scenarios, Monte Carlo | ✅ |
+| `analytics/` | Portfolio aggregation — multi-deal runner, concentration/HHI, calendar alignment, portfolio scenarios | ✅ |
+| `analytics/` | Regulatory capital — LICAT (C-1/C-2/C-3 + lapse/morbidity) → return-on-capital | ✅ |
+| `analytics/` | Regulatory capital — US NAIC Life RBC core + shared `CapitalModel` protocol | 🔄 in progress |
+| `analytics/` | Regulatory capital — Solvency II SCR | ⏳ planned |
+| `analytics/` | YRT rate schedule generator — flat + per-duration solve to a target IRR | ✅ |
+| `assumptions/` | ML-enhanced mortality & lapse (scikit-learn / XGBoost), same protocol as table-based | ✅ |
+| `utils/` | Cedant inforce data ingestion — YAML-driven mapping, data-quality report | ✅ |
+| `api/` | REST API — FastAPI with full OpenAPI docs (price, scenario, uq, ifrs17 bba/paa/movement, portfolio, ingest, rate-schedule) | ✅ |
+| `cli.py` | CLI — `price / scenario / uq / portfolio / rate-schedule / ingest / validate / version`; `price --excel-out` (committee workbook), `--reserve-basis {NET_PREMIUM,CRVM,VM20}`, `--capital licat` (RoC) | ✅ |
+| `dashboard/` | Streamlit dashboard — pricing, scenarios, Monte Carlo, portfolio | ✅ |
 
 ---
 
@@ -247,20 +262,22 @@ polaris-re/
 ├── docs/
 │   ├── QUICKSTART.md      ← Setup guide: local, Docker, Codespaces, API, tables, Excel export
 │   ├── ROADMAP.md         ← Phased feature plan with milestone checklists
-│   ├── DECISIONS.md       ← Architecture decision records (ADRs 001–046)
+│   ├── DECISIONS.md       ← Architecture decision records (ADRs 001–098)
 │   └── ACTUARIAL_GLOSSARY.md  ← Domain terminology reference
 ├── src/polaris_re/
-│   ├── core/              ← Policy, InforceBlock, ProjectionConfig, CashFlowResult
-│   ├── assumptions/       ← Mortality, improvement, lapse, morbidity
+│   ├── core/              ← Policy, InforceBlock, ProjectionConfig, CashFlowResult, ReserveBasis
+│   ├── assumptions/       ← Mortality, improvement, lapse, morbidity, ML mortality/lapse
 │   ├── products/          ← Term, Whole Life, UL, Disability/CI
 │   ├── reinsurance/       ← YRT, Coinsurance, Modco, Stop Loss
-│   ├── analytics/         ← Profit testing, scenarios, UQ, IFRS 17, stochastic rates,
-│   │                         experience studies
+│   ├── analytics/         ← Profit testing, premium sufficiency, scenarios, UQ, IFRS 17
+│   │                         (incl. movement table), stochastic rates, experience studies,
+│   │                         portfolio aggregation, regulatory capital (LICAT, RBC),
+│   │                         YRT rate schedule
 │   ├── api/               ← FastAPI application
 │   ├── dashboard/         ← Streamlit dashboard
-│   ├── utils/             ← Table loaders, interpolation, date utilities, Excel writer
+│   ├── utils/             ← Table loaders, interpolation, date utilities, Excel writer, ingestion
 │   └── cli.py             ← Typer CLI entry point
-├── tests/                 ← 726 tests, 94% coverage
+├── tests/                 ← 1,500+ tests, coverage ≥ 90% (CI-enforced)
 ├── notebooks/
 │   └── 01_term_life_yrt_pricing.ipynb  ← End-to-end validation notebook
 ├── scripts/
