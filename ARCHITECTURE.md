@@ -115,7 +115,7 @@ Reserves are required for coinsurance, modco, and profit testing. The reserve me
 
 **Term Life:** Net premium reserves with terminal condition V_T = 0 at policy expiry.
 
-**Whole Life:** Net premium reserves with prospective terminal estimate V_T = face * q_T * v. Backward recursion proceeds from this approximation. (Phase 3 will extend to true prospective reserves.) The **CRVM** basis (`reserve_basis=CRVM`, ADR-089) instead values the WL reserve *prospectively to omega* — independent of the projection horizon — so it grades monotonically toward the face amount and does not exhibit the horizon-edge collapse of the net-premium terminal estimate (the $7.18M→$56k golden-WL artefact). NET_PREMIUM keeps the historical terminal estimate unchanged.
+**Whole Life:** On the default `NET_PREMIUM` basis, net premium reserves with a prospective terminal estimate V_T = face * q_T * v; backward recursion proceeds from this approximation, which produces a horizon-edge decline (the $7.18M→$56k golden-WL artefact). The `CRVM` and `VM20` bases value the reserve to omega and close that artefact — see **Reserve Basis Selection** below.
 
 **Universal Life:** Reserve = account value (simplified). The AV roll-forward itself is the reserve.
 
@@ -127,6 +127,36 @@ All products use the standard reserve recursion:
 ```
 
 Where `i` is the valuation interest rate and `b_t` is the benefit paid at death.
+
+### Reserve Basis Selection (`ReserveBasis`)
+
+A reinsurer pricing an inforce block must reproduce the **cedant's** reserve, not
+just a single net-premium reserve, because the reserve drives the YRT Net Amount
+at Risk, the coinsurance reserve transfer, and the profit signature. The basis is
+a projection-wide selector — `core/reserve_basis.py::ReserveBasis` (a `StrEnum`:
+`NET_PREMIUM`, `CRVM`, `VM20`, `GAAP`) — set on `ProjectionConfig` (or via the
+`--reserve-basis` CLI flag / API field) and dispatched inside each product's
+`compute_reserves()`:
+
+- **`NET_PREMIUM`** (default) — the classic net level premium reserve; the
+  engine's historical behaviour, byte-identical to prior runs.
+- **`CRVM`** — Commissioners Reserve Valuation Method (US statutory), implemented
+  as **Full Preliminary Term**: a modified valuation that expenses the entire
+  first-year net premium, lowering the first-year reserve. For Whole Life the
+  CRVM reserve is valued **prospectively to omega** (max age), independent of the
+  projection horizon — so it grades monotonically toward the face amount and does
+  **not** show the horizon-edge collapse of the net-premium terminal estimate
+  (the $7.18M→$56k golden-WL artefact, ADR-089).
+- **`VM20`** — VM-20 simplified principle-based reserve (the deterministic-reserve
+  / net-premium-reserve floor of US PBR), for Term and Whole Life (ADR-090/091).
+- **`GAAP`** — recognised by the enum but not yet implemented.
+
+CRVM and VM-20 are implemented for `TermLife` and `WholeLife` (ADR-087–092).
+Each product declares the bases it supports; selecting an **unsupported** basis
+raises `PolarisComputationError` rather than silently falling back, so a run can
+never report a reserve on a basis the engine did not actually compute. A separate
+statutory valuation table (e.g. 2001 CSO) for *exact* cedant CRVM reproduction is
+a tracked follow-up — today CRVM/VM-20 value on the projection mortality table.
 
 ### Product-Specific Projection Details
 
@@ -264,6 +294,22 @@ Returns `UQResult` with:
 - `cvar(confidence)` — Conditional VaR (expected shortfall in the tail)
 - Base (unperturbed) scenario results for comparison
 
+### Premium Sufficiency
+`PremiumSufficiencyTester` (`analytics/premium_sufficiency.py`) answers "is the premium adequate?" independent of the reserve. It compares PV(premiums) against PV(benefits = claims + surrenders) + PV(expenses), **excluding the reserve movement** (a balance-sheet timing item, not an economic cost — this is what distinguishes it from the Profit Tester). Returns PV loss / expense / combined ratios, a `sufficiency_margin = 1 − combined_ratio`, and an `is_sufficient` verdict against a target margin. Basis-agnostic: GROSS = cedant premium adequacy, reinsurer-view NET = reinsurance premium adequacy.
+
+### IFRS 17 — Measurement and Movement
+`analytics/ifrs17.py` provides point-in-time measurement (BBA → BEL/RA/CSM; PAA → LRC/LIC; VFA) **and** the period-to-period analysis of change. `IFRS17CohortManager` groups contracts into annual issue-year cohorts, each measured BBA at its **own locked-in discount rate**, and rolls each forward `opening → new business → interest accretion → release → closing` for BEL, RA, and CSM. Each `IFRS17ComponentMovement` foots by construction (`opening + Σ movements − closing ≈ 0`); `cohort_movement_tables()` returns the per-cohort `IFRS17MovementTable`s (ordered by issue year) and `aggregate_movement_table()` their per-period sum.
+
+### Regulatory Capital and Return on Capital
+Capital models share a structural contract in `analytics/capital_base.py`: the `CapitalModel` protocol — `required_capital(cashflows, nar=None) -> CapitalSchedule` — and the `CapitalSchedule` protocol (`capital_by_period (T,)`, `initial_capital`, `peak_capital`, `pv_capital(rate)`, `capital_strain()`, `pv_capital_strain(rate)`). Two implementations satisfy it structurally (both `@runtime_checkable`):
+- **LICAT** (`capital.py`): `LICATCapital` → `CapitalResult`, with C-1 (asset default), C-2 (insurance = mortality + lapse + morbidity), and C-3 (interest) components on the `CashFlowResult`.
+- **US RBC** (`rbc.py`): `RBCCapital` → `RBCResult`, exposing `rbc_ratio(total_adjusted_capital)` (ADR-098). *(Solvency II SCR — `SolvencyIICapital` — is the planned Epic 3 sibling, not yet implemented.)*
+
+The Profit Tester's `run_with_capital(capital_model)` consumes any `CapitalModel`, returning return-on-capital, peak capital, PV capital (stock), and PV capital strain. The protocol seam is what lets the same RoC machinery serve every jurisdiction.
+
+### Portfolio Aggregation
+`analytics/portfolio.py::Portfolio` holds many `(InforceBlock, AssumptionSet, BaseTreaty)` deals and aggregates their `CashFlowResult`s into a `PortfolioResult` — aggregate NCF/IRR/PV, a per-deal breakdown, and concentration / HHI by cedant, product, and treaty type across three weight bases (ceded face, peak ceded NAR, PV premium). Calendar alignment places mixed-inception books on a common monthly grid; `run_scenarios()` applies the standard stress set across the whole portfolio. Each deal is projected on the reinsurer view by default.
+
 ---
 
 ## 8. Key Design Decisions
@@ -274,7 +320,9 @@ See `docs/DECISIONS.md` for full ADRs. Summary:
 |---|---|---|
 | ORM for policy data | Polars DataFrame + Pydantic | Performance over convenience |
 | Projection time step | Monthly | Industry standard for life insurance |
-| Reserve basis | Net premium (Term/WL), AV (UL), zero (DI/CI) | Simplest auditable basis per product; IFRS 17 in Phase 3 |
+| Reserve basis | Selectable `ReserveBasis` — NET_PREMIUM (default), CRVM, VM20 for Term/WL; AV (UL); zero (DI/CI) | Reproduce the cedant's statutory reserve; unsupported basis raises, never silently falls back |
+| Regulatory capital | `CapitalModel` / `CapitalSchedule` protocols; LICAT + US RBC implementations | One RoC machinery across jurisdictions; structural (runtime-checkable) seam, no inheritance |
+| IFRS 17 movement | Annual issue-year cohorts, locked-in rate per cohort, footing movement tables | Matches IASB analysis-of-change presentation; cohorts sum to the aggregate by construction |
 | Mortality table format | CSV with standard column schema | No binary dependencies; auditability |
 | Improvement scales | Embedded NumPy constants | Small data (< 15KB); no file I/O dependency |
 | UL forced lapse | Indicator combined with voluntary lapse | Handles AV→0 gracefully in vectorized framework |
