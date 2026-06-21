@@ -593,7 +593,7 @@ uv run polaris price --reserve-basis VM20 -o result_vm20.json
 
 `NET_PREMIUM` (default) is byte-identical to prior runs; `CRVM` and `VM20` are
 implemented for `TermLife` and `WholeLife`. Selecting a basis a product does not
-support raises a `PolarisValidationError` rather than silently returning the
+support raises a `PolarisComputationError` rather than silently returning the
 wrong reserve. The basis can also be set in the config `deal` block
 (`"reserve_basis": "CRVM"`); the `--reserve-basis` flag overrides it.
 
