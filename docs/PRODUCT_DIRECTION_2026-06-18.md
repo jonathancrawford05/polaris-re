@@ -551,10 +551,11 @@ Items harvested from completed/in-flight work by the daily-dev routine
   filing artefact a user actually consumes, and the only slice that may move
   goldens (and only for runs that request the table) → IMPORTANT.
   *Source: ADR-094 Out of scope + CONTINUATION_ifrs17_movement Slice 3 (1st-order).*
-  **PARTIALLY SHIPPED**: Slice 3a — `to_dict()` serialiser + `POST
+  **SHIPPED (all sub-slices)**: Slice 3a — `to_dict()` serialiser + `POST
   /api/v1/ifrs17/movement` — merged (PR #89, ADR-095). Slice 3b — the
-  "IFRS 17 Movement" Excel sheet — shipped this draft (ADR-096). The CLI surface
-  (3c) remains — see the item below.
+  "IFRS 17 Movement" Excel sheet — merged (PR #90, ADR-096). Slice 3c — the
+  `polaris price --ifrs17-movement` CLI surface — shipped this draft (ADR-097).
+  **Epic 2 (IFRS 17 movement table) is complete.**
 
 - ~~**IMPORTANT — IFRS 17 movement Excel sheet (Epic 2, Slice 3b).** Add an
   "IFRS 17 Movement" sheet to the deal-pricing workbook (`utils/excel_output.py`),
@@ -570,7 +571,7 @@ Items harvested from completed/in-flight work by the daily-dev routine
   default → goldens byte-identical (ADR-096). The CLI does not yet populate the
   field — that is Slice 3c (below).
 
-- **IMPORTANT — IFRS 17 movement CLI surface (Epic 2, Slice 3c).** A
+- ~~**IMPORTANT — IFRS 17 movement CLI surface (Epic 2, Slice 3c).** A
   `polaris price` opt-in flag or a dedicated `polaris ifrs17` subcommand emitting
   the movement table (JSON / Rich), reusing the Slice-3a serialiser. Completes the
   surfacing epic so the disclosure is reachable from every entry point → IMPORTANT.
@@ -578,7 +579,47 @@ Items harvested from completed/in-flight work by the daily-dev routine
   (the Slice-3b field) so the Excel "IFRS 17 Movement" sheet appears on the same
   run — building the `IFRS17CohortManager` from the priced block (issue-year
   grouping + per-year locked-in rates) is the shared input for both surfaces.
-  *Source: ADR-095/096 Out of scope + CONTINUATION_ifrs17_movement Slice 3c (1st-order).*
+  *Source: ADR-095/096 Out of scope + CONTINUATION_ifrs17_movement Slice 3c (1st-order).*~~
+  — **SHIPPED** (this draft, Slice 3c): `polaris price --ifrs17-movement` (with
+  `--ifrs17-ra-factor` / `--ifrs17-months-per-period`) builds the movement table
+  **per product cohort** (issue-year grouping, locked-in = config discount rate),
+  adds it to the JSON output (REST-mirroring shape), renders two Rich tables, and
+  with `--excel-out` populates `DealPricingExport.ifrs17_movement` so the
+  Slice-3b sheet appears on the same run. Off by default → goldens byte-identical
+  (ADR-097). **This completes Epic 2 (IFRS 17 movement table).**
+
+- **NICE-TO-HAVE — Per-issue-year locked-in-rate override on the CLI.** Epic 2
+  Slice 3c (`polaris price --ifrs17-movement`, ADR-097) applies a single
+  locked-in rate (`config.discount_rate`) to every issue-year cohort. The REST
+  API already accepts a `locked_in_rates` (issue-year → rate) map; the CLI should
+  offer the same, e.g. a `--ifrs17-locked-in-rates` JSON-file flag, so a filer can
+  reproduce each cohort's issue-era rate. Affects multi-vintage books wanting
+  rate-accurate CSM accretion; the common single-rate path already works →
+  NICE-TO-HAVE.
+  *Source: ADR-097 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — Dedicated `polaris ifrs17` movement-only subcommand.** Slice 3c
+  surfaced the movement table as an opt-in flag on `polaris price` (ADR-097); a
+  standalone `polaris ifrs17` subcommand that emits only the movement table
+  (no pricing) would let a filer produce the disclosure without running a full
+  deal-pricing pipeline. The flag route already makes the disclosure reachable →
+  NICE-TO-HAVE.
+  *Source: ADR-097 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — Dashboard IFRS 17 movement view.** The movement table is now
+  reachable on the REST API (3a), Excel (3b) and CLI (3c). The Streamlit
+  dashboard has no movement view yet. Additive surface — the filing artefacts
+  (Excel / JSON) already exist → NICE-TO-HAVE.
+  *Source: ADR-097 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — Block-wide (cross-product) IFRS 17 movement on a common
+  calendar grid.** Slice 3c builds the movement table **per product cohort**
+  because TERM and WHOLE_LIFE project on different grids, so a block-wide
+  aggregate fails the cohort manager's alignment check. A cross-product aggregate
+  needs a common calendar grid (the same heterogeneous-term alignment the existing
+  "Heterogeneous-term IFRS 17 cohort calendar alignment" follow-up describes) →
+  NICE-TO-HAVE.
+  *Source: ADR-097 Out of scope (2nd-order — depends on heterogeneous-term alignment).*
 
 - **NICE-TO-HAVE — Mid-life in-force IFRS 17 movement opening.** The shipped
   movement table is a from-recognition roll-forward: the cohort's first reporting

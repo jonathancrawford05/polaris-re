@@ -8,8 +8,9 @@
 > `docs/CONTINUATION_ifrs17_movement.md`, the per-session
 > `docs/DEV_SESSION_LOG_*` files, and the ADRs.
 >
-> **Status.** IN PROGRESS — Slice 1 shipped (`IFRS17CohortManager` + cohort
-> grouping by issue year with per-cohort locked-in rate).
+> **Status.** COMPLETE — all slices shipped (Slice 1 #87, Slice 2 #88,
+> Slice 3a #89, Slice 3b #90, Slice 3c this draft / ADR-097). The movement table
+> is reachable on the REST API, Excel, and the `polaris price` CLI.
 >
 > **Source.** `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` Tier-A item
 > **A2** (★★★★★ value, ~10 dev-days, the #2 unstarted epic, started after A1
@@ -122,10 +123,13 @@ byte-identical for 3a, may move only for 3b/3c runs that request the table).
   BEL / RA / CSM / total as a Year x movement-line sub-table that foots. Sheet
   appended last; suppressed (default `None`) → goldens byte-identical. ADR-096.
 
-#### Slice 3c — CLI surface
-- CLI: a movement summary on `polaris price` (opt-in flag) or a dedicated
-  `polaris ifrs17` subcommand — decide in the slice. Document any regenerated
-  baselines with the reason.
+#### Slice 3c — CLI surface  ✅ SHIPPED
+- CLI: `polaris price --ifrs17-movement` (opt-in flag; `--ifrs17-ra-factor`,
+  `--ifrs17-months-per-period`) builds the movement table **per product cohort**,
+  adds it to the JSON output (REST-mirroring shape), renders two Rich tables, and
+  with `--excel-out` populates `DealPricingExport.ifrs17_movement` so the 3b sheet
+  appears on the same run. Off by default → goldens byte-identical, no rebaseline.
+  ADR-097.
 
 ## 4. Key constraints (from CLAUDE.md / ARCHITECTURE.md)
 
