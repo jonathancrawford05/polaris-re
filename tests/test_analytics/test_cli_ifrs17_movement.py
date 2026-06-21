@@ -16,6 +16,7 @@ golden-baseline guarantee). The JSON shape mirrors the REST
 import json
 from pathlib import Path
 
+import pytest
 from openpyxl import load_workbook
 from typer.testing import CliRunner
 
@@ -130,7 +131,7 @@ class TestCLIIFRS17MovementJSON:
         payload = _run(GOLDEN_CSV, GOLDEN_CONFIG, tmp_path, "--ifrs17-movement")
         for cohort in payload["cohorts"]:
             for table in cohort["ifrs17_movement"]["cohorts"]:
-                assert table["locked_in_rate"] == GOLDEN_DISCOUNT_RATE
+                assert table["locked_in_rate"] == pytest.approx(GOLDEN_DISCOUNT_RATE)
 
     def test_rows_carry_all_components(self, tmp_path: Path) -> None:
         payload = _run(GOLDEN_CSV, GOLDEN_CONFIG, tmp_path, "--ifrs17-movement")
