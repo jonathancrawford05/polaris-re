@@ -244,77 +244,96 @@ and CFO, not just the pricing actuary.
 
 ---
 
-### Milestone 5.1 — Regulatory Capital Module (LICAT)
+### Milestone 5.1 — Regulatory Capital Module (LICAT) ✅ COMPLETE
 
 Reinsurer deal evaluation is fundamentally return-on-capital (RoC), not just
 IRR vs hurdle rate. Without a capital model, the profit tester gives an
-incomplete picture. LICAT is the Canadian standard; equivalent modules for
-RBC (US) and Solvency II (EU) follow the same pattern.
+incomplete picture. LICAT is the Canadian standard; the equivalent RBC (US)
+and Solvency II (EU) modules are tracked under Milestone 5.7.
 
-- [ ] `analytics/capital.py` — `LICATCapital` class:
+- [x] `analytics/capital.py` — `LICATCapital` class:
       - C-1 (asset default risk), C-2 (insurance risk), C-3 (interest rate
         risk) component calculations on `CashFlowResult`
       - `required_capital(cashflows, treaty)` → scalar capital amount
       - `return_on_capital(profit_result, capital)` → RoC metric
-- [ ] `ProfitTester` extended: `run_with_capital(capital_model)` returns
+- [x] `ProfitTester` extended: `run_with_capital(capital_model)` returns
       `ProfitResultWithCapital` including RoC and capital-adjusted IRR
-- [ ] `polaris price --capital licat` — CLI flag to include capital metrics
-- [ ] `api/main.py` — `capital_model` optional field in `PriceRequest`;
+- [x] `polaris price --capital licat` — CLI flag to include capital metrics
+- [x] `api/main.py` — `capital_model` optional field in `PriceRequest`;
       `return_on_capital` in `PriceResponse`
-- [ ] Tests: C-2 insurance risk factor verification vs OSFI published factors;
+- [x] Tests: C-2 insurance risk factor verification vs OSFI published factors;
       RoC formula closed-form check; 20+ tests
-- [ ] `docs/DECISIONS.md` — ADR-036: LICAT scope and simplifying assumptions
+- [x] `docs/DECISIONS.md` — ADR-047/048/049 (LICAT core, RoC, surfacing);
+      ADR-065 (lapse + morbidity risk components); ADR-072 (C-1 / C-3 interim
+      factors). (Supersedes the original ADR-036 placeholder.)
 
 ---
 
-### Milestone 5.2 — Portfolio Aggregation
+### Milestone 5.2 — Portfolio Aggregation ✅ COMPLETE
 
 A reinsurer never prices a single treaty. Portfolio-level risk metrics require
 aggregation across multiple independent projection runs.
 
-- [ ] `analytics/portfolio.py` — `Portfolio` class:
+- [x] `analytics/portfolio.py` — `Portfolio` class:
       - Holds a list of `(InforceBlock, AssumptionSet, BaseTreaty)` tuples
       - `run()` → `PortfolioResult` aggregating `CashFlowResult` across all
         deals into aggregate NCF, total ceded NAR, total ceded face
       - `add_deal(inforce, assumptions, treaty, deal_id)` builder pattern
-- [ ] `PortfolioResult`: total IRR, total PV profits, deal-level breakdown
+- [x] `PortfolioResult`: total IRR, total PV profits, deal-level breakdown
       table, concentration by cedant / product type / treaty type
-- [ ] `polaris portfolio run --config deals.yaml` — YAML-driven multi-deal
+- [x] `polaris portfolio run --config deals.yaml` — YAML-driven multi-deal
       runner; `polaris portfolio report` — Rich summary table
-- [ ] `api/main.py` — `POST /api/v1/portfolio` endpoint accepting a list
+- [x] `api/main.py` — `POST /api/v1/portfolio` endpoint accepting a list
       of deal configs
-- [ ] Tests: two-deal additivity (aggregate NCF = sum of individual NCFs);
+- [x] Tests: two-deal additivity (aggregate NCF = sum of individual NCFs);
       concentration metrics; 15+ tests
+- [x] Extensions shipped beyond the original scope: aggregate `CashFlowResult`
+      and RoC (ADR-059/060); calendar-aligned aggregation (ADR-061/062);
+      portfolio scenarios (ADR-064) + CLI/API (ADR-066); weighted concentration
+      bases + dimension-outer views (ADR-069/070/073); Streamlit portfolio page.
+      *Core: ADR-057/058.*
 
 ---
 
-### Milestone 5.3 — IFRS 17 Multi-Cohort & Period Reconciliation
+### Milestone 5.3 — IFRS 17 Multi-Cohort & Period Reconciliation ✅ COMPLETE
 
 IFRS 17 filers need period-to-period movement tables, not just point-in-time
 BEL/CSM. The current model is one-shot; production requires annual cohort
-tracking and opening/closing reconciliation.
+tracking and opening/closing reconciliation. *Delivered as Epic 2 (PRs
+#87–#91) under the epic-driven routine.*
 
-- [ ] `analytics/ifrs17.py` — `IFRS17CohortManager`:
+- [x] `analytics/ifrs17.py` — `IFRS17CohortManager`:
       - Groups contracts into annual issue-year cohorts
       - Tracks locked-in discount rate per cohort for CSM accretion
       - Produces period-to-period movement table:
         Opening BEL → experience adjustments → unwinding → closing BEL
         Opening CSM → accretion → release → closing CSM
         Opening RA → release → closing RA
-- [ ] `IFRS17MovementTable` dataclass: structured output matching IASB
+- [x] `IFRS17MovementTable` dataclass: structured output matching IASB
       presentation requirements
-- [ ] `api/main.py` — `POST /api/v1/ifrs17/movement` endpoint
-- [ ] Tests: opening + movements = closing for all components; CSM exhaustion
+- [x] `api/main.py` — `POST /api/v1/ifrs17/movement` endpoint
+- [x] Tests: opening + movements = closing for all components; CSM exhaustion
       at contract expiry; locked-in rate preserved across periods; 25+ tests
-- [ ] `docs/DECISIONS.md` — ADR-037: cohort grouping criteria
+- [x] Surfaced on the REST API, deal-pricing Excel workbook, and `polaris price`
+      CLI (ADR-095/096/097)
+- [x] `docs/DECISIONS.md` — ADR-093 (cohorts + locked-in rate), ADR-094
+      (analysis-of-change movement table). (Supersedes the ADR-037 placeholder.)
+      Residual refinements (PAA/VFA cohorts, onerous sub-grouping, heterogeneous-
+      term calendar alignment, dashboard view) harvested to
+      `PRODUCT_DIRECTION_2026-06-18`.
 
 ---
 
-### Milestone 5.4 — Asset / ALM Model
+### Milestone 5.4 — Asset / ALM Model ⏳ DEFERRED
 
 Modco profitability depends on investment returns on ceded reserves. Without
 an asset model, Modco pricing is incomplete. Also required for any meaningful
 duration-matching or embedded value calculation.
+
+> **Scheduled after the cross-jurisdiction capital epic (5.7).** Modco prices
+> on a fixed credited rate today, so the engine is usable without this; it is
+> a high-value but lower-priority big rock per
+> `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` (Tier C / C0).
 
 - [ ] `core/asset.py` — `AssetPortfolio` class:
       - Bond cash flow model: coupon + principal on a vector of fixed-income
@@ -333,10 +352,52 @@ duration-matching or embedded value calculation.
 
 ### Milestone 5.5 — Phase 5 Quality Gate
 
-- [ ] Coverage ≥ 90% maintained
-- [ ] All modules pass Ruff + mypy strict
+- [x] Coverage ≥ 90% maintained
+- [x] All modules pass Ruff + mypy strict
 - [ ] `docs/QUICKSTART.md` updated with portfolio runner and capital examples
-- [ ] All new ADRs documented
+- [x] All new ADRs documented (through ADR-098)
+
+---
+
+### Milestone 5.6 — Reserve-Basis Matching ✅ COMPLETE
+
+Reinsurers must reproduce the cedant's stated reserves, not just a single
+net-premium basis, for a consistent profit-test. *Delivered as Epic 1 (PRs
+#81–#86) under the epic-driven routine; promoted from the IMPORTANT queue in
+`PRODUCT_DIRECTION_2026-06-18`.*
+
+- [x] `core/reserve_basis.py` — `ReserveBasis` enum (NET_PREMIUM / CRVM / VM20)
+      + per-product dispatch guard (raises rather than returning a wrong reserve)
+- [x] CRVM via Full Preliminary Term for `TermLife` and `WholeLife`
+      (prospective-to-omega for WL) — closes the WL terminal-reserve artefact
+      under CRVM/VM-20
+- [x] VM-20 simplified (deterministic reserve) for `TermLife` and `WholeLife`
+- [x] Basis selector surfaced on CLI / API / Excel / validation notebook
+- [x] Tests: closed-form CRVM/VM-20 verification; dispatch-guard coverage
+- [x] `docs/DECISIONS.md` — ADR-087 through ADR-092
+- [ ] **Open (harvested to `PRODUCT_DIRECTION_2026-06-18`, IMPORTANT):** value
+      CRVM on the distinct statutory table (2001 CSO) for *exact* cedant
+      reproduction; close the artefact on the default NET_PREMIUM basis; extend
+      bases to UL and DI (currently Term + WL only).
+
+---
+
+### Milestone 5.7 — Cross-Jurisdiction Capital (US RBC + Solvency II) 🔄 IN PROGRESS
+
+LICAT (5.1) is the Canadian standard only. A reinsurer cannot evaluate a US or
+EU deal on a return-on-capital basis without the equivalent RBC (US) and
+Solvency II SCR (EU) modules — a market-access gate. *Epic 3 under the
+epic-driven routine; plan in `docs/PLAN_cross_jurisdiction_capital.md`.*
+
+- [x] Slice 1 — US NAIC Life RBC core module + shared `CapitalModel` protocol
+      (PR #92, ADR-098)
+- [ ] Slice 2 — RBC ↔ `ProfitTester` integration + RBC ratio (`run_with_capital`
+      signature widening)
+- [ ] Slice 3 — Solvency II SCR module (different aggregation: correlation
+      matrix across risk modules)
+- [ ] Slice 4 — surface the jurisdiction selector on CLI / API / Excel
+- [ ] Tests: RBC factor verification vs NAIC tables; SCR correlation aggregation;
+      RoC parity across jurisdictions
 
 ---
 
