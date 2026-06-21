@@ -4,8 +4,9 @@
 (also PRODUCT_DIRECTION_2026-06-18 IMPORTANT "IFRS 17 period-to-period movement
 table"; ROADMAP Milestone 5.3).
 **Plan:** docs/PLAN_ifrs17_movement.md
-**Status:** IN PROGRESS
-**Total slices:** 3
+**Status:** COMPLETE (Slice 1 #87, Slice 2 #88, Slice 3a #89, Slice 3b #90,
+Slice 3c shipped this draft)
+**Total slices:** 3 (Slice 3 sub-sliced 3a/3b/3c)
 **Estimated total scope:** ~10 dev-days
 
 ## Overall Goal
@@ -119,13 +120,29 @@ request the table.
     for the `polaris price` path.
 
 #### Slice 3c: CLI surface
-- **Status:** NEXT
-- **Depends on:** Slice 3b merged
-- **Scope:** a `polaris price` opt-in flag or a dedicated `polaris ifrs17`
-  subcommand emitting the movement table (JSON / Rich), reusing the 3a serialiser.
-  When wiring `polaris price`, also populate `DealPricingExport.ifrs17_movement`
-  (Slice 3b's field) so the Excel sheet appears on the same run. May move goldens
-  only for runs that request the movement table.
+- **Status:** DONE
+- **Branch:** claude/awesome-bardeen-p8n0cn (environment-designated)
+- **PR:** (this session's draft)
+- **What was done:** Added `polaris price --ifrs17-movement` (with
+  `--ifrs17-ra-factor` default 0.05 and `--ifrs17-months-per-period` default 12).
+  When set, the movement table is built **per product cohort** (`iter_cohorts`):
+  each cohort's policies are re-grouped into annual issue-year cohorts, each
+  issue-year sub-block is projected GROSS via the product dispatcher, and the
+  groups feed `IFRS17CohortManager`. The result is added to the JSON output in the
+  REST-mirroring shape (`{months_per_period, n_cohorts, max_footing_error,
+  aggregate, cohorts}`, reusing the 3a `to_dict()`), per cohort and (single-cohort
+  case) at the top level; rendered as two compact Rich tables; and — with
+  `--excel-out` — populates `DealPricingExport.ifrs17_movement` so the Slice-3b
+  sheet appears on the same run. Off by default → goldens byte-identical. ADR-097.
+- **Key decisions:**
+  - **Per-product-cohort, not block-wide.** TERM and WHOLE_LIFE project on
+    different grids, so a block-wide aggregate fails the cohort manager's
+    alignment check. Per-product also matches the per-cohort Excel workbook model
+    (ADR-068). A cross-product common-grid aggregate is a promoted follow-up.
+  - **Locked-in rate = `config.discount_rate`** for every cohort; a per-issue-year
+    override (the REST API's `locked_in_rates` map) is a promoted CLI follow-up.
+  - Chose the `price` opt-in flag over a dedicated subcommand because `price`
+    owns `--excel-out`, so one run surfaces JSON + Rich + the Excel sheet.
 
 ## Context for Next Session
 

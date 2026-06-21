@@ -47,7 +47,7 @@ from polaris_re.core.inforce import InforceBlock
 if TYPE_CHECKING:
     from polaris_re.analytics.scenario import ScenarioAdjustment
     from polaris_re.assumptions.lapse import LapseAssumption
-    from polaris_re.utils.excel_output import DealPricingExport
+    from polaris_re.utils.excel_output import DealPricingExport, IFRS17MovementExport
 from polaris_re.core.pipeline import (
     DealConfig,
     LapseConfig,
@@ -62,7 +62,7 @@ from polaris_re.core.pipeline import (
     iter_cohorts,
     load_inforce,
 )
-from polaris_re.core.policy import ProductType
+from polaris_re.core.policy import Policy, ProductType
 from polaris_re.core.projection import ProjectionConfig
 
 __all__ = ["app"]
@@ -806,6 +806,7 @@ def _cohort_to_deal_pricing_export(
     sufficiency: tuple[PremiumSufficiencyResult, PremiumSufficiencyResult | None],
     yrt_rate_table: object | None = None,
     rated_block: object | None = None,
+    ifrs17_movement: "IFRS17MovementExport | None" = None,
 ) -> "DealPricingExport":
     """Translate a priced cohort into a DealPricingExport bundle.
 
@@ -815,7 +816,8 @@ def _cohort_to_deal_pricing_export(
     the writer renders the ``YRT Rate Table`` sheet (ADR-052). When
     ``rated_block`` is supplied, it is embedded on the export so the
     writer appends the rated-block panel to the Assumptions sheet
-    (ADR-068).
+    (ADR-068). When ``ifrs17_movement`` is supplied, it is embedded on the
+    export so the writer appends the ``IFRS 17 Movement`` sheet (ADR-096).
     """
     from polaris_re.utils.excel_output import (
         AssumptionsMetaExport,
@@ -864,6 +866,157 @@ def _cohort_to_deal_pricing_export(
         rated_block=rated_block,  # type: ignore[arg-type]
         premium_sufficiency_cedant=suff_cedant,
         premium_sufficiency_reinsurer=suff_reinsurer,
+        ifrs17_movement=ifrs17_movement,  # type: ignore[arg-type]
+    )
+
+
+def _build_ifrs17_movement_export(
+    cohort_inforce: InforceBlock,
+    assumptions: AssumptionSet,
+    config: ProjectionConfig,
+    *,
+    ra_factor: float,
+    months_per_period: int,
+) -> "IFRS17MovementExport":
+    """Build the IFRS 17 analysis-of-change (movement) table for one product cohort.
+
+    Mirrors the reference consumer (``POST /api/v1/ifrs17/movement``, ADR-095):
+    the cohort's policies are grouped into annual issue-year cohorts, each
+    issue-year group is projected GROSS on the shared calendar grid, and the
+    groups are fed to :class:`IFRS17CohortManager`, which measures each cohort
+    BBA at its locked-in rate and rolls it forward into an opening → closing
+    movement table per component (BEL / RA / CSM).
+
+    The locked-in discount rate is ``config.discount_rate`` for every cohort
+    (a per-issue-year locked-in-rate override — already accepted by the REST
+    API — is a promoted CLI follow-up). All issue-year sub-blocks of one product
+    share the same projection grid, so the cohort aggregate is calendar-consistent
+    (the manager raises ``PolarisValidationError`` otherwise).
+
+    Args:
+        cohort_inforce: A single-product InforceBlock (one cohort from
+            ``iter_cohorts``); its policies span one or more issue years.
+        assumptions: Shared AssumptionSet.
+        config: Shared ProjectionConfig; ``discount_rate`` is the locked-in rate.
+        ra_factor: Risk Adjustment as a fraction of |BEL|.
+        months_per_period: Months aggregated into each reporting period.
+
+    Returns:
+        An ``IFRS17MovementExport`` bundling the aggregate and per-cohort
+        movement tables, ready for the JSON, Rich, and Excel surfaces.
+    """
+    from polaris_re.analytics.ifrs17 import IFRS17CohortManager, IFRS17ContractInput
+    from polaris_re.products.dispatch import get_product_engine
+    from polaris_re.utils.excel_output import IFRS17MovementExport
+
+    by_year: dict[int, list[Policy]] = {}
+    for policy in cohort_inforce.policies:
+        by_year.setdefault(policy.issue_date.year, []).append(policy)
+
+    locked_in_rate = config.discount_rate
+    contracts: list[IFRS17ContractInput] = []
+    for issue_year in sorted(by_year):
+        members = by_year[issue_year]
+        sub_block = InforceBlock(policies=members, block_id=cohort_inforce.block_id)
+        gross = get_product_engine(
+            inforce=sub_block, assumptions=assumptions, config=config
+        ).project()
+        contracts.append(
+            IFRS17ContractInput(
+                cashflows=gross,
+                issue_date=members[0].issue_date,
+                locked_in_rate=locked_in_rate,
+                ra_factor=ra_factor,
+            )
+        )
+
+    manager = IFRS17CohortManager(contracts)
+    return IFRS17MovementExport(
+        aggregate=manager.aggregate_movement_table(months_per_period=months_per_period),
+        cohorts=manager.cohort_movement_tables(months_per_period=months_per_period),
+    )
+
+
+def _ifrs17_movement_max_footing_error(export: "IFRS17MovementExport") -> float:
+    """Worst footing residual across the aggregate and every per-cohort table."""
+    return max(
+        [
+            export.aggregate.max_footing_error(),
+            *(table.max_footing_error() for table in export.cohorts),
+        ]
+    )
+
+
+def _ifrs17_movement_to_dict(
+    export: "IFRS17MovementExport", months_per_period: int
+) -> dict[str, object]:
+    """Serialise an ``IFRS17MovementExport`` for the CLI JSON output.
+
+    Mirrors the REST ``IFRS17MovementResponse`` shape (ADR-095) so the CLI and
+    API JSON agree: reporting-period width, cohort count, the worst footing
+    residual across the whole bundle, and the aggregate + per-cohort serialised
+    movement tables (each table foots by construction).
+    """
+    return {
+        "months_per_period": months_per_period,
+        "n_cohorts": len(export.cohorts),
+        "max_footing_error": _ifrs17_movement_max_footing_error(export),
+        "aggregate": export.aggregate.to_dict(),
+        "cohorts": [table.to_dict() for table in export.cohorts],
+    }
+
+
+def _render_ifrs17_movement(export: "IFRS17MovementExport", product_type: str) -> None:
+    """Render the IFRS 17 movement table (aggregate) as two compact Rich tables.
+
+    The first reconciles the total insurance liability (opening → closing) per
+    reporting period; the second shows the closing balances by component
+    (BEL / RA / CSM / total). Full per-component, per-cohort detail is in the
+    JSON (``-o``) and Excel (``--excel-out``) surfaces.
+    """
+    aggregate = export.aggregate
+
+    recon = Table(
+        title=f"IFRS 17 Movement — Total Insurance Liability ({product_type})",
+        border_style="cyan",
+    )
+    recon.add_column("Period", justify="right")
+    for col in ("Opening", "New Business", "Interest", "Release", "Closing"):
+        recon.add_column(col, justify="right")
+    for row in aggregate.rows:
+        total = row.total
+        recon.add_row(
+            str(row.period + 1),
+            f"${total.opening:,.0f}",
+            f"${total.new_business:,.0f}",
+            f"${total.interest_accretion:,.0f}",
+            f"${total.release:,.0f}",
+            f"${total.closing:,.0f}",
+        )
+    console.print(recon)
+
+    components = Table(
+        title=f"IFRS 17 Closing Balances by Component ({product_type})",
+        border_style="cyan",
+    )
+    components.add_column("Period", justify="right")
+    for col in ("BEL", "RA", "CSM", "Total"):
+        components.add_column(col, justify="right")
+    for row in aggregate.rows:
+        components.add_row(
+            str(row.period + 1),
+            f"${row.bel.closing:,.0f}",
+            f"${row.ra.closing:,.0f}",
+            f"${row.csm.closing:,.0f}",
+            f"${row.total.closing:,.0f}",
+        )
+    console.print(components)
+
+    console.print(
+        f"[dim]IFRS 17 cohorts: {len(export.cohorts)} (annual issue-year) · "
+        f"reporting period: {aggregate.months_per_period} months · "
+        f"max footing error: {_ifrs17_movement_max_footing_error(export):.2e}. "
+        f"Per-cohort detail in JSON / Excel.[/dim]"
     )
 
 
@@ -1143,6 +1296,43 @@ def price_cmd(
             ),
         ),
     ] = None,
+    ifrs17_movement: Annotated[
+        bool,
+        typer.Option(
+            "--ifrs17-movement/--no-ifrs17-movement",
+            help=(
+                "Emit the IFRS 17 analysis-of-change (movement) table per "
+                "product cohort (IFRS 17 epic, ADR-093..096). Policies are "
+                "grouped into annual issue-year cohorts, each measured BBA at "
+                "the config discount rate (locked-in) and rolled forward "
+                "opening → new business → interest accretion → release → "
+                "closing for BEL / RA / CSM. Added to the JSON output and, with "
+                "--excel-out, the 'IFRS 17 Movement' workbook sheet. Off by "
+                "default — runs without it are byte-identical to prior output."
+            ),
+        ),
+    ] = False,
+    ifrs17_ra_factor: Annotated[
+        float,
+        typer.Option(
+            "--ifrs17-ra-factor",
+            help=(
+                "Risk Adjustment as a fraction of |BEL| for the IFRS 17 "
+                "movement table (simplified cost-of-capital RA), in [0, 0.50]. "
+                "Used only with --ifrs17-movement. Default 0.05."
+            ),
+        ),
+    ] = 0.05,
+    ifrs17_months_per_period: Annotated[
+        int,
+        typer.Option(
+            "--ifrs17-months-per-period",
+            help=(
+                "Months aggregated into each IFRS 17 reporting period "
+                "(12 = annual). Used only with --ifrs17-movement. Default 12."
+            ),
+        ),
+    ] = 12,
 ) -> None:
     """
     [bold]Run a deal pricing pipeline.[/bold]
@@ -1271,6 +1461,19 @@ def price_cmd(
             f"--sufficiency-target-margin must be in [0, 1), got {sufficiency_target_margin}."
         )
 
+    # Fail fast on out-of-range IFRS 17 movement parameters (ADR-096) before
+    # any projection work, mirroring the REST contract (ra_factor in [0, 0.50],
+    # months_per_period >= 1).
+    if ifrs17_movement:
+        if not 0.0 <= ifrs17_ra_factor <= 0.50:
+            raise typer.BadParameter(
+                f"--ifrs17-ra-factor must be in [0, 0.50], got {ifrs17_ra_factor}."
+            )
+        if ifrs17_months_per_period < 1:
+            raise typer.BadParameter(
+                f"--ifrs17-months-per-period must be >= 1, got {ifrs17_months_per_period}."
+            )
+
     cohort_results: list[CohortResult] = []
     with Progress(
         SpinnerColumn(),
@@ -1308,6 +1511,24 @@ def price_cmd(
         for c in cohort_results
     }
 
+    # IFRS 17 movement table per product cohort (ADR-093..096), opt-in via
+    # --ifrs17-movement. Each cohort's policies are re-grouped into annual
+    # issue-year cohorts and rolled forward; the result feeds the Rich, JSON,
+    # and (with --excel-out) Excel surfaces. Keyed by id(cohort) so it joins
+    # the cohort_results / sufficiency dicts.
+    ifrs17_by_cohort: dict[int, IFRS17MovementExport] = {}
+    if ifrs17_movement:
+        for (_product_type, cohort_inforce), cohort in zip(
+            cohorts_split, cohort_results, strict=True
+        ):
+            ifrs17_by_cohort[id(cohort)] = _build_ifrs17_movement_export(
+                cohort_inforce,
+                assumptions,
+                config,
+                ra_factor=ifrs17_ra_factor,
+                months_per_period=ifrs17_months_per_period,
+            )
+
     # Render per-cohort tables
     for cohort in cohort_results:
         if n_cohorts > 1:
@@ -1322,6 +1543,8 @@ def price_cmd(
             )
         _render_cohort_pricing_tables(cohort)
         _render_cohort_sufficiency_tables(cohort, sufficiency_by_cohort[id(cohort)])
+        if ifrs17_movement:
+            _render_ifrs17_movement(ifrs17_by_cohort[id(cohort)], cohort.product_type)
 
     # Build JSON output. Always includes a "cohorts" list; for the common
     # single-cohort case, mirror the cohort's cedant/reinsurer dicts at the
@@ -1335,21 +1558,24 @@ def price_cmd(
             _profit_test_to_dict(c.reinsurer_result) if c.reinsurer_result is not None else None
         )
         suff_cedant, suff_reinsurer = sufficiency_by_cohort[id(c)]
-        cohorts_out.append(
-            {
-                "product_type": c.product_type,
-                "n_policies": c.n_policies,
-                "face_amount": c.face_amount,
-                "cedant": cedant_dict,
-                "reinsurer": reinsurer_dict,
-                "premium_sufficiency": {
-                    "cedant": _sufficiency_to_dict(suff_cedant),
-                    "reinsurer": (
-                        _sufficiency_to_dict(suff_reinsurer) if suff_reinsurer is not None else None
-                    ),
-                },
-            }
-        )
+        cohort_entry: dict[str, object] = {
+            "product_type": c.product_type,
+            "n_policies": c.n_policies,
+            "face_amount": c.face_amount,
+            "cedant": cedant_dict,
+            "reinsurer": reinsurer_dict,
+            "premium_sufficiency": {
+                "cedant": _sufficiency_to_dict(suff_cedant),
+                "reinsurer": (
+                    _sufficiency_to_dict(suff_reinsurer) if suff_reinsurer is not None else None
+                ),
+            },
+        }
+        if ifrs17_movement:
+            cohort_entry["ifrs17_movement"] = _ifrs17_movement_to_dict(
+                ifrs17_by_cohort[id(c)], ifrs17_months_per_period
+            )
+        cohorts_out.append(cohort_entry)
         total_cedant_pv += c.cedant_result.pv_profits
         if c.reinsurer_result is not None:
             total_reinsurer_pv += c.reinsurer_result.pv_profits
@@ -1383,6 +1609,10 @@ def price_cmd(
                 _sufficiency_to_dict(suff_reinsurer) if suff_reinsurer is not None else None
             ),
         }
+        if ifrs17_movement:
+            output_data["ifrs17_movement"] = _ifrs17_movement_to_dict(
+                ifrs17_by_cohort[id(first)], ifrs17_months_per_period
+            )
 
     if n_cohorts > 1:
         summary_table = Table(title="Mixed-Cohort Summary", border_style="magenta")
@@ -1434,6 +1664,7 @@ def price_cmd(
                 sufficiency=sufficiency_by_cohort[id(cohort)],
                 yrt_rate_table=yrt_rate_table_obj,
                 rated_block=rated_block_export,
+                ifrs17_movement=(ifrs17_by_cohort.get(id(cohort)) if ifrs17_movement else None),
             )
             out_path = _resolve_excel_path(excel_out, cohort.product_type, n_cohorts)
             write_deal_pricing_excel(export, out_path)

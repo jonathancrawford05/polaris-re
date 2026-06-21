@@ -6051,3 +6051,75 @@ locked-in rates — for the `polaris price` path). The dashboard movement view.
 Carried forward from ADR-094/095: the mid-life in-force opening variant; an
 explicit RA finance line; movement tables for PAA / VFA; issue-era rate-curve
 locked-in rates.
+
+## ADR-097: Surface the IFRS 17 movement table on the `polaris price` CLI (Epic 2, Slice 3c)
+
+**Date:** 2026-06-21
+**Status:** Accepted
+
+**Context.** ADR-093/094 built the IFRS 17 cohort layer and the
+analysis-of-change (movement) table; ADR-095 (Slice 3a) shipped the `to_dict()`
+serialiser and the `POST /api/v1/ifrs17/movement` REST surface; ADR-096
+(Slice 3b) wired the "IFRS 17 Movement" sheet into the deal-pricing workbook but
+left it dormant — nothing populated `DealPricingExport.ifrs17_movement`. This
+ADR is **Slice 3c**, the final surfacing slice of PLAN_ifrs17_movement: the CLI
+is where a deal actuary runs a block, and it is also the path that owns
+`--excel-out`, so wiring it here makes the movement table reachable end-to-end on
+JSON, terminal, and Excel from one command — completing the epic.
+
+**Premise (verified before implementing, routine step 7b).** With the baseline
+suite green (1513 passed, 94 deselected), `polaris ifrs17 --help` exited
+non-zero (no such command) and `polaris price --help` had no `ifrs17` / movement
+flag — the movement table was unreachable from the CLI even though the API
+(3a) and Excel writer (3b) were ready. The gap is real.
+
+**Decision.**
+
+1. **`polaris price` opt-in flag, not a new subcommand.** Add
+   `--ifrs17-movement` (off by default) plus `--ifrs17-ra-factor` (default 0.05,
+   range [0, 0.50]) and `--ifrs17-months-per-period` (default 12). The flag route
+   is chosen over a dedicated `polaris ifrs17` subcommand because `price` already
+   owns `--excel-out` and builds the `DealPricingExport`, so the same run
+   surfaces JSON + Rich + the Excel sheet (3b) — the route PLAN/CONTINUATION 3c
+   anticipated.
+2. **Per-product-cohort movement, mirroring the API consumer.** The movement is
+   built **per `iter_cohorts` product cohort**, not block-wide. Within a cohort
+   the policies are grouped into annual issue-year cohorts, each issue-year
+   sub-block is projected GROSS via the product dispatcher, and the groups feed
+   `IFRS17CohortManager` (`aggregate_movement_table` + `cohort_movement_tables`).
+   Per-product is required for correctness: TERM and WHOLE_LIFE project on
+   different grids, so a block-wide aggregate would fail the cohort manager's
+   alignment check; per-product also matches the per-cohort Excel workbook model
+   (ADR-068) — each workbook carries its own cohort's movement sheet.
+3. **Locked-in rate = `config.discount_rate` for every cohort.** A per-issue-year
+   locked-in-rate override (already accepted by the REST API) is deferred as a
+   follow-up, keeping the slice small.
+4. **JSON shape mirrors the REST `IFRS17MovementResponse` (ADR-095)** —
+   `{months_per_period, n_cohorts, max_footing_error, aggregate, cohorts}`,
+   reusing the 3a `to_dict()` serialiser — added per cohort and (single-cohort
+   case) at the top level. Rich renders two compact tables (total-liability
+   reconciliation + closing balances by component); full detail is in JSON/Excel.
+
+**Closed-form / verification anchors.** CLI tests (`CliRunner`): without the flag
+no `ifrs17_movement` key appears (golden-baseline guarantee) and the workbook has
+no IFRS 17 sheet; with the flag each cohort carries the movement block, the JSON
+shape matches the REST keys, **every cohort's `max_footing_error < 1e-6`** (the
+opening + Σ movements == closing disclosure property, surfaced), cohorts group
+and order by issue year (golden TERM → [2021, 2026], WHOLE_LIFE → [2016, 2021,
+2026]), the aggregate carries null cohort metadata, the locked-in rate equals the
+config discount rate, `--ifrs17-months-per-period 6` doubles the period count and
+still foots, out-of-range `--ifrs17-ra-factor` / `--ifrs17-months-per-period`
+exit non-zero, and `--excel-out` appends the sheet to every per-cohort workbook.
+
+**Behaviour change.** None unless `--ifrs17-movement` is passed: the flag is
+off by default, so the CLI JSON, terminal, and Excel outputs are byte-identical
+to prior runs (golden CLI / pipeline tests unchanged, no rebaseline).
+
+**Out of scope (filed as follow-ups).** Per-issue-year locked-in-rate override
+on the CLI (the REST API already has the `locked_in_rates` map). A dedicated
+`polaris ifrs17` subcommand for movement-only output (no pricing). A
+block-wide (cross-product) movement table on a common calendar grid
+(needs heterogeneous-term alignment). The dashboard movement view. Carried
+forward from ADR-094/095/096: the mid-life in-force opening variant; an explicit
+RA finance line; movement tables for PAA / VFA; issue-era rate-curve locked-in
+rates.
