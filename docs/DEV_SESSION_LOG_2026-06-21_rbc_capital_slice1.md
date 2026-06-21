@@ -40,7 +40,7 @@ slice is not a no-op.
 
 | Slice | Scope | Status | PR |
 |-------|-------|--------|----|
-| 1 | US RBC core (`rbc.py`) + `CapitalModel`/`CapitalSchedule` protocols (`capital_base.py`) | ✅ Done | (this draft) |
+| 1 | US RBC core (`rbc.py`) + `CapitalModel`/`CapitalSchedule` protocols (`capital_base.py`) | ✅ Done | #92 |
 | 2 | Generalise `run_with_capital` to the `CapitalModel` protocol + RBC ratio surface | ⏳ Next | — |
 | 3 | Solvency II SCR module (`solvency2.py`) — correlation-matrix BSCR + risk margin | 🔲 Planned | — |
 | 4 | CLI/API/Excel/dashboard `--capital {licat,rbc,solvency2}` selector + validation notebook | 🔲 Planned | — |

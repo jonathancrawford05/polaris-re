@@ -21,7 +21,7 @@ limits return-on-capital pricing to Canadian deals.
 ### Slice 1: US RBC core module + `CapitalModel` protocol
 - **Status:** DONE
 - **Branch:** `claude/awesome-bardeen-kp19mp` (environment-designated)
-- **PR:** (this session's draft)
+- **PR:** #92 (draft)
 - **What was done:** Added `analytics/capital_base.py` (`CapitalModel` /
   `CapitalSchedule` structural protocols + `discount_stream` / `strain_of`
   helpers) and `analytics/rbc.py` (`RBCFactors`, `RBCResult`, `RBCCapital`)
