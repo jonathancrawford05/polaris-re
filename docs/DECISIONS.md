@@ -6123,3 +6123,86 @@ block-wide (cross-product) movement table on a common calendar grid
 forward from ADR-094/095/096: the mid-life in-force opening variant; an explicit
 RA finance line; movement tables for PAA / VFA; issue-era rate-curve locked-in
 rates.
+
+---
+
+## ADR-098: US NAIC Life RBC capital module + shared `CapitalModel` protocol (Epic 3, Slice 1)
+
+**Date:** 2026-06-21
+**Status:** Accepted
+
+**Context.** The capital layer (`analytics/capital.py`, ADR-047 / ADR-065 /
+ADR-072) implements **LICAT** — the Canadian OSFI standard — only. A reinsurer
+cannot evaluate a US deal on a return-on-capital basis (the primary decision
+metric) because the US uses NAIC **Risk-Based Capital (RBC)**, a structurally
+different standard: it splits risk into C-0 … C-4 components and aggregates them
+with a **covariance square root**, not a simple sum. The 2026-04-19 baseline
+rated US RBC a BLOCKER; `COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` restored it
+as Tier-A epic **A3** (Cross-jurisdiction capital — US RBC then Solvency II).
+This ADR is **Slice 1** of `PLAN_cross_jurisdiction_capital.md`: the US RBC core
+module plus the shared protocol that lets all three jurisdictions plug into the
+same `ProfitTester` / surfaces.
+
+**Decision.**
+
+1. **Shared `CapitalModel` / `CapitalSchedule` protocols** (`analytics/capital_base.py`).
+   Two structural (PEP 544) `Protocol`s capture the calculator/result contract
+   `LICATCapital` / `CapitalResult` already established: a model exposes
+   `required_capital(cashflows, nar=None) -> schedule`, and a schedule carries
+   `capital_by_period` / `initial_capital` / `peak_capital` plus `pv_capital` /
+   `capital_strain` / `pv_capital_strain`. Structural, so the pre-existing LICAT
+   classes conform with **no modification** (tests assert it via `isinstance`),
+   and new siblings only match the shape. Two small free helpers
+   (`discount_stream`, `strain_of`) factor out the discount / period-change
+   arithmetic so each schedule does not re-derive it.
+
+2. **`RBCCapital` factor-based calculator** (`analytics/rbc.py`), the US analogue
+   of `LICATCapital`. Each NAIC component is `factor * exposure` per month: C-1o
+   (asset default) / C-3a (interest) / C-3b / C-3c / C-4a / C-4b / C-0 / C-1cs on
+   `reserve_balance`, and **C-2 (insurance risk) on NAR**. `for_product` selects
+   per-product defaults; only C-1o, C-2, C-3a are non-zero by default (a typical
+   individual-life book), the rest are overridable zero stubs.
+
+3. **NAIC covariance square-root aggregation** —
+   `RBC = C0 + C4a + sqrt[(C1o+C3a)² + C1cs² + C2² + C3b² + C3c² + C4b²]`. C-0
+   and C-4a sit outside the root (no diversification credit); C-1o pairs with
+   C-3a inside it (asset / interest-rate correlation). This is the classic
+   pre-2021 Life RBC grouping. The result is the **Company Action Level (CAL)**;
+   `RBCResult.authorized_control_level` = ½ CAL is the RBC-ratio denominator, and
+   `rbc_ratio(tac)` = TAC / ACL₀.
+
+4. **Held-capital basis = CAL.** `capital_by_period` is the covariance result
+   (CAL), matching the LICAT convention that `capital_by_period` is the required
+   amount fed to return-on-capital. A configurable target multiple of ACL
+   (reinsurers commonly hold 300–400% of ACL) is deferred to Slice 2/4.
+
+**Factor calibration.** Like the LICAT module, these are **committee-stage
+approximations**, documented and overridable, not a shock-based model: C-1o =
+1.0% of reserves (blended investment-grade bond default); C-2 = 0.00150 of NAR
+(NAIC individual-life first-tier factor); C-3a = 0.0077 / 0.0154 / 0.0231 of
+reserves (NAIC C-3 Phase I low / medium / high categories by product). The
+shock-based / 2021 NAIC bond-factor calibration is the Asset/ALM epic (CVR Tier
+C, after the Tier-A epics).
+
+**Closed-form / verification anchors.** Tests assert the covariance closed form
+on the golden-flavour block (`sqrt[(C1o+C3a)² + C2²]` for the default factor
+set, and the full nine-component formula), `ACL = ½ CAL`, the linear
+(no-diversification) effect of C-0 / C-4a outside the root, `pv_capital` /
+`capital_strain` against a manual discount, the RBC-ratio closed form, CEDED
+rejection, NAR resolution / length validation, and that **both** `RBCResult` and
+the unmodified `CapitalResult` satisfy `CapitalSchedule` (and both calculators
+satisfy `CapitalModel`). A jurisdiction-difference test confirms RBC and LICAT
+produce different capital on the same block (RBC is not a LICAT alias).
+
+**Behaviour change.** None. `rbc.py` / `capital_base.py` are new modules imported
+by nothing in the pricing path; `LICATCapital` / `CapitalResult` are untouched.
+Goldens are byte-identical (no rebaseline). RoC integration is Slice 2.
+
+**Out of scope (filed as follow-ups).** `ProfitTester.run_with_capital`
+generalisation to the `CapitalModel` protocol and an RBC-ratio surface (Slice
+2). Solvency II SCR (Slice 3). The CLI `--capital {licat,rbc,solvency2}` / API
+`capital_model` / Excel / dashboard jurisdiction selector and the
+three-standard validation notebook (Slice 4). A configurable held-capital
+target multiple of ACL. The 2021+ NAIC designation-based bond factors and C-3
+Phase II stochastic interest-rate requirement (Asset/ALM epic). Tax / DTA and
+multi-currency books.
