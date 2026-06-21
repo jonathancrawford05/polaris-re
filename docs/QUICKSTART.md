@@ -201,6 +201,11 @@ curl -s -X POST http://localhost:8000/api/v1/ifrs17/bba \
 curl -s -X POST http://localhost:8000/api/v1/ifrs17/paa \
   -H "Content-Type: application/json" \
   -d @tests/fixtures/sample_price_request.json | python -m json.tool
+
+# IFRS 17 analysis-of-change (movement) table — annual issue-year cohorts
+curl -s -X POST http://localhost:8000/api/v1/ifrs17/movement \
+  -H "Content-Type: application/json" \
+  -d @tests/fixtures/sample_price_request.json | python -m json.tool
 ```
 
 ### Call the API from Python
@@ -239,6 +244,9 @@ for s in r.json()["scenarios"]:
 | `POST` | `/api/v1/uq` | Monte Carlo UQ — VaR, CVaR, percentiles |
 | `POST` | `/api/v1/ifrs17/bba` | IFRS 17 Building Block Approach |
 | `POST` | `/api/v1/ifrs17/paa` | IFRS 17 Premium Allocation Approach |
+| `POST` | `/api/v1/ifrs17/movement` | IFRS 17 analysis-of-change (movement) table by annual cohort |
+| `POST` | `/api/v1/portfolio` | Multi-deal portfolio run — aggregate IRR/PV, concentration |
+| `POST` | `/api/v1/portfolio/scenarios` | Portfolio run under the standard stress scenarios |
 | `POST` | `/api/v1/ingest` | Ingest raw cedant inforce data |
 | `POST` | `/api/v1/rate-schedule` | Generate YRT rate schedule |
 
@@ -257,7 +265,7 @@ docker compose down             # stop and remove container
 
 ```bash
 make docker-test
-# Equivalent to CI job 3: builds image, runs 439 tests, tears down
+# Equivalent to CI job 3: builds image, runs the full test suite (1,500+), tears down
 ```
 
 ### Start the Streamlit dashboard
@@ -548,7 +556,59 @@ Options:
                            rate (ADR-052). See "Tabular YRT rate table" below; the
                            config-file equivalent is deal.yrt_rate_table_path
                            (ADR-075).
+      --reserve-basis BASIS  Reserve valuation basis: NET_PREMIUM (default), CRVM,
+                           or VM20 (reserve-basis epic, ADR-087..092). Lets a
+                           reinsurer reproduce the cedant's reserve method, which
+                           drives the YRT NAR, the coinsurance reserve transfer,
+                           and the profit signature. NET_PREMIUM is byte-identical
+                           to prior runs; an unsupported basis for the product
+                           raises an error. See "Reserve basis" below.
+      --sufficiency-target-margin FLOAT
+                           Premium-sufficiency target margin in [0, 1) (ADR-083).
+                           The premium is reported "sufficient" when its post-cost
+                           margin ratio meets this target (default 0.0 = bare cost
+                           coverage). Surfaced on the Rich table, JSON, and the
+                           Excel Summary sheet. See "Premium sufficiency" below.
+      --ifrs17-movement    Emit the IFRS 17 analysis-of-change (movement) table
+                           per product cohort (ADR-093..096). Off by default. See
+                           §11. Tune with --ifrs17-ra-factor (default 0.05) and
+                           --ifrs17-months-per-period (default 12).
       --help               Show this message and exit.
+```
+
+### Reserve basis
+
+By default reserves use the net-premium basis. A reinsurer pricing an inforce
+block usually needs to reproduce the **cedant's** statutory reserve, because the
+reserve drives the YRT net-amount-at-risk, the coinsurance reserve transfer, and
+the profit signature. Select an alternative basis with `--reserve-basis`:
+
+```bash
+# Price the demo block reproducing a US CRVM (Full Preliminary Term) reserve
+uv run polaris price --reserve-basis CRVM -o result_crvm.json
+
+# VM-20 simplified (deterministic reserve)
+uv run polaris price --reserve-basis VM20 -o result_vm20.json
+```
+
+`NET_PREMIUM` (default) is byte-identical to prior runs; `CRVM` and `VM20` are
+implemented for `TermLife` and `WholeLife`. Selecting a basis a product does not
+support raises a `PolarisValidationError` rather than silently returning the
+wrong reserve. The basis can also be set in the config `deal` block
+(`"reserve_basis": "CRVM"`); the `--reserve-basis` flag overrides it.
+
+### Premium sufficiency
+
+Every `polaris price` run reports a **premium-sufficiency** panel — does the
+premium cover expected claims + expenses (+ a target margin)? The PV loss,
+expense, and combined ratios and an `is_sufficient` verdict appear on the Rich
+table, in the JSON (`premium_sufficiency` / `reinsurer_premium_sufficiency`
+blocks, with a per-line-item PV breakdown), and on the Excel Summary sheet.
+Tighten the bar with a target margin:
+
+```bash
+# Require a 5% post-cost margin for the premium to read "sufficient"
+uv run polaris price --sufficiency-target-margin 0.05
 ```
 
 ### Tabular YRT rate table
@@ -585,13 +645,20 @@ working directory, matching the `mortality.data_dir` convention.
 
 ### Workbook contents
 
-Each Excel workbook produced by `--excel-out` contains three sheets:
+Each Excel workbook produced by `--excel-out` always contains these core sheets:
 
 | Sheet | Contents |
 |---|---|
-| **Summary** | Key pricing metrics: IRR, PV profits, profit margin, break-even year (cedant and reinsurer views). Under `--capital licat` (ADR-049) the same sheet **gains five additional rows** appended inline below the existing metrics — `Return on Capital`, `Peak Capital`, `PV Capital (stock)`, `PV Capital Strain`, and `Capital-Adjusted IRR` — with values for both the Cedant and Reinsurer columns. The sheet count stays at three; no new sheet is added. |
+| **Summary** | Key pricing metrics: IRR, PV profits, profit margin, break-even year (cedant and reinsurer views), plus the premium-sufficiency panel (ADR-083/084). Under `--capital licat` (ADR-049) the sheet **gains five additional rows** inline — `Return on Capital`, `Peak Capital`, `PV Capital (stock)`, `PV Capital Strain`, and `Capital-Adjusted IRR` — for both the Cedant and Reinsurer columns. |
 | **Cash Flows** | Annual net cash-flow rollup for `projection_years` rows |
 | **Assumptions** | Treaty type, cession %, hurdle rate, discount rate, projection years, mortality source, lapse description |
+
+Additional sheets are written **conditionally**: `Gross Cash Flows` /
+`Ceded Cash Flows` and the `Cash Flow Comparison` / `Line Item Comparison`
+sheets whenever the gross and ceded bases are populated (ADR-080/081/086 — the
+CLI populates them on every run), and an `IFRS 17 Movement` sheet when
+`--ifrs17-movement` is supplied (ADR-096). A net-only export stays
+byte-identical to the core three.
 
 The Sensitivity sheet is intentionally absent — `polaris scenario` remains the
 authoritative sensitivity entry point (see ADR-046).
@@ -882,6 +949,94 @@ Cedant and Reinsurer view sections each gain a row of three tiles:
 `Return on Capital`, `Peak Capital`, and `PV Capital Strain`. The
 RoC tile tooltip explains the stock-vs-strain distinction and the
 monthly-accumulation effect that makes `pv_capital ≫ peak_capital`.
+
+---
+
+## 11. IFRS 17 Movement Table
+
+IFRS 17 filers need a period-to-period **analysis of change** (movement table),
+not just point-in-time recognition. Polaris RE groups policies into annual
+issue-year cohorts, measures each BBA at its own locked-in discount rate, and
+rolls each forward `opening → new business → interest accretion → release →
+closing` for BEL, RA, and CSM (each foots by construction).
+
+### CLI
+
+```bash
+# Emit the movement table on the demo block (added to the JSON output)
+uv run polaris price --ifrs17-movement -o result.json
+
+# With an Excel workbook, this also writes an "IFRS 17 Movement" sheet
+uv run polaris price --ifrs17-movement --excel-out deal.xlsx \
+  --ifrs17-ra-factor 0.05 \
+  --ifrs17-months-per-period 12
+```
+
+The console prints a one-line summary (cohort count, reporting period, max
+footing error); the per-cohort and aggregate tables land in the
+`ifrs17_movement` block of the JSON and, with `--excel-out`, on the
+`IFRS 17 Movement` sheet. It is **off by default** — runs without
+`--ifrs17-movement` are byte-identical to prior output. Tune the Risk
+Adjustment with `--ifrs17-ra-factor` (fraction of |BEL|, default 0.05) and the
+reporting-period length with `--ifrs17-months-per-period` (12 = annual).
+
+### REST API
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/ifrs17/movement \
+  -H "Content-Type: application/json" \
+  -d @tests/fixtures/sample_price_request.json | python -m json.tool
+```
+
+Returns the per-cohort tables (ordered by issue year) and the aggregate.
+
+---
+
+## 12. Portfolio Runs
+
+A reinsurer never prices a single treaty in isolation. The `polaris portfolio`
+sub-app aggregates many deals into portfolio-level metrics — aggregate IRR / PV
+profits, per-deal breakdown, and concentration / HHI by cedant, product, and
+treaty type — with optional calendar alignment for mixed-inception books.
+
+### Run a portfolio
+
+```bash
+# Run the shipped demo portfolio config (writes aggregate + per-deal JSON)
+uv run polaris portfolio run --config data/configs/portfolio_demo.yaml -o portfolio.json
+
+# A larger sample with per-deal inforce CSVs:
+uv run polaris portfolio run --config data/inputs/portfolio_sample/portfolio.yaml
+```
+
+### Stress the whole portfolio
+
+```bash
+# Run the standard six stress scenarios across the portfolio
+uv run polaris portfolio scenarios --config data/configs/portfolio_demo.yaml
+
+# Filter to a subset (standard scenario ids)
+uv run polaris portfolio scenarios --config data/configs/portfolio_demo.yaml \
+  --scenarios "BASE,MORT_110,LAPSE_120"
+```
+
+The standard set is `BASE`, `MORT_110` / `MORT_90` (±10% mortality),
+`LAPSE_80` / `LAPSE_120` (∓20% lapses), and `MORT_110_LAPSE_80` (combined
+adverse).
+
+### Re-render a saved result
+
+```bash
+# Pretty-print a previously written result, choosing the concentration weight basis
+uv run polaris portfolio report --result portfolio.json \
+  --concentration-basis ceded_face
+```
+
+`--concentration-basis` accepts `ceded_face`, `ceded_nar_peak`, `pv_premium`,
+or `all`. The same workflows are available over the REST API at
+`POST /api/v1/portfolio` and `POST /api/v1/portfolio/scenarios`, and as a
+**Portfolio** page in the Streamlit dashboard (file upload + per-deal table +
+concentration charts).
 
 ---
 
