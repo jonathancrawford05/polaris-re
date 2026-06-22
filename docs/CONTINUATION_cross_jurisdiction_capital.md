@@ -38,23 +38,36 @@ limits return-on-capital pricing to Canadian deals.
   - Goldens byte-identical (new modules, nothing wired into the pricing path).
 
 ### Slice 2: RBC ↔ ProfitTester integration + RBC ratio
-- **Status:** NEXT
-- **Depends on:** Slice 1 merged
-- **Files to create/modify:** `analytics/profit_test.py` (widen
-  `run_with_capital`'s `capital_model` param from the concrete `LICATCapital`
-  to the `CapitalModel` protocol — signature widening only); possibly a
-  `ProfitResultWithCapital`-level RBC-ratio surface; `tests/test_analytics/`.
-- **Tests to add:** `run_with_capital` yields identical metrics for a
-  `LICATCapital` as today (regression); a parallel test drives it with an
-  `RBCCapital`; RBC-ratio closed form (TAC / ACL).
-- **Acceptance criteria:**
-  - `run_with_capital(RBCCapital.for_product(...))` returns RoC / strain / IRR.
-  - LICAT path metrics unchanged → goldens byte-identical.
-  - ADR-099.
+- **Status:** DONE
+- **Branch:** `claude/awesome-bardeen-pedp9i` (environment-designated)
+- **PR:** #98 (draft)
+- **What was done:** Widened BOTH return-on-capital entry points —
+  `ProfitTester.run_with_capital` (single deal) and `Portfolio.run_with_capital`
+  (aggregate book) — from the concrete `LICATCapital` / `CapitalResult`
+  annotations to the `CapitalModel` / `CapitalSchedule` protocols, re-pointing
+  imports to `analytics.capital_base`. Type-only: neither body changed (both
+  already used only the `CapitalSchedule` surface). `RBCCapital` now drives
+  RoC / capital-strain / capital-adjusted-IRR for deals and portfolios. ADR-099.
+- **Key decisions:**
+  - **`ProfitResultWithCapital` left unchanged.** RBC's `authorized_control_level`
+    and `rbc_ratio(tac)` (= TAC / ACL₀) live on the `RBCResult` the model returns,
+    reachable via `capital_model.required_capital(cf)`. The RBC ratio needs an
+    external TAC input `ProfitTester` does not hold, so a result-level RBC-ratio
+    surface is deferred to Slice 4 (where a TAC / target-multiple input lands).
+    Keeps the jurisdiction-agnostic result from accreting RBC-specific fields and
+    keeps goldens byte-identical.
+  - The **portfolio** path was pulled into this slice (identical one-line protocol
+    widening) so RBC drives both RoC entry points consistently — not left as a
+    second hard-typed seam.
+- **Tests:** `TestProfitTesterWithRBCCapital` (7 — protocol conformance,
+  RoC/strain/IRR populated, covariance-root RoC closed form, RBC-ratio TAC/ACL
+  closed form, LICAT/RBC share the RoC formula, zero-factor→None RoC, LICAT
+  schedule byte-for-byte unchanged) + `test_accepts_rbc_capital_model` on the
+  portfolio path. Full fast suite 1569 passed; QA golden suite 72 green.
 
 ### Slice 3: Solvency II SCR module
-- **Status:** PLANNED
-- **Depends on:** Slice 2 merged
+- **Status:** NEXT
+- **Depends on:** Slice 2 merged (PR #98)
 - **Scope:** `analytics/solvency2.py` — modular SCR (life underwriting:
   mortality / lapse / catastrophe; market; counterparty), correlation-matrix
   BSCR aggregation `sqrt(rᵀ·Corr·r)`, cost-of-capital risk margin. Satisfies
@@ -72,15 +85,16 @@ limits return-on-capital pricing to Canadian deals.
 
 ## Context for Next Session
 
-- The shared `CapitalModel` / `CapitalSchedule` protocols are the integration
-  seam. Slice 2 is a **signature widening** of `run_with_capital` — the body
-  already only uses the `CapitalSchedule` surface (`required_capital`,
-  `capital_by_period`, `pv_capital`, `capital_strain`), so widening the type
-  hint and re-pointing the import is the bulk of the change. Verify by running
-  the existing LICAT RoC tests unchanged.
+- Slice 2 is merged-pending (PR #98): both `ProfitTester.run_with_capital` and
+  `Portfolio.run_with_capital` now take the `CapitalModel` protocol, so the next
+  jurisdiction only needs to satisfy `CapitalModel` / `CapitalSchedule` to plug
+  into RoC for free — no further integration work in profit_test / portfolio.
 - `RBCResult` deliberately mirrors `CapitalResult`'s helper surface so it is a
   drop-in for the RoC machinery; the extra `authorized_control_level` /
   `rbc_ratio` are additive.
+- The result-level RBC-ratio / solvency-ratio surface was **deferred to Slice 4**
+  (it needs an external TAC / target-multiple input that the RoC entry points do
+  not hold). Slice 4 should introduce that input alongside the CLI/API selector.
 - Solvency II (Slice 3) introduces a genuinely different aggregation
   (correlation matrix, not a single covariance pair) — keep the matrices in a
   documented constant and cite the Delegated Regulation vintage in ADR-100.

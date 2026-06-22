@@ -8,6 +8,7 @@ Key closed-form tests:
   4. Integration: TermLife -> CoinsuranceTreaty -> ProfitTester
 """
 
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -15,11 +16,13 @@ import numpy as np
 import pytest
 
 from polaris_re.analytics.capital import LICATCapital, LICATFactors
+from polaris_re.analytics.capital_base import CapitalModel, CapitalSchedule
 from polaris_re.analytics.profit_test import (
     ProfitResultWithCapital,
     ProfitTester,
     ProfitTestResult,
 )
+from polaris_re.analytics.rbc import RBCCapital, RBCFactors
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.assumptions.lapse import LapseAssumption
 from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
@@ -679,6 +682,166 @@ class TestProfitTesterWithCapital:
         from polaris_re.analytics import ProfitResultWithCapital as Exported
 
         assert Exported is ProfitResultWithCapital
+
+
+# ----------------------------------------------------------------------
+# ProfitTester.run_with_capital driven by a US RBC CapitalModel
+# (Epic 3 Slice 2 — ADR-099; protocol widening LICATCapital -> CapitalModel)
+# ----------------------------------------------------------------------
+
+
+class TestProfitTesterWithRBCCapital:
+    """
+    Slice 2 — `run_with_capital` accepts ANY `CapitalModel`, so the US NAIC
+    `RBCCapital` (ADR-098) drives the same RoC / strain / capital-adjusted-IRR
+    machinery as the Canadian `LICATCapital`. The method body depends only on
+    the `CapitalSchedule` surface, so this is a type-and-test widening, not a
+    behaviour change for the LICAT path.
+    """
+
+    def test_protocol_conformance(self) -> None:
+        """`RBCCapital` is a `CapitalModel`; its schedule is a `CapitalSchedule`."""
+        cap = RBCCapital.for_product(ProductType.TERM)
+        assert isinstance(cap, CapitalModel)
+        cf = _make_cashflow_with_nar(
+            np.zeros(6, dtype=np.float64), np.full(6, 1_000_000.0, dtype=np.float64)
+        )
+        # reserve_balance is zero in the helper; give RBC something to bite on
+        schedule = cap.required_capital(cf, nar=np.full(6, 1_000_000.0, dtype=np.float64))
+        assert isinstance(schedule, CapitalSchedule)
+
+    def test_rbc_drives_roc_strain_and_irr(self) -> None:
+        """
+        Acceptance: `run_with_capital(RBCCapital.for_product(...))` returns
+        populated RoC, PV capital strain, and a capital-adjusted IRR — the same
+        contract the LICAT path satisfies.
+        """
+        t = 24
+        profits = np.full(t, 100.0, dtype=np.float64)
+        profits[0] = -400.0  # sign change so a capital-adjusted IRR exists
+        nar = np.full(t, 1_000_000.0, dtype=np.float64)
+        reserve = np.full(t, 50_000.0, dtype=np.float64)
+        cf = _make_cashflow_with_nar(profits, nar)
+        cf = replace(cf, reserve_balance=reserve)
+        cap = RBCCapital.for_product(ProductType.TERM)
+
+        result = ProfitTester(cf, hurdle_rate=0.10).run_with_capital(cap)
+
+        assert isinstance(result, ProfitResultWithCapital)
+        assert result.peak_capital > 0.0
+        assert result.pv_capital > 0.0
+        assert result.return_on_capital is not None
+        assert result.capital_adjusted_irr is not None
+        assert result.capital_by_period.shape == (t,)
+
+    def test_rbc_roc_closed_form_covariance_root(self) -> None:
+        """
+        CLOSED-FORM: flat reserve + flat NAR -> flat Company-Action-Level
+        capital = the NAIC covariance square root of the C-1o / C-2 / C-3a
+        components, and RoC = pv_profits / pv(that stock).
+        """
+        t = 36
+        reserve = 100_000.0
+        face_nar = 2_000_000.0
+        profits = np.full(t, 100.0, dtype=np.float64)
+        nar = np.full(t, face_nar, dtype=np.float64)
+        cf = _make_cashflow_with_nar(profits, nar)
+        cf = replace(cf, reserve_balance=np.full(t, reserve, dtype=np.float64))
+        cap = RBCCapital.for_product(ProductType.TERM)
+        tester = ProfitTester(cf, hurdle_rate=0.10)
+
+        result = tester.run_with_capital(cap)
+
+        # Hand-computed CAL for TERM defaults: C-1o 1.0% + C-3a 0.77% of reserve
+        # are paired inside the root; C-2 0.150% of NAR sits alongside.
+        c1o = 0.010 * reserve
+        c3a = 0.0077 * reserve
+        c2 = 0.00150 * face_nar
+        cal = float(np.sqrt((c1o + c3a) ** 2 + c2**2))
+        v = (1.0 + 0.10) ** (-1.0 / 12.0)
+        expected_pv_capital = cal * float(np.sum(v ** np.arange(1, t + 1)))
+
+        assert result.pv_capital == pytest.approx(expected_pv_capital)
+        assert result.return_on_capital == pytest.approx(result.pv_profits / expected_pv_capital)
+
+    def test_rbc_ratio_closed_form_tac_over_acl(self) -> None:
+        """
+        The RBC ratio surfaced by the calculator's schedule is
+        Total Adjusted Capital / Authorized Control Level, with ACL = ½ CAL.
+        Reachable through the same `required_capital` the integration calls.
+        """
+        t = 12
+        reserve = 100_000.0
+        face_nar = 1_000_000.0
+        cf = _make_cashflow_with_nar(
+            np.zeros(t, dtype=np.float64), np.full(t, face_nar, dtype=np.float64)
+        )
+        cf = replace(cf, reserve_balance=np.full(t, reserve, dtype=np.float64))
+        schedule = RBCCapital.for_product(ProductType.TERM).required_capital(cf)
+
+        cal = schedule.capital_by_period[0]
+        acl = schedule.authorized_control_level[0]
+        assert acl == pytest.approx(0.5 * cal)
+
+        tac = 3.0 * acl  # a 300% solvency position
+        assert schedule.rbc_ratio(tac) == pytest.approx(3.0)
+
+    def test_rbc_and_licat_share_the_roc_denominator_formula(self) -> None:
+        """
+        Both jurisdictions feed the SAME RoC formula (pv_profits / pv_capital);
+        only the capital number differs. Verify by reconstructing each RoC from
+        its own schedule's pv_capital.
+        """
+        t = 24
+        profits = np.full(t, 100.0, dtype=np.float64)
+        nar = np.full(t, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow_with_nar(profits, nar)
+        cf = replace(cf, reserve_balance=np.full(t, 40_000.0, dtype=np.float64))
+        tester = ProfitTester(cf, hurdle_rate=0.10)
+
+        for cap in (
+            LICATCapital.for_product(ProductType.TERM),
+            RBCCapital.for_product(ProductType.TERM),
+        ):
+            result = tester.run_with_capital(cap)
+            expected_pv_capital = cap.required_capital(cf).pv_capital(0.10)
+            assert result.pv_capital == pytest.approx(expected_pv_capital)
+            assert result.return_on_capital == pytest.approx(
+                result.pv_profits / expected_pv_capital
+            )
+
+    def test_zero_factor_rbc_yields_none_roc(self) -> None:
+        """An all-stub RBC factor set -> zero capital -> RoC None (same guard)."""
+        t = 12
+        profits = np.full(t, 50.0, dtype=np.float64)
+        nar = np.full(t, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow_with_nar(profits, nar)
+        cap = RBCCapital(factors=RBCFactors(c2_factor=0.0))  # all factors zero
+        tester = ProfitTester(cf, hurdle_rate=0.10)
+
+        result = tester.run_with_capital(cap)
+
+        assert result.pv_capital == 0.0
+        assert result.return_on_capital is None
+
+    def test_licat_path_unchanged_by_widening(self) -> None:
+        """
+        Regression: the LICAT result is byte-for-byte what it was before the
+        signature was widened to the protocol (the widening is type-only).
+        """
+        t = 18
+        profits = np.full(t, 75.0, dtype=np.float64)
+        profits[0] = -300.0
+        nar = np.linspace(1_000_000.0, 600_000.0, t, dtype=np.float64)
+        cf = _make_cashflow_with_nar(profits, nar)
+        cap = LICATCapital.for_product(ProductType.TERM)
+        tester = ProfitTester(cf, hurdle_rate=0.10)
+
+        result = tester.run_with_capital(cap)
+
+        # LICAT TERM capital is exactly c2_mortality_factor * NAR (0.15 default).
+        np.testing.assert_allclose(result.capital_by_period, 0.15 * nar)
+        assert result.return_on_capital == pytest.approx(result.pv_profits / result.pv_capital)
 
 
 # ----------------------------------------------------------------------

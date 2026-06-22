@@ -875,6 +875,15 @@ capital = capital_model.required_capital(net, nar=cedant_nar)
 print(capital.capital_by_period.shape, capital.peak_capital)
 ```
 
+Both `ProfitTester.run_with_capital` and `Portfolio.run_with_capital` accept
+**any** `CapitalModel` (ADR-099), not just `LICATCapital`. Swapping in the US
+NAIC standard is a one-line change — `RBCCapital.for_product(ProductType.TERM)`
+in place of `LICATCapital.for_product(...)` — and returns the same
+return-on-capital / peak-capital / capital-strain metrics; `RBCResult`
+additionally exposes `authorized_control_level` and `rbc_ratio(tac)`. The CLI
+`--capital` flag still surfaces only `licat` today (the jurisdiction selector is
+Epic 3 Slice 4); RBC is reachable programmatically as shown.
+
 NAR derivation at the call site uses
 `polaris_re.core.pipeline.derive_capital_nar`:
 

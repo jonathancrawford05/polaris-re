@@ -391,11 +391,17 @@ epic-driven routine; plan in `docs/PLAN_cross_jurisdiction_capital.md`.*
 
 - [x] Slice 1 — US NAIC Life RBC core module + shared `CapitalModel` protocol
       (PR #92, ADR-098)
-- [ ] Slice 2 — RBC ↔ `ProfitTester` integration + RBC ratio (`run_with_capital`
-      signature widening)
+- [x] Slice 2 — RBC ↔ `ProfitTester` integration (PR #98, ADR-099). Both
+      return-on-capital entry points — `ProfitTester.run_with_capital` and
+      `Portfolio.run_with_capital` — widened from the concrete `LICATCapital` to
+      the `CapitalModel` protocol (type-only; LICAT path byte-identical), so US
+      `RBCCapital` now drives RoC for deals and books. The RBC ratio is reachable
+      on `RBCResult`; a result-level ratio surface is deferred to Slice 4.
 - [ ] Slice 3 — Solvency II SCR module (different aggregation: correlation
       matrix across risk modules)
 - [ ] Slice 4 — surface the jurisdiction selector on CLI / API / Excel
+      (incl. a `ProfitResultWithCapital`-level RBC/solvency-ratio surface with
+      a TAC / target-multiple input)
 - [ ] Tests: RBC factor verification vs NAIC tables; SCR correlation aggregation;
       RoC parity across jurisdictions
 
