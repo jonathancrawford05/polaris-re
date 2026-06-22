@@ -177,9 +177,11 @@ def _correlation_aggregate(components: list[np.ndarray], corr: np.ndarray) -> np
     The quadratic form is evaluated per period via an einsum over the component
     index, so there is no per-policy or per-period Python loop. A tiny negative
     quadratic value from float round-off is clamped to zero before the square
-    root.
+    root. The empty-horizon (``T == 0``) case flows through naturally: each
+    component is shape ``(0,)``, so ``stacked`` is ``(k, 0)`` and the result is
+    ``(0,)``.
     """
-    stacked = np.vstack(components) if components else np.empty((0, 0), dtype=np.float64)
+    stacked = np.vstack(components)
     quad = np.einsum("ij,it,jt->t", corr, stacked, stacked)
     return np.sqrt(np.maximum(quad, 0.0))
 
