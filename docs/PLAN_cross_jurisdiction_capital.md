@@ -10,7 +10,8 @@
 > `docs/DEV_SESSION_LOG_*` files, and the ADRs.
 >
 > **Status.** IN PROGRESS — Slice 1 shipped (US RBC core + `CapitalModel`
-> protocol, ADR-098). Slices 2–4 planned below.
+> protocol, ADR-098); Slice 2 shipped (RoC entry points widened to the
+> `CapitalModel` protocol, ADR-099, PR #98). Slices 3–4 planned below.
 >
 > **Source.** `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` Tier-A item
 > **A3** (★★★★★ value, ~15 dev-days for both, the #3 unstarted epic, started
@@ -87,17 +88,21 @@ goldens byte-identical until the final surfacing slice.
   and `LICATCapital` satisfy `CapitalModel`.
 - ADR-098. Goldens byte-identical (new module, nothing wired into pricing).
 
-### Slice 2 — RBC ↔ ProfitTester integration + RBC ratio
-- **Status:** NEXT
-- Generalise `ProfitTester.run_with_capital` to accept the `CapitalModel`
-  protocol instead of the concrete `LICATCapital` (signature widening only;
-  LICAT callers unchanged → byte-identical). Add an `RBCResult.rbc_ratio(tac)`
-  / ACL-denominator helper and a `ProfitResultWithCapital`-level RBC-ratio
-  surface if it fits cleanly.
-- Tests: `run_with_capital` produces identical metrics for a `LICATCapital` as
-  today (regression); a parallel test drives it with an `RBCCapital`; RBC-ratio
-  closed form (TAC / ACL).
-- ADR-099. Goldens byte-identical (signature widening; LICAT path untouched).
+### Slice 2 — RBC ↔ ProfitTester integration + RBC ratio  ✅ SHIPPED (PR #98)
+- **Status:** DONE
+- Generalised BOTH return-on-capital entry points — `ProfitTester.run_with_capital`
+  and `Portfolio.run_with_capital` — to accept the `CapitalModel` protocol
+  instead of the concrete `LICATCapital` (type-only widening; both bodies already
+  used only the `CapitalSchedule` surface → LICAT path byte-identical). The
+  RBC-ratio helper (`RBCResult.rbc_ratio(tac)` = TAC / ACL₀) already exists from
+  Slice 1; a `ProfitResultWithCapital`-level RBC-ratio surface was **deferred to
+  Slice 4** because it needs an external TAC / target-multiple input the RoC
+  entry points do not hold (keeping the generic result jurisdiction-agnostic).
+- Tests: `TestProfitTesterWithRBCCapital` (7) + `test_accepts_rbc_capital_model`
+  on the portfolio path — protocol conformance, RoC/strain/IRR populated,
+  covariance-root RoC closed form, RBC-ratio TAC/ACL closed form, LICAT/RBC share
+  the RoC formula, zero-factor→None RoC, LICAT schedule unchanged.
+- ADR-099. Goldens byte-identical (type widening; LICAT path untouched).
 
 ### Slice 3 — Solvency II SCR module
 - **Status:** PLANNED

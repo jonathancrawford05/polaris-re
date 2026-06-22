@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 
 from polaris_re.analytics.capital import LICATCapital, LICATFactors
+from polaris_re.analytics.capital_base import CapitalModel
 from polaris_re.analytics.portfolio import (
     Deal,
     DealResult,
@@ -29,6 +30,7 @@ from polaris_re.analytics.portfolio import (
     PortfolioScenarioResult,
 )
 from polaris_re.analytics.profit_test import ProfitTestResult
+from polaris_re.analytics.rbc import RBCCapital
 from polaris_re.analytics.scenario import ScenarioAdjustment, ScenarioRunner
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.assumptions.lapse import LapseAssumption
@@ -1258,6 +1260,35 @@ class TestPortfolioRunWithCapital:
         assert len(cap_block["capital_by_period"]) == d["projection_months"]
         # Round-trip JSON serialisable.
         json.dumps(d)
+
+    def test_accepts_rbc_capital_model(self):
+        """Epic 3 Slice 2 (ADR-099): the aggregate RoC entry point accepts any
+        ``CapitalModel`` — driving it with US ``RBCCapital`` returns the same
+        contract (peak/PV capital, RoC, capital-adjusted IRR) as LICAT."""
+        portfolio = (
+            Portfolio()
+            .add_deal(**_deal_spec("D1", "CedantA", treaty=_yrt(cession_pct=0.5)))
+            .add_deal(**_deal_spec("D2", "CedantB", treaty=_yrt(cession_pct=0.5)))
+        )
+        capital = RBCCapital.for_product(ProductType.TERM)
+        assert isinstance(capital, CapitalModel)
+
+        result = portfolio.run_with_capital(HURDLE, capital)
+
+        assert isinstance(result, PortfolioResultWithCapital)
+        assert result.peak_capital > 0.0
+        assert result.pv_capital > 0.0
+        assert result.return_on_capital is not None
+        # RoC uses the same denominator formula; only the capital number differs.
+        expected_schedule = capital.required_capital(
+            result.aggregate_cash_flow, nar=result.aggregate_ceded_nar
+        )
+        np.testing.assert_allclose(
+            result.capital_by_period, expected_schedule.capital_by_period, rtol=1e-12
+        )
+        assert result.return_on_capital == pytest.approx(
+            result.total_pv_profits / result.pv_capital
+        )
 
 
 # ---------------------------------------------------------------------------

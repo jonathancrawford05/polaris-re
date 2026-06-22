@@ -7,11 +7,15 @@ IRR: rate at which PV profits = 0, solved via scipy.optimize.brentq
 Break-even year: first year where cumulative discounted profit > 0
 Profit margin: pv_profits / pv_premiums
 
-Capital-aware extension (ADR-048, Slice 2 of LICAT capital feature):
-`run_with_capital(capital_model, *, nar=None)` joins the profit test with a
-`LICATCapital` calculator and returns `ProfitResultWithCapital` carrying
+Capital-aware extension (ADR-048, LICAT capital feature; widened to the
+jurisdiction-agnostic `CapitalModel` protocol in ADR-099):
+`run_with_capital(capital_model, *, nar=None)` joins the profit test with ANY
+`CapitalModel` calculator — Canadian `LICATCapital`, US `RBCCapital`, and
+(Slice 3) `SolvencyIICapital` — and returns `ProfitResultWithCapital` carrying
 peak/initial capital, PV capital (stock), PV capital strain (incremental),
-return-on-capital, and capital-adjusted IRR.
+return-on-capital, and capital-adjusted IRR. The method depends only on the
+`CapitalSchedule` surface (`required_capital`, `pv_capital`, `capital_strain`,
+`capital_by_period`, …), so every jurisdiction plugs into the same RoC machinery.
 """
 
 from dataclasses import dataclass, field
@@ -19,7 +23,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy.optimize import brentq
 
-from polaris_re.analytics.capital import CapitalResult, LICATCapital
+from polaris_re.analytics.capital_base import CapitalModel, CapitalSchedule
 from polaris_re.core.cashflow import CashFlowResult
 
 __all__ = ["ProfitResultWithCapital", "ProfitTestResult", "ProfitTester"]
@@ -241,33 +245,42 @@ class ProfitTester:
 
     def run_with_capital(
         self,
-        capital_model: LICATCapital,
+        capital_model: CapitalModel,
         *,
         nar: np.ndarray | None = None,
     ) -> ProfitResultWithCapital:
         """
         Compute profit metrics jointly with required capital and RoC.
 
-        Wraps `run()` and joins the result with a `LICATCapital`
-        calculator. The returned `ProfitResultWithCapital` contains every
-        field on `ProfitTestResult` (so callers that only inspect base
-        fields keep working) plus capital metrics.
+        Wraps `run()` and joins the result with any `CapitalModel`
+        calculator — Canadian `LICATCapital`, US `RBCCapital`, or (Slice 3)
+        `SolvencyIICapital`. The body uses only the `CapitalSchedule` surface
+        (`pv_capital`, `pv_capital_strain`, `capital_strain`,
+        `capital_by_period`, `initial_capital`, `peak_capital`), so the RoC
+        machinery is jurisdiction-agnostic. The returned
+        `ProfitResultWithCapital` contains every field on `ProfitTestResult`
+        (so callers that only inspect base fields keep working) plus capital
+        metrics.
 
         Args:
-            capital_model: An instantiated `LICATCapital` (typically built
-                via `LICATCapital.for_product(product_type)`).
-            nar: Optional NAR vector of shape `(T,)`. Forwarded to
-                `LICATCapital.required_capital`. If neither this nor
+            capital_model: An instantiated `CapitalModel` (e.g.
+                `LICATCapital.for_product(product_type)` or
+                `RBCCapital.for_product(product_type)`).
+            nar: Optional NAR vector of shape `(T,)`. Forwarded to the
+                model's `required_capital`. If neither this nor
                 `cashflows.nar` is set, the underlying calculator raises
                 `PolarisComputationError`.
 
         Returns:
             ProfitResultWithCapital with `pv_capital`, `return_on_capital`,
             `capital_adjusted_irr`, etc. populated. RoC denominator is
-            PV(capital stock) at the hurdle rate (ADR-048).
+            PV(capital stock) at the hurdle rate (ADR-048). Jurisdiction-specific
+            extras (e.g. RBC's Authorized Control Level / RBC ratio) live on the
+            concrete `CapitalSchedule` the model returns, not on this
+            jurisdiction-agnostic result.
         """
         base = self.run()
-        capital: CapitalResult = capital_model.required_capital(self.cashflows, nar=nar)
+        capital: CapitalSchedule = capital_model.required_capital(self.cashflows, nar=nar)
 
         pv_capital = capital.pv_capital(self.hurdle_rate)
         pv_capital_strain = capital.pv_capital_strain(self.hurdle_rate)

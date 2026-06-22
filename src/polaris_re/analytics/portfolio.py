@@ -45,7 +45,7 @@ from typing import Final, Literal
 
 import numpy as np
 
-from polaris_re.analytics.capital import LICATCapital
+from polaris_re.analytics.capital_base import CapitalModel
 from polaris_re.analytics.profit_test import ProfitTester, ProfitTestResult
 from polaris_re.analytics.scenario import ScenarioAdjustment, apply_scenario_to_assumptions
 from polaris_re.assumptions.assumption_set import AssumptionSet
@@ -301,7 +301,7 @@ class PortfolioResultWithCapital(PortfolioResult):
       with terminal release of residual capital at month ``T-1``.
     - ``capital_by_period``: full ``(T,)`` aggregate capital schedule.
 
-    The schedule comes from a single ``LICATCapital.required_capital`` call
+    The schedule comes from a single ``CapitalModel.required_capital`` call
     on the aggregate ``CashFlowResult`` with the aggregate ceded NAR.
     Because the calculator's components are linear in ``reserve_balance``
     and ``NAR``, and the aggregate is a per-month sum, this is identical to
@@ -755,24 +755,27 @@ class Portfolio:
     def run_with_capital(
         self,
         hurdle_rate: float,
-        capital_model: LICATCapital,
+        capital_model: CapitalModel,
         *,
         align: AlignMode = "strict",
     ) -> PortfolioResultWithCapital:
-        """Project, aggregate, and roll a single LICAT capital call onto the
+        """Project, aggregate, and roll a single capital call onto the
         portfolio.
 
         Wraps :meth:`run` and joins the aggregate ``CashFlowResult`` and
-        aggregate ceded NAR with a single ``LICATCapital.required_capital``
-        call. The result carries every ``PortfolioResult`` field plus
-        portfolio-level capital metrics and return-on-capital — see
-        :class:`PortfolioResultWithCapital`.
+        aggregate ceded NAR with a single ``CapitalModel.required_capital``
+        call. Accepts any ``CapitalModel`` — Canadian ``LICATCapital``, US
+        ``RBCCapital``, or (Slice 3) ``SolvencyIICapital`` — since the body
+        uses only the ``CapitalSchedule`` surface (ADR-099). The result carries
+        every ``PortfolioResult`` field plus portfolio-level capital metrics and
+        return-on-capital — see :class:`PortfolioResultWithCapital`.
 
         Args:
             hurdle_rate: Annual hurdle rate applied uniformly to every deal,
                 the aggregate profit test, and the PV-capital denominator.
-            capital_model: An instantiated ``LICATCapital`` (e.g. built via
-                ``LICATCapital.for_product(product_type)``). The same factor
+            capital_model: An instantiated ``CapitalModel`` (e.g. built via
+                ``LICATCapital.for_product(product_type)`` or
+                ``RBCCapital.for_product(product_type)``). The same factor
                 set is applied to the entire portfolio — for a heterogeneous
                 book, supply a model whose factors reflect the blended
                 exposure.

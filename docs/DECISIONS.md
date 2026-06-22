@@ -6206,3 +6206,71 @@ three-standard validation notebook (Slice 4). A configurable held-capital
 target multiple of ACL. The 2021+ NAIC designation-based bond factors and C-3
 Phase II stochastic interest-rate requirement (Asset/ALM epic). Tax / DTA and
 multi-currency books.
+
+---
+
+## ADR-099: Generalise `ProfitTester.run_with_capital` to the `CapitalModel` protocol (Epic 3, Slice 2)
+
+**Date:** 2026-06-21
+**Status:** Accepted
+
+**Context.** Slice 1 (ADR-098) added the US `RBCCapital` calculator and the
+shared `CapitalModel` / `CapitalSchedule` structural protocols, but
+`ProfitTester.run_with_capital` was still hard-typed to the concrete Canadian
+`LICATCapital` (and its result annotated `CapitalResult`). At runtime the method
+already worked with any conforming model — its body only ever touches the
+`CapitalSchedule` surface (`required_capital`, `pv_capital`,
+`pv_capital_strain`, `capital_strain`, `capital_by_period`, `initial_capital`,
+`peak_capital`) — so an `RBCCapital` produced correct return-on-capital by duck
+typing, but the type contract rejected it and no test proved the US path.
+Return-on-capital is the primary deal-pricing metric, so until the seam is
+genuinely jurisdiction-agnostic a US deal cannot be priced on a RoC basis.
+
+**Decision.** Widen the integration seam to the protocol, type-only:
+
+1. Both RoC entry points — `ProfitTester.run_with_capital` (single deal) and
+   `Portfolio.run_with_capital` (aggregate book) — take
+   `capital_model: CapitalModel`, with the internal
+   `capital: CapitalSchedule = capital_model.required_capital(…)`, replacing the
+   concrete `LICATCapital` / `CapitalResult` annotations. Imports are re-pointed
+   from `analytics.capital` to `analytics.capital_base`; the (now-unused)
+   concrete imports are dropped. No statement in either body changes — both
+   already depended solely on the protocol surface.
+
+2. Any `CapitalModel` — Canadian `LICATCapital`, US `RBCCapital`, and (Slice 3)
+   `SolvencyIICapital` — now feeds the same RoC / capital-strain /
+   capital-adjusted-IRR machinery. The RoC denominator remains PV(capital stock)
+   at the hurdle rate (ADR-048); only the capital number differs by jurisdiction.
+
+3. **Jurisdiction-specific extras stay on the schedule, not the generic
+   result.** `ProfitResultWithCapital` is deliberately left unchanged: RBC's
+   Authorized Control Level and `rbc_ratio(tac)` (= TAC / ACL₀) live on the
+   `RBCResult` the model returns, reachable via `capital_model.required_capital(cf)`.
+   The RBC ratio needs an external Total Adjusted Capital input that
+   `ProfitTester` does not hold, so a `ProfitResultWithCapital`-level RBC-ratio
+   surface is deferred to the Slice 4 surfacing (where a TAC / target-multiple
+   input is introduced).
+
+**Closed-form / verification anchors.** New `TestProfitTesterWithRBCCapital`
+asserts: `RBCCapital` satisfies `CapitalModel` and its schedule satisfies
+`CapitalSchedule`; an `RBCCapital`-driven `run_with_capital` populates RoC /
+PV-strain / capital-adjusted IRR; the RoC closed form against the NAIC
+covariance square root (`sqrt[(C1o+C3a)² + C2²]` for TERM defaults) over a flat
+reserve + NAR block; the RBC-ratio closed form (TAC / ACL with ACL = ½ CAL);
+that LICAT and RBC feed the identical RoC formula (only the capital number
+differs); the zero-factor → `None` RoC guard for RBC; and a regression that the
+LICAT capital schedule is byte-for-byte unchanged by the widening (`0.15 × NAR`).
+
+**Behaviour change.** None. The widening is type-only; the LICAT path is
+identical (existing `TestProfitTesterWithCapital` green, plus an explicit
+regression). Goldens are byte-identical (no rebaseline) — nothing in the
+default pricing path selects a non-LICAT model yet (that is Slice 4).
+
+**Out of scope (filed as follow-ups).** A `ProfitResultWithCapital`-level
+RBC-ratio / solvency-ratio surface with a TAC or target-multiple input (Slice 4
+surfacing). Solvency II SCR (Slice 3). The CLI `--capital {licat,rbc,solvency2}`
+/ API `capital_model` / Excel / dashboard jurisdiction selector (Slice 4). A
+configurable held-capital target multiple of ACL. The `Portfolio.run_with_capital`
+aggregate path is widened to the protocol in the **same** way in this slice (its
+body, like `ProfitTester`'s, already used only the `CapitalSchedule` surface), so
+RBC drives both the single-deal and portfolio RoC entry points consistently.
