@@ -397,8 +397,14 @@ epic-driven routine; plan in `docs/PLAN_cross_jurisdiction_capital.md`.*
       the `CapitalModel` protocol (type-only; LICAT path byte-identical), so US
       `RBCCapital` now drives RoC for deals and books. The RBC ratio is reachable
       on `RBCResult`; a result-level ratio surface is deferred to Slice 4.
-- [ ] Slice 3 — Solvency II SCR module (different aggregation: correlation
-      matrix across risk modules)
+- [x] Slice 3 — EU Solvency II SCR module (PR #99, ADR-100). `analytics/solvency2.py`
+      (`SolvencyIICapital` → `SolvencyIIResult`) builds the standard-formula SCR
+      through two correlation-matrix aggregations (`sqrt(rᵀ·Corr·r)` via einsum) —
+      life sub-modules (mortality / lapse / catastrophe) → life SCR → BSCR with
+      market + counterparty, plus a linear operational add-on — with a
+      cost-of-capital risk margin. Matrices are Delegated Regulation (EU) 2015/35
+      Annex IV constants. Satisfies `CapitalModel` / `CapitalSchedule`; additive
+      (nothing wired into pricing), goldens byte-identical.
 - [ ] Slice 4 — surface the jurisdiction selector on CLI / API / Excel
       (incl. a `ProfitResultWithCapital`-level RBC/solvency-ratio surface with
       a TAC / target-multiple input)
