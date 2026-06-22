@@ -43,6 +43,11 @@ from polaris_re.analytics.scenario import (
     ScenarioRunner,
     apply_scenario_to_assumptions,
 )
+from polaris_re.analytics.solvency2 import (
+    SolvencyIICapital,
+    SolvencyIIFactors,
+    SolvencyIIResult,
+)
 from polaris_re.analytics.stochastic import CIRModel, HullWhiteModel, RateScenarios
 from polaris_re.analytics.uq import MonteCarloUQ, UQParameters, UQResult
 
@@ -86,6 +91,9 @@ __all__ = [
     "ScenarioResult",
     "ScenarioRunner",
     "SolveMode",
+    "SolvencyIICapital",
+    "SolvencyIIFactors",
+    "SolvencyIIResult",
     "UQParameters",
     "UQResult",
     "YRTRateSchedule",

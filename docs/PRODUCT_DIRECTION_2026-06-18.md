@@ -417,6 +417,31 @@ Items harvested from completed/in-flight work by the daily-dev routine
   in Epic 3 Slice 2/4.
   *Source: ADR-098 Out of scope + CONTINUATION_cross_jurisdiction_capital Open Questions (1st-order).*
 
+- **NICE-TO-HAVE — Additional Solvency II SCR sub-modules.** The EU Solvency II
+  module (Epic 3 Slice 3) models only the life-underwriting sub-modules that
+  drive a typical individual-life reinsurance quote — **mortality, lapse,
+  catastrophe** — plus top-level **market** and **counterparty default** risk.
+  The standard formula also defines **longevity, expense, revision, and
+  disability/morbidity** life sub-modules and **health / non-life / intangible**
+  top-level modules. Extending the correlation matrices and factor set to cover
+  these would let the engine quote annuity (longevity) and health books on a true
+  standard-formula SCR rather than the mortality-proxy approximation used today.
+  Affects only longevity/health/non-life blocks, not the common life first-deal
+  path → NICE-TO-HAVE. The aggregation machinery (`_correlation_aggregate`) and
+  the documented-matrix pattern already generalise to larger matrices, so this is
+  factor + matrix extension, not new structure.
+  *Source: ADR-100 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — Result-level solvency-ratio surface (own funds / SCR).** The
+  Solvency II `SolvencyIIResult` exposes the SCR schedule and the cost-of-capital
+  risk margin, but not a solvency ratio (own funds / SCR), the EU analogue of the
+  RBC ratio. Like the deferred RBC ratio it needs an external own-funds input the
+  RoC entry points do not hold, so it lands in Epic 3 Slice 4 alongside the
+  CLI/API jurisdiction selector and the TAC / own-funds input. Affects the
+  capital-ratio surface for EU deals, not first-deal RoC correctness →
+  NICE-TO-HAVE.
+  *Source: ADR-100 Out of scope (1st-order).*
+
 - **NICE-TO-HAVE — Statutory reserve bases for UL and DI.** The reserve-basis
   epic (A1) implements CRVM / VM-20 / GAAP for Term and Whole Life only. UL
   keeps reserve = account value and DI keeps reserve = 0; both raise

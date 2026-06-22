@@ -66,16 +66,37 @@ limits return-on-capital pricing to Canadian deals.
   portfolio path. Full fast suite 1569 passed; QA golden suite 72 green.
 
 ### Slice 3: Solvency II SCR module
-- **Status:** NEXT
-- **Depends on:** Slice 2 merged (PR #98)
-- **Scope:** `analytics/solvency2.py` — modular SCR (life underwriting:
-  mortality / lapse / catastrophe; market; counterparty), correlation-matrix
-  BSCR aggregation `sqrt(rᵀ·Corr·r)`, cost-of-capital risk margin. Satisfies
-  `CapitalModel` / `CapitalSchedule`. Closed-form correlation-aggregation test.
-  ADR-100. Goldens byte-identical.
+- **Status:** DONE
+- **Branch:** `claude/awesome-bardeen-ed43mz` (environment-designated)
+- **PR:** (this slice)
+- **What was done:** Added `analytics/solvency2.py` — `SolvencyIIFactors`,
+  `SolvencyIIResult`, `SolvencyIICapital` — implementing the Solvency II
+  standard-formula SCR: life-underwriting sub-modules (mortality / lapse /
+  catastrophe) correlation-aggregated into a life SCR, then combined with market
+  and counterparty risk through the top-level correlation matrix into the BSCR,
+  with operational risk added linearly outside the matrix (`SCR = BSCR + Op`).
+  Both aggregations use the standard-formula quadratic-form square root
+  `sqrt(rᵀ·Corr·r)`, vectorised per period via `einsum`. Correlation matrices
+  (`LIFE_CORRELATION`, `TOP_LEVEL_CORRELATION`) are the Delegated Regulation (EU)
+  2015/35 Annex IV values in documented constants. Cost-of-capital risk margin
+  (`risk_margin`, CoC 6%). 34 closed-form tests. ADR-100. Goldens byte-identical.
+- **Key decisions:**
+  - **Two correlation matrices, not one covariance pair** — the genuine
+    structural difference from RBC. Aggregation generalised to a full matrix via
+    `_correlation_aggregate` (einsum over the component index, no per-period
+    loop).
+  - **Catastrophe default (0.0015 of NAR) is the citable standard-formula
+    life-CAT shock** (+1.5‰ of capital-at-risk for one year); the other factors
+    are conservative committee-stage placeholders, overridable, exactly as
+    LICAT/RBC.
+  - **Operational risk adds outside the BSCR matrix** (no diversification
+    credit), mirroring RBC's C-0/C-4a outside-the-root convention.
+  - Only mortality / lapse / catastrophe life sub-modules + market +
+    counterparty are modelled; longevity / expense / revision / disability and
+    the health / non-life top-level modules are out of scope (filed follow-up).
 
 ### Slice 4: Surface the jurisdiction selector
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 3 merged
 - **Scope:** CLI `polaris price --capital {licat,rbc,solvency2}` (default
   `licat` → byte-identical); API `capital_model` field; Excel capital-sheet
@@ -85,8 +106,25 @@ limits return-on-capital pricing to Canadian deals.
 
 ## Context for Next Session
 
-- Slice 2 is merged-pending (PR #98): both `ProfitTester.run_with_capital` and
-  `Portfolio.run_with_capital` now take the `CapitalModel` protocol, so the next
+- Slices 1–3 give all three calculators (`LICATCapital`, `RBCCapital`,
+  `SolvencyIICapital`), each satisfying `CapitalModel` / `CapitalSchedule`, and
+  both RoC entry points already take the protocol. **Slice 4 is now pure
+  surfacing**: a CLI `--capital {licat,rbc,solvency2}` selector (default `licat`
+  → byte-identical), the API `capital_model` field (currently a 2-value literal;
+  the existing tests assert `solvency2` is rejected — Slice 4 must add it and
+  flip those two tests to expect acceptance), the Excel capital-sheet
+  jurisdiction label + ratio, the dashboard selector, and the three-standard
+  validation notebook. Wiring is a small dict `{"licat": ..., "rbc": ...,
+  "solvency2": SolvencyIICapital.for_product}`.
+- **Heads-up for Slice 4 (existing-test flip):**
+  `tests/test_analytics/test_cli.py::test_capital_invalid_value_exits_non_zero`
+  and `tests/test_api/test_main.py::test_price_capital_model_invalid_value_returns_422`
+  currently use `solvency2` as the *unknown* value. Slice 4 changes the surface,
+  so those two tests must be updated to a still-unknown id (e.g. `"bogus"`) and
+  new acceptance tests added for `rbc` / `solvency2`. This is the one place
+  Slice 4 legitimately edits existing assertions (the surface contract changed).
+- Slice 2 (PR #98) widened both `ProfitTester.run_with_capital` and
+  `Portfolio.run_with_capital` to the `CapitalModel` protocol, so the next
   jurisdiction only needs to satisfy `CapitalModel` / `CapitalSchedule` to plug
   into RoC for free — no further integration work in profit_test / portfolio.
 - `RBCResult` deliberately mirrors `CapitalResult`'s helper surface so it is a

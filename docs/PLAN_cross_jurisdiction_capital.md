@@ -11,7 +11,8 @@
 >
 > **Status.** IN PROGRESS — Slice 1 shipped (US RBC core + `CapitalModel`
 > protocol, ADR-098); Slice 2 shipped (RoC entry points widened to the
-> `CapitalModel` protocol, ADR-099, PR #98). Slices 3–4 planned below.
+> `CapitalModel` protocol, ADR-099, PR #98); Slice 3 shipped (EU Solvency II SCR
+> module, ADR-100). Slice 4 (surfacing) planned below.
 >
 > **Source.** `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` Tier-A item
 > **A3** (★★★★★ value, ~15 dev-days for both, the #3 unstarted epic, started
@@ -104,8 +105,8 @@ goldens byte-identical until the final surfacing slice.
   the RoC formula, zero-factor→None RoC, LICAT schedule unchanged.
 - ADR-099. Goldens byte-identical (type widening; LICAT path untouched).
 
-### Slice 3 — Solvency II SCR module
-- **Status:** PLANNED
+### Slice 3 — Solvency II SCR module  ✅ SHIPPED (ADR-100)
+- **Status:** DONE
 - `analytics/solvency2.py`: `SolvencyIIFactors`, `SolvencyIIResult`,
   `SolvencyIICapital` — modular SCR (life underwriting: mortality / lapse /
   catastrophe sub-modules; market; counterparty), **correlation-matrix** BSCR

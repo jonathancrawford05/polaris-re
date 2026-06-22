@@ -21,7 +21,7 @@ Polaris RE provides:
 - ✅ **Modern stack** — Python 3.12+, Pydantic v2, Polars 1.0+, NumPy 2.0+, fully typed
 - ✅ **API-first** — full REST API (FastAPI), CLI (Typer), and Streamlit dashboard
 - ✅ **IFRS 17** — BBA, PAA, and VFA measurement plus the period-to-period movement table
-- ✅ **Return-on-capital** — LICAT regulatory capital today; US RBC and Solvency II in progress
+- ✅ **Return-on-capital** — LICAT (Canada) and US RBC drive return-on-capital today; EU Solvency II SCR module shipped, its CLI/API selector in progress
 - ✅ **Statutory reserves** — reproduce the cedant's basis (CRVM, VM-20) alongside net-premium
 
 ---
@@ -59,8 +59,8 @@ breakdown.
 | `analytics/` | Experience Studies — A/E, limited-fluctuation credibility, blended rates | ✅ |
 | `analytics/` | Portfolio aggregation — multi-deal runner, concentration/HHI, calendar alignment, portfolio scenarios | ✅ |
 | `analytics/` | Regulatory capital — LICAT (C-1/C-2/C-3 + lapse/morbidity) → return-on-capital | ✅ |
-| `analytics/` | Regulatory capital — US NAIC Life RBC core + shared `CapitalModel` protocol | 🔄 in progress |
-| `analytics/` | Regulatory capital — Solvency II SCR | ⏳ planned |
+| `analytics/` | Regulatory capital — US NAIC Life RBC + shared `CapitalModel` protocol; drives return-on-capital | 🔄 module + RoC integration shipped; CLI/API selector in progress |
+| `analytics/` | Regulatory capital — EU Solvency II SCR (standard-formula correlation-matrix BSCR + risk margin) | 🔄 module shipped; CLI/API selector in progress |
 | `analytics/` | YRT rate schedule generator — flat + per-duration solve to a target IRR | ✅ |
 | `assumptions/` | ML-enhanced mortality & lapse (scikit-learn / XGBoost), same protocol as table-based | ✅ |
 | `utils/` | Cedant inforce data ingestion — YAML-driven mapping, data-quality report | ✅ |
@@ -271,7 +271,7 @@ polaris-re/
 │   ├── reinsurance/       ← YRT, Coinsurance, Modco, Stop Loss
 │   ├── analytics/         ← Profit testing, premium sufficiency, scenarios, UQ, IFRS 17
 │   │                         (incl. movement table), stochastic rates, experience studies,
-│   │                         portfolio aggregation, regulatory capital (LICAT, RBC),
+│   │                         portfolio aggregation, regulatory capital (LICAT, RBC, Solvency II),
 │   │                         YRT rate schedule
 │   ├── api/               ← FastAPI application
 │   ├── dashboard/         ← Streamlit dashboard

@@ -6274,3 +6274,79 @@ configurable held-capital target multiple of ACL. The `Portfolio.run_with_capita
 aggregate path is widened to the protocol in the **same** way in this slice (its
 body, like `ProfitTester`'s, already used only the `CapitalSchedule` surface), so
 RBC drives both the single-deal and portfolio RoC entry points consistently.
+
+---
+
+## ADR-100: EU Solvency II SCR capital module (Epic 3, Slice 3)
+
+**Date:** 2026-06-22
+**Status:** Accepted
+
+**Context.** Slices 1–2 (ADR-098 / ADR-099) added the US `RBCCapital` calculator
+and widened both return-on-capital entry points to the `CapitalModel` /
+`CapitalSchedule` protocols, so a new jurisdiction needs only to satisfy those
+protocols to plug into RoC for free. The EU is the second-largest reinsurance
+market and the third regulatory standard the engine must price under; without a
+Solvency II SCR an EU deal cannot be quoted on a return-on-capital basis. This
+slice adds the EU sibling of the Canadian LICAT and US RBC modules.
+
+**Decision.** Add `analytics/solvency2.py` — `SolvencyIIFactors` (Pydantic),
+`SolvencyIIResult` (dataclass schedule), `SolvencyIICapital` (calculator) —
+implementing the Solvency II **standard-formula** SCR as a factor-based
+committee-stage calculator, exactly the disposition LICAT (ADR-047/065/072) and
+RBC (ADR-098) use:
+
+1. **Two correlation-matrix aggregations.** The life-underwriting sub-modules
+   (mortality, lapse, catastrophe) are aggregated by `LIFE_CORRELATION` into a
+   life SCR; that, with market and counterparty-default risk, is aggregated by
+   `TOP_LEVEL_CORRELATION` into the Basic SCR (BSCR). Both use the
+   standard-formula quadratic-form square root `sqrt(rᵀ · Corr · r)`, evaluated
+   per period via an `einsum` over the component index (vectorised, no per-period
+   loop). This is the EU analogue of the NAIC covariance square root (ADR-098),
+   generalised from a single asset/insurance pair to a full correlation matrix.
+
+2. **Operational risk adds linearly outside the BSCR matrix** (no diversification
+   credit), giving `SCR = BSCR + Op`. `capital_by_period` is the SCR — the
+   held-capital basis fed to RoC via `pv_capital`, matching the LICAT/RBC
+   convention.
+
+3. **Correlation matrices are the standard-formula values** from Commission
+   Delegated Regulation (EU) 2015/35, Annex IV: top-level market / counterparty /
+   life all pairwise 0.25; within life, mortality-lapse 0, mortality-CAT and
+   lapse-CAT 0.25. They live in documented module constants (`LIFE_CORRELATION`,
+   `TOP_LEVEL_CORRELATION`), not inline in the calculation path.
+
+4. **Cost-of-capital risk margin.** `SolvencyIIResult.risk_margin(rate, coc=6%)`
+   applies the standard CoC method `RM = CoC · PV(future SCR)`, the monthly
+   committee-stage analogue of the standard-formula risk margin.
+
+5. **Factor exposures.** Mortality and catastrophe apply to NAR (capital-at-risk);
+   lapse, market, counterparty, operational apply to reserves. The catastrophe
+   default (0.0015 of NAR) is the citable standard-formula life-CAT shock
+   (+1.5 per mille of capital-at-risk for one year); the rest are conservative
+   committee-stage placeholders, overridable on `SolvencyIIFactors` and selected
+   per product by `SolvencyIICapital.for_product`.
+
+**Closed-form / verification anchors.** `test_solvency2.py` (34 tests) asserts:
+the life SCR closed form `sqrt(m² + l² + c² + 0.5·m·c + 0.5·l·c)`; the BSCR
+closed form `sqrt(M² + D² + L² + 0.5·(MD + ML + DL))`; correlation matrices are
+symmetric with unit diagonal and the documented off-diagonals; operational risk
+adds linearly outside the BSCR; the risk-margin CoC closed form and its linearity
+in CoC; diversification credit (aggregate < linear sum); per-product factor
+defaults; CEDED rejection and NAR resolution / length guards; and that
+`SolvencyIICapital` / `SolvencyIIResult` satisfy `CapitalModel` /
+`CapitalSchedule` and differ from LICAT on the same block.
+
+**Behaviour change.** None. `solvency2.py` is a new additive module wired into
+nothing in the pricing path; the `--capital solvency2` CLI/API selector is still
+rejected (Slice 4 surfaces it). Goldens are byte-identical (no rebaseline).
+
+**Out of scope (filed as follow-ups).** The CLI `--capital solvency2` / API
+`capital_model="solvency2"` / Excel / dashboard jurisdiction selector and the
+three-standard validation notebook (Slice 4). A `ProfitResultWithCapital`-level
+solvency-ratio surface (own funds / SCR) needing an external own-funds input
+(Slice 4, alongside the deferred RBC ratio). Longevity, expense, revision, and
+disability/morbidity life sub-modules and the health/non-life top-level modules
+(only mortality/lapse/catastrophe + market + counterparty are modelled here).
+The shock-based standard-formula calibration that replaces the factor
+approximations (C0 Asset/ALM epic, CVR Tier C).
