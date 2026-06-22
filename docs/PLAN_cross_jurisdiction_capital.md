@@ -12,7 +12,9 @@
 > **Status.** IN PROGRESS — Slice 1 shipped (US RBC core + `CapitalModel`
 > protocol, ADR-098); Slice 2 shipped (RoC entry points widened to the
 > `CapitalModel` protocol, ADR-099, PR #98); Slice 3 shipped (EU Solvency II SCR
-> module, ADR-100). Slice 4 (surfacing) planned below.
+> module, ADR-100, PR #99); Slice 4a shipped (CLI + API jurisdiction selector,
+> ADR-101). Slice 4 was re-decomposed into 4a (machine surfaces, done) and 4b
+> (Excel / dashboard / notebook + result-level ratio, planned below).
 >
 > **Source.** `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` Tier-A item
 > **A3** (★★★★★ value, ~15 dev-days for both, the #3 unstarted epic, started
@@ -117,13 +119,20 @@ goldens byte-identical until the final surfacing slice.
 - ADR-100. Goldens byte-identical (new module, nothing wired into pricing).
 
 ### Slice 4 — Surface the jurisdiction selector
-- **Status:** PLANNED
-- CLI `polaris price --capital {licat,rbc,solvency2}` (default `licat` →
-  byte-identical); API `capital_model` field; Excel capital sheet jurisdiction
-  label + ratio; dashboard selector; validation notebook comparing the three
-  standards on the golden block. This is the surfacing slice (outputs move only
-  for runs that explicitly request a non-LICAT jurisdiction).
-- ADR-101. May rebaseline only the capital-surface goldens for non-default runs;
+Re-decomposed once selected (the single slice proved LARGE — CLI + API + Excel +
+dashboard + notebook + ratio surface) into two independently mergeable sub-slices.
+
+#### Slice 4a — CLI + API jurisdiction selector  ✅ SHIPPED (ADR-101)
+- CLI `polaris price --capital {licat,rbc,solvency2}` and API `capital_model`
+  field, both routed through one shared `capital_model_for` registry in
+  `analytics/capital_base.py`. Default / `licat` paths byte-identical; only
+  explicit `rbc` / `solvency2` runs (previously errors) move.
+
+#### Slice 4b — Excel / dashboard / notebook + result-level ratio  PLANNED
+- Excel capital-sheet jurisdiction label + ratio; dashboard selector; validation
+  notebook comparing the three standards on the golden block; the result-level
+  solvency/RBC-ratio surface (external own-funds / TAC input ÷ SCR / ACL).
+- ADR-102. May rebaseline only the capital-surface goldens for non-default runs;
   the default `licat` path stays byte-identical.
 
 ## 4. Key constraints (from CLAUDE.md / ARCHITECTURE.md)

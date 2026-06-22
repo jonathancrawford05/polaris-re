@@ -6350,3 +6350,72 @@ disability/morbidity life sub-modules and the health/non-life top-level modules
 (only mortality/lapse/catastrophe + market + counterparty are modelled here).
 The shock-based standard-formula calibration that replaces the factor
 approximations (C0 Asset/ALM epic, CVR Tier C).
+
+## ADR-101: Surface the jurisdiction selector on the CLI and REST API (Epic 3, Slice 4a)
+
+**Date:** 2026-06-22
+**Status:** Accepted
+
+**Context.** Slices 1–3 (ADR-098/099/100) shipped all three regulatory-capital
+calculators — `LICATCapital` (Canada), `RBCCapital` (US), `SolvencyIICapital`
+(EU) — each satisfying the shared `CapitalModel` / `CapitalSchedule` protocols,
+and widened both return-on-capital entry points (`ProfitTester.run_with_capital`,
+`Portfolio.run_with_capital`) to those protocols. But the only surface that
+selects a model — the CLI `--capital` flag and the API `capital_model` field —
+was still hard-wired to `licat`: both rejected `rbc` and `solvency2`. A reinsurer
+therefore still could not actually *price* a US or EU deal on a return-on-capital
+basis from either machine surface, despite the calculators existing. The planned
+Slice 4 (CLI + API + Excel + dashboard + validation notebook + result-level ratio
+surface) is LARGE; this ADR records the first sub-slice (4a), the two machine
+surfaces, decomposed out so each ships as an independently mergeable, fully tested
+PR.
+
+**Decision.** Add one shared registry/resolver and route both surfaces through it.
+
+1. **Single registry in `analytics/capital_base.py`.** A `SUPPORTED_CAPITAL_MODELS`
+   tuple `("licat", "rbc", "solvency2")`, a `CapitalModelId` literal type alias,
+   and a `capital_model_for(model_id, product_type) -> CapitalModel` factory. The
+   factory normalises the id (strip + lower-case), then constructs the matching
+   calculator via its `for_product`. The concrete-calculator imports are **deferred
+   to call time** because `rbc` / `capital` / `solvency2` import `capital_base` for
+   `discount_stream` / `strain_of` — a module-level import here would be circular.
+   This is the one place a fourth jurisdiction will be added.
+
+2. **CLI.** The `--capital` validation widens from `!= "licat"` to
+   `not in SUPPORTED_CAPITAL_MODELS`; `_run_profit_tests` resolves the model via
+   `capital_model_for` instead of constructing `LICATCapital` directly. The error
+   message lists the supported ids.
+
+3. **API.** The `capital_model` field type widens from `Literal["licat"]` to the
+   shared `CapitalModelId`, so Pydantic accepts `rbc` / `solvency2` and still 422s
+   on anything else; the price handler resolves via `capital_model_for`.
+
+The capital output block (RoC, peak capital, PV strain, capital-adjusted IRR) is
+already jurisdiction-agnostic — it reads only the `CapitalSchedule` surface — so
+no output-shaping code changed; RBC and Solvency II render through the same JSON /
+console path LICAT already used.
+
+**Verification anchors.** New `test_capital_base.py` (13) locks the registry:
+every supported id resolves to its calculator class and satisfies the
+`CapitalModel` protocol; the id is case-insensitive / whitespace-tolerant; an
+unknown id raises `ValueError` listing the supported ids; product type drives the
+factor defaults. The CLI gains parametrised `rbc` / `solvency2` end-to-end JSON
+tests plus a three-way "distinct peak capital" test proving the selector routes to
+a genuinely different calculator (not a silent LICAT fallback); the API gains the
+mirror parametrised acceptance tests. The two pre-existing rejection tests
+(`test_capital_invalid_value_exits_non_zero`, `test_price_capital_model_invalid_value_returns_422`)
+used `solvency2` as the *unknown* value — now that it is valid, they move to a
+still-unknown id (`bogus`). This is the one place the surface contract legitimately
+changed an existing assertion.
+
+**Behaviour change.** Only for runs that explicitly request `--capital rbc` or
+`--capital solvency2` (previously an error, now a priced result). The default
+(no `--capital`) and `--capital licat` paths are byte-identical — QA golden suite
+(72) green, no rebaseline.
+
+**Out of scope (filed as follow-ups / planned Slice 4b).** The Excel capital-sheet
+jurisdiction label + ratio, the dashboard `--capital` selector, and the
+three-standard validation notebook on the golden block. The result-level
+solvency/RBC-ratio surface (own funds-or-TAC ÷ SCR-or-ACL) needing an external
+own-funds / TAC input the RoC entry points do not hold (Slice 4b, with the input).
+The shock-based factor calibration (C0 Asset/ALM epic).

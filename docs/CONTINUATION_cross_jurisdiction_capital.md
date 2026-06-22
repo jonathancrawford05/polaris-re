@@ -96,13 +96,47 @@ limits return-on-capital pricing to Canadian deals.
     the health / non-life top-level modules are out of scope (filed follow-up).
 
 ### Slice 4: Surface the jurisdiction selector
+The planned single Slice 4 (CLI + API + Excel + dashboard + notebook + ratio
+surface) proved LARGE once selected, so it was re-decomposed into 4a (machine
+surfaces, shipped) and 4b (presentation surfaces + ratio, planned). Each is an
+independently mergeable, fully tested PR — per the routine's allowance for a
+slice that proves larger than expected.
+
+#### Slice 4a: CLI + API jurisdiction selector  ✅ DONE
+- **Status:** DONE
+- **Branch:** `claude/awesome-bardeen-e4ana9` (environment-designated)
+- **PR:** (this slice)
+- **What was done:** Added a single shared registry in
+  `analytics/capital_base.py` — `SUPPORTED_CAPITAL_MODELS`, the `CapitalModelId`
+  literal alias, and `capital_model_for(model_id, product_type) -> CapitalModel`
+  (lazy calculator imports to avoid the `capital_base` ↔ `rbc`/`capital`/
+  `solvency2` circular import). Routed BOTH machine surfaces through it: the CLI
+  `--capital` flag (validation widened to the registry; `_run_profit_tests`
+  resolves via the factory) and the API `capital_model` field (type widened from
+  `Literal["licat"]` to `CapitalModelId`; price handler resolves via the
+  factory). The capital output block is already jurisdiction-agnostic, so RBC /
+  Solvency II render through the same JSON / console path. ADR-101.
+- **Key decisions:**
+  - **One registry, two surfaces** — a fourth jurisdiction is added in exactly
+    one place (`capital_base.py`), and CLI/API can never drift apart.
+  - The two pre-existing rejection tests (CLI exit-1, API 422) used `solvency2`
+    as the *unknown* value; now that it is valid they move to `bogus`. This is
+    the documented surface-contract flip the prior slice flagged.
+  - Goldens byte-identical: only `--capital rbc` / `--capital solvency2` (was an
+    error) move; default and `--capital licat` paths untouched.
+- **Tests:** `test_capital_base.py` (13 — registry/protocol/normalisation/unknown);
+  CLI parametrised `rbc`/`solvency2` JSON + three-way distinct-peak-capital;
+  API parametrised `rbc`/`solvency2` acceptance; both rejection tests re-pointed
+  to `bogus`. Fast suite 1616 passed; QA golden suite 72 green.
+
+#### Slice 4b: Excel / dashboard / notebook + result-level ratio surface
 - **Status:** NEXT
-- **Depends on:** Slice 3 merged
-- **Scope:** CLI `polaris price --capital {licat,rbc,solvency2}` (default
-  `licat` → byte-identical); API `capital_model` field; Excel capital-sheet
-  jurisdiction label + ratio; dashboard selector; three-standard validation
-  notebook on the golden block. The surfacing slice — outputs move only for
-  runs that explicitly request a non-LICAT jurisdiction. ADR-101.
+- **Depends on:** Slice 4a merged
+- **Scope:** Excel capital-sheet jurisdiction label + ratio; dashboard
+  `--capital {licat,rbc,solvency2}` selector; three-standard validation notebook
+  on the golden block; the result-level solvency/RBC-ratio surface (own-funds /
+  TAC input ÷ SCR / ACL) deferred from Slices 2–3 because it needs an external
+  own-funds / target-multiple input the RoC entry points do not hold. ADR-102.
 
 ## Context for Next Session
 

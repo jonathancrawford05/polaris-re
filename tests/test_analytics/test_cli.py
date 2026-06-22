@@ -100,8 +100,12 @@ class TestPriceCommandCapital:
         assert "return_on_capital" not in data["reinsurer"]
 
     def test_capital_invalid_value_exits_non_zero(self):
-        """--capital with an unknown model id exits 1 with a clear message."""
-        result = runner.invoke(app, ["price", "--capital", "solvency2"])
+        """--capital with an unknown model id exits 1 with a clear message.
+
+        ``solvency2`` is now a *valid* jurisdiction (ADR-101 Slice 4a), so the
+        unknown-value probe uses a still-unrecognised id.
+        """
+        result = runner.invoke(app, ["price", "--capital", "bogus"])
         assert result.exit_code == 1, result.output
         assert "Unknown --capital value" in result.output
 
@@ -111,6 +115,39 @@ class TestPriceCommandCapital:
         assert result.exit_code == 0, result.output
         assert "Return on Capital" in result.output
         assert "Peak Capital" in result.output
+
+    @pytest.mark.parametrize("jurisdiction", ["rbc", "solvency2"])
+    def test_capital_jurisdiction_emits_return_on_capital_in_json(
+        self, jurisdiction: str, tmp_path: Path
+    ):
+        """--capital rbc / solvency2 price end-to-end and emit the capital block (ADR-101)."""
+        out_file = tmp_path / f"result_{jurisdiction}.json"
+        result = runner.invoke(app, ["price", "--capital", jurisdiction, "--output", str(out_file)])
+        assert result.exit_code == 0, result.output
+        data = json.loads(out_file.read_text())
+        assert "return_on_capital" in data["cedant"]
+        assert "peak_capital" in data["cedant"]
+        assert "pv_capital" in data["cedant"]
+        assert "pv_capital_strain" in data["cedant"]
+        assert "capital_adjusted_irr" in data["cedant"]
+        assert "return_on_capital" in data["reinsurer"]
+
+    def test_capital_rbc_and_solvency2_differ_from_licat(self, tmp_path: Path):
+        """The three jurisdictions produce distinct peak capital on the same block.
+
+        Confirms the selector actually routes to a different calculator rather
+        than silently falling back to LICAT.
+        """
+        peaks: dict[str, float] = {}
+        for jurisdiction in ("licat", "rbc", "solvency2"):
+            out_file = tmp_path / f"peak_{jurisdiction}.json"
+            result = runner.invoke(
+                app, ["price", "--capital", jurisdiction, "--output", str(out_file)]
+            )
+            assert result.exit_code == 0, result.output
+            peaks[jurisdiction] = json.loads(out_file.read_text())["cedant"]["peak_capital"]
+        # Distinct factor models → distinct peak capital across all three.
+        assert len({round(p, 2) for p in peaks.values()}) == 3, peaks
 
 
 @pytest.mark.slow
