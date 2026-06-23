@@ -151,3 +151,19 @@ Reference for developers who are not credentialed actuaries. Consult before impl
 ## Financial Metrics and Reporting
 
 **IFRS 17** — The international financial reporting standard for insurance contracts, effective 2023. Requires a building-block approach (BBA) with explicit risk adjustment and contractual service margin (CSM). The CSM represents unearned profit and is released over the coverage period. This is the primary accounting framework for Munich Re.
+
+---
+
+## Regulatory Capital
+
+**Required Capital** — The amount of capital a regulator requires the (re)insurer to hold against a block of business, computed at each projection month. In Polaris RE it is a positive, time-varying schedule; it is NOT discounted at the hurdle rate (the time-value adjustment lives in return-on-capital). Each jurisdiction defines its own formula.
+
+**Return on Capital (RoC)** — PV of profits divided by PV of the required-capital stock, at the hurdle rate. The primary decision metric for reinsurance deal pricing on a capital basis: a deal is attractive when RoC exceeds the cost of capital (8–12% for life reinsurance). Distinct from the *solvency ratio* below — RoC measures profitability per dollar of capital held; the solvency ratio measures whether the company holds enough capital.
+
+**LICAT (Life Insurance Capital Adequacy Test)** — OSFI's Canadian regulatory capital standard. Built from C-1 (asset default), C-2 (insurance risk — mortality + lapse + morbidity), and C-3 (interest-rate) components. The **LICAT total ratio** is available capital ÷ required capital.
+
+**US RBC (Risk-Based Capital)** — The NAIC's US standard. Aggregates the C-0…C-4 components by the **covariance square root** (asset and insurance risk are imperfectly correlated, so they do not simply sum). The covariance result is the **Company Action Level (CAL)**; the **Authorized Control Level (ACL)** is half the CAL. The **RBC ratio** is Total Adjusted Capital (TAC) ÷ ACL — the number a US regulator reads (e.g. 300% = a healthy position).
+
+**Solvency II SCR (Solvency Capital Requirement)** — The EU standard. A modular standard-formula requirement: life-underwriting sub-modules (mortality / lapse / catastrophe), market, and counterparty risk are aggregated through correlation matrices into the Basic SCR, with operational risk added outside the matrix. The **EU solvency ratio** is eligible **own funds** ÷ SCR.
+
+**Capital Ratio (solvency ratio)** — The unified Polaris RE surface (`CapitalSchedule.capital_ratio(available_capital)`) for the three jurisdiction ratios above: `available_capital ÷ denominator₀`, evaluated at issue (projection month 0), expressed as a multiple. The numerator (available capital / TAC / own funds) is uniform; the *denominator* is the jurisdictional difference — required capital for LICAT, ACL for RBC, SCR for Solvency II. Surfaced on `ProfitResultWithCapital.capital_ratio` when `ProfitTester.run_with_capital` is given an `available_capital` numerator.

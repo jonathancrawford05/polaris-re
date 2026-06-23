@@ -396,7 +396,8 @@ epic-driven routine; plan in `docs/PLAN_cross_jurisdiction_capital.md`.*
       `Portfolio.run_with_capital` — widened from the concrete `LICATCapital` to
       the `CapitalModel` protocol (type-only; LICAT path byte-identical), so US
       `RBCCapital` now drives RoC for deals and books. The RBC ratio is reachable
-      on `RBCResult`; a result-level ratio surface is deferred to Slice 4.
+      on `RBCResult`; a result-level ratio surface was deferred to Slice 4 (shipped
+      in 4c-1, ADR-103).
 - [x] Slice 3 — EU Solvency II SCR module (PR #99, ADR-100). `analytics/solvency2.py`
       (`SolvencyIICapital` → `SolvencyIIResult`) builds the standard-formula SCR
       through two correlation-matrix aggregations (`sqrt(rᵀ·Corr·r)` via einsum) —
@@ -418,11 +419,18 @@ epic-driven routine; plan in `docs/PLAN_cross_jurisdiction_capital.md`.*
       new `DealPricingExport.capital_model_id`); shared `CAPITAL_MODEL_LABELS` /
       `capital_model_label()` is the single labelling site so dashboard and Excel
       cannot drift (PR #101, ADR-102). Default / `licat` paths byte-identical.
-- [ ] Slice 4c — a `ProfitResultWithCapital`-level RBC/solvency-ratio surface
-      (own funds-or-TAC ÷ SCR-or-ACL) with a TAC / own-funds / target-multiple
-      input threaded through the CLI/API/dashboard, plus a three-standard
-      validation notebook comparing LICAT / RBC / Solvency II on the golden block
-      (ADR-103)
+- [x] Slice 4c-1 — the `ProfitResultWithCapital`-level RBC/solvency-ratio surface
+      core (PR #102, ADR-103). A `CapitalSchedule.capital_ratio(available_capital)`
+      protocol method (LICAT total ratio / RBC ratio / EU solvency ratio, with the
+      denominator encapsulated per jurisdiction) surfaced on `ProfitResultWithCapital`
+      via an optional `run_with_capital(..., available_capital=...)` keyword; both
+      new fields default `None`, so goldens stay byte-identical. `rbc_ratio` retained
+      as a thin alias of `capital_ratio`.
+- [ ] Slice 4c-2 — surface the ratio: thread the TAC / own-funds / target-multiple
+      `available_capital` input through the CLI / API / dashboard and render
+      `capital_ratio` on the Excel capital block and dashboard tiles, plus a
+      three-standard validation notebook comparing LICAT / RBC / Solvency II on the
+      golden block (ADR-104)
 - [ ] Tests: RBC factor verification vs NAIC tables; SCR correlation aggregation;
       RoC parity across jurisdictions
 

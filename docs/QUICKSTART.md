@@ -885,9 +885,13 @@ adds the RoC / Peak Capital / PV Capital Strain tiles — captioned with the liv
 jurisdiction — to the cedant and reinsurer views. The `--excel-out` workbook's
 Summary sheet labels the capital block with a `Regulatory Capital — {jurisdiction}`
 header so a committee reader sees which standard the numbers were computed under.
-The result-level RBC / solvency ratio (own funds-or-TAC ÷ SCR-or-ACL) is the
-remaining Slice 4c surface — it needs an external own-funds / target-multiple
-input the return-on-capital path does not yet hold.
+The result-level RBC / solvency ratio (own funds-or-TAC ÷ SCR-or-ACL) is
+computable today via `ProfitTester.run_with_capital(..., available_capital=...)`,
+which populates `ProfitResultWithCapital.capital_ratio` (Slice 4c-1, ADR-103 — see
+the Python example below). The remaining Slice 4c-2 work is *surfacing* it:
+threading the `available_capital` numerator in from the CLI / API / dashboard and
+rendering the ratio on the Excel capital block and dashboard tiles, plus a
+three-standard validation notebook.
 
 ### Python usage
 
@@ -909,17 +913,31 @@ tester = ProfitTester(cashflows=net, hurdle_rate=0.10)
 result = tester.run_with_capital(capital_model, nar=cedant_nar)
 print(result.return_on_capital, result.peak_capital, result.pv_capital)
 
+# Optional: pass the company's available capital / TAC / own funds to also
+# get the regulatory solvency ratio at issue (ADR-103). The ratio's
+# denominator is jurisdiction-specific (LICAT required capital / RBC ACL /
+# EU SCR) but the surface is uniform: result.capital_ratio (a multiple,
+# 1.5 = 150%). Omit available_capital and capital_ratio stays None.
+result = tester.run_with_capital(
+    capital_model, nar=cedant_nar, available_capital=12_000_000.0
+)
+print(result.capital_ratio)  # e.g. 1.5 — available capital / required₀
+
 # Option B: standalone capital schedule (advanced).
 capital = capital_model.required_capital(net, nar=cedant_nar)
 print(capital.capital_by_period.shape, capital.peak_capital)
+print(capital.capital_ratio(12_000_000.0))  # ratio straight off the schedule
 ```
 
 Both `ProfitTester.run_with_capital` and `Portfolio.run_with_capital` accept
 **any** `CapitalModel` (ADR-099), not just `LICATCapital`. Swapping in the US
 NAIC standard is a one-line change — `RBCCapital.for_product(ProductType.TERM)`
 in place of `LICATCapital.for_product(...)` — and returns the same
-return-on-capital / peak-capital / capital-strain metrics; `RBCResult`
-additionally exposes `authorized_control_level` and `rbc_ratio(tac)`. The CLI
+return-on-capital / peak-capital / capital-strain metrics, plus the uniform
+`capital_ratio` surface (the RBC ratio for `RBCCapital`, the EU solvency ratio
+for `SolvencyIICapital`, the LICAT total ratio for `LICATCapital`); `RBCResult`
+additionally exposes `authorized_control_level` and `rbc_ratio(tac)` (a thin
+RBC-named alias of `capital_ratio`). The CLI
 `--capital {licat,rbc,solvency2}` flag and the API `capital_model` field select
 the jurisdiction directly (ADR-101) via the `capital_model_for` registry, so the
 swap shown here is also reachable from the command line and HTTP API — no Python
