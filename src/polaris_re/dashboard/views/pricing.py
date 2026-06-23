@@ -16,7 +16,7 @@ import matplotlib.ticker as mticker  # type: ignore[import-untyped]
 import numpy as np
 import streamlit as st  # type: ignore[import-untyped]
 
-from polaris_re.analytics.capital_base import CAPITAL_MODEL_LABELS as _CAPITAL_MODEL_LABELS
+from polaris_re.analytics.capital_base import capital_model_label
 from polaris_re.analytics.premium_sufficiency import (
     PremiumSufficiencyResult,
     PremiumSufficiencyTester,
@@ -78,7 +78,7 @@ _CAPITAL_MODEL_CHOICES: dict[str, str | None] = {
     "EU Solvency II": "solvency2",
 }
 
-# ``_CAPITAL_MODEL_LABELS`` (registry id -> short label) is imported from
+# ``capital_model_label`` (registry id -> short label) is imported from
 # ``analytics.capital_base`` above and shared with the Excel capital-block header,
 # so the displayed jurisdiction always matches the model that ran.
 
@@ -569,7 +569,7 @@ def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: Assum
     # Jurisdiction label for the capital tiles (Slice 4b). Empty when no capital
     # model was run; otherwise the short standard name (LICAT / US RBC / EU
     # Solvency II) so the displayed basis matches the calculator that ran.
-    capital_label = _CAPITAL_MODEL_LABELS.get(cohort_data.capital_model_id or "", "regulatory")
+    capital_label = capital_model_label(cohort_data.capital_model_id)
 
     if loss_ratio_msg is not None:
         level, msg = loss_ratio_msg
