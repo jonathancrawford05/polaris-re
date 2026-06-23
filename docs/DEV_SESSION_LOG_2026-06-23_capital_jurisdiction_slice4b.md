@@ -91,8 +91,9 @@ LICAT by construction, and an unknown id is upper-cased rather than raised
 - `src/polaris_re/analytics/capital_base.py` — `CAPITAL_MODEL_LABELS`,
   `capital_model_label()`, `__all__` additions.
 - `src/polaris_re/dashboard/views/pricing.py` — `_CAPITAL_MODEL_CHOICES`,
-  shared-label import, selectbox, registry-routed capital branch,
-  `CohortPricingData.capital_model_id`, jurisdiction-aware tile captions/help.
+  selectbox, registry-routed capital branch, `CohortPricingData.capital_model_id`,
+  jurisdiction-aware tile captions/help via the shared `capital_model_label()`
+  helper (post-review refinement — see below).
 - `src/polaris_re/utils/excel_output.py` — `DealPricingExport.capital_model_id`,
   capital-block jurisdiction header row.
 - `src/polaris_re/cli.py` — thread `capital_model_id` onto the export builder.
@@ -170,6 +171,22 @@ promoted (same disposition as the Slice 3 harvest):
 Ledger healing (step 4b): PR #100 (Slice 4a) merged since the last session is the
 Epic 3 parent slice (the epic stays IN PROGRESS, correctly un-struck); it is not a
 discrete PRODUCT_DIRECTION queue entry to strike. Ledger healthy.
+
+## Post-Review Refinement (PR #101)
+
+The automated PR review approved with one P2 single-source-of-truth suggestion:
+`_render_cohort_results` resolved the tile label via the raw
+`CAPITAL_MODEL_LABELS.get(id or "", "regulatory")` rather than the
+`capital_model_label()` helper this PR introduced for exactly that purpose (the
+two diverged only on the practically-unreachable unknown/empty fallback —
+"regulatory" vs the helper's `None → LICAT`). Addressed in commit `c52d9ad`:
+the dashboard now imports and calls `capital_model_label(cohort_data.capital_model_id)`,
+so the dashboard tiles and the Excel header share one labelling path. No
+behavioural change — the label only renders when `capital_model_id is not None`.
+Ruff clean; the 6 jurisdiction tests + full dashboard suite (102, incl. the
+AppTest page-render flow) green. CI on PR #101 was green on the prior SHA
+(`f7936df`): Lint (Ruff + mypy), Test 3.12, Test 3.13, Docker build & test all
+succeeded.
 
 ## Baseline Note
 
