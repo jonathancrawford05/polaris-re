@@ -53,7 +53,7 @@ but was unreachable from the jurisdiction-agnostic result, and no
 | 3 | Solvency II SCR module (`analytics/solvency2.py`) | ✅ Done | #99 |
 | 4a | CLI + API `--capital {licat,rbc,solvency2}` selector | ✅ Done | #100 |
 | 4b | Dashboard selector + Excel jurisdiction label | ✅ Done | #101 |
-| 4c-1 | Result-level capital-ratio core (protocol + `ProfitTester`) | ✅ Done | _(this PR)_ |
+| 4c-1 | Result-level capital-ratio core (protocol + `ProfitTester`) | ✅ Done | #102 |
 | 4c-2 | Ratio surfacing (CLI/API/Excel/dashboard) + validation notebook | ⏳ Next | — |
 
 ## What Was Done

@@ -181,7 +181,7 @@ for a slice that proves larger than expected.
 #### Slice 4c-1: Result-level capital-ratio core  ✅ DONE
 - **Status:** DONE
 - **Branch:** `claude/awesome-bardeen-bsrsuk` (environment-designated)
-- **PR:** _(draft — this session)_
+- **PR:** #102 (draft)
 - **What was done:** Added the jurisdiction-agnostic solvency ratio as a
   `CapitalSchedule.capital_ratio(available_capital)` protocol method, implemented
   on all three result classes with the denominator encapsulated per jurisdiction
