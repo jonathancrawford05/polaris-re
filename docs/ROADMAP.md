@@ -405,9 +405,17 @@ epic-driven routine; plan in `docs/PLAN_cross_jurisdiction_capital.md`.*
       cost-of-capital risk margin. Matrices are Delegated Regulation (EU) 2015/35
       Annex IV constants. Satisfies `CapitalModel` / `CapitalSchedule`; additive
       (nothing wired into pricing), goldens byte-identical.
-- [ ] Slice 4 — surface the jurisdiction selector on CLI / API / Excel
-      (incl. a `ProfitResultWithCapital`-level RBC/solvency-ratio surface with
-      a TAC / target-multiple input)
+- [x] Slice 4a — surface the jurisdiction selector on the CLI + REST API
+      (ADR-101). One shared `capital_model_for` registry (`SUPPORTED_CAPITAL_MODELS`,
+      `CapitalModelId`) maps `licat` / `rbc` / `solvency2` to the calculator; the
+      CLI `--capital {licat,rbc,solvency2}` flag and the API `capital_model` field
+      both route through it. Default / `licat` paths byte-identical; only an
+      explicit non-LICAT selection moves the numbers. (Slice 4 was re-decomposed
+      into 4a machine surfaces + 4b presentation surfaces.)
+- [ ] Slice 4b — surface on the Excel workbook (jurisdiction label + ratio) and
+      Streamlit dashboard, a three-standard validation notebook, and a
+      `ProfitResultWithCapital`-level RBC/solvency-ratio surface with a TAC /
+      target-multiple input (ADR-102)
 - [ ] Tests: RBC factor verification vs NAIC tables; SCR correlation aggregation;
       RoC parity across jurisdictions
 
