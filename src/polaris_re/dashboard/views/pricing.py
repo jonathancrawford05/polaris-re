@@ -16,6 +16,7 @@ import matplotlib.ticker as mticker  # type: ignore[import-untyped]
 import numpy as np
 import streamlit as st  # type: ignore[import-untyped]
 
+from polaris_re.analytics.capital_base import CAPITAL_MODEL_LABELS as _CAPITAL_MODEL_LABELS
 from polaris_re.analytics.premium_sufficiency import (
     PremiumSufficiencyResult,
     PremiumSufficiencyTester,
@@ -61,6 +62,25 @@ class CohortPricingData:
     loss_ratio_msg: tuple[str, str] | None
     premium_sufficiency: PremiumSufficiencyResult | None = None
     reinsurer_premium_sufficiency: PremiumSufficiencyResult | None = None
+    capital_model_id: str | None = None
+
+
+# Regulatory-capital jurisdiction selector (Epic 3, Slice 4b). The Deal Pricing
+# page surfaces the same registry the CLI ``--capital`` flag and the API
+# ``capital_model`` field route through (``capital_model_for``, ADR-101), so a
+# fourth jurisdiction is added in exactly one place. The display label maps to a
+# registry id (or ``None`` to skip the capital calculation); the default
+# ``"None"`` keeps the page byte-identical for runs that do not request capital.
+_CAPITAL_MODEL_CHOICES: dict[str, str | None] = {
+    "None": None,
+    "LICAT (Canada)": "licat",
+    "US RBC": "rbc",
+    "EU Solvency II": "solvency2",
+}
+
+# ``_CAPITAL_MODEL_LABELS`` (registry id -> short label) is imported from
+# ``analytics.capital_base`` above and shared with the Excel capital-block header,
+# so the displayed jurisdiction always matches the model that ran.
 
 
 # Flat session-state keys preserved for single-cohort backward compatibility.
@@ -380,15 +400,18 @@ def _run_pricing_for_cohort(
             cashflows=ceded_to_reinsurer_view(ceded), hurdle_rate=hurdle_rate
         )
 
-    if capital_model_id == "licat":
-        from polaris_re.analytics.capital import LICATCapital
+    if capital_model_id is not None:
+        from polaris_re.analytics.capital_base import capital_model_for
         from polaris_re.core.policy import ProductType
 
         try:
             product_type_enum = ProductType(cohort_id)
         except ValueError:
             product_type_enum = ProductType.TERM
-        capital_model = LICATCapital.for_product(product_type_enum)
+        # One registry behind CLI / API / dashboard (ADR-101/102): LICAT, US
+        # RBC, or EU Solvency II. ``licat`` resolves to the same
+        # ``LICATCapital.for_product`` as before, so that path is byte-identical.
+        capital_model = capital_model_for(capital_model_id, product_type_enum)
         cession_pct = float(cfg.get("cession_pct", 0.90)) if treaty_type != "None (Gross)" else None
         cedant_nar = derive_capital_nar(
             gross=gross,
@@ -467,6 +490,7 @@ def _run_pricing_for_cohort(
         loss_ratio_msg=loss_ratio_msg,
         premium_sufficiency=premium_sufficiency,
         reinsurer_premium_sufficiency=reinsurer_premium_sufficiency,
+        capital_model_id=capital_model_id,
     )
 
 
@@ -542,6 +566,10 @@ def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: Assum
     reinsurer_result = cohort_data.reinsurer_result
     cached_treaty_type = cohort_data.treaty_type
     loss_ratio_msg = cohort_data.loss_ratio_msg
+    # Jurisdiction label for the capital tiles (Slice 4b). Empty when no capital
+    # model was run; otherwise the short standard name (LICAT / US RBC / EU
+    # Solvency II) so the displayed basis matches the calculator that ran.
+    capital_label = _CAPITAL_MODEL_LABELS.get(cohort_data.capital_model_id or "", "regulatory")
 
     if loss_ratio_msg is not None:
         level, msg = loss_ratio_msg
@@ -576,6 +604,7 @@ def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: Assum
         st.caption(irr_note)
 
     if isinstance(result, ProfitResultWithCapital):
+        st.caption(f"Regulatory capital basis: **{capital_label}**")
         cap_a, cap_b, cap_c = st.columns(3)
         roc_str = (
             f"{result.return_on_capital:.2%}" if result.return_on_capital is not None else "N/A"
@@ -588,16 +617,16 @@ def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: Assum
                 "rate. PV(Required Capital) sums each monthly capital "
                 "balance discounted to t=0 — for a 30-year WL cohort, 360 "
                 "monthly balances are discounted, so PV Capital is "
-                "substantially larger than Peak Capital (the intuitive "
-                "point-in-time comparator). LICAT factor model "
-                "(ADR-047/048). Compare RoC to your 8-12% cost-of-capital "
+                f"substantially larger than Peak Capital (the intuitive "
+                f"point-in-time comparator). {capital_label} factor model. "
+                "Compare RoC to your 8-12% cost-of-capital "
                 "hurdle to gate treaty acceptance."
             ),
         )
         cap_b.metric(
             "Peak Capital",
             f"${result.peak_capital:,.0f}",
-            help="Maximum required LICAT capital across the projection.",
+            help=f"Maximum required {capital_label} capital across the projection.",
         )
         cap_c.metric(
             "PV Capital Strain",
@@ -671,6 +700,7 @@ def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: Assum
             st.caption(irr_note_r)
 
         if isinstance(reinsurer_result, ProfitResultWithCapital):
+            st.caption(f"Regulatory capital basis: **{capital_label}**")
             r_cap_a, r_cap_b, r_cap_c = st.columns(3)
             r_roc_str = (
                 f"{reinsurer_result.return_on_capital:.2%}"
@@ -686,8 +716,8 @@ def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: Assum
                     "capital balance discounted to t=0 — over a 30-year "
                     "horizon 360 monthly balances are discounted, so PV "
                     "Capital is substantially larger than Peak Capital "
-                    "(the intuitive point-in-time comparator). LICAT "
-                    "factor model (ADR-047/048)."
+                    f"(the intuitive point-in-time comparator). {capital_label} "
+                    "factor model."
                 ),
             )
             r_cap_b.metric(
@@ -829,16 +859,20 @@ def page_pricing() -> None:
         "Use policy-level cession overrides",
         help="Uses per-policy reinsurance_cession_pct from inforce data (ADR-036).",
     )
-    compute_capital = st.checkbox(
-        "Compute LICAT capital + RoC",
-        value=False,
+    capital_choice = st.selectbox(
+        "Regulatory capital basis (RoC)",
+        options=list(_CAPITAL_MODEL_CHOICES.keys()),
+        index=0,
         help=(
-            "Run the LICAT factor model alongside the profit test "
-            "(ADR-047/048). Adds Return on Capital, Peak Capital, and "
-            "PV Capital Strain tiles to the cedant and reinsurer views."
+            "Run a regulatory-capital factor model alongside the profit test "
+            "and add Return on Capital, Peak Capital, and PV Capital Strain "
+            "tiles to the cedant and reinsurer views. Choose the cedant's "
+            "filing jurisdiction: LICAT (Canada, ADR-047/048), US RBC "
+            "(ADR-098), or EU Solvency II (ADR-100). 'None' skips the capital "
+            "calculation (ADR-101/102)."
         ),
     )
-    capital_model_id: str | None = "licat" if compute_capital else None
+    capital_model_id: str | None = _CAPITAL_MODEL_CHOICES[capital_choice]
 
     sufficiency_target_margin = (
         st.number_input(

@@ -6419,3 +6419,75 @@ three-standard validation notebook on the golden block. The result-level
 solvency/RBC-ratio surface (own funds-or-TAC ÷ SCR-or-ACL) needing an external
 own-funds / TAC input the RoC entry points do not hold (Slice 4b, with the input).
 The shock-based factor calibration (C0 Asset/ALM epic).
+
+---
+
+## ADR-102: Surface the jurisdiction selector on the dashboard and Excel (Epic 3, Slice 4b)
+
+**Date:** 2026-06-23
+**Status:** Accepted
+
+**Context.** Slice 4a (ADR-101) routed the two *machine* surfaces (CLI `--capital`,
+API `capital_model`) through the shared `capital_model_for` registry, so US RBC and
+EU Solvency II could finally be priced from a script. But the two *presentation*
+surfaces still hard-coded LICAT: the Streamlit Deal Pricing page ran capital ONLY
+when `capital_model_id == "licat"` (its checkbox was literally "Compute LICAT
+capital + RoC", and any other id silently dropped into the no-capital branch), and
+the deal-pricing Excel workbook labelled the capital block "LICAT" regardless of
+which calculator produced the numbers. A reinsurer driving the engine through the
+dashboard — the primary interactive surface — therefore could not reach RBC or
+Solvency II at all, and an Excel export gave no indication of the standard it was
+computed under. The planned single Slice 4 proved LARGE, so it was decomposed into
+4a (machine surfaces, shipped) and this 4b (presentation surfaces).
+
+**Decision.** Route both presentation surfaces through the same registry, and add a
+shared display-label map so the displayed standard always matches the calculator
+that ran.
+
+1. **Shared labels in `analytics/capital_base.py`.** A `CAPITAL_MODEL_LABELS`
+   dict keyed by the same `SUPPORTED_CAPITAL_MODELS` ids (`licat → "LICAT
+   (Canada)"`, `rbc → "US RBC"`, `solvency2 → "EU Solvency II"`) plus a
+   `capital_model_label(model_id)` helper that normalises the id, defaults `None`
+   to LICAT (every pre-ADR-098 capital schedule was LICAT by construction), and —
+   because labels are a *display* concern, not a validation boundary — returns an
+   unknown id upper-cased rather than raising. One place to label a fourth
+   jurisdiction, co-located with the factory it mirrors.
+
+2. **Dashboard.** The "Compute LICAT capital + RoC" checkbox becomes a
+   "Regulatory capital basis (RoC)" selectbox (None / LICAT / US RBC / EU Solvency
+   II) mapping to a registry id; `_run_pricing_for_cohort`'s `== "licat"` branch
+   widens to `is not None` and resolves via `capital_model_for` (so the LICAT path
+   is byte-identical — `capital_model_for("licat", …)` *is*
+   `LICATCapital.for_product(…)`). The chosen id rides on `CohortPricingData`, and
+   the cedant / reinsurer capital tiles caption the basis and drop "LICAT" from
+   their help text in favour of the live label.
+
+3. **Excel.** `DealPricingExport` gains a `capital_model_id: str | None = None`
+   field (default preserves byte-identical pre-Slice-4b workbooks); the Summary
+   capital block gains a "Regulatory Capital — {label}" header row directly above
+   the metrics. The CLI threads its `--capital` id onto the export.
+
+**Verification anchors.** `test_pricing_capital_jurisdiction.py` (6) drives
+`_run_pricing_for_cohort` per jurisdiction: each of licat/rbc/solvency2 now yields a
+`ProfitResultWithCapital`, `None` yields a plain result, and the three standards
+give pairwise-distinct peak capital on the same block (the dashboard analogue of
+4a's three-way CLI test — a guard against a silent collapse to one calculator).
+`test_capital_base.py` gains a label-map class (every supported id labelled, known
+ids mapped, `None → LICAT`, unknown upper-cased not raised).
+`test_excel_output.py::TestCapitalJurisdictionHeader` (5) locks the header text per
+jurisdiction, its position directly above "Peak Capital", the `None → LICAT`
+default, and its absence when no capital ran.
+
+**Behaviour change.** Dashboard runs can now select RBC / Solvency II (previously
+unreachable); Excel capital blocks gain a jurisdiction header row. The default
+(no capital) dashboard run and Excel workbook are unchanged, and the LICAT capital
+path is byte-identical. Full fast suite 1634 green; QA golden suite green; the
+`polaris price` golden run is structurally unchanged (no `--capital`, no header).
+
+**Out of scope (filed as follow-ups / planned Slice 4c).** The result-level
+solvency/RBC-ratio surface (own funds-or-TAC ÷ SCR-or-ACL) still needs an external
+own-funds / target-multiple input the RoC entry points do not hold — deferred to
+Slice 4c, which introduces that input. The three-standard validation notebook on
+the golden block (deferred to 4c with the ratio so the notebook can demonstrate
+both the three calculators and the ratio in one place). The shock-based factor
+calibration remains the C0 Asset/ALM epic.

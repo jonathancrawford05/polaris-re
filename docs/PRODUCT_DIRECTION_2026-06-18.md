@@ -436,11 +436,13 @@ Items harvested from completed/in-flight work by the daily-dev routine
   Solvency II `SolvencyIIResult` exposes the SCR schedule and the cost-of-capital
   risk margin, but not a solvency ratio (own funds / SCR), the EU analogue of the
   RBC ratio. Like the deferred RBC ratio it needs an external own-funds input the
-  RoC entry points do not hold, so it lands in Epic 3 Slice 4 alongside the
-  CLI/API jurisdiction selector and the TAC / own-funds input. Affects the
-  capital-ratio surface for EU deals, not first-deal RoC correctness →
-  NICE-TO-HAVE.
-  *Source: ADR-100 Out of scope (1st-order).*
+  RoC entry points do not hold. Slices 4a (CLI/API selector) and 4b (dashboard +
+  Excel surfacing) shipped without it; it now lands in **Epic 3 Slice 4c**, which
+  introduces the external own-funds / TAC input and surfaces both the RBC and
+  solvency ratios on the result, the Excel capital block, and the dashboard tiles.
+  Affects the capital-ratio surface for US/EU deals, not first-deal RoC
+  correctness → NICE-TO-HAVE.
+  *Source: ADR-100 Out of scope (1st-order); re-pointed to Slice 4c by ADR-102.*
 
 - **NICE-TO-HAVE — Statutory reserve bases for UL and DI.** The reserve-basis
   epic (A1) implements CRVM / VM-20 / GAAP for Term and Whole Life only. UL

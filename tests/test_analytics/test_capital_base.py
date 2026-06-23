@@ -12,9 +12,11 @@ import pytest
 
 from polaris_re.analytics.capital import LICATCapital
 from polaris_re.analytics.capital_base import (
+    CAPITAL_MODEL_LABELS,
     SUPPORTED_CAPITAL_MODELS,
     CapitalModel,
     capital_model_for,
+    capital_model_label,
 )
 from polaris_re.analytics.rbc import RBCCapital
 from polaris_re.analytics.solvency2 import SolvencyIICapital
@@ -72,3 +74,31 @@ class TestCapitalModelRegistry:
         # The for_product constructor specialises factors per product, so the
         # two calculators are not factor-identical.
         assert term.factors != whole.factors
+
+
+class TestCapitalModelLabels:
+    """The shared display labels behind the dashboard tiles / Excel header (ADR-102)."""
+
+    def test_labels_cover_every_supported_id(self):
+        """Every selectable jurisdiction has a presentation label."""
+        assert set(CAPITAL_MODEL_LABELS) == set(SUPPORTED_CAPITAL_MODELS)
+
+    @pytest.mark.parametrize(
+        ("model_id", "expected"),
+        [
+            ("licat", "LICAT (Canada)"),
+            ("rbc", "US RBC"),
+            ("solvency2", "EU Solvency II"),
+            (" Solvency2 ", "EU Solvency II"),  # normalised before lookup
+        ],
+    )
+    def test_label_for_known_id(self, model_id, expected):
+        assert capital_model_label(model_id) == expected
+
+    def test_none_defaults_to_licat(self):
+        """An un-tagged schedule is LICAT — every pre-ADR-098 capital run was."""
+        assert capital_model_label(None) == "LICAT (Canada)"
+
+    def test_unknown_id_is_not_a_validation_boundary(self):
+        """Labels are display-only: an unknown id is upper-cased, not raised."""
+        assert capital_model_label("ifrs") == "IFRS"

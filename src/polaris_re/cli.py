@@ -807,6 +807,7 @@ def _cohort_to_deal_pricing_export(
     yrt_rate_table: object | None = None,
     rated_block: object | None = None,
     ifrs17_movement: "IFRS17MovementExport | None" = None,
+    capital_model_id: str | None = None,
 ) -> "DealPricingExport":
     """Translate a priced cohort into a DealPricingExport bundle.
 
@@ -818,6 +819,9 @@ def _cohort_to_deal_pricing_export(
     writer appends the rated-block panel to the Assumptions sheet
     (ADR-068). When ``ifrs17_movement`` is supplied, it is embedded on the
     export so the writer appends the ``IFRS 17 Movement`` sheet (ADR-096).
+    ``capital_model_id`` (``licat`` / ``rbc`` / ``solvency2``) is recorded on
+    the export so the writer names the regulatory standard on the capital-block
+    header (ADR-102); ``None`` labels it LICAT for backward compatibility.
     """
     from polaris_re.utils.excel_output import (
         AssumptionsMetaExport,
@@ -867,6 +871,7 @@ def _cohort_to_deal_pricing_export(
         premium_sufficiency_cedant=suff_cedant,
         premium_sufficiency_reinsurer=suff_reinsurer,
         ifrs17_movement=ifrs17_movement,  # type: ignore[arg-type]
+        capital_model_id=capital_model_id,
     )
 
 
@@ -1669,6 +1674,7 @@ def price_cmd(
                 yrt_rate_table=yrt_rate_table_obj,
                 rated_block=rated_block_export,
                 ifrs17_movement=(ifrs17_by_cohort.get(id(cohort)) if ifrs17_movement else None),
+                capital_model_id=capital_model_id,
             )
             out_path = _resolve_excel_path(excel_out, cohort.product_type, n_cohorts)
             write_deal_pricing_excel(export, out_path)
