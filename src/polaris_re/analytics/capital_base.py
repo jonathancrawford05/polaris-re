@@ -50,12 +50,43 @@ SUPPORTED_CAPITAL_MODELS: tuple[CapitalModelId, ...] = ("licat", "rbc", "solvenc
 calculator satisfying :class:`CapitalModel` via :func:`capital_model_for`.
 """
 
+CAPITAL_MODEL_LABELS: dict[CapitalModelId, str] = {
+    "licat": "LICAT (Canada)",
+    "rbc": "US RBC",
+    "solvency2": "EU Solvency II",
+}
+"""Human-readable jurisdiction labels for the presentation surfaces (ADR-102).
+
+Shared by the dashboard capital tiles and the Excel capital-block header so the
+displayed standard always matches the calculator that ran. Keyed by the same
+:data:`SUPPORTED_CAPITAL_MODELS` ids, so a fourth jurisdiction is labelled in
+exactly one place.
+"""
+
+
+def capital_model_label(model_id: str | None) -> str:
+    """Return the display label for a jurisdiction id (ADR-102).
+
+    Falls back to ``"LICAT (Canada)"`` for ``None`` because every capital
+    schedule produced before the cross-jurisdiction epoch (pre-ADR-098) was
+    LICAT, so an un-tagged historical export is LICAT by construction. An
+    unrecognised id is returned upper-cased rather than raising — labels are a
+    display concern, not a validation boundary.
+    """
+    if model_id is None:
+        return CAPITAL_MODEL_LABELS["licat"]
+    normalized = model_id.strip().lower()
+    return CAPITAL_MODEL_LABELS.get(normalized, model_id.upper())  # type: ignore[arg-type]
+
+
 __all__ = [
+    "CAPITAL_MODEL_LABELS",
     "SUPPORTED_CAPITAL_MODELS",
     "CapitalModel",
     "CapitalModelId",
     "CapitalSchedule",
     "capital_model_for",
+    "capital_model_label",
     "discount_stream",
     "strain_of",
 ]

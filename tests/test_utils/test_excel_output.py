@@ -1053,6 +1053,57 @@ class TestSummarySheetCapitalBlock:
         assert ws.cell(row=row, column=3).value == "N/A"
 
 
+class TestCapitalJurisdictionHeader:
+    """ADR-102 (Slice 4b): the capital block names the regulatory standard."""
+
+    def _labels(self, export: DealPricingExport, tmp_path: Path) -> list[object]:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        ws = load_workbook(out)["Summary"]
+        return [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+
+    @pytest.mark.parametrize(
+        ("model_id", "expected"),
+        [
+            ("licat", "Regulatory Capital — LICAT (Canada)"),
+            ("rbc", "Regulatory Capital — US RBC"),
+            ("solvency2", "Regulatory Capital — EU Solvency II"),
+        ],
+    )
+    def test_header_names_jurisdiction(
+        self,
+        capital_export: DealPricingExport,
+        tmp_path: Path,
+        model_id: str,
+        expected: str,
+    ) -> None:
+        import dataclasses
+
+        export = dataclasses.replace(capital_export, capital_model_id=model_id)
+        labels = self._labels(export, tmp_path)
+        assert expected in labels
+        # The header sits directly above the first capital metric.
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        ws = load_workbook(out)["Summary"]
+        assert _find_row_with_label(ws, expected) + 1 == _find_row_with_label(ws, "Peak Capital")
+
+    def test_none_defaults_to_licat_label(
+        self, capital_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        """An un-tagged export (capital_model_id=None) is LICAT by construction."""
+        labels = self._labels(capital_export, tmp_path)  # fixture leaves id None
+        assert "Regulatory Capital — LICAT (Canada)" in labels
+
+    def test_header_absent_when_no_capital(
+        self, minimal_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        labels = self._labels(minimal_export, tmp_path)
+        assert not any(
+            isinstance(value, str) and value.startswith("Regulatory Capital") for value in labels
+        )
+
+
 # ---------------------------------------------------------------------------
 # YRT Rate Table sheet (ADR-052)
 # ---------------------------------------------------------------------------

@@ -179,6 +179,13 @@ class DealPricingExport:
     # rendering the aggregate + per-cohort opening→closing reconciliation.
     # ``None`` suppresses the sheet, keeping pre-ADR-096 workbooks byte-identical.
     ifrs17_movement: IFRS17MovementExport | None = None
+    # Regulatory-capital jurisdiction the capital block was computed under
+    # (ADR-102, Epic 3 Slice 4b): one of ``"licat"`` / ``"rbc"`` / ``"solvency2"``.
+    # Surfaced as a header row above the capital metrics so the displayed standard
+    # matches the calculator that ran. ``None`` (no jurisdiction recorded) labels
+    # the block ``LICAT`` for backward compatibility — every pre-ADR-098 capital
+    # workbook was LICAT — and is the default so callers that omit it are unchanged.
+    capital_model_id: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -524,6 +531,17 @@ def _write_summary_sheet(wb: "Workbook", export: DealPricingExport) -> None:
     )
     next_row = 4 + len(_SUMMARY_METRICS)
     if capital_present:
+        # Jurisdiction header row (ADR-102): names the regulatory standard the
+        # capital metrics were computed under (LICAT / US RBC / EU Solvency II),
+        # so the displayed basis matches the calculator the CLI / dashboard ran.
+        from polaris_re.analytics.capital_base import capital_model_label
+
+        ws.cell(
+            row=next_row,
+            column=1,
+            value=f"Regulatory Capital — {capital_model_label(export.capital_model_id)}",
+        ).font = header_font
+        next_row += 1
         for i, metric in enumerate(_CAPITAL_METRICS):
             row_idx = next_row + i
             ws.cell(row=row_idx, column=1, value=metric).font = header_font

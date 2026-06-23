@@ -650,7 +650,7 @@ Each Excel workbook produced by `--excel-out` always contains these core sheets:
 
 | Sheet | Contents |
 |---|---|
-| **Summary** | Key pricing metrics: IRR, PV profits, profit margin, break-even year (cedant and reinsurer views), plus the premium-sufficiency panel (ADR-083/084). Under `--capital {licat,rbc,solvency2}` (ADR-049/101) the sheet **gains five additional rows** inline — `Return on Capital`, `Peak Capital`, `PV Capital (stock)`, `PV Capital Strain`, and `Capital-Adjusted IRR` — for both the Cedant and Reinsurer columns. |
+| **Summary** | Key pricing metrics: IRR, PV profits, profit margin, break-even year (cedant and reinsurer views), plus the premium-sufficiency panel (ADR-083/084). Under `--capital {licat,rbc,solvency2}` (ADR-049/101) the sheet gains a `Regulatory Capital — {jurisdiction}` header row (ADR-102 — e.g. "Regulatory Capital — US RBC") above **five additional rows** — `Return on Capital`, `Peak Capital`, `PV Capital (stock)`, `PV Capital Strain`, and `Capital-Adjusted IRR` — for both the Cedant and Reinsurer columns. |
 | **Cash Flows** | Annual net cash-flow rollup for `projection_years` rows |
 | **Assumptions** | Treaty type, cession %, hurdle rate, discount rate, projection years, mortality source, lapse description |
 
@@ -795,11 +795,16 @@ jurisdiction the cedant files under:
 | `solvency2` | EU — Solvency II standard-formula SCR (correlation-matrix BSCR + risk margin) | ADR-100 |
 
 All three plug into one shared `CapitalModel` protocol via the
-`capital_model_for` registry (ADR-101), and the REST API exposes the same
-choice through the `capital_model` field. The flag is opt-in everywhere — when
-it is absent (or set to `licat`) the JSON, console, and Excel outputs are
-byte-identical to a vanilla `polaris price` run; only an explicit `rbc` /
-`solvency2` selection moves the numbers.
+`capital_model_for` registry (ADR-101). The same jurisdiction choice is exposed
+on every surface (ADR-102): the REST API `capital_model` field, the Streamlit
+dashboard's "Regulatory capital basis (RoC)" selector on the Deal Pricing page,
+and the deal-pricing Excel workbook's jurisdiction-labelled capital block. A
+shared `CAPITAL_MODEL_LABELS` / `capital_model_label()` in `capital_base.py` is
+the single labelling site, so the dashboard tiles and the Excel header always
+name the standard the calculator actually ran. The flag is opt-in everywhere —
+the default (no `--capital`) JSON, console, dashboard, and Excel outputs are
+byte-identical to a vanilla `polaris price` run, and the `licat` priced numbers
+are unchanged; only an explicit `rbc` / `solvency2` selection moves the numbers.
 
 The metric set populated under `--capital` (identical across jurisdictions —
 the schedule that drives it differs):
@@ -870,6 +875,19 @@ entries always carry the same fields):
 The Rich console table also gains `Peak Capital`, `PV Capital
 (stock)`, `PV Capital Strain`, `Return on Capital`, and
 `Capital-Adjusted IRR` rows for both the Cedant and Reinsurer views.
+
+### Dashboard & Excel (ADR-102)
+
+The same jurisdiction choice is available interactively. On the Streamlit
+dashboard's **Deal Pricing** page, the "Regulatory capital basis (RoC)" selector
+(None / LICAT (Canada) / US RBC / EU Solvency II) runs the chosen calculator and
+adds the RoC / Peak Capital / PV Capital Strain tiles — captioned with the live
+jurisdiction — to the cedant and reinsurer views. The `--excel-out` workbook's
+Summary sheet labels the capital block with a `Regulatory Capital — {jurisdiction}`
+header so a committee reader sees which standard the numbers were computed under.
+The result-level RBC / solvency ratio (own funds-or-TAC ÷ SCR-or-ACL) is the
+remaining Slice 4c surface — it needs an external own-funds / target-multiple
+input the return-on-capital path does not yet hold.
 
 ### Python usage
 

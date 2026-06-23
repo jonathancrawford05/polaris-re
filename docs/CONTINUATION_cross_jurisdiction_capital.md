@@ -68,7 +68,7 @@ limits return-on-capital pricing to Canadian deals.
 ### Slice 3: Solvency II SCR module
 - **Status:** DONE
 - **Branch:** `claude/awesome-bardeen-ed43mz` (environment-designated)
-- **PR:** (this slice)
+- **PR:** #99 (draft)
 - **What was done:** Added `analytics/solvency2.py` — `SolvencyIIFactors`,
   `SolvencyIIResult`, `SolvencyIICapital` — implementing the Solvency II
   standard-formula SCR: life-underwriting sub-modules (mortality / lapse /
@@ -105,7 +105,7 @@ slice that proves larger than expected.
 #### Slice 4a: CLI + API jurisdiction selector  ✅ DONE
 - **Status:** DONE
 - **Branch:** `claude/awesome-bardeen-e4ana9` (environment-designated)
-- **PR:** (this slice)
+- **PR:** #100 (draft)
 - **What was done:** Added a single shared registry in
   `analytics/capital_base.py` — `SUPPORTED_CAPITAL_MODELS`, the `CapitalModelId`
   literal alias, and `capital_model_for(model_id, product_type) -> CapitalModel`
@@ -129,21 +129,80 @@ slice that proves larger than expected.
   API parametrised `rbc`/`solvency2` acceptance; both rejection tests re-pointed
   to `bogus`. Fast suite 1616 passed; QA golden suite 72 green.
 
-#### Slice 4b: Excel / dashboard / notebook + result-level ratio surface
+Slice 4b (the planned Excel / dashboard / notebook + result-level ratio bundle)
+proved LARGE once selected — four surfaces, one of them a contract change needing
+a new external input — so it was re-decomposed into 4b (presentation surfaces,
+shipped) and 4c (result-level ratio + validation notebook, planned). Each is an
+independently mergeable, fully tested PR, per the routine's allowance for a slice
+that proves larger than expected.
+
+#### Slice 4b: Dashboard + Excel jurisdiction surfacing  ✅ DONE
+- **Status:** DONE
+- **Branch:** `claude/awesome-bardeen-k05fxu` (environment-designated)
+- **PR:** #101 (draft)
+- **What was done:** Routed the two *presentation* surfaces through the same
+  `capital_model_for` registry 4a established. Dashboard: the "Compute LICAT
+  capital + RoC" checkbox became a "Regulatory capital basis (RoC)" selectbox
+  (None / LICAT / US RBC / EU Solvency II); `_run_pricing_for_cohort`'s
+  hard-coded `== "licat"` branch widened to `is not None` resolving via
+  `capital_model_for` (LICAT path byte-identical); the chosen id rides on
+  `CohortPricingData` and the cedant / reinsurer capital tiles caption the live
+  jurisdiction. Excel: `DealPricingExport` gained a `capital_model_id` field
+  (default `None` → byte-identical) and the Summary capital block gained a
+  "Regulatory Capital — {label}" header; the CLI threads its `--capital` id onto
+  the export. A shared `CAPITAL_MODEL_LABELS` + `capital_model_label` helper in
+  `capital_base.py` is the single labelling site (mirrors the factory). ADR-102.
+- **Key decisions:**
+  - **Presentation surfaces split from the ratio.** 4b ships the dashboard +
+    Excel surfacing (no new inputs, fully pytest-testable); the result-level
+    ratio surface — which needs an external own-funds / TAC input the RoC entry
+    points do not hold — moves to 4c with that input, alongside the notebook.
+  - **Labels live on the registry, not the surfaces** (`CAPITAL_MODEL_LABELS` in
+    `capital_base.py`), so dashboard and Excel cannot drift; `None` defaults to
+    LICAT because every pre-ADR-098 capital schedule was LICAT.
+  - Goldens byte-identical: default (no-capital) dashboard run and Excel workbook
+    unchanged; LICAT capital path byte-identical; only the new header row / live
+    label move, and only for capital runs.
+- **Tests:** `test_pricing_capital_jurisdiction.py` (6 — each jurisdiction yields
+  capital, None yields a plain result, three-way distinct peak capital);
+  `test_capital_base.py` label-map class (every id labelled, known/normalised/None/
+  unknown); `test_excel_output.py::TestCapitalJurisdictionHeader` (5 — header text
+  per jurisdiction, position above Peak Capital, None→LICAT, absent when no
+  capital). Full fast suite 1634 passed; QA golden suite green.
+
+#### Slice 4c: Result-level ratio surface + three-standard validation notebook
 - **Status:** NEXT
-- **Depends on:** Slice 4a merged
-- **Scope:** Excel capital-sheet jurisdiction label + ratio; dashboard
-  `--capital {licat,rbc,solvency2}` selector; three-standard validation notebook
-  on the golden block; the result-level solvency/RBC-ratio surface (own-funds /
-  TAC input ÷ SCR / ACL) deferred from Slices 2–3 because it needs an external
-  own-funds / target-multiple input the RoC entry points do not hold. ADR-102.
+- **Depends on:** Slice 4b merged
+- **Scope:** The result-level solvency/RBC-ratio surface (own-funds / TAC input ÷
+  SCR / ACL) deferred from Slices 2–4b because it needs an external own-funds /
+  target-multiple input the RoC entry points do not hold — Slice 4c introduces
+  that input (CLI flag + API field + dashboard number-input) and surfaces the
+  ratio on `ProfitResultWithCapital` (or a sibling), the Excel capital block, and
+  the dashboard tiles. Plus the three-standard validation notebook comparing
+  LICAT / RBC / Solvency II on the golden block (and demonstrating the ratio).
+  ADR-103. May rebaseline only capital-surface goldens for non-default runs.
 
 ## Context for Next Session
 
+- **Slice 4c is next** (result-level ratio surface + three-standard validation
+  notebook). All three calculators (Slices 1–3), both RoC entry points (Slice 2),
+  the CLI/API selector (4a), and the dashboard/Excel surfacing (4b) are done. The
+  remaining gap is the *ratio* (RBC ratio = TAC / ACL; EU solvency ratio = own
+  funds / SCR), which needs a **new external input** (own-funds / target-multiple)
+  the RoC entry points do not hold — 4c introduces it (CLI flag + API field +
+  dashboard number-input) and surfaces both ratios on the result, the Excel
+  capital block, and the dashboard tiles. The label map (`CAPITAL_MODEL_LABELS`)
+  and the `DealPricingExport.capital_model_id` field 4b added are the hooks the
+  ratio rows attach to. ADR-103.
+- The shared label map and `capital_model_label()` helper live in
+  `analytics/capital_base.py` next to `capital_model_for` — extend them in one
+  place. `_CAPITAL_MODEL_CHOICES` (dashboard) and the Excel header both read them.
+
+### Historical context (Slices 1–4a)
 - Slices 1–3 give all three calculators (`LICATCapital`, `RBCCapital`,
   `SolvencyIICapital`), each satisfying `CapitalModel` / `CapitalSchedule`, and
-  both RoC entry points already take the protocol. **Slice 4 is now pure
-  surfacing**: a CLI `--capital {licat,rbc,solvency2}` selector (default `licat`
+  both RoC entry points already take the protocol. Slice 4a was pure machine
+  surfacing: a CLI `--capital {licat,rbc,solvency2}` selector (default `licat`
   → byte-identical), the API `capital_model` field (currently a 2-value literal;
   the existing tests assert `solvency2` is rejected — Slice 4 must add it and
   flip those two tests to expect acceptance), the Excel capital-sheet

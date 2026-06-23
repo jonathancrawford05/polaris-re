@@ -13,8 +13,10 @@
 > protocol, ADR-098); Slice 2 shipped (RoC entry points widened to the
 > `CapitalModel` protocol, ADR-099, PR #98); Slice 3 shipped (EU Solvency II SCR
 > module, ADR-100, PR #99); Slice 4a shipped (CLI + API jurisdiction selector,
-> ADR-101). Slice 4 was re-decomposed into 4a (machine surfaces, done) and 4b
-> (Excel / dashboard / notebook + result-level ratio, planned below).
+> ADR-101, PR #100); Slice 4b shipped (dashboard selector + Excel jurisdiction
+> label, ADR-102). Slice 4 was re-decomposed into 4a (machine surfaces, done),
+> 4b (presentation surfaces — dashboard + Excel, done) and 4c (result-level
+> ratio surface + three-standard validation notebook, planned below).
 >
 > **Source.** `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` Tier-A item
 > **A3** (★★★★★ value, ~15 dev-days for both, the #3 unstarted epic, started
@@ -128,12 +130,22 @@ dashboard + notebook + ratio surface) into two independently mergeable sub-slice
   `analytics/capital_base.py`. Default / `licat` paths byte-identical; only
   explicit `rbc` / `solvency2` runs (previously errors) move.
 
-#### Slice 4b — Excel / dashboard / notebook + result-level ratio  PLANNED
-- Excel capital-sheet jurisdiction label + ratio; dashboard selector; validation
-  notebook comparing the three standards on the golden block; the result-level
-  solvency/RBC-ratio surface (external own-funds / TAC input ÷ SCR / ACL).
-- ADR-102. May rebaseline only the capital-surface goldens for non-default runs;
-  the default `licat` path stays byte-identical.
+#### Slice 4b — Dashboard selector + Excel jurisdiction label  ✅ SHIPPED (ADR-102)
+- Dashboard "Regulatory capital basis (RoC)" selectbox + `_run_pricing_for_cohort`
+  routed through `capital_model_for`; Excel capital-block "Regulatory Capital —
+  {label}" header from a new `DealPricingExport.capital_model_id`. Shared
+  `CAPITAL_MODEL_LABELS` / `capital_model_label` in `capital_base.py`. Default
+  (no-capital) and LICAT paths byte-identical.
+
+#### Slice 4c — Result-level ratio surface + validation notebook  PLANNED
+- The result-level solvency/RBC-ratio surface (external own-funds / TAC input ÷
+  SCR / ACL) — needs a new external input the RoC entry points do not hold, so
+  4c introduces it (CLI flag + API field + dashboard input) and surfaces the
+  ratio on the result, the Excel capital block, and the dashboard tiles. Plus the
+  three-standard validation notebook comparing LICAT / RBC / Solvency II on the
+  golden block.
+- ADR-103. May rebaseline only the capital-surface goldens for non-default runs;
+  the default path stays byte-identical.
 
 ## 4. Key constraints (from CLAUDE.md / ARCHITECTURE.md)
 

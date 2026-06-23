@@ -411,11 +411,18 @@ epic-driven routine; plan in `docs/PLAN_cross_jurisdiction_capital.md`.*
       CLI `--capital {licat,rbc,solvency2}` flag and the API `capital_model` field
       both route through it. Default / `licat` paths byte-identical; only an
       explicit non-LICAT selection moves the numbers. (Slice 4 was re-decomposed
-      into 4a machine surfaces + 4b presentation surfaces.)
-- [ ] Slice 4b — surface on the Excel workbook (jurisdiction label + ratio) and
-      Streamlit dashboard, a three-standard validation notebook, and a
-      `ProfitResultWithCapital`-level RBC/solvency-ratio surface with a TAC /
-      target-multiple input (ADR-102)
+      into 4a machine surfaces + 4b presentation surfaces + 4c ratio/notebook.)
+- [x] Slice 4b — surface the selector on the Streamlit dashboard ("Regulatory
+      capital basis (RoC)" selectbox routed through `capital_model_for`) and the
+      deal-pricing Excel workbook (jurisdiction-labelled capital-block header via a
+      new `DealPricingExport.capital_model_id`); shared `CAPITAL_MODEL_LABELS` /
+      `capital_model_label()` is the single labelling site so dashboard and Excel
+      cannot drift (PR #101, ADR-102). Default / `licat` paths byte-identical.
+- [ ] Slice 4c — a `ProfitResultWithCapital`-level RBC/solvency-ratio surface
+      (own funds-or-TAC ÷ SCR-or-ACL) with a TAC / own-funds / target-multiple
+      input threaded through the CLI/API/dashboard, plus a three-standard
+      validation notebook comparing LICAT / RBC / Solvency II on the golden block
+      (ADR-103)
 - [ ] Tests: RBC factor verification vs NAIC tables; SCR correlation aggregation;
       RoC parity across jurisdictions
 
