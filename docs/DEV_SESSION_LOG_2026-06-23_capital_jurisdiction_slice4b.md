@@ -55,7 +55,7 @@ without touching the default (no-capital) or LICAT paths.
 | 2 | Widen `ProfitTester` + `Portfolio` `run_with_capital` to `CapitalModel` | ✅ Done | #98 |
 | 3 | Solvency II SCR module (`analytics/solvency2.py`) | ✅ Done | #99 |
 | 4a | CLI + API `--capital {licat,rbc,solvency2}` selector | ✅ Done | #100 |
-| 4b | Dashboard selector + Excel jurisdiction label | ✅ Done | (this PR) |
+| 4b | Dashboard selector + Excel jurisdiction label | ✅ Done | #101 |
 | 4c | Result-level ratio surface + three-standard validation notebook | ⏳ Next | — |
 
 ## What Was Done

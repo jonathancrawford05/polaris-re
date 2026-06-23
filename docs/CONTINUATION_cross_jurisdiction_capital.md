@@ -68,7 +68,7 @@ limits return-on-capital pricing to Canadian deals.
 ### Slice 3: Solvency II SCR module
 - **Status:** DONE
 - **Branch:** `claude/awesome-bardeen-ed43mz` (environment-designated)
-- **PR:** (this slice)
+- **PR:** #99 (draft)
 - **What was done:** Added `analytics/solvency2.py` — `SolvencyIIFactors`,
   `SolvencyIIResult`, `SolvencyIICapital` — implementing the Solvency II
   standard-formula SCR: life-underwriting sub-modules (mortality / lapse /
@@ -105,7 +105,7 @@ slice that proves larger than expected.
 #### Slice 4a: CLI + API jurisdiction selector  ✅ DONE
 - **Status:** DONE
 - **Branch:** `claude/awesome-bardeen-e4ana9` (environment-designated)
-- **PR:** (this slice)
+- **PR:** #100 (draft)
 - **What was done:** Added a single shared registry in
   `analytics/capital_base.py` — `SUPPORTED_CAPITAL_MODELS`, the `CapitalModelId`
   literal alias, and `capital_model_for(model_id, product_type) -> CapitalModel`
@@ -139,7 +139,7 @@ that proves larger than expected.
 #### Slice 4b: Dashboard + Excel jurisdiction surfacing  ✅ DONE
 - **Status:** DONE
 - **Branch:** `claude/awesome-bardeen-k05fxu` (environment-designated)
-- **PR:** (this slice)
+- **PR:** #101 (draft)
 - **What was done:** Routed the two *presentation* surfaces through the same
   `capital_model_for` registry 4a established. Dashboard: the "Compute LICAT
   capital + RoC" checkbox became a "Regulatory capital basis (RoC)" selectbox
