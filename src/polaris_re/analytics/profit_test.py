@@ -76,6 +76,13 @@ class ProfitResultWithCapital(ProfitTestResult):
       the distributable cash flow has no sign change.
     - `capital_by_period`: full `(T,)` capital schedule for downstream
       reporting.
+    - `available_capital`: the company-supplied available capital / TAC /
+      own funds used as the solvency-ratio numerator (ADR-103). None when the
+      caller did not supply it.
+    - `capital_ratio`: the jurisdiction's regulatory solvency ratio at issue
+      (`available_capital / denominator` — LICAT total ratio, RBC ratio, or EU
+      solvency ratio per the capital model). None when `available_capital` was
+      not supplied. A multiple (2.5 = 250%).
     """
 
     initial_capital: float = 0.0
@@ -85,6 +92,8 @@ class ProfitResultWithCapital(ProfitTestResult):
     return_on_capital: float | None = None
     capital_adjusted_irr: float | None = None
     capital_by_period: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
+    available_capital: float | None = None
+    capital_ratio: float | None = None
 
 
 class ProfitTester:
@@ -248,6 +257,7 @@ class ProfitTester:
         capital_model: CapitalModel,
         *,
         nar: np.ndarray | None = None,
+        available_capital: float | None = None,
     ) -> ProfitResultWithCapital:
         """
         Compute profit metrics jointly with required capital and RoC.
@@ -270,20 +280,34 @@ class ProfitTester:
                 model's `required_capital`. If neither this nor
                 `cashflows.nar` is set, the underlying calculator raises
                 `PolarisComputationError`.
+            available_capital: Optional company-supplied available capital /
+                TAC / own funds (ADR-103). When given, the jurisdiction's
+                regulatory solvency ratio at issue is computed via
+                `capital.capital_ratio(...)` and surfaced on the result; when
+                omitted, both `available_capital` and `capital_ratio` are None
+                (the ratio needs an external input the RoC path does not hold).
 
         Returns:
             ProfitResultWithCapital with `pv_capital`, `return_on_capital`,
             `capital_adjusted_irr`, etc. populated. RoC denominator is
-            PV(capital stock) at the hurdle rate (ADR-048). Jurisdiction-specific
-            extras (e.g. RBC's Authorized Control Level / RBC ratio) live on the
-            concrete `CapitalSchedule` the model returns, not on this
-            jurisdiction-agnostic result.
+            PV(capital stock) at the hurdle rate (ADR-048). The solvency
+            `capital_ratio` (LICAT total ratio / RBC ratio / EU solvency ratio)
+            is populated only when `available_capital` is supplied; its
+            jurisdiction-specific denominator is encapsulated on the concrete
+            `CapitalSchedule` the model returns (ADR-103).
         """
         base = self.run()
         capital: CapitalSchedule = capital_model.required_capital(self.cashflows, nar=nar)
 
         pv_capital = capital.pv_capital(self.hurdle_rate)
         pv_capital_strain = capital.pv_capital_strain(self.hurdle_rate)
+
+        # Regulatory solvency ratio (LICAT total / RBC / EU solvency) at issue.
+        # Needs an external available-capital numerator the RoC path does not
+        # hold (ADR-103); None unless the caller supplies it.
+        capital_ratio: float | None = (
+            capital.capital_ratio(available_capital) if available_capital is not None else None
+        )
 
         # RoC denominator = pv_capital (stock) per ADR-048. Suppress when
         # the stock is non-positive — the ratio is not meaningful for
@@ -322,4 +346,6 @@ class ProfitTester:
             return_on_capital=return_on_capital,
             capital_adjusted_irr=capital_adjusted_irr,
             capital_by_period=capital.capital_by_period.copy(),
+            available_capital=available_capital,
+            capital_ratio=capital_ratio,
         )

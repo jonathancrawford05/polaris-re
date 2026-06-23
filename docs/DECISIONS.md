@@ -6491,3 +6491,84 @@ Slice 4c, which introduces that input. The three-standard validation notebook on
 the golden block (deferred to 4c with the ratio so the notebook can demonstrate
 both the three calculators and the ratio in one place). The shock-based factor
 calibration remains the C0 Asset/ALM epic.
+
+---
+
+## ADR-103: Result-level regulatory solvency ratio surface (Epic 3, Slice 4c-1)
+
+**Date:** 2026-06-23
+**Status:** Accepted
+
+**Context.** Slices 1–4b gave all three capital calculators (`LICATCapital`,
+`RBCCapital`, `SolvencyIICapital`), both return-on-capital entry points
+(`ProfitTester.run_with_capital`, `Portfolio.run_with_capital`), and the full
+CLI / API / dashboard / Excel jurisdiction selector. One gap remained: the
+*regulatory solvency ratio* — the headline number a committee reads (RBC ratio,
+EU solvency ratio, LICAT total ratio) — was unreachable from
+`ProfitResultWithCapital`. `RBCResult` exposed `rbc_ratio(tac)` on the raw
+schedule, but `run_with_capital` returned a jurisdiction-agnostic result that
+carried none of it, and there was no way to feed in the external numerator the
+ratio needs. Slices 2–4b deferred the ratio precisely because it needs an
+**available-capital input the RoC path does not hold**: RoC is driven entirely
+by the projected cash flows and the capital *schedule*, whereas the ratio
+divides a company-supplied available capital / TAC / own funds by the standard's
+required-capital denominator. The planned Slice 4c (ratio surface across every
+consumer + a three-standard validation notebook) proved LARGE once detailed, so
+it was re-decomposed into **4c-1 (this ADR — the result-level ratio core, data
+model first)** and **4c-2 (CLI flag + API field + Excel row + dashboard input +
+validation notebook)**.
+
+**Decision.** Add the solvency ratio as a jurisdiction-agnostic surface on the
+`CapitalSchedule` protocol and thread a single optional input through
+`run_with_capital`, keeping the per-jurisdiction denominator encapsulated on
+each result.
+
+1. **`CapitalSchedule.capital_ratio(available_capital)` (protocol method).**
+   Returns the standard's solvency ratio at issue (a multiple): `available_capital
+   / denominator₀`. The denominator is encapsulated per implementation —
+   `CapitalResult` (LICAT) and `SolvencyIIResult` use `capital_by_period[0]`
+   (required capital / SCR), `RBCResult` uses `authorized_control_level[0]`
+   (ACL = ½ the Company Action Level it holds). All three raise
+   `PolarisComputationError` on a non-positive t=0 denominator (an all-stub
+   factor set). `RBCResult.rbc_ratio` is retained as a thin RBC-named alias of
+   `capital_ratio`, so existing callers and tests are unaffected.
+
+2. **`ProfitTester.run_with_capital(..., available_capital: float | None = None)`.**
+   When supplied, the ratio is computed via `capital.capital_ratio(...)` and
+   surfaced on the result; when omitted (the default), it is None. The new
+   `ProfitResultWithCapital` fields `available_capital` and `capital_ratio` both
+   default to None, so every existing caller and the entire RoC path are
+   byte-identical.
+
+**Why a protocol method, not a `ratio_denominator` attribute.** The numerator is
+uniform across jurisdictions (available capital), but the *denominator* is the
+genuine jurisdictional difference (ACL is half the held capital for RBC; the
+held capital itself for LICAT / Solvency II). Encapsulating the whole ratio
+behind one method keeps that choice in the result class that owns it, rather than
+leaking the "RBC divides by half" rule into the consumer.
+
+**Verification anchors.** `test_profit_test.py::TestRunWithCapitalRatio` (6):
+ratio None when `available_capital` omitted; LICAT total ratio = available /
+required₀; RBC ratio = TAC / ACL₀; EU solvency ratio = own funds / SCR₀;
+supplying `available_capital` disturbs none of the RoC / base fields; a
+zero-capital model raises. Per-result closed forms in
+`test_capital.py::TestCapitalResult` (LICAT ratio + zero-denominator raise),
+`test_rbc.py::TestRBCResultHelpers` (`capital_ratio` == `rbc_ratio`, ACL-zero
+raise), and `test_solvency2.py::TestSolvencyRatio` (own-funds/SCR + SCR-zero
+raise).
+
+**Behaviour change.** None on any existing path — the protocol gains a method,
+each result class gains it, and `run_with_capital` gains an optional keyword that
+defaults to the prior behaviour. The two new result fields default to None.
+Goldens byte-identical: no consumer supplies `available_capital` yet (that is
+Slice 4c-2). Contract change (protocol + `ProfitResultWithCapital`) is additive
+and backward-compatible; flagged for human review in the PR.
+
+**Out of scope (Slice 4c-2).** Threading `available_capital` through the CLI
+(`--available-capital` / target-multiple flag), the API request field, the Excel
+capital block (a ratio row), and the dashboard (a number-input + tile), plus the
+three-standard validation notebook comparing LICAT / RBC / Solvency II on the
+golden block and demonstrating the ratio. The held-capital-basis question
+(configurable target multiple of ACL vs fixed CAL) remains open and is the
+natural companion to the CLI input in 4c-2. The shock-based factor calibration
+remains the C0 Asset/ALM epic.

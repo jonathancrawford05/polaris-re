@@ -250,6 +250,21 @@ class TestRBCResultHelpers:
         with pytest.raises(PolarisComputationError):
             res.rbc_ratio(1_000_000.0)
 
+    def test_capital_ratio_is_rbc_ratio(self) -> None:
+        """The protocol `capital_ratio` is the RBC ratio (TAC / ACL₀); ADR-103."""
+        cf = _make_cashflow(n=12, nar=np.full(12, 1_000_000.0, dtype=np.float64))
+        res = RBCCapital.for_product(ProductType.TERM).required_capital(cf)
+        tac = 5.0 * res.authorized_control_level[0]
+        np.testing.assert_allclose(res.capital_ratio(tac), 5.0)
+        # rbc_ratio is now an alias of capital_ratio — identical for any input.
+        np.testing.assert_allclose(res.capital_ratio(tac), res.rbc_ratio(tac))
+
+    def test_capital_ratio_raises_when_acl_zero(self) -> None:
+        cf = _make_cashflow(n=12, nar=np.full(12, 1_000_000.0, dtype=np.float64))
+        res = RBCCapital(factors=RBCFactors(c2_factor=0.0)).required_capital(cf)
+        with pytest.raises(PolarisComputationError):
+            res.capital_ratio(1_000_000.0)
+
 
 # ----------------------------------------------------------------------
 # RBCCapital — NAR resolution & basis guard

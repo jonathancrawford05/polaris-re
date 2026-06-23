@@ -436,13 +436,18 @@ Items harvested from completed/in-flight work by the daily-dev routine
   Solvency II `SolvencyIIResult` exposes the SCR schedule and the cost-of-capital
   risk margin, but not a solvency ratio (own funds / SCR), the EU analogue of the
   RBC ratio. Like the deferred RBC ratio it needs an external own-funds input the
-  RoC entry points do not hold. Slices 4a (CLI/API selector) and 4b (dashboard +
-  Excel surfacing) shipped without it; it now lands in **Epic 3 Slice 4c**, which
-  introduces the external own-funds / TAC input and surfaces both the RBC and
-  solvency ratios on the result, the Excel capital block, and the dashboard tiles.
-  Affects the capital-ratio surface for US/EU deals, not first-deal RoC
-  correctness → NICE-TO-HAVE.
-  *Source: ADR-100 Out of scope (1st-order); re-pointed to Slice 4c by ADR-102.*
+  RoC entry points do not hold. **Slice 4c-1 (ADR-103) shipped the result-level
+  ratio CORE**: a `CapitalSchedule.capital_ratio(available_capital)` protocol
+  method (LICAT total ratio / RBC ratio / EU solvency ratio, denominator
+  encapsulated per jurisdiction) surfaced on `ProfitResultWithCapital` via an
+  optional `run_with_capital(..., available_capital=...)` keyword. What REMAINS is
+  the *surfacing* — threading the `available_capital` numerator in from the CLI /
+  API / dashboard and rendering `capital_ratio` on the Excel capital block + the
+  dashboard tiles — which lands in **Epic 3 Slice 4c-2** (ADR-104). Affects the
+  capital-ratio surface for US/EU deals, not first-deal RoC correctness →
+  NICE-TO-HAVE.
+  *Source: ADR-100 Out of scope (1st-order); re-pointed to Slice 4c by ADR-102;
+  core shipped in 4c-1 (ADR-103), surfacing re-pointed to Slice 4c-2.*
 
 - **NICE-TO-HAVE — Statutory reserve bases for UL and DI.** The reserve-basis
   epic (A1) implements CRVM / VM-20 / GAAP for Term and Whole Life only. UL

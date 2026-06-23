@@ -228,19 +228,27 @@ class RBCResult:
         """PV of the capital STRAIN at a flat annual rate."""
         return discount_stream(self.capital_strain(), discount_rate)
 
-    def rbc_ratio(self, total_adjusted_capital: float) -> float:
+    def capital_ratio(self, available_capital: float) -> float:
         """
-        RBC ratio = Total Adjusted Capital / initial Authorized Control Level.
+        RBC ratio = Total Adjusted Capital / initial Authorized Control Level
+        (ADR-103).
 
         Uses the t=0 ACL as the denominator (the issue-date ratio a committee
-        reads). Raises if ACL is zero (an all-stub factor set).
+        reads). `available_capital` is the company's Total Adjusted Capital.
+        This is the jurisdiction-agnostic `CapitalSchedule.capital_ratio`
+        surface; `rbc_ratio` is the RBC-named alias kept for callers that
+        reach for it directly. Raises if ACL is zero (an all-stub factor set).
         """
         if len(self.authorized_control_level) == 0 or self.authorized_control_level[0] <= 0.0:
             raise PolarisComputationError(
                 "RBC ratio undefined: Authorized Control Level is zero at t=0. "
                 "Populate at least one non-zero factor (e.g. via for_product)."
             )
-        return float(total_adjusted_capital / self.authorized_control_level[0])
+        return float(available_capital / self.authorized_control_level[0])
+
+    def rbc_ratio(self, total_adjusted_capital: float) -> float:
+        """RBC-named alias of :meth:`capital_ratio` (= TAC / ACL₀)."""
+        return self.capital_ratio(total_adjusted_capital)
 
 
 class RBCCapital(PolarisBaseModel):

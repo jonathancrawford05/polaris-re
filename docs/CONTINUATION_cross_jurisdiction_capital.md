@@ -170,30 +170,81 @@ that proves larger than expected.
   per jurisdiction, position above Peak Capital, None→LICAT, absent when no
   capital). Full fast suite 1634 passed; QA golden suite green.
 
-#### Slice 4c: Result-level ratio surface + three-standard validation notebook
+Slice 4c (the planned result-level ratio surface + three-standard validation
+notebook) proved LARGE once detailed — a contract change to the capital protocol
++ result, threaded through four consumers, plus a notebook — so it was
+re-decomposed into 4c-1 (the result-level ratio core, data model first, shipped)
+and 4c-2 (CLI + API + Excel + dashboard inputs + validation notebook, planned).
+Each is an independently mergeable, fully tested PR, per the routine's allowance
+for a slice that proves larger than expected.
+
+#### Slice 4c-1: Result-level capital-ratio core  ✅ DONE
+- **Status:** DONE
+- **Branch:** `claude/awesome-bardeen-bsrsuk` (environment-designated)
+- **PR:** _(draft — this session)_
+- **What was done:** Added the jurisdiction-agnostic solvency ratio as a
+  `CapitalSchedule.capital_ratio(available_capital)` protocol method, implemented
+  on all three result classes with the denominator encapsulated per jurisdiction
+  — `CapitalResult` (LICAT) and `SolvencyIIResult` over `capital_by_period[0]`
+  (required capital / SCR), `RBCResult` over `authorized_control_level[0]` (ACL =
+  ½ CAL). `RBCResult.rbc_ratio` became a thin alias of `capital_ratio`.
+  `ProfitTester.run_with_capital` gained an optional `available_capital: float |
+  None = None` keyword that, when supplied, computes the ratio via
+  `capital.capital_ratio(...)` and surfaces it on the two new
+  `ProfitResultWithCapital` fields `available_capital` / `capital_ratio` (both
+  default None → byte-identical otherwise). ADR-103.
+- **Key decisions:**
+  - **A protocol method, not a `ratio_denominator` attribute.** The numerator
+    (available capital) is uniform; the denominator is the real jurisdictional
+    difference (ACL = ½ held capital for RBC, held capital itself for LICAT /
+    SCR). Encapsulating the whole ratio behind one method keeps "RBC divides by
+    half" out of the consumer.
+  - **`rbc_ratio` retained as an alias** so existing callers/tests are
+    unaffected; the protocol surface is the new general entry point.
+  - Goldens byte-identical: no consumer supplies `available_capital` yet — that
+    is 4c-2. The contract change (protocol + result) is additive and
+    backward-compatible.
+- **Tests:** `test_profit_test.py::TestRunWithCapitalRatio` (6 — ratio None when
+  omitted; LICAT / RBC / Solvency II closed forms; supplying the input disturbs
+  no RoC/base field; zero-capital model raises); per-result closed forms +
+  zero-denominator raises in `test_capital.py::TestCapitalResult`,
+  `test_rbc.py::TestRBCResultHelpers`, `test_solvency2.py::TestSolvencyRatio`
+  (6 across the three). Fast suite 1646 passed; QA golden suite 72 green.
+
+#### Slice 4c-2: Ratio surfacing (CLI/API/Excel/dashboard) + validation notebook
 - **Status:** NEXT
-- **Depends on:** Slice 4b merged
-- **Scope:** The result-level solvency/RBC-ratio surface (own-funds / TAC input ÷
-  SCR / ACL) deferred from Slices 2–4b because it needs an external own-funds /
-  target-multiple input the RoC entry points do not hold — Slice 4c introduces
-  that input (CLI flag + API field + dashboard number-input) and surfaces the
-  ratio on `ProfitResultWithCapital` (or a sibling), the Excel capital block, and
-  the dashboard tiles. Plus the three-standard validation notebook comparing
-  LICAT / RBC / Solvency II on the golden block (and demonstrating the ratio).
-  ADR-103. May rebaseline only capital-surface goldens for non-default runs.
+- **Depends on:** Slice 4c-1 merged
+- **Scope:** Thread the `available_capital` input through the CLI
+  (`--available-capital` or a target-multiple flag), the API request field, the
+  Excel capital block (a ratio row under the jurisdiction header 4b added), and
+  the dashboard (a number-input + tile), so the `capital_ratio` 4c-1 computes is
+  visible on every surface. Plus the three-standard validation notebook comparing
+  LICAT / RBC / Solvency II on the golden block and demonstrating the ratio.
+  ADR-104. May rebaseline only capital-surface goldens for non-default runs (the
+  default path stays byte-identical). The held-capital-basis question
+  (configurable target multiple of ACL vs fixed CAL) is the natural companion to
+  the CLI input here.
 
 ## Context for Next Session
 
-- **Slice 4c is next** (result-level ratio surface + three-standard validation
-  notebook). All three calculators (Slices 1–3), both RoC entry points (Slice 2),
-  the CLI/API selector (4a), and the dashboard/Excel surfacing (4b) are done. The
-  remaining gap is the *ratio* (RBC ratio = TAC / ACL; EU solvency ratio = own
-  funds / SCR), which needs a **new external input** (own-funds / target-multiple)
-  the RoC entry points do not hold — 4c introduces it (CLI flag + API field +
-  dashboard number-input) and surfaces both ratios on the result, the Excel
-  capital block, and the dashboard tiles. The label map (`CAPITAL_MODEL_LABELS`)
-  and the `DealPricingExport.capital_model_id` field 4b added are the hooks the
-  ratio rows attach to. ADR-103.
+- **Slice 4c-2 is next** (ratio *surfacing* + three-standard validation
+  notebook). Slice 4c-1 (this session) shipped the result-level ratio **core**:
+  the `CapitalSchedule.capital_ratio(available_capital)` protocol method (on all
+  three result classes) and the optional `run_with_capital(...,
+  available_capital=...)` keyword that surfaces `capital_ratio` /
+  `available_capital` on `ProfitResultWithCapital`. The remaining gap is purely
+  *surfacing*: thread the `available_capital` numerator in from the CLI
+  (`--available-capital` or a target-multiple flag), the API request field, the
+  dashboard number-input, and render the resulting `capital_ratio` on the Excel
+  capital block (a ratio row under the jurisdiction header 4b added) and the
+  dashboard tiles. ADR-104.
+- **The ratio computation is done** — 4c-2 only has to (a) collect the
+  `available_capital` input on each surface and (b) display the
+  `result.capital_ratio` already on `ProfitResultWithCapital`. No further
+  analytics work. The `DealPricingExport.capital_model_id` field and the
+  `CAPITAL_MODEL_LABELS` / `capital_model_label()` helper (4b) are the hooks the
+  ratio row / tile attach to; the held-capital-basis open question is the natural
+  companion to the CLI input.
 - The shared label map and `capital_model_label()` helper live in
   `analytics/capital_base.py` next to `capital_model_for` — extend them in one
   place. `_CAPITAL_MODEL_CHOICES` (dashboard) and the Excel header both read them.

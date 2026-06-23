@@ -268,6 +268,23 @@ class CapitalResult:
         discount_factors = v ** np.arange(1, n + 1, dtype=np.float64)
         return float(np.dot(strain, discount_factors))
 
+    def capital_ratio(self, available_capital: float) -> float:
+        """
+        LICAT total ratio = available capital / required capital at t=0
+        (ADR-103).
+
+        The Canadian total ratio expressed as a multiple of the required
+        capital the schedule holds (`capital_by_period[0]`). Raises if the t=0
+        required capital is non-positive (an all-zero-factor model) — a ratio
+        over a zero base is undefined.
+        """
+        if len(self.capital_by_period) == 0 or self.capital_by_period[0] <= 0.0:
+            raise PolarisComputationError(
+                "LICAT ratio undefined: required capital is zero at t=0. "
+                "Populate at least one non-zero factor (e.g. via for_product)."
+            )
+        return float(available_capital / self.capital_by_period[0])
+
 
 class LICATCapital(PolarisBaseModel):
     """

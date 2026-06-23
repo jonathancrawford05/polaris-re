@@ -304,6 +304,22 @@ class SolvencyIIResult:
         """PV of the capital STRAIN at a flat annual rate."""
         return discount_stream(self.capital_strain(), discount_rate)
 
+    def capital_ratio(self, available_capital: float) -> float:
+        """
+        Solvency II solvency ratio = own funds / SCR at t=0 (ADR-103).
+
+        The headline solvency ratio expressed as a multiple of the SCR the
+        schedule holds (`capital_by_period[0]`). `available_capital` is the
+        company's eligible own funds. Raises if the t=0 SCR is non-positive (an
+        all-stub factor set) — a ratio over a zero base is undefined.
+        """
+        if len(self.capital_by_period) == 0 or self.capital_by_period[0] <= 0.0:
+            raise PolarisComputationError(
+                "Solvency ratio undefined: SCR is zero at t=0. "
+                "Populate at least one non-zero factor (e.g. via for_product)."
+            )
+        return float(available_capital / self.capital_by_period[0])
+
     def risk_margin(self, discount_rate: float, coc: float = _COST_OF_CAPITAL) -> float:
         """
         Cost-of-capital risk margin ``RM = CoC * PV(future SCR)``.
