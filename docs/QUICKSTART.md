@@ -547,8 +547,9 @@ Options:
       --excel-out PATH     Write a formatted deal-pricing Excel workbook to PATH.
                            Mixed-cohort blocks write one file per cohort with the
                            cohort id appended to the stem (e.g. deal-TERM.xlsx).
-      --capital MODEL      Regulatory capital model. Only "licat" is shipped today
-                           (ADR-049). When set, JSON output and the workbook
+      --capital MODEL      Regulatory capital model: "licat" (Canada OSFI),
+                           "rbc" (US NAIC), or "solvency2" (EU SCR)
+                           (ADR-049/101). When set, JSON output and the workbook
                            Summary sheet gain RoC, peak capital, and PV capital
                            rows. See §10 for usage.
       --yrt-rate-table DIR Bill YRT premiums from a tabular (age × duration) rate
@@ -649,7 +650,7 @@ Each Excel workbook produced by `--excel-out` always contains these core sheets:
 
 | Sheet | Contents |
 |---|---|
-| **Summary** | Key pricing metrics: IRR, PV profits, profit margin, break-even year (cedant and reinsurer views), plus the premium-sufficiency panel (ADR-083/084). Under `--capital licat` (ADR-049) the sheet **gains five additional rows** inline — `Return on Capital`, `Peak Capital`, `PV Capital (stock)`, `PV Capital Strain`, and `Capital-Adjusted IRR` — for both the Cedant and Reinsurer columns. |
+| **Summary** | Key pricing metrics: IRR, PV profits, profit margin, break-even year (cedant and reinsurer views), plus the premium-sufficiency panel (ADR-083/084). Under `--capital {licat,rbc,solvency2}` (ADR-049/101) the sheet **gains five additional rows** inline — `Return on Capital`, `Peak Capital`, `PV Capital (stock)`, `PV Capital Strain`, and `Capital-Adjusted IRR` — for both the Cedant and Reinsurer columns. |
 | **Cash Flows** | Annual net cash-flow rollup for `projection_years` rows |
 | **Assumptions** | Treaty type, cession %, hurdle rate, discount rate, projection years, mortality source, lapse description |
 
@@ -780,15 +781,28 @@ POLARIS_PARITY_DEBUG=1 uv run polaris price \
 
 ---
 
-## 10. LICAT Capital & Return on Capital
+## 10. Regulatory Capital & Return on Capital
 
-`polaris price --capital licat` (ADR-049) runs the LICAT factor-based
-required-capital calculator (ADR-047) alongside the profit test
-(ADR-048) and surfaces return-on-capital (RoC) on every cohort. The
-flag is opt-in everywhere — when it is absent the JSON, console, and
-Excel outputs are byte-identical to a vanilla `polaris price` run.
+`polaris price --capital {licat,rbc,solvency2}` (ADR-049/101) runs a
+factor-based required-capital calculator alongside the profit test
+(ADR-048) and surfaces return-on-capital (RoC) on every cohort. Pick the
+jurisdiction the cedant files under:
 
-The metric set populated under `--capital licat`:
+| Id | Standard | Module |
+|---|---|---|
+| `licat` | Canada — OSFI LICAT (C-1/C-2/C-3 + lapse/morbidity) | ADR-047/065/072 |
+| `rbc` | US — NAIC Life RBC (C-0…C-4 covariance square root) | ADR-098 |
+| `solvency2` | EU — Solvency II standard-formula SCR (correlation-matrix BSCR + risk margin) | ADR-100 |
+
+All three plug into one shared `CapitalModel` protocol via the
+`capital_model_for` registry (ADR-101), and the REST API exposes the same
+choice through the `capital_model` field. The flag is opt-in everywhere — when
+it is absent (or set to `licat`) the JSON, console, and Excel outputs are
+byte-identical to a vanilla `polaris price` run; only an explicit `rbc` /
+`solvency2` selection moves the numbers.
+
+The metric set populated under `--capital` (identical across jurisdictions —
+the schedule that drives it differs):
 
 | Field | Meaning |
 |---|---|
@@ -806,18 +820,25 @@ SOA VBT 2015, YRT, WHOLE_LIFE) and write the capital block into the
 JSON output and the Excel workbook Summary sheet.
 
 ```bash
-# Pricing with LICAT capital — JSON only
+# Pricing with LICAT (Canada) capital — JSON only
 uv run polaris price \
   --config data/inputs/test_inforce.json \
   --inforce data/inputs/test_inforce.csv \
   --capital licat \
   --output data/outputs/test_capital_result.json
 
-# Pricing with LICAT capital + Excel workbook
+# Same block under the US NAIC RBC standard — swap the jurisdiction id
 uv run polaris price \
   --config data/inputs/test_inforce.json \
   --inforce data/inputs/test_inforce.csv \
-  --capital licat \
+  --capital rbc \
+  --output data/outputs/test_capital_rbc_result.json
+
+# Pricing with EU Solvency II capital + Excel workbook
+uv run polaris price \
+  --config data/inputs/test_inforce.json \
+  --inforce data/inputs/test_inforce.csv \
+  --capital solvency2 \
   --output data/outputs/test_capital_result.json \
   --excel-out data/outputs/test_capital_deal.xlsx
 ```
@@ -881,8 +902,10 @@ NAIC standard is a one-line change — `RBCCapital.for_product(ProductType.TERM)
 in place of `LICATCapital.for_product(...)` — and returns the same
 return-on-capital / peak-capital / capital-strain metrics; `RBCResult`
 additionally exposes `authorized_control_level` and `rbc_ratio(tac)`. The CLI
-`--capital` flag still surfaces only `licat` today (the jurisdiction selector is
-Epic 3 Slice 4); RBC is reachable programmatically as shown.
+`--capital {licat,rbc,solvency2}` flag and the API `capital_model` field select
+the jurisdiction directly (ADR-101) via the `capital_model_for` registry, so the
+swap shown here is also reachable from the command line and HTTP API — no Python
+needed.
 
 NAR derivation at the call site uses
 `polaris_re.core.pipeline.derive_capital_nar`:

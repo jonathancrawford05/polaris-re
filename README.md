@@ -21,7 +21,7 @@ Polaris RE provides:
 - ✅ **Modern stack** — Python 3.12+, Pydantic v2, Polars 1.0+, NumPy 2.0+, fully typed
 - ✅ **API-first** — full REST API (FastAPI), CLI (Typer), and Streamlit dashboard
 - ✅ **IFRS 17** — BBA, PAA, and VFA measurement plus the period-to-period movement table
-- ✅ **Return-on-capital** — LICAT (Canada) and US RBC drive return-on-capital today; EU Solvency II SCR module shipped, its CLI/API selector in progress
+- ✅ **Return-on-capital** — LICAT (Canada), US RBC, and EU Solvency II SCR are all selectable for return-on-capital on the CLI (`--capital`) and REST API (`capital_model`); Excel/dashboard surfacing in progress
 - ✅ **Statutory reserves** — reproduce the cedant's basis (CRVM, VM-20) alongside net-premium
 
 ---
@@ -59,20 +59,20 @@ breakdown.
 | `analytics/` | Experience Studies — A/E, limited-fluctuation credibility, blended rates | ✅ |
 | `analytics/` | Portfolio aggregation — multi-deal runner, concentration/HHI, calendar alignment, portfolio scenarios | ✅ |
 | `analytics/` | Regulatory capital — LICAT (C-1/C-2/C-3 + lapse/morbidity) → return-on-capital | ✅ |
-| `analytics/` | Regulatory capital — US NAIC Life RBC + shared `CapitalModel` protocol; drives return-on-capital | 🔄 module + RoC integration shipped; CLI/API selector in progress |
-| `analytics/` | Regulatory capital — EU Solvency II SCR (standard-formula correlation-matrix BSCR + risk margin) | 🔄 module shipped; CLI/API selector in progress |
+| `analytics/` | Regulatory capital — US NAIC Life RBC + shared `CapitalModel` protocol; drives return-on-capital | 🔄 module + RoC + CLI/API selector shipped; Excel/dashboard pending (Slice 4b) |
+| `analytics/` | Regulatory capital — EU Solvency II SCR (standard-formula correlation-matrix BSCR + risk margin) | 🔄 module + CLI/API selector shipped; Excel/dashboard pending (Slice 4b) |
 | `analytics/` | YRT rate schedule generator — flat + per-duration solve to a target IRR | ✅ |
 | `assumptions/` | ML-enhanced mortality & lapse (scikit-learn / XGBoost), same protocol as table-based | ✅ |
 | `utils/` | Cedant inforce data ingestion — YAML-driven mapping, data-quality report | ✅ |
 | `api/` | REST API — FastAPI with full OpenAPI docs (price, scenario, uq, ifrs17 bba/paa/movement, portfolio, ingest, rate-schedule) | ✅ |
-| `cli.py` | CLI — `price / scenario / uq / portfolio / rate-schedule / ingest / validate / version`; `price --excel-out` (committee workbook), `--reserve-basis {NET_PREMIUM,CRVM,VM20}`, `--capital licat` (RoC) | ✅ |
+| `cli.py` | CLI — `price / scenario / uq / portfolio / rate-schedule / ingest / validate / version`; `price --excel-out` (committee workbook), `--reserve-basis {NET_PREMIUM,CRVM,VM20}`, `--capital {licat,rbc,solvency2}` (RoC) | ✅ |
 | `dashboard/` | Streamlit dashboard — pricing, scenarios, Monte Carlo, portfolio | ✅ |
 
 ---
 
 ## Quick Start
 
-See [`docs/QUICKSTART.md`](docs/QUICKSTART.md) for the full setup guide including Docker, Codespaces, mortality table loading, API testing, `--excel-out` usage, and `--capital licat` for LICAT return-on-capital ([§10](docs/QUICKSTART.md#10-licat-capital--return-on-capital)).
+See [`docs/QUICKSTART.md`](docs/QUICKSTART.md) for the full setup guide including Docker, Codespaces, mortality table loading, API testing, `--excel-out` usage, and `--capital {licat,rbc,solvency2}` for return-on-capital under the Canadian, US, or EU standard ([§10](docs/QUICKSTART.md#10-regulatory-capital--return-on-capital)).
 
 **Requires:** Python 3.12+, [uv](https://docs.astral.sh/uv/getting-started/installation/)
 
@@ -116,15 +116,16 @@ uv run polaris price \
   -o result.json \
   --excel-out deal.xlsx
 
-# Add LICAT capital + return-on-capital metrics (ADR-049). The flag is
-# opt-in; when absent the JSON / console / Excel output is byte-identical
-# to a vanilla run.
+# Add regulatory capital + return-on-capital metrics (ADR-049/101). Choose
+# the jurisdiction: licat (Canada), rbc (US NAIC), or solvency2 (EU SCR).
+# The flag is opt-in; when absent (or with --capital licat) the JSON /
+# console / Excel output is byte-identical to a vanilla run.
 uv run polaris price \
   -c my_deal.json \
   -i my_block.csv \
   -o result.json \
   --excel-out deal.xlsx \
-  --capital licat
+  --capital solvency2
 ```
 
 Set `POLARIS_PARITY_DEBUG=1` to dump year-by-year cash flow CSVs (gross / net /

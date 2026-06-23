@@ -40,7 +40,7 @@ import polaris_re
 
 if TYPE_CHECKING:
     from polaris_re.analytics.portfolio import Portfolio
-from polaris_re.analytics.capital import LICATCapital
+from polaris_re.analytics.capital_base import CapitalModelId, capital_model_for
 from polaris_re.analytics.ifrs17 import (
     IFRS17CohortManager,
     IFRS17ContractInput,
@@ -159,14 +159,15 @@ class PriceRequest(BaseModel):
         le=0.20,
         description="Modco interest rate (used only for Modco treaty type).",
     )
-    capital_model: Literal["licat"] | None = Field(
+    capital_model: CapitalModelId | None = Field(
         default=None,
         description=(
-            "Regulatory-capital model. When set to 'licat', cedant and "
-            "reinsurer profit tests run with the LICAT factor model "
-            "(ADR-047/048) and the response gains return_on_capital, "
-            "peak_capital, pv_capital, pv_capital_strain, and "
-            "capital_adjusted_irr (ADR-049). Default: not applied."
+            "Regulatory-capital model: 'licat' (Canada OSFI, ADR-047/048), "
+            "'rbc' (US NAIC RBC, ADR-098), or 'solvency2' (EU SCR, ADR-100). "
+            "When set, cedant and reinsurer profit tests run with the selected "
+            "jurisdiction's per-product factor model and the response gains "
+            "return_on_capital, peak_capital, pv_capital, pv_capital_strain, "
+            "and capital_adjusted_irr (ADR-049/101). Default: not applied."
         ),
     )
     yrt_rate_table_path: str | None = Field(
@@ -255,8 +256,8 @@ class PriceResponse(BaseModel):
     reinsurer_breakeven_year: int | None
     reinsurer_total_undiscounted_profit: float
     reinsurer_profit_by_year: list[float]
-    # LICAT capital block — populated only when capital_model='licat' (ADR-049).
-    # Cedant view
+    # Regulatory-capital block — populated only when capital_model is set
+    # (licat / rbc / solvency2; ADR-049/101). Cedant view
     peak_capital: float | None = None
     pv_capital: float | None = None
     pv_capital_strain: float | None = None
@@ -858,9 +859,10 @@ def price(request: PriceRequest) -> PriceResponse:
         else:
             net, ceded = gross, None
 
-        # Cedant + reinsurer profit tests, optionally with LICAT capital
-        # (ADR-049). When capital is off the original code path is taken
-        # so existing API consumers see byte-identical responses.
+        # Cedant + reinsurer profit tests, optionally with regulatory capital
+        # (licat / rbc / solvency2; ADR-049/101). When capital is off the
+        # original code path is taken so existing API consumers see
+        # byte-identical responses.
         cedant_tester = ProfitTester(cashflows=net, hurdle_rate=request.hurdle_rate)
         reinsurer_tester: ProfitTester | None = None
         if ceded is not None:
@@ -876,7 +878,7 @@ def price(request: PriceRequest) -> PriceResponse:
             reinsurer = reinsurer_tester.run() if reinsurer_tester is not None else cedant
         else:
             product_type_enum = ProductType(request.product_type)
-            capital_model = LICATCapital.for_product(product_type_enum)
+            capital_model = capital_model_for(request.capital_model, product_type_enum)
             cession_pct = request.cession_pct if treaty is not None else None
             cedant_nar = derive_capital_nar(
                 gross=gross,
@@ -955,7 +957,7 @@ def price(request: PriceRequest) -> PriceResponse:
 
 
 def _capital_block(result: ProfitTestResult) -> dict[str, float | None]:
-    """Extract the LICAT capital fields from a profit-test result.
+    """Extract the regulatory-capital fields from a profit-test result.
 
     Returns all-None when ``result`` is a plain ``ProfitTestResult`` so
     the API response gracefully omits the block when the capital model

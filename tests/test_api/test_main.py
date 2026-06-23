@@ -158,10 +158,29 @@ class TestPriceEndpoint:
         assert data["reinsurer_peak_capital"] > 0.0
 
     def test_price_capital_model_invalid_value_returns_422(self):
-        """Unknown capital_model values are rejected by Pydantic."""
-        payload = {"policies": [DEMO_POLICY], "capital_model": "solvency2"}
+        """Unknown capital_model values are rejected by Pydantic.
+
+        ``solvency2`` is now a *valid* jurisdiction (ADR-101 Slice 4a), so the
+        rejection probe uses a still-unrecognised id.
+        """
+        payload = {"policies": [DEMO_POLICY], "capital_model": "bogus"}
         response = client.post("/api/v1/price", json=payload)
         assert response.status_code == 422, response.text
+
+    @pytest.mark.parametrize("jurisdiction", ["rbc", "solvency2"])
+    def test_price_capital_model_jurisdiction_populates_capital_block(self, jurisdiction: str):
+        """capital_model='rbc'/'solvency2' returns numeric capital fields (ADR-101)."""
+        payload = {"policies": [DEMO_POLICY], "capital_model": jurisdiction}
+        response = client.post("/api/v1/price", json=payload)
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert isinstance(data["peak_capital"], (int, float))
+        assert data["peak_capital"] > 0.0
+        assert isinstance(data["pv_capital"], (int, float))
+        assert data["pv_capital"] > 0.0
+        assert isinstance(data["pv_capital_strain"], (int, float))
+        assert isinstance(data["reinsurer_peak_capital"], (int, float))
+        assert data["reinsurer_peak_capital"] > 0.0
 
     def test_price_capital_licat_doubling_cession_shifts_reinsurer_capital_up(self):
         """Higher cession → larger reinsurer capital share (face_share scaling)."""

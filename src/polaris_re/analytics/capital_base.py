@@ -32,13 +32,75 @@ discounted at the hurdle rate — the time-value adjustment lives in the
 return-on-capital metric (`ProfitTester.run_with_capital`).
 """
 
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 import numpy as np
 
 from polaris_re.core.cashflow import CashFlowResult
+from polaris_re.core.policy import ProductType
 
-__all__ = ["CapitalModel", "CapitalSchedule", "discount_stream", "strain_of"]
+type CapitalModelId = Literal["licat", "rbc", "solvency2"]
+"""The jurisdiction ids the CLI / API selector accepts (ADR-101)."""
+
+SUPPORTED_CAPITAL_MODELS: tuple[CapitalModelId, ...] = ("licat", "rbc", "solvency2")
+"""Registry of selectable regulatory-capital jurisdictions.
+
+``licat`` is the default (Canada, ADR-047/048); ``rbc`` is US NAIC RBC
+(ADR-098) and ``solvency2`` is the EU SCR (ADR-100). Every entry resolves to a
+calculator satisfying :class:`CapitalModel` via :func:`capital_model_for`.
+"""
+
+__all__ = [
+    "SUPPORTED_CAPITAL_MODELS",
+    "CapitalModel",
+    "CapitalModelId",
+    "CapitalSchedule",
+    "capital_model_for",
+    "discount_stream",
+    "strain_of",
+]
+
+
+def capital_model_for(model_id: str, product_type: ProductType) -> "CapitalModel":
+    """Resolve a jurisdiction id to a per-product regulatory-capital calculator.
+
+    The single registry behind the CLI ``--capital`` flag and the API
+    ``capital_model`` field (ADR-101), so both surfaces stay in lock-step and a
+    new jurisdiction is added in exactly one place. The id is normalised
+    (stripped, lower-cased) before lookup.
+
+    Imports of the concrete calculators are deferred to call time because
+    ``rbc`` / ``capital`` / ``solvency2`` import this module for `discount_stream`
+    / `strain_of` — a module-level import here would be circular.
+
+    Args:
+        model_id: One of :data:`SUPPORTED_CAPITAL_MODELS` (case-insensitive).
+        product_type: Drives the per-product factor defaults via the
+            calculator's ``for_product`` constructor.
+
+    Returns:
+        A calculator (`LICATCapital` / `RBCCapital` / `SolvencyIICapital`)
+        satisfying :class:`CapitalModel`.
+
+    Raises:
+        ValueError: If ``model_id`` is not a supported jurisdiction. The message
+            lists the supported ids so callers can surface it verbatim.
+    """
+    normalized = model_id.strip().lower()
+    if normalized == "licat":
+        from polaris_re.analytics.capital import LICATCapital
+
+        return LICATCapital.for_product(product_type)
+    if normalized == "rbc":
+        from polaris_re.analytics.rbc import RBCCapital
+
+        return RBCCapital.for_product(product_type)
+    if normalized == "solvency2":
+        from polaris_re.analytics.solvency2 import SolvencyIICapital
+
+        return SolvencyIICapital.for_product(product_type)
+    supported = ", ".join(SUPPORTED_CAPITAL_MODELS)
+    raise ValueError(f"Unknown capital model {model_id!r}. Supported: {supported}.")
 
 
 def discount_stream(stream: np.ndarray, discount_rate: float) -> float:

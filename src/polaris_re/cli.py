@@ -78,9 +78,9 @@ class CohortResult:
     result so downstream consumers (e.g. the Excel writer wired in by
     Slice 2 of ADR-045) can render annual rollups without re-projecting.
 
-    When ``--capital licat`` is supplied, ``cedant_result`` and
-    ``reinsurer_result`` are ``ProfitResultWithCapital`` instances
-    (subclass of ``ProfitTestResult``) carrying RoC and peak capital
+    When ``--capital`` is supplied (``licat`` / ``rbc`` / ``solvency2``),
+    ``cedant_result`` and ``reinsurer_result`` are ``ProfitResultWithCapital``
+    instances (subclass of ``ProfitTestResult``) carrying RoC and peak capital
     fields. Existing consumers that read base fields keep working.
     """
 
@@ -404,16 +404,18 @@ def _price_single_cohort(
         hurdle_rate: CLI ``--hurdle-rate`` flag (falls back to deal config).
         parity_label: Label for the parity debug dump. When multiple cohorts
             are present we append the cohort id so each dump is distinct.
-        capital_model_id: When ``"licat"``, both cedant and reinsurer profit
-            tests are run via ``ProfitTester.run_with_capital`` using the
-            per-product LICAT factor model (ADR-047 / ADR-048). NAR is
-            derived per-side via ``derive_capital_nar`` (ADR-049). When
-            ``None``, the unchanged ``run()`` path is used.
+        capital_model_id: When ``"licat"`` / ``"rbc"`` / ``"solvency2"``, both
+            cedant and reinsurer profit tests are run via
+            ``ProfitTester.run_with_capital`` using that jurisdiction's
+            per-product factor model (ADR-047/048/098/100, resolved via
+            ``capital_model_for``, ADR-101). NAR is derived per-side via
+            ``derive_capital_nar`` (ADR-049). When ``None``, the unchanged
+            ``run()`` path is used.
 
     Returns:
         Typed ``CohortResult`` carrying the raw ProfitTestResult objects
         plus cohort metadata (product type, policy count, face amount).
-        When ``capital_model_id == "licat"``, the result fields are
+        When ``capital_model_id`` is set, the result fields are
         ``ProfitResultWithCapital`` instances.
     """
     from polaris_re.products.dispatch import get_product_engine
@@ -480,11 +482,12 @@ def _run_profit_tests(
 ) -> tuple[ProfitTestResult, ProfitTestResult | None]:
     """Run cedant + reinsurer profit tests, optionally with capital.
 
-    When ``capital_model_id == "licat"``, both sides go through
-    ``run_with_capital`` with cedant- and reinsurer-derived NAR. Other
-    values raise — Slice 3 only ships the ``licat`` model.
+    When ``capital_model_id`` is set (``licat`` / ``rbc`` / ``solvency2``), both
+    sides go through ``run_with_capital`` with cedant- and reinsurer-derived NAR,
+    using the jurisdiction's calculator resolved via ``capital_model_for``
+    (ADR-101). When ``None``, the unchanged ``run()`` path is used.
     """
-    from polaris_re.analytics.capital import LICATCapital
+    from polaris_re.analytics.capital_base import capital_model_for
     from polaris_re.analytics.profit_test import ProfitTester
 
     cedant_tester = ProfitTester(cashflows=net, hurdle_rate=hurdle_rate)
@@ -502,18 +505,13 @@ def _run_profit_tests(
         )
         return cedant, reinsurer
 
-    if capital_model_id != "licat":
-        raise typer.BadParameter(
-            f"Unknown capital model '{capital_model_id}'. Only 'licat' is supported."
-        )
-
     try:
         product_type_enum = ProductType(cohort_id)
     except ValueError as exc:
         raise typer.BadParameter(
             f"Cannot map cohort id '{cohort_id}' to a ProductType for capital model."
         ) from exc
-    capital_model = LICATCapital.for_product(product_type_enum)
+    capital_model = capital_model_for(capital_model_id, product_type_enum)
 
     cedant_nar = derive_capital_nar(
         gross=gross,
@@ -686,11 +684,13 @@ def _render_rated_block_table(summary: dict[str, object]) -> None:
 
 
 def _append_capital_rows(table: Table, result: ProfitTestResult) -> None:
-    """Append LICAT capital rows to a Rich profit-test table when present.
+    """Append regulatory-capital rows to a Rich profit-test table when present.
 
     No-op when ``result`` is a plain ``ProfitTestResult`` (i.e. the user
-    did not pass ``--capital licat``). Keeps single-cohort and mixed-cohort
-    visual output identical to pre-Slice-3 when capital is off.
+    did not pass ``--capital``). Keeps single-cohort and mixed-cohort
+    visual output identical to pre-Slice-3 when capital is off. The rows are
+    jurisdiction-agnostic (RoC / peak capital / strain), so LICAT, RBC, and
+    Solvency II all render through the same path.
     """
     if not isinstance(result, ProfitResultWithCapital):
         return
@@ -1225,11 +1225,12 @@ def price_cmd(
         typer.Option(
             "--capital",
             help=(
-                "Regulatory capital model. When set to 'licat', each "
-                "cohort's cedant and reinsurer profit tests run with "
-                "the LICAT factor model (ADR-047/048) and the JSON / "
-                "Excel output gain return-on-capital, peak capital, and "
-                "PV capital strain (ADR-049). Default: not applied."
+                "Regulatory capital model: 'licat' (Canada OSFI, ADR-047/048), "
+                "'rbc' (US NAIC RBC, ADR-098), or 'solvency2' (EU SCR, ADR-100). "
+                "Each cohort's cedant and reinsurer profit tests run with the "
+                "selected jurisdiction's per-product factor model and the JSON / "
+                "Excel output gain return-on-capital, peak capital, and PV "
+                "capital strain (ADR-049/101). Default: not applied."
             ),
         ),
     ] = None,
@@ -1356,12 +1357,15 @@ def price_cmd(
     """
     _header()
 
+    from polaris_re.analytics.capital_base import SUPPORTED_CAPITAL_MODELS
+
     capital_model_id: str | None = None
     if capital is not None:
         capital_norm = capital.strip().lower()
-        if capital_norm != "licat":
+        if capital_norm not in SUPPORTED_CAPITAL_MODELS:
+            supported = ", ".join(f"'{m}'" for m in SUPPORTED_CAPITAL_MODELS)
             console.print(
-                f"[red]Error:[/red] Unknown --capital value '{capital}'. Only 'licat' is supported."
+                f"[red]Error:[/red] Unknown --capital value '{capital}'. Supported: {supported}."
             )
             raise typer.Exit(code=1)
         capital_model_id = capital_norm
