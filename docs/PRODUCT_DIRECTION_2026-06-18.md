@@ -709,7 +709,7 @@ Items harvested from completed/in-flight work by the daily-dev routine
   override. Refinement of the surfacing follow-up → NICE-TO-HAVE.
   *Source: ADR-095 Out of scope (2nd-order).*
 
-- **IMPORTANT — Pipeline golden baselines for the `coins` and `policy_cession`
+- ~~**IMPORTANT — Pipeline golden baselines for the `coins` and `policy_cession`
   configs (config-driven, drift-guarded).** `data/qa/` ships four pricing configs
   (`flat`, `yrt`, `coins`, `policy_cession`) but `tests/qa/golden_outputs/` pins
   byte-level baselines for only two (`golden_flat`, `golden_yrt`). The coinsurance
@@ -736,7 +736,13 @@ Items harvested from completed/in-flight work by the daily-dev routine
   fallback work under the active-epic guardrail, picked up when Epic 3's next slice
   is blocked.
   *Source: PR #103 automated review — P2 finding (1st-order; QA-harness follow-up
-  surfaced during review, not introduced by #103).*
+  surfaced during review, not introduced by #103).*~~ — **SHIPPED** (PR #104,
+  ADR-105): config-driven golden harness — `generate_golden.py` /
+  `test_pipeline_golden.py` enumerate `data/qa/golden_config_*.json` via the
+  shared `golden_runner` (CLI parser), committed `golden_coins.json` +
+  `golden_policy_cession.json` baselines, parametrized regression with per-config
+  SOA gating, and a drift-guard test that fails loudly on any unbaselined config.
+  `flat`/`yrt` byte-identical; QA suite 76 passed.
 
 ## Carried Forward
 
