@@ -302,6 +302,27 @@ class TestCapitalResult:
         pv_zero = result.pv_capital(discount_rate=0.0)
         assert pv_zero == pytest.approx(float(result.capital_by_period.sum()))
 
+    def test_capital_ratio_available_over_required(self) -> None:
+        """LICAT total ratio = available capital / required capital₀ (ADR-103)."""
+        n = 12
+        nar = np.full(n, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow(n=n, nar=nar)
+        cap = LICATCapital(factors=LICATFactors(c2_mortality_factor=0.10))
+        result = cap.required_capital(cf)
+
+        available = 1.5 * result.capital_by_period[0]  # a 150% total position
+        np.testing.assert_allclose(result.capital_ratio(available), 1.5)
+
+    def test_capital_ratio_raises_when_required_zero(self) -> None:
+        n = 12
+        nar = np.full(n, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow(n=n, nar=nar)
+        # All-zero factors → zero required capital.
+        cap = LICATCapital(factors=LICATFactors(c2_mortality_factor=0.0))
+        result = cap.required_capital(cf)
+        with pytest.raises(PolarisComputationError):
+            result.capital_ratio(1_000_000.0)
+
 
 # ----------------------------------------------------------------------
 # Closed-form C-2 verification vs published factor (acceptance criterion)

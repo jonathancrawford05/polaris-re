@@ -845,6 +845,118 @@ class TestProfitTesterWithRBCCapital:
 
 
 # ----------------------------------------------------------------------
+# ProfitTester.run_with_capital — result-level solvency ratio
+# (Epic 3 Slice 4c — ADR-103; available_capital -> capital_ratio)
+# ----------------------------------------------------------------------
+
+
+class TestRunWithCapitalRatio:
+    """
+    Slice 4c — `run_with_capital(..., available_capital=X)` surfaces the
+    jurisdiction's regulatory solvency ratio on `ProfitResultWithCapital`. The
+    ratio's denominator is encapsulated per capital model (LICAT required
+    capital / RBC ACL / EU SCR), so the result-level surface is
+    jurisdiction-agnostic. With no `available_capital` the field is None and the
+    result is byte-identical to the prior contract.
+    """
+
+    def test_ratio_none_when_available_capital_omitted(self) -> None:
+        """Backward compat: omitting available_capital leaves the ratio None."""
+        t = 12
+        profits = np.full(t, 50.0, dtype=np.float64)
+        nar = np.full(t, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow_with_nar(profits, nar)
+        cap = LICATCapital.for_product(ProductType.TERM)
+
+        result = ProfitTester(cf, hurdle_rate=0.10).run_with_capital(cap)
+
+        assert result.available_capital is None
+        assert result.capital_ratio is None
+
+    def test_licat_ratio_closed_form(self) -> None:
+        """LICAT total ratio = available capital / required capital₀."""
+        t = 12
+        profits = np.full(t, 50.0, dtype=np.float64)
+        nar = np.full(t, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow_with_nar(profits, nar)
+        cap = LICATCapital.for_product(ProductType.TERM)
+        schedule = cap.required_capital(cf)
+        available = 1.5 * schedule.capital_by_period[0]
+
+        result = ProfitTester(cf, hurdle_rate=0.10).run_with_capital(
+            cap, available_capital=available
+        )
+
+        assert result.available_capital == pytest.approx(available)
+        assert result.capital_ratio == pytest.approx(1.5)
+
+    def test_rbc_ratio_closed_form_tac_over_acl(self) -> None:
+        """RBC ratio = TAC / ACL₀ (= ½ CAL₀)."""
+        t = 12
+        profits = np.full(t, 100.0, dtype=np.float64)
+        nar = np.full(t, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow_with_nar(profits, nar)
+        cf = replace(cf, reserve_balance=np.full(t, 50_000.0, dtype=np.float64))
+        cap = RBCCapital.for_product(ProductType.TERM)
+        schedule = cap.required_capital(cf)
+        tac = 3.0 * schedule.authorized_control_level[0]
+
+        result = ProfitTester(cf, hurdle_rate=0.10).run_with_capital(cap, available_capital=tac)
+
+        assert result.capital_ratio == pytest.approx(3.0)
+
+    def test_solvency2_ratio_closed_form_own_funds_over_scr(self) -> None:
+        """EU solvency ratio = own funds / SCR₀."""
+        from polaris_re.analytics.solvency2 import SolvencyIICapital
+
+        t = 12
+        profits = np.full(t, 100.0, dtype=np.float64)
+        nar = np.full(t, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow_with_nar(profits, nar)
+        cf = replace(cf, reserve_balance=np.full(t, 50_000.0, dtype=np.float64))
+        cap = SolvencyIICapital.for_product(ProductType.TERM)
+        schedule = cap.required_capital(cf)
+        own_funds = 2.0 * schedule.capital_by_period[0]
+
+        result = ProfitTester(cf, hurdle_rate=0.10).run_with_capital(
+            cap, available_capital=own_funds
+        )
+
+        assert result.capital_ratio == pytest.approx(2.0)
+
+    def test_ratio_does_not_disturb_roc_or_base_fields(self) -> None:
+        """Supplying available_capital changes only the two new fields."""
+        t = 18
+        profits = np.full(t, 75.0, dtype=np.float64)
+        profits[0] = -300.0
+        nar = np.full(t, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow_with_nar(profits, nar)
+        cap = LICATCapital.for_product(ProductType.TERM)
+        tester = ProfitTester(cf, hurdle_rate=0.10)
+
+        without = tester.run_with_capital(cap)
+        with_af = tester.run_with_capital(cap, available_capital=5_000_000.0)
+
+        assert with_af.pv_profits == pytest.approx(without.pv_profits)
+        assert with_af.pv_capital == pytest.approx(without.pv_capital)
+        assert with_af.return_on_capital == pytest.approx(without.return_on_capital)
+        assert with_af.capital_adjusted_irr == pytest.approx(without.capital_adjusted_irr)
+        np.testing.assert_array_equal(with_af.capital_by_period, without.capital_by_period)
+
+    def test_zero_factor_model_raises_on_ratio(self) -> None:
+        """A zero-capital model has no ratio denominator -> the model raises."""
+        t = 12
+        profits = np.full(t, 50.0, dtype=np.float64)
+        nar = np.full(t, 1_000_000.0, dtype=np.float64)
+        cf = _make_cashflow_with_nar(profits, nar)
+        cap = RBCCapital(factors=RBCFactors(c2_factor=0.0))  # all factors zero
+        tester = ProfitTester(cf, hurdle_rate=0.10)
+
+        with pytest.raises(PolarisComputationError):
+            tester.run_with_capital(cap, available_capital=1_000_000.0)
+
+
+# ----------------------------------------------------------------------
 # CapitalResult.pv_capital_strain — closed-form (Slice 2 method)
 # ----------------------------------------------------------------------
 

@@ -198,6 +198,27 @@ class CapitalSchedule(Protocol):
         """PV of the capital STRAIN at a flat annual rate."""
         ...
 
+    def capital_ratio(self, available_capital: float) -> float:
+        """Regulatory solvency ratio at issue (ADR-103, Epic 3 Slice 4c).
+
+        The standard ratio a regulator reads, expressed as a multiple:
+        ``available_capital / denominator``, where the denominator is the
+        jurisdiction's required-capital basis at projection month 0:
+
+        - **LICAT** (Canada): available capital ÷ required capital — the LICAT
+          total ratio.
+        - **US RBC**: Total Adjusted Capital ÷ **Authorized Control Level** (= ½
+          the Company Action Level the schedule holds) — the RBC ratio.
+        - **EU Solvency II**: own funds ÷ **SCR** — the solvency ratio.
+
+        ``available_capital`` is the company-supplied numerator (available
+        capital / TAC / own funds, all jurisdiction synonyms). The denominator
+        is encapsulated per implementation so this surface is
+        jurisdiction-agnostic. Raises if the t=0 denominator is non-positive
+        (an all-stub factor set) — a ratio over a zero base is undefined.
+        """
+        ...
+
 
 @runtime_checkable
 class CapitalModel(Protocol):

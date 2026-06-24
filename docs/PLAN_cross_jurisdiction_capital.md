@@ -14,9 +14,11 @@
 > `CapitalModel` protocol, ADR-099, PR #98); Slice 3 shipped (EU Solvency II SCR
 > module, ADR-100, PR #99); Slice 4a shipped (CLI + API jurisdiction selector,
 > ADR-101, PR #100); Slice 4b shipped (dashboard selector + Excel jurisdiction
-> label, ADR-102). Slice 4 was re-decomposed into 4a (machine surfaces, done),
-> 4b (presentation surfaces — dashboard + Excel, done) and 4c (result-level
-> ratio surface + three-standard validation notebook, planned below).
+> label, ADR-102, PR #101); Slice 4c-1 shipped (result-level capital-ratio core,
+> ADR-103). Slice 4 was re-decomposed into 4a (machine surfaces, done), 4b
+> (presentation surfaces — dashboard + Excel, done) and 4c; 4c was itself
+> re-decomposed into 4c-1 (result-level ratio core, done) and 4c-2 (ratio
+> surfacing across CLI/API/Excel/dashboard + validation notebook, planned below).
 >
 > **Source.** `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` Tier-A item
 > **A3** (★★★★★ value, ~15 dev-days for both, the #3 unstarted epic, started
@@ -137,14 +139,22 @@ dashboard + notebook + ratio surface) into two independently mergeable sub-slice
   `CAPITAL_MODEL_LABELS` / `capital_model_label` in `capital_base.py`. Default
   (no-capital) and LICAT paths byte-identical.
 
-#### Slice 4c — Result-level ratio surface + validation notebook  PLANNED
-- The result-level solvency/RBC-ratio surface (external own-funds / TAC input ÷
-  SCR / ACL) — needs a new external input the RoC entry points do not hold, so
-  4c introduces it (CLI flag + API field + dashboard input) and surfaces the
-  ratio on the result, the Excel capital block, and the dashboard tiles. Plus the
-  three-standard validation notebook comparing LICAT / RBC / Solvency II on the
-  golden block.
-- ADR-103. May rebaseline only the capital-surface goldens for non-default runs;
+#### Slice 4c-1 — Result-level capital-ratio core  ✅ SHIPPED (ADR-103)
+- The jurisdiction-agnostic solvency ratio as a
+  `CapitalSchedule.capital_ratio(available_capital)` protocol method (on all
+  three result classes, denominator encapsulated per jurisdiction: LICAT/SCR over
+  `capital_by_period[0]`, RBC over `authorized_control_level[0]`), plus an
+  optional `run_with_capital(..., available_capital=...)` keyword that surfaces
+  `capital_ratio` / `available_capital` on `ProfitResultWithCapital`. Goldens
+  byte-identical (no consumer supplies the input yet).
+
+#### Slice 4c-2 — Ratio surfacing + validation notebook  PLANNED
+- Thread the `available_capital` numerator through the CLI flag, the API request
+  field, and the dashboard number-input, and render the `capital_ratio` 4c-1
+  computes on the Excel capital block (a ratio row) and the dashboard tiles. Plus
+  the three-standard validation notebook comparing LICAT / RBC / Solvency II on
+  the golden block and demonstrating the ratio.
+- ADR-104. May rebaseline only the capital-surface goldens for non-default runs;
   the default path stays byte-identical.
 
 ## 4. Key constraints (from CLAUDE.md / ARCHITECTURE.md)

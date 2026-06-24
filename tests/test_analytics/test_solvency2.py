@@ -277,6 +277,30 @@ class TestRiskMargin:
         assert res.risk_margin(0.04) == 0.0
 
 
+class TestSolvencyRatio:
+    def test_capital_ratio_own_funds_over_scr(self) -> None:
+        """Solvency ratio = own funds / SCR₀ (ADR-103)."""
+        cf = _make_cashflow(n=12, nar=np.full(12, 1_000_000.0, dtype=np.float64))
+        res = SolvencyIICapital.for_product(ProductType.TERM).required_capital(cf)
+        own_funds = 2.5 * res.capital_by_period[0]  # a 250% solvency position
+        np.testing.assert_allclose(res.capital_ratio(own_funds), 2.5)
+
+    def test_capital_ratio_raises_when_scr_zero(self) -> None:
+        cf = _make_cashflow(n=12, nar=np.full(12, 1_000_000.0, dtype=np.float64))
+        # All-zero factor set → zero SCR.
+        zeroed = SolvencyIIFactors(
+            mortality_factor=0.0,
+            lapse_factor=0.0,
+            catastrophe_factor=0.0,
+            market_factor=0.0,
+            counterparty_factor=0.0,
+            operational_factor=0.0,
+        )
+        res = SolvencyIICapital(factors=zeroed).required_capital(cf)
+        with pytest.raises(PolarisComputationError):
+            res.capital_ratio(1_000_000.0)
+
+
 # ----------------------------------------------------------------------
 # SolvencyIIResult — schedule helpers (CapitalSchedule surface)
 # ----------------------------------------------------------------------

@@ -59,8 +59,8 @@ breakdown.
 | `analytics/` | Experience Studies — A/E, limited-fluctuation credibility, blended rates | ✅ |
 | `analytics/` | Portfolio aggregation — multi-deal runner, concentration/HHI, calendar alignment, portfolio scenarios | ✅ |
 | `analytics/` | Regulatory capital — LICAT (C-1/C-2/C-3 + lapse/morbidity) → return-on-capital | ✅ |
-| `analytics/` | Regulatory capital — US NAIC Life RBC + shared `CapitalModel` protocol; drives return-on-capital | 🔄 module + RoC + CLI/API/dashboard/Excel selector shipped; result-level RBC ratio pending (Slice 4c) |
-| `analytics/` | Regulatory capital — EU Solvency II SCR (standard-formula correlation-matrix BSCR + risk margin) | 🔄 module + CLI/API/dashboard/Excel selector shipped; result-level solvency ratio pending (Slice 4c) |
+| `analytics/` | Regulatory capital — US NAIC Life RBC + shared `CapitalModel` protocol; drives return-on-capital | 🔄 module + RoC + CLI/API/dashboard/Excel selector + result-level RBC ratio (`capital_ratio`) shipped; ratio surfacing on CLI/API/Excel/dashboard pending (Slice 4c-2) |
+| `analytics/` | Regulatory capital — EU Solvency II SCR (standard-formula correlation-matrix BSCR + risk margin) | 🔄 module + CLI/API/dashboard/Excel selector + result-level solvency ratio (`capital_ratio`) shipped; ratio surfacing on CLI/API/Excel/dashboard pending (Slice 4c-2) |
 | `analytics/` | YRT rate schedule generator — flat + per-duration solve to a target IRR | ✅ |
 | `assumptions/` | ML-enhanced mortality & lapse (scikit-learn / XGBoost), same protocol as table-based | ✅ |
 | `utils/` | Cedant inforce data ingestion — YAML-driven mapping, data-quality report | ✅ |
