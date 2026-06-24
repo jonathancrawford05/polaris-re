@@ -6644,3 +6644,76 @@ LICAT / RBC / Solvency II on the golden block and demonstrating the ratio is
 as an alternative numerator form, rather than an absolute figure) remains open
 and is the natural companion to the dashboard input in 4c-2b. The shock-based
 factor calibration remains the C0 Asset/ALM epic.
+
+## ADR-105: Config-driven golden-regression harness (QA test infrastructure)
+
+**Date:** 2026-06-24
+**Status:** Accepted
+
+**Context.** `data/qa/` ships four pricing configs (`golden_config_flat`,
+`golden_config_yrt`, `golden_config_coins`, `golden_config_policy_cession`), but
+`tests/qa/golden_outputs/` pinned byte-level baselines for only two (`flat`,
+`yrt`). The `coins` and `policy_cession` pipeline paths were exercised end-to-end
+only by CLI **smoke** tests (`test_cli_golden.py::TestCLIGoldenSmoke` — exit-0, no
+value assertion), so a silent numeric regression in the coinsurance proportional
+**reserve transfer** (CLAUDE.md §9 — actuarially subtle) or in policy-level
+cession weighting would have passed the QA suite. Root cause: both the generator
+(`generate_golden.py`) and the regression test (`test_pipeline_golden.py`)
+hand-built `PipelineInputs` in Python for only `flat`/`yrt` and never read the
+JSON configs, so the committed config set and the in-code baseline set could
+drift independently. (PR #103 automated review, P2 finding; promoted to
+`PRODUCT_DIRECTION_2026-06-18` as IMPORTANT.)
+
+A latent inconsistency confirmed the gap: the hand-built `flat`/`yrt` inputs used
+`LapseConfig()` (its default `DEFAULT_LAPSE_CURVE`), while the JSON configs carry
+an explicit `duration_table`. They happen to be identical today
+(`DEFAULT_LAPSE_CURVE` == the config table), so the baselines stayed valid — but
+nothing enforced that the baseline was generated from the same inputs the CLI
+consumes.
+
+**Decision.** Make the four `data/qa/golden_config_*.json` files the single
+source of truth for both the generator and the regression test.
+
+1. **`tests/qa/golden_runner.py` (new, pytest-free).** Enumerates
+   `golden_config_*.json` into `GoldenCase` records (baseline name, config path,
+   `needs_soa`), loads each through the CLI's own parser
+   (`_parse_config_to_pipeline_inputs`), and prices the shared golden inforce
+   block through one `run_pricing` used by both the generator and the test — so a
+   baseline can never disagree with what the test recomputes. Importing no pytest
+   lets the standalone generator script import it directly.
+2. **`generate_golden.py`** rewritten to iterate the discovered cases (skipping
+   SOA-dependent configs under `--flat-only` or when the tables are absent). It
+   reproduces the existing `flat`/`yrt` baselines **byte-identically** and adds
+   `golden_coins.json` + `golden_policy_cession.json`.
+3. **`test_pipeline_golden.py`** rewritten: a single regression parametrized over
+   the discovered configs (per-config `@requires_soa`-style skip by mortality
+   source — `flat` always runs, SOA configs gated), plus a **drift guard**
+   (`test_every_config_has_committed_baseline`) that fails loudly when any
+   `golden_config_*.json` lacks a committed baseline. Any future config is
+   auto-covered by the regression and protected by the guard.
+
+**Per-config SOA gating.** A config's `needs_soa` is derived from its
+`mortality.source` (`flat` → always-on, CI-safe; anything else → requires the SOA
+VBT 2015 tables). This replaces the per-test `@requires_soa_tables` decorator on
+the two hard-coded classes with a data-driven decision that scales to new
+configs.
+
+**Verification.** The config-driven generator reproduces `golden_flat.json` and
+`golden_yrt.json` byte-for-byte (git shows them unmodified); the two new
+baselines are actuarially coherent (50/50 coinsurance yields near-equal
+cedant/reinsurer profit PVs — the correct proportional split; policy-cession
+yields divergent cedant/reinsurer PVs from the per-policy overrides). Full QA
+suite 76 passed (was 72: +2 regression cases, +2 coverage/discovery guards). The
+drift guard was confirmed to fail on a temporary unbaselined config and the
+`--flat-only` path to skip the three SOA configs.
+
+**Behaviour change.** None to the engine — pure test infrastructure. No
+`src/polaris_re/` code changed. The two new baselines are additive; the existing
+two are unchanged.
+
+**Out of scope.** This pins the same per-cohort summary metrics the prior golden
+captured (PV profits, margins, gross premiums/claims). A finer-grained
+cash-flow-vector golden, and goldens for treaty types not yet represented by a
+config (Modco, stop-loss), are future work — but any new
+`data/qa/golden_config_*.json` is now auto-discovered and guarded, so adding one
+is a one-file change plus a committed baseline.
