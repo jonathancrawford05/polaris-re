@@ -6572,3 +6572,75 @@ golden block and demonstrating the ratio. The held-capital-basis question
 (configurable target multiple of ACL vs fixed CAL) remains open and is the
 natural companion to the CLI input in 4c-2. The shock-based factor calibration
 remains the C0 Asset/ALM epic.
+
+## ADR-104: Thread the available-capital numerator through the CLI and REST API (Epic 3, Slice 4c-2a)
+
+**Date:** 2026-06-24
+**Status:** Accepted
+
+**Context.** Slice 4c-1 (ADR-103) added the result-level solvency ratio *core*:
+`CapitalSchedule.capital_ratio(available_capital)` on all three result classes
+and the optional `ProfitTester.run_with_capital(..., available_capital=...)`
+keyword that surfaces `available_capital` / `capital_ratio` on
+`ProfitResultWithCapital`. The computation is done, but **no consumer supplies
+the numerator**, so the ratio is never visible: the CLI has no flag, the API
+request has no field, and neither output emits the ratio. The planned Slice 4c-2
+(thread the input through CLI + API + Excel + dashboard, plus a three-standard
+validation notebook) proved LARGE once detailed — five surfaces, two of them
+presentation rebuilds (an Excel ratio row, a dashboard number-input + tile) and
+a notebook. Per the routine's allowance for a slice that proves larger than
+expected (the same allowance that split 4 → 4a/4b/4c and 4c → 4c-1/4c-2), 4c-2
+was re-decomposed into **4c-2a (this ADR — the machine surfaces: CLI flag + API
+field)**, **4c-2b (presentation surfaces: Excel ratio row + dashboard input +
+tile)**, and **4c-2c (three-standard validation notebook)** — mirroring the
+machine-then-presentation split this epic used at 4a/4b.
+
+**Decision.** Thread a single `available_capital` numerator through the two
+machine surfaces and emit the resulting `capital_ratio` on each side.
+
+1. **CLI `--available-capital FLOAT`.** Threaded through `_price_single_cohort`
+   → `_run_profit_tests` → both sides' `run_with_capital(..., available_capital=)`.
+   Each cohort's cedant and reinsurer results gain `available_capital` (echoed)
+   and `capital_ratio` in the JSON capital block, plus a "Solvency Ratio" row on
+   the Rich capital table. Validated eagerly: requires `--capital` (a ratio needs
+   a jurisdictional denominator) and must be positive — either misuse exits 1 with
+   a clear message rather than being silently ignored.
+
+2. **API `available_capital` request field** (`gt=0`), with a `model_validator`
+   that rejects (422) `available_capital` without `capital_model`. Threaded into
+   both `run_with_capital` calls; the response gains `available_capital`,
+   `capital_ratio` (cedant view) and `reinsurer_capital_ratio` (reinsurer view).
+
+**Why apply the same numerator to both cedant and reinsurer.** The numerator
+(available capital held) is a single supplied figure; each *perspective* divides
+it by its own required-capital denominator (LICAT total / RBC ACL / EU SCR), so
+the two ratios differ and are individually meaningful. This is symmetric with how
+peak capital and RoC are already surfaced for both sides from the same model, and
+it requires **no assumption about how to split capital between the parties** — the
+user supplies the figure for the entity they are evaluating (typically the
+reinsurer) and reads that side's ratio. A per-side numerator is a later
+refinement, not a correctness gap here.
+
+**Verification anchors.** `test_cli.py::TestPriceCommandAvailableCapital` (6):
+ratio + echoed numerator in JSON; ratio linear in the numerator (double available
+→ double ratio, denominator fixed); "Solvency Ratio" console row; `--available-capital`
+without `--capital` exits 1; non-positive exits 1; `--capital` without
+`--available-capital` leaves the ratio null. `test_main.py` (5): ratio populated
+on both views; ratio linear in the numerator; 422 without `capital_model`; 422 on
+non-positive; null ratio when the numerator is omitted.
+
+**Behaviour change.** None on any path that does not pass the new input. The CLI
+flag and API field default to None → `capital_ratio` is None and the JSON / Rich
+/ response are byte-identical to ADR-103 (the `--capital`-only path already had
+the capital block; the two new fields are additive nulls). The golden `polaris
+price` run passes no `--capital`, so no capital block is emitted at all — goldens
+byte-identical, QA golden suite (72) green.
+
+**Out of scope (Slice 4c-2b / 4c-2c).** Rendering the ratio on the Excel capital
+block (a ratio row under the 4b jurisdiction header) and the dashboard (a
+number-input + tile) is 4c-2b; the three-standard validation notebook comparing
+LICAT / RBC / Solvency II on the golden block and demonstrating the ratio is
+4c-2c. The held-capital-basis question (a configurable target *multiple* of ACL
+as an alternative numerator form, rather than an absolute figure) remains open
+and is the natural companion to the dashboard input in 4c-2b. The shock-based
+factor calibration remains the C0 Asset/ALM epic.

@@ -440,14 +440,18 @@ Items harvested from completed/in-flight work by the daily-dev routine
   ratio CORE**: a `CapitalSchedule.capital_ratio(available_capital)` protocol
   method (LICAT total ratio / RBC ratio / EU solvency ratio, denominator
   encapsulated per jurisdiction) surfaced on `ProfitResultWithCapital` via an
-  optional `run_with_capital(..., available_capital=...)` keyword. What REMAINS is
-  the *surfacing* — threading the `available_capital` numerator in from the CLI /
-  API / dashboard and rendering `capital_ratio` on the Excel capital block + the
-  dashboard tiles — which lands in **Epic 3 Slice 4c-2** (ADR-104). Affects the
+  optional `run_with_capital(..., available_capital=...)` keyword. **Slice 4c-2a
+  (ADR-104) shipped the machine surfacing**: the CLI `--available-capital` flag
+  and the API `available_capital` field, both emitting `capital_ratio` on the
+  cedant + reinsurer views. What REMAINS is the *presentation* surfacing —
+  rendering `capital_ratio` on the Excel capital block (a ratio row) and the
+  dashboard (a number-input + ratio tile) — which lands in **Epic 3 Slice 4c-2b**,
+  with the three-standard validation notebook in **4c-2c**. Affects the
   capital-ratio surface for US/EU deals, not first-deal RoC correctness →
   NICE-TO-HAVE.
   *Source: ADR-100 Out of scope (1st-order); re-pointed to Slice 4c by ADR-102;
-  core shipped in 4c-1 (ADR-103), surfacing re-pointed to Slice 4c-2.*
+  core shipped in 4c-1 (ADR-103); machine surfaces shipped in 4c-2a (ADR-104);
+  presentation surfacing re-pointed to Slice 4c-2b, notebook to 4c-2c.*
 
 - **NICE-TO-HAVE — Statutory reserve bases for UL and DI.** The reserve-basis
   epic (A1) implements CRVM / VM-20 / GAAP for Term and Whole Life only. UL
@@ -704,6 +708,35 @@ Items harvested from completed/in-flight work by the daily-dev routine
   recognition; wiring a real issue-era curve lookup would remove the manual
   override. Refinement of the surfacing follow-up → NICE-TO-HAVE.
   *Source: ADR-095 Out of scope (2nd-order).*
+
+- **IMPORTANT — Pipeline golden baselines for the `coins` and `policy_cession`
+  configs (config-driven, drift-guarded).** `data/qa/` ships four pricing configs
+  (`flat`, `yrt`, `coins`, `policy_cession`) but `tests/qa/golden_outputs/` pins
+  byte-level baselines for only two (`golden_flat`, `golden_yrt`). The coinsurance
+  and policy-cession pipeline paths are exercised end-to-end only by CLI **smoke**
+  tests (`test_cli_golden.py::TestCLIGoldenSmoke` — exit-0, no value assertion);
+  their numbers are not pinned to a committed baseline, so a silent numeric
+  regression in the coinsurance **reserve transfer** (proportional reserve cession,
+  CLAUDE.md §9 — actuarially subtle) or in policy-level cession weighting would pass
+  the QA suite. The underlying math is unit-tested in `test_reinsurance/`, so this
+  is a defense-in-depth gap, not an unprotected path → IMPORTANT (correctness net on
+  the common coinsurance path), not BLOCKER. **Root cause:** `generate_golden.py`
+  hardcodes `PipelineInputs` for `flat`/`yrt` and never reads the JSON configs, so
+  the generator and the committed config set drift. **Fix (Option A — recommended):**
+  (1) make `generate_golden.py` and `test_pipeline_golden.py` both *enumerate*
+  `data/qa/golden_config_*.json` and load each through the same config path the CLI
+  uses (delete the hand-built `PipelineInputs`); (2) generate + commit
+  `golden_coins.json` + `golden_policy_cession.json`; (3) parametrize the regression
+  over the discovered config set, applying `@requires_soa_tables` per-config by its
+  mortality source (flat → always-on, SOA → gated); (4) add a **drift-guard** test
+  asserting every `golden_config_*.json` has a matching baseline (or is explicitly
+  SOA-gated), so a future config fails loudly instead of silently becoming
+  smoke-only. Pure test-infra (no product/analytics code, zero engine golden-output
+  risk); SMALL (~1 session). Routine disposition: Tier-B between-epics quick win —
+  fallback work under the active-epic guardrail, picked up when Epic 3's next slice
+  is blocked.
+  *Source: PR #103 automated review — P2 finding (1st-order; QA-harness follow-up
+  surfaced during review, not introduced by #103).*
 
 ## Carried Forward
 

@@ -211,40 +211,95 @@ for a slice that proves larger than expected.
   `test_rbc.py::TestRBCResultHelpers`, `test_solvency2.py::TestSolvencyRatio`
   (6 across the three). Fast suite 1646 passed; QA golden suite 72 green.
 
-#### Slice 4c-2: Ratio surfacing (CLI/API/Excel/dashboard) + validation notebook
+Slice 4c-2 (the planned ratio surfacing across CLI/API/Excel/dashboard + the
+validation notebook) proved LARGE once detailed — five surfaces, two of them
+presentation rebuilds (an Excel ratio row, a dashboard number-input + tile) and
+a notebook — so it was re-decomposed into 4c-2a (CLI + API machine surfaces,
+shipped), 4c-2b (Excel ratio row + dashboard input/tile, planned) and 4c-2c
+(validation notebook, planned), mirroring the 4a/4b machine-then-presentation
+split. Each is an independently mergeable, fully tested PR, per the routine's
+allowance for a slice that proves larger than expected.
+
+#### Slice 4c-2a: CLI + API available-capital numerator  ✅ DONE
+- **Status:** DONE
+- **Branch:** `claude/awesome-bardeen-yqv16z` (environment-designated)
+- **PR:** #103 (draft)
+- **What was done:** Threaded the `available_capital` numerator through the two
+  machine surfaces. CLI: a `--available-capital FLOAT` flag (validated to require
+  `--capital` and be positive — either misuse exits 1) threaded through
+  `_price_single_cohort` → `_run_profit_tests` → both sides'
+  `run_with_capital(..., available_capital=)`; the JSON capital block gains the
+  echoed `available_capital` + `capital_ratio` and the Rich capital table gains a
+  "Solvency Ratio" row. API: an `available_capital` request field (`gt=0`, with a
+  `model_validator` rejecting it 422 without `capital_model`) threaded into both
+  `run_with_capital` calls; the response gains `available_capital`, `capital_ratio`
+  (cedant) and `reinsurer_capital_ratio` (reinsurer). The same numerator is
+  applied to both perspectives, each dividing by its own required capital. ADR-104.
+- **Key decisions:**
+  - **Same numerator, both sides.** The numerator (held available capital) is one
+    supplied figure; each perspective divides by its own required-capital
+    denominator, so the two ratios differ and are individually meaningful —
+    symmetric with how peak/RoC are already surfaced for both sides, and requires
+    no assumption about splitting capital between the parties. A per-side numerator
+    is a later refinement, not a correctness gap.
+  - **Eager validation over silent ignore.** `--available-capital` without
+    `--capital` (CLI) or `available_capital` without `capital_model` (API) is
+    rejected, not silently dropped — a ratio has no denominator without a model.
+  - Goldens byte-identical: the flag/field default to None → ratio null; the
+    golden run passes no `--capital`.
+- **Tests:** `test_cli.py::TestPriceCommandAvailableCapital` (6); `test_main.py`
+  (5 new in the capital block). Affected modules 298 passed; QA golden suite 72
+  green.
+
+#### Slice 4c-2b: Excel ratio row + dashboard input/tile  PLANNED
 - **Status:** NEXT
-- **Depends on:** Slice 4c-1 merged
-- **Scope:** Thread the `available_capital` input through the CLI
-  (`--available-capital` or a target-multiple flag), the API request field, the
-  Excel capital block (a ratio row under the jurisdiction header 4b added), and
-  the dashboard (a number-input + tile), so the `capital_ratio` 4c-1 computes is
-  visible on every surface. Plus the three-standard validation notebook comparing
-  LICAT / RBC / Solvency II on the golden block and demonstrating the ratio.
-  ADR-104. May rebaseline only capital-surface goldens for non-default runs (the
-  default path stays byte-identical). The held-capital-basis question
-  (configurable target multiple of ACL vs fixed CAL) is the natural companion to
-  the CLI input here.
+- **Depends on:** Slice 4c-2a merged
+- **Scope:** Render the `capital_ratio` on the Excel capital block (a ratio row
+  under the 4b "Regulatory Capital — {label}" header) and the dashboard (a
+  number-input for available capital + a ratio tile), threading the numerator
+  through `DealPricingExport` and `CohortPricingData`. May rebaseline only the
+  capital-surface goldens for non-default runs; the default path stays
+  byte-identical. The held-capital-basis question (a configurable target
+  *multiple* of ACL as an alternative numerator form) is the natural companion
+  to the dashboard input here.
+
+#### Slice 4c-2c: Three-standard validation notebook  PLANNED
+- **Status:** PLANNED
+- **Depends on:** Slice 4c-2b merged
+- **Scope:** A notebook comparing LICAT / RBC / Solvency II on the golden block,
+  demonstrating the required-capital schedules, the RoC, and the new solvency
+  ratio side by side.
 
 ## Context for Next Session
 
-- **Slice 4c-2 is next** (ratio *surfacing* + three-standard validation
-  notebook). Slice 4c-1 (this session) shipped the result-level ratio **core**:
-  the `CapitalSchedule.capital_ratio(available_capital)` protocol method (on all
-  three result classes) and the optional `run_with_capital(...,
-  available_capital=...)` keyword that surfaces `capital_ratio` /
-  `available_capital` on `ProfitResultWithCapital`. The remaining gap is purely
-  *surfacing*: thread the `available_capital` numerator in from the CLI
-  (`--available-capital` or a target-multiple flag), the API request field, the
-  dashboard number-input, and render the resulting `capital_ratio` on the Excel
-  capital block (a ratio row under the jurisdiction header 4b added) and the
-  dashboard tiles. ADR-104.
-- **The ratio computation is done** — 4c-2 only has to (a) collect the
-  `available_capital` input on each surface and (b) display the
-  `result.capital_ratio` already on `ProfitResultWithCapital`. No further
-  analytics work. The `DealPricingExport.capital_model_id` field and the
-  `CAPITAL_MODEL_LABELS` / `capital_model_label()` helper (4b) are the hooks the
-  ratio row / tile attach to; the held-capital-basis open question is the natural
-  companion to the CLI input.
+- **Slice 4c-2b is next** (Excel ratio row + dashboard input/tile). Slice 4c-2a
+  (this session) shipped the **machine surfaces**: the CLI `--available-capital`
+  flag and the API `available_capital` field, both threaded into
+  `run_with_capital(..., available_capital=)` and surfacing `capital_ratio` (and
+  the echoed `available_capital`) on the cedant and reinsurer views. The
+  remaining gap is the **presentation surfaces**: render `result.capital_ratio`
+  on the Excel capital block (a ratio row under the 4b "Regulatory Capital —
+  {label}" header) and the dashboard (a number-input for available capital + a
+  ratio tile), threading the numerator through `DealPricingExport` and
+  `CohortPricingData`. Then the validation notebook is 4c-2c.
+- **The ratio computation and the machine plumbing are done** — 4c-2b only has to
+  (a) collect the `available_capital` input on the dashboard, (b) thread it onto
+  `DealPricingExport` (the CLI already passes `--capital`'s id onto the export, so
+  add the numerator the same way), and (c) display `result.capital_ratio` already
+  on `ProfitResultWithCapital`. No further analytics work. The
+  `DealPricingExport.capital_model_id` field and the `CAPITAL_MODEL_LABELS` /
+  `capital_model_label()` helper (4b) are the hooks the ratio row / tile attach
+  to; the held-capital-basis open question is the natural companion to the
+  dashboard input.
+- **CLI/API threading reference (4c-2a).** The CLI numerator flows
+  `price_cmd(--available-capital)` → `_price_single_cohort(available_capital=)` →
+  `_run_profit_tests(available_capital=)` → both `run_with_capital` calls;
+  emitted via `_profit_test_to_dict` (`capital_ratio` / `available_capital` keys)
+  and `_append_capital_rows` ("Solvency Ratio" row). The API field is
+  `PriceRequest.available_capital` (validated by
+  `_available_capital_requires_capital_model`), emitted via `_capital_block` and
+  the `capital_ratio` / `reinsurer_capital_ratio` response fields. The dashboard
+  pricing view (`dashboard/views/pricing.py`) is the analogous seam for 4c-2b.
 - The shared label map and `capital_model_label()` helper live in
   `analytics/capital_base.py` next to `capital_model_for` — extend them in one
   place. `_CAPITAL_MODEL_CHOICES` (dashboard) and the Excel header both read them.

@@ -199,6 +199,64 @@ class TestPriceEndpoint:
         assert high["reinsurer_peak_capital"] > low["reinsurer_peak_capital"]
         assert low["peak_capital"] > high["peak_capital"]
 
+    def test_price_available_capital_populates_ratio(self):
+        """available_capital surfaces capital_ratio on both views (ADR-104)."""
+        payload = {
+            "policies": [DEMO_POLICY],
+            "capital_model": "licat",
+            "available_capital": 5_000_000.0,
+        }
+        response = client.post("/api/v1/price", json=payload)
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert isinstance(data["capital_ratio"], (int, float))
+        assert data["capital_ratio"] > 0.0
+        assert isinstance(data["reinsurer_capital_ratio"], (int, float))
+        assert data["reinsurer_capital_ratio"] > 0.0
+
+    def test_price_available_capital_ratio_linear_in_numerator(self):
+        """Doubling available_capital doubles the ratio (denominator fixed)."""
+        low = client.post(
+            "/api/v1/price",
+            json={
+                "policies": [DEMO_POLICY],
+                "capital_model": "licat",
+                "available_capital": 4_000_000.0,
+            },
+        ).json()
+        high = client.post(
+            "/api/v1/price",
+            json={
+                "policies": [DEMO_POLICY],
+                "capital_model": "licat",
+                "available_capital": 8_000_000.0,
+            },
+        ).json()
+        assert high["capital_ratio"] == pytest.approx(2.0 * low["capital_ratio"], rel=1e-9)
+
+    def test_price_available_capital_without_capital_model_returns_422(self):
+        """available_capital with no capital_model has no denominator → 422."""
+        payload = {"policies": [DEMO_POLICY], "available_capital": 5_000_000.0}
+        response = client.post("/api/v1/price", json=payload)
+        assert response.status_code == 422, response.text
+
+    def test_price_available_capital_non_positive_returns_422(self):
+        """A non-positive available_capital is rejected by Pydantic (gt=0)."""
+        payload = {
+            "policies": [DEMO_POLICY],
+            "capital_model": "licat",
+            "available_capital": 0.0,
+        }
+        response = client.post("/api/v1/price", json=payload)
+        assert response.status_code == 422, response.text
+
+    def test_price_capital_without_available_returns_null_ratio(self):
+        """capital_model without available_capital → capital_ratio null (back-compat)."""
+        payload = {"policies": [DEMO_POLICY], "capital_model": "licat"}
+        data = client.post("/api/v1/price", json=payload).json()
+        assert data["capital_ratio"] is None
+        assert data["reinsurer_capital_ratio"] is None
+
     def test_price_invalid_request_returns_422(self):
         """Missing required fields should return 422 Unprocessable Entity."""
         response = client.post("/api/v1/price", json={"policies": []})

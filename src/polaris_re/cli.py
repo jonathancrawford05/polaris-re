@@ -388,6 +388,7 @@ def _price_single_cohort(
     hurdle_rate: float,
     parity_label: str,
     capital_model_id: str | None = None,
+    available_capital: float | None = None,
     yrt_rate_table: object | None = None,
 ) -> CohortResult:
     """Run the full pricing pipeline on a single-product cohort.
@@ -455,6 +456,7 @@ def _price_single_cohort(
         cession_pct=inputs.deal.cession_pct if treaty is not None else None,
         hurdle_rate=effective_hurdle,
         capital_model_id=capital_model_id,
+        available_capital=available_capital,
     )
 
     return CohortResult(
@@ -479,6 +481,7 @@ def _run_profit_tests(
     cession_pct: float | None,
     hurdle_rate: float,
     capital_model_id: str | None,
+    available_capital: float | None = None,
 ) -> tuple[ProfitTestResult, ProfitTestResult | None]:
     """Run cedant + reinsurer profit tests, optionally with capital.
 
@@ -486,6 +489,13 @@ def _run_profit_tests(
     sides go through ``run_with_capital`` with cedant- and reinsurer-derived NAR,
     using the jurisdiction's calculator resolved via ``capital_model_for``
     (ADR-101). When ``None``, the unchanged ``run()`` path is used.
+
+    ``available_capital`` (ADR-104), when supplied alongside a capital model,
+    is passed to both sides' ``run_with_capital`` as the regulatory
+    solvency-ratio numerator. Each side divides it by its own jurisdictional
+    denominator (LICAT total / RBC ACL / EU SCR), so the cedant and reinsurer
+    each surface a ``capital_ratio`` against their own required capital. It is
+    ignored when ``capital_model_id`` is ``None``.
     """
     from polaris_re.analytics.capital_base import capital_model_for
     from polaris_re.analytics.profit_test import ProfitTester
@@ -520,7 +530,9 @@ def _run_profit_tests(
         cession_pct=cession_pct,
         is_reinsurer=False,
     )
-    cedant = cedant_tester.run_with_capital(capital_model, nar=cedant_nar)
+    cedant = cedant_tester.run_with_capital(
+        capital_model, nar=cedant_nar, available_capital=available_capital
+    )
 
     reinsurer_with_capital: ProfitResultWithCapital | None = None
     if reinsurer_tester is not None and ceded is not None and cession_pct is not None:
@@ -531,7 +543,9 @@ def _run_profit_tests(
             cession_pct=cession_pct,
             is_reinsurer=True,
         )
-        reinsurer_with_capital = reinsurer_tester.run_with_capital(capital_model, nar=reinsurer_nar)
+        reinsurer_with_capital = reinsurer_tester.run_with_capital(
+            capital_model, nar=reinsurer_nar, available_capital=available_capital
+        )
     return cedant, reinsurer_with_capital
 
 
@@ -561,6 +575,10 @@ def _profit_test_to_dict(result: ProfitTestResult) -> dict[str, object]:
         out["pv_capital_strain"] = result.pv_capital_strain
         out["return_on_capital"] = result.return_on_capital
         out["capital_adjusted_irr"] = result.capital_adjusted_irr
+        # Regulatory solvency ratio (ADR-103/104): None unless the caller
+        # supplied --available-capital; echo the numerator for transparency.
+        out["available_capital"] = result.available_capital
+        out["capital_ratio"] = result.capital_ratio
     return out
 
 
@@ -703,6 +721,10 @@ def _append_capital_rows(table: Table, result: ProfitTestResult) -> None:
         f"{result.capital_adjusted_irr:.2%}" if result.capital_adjusted_irr is not None else "N/A"
     )
     table.add_row("Capital-Adjusted IRR", capital_irr_str)
+    # Regulatory solvency ratio (ADR-104) — shown only when the user supplied
+    # --available-capital (otherwise the ratio numerator is unknown).
+    if result.capital_ratio is not None:
+        table.add_row("Solvency Ratio", f"{result.capital_ratio:.1%}")
 
 
 def _render_cohort_pricing_tables(cohort: CohortResult) -> None:
@@ -1239,6 +1261,21 @@ def price_cmd(
             ),
         ),
     ] = None,
+    available_capital: Annotated[
+        float | None,
+        typer.Option(
+            "--available-capital",
+            help=(
+                "Company-supplied available capital / TAC / own funds used as "
+                "the regulatory solvency-ratio numerator (ADR-103/104). When "
+                "given with --capital, each cohort's cedant and reinsurer "
+                "results gain a solvency ratio = available capital / that "
+                "side's required capital (LICAT total ratio / RBC ACL ratio / "
+                "EU solvency ratio). Requires --capital and must be positive. "
+                "Default: not applied (no ratio emitted)."
+            ),
+        ),
+    ] = None,
     yrt_rate_table_dir: Annotated[
         Path | None,
         typer.Option(
@@ -1375,6 +1412,24 @@ def price_cmd(
             raise typer.Exit(code=1)
         capital_model_id = capital_norm
 
+    # The available-capital numerator (ADR-104) is only meaningful with a
+    # capital model (it needs a jurisdictional denominator) and must be
+    # positive. Validate eagerly so a misuse fails fast with a clear message
+    # rather than being silently ignored.
+    if available_capital is not None:
+        if capital_model_id is None:
+            console.print(
+                "[red]Error:[/red] --available-capital requires --capital "
+                "(the solvency ratio needs a jurisdictional required-capital "
+                "denominator)."
+            )
+            raise typer.Exit(code=1)
+        if available_capital <= 0.0:
+            console.print(
+                f"[red]Error:[/red] --available-capital must be positive (got {available_capital})."
+            )
+            raise typer.Exit(code=1)
+
     # Validate the reserve-basis flag eagerly (before any projection work) so a
     # typo fails with a clear message and the list of valid bases, mirroring
     # the --capital validation above. The resolved value (or None to defer to
@@ -1504,6 +1559,7 @@ def price_cmd(
                     hurdle_rate=hurdle_rate,
                     parity_label=parity_label,
                     capital_model_id=capital_model_id,
+                    available_capital=available_capital,
                     yrt_rate_table=yrt_rate_table_obj,
                 )
             )

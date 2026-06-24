@@ -15,10 +15,13 @@
 > module, ADR-100, PR #99); Slice 4a shipped (CLI + API jurisdiction selector,
 > ADR-101, PR #100); Slice 4b shipped (dashboard selector + Excel jurisdiction
 > label, ADR-102, PR #101); Slice 4c-1 shipped (result-level capital-ratio core,
-> ADR-103). Slice 4 was re-decomposed into 4a (machine surfaces, done), 4b
-> (presentation surfaces — dashboard + Excel, done) and 4c; 4c was itself
-> re-decomposed into 4c-1 (result-level ratio core, done) and 4c-2 (ratio
-> surfacing across CLI/API/Excel/dashboard + validation notebook, planned below).
+> ADR-103, PR #102); Slice 4c-2a shipped (available-capital numerator threaded
+> through the CLI + API machine surfaces, ADR-104). Slice 4 was re-decomposed
+> into 4a (machine surfaces, done), 4b (presentation surfaces — dashboard +
+> Excel, done) and 4c; 4c was itself re-decomposed into 4c-1 (result-level ratio
+> core, done) and 4c-2; 4c-2 was re-decomposed once more into 4c-2a (CLI + API
+> machine surfaces, done), 4c-2b (Excel ratio row + dashboard input/tile,
+> planned below) and 4c-2c (three-standard validation notebook, planned below).
 >
 > **Source.** `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` Tier-A item
 > **A3** (★★★★★ value, ~15 dev-days for both, the #3 unstarted epic, started
@@ -148,14 +151,29 @@ dashboard + notebook + ratio surface) into two independently mergeable sub-slice
   `capital_ratio` / `available_capital` on `ProfitResultWithCapital`. Goldens
   byte-identical (no consumer supplies the input yet).
 
-#### Slice 4c-2 — Ratio surfacing + validation notebook  PLANNED
-- Thread the `available_capital` numerator through the CLI flag, the API request
-  field, and the dashboard number-input, and render the `capital_ratio` 4c-1
-  computes on the Excel capital block (a ratio row) and the dashboard tiles. Plus
-  the three-standard validation notebook comparing LICAT / RBC / Solvency II on
-  the golden block and demonstrating the ratio.
-- ADR-104. May rebaseline only the capital-surface goldens for non-default runs;
-  the default path stays byte-identical.
+#### Slice 4c-2a — CLI + API available-capital numerator  ✅ SHIPPED (ADR-104)
+- CLI `polaris price --available-capital FLOAT` (requires `--capital`, must be
+  positive) and API `available_capital` request field (`gt=0`, rejected 422
+  without `capital_model`), threaded into both sides' `run_with_capital`. The
+  CLI JSON capital block + Rich table and the API response gain the echoed
+  numerator and the per-side `capital_ratio` (cedant + reinsurer). The same
+  numerator is applied to both perspectives, each dividing by its own required
+  capital. Default (no flag/field) → ratio null, byte-identical to ADR-103.
+
+#### Slice 4c-2b — Excel ratio row + dashboard input/tile  PLANNED
+- Render the `capital_ratio` on the Excel capital block (a ratio row under the
+  4b "Regulatory Capital — {label}" header) and the dashboard (a number-input
+  for available capital + a ratio tile), threading the numerator through
+  `DealPricingExport` and `CohortPricingData`. May rebaseline only the
+  capital-surface goldens for non-default runs; the default path stays
+  byte-identical. The held-capital-basis question (a configurable target
+  *multiple* of ACL as an alternative numerator form) is the natural companion
+  to the dashboard input here.
+
+#### Slice 4c-2c — Three-standard validation notebook  PLANNED
+- A notebook comparing LICAT / RBC / Solvency II on the golden block,
+  demonstrating the required-capital schedules, the RoC, and the new solvency
+  ratio side by side.
 
 ## 4. Key constraints (from CLAUDE.md / ARCHITECTURE.md)
 
