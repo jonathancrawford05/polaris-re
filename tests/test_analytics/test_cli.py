@@ -151,6 +151,92 @@ class TestPriceCommandCapital:
 
 
 @pytest.mark.slow
+class TestPriceCommandAvailableCapital:
+    """Tests for `polaris price --available-capital` ratio surfacing (ADR-104, Slice 4c-2a).
+
+    The solvency-ratio *computation* is closed-form tested at the analytics
+    level (ADR-103, ``TestRunWithCapitalRatio``); these tests verify the CLI
+    threads the ``available_capital`` numerator in and emits the resulting
+    ``capital_ratio`` on both the cedant and reinsurer JSON blocks.
+    """
+
+    def test_available_capital_emits_ratio_in_json(self, tmp_path: Path):
+        """--available-capital surfaces capital_ratio + echoes available_capital."""
+        out_file = tmp_path / "result.json"
+        result = runner.invoke(
+            app,
+            [
+                "price",
+                "--capital",
+                "licat",
+                "--available-capital",
+                "5000000",
+                "--output",
+                str(out_file),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(out_file.read_text())
+        assert data["cedant"]["available_capital"] == 5_000_000.0
+        assert isinstance(data["cedant"]["capital_ratio"], float)
+        assert data["cedant"]["capital_ratio"] > 0.0
+        # Reinsurer view also carries the ratio (default treaty cedes a share).
+        assert isinstance(data["reinsurer"]["capital_ratio"], float)
+        assert data["reinsurer"]["capital_ratio"] > 0.0
+
+    def test_available_capital_ratio_is_linear_in_numerator(self, tmp_path: Path):
+        """Doubling available capital doubles the ratio (denominator fixed)."""
+        ratios: dict[float, float] = {}
+        for avail in (4_000_000.0, 8_000_000.0):
+            out_file = tmp_path / f"ratio_{int(avail)}.json"
+            result = runner.invoke(
+                app,
+                [
+                    "price",
+                    "--capital",
+                    "licat",
+                    "--available-capital",
+                    str(avail),
+                    "--output",
+                    str(out_file),
+                ],
+            )
+            assert result.exit_code == 0, result.output
+            ratios[avail] = json.loads(out_file.read_text())["cedant"]["capital_ratio"]
+        assert ratios[8_000_000.0] == pytest.approx(2.0 * ratios[4_000_000.0], rel=1e-9)
+
+    def test_available_capital_renders_solvency_ratio_in_console(self):
+        """Console capital table gains a Solvency Ratio row."""
+        result = runner.invoke(
+            app, ["price", "--capital", "licat", "--available-capital", "5000000"]
+        )
+        assert result.exit_code == 0, result.output
+        assert "Solvency Ratio" in result.output
+
+    def test_available_capital_without_capital_flag_errors(self):
+        """--available-capital requires --capital; otherwise exit 1 with a message."""
+        result = runner.invoke(app, ["price", "--available-capital", "5000000"])
+        assert result.exit_code == 1, result.output
+        assert "--available-capital" in result.output
+        assert "--capital" in result.output
+
+    def test_available_capital_non_positive_errors(self):
+        """A non-positive available-capital numerator is rejected (exit 1)."""
+        result = runner.invoke(app, ["price", "--capital", "licat", "--available-capital", "0"])
+        assert result.exit_code == 1, result.output
+        assert "--available-capital" in result.output
+
+    def test_capital_without_available_leaves_ratio_null(self, tmp_path: Path):
+        """--capital without --available-capital → capital_ratio is null (back-compat)."""
+        out_file = tmp_path / "no_avail.json"
+        result = runner.invoke(app, ["price", "--capital", "licat", "--output", str(out_file)])
+        assert result.exit_code == 0, result.output
+        data = json.loads(out_file.read_text())
+        assert data["cedant"]["capital_ratio"] is None
+        assert data["cedant"]["available_capital"] is None
+
+
+@pytest.mark.slow
 class TestScenarioCommand:
     def test_scenario_demo_mode_exits_zero(self):
         """scenario without config runs demo mode and exits 0."""

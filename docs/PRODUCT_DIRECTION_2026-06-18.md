@@ -440,14 +440,18 @@ Items harvested from completed/in-flight work by the daily-dev routine
   ratio CORE**: a `CapitalSchedule.capital_ratio(available_capital)` protocol
   method (LICAT total ratio / RBC ratio / EU solvency ratio, denominator
   encapsulated per jurisdiction) surfaced on `ProfitResultWithCapital` via an
-  optional `run_with_capital(..., available_capital=...)` keyword. What REMAINS is
-  the *surfacing* — threading the `available_capital` numerator in from the CLI /
-  API / dashboard and rendering `capital_ratio` on the Excel capital block + the
-  dashboard tiles — which lands in **Epic 3 Slice 4c-2** (ADR-104). Affects the
+  optional `run_with_capital(..., available_capital=...)` keyword. **Slice 4c-2a
+  (ADR-104) shipped the machine surfacing**: the CLI `--available-capital` flag
+  and the API `available_capital` field, both emitting `capital_ratio` on the
+  cedant + reinsurer views. What REMAINS is the *presentation* surfacing —
+  rendering `capital_ratio` on the Excel capital block (a ratio row) and the
+  dashboard (a number-input + ratio tile) — which lands in **Epic 3 Slice 4c-2b**,
+  with the three-standard validation notebook in **4c-2c**. Affects the
   capital-ratio surface for US/EU deals, not first-deal RoC correctness →
   NICE-TO-HAVE.
   *Source: ADR-100 Out of scope (1st-order); re-pointed to Slice 4c by ADR-102;
-  core shipped in 4c-1 (ADR-103), surfacing re-pointed to Slice 4c-2.*
+  core shipped in 4c-1 (ADR-103); machine surfaces shipped in 4c-2a (ADR-104);
+  presentation surfacing re-pointed to Slice 4c-2b, notebook to 4c-2c.*
 
 - **NICE-TO-HAVE — Statutory reserve bases for UL and DI.** The reserve-basis
   epic (A1) implements CRVM / VM-20 / GAAP for Term and Whole Life only. UL

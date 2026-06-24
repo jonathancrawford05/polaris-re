@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 import polaris_re
 
@@ -170,6 +170,19 @@ class PriceRequest(BaseModel):
             "and capital_adjusted_irr (ADR-049/101). Default: not applied."
         ),
     )
+    available_capital: float | None = Field(
+        default=None,
+        gt=0.0,
+        description=(
+            "Company-supplied available capital / TAC / own funds used as the "
+            "regulatory solvency-ratio numerator (ADR-103/104). When set with "
+            "``capital_model``, the response gains ``capital_ratio`` and "
+            "``reinsurer_capital_ratio`` = available capital / that side's "
+            "required capital (LICAT total ratio / RBC ACL ratio / EU solvency "
+            "ratio). Must be positive and requires ``capital_model`` (a ratio "
+            "needs a jurisdictional denominator). Default: not applied."
+        ),
+    )
     yrt_rate_table_path: str | None = Field(
         default=None,
         description=(
@@ -231,6 +244,21 @@ class PriceRequest(BaseModel):
         ),
     )
 
+    @model_validator(mode="after")
+    def _available_capital_requires_capital_model(self) -> "PriceRequest":
+        """``available_capital`` is only meaningful with a ``capital_model``.
+
+        The solvency ratio is available capital / required capital; without a
+        capital model there is no jurisdictional denominator, so reject the
+        combination (422) rather than silently ignoring the numerator (ADR-104).
+        """
+        if self.available_capital is not None and self.capital_model is None:
+            raise ValueError(
+                "available_capital requires capital_model (the solvency ratio "
+                "needs a jurisdictional required-capital denominator)."
+            )
+        return self
+
 
 class PriceResponse(BaseModel):
     """Response body for /api/v1/price.
@@ -263,12 +291,18 @@ class PriceResponse(BaseModel):
     pv_capital_strain: float | None = None
     return_on_capital: float | None = None
     capital_adjusted_irr: float | None = None
+    # Regulatory solvency ratio (ADR-104): the echoed numerator and the
+    # cedant-view ratio = available_capital / cedant required capital. Both
+    # None unless available_capital was supplied alongside capital_model.
+    available_capital: float | None = None
+    capital_ratio: float | None = None
     # Reinsurer view
     reinsurer_peak_capital: float | None = None
     reinsurer_pv_capital: float | None = None
     reinsurer_pv_capital_strain: float | None = None
     reinsurer_return_on_capital: float | None = None
     reinsurer_capital_adjusted_irr: float | None = None
+    reinsurer_capital_ratio: float | None = None
     # Premium-sufficiency block (ADR-083). Always populated: the cedant view
     # on the NET cash flows, the reinsurer view on the ceded cash flows
     # re-viewed as NET (mirrors the cedant view when no treaty is configured).
@@ -887,7 +921,9 @@ def price(request: PriceRequest) -> PriceResponse:
                 cession_pct=cession_pct,
                 is_reinsurer=False,
             )
-            cedant = cedant_tester.run_with_capital(capital_model, nar=cedant_nar)
+            cedant = cedant_tester.run_with_capital(
+                capital_model, nar=cedant_nar, available_capital=request.available_capital
+            )
             if reinsurer_tester is not None and ceded is not None and cession_pct is not None:
                 reinsurer_nar = derive_capital_nar(
                     gross=gross,
@@ -896,7 +932,9 @@ def price(request: PriceRequest) -> PriceResponse:
                     cession_pct=cession_pct,
                     is_reinsurer=True,
                 )
-                reinsurer = reinsurer_tester.run_with_capital(capital_model, nar=reinsurer_nar)
+                reinsurer = reinsurer_tester.run_with_capital(
+                    capital_model, nar=reinsurer_nar, available_capital=request.available_capital
+                )
             else:
                 # Gross-only: reinsurer mirrors cedant view (existing behaviour)
                 reinsurer = cedant
@@ -943,11 +981,14 @@ def price(request: PriceRequest) -> PriceResponse:
         pv_capital_strain=cedant_capital["pv_capital_strain"],
         return_on_capital=cedant_capital["return_on_capital"],
         capital_adjusted_irr=cedant_capital["capital_adjusted_irr"],
+        available_capital=cedant_capital["available_capital"],
+        capital_ratio=cedant_capital["capital_ratio"],
         reinsurer_peak_capital=reinsurer_capital["peak_capital"],
         reinsurer_pv_capital=reinsurer_capital["pv_capital"],
         reinsurer_pv_capital_strain=reinsurer_capital["pv_capital_strain"],
         reinsurer_return_on_capital=reinsurer_capital["return_on_capital"],
         reinsurer_capital_adjusted_irr=reinsurer_capital["capital_adjusted_irr"],
+        reinsurer_capital_ratio=reinsurer_capital["capital_ratio"],
         premium_sufficiency=_sufficiency_block(cedant_sufficiency),
         reinsurer_premium_sufficiency=_sufficiency_block(reinsurer_sufficiency),
         n_policies=len(request.policies),
@@ -970,6 +1011,8 @@ def _capital_block(result: ProfitTestResult) -> dict[str, float | None]:
             "pv_capital_strain": None,
             "return_on_capital": None,
             "capital_adjusted_irr": None,
+            "available_capital": None,
+            "capital_ratio": None,
         }
     return {
         "peak_capital": float(result.peak_capital),
@@ -977,6 +1020,9 @@ def _capital_block(result: ProfitTestResult) -> dict[str, float | None]:
         "pv_capital_strain": float(result.pv_capital_strain),
         "return_on_capital": result.return_on_capital,
         "capital_adjusted_irr": result.capital_adjusted_irr,
+        # ADR-104: None unless available_capital was supplied on the request.
+        "available_capital": result.available_capital,
+        "capital_ratio": result.capital_ratio,
     }
 
 
