@@ -223,7 +223,7 @@ allowance for a slice that proves larger than expected.
 #### Slice 4c-2a: CLI + API available-capital numerator  ✅ DONE
 - **Status:** DONE
 - **Branch:** `claude/awesome-bardeen-yqv16z` (environment-designated)
-- **PR:** (this session — draft)
+- **PR:** #103 (draft)
 - **What was done:** Threaded the `available_capital` numerator through the two
   machine surfaces. CLI: a `--available-capital FLOAT` flag (validated to require
   `--capital` and be positive — either misuse exits 1) threaded through
