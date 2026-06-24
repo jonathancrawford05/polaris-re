@@ -744,6 +744,23 @@ Items harvested from completed/in-flight work by the daily-dev routine
   SOA gating, and a drift-guard test that fails loudly on any unbaselined config.
   `flat`/`yrt` byte-identical; QA suite 76 passed.
 
+- **NICE-TO-HAVE — Cash-flow-vector golden (finer-grained than per-cohort
+  summary).** The pipeline golden (ADR-105) pins per-cohort *summary* metrics (PV
+  profits, margins, gross premiums/claims), not the full cash-flow vectors. A
+  vector-level golden would catch offsetting per-period errors that net to the
+  same summary. Defense-in-depth refinement of an already-shipped net, not a
+  correctness gap on the common path → NICE-TO-HAVE.
+  *Source: ADR-105 Out of scope (2nd-order — follow-up of the config-driven
+  golden harness, itself a 1st-order PR #103-review follow-up).*
+
+- **NICE-TO-HAVE — Pipeline goldens for Modco / stop-loss treaty configs.** The
+  config-driven harness (ADR-105) auto-discovers any new
+  `data/qa/golden_config_*.json` and the drift guard enforces a committed
+  baseline, so adding a Modco or stop-loss golden is now a one-file change once
+  those treaty configs exist. Tracks the remaining treaty types not yet
+  represented by a golden config → NICE-TO-HAVE.
+  *Source: ADR-105 Out of scope (2nd-order).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

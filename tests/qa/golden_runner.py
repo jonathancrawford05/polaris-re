@@ -51,6 +51,12 @@ GOLDEN_OUTPUTS_DIR = Path(__file__).parent / "golden_outputs"
 ABS_TOL_DOLLARS = 500.0
 ABS_TOL_PCT = 0.005
 
+# A per-cohort golden metric value: dollar/ratio floats, integer counts, or None
+# (IRR / breakeven when the cash flows have no sign change). Narrowing from a bare
+# ``object`` lets the numeric comparison call ``float(...)`` without a cast.
+type MetricValue = float | int | None
+type GoldenResult = dict[str, dict[str, MetricValue]]
+
 # Metrics compared against the baseline, split by tolerance class.
 _DOLLAR_METRICS = (
     "cedant_pv_profits",
@@ -113,7 +119,7 @@ def load_inputs(case: GoldenCase) -> PipelineInputs:
     return inputs
 
 
-def run_pricing(inputs: PipelineInputs) -> dict[str, dict[str, object]]:
+def run_pricing(inputs: PipelineInputs) -> GoldenResult:
     """Price the golden inforce block under ``inputs``; return per-cohort metrics.
 
     This is the single result-extraction path shared by the generator and the
@@ -123,7 +129,7 @@ def run_pricing(inputs: PipelineInputs) -> dict[str, dict[str, object]]:
     """
     inforce = load_inforce(csv_path=GOLDEN_CSV)
     inf, assumptions, config = build_pipeline(inforce, inputs)
-    results: dict[str, dict[str, object]] = {}
+    results: GoldenResult = {}
 
     for product_type, cohort_inforce in iter_cohorts(inf):
         gross = get_product_engine(
@@ -141,7 +147,8 @@ def run_pricing(inputs: PipelineInputs) -> dict[str, dict[str, object]]:
 
         if treaty is not None:
             inforce_arg = cohort_inforce if inputs.deal.use_policy_cession else None
-            net, ceded = treaty.apply(gross, inforce=inforce_arg)
+            # build_treaty is annotated `object | None`; mirror the CLI's ignore.
+            net, ceded = treaty.apply(gross, inforce=inforce_arg)  # type: ignore[attr-defined]
         else:
             net, ceded = gross, None
 
@@ -170,7 +177,7 @@ def run_pricing(inputs: PipelineInputs) -> dict[str, dict[str, object]]:
     return results
 
 
-def save_golden(results: dict[str, dict[str, object]], name: str) -> Path:
+def save_golden(results: GoldenResult, name: str) -> Path:
     """Write a golden baseline as indented JSON; return its path."""
     GOLDEN_OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
     path = GOLDEN_OUTPUTS_DIR / f"{name}.json"
@@ -178,17 +185,18 @@ def save_golden(results: dict[str, dict[str, object]], name: str) -> Path:
     return path
 
 
-def load_golden(name: str) -> dict[str, dict[str, object]] | None:
+def load_golden(name: str) -> GoldenResult | None:
     """Load a committed baseline, or None if it has not been generated yet."""
     path = GOLDEN_OUTPUTS_DIR / f"{name}.json"
     if not path.exists():
         return None
-    return json.loads(path.read_text())
+    loaded: GoldenResult = json.loads(path.read_text())
+    return loaded
 
 
 def compare_golden(
-    actual: dict[str, dict[str, object]],
-    expected: dict[str, dict[str, object]],
+    actual: GoldenResult,
+    expected: GoldenResult,
     label: str,
 ) -> list[str]:
     """Compare actual vs expected per-cohort metrics; return discrepancy strings."""

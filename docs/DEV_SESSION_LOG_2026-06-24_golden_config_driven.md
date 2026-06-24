@@ -126,3 +126,24 @@ coverage/discovery guards). Ruff format + check clean. The drift guard was
 confirmed to fail on a temporary unbaselined config (then removed), and
 `generate_golden.py --flat-only` confirmed to skip the three SOA configs while
 leaving `golden_flat.json` byte-identical.
+
+## Post-Review Addendum (PR #104 automated review)
+
+The PR #104 review approved (zero P0, all 5 CI checks green) with three findings;
+addressed in-PR:
+
+- **[P1] Harvest** — promoted the two ADR-105 out-of-scope items to
+  `PRODUCT_DIRECTION_2026-06-18` Promoted Follow-ups as **NICE-TO-HAVE**, tagged
+  *2nd-order* (`Source: ADR-105 Out of scope`): the cash-flow-vector golden and
+  Modco/stop-loss treaty goldens. (The original harvest only struck the source
+  item; this closes that gap.)
+- **[P2] mypy** — the 9 newly-introduced errors in `golden_runner.py` (from typing
+  the metric dicts as `dict[str, object]`) cleared by a `MetricValue = float | int
+  | None` / `GoldenResult` alias and a `# type: ignore[attr-defined]` on
+  `treaty.apply` mirroring the CLI (`build_treaty` is annotated `object | None`).
+  `mypy tests/qa/golden_runner.py` now clean. The `no-untyped-def` notes on
+  `test_pipeline_golden.py` test methods are the universal pytest-method
+  convention across the suite and outside CI's `mypy src/` scope — left as-is.
+- **[P2] private CLI-helper import** — left as-is: binding the goldens to the
+  exact parser the CLI uses is the point of the PR and is documented; a public
+  accessor would touch `src/` and expand scope beyond test-infra.
