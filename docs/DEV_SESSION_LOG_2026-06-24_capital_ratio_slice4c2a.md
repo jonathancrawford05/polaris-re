@@ -174,6 +174,17 @@ promoted (same disposition as the Slice 3 / 4b / 4c-1 harvests):
 - Held-capital basis (target multiple of ACL) → already an Open Question in the
   CONTINUATION (carried from Slices 1–2).
 
+**Post-session addendum (PR #103 review harvest).** The automated review of this
+PR surfaced one P2 finding NOT introduced by #103: `data/qa/` ships four pricing
+configs but `tests/qa/golden_outputs/` pins byte-level baselines for only two
+(`flat`, `yrt`) — the `coins` and `policy_cession` pipeline paths are covered by
+CLI smoke tests only, so a silent numeric regression in the coinsurance reserve
+transfer or policy-cession weighting would pass the QA suite. Promoted to
+`PRODUCT_DIRECTION_2026-06-18` Promoted Follow-ups as **IMPORTANT** with the
+config-driven, drift-guarded fix plan (Option A) and provenance
+*"Source: PR #103 automated review — P2 finding (1st-order)."* To be implemented
+as its own dedicated test-infra PR off main (not in #103's scope).
+
 Ledger healing (step 4b): PR #102 (Slice 4c-1) merged since the last session is
 the Epic 3 parent slice (the epic stays IN PROGRESS, correctly un-struck); it is
 not a discrete PRODUCT_DIRECTION queue entry to strike. Ledger healthy.
