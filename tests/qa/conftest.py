@@ -1,33 +1,37 @@
-"""QA test fixtures — golden inputs and pipeline builders."""
+"""QA test fixtures — golden inputs and shared constants.
 
-import os
-from datetime import date
+The golden-regression machinery (config discovery, pricing, baseline I/O) lives
+in ``golden_runner`` so the standalone ``generate_golden.py`` script can import
+it without pulling in pytest. This conftest re-exports the constants the QA
+tests reference and provides the pytest fixtures + the ``requires_soa_tables``
+skip decorator.
+"""
+
 from pathlib import Path
 
 import pytest
 
-from polaris_re.core.pipeline import (
-    DealConfig,
-    LapseConfig,
-    MortalityConfig,
-    PipelineInputs,
-    load_inforce,
-)
+from polaris_re.core.pipeline import load_inforce
 
-GOLDEN_CSV = Path("data/qa/golden_inforce.csv")
+from .golden_runner import GOLDEN_CSV, GOLDEN_OUTPUTS_DIR, has_soa_tables
+
+# Re-exported for the QA tests (test_cli_golden imports GOLDEN_CONFIGS_DIR /
+# GOLDEN_CSV; test_pipeline_golden imports GOLDEN_OUTPUTS_DIR).
 GOLDEN_CONFIGS_DIR = Path("data/qa")
-GOLDEN_OUTPUTS_DIR = Path("tests/qa/golden_outputs")
 
-# Mortality tables required for SOA VBT 2015 configs
-_MORTALITY_DIR = Path(os.environ.get("POLARIS_DATA_DIR", "data")) / "mortality_tables"
-_HAS_SOA_TABLES = (_MORTALITY_DIR / "soa_vbt_2015_male_ns.csv").exists()
+__all__ = [
+    "GOLDEN_CONFIGS_DIR",
+    "GOLDEN_CSV",
+    "GOLDEN_OUTPUTS_DIR",
+    "requires_soa_tables",
+]
 
 
 def requires_soa_tables(fn):
-    """Skip decorator for tests that need real mortality tables."""
+    """Skip decorator for tests that need the real SOA VBT 2015 tables."""
     return pytest.mark.skipif(
-        not _HAS_SOA_TABLES,
-        reason=f"SOA VBT 2015 tables not found at {_MORTALITY_DIR}",
+        not has_soa_tables(),
+        reason="SOA VBT 2015 tables not found (run scripts/convert_soa_tables.py)",
     )(fn)
 
 
@@ -37,41 +41,3 @@ def golden_inforce():
     if not GOLDEN_CSV.exists():
         pytest.skip(f"Golden CSV not found: {GOLDEN_CSV}")
     return load_inforce(csv_path=GOLDEN_CSV)
-
-
-@pytest.fixture()
-def golden_yrt_inputs() -> PipelineInputs:
-    """PipelineInputs matching golden_config_yrt.json."""
-    return PipelineInputs(
-        mortality=MortalityConfig(source="SOA_VBT_2015", multiplier=1.0),
-        lapse=LapseConfig(),
-        deal=DealConfig(
-            product_type="TERM",
-            treaty_type="YRT",
-            cession_pct=0.90,
-            yrt_loading=0.10,
-            discount_rate=0.06,
-            hurdle_rate=0.10,
-            projection_years=20,
-            valuation_date=date(2026, 4, 1),
-        ),
-    )
-
-
-@pytest.fixture()
-def golden_flat_inputs() -> PipelineInputs:
-    """PipelineInputs matching golden_config_flat.json (no SOA tables)."""
-    return PipelineInputs(
-        mortality=MortalityConfig(source="flat", flat_qx=0.003),
-        lapse=LapseConfig(),
-        deal=DealConfig(
-            product_type="TERM",
-            treaty_type="YRT",
-            cession_pct=0.90,
-            yrt_loading=0.10,
-            discount_rate=0.06,
-            hurdle_rate=0.10,
-            projection_years=20,
-            valuation_date=date(2026, 4, 1),
-        ),
-    )
