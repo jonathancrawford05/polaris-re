@@ -7,8 +7,11 @@
 > running log lives in `docs/CONTINUATION_reserve_basis.md`, the per-session
 > `docs/DEV_SESSION_LOG_*` files, and the ADRs.
 >
-> **Status.** IN PROGRESS — Slice 1 shipped (ReserveBasis enum + plumbing).
-> No prior reserve-basis code existed before this epic.
+> **Status.** ✅ COMPLETE — all slices shipped (Slice 1 ReserveBasis enum +
+> plumbing; Slices 2a/2b + 3a/3b reserve calc for Term + WL; Slice 4 surfaced
+> the selector on CLI / API / Excel / validation notebook, 2026-06-19). No prior
+> reserve-basis code existed before this epic. Running log:
+> `docs/CONTINUATION_reserve_basis.md`.
 >
 > **Source.** `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` Tier-A item
 > **A1** (★★★★★ value, ~10 dev-days, the top-ranked unstarted epic) and
