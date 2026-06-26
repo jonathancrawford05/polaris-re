@@ -7,9 +7,10 @@
 > end of every slice — this plan is the read-only spec, not the running
 > log.
 >
-> **Status.** READY TO START. No prior code exists for this feature.
-> Predecessor work (the multi-basis concentration capability the page
-> will consume) shipped 2026-06-05 (ADR-069) and 2026-06-07 (ADR-073).
+> **Status.** ✅ COMPLETE — all 3 slices shipped (Slice 1 2026-06-07; Slice 2
+> 2026-06-08; Slice 3 2026-06-09). Predecessor work (the multi-basis
+> concentration capability the page consumes) shipped 2026-06-05 (ADR-069) and
+> 2026-06-07 (ADR-073). Running log: `docs/CONTINUATION_dashboard_portfolio.md`.
 
 ---
 

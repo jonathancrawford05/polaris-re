@@ -9,19 +9,20 @@
 > `docs/CONTINUATION_cross_jurisdiction_capital.md`, the per-session
 > `docs/DEV_SESSION_LOG_*` files, and the ADRs.
 >
-> **Status.** IN PROGRESS — Slice 1 shipped (US RBC core + `CapitalModel`
-> protocol, ADR-098); Slice 2 shipped (RoC entry points widened to the
-> `CapitalModel` protocol, ADR-099, PR #98); Slice 3 shipped (EU Solvency II SCR
-> module, ADR-100, PR #99); Slice 4a shipped (CLI + API jurisdiction selector,
-> ADR-101, PR #100); Slice 4b shipped (dashboard selector + Excel jurisdiction
-> label, ADR-102, PR #101); Slice 4c-1 shipped (result-level capital-ratio core,
-> ADR-103, PR #102); Slice 4c-2a shipped (available-capital numerator threaded
-> through the CLI + API machine surfaces, ADR-104). Slice 4 was re-decomposed
-> into 4a (machine surfaces, done), 4b (presentation surfaces — dashboard +
-> Excel, done) and 4c; 4c was itself re-decomposed into 4c-1 (result-level ratio
-> core, done) and 4c-2; 4c-2 was re-decomposed once more into 4c-2a (CLI + API
-> machine surfaces, done), 4c-2b (Excel ratio row + dashboard input/tile,
-> planned below) and 4c-2c (three-standard validation notebook, planned below).
+> **Status.** ✅ COMPLETE — all slices shipped. Slice 1 (US RBC core +
+> `CapitalModel` protocol, ADR-098); Slice 2 (RoC entry points widened to the
+> `CapitalModel` protocol, ADR-099, PR #98); Slice 3 (EU Solvency II SCR
+> module, ADR-100, PR #99); Slice 4a (CLI + API jurisdiction selector,
+> ADR-101, PR #100); Slice 4b (dashboard selector + Excel jurisdiction
+> label, ADR-102, PR #101); Slice 4c-1 (result-level capital-ratio core,
+> ADR-103, PR #102); Slice 4c-2a (available-capital numerator threaded
+> through the CLI + API machine surfaces, ADR-104, PR #103); Slice 4c-2b (Excel
+> ratio row + dashboard input/tile, ADR-106, PR #105); Slice 4c-2c
+> (three-standard validation notebook, ADR-107 — this slice). Slice 4 was
+> re-decomposed into 4a (machine surfaces) , 4b (presentation surfaces —
+> dashboard + Excel) and 4c; 4c into 4c-1 (result-level ratio core) and 4c-2;
+> 4c-2 once more into 4c-2a (CLI + API machine surfaces), 4c-2b (Excel ratio row
+> + dashboard input/tile) and 4c-2c (three-standard validation notebook).
 >
 > **Source.** `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` Tier-A item
 > **A3** (★★★★★ value, ~15 dev-days for both, the #3 unstarted epic, started
@@ -173,10 +174,17 @@ dashboard + notebook + ratio surface) into two independently mergeable sub-slice
   question (a configurable target *multiple* of ACL as an alternative numerator
   form) was kept out of this presentation slice and remains an open follow-up.
 
-#### Slice 4c-2c — Three-standard validation notebook  PLANNED
-- A notebook comparing LICAT / RBC / Solvency II on the golden block,
-  demonstrating the required-capital schedules, the RoC, and the new solvency
-  ratio side by side.
+#### Slice 4c-2c — Three-standard validation notebook  ✅ SHIPPED (ADR-107)
+- Added `notebooks/03_capital_standards_comparison.ipynb` comparing LICAT / RBC /
+  Solvency II on one self-contained term block: required-capital run-off
+  (`capital_by_period`), peak/PV capital, RoC, and the new solvency ratio side by
+  side. The identical NAR feeds all three via `capital_model_for` +
+  `run_with_capital(..., available_capital=)`. The notebook surfaces the
+  **un-calibrated-levels** caveat as its teaching point (LICAT's 10% shock-scale
+  C-2 vs RBC/EU ~0.2% ongoing factors → ~100x level gap) and demonstrates the
+  ratio is meaningful *within* a standard (linear in available capital). No `src/`
+  change — consumes existing tested surfaces; QA golden (76) + fast suite (1664)
+  unaffected. **This is the final slice — the epic is COMPLETE.**
 
 ## 4. Key constraints (from CLAUDE.md / ARCHITECTURE.md)
 

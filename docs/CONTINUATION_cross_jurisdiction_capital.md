@@ -3,8 +3,13 @@
 **Source:** PRODUCT_DIRECTION_2026-06-18.md — IMPORTANT (Tier-A A3); plan in
 `docs/PLAN_cross_jurisdiction_capital.md`; selected per
 `COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` Tier-A A3.
-**Status:** IN PROGRESS
-**Total slices:** 4
+**Status:** COMPLETE — all slices shipped (1, 2, 3, 4a, 4b, 4c-1, 4c-2a, 4c-2b,
+4c-2c). The final slice (4c-2c, ADR-107, this PR) added the three-standard
+validation notebook. Surviving Open Questions were harvested to
+`PRODUCT_DIRECTION_2026-06-18.md` Promoted Follow-ups (step 17) before this
+transition: held-capital basis (already tracked), per-side numerator (already
+tracked), and cross-standard factor calibration / Asset-ALM (newly promoted).
+**Total slices:** 4 (4 re-decomposed to 9 shipped sub-slices as detailed below)
 **Estimated total scope:** ~15 dev-days (US RBC ~8 d, Solvency II SCR ~7 d)
 
 ## Overall Goal
@@ -289,12 +294,33 @@ allowance for a slice that proves larger than expected.
   numerator; three standards give distinct ratios). Full fast suite 1664 passed
   (+14); QA golden suite 76 green.
 
-#### Slice 4c-2c: Three-standard validation notebook  PLANNED
-- **Status:** NEXT
-- **Depends on:** Slice 4c-2b merged
-- **Scope:** A notebook comparing LICAT / RBC / Solvency II on the golden block,
-  demonstrating the required-capital schedules, the RoC, and the new solvency
-  ratio side by side.
+#### Slice 4c-2c: Three-standard validation notebook  ✅ DONE
+- **Status:** DONE
+- **Branch:** `claude/awesome-bardeen-kmtzts` (environment-designated)
+- **PR:** #106 (draft) — this slice
+- **What was done:** Added `notebooks/03_capital_standards_comparison.ipynb`
+  comparing LICAT / RBC / Solvency II on one self-contained term block. It derives
+  the NAR transparently (`max(face·inforce_ratio − reserve, 0)`) and feeds the
+  **identical** NAR to all three standards via `capital_model_for(id, TERM)` +
+  `ProfitTester.run_with_capital(..., nar=, available_capital=)`, then tabulates
+  the required-capital run-off (`capital_by_period` at issue/yr1/5/10/15), peak/PV
+  capital, RoC, and the solvency ratio side by side. The notebook surfaces the
+  **un-calibrated-levels** caveat as its teaching point (LICAT's 10% shock-scale
+  C-2 vs RBC/EU ~0.2% ongoing factors → ~100x level gap on identical NAR) and
+  demonstrates the ratio is meaningful *within* a standard (linear in available
+  capital, 2.00x on doubling). ADR-107.
+- **Key decisions:**
+  - **No `src/` change.** The notebook consumes only existing, closed-form-tested
+    surfaces (`capital_model_for`, `run_with_capital`, `capital_ratio`); its
+    verification is that it executes top-to-bottom cleanly (the committed file
+    carries executed outputs). No dedicated pytest, matching the `01`/`02`
+    notebook precedent (notebooks are omitted from coverage, launched via
+    `make notebook`).
+  - **Honest presentation over hand-tuned factors.** Rather than mask the ~100x
+    cross-standard level gap, the notebook frames it as the headline caveat and
+    harvests the mutual-calibration work (Asset/ALM epic) to PRODUCT_DIRECTION.
+  - Goldens byte-identical (no `src/`/`data/`/test change); QA golden (76) + fast
+    suite (1664) unaffected.
 
 ## Context for Next Session
 
