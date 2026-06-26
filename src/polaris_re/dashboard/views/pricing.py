@@ -328,6 +328,7 @@ def _run_pricing_for_cohort(
     parity_label: str,
     show_yrt_info: bool,
     capital_model_id: str | None = None,
+    available_capital: float | None = None,
     sufficiency_target_margin: float = 0.0,
 ) -> CohortPricingData:
     """Run the full pricing pipeline for a single-product cohort.
@@ -420,7 +421,13 @@ def _run_pricing_for_cohort(
             cession_pct=cession_pct,
             is_reinsurer=False,
         )
-        result: ProfitTestResult = cedant_tester.run_with_capital(capital_model, nar=cedant_nar)
+        # ``available_capital`` (the solvency-ratio numerator, ADR-104) is the
+        # same company-supplied figure for both perspectives; each side divides
+        # by its own required capital, so the two ratios differ and are
+        # individually meaningful (symmetric with the CLI / API, Slice 4c-2a).
+        result: ProfitTestResult = cedant_tester.run_with_capital(
+            capital_model, nar=cedant_nar, available_capital=available_capital
+        )
         reinsurer_result: ProfitTestResult | None = None
         if reinsurer_tester is not None and ceded is not None and cession_pct is not None:
             reinsurer_nar = derive_capital_nar(
@@ -430,7 +437,9 @@ def _run_pricing_for_cohort(
                 cession_pct=cession_pct,
                 is_reinsurer=True,
             )
-            reinsurer_result = reinsurer_tester.run_with_capital(capital_model, nar=reinsurer_nar)
+            reinsurer_result = reinsurer_tester.run_with_capital(
+                capital_model, nar=reinsurer_nar, available_capital=available_capital
+            )
     else:
         result = cedant_tester.run()
         reinsurer_result = reinsurer_tester.run() if reinsurer_tester is not None else None
@@ -605,11 +614,15 @@ def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: Assum
 
     if isinstance(result, ProfitResultWithCapital):
         st.caption(f"Regulatory capital basis: **{capital_label}**")
-        cap_a, cap_b, cap_c = st.columns(3)
+        # A fourth tile (Solvency Ratio) appears only when an available-capital
+        # numerator was supplied (ADR-104, Slice 4c-2b); otherwise the row stays
+        # the pre-Slice-4c-2b three tiles.
+        has_ratio = result.capital_ratio is not None
+        cap_cols = st.columns(4 if has_ratio else 3)
         roc_str = (
             f"{result.return_on_capital:.2%}" if result.return_on_capital is not None else "N/A"
         )
-        cap_a.metric(
+        cap_cols[0].metric(
             "Return on Capital",
             roc_str,
             help=(
@@ -623,12 +636,12 @@ def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: Assum
                 "hurdle to gate treaty acceptance."
             ),
         )
-        cap_b.metric(
+        cap_cols[1].metric(
             "Peak Capital",
             f"${result.peak_capital:,.0f}",
             help=f"Maximum required {capital_label} capital across the projection.",
         )
-        cap_c.metric(
+        cap_cols[2].metric(
             "PV Capital Strain",
             f"${result.pv_capital_strain:,.0f}",
             help=(
@@ -637,6 +650,17 @@ def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: Assum
                 "for reference only (ADR-048)."
             ),
         )
+        if has_ratio:
+            cap_cols[3].metric(
+                "Solvency Ratio",
+                f"{result.capital_ratio:.1%}",
+                help=(
+                    "Available capital / required capital under the "
+                    f"{capital_label} standard (ADR-104). Available capital "
+                    f"${result.available_capital:,.0f}. A ratio above 100% "
+                    "indicates capital in excess of the regulatory requirement."
+                ),
+            )
 
     st.pyplot(
         cashflow_waterfall(
@@ -701,13 +725,14 @@ def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: Assum
 
         if isinstance(reinsurer_result, ProfitResultWithCapital):
             st.caption(f"Regulatory capital basis: **{capital_label}**")
-            r_cap_a, r_cap_b, r_cap_c = st.columns(3)
+            r_has_ratio = reinsurer_result.capital_ratio is not None
+            r_cap_cols = st.columns(4 if r_has_ratio else 3)
             r_roc_str = (
                 f"{reinsurer_result.return_on_capital:.2%}"
                 if reinsurer_result.return_on_capital is not None
                 else "N/A"
             )
-            r_cap_a.metric(
+            r_cap_cols[0].metric(
                 "Return on Capital",
                 r_roc_str,
                 help=(
@@ -720,14 +745,26 @@ def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: Assum
                     "factor model."
                 ),
             )
-            r_cap_b.metric(
+            r_cap_cols[1].metric(
                 "Peak Capital",
                 f"${reinsurer_result.peak_capital:,.0f}",
             )
-            r_cap_c.metric(
+            r_cap_cols[2].metric(
                 "PV Capital Strain",
                 f"${reinsurer_result.pv_capital_strain:,.0f}",
             )
+            if r_has_ratio:
+                r_cap_cols[3].metric(
+                    "Solvency Ratio",
+                    f"{reinsurer_result.capital_ratio:.1%}",
+                    help=(
+                        "Available capital / required capital under the "
+                        f"{capital_label} standard (ADR-104). The reinsurer "
+                        "divides the same supplied numerator "
+                        f"(${reinsurer_result.available_capital:,.0f}) by its "
+                        "own required capital."
+                    ),
+                )
 
         st.pyplot(_reinsurer_cash_flow_chart(ceded, cached_treaty_type))
 
@@ -874,6 +911,27 @@ def page_pricing() -> None:
     )
     capital_model_id: str | None = _CAPITAL_MODEL_CHOICES[capital_choice]
 
+    # Solvency-ratio numerator (ADR-104, Slice 4c-2b). Only meaningful when a
+    # capital basis is chosen; 0 (the default) means "no numerator" -> no ratio
+    # tile, keeping capital-only runs byte-identical. Mirrors the CLI
+    # ``--available-capital`` flag and the API ``available_capital`` field.
+    available_capital: float | None = None
+    if capital_model_id is not None:
+        available_capital_input = st.number_input(
+            "Available capital (solvency-ratio numerator, $)",
+            min_value=0.0,
+            value=0.0,
+            step=1_000_000.0,
+            help=(
+                "Company-supplied available capital / TAC / own funds. When > 0, "
+                "a Solvency Ratio tile (available capital / required capital) is "
+                "added to the cedant and reinsurer capital views — each side "
+                "divides this same numerator by its own required capital "
+                "(ADR-104). 0 skips the ratio."
+            ),
+        )
+        available_capital = available_capital_input if available_capital_input > 0 else None
+
     sufficiency_target_margin = (
         st.number_input(
             "Premium-sufficiency target margin (%)",
@@ -915,6 +973,7 @@ def page_pricing() -> None:
                         parity_label=parity_label,
                         show_yrt_info=(n_cohorts == 1),
                         capital_model_id=capital_model_id,
+                        available_capital=available_capital,
                         sufficiency_target_margin=sufficiency_target_margin,
                     )
             except (PolarisValidationError, PolarisComputationError) as exc:

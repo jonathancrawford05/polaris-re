@@ -185,6 +185,13 @@ class DealPricingExport:
     # matches the calculator that ran. ``None`` (no jurisdiction recorded) labels
     # the block ``LICAT`` for backward compatibility — every pre-ADR-098 capital
     # workbook was LICAT — and is the default so callers that omit it are unchanged.
+    # When a rendered result also carries a solvency-ratio numerator — the
+    # ``ProfitResultWithCapital.available_capital`` / ``.capital_ratio`` fields
+    # added by Slice 4c-1 (ADR-103) and populated when the CLI
+    # ``--available-capital`` / API ``available_capital`` (ADR-104) supply one —
+    # the capital block gains ``Available Capital`` + ``Solvency Ratio`` rows
+    # (Slice 4c-2b). No extra field is needed — the numerator and ratio ride on
+    # the result objects already on this export.
     capital_model_id: str | None = None
 
 
@@ -373,6 +380,18 @@ _CAPITAL_METRICS: tuple[str, ...] = (
     "Capital-Adjusted IRR",
 )
 
+# Regulatory solvency-ratio rows appended below the capital block ONLY when the
+# run supplied an available-capital numerator (ADR-104; surfaced on the Excel
+# block in Slice 4c-2b). ``Available Capital`` is the company-supplied
+# numerator, echoed on the result; ``Solvency Ratio`` is that numerator over the
+# jurisdiction's required capital (LICAT total ratio / RBC ratio / EU solvency
+# ratio). Capital runs WITHOUT a numerator render neither row and stay
+# byte-identical to pre-Slice-4c-2b output.
+_CAPITAL_RATIO_METRICS: tuple[str, ...] = (
+    "Available Capital",
+    "Solvency Ratio",
+)
+
 # Premium-sufficiency rows appended to the Summary sheet when
 # ``premium_sufficiency_cedant`` is populated (ADR-083). The discount rate
 # here is the valuation rate used by the analyzer, not the profit hurdle.
@@ -550,6 +569,26 @@ def _write_summary_sheet(wb: "Workbook", export: DealPricingExport) -> None:
                 _write_capital_cell(ws, row_idx, 3, metric, export.reinsurer_result)
         next_row += len(_CAPITAL_METRICS)
 
+        # Solvency-ratio rows (ADR-104 numerator surfaced in Slice 4c-2b):
+        # appended only when --available-capital was supplied (so a result
+        # carries a non-None capital_ratio). Capital runs without a numerator
+        # render neither row and stay byte-identical.
+        ratio_present = (
+            isinstance(export.cedant_result, ProfitResultWithCapital)
+            and export.cedant_result.capital_ratio is not None
+        ) or (
+            isinstance(export.reinsurer_result, ProfitResultWithCapital)
+            and export.reinsurer_result.capital_ratio is not None
+        )
+        if ratio_present:
+            for i, metric in enumerate(_CAPITAL_RATIO_METRICS):
+                row_idx = next_row + i
+                ws.cell(row=row_idx, column=1, value=metric).font = header_font
+                _write_capital_cell(ws, row_idx, 2, metric, export.cedant_result)
+                if export.reinsurer_result is not None:
+                    _write_capital_cell(ws, row_idx, 3, metric, export.reinsurer_result)
+            next_row += len(_CAPITAL_RATIO_METRICS)
+
     # Optional premium-sufficiency block — appended only when populated
     # (ADR-083). Workbooks produced without sufficiency data remain
     # byte-identical to pre-ADR-083 output. The reinsurer column is written
@@ -641,6 +680,16 @@ def _write_capital_cell(
         cell.value = _fmt_rate(result.capital_adjusted_irr)
         if isinstance(cell.value, float):
             cell.number_format = "0.00%"
+    elif metric == "Available Capital":
+        # Company-supplied solvency-ratio numerator (ADR-104). ``None`` when the
+        # run set no --available-capital but this side still carries capital.
+        cell.value = _fmt_rate(result.available_capital)
+        if isinstance(cell.value, float):
+            cell.number_format = "$#,##0"
+    elif metric == "Solvency Ratio":
+        cell.value = _fmt_rate(result.capital_ratio)
+        if isinstance(cell.value, float):
+            cell.number_format = "0.0%"
 
 
 def _write_sufficiency_cell(
