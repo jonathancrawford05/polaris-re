@@ -305,7 +305,8 @@ allowance for a slice that proves larger than expected.
   schedules, RoC, and the new solvency ratio side by side. No further `src/` work
   is expected — the notebook consumes the existing CLI/API/analytics surfaces.
 - **4c-2b surfaced the ratio on both presentation surfaces** by reading the
-  numerator/ratio already on `ProfitResultWithCapital` (ADR-104) — NO new
+  numerator/ratio already on `ProfitResultWithCapital` (the fields added by 4c-1 /
+  ADR-103, populated when the CLI/API of ADR-104 supply a numerator) — NO new
   `DealPricingExport` / `CohortPricingData` field was needed (4c-1's echo made
   the plan's "thread the numerator through the export" redundant). Excel adds
   `Available Capital` + `Solvency Ratio` rows (`_CAPITAL_RATIO_METRICS`,

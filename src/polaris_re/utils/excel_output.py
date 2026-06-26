@@ -185,10 +185,11 @@ class DealPricingExport:
     # matches the calculator that ran. ``None`` (no jurisdiction recorded) labels
     # the block ``LICAT`` for backward compatibility — every pre-ADR-098 capital
     # workbook was LICAT — and is the default so callers that omit it are unchanged.
-    # When a rendered result also carries a solvency-ratio numerator (ADR-104;
-    # the CLI ``--available-capital`` / API ``available_capital`` echoed onto
-    # ``ProfitResultWithCapital.available_capital`` / ``.capital_ratio``), the
-    # capital block gains ``Available Capital`` + ``Solvency Ratio`` rows
+    # When a rendered result also carries a solvency-ratio numerator — the
+    # ``ProfitResultWithCapital.available_capital`` / ``.capital_ratio`` fields
+    # added by Slice 4c-1 (ADR-103) and populated when the CLI
+    # ``--available-capital`` / API ``available_capital`` (ADR-104) supply one —
+    # the capital block gains ``Available Capital`` + ``Solvency Ratio`` rows
     # (Slice 4c-2b). No extra field is needed — the numerator and ratio ride on
     # the result objects already on this export.
     capital_model_id: str | None = None
