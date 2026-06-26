@@ -6820,9 +6820,12 @@ return on capital, and the regulatory solvency ratio.
 
 **Honest presentation of un-calibrated standards.** The component factors are
 committee-stage placeholders (ADR-098/100): LICAT's default C-2 is a **10%
-mortality shock** on NAR, while RBC (0.15%) and Solvency II (0.20%) are small
-ongoing factors, so the required-capital *levels* differ by ~100x and are **not
-yet mutually calibrated**. Rather than hide this behind hand-tuned factors, the
+mortality shock** on NAR, while RBC's C-2 (0.15% of NAR) and Solvency II's
+mortality sub-factor (0.20% of NAR) are small ongoing factors (the aggregated EU
+SCR runs a touch higher — ~0.28% of NAR at issue — once the +0.15% catastrophe
+shock is folded in via the standard-formula correlation matrices), so the
+required-capital *levels* differ by ~50–100x and are **not yet mutually
+calibrated**. Rather than hide this behind hand-tuned factors, the
 notebook surfaces it as the explicit teaching point: a leading calibration caveat,
 and a demonstration that the solvency ratio is meaningful **within** a standard
 (linear in available capital — double the held capital, double the ratio, the
