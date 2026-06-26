@@ -254,7 +254,7 @@ allowance for a slice that proves larger than expected.
 #### Slice 4c-2b: Excel ratio row + dashboard input/tile  ✅ DONE
 - **Status:** DONE
 - **Branch:** `claude/awesome-bardeen-uduiso` (environment-designated)
-- **PR:** (draft — this session)
+- **PR:** #105 (draft)
 - **What was done:** Rendered the solvency ratio on the two *presentation*
   surfaces, reading the numerator/ratio already echoed onto
   `ProfitResultWithCapital` by 4c-1 (so NO new `DealPricingExport` /

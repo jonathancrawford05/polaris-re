@@ -8,6 +8,7 @@
   block and the Streamlit dashboard.
 - **Slice:** 4c-2b of the cross-jurisdiction-capital epic (4c-2c remains).
 - **Branch:** `claude/awesome-bardeen-uduiso` (environment-designated).
+- **PR:** #105 (draft).
 
 ## Selection Rationale
 
