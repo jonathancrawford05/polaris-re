@@ -22,7 +22,7 @@ any embedded-value / ALM analytics.
 ### Slice 1: Bond cash-flow model + `AssetPortfolio`
 - **Status:** DONE
 - **Branch:** claude/awesome-bardeen-g36zmo (environment-designated)
-- **PR:** (this draft)
+- **PR:** #107 (draft)
 - **What was done:** Added `core/asset.py` with `Bond` (single fixed-income
   instrument on the monthly grid — `cash_flow_vector(months)`,
   `price(annual_yield)`) and `AssetPortfolio` (non-empty bond list with

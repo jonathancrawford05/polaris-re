@@ -37,7 +37,7 @@ nothing, ROADMAP 5.4 is ⏳ DEFERRED, and `reinsurance/modco.py` computes
 ## Decomposition Plan
 | Slice | Scope | Status | PR |
 |-------|-------|--------|----|
-| 1 | Bond cash-flow model + `AssetPortfolio` (pricing) | ✅ Done | (this draft) |
+| 1 | Bond cash-flow model + `AssetPortfolio` (pricing) | ✅ Done | #107 |
 | 2 | Investment income + duration / convexity | ⏳ Next | — |
 | 3 | Modco integration (asset-driven modco interest) | 🔲 Planned | — |
 | 4 | `analytics/alm.py` duration gap + CLI/API/dashboard/Excel surfacing | 🔲 Planned | — |
