@@ -414,8 +414,12 @@ Items harvested from completed/in-flight work by the daily-dev routine
   regulatory floor. Affects the magnitude of the RBC return-on-capital number,
   not first-deal correctness or the LICAT/common path → NICE-TO-HAVE. Resolve
   the design (where the multiple is set — on `RBCCapital` vs `run_with_capital`)
-  in Epic 3 Slice 2/4.
-  *Source: ADR-098 Out of scope + CONTINUATION_cross_jurisdiction_capital Open Questions (1st-order).*
+  in Epic 3 Slice 2/4. **Update (ADR-106, Slice 4c-2b):** the CLI/API/Excel/
+  dashboard now accept an *absolute* available-capital numerator; the
+  target-multiple form is the alternative numerator entry mode and would attach
+  to the same dashboard `number_input` / CLI flag. Generalises beyond US RBC to
+  all three standards (the numerator surface is jurisdiction-agnostic).
+  *Source: ADR-098 Out of scope + CONTINUATION_cross_jurisdiction_capital Open Questions (1st-order); reinforced by ADR-106 / DEV_SESSION_LOG_2026-06-26 Open Questions.*
 
 - **NICE-TO-HAVE — Additional Solvency II SCR sub-modules.** The EU Solvency II
   module (Epic 3 Slice 3) models only the life-underwriting sub-modules that
@@ -760,6 +764,16 @@ Items harvested from completed/in-flight work by the daily-dev routine
   those treaty configs exist. Tracks the remaining treaty types not yet
   represented by a golden config → NICE-TO-HAVE.
   *Source: ADR-105 Out of scope (2nd-order).*
+
+- **NICE-TO-HAVE — Per-side available-capital numerator for the solvency ratio.**
+  The solvency-ratio surfaces (CLI/API in 4c-2a, Excel/dashboard in 4c-2b) apply
+  a single supplied available-capital figure to BOTH the cedant and reinsurer
+  perspectives, each dividing by its own required capital. A reinsurer evaluating
+  both sides of a deal may hold distinct available capital per entity; a per-side
+  numerator input would let each ratio use its own numerator. Symmetric with how
+  peak/RoC are surfaced today, so this is a refinement, not a correctness gap →
+  NICE-TO-HAVE.
+  *Source: ADR-104/ADR-106 Out of scope + DEV_SESSION_LOG_2026-06-26 Open Questions (2nd-order — follow-up of the available-capital numerator, itself a 1st-order Epic-3 surface).*
 
 ## Carried Forward
 

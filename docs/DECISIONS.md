@@ -6717,3 +6717,79 @@ cash-flow-vector golden, and goldens for treaty types not yet represented by a
 config (Modco, stop-loss), are future work — but any new
 `data/qa/golden_config_*.json` is now auto-discovered and guarded, so adding one
 is a one-file change plus a committed baseline.
+
+---
+
+## ADR-106: Surface the solvency ratio on the Excel block and dashboard (Epic 3, Slice 4c-2b)
+
+**Date:** 2026-06-26
+**Status:** Accepted
+
+**Context.** Slice 4c-1 (ADR-103) added the result-level solvency-ratio *core*
+(`CapitalSchedule.capital_ratio(available_capital)` and the optional
+`ProfitTester.run_with_capital(..., available_capital=...)` keyword, which echoes
+`available_capital` / `capital_ratio` onto `ProfitResultWithCapital`). Slice
+4c-2a (ADR-104) threaded the numerator through the two **machine** surfaces — the
+CLI `--available-capital` flag and the API `available_capital` field — so the
+ratio is now reachable from the command line and the REST API. The two
+**presentation** surfaces still ignored it: the Excel deal-pricing workbook's
+capital block (ADR-049 / ADR-102) stopped at `Capital-Adjusted IRR`, and the
+Streamlit Deal Pricing page called `run_with_capital` *without*
+`available_capital`, so `result.capital_ratio` was always `None` and no ratio
+tile could render. A reinsurer pricing a deal in the dashboard or handing a
+counterparty the Excel workbook saw RoC and peak capital but not the regulatory
+solvency ratio the CLI/API already computed.
+
+**Decision.** Render the ratio on both presentation surfaces, reading the
+numerator and ratio that **already ride on the result objects** (ADR-104) — no
+new transport field is added to `DealPricingExport` or `CohortPricingData`.
+
+1. **Excel (`utils/excel_output.py`).** Below the jurisdiction-labelled capital
+   block, append two rows — `Available Capital` (`$#,##0`) and `Solvency Ratio`
+   (`0.0%`) — **only when** a rendered result carries a non-`None`
+   `capital_ratio`. A new `_CAPITAL_RATIO_METRICS` tuple drives the rows through
+   the existing `_write_capital_cell` (extended with the two metric names);
+   per-side `N/A` for a side that has no numerator (e.g. a plain reinsurer result
+   in a mixed run), mirroring the existing capital-cell convention. The CLI
+   already passes the numerator into `run_with_capital`, so the cohort results
+   threaded onto the export carry the ratio with no further CLI change.
+
+2. **Dashboard (`dashboard/views/pricing.py`).** A `number_input` "Available
+   capital (solvency-ratio numerator, $)" appears under the capital-basis
+   selectbox **only when** a basis is chosen; `> 0` threads
+   `available_capital` through `_run_pricing_for_cohort` into both sides'
+   `run_with_capital(..., available_capital=)`. When a result then carries a
+   ratio, the cedant and reinsurer capital tile rows widen from three columns to
+   four, adding a "Solvency Ratio" tile (the supplied numerator over that side's
+   own required capital).
+
+**Why no new export/cohort field.** The 4c-2b plan anticipated "threading the
+numerator through `DealPricingExport` and `CohortPricingData`", but 4c-1 already
+echoes `available_capital` and `capital_ratio` onto `ProfitResultWithCapital`,
+and both surfaces already carry those result objects. Reading `result.capital_ratio`
+/ `result.available_capital` directly is the same pattern used for every other
+capital metric (peak, RoC, strain) and keeps a single source of truth for the
+numerator — adding a parallel field on the export would risk the two drifting.
+
+**Byte-identical guarantee.** Both surfaces gate the new output on
+`capital_ratio is not None`. A capital run *without* a numerator (the common
+case, and every pre-4c-2b run) renders neither Excel row and keeps the
+three-tile dashboard layout — byte-identical to ADR-102 / pre-Slice-4c-2b. The
+no-capital path is untouched.
+
+**Verification anchors.** `test_excel_output.py::TestSummarySheetSolvencyRatio`
+(6): rows absent on a capital run with no numerator and on a no-capital run; both
+rows present when a numerator is supplied; the two rows sit directly below
+`Capital-Adjusted IRR`; cedant ratio + numerator values match; reinsurer cell
+`N/A` in a mixed run. `test_pricing_solvency_ratio.py` (8): numerator `None`
+leaves the ratio `None`; supplying it populates a finite ratio for each
+jurisdiction; the ratio scales linearly with the numerator (denominator fixed);
+the three standards give distinct ratios on the same block.
+
+**Out of scope (Slice 4c-2c and beyond).** The three-standard validation
+notebook comparing LICAT / RBC / Solvency II on the golden block and
+demonstrating the ratio is 4c-2c. The held-capital-basis question (a configurable
+target *multiple* of ACL as an alternative numerator form, rather than an
+absolute figure) remains open and is the natural companion to the dashboard
+input; it is not implemented here. A per-side numerator (distinct available
+capital for cedant vs reinsurer) remains the later refinement noted in ADR-104.

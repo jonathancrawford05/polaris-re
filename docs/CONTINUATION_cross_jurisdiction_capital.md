@@ -251,20 +251,46 @@ allowance for a slice that proves larger than expected.
   (5 new in the capital block). Affected modules 298 passed; QA golden suite 72
   green.
 
-#### Slice 4c-2b: Excel ratio row + dashboard input/tile  PLANNED
-- **Status:** NEXT
-- **Depends on:** Slice 4c-2a merged
-- **Scope:** Render the `capital_ratio` on the Excel capital block (a ratio row
-  under the 4b "Regulatory Capital — {label}" header) and the dashboard (a
-  number-input for available capital + a ratio tile), threading the numerator
-  through `DealPricingExport` and `CohortPricingData`. May rebaseline only the
-  capital-surface goldens for non-default runs; the default path stays
-  byte-identical. The held-capital-basis question (a configurable target
-  *multiple* of ACL as an alternative numerator form) is the natural companion
-  to the dashboard input here.
+#### Slice 4c-2b: Excel ratio row + dashboard input/tile  ✅ DONE
+- **Status:** DONE
+- **Branch:** `claude/awesome-bardeen-uduiso` (environment-designated)
+- **PR:** (draft — this session)
+- **What was done:** Rendered the solvency ratio on the two *presentation*
+  surfaces, reading the numerator/ratio already echoed onto
+  `ProfitResultWithCapital` by 4c-1 (so NO new `DealPricingExport` /
+  `CohortPricingData` field). Excel (`utils/excel_output.py`): a new
+  `_CAPITAL_RATIO_METRICS` tuple appends `Available Capital` + `Solvency Ratio`
+  rows below the 4b "Regulatory Capital — {label}" block, **only when** a
+  rendered result carries a non-None `capital_ratio`; `_write_capital_cell`
+  extended with the two metrics (per-side `N/A` for a numerator-less side).
+  Dashboard (`dashboard/views/pricing.py`): a `number_input` under the
+  capital-basis selectbox (shown only when a basis is chosen) threads
+  `available_capital` through `_run_pricing_for_cohort` into both sides'
+  `run_with_capital(..., available_capital=)`; the cedant/reinsurer capital tile
+  rows widen 3→4 to add a "Solvency Ratio" tile when a ratio is present. ADR-106.
+- **Key decisions:**
+  - **No new transport field.** 4c-1 already echoes `available_capital` /
+    `capital_ratio` onto the result objects both surfaces carry; reading them
+    directly (like peak / RoC / strain) keeps one source of truth for the
+    numerator. The 4c-2b plan's "thread through `DealPricingExport` /
+    `CohortPricingData`" was made redundant by 4c-1.
+  - **Gate on `capital_ratio is not None`.** A capital run without a numerator
+    renders neither Excel row and keeps the three-tile dashboard layout —
+    byte-identical to ADR-102 / pre-Slice-4c-2b. No golden rebaselined.
+  - The CLI already passes `--available-capital` into `run_with_capital`, so the
+    cohort results threaded onto the Excel export carry the ratio with no further
+    CLI change — end-to-end `--capital rbc --available-capital N --excel-out`
+    verified to render both rows.
+- **Tests:** `test_excel_output.py::TestSummarySheetSolvencyRatio` (6 — rows
+  absent without a numerator and on a no-capital run; present when supplied;
+  positioned below `Capital-Adjusted IRR`; cedant value match; reinsurer `N/A`
+  in a mixed run); `test_pricing_solvency_ratio.py` (8 — numerator None→ratio
+  None; each jurisdiction populates a finite ratio; ratio linear in the
+  numerator; three standards give distinct ratios). Full fast suite 1664 passed
+  (+14); QA golden suite 76 green.
 
 #### Slice 4c-2c: Three-standard validation notebook  PLANNED
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 4c-2b merged
 - **Scope:** A notebook comparing LICAT / RBC / Solvency II on the golden block,
   demonstrating the required-capital schedules, the RoC, and the new solvency
@@ -272,25 +298,26 @@ allowance for a slice that proves larger than expected.
 
 ## Context for Next Session
 
-- **Slice 4c-2b is next** (Excel ratio row + dashboard input/tile). Slice 4c-2a
-  (this session) shipped the **machine surfaces**: the CLI `--available-capital`
-  flag and the API `available_capital` field, both threaded into
-  `run_with_capital(..., available_capital=)` and surfacing `capital_ratio` (and
-  the echoed `available_capital`) on the cedant and reinsurer views. The
-  remaining gap is the **presentation surfaces**: render `result.capital_ratio`
-  on the Excel capital block (a ratio row under the 4b "Regulatory Capital —
-  {label}" header) and the dashboard (a number-input for available capital + a
-  ratio tile), threading the numerator through `DealPricingExport` and
-  `CohortPricingData`. Then the validation notebook is 4c-2c.
-- **The ratio computation and the machine plumbing are done** — 4c-2b only has to
-  (a) collect the `available_capital` input on the dashboard, (b) thread it onto
-  `DealPricingExport` (the CLI already passes `--capital`'s id onto the export, so
-  add the numerator the same way), and (c) display `result.capital_ratio` already
-  on `ProfitResultWithCapital`. No further analytics work. The
-  `DealPricingExport.capital_model_id` field and the `CAPITAL_MODEL_LABELS` /
-  `capital_model_label()` helper (4b) are the hooks the ratio row / tile attach
-  to; the held-capital-basis open question is the natural companion to the
-  dashboard input.
+- **Slice 4c-2c is next** (three-standard validation notebook). All FIVE solvency-
+  ratio surfaces are now done: CLI + API (4c-2a, machine) and Excel + dashboard
+  (4c-2b, presentation). The remaining work is purely a demonstration notebook
+  comparing LICAT / RBC / Solvency II on the golden block: required-capital
+  schedules, RoC, and the new solvency ratio side by side. No further `src/` work
+  is expected — the notebook consumes the existing CLI/API/analytics surfaces.
+- **4c-2b surfaced the ratio on both presentation surfaces** by reading the
+  numerator/ratio already on `ProfitResultWithCapital` (ADR-104) — NO new
+  `DealPricingExport` / `CohortPricingData` field was needed (4c-1's echo made
+  the plan's "thread the numerator through the export" redundant). Excel adds
+  `Available Capital` + `Solvency Ratio` rows (`_CAPITAL_RATIO_METRICS`,
+  `_write_capital_cell`) below the 4b jurisdiction header; the dashboard adds a
+  `number_input` under the capital selectbox and a fourth "Solvency Ratio" tile.
+  Both gate on `capital_ratio is not None`, so capital-only runs stay
+  byte-identical.
+- **Still-open held-capital-basis question** (a configurable target *multiple* of
+  ACL as an alternative numerator form, vs the absolute available-capital figure
+  4c-2a/4c-2b accept) is unresolved — it was NOT bundled into 4c-2b to keep the
+  presentation slice tightly scoped. See Open Questions; it can be a follow-up
+  refinement after the notebook.
 - **CLI/API threading reference (4c-2a).** The CLI numerator flows
   `price_cmd(--available-capital)` → `_price_single_cohort(available_capital=)` →
   `_run_profit_tests(available_capital=)` → both `run_with_capital` calls;

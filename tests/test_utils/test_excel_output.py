@@ -920,6 +920,8 @@ def _make_capital_result(
     return_on_capital: float | None = 0.18,
     capital_adjusted_irr: float | None = 0.115,
     peak_capital: float = 150_000.0,
+    available_capital: float | None = None,
+    capital_ratio: float | None = None,
 ) -> ProfitResultWithCapital:
     profit_by_year = np.linspace(-1000.0, 5000.0, PROJECTION_YEARS, dtype=np.float64)
     return ProfitResultWithCapital(
@@ -938,6 +940,8 @@ def _make_capital_result(
         return_on_capital=return_on_capital,
         capital_adjusted_irr=capital_adjusted_irr,
         capital_by_period=np.linspace(80_000.0, peak_capital, PROJECTION_MONTHS, dtype=np.float64),
+        available_capital=available_capital,
+        capital_ratio=capital_ratio,
     )
 
 
@@ -1102,6 +1106,96 @@ class TestCapitalJurisdictionHeader:
         assert not any(
             isinstance(value, str) and value.startswith("Regulatory Capital") for value in labels
         )
+
+
+class TestSummarySheetSolvencyRatio:
+    """ADR-104 / Slice 4c-2b: the capital block gains Available Capital +
+
+    Solvency Ratio rows only when an available-capital numerator was supplied.
+    """
+
+    def _labels(self, export: DealPricingExport, tmp_path: Path) -> list[object]:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        ws = load_workbook(out)["Summary"]
+        return [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+
+    def test_ratio_rows_absent_when_capital_run_has_no_numerator(
+        self, capital_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        """A capital run WITHOUT --available-capital is byte-identical (no rows)."""
+        labels = self._labels(capital_export, tmp_path)  # fixture leaves ratio None
+        assert "Solvency Ratio" not in labels
+        assert "Available Capital" not in labels
+
+    def test_ratio_rows_absent_when_no_capital(
+        self, minimal_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        labels = self._labels(minimal_export, tmp_path)
+        assert "Solvency Ratio" not in labels
+        assert "Available Capital" not in labels
+
+    def test_ratio_rows_present_when_numerator_supplied(self, tmp_path: Path) -> None:
+        export = DealPricingExport(
+            deal_meta=_make_deal_meta(),
+            assumptions_meta=_make_assumptions_meta(),
+            cedant_result=_make_capital_result(available_capital=2_000_000.0, capital_ratio=2.5),
+            reinsurer_result=None,
+            net_cashflows=_make_cashflows("NET"),
+            capital_model_id="rbc",
+        )
+        labels = self._labels(export, tmp_path)
+        assert "Available Capital" in labels
+        assert "Solvency Ratio" in labels
+
+    def test_ratio_rows_sit_below_capital_block(self, tmp_path: Path) -> None:
+        """The two ratio rows follow the last standing capital metric."""
+        export = DealPricingExport(
+            deal_meta=_make_deal_meta(),
+            assumptions_meta=_make_assumptions_meta(),
+            cedant_result=_make_capital_result(available_capital=2_000_000.0, capital_ratio=2.5),
+            reinsurer_result=None,
+            net_cashflows=_make_cashflows("NET"),
+        )
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        ws = load_workbook(out)["Summary"]
+        last_metric = _find_row_with_label(ws, "Capital-Adjusted IRR")
+        avail_row = _find_row_with_label(ws, "Available Capital")
+        ratio_row = _find_row_with_label(ws, "Solvency Ratio")
+        assert avail_row == last_metric + 1
+        assert ratio_row == avail_row + 1
+
+    def test_cedant_ratio_and_numerator_values_match(self, tmp_path: Path) -> None:
+        export = DealPricingExport(
+            deal_meta=_make_deal_meta(),
+            assumptions_meta=_make_assumptions_meta(),
+            cedant_result=_make_capital_result(available_capital=2_000_000.0, capital_ratio=2.5),
+            reinsurer_result=None,
+            net_cashflows=_make_cashflows("NET"),
+        )
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        ws = load_workbook(out)["Summary"]
+        avail = ws.cell(row=_find_row_with_label(ws, "Available Capital"), column=2).value
+        ratio = ws.cell(row=_find_row_with_label(ws, "Solvency Ratio"), column=2).value
+        assert avail == pytest.approx(2_000_000.0)
+        assert ratio == pytest.approx(2.5)
+
+    def test_reinsurer_ratio_na_when_only_cedant_has_numerator(self, tmp_path: Path) -> None:
+        """Mixed run: cedant carries the ratio, reinsurer is plain -> reinsurer cells N/A."""
+        export = DealPricingExport(
+            deal_meta=_make_deal_meta(),
+            assumptions_meta=_make_assumptions_meta(),
+            cedant_result=_make_capital_result(available_capital=2_000_000.0, capital_ratio=2.5),
+            reinsurer_result=_make_profit_result(),  # plain ProfitTestResult
+            net_cashflows=_make_cashflows("NET"),
+        )
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        ws = load_workbook(out)["Summary"]
+        ratio_row = _find_row_with_label(ws, "Solvency Ratio")
+        assert ws.cell(row=ratio_row, column=3).value == "N/A"
 
 
 # ---------------------------------------------------------------------------
