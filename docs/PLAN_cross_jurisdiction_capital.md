@@ -160,15 +160,18 @@ dashboard + notebook + ratio surface) into two independently mergeable sub-slice
   numerator is applied to both perspectives, each dividing by its own required
   capital. Default (no flag/field) → ratio null, byte-identical to ADR-103.
 
-#### Slice 4c-2b — Excel ratio row + dashboard input/tile  PLANNED
-- Render the `capital_ratio` on the Excel capital block (a ratio row under the
-  4b "Regulatory Capital — {label}" header) and the dashboard (a number-input
-  for available capital + a ratio tile), threading the numerator through
-  `DealPricingExport` and `CohortPricingData`. May rebaseline only the
-  capital-surface goldens for non-default runs; the default path stays
-  byte-identical. The held-capital-basis question (a configurable target
-  *multiple* of ACL as an alternative numerator form) is the natural companion
-  to the dashboard input here.
+#### Slice 4c-2b — Excel ratio row + dashboard input/tile  ✅ SHIPPED (ADR-106, PR #105)
+- Rendered the `capital_ratio` on the Excel capital block (`Available Capital` +
+  `Solvency Ratio` rows under the 4b "Regulatory Capital — {label}" header) and
+  the dashboard (a number-input for available capital + a Solvency Ratio tile on
+  both the cedant and reinsurer views). **No `DealPricingExport` /
+  `CohortPricingData` field added** — 4c-1 (ADR-103) already echoes the
+  numerator/ratio onto `ProfitResultWithCapital`, which both surfaces carry, so
+  they read it directly (corrected from the original plan; see ADR-106). Both
+  surfaces gate on `capital_ratio is not None`, so capital-only / no-capital runs
+  stay byte-identical — **no golden rebaselined**. The held-capital-basis
+  question (a configurable target *multiple* of ACL as an alternative numerator
+  form) was kept out of this presentation slice and remains an open follow-up.
 
 #### Slice 4c-2c — Three-standard validation notebook  PLANNED
 - A notebook comparing LICAT / RBC / Solvency II on the golden block,
