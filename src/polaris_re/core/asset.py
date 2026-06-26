@@ -145,7 +145,8 @@ class Bond(PolarisBaseModel):
         """
         cf = self.cash_flow_vector(self.term_months)
         v = (1.0 + annual_yield) ** (-1.0 / 12.0)
-        discount_factors = v ** np.arange(1, self.term_months + 1)
+        periods = np.arange(1, self.term_months + 1, dtype=np.float64)
+        discount_factors = v**periods
         return float(np.dot(cf, discount_factors))
 
 

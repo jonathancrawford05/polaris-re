@@ -71,7 +71,7 @@ def test_cash_flow_vector_horizon_longer_than_term_pads_zeros() -> None:
     cf = bond.cash_flow_vector(24)
 
     assert cf.shape == (24,)
-    assert cf[11] == 1_000.0
+    np.testing.assert_allclose(cf[11], 1_000.0)
     np.testing.assert_allclose(cf[12:], np.zeros(12))
 
 
@@ -186,14 +186,14 @@ def test_portfolio_book_and_face_totals() -> None:
 def test_bond_carrying_value_defaults_to_face() -> None:
     bond = Bond(face_value=1_000.0, coupon_rate=0.05, coupon_frequency=1, term_months=24)
     assert bond.book_value is None  # raw input unset
-    assert bond.carrying_value == 1_000.0  # resolved to par
+    np.testing.assert_allclose(bond.carrying_value, 1_000.0)  # resolved to par
 
 
 def test_bond_carrying_value_uses_explicit_book_value() -> None:
     bond = Bond(
         face_value=1_000.0, coupon_rate=0.05, coupon_frequency=1, term_months=24, book_value=970.0
     )
-    assert bond.carrying_value == 970.0
+    np.testing.assert_allclose(bond.carrying_value, 970.0)
 
 
 @pytest.mark.parametrize("freq", [0, 5, 7, 8, 24])
