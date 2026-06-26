@@ -1,0 +1,148 @@
+# Plan — Asset / ALM model (Epic 4 / Tier-C C0)
+
+> **Audience.** A new Claude Code session that will carry this epic across
+> several daily-dev runs. Read this document fully before writing code, then
+> read CLAUDE.md, ARCHITECTURE.md (§4 "Reserve Calculation", §5 "Modco
+> Treaty"), and DECISIONS.md. This plan is the read-only spec; the running log
+> lives in `docs/CONTINUATION_asset_alm.md`, the per-session
+> `docs/DEV_SESSION_LOG_*` files, and the ADRs.
+>
+> **Status.** 🔄 IN PROGRESS — Slice 1 shipped (bond cash-flow model +
+> `AssetPortfolio`, ADR-108). No prior asset/ALM code existed before this epic.
+> Running log: `docs/CONTINUATION_asset_alm.md`.
+>
+> **Source.** `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` Tier-C item
+> **C0** (★★★★☆ value, ~20 dev-days, 4 phases) and ROADMAP Milestone 5.4
+> "Asset / ALM Model". Scheduled as the **fourth epic**, after the three
+> Tier-A credibility/market-access epics (A1 reserve-basis, A2 IFRS 17
+> movement, A3 cross-jurisdiction capital), all of which shipped by
+> 2026-06-26. Per the review §4: "Run it as a fourth epic once the three
+> credibility/market-access gaps are closed."
+
+---
+
+## 1. Goal
+
+Give Polaris RE an asset side. Today the engine is liability-only: Modco
+prices the modco interest on a single flat `modco_interest_rate`, there is no
+investment-income model, and no duration/convexity or asset-liability
+duration-gap analysis exists. A reinsurer pricing a Modco or coinsurance deal
+needs to know what the assets backing the ceded reserves actually earn and how
+their interest-rate sensitivity compares to the liability — that is the
+difference between an *approximate* and a *correct* Modco economic result, and
+it is the foundation of any embedded-value or ALM story.
+
+When complete the engine can:
+
+- Model a portfolio of fixed-income instruments (bonds): project their
+  coupon + principal cash flows on the monthly grid, and price them at a yield.
+- Compute the investment income those assets throw off against a reserve
+  balance, and the portfolio's Macaulay / modified duration and convexity.
+- Drive the Modco treaty's modco interest from an `AssetPortfolio`'s book
+  yield instead of a flat rate (optional; the flat-rate path stays the
+  default and byte-identical).
+- Report an asset-liability **duration gap** on the net reinsurer position.
+
+## 2. Why this work, and what it does NOT do
+
+**Why.** Modco profitability depends on the return on the assets backing the
+ceded reserves; without an asset model that return is a single hand-set
+number. The review ranks the Asset/ALM model the top *post-Tier-A* big rock —
+high value, but deliberately scheduled after the three credibility epics
+because Modco is usable on a fixed credited rate today.
+
+**Does NOT.**
+
+- It does **not** introduce stochastic interest-rate generators
+  (Hull-White / CIR). ROADMAP 5.4 lists integration with `analytics/stochastic.py`
+  for reinvestment yields; that is a *follow-up*, not in this epic's core
+  scope. Slice 1–4 work on a flat / book yield. Stochastic reinvestment is a
+  harvested follow-up.
+- It does **not** change any default pricing number. The Modco flat-rate path
+  stays the default; goldens are byte-identical until the final surfacing
+  slice, and even then only when an `AssetPortfolio` is explicitly supplied.
+- It does **not** model equities, mortgages, or other non-fixed-income asset
+  classes. Bonds (coupon + principal) only in this epic.
+- It does **not** add asset default / credit-migration modelling (that is the
+  C-1 capital component's domain, already in `analytics/capital.py`).
+
+## 3. Decomposition (4 slices)
+
+Each slice leaves all tests green, is independently mergeable, has its own
+closed-form tests, and keeps the goldens byte-identical until the final
+surfacing slice.
+
+### Slice 1 — Bond cash-flow model + `AssetPortfolio`  ✅ SHIPPED
+- `core/asset.py`: `Bond` (`PolarisBaseModel`) — a single fixed-income
+  instrument valued on the monthly grid (`face_value`, `coupon_rate`,
+  `coupon_frequency`, `term_months`, optional `book_value`).
+  - `Bond.cash_flow_vector(months)` → `(months,)` float64 coupon + principal.
+  - `Bond.price(annual_yield)` → PV at the engine's effective-annual monthly
+    discounting (`v = (1+y)^(-1/12)`, matching `CashFlowResult.pv_*`).
+- `AssetPortfolio` (`PolarisBaseModel`) holding a list of `Bond`s with
+  `cash_flow_vector(months)`, `market_value(annual_yield)`, `book_value`,
+  `total_face_value`.
+- **Closed-form tests**: par bond (coupon = yield, annual-pay) prices to par;
+  zero-coupon price = `face·(1+y)^(-N/12)`; coupon timing on the monthly grid;
+  portfolio aggregation = sum of constituents; field validation
+  (`coupon_frequency` must divide 12, positive face/term).
+- Exported from `polaris_re.core`. ADR-108. Goldens byte-identical (new
+  module, nothing wired into pricing).
+
+### Slice 2 — Investment income + duration / convexity
+- `AssetPortfolio.investment_income(reserve_vector, ...)` → monthly investment
+  income on the asset book yield (the number Modco needs).
+- `AssetPortfolio.book_yield()` (IRR of book value vs cash flows),
+  `macaulay_duration(yield)`, `modified_duration(yield)`, `convexity(yield)`.
+- **Closed-form tests**: duration of a zero = its term; modified duration =
+  Macaulay/(1+y); a textbook convexity value; investment income on a flat
+  book yield = `reserve · yield / 12`.
+- Still additive → goldens byte-identical.
+
+### Slice 3 — Modco integration
+- `reinsurance/modco.py`: `ModcoTreaty.apply()` accepts an optional
+  `AssetPortfolio`; when supplied the modco interest is driven by the asset
+  book yield / investment income on the (notional) ceded reserve rather than
+  the flat `modco_interest_rate`. Default `None` preserves the current flat
+  path exactly → goldens byte-identical.
+- **Tests**: asset-driven modco interest closed-form vs a worked example;
+  NCF additivity (net + ceded = gross) still holds; default path unchanged.
+- ADR documenting the precedence rule (asset portfolio overrides flat rate).
+
+### Slice 4 — ALM analytics + surfacing
+- `analytics/alm.py`: duration-gap analysis on the net reinsurer position
+  (asset duration vs liability duration, dollar-duration mismatch).
+- Surface the asset/ALM block on CLI / API / dashboard / Excel as appropriate,
+  plus a validation notebook.
+- This is the slice that *can* move goldens — and only for runs that supply an
+  asset portfolio. Document any regenerated baselines with the reason.
+
+## 4. Key constraints (from CLAUDE.md / ARCHITECTURE.md)
+
+- Vectorised: cash-flow vectors and income are `(T,)` numpy with explicit
+  `float64`; no per-instrument Python loops in hot paths beyond the small bond
+  list (the bond list is analogous to the policy list — aggregate into arrays).
+- Every actuarial / financial formula gets a closed-form verification test.
+- No `Optional` / `List`; Python 3.12 typing. `float64` for monetary arrays,
+  `int32` for counts/terms where stored as arrays.
+- Discounting MUST match the engine convention (`v = (1+y)^(-1/12)`,
+  cash flow at month t discounted by `v^t`, 1-indexed end-of-month) so a bond
+  PV and a `CashFlowResult` PV are on the same basis.
+- Modco integration (Slice 3) keeps the flat-rate default byte-identical and
+  preserves the NCF additivity proof in ARCHITECTURE §5.
+- Do not hardcode yields in product/treaty code — they flow in via the
+  `AssetPortfolio` / treaty config (CLAUDE.md §10 "Never hardcode assumptions").
+
+## 5. Open design questions (resolve in the slice that first needs them)
+
+- **Book yield definition (Slice 2).** Book yield as the IRR of book value vs
+  the projected cash flows, vs a simpler weighted-average-coupon proxy. The
+  IRR definition is the actuarially correct one; confirm the solver
+  (`scipy.optimize.brentq`, as the profit tester uses) and a sign-change guard.
+- **Reinvestment (Slice 2/3).** When asset cash flows arrive before the
+  liability needs them, a reinvestment yield is required. Slice 1–2 assume the
+  book yield is the reinvestment yield (flat). Stochastic reinvestment is an
+  explicit out-of-scope follow-up (see §2).
+- **Modco precedence (Slice 3).** When both an `AssetPortfolio` and a flat
+  `modco_interest_rate` are present, the asset book yield takes precedence; the
+  flat rate becomes the fallback. Record in an ADR.

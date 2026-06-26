@@ -324,24 +324,29 @@ tracking and opening/closing reconciliation. *Delivered as Epic 2 (PRs
 
 ---
 
-### Milestone 5.4 — Asset / ALM Model ⏳ DEFERRED
+### Milestone 5.4 — Asset / ALM Model 🔄 IN PROGRESS (Epic 4)
 
 Modco profitability depends on investment returns on ceded reserves. Without
 an asset model, Modco pricing is incomplete. Also required for any meaningful
 duration-matching or embedded value calculation.
 
-> **Scheduled after the cross-jurisdiction capital epic (5.7).** Modco prices
-> on a fixed credited rate today, so the engine is usable without this; it is
-> a high-value but lower-priority big rock per
-> `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` (Tier C / C0).
+> **Started as the fourth epic, after the three Tier-A epics (5.7
+> cross-jurisdiction capital shipped 2026-06-26).** Modco prices on a fixed
+> credited rate today, so the engine is usable without this; it is a high-value
+> but lower-priority big rock per
+> `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` (Tier C / C0). Decomposed
+> into 4 slices in `docs/PLAN_asset_alm.md`; running log in
+> `docs/CONTINUATION_asset_alm.md`.
 
-- [ ] `core/asset.py` — `AssetPortfolio` class:
-      - Bond cash flow model: coupon + principal on a vector of fixed-income
-        instruments
-      - `investment_income(reserve_vector, credited_rate)` → monthly income
-      - Duration and convexity calculation
-      - Integration with `stochastic.py` scenarios (Hull-White/CIR rates drive
-        reinvestment yields)
+- [~] `core/asset.py` — `Bond` + `AssetPortfolio` classes:
+      - [x] Slice 1 — bond cash flow model (coupon + principal vector) +
+            pricing on the engine's effective-annual discounting; `AssetPortfolio`
+            aggregation (ADR-108). Additive, goldens byte-identical.
+      - [ ] Slice 2 — `investment_income(reserve_vector, ...)` → monthly income;
+            duration and convexity calculation
+      - [ ] Slice 4 — integration with `stochastic.py` scenarios
+            (Hull-White/CIR rates drive reinvestment yields) — harvested as a
+            follow-up; flat/book yield in scope for the core epic
 - [ ] `reinsurance/modco.py` — updated `ModcoTreaty.apply()` to accept an
       optional `AssetPortfolio`; use stochastic credited rates when provided
 - [ ] `analytics/alm.py` — duration gap analysis on net reinsurer position

@@ -6852,3 +6852,64 @@ available capital for cedant vs reinsurer), and the cross-standard factor
 calibration (the Asset/ALM epic that would make the required-capital *levels*
 mutually comparable) all remain open; they are harvested to PRODUCT_DIRECTION as
 this slice closes the epic.
+
+---
+
+## ADR-108: Bond cash-flow model and `AssetPortfolio` (Epic 4 / Asset-ALM, Slice 1)
+
+**Date:** 2026-06-26
+**Status:** Accepted
+
+**Context.** With the three Tier-A credibility/market-access epics shipped
+(reserve-basis matching, IFRS 17 movement, cross-jurisdiction capital — all
+merged by 2026-06-26), the next epic in the recommended sequence of
+`docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` (§4) is the **Asset / ALM
+model** (Tier-C C0, ROADMAP Milestone 5.4). Until now the engine is
+liability-only: `ModcoTreaty` prices its modco interest on a single flat
+`modco_interest_rate`, there is no investment-income model, and no
+duration/convexity or asset-liability duration-gap analysis exists — so a Modco
+or coinsurance economic result is only as good as a hand-set yield. The epic is
+decomposed in `docs/PLAN_asset_alm.md` into four slices; this ADR records
+Slice 1, the asset-side data model.
+
+**Decision.** Add `core/asset.py` with two frozen `PolarisBaseModel`s:
+
+- **`Bond`** — a single fixed-income instrument valued on the monthly
+  projection grid: `face_value`, `coupon_rate`, `coupon_frequency` (must divide
+  12, so coupons land on integer months), `term_months`, and an optional
+  `book_value` (resolved to par via a `carrying_value` property when unset).
+  `cash_flow_vector(months)` projects coupon + principal to a `(months,)`
+  float64 array (1-indexed, end-of-month: index `i` is month `i+1`), and
+  `price(annual_yield)` discounts it.
+- **`AssetPortfolio`** — a non-empty list of `Bond`s with `cash_flow_vector`
+  (sum of constituents, defaulting to the longest term), `market_value`,
+  `book_value`, and `total_face_value`.
+
+**Discounting convention.** Bond pricing uses the **same** effective-annual
+monthly discounting as `CashFlowResult.pv_*`: `v = (1 + annual_yield) ** (-1/12)`,
+cash flow at month `t` discounted by `v ** t`. This is deliberate — it keeps a
+bond PV and a projection PV on a single comparable basis, which the Slice 3
+Modco integration and Slice 4 ALM duration-gap analysis rely on. The closed-form
+par-bond test (annual-pay, coupon = yield → price = face) holds exactly under
+this convention because the coupon-plus-redemption series telescopes to par.
+
+**Verification.** 34 closed-form / validation tests: par-bond-to-par,
+zero-coupon `face·(1+y)^(-N/12)`, premium/par/discount pricing, coupon timing
+on the monthly grid (annual + semiannual), horizon truncation/padding,
+portfolio aggregation = sum of constituents, and field validation
+(`coupon_frequency` divides 12, positive face/term, non-negative coupon/book,
+non-empty portfolio).
+
+**Byte-identical guarantee.** Purely additive new module exported from
+`polaris_re.core`; nothing is wired into any product, treaty, or pricing path,
+so the QA golden suite and full fast suite are unaffected and no baseline is
+regenerated. The Modco wiring is Slice 3.
+
+**Out of scope (this slice).** Investment income and duration/convexity
+(Slice 2), the Modco integration (Slice 3), the `analytics/alm.py` duration-gap
+analysis and CLI/API/dashboard/Excel surfacing (Slice 4). Stochastic
+reinvestment yields (Hull-White / CIR via `analytics/stochastic.py`),
+non-fixed-income asset classes (equities, mortgages), and asset
+default/credit-migration modelling (the C-1 capital component already owns
+that) are out of scope for the whole epic and are harvested to
+PRODUCT_DIRECTION as follow-ups.

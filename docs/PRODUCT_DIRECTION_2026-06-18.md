@@ -462,6 +462,28 @@ Items harvested from completed/in-flight work by the daily-dev routine
   PR #105), and the three-standard validation notebook (4c-2c/ADR-107, this PR).
   LICAT/RBC/EU solvency ratios are surfaced on every consumer.
 
+- **NICE-TO-HAVE — Stochastic reinvestment yields for the asset model
+  (Hull-White / CIR).** The Asset/ALM epic (Epic 4) prices bond cash flows and,
+  in later slices, investment income and Modco interest on a **flat / book
+  yield**. ROADMAP 5.4 envisions integrating `analytics/stochastic.py`
+  (Hull-White / CIR rate paths) so reinvestment yields are scenario-driven
+  rather than flat. This is deliberately out of the epic's core scope (the flat
+  book yield is enough to make Modco economically correct vs today's hand-set
+  rate) and would otherwise be invisible once the epic closes. Affects asset
+  reinvestment precision under rate scenarios, not the flat-rate first-deal
+  Modco path → NICE-TO-HAVE.
+  *Source: ADR-108 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — Non-fixed-income asset classes for the asset model.** The
+  Asset/ALM epic (Epic 4) models **bonds only** (coupon + principal
+  fixed-income instruments). A reinsurer's asset portfolio backing ceded
+  reserves can also hold equities, mortgages, and other classes with different
+  cash-flow and duration behaviour. Extending `AssetPortfolio` beyond bonds
+  would let the duration-gap and investment-income analytics reflect a real
+  mixed portfolio. Affects books backed by non-bond assets, not the
+  bond-backed common path → NICE-TO-HAVE.
+  *Source: ADR-108 Out of scope (1st-order).*
+
 - **NICE-TO-HAVE — Statutory reserve bases for UL and DI.** The reserve-basis
   epic (A1) implements CRVM / VM-20 / GAAP for Term and Whole Life only. UL
   keeps reserve = account value and DI keeps reserve = 0; both raise
