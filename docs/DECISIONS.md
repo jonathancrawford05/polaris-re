@@ -6793,3 +6793,59 @@ target *multiple* of ACL as an alternative numerator form, rather than an
 absolute figure) remains open and is the natural companion to the dashboard
 input; it is not implemented here. A per-side numerator (distinct available
 capital for cedant vs reinsurer) remains the later refinement noted in ADR-104.
+
+## ADR-107: Three-standard capital validation notebook (Epic 3, Slice 4c-2c)
+
+**Date:** 2026-06-26
+**Status:** Accepted
+
+**Context.** Slices 1–4c-2b built the cross-jurisdiction capital stack: the three
+calculators (`LICATCapital`, `RBCCapital`, `SolvencyIICapital`, ADR-098/100), the
+shared `CapitalModel` / `CapitalSchedule` protocols and the `capital_model_for`
+registry (ADR-101), the result-level solvency-ratio surface (ADR-103) and its
+machine + presentation surfacing (ADR-104/106). The epic's plan reserved a final
+slice for a **validation notebook** comparing the three standards on a single
+block side by side — the demonstration artifact that closes the epic, mirroring
+`02_reserve_basis_comparison.ipynb` for the reserve-basis epic. This slice adds no
+`src/` code; it consumes the existing analytics surfaces.
+
+**Decision.** Add `notebooks/03_capital_standards_comparison.ipynb`. It prices one
+self-contained term block (flat synthetic mortality + lapse, no CSV load), derives
+the Net Amount at Risk transparently (`max(face·inforce_ratio − reserve, 0)`, the
+same formula the YRT treaty uses), and feeds the **identical** NAR to all three
+standards via `capital_model_for(id, TERM)` + `ProfitTester.run_with_capital(...,
+nar=, available_capital=)`. It tabulates, side by side: the required-capital
+run-off (`capital_by_period` at issue / yr 1 / 5 / 10 / 15), peak and PV capital,
+return on capital, and the regulatory solvency ratio.
+
+**Honest presentation of un-calibrated standards.** The component factors are
+committee-stage placeholders (ADR-098/100): LICAT's default C-2 is a **10%
+mortality shock** on NAR, while RBC (0.15%) and Solvency II (0.20%) are small
+ongoing factors, so the required-capital *levels* differ by ~100x and are **not
+yet mutually calibrated**. Rather than hide this behind hand-tuned factors, the
+notebook surfaces it as the explicit teaching point: a leading calibration caveat,
+and a demonstration that the solvency ratio is meaningful **within** a standard
+(linear in available capital — double the held capital, double the ratio, the
+property pinned by the 4c-1/4c-2 unit tests) but **not** comparable in level
+across standards until the Asset/ALM calibration epic. The single $900,000
+available-capital figure yields a realistic 120% LICAT ratio and deliberately
+out-of-band RBC/EU ratios, which the narrative explains rather than masks.
+
+**Why no dedicated test.** Notebooks are dev/demonstration artifacts (omitted from
+coverage in `pyproject.toml`, launched via `make notebook`), exactly as
+`01_term_life_yrt_pricing.ipynb` and `02_reserve_basis_comparison.ipynb`. The
+notebook adds no new calculation — every surface it calls is already closed-form
+tested (`TestRunWithCapitalRatio`, the per-result ratio tests, the linearity
+tests). Its verification is that it executes top-to-bottom cleanly, which it does;
+the committed file carries the executed outputs.
+
+**Byte-identical guarantee.** No `src/`, `data/`, or test change — the QA golden
+suite (76) and full fast suite (1664) are unaffected and no baseline is
+regenerated.
+
+**Out of scope.** The held-capital-basis question (a configurable target *multiple*
+of ACL as an alternative numerator form), the per-side numerator (distinct
+available capital for cedant vs reinsurer), and the cross-standard factor
+calibration (the Asset/ALM epic that would make the required-capital *levels*
+mutually comparable) all remain open; they are harvested to PRODUCT_DIRECTION as
+this slice closes the epic.

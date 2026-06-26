@@ -436,7 +436,7 @@ Items harvested from completed/in-flight work by the daily-dev routine
   factor + matrix extension, not new structure.
   *Source: ADR-100 Out of scope (1st-order).*
 
-- **NICE-TO-HAVE — Result-level solvency-ratio surface (own funds / SCR).** The
+- ~~**NICE-TO-HAVE — Result-level solvency-ratio surface (own funds / SCR).** The
   Solvency II `SolvencyIIResult` exposes the SCR schedule and the cost-of-capital
   risk margin, but not a solvency ratio (own funds / SCR), the EU analogue of the
   RBC ratio. Like the deferred RBC ratio it needs an external own-funds input the
@@ -455,7 +455,12 @@ Items harvested from completed/in-flight work by the daily-dev routine
   NICE-TO-HAVE.
   *Source: ADR-100 Out of scope (1st-order); re-pointed to Slice 4c by ADR-102;
   core shipped in 4c-1 (ADR-103); machine surfaces shipped in 4c-2a (ADR-104);
-  presentation surfacing re-pointed to Slice 4c-2b, notebook to 4c-2c.*
+  presentation surfacing re-pointed to Slice 4c-2b, notebook to 4c-2c.*~~ —
+  **SHIPPED** (PR #106, closing Epic 3): the full result-level solvency-ratio
+  surface is now complete — core (4c-1/ADR-103), CLI+API machine surfaces
+  (4c-2a/ADR-104, PR #103), Excel ratio row + dashboard input/tile (4c-2b/ADR-106,
+  PR #105), and the three-standard validation notebook (4c-2c/ADR-107, this PR).
+  LICAT/RBC/EU solvency ratios are surfaced on every consumer.
 
 - **NICE-TO-HAVE — Statutory reserve bases for UL and DI.** The reserve-basis
   epic (A1) implements CRVM / VM-20 / GAAP for Term and Whole Life only. UL
@@ -774,6 +779,22 @@ Items harvested from completed/in-flight work by the daily-dev routine
   peak/RoC are surfaced today, so this is a refinement, not a correctness gap →
   NICE-TO-HAVE.
   *Source: ADR-104/ADR-106 Out of scope + DEV_SESSION_LOG_2026-06-26 Open Questions (2nd-order — follow-up of the available-capital numerator, itself a 1st-order Epic-3 surface).*
+
+- **NICE-TO-HAVE — Mutually calibrate the three capital standards' factors
+  (Asset/ALM epic).** Closing Epic 3, the three-standard validation notebook
+  (`notebooks/03_capital_standards_comparison.ipynb`, ADR-107) made concrete that
+  the standards are **not yet mutually calibrated**: on an identical $5M NAR the
+  required-capital *levels* differ ~100x (LICAT peak $750K vs US RBC $7.5K vs EU
+  Solvency II $13.9K), because LICAT's default C-2 is a **10% mortality shock** on
+  NAR while RBC (0.15%) and Solvency II (0.20%) are small ongoing factors. Each
+  standard is internally sound and the solvency ratio is meaningful *within* a
+  standard (linear in available capital), but cross-standard *level* comparison is
+  not yet valid. Shock-based calibration that puts the three on a comparable basis
+  is the C0 Asset/ALM epic; until then the committee-stage placeholders are
+  acceptable for single-jurisdiction screening (the disposition the LICAT module
+  already uses). Affects cross-standard comparison only, not single-jurisdiction
+  first-deal correctness → NICE-TO-HAVE.
+  *Source: ADR-107 Out of scope + CONTINUATION_cross_jurisdiction_capital Open Questions "Factor calibration sign-off" (1st-order — follow-up of the originally-planned Epic 3 capital feature).*
 
 ## Carried Forward
 
