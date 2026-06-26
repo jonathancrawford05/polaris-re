@@ -382,7 +382,7 @@ net-premium basis, for a consistent profit-test. *Delivered as Epic 1 (PRs
 
 ---
 
-### Milestone 5.7 — Cross-Jurisdiction Capital (US RBC + Solvency II) 🔄 IN PROGRESS
+### Milestone 5.7 — Cross-Jurisdiction Capital (US RBC + Solvency II) ✅ COMPLETE
 
 LICAT (5.1) is the Canadian standard only. A reinsurer cannot evaluate a US or
 EU deal on a return-on-capital basis without the equivalent RBC (US) and
@@ -426,13 +426,17 @@ epic-driven routine; plan in `docs/PLAN_cross_jurisdiction_capital.md`.*
       via an optional `run_with_capital(..., available_capital=...)` keyword; both
       new fields default `None`, so goldens stay byte-identical. `rbc_ratio` retained
       as a thin alias of `capital_ratio`.
-- [ ] Slice 4c-2 — surface the ratio: thread the TAC / own-funds / target-multiple
+- [x] Slice 4c-2 — surface the ratio: thread the TAC / own-funds / target-multiple
       `available_capital` input through the CLI / API / dashboard and render
       `capital_ratio` on the Excel capital block and dashboard tiles, plus a
       three-standard validation notebook comparing LICAT / RBC / Solvency II on the
-      golden block (ADR-104)
-- [ ] Tests: RBC factor verification vs NAIC tables; SCR correlation aggregation;
-      RoC parity across jurisdictions
+      golden block. Re-decomposed into 4c-2a (CLI + API numerator, PR #103,
+      ADR-104), 4c-2b (Excel ratio row + dashboard input/tile, PR #105, ADR-106),
+      and 4c-2c (`notebooks/03_capital_standards_comparison.ipynb`, PR #106,
+      ADR-107) — the final slice, which closes the epic.
+- [x] Tests: RBC factor verification vs NAIC tables; SCR correlation aggregation;
+      RoC parity across jurisdictions (`test_rbc.py`, `test_solvency2.py`,
+      `test_pricing_capital_jurisdiction.py`, `test_cli_streamlit_parity.py`)
 
 ---
 

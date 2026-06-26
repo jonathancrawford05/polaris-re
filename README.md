@@ -280,7 +280,9 @@ polaris-re/
 │   └── cli.py             ← Typer CLI entry point
 ├── tests/                 ← 1,500+ tests, coverage ≥ 90% (CI-enforced)
 ├── notebooks/
-│   └── 01_term_life_yrt_pricing.ipynb  ← End-to-end validation notebook
+│   ├── 01_term_life_yrt_pricing.ipynb        ← End-to-end YRT deal-pricing walkthrough
+│   ├── 02_reserve_basis_comparison.ipynb     ← CRVM / VM-20 / GAAP reserve-basis comparison
+│   └── 03_capital_standards_comparison.ipynb ← LICAT / RBC / Solvency II capital comparison
 ├── scripts/
 │   ├── convert_soa_tables.py     ← Download/convert SOA VBT 2015, CSO 2001, CIA 2014
 │   ├── validate_tables.py        ← Validate mortality CSV files
