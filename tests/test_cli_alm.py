@@ -1,4 +1,4 @@
-"""Tests for the CLI asset-liability duration-gap surface (Asset/ALM Slice 4b-1).
+"""Tests for the CLI asset-liability duration-gap surface (Asset/ALM Slice 4b).
 
 Covers the ``deal.asset_portfolio`` config input wired through ``polaris price``:
 the duration-gap block is emitted per cohort (and at the top level for a
@@ -9,6 +9,12 @@ The asset side of the gap is deterministic given the portfolio and the
 valuation yield (independent of the liability), so the closed-form checks anchor
 on a single zero-coupon bond: its Macaulay duration is its term in years and its
 modified duration is ``Macaulay / (1 + y)``.
+
+Slice 4b-2a switched the liability from the gross-premium benefit-outgo stream
+to the **reserve-backed** run-off stream (Option B, ADR-113), whose present value
+ties to the held reserve. Both golden cohorts (TERM and WHOLE_LIFE) carry a
+positive reserve, so both now carry a duration-gap block — the graceful skip is
+now a true edge case (a non-positive opening reserve, e.g. a brand-new block).
 """
 
 import json
@@ -139,16 +145,27 @@ def _gaps_by_product(payload: dict) -> dict:  # type: ignore[type-arg]
 
 
 class TestDurationGapOutput:
-    """The duration-gap block appears per (eligible) cohort with closed-form asset measures.
+    """The duration-gap block appears per cohort with closed-form asset measures.
 
-    The TERM cohort's net benefit-outgo discounts to a positive PV at the
-    golden yields, so it carries a block; the WHOLE_LIFE cohort is skipped
-    (see ``TestGracefulSkip``).
+    Both golden cohorts carry a positive reserve, so the reserve-backed liability
+    discounts to a positive PV (= the held reserve) and both carry a block.
     """
 
     def test_term_cohort_has_duration_gap(self, tmp_path: Path) -> None:
         gaps = _gaps_by_product(_run_price(tmp_path, _config_with_asset_portfolio(tmp_path)))
         assert "TERM" in gaps
+
+    def test_whole_life_cohort_has_duration_gap(self, tmp_path: Path) -> None:
+        """The reserve-backed stream (Option B) makes the WHOLE_LIFE block defined.
+
+        Under the old gross-premium stream this cohort was skipped (its
+        gross-premium outgo discounts to a non-positive PV). Backed by the held
+        reserve, its liability PV is the reserve (positive), so it carries a
+        block — the central win of Slice 4b-2a.
+        """
+        gaps = _gaps_by_product(_run_price(tmp_path, _config_with_asset_portfolio(tmp_path)))
+        assert "WHOLE_LIFE" in gaps
+        assert gaps["WHOLE_LIFE"]["liability_present_value"] > 0.0
 
     def test_asset_measures_are_closed_form(self, tmp_path: Path) -> None:
         gaps = _gaps_by_product(_run_price(tmp_path, _config_with_asset_portfolio(tmp_path)))
@@ -198,22 +215,23 @@ class TestValuationYieldOverride:
             np.testing.assert_allclose(gap["asset_modified_duration"], expected_modified)
 
 
-class TestGracefulSkip:
-    """An undefined liability duration skips the block, never aborts pricing."""
+class TestGracefulSkipNeverAborts:
+    """A degenerate liability never aborts pricing.
 
-    def test_nonpositive_liability_pv_skips_block_not_run(self, tmp_path: Path) -> None:
-        """At a low yield the WHOLE_LIFE net outgo discounts to a non-positive PV.
+    The non-positive-opening-reserve skip trigger is exercised deterministically
+    at the analytics boundary in ``tests/test_analytics/test_alm.py``
+    (``test_duration_gap_on_nonpositive_reserve_raises``), which pins the
+    ``PolarisComputationError`` the CLI catches. Here we only assert the
+    higher-level property: a real price run always succeeds and emits priced
+    numbers, whether or not the additive block is present.
+    """
 
-        ``duration_measures`` raises for that cohort; the additive block is
-        skipped (no key) but the price run still succeeds and the cohort's
-        priced numbers are emitted as usual.
-        """
-        payload = _run_price(tmp_path, _config_with_asset_portfolio(tmp_path, valuation_yield=0.04))
-        by_pt = {c["product_type"]: c for c in payload["cohorts"]}
-        assert "WHOLE_LIFE" in by_pt
-        # The cohort is still priced even though its duration gap was skipped.
-        assert "cedant" in by_pt["WHOLE_LIFE"]
-        assert "alm_duration_gap" not in by_pt["WHOLE_LIFE"]
+    def test_price_run_succeeds_and_prices_every_cohort(self, tmp_path: Path) -> None:
+        payload = _run_price(tmp_path, _config_with_asset_portfolio(tmp_path))
+        assert payload["cohorts"]
+        for cohort in payload["cohorts"]:
+            assert "cedant" in cohort
+            assert "reinsurer" in cohort
 
 
 class TestPurelyAdditive:

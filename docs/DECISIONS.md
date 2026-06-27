@@ -7215,3 +7215,92 @@ single common valuation yield defaulting to `discount_rate`. This redefines
 4b-1 CLI call site onto it; full rationale and the 4b-2 implementation plan live
 in `docs/CONTINUATION_asset_alm.md` ("Canonical liability cash-flow stream —
 RESOLVED") and `docs/PLAN_asset_alm.md` §5.
+
+## ADR-113: Reserve-backed liability stream for the duration gap (Epic 4 / Asset-ALM, Slice 4b-2a)
+
+**Date:** 2026-06-27
+**Status:** Accepted
+
+**Context.** ADR-112 (Slice 4b-1) measured the duration gap against
+`liability_cash_flows(net)` — the net gross-premium benefit outgo
+(`death_claims + lapse_surrenders + expenses − gross_premiums`). That stream
+subtracts *gross* (loaded) premiums, which is a pricing/profit stream, not a
+valuation liability: for a premium-paying / reserve-building block (the golden
+WHOLE_LIFE cohort, even at 6%) it discounts to a **non-positive** present value,
+so the liability duration is undefined and the block is skipped. The duration
+gap therefore only produced output for run-off-shaped blocks (TERM). The
+maintainer resolved the canonical-stream question on 2026-06-27 (recorded in
+ADR-112's resolution footer and `docs/CONTINUATION_asset_alm.md`): the liability
+must be **reserve-backed** (Option B) so its present value ties to the held
+reserve. This sub-slice (**4b-2a**) implements the reserve-backed stream in
+`analytics/alm.py` and rewires the 4b-1 CLI call site onto it; the REST API
+surface and the explicit dual ceded/cedant headline are 4b-2b.
+
+**Decision.**
+
+- *Reserve run-off (release) stream.* New `reserve_liability_cash_flows(result,
+  reserve_valuation_rate)` derives the liability directly from the held reserve
+  series `reserve_balance` (the standard IFRS-17 / embedded-value "expected
+  liability cash flow"). With `R_t = reserve_balance[t]` (the in-force-weighted
+  reserve at the start of month `t`, `R_0` the opening reserve) and
+  `a = (1 + reserve_valuation_rate)^(1/12)`:
+
+      L_t = R_t * a − R_{t+1}   (months 1 .. T−1);   L_{T−1} = R_{T−1} * a
+
+  This is the expected benefits-and-expenses-less-valuation-premiums cash flow on
+  the valuation basis. Discounted at the reserve valuation rate it **telescopes
+  exactly to `R_0`** — the present value ties to the held reserve by construction.
+
+- *Basis-agnostic.* The telescoping identity is purely algebraic, so it holds for
+  any reserve series regardless of how the reserve was computed — NET_PREMIUM,
+  CRVM, VM20, GAAP alike. There is no per-basis valuation-premium reconstruction;
+  the held `reserve_balance` (already on the deal's `reserve_basis`) is the only
+  input. This is why the stream "follows the deal's reserve basis" without
+  touching the product engines.
+
+- *The stream uses the reserve's own valuation rate; the duration uses the common
+  ALM yield.* `a` is built from `ProjectionConfig.effective_valuation_rate` (the
+  rate the reserve was struck at) — the cash-flow stream is intrinsic to the held
+  reserve. The subsequent `duration_measures` then discounts that fixed stream at
+  the common ALM `valuation_yield` (ADR-111 / ADR-112 default = deal
+  `discount_rate`), so the gap still isolates the asset-vs-liability timing
+  mismatch. When the two rates coincide (the golden config sets no separate
+  valuation rate), liability PV equals the opening reserve exactly.
+
+- *CLI rewire.* `_price_single_cohort` now measures the gap against
+  `reserve_liability_cash_flows(net, effective_valuation_rate)`. For the golden
+  YRT path `net` carries the full reserve (YRT cedes none), so this is the
+  retained reserve the assets back. Both golden cohorts (TERM and WHOLE_LIFE)
+  carry a positive reserve, so **both now carry a duration-gap block** — the
+  WHOLE_LIFE skip ADR-112 documented is resolved.
+
+- *Graceful skip is now a true edge case.* Because liability PV equals the opening
+  reserve, the skip fires only on a non-positive opening reserve (a brand-new
+  block whose net-premium `0V` is zero, or a side carrying no reserve such as the
+  YRT-ceded result). `PolarisComputationError` is still caught per cohort so a
+  price run never aborts.
+
+- *`liability_cash_flows` retained.* The gross-premium benefit-outgo function is
+  kept (still exported) as a benefit-outgo view and for run-off analysis; it is
+  superseded only as the *duration-gap* liability.
+
+**Verification.** `tests/test_analytics/test_alm.py`: the run-off PV telescopes to
+`reserve_balance[0]` at the reserve rate (parametrized over rates; purely
+algebraic); a building reserve gives an early net inflow (negative) and a final
+positive run-off; a single-period series runs off fully; an empty
+`reserve_balance` raises `PolarisValidationError`; a non-positive opening reserve
+raises `PolarisComputationError` through `duration_gap` (the skip trigger); and an
+**end-to-end** TermLife projection on NET_PREMIUM / CRVM / VM20 (reserve rate
+3.5% ≠ discount 5%) confirms `PV(run-off) == reserve_balance[0]` on each basis.
+`tests/test_cli_alm.py`: the WHOLE_LIFE cohort now carries a block with positive
+liability PV; both golden cohorts are priced; the additive guarantee and
+single-cohort top-level mirror still hold.
+
+**Out of scope (this sub-slice).** The REST `/api/v1/price` surface mirroring the
+gap, and the **explicit dual ceded (reinsurer-view, headline) + cedant-retained**
+duration gap, are 4b-2b: this slice keeps the existing single CLI block (measured
+on the retained `net` reserve, correct for the golden YRT path) and lands the
+load-bearing analytics-contract change. The dashboard + Excel surfaces (4b-3) and
+the ALM validation notebook (4b-4) remain planned. GAAP reserves are recognised by
+the enum but not implemented by any product engine, so the stream is exercised on
+NET_PREMIUM / CRVM / VM20 only (the bases TermLife actually computes).

@@ -16,6 +16,7 @@ Closed-form verifications:
 """
 
 from datetime import date
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -26,10 +27,20 @@ from polaris_re.analytics.alm import (
     duration_gap,
     duration_measures,
     liability_cash_flows,
+    reserve_liability_cash_flows,
 )
+from polaris_re.assumptions.assumption_set import AssumptionSet
+from polaris_re.assumptions.lapse import LapseAssumption
+from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
 from polaris_re.core.asset import AssetPortfolio, Bond
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
+from polaris_re.core.inforce import InforceBlock
+from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
+from polaris_re.core.projection import ProjectionConfig
+from polaris_re.core.reserve_basis import ReserveBasis
+from polaris_re.products.term_life import TermLife
+from polaris_re.utils.table_io import load_mortality_csv
 
 
 def _v(annual_yield: float) -> float:
@@ -243,3 +254,159 @@ def test_duration_gap_raises_on_nonpositive_liability_pv() -> None:
     bad_liab = np.array([-1.0, -2.0, -3.0], dtype=np.float64)
     with pytest.raises(PolarisComputationError, match="non-positive present value"):
         duration_gap(portfolio, bad_liab, 0.04)
+
+
+# ---------------------------------------------------------------------------
+# reserve_liability_cash_flows — reserve-backed (Option B) run-off stream
+# ---------------------------------------------------------------------------
+
+
+def _result_with_reserves(reserves: np.ndarray) -> CashFlowResult:
+    """A minimal CashFlowResult carrying only a reserve_balance series."""
+    return CashFlowResult(
+        run_id="alm-reserve-test",
+        valuation_date=date(2026, 1, 1),
+        basis="NET",
+        assumption_set_version="v1",
+        product_type="TERM",
+        projection_months=len(reserves),
+        reserve_balance=np.asarray(reserves, dtype=np.float64),
+    )
+
+
+@pytest.mark.parametrize("rate", [0.0, 0.035, 0.05, 0.06])
+def test_reserve_runoff_pv_equals_opening_reserve_algebraic(rate: float) -> None:
+    """PV of the run-off stream at the reserve rate telescopes to reserve_balance[0].
+
+    This is the defining property of the reserve-backed liability and holds for
+    *any* reserve series (the identity is purely algebraic), so it is basis-
+    agnostic. Here the series rises (reserve build) then runs off to zero.
+    """
+    reserves = np.array([100.0, 250.0, 400.0, 520.0, 480.0, 300.0, 120.0, 0.0], dtype=np.float64)
+    result = _result_with_reserves(reserves)
+
+    liab = reserve_liability_cash_flows(result, rate)
+    assert liab.dtype == np.float64
+    assert liab.shape == reserves.shape
+
+    pv = duration_measures(liab, rate).present_value
+    np.testing.assert_allclose(pv, reserves[0], rtol=1e-12, atol=1e-9)
+
+
+def test_reserve_runoff_builds_negative_then_releases_positive() -> None:
+    """A building reserve gives an early net inflow (negative), later net outgo."""
+    reserves = np.array([100.0, 300.0, 500.0, 200.0, 50.0], dtype=np.float64)
+    liab = reserve_liability_cash_flows(_result_with_reserves(reserves), 0.05)
+    # Month 1: reserve grows hard (100 -> 300), so a net inflow (negative outgo).
+    assert liab[0] < 0.0
+    # Final month: the last held reserve runs off entirely (positive outgo).
+    assert liab[-1] > 0.0
+
+
+def test_reserve_runoff_single_period_is_full_runoff() -> None:
+    """A one-month series runs off entirely in that month: L_0 = R_0 * a."""
+    liab = reserve_liability_cash_flows(_result_with_reserves(np.array([100.0])), 0.06)
+    np.testing.assert_allclose(liab[0], 100.0 * (1.06) ** (1.0 / 12.0))
+
+
+def test_duration_gap_on_nonpositive_reserve_raises() -> None:
+    """A non-positive opening reserve makes the liability duration undefined.
+
+    This is the trigger the CLI / API catch to skip the additive block gracefully
+    (e.g. a YRT-ceded side carrying no reserve, or a brand-new block). Both the
+    stream's PV and ``duration_gap`` raise ``PolarisComputationError``.
+    """
+    result = _result_with_reserves(np.zeros(12, dtype=np.float64))
+    liab = reserve_liability_cash_flows(result, 0.06)
+    portfolio = AssetPortfolio(
+        bonds=[Bond(face_value=1_000.0, coupon_rate=0.04, coupon_frequency=2, term_months=120)]
+    )
+    with pytest.raises(PolarisComputationError, match="non-positive present value"):
+        duration_gap(portfolio, liab, 0.06)
+
+
+def test_reserve_runoff_rejects_empty_reserve_balance() -> None:
+    result = CashFlowResult(
+        run_id="empty",
+        valuation_date=date(2026, 1, 1),
+        basis="NET",
+        assumption_set_version="v1",
+        product_type="TERM",
+    )
+    with pytest.raises(PolarisValidationError, match="non-empty 1-D reserve_balance"):
+        reserve_liability_cash_flows(result, 0.05)
+
+
+# ---------------------------------------------------------------------------
+# reserve_liability_cash_flows — end-to-end PV == held reserve on each basis
+# ---------------------------------------------------------------------------
+
+_FIXTURES = Path(__file__).parent.parent / "fixtures"
+
+
+def _term_assumptions() -> AssumptionSet:
+    table_array = load_mortality_csv(
+        _FIXTURES / "synthetic_select_ultimate.csv",
+        select_period=3,
+        min_age=18,
+        max_age=60,
+    )
+    mortality = MortalityTable.from_table_array(
+        source=MortalityTableSource.SOA_VBT_2015,
+        table_name="Synthetic Test",
+        table_array=table_array,
+        sex=Sex.MALE,
+        smoker_status=SmokerStatus.NON_SMOKER,
+    )
+    lapse = LapseAssumption.from_duration_table({1: 0.08, 2: 0.06, 3: 0.04, "ultimate": 0.03})
+    return AssumptionSet(mortality=mortality, lapse=lapse, version="test-v1")
+
+
+def _seasoned_term_block() -> InforceBlock:
+    """A seasoned (in-force 5y) term policy carrying a positive opening reserve."""
+    return InforceBlock(
+        policies=[
+            Policy(
+                policy_id="T1",
+                issue_age=40,
+                attained_age=45,
+                sex=Sex.MALE,
+                smoker_status=SmokerStatus.NON_SMOKER,
+                underwriting_class="STANDARD",
+                face_amount=1_000_000.0,
+                annual_premium=12_000.0,
+                product_type=ProductType.TERM,
+                policy_term=20,
+                duration_inforce=60,
+                reinsurance_cession_pct=0.5,
+                issue_date=date(2020, 1, 1),
+                valuation_date=date(2025, 1, 1),
+            )
+        ],
+        block_id="ALM-RESERVE-TIE",
+    )
+
+
+@pytest.mark.parametrize("basis", [ReserveBasis.NET_PREMIUM, ReserveBasis.CRVM, ReserveBasis.VM20])
+def test_reserve_runoff_pv_equals_held_reserve_end_to_end(basis: ReserveBasis) -> None:
+    """On a real TermLife projection, PV(run-off) == the engine's held reserve.
+
+    The reserve valuation rate (3.5%) differs from the discount rate (5%), so
+    the tie is genuinely to the reserve basis, not a coincidence of equal rates.
+    Holds across NET_PREMIUM, CRVM, and VM20 — the identity is basis-agnostic.
+    """
+    val_rate = 0.035
+    config = ProjectionConfig(
+        valuation_date=date(2025, 1, 1),
+        projection_horizon_years=20,
+        discount_rate=0.05,
+        valuation_interest_rate=val_rate,
+        reserve_basis=basis,
+    )
+    product = TermLife(_seasoned_term_block(), _term_assumptions(), config)
+    result = product.project()
+
+    assert result.reserve_balance[0] > 0.0  # seasoned block carries a reserve
+    liab = reserve_liability_cash_flows(result, config.effective_valuation_rate)
+    pv = duration_measures(liab, config.effective_valuation_rate).present_value
+    np.testing.assert_allclose(pv, result.reserve_balance[0], rtol=1e-9, atol=1e-6)

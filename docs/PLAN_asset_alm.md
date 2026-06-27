@@ -15,8 +15,10 @@
 > CLI/API/dashboard/Excel surfacing + validation notebook). 4b itself proved
 > too large for one session (five surfaces + a notebook), so it is further
 > re-decomposed into **4b-1** (CLI input + duration-gap output, ADR-112 —
-> SHIPPED), **4b-2** (API — NEXT), **4b-3** (dashboard + Excel), and **4b-4**
-> (validation notebook). No prior asset/ALM code existed before this epic.
+> SHIPPED), **4b-2a** (reserve-backed Option-B liability stream + CLI rewire,
+> ADR-113 — SHIPPED), **4b-2b** (reinsurer/cedant dual gap + API — NEXT),
+> **4b-3** (dashboard + Excel), and **4b-4** (validation notebook). No prior
+> asset/ALM code existed before this epic.
 > Running log: `docs/CONTINUATION_asset_alm.md`.
 >
 > **Source.** `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` Tier-C item
@@ -151,8 +153,16 @@ surfaces + a notebook is more than one session (same split as Epic 3's 4c).
     byte-identical goldens); a cohort with a non-positive liability PV is
     skipped, never aborting the run. Surfaced the open canonical-liability-stream
     question concretely (golden WHOLE_LIFE skipped at 6%).
-  - **4b-2 — API input + duration-gap output (NEXT).** Mirror 4b-1 on
-    `/api/v1/price`; resolve the canonical liability stream with the maintainer.
+  - **4b-2a — reserve-backed Option-B liability stream + CLI rewire ✅ SHIPPED
+    (ADR-113).** `reserve_liability_cash_flows` derives the liability as the
+    reserve run-off (release) stream, so PV ties to the held reserve;
+    basis-agnostic (the telescoping identity holds for NET_PREMIUM / CRVM / VM20 /
+    GAAP from `reserve_balance` alone). CLI gap rewired onto it on the retained
+    (`net`) reserve. Both golden cohorts now carry a block (the 4b-1 WHOLE_LIFE
+    skip resolved); the skip is now a non-positive-opening-reserve edge case.
+  - **4b-2b — reinsurer/cedant dual gap + API surface (NEXT).** Gap on both the
+    ceded (reinsurer-view, headline) and cedant-retained sides; mirror on
+    `/api/v1/price` with CLI↔API parity.
   - **4b-3 — dashboard + Excel presentation surfaces.**
   - **4b-4 — ALM validation notebook.**
 

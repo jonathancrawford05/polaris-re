@@ -366,7 +366,11 @@ duration-matching or embedded value calculation.
                   `alm_duration_gap` JSON output + Rich table. 12 tests, ADR-112.
                   Purely additive (default None → goldens byte-identical); a
                   cohort with non-positive liability PV is skipped, not fatal.
-            - [ ] Slice 4b-2 — API input + duration-gap output
+            - [x] Slice 4b-2a — reserve-backed Option-B liability stream
+                  (`reserve_liability_cash_flows`, PV ties to the held reserve,
+                  basis-agnostic) + CLI rewire. ADR-113; both golden cohorts now
+                  carry a block (the 4b-1 WHOLE_LIFE skip resolved).
+            - [ ] Slice 4b-2b — reinsurer/cedant dual gap + API surface
             - [ ] Slice 4b-3 — dashboard + Excel presentation surfaces
             - [ ] Slice 4b-4 — ALM validation notebook
 - [ ] Tests: bond cash flow closed-form; duration formula verification;
