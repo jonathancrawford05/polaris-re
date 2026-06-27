@@ -169,6 +169,12 @@ surface ships first ("config model first, then consumers").
 - **Depends on:** Slice 4b-2 merged
 - **Scope:** asset-portfolio input widget + duration-gap display on the
   dashboard, and an ALM block on the Excel deal-pricing export.
+- **Carry-forward (PR #111 review P2):** thread the two new `DealConfig` fields
+  (`asset_portfolio`, `alm_valuation_yield`) through `DealConfig.to_dict()` when
+  this slice adds the dashboard widget. 4b-1 deliberately left them out of
+  `to_dict()` (consistent with the `yrt_rate_table_*` precedent — `to_dict`
+  backs the dashboard `DEFAULTS` / CLI↔Streamlit parity surface, not a full
+  serialisation), which is correct until the dashboard actually consumes them.
 
 ##### Slice 4b-4: ALM validation notebook
 - **Status:** PLANNED
