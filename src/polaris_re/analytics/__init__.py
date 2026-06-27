@@ -3,6 +3,13 @@ Analytics engines for Polaris RE — profit testing, scenario analysis, UQ, IFRS
 stochastic rates, experience studies, and rate schedule generation.
 """
 
+from polaris_re.analytics.alm import (
+    DurationGapResult,
+    DurationMeasures,
+    duration_gap,
+    duration_measures,
+    liability_cash_flows,
+)
 from polaris_re.analytics.capital import CapitalResult, LICATCapital, LICATFactors
 from polaris_re.analytics.capital_base import (
     SUPPORTED_CAPITAL_MODELS,
@@ -67,6 +74,8 @@ __all__ = [
     "CapitalSchedule",
     "Deal",
     "DealResult",
+    "DurationGapResult",
+    "DurationMeasures",
     "ExperienceStudy",
     "HullWhiteModel",
     "IFRS17Cohort",
@@ -108,4 +117,7 @@ __all__ = [
     "apply_scenario_to_assumptions",
     "build_movement_table",
     "capital_model_for",
+    "duration_gap",
+    "duration_measures",
+    "liability_cash_flows",
 ]

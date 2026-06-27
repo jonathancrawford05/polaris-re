@@ -840,6 +840,29 @@ Items harvested from completed/in-flight work by the daily-dev routine
   first-deal correctness → NICE-TO-HAVE.
   *Source: ADR-107 Out of scope + CONTINUATION_cross_jurisdiction_capital Open Questions "Factor calibration sign-off" (1st-order — follow-up of the originally-planned Epic 3 capital feature).*
 
+- **IMPORTANT — Canonical liability cash-flow stream for the ALM duration gap
+  (Asset/ALM Slice 4b).** Slice 4a (ADR-111) shipped the `analytics/alm.py`
+  duration-gap core. Its `liability_cash_flows(result)` provides a *documented
+  default* — net benefit outgo (`death_claims + lapse_surrenders + expenses -
+  gross_premiums`) — but when Slice 4b threads the gap into the CLI/API/dashboard
+  and it drives a **surfaced** number, the convention must be confirmed: the
+  **net** reinsurer position vs the **ceded** side, and whether the reserve basis
+  affects which obligation stream the assets are matched against. This picks the
+  number a committee reads off the ALM block, so it is correctness-relevant on the
+  Modco/coinsurance path → IMPORTANT. Resolve with the maintainer when wiring the
+  Slice 4b surface.
+  *Source: ADR-111 Out of scope + DEV_SESSION_LOG_2026-06-27_asset_alm_slice4a Open Questions (1st-order — follow-up of the originally-planned Epic 4 Slice 4 surfacing).*
+
+- **NICE-TO-HAVE — Asset-yield vs liability-discount-rate split in the duration
+  gap.** Slice 4a measures both sides of the duration gap at one common flat
+  `valuation_yield` by design, isolating the timing mismatch from any yield
+  difference. A refinement could discount the asset side at its book yield and the
+  liability at a separate valuation/credit rate, reporting the gap net of the
+  yield-basis difference (closer to an economic-capital duration gap). Affects the
+  precision of an analytics output, not first-deal pricing correctness, and is a
+  refinement of the deliberate flat-yield design choice → NICE-TO-HAVE.
+  *Source: ADR-111 + DEV_SESSION_LOG_2026-06-27_asset_alm_slice4a Open Questions (2nd-order — follow-up of the single-valuation-yield design choice, itself the 1st-order Slice 4a decision).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

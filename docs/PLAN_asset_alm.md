@@ -10,8 +10,11 @@
 > **Status.** 🔄 IN PROGRESS — Slices 1–3 shipped (Slice 1: bond cash-flow
 > model + `AssetPortfolio`, ADR-108; Slice 2: book yield, investment income,
 > duration / convexity, ADR-109; Slice 3: asset-driven modco interest,
-> ADR-110). Slice 4 (ALM analytics + surfacing) is next. No prior asset/ALM
-> code existed before this epic. Running log: `docs/CONTINUATION_asset_alm.md`.
+> ADR-110). Slice 4 (ALM analytics + surfacing) was re-decomposed into **4a**
+> (the `analytics/alm.py` duration-gap core, ADR-111 — SHIPPED) and **4b** (the
+> CLI/API/dashboard/Excel surfacing + validation notebook — NEXT). No prior
+> asset/ALM code existed before this epic. Running log:
+> `docs/CONTINUATION_asset_alm.md`.
 >
 > **Source.** `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` Tier-C item
 > **C0** (★★★★☆ value, ~20 dev-days, 4 phases) and ROADMAP Milestone 5.4
@@ -117,8 +120,22 @@ surfacing slice.
   deterministic reinvestment, Option-A precedence.
 
 ### Slice 4 — ALM analytics + surfacing
-- `analytics/alm.py`: duration-gap analysis on the net reinsurer position
-  (asset duration vs liability duration, dollar-duration mismatch).
+
+Re-decomposed into 4a (core) + 4b (surfacing) — the new module plus five
+surfaces + a notebook is more than one session (same split as Epic 3's 4c).
+
+#### Slice 4a — `analytics/alm.py` duration-gap core  ✅ SHIPPED
+- `analytics/alm.py`: `duration_measures` (PV + Macaulay / modified duration of
+  any cash-flow stream), `liability_cash_flows` (net benefit outgo from a
+  `CashFlowResult`), and `duration_gap` → `DurationGapResult` (asset vs
+  liability duration, duration gap, dollar-duration gap; both sides at one
+  common flat valuation yield).
+- **Closed-form tests**: bullet duration `= N/12` years; modified `=
+  Macaulay/(1+y)`; reproduces the `AssetPortfolio` duration API; matched block
+  → zero gap; gap sign tracks relative term; non-positive PV raises.
+- ADR-111. Additive → goldens byte-identical.
+
+#### Slice 4b — surfacing + validation notebook
 - Surface the asset/ALM block on CLI / API / dashboard / Excel as appropriate,
   plus a validation notebook.
 - This is the slice that *can* move goldens — and only for runs that supply an

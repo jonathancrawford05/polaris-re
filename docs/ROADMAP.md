@@ -353,10 +353,15 @@ duration-matching or embedded value calculation.
       yield (Option A precedence) on the notional ceded reserve, with the flat
       `modco_interest_rate` as the fallback; no-portfolio path byte-identical
       (ADR-110). Stochastic credited rates remain a harvested follow-up.
-- [ ] `analytics/alm.py` — Slice 4 — duration gap analysis on net reinsurer
-      position; CLI/API/dashboard/Excel surfacing + validation notebook (the
-      only slice that may move goldens, and only when an asset portfolio is
-      supplied)
+- [~] `analytics/alm.py` — Slice 4 (re-decomposed into 4a core + 4b surfacing):
+      - [x] Slice 4a — `analytics/alm.py` duration-gap core: `duration_measures`,
+            `liability_cash_flows`, `duration_gap` → `DurationGapResult` (asset vs
+            liability Macaulay/modified duration, duration gap, dollar-duration
+            gap; both sides at one common flat valuation yield). 21 closed-form
+            tests, ADR-111. Additive, goldens byte-identical.
+      - [ ] Slice 4b — CLI/API/dashboard/Excel surfacing + validation notebook
+            (the only slice that may move goldens, and only when an asset
+            portfolio is supplied)
 - [ ] Tests: bond cash flow closed-form; duration formula verification;
       integration with stochastic rate scenarios; 20+ tests
 

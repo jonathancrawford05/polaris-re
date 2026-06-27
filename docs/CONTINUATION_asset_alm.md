@@ -90,13 +90,49 @@ any embedded-value / ALM analytics.
     between net and ceded sides regardless of how `modco_rate` resolves.
 
 ### Slice 4: ALM analytics + surfacing
+
+Slice 4 proved too large for one session (a new analytics module **plus** five
+presentation surfaces + a notebook), so it was re-decomposed into **4a** (the
+analytics core) and **4b** (surfacing), mirroring how Epic 3's Slice 4c split
+into 4c-1 / 4c-2.
+
+#### Slice 4a: `analytics/alm.py` duration-gap core
+- **Status:** DONE
+- **Branch:** claude/awesome-bardeen-v2s976 (environment-designated)
+- **PR:** #110 (this PR)
+- **What was done:** Added `analytics/alm.py` with `duration_measures(cash_flows,
+  yield)` (PV + Macaulay / modified duration of any stream, on the engine
+  discounting convention — the same closed form the asset duration methods use,
+  generalised), `liability_cash_flows(result)` (net benefit-outgo stream
+  `claims + lapses + expenses - premiums` from a `CashFlowResult`), and
+  `duration_gap(portfolio, liability_cfs, valuation_yield) -> DurationGapResult`
+  (asset vs liability Macaulay / modified duration, the duration gap, and the
+  dollar-duration gap, both sides measured at one common flat yield). Exported
+  from `polaris_re.analytics`. 21 closed-form tests. ADR-111.
+- **Key decisions:**
+  - **Single common valuation yield** for both sides — isolates the timing
+    mismatch (the gap) from any yield difference; matches the epic's flat-yield
+    scope (PLAN §5). A caller wanting the asset's own book yield passes
+    `portfolio.book_yield()` as `valuation_yield`.
+  - Asset measures come from the portfolio's own (tested) duration API; the
+    liability side uses the generic `duration_measures` — one closed form, not
+    two, locked by a consistency test.
+  - The modified-duration gap anchors the headline (first-order hedgeable
+    sensitivity); Macaulay is reported alongside.
+  - Purely additive: nothing wired into pricing, goldens byte-identical.
+
+#### Slice 4b: ALM surfacing + validation notebook
 - **Status:** NEXT
-- **Depends on:** Slice 3 merged
-- **Scope:** `analytics/alm.py` duration-gap analysis on the net reinsurer
-  position (asset vs liability duration, dollar-duration mismatch). Surface on
-  CLI / API / dashboard / Excel + validation notebook. This is the only slice
-  that may move goldens, and only when an asset portfolio is supplied — document
-  any regenerated baseline.
+- **Depends on:** Slice 4a merged
+- **Scope:** thread an `AssetPortfolio` and surface the `DurationGapResult` on
+  the CLI / API / dashboard / Excel deal-pricing block, plus an ALM validation
+  notebook. This is the only slice that may move goldens, and only when an asset
+  portfolio is supplied — document any regenerated baseline.
+- **Open design (resolve with the surface):** the canonical mapping from a
+  priced deal to "the" liability cash-flow stream (net vs reinsurer-side; which
+  reserve basis). `liability_cash_flows` provides the documented default (net
+  benefit outgo) the surface will consume; confirm the convention with the
+  maintainer when wiring the CLI/API.
 
 ## Context for Next Session
 
