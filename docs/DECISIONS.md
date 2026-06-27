@@ -7050,3 +7050,86 @@ the CLI/API/dashboard/Excel + notebook surfacing of an asset portfolio (Slice 4,
 the only slice that may move goldens, and only when a portfolio is supplied).
 The net-of-spread and time-varying amortising earned-rate refinements remain
 NICE-TO-HAVE follow-ups (ADR-109; already harvested to PRODUCT_DIRECTION).
+
+## ADR-111: Duration-gap analytics module (Epic 4 / Asset-ALM, Slice 4a)
+
+**Date:** 2026-06-27
+**Status:** Accepted
+
+**Context.** Slices 1-3 (ADR-108/109/110) built the asset side and drove the
+Modco treaty's modco interest from the asset book yield. The final planned slice
+(`docs/PLAN_asset_alm.md` Slice 4) is "ALM analytics + surfacing": an
+`analytics/alm.py` duration-gap analysis on the net reinsurer position, plus
+CLI / API / dashboard / Excel + validation-notebook surfacing. That is the only
+slice permitted to move goldens, and it spans a new analytics module *and* five
+presentation surfaces — too much for one session. Following the "new module,
+then integration" decomposition pattern (CLAUDE-routine step 7, Pattern B), this
+sub-slice (**4a**) ships only the analytics core: the new module with closed-form
+unit tests, wired into nothing in the pricing path, so goldens stay
+byte-identical. The surfacing is sub-slice 4b.
+
+**Decision.** Add `analytics/alm.py` with three primitives and two result
+models:
+
+- `duration_measures(cash_flows, annual_yield) -> DurationMeasures` — the
+  reusable core. Present value, Macaulay duration (PV-weighted average time, in
+  **years**), and modified duration (`Macaulay / (1 + y)`) of an arbitrary
+  cash-flow vector, on the engine's effective-annual monthly discounting
+  (`v = (1 + y) ** (-1/12)`, time in years `τ = t/12`). This is the same closed
+  form the `AssetPortfolio` duration methods use, generalised to any stream —
+  fed the portfolio's aggregate cash flows it reproduces them exactly (locked by
+  a test). Raises `PolarisComputationError` on non-positive PV (duration is
+  undefined for a stream that discounts to a net inflow).
+- `liability_cash_flows(result) -> np.ndarray` — extracts the net benefit-outgo
+  stream `death_claims + lapse_surrenders + expenses - gross_premiums` from a
+  `CashFlowResult`. This is the obligation the backing assets must fund; its
+  modified duration is the liability duration the assets should match. Reserve
+  *movements* are excluded (an accounting transfer, not a cash obligation).
+- `duration_gap(portfolio, liability_cash_flow_vector, valuation_yield) ->
+  DurationGapResult` — the headline. Measures both sides at a single common
+  `valuation_yield`, reports each side's market value / PV and Macaulay /
+  modified duration, the **duration gap** (asset minus liability modified
+  duration, years), and the **dollar-duration gap** (`modified · value`
+  differenced — the net change in surplus per unit change in yield).
+
+**Key decisions.**
+
+- *Single common valuation yield, not each side at its own yield.* The asset
+  side has a natural book yield and the liability a natural valuation rate, but
+  discounting both at one flat yield isolates the *timing* mismatch (the gap)
+  from any yield difference. This matches the epic's flat-yield scope (PLAN §5).
+  A caller wanting the asset's own book yield simply passes
+  `portfolio.book_yield()` as `valuation_yield`.
+- *Asset measures come from the portfolio's own (tested) API*, not a re-derived
+  formula in `alm.py` — the liability side uses the generic `duration_measures`,
+  and a consistency test asserts the two agree on the same vector, so there is
+  one closed form, not two that can drift.
+- *Modified duration (not Macaulay) anchors the gap*, because the hedgeable
+  quantity is the first-order price sensitivity; Macaulay is reported alongside
+  for interpretation.
+
+**Verification.** 21 closed-form tests in `tests/test_analytics/test_alm.py`: a
+bullet cash flow at month N has Macaulay `= N/12` years and modified
+`= (N/12)/(1+y)` (parametrised over horizon and yield); modified `= Macaulay /
+(1+y)`; `duration_measures` reproduces the `AssetPortfolio` duration API exactly;
+the liability extraction has the documented sign (early net inflow negative, late
+outgo positive) and a benefit-heavy block discounts to a positive PV; the gap
+differences the two modified durations and the dollar durations; a perfectly
+matched block (assets == liability) has both gaps zero; the gap's sign flips when
+the liability outlasts the assets; a non-positive PV raises
+`PolarisComputationError` and a malformed (empty / non-1-D) input vector raises
+`PolarisValidationError` (input-validation vs numerical failure, per CLAUDE.md §5).
+
+**Byte-identical guarantee.** `analytics/alm.py` is imported by nothing in the
+pricing path — no CLI / API / dashboard / Excel surface threads a portfolio or
+calls `duration_gap` yet — so all golden baselines are byte-identical (QA golden
+suite green, no rebaseline).
+
+**Out of scope (this sub-slice).** The CLI / API / dashboard / Excel surfacing of
+the duration gap and the ALM validation notebook are sub-slice 4b — the slice
+that may move goldens, and only when an asset portfolio is supplied. The
+canonical mapping from a full priced deal to "the" liability cash-flow stream
+(net vs reinsurer-side, and which reserve basis) is settled there with the
+surface; `liability_cash_flows` provides the documented default
+(net benefit outgo) the surface will consume. Stochastic reinvestment and a
+net-of-spread / amortising earned rate remain NICE-TO-HAVE follow-ups (ADR-109).

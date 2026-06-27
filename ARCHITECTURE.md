@@ -220,7 +220,7 @@ ceded_claims    = gross_claims * cession_pct
 modco_interest  = ceded_reserve_balance * modco_interest_rate / 12
 ceded_ncf       = ceded_premiums - ceded_claims + modco_interest
 ```
-Reserves are NOT transferred — the cedant retains 100%. The `CashFlowResult.modco_interest` field carries this component. NCF additivity (net + ceded = gross) holds because modco_interest cancels between sides.
+Reserves are NOT transferred — the cedant retains 100%. The `CashFlowResult.modco_interest` field carries this component. NCF additivity (net + ceded = gross) holds because modco_interest cancels between sides. `ModcoTreaty.apply()` optionally accepts an `AssetPortfolio`: when supplied, `modco_interest_rate` is replaced by the portfolio's `book_yield()` (Option A precedence — the flat rate is the fallback when the book yield is unrecoverable), so the modco interest reflects what the backing assets actually earn (ADR-110, Asset/ALM Slice 3). The no-portfolio path is byte-identical to the flat-rate formula above; see "Asset / ALM Model" below.
 
 ### Stop Loss Treaty
 
@@ -313,6 +313,11 @@ The jurisdiction is selectable end-to-end: a single registry `capital_model_for(
 ### Portfolio Aggregation
 `analytics/portfolio.py::Portfolio` holds many `(InforceBlock, AssumptionSet, BaseTreaty)` deals and aggregates their `CashFlowResult`s into a `PortfolioResult` — aggregate NCF/IRR/PV, a per-deal breakdown, and concentration / HHI by cedant, product, and treaty type across three weight bases (ceded face, peak ceded NAR, PV premium). Calendar alignment places mixed-inception books on a common monthly grid; `run_scenarios()` applies the standard stress set across the whole portfolio. Each deal is projected on the reinsurer view by default.
 
+### Asset / ALM Model
+The asset side (Epic 4, Tier-C C0, ROADMAP 5.4) gives the engine fixed-income assets to set against the liability. `core/asset.py` defines `Bond` (a single instrument valued on the monthly grid — `cash_flow_vector(months)` for coupon + principal, `price(annual_yield)`) and `AssetPortfolio` (a non-empty list of bonds aggregating cash flow, market/book value, and face). All asset pricing and risk measures use the **same** discounting as `CashFlowResult.pv_*` — `v = (1 + y) ** (-1/12)`, cash flow at month `t` discounted by `v ** t` — so a bond PV and a projection PV are directly comparable (ADR-108). `AssetPortfolio` also exposes `book_yield()` (gross effective-annual IRR of carrying value vs cash flows via `brentq`, `None` on no sign change — a scalar held flat), `investment_income(reserve_vector, annual_yield=None)` (`= reserve · y / 12`), and `macaulay_duration` / `modified_duration` / `convexity` (time in years, textbook closed forms under the effective-annual yield) (ADR-109). The Modco integration (ADR-110) drives modco interest from `book_yield()` — see the Modco Treaty section above.
+
+`analytics/alm.py` closes the loop with asset-liability **duration-gap** analysis (ADR-111). `duration_measures(cash_flows, annual_yield) -> DurationMeasures` is the reusable core: PV plus Macaulay / modified duration of any stream on the engine convention — the same closed form as the `AssetPortfolio` duration methods, generalised (a consistency test locks the two together). `liability_cash_flows(result)` extracts the net benefit-outgo stream `death_claims + lapse_surrenders + expenses - gross_premiums` — the obligation the assets fund. `duration_gap(portfolio, liability_cash_flow_vector, valuation_yield) -> DurationGapResult` measures both sides at one common flat valuation yield (isolating the timing mismatch from any yield difference) and reports each side's value and Macaulay / modified duration, the duration gap (asset minus liability modified duration, years), and the dollar-duration gap (`modified · value` differenced — the surplus change per unit yield). Malformed input raises `PolarisValidationError`; a non-positive present/market value raises `PolarisComputationError`. The module is additive and wired into nothing in the pricing path — goldens are byte-identical; CLI/API/dashboard/Excel surfacing + a validation notebook are the remaining sub-slice (4b).
+
 ---
 
 ## 8. Key Design Decisions
@@ -330,6 +335,7 @@ See `docs/DECISIONS.md` for full ADRs. Summary:
 | Improvement scales | Embedded NumPy constants | Small data (< 15KB); no file I/O dependency |
 | UL forced lapse | Indicator combined with voluntary lapse | Handles AV→0 gracefully in vectorized framework |
 | Modco NCF additivity | Algebraic proof: modco_interest cancels | Ensures net + ceded = gross by construction |
+| Asset / ALM model | `Bond` / `AssetPortfolio` on the engine discounting convention; modco interest from `book_yield()`; `analytics/alm.py` duration gap at one common flat yield | Bond and projection PVs reconcile; one closed form for asset + liability duration; flat-yield scope isolates the timing mismatch |
 | Stop loss partial year | Pro-rated attachment/exhaustion | Industry-standard for mid-year inception/expiry |
 | UQ distributions | LogNormal (mort/lapse), Normal (rates) | Positive multipliers, reproducible via default_rng |
 | Random number generation | `np.random.default_rng(seed)` | Reproducibility without global state |
