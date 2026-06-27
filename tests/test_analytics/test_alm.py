@@ -29,7 +29,7 @@ from polaris_re.analytics.alm import (
 )
 from polaris_re.core.asset import AssetPortfolio, Bond
 from polaris_re.core.cashflow import CashFlowResult
-from polaris_re.core.exceptions import PolarisComputationError
+from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 
 
 def _v(annual_yield: float) -> float:
@@ -96,7 +96,7 @@ def test_duration_measures_raises_on_nonpositive_pv() -> None:
 
 
 def test_duration_measures_rejects_empty_vector() -> None:
-    with pytest.raises(ValueError, match="non-empty"):
+    with pytest.raises(PolarisValidationError, match="non-empty"):
         duration_measures(np.array([], dtype=np.float64), 0.05)
 
 

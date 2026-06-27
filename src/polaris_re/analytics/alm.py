@@ -39,7 +39,7 @@ from pydantic import Field
 from polaris_re.core.asset import AssetPortfolio
 from polaris_re.core.base import PolarisBaseModel
 from polaris_re.core.cashflow import CashFlowResult
-from polaris_re.core.exceptions import PolarisComputationError
+from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 
 __all__ = [
     "DurationGapResult",
@@ -141,12 +141,15 @@ def duration_measures(cash_flows: np.ndarray, annual_yield: float) -> DurationMe
     ``modified_duration`` exactly (verified in tests) — it is the same closed
     form generalised to an arbitrary stream.
 
-    Raises ``PolarisComputationError`` if the present value is non-positive
+    Raises ``PolarisValidationError`` if ``cash_flows`` is not a non-empty 1-D
+    vector, and ``PolarisComputationError`` if the present value is non-positive
     (duration is undefined for a stream that discounts to zero or a net inflow).
     """
     cf = np.asarray(cash_flows, dtype=np.float64)
     if cf.ndim != 1 or cf.shape[0] == 0:
-        raise ValueError(f"cash_flows must be a non-empty 1-D vector, got shape {cf.shape}")
+        raise PolarisValidationError(
+            f"cash_flows must be a non-empty 1-D vector, got shape {cf.shape}"
+        )
 
     periods = np.arange(1, cf.shape[0] + 1, dtype=np.float64)
     v = (1.0 + annual_yield) ** (-1.0 / 12.0)

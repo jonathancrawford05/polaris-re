@@ -7116,7 +7116,9 @@ the liability extraction has the documented sign (early net inflow negative, lat
 outgo positive) and a benefit-heavy block discounts to a positive PV; the gap
 differences the two modified durations and the dollar durations; a perfectly
 matched block (assets == liability) has both gaps zero; the gap's sign flips when
-the liability outlasts the assets; non-positive PV raises.
+the liability outlasts the assets; a non-positive PV raises
+`PolarisComputationError` and a malformed (empty / non-1-D) input vector raises
+`PolarisValidationError` (input-validation vs numerical failure, per CLAUDE.md §5).
 
 **Byte-identical guarantee.** `analytics/alm.py` is imported by nothing in the
 pricing path — no CLI / API / dashboard / Excel surface threads a portfolio or
