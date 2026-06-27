@@ -98,6 +98,22 @@ Reference for developers who are not credentialed actuaries. Consult before impl
 
 ---
 
+## Statutory Reserve Bases
+
+**Reserve Basis** — The valuation method used to compute the policy reserve. Polaris RE makes this selectable via the `ReserveBasis` enum — `NET_PREMIUM` (default), `CRVM`, `VM20`, `GAAP` — so a reinsurer can reproduce the cedant's own statutory reserve, which in turn drives NAR, the coinsurance/modco reserve transfer, and the profit signature. An unsupported product/basis combination raises rather than silently falling back.
+
+**Net Premium Reserve (NPR)** — The classic prospective reserve `APV(future benefits) − APV(future net premiums)`, where the net premium is solved so the reserve is zero at issue. The Polaris RE default basis and the simplest statutory method.
+
+**CRVM (Commissioners' Reserve Valuation Method)** — The US statutory minimum reserve method for traditional life. A *modified* net-premium reserve using **Full Preliminary Term**: it recognises that first-year acquisition expense is high by deferring reserve build, which lowers early-duration reserves relative to a pure net-premium reserve. Implemented for Term and Whole Life (the WL terminal reserve is valued prospectively to omega).
+
+**Full Preliminary Term (FPT)** — The modification behind CRVM: the first policy year is treated as one-year term insurance (first-year net premium set to the first-year cost of insurance, so the first-year reserve is zero), with a higher *renewal* net premium funding the reserve from year two onward.
+
+**VM-20** — The NAIC principle-based reserve (PBR) framework for life insurance, part of the Valuation Manual. The minimum reserve is the greatest of the Net Premium Reserve, the Deterministic Reserve, and the Stochastic Reserve. Polaris RE implements the **deterministic path only** — `max(NPR, DR)`, no stochastic scenarios — for Term and Whole Life.
+
+**Deterministic Reserve (DR)** — Under VM-20, a gross-premium-style projection on a single prescribed scenario with prudent-estimate assumptions: the present value of benefits and expenses less future gross premiums. The "principle-based" alternative to a formulaic net-premium reserve.
+
+---
+
 ## Reinsurance
 
 **Cession / Cession Percentage** — The proportion of a policy that is transferred (ceded) to the reinsurer. E.g., 50% cession means the reinsurer takes on 50% of the risk.
@@ -134,6 +150,8 @@ Reference for developers who are not credentialed actuaries. Consult before impl
 
 **Combined Ratio** — Loss ratio + expense ratio. Above 100% means the book is unprofitable on an underwriting basis (excluding investment income).
 
+**Premium Sufficiency (Gross-Premium Adequacy)** — A screening test of whether the gross premiums a block charges cover its future benefits and expenses on best-estimate assumptions. Polaris RE's analyzer (`PremiumSufficiencyTester`) computes `sufficiency_margin = PV(premiums) − PV(benefits) − PV(expenses) − target_margin`, deliberately **excluding the reserve movement** and discounting on a present-value basis (unlike the undiscounted, claims-only loss ratio). A positive margin means premiums are adequate; a negative margin flags a deficiency (a premium-deficiency / loss-recognition reserve may be warranted). Reported per contribution line (mortality, expense, interest) across CLI / API / dashboard / Excel.
+
 ---
 
 ## Risk Quantification
@@ -150,7 +168,27 @@ Reference for developers who are not credentialed actuaries. Consult before impl
 
 ## Financial Metrics and Reporting
 
-**IFRS 17** — The international financial reporting standard for insurance contracts, effective 2023. Requires a building-block approach (BBA) with explicit risk adjustment and contractual service margin (CSM). The CSM represents unearned profit and is released over the coverage period. This is the primary accounting framework for Munich Re.
+**IFRS 17** — The international financial reporting standard for insurance contracts, effective 2023. Requires a building-block approach with explicit risk adjustment and contractual service margin. This is the primary accounting framework for Munich Re.
+
+**Building Block Approach (BBA / GMM)** — The default IFRS 17 measurement model (also "General Measurement Model"): the insurance liability is `BEL + RA + CSM`.
+
+**Best Estimate Liability (BEL)** — The probability-weighted present value of future cash flows (premiums, claims, expenses) on current best-estimate assumptions. The fulfilment-cash-flow core of the liability.
+
+**Risk Adjustment (RA)** — The compensation the entity requires for bearing non-financial risk (mortality, lapse, expense uncertainty), added on top of the BEL.
+
+**Contractual Service Margin (CSM)** — The unearned profit on a group of contracts, recognised in P&L as service is provided over the coverage period. It cannot be negative; a group whose fulfilment cash flows imply a loss is **onerous** and the loss is recognised immediately.
+
+**Locked-in Discount Rate** — The discount rate fixed at a cohort's initial recognition, used to accrete interest on that cohort's CSM for its life (IFRS 17 B72(b)), as distinct from the current rates used to remeasure the BEL. Cohorts cannot be netted against one another, so each carries its own locked-in rate.
+
+**Annual Cohort** — The IFRS 17 grouping unit: contracts grouped by issue year (and onerousness). Polaris RE measures each issue-year cohort separately and aggregates, because each has its own locked-in rate.
+
+**Analysis of Change (Movement Table)** — The mandatory period-to-period roll-forward reconciling each component's *opening* balance to its *closing* balance through named movements (new business → interest accretion/unwinding → expected release), per component (BEL / RA / CSM) and in total. Polaris RE's movement table foots by construction (`opening + Σ movements − closing ≈ 0`).
+
+**LRC / LIC** — Liability for Remaining Coverage (obligations for not-yet-incurred claims) and Liability for Incurred Claims (claims incurred but not yet paid) — the two halves of the liability under the simplified PAA.
+
+**PAA (Premium Allocation Approach)** — A simplified IFRS 17 model, analogous to unearned-premium accounting, permitted for short-duration contracts; tracks LRC and LIC rather than the BBA's BEL/RA/CSM.
+
+**VFA (Variable Fee Approach)** — The IFRS 17 model for direct participating contracts, where the CSM absorbs changes in the entity's share of the underlying items' fair value.
 
 ---
 
@@ -165,6 +203,10 @@ Reference for developers who are not credentialed actuaries. Consult before impl
 **US RBC (Risk-Based Capital)** — The NAIC's US standard. Aggregates the C-0…C-4 components by the **covariance square root** (asset and insurance risk are imperfectly correlated, so they do not simply sum). The covariance result is the **Company Action Level (CAL)**; the **Authorized Control Level (ACL)** is half the CAL. The **RBC ratio** is Total Adjusted Capital (TAC) ÷ ACL — the number a US regulator reads (e.g. 300% = a healthy position).
 
 **Solvency II SCR (Solvency Capital Requirement)** — The EU standard. A modular standard-formula requirement: life-underwriting sub-modules (mortality / lapse / catastrophe), market, and counterparty risk are aggregated through correlation matrices into the Basic SCR, with operational risk added outside the matrix. The **EU solvency ratio** is eligible **own funds** ÷ SCR.
+
+**BSCR (Basic SCR)** — The Solvency II Basic Solvency Capital Requirement: the correlation-matrix aggregation of the market, counterparty, and life-underwriting risk modules (`sqrt(rᵀ·Corr·r)`), *before* the operational-risk add-on that produces the final SCR.
+
+**Risk Margin (Solvency II)** — A cost-of-capital margin added to the best-estimate liability so the technical provisions equal what another insurer would require to assume the obligations: the present value of the cost of holding future SCR at the prescribed cost-of-capital rate. Polaris RE exposes it via `SolvencyIIResult.risk_margin(rate)`.
 
 **Capital Ratio (solvency ratio)** — The unified Polaris RE surface (`CapitalSchedule.capital_ratio(available_capital)`) for the three jurisdiction ratios above: `available_capital ÷ denominator₀`, evaluated at issue (projection month 0), expressed as a multiple. The numerator (available capital / TAC / own funds) is uniform; the *denominator* is the jurisdictional difference — required capital for LICAT, ACL for RBC, SCR for Solvency II. Surfaced on `ProfitResultWithCapital.capital_ratio` when `ProfitTester.run_with_capital` is given an `available_capital` numerator.
 
