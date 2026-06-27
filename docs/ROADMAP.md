@@ -342,8 +342,9 @@ duration-matching or embedded value calculation.
       - [x] Slice 1 — bond cash flow model (coupon + principal vector) +
             pricing on the engine's effective-annual discounting; `AssetPortfolio`
             aggregation (ADR-108). Additive, goldens byte-identical.
-      - [ ] Slice 2 — `investment_income(reserve_vector, ...)` → monthly income;
-            duration and convexity calculation
+      - [x] Slice 2 — `investment_income(reserve_vector, ...)` → monthly income;
+            `book_yield()` (gross IRR), Macaulay/modified duration and convexity
+            (ADR-109). Additive, goldens byte-identical.
       - [ ] Slice 4 — integration with `stochastic.py` scenarios
             (Hull-White/CIR rates drive reinvestment yields) — harvested as a
             follow-up; flat/book yield in scope for the core epic

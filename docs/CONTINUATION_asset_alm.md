@@ -22,7 +22,7 @@ any embedded-value / ALM analytics.
 ### Slice 1: Bond cash-flow model + `AssetPortfolio`
 - **Status:** DONE
 - **Branch:** claude/awesome-bardeen-g36zmo (environment-designated)
-- **PR:** #107 (draft)
+- **PR:** #107 (merged)
 - **What was done:** Added `core/asset.py` with `Bond` (single fixed-income
   instrument on the monthly grid — `cash_flow_vector(months)`,
   `price(annual_yield)`) and `AssetPortfolio` (non-empty bond list with
@@ -40,25 +40,33 @@ any embedded-value / ALM analytics.
   - Purely additive: nothing wired into pricing, goldens byte-identical.
 
 ### Slice 2: Investment income + duration / convexity
-- **Status:** NEXT
-- **Depends on:** Slice 1 merged
-- **Files to create/modify:** `src/polaris_re/core/asset.py` (extend
-  `AssetPortfolio`), `tests/test_core/test_asset.py`, `docs/DECISIONS.md`
-  (new ADR), `docs/PLAN_asset_alm.md` + this file (status).
-- **Tests to add:** duration of a zero = its term; modified duration =
-  Macaulay/(1+y); a textbook convexity value; investment income on a flat book
-  yield = `reserve · yield / 12`.
-- **Acceptance criteria:**
-  - `AssetPortfolio.investment_income(reserve_vector, ...)` returns monthly
-    income consistent with the book yield.
-  - `book_yield()` — **gross** IRR of carrying value vs cash flows (via
-    `scipy.optimize.brentq` with a sign-change guard, `None` on no sign change),
-    a **scalar held flat**; `macaulay_duration`, `modified_duration`,
-    `convexity` all closed-form tested.
-  - Goldens byte-identical (still additive).
+- **Status:** DONE
+- **Branch:** claude/awesome-bardeen-hecrn1 (environment-designated)
+- **PR:** #108 (open, ready for review)
+- **What was done:** Extended `AssetPortfolio` with `book_yield()` (gross
+  effective-annual IRR of carrying value vs cash flows via `brentq`, `None` on
+  no sign change, a flat scalar), `investment_income(reserve_vector,
+  annual_yield=None)` (= `reserve · y / 12`, the modco-interest stream Slice 3
+  needs; raises `PolarisComputationError` when no yield and book yield is
+  `None`), and `macaulay_duration` / `modified_duration` / `convexity` (time in
+  **years**, textbook closed forms under the effective-annual yield). 17 new
+  closed-form/property tests. ADR-109.
+- **Key decisions:**
+  - Risk measures discount the aggregate cash-flow vector on the engine
+    convention (`v=(1+y)^(-1/12)`) but express time in **years** (`τ=t/12`), so
+    Macaulay = `Σ τ·PV/ΣPV`, modified = `Macaulay/(1+y)`, convexity =
+    `Σ τ(τ+1)PV/(P(1+y)²)`. Zero-bond reductions: duration `=N`, convexity
+    `=N(N+1)/(1+y)²`.
+  - `book_yield()` reuses the `ProfitTester` `brentq` bracket `[-0.99, 100.0]`
+    and its None-on-no-sign-change guard. It equates the discounted cash flows
+    to the **carrying value** (`book_value`), so a par book recovers the coupon.
+  - Slice 3 should call `book_yield()` once and pass the scalar (with the flat
+    `modco_interest_rate` as the fallback default) into the modco-interest
+    calc — Option A precedence.
+  - Purely additive: nothing wired into pricing, goldens byte-identical.
 
 ### Slice 3: Modco integration
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 2 merged
 - **Scope:** `ModcoTreaty.apply()` accepts an optional `AssetPortfolio`; modco
   interest is driven by the asset **book yield** on the notional ceded reserve

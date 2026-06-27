@@ -7,9 +7,10 @@
 > lives in `docs/CONTINUATION_asset_alm.md`, the per-session
 > `docs/DEV_SESSION_LOG_*` files, and the ADRs.
 >
-> **Status.** 🔄 IN PROGRESS — Slice 1 shipped (bond cash-flow model +
-> `AssetPortfolio`, ADR-108). No prior asset/ALM code existed before this epic.
-> Running log: `docs/CONTINUATION_asset_alm.md`.
+> **Status.** 🔄 IN PROGRESS — Slices 1–2 shipped (Slice 1: bond cash-flow
+> model + `AssetPortfolio`, ADR-108; Slice 2: book yield, investment income,
+> duration / convexity, ADR-109). No prior asset/ALM code existed before this
+> epic. Running log: `docs/CONTINUATION_asset_alm.md`.
 >
 > **Source.** `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` Tier-C item
 > **C0** (★★★★☆ value, ~20 dev-days, 4 phases) and ROADMAP Milestone 5.4
@@ -89,7 +90,7 @@ surfacing slice.
 - Exported from `polaris_re.core`. ADR-108. Goldens byte-identical (new
   module, nothing wired into pricing).
 
-### Slice 2 — Investment income + duration / convexity
+### Slice 2 — Investment income + duration / convexity  ✅ SHIPPED
 - `AssetPortfolio.investment_income(reserve_vector, ...)` → monthly investment
   income on the asset book yield (the number Modco needs).
 - `AssetPortfolio.book_yield()` — **gross** IRR of carrying value vs cash flows,

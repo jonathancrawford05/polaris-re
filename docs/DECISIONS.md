@@ -6913,3 +6913,68 @@ non-fixed-income asset classes (equities, mortgages), and asset
 default/credit-migration modelling (the C-1 capital component already owns
 that) are out of scope for the whole epic and are harvested to
 PRODUCT_DIRECTION as follow-ups.
+
+## ADR-109: Book yield, investment income, duration / convexity (Epic 4 / Asset-ALM, Slice 2)
+
+**Date:** 2026-06-27
+**Status:** Accepted
+
+**Context.** ADR-108 (Slice 1) gave `AssetPortfolio` its cash-flow vector and
+pricing. Slice 2 of `docs/PLAN_asset_alm.md` adds the asset *measures* the rest
+of the epic consumes: the **book yield** Slice 3 hands to the Modco treaty, the
+**investment income** that yield throws off on a reserve balance, and the
+**duration / convexity** Slice 4's duration-gap analysis compares to the
+liability. Still purely additive — nothing is wired into pricing — so goldens
+stay byte-identical.
+
+**Decision.** Extend `AssetPortfolio` with:
+
+- **`book_yield() -> float | None`** — the gross effective-annual IRR of the
+  total carrying value vs the portfolio's projected cash flows. Solved with
+  `scipy.optimize.brentq` over `[-0.99, 100.0]` (the same solver and bracket as
+  `ProfitTester.irr`) and returns `None` when the bracket has no sign change,
+  mirroring the profit tester's None-on-no-sign-change guard. It is a **flat
+  scalar** held over the horizon (maintainer decision, PLAN §5) — not a
+  weighted-average-coupon proxy and not a time-varying amortising earned rate.
+- **`investment_income(reserve_vector, annual_yield=None) -> np.ndarray`** —
+  `reserve_vector · y / 12` per month, where `y` is the supplied yield or
+  `book_yield()`. This is exactly the modco-interest stream Slice 3 needs.
+  Raises `PolarisComputationError` when no yield is supplied and `book_yield()`
+  has no recoverable IRR.
+- **`macaulay_duration(y)` / `modified_duration(y)` / `convexity(y)`** — the
+  PV-weighted average time and its first/second sensitivities.
+
+**Time-in-years convention.** All three risk measures discount the aggregate
+cash-flow vector on the engine convention (`v = (1+y)^(-1/12)`, month `t`
+discounted by `v**t`) but express time in **years** (`τ_t = t/12`). Under the
+effective-annual yield `y` this gives the textbook forms: Macaulay
+`= Σ τ·PV / Σ PV` (years), modified `= Macaulay / (1+y)`, and convexity
+`= Σ τ(τ+1)·PV / (P·(1+y)²)` (years²). The `(1+y)` divisor on modified duration
+(not a periodic-rate variant) is the correct sensitivity because the engine's
+yield is effective-annual. For a zero maturing in `N` years this reduces to the
+closed forms duration `= N` and convexity `= N(N+1)/(1+y)²`.
+
+**Verification.** 17 new closed-form / property tests: par-book book yield
+recovers the coupon; a zero carried at `face·(1+y₀)^(-N/12)` recovers `y₀`;
+book yield `None` when carried at zero (no sign change); market value reconciles
+to carrying value at the solved yield; investment income `= reserve·y/12` (both
+explicit-yield and book-yield paths) and raises without a recoverable yield;
+Macaulay duration of a zero `= N` years; modified `= Macaulay/(1+y)`; convexity
+of a zero matches `N(N+1)/(1+y)²`; portfolio duration is the price-weighted
+average of constituents'; coupon-bond duration `<` maturity; convexity rises
+with maturity.
+
+**Byte-identical guarantee.** Additive `AssetPortfolio` methods only; no
+product, treaty, or pricing path touched. QA golden suite (76) and the
+`polaris price` golden run are unchanged; no baseline regenerated.
+
+**Out of scope (this slice).** Wiring the book yield into `ModcoTreaty`
+(Slice 3) and the `analytics/alm.py` duration-gap analysis + CLI/API/
+dashboard/Excel surfacing (Slice 4). A **net-of-spread** earned rate (net of an
+investment-expense / default margin, kept distinct from the C-1 capital
+component to avoid double-counting asset-default risk) and a **time-varying**
+amortising earned rate were considered and deferred as NICE-TO-HAVE follow-ups
+(maintainer decision, PLAN §5; already harvested to PRODUCT_DIRECTION). The
+non-positive-price guard on the duration/convexity methods is defensive — it is
+unreachable through the public API with valid bonds (positive cash flows
+discounted at any `y > -1` give a positive price).

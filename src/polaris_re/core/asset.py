@@ -9,13 +9,16 @@ with the ability to:
 
 - describe a ``Bond`` (a single fixed-income instrument valued on the monthly
   projection grid),
-- project its coupon + principal cash flows as a ``(T,)`` numpy vector, and
-- price it (and a whole ``AssetPortfolio``) at a yield.
+- project its coupon + principal cash flows as a ``(T,)`` numpy vector,
+- price it (and a whole ``AssetPortfolio``) at a yield, and
+- measure an ``AssetPortfolio``'s gross book yield, the investment income it
+  earns on a reserve balance, and its Macaulay / modified duration and
+  convexity (Slice 2).
 
-Investment income, duration / convexity, the Modco integration, and the
-asset-liability duration-gap analytics are later slices of the same epic
-(see ``docs/PLAN_asset_alm.md``); this slice is purely additive — nothing here
-is wired into pricing yet, so all golden baselines are byte-identical.
+The Modco integration (driving modco interest from the asset book yield) and
+the asset-liability duration-gap analytics are later slices of the same epic
+(see ``docs/PLAN_asset_alm.md``); the work here is purely additive — nothing is
+wired into pricing yet, so all golden baselines are byte-identical.
 
 Discounting convention
 ----------------------
@@ -27,8 +30,10 @@ keeps a bond PV and a projection PV on a single comparable basis.
 
 import numpy as np
 from pydantic import Field, model_validator
+from scipy.optimize import brentq
 
 from polaris_re.core.base import PolarisBaseModel
+from polaris_re.core.exceptions import PolarisComputationError
 
 __all__ = ["AssetPortfolio", "Bond"]
 
@@ -198,3 +203,136 @@ class AssetPortfolio(PolarisBaseModel):
     def market_value(self, annual_yield: float) -> float:
         """Total present value of the portfolio at ``annual_yield``, in dollars."""
         return float(sum(bond.price(annual_yield) for bond in self.bonds))
+
+    # ------------------------------------------------------------------
+    # Slice 2 — book yield, investment income, duration / convexity
+    # ------------------------------------------------------------------
+    #
+    # All measures below discount the aggregate cash-flow vector on the
+    # engine's effective-annual monthly convention (``v = (1 + y) ** (-1/12)``,
+    # cash flow at month ``t`` discounted by ``v ** t``). Time is expressed in
+    # **years** (``t / 12``) so the duration / convexity formulas take their
+    # textbook continuous-time-in-years shape against the effective-annual
+    # yield ``y``:
+    #
+    #   price(y)          = Σ cf_t · (1 + y) ** (-τ_t)              , τ_t = t/12
+    #   Macaulay duration = Σ τ_t · cf_t · (1+y)^(-τ_t) / price     (years)
+    #   modified duration = Macaulay / (1 + y)                      (years)
+    #   convexity         = Σ τ_t (τ_t+1) cf_t (1+y)^(-τ_t)
+    #                          / (price · (1 + y) ** 2)             (years²)
+
+    def _pv_components(self, annual_yield: float) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Per-month present value of the aggregate cash flow and the matching
+        time-in-years vector, on the engine discounting convention.
+
+        Returns ``(pv, years)`` where ``pv[i]`` is the discounted cash flow at
+        month ``i + 1`` and ``years[i] = (i + 1) / 12``. Shared by the duration
+        and convexity measures.
+        """
+        cf = self.cash_flow_vector()
+        periods = np.arange(1, cf.shape[0] + 1, dtype=np.float64)
+        v = (1.0 + annual_yield) ** (-1.0 / 12.0)
+        pv = cf * v**periods
+        years = periods / 12.0
+        return pv, years
+
+    def book_yield(self) -> float | None:
+        """
+        Gross book yield — the effective-annual IRR of carrying value vs the
+        portfolio's projected cash flows.
+
+        Solves for the yield ``y`` at which the discounted cash flows equal the
+        total carrying (book) value, on the engine's effective-annual monthly
+        discounting. Uses ``scipy.optimize.brentq`` over ``[-0.99, 100.0]`` —
+        the same solver and bracket as ``ProfitTester.irr`` — and returns
+        ``None`` when the bracket contains no sign change (no recoverable IRR),
+        mirroring the profit tester's None-on-no-sign-change guard.
+
+        This is the **flat scalar** earned rate that Slice 3 hands to the Modco
+        treaty; it is held constant over the horizon (no amortising / term
+        structure — see ``docs/PLAN_asset_alm.md`` §5).
+        """
+        carrying = self.book_value
+        cf = self.cash_flow_vector()
+        periods = np.arange(1, cf.shape[0] + 1, dtype=np.float64)
+
+        def excess_pv(annual_yield: float) -> float:
+            v = (1.0 + annual_yield) ** (-1.0 / 12.0)
+            return float(np.dot(cf, v**periods)) - carrying
+
+        try:
+            return float(brentq(excess_pv, -0.99, 100.0, xtol=1e-10, maxiter=500))
+        except ValueError:
+            # No sign change in the bracket — no recoverable book yield.
+            return None
+
+    def investment_income(
+        self, reserve_vector: np.ndarray, annual_yield: float | None = None
+    ) -> np.ndarray:
+        """
+        Monthly investment income earned on a reserve balance at the book yield.
+
+        ``investment_income[t] = reserve_vector[t] · y / 12`` where ``y`` is the
+        flat earned rate — ``annual_yield`` when supplied, else ``book_yield()``.
+        This is the number the Modco treaty needs in Slice 3: the income thrown
+        off by the assets backing the (notional) ceded reserve each month.
+
+        Returns a ``(T,)`` float64 array the same length as ``reserve_vector``.
+        Raises ``PolarisComputationError`` when no yield is supplied and
+        ``book_yield()`` has no recoverable IRR.
+        """
+        if annual_yield is None:
+            annual_yield = self.book_yield()
+            if annual_yield is None:
+                raise PolarisComputationError(
+                    "investment_income: portfolio has no recoverable book_yield(); "
+                    "pass an explicit annual_yield."
+                )
+        reserves = np.asarray(reserve_vector, dtype=np.float64)
+        return reserves * annual_yield / 12.0
+
+    def macaulay_duration(self, annual_yield: float) -> float:
+        """
+        Macaulay duration in **years** — the PV-weighted average time to the
+        portfolio's cash flows at ``annual_yield``.
+
+        Raises ``PolarisComputationError`` if the portfolio price is non-positive
+        (no meaningful duration).
+        """
+        pv, years = self._pv_components(annual_yield)
+        price = float(pv.sum())
+        if price <= 0.0:
+            raise PolarisComputationError(
+                f"macaulay_duration: non-positive portfolio price ({price}) at "
+                f"yield {annual_yield}; duration is undefined."
+            )
+        return float((years * pv).sum() / price)
+
+    def modified_duration(self, annual_yield: float) -> float:
+        """
+        Modified duration in years — ``macaulay_duration / (1 + annual_yield)``.
+
+        The price sensitivity ``-(1/P) dP/dy`` under the effective-annual yield
+        convention, so the ``(1 + y)`` divisor (not a periodic-rate variant).
+        """
+        return self.macaulay_duration(annual_yield) / (1.0 + annual_yield)
+
+    def convexity(self, annual_yield: float) -> float:
+        """
+        Convexity in **years²** — ``(1/P) d²P/dy²`` at ``annual_yield``.
+
+        For a zero-coupon position maturing in ``N`` years this reduces to the
+        textbook ``N (N + 1) / (1 + y) ** 2``.
+
+        Raises ``PolarisComputationError`` if the portfolio price is non-positive.
+        """
+        pv, years = self._pv_components(annual_yield)
+        price = float(pv.sum())
+        if price <= 0.0:
+            raise PolarisComputationError(
+                f"convexity: non-positive portfolio price ({price}) at yield "
+                f"{annual_yield}; convexity is undefined."
+            )
+        weighted = float((years * (years + 1.0) * pv).sum())
+        return weighted / (price * (1.0 + annual_yield) ** 2)
