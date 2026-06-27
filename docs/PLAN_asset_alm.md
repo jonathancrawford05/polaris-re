@@ -201,3 +201,18 @@ Slice 3 lands.
   NCF additivity (ARCHITECTURE §5) holds regardless of the rate source, since
   `modco_interest` cancels between the net and ceded sides. Recorded in an ADR
   when Slice 3 lands.
+- **Canonical liability cash-flow stream (Slice 4b) — RESOLVED (maintainer,
+  2026-06-27).** Slice 4b-1 surfaced that its placeholder liability stream
+  (benefits + expenses − **gross** premiums, on the cedant-retained side) has a
+  non-positive PV for premium-paying / reserve-building blocks (golden
+  WHOLE_LIFE), so its duration gap is undefined and skipped. The resolved
+  convention, implemented in Slice 4b-2: (1) compute the gap on **both** sides
+  with the **ceded (reinsurer-view)** side as the headline (Polaris is a
+  reinsurer tool; the reinsurer's assets back the ceded reserves); (2) **Option
+  B** — the liability is benefits + expenses − **net / valuation** premiums, so
+  its PV ties to the **reserve**; (3) derive it on the deal's **`reserve_basis`**
+  (NET_PREMIUM / CRVM / VM20 / GAAP); (4) keep the single common valuation yield
+  defaulting to `discount_rate`. This is an `analytics/alm.py` contract change
+  (`liability_cash_flows`) plus the API surface — likely split 4b-2a (stream +
+  CLI rewire) / 4b-2b (API). Recorded in ADR-112; running plan in
+  `docs/CONTINUATION_asset_alm.md`.

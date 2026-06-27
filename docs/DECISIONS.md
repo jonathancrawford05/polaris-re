@@ -7202,3 +7202,16 @@ convention has a non-positive PV for premium-paying / reserve-building blocks
 reserve-runoff or reinsurer-side liability stream would likely be defined there;
 resolving the canonical mapping (with maintainer input) is carried into 4b-2/4b-3.
 The result-level reinsurer-side duration gap is also deferred with that decision.
+
+**Resolution of the canonical liability stream (maintainer, 2026-06-27).** The
+open question above was settled and is implemented in Slice 4b-2 (the 4b-1
+behaviour here is the placeholder it supersedes): (1) compute the gap on **both**
+the ceded (reinsurer-view, **headline**) and cedant-retained sides; (2) **Option
+B** — the liability is benefits + expenses − **net / valuation** premiums (not
+gross), so PV ties to the **reserve**; (3) derive it on the deal's **`reserve_basis`**
+(NET_PREMIUM / CRVM / VM20 / GAAP — assets back the held reserve); (4) keep the
+single common valuation yield defaulting to `discount_rate`. This redefines
+`liability_cash_flows` (an `analytics/alm.py` contract change) and rewires the
+4b-1 CLI call site onto it; full rationale and the 4b-2 implementation plan live
+in `docs/CONTINUATION_asset_alm.md` ("Canonical liability cash-flow stream —
+RESOLVED") and `docs/PLAN_asset_alm.md` §5.
