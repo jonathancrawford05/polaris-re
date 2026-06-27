@@ -42,7 +42,7 @@ any embedded-value / ALM analytics.
 ### Slice 2: Investment income + duration / convexity
 - **Status:** DONE
 - **Branch:** claude/awesome-bardeen-hecrn1 (environment-designated)
-- **PR:** #TBD (draft)
+- **PR:** #108 (draft)
 - **What was done:** Extended `AssetPortfolio` with `book_yield()` (gross
   effective-annual IRR of carrying value vs cash flows via `brentq`, `None` on
   no sign change, a flat scalar), `investment_income(reserve_vector,
