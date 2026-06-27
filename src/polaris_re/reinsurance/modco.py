@@ -5,7 +5,14 @@ Modified coinsurance (Modco) is economically equivalent to coinsurance but the
 cedant retains the assets backing the ceded reserves. To compensate the reinsurer
 for not holding the reserve assets, the cedant pays modco interest each month:
 
-    modco_interest_t = ceded_reserve_balance_t * modco_interest_rate / 12
+    modco_interest_t = ceded_reserve_balance_t * modco_rate / 12
+
+where ``modco_rate`` is, by default, the flat ``modco_interest_rate``. When an
+``AssetPortfolio`` is supplied to ``apply()`` it takes precedence (Option A):
+the rate becomes the portfolio's gross **book yield** on the notional ceded
+reserve, with the flat rate kept as the fallback whenever the book yield has no
+recoverable IRR (``book_yield()`` returns ``None``). Omitting the portfolio
+leaves the flat-rate path byte-identical.
 
 Key distinctions vs Coinsurance:
 ---------------------------------
@@ -34,6 +41,7 @@ from polaris_re.core.exceptions import PolarisComputationError
 from polaris_re.reinsurance.base_treaty import BaseTreaty
 
 if TYPE_CHECKING:
+    from polaris_re.core.asset import AssetPortfolio
     from polaris_re.core.inforce import InforceBlock
 
 __all__ = ["ModcoTreaty"]
@@ -69,10 +77,28 @@ class ModcoTreaty(PolarisBaseModel, BaseTreaty):
             raise ValueError(f"modco_interest_rate must be >= 0.0, got {self.modco_interest_rate}")
         return self
 
+    def _resolve_modco_rate(self, asset_portfolio: "AssetPortfolio | None") -> float:
+        """
+        Resolve the effective annual modco-interest rate (Option A precedence).
+
+        When an ``AssetPortfolio`` is supplied, its gross ``book_yield()`` drives
+        the modco interest and takes precedence over the flat
+        ``modco_interest_rate``. The flat rate is the fallback whenever the book
+        yield has no recoverable IRR (``book_yield()`` returns ``None``). With no
+        portfolio, the flat rate is returned unchanged — the byte-identical
+        default path.
+        """
+        if asset_portfolio is not None:
+            book_yield = asset_portfolio.book_yield()
+            if book_yield is not None:
+                return book_yield
+        return self.modco_interest_rate
+
     def apply(
         self,
         gross: CashFlowResult,
         inforce: "InforceBlock | None" = None,
+        asset_portfolio: "AssetPortfolio | None" = None,
     ) -> tuple[CashFlowResult, CashFlowResult]:
         """
         Apply Modco treaty to gross cash flows.
@@ -81,6 +107,12 @@ class ModcoTreaty(PolarisBaseModel, BaseTreaty):
             gross:   GROSS basis CashFlowResult. reserve_balance must be populated
                      for modco interest calculation to be meaningful.
             inforce: Optional InforceBlock for policy-level cession overrides.
+            asset_portfolio: Optional ``AssetPortfolio`` backing the ceded
+                     reserves. When supplied, its gross ``book_yield()`` drives
+                     the modco interest (Option A precedence) instead of the flat
+                     ``modco_interest_rate``; the flat rate is the fallback when
+                     the book yield is unrecoverable. Default ``None`` preserves
+                     the flat-rate path byte-identically.
 
         Returns:
             (net, ceded) CashFlowResult tuple.
@@ -117,7 +149,10 @@ class ModcoTreaty(PolarisBaseModel, BaseTreaty):
 
         # Modco interest: cedant pays reinsurer on notional ceded reserve
         # modco_interest_t = ceded_reserve_balance_t * annual_rate / 12
-        modco_interest = ceded_reserve_balance * self.modco_interest_rate / 12.0
+        # annual_rate is the asset book yield when a portfolio is supplied
+        # (Option A precedence), else the flat modco_interest_rate.
+        modco_rate = self._resolve_modco_rate(asset_portfolio)
+        modco_interest = ceded_reserve_balance * modco_rate / 12.0
 
         # Net cash flows — net pays modco interest; ceded receives it
         net_ncf = (

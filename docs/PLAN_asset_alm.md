@@ -7,10 +7,11 @@
 > lives in `docs/CONTINUATION_asset_alm.md`, the per-session
 > `docs/DEV_SESSION_LOG_*` files, and the ADRs.
 >
-> **Status.** 🔄 IN PROGRESS — Slices 1–2 shipped (Slice 1: bond cash-flow
+> **Status.** 🔄 IN PROGRESS — Slices 1–3 shipped (Slice 1: bond cash-flow
 > model + `AssetPortfolio`, ADR-108; Slice 2: book yield, investment income,
-> duration / convexity, ADR-109). No prior asset/ALM code existed before this
-> epic. Running log: `docs/CONTINUATION_asset_alm.md`.
+> duration / convexity, ADR-109; Slice 3: asset-driven modco interest,
+> ADR-110). Slice 4 (ALM analytics + surfacing) is next. No prior asset/ALM
+> code existed before this epic. Running log: `docs/CONTINUATION_asset_alm.md`.
 >
 > **Source.** `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` Tier-C item
 > **C0** (★★★★☆ value, ~20 dev-days, 4 phases) and ROADMAP Milestone 5.4
@@ -103,7 +104,7 @@ surfacing slice.
   coupon yield.
 - Still additive → goldens byte-identical.
 
-### Slice 3 — Modco integration
+### Slice 3 — Modco integration  ✅ SHIPPED
 - `reinsurance/modco.py`: `ModcoTreaty.apply()` accepts an optional
   `AssetPortfolio`; when supplied the modco interest is driven by the asset
   **book yield** (Option A precedence, §5) on the (notional) ceded reserve

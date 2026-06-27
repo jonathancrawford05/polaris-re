@@ -10,6 +10,7 @@ from datetime import date
 import numpy as np
 import pytest
 
+from polaris_re.core.asset import AssetPortfolio, Bond
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.exceptions import PolarisComputationError
 from polaris_re.reinsurance.modco import ModcoTreaty
@@ -202,6 +203,123 @@ class TestModcoVsCoinsurance:
         assert modco_total != pytest.approx(coins_total, rel=0.001), (
             "Modco and coinsurance NCF should differ due to reserve treatment"
         )
+
+
+@pytest.fixture()
+def par_portfolio_5pct() -> AssetPortfolio:
+    """Annual-pay par bond carried at par → gross book yield == coupon (0.05)."""
+    return AssetPortfolio(
+        bonds=[
+            Bond(
+                face_value=1_000_000.0,
+                coupon_rate=0.05,
+                coupon_frequency=1,
+                term_months=120,
+                book_value=1_000_000.0,
+            )
+        ]
+    )
+
+
+@pytest.fixture()
+def zero_book_portfolio() -> AssetPortfolio:
+    """Bond carried at zero book value → book_yield() has no sign change → None."""
+    return AssetPortfolio(
+        bonds=[
+            Bond(
+                face_value=1_000_000.0,
+                coupon_rate=0.04,
+                coupon_frequency=2,
+                term_months=120,
+                book_value=0.0,
+            )
+        ]
+    )
+
+
+class TestModcoAssetDriven:
+    """Slice 3 — asset book yield drives modco interest (Option A precedence)."""
+
+    def test_book_yield_drives_modco_interest_closed_form(
+        self, gross_120m: CashFlowResult, par_portfolio_5pct: AssetPortfolio
+    ) -> None:
+        """
+        CLOSED-FORM: with an asset portfolio supplied, modco interest is driven
+        by the portfolio book yield: modco_interest = ceded_reserve * y_book / 12.
+        The par portfolio's book yield is its coupon (0.05).
+        """
+        # Flat rate deliberately different from the book yield to prove precedence.
+        treaty = ModcoTreaty(cession_pct=0.50, modco_interest_rate=0.01)
+        net, _ceded = treaty.apply(gross_120m, asset_portfolio=par_portfolio_5pct)
+        y_book = par_portfolio_5pct.book_yield()
+        assert y_book is not None
+        expected = gross_120m.reserve_balance * 0.50 * y_book / 12.0
+        assert net.modco_interest is not None
+        np.testing.assert_allclose(net.modco_interest, expected, rtol=1e-9)
+
+    def test_asset_yield_takes_precedence_over_flat_rate(
+        self, gross_120m: CashFlowResult, par_portfolio_5pct: AssetPortfolio
+    ) -> None:
+        """Asset book yield (0.05) overrides the flat modco_interest_rate (0.01)."""
+        asset_treaty = ModcoTreaty(cession_pct=0.50, modco_interest_rate=0.01)
+        # A flat treaty pinned at the book yield should reproduce the asset path.
+        flat_at_book = ModcoTreaty(cession_pct=0.50, modco_interest_rate=0.05)
+
+        net_asset, _ = asset_treaty.apply(gross_120m, asset_portfolio=par_portfolio_5pct)
+        net_flat, _ = flat_at_book.apply(gross_120m)
+
+        assert net_asset.modco_interest is not None
+        assert net_flat.modco_interest is not None
+        np.testing.assert_allclose(net_asset.modco_interest, net_flat.modco_interest, rtol=1e-8)
+        # And NOT the same as the treaty's own flat 0.01 rate.
+        net_flat_low, _ = asset_treaty.apply(gross_120m)
+        assert net_asset.modco_interest.sum() > net_flat_low.modco_interest.sum()
+
+    def test_fallback_to_flat_rate_when_book_yield_none(
+        self, gross_120m: CashFlowResult, zero_book_portfolio: AssetPortfolio
+    ) -> None:
+        """When book_yield() is None, the flat modco_interest_rate is the fallback."""
+        assert zero_book_portfolio.book_yield() is None
+        treaty = ModcoTreaty(cession_pct=0.50, modco_interest_rate=0.045)
+        net_asset, _ = treaty.apply(gross_120m, asset_portfolio=zero_book_portfolio)
+        net_flat, _ = treaty.apply(gross_120m)
+        assert net_asset.modco_interest is not None
+        assert net_flat.modco_interest is not None
+        np.testing.assert_allclose(net_asset.modco_interest, net_flat.modco_interest, rtol=1e-12)
+
+    def test_no_portfolio_path_byte_identical(
+        self, gross_120m: CashFlowResult, par_portfolio_5pct: AssetPortfolio
+    ) -> None:
+        """Omitting asset_portfolio leaves the flat-rate result exactly unchanged."""
+        treaty = ModcoTreaty(cession_pct=0.50, modco_interest_rate=0.045)
+        net_default, ceded_default = treaty.apply(gross_120m)
+        net_none, ceded_none = treaty.apply(gross_120m, asset_portfolio=None)
+        assert net_default.modco_interest is not None
+        assert net_none.modco_interest is not None
+        np.testing.assert_array_equal(net_default.modco_interest, net_none.modco_interest)
+        np.testing.assert_array_equal(net_default.net_cash_flow, net_none.net_cash_flow)
+        np.testing.assert_array_equal(ceded_default.net_cash_flow, ceded_none.net_cash_flow)
+
+    def test_additivity_holds_with_asset_portfolio(
+        self, gross_120m: CashFlowResult, par_portfolio_5pct: AssetPortfolio
+    ) -> None:
+        """NCF additivity (net + ceded == gross) holds with an asset-driven rate."""
+        treaty = ModcoTreaty(cession_pct=0.50, modco_interest_rate=0.01)
+        net, ceded = treaty.apply(gross_120m, asset_portfolio=par_portfolio_5pct)
+        treaty.verify_additivity(gross_120m, net, ceded)
+        np.testing.assert_allclose(
+            net.net_cash_flow + ceded.net_cash_flow, gross_120m.net_cash_flow, rtol=1e-8
+        )
+
+    def test_both_sides_equal_modco_interest_with_asset(
+        self, gross_120m: CashFlowResult, par_portfolio_5pct: AssetPortfolio
+    ) -> None:
+        """Asset-driven modco interest is the same outflow/inflow on both sides."""
+        treaty = ModcoTreaty(cession_pct=0.50, modco_interest_rate=0.01)
+        net, ceded = treaty.apply(gross_120m, asset_portfolio=par_portfolio_5pct)
+        assert net.modco_interest is not None
+        assert ceded.modco_interest is not None
+        np.testing.assert_allclose(net.modco_interest, ceded.modco_interest, rtol=1e-12)
 
 
 class TestModcoEdgeCases:
