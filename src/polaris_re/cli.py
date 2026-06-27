@@ -34,14 +34,16 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 import polaris_re
+from polaris_re.analytics.alm import DurationGapResult, duration_gap, liability_cash_flows
 from polaris_re.analytics.premium_sufficiency import (
     PremiumSufficiencyResult,
     PremiumSufficiencyTester,
 )
 from polaris_re.analytics.profit_test import ProfitResultWithCapital, ProfitTestResult
 from polaris_re.assumptions.assumption_set import AssumptionSet
+from polaris_re.core.asset import AssetPortfolio
 from polaris_re.core.cashflow import CashFlowResult
-from polaris_re.core.exceptions import PolarisValidationError
+from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
 
 if TYPE_CHECKING:
@@ -92,6 +94,11 @@ class CohortResult:
     net_cashflows: CashFlowResult
     gross_cashflows: CashFlowResult
     ceded_cashflows: CashFlowResult | None
+    # Asset-liability duration gap (Asset/ALM epic, Slice 4b). Populated only
+    # when an ``AssetPortfolio`` is supplied via ``deal.asset_portfolio``;
+    # ``None`` otherwise (the duration gap is a purely additive reporting
+    # block, so default runs are byte-identical).
+    alm_duration_gap: DurationGapResult | None = None
 
 
 app = typer.Typer(
@@ -235,6 +242,23 @@ def _parse_config_to_pipeline_inputs(
     # resolution). None leaves the flat-rate path unchanged.
     yrt_table_path_raw = deal_raw.get("yrt_rate_table_path")
     yrt_table_path = Path(str(yrt_table_path_raw)) if yrt_table_path_raw is not None else None
+    # Optional asset side for ALM duration-gap reporting (Asset/ALM epic,
+    # Slice 4b). ``deal.asset_portfolio`` is the ``AssetPortfolio`` JSON shape
+    # ({"bonds": [...]}); validated by the Pydantic model so a malformed bond
+    # raises before pricing. None (default) leaves the priced numbers
+    # byte-identical — the duration gap is a purely additive reporting block.
+    # ``deal.alm_valuation_yield`` (optional) is the common flat yield both
+    # sides are discounted at; None defers to the deal ``discount_rate``.
+    asset_portfolio_raw = deal_raw.get("asset_portfolio")
+    asset_portfolio = (
+        AssetPortfolio.model_validate(asset_portfolio_raw)
+        if asset_portfolio_raw is not None
+        else None
+    )
+    alm_valuation_yield_raw = deal_raw.get("alm_valuation_yield")
+    alm_valuation_yield = (
+        float(alm_valuation_yield_raw) if alm_valuation_yield_raw is not None else None
+    )
     deal_cfg = DealConfig(
         product_type=deal_raw.get("product_type", "TERM"),
         treaty_type=deal_raw.get("treaty_type", "YRT"),
@@ -255,6 +279,8 @@ def _parse_config_to_pipeline_inputs(
         yrt_rate_table_select_period=int(deal_raw.get("yrt_rate_table_select_period", 3)),
         yrt_rate_table_label=deal_raw.get("yrt_rate_table_label"),
         yrt_rate_table_smoker_distinct=bool(deal_raw.get("yrt_rate_table_smoker_distinct", True)),
+        asset_portfolio=asset_portfolio,
+        alm_valuation_yield=alm_valuation_yield,
     )
 
     # Stamp product_type onto each policy dict for load_inforce
@@ -390,6 +416,8 @@ def _price_single_cohort(
     capital_model_id: str | None = None,
     available_capital: float | None = None,
     yrt_rate_table: object | None = None,
+    asset_portfolio: AssetPortfolio | None = None,
+    alm_valuation_yield: float | None = None,
 ) -> CohortResult:
     """Run the full pricing pipeline on a single-product cohort.
 
@@ -459,6 +487,31 @@ def _price_single_cohort(
         available_capital=available_capital,
     )
 
+    # 6. Asset-liability duration gap (Asset/ALM epic, Slice 4b). Purely
+    # additive: only computed when an ``AssetPortfolio`` is supplied. Both
+    # sides are discounted at one common flat yield — the explicit
+    # ``alm_valuation_yield`` when given, else the deal ``discount_rate`` — so
+    # the gap isolates the asset-vs-liability timing mismatch from any yield
+    # difference. The liability stream is the cohort's net benefit outgo
+    # (``analytics/alm.liability_cash_flows``).
+    alm_gap: DurationGapResult | None = None
+    if asset_portfolio is not None:
+        gap_yield = (
+            alm_valuation_yield if alm_valuation_yield is not None else inputs.deal.discount_rate
+        )
+        try:
+            alm_gap = duration_gap(asset_portfolio, liability_cash_flows(net), gap_yield)
+        except PolarisComputationError as exc:
+            # The duration gap is a purely additive reporting block — it must
+            # never abort a price run. A cohort whose net benefit-outgo stream
+            # discounts to a non-positive present value at ``gap_yield`` (e.g. a
+            # premium-paying block still building reserves, where premiums
+            # dominate benefits in PV) has an undefined liability duration; skip
+            # the block for that cohort and warn rather than failing pricing.
+            console.print(
+                f"[yellow]Warning:[/yellow] duration gap skipped for cohort {cohort_id}: {exc}"
+            )
+
     return CohortResult(
         product_type=cohort_id,
         n_policies=cohort_inforce.n_policies,
@@ -468,6 +521,7 @@ def _price_single_cohort(
         net_cashflows=net,
         gross_cashflows=gross,
         ceded_cashflows=ceded,
+        alm_duration_gap=alm_gap,
     )
 
 
@@ -725,6 +779,49 @@ def _append_capital_rows(table: Table, result: ProfitTestResult) -> None:
     # --available-capital (otherwise the ratio numerator is unknown).
     if result.capital_ratio is not None:
         table.add_row("Solvency Ratio", f"{result.capital_ratio:.1%}")
+
+
+def _render_alm_duration_gap(gap: DurationGapResult, product_type: str) -> None:
+    """Render the asset-liability duration-gap block for a cohort (Slice 4b).
+
+    Shown only when an ``AssetPortfolio`` was supplied via
+    ``deal.asset_portfolio``; otherwise the caller skips this entirely, so
+    runs without an asset side are visually unchanged. The headline is the
+    modified-duration gap (years) and the dollar-duration gap (the net change
+    in surplus per unit change in yield).
+    """
+    table = Table(
+        title=f"Asset-Liability Duration Gap — {product_type}",
+        border_style="cyan",
+    )
+    table.add_column("Metric", style="bold")
+    table.add_column("Asset", justify="right")
+    table.add_column("Liability", justify="right")
+    table.add_row(
+        "Value ($)",
+        f"${gap.asset_market_value:,.0f}",
+        f"${gap.liability_present_value:,.0f}",
+    )
+    table.add_row(
+        "Macaulay duration (yrs)",
+        f"{gap.asset_macaulay_duration:.2f}",
+        f"{gap.liability_macaulay_duration:.2f}",
+    )
+    table.add_row(
+        "Modified duration (yrs)",
+        f"{gap.asset_modified_duration:.2f}",
+        f"{gap.liability_modified_duration:.2f}",
+    )
+    table.add_row(
+        "Dollar duration ($·yr)",
+        f"${gap.dollar_duration_asset:,.0f}",
+        f"${gap.dollar_duration_liability:,.0f}",
+    )
+    table.add_section()
+    table.add_row("Valuation yield", f"{gap.valuation_yield:.2%}", "")
+    table.add_row("Duration gap (yrs)", f"{gap.duration_gap:+.2f}", "")
+    table.add_row("Dollar-duration gap ($·yr)", f"${gap.dollar_duration_gap:+,.0f}", "")
+    console.print(table)
 
 
 def _render_cohort_pricing_tables(cohort: CohortResult) -> None:
@@ -1561,6 +1658,8 @@ def price_cmd(
                     capital_model_id=capital_model_id,
                     available_capital=available_capital,
                     yrt_rate_table=yrt_rate_table_obj,
+                    asset_portfolio=inputs.deal.asset_portfolio,
+                    alm_valuation_yield=inputs.deal.alm_valuation_yield,
                 )
             )
 
@@ -1610,6 +1709,8 @@ def price_cmd(
         _render_cohort_sufficiency_tables(cohort, sufficiency_by_cohort[id(cohort)])
         if ifrs17_movement:
             _render_ifrs17_movement(ifrs17_by_cohort[id(cohort)], cohort.product_type)
+        if cohort.alm_duration_gap is not None:
+            _render_alm_duration_gap(cohort.alm_duration_gap, cohort.product_type)
 
     # Build JSON output. Always includes a "cohorts" list; for the common
     # single-cohort case, mirror the cohort's cedant/reinsurer dicts at the
@@ -1640,6 +1741,8 @@ def price_cmd(
             cohort_entry["ifrs17_movement"] = _ifrs17_movement_to_dict(
                 ifrs17_by_cohort[id(c)], ifrs17_months_per_period
             )
+        if c.alm_duration_gap is not None:
+            cohort_entry["alm_duration_gap"] = c.alm_duration_gap.model_dump()
         cohorts_out.append(cohort_entry)
         total_cedant_pv += c.cedant_result.pv_profits
         if c.reinsurer_result is not None:
@@ -1678,6 +1781,8 @@ def price_cmd(
             output_data["ifrs17_movement"] = _ifrs17_movement_to_dict(
                 ifrs17_by_cohort[id(first)], ifrs17_months_per_period
             )
+        if first.alm_duration_gap is not None:
+            output_data["alm_duration_gap"] = first.alm_duration_gap.model_dump()
 
     if n_cohorts > 1:
         summary_table = Table(title="Mixed-Cohort Summary", border_style="magenta")

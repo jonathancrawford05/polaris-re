@@ -359,9 +359,16 @@ duration-matching or embedded value calculation.
             liability Macaulay/modified duration, duration gap, dollar-duration
             gap; both sides at one common flat valuation yield). 21 closed-form
             tests, ADR-111. Additive, goldens byte-identical.
-      - [ ] Slice 4b — CLI/API/dashboard/Excel surfacing + validation notebook
+      - [~] Slice 4b — CLI/API/dashboard/Excel surfacing + validation notebook
             (the only slice that may move goldens, and only when an asset
-            portfolio is supplied)
+            portfolio is supplied). Re-decomposed into surface-sized sub-slices:
+            - [x] Slice 4b-1 — CLI `deal.asset_portfolio` input + per-cohort
+                  `alm_duration_gap` JSON output + Rich table. 12 tests, ADR-112.
+                  Purely additive (default None → goldens byte-identical); a
+                  cohort with non-positive liability PV is skipped, not fatal.
+            - [ ] Slice 4b-2 — API input + duration-gap output
+            - [ ] Slice 4b-3 — dashboard + Excel presentation surfaces
+            - [ ] Slice 4b-4 — ALM validation notebook
 - [ ] Tests: bond cash flow closed-form; duration formula verification;
       integration with stochastic rate scenarios; 20+ tests
 
