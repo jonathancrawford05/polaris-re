@@ -345,15 +345,18 @@ duration-matching or embedded value calculation.
       - [x] Slice 2 — `investment_income(reserve_vector, ...)` → monthly income;
             `book_yield()` (gross IRR), Macaulay/modified duration and convexity
             (ADR-109). Additive, goldens byte-identical.
-      - [ ] Slice 4 — integration with `stochastic.py` scenarios
+      - [ ] Follow-up (post-epic) — integration with `stochastic.py` scenarios
             (Hull-White/CIR rates drive reinvestment yields) — harvested as a
-            follow-up; flat/book yield in scope for the core epic
+            NICE-TO-HAVE; flat/book yield is what the core epic ships
 - [x] `reinsurance/modco.py` — Slice 3 — `ModcoTreaty.apply()` accepts an
       optional `AssetPortfolio`; modco interest is driven by the asset book
       yield (Option A precedence) on the notional ceded reserve, with the flat
       `modco_interest_rate` as the fallback; no-portfolio path byte-identical
       (ADR-110). Stochastic credited rates remain a harvested follow-up.
-- [ ] `analytics/alm.py` — duration gap analysis on net reinsurer position
+- [ ] `analytics/alm.py` — Slice 4 — duration gap analysis on net reinsurer
+      position; CLI/API/dashboard/Excel surfacing + validation notebook (the
+      only slice that may move goldens, and only when an asset portfolio is
+      supplied)
 - [ ] Tests: bond cash flow closed-form; duration formula verification;
       integration with stochastic rate scenarios; 20+ tests
 
