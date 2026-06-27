@@ -6978,3 +6978,75 @@ amortising earned rate were considered and deferred as NICE-TO-HAVE follow-ups
 non-positive-price guard on the duration/convexity methods is defensive — it is
 unreachable through the public API with valid bonds (positive cash flows
 discounted at any `y > -1` give a positive price).
+
+## ADR-110: Asset-driven modco interest (Epic 4 / Asset-ALM, Slice 3)
+
+**Date:** 2026-06-27
+**Status:** Accepted
+
+**Context.** ADR-108/109 (Slices 1–2) built `AssetPortfolio` and the asset
+measures — most importantly `book_yield()`, the gross effective-annual IRR of
+the portfolio's carrying value vs its cash flows. Today `ModcoTreaty.apply()`
+prices modco interest on a single flat `modco_interest_rate`, hand-set by the
+analyst. Slice 3 of `docs/PLAN_asset_alm.md` lets the assets backing the ceded
+reserve actually drive that interest, turning Modco from "approximate" (a
+guessed credited rate) into "correct" (the rate the asset book earns). This is
+the only behavioural payoff of the epic before the Slice 4 ALM surfacing.
+
+**Decision.** `ModcoTreaty.apply()` gains an optional
+`asset_portfolio: AssetPortfolio | None = None` argument. A new private helper
+`_resolve_modco_rate(asset_portfolio)` returns the effective annual rate the
+existing modco-interest formula multiplies by:
+
+    modco_interest_t = ceded_reserve_balance_t * modco_rate / 12
+
+The three resolved design decisions (PLAN §5, maintainer-confirmed 2026-06-26)
+are now binding and recorded here:
+
+- **Gross flat book yield.** `modco_rate` is the portfolio's `book_yield()` — a
+  single scalar held flat over the horizon, gross of any spread. Not a
+  weighted-average-coupon proxy and not (yet) a time-varying amortising earned
+  rate.
+- **Deterministic reinvestment.** Epic 4 is deterministic: the book yield *is*
+  the (flat) reinvestment yield. Stochastic reinvestment (Hull-White / CIR via
+  `analytics/stochastic.py`) stays an out-of-scope NICE-TO-HAVE follow-up.
+- **Option A precedence.** When both an `AssetPortfolio` and a flat
+  `modco_interest_rate` are supplied, the asset book yield **takes precedence**;
+  the flat rate is the fallback, used only when `book_yield()` has no recoverable
+  IRR (returns `None`). Omitting the portfolio (`None`, the default) returns the
+  flat rate unchanged, so the existing path is byte-identical.
+
+**Why a scalar rate, not `investment_income()`.** Slice 2 framed
+`investment_income(reserve_vector)` as "the modco-interest stream Slice 3 needs",
+and on a flat book yield it computes exactly `reserve · y / 12`. We resolve the
+rate to a scalar and reuse the *existing* modco-interest line instead, for two
+reasons: (1) the no-portfolio path then multiplies by `self.modco_interest_rate`
+with the identical arithmetic it always has, guaranteeing byte-identical
+goldens; and (2) `investment_income()` raises on an unrecoverable book yield,
+whereas modco needs the flat rate as a graceful fallback. The two expressions
+are numerically equal on the asset path.
+
+**Additivity.** NCF additivity (ARCHITECTURE §5) is unchanged by the rate
+source: `modco_interest` is added to the ceded side and subtracted from the net
+side, so it cancels in `net + ceded` regardless of how `modco_rate` was
+resolved. Verified with `verify_additivity` on the asset-driven path.
+
+**Verification.** 6 new tests in `tests/test_reinsurance/test_modco.py`: a
+closed-form check that an annual-pay par bond (carried at par) yields its coupon
+and drives `modco_interest = ceded_reserve · 0.05 / 12`; precedence of the book
+yield over a deliberately-different flat rate (matched against a flat treaty
+pinned at the book yield); fallback to the flat rate when `book_yield()` is
+`None` (bond carried at zero book value); byte-identical no-portfolio path
+(`asset_portfolio=None` equals the default call, exact equality); additivity
+with an asset-driven rate; and equal modco interest on both sides.
+
+**Byte-identical guarantee.** The default (no-portfolio) path is unchanged
+arithmetic; goldens are byte-identical. The asset path only activates when a
+caller explicitly passes an `AssetPortfolio` — no CLI/API/dashboard surface
+threads one through yet (that is Slice 4), so no golden run supplies one.
+
+**Out of scope (this slice).** The `analytics/alm.py` duration-gap analysis and
+the CLI/API/dashboard/Excel + notebook surfacing of an asset portfolio (Slice 4,
+the only slice that may move goldens, and only when a portfolio is supplied).
+The net-of-spread and time-varying amortising earned-rate refinements remain
+NICE-TO-HAVE follow-ups (ADR-109; already harvested to PRODUCT_DIRECTION).

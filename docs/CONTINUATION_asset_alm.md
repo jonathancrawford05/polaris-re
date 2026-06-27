@@ -42,7 +42,7 @@ any embedded-value / ALM analytics.
 ### Slice 2: Investment income + duration / convexity
 - **Status:** DONE
 - **Branch:** claude/awesome-bardeen-hecrn1 (environment-designated)
-- **PR:** #108 (open, ready for review)
+- **PR:** #108 (merged)
 - **What was done:** Extended `AssetPortfolio` with `book_yield()` (gross
   effective-annual IRR of carrying value vs cash flows via `brentq`, `None` on
   no sign change, a flat scalar), `investment_income(reserve_vector,
@@ -66,17 +66,31 @@ any embedded-value / ALM analytics.
   - Purely additive: nothing wired into pricing, goldens byte-identical.
 
 ### Slice 3: Modco integration
-- **Status:** NEXT
-- **Depends on:** Slice 2 merged
-- **Scope:** `ModcoTreaty.apply()` accepts an optional `AssetPortfolio`; modco
-  interest is driven by the asset **book yield** on the notional ceded reserve
-  when supplied (**Option A precedence**), else the flat `modco_interest_rate`
-  (default, byte-identical). Preserve the NCF additivity proof (ARCHITECTURE
-  §5). New ADR recording the three resolved decisions. Closed-form + additivity
-  tests.
+- **Status:** DONE
+- **Branch:** claude/awesome-bardeen-sf8u5j (environment-designated)
+- **PR:** #109 (this PR)
+- **What was done:** `ModcoTreaty.apply()` gained an optional
+  `asset_portfolio: AssetPortfolio | None = None`. A new private helper
+  `_resolve_modco_rate()` returns the effective annual rate the existing
+  modco-interest line multiplies by: the portfolio's `book_yield()` when an
+  `AssetPortfolio` is supplied (**Option A precedence**), with the flat
+  `modco_interest_rate` as the fallback whenever the book yield is unrecoverable
+  (`None`), and unchanged when no portfolio is passed (byte-identical default).
+  6 new closed-form / additivity tests. ADR-110.
+- **Key decisions:**
+  - Resolve to a **scalar rate** and reuse the existing modco-interest
+    arithmetic rather than calling `investment_income()` directly — the
+    no-portfolio path then multiplies by `self.modco_interest_rate` with
+    identical arithmetic (byte-identical goldens), and the flat rate can serve
+    as the fallback that `investment_income()`'s raise-on-`None` would forbid.
+    The two expressions are numerically equal on the asset path.
+  - The three PLAN §5 decisions (gross flat book yield, deterministic
+    reinvestment, Option A precedence) are now recorded as binding in ADR-110.
+  - NCF additivity is independent of the rate source — `modco_interest` cancels
+    between net and ceded sides regardless of how `modco_rate` resolves.
 
 ### Slice 4: ALM analytics + surfacing
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 3 merged
 - **Scope:** `analytics/alm.py` duration-gap analysis on the net reinsurer
   position (asset vs liability duration, dollar-duration mismatch). Surface on

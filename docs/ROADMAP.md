@@ -348,8 +348,11 @@ duration-matching or embedded value calculation.
       - [ ] Slice 4 — integration with `stochastic.py` scenarios
             (Hull-White/CIR rates drive reinvestment yields) — harvested as a
             follow-up; flat/book yield in scope for the core epic
-- [ ] `reinsurance/modco.py` — updated `ModcoTreaty.apply()` to accept an
-      optional `AssetPortfolio`; use stochastic credited rates when provided
+- [x] `reinsurance/modco.py` — Slice 3 — `ModcoTreaty.apply()` accepts an
+      optional `AssetPortfolio`; modco interest is driven by the asset book
+      yield (Option A precedence) on the notional ceded reserve, with the flat
+      `modco_interest_rate` as the fallback; no-portfolio path byte-identical
+      (ADR-110). Stochastic credited rates remain a harvested follow-up.
 - [ ] `analytics/alm.py` — duration gap analysis on net reinsurer position
 - [ ] Tests: bond cash flow closed-form; duration formula verification;
       integration with stochastic rate scenarios; 20+ tests
