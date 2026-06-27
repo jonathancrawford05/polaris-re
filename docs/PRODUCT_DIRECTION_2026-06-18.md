@@ -462,6 +462,50 @@ Items harvested from completed/in-flight work by the daily-dev routine
   PR #105), and the three-standard validation notebook (4c-2c/ADR-107, this PR).
   LICAT/RBC/EU solvency ratios are surfaced on every consumer.
 
+- **NICE-TO-HAVE — Stochastic reinvestment yields for the asset model
+  (Hull-White / CIR).** The Asset/ALM epic (Epic 4) prices bond cash flows and,
+  in later slices, investment income and Modco interest on a **flat / book
+  yield**. ROADMAP 5.4 envisions integrating `analytics/stochastic.py`
+  (Hull-White / CIR rate paths) so reinvestment yields are scenario-driven
+  rather than flat. This is deliberately out of the epic's core scope (the flat
+  book yield is enough to make Modco economically correct vs today's hand-set
+  rate) and would otherwise be invisible once the epic closes. Affects asset
+  reinvestment precision under rate scenarios, not the flat-rate first-deal
+  Modco path → NICE-TO-HAVE.
+  *Source: ADR-108 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — Non-fixed-income asset classes for the asset model.** The
+  Asset/ALM epic (Epic 4) models **bonds only** (coupon + principal
+  fixed-income instruments). A reinsurer's asset portfolio backing ceded
+  reserves can also hold equities, mortgages, and other classes with different
+  cash-flow and duration behaviour. Extending `AssetPortfolio` beyond bonds
+  would let the duration-gap and investment-income analytics reflect a real
+  mixed portfolio. Affects books backed by non-bond assets, not the
+  bond-backed common path → NICE-TO-HAVE.
+  *Source: ADR-108 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — Net-of-spread asset book yield.** Per the Epic 4 design
+  resolution (maintainer, 2026-06-26), `AssetPortfolio.book_yield()` (Slice 2)
+  is the **gross** IRR of carrying value vs cash flows. The modco rate a
+  reinsurer actually credits is typically a *net* earned rate — gross book yield
+  less an investment-expense / default-allowance spread. A net-of-spread option
+  on the book yield would let the modco interest reflect the net portfolio
+  return, kept deliberately distinct from the C-1 capital component so
+  asset-default risk is not double-counted. Affects the magnitude of the
+  asset-driven modco rate, not first-deal correctness or the flat-rate path →
+  NICE-TO-HAVE.
+  *Source: PLAN_asset_alm §5 / CONTINUATION_asset_alm design resolution (1st-order).*
+
+- **NICE-TO-HAVE — Time-varying (amortising) asset earned rate.** The Epic 4
+  book yield is a **scalar held flat** over the horizon (design resolution,
+  2026-06-26). As the portfolio amortises and bonds mature, the true earned rate
+  drifts; a time-varying earned-rate vector recomputed along the run-off would
+  make the asset-driven modco interest and the ALM duration-gap analytics more
+  accurate on long-dated or barbelled portfolios. Affects rate precision over
+  the projection, not first-deal correctness or the flat-rate path →
+  NICE-TO-HAVE.
+  *Source: PLAN_asset_alm §5 / CONTINUATION_asset_alm design resolution (1st-order).*
+
 - **NICE-TO-HAVE — Statutory reserve bases for UL and DI.** The reserve-basis
   epic (A1) implements CRVM / VM-20 / GAAP for Term and Whole Life only. UL
   keeps reserve = account value and DI keeps reserve = 0; both raise

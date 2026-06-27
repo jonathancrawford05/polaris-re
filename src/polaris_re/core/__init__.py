@@ -3,9 +3,10 @@ Core foundational types for Polaris RE.
 
 Exports the primary data models used throughout the engine:
 Policy, InforceBlock, ProjectionConfig, CashFlowResult, base exceptions,
-and the shared pipeline builder.
+the asset model, and the shared pipeline builder.
 """
 
+from polaris_re.core.asset import AssetPortfolio, Bond
 from polaris_re.core.base import PolarisBaseModel
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
@@ -22,6 +23,8 @@ from polaris_re.core.projection import ProjectionConfig
 from polaris_re.core.reserve_basis import ReserveBasis
 
 __all__ = [
+    "AssetPortfolio",
+    "Bond",
     "CashFlowResult",
     "DealConfig",
     "InforceBlock",
