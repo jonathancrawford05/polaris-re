@@ -167,3 +167,15 @@ Reference for developers who are not credentialed actuaries. Consult before impl
 **Solvency II SCR (Solvency Capital Requirement)** — The EU standard. A modular standard-formula requirement: life-underwriting sub-modules (mortality / lapse / catastrophe), market, and counterparty risk are aggregated through correlation matrices into the Basic SCR, with operational risk added outside the matrix. The **EU solvency ratio** is eligible **own funds** ÷ SCR.
 
 **Capital Ratio (solvency ratio)** — The unified Polaris RE surface (`CapitalSchedule.capital_ratio(available_capital)`) for the three jurisdiction ratios above: `available_capital ÷ denominator₀`, evaluated at issue (projection month 0), expressed as a multiple. The numerator (available capital / TAC / own funds) is uniform; the *denominator* is the jurisdictional difference — required capital for LICAT, ACL for RBC, SCR for Solvency II. Surfaced on `ProfitResultWithCapital.capital_ratio` when `ProfitTester.run_with_capital` is given an `available_capital` numerator.
+
+## Asset / ALM
+
+**Book Yield** — The gross effective-annual internal rate of return that equates an asset portfolio's carrying (book) value to its projected coupon + principal cash flows. In Polaris RE (`AssetPortfolio.book_yield()`) it is a single scalar held flat over the horizon, and — when supplied — it drives the Modco interest in place of a hand-set credited rate (the rate the backing assets actually earn).
+
+**Macaulay Duration** — The present-value-weighted average time (in years) to a stream's cash flows. For a zero-coupon instrument it equals the time to maturity; coupon-paying instruments are shorter because intermediate coupons pull the average in.
+
+**Modified Duration** — The first-order price sensitivity `-(1/P) dP/dy` — the approximate percentage change in value per unit change in yield. Under the effective-annual yield convention it is `Macaulay ÷ (1 + y)`. The hedgeable measure: matching asset and liability modified durations immunises surplus against small parallel yield moves.
+
+**Convexity** — The second-order price sensitivity `(1/P) d²P/dy²` (in years²). Captures the curvature modified duration misses; longer and more dispersed cash flows have higher convexity.
+
+**Duration Gap** — The difference between the modified duration of the assets backing a block and that of the liability they fund (`asset − liability`, in years). A positive gap means the assets re-price faster than the liability as yields move (longer assets); a negative gap the reverse. The **dollar-duration gap** scales each side by its value (`modified duration × value`) and differences them, giving the net change in surplus per unit change in yield — the quantity an ALM hedge targets. In Polaris RE both sides are measured at one common flat valuation yield (`analytics/alm.py::duration_gap`), isolating the timing mismatch from any yield-basis difference.
