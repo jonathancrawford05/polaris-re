@@ -16,6 +16,7 @@ import numpy as np
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.assumptions.lapse import LapseAssumption
 from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
+from polaris_re.core.asset import AssetPortfolio
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
@@ -129,6 +130,16 @@ class DealConfig:
     # block-date fallback becomes unreachable and results drift with the
     # wall clock.
     valuation_date: date | None = None
+    # Optional asset side for ALM duration-gap analysis (Asset/ALM epic,
+    # Slice 4b). When an ``AssetPortfolio`` is supplied, the pricing surface
+    # reports the asset-liability duration gap (``analytics/alm.duration_gap``)
+    # of the assets against each cohort's net liability cash flows. None
+    # (default) leaves every existing config and priced number byte-identical
+    # — the duration gap is a purely additive reporting block. ``alm_valuation_yield``
+    # is the common flat yield both sides are discounted at; None defers to the
+    # deal ``discount_rate`` so a single rate isolates the timing mismatch.
+    asset_portfolio: AssetPortfolio | None = None
+    alm_valuation_yield: float | None = None
 
     def to_dict(self) -> dict[str, object]:
         """Return a plain dict suitable for dashboard session state.

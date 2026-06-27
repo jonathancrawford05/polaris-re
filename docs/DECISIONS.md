@@ -7133,3 +7133,85 @@ canonical mapping from a full priced deal to "the" liability cash-flow stream
 surface; `liability_cash_flows` provides the documented default
 (net benefit outgo) the surface will consume. Stochastic reinvestment and a
 net-of-spread / amortising earned rate remain NICE-TO-HAVE follow-ups (ADR-109).
+
+---
+
+## ADR-112: CLI asset-portfolio input and duration-gap output (Epic 4 / Asset-ALM, Slice 4b-1)
+
+**Date:** 2026-06-27
+**Status:** Accepted
+
+**Context.** ADR-111 (Slice 4a) shipped `analytics/alm.py` — `duration_gap`,
+`liability_cash_flows`, `duration_measures` — wired into nothing. The planned
+Slice 4b is "surface the duration gap on CLI / API / dashboard / Excel + a
+validation notebook". That is five surfaces plus a notebook, each needing an
+asset-portfolio input threaded through its config/request — too much for one
+session. Mirroring how Epic 3's Slice 4c split into 4c-1 / 4c-2a / 4c-2b / 4c-2c,
+Slice 4b is re-decomposed into surface-sized sub-slices, and this one (**4b-1**)
+ships the **CLI machine surface** first: the config schema that says how an asset
+portfolio is specified, and the duration-gap block in the JSON / console output.
+The config-schema decision is load-bearing — the API (4b-2) and dashboard (4b-3)
+mirror it — so settling it on the CLI first is the "config model first, then
+consumers" decomposition (CLAUDE-routine Pattern A).
+
+**Decision.**
+
+- *Config input.* The deal config gains an optional `deal.asset_portfolio` block
+  (the existing `AssetPortfolio` JSON shape `{"bonds": [...]}`, validated by the
+  Pydantic model so a malformed bond raises before pricing) and an optional
+  `deal.alm_valuation_yield`. Both land on `DealConfig` (`core/pipeline.py`) as
+  `asset_portfolio: AssetPortfolio | None = None` and
+  `alm_valuation_yield: float | None = None`. Defaults of `None` leave every
+  existing config and priced number byte-identical.
+- *Common valuation yield defaults to the deal discount rate.* When
+  `alm_valuation_yield` is omitted, both sides are discounted at the deal
+  `discount_rate` — a single rate isolates the asset-vs-liability *timing*
+  mismatch (the gap) from any yield difference, consistent with ADR-111's
+  single-common-yield decision and the epic's flat-yield scope. An explicit
+  `alm_valuation_yield` overrides it.
+- *Liability stream = the cohort's net benefit outgo.* The duration gap is
+  measured against `liability_cash_flows(net)` — the net (post-treaty) cohort
+  result — which is ADR-111's documented default. (Reinsurer-side / reserve-basis
+  variants are deferred — see Out of scope.)
+- *Purely additive, never aborts pricing.* The duration gap is computed only when
+  an asset portfolio is supplied, and emitted as a new per-cohort
+  `alm_duration_gap` key (mirrored at the top level for a single-cohort run, like
+  `cedant` / `reinsurer`). Critically, a cohort whose net benefit-outgo discounts
+  to a **non-positive** present value at the valuation yield (e.g. a premium-paying
+  block still building reserves, where premiums dominate benefits in PV — the
+  golden WHOLE_LIFE cohort does this even at 6%) has an *undefined* liability
+  duration; `duration_measures` raises `PolarisComputationError`, which is caught
+  per cohort, the block is skipped with a console warning, and pricing continues.
+  A reporting add-on must never break a price run.
+
+**Verification.** 12 tests in `tests/test_cli_alm.py`: the config round-trips the
+portfolio + yield onto `DealConfig`; a malformed bond raises at parse; the TERM
+cohort carries a block whose asset measures are the exact closed forms for a
+10-year zero (Macaulay 10 yrs, modified `10/(1+y)`, market value `1e6·(1+y)^-10`);
+the default valuation yield equals the deal discount rate; an explicit override is
+honoured; the gap and dollar-duration-gap identities hold; supplying a portfolio
+leaves the cedant / reinsurer / summary blocks byte-identical (the additive
+guarantee); the WHOLE_LIFE cohort is skipped (non-positive liability PV) without
+failing the run; and a single-cohort run mirrors the block at the top level.
+
+**Out of scope (this sub-slice).** The API (4b-2), dashboard + Excel (4b-3), and
+ALM validation notebook (4b-4) surfaces. The **canonical liability stream** is
+the open question this slice surfaces concretely: the net benefit-outgo
+convention has a non-positive PV for premium-paying / reserve-building blocks
+(the golden WHOLE_LIFE cohort), so its duration gap is undefined and skipped. A
+reserve-runoff or reinsurer-side liability stream would likely be defined there;
+resolving the canonical mapping (with maintainer input) is carried into 4b-2/4b-3.
+The result-level reinsurer-side duration gap is also deferred with that decision.
+
+**Resolution of the canonical liability stream (maintainer, 2026-06-27).** The
+open question above was settled and is implemented in Slice 4b-2 (the 4b-1
+behaviour here is the placeholder it supersedes): (1) compute the gap on **both**
+the ceded (reinsurer-view, **headline**) and cedant-retained sides; (2) **Option
+B** — the liability is benefits + expenses − **net / valuation** premiums (not
+gross), so PV ties to the **reserve**; (3) derive it on the deal's **`reserve_basis`**
+(NET_PREMIUM / CRVM / VM20 / GAAP — assets back the held reserve); (4) keep the
+single common valuation yield defaulting to `discount_rate`. This redefines
+`liability_cash_flows` (an `analytics/alm.py` contract change) and rewires the
+4b-1 CLI call site onto it; full rationale and the 4b-2 implementation plan live
+in `docs/CONTINUATION_asset_alm.md` ("Canonical liability cash-flow stream —
+RESOLVED") and `docs/PLAN_asset_alm.md` §5.

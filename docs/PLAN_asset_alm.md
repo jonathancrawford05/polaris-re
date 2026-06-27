@@ -12,9 +12,12 @@
 > duration / convexity, ADR-109; Slice 3: asset-driven modco interest,
 > ADR-110). Slice 4 (ALM analytics + surfacing) was re-decomposed into **4a**
 > (the `analytics/alm.py` duration-gap core, ADR-111 — SHIPPED) and **4b** (the
-> CLI/API/dashboard/Excel surfacing + validation notebook — NEXT). No prior
-> asset/ALM code existed before this epic. Running log:
-> `docs/CONTINUATION_asset_alm.md`.
+> CLI/API/dashboard/Excel surfacing + validation notebook). 4b itself proved
+> too large for one session (five surfaces + a notebook), so it is further
+> re-decomposed into **4b-1** (CLI input + duration-gap output, ADR-112 —
+> SHIPPED), **4b-2** (API — NEXT), **4b-3** (dashboard + Excel), and **4b-4**
+> (validation notebook). No prior asset/ALM code existed before this epic.
+> Running log: `docs/CONTINUATION_asset_alm.md`.
 >
 > **Source.** `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` Tier-C item
 > **C0** (★★★★☆ value, ~20 dev-days, 4 phases) and ROADMAP Milestone 5.4
@@ -140,6 +143,18 @@ surfaces + a notebook is more than one session (same split as Epic 3's 4c).
   plus a validation notebook.
 - This is the slice that *can* move goldens — and only for runs that supply an
   asset portfolio. Document any regenerated baselines with the reason.
+- Re-decomposed into surface-sized sub-slices (five surfaces + a notebook is
+  more than one session, same split as Epic 3's 4c):
+  - **4b-1 — CLI input + duration-gap output ✅ SHIPPED (ADR-112).** Optional
+    `deal.asset_portfolio` + `deal.alm_valuation_yield` config input; per-cohort
+    `alm_duration_gap` JSON key + Rich table. Purely additive (default `None` →
+    byte-identical goldens); a cohort with a non-positive liability PV is
+    skipped, never aborting the run. Surfaced the open canonical-liability-stream
+    question concretely (golden WHOLE_LIFE skipped at 6%).
+  - **4b-2 — API input + duration-gap output (NEXT).** Mirror 4b-1 on
+    `/api/v1/price`; resolve the canonical liability stream with the maintainer.
+  - **4b-3 — dashboard + Excel presentation surfaces.**
+  - **4b-4 — ALM validation notebook.**
 
 ## 4. Key constraints (from CLAUDE.md / ARCHITECTURE.md)
 
@@ -186,3 +201,18 @@ Slice 3 lands.
   NCF additivity (ARCHITECTURE §5) holds regardless of the rate source, since
   `modco_interest` cancels between the net and ceded sides. Recorded in an ADR
   when Slice 3 lands.
+- **Canonical liability cash-flow stream (Slice 4b) — RESOLVED (maintainer,
+  2026-06-27).** Slice 4b-1 surfaced that its placeholder liability stream
+  (benefits + expenses − **gross** premiums, on the cedant-retained side) has a
+  non-positive PV for premium-paying / reserve-building blocks (golden
+  WHOLE_LIFE), so its duration gap is undefined and skipped. The resolved
+  convention, implemented in Slice 4b-2: (1) compute the gap on **both** sides
+  with the **ceded (reinsurer-view)** side as the headline (Polaris is a
+  reinsurer tool; the reinsurer's assets back the ceded reserves); (2) **Option
+  B** — the liability is benefits + expenses − **net / valuation** premiums, so
+  its PV ties to the **reserve**; (3) derive it on the deal's **`reserve_basis`**
+  (NET_PREMIUM / CRVM / VM20 / GAAP); (4) keep the single common valuation yield
+  defaulting to `discount_rate`. This is an `analytics/alm.py` contract change
+  (`liability_cash_flows`) plus the API surface — likely split 4b-2a (stream +
+  CLI rewire) / 4b-2b (API). Recorded in ADR-112; running plan in
+  `docs/CONTINUATION_asset_alm.md`.

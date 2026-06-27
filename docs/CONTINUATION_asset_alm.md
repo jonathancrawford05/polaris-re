@@ -122,17 +122,118 @@ into 4c-1 / 4c-2.
   - Purely additive: nothing wired into pricing, goldens byte-identical.
 
 #### Slice 4b: ALM surfacing + validation notebook
+
+Slice 4b is five surfaces (CLI / API / dashboard / Excel) plus a notebook, each
+needing an asset-portfolio input threaded through its config/request — too much
+for one session. Re-decomposed into surface-sized sub-slices (mirroring how
+Epic 3's Slice 4c split into 4c-1 / 4c-2a / 4c-2b / 4c-2c). The config-schema
+decision is load-bearing (the API and dashboard mirror it), so the CLI machine
+surface ships first ("config model first, then consumers").
+
+##### Slice 4b-1: CLI asset-portfolio input + duration-gap output
+- **Status:** DONE
+- **Branch:** claude/awesome-bardeen-lu9ugs (environment-designated)
+- **PR:** (this PR)
+- **What was done:** `DealConfig` gained `asset_portfolio: AssetPortfolio | None`
+  and `alm_valuation_yield: float | None` (both default `None` → byte-identical
+  existing configs). The CLI parses `deal.asset_portfolio` (the `AssetPortfolio`
+  JSON shape, Pydantic-validated) and `deal.alm_valuation_yield` from the nested
+  config; `_price_single_cohort` computes `duration_gap(portfolio,
+  liability_cash_flows(net), yield)` per cohort when a portfolio is supplied,
+  defaulting the common valuation yield to the deal `discount_rate`. The result
+  is emitted as a per-cohort `alm_duration_gap` JSON key (mirrored at the top
+  level for a single-cohort run) and rendered as a Rich console table. 12 tests.
+  ADR-112.
+- **Key decisions:**
+  - **Purely additive, never aborts pricing.** A cohort whose net benefit-outgo
+    discounts to a non-positive PV at the valuation yield (premium-paying /
+    reserve-building blocks — the golden WHOLE_LIFE cohort does this even at 6%)
+    has an undefined liability duration; `PolarisComputationError` is caught per
+    cohort, the block is skipped with a warning, and pricing continues.
+  - Default valuation yield = deal `discount_rate` (single common yield isolates
+    the timing mismatch, per ADR-111); explicit `alm_valuation_yield` overrides.
+  - Liability stream = the **net** (post-treaty) cohort's `liability_cash_flows`
+    (ADR-111 documented default).
+
+##### Slice 4b-2: reserve-backed liability stream + API surface
 - **Status:** NEXT
-- **Depends on:** Slice 4a merged
-- **Scope:** thread an `AssetPortfolio` and surface the `DurationGapResult` on
-  the CLI / API / dashboard / Excel deal-pricing block, plus an ALM validation
-  notebook. This is the only slice that may move goldens, and only when an asset
-  portfolio is supplied — document any regenerated baseline.
-- **Open design (resolve with the surface):** the canonical mapping from a
-  priced deal to "the" liability cash-flow stream (net vs reinsurer-side; which
-  reserve basis). `liability_cash_flows` provides the documented default (net
-  benefit outgo) the surface will consume; confirm the convention with the
-  maintainer when wiring the CLI/API.
+- **Depends on:** Slice 4b-1 merged
+- **Scope:** implements the maintainer-resolved canonical liability stream (see
+  "Canonical liability cash-flow stream — RESOLVED" below) AND mirrors the gap on
+  the REST `/api/v1/price` surface:
+  - Redefine the liability stream in `analytics/alm.py` to **Option B** — net
+    outgo using **net / valuation premiums** (PV ties to the reserve), on the
+    deal's **`reserve_basis`**, computed for **both** the ceded (reinsurer-view,
+    headline) and cedant-retained sides. Rewire the 4b-1 CLI call site onto it
+    (the `alm_duration_gap` block is a new, non-golden output, so revising it is
+    allowed — document the change). Closed-form tests: PV(liability) == the held
+    reserve on each basis; the skip becomes a true edge case.
+  - `PriceRequest` gains `asset_portfolio` + `alm_valuation_yield`;
+    `PriceResponse` gains the duration-gap block(s) (reinsurer-side headline +
+    cedant-side). Reuse the CLI compute path / config-schema shape so the
+    CLI↔API parity tests cover it.
+- **Likely sub-split:** 4b-2a (reserve-backed stream in `analytics/alm.py` +
+  CLI rewire + tests) and 4b-2b (the API surface). The 4b-2 session decides once
+  it has read the reserve / net-premium plumbing.
+
+##### Slice 4b-3: dashboard + Excel presentation surfaces
+- **Status:** PLANNED
+- **Depends on:** Slice 4b-2 merged
+- **Scope:** asset-portfolio input widget + duration-gap display on the
+  dashboard, and an ALM block on the Excel deal-pricing export.
+- **Carry-forward (PR #111 review P2):** thread the two new `DealConfig` fields
+  (`asset_portfolio`, `alm_valuation_yield`) through `DealConfig.to_dict()` when
+  this slice adds the dashboard widget. 4b-1 deliberately left them out of
+  `to_dict()` (consistent with the `yrt_rate_table_*` precedent — `to_dict`
+  backs the dashboard `DEFAULTS` / CLI↔Streamlit parity surface, not a full
+  serialisation), which is correct until the dashboard actually consumes them.
+
+##### Slice 4b-4: ALM validation notebook
+- **Status:** PLANNED
+- **Depends on:** Slice 4b-3 merged
+- **Scope:** an end-to-end ALM validation notebook (duration gap on the golden
+  block + a worked closed-form reconciliation).
+
+## Canonical liability cash-flow stream — RESOLVED (maintainer, 2026-06-27)
+
+Surfaced concretely by 4b-1: the 4b-1 liability stream (`liability_cash_flows` =
+`death_claims + lapse_surrenders + expenses − gross_premiums`, measured on the
+cedant-retained `net` result) has a **non-positive PV for premium-paying /
+reserve-building blocks** (the golden WHOLE_LIFE cohort, even at 6%), because it
+subtracts **gross** (loaded, actual-charged) premiums — a pricing/profit stream,
+not the valuation liability. So 4b-1's duration gap is defined only for
+run-off-shaped blocks (TERM) and is gracefully skipped otherwise. The maintainer
+settled the convention (2026-06-27); **4b-2 implements it**:
+
+1. **Both sides, reinsurer-view is the headline.** Compute the duration gap on
+   both the **ceded (reinsurer-view)** and the cedant-retained (`net`) liability;
+   the **reinsurer-side** gap is the focus/headline (Polaris is a reinsurer tool;
+   the epic goal is "the net reinsurer position" — the reinsurer's assets back
+   the **ceded** reserves). 4b-1's net-only placeholder is superseded.
+2. **Option B — reserve-backed liability (net valuation premiums).** The
+   liability stream is benefits + expenses − **net / valuation** premiums (NOT
+   gross premiums), so its present value ties to the **reserve**. This makes the
+   duration defined for any block carrying a positive reserve; the graceful skip
+   becomes a true edge case rather than the common path.
+3. **Follow the deal's reserve basis.** Derive the liability on the deal's
+   selected `reserve_basis` (NET_PREMIUM / CRVM / VM20 / GAAP) — the assets back
+   the **held** reserve, so the duration must reflect the held basis.
+4. **Common valuation yield default unchanged.** Both sides stay discounted at
+   one common yield, defaulting to the deal `discount_rate` (isolates the timing
+   mismatch); the explicit `alm_valuation_yield` override is retained.
+
+**Implementation note for 4b-2.** This redefines the liability stream in
+`analytics/alm.py` — `liability_cash_flows` (or a successor that takes the
+valuation/net-premium stream and a side selector) is an **analytics-contract
+change**, not just an API surface. Because it changes what 4b-1's CLI emits (the
+`alm_duration_gap` block is a *new*, non-golden output, so revising it is
+permitted and should be documented), 4b-2 updates the CLI call site too. Given
+the scope (redefine the stream + reserve-basis-aware + both sides + closed-form
+tests + the API surface + CLI rewire), 4b-2 may itself warrant a split — e.g.
+**4b-2a** = reserve-backed liability stream in `analytics/alm.py` (+ CLI rewire,
+closed-form tests: PV(liability) == reserve on each basis) and **4b-2b** = the
+REST `/api/v1/price` surface mirroring it. The 4b-2 session decides the split
+once it has read the reserve/net-premium plumbing.
 
 ## Context for Next Session
 
