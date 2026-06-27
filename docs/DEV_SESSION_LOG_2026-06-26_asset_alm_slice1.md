@@ -96,14 +96,19 @@ Slices 3–4.
 | ADR recorded | ✅ | ADR-108 |
 
 ## Open Questions / Follow-ups
-- **Reinvestment yield boundary (Slice 2/3).** Slices 1–2 treat the book yield
-  as the flat reinvestment yield. Stochastic reinvestment (Hull-White / CIR via
-  `analytics/stochastic.py`, ROADMAP 5.4) is deliberately out of the epic's core
-  scope — harvested to PRODUCT_DIRECTION as NICE-TO-HAVE. Confirm that boundary.
-- **Modco precedence (Slice 3).** Proposed rule: when both an `AssetPortfolio`
-  and a flat `modco_interest_rate` are supplied, the asset book yield takes
-  precedence and the flat rate is the fallback. Confirm before Slice 3.
-- Non-fixed-income asset classes harvested to PRODUCT_DIRECTION as NICE-TO-HAVE.
+All design questions raised this session were **resolved by the maintainer
+in-thread (2026-06-26)** and folded into `PLAN_asset_alm.md` §5 and
+`CONTINUATION_asset_alm.md`:
+- **Reinvestment yield boundary (Slice 2/3) — RESOLVED.** Epic 4 stays
+  deterministic; the book yield is the flat reinvestment yield. Stochastic
+  reinvestment (Hull-White / CIR) stays a NICE-TO-HAVE follow-up.
+- **Modco precedence (Slice 3) — RESOLVED (Option A).** Asset portfolio book
+  yield takes precedence; flat `modco_interest_rate` is the fallback default.
+- **Book yield definition (Slice 2) — RESOLVED.** Gross IRR of carrying value vs
+  cash flows, scalar held flat.
+- Harvested to PRODUCT_DIRECTION as NICE-TO-HAVE: stochastic reinvestment;
+  non-fixed-income asset classes; net-of-spread book yield; time-varying
+  amortising earned rate.
 
 ## Parked Polish
 None. (All follow-ups this session are 1st-order out-of-scope items of ADR-108,

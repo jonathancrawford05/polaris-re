@@ -484,6 +484,28 @@ Items harvested from completed/in-flight work by the daily-dev routine
   bond-backed common path → NICE-TO-HAVE.
   *Source: ADR-108 Out of scope (1st-order).*
 
+- **NICE-TO-HAVE — Net-of-spread asset book yield.** Per the Epic 4 design
+  resolution (maintainer, 2026-06-26), `AssetPortfolio.book_yield()` (Slice 2)
+  is the **gross** IRR of carrying value vs cash flows. The modco rate a
+  reinsurer actually credits is typically a *net* earned rate — gross book yield
+  less an investment-expense / default-allowance spread. A net-of-spread option
+  on the book yield would let the modco interest reflect the net portfolio
+  return, kept deliberately distinct from the C-1 capital component so
+  asset-default risk is not double-counted. Affects the magnitude of the
+  asset-driven modco rate, not first-deal correctness or the flat-rate path →
+  NICE-TO-HAVE.
+  *Source: PLAN_asset_alm §5 / CONTINUATION_asset_alm design resolution (1st-order).*
+
+- **NICE-TO-HAVE — Time-varying (amortising) asset earned rate.** The Epic 4
+  book yield is a **scalar held flat** over the horizon (design resolution,
+  2026-06-26). As the portfolio amortises and bonds mature, the true earned rate
+  drifts; a time-varying earned-rate vector recomputed along the run-off would
+  make the asset-driven modco interest and the ALM duration-gap analytics more
+  accurate on long-dated or barbelled portfolios. Affects rate precision over
+  the projection, not first-deal correctness or the flat-rate path →
+  NICE-TO-HAVE.
+  *Source: PLAN_asset_alm §5 / CONTINUATION_asset_alm design resolution (1st-order).*
+
 - **NICE-TO-HAVE — Statutory reserve bases for UL and DI.** The reserve-basis
   epic (A1) implements CRVM / VM-20 / GAAP for Term and Whole Life only. UL
   keeps reserve = account value and DI keeps reserve = 0; both raise

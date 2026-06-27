@@ -51,19 +51,21 @@ any embedded-value / ALM analytics.
 - **Acceptance criteria:**
   - `AssetPortfolio.investment_income(reserve_vector, ...)` returns monthly
     income consistent with the book yield.
-  - `book_yield()` (IRR of carrying value vs cash flows, via
-    `scipy.optimize.brentq` with a sign-change guard), `macaulay_duration`,
-    `modified_duration`, `convexity` all closed-form tested.
+  - `book_yield()` — **gross** IRR of carrying value vs cash flows (via
+    `scipy.optimize.brentq` with a sign-change guard, `None` on no sign change),
+    a **scalar held flat**; `macaulay_duration`, `modified_duration`,
+    `convexity` all closed-form tested.
   - Goldens byte-identical (still additive).
 
 ### Slice 3: Modco integration
 - **Status:** PLANNED
 - **Depends on:** Slice 2 merged
 - **Scope:** `ModcoTreaty.apply()` accepts an optional `AssetPortfolio`; modco
-  interest is driven by the asset book yield / investment income on the
-  notional ceded reserve when supplied, else the flat `modco_interest_rate`
+  interest is driven by the asset **book yield** on the notional ceded reserve
+  when supplied (**Option A precedence**), else the flat `modco_interest_rate`
   (default, byte-identical). Preserve the NCF additivity proof (ARCHITECTURE
-  §5). New ADR for the precedence rule. Closed-form + additivity tests.
+  §5). New ADR recording the three resolved decisions. Closed-form + additivity
+  tests.
 
 ### Slice 4: ALM analytics + surfacing
 - **Status:** PLANNED
@@ -88,14 +90,20 @@ any embedded-value / ALM analytics.
   vector; reuse the profit tester's `brentq` pattern and its None-on-no-sign-
   change guard.
 
-## Open Questions (for human)
+## Open Questions (for human) — ALL RESOLVED (maintainer, 2026-06-26)
 
-- **Reinvestment yield (Slice 2/3).** When asset cash flows arrive before the
-  liability needs them, a reinvestment assumption is required. Slices 1–2 treat
-  the book yield as the (flat) reinvestment yield. Stochastic reinvestment
-  (Hull-White / CIR via `analytics/stochastic.py`, ROADMAP 5.4) is deliberately
-  out of scope for this epic and harvested as a follow-up — confirm that's the
-  intended boundary.
-- **Modco precedence (Slice 3).** Proposed: when both an `AssetPortfolio` and a
-  flat `modco_interest_rate` are supplied, the asset book yield takes precedence
-  and the flat rate is the fallback. Confirm before Slice 3.
+- **Book yield definition (Slice 2) — RESOLVED.** `book_yield()` is the **gross**
+  IRR of carrying value vs cash flows, a **scalar held flat**. Net-of-spread and
+  time-varying amortising earned rates are NICE-TO-HAVE follow-ups (harvested to
+  PRODUCT_DIRECTION), not this epic.
+- **Reinvestment yield (Slice 2/3) — RESOLVED.** Epic 4 is deterministic: the
+  book yield **is** the (flat) reinvestment yield. Stochastic reinvestment
+  (Hull-White / CIR via `analytics/stochastic.py`, ROADMAP 5.4) is out of scope
+  and already harvested as a NICE-TO-HAVE follow-up.
+- **Modco precedence (Slice 3) — RESOLVED (Option A).** When both an
+  `AssetPortfolio` and a flat `modco_interest_rate` are supplied, the asset book
+  yield takes precedence and the flat rate is the fallback. NCF additivity holds
+  regardless of the rate source (`modco_interest` cancels between sides). To be
+  recorded in an ADR when Slice 3 lands.
+
+No open questions remain for the human; Slice 2 can proceed on these decisions.
