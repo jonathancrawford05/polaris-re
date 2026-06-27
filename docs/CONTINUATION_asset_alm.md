@@ -22,7 +22,7 @@ any embedded-value / ALM analytics.
 ### Slice 1: Bond cash-flow model + `AssetPortfolio`
 - **Status:** DONE
 - **Branch:** claude/awesome-bardeen-g36zmo (environment-designated)
-- **PR:** #107 (draft)
+- **PR:** #107 (merged)
 - **What was done:** Added `core/asset.py` with `Bond` (single fixed-income
   instrument on the monthly grid — `cash_flow_vector(months)`,
   `price(annual_yield)`) and `AssetPortfolio` (non-empty bond list with
@@ -42,7 +42,7 @@ any embedded-value / ALM analytics.
 ### Slice 2: Investment income + duration / convexity
 - **Status:** DONE
 - **Branch:** claude/awesome-bardeen-hecrn1 (environment-designated)
-- **PR:** #108 (draft)
+- **PR:** #108 (open, ready for review)
 - **What was done:** Extended `AssetPortfolio` with `book_yield()` (gross
   effective-annual IRR of carrying value vs cash flows via `brentq`, `None` on
   no sign change, a flat scalar), `investment_income(reserve_vector,
