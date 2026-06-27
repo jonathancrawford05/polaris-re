@@ -20,6 +20,14 @@ picked, per the one-active-Epic guardrail. No open PRs
 draft-blocked epic. Ledger healing (step 4b): the CONTINUATION still recorded
 Slice 2's PR #108 as "open, ready for review"; healed to "merged" this session.
 
+**Baseline (step 4, tolerance-aware):** `1715 passed, 0 failures` on the fast
+suite (`-m "not slow"`). The standing SOA/CIA-conversion condition did not
+surface any failures here — only the CIA 2014 tables were reported MISSING by
+the pymort conversion, with no dependent test failing. This matches the prior
+session log's recorded baseline (Slice 2: "1715 passed"); no new or changed
+failures, so the run proceeded. Carry `1715 passed / 0 failures` forward as the
+value the next run diffs against.
+
 ## Premise Verification (step 7b)
 Reproduced before coding that the Slice 3 surface did not yet exist:
 `ModcoTreaty.apply()` took only `(gross, inforce)` and computed
