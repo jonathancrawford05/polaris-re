@@ -42,8 +42,10 @@ from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 
 __all__ = [
+    "DualDurationGap",
     "DurationGapResult",
     "DurationMeasures",
+    "dual_duration_gap",
     "duration_gap",
     "duration_measures",
     "liability_cash_flows",
@@ -324,3 +326,129 @@ def duration_gap(
         dollar_duration_liability=dollar_duration_liability,
         dollar_duration_gap=dollar_duration_asset - dollar_duration_liability,
     )
+
+
+class DualDurationGap(PolarisBaseModel):
+    """Reinsurer-view (headline) and cedant-view asset-liability duration gaps.
+
+    A reinsurance deal has two reserve liabilities the same backing assets can be
+    measured against:
+
+    * the **reinsurer-view** (``reinsurer``) gap — the assets against the **ceded**
+      reserve run-off (the reserves the reinsurer's assets actually fund). This is
+      the **headline** for a reinsurer pricing tool: Polaris RE prices the ceded
+      block, and the epic goal is the *net reinsurer position*.
+    * the **cedant-view** (``cedant``) gap — the same assets against the
+      cedant-retained (``net``) reserve run-off.
+
+    Both sides are produced by :func:`dual_duration_gap` from one common valuation
+    yield, so the only difference between them is the liability stream (the asset
+    side is identical). Either side is ``None`` when its liability is undefined at
+    the valuation yield — most commonly a **YRT** treaty, which cedes no reserve,
+    so the ceded reserve is ~0, the reinsurer-side liability discounts to zero, and
+    the reinsurer side is ``None`` (the cedant side is then the only defined gap).
+    A proportional treaty (coinsurance / modco) carries a meaningful ceded reserve,
+    so both sides are typically defined.
+    """
+
+    reinsurer: DurationGapResult | None = Field(
+        default=None,
+        description=(
+            "Headline gap: assets vs the ceded reserve run-off (the reinsurer's "
+            "liability). None when the ceded reserve is ~0 (e.g. a YRT treaty) so "
+            "the liability is undefined at the valuation yield."
+        ),
+    )
+    cedant: DurationGapResult | None = Field(
+        default=None,
+        description=(
+            "Assets vs the cedant-retained (net) reserve run-off. None when the "
+            "retained reserve is non-positive (a true edge case)."
+        ),
+    )
+
+    @property
+    def is_empty(self) -> bool:
+        """True when neither side is defined (nothing to report for this block)."""
+        return self.reinsurer is None and self.cedant is None
+
+    @property
+    def headline(self) -> DurationGapResult | None:
+        """The reinsurer-view gap when defined, else the cedant-view fallback.
+
+        A reinsurer reads the ceded-reserve gap first; when that is undefined (YRT)
+        the cedant-retained gap is the only defined view and stands in as the
+        headline. ``None`` only when the whole block is empty.
+        """
+        return self.reinsurer if self.reinsurer is not None else self.cedant
+
+
+def _duration_gap_or_none(
+    portfolio: AssetPortfolio,
+    result: CashFlowResult,
+    valuation_yield: float,
+    reserve_valuation_rate: float,
+) -> DurationGapResult | None:
+    """One side of a dual gap: the gap against ``result``'s reserve, or ``None``.
+
+    Builds the reserve-backed liability run-off from ``result`` (Option B,
+    :func:`reserve_liability_cash_flows`) and measures the duration gap against
+    ``portfolio`` at the common ``valuation_yield``. Returns ``None`` — rather than
+    raising — when the liability (or the asset market value) is undefined at that
+    yield: a ``PolarisComputationError`` from a non-positive present value. This is
+    the expected outcome for a side whose reserve is ~0 (e.g. the ceded reserve of
+    a YRT treaty telescopes to zero), so the caller can simply omit that side.
+    """
+    try:
+        liability_cfs = reserve_liability_cash_flows(result, reserve_valuation_rate)
+        return duration_gap(portfolio, liability_cfs, valuation_yield)
+    except PolarisComputationError:
+        return None
+
+
+def dual_duration_gap(
+    portfolio: AssetPortfolio,
+    net_result: CashFlowResult,
+    ceded_result: CashFlowResult | None,
+    valuation_yield: float,
+    reserve_valuation_rate: float,
+) -> DualDurationGap:
+    """Duration gap of ``portfolio`` against both the ceded and net liabilities.
+
+    Computes the **reinsurer-view** gap (assets vs the ``ceded_result`` reserve
+    run-off — the headline) and the **cedant-view** gap (assets vs the
+    ``net_result`` reserve run-off) at one common ``valuation_yield``. The
+    reserve-backed liability streams are built at ``reserve_valuation_rate`` (the
+    reserve's own valuation interest rate) and then *measured* at the common
+    valuation yield, isolating the asset-vs-liability timing mismatch from any
+    yield difference (ADR-111).
+
+    Each side is computed independently and is ``None`` when its liability is
+    undefined at the valuation yield (a non-positive reserve). The reinsurer side
+    is also ``None`` when ``ceded_result`` is ``None`` (a gross / no-treaty run).
+    This never raises for an undefined side — the duration gap is a purely additive
+    reporting block and must never abort a price run.
+
+    Args:
+        portfolio: The backing asset portfolio (the same assets are measured
+            against each side's reserve liability).
+        net_result: The cedant-retained (NET) projection result; its
+            ``reserve_balance`` drives the cedant-side liability.
+        ceded_result: The CEDED projection result, or ``None`` for a gross run.
+            Its ``reserve_balance`` drives the reinsurer-side (headline) liability.
+        valuation_yield: Common effective-annual yield both sides are measured at.
+        reserve_valuation_rate: The reserve's own valuation interest rate, used to
+            build each reserve run-off stream (pass
+            ``ProjectionConfig.effective_valuation_rate``).
+
+    Returns:
+        A :class:`DualDurationGap` carrying the (possibly ``None``) reinsurer and
+        cedant gaps.
+    """
+    reinsurer = (
+        _duration_gap_or_none(portfolio, ceded_result, valuation_yield, reserve_valuation_rate)
+        if ceded_result is not None
+        else None
+    )
+    cedant = _duration_gap_or_none(portfolio, net_result, valuation_yield, reserve_valuation_rate)
+    return DualDurationGap(reinsurer=reinsurer, cedant=cedant)

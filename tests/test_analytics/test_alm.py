@@ -22,8 +22,10 @@ import numpy as np
 import pytest
 
 from polaris_re.analytics.alm import (
+    DualDurationGap,
     DurationGapResult,
     DurationMeasures,
+    dual_duration_gap,
     duration_gap,
     duration_measures,
     liability_cash_flows,
@@ -335,6 +337,89 @@ def test_reserve_runoff_rejects_empty_reserve_balance() -> None:
     )
     with pytest.raises(PolarisValidationError, match="non-empty 1-D reserve_balance"):
         reserve_liability_cash_flows(result, 0.05)
+
+
+# ---------------------------------------------------------------------------
+# dual_duration_gap — reinsurer (ceded) + cedant (net) sides (Slice 4b-2b)
+# ---------------------------------------------------------------------------
+
+_DUAL_PORTFOLIO = AssetPortfolio(
+    bonds=[Bond(face_value=1_000.0, coupon_rate=0.04, coupon_frequency=2, term_months=120)]
+)
+
+
+def test_dual_gap_both_sides_defined_when_both_reserves_positive() -> None:
+    """Coinsurance-like case: both the ceded and net reserves are positive.
+
+    The same portfolio is measured against each side, so the asset measures are
+    identical; only the liability (and thus the gap) differs. Each side matches the
+    single-side ``duration_gap`` on its own reserve run-off.
+    """
+    net = _result_with_reserves(np.array([80.0, 70.0, 55.0, 35.0, 0.0], dtype=np.float64))
+    ceded = _result_with_reserves(np.array([720.0, 630.0, 495.0, 315.0, 0.0], dtype=np.float64))
+    # Measure at the reserve rate so each side's liability PV telescopes exactly to
+    # its opening reserve (the tie only holds when the measurement yield equals the
+    # reserve valuation rate); the single-side parity below is rate-agnostic.
+    y = reserve_rate = 0.05
+
+    dual = dual_duration_gap(_DUAL_PORTFOLIO, net, ceded, y, reserve_rate)
+    assert isinstance(dual, DualDurationGap)
+    assert dual.reinsurer is not None
+    assert dual.cedant is not None
+    assert not dual.is_empty
+
+    # Asset side is identical across the two liabilities.
+    np.testing.assert_allclose(dual.reinsurer.asset_market_value, dual.cedant.asset_market_value)
+    # Each side reproduces the single-side helper on its own reserve.
+    expected_cedant = duration_gap(
+        _DUAL_PORTFOLIO, reserve_liability_cash_flows(net, reserve_rate), y
+    )
+    expected_reinsurer = duration_gap(
+        _DUAL_PORTFOLIO, reserve_liability_cash_flows(ceded, reserve_rate), y
+    )
+    np.testing.assert_allclose(dual.cedant.duration_gap, expected_cedant.duration_gap)
+    np.testing.assert_allclose(dual.reinsurer.duration_gap, expected_reinsurer.duration_gap)
+    # Reinsurer liability PV ties to the (larger) ceded opening reserve.
+    np.testing.assert_allclose(dual.reinsurer.liability_present_value, 720.0, rtol=1e-9)
+    np.testing.assert_allclose(dual.cedant.liability_present_value, 80.0, rtol=1e-9)
+
+
+def test_dual_gap_yrt_ceded_reserve_zero_gives_none_reinsurer() -> None:
+    """A YRT-like ceded reserve of ~0 leaves the reinsurer side undefined."""
+    net = _result_with_reserves(np.array([80.0, 60.0, 40.0, 0.0], dtype=np.float64))
+    ceded = _result_with_reserves(np.zeros(4, dtype=np.float64))
+
+    dual = dual_duration_gap(_DUAL_PORTFOLIO, net, ceded, 0.06, 0.06)
+    assert dual.reinsurer is None
+    assert dual.cedant is not None
+    # Headline falls back to the cedant side when the reinsurer side is undefined.
+    assert dual.headline is dual.cedant
+
+
+def test_dual_gap_no_ceded_result_gives_none_reinsurer() -> None:
+    """A gross / no-treaty run (ceded_result=None) has no reinsurer side."""
+    net = _result_with_reserves(np.array([80.0, 60.0, 40.0, 0.0], dtype=np.float64))
+    dual = dual_duration_gap(_DUAL_PORTFOLIO, net, None, 0.06, 0.06)
+    assert dual.reinsurer is None
+    assert dual.cedant is not None
+
+
+def test_dual_gap_is_empty_when_neither_reserve_is_positive() -> None:
+    """Both reserves non-positive → both sides None and ``is_empty`` is True."""
+    zero = _result_with_reserves(np.zeros(6, dtype=np.float64))
+    dual = dual_duration_gap(_DUAL_PORTFOLIO, zero, zero, 0.06, 0.06)
+    assert dual.reinsurer is None
+    assert dual.cedant is None
+    assert dual.is_empty
+    assert dual.headline is None
+
+
+def test_dual_gap_headline_prefers_reinsurer() -> None:
+    """When both sides are defined the headline is the reinsurer (ceded) side."""
+    net = _result_with_reserves(np.array([80.0, 60.0, 40.0, 0.0], dtype=np.float64))
+    ceded = _result_with_reserves(np.array([700.0, 525.0, 350.0, 0.0], dtype=np.float64))
+    dual = dual_duration_gap(_DUAL_PORTFOLIO, net, ceded, 0.05, 0.05)
+    assert dual.headline is dual.reinsurer
 
 
 # ---------------------------------------------------------------------------

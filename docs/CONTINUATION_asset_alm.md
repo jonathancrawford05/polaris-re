@@ -189,21 +189,44 @@ surface ships first ("config model first, then consumers").
     benefit-outgo view; superseded only as the duration-gap liability.
 
 ##### Slice 4b-2b: reinsurer/cedant dual gap + API surface
-- **Status:** NEXT
-- **Depends on:** Slice 4b-2a merged
-- **Scope:**
-  - Compute the duration gap on **both** the ceded (reinsurer-view, **headline**)
-    and cedant-retained sides using `reserve_liability_cash_flows` on each result.
-    For coinsurance/modco the ceded reserve is proportional and meaningful; for
-    YRT the ceded reserve is ~0 (skip → cedant/retained is the only defined side).
-    Decide the CLI JSON shape (e.g. a `reinsurer` / `cedant` pair under
-    `alm_duration_gap`, or a headline block + a `cedant_side` sibling).
-  - `PriceRequest` gains `asset_portfolio` + `alm_valuation_yield`;
-    `PriceResponse` gains the duration-gap block(s). Reuse the CLI compute path /
-    config-schema shape so the CLI↔API parity tests cover it.
+- **Status:** DONE
+- **Branch:** claude/awesome-bardeen-b4y4g1 (environment-designated)
+- **PR:** (this PR)
+- **What was done:** Added `DualDurationGap` (reinsurer + cedant
+  `DurationGapResult | None`, with `is_empty` / `headline` helpers) and
+  `dual_duration_gap(portfolio, net_result, ceded_result, valuation_yield,
+  reserve_valuation_rate)` to `analytics/alm.py`. It builds the reserve-backed
+  run-off (ADR-113) from **each** side's `reserve_balance` and measures the same
+  portfolio against both — the **reinsurer-view (ceded reserve)** is the headline,
+  the **cedant-view (net reserve)** the secondary. Each side is computed
+  independently and is `None` when its reserve is non-positive at the yield (YRT
+  cedes no reserve → reinsurer side `None`; cedant carries the gap). The CLI's
+  `CohortResult.alm_duration_gap` became a `DualDurationGap`; the JSON shape is now
+  `{reinsurer, cedant}` (a new, non-golden output → goldens byte-identical), and
+  the Rich renderer prints the reinsurer table first then the cedant. The REST
+  `/api/v1/price` surface gained `asset_portfolio` + `alm_valuation_yield` on the
+  request and `alm_duration_gap` on the response, reusing the **same**
+  `dual_duration_gap` compute path (CLI↔API parity). ADR-114. New tests:
+  `tests/test_analytics/test_alm.py` (dual-gap closed forms / None-side cases),
+  `tests/test_cli_alm.py` (dual shape, YRT reinsurer-null, coinsurance both
+  sides), `tests/test_api/test_main.py::TestPriceAlmDurationGap`.
+- **Key decisions:**
+  - **Same portfolio, two liabilities.** The supplied asset portfolio is measured
+    against both the ceded and the retained reserve liability; the asset side is
+    identical across the two, only the liability differs. Distinct cedant-held vs
+    reinsurer-held asset portfolios are out of scope.
+  - **Reinsurer-view is the headline; YRT reinsurer side is `None`.** For YRT the
+    ceded reserve is ~0, so the reinsurer-side liability PV is non-positive and
+    that side is `None`. `headline` falls back to the cedant side.
+  - **CLI JSON shape decision:** a `{reinsurer, cedant}` pair under
+    `alm_duration_gap` (not a flat headline + sibling) — both sides are
+    first-class and either can be `None`.
+  - **One common valuation yield (ADR-111) retained.** A per-side yield (asset
+    book yield on the reinsurer side, discount rate on the cedant side) is a
+    possible future refinement, harvested as NICE-TO-HAVE.
 
 ##### Slice 4b-3: dashboard + Excel presentation surfaces
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 4b-2b merged
 - **Scope:** asset-portfolio input widget + duration-gap display on the
   dashboard, and an ALM block on the Excel deal-pricing export.

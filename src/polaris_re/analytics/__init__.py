@@ -4,11 +4,14 @@ stochastic rates, experience studies, and rate schedule generation.
 """
 
 from polaris_re.analytics.alm import (
+    DualDurationGap,
     DurationGapResult,
     DurationMeasures,
+    dual_duration_gap,
     duration_gap,
     duration_measures,
     liability_cash_flows,
+    reserve_liability_cash_flows,
 )
 from polaris_re.analytics.capital import CapitalResult, LICATCapital, LICATFactors
 from polaris_re.analytics.capital_base import (
@@ -74,6 +77,7 @@ __all__ = [
     "CapitalSchedule",
     "Deal",
     "DealResult",
+    "DualDurationGap",
     "DurationGapResult",
     "DurationMeasures",
     "ExperienceStudy",
@@ -117,7 +121,9 @@ __all__ = [
     "apply_scenario_to_assumptions",
     "build_movement_table",
     "capital_model_for",
+    "dual_duration_gap",
     "duration_gap",
     "duration_measures",
     "liability_cash_flows",
+    "reserve_liability_cash_flows",
 ]

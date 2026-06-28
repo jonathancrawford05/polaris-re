@@ -40,6 +40,7 @@ import polaris_re
 
 if TYPE_CHECKING:
     from polaris_re.analytics.portfolio import Portfolio
+from polaris_re.analytics.alm import DualDurationGap, dual_duration_gap
 from polaris_re.analytics.capital_base import CapitalModelId, capital_model_for
 from polaris_re.analytics.ifrs17 import (
     IFRS17CohortManager,
@@ -60,6 +61,7 @@ from polaris_re.analytics.uq import MonteCarloUQ, UQParameters
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.assumptions.lapse import LapseAssumption
 from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
+from polaris_re.core.asset import AssetPortfolio
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.pipeline import derive_capital_nar
@@ -243,6 +245,31 @@ class PriceRequest(BaseModel):
             "for the product yields HTTP 422."
         ),
     )
+    asset_portfolio: AssetPortfolio | None = Field(
+        default=None,
+        description=(
+            "Optional backing asset portfolio (Asset/ALM epic, Slice 4b). When "
+            "supplied, the response gains an ``alm_duration_gap`` block holding the "
+            "asset-liability duration gap on both the reinsurer-view (ceded "
+            "reserve — the headline) and cedant-view (retained reserve) "
+            "liabilities. The JSON shape mirrors ``AssetPortfolio`` (a non-empty "
+            "list of ``bonds`` plus an optional ``portfolio_id``). Purely additive: "
+            "no priced number changes, and the block is null when omitted. For a "
+            "YRT treaty the ceded reserve is ~0, so the reinsurer side is null and "
+            "the cedant side carries the gap."
+        ),
+    )
+    alm_valuation_yield: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Common flat effective-annual yield both sides of the duration gap are "
+            "measured at (Asset/ALM epic). None (default) defers to ``discount_rate`` "
+            "so a single rate isolates the asset-vs-liability timing mismatch. Used "
+            "only when ``asset_portfolio`` is supplied."
+        ),
+    )
 
     @model_validator(mode="after")
     def _available_capital_requires_capital_model(self) -> "PriceRequest":
@@ -316,6 +343,13 @@ class PriceResponse(BaseModel):
     # request's reserve_basis so a client can confirm which basis drove the
     # reserve, NAR, and profit numbers in this response.
     reserve_basis: ReserveBasis = ReserveBasis.NET_PREMIUM
+    # Asset-liability duration gap (Asset/ALM epic, Slice 4b-2b). Populated only
+    # when ``asset_portfolio`` was supplied; None otherwise (the block is purely
+    # additive, so existing responses are unchanged except for this null field).
+    # Carries the reinsurer-view (ceded reserve — headline) and cedant-view
+    # (retained reserve) gaps; either side is null when its reserve is ~0 (e.g. the
+    # ceded reserve of a YRT treaty).
+    alm_duration_gap: DualDurationGap | None = None
 
 
 class ScenarioRequest(BaseModel):
@@ -955,6 +989,27 @@ def price(request: PriceRequest) -> PriceResponse:
             ).run()
         else:
             reinsurer_sufficiency = cedant_sufficiency
+
+        # Asset-liability duration gap (Asset/ALM epic, Slice 4b-2b). Purely
+        # additive: computed only when an asset portfolio is supplied. Both sides
+        # are measured at one common flat yield — the explicit
+        # ``alm_valuation_yield`` when given, else the ``discount_rate`` — and the
+        # reserve-backed liability streams are built at the reserve's own valuation
+        # rate (``effective_valuation_rate``). The reinsurer-view (ceded reserve) is
+        # the headline; for a YRT treaty the ceded reserve is ~0, so that side is
+        # null and the cedant-view (net reserve) carries the gap. Mirrors the CLI
+        # compute path (``dual_duration_gap``) so the two surfaces stay in parity.
+        alm_gap: DualDurationGap | None = None
+        if request.asset_portfolio is not None:
+            gap_yield = (
+                request.alm_valuation_yield
+                if request.alm_valuation_yield is not None
+                else request.discount_rate
+            )
+            dual = dual_duration_gap(
+                request.asset_portfolio, net, ceded, gap_yield, config.effective_valuation_rate
+            )
+            alm_gap = None if dual.is_empty else dual
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -994,6 +1049,7 @@ def price(request: PriceRequest) -> PriceResponse:
         n_policies=len(request.policies),
         projection_months=config.projection_months,
         reserve_basis=config.reserve_basis,
+        alm_duration_gap=alm_gap,
     )
 
 

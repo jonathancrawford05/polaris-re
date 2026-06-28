@@ -16,8 +16,9 @@
 > too large for one session (five surfaces + a notebook), so it is further
 > re-decomposed into **4b-1** (CLI input + duration-gap output, ADR-112 —
 > SHIPPED), **4b-2a** (reserve-backed Option-B liability stream + CLI rewire,
-> ADR-113 — SHIPPED), **4b-2b** (reinsurer/cedant dual gap + API — NEXT),
-> **4b-3** (dashboard + Excel), and **4b-4** (validation notebook). No prior
+> ADR-113 — SHIPPED), **4b-2b** (reinsurer/cedant dual gap + API surface,
+> ADR-114 — SHIPPED), **4b-3** (dashboard + Excel — NEXT), and **4b-4**
+> (validation notebook). No prior
 > asset/ALM code existed before this epic.
 > Running log: `docs/CONTINUATION_asset_alm.md`.
 >
@@ -160,10 +161,14 @@ surfaces + a notebook is more than one session (same split as Epic 3's 4c).
     GAAP from `reserve_balance` alone). CLI gap rewired onto it on the retained
     (`net`) reserve. Both golden cohorts now carry a block (the 4b-1 WHOLE_LIFE
     skip resolved); the skip is now a non-positive-opening-reserve edge case.
-  - **4b-2b — reinsurer/cedant dual gap + API surface (NEXT).** Gap on both the
-    ceded (reinsurer-view, headline) and cedant-retained sides; mirror on
-    `/api/v1/price` with CLI↔API parity.
-  - **4b-3 — dashboard + Excel presentation surfaces.**
+  - **4b-2b — reinsurer/cedant dual gap + API surface ✅ SHIPPED (ADR-114).**
+    `DualDurationGap` + `dual_duration_gap` measure the same portfolio against both
+    the ceded (reinsurer-view, headline) and cedant-retained reserve liabilities;
+    YRT reinsurer side is `None` (ceded reserve ~0). CLI `alm_duration_gap` is now
+    a `{reinsurer, cedant}` block; `/api/v1/price` gained `asset_portfolio` +
+    `alm_valuation_yield` (request) and `alm_duration_gap` (response), reusing the
+    CLI compute path for parity.
+  - **4b-3 — dashboard + Excel presentation surfaces (NEXT).**
   - **4b-4 — ALM validation notebook.**
 
 ## 4. Key constraints (from CLAUDE.md / ARCHITECTURE.md)

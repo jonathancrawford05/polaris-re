@@ -559,3 +559,128 @@ class TestIFRS17MovementEndpoint:
             json=self._payload(policies=[MOVEMENT_POLICY_2025, bad]),
         )
         assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# /api/v1/price — asset-liability duration gap (Asset/ALM Slice 4b-2b)
+# ---------------------------------------------------------------------------
+
+# A seasoned policy carries a positive reserve, so the reserve-backed liability
+# discounts to a positive PV and the duration gap is defined (a brand-new
+# duration-0 policy has a ~0 opening reserve and is the empty edge case).
+SEASONED_POLICY = {
+    "policy_id": "ALM001",
+    "issue_age": 40,
+    "attained_age": 45,
+    "sex": "M",
+    "smoker": False,
+    "underwriting_class": "PREFERRED",
+    "face_amount": 1_000_000.0,
+    "annual_premium": 2_000.0,
+    "policy_term": 20,
+    "duration_inforce": 60,
+    "issue_date": "2021-01-01",
+    "valuation_date": "2026-01-01",
+}
+
+# A single 10-year zero-coupon bond carried at par. Its asset duration is a closed
+# form (Macaulay = term in years; modified = Macaulay / (1 + y)), independent of
+# the liability.
+_ALM_PORTFOLIO = {
+    "bonds": [
+        {
+            "face_value": 1_000_000.0,
+            "coupon_rate": 0.0,
+            "coupon_frequency": 1,
+            "term_months": 120,
+            "bond_id": "ZERO-10Y",
+        }
+    ],
+    "portfolio_id": "API-ALM",
+}
+
+
+class TestPriceAlmDurationGap:
+    """The /api/v1/price ALM duration-gap block (asset_portfolio input)."""
+
+    def _price(self, **overrides) -> dict:
+        payload = {
+            "policies": [SEASONED_POLICY],
+            "product_type": "WHOLE_LIFE",
+            "treaty_type": "Coinsurance",
+            "cession_pct": 0.9,
+            "asset_portfolio": _ALM_PORTFOLIO,
+        }
+        payload.update(overrides)
+        response = client.post("/api/v1/price", json=payload)
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    def test_no_portfolio_leaves_block_null(self) -> None:
+        """Omitting asset_portfolio keeps the response additive (block is null)."""
+        data = self._price(asset_portfolio=None)
+        assert data["alm_duration_gap"] is None
+
+    def test_coinsurance_defines_both_sides(self) -> None:
+        data = self._price()
+        block = data["alm_duration_gap"]
+        assert block is not None
+        assert block["reinsurer"] is not None
+        assert block["cedant"] is not None
+        # Same assets on each side → identical asset market value.
+        assert block["reinsurer"]["asset_market_value"] == block["cedant"]["asset_market_value"]
+
+    def test_yrt_reinsurer_side_is_none(self) -> None:
+        """YRT cedes no reserve, so the reinsurer (ceded) side is undefined."""
+        block = self._price(treaty_type="YRT")["alm_duration_gap"]
+        assert block is not None
+        assert block["reinsurer"] is None
+        assert block["cedant"] is not None
+        assert block["cedant"]["liability_present_value"] > 0.0
+
+    def test_asset_side_is_closed_form(self) -> None:
+        """The 10-year zero's modified duration is Macaulay / (1 + y)."""
+        block = self._price(treaty_type="YRT", discount_rate=0.06)["alm_duration_gap"]
+        cedant = block["cedant"]
+        assert cedant["asset_macaulay_duration"] == pytest.approx(10.0)
+        assert cedant["asset_modified_duration"] == pytest.approx(10.0 / 1.06)
+        assert cedant["valuation_yield"] == pytest.approx(0.06)
+
+    def test_alm_valuation_yield_override(self) -> None:
+        """An explicit alm_valuation_yield overrides the discount-rate default."""
+        block = self._price(treaty_type="YRT", discount_rate=0.06, alm_valuation_yield=0.08)[
+            "alm_duration_gap"
+        ]
+        cedant = block["cedant"]
+        assert cedant["valuation_yield"] == pytest.approx(0.08)
+        assert cedant["asset_modified_duration"] == pytest.approx(10.0 / 1.08)
+
+    def test_priced_numbers_unchanged_by_asset_side(self) -> None:
+        """The asset side is purely additive — no priced number moves."""
+        without = self._price(treaty_type="YRT", asset_portfolio=None)
+        with_assets = self._price(treaty_type="YRT")
+        without.pop("alm_duration_gap", None)
+        with_assets.pop("alm_duration_gap", None)
+        assert without == with_assets
+
+    def test_invalid_bond_rejected_422(self) -> None:
+        """A bond whose coupon frequency does not divide 12 is rejected (422)."""
+        bad_portfolio = {
+            "bonds": [
+                {
+                    "face_value": 1_000.0,
+                    "coupon_rate": 0.04,
+                    "coupon_frequency": 5,
+                    "term_months": 60,
+                }
+            ]
+        }
+        response = client.post(
+            "/api/v1/price",
+            json={
+                "policies": [SEASONED_POLICY],
+                "product_type": "WHOLE_LIFE",
+                "asset_portfolio": bad_portfolio,
+            },
+        )
+        assert response.status_code == 422
