@@ -15,8 +15,10 @@
 > CLI/API/dashboard/Excel surfacing + validation notebook). 4b itself proved
 > too large for one session (five surfaces + a notebook), so it is further
 > re-decomposed into **4b-1** (CLI input + duration-gap output, ADR-112 —
-> SHIPPED), **4b-2** (API — NEXT), **4b-3** (dashboard + Excel), and **4b-4**
-> (validation notebook). No prior asset/ALM code existed before this epic.
+> SHIPPED), **4b-2a** (reserve-backed Option-B liability stream + CLI rewire,
+> ADR-113 — SHIPPED), **4b-2b** (reinsurer/cedant dual gap + API — NEXT),
+> **4b-3** (dashboard + Excel), and **4b-4** (validation notebook). No prior
+> asset/ALM code existed before this epic.
 > Running log: `docs/CONTINUATION_asset_alm.md`.
 >
 > **Source.** `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` Tier-C item
@@ -151,8 +153,16 @@ surfaces + a notebook is more than one session (same split as Epic 3's 4c).
     byte-identical goldens); a cohort with a non-positive liability PV is
     skipped, never aborting the run. Surfaced the open canonical-liability-stream
     question concretely (golden WHOLE_LIFE skipped at 6%).
-  - **4b-2 — API input + duration-gap output (NEXT).** Mirror 4b-1 on
-    `/api/v1/price`; resolve the canonical liability stream with the maintainer.
+  - **4b-2a — reserve-backed Option-B liability stream + CLI rewire ✅ SHIPPED
+    (ADR-113).** `reserve_liability_cash_flows` derives the liability as the
+    reserve run-off (release) stream, so PV ties to the held reserve;
+    basis-agnostic (the telescoping identity holds for NET_PREMIUM / CRVM / VM20 /
+    GAAP from `reserve_balance` alone). CLI gap rewired onto it on the retained
+    (`net`) reserve. Both golden cohorts now carry a block (the 4b-1 WHOLE_LIFE
+    skip resolved); the skip is now a non-positive-opening-reserve edge case.
+  - **4b-2b — reinsurer/cedant dual gap + API surface (NEXT).** Gap on both the
+    ceded (reinsurer-view, headline) and cedant-retained sides; mirror on
+    `/api/v1/price` with CLI↔API parity.
   - **4b-3 — dashboard + Excel presentation surfaces.**
   - **4b-4 — ALM validation notebook.**
 
@@ -212,7 +222,14 @@ Slice 3 lands.
   B** — the liability is benefits + expenses − **net / valuation** premiums, so
   its PV ties to the **reserve**; (3) derive it on the deal's **`reserve_basis`**
   (NET_PREMIUM / CRVM / VM20 / GAAP); (4) keep the single common valuation yield
-  defaulting to `discount_rate`. This is an `analytics/alm.py` contract change
-  (`liability_cash_flows`) plus the API surface — likely split 4b-2a (stream +
-  CLI rewire) / 4b-2b (API). Recorded in ADR-112; running plan in
-  `docs/CONTINUATION_asset_alm.md`.
+  defaulting to `discount_rate`. Recorded in ADR-112; running plan in
+  `docs/CONTINUATION_asset_alm.md`. **Status:** the `analytics/alm.py`
+  contract change split into **4b-2a — SHIPPED (ADR-113):**
+  `reserve_liability_cash_flows`, the reserve run-off (release) stream whose PV
+  ties to the held reserve. The implementation realises Option B via the
+  **reserve-runoff identity** rather than reconstructing net/valuation premiums
+  per basis: the stream is `L_t = R_t·a − R_{t+1}` from `reserve_balance` alone,
+  which telescopes to the opening reserve for *any* reserve series — so it is
+  basis-agnostic (point 3 holds without per-basis premium logic). 4b-2a rewired
+  the CLI gap onto it on the cedant-retained (`net`) reserve; the **dual
+  reinsurer/cedant headline (point 1) + the API surface are 4b-2b (NEXT).**

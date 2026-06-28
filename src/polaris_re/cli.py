@@ -34,7 +34,11 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 import polaris_re
-from polaris_re.analytics.alm import DurationGapResult, duration_gap, liability_cash_flows
+from polaris_re.analytics.alm import (
+    DurationGapResult,
+    duration_gap,
+    reserve_liability_cash_flows,
+)
 from polaris_re.analytics.premium_sufficiency import (
     PremiumSufficiencyResult,
     PremiumSufficiencyTester,
@@ -492,22 +496,33 @@ def _price_single_cohort(
     # sides are discounted at one common flat yield — the explicit
     # ``alm_valuation_yield`` when given, else the deal ``discount_rate`` — so
     # the gap isolates the asset-vs-liability timing mismatch from any yield
-    # difference. The liability stream is the cohort's net benefit outgo
-    # (``analytics/alm.liability_cash_flows``).
+    # difference.
+    #
+    # The liability is the **reserve-backed** run-off stream (Option B, ADR-113):
+    # ``reserve_liability_cash_flows`` derives the expected benefits-less-
+    # valuation-premiums cash flow from the cohort's held reserve, so its present
+    # value ties to the reserve the assets actually back. The stream itself is
+    # built at the reserve's own valuation rate (``effective_valuation_rate``);
+    # the duration is then measured at the common ALM yield. The liability is the
+    # cedant-retained (``net``) reserve here — for the golden YRT path ``net``
+    # carries the full reserve (YRT cedes no reserve); the explicit reinsurer-side
+    # (ceded) gap is the API slice's concern (4b-2b).
     alm_gap: DurationGapResult | None = None
     if asset_portfolio is not None:
         gap_yield = (
             alm_valuation_yield if alm_valuation_yield is not None else inputs.deal.discount_rate
         )
         try:
-            alm_gap = duration_gap(asset_portfolio, liability_cash_flows(net), gap_yield)
+            liability_cfs = reserve_liability_cash_flows(net, config.effective_valuation_rate)
+            alm_gap = duration_gap(asset_portfolio, liability_cfs, gap_yield)
         except PolarisComputationError as exc:
             # The duration gap is a purely additive reporting block — it must
-            # never abort a price run. A cohort whose net benefit-outgo stream
-            # discounts to a non-positive present value at ``gap_yield`` (e.g. a
-            # premium-paying block still building reserves, where premiums
-            # dominate benefits in PV) has an undefined liability duration; skip
-            # the block for that cohort and warn rather than failing pricing.
+            # never abort a price run. With the reserve-backed stream the
+            # liability present value equals the opening reserve, so this skip is
+            # now a true edge case: a cohort with a non-positive opening reserve
+            # (e.g. a brand-new block whose net-premium ``0V`` is zero) has an
+            # undefined liability duration. Skip the block for that cohort and
+            # warn rather than failing pricing.
             console.print(
                 f"[yellow]Warning:[/yellow] duration gap skipped for cohort {cohort_id}: {exc}"
             )

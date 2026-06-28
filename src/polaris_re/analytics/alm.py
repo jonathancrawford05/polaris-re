@@ -47,6 +47,7 @@ __all__ = [
     "duration_gap",
     "duration_measures",
     "liability_cash_flows",
+    "reserve_liability_cash_flows",
 ]
 
 
@@ -174,7 +175,15 @@ def duration_measures(cash_flows: np.ndarray, annual_yield: float) -> DurationMe
 
 def liability_cash_flows(result: CashFlowResult) -> np.ndarray:
     """
-    Net benefit-outgo stream the asset book must fund, from a projection result.
+    Net **gross-premium** benefit-outgo stream from a projection result.
+
+    .. note::
+       Superseded as the duration-gap liability by :func:`reserve_liability_cash_flows`
+       (the reserve-backed Option-B stream) for the CLI / API surfaces. This
+       function subtracts *gross* (loaded) premiums, so for a premium-paying /
+       reserve-building block its present value can be non-positive (premiums
+       dominate benefits in PV) and the liability duration is then undefined. It
+       is retained as a benefit-outgo view and for run-off-shaped analysis.
 
     Returns ``death_claims + lapse_surrenders + expenses - gross_premiums`` as a
     ``(T,)`` float64 array — the net cash the backing assets have to pay out each
@@ -196,6 +205,73 @@ def liability_cash_flows(result: CashFlowResult) -> np.ndarray:
         + np.asarray(result.expenses, dtype=np.float64)
         - np.asarray(result.gross_premiums, dtype=np.float64)
     )
+
+
+def reserve_liability_cash_flows(
+    result: CashFlowResult,
+    reserve_valuation_rate: float,
+) -> np.ndarray:
+    """
+    Reserve run-off (release) stream that the backing assets must fund.
+
+    This is the **reserve-backed** liability stream (Option B, the convention the
+    maintainer settled on 2026-06-27 — see ``docs/CONTINUATION_asset_alm.md``).
+    Unlike :func:`liability_cash_flows`, which subtracts the *gross* (loaded)
+    premiums and so produces a pricing/profit stream whose present value need not
+    tie to anything, this stream is derived directly from the held reserve and
+    has the defining property that **its present value at the reserve valuation
+    rate equals the opening held reserve** (``result.reserve_balance[0]``). Its
+    modified duration is therefore the interest-rate sensitivity of the reserve
+    the assets back — the liability side of an asset-liability duration gap.
+
+    Construction (the standard IFRS-17 / embedded-value "expected liability cash
+    flow"). Let ``R_t = reserve_balance[t]`` be the in-force-weighted reserve held
+    at the start of month ``t`` (``t = 0 .. T-1``; ``R_0`` is the opening reserve),
+    and ``a = (1 + reserve_valuation_rate) ** (1/12)`` the engine's monthly
+    accumulation factor at the reserve's own valuation interest rate. The cash the
+    reserve fund throws off in month ``t+1`` — expected benefits and expenses less
+    expected valuation (net) premiums on the valuation basis — is the reserve
+    rolled forward with interest, less what is held back for the next month:
+
+        L_t = R_t * a - R_{t+1}      (months 1 .. T-1)
+        L_{T-1} = R_{T-1} * a        (final month: the last reserve runs off)
+
+    Returned as a ``(T,)`` float64 array aligned to :func:`duration_measures`'s
+    convention (``L_t`` is the cash flow at month ``t + 1``, discounted by
+    ``v ** (t + 1)``). Discounting that stream at ``reserve_valuation_rate``
+    telescopes exactly to ``R_0`` (verified in tests on every reserve basis):
+
+        Σ_t v^(t+1) * L_t = R_0,    v = 1 / a
+
+    Early entries can be **negative** (a building reserve receives more valuation
+    premium than it pays in benefits — a net inflow), but a block carrying a
+    positive opening reserve discounts to a positive total present value, which is
+    what :func:`duration_measures` requires. The premium-paying / reserve-building
+    blocks that the gross-premium :func:`liability_cash_flows` left undefined
+    (e.g. a whole-life block) therefore now have a well-defined liability duration;
+    the graceful skip becomes a true edge case (a non-positive opening reserve).
+
+    The interest factor ``a`` uses the **reserve's** valuation rate, not the
+    common ALM valuation yield: the stream is intrinsic to the held reserve, and
+    only the subsequent duration *measurement* uses the common yield. Pass
+    ``ProjectionConfig.effective_valuation_rate`` here.
+
+    Raises ``PolarisValidationError`` if ``result.reserve_balance`` is not a
+    non-empty 1-D vector (e.g. a result built without a reserve series).
+    """
+    reserves = np.asarray(result.reserve_balance, dtype=np.float64)
+    if reserves.ndim != 1 or reserves.shape[0] == 0:
+        raise PolarisValidationError(
+            "reserve_liability_cash_flows requires a non-empty 1-D reserve_balance; "
+            f"got shape {reserves.shape}. (A reserve-backed liability duration needs "
+            "the held reserve series.)"
+        )
+
+    a = (1.0 + reserve_valuation_rate) ** (1.0 / 12.0)
+    liability = np.empty_like(reserves)
+    liability[:-1] = reserves[:-1] * a - reserves[1:]
+    liability[-1] = reserves[-1] * a
+    return liability
 
 
 def duration_gap(
