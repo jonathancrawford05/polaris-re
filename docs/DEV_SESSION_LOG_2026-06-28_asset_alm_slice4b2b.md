@@ -41,7 +41,7 @@ be defined). The API `PriceRequest` had no `asset_portfolio` field. Premise hold
 | 4a | `analytics/alm.py` duration-gap core | ✅ Done | #110 |
 | 4b-1 | CLI asset-portfolio input + duration-gap output | ✅ Done | #111 |
 | 4b-2a | Reserve-backed liability stream + CLI rewire | ✅ Done | #112 |
-| 4b-2b | Reinsurer/cedant dual gap + API surface | ✅ Done | (this PR) |
+| 4b-2b | Reinsurer/cedant dual gap + API surface | ✅ Done | #113 |
 | 4b-3 | Dashboard + Excel presentation surfaces | ⏳ Next | — |
 | 4b-4 | ALM validation notebook | 🔲 Planned | — |
 

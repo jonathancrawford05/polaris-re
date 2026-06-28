@@ -191,7 +191,7 @@ surface ships first ("config model first, then consumers").
 ##### Slice 4b-2b: reinsurer/cedant dual gap + API surface
 - **Status:** DONE
 - **Branch:** claude/awesome-bardeen-b4y4g1 (environment-designated)
-- **PR:** (this PR)
+- **PR:** #113 (this PR)
 - **What was done:** Added `DualDurationGap` (reinsurer + cedant
   `DurationGapResult | None`, with `is_empty` / `headline` helpers) and
   `dual_duration_gap(portfolio, net_result, ceded_result, valuation_yield,
