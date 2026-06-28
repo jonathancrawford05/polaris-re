@@ -15,6 +15,12 @@ to the **reserve-backed** run-off stream (Option B, ADR-113), whose present valu
 ties to the held reserve. Both golden cohorts (TERM and WHOLE_LIFE) carry a
 positive reserve, so both now carry a duration-gap block — the graceful skip is
 now a true edge case (a non-positive opening reserve, e.g. a brand-new block).
+
+Slice 4b-2b made ``alm_duration_gap`` a **dual** block with a ``reinsurer`` (ceded
+reserve — the headline) and a ``cedant`` (retained reserve) side (ADR-114). The
+golden config uses a **YRT** treaty, which cedes no reserve, so the ceded reserve
+is ~0 and the reinsurer side is ``None``; the cedant side carries the gap. The
+closed-form asset checks therefore anchor on the cedant (headline-fallback) side.
 """
 
 import json
@@ -135,13 +141,27 @@ class TestConfigParsing:
             _build_pipeline_from_config(cfg)
 
 
-def _gaps_by_product(payload: dict) -> dict:  # type: ignore[type-arg]
-    """Map product_type → duration-gap block for cohorts that have one."""
+def _blocks_by_product(payload: dict) -> dict:  # type: ignore[type-arg]
+    """Map product_type → dual duration-gap block for cohorts that have one."""
     return {
         c["product_type"]: c["alm_duration_gap"]
         for c in payload["cohorts"]
         if "alm_duration_gap" in c
     }
+
+
+def _headline(block: dict) -> dict:  # type: ignore[type-arg]
+    """The headline side of a dual block: reinsurer when defined, else cedant.
+
+    The golden config is YRT (ceded reserve ~0), so the reinsurer side is None and
+    this returns the cedant-view gap.
+    """
+    return block["reinsurer"] if block["reinsurer"] is not None else block["cedant"]
+
+
+def _gaps_by_product(payload: dict) -> dict:  # type: ignore[type-arg]
+    """Map product_type → headline duration-gap side for cohorts that have one."""
+    return {pt: _headline(block) for pt, block in _blocks_by_product(payload).items()}
 
 
 class TestDurationGapOutput:
@@ -208,7 +228,7 @@ class TestValuationYieldOverride:
             tmp_path, _config_with_asset_portfolio(tmp_path, valuation_yield=override)
         )
         expected_modified = 10.0 / (1.0 + override)
-        gaps = [c["alm_duration_gap"] for c in payload["cohorts"] if "alm_duration_gap" in c]
+        gaps = list(_gaps_by_product(payload).values())
         assert gaps, "expected at least one cohort with a duration-gap block"
         for gap in gaps:
             np.testing.assert_allclose(gap["valuation_yield"], override)
@@ -290,6 +310,57 @@ class TestSingleCohortTopLevelMirror:
         payload = json.loads(out.read_text())
         assert payload["summary"]["n_cohorts"] == 1
         assert "alm_duration_gap" in payload
+        # TERM under the golden YRT treaty: reinsurer side is None (ceded reserve
+        # ~0), cedant side carries the gap.
+        block = payload["alm_duration_gap"]
+        assert block["reinsurer"] is None
         np.testing.assert_allclose(
-            payload["alm_duration_gap"]["asset_modified_duration"], _EXPECTED_ASSET_MODIFIED
+            _headline(block)["asset_modified_duration"], _EXPECTED_ASSET_MODIFIED
         )
+
+
+class TestDualGapShape:
+    """The ``alm_duration_gap`` block carries reinsurer + cedant sides (4b-2b)."""
+
+    def test_yrt_reinsurer_side_is_none_cedant_defined(self, tmp_path: Path) -> None:
+        """A YRT treaty cedes no reserve, so the reinsurer (ceded) side is None."""
+        blocks = _blocks_by_product(_run_price(tmp_path, _config_with_asset_portfolio(tmp_path)))
+        assert blocks, "expected at least one cohort with a duration-gap block"
+        for block in blocks.values():
+            assert set(block) == {"reinsurer", "cedant"}
+            assert block["reinsurer"] is None
+            assert block["cedant"] is not None
+            assert block["cedant"]["liability_present_value"] > 0.0
+
+    def _coins_config(self, tmp_path: Path) -> Path:
+        """Golden flat config switched to Coinsurance with an asset portfolio."""
+        tmp_path.mkdir(parents=True, exist_ok=True)
+        raw = json.loads(GOLDEN_CONFIG_FLAT.read_text())
+        raw.setdefault("deal", {})["treaty_type"] = "Coinsurance"
+        raw["deal"]["asset_portfolio"] = _ZERO_BOND_PORTFOLIO
+        cfg = tmp_path / "coins_config.json"
+        cfg.write_text(json.dumps(raw))
+        return cfg
+
+    def test_coinsurance_defines_both_sides(self, tmp_path: Path) -> None:
+        """Coinsurance cedes a proportional reserve, so both sides are defined.
+
+        The asset side is identical on both sides (same supplied portfolio); the
+        reinsurer (ceded) liability is larger than the cedant-retained one for a
+        90% cession, so the two sides differ only through the liability.
+        """
+        blocks = _blocks_by_product(_run_price(tmp_path, self._coins_config(tmp_path)))
+        assert blocks
+        for block in blocks.values():
+            assert block["reinsurer"] is not None
+            assert block["cedant"] is not None
+            # Same assets measured on each side → identical asset MV.
+            np.testing.assert_allclose(
+                block["reinsurer"]["asset_market_value"],
+                block["cedant"]["asset_market_value"],
+            )
+            # 90% cession → ceded reserve dominates the retained reserve.
+            assert (
+                block["reinsurer"]["liability_present_value"]
+                > block["cedant"]["liability_present_value"]
+            )

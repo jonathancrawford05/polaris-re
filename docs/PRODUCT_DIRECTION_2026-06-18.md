@@ -840,7 +840,7 @@ Items harvested from completed/in-flight work by the daily-dev routine
   first-deal correctness → NICE-TO-HAVE.
   *Source: ADR-107 Out of scope + CONTINUATION_cross_jurisdiction_capital Open Questions "Factor calibration sign-off" (1st-order — follow-up of the originally-planned Epic 3 capital feature).*
 
-- **IMPORTANT — Canonical liability cash-flow stream for the ALM duration gap
+- ~~**IMPORTANT — Canonical liability cash-flow stream for the ALM duration gap
   (Asset/ALM Slice 4b).** Slice 4a (ADR-111) shipped the `analytics/alm.py`
   duration-gap core. Its `liability_cash_flows(result)` provides a *documented
   default* — net benefit outgo (`death_claims + lapse_surrenders + expenses -
@@ -850,7 +850,13 @@ Items harvested from completed/in-flight work by the daily-dev routine
   affects which obligation stream the assets are matched against. This picks the
   number a committee reads off the ALM block, so it is correctness-relevant on the
   Modco/coinsurance path → IMPORTANT. Resolve with the maintainer when wiring the
-  Slice 4b surface.
+  Slice 4b surface.~~ — **SHIPPED** (Slices 4b-2a + 4b-2b): the maintainer settled
+  the convention (Option B reserve-backed liability, reinsurer-view headline) and
+  it is fully implemented. 4b-2a (ADR-113) made the liability the reserve run-off
+  stream (PV ties to the held reserve, basis-agnostic across NET_PREMIUM / CRVM /
+  VM20 / GAAP); 4b-2b (ADR-114) computes the gap on **both** the ceded
+  (reinsurer-view, headline) and cedant-retained sides on each side's reserve, on
+  the CLI and the `/api/v1/price` surface.
   *Source: ADR-111 Out of scope + DEV_SESSION_LOG_2026-06-27_asset_alm_slice4a Open Questions (1st-order — follow-up of the originally-planned Epic 4 Slice 4 surfacing).*
 
 - **NICE-TO-HAVE — Asset-yield vs liability-discount-rate split in the duration
@@ -862,6 +868,18 @@ Items harvested from completed/in-flight work by the daily-dev routine
   precision of an analytics output, not first-deal pricing correctness, and is a
   refinement of the deliberate flat-yield design choice → NICE-TO-HAVE.
   *Source: ADR-111 + DEV_SESSION_LOG_2026-06-27_asset_alm_slice4a Open Questions (2nd-order — follow-up of the single-valuation-yield design choice, itself the 1st-order Slice 4a decision).*
+
+- **NICE-TO-HAVE — Distinct cedant-held vs reinsurer-held asset portfolios in the
+  duration gap.** Slice 4b-2b (ADR-114) measures **one** supplied `AssetPortfolio`
+  against both the ceded (reinsurer-view) and cedant-retained reserve liabilities —
+  the asset side is identical across the two sides; only the liability differs. In
+  reality the cedant and reinsurer hold different asset books (especially under
+  modco, where the cedant retains the assets), so a true cedant-side gap would take
+  a separate cedant portfolio. Supporting a second portfolio would let the dual gap
+  reflect each party's actual assets rather than a shared book. Affects the
+  precision of the secondary (cedant) ALM view, not the headline reinsurer gap or
+  first-deal pricing correctness → NICE-TO-HAVE.
+  *Source: ADR-114 Out of scope (1st-order — follow-up of the originally-planned Epic 4 Slice 4 surfacing).*
 
 ## Carried Forward
 

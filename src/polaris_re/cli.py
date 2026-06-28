@@ -35,9 +35,9 @@ from rich.table import Table
 
 import polaris_re
 from polaris_re.analytics.alm import (
+    DualDurationGap,
     DurationGapResult,
-    duration_gap,
-    reserve_liability_cash_flows,
+    dual_duration_gap,
 )
 from polaris_re.analytics.premium_sufficiency import (
     PremiumSufficiencyResult,
@@ -47,7 +47,7 @@ from polaris_re.analytics.profit_test import ProfitResultWithCapital, ProfitTest
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.core.asset import AssetPortfolio
 from polaris_re.core.cashflow import CashFlowResult
-from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
+from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
 
 if TYPE_CHECKING:
@@ -101,8 +101,9 @@ class CohortResult:
     # Asset-liability duration gap (Asset/ALM epic, Slice 4b). Populated only
     # when an ``AssetPortfolio`` is supplied via ``deal.asset_portfolio``;
     # ``None`` otherwise (the duration gap is a purely additive reporting
-    # block, so default runs are byte-identical).
-    alm_duration_gap: DurationGapResult | None = None
+    # block, so default runs are byte-identical). Slice 4b-2b carries the
+    # reinsurer-view (headline) and cedant-view gaps as a ``DualDurationGap``.
+    alm_duration_gap: DualDurationGap | None = None
 
 
 app = typer.Typer(
@@ -499,33 +500,35 @@ def _price_single_cohort(
     # difference.
     #
     # The liability is the **reserve-backed** run-off stream (Option B, ADR-113):
-    # ``reserve_liability_cash_flows`` derives the expected benefits-less-
-    # valuation-premiums cash flow from the cohort's held reserve, so its present
-    # value ties to the reserve the assets actually back. The stream itself is
-    # built at the reserve's own valuation rate (``effective_valuation_rate``);
-    # the duration is then measured at the common ALM yield. The liability is the
-    # cedant-retained (``net``) reserve here — for the golden YRT path ``net``
-    # carries the full reserve (YRT cedes no reserve); the explicit reinsurer-side
-    # (ceded) gap is the API slice's concern (4b-2b).
-    alm_gap: DurationGapResult | None = None
+    # the stream's present value ties to the reserve the assets actually back. The
+    # stream is built at the reserve's own valuation rate
+    # (``effective_valuation_rate``); the duration is then measured at the common
+    # ALM yield. Slice 4b-2b computes the gap on **both** sides
+    # (``dual_duration_gap``): the **reinsurer-view** (ceded reserve — the
+    # headline) and the **cedant-view** (retained ``net`` reserve). For the golden
+    # YRT path the ceded reserve is ~0, so the reinsurer side is ``None`` and the
+    # cedant side carries the gap; a proportional treaty (coinsurance / modco)
+    # carries both. Either side that is undefined at the valuation yield is
+    # silently omitted — the block never aborts pricing.
+    alm_gap: DualDurationGap | None = None
     if asset_portfolio is not None:
         gap_yield = (
             alm_valuation_yield if alm_valuation_yield is not None else inputs.deal.discount_rate
         )
-        try:
-            liability_cfs = reserve_liability_cash_flows(net, config.effective_valuation_rate)
-            alm_gap = duration_gap(asset_portfolio, liability_cfs, gap_yield)
-        except PolarisComputationError as exc:
-            # The duration gap is a purely additive reporting block — it must
-            # never abort a price run. With the reserve-backed stream the
-            # liability present value equals the opening reserve, so this skip is
-            # now a true edge case: a cohort with a non-positive opening reserve
-            # (e.g. a brand-new block whose net-premium ``0V`` is zero) has an
-            # undefined liability duration. Skip the block for that cohort and
-            # warn rather than failing pricing.
+        dual = dual_duration_gap(
+            asset_portfolio, net, ceded, gap_yield, config.effective_valuation_rate
+        )
+        if dual.is_empty:
+            # Both sides undefined (a true edge case: non-positive reserve on
+            # both the ceded and retained sides). The additive block carries
+            # nothing for this cohort — warn and omit rather than fail pricing.
             console.print(
-                f"[yellow]Warning:[/yellow] duration gap skipped for cohort {cohort_id}: {exc}"
+                f"[yellow]Warning:[/yellow] duration gap skipped for cohort {cohort_id}: "
+                "neither the ceded nor the retained reserve has a positive present value "
+                f"at yield {gap_yield}."
             )
+        else:
+            alm_gap = dual
 
     return CohortResult(
         product_type=cohort_id,
@@ -796,17 +799,15 @@ def _append_capital_rows(table: Table, result: ProfitTestResult) -> None:
         table.add_row("Solvency Ratio", f"{result.capital_ratio:.1%}")
 
 
-def _render_alm_duration_gap(gap: DurationGapResult, product_type: str) -> None:
-    """Render the asset-liability duration-gap block for a cohort (Slice 4b).
+def _render_duration_gap_side(gap: DurationGapResult, product_type: str, side_label: str) -> None:
+    """Render one side (reinsurer or cedant) of the duration-gap block.
 
-    Shown only when an ``AssetPortfolio`` was supplied via
-    ``deal.asset_portfolio``; otherwise the caller skips this entirely, so
-    runs without an asset side are visually unchanged. The headline is the
-    modified-duration gap (years) and the dollar-duration gap (the net change
-    in surplus per unit change in yield).
+    The headline is the modified-duration gap (years) and the dollar-duration gap
+    (the net change in surplus per unit change in yield). ``side_label`` names the
+    liability the assets are measured against (e.g. "Reinsurer (ceded)").
     """
     table = Table(
-        title=f"Asset-Liability Duration Gap — {product_type}",
+        title=f"Asset-Liability Duration Gap — {product_type} — {side_label}",
         border_style="cyan",
     )
     table.add_column("Metric", style="bold")
@@ -837,6 +838,22 @@ def _render_alm_duration_gap(gap: DurationGapResult, product_type: str) -> None:
     table.add_row("Duration gap (yrs)", f"{gap.duration_gap:+.2f}", "")
     table.add_row("Dollar-duration gap ($·yr)", f"${gap.dollar_duration_gap:+,.0f}", "")
     console.print(table)
+
+
+def _render_alm_duration_gap(gap: DualDurationGap, product_type: str) -> None:
+    """Render the dual asset-liability duration-gap block for a cohort (Slice 4b-2b).
+
+    Shown only when an ``AssetPortfolio`` was supplied via ``deal.asset_portfolio``;
+    otherwise the caller skips this entirely, so runs without an asset side are
+    visually unchanged. The **reinsurer-view** (ceded reserve) gap is the headline
+    and is rendered first; the **cedant-view** (retained reserve) gap follows. A
+    side that is undefined at the valuation yield (e.g. the ceded reserve of a YRT
+    treaty) is omitted.
+    """
+    if gap.reinsurer is not None:
+        _render_duration_gap_side(gap.reinsurer, product_type, "Reinsurer (ceded)")
+    if gap.cedant is not None:
+        _render_duration_gap_side(gap.cedant, product_type, "Cedant (retained)")
 
 
 def _render_cohort_pricing_tables(cohort: CohortResult) -> None:
