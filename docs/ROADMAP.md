@@ -370,8 +370,18 @@ duration-matching or embedded value calculation.
                   (`reserve_liability_cash_flows`, PV ties to the held reserve,
                   basis-agnostic) + CLI rewire. ADR-113; both golden cohorts now
                   carry a block (the 4b-1 WHOLE_LIFE skip resolved).
-            - [ ] Slice 4b-2b — reinsurer/cedant dual gap + API surface
-            - [ ] Slice 4b-3 — dashboard + Excel presentation surfaces
+            - [x] Slice 4b-2b — reinsurer/cedant dual gap (`DualDurationGap`,
+                  reinsurer-view ceded reserve as headline, cedant-view retained
+                  reserve) + REST `/api/v1/price` surface. ADR-114, PR #113.
+            - [~] Slice 4b-3 — dashboard + Excel presentation surfaces. Two
+                  surfaces; split surface-sized:
+                  - [x] Slice 4b-3a — "ALM Duration Gap" sheet on the deal-pricing
+                        Excel workbook (`DealPricingExport.alm_duration_gap`;
+                        reinsurer-view headline then cedant-view, mirroring the CLI
+                        Rich block). ADR-115; additive, goldens byte-identical.
+                  - [ ] Slice 4b-3b — dashboard asset-portfolio input +
+                        duration-gap display (carries the PR-#111
+                        `DealConfig.to_dict()` carry-forward).
             - [ ] Slice 4b-4 — ALM validation notebook
 - [ ] Tests: bond cash flow closed-form; duration formula verification;
       integration with stochastic rate scenarios; 20+ tests
