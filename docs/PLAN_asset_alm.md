@@ -222,7 +222,14 @@ Slice 3 lands.
   B** — the liability is benefits + expenses − **net / valuation** premiums, so
   its PV ties to the **reserve**; (3) derive it on the deal's **`reserve_basis`**
   (NET_PREMIUM / CRVM / VM20 / GAAP); (4) keep the single common valuation yield
-  defaulting to `discount_rate`. This is an `analytics/alm.py` contract change
-  (`liability_cash_flows`) plus the API surface — likely split 4b-2a (stream +
-  CLI rewire) / 4b-2b (API). Recorded in ADR-112; running plan in
-  `docs/CONTINUATION_asset_alm.md`.
+  defaulting to `discount_rate`. Recorded in ADR-112; running plan in
+  `docs/CONTINUATION_asset_alm.md`. **Status:** the `analytics/alm.py`
+  contract change split into **4b-2a — SHIPPED (ADR-113):**
+  `reserve_liability_cash_flows`, the reserve run-off (release) stream whose PV
+  ties to the held reserve. The implementation realises Option B via the
+  **reserve-runoff identity** rather than reconstructing net/valuation premiums
+  per basis: the stream is `L_t = R_t·a − R_{t+1}` from `reserve_balance` alone,
+  which telescopes to the opening reserve for *any* reserve series — so it is
+  basis-agnostic (point 3 holds without per-basis premium logic). 4b-2a rewired
+  the CLI gap onto it on the cedant-retained (`net`) reserve; the **dual
+  reinsurer/cedant headline (point 1) + the API surface are 4b-2b (NEXT).**
