@@ -850,7 +850,7 @@ Items harvested from completed/in-flight work by the daily-dev routine
   affects which obligation stream the assets are matched against. This picks the
   number a committee reads off the ALM block, so it is correctness-relevant on the
   Modco/coinsurance path → IMPORTANT. Resolve with the maintainer when wiring the
-  Slice 4b surface.~~ — **SHIPPED** (Slices 4b-2a + 4b-2b): the maintainer settled
+  Slice 4b surface.~~ — **SHIPPED** (PRs #112 + #113, Slices 4b-2a + 4b-2b): the maintainer settled
   the convention (Option B reserve-backed liability, reinsurer-view headline) and
   it is fully implemented. 4b-2a (ADR-113) made the liability the reserve run-off
   stream (PV ties to the held reserve, basis-agnostic across NET_PREMIUM / CRVM /
