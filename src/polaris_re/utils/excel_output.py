@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import polars as pl
 
+from polaris_re.analytics.alm import DualDurationGap, DurationGapResult
 from polaris_re.analytics.ifrs17 import IFRS17ComponentMovement, IFRS17MovementTable
 from polaris_re.analytics.premium_sufficiency import PremiumSufficiencyResult
 from polaris_re.analytics.profit_test import ProfitResultWithCapital, ProfitTestResult
@@ -193,6 +194,15 @@ class DealPricingExport:
     # (Slice 4c-2b). No extra field is needed — the numerator and ratio ride on
     # the result objects already on this export.
     capital_model_id: str | None = None
+    # Asset-liability duration gap (Asset/ALM epic, Slice 4b-3; ADR-115). When an
+    # ``AssetPortfolio`` was supplied to the deal, the CLI/API already compute a
+    # dual ``DualDurationGap`` (reinsurer-view / cedant-view) per cohort; passing
+    # it here appends an "ALM Duration Gap" sheet mirroring the CLI Rich block —
+    # the reinsurer (ceded reserve) side as the headline, the cedant (retained
+    # reserve) side after, each ``None`` side omitted. ``None`` (no asset side, or
+    # both gap sides undefined at the valuation yield) suppresses the sheet,
+    # keeping pre-ADR-115 workbooks byte-identical.
+    alm_duration_gap: DualDurationGap | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -446,6 +456,12 @@ def write_deal_pricing_excel(export: DealPricingExport, path: Path) -> None:
                                analysis-of-change (movement) tables — opening →
                                new business → interest accretion → release →
                                closing for BEL / RA / CSM / total (ADR-096).
+       11. ALM Duration Gap  — OMITTED when ``export.alm_duration_gap`` is None
+                               (or both sides undefined); otherwise the
+                               reinsurer-view (ceded reserve, headline) and
+                               cedant-view (retained reserve) asset-liability
+                               duration gap, each side omitted when ``None``
+                               (ADR-115).
 
     Args:
         export: Bundle of all data required for the sheets.
@@ -498,6 +514,11 @@ def write_deal_pricing_excel(export: DealPricingExport, path: Path) -> None:
     # byte-identical regardless of which other optional sheets it carries.
     if export.ifrs17_movement is not None:
         _write_ifrs17_movement_sheet(wb, export.ifrs17_movement)
+    # Asset-liability duration-gap sheet (ADR-115). Appended only when a dual gap
+    # with at least one defined side is supplied, so every workbook priced without
+    # an asset portfolio (the common path) stays byte-identical.
+    if export.alm_duration_gap is not None and not export.alm_duration_gap.is_empty:
+        _write_alm_duration_gap_sheet(wb, export.alm_duration_gap)
 
     wb.save(path)
 
@@ -1220,6 +1241,126 @@ def _write_ifrs17_movement_sheet(wb: "Workbook", movement: IFRS17MovementExport)
     ws.column_dimensions["A"].width = 10
     for col in "BCDEF":
         ws.column_dimensions[col].width = 18
+
+
+# Asset-liability duration-gap sheet (ADR-115). The four asset-vs-liability rows
+# share an (Asset, Liability) column pair; the gap rows below the divider are
+# net (asset minus liability) figures and use the Asset column only, exactly
+# mirroring the CLI Rich block (``_render_duration_gap_side``).
+_ALM_GAP_PAIR_ROWS: tuple[str, ...] = (
+    "Value ($)",
+    "Macaulay duration (yrs)",
+    "Modified duration (yrs)",
+    "Dollar duration ($·yr)",
+)
+_ALM_GAP_NET_ROWS: tuple[str, ...] = (
+    "Valuation yield",
+    "Duration gap (yrs)",
+    "Dollar-duration gap ($·yr)",
+)
+
+
+def _write_alm_gap_block(
+    ws: "Worksheet",
+    start_row: int,
+    gap: DurationGapResult,
+    side_label: str,
+) -> int:
+    """Render one side (reinsurer or cedant) of the duration-gap block.
+
+    Mirrors the CLI Rich ``_render_duration_gap_side`` so the committee
+    workbook and the console show identical numbers: an (Asset, Liability)
+    pair for value / Macaulay / modified / dollar duration, then a divider and
+    the net gap figures (valuation yield, duration gap, dollar-duration gap).
+    Returns the next free row.
+    """
+    from openpyxl.styles import Alignment, Font
+
+    block_font = Font(bold=True, size=12)
+    header_font = Font(bold=True)
+    centre = Alignment(horizontal="center")
+
+    row = start_row
+    ws.cell(row=row, column=1, value=side_label).font = block_font
+    row += 1
+
+    ws.cell(row=row, column=1, value="Metric").font = header_font
+    ws.cell(row=row, column=2, value="Asset").font = header_font
+    ws.cell(row=row, column=2).alignment = centre
+    ws.cell(row=row, column=3, value="Liability").font = header_font
+    ws.cell(row=row, column=3).alignment = centre
+    row += 1
+
+    # (Asset, Liability) pairs.
+    asset_vals = {
+        "Value ($)": (gap.asset_market_value, "$#,##0"),
+        "Macaulay duration (yrs)": (gap.asset_macaulay_duration, "0.00"),
+        "Modified duration (yrs)": (gap.asset_modified_duration, "0.00"),
+        "Dollar duration ($·yr)": (gap.dollar_duration_asset, "$#,##0"),
+    }
+    liab_vals = {
+        "Value ($)": (gap.liability_present_value, "$#,##0"),
+        "Macaulay duration (yrs)": (gap.liability_macaulay_duration, "0.00"),
+        "Modified duration (yrs)": (gap.liability_modified_duration, "0.00"),
+        "Dollar duration ($·yr)": (gap.dollar_duration_liability, "$#,##0"),
+    }
+    for label in _ALM_GAP_PAIR_ROWS:
+        ws.cell(row=row, column=1, value=label).font = header_font
+        a_val, a_fmt = asset_vals[label]
+        l_val, l_fmt = liab_vals[label]
+        ws.cell(row=row, column=2, value=float(a_val)).number_format = a_fmt
+        ws.cell(row=row, column=3, value=float(l_val)).number_format = l_fmt
+        row += 1
+
+    # Net gap figures (Asset column only), below the pairs.
+    net_vals = {
+        "Valuation yield": (gap.valuation_yield, "0.00%"),
+        "Duration gap (yrs)": (gap.duration_gap, "+0.00;-0.00"),
+        "Dollar-duration gap ($·yr)": (gap.dollar_duration_gap, "+$#,##0;-$#,##0"),
+    }
+    for label in _ALM_GAP_NET_ROWS:
+        ws.cell(row=row, column=1, value=label).font = header_font
+        value, fmt = net_vals[label]
+        ws.cell(row=row, column=2, value=float(value)).number_format = fmt
+        row += 1
+
+    # Trailing blank row between side blocks.
+    return row + 1
+
+
+def _write_alm_duration_gap_sheet(wb: "Workbook", gap: DualDurationGap) -> None:
+    """Render the "ALM Duration Gap" sheet (ADR-115).
+
+    Stacks the **reinsurer-view** (ceded reserve — the headline) block first,
+    then the **cedant-view** (retained reserve) block, mirroring the CLI Rich
+    ``_render_alm_duration_gap`` order. A side that is ``None`` (undefined at the
+    valuation yield — e.g. the ceded reserve of a YRT treaty) is omitted, exactly
+    as the console does. The caller suppresses this sheet entirely when both sides
+    are ``None`` (``DualDurationGap.is_empty``), so an empty sheet is never written.
+    """
+    from openpyxl.styles import Font
+
+    ws = wb.create_sheet(title="ALM Duration Gap")
+    ws.cell(row=1, column=1, value="Asset-Liability Duration Gap").font = Font(bold=True, size=14)
+    ws.cell(
+        row=2,
+        column=1,
+        value=(
+            "Reinsurer-view (ceded reserve) is the headline; cedant-view "
+            "(retained reserve) follows. Both sides at one common valuation yield "
+            "(ADR-111/115)."
+        ),
+    )
+
+    row = 4
+    if gap.reinsurer is not None:
+        row = _write_alm_gap_block(ws, row, gap.reinsurer, "Reinsurer (ceded)")
+    if gap.cedant is not None:
+        row = _write_alm_gap_block(ws, row, gap.cedant, "Cedant (retained)")
+
+    ws.column_dimensions["A"].width = 28
+    ws.column_dimensions["B"].width = 18
+    ws.column_dimensions["C"].width = 18
 
 
 def write_yrt_rate_table_excel(table: "YRTRateTable", path: Path) -> None:

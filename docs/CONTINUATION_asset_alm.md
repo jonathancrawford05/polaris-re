@@ -226,10 +226,40 @@ surface ships first ("config model first, then consumers").
     possible future refinement, harvested as NICE-TO-HAVE.
 
 ##### Slice 4b-3: dashboard + Excel presentation surfaces
+
+Two distinct surfaces (interactive Streamlit dashboard + the machine-style Excel
+committee packet). Consistent with how Slice 4b kept splitting into surface-sized
+sub-slices (4b-1 CLI, 4b-2a/2b liability+API), this is split into **4b-3a** (the
+Excel surface — self-contained, fully testable) and **4b-3b** (the dashboard
+widget, which also carries the PR-#111 `to_dict()` carry-forward). The Excel
+surface ships first.
+
+###### Slice 4b-3a: ALM duration-gap sheet on the deal-pricing Excel workbook
+- **Status:** DONE
+- **Branch:** claude/awesome-bardeen-j93iao (environment-designated)
+- **PR:** (this PR)
+- **What was done:** `DealPricingExport` gained an optional `alm_duration_gap:
+  DualDurationGap | None = None`; the CLI's `_cohort_to_deal_pricing_export`
+  threads `cohort.alm_duration_gap` onto it. `write_deal_pricing_excel` appends an
+  "ALM Duration Gap" sheet (`_write_alm_duration_gap_sheet` / `_write_alm_gap_block`)
+  when a non-empty dual gap is supplied: the reinsurer-view (ceded reserve —
+  headline) block first, then the cedant-view (retained reserve) block, each side
+  omitted when `None`, mirroring the CLI Rich `_render_alm_duration_gap` layout and
+  labels exactly. Purely additive — no asset portfolio → no sheet → byte-identical
+  workbooks. ADR-115. 9 writer tests + 3 end-to-end CLI `--excel-out` tests.
+- **Key decisions:**
+  - **Reuse `DualDurationGap`, no new export DTO.** The CLI already computes the
+    dual gap per cohort; the writer only renders. One field, one translation site.
+  - **Sheet appended last, gated on `not is_empty`.** Keeps every existing sheet's
+    order and every pre-ADR-115 workbook byte-identical.
+  - **YRT path renders the cedant side only** (ceded reserve ~0 → reinsurer side
+    `None`), exactly as the console does.
+
+###### Slice 4b-3b: dashboard asset-portfolio input + duration-gap display
 - **Status:** NEXT
-- **Depends on:** Slice 4b-2b merged
+- **Depends on:** Slice 4b-3a merged
 - **Scope:** asset-portfolio input widget + duration-gap display on the
-  dashboard, and an ALM block on the Excel deal-pricing export.
+  Streamlit dashboard.
 - **Carry-forward (PR #111 review P2):** thread the two new `DealConfig` fields
   (`asset_portfolio`, `alm_valuation_yield`) through `DealConfig.to_dict()` when
   this slice adds the dashboard widget. 4b-1 deliberately left them out of

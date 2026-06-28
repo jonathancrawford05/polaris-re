@@ -168,7 +168,16 @@ surfaces + a notebook is more than one session (same split as Epic 3's 4c).
     a `{reinsurer, cedant}` block; `/api/v1/price` gained `asset_portfolio` +
     `alm_valuation_yield` (request) and `alm_duration_gap` (response), reusing the
     CLI compute path for parity.
-  - **4b-3 — dashboard + Excel presentation surfaces (NEXT).**
+  - **4b-3 — dashboard + Excel presentation surfaces.** Two surfaces; split
+    surface-sized (same pattern as 4b-1/4b-2):
+    - **4b-3a — ALM duration-gap sheet on the deal-pricing Excel workbook ✅
+      SHIPPED (ADR-115).** `DealPricingExport.alm_duration_gap`; the CLI threads
+      `cohort.alm_duration_gap` onto it; `write_deal_pricing_excel` appends an
+      "ALM Duration Gap" sheet (reinsurer-view headline first, then cedant-view,
+      each side omitted when `None`) mirroring the CLI Rich block. Additive — no
+      asset portfolio → no sheet → byte-identical workbooks.
+    - **4b-3b — dashboard asset-portfolio input + duration-gap display (NEXT).**
+      Carries the PR-#111 `DealConfig.to_dict()` carry-forward.
   - **4b-4 — ALM validation notebook.**
 
 ## 4. Key constraints (from CLAUDE.md / ARCHITECTURE.md)
