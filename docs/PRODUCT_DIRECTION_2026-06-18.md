@@ -881,6 +881,16 @@ Items harvested from completed/in-flight work by the daily-dev routine
   first-deal pricing correctness → NICE-TO-HAVE.
   *Source: ADR-114 Out of scope (1st-order — follow-up of the originally-planned Epic 4 Slice 4 surfacing).*
 
+- **NICE-TO-HAVE — Conditional formatting on the Excel "ALM Duration Gap" sheet.**
+  Slice 4b-3a (ADR-115) renders the duration-gap sheet with plain number formats,
+  matching the CLI Rich block. A risk reviewer scanning a committee packet would
+  benefit from a visual flag on a large negative dollar-duration gap (assets much
+  shorter than the liability — the unhedged surplus exposure), e.g. a red fill /
+  threshold rule, mirroring how the YRT rate-table sheet greys filled cells. Pure
+  presentation polish on a new, non-golden sheet; no effect on the numbers or on
+  first-deal pricing → NICE-TO-HAVE.
+  *Source: ADR-115 Out of scope (1st-order — follow-up of the originally-planned Epic 4 Slice 4 surfacing).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

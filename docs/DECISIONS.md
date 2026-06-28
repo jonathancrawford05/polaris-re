@@ -7391,3 +7391,63 @@ on the reinsurer side, the deal discount rate on the cedant side) is a possible
 future refinement, not this slice. The single supplied portfolio is measured
 against both liabilities; modelling distinct cedant-retained vs. reinsurer-held
 asset portfolios is out of scope.
+
+## ADR-115: ALM duration-gap sheet on the deal-pricing Excel workbook (Epic 4 / Asset-ALM, Slice 4b-3, Excel surface)
+
+**Date:** 2026-06-28
+**Status:** Accepted
+
+**Context.** ADR-114 (Slice 4b-2b) made `alm_duration_gap` a dual
+`DualDurationGap` (reinsurer-view / cedant-view) and surfaced it on the CLI JSON
+and the REST `/api/v1/price` response, but the deal-pricing **committee workbook**
+(`write_deal_pricing_excel`) still omitted it: a reviewer pricing a deal with an
+asset portfolio saw the duration gap on the console and the API but not in the
+Excel packet they circulate. Slice 4b-3 ("dashboard + Excel presentation
+surfaces") is two distinct surfaces; consistent with how Slice 4b kept splitting
+into surface-sized sub-slices (4b-1 CLI, 4b-2a/2b liability+API), this sub-slice
+ships the **Excel** surface (a machine-style, self-contained, fully testable
+deliverable) first; the interactive Streamlit dashboard widget — which also
+carries the PR-#111 `DealConfig.to_dict()` carry-forward — is deferred to 4b-3b.
+
+**Decision.**
+
+- *Reuse `DualDurationGap`, no new DTO.* `DealPricingExport` gains an optional
+  `alm_duration_gap: DualDurationGap | None = None` field. The CLI already computes
+  the dual gap per cohort (`CohortResult.alm_duration_gap`); the
+  `_cohort_to_deal_pricing_export` translation site threads it onto the export. No
+  recompute and no new export DTO — the writer only renders.
+
+- *"ALM Duration Gap" sheet, appended last.* `_write_alm_duration_gap_sheet`
+  stacks the **reinsurer-view** (ceded reserve — headline) block first, then the
+  **cedant-view** (retained reserve) block, mirroring the CLI Rich
+  `_render_alm_duration_gap` order. Each block (`_write_alm_gap_block`) renders the
+  four asset-vs-liability rows (value / Macaulay / modified / dollar duration) as an
+  (Asset, Liability) column pair, then a net section (valuation yield, duration gap,
+  dollar-duration gap) in the Asset column — the same layout and labels as the
+  console table, so the workbook and the console show identical numbers.
+
+- *Additive, byte-identical default.* The sheet is written only when
+  `alm_duration_gap is not None and not …is_empty`, so every workbook priced without
+  an asset portfolio (the overwhelming common path) is byte-identical to pre-ADR-115
+  output. A side that is `None` (e.g. the YRT ceded reserve telescopes to ~0, so the
+  reinsurer side is undefined) is omitted, exactly as the console does; when both
+  sides are `None` the sheet is suppressed entirely rather than written empty.
+
+**Verification.** `tests/test_utils/test_excel_output.py::TestAlmDurationGapSheet`:
+the sheet is absent with no gap and with an empty dual gap, present when supplied,
+omits the reinsurer block when only the cedant side is defined (the YRT path),
+renders the reinsurer block first when both sides are defined, matches every
+Asset/Liability and net-gap cell to the `DurationGapResult` fields, is appended
+last without disturbing the existing sheet order, and round-trips through openpyxl.
+`tests/test_cli_alm.py::TestExcelAlmSheet`: end-to-end `polaris price --excel-out`
+emits the "ALM Duration Gap" sheet on every per-product workbook when an asset
+portfolio is supplied, omits it when none is, and renders the cedant side (no
+reinsurer block) for the golden YRT block.
+
+**Out of scope (this sub-slice).** The Streamlit **dashboard** asset-portfolio
+input widget + duration-gap display — and the PR-#111 carry-forward that threads
+the two new `DealConfig` fields (`asset_portfolio`, `alm_valuation_yield`) through
+`DealConfig.to_dict()` — are Slice 4b-3b. The ALM validation notebook is 4b-4. The
+sheet renders the gap the CLI/API already compute; it does not change the analytics
+(still one common flat valuation yield, ADR-111). A per-side number-format /
+conditional-fill polish (e.g. red-flagging a large negative gap) is not attempted.

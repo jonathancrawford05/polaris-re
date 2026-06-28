@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 from openpyxl import load_workbook
 
+from polaris_re.analytics.alm import DualDurationGap, DurationGapResult
 from polaris_re.analytics.ifrs17 import (
     IFRS17CohortManager,
     IFRS17ContractInput,
@@ -1825,3 +1826,145 @@ class TestIFRS17MovementSheet:
         write_deal_pricing_excel(movement_export, out)
         wb = load_workbook(out)
         assert wb["IFRS 17 Movement"].max_row > 0
+
+
+# ---------------------------------------------------------------------------
+# ALM Duration Gap sheet (ADR-115, Asset/ALM Slice 4b-3)
+# ---------------------------------------------------------------------------
+
+
+def _make_duration_gap_side(
+    *,
+    asset_mv: float = 1_000_000.0,
+    asset_mac: float = 10.0,
+    asset_mod: float = 9.43,
+    liab_pv: float = 800_000.0,
+    liab_mac: float = 7.0,
+    liab_mod: float = 6.6,
+    valuation_yield: float = 0.06,
+) -> DurationGapResult:
+    """Build a self-consistent DurationGapResult for sheet-rendering tests.
+
+    The duration / dollar-duration gap fields are derived from the asset/
+    liability inputs so the rendered sheet values match a single source of
+    truth (the writer only renders, it does not recompute).
+    """
+    dollar_asset = asset_mod * asset_mv
+    dollar_liab = liab_mod * liab_pv
+    return DurationGapResult(
+        valuation_yield=valuation_yield,
+        asset_market_value=asset_mv,
+        asset_macaulay_duration=asset_mac,
+        asset_modified_duration=asset_mod,
+        liability_present_value=liab_pv,
+        liability_macaulay_duration=liab_mac,
+        liability_modified_duration=liab_mod,
+        duration_gap=asset_mod - liab_mod,
+        dollar_duration_asset=dollar_asset,
+        dollar_duration_liability=dollar_liab,
+        dollar_duration_gap=dollar_asset - dollar_liab,
+    )
+
+
+def _export_with_alm_gap(gap: DualDurationGap | None) -> DealPricingExport:
+    return DealPricingExport(
+        deal_meta=_make_deal_meta(),
+        assumptions_meta=_make_assumptions_meta(),
+        cedant_result=_make_profit_result(),
+        reinsurer_result=None,
+        net_cashflows=_make_cashflows("NET"),
+        alm_duration_gap=gap,
+    )
+
+
+class TestAlmDurationGapSheet:
+    def test_sheet_absent_when_gap_none(
+        self, minimal_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        """No asset portfolio → no ALM sheet (byte-identical to pre-ADR-115)."""
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(minimal_export, out)
+        assert "ALM Duration Gap" not in load_workbook(out).sheetnames
+
+    def test_sheet_absent_when_both_sides_none(self, tmp_path: Path) -> None:
+        """An empty dual gap (both sides None) suppresses the sheet entirely."""
+        out = tmp_path / "deal.xlsx"
+        export = _export_with_alm_gap(DualDurationGap(reinsurer=None, cedant=None))
+        write_deal_pricing_excel(export, out)
+        assert "ALM Duration Gap" not in load_workbook(out).sheetnames
+
+    def test_sheet_present_when_gap_supplied(self, tmp_path: Path) -> None:
+        out = tmp_path / "deal.xlsx"
+        gap = DualDurationGap(reinsurer=None, cedant=_make_duration_gap_side())
+        write_deal_pricing_excel(_export_with_alm_gap(gap), out)
+        assert "ALM Duration Gap" in load_workbook(out).sheetnames
+
+    def test_cedant_only_omits_reinsurer_block(self, tmp_path: Path) -> None:
+        """The YRT path: ceded reserve ~0 → reinsurer side None, only cedant block."""
+        out = tmp_path / "deal.xlsx"
+        gap = DualDurationGap(reinsurer=None, cedant=_make_duration_gap_side())
+        write_deal_pricing_excel(_export_with_alm_gap(gap), out)
+        ws = load_workbook(out)["ALM Duration Gap"]
+        labels = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+        assert "Cedant (retained)" in labels
+        assert "Reinsurer (ceded)" not in labels
+
+    def test_both_sides_render_reinsurer_first(self, tmp_path: Path) -> None:
+        """Coinsurance path: both sides defined, reinsurer (headline) rendered first."""
+        out = tmp_path / "deal.xlsx"
+        gap = DualDurationGap(
+            reinsurer=_make_duration_gap_side(liab_pv=900_000.0),
+            cedant=_make_duration_gap_side(liab_pv=100_000.0),
+        )
+        write_deal_pricing_excel(_export_with_alm_gap(gap), out)
+        ws = load_workbook(out)["ALM Duration Gap"]
+        labels = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+        rei_row = labels.index("Reinsurer (ceded)")
+        ced_row = labels.index("Cedant (retained)")
+        assert rei_row < ced_row
+
+    def test_asset_and_liability_values_match_model(self, tmp_path: Path) -> None:
+        """Rendered Asset/Liability cells equal the DurationGapResult fields."""
+        out = tmp_path / "deal.xlsx"
+        side = _make_duration_gap_side()
+        gap = DualDurationGap(reinsurer=None, cedant=side)
+        write_deal_pricing_excel(_export_with_alm_gap(gap), out)
+        ws = load_workbook(out)["ALM Duration Gap"]
+        row = _find_row_with_label(ws, "Value ($)")
+        assert ws.cell(row=row, column=2).value == pytest.approx(side.asset_market_value)
+        assert ws.cell(row=row, column=3).value == pytest.approx(side.liability_present_value)
+        mod_row = _find_row_with_label(ws, "Modified duration (yrs)")
+        assert ws.cell(row=mod_row, column=2).value == pytest.approx(side.asset_modified_duration)
+        assert ws.cell(row=mod_row, column=3).value == pytest.approx(
+            side.liability_modified_duration
+        )
+
+    def test_net_gap_rows_match_model(self, tmp_path: Path) -> None:
+        """The net gap rows (yield / duration gap / dollar gap) match the model."""
+        out = tmp_path / "deal.xlsx"
+        side = _make_duration_gap_side()
+        gap = DualDurationGap(reinsurer=None, cedant=side)
+        write_deal_pricing_excel(_export_with_alm_gap(gap), out)
+        ws = load_workbook(out)["ALM Duration Gap"]
+        y_row = _find_row_with_label(ws, "Valuation yield")
+        assert ws.cell(row=y_row, column=2).value == pytest.approx(side.valuation_yield)
+        g_row = _find_row_with_label(ws, "Duration gap (yrs)")
+        assert ws.cell(row=g_row, column=2).value == pytest.approx(side.duration_gap)
+        dd_row = _find_row_with_label(ws, "Dollar-duration gap ($·yr)")
+        assert ws.cell(row=dd_row, column=2).value == pytest.approx(side.dollar_duration_gap)
+
+    def test_sheet_appended_after_other_sheets(self, tmp_path: Path) -> None:
+        """ALM sheet is appended last, leaving the existing sheet order intact."""
+        out = tmp_path / "deal.xlsx"
+        gap = DualDurationGap(reinsurer=None, cedant=_make_duration_gap_side())
+        write_deal_pricing_excel(_export_with_alm_gap(gap), out)
+        names = load_workbook(out).sheetnames
+        assert names[-1] == "ALM Duration Gap"
+        assert names[:3] == ["Summary", "Cash Flows", "Assumptions"]
+
+    def test_workbook_roundtrips(self, tmp_path: Path) -> None:
+        out = tmp_path / "deal.xlsx"
+        gap = DualDurationGap(reinsurer=None, cedant=_make_duration_gap_side())
+        write_deal_pricing_excel(_export_with_alm_gap(gap), out)
+        wb = load_workbook(out)
+        assert wb["ALM Duration Gap"].max_row > 0

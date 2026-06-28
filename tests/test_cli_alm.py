@@ -364,3 +364,62 @@ class TestDualGapShape:
                 block["reinsurer"]["liability_present_value"]
                 > block["cedant"]["liability_present_value"]
             )
+
+
+class TestExcelAlmSheet:
+    """End-to-end: ``polaris price --excel-out`` surfaces the ALM duration gap.
+
+    Slice 4b-3 wires the per-cohort ``alm_duration_gap`` (already on the JSON /
+    API surfaces) into the deal-pricing committee workbook as an "ALM Duration
+    Gap" sheet. The sheet is purely additive — it appears only when an asset
+    portfolio is supplied, so workbooks priced without one stay byte-identical.
+    """
+
+    def _run_excel(self, tmp_path: Path, config_path: Path) -> list[Path]:
+        tmp_path.mkdir(parents=True, exist_ok=True)
+        out = tmp_path / "result.json"
+        excel_out = tmp_path / "deal.xlsx"
+        result = runner.invoke(
+            app,
+            [
+                "price",
+                "--config",
+                str(config_path),
+                "--inforce",
+                str(GOLDEN_CSV),
+                "--output",
+                str(out),
+                "--excel-out",
+                str(excel_out),
+            ],
+        )
+        assert result.exit_code == 0, f"CLI failed:\n{result.stdout}"
+        # The golden block is mixed TERM + WHOLE_LIFE → one workbook per product.
+        return sorted(tmp_path.glob("deal-*.xlsx")) or [excel_out]
+
+    def test_alm_sheet_present_with_portfolio(self, tmp_path: Path) -> None:
+        from openpyxl import load_workbook
+
+        paths = self._run_excel(tmp_path, _config_with_asset_portfolio(tmp_path))
+        assert paths
+        for path in paths:
+            assert "ALM Duration Gap" in load_workbook(path).sheetnames
+
+    def test_alm_sheet_absent_without_portfolio(self, tmp_path: Path) -> None:
+        from openpyxl import load_workbook
+
+        paths = self._run_excel(tmp_path, _config_with_asset_portfolio(tmp_path, portfolio=None))
+        assert paths
+        for path in paths:
+            assert "ALM Duration Gap" not in load_workbook(path).sheetnames
+
+    def test_alm_sheet_renders_cedant_side_for_yrt(self, tmp_path: Path) -> None:
+        """The golden YRT path cedes no reserve → cedant block, no reinsurer block."""
+        from openpyxl import load_workbook
+
+        paths = self._run_excel(tmp_path, _config_with_asset_portfolio(tmp_path))
+        for path in paths:
+            ws = load_workbook(path)["ALM Duration Gap"]
+            labels = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+            assert "Cedant (retained)" in labels
+            assert "Reinsurer (ceded)" not in labels
