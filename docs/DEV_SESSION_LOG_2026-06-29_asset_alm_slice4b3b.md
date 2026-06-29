@@ -24,6 +24,17 @@ Ledger healing (step 4b): the only PR merged since the prior session log is #114
 are tracked in the CONTINUATION, not as PRODUCT_DIRECTION ledger entries, so there
 is no crossout to heal.
 
+## Baseline (step 4)
+Fast suite baseline before any change: **1792 passed, 110 deselected, 0 failures**.
+Standing caveat (recorded so future runs diff against a clean baseline): the
+routine's known failure baseline is the **4 pre-existing SOA / CIA-2014
+conversion failures** that surface only when step 2's pymort conversion cannot
+reach its source (`scripts/convert_soa_tables.py` reported the CIA-2014 tables
+MISSING this run). They did **not** manifest in this run's fast suite (no
+dependent test went red — 0 failures observed), so the baseline matched the prior
+session log and the run proceeded. STOP would apply only on a NEW or CHANGED
+failure beyond those 4 known-standing conversion failures.
+
 ## Premise Verification (step 7b)
 Reproduced the gap before coding by reading `dashboard/views/pricing.py` end to
 end: the Deal Pricing page has **no** asset-portfolio input and **no** duration-gap
