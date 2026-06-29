@@ -902,6 +902,19 @@ Items harvested from completed/in-flight work by the daily-dev routine
   no effect on first-deal correctness → NICE-TO-HAVE.
   *Source: ADR-116 Out of scope + DEV_SESSION_LOG_2026-06-29_asset_alm_slice4b3b Open Questions (1st-order — follow-up of the originally-planned Epic 4 Slice 4b-3b dashboard surface).*
 
+- **NICE-TO-HAVE — Generic "execute every notebook" CI guard.** Slice 4b-4
+  (ADR-117) added `tests/test_notebooks/test_alm_duration_gap_notebook.py`, which
+  reads `notebooks/04_alm_duration_gap.ipynb` with `nbformat` and `exec`s its code
+  cells so the embedded closed-form reconciliations run in CI. That guard covers
+  **only** notebook 04; notebooks 01–03 (`01_term_life_yrt_pricing`,
+  `02_reserve_basis_comparison`, `03_capital_standards_comparison`) have no
+  execution guard and can silently rot when an API they call changes. A
+  parametrised guard that discovers and execs every `notebooks/*.ipynb` (skipping
+  any that need a kernel/data the suite can't provide) would close that gap and
+  make the per-epic notebooks self-verifying. Pure test-infra hardening — no effect
+  on engine correctness or first-deal pricing → NICE-TO-HAVE.
+  *Source: ADR-117 Out of scope + DEV_SESSION_LOG_2026-06-29_asset_alm_slice4b4 (1st-order — follow-up of the originally-planned Epic 4 Slice 4b-4 validation notebook).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

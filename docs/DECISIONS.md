@@ -7509,3 +7509,69 @@ table); a saved-portfolio / file-upload affordance is a possible follow-up. The
 analytics are unchanged (one common flat valuation yield, ADR-111); a per-side
 yield and a conditional highlight flagging a large negative gap remain
 NICE-TO-HAVE polish, already harvested.
+
+---
+
+## ADR-117: ALM duration-gap validation notebook (Epic 4 / Asset-ALM, Slice 4b-4 — epic close)
+
+**Date:** 2026-06-29
+**Status:** Accepted
+
+**Context.** Slices 4b-1 … 4b-3b surfaced the dual asset-liability duration gap
+(`analytics.alm.dual_duration_gap`) on the CLI (ADR-112/113/114), the REST
+`/api/v1/price` response (ADR-114), the deal-pricing Excel workbook (ADR-115), and
+the Streamlit dashboard (ADR-116). The final planned slice of the Asset/ALM epic
+(`docs/PLAN_asset_alm.md`, Milestone 5.4) is the end-to-end **validation notebook**
+— the auditable worked example behind those surfaces, matching the per-epic
+notebook precedent (`01_term_life_yrt_pricing`, `02_reserve_basis_comparison`,
+`03_capital_standards_comparison`). This slice closes the epic.
+
+**Decision.**
+
+- *`notebooks/04_alm_duration_gap.ipynb` — one end-to-end run plus four closed-form
+  reconciliations.* The notebook builds a seasoned whole-life block, cedes 50% on
+  coinsurance (so the reinsurer inherits a real ceded reserve and **both**
+  `DualDurationGap` sides are defined — more illustrative than the golden YRT path,
+  whose reinsurer side is `None`), sizes a backing bond portfolio to the ceded
+  reserve, and reports the dual gap via the **same** `dual_duration_gap` path the
+  four surfaces use (the notebook reads the analytics, it does not reimplement
+  them). It then reconciles the engine against four closed forms: (1) the
+  reserve-backed run-off telescopes to the opening reserve at the reserve valuation
+  rate (ADR-113); (2) a zero-coupon bond's Macaulay duration is its term in years,
+  modified is `N/(1+y)`, convexity is `N(N+1)/(1+y)²`; (3) `duration_measures` on
+  the portfolio's own cash flows reproduces the portfolio's duration API exactly
+  (the gap wires one primitive, not two); (4) a block whose liability equals the
+  assets' own cash flows has an exactly-zero gap. A closing section demonstrates
+  immunisation — lengthening the assets shrinks the reinsurer-side gap by ~10×.
+
+- *Self-contained synthetic Gompertz mortality, no data-file dependency.* Flat
+  mortality builds essentially no whole-life reserve (a level net premium funds a
+  constant hazard each period), so the notebook uses a synthetic increasing curve
+  `q_x = 0.0004·1.09^(x-18)` rather than a converted SOA/CIA table. This keeps the
+  notebook runnable wherever the package imports (the same self-contained pattern as
+  notebooks 01–03) and insulates it from the standing SOA-conversion failure.
+
+- *The notebook IS its own test — executed by a pytest guard.* `nbclient`/
+  `nbconvert` are not project dependencies, so rather than spin up a Jupyter kernel,
+  `tests/test_notebooks/test_alm_duration_gap_notebook.py` reads the `.ipynb` with
+  `nbformat` and `exec`s its code cells in one shared namespace (the notebook is
+  magic-free, so this reproduces a top-to-bottom kernel run). The closed-form
+  reconciliations are embedded in the cells as `np.testing.assert_allclose` /
+  `assert`, so executing the notebook end to end IS the verification — any drift in
+  the duration/run-off math fails CI, not just the notebook.
+
+**Verification.** `tests/test_notebooks/test_alm_duration_gap_notebook.py` (3
+tests): the notebook file exists, has the expected code cells, and executes top to
+bottom with every embedded reconciliation passing; a defensive spot-check confirms
+the coinsurance run binds a `DualDurationGap` with both reinsurer and cedant sides
+defined. Purely additive — no `src/` change, goldens byte-identical (`polaris
+price` on the golden block is unchanged: Total PV Profits Reinsurer $45,386).
+
+**Out of scope.** This slice closes the Asset/ALM epic; the remaining asset-side
+ambitions are already harvested follow-ups and are *not* implemented here: a
+net-of-spread / time-varying amortising book yield, stochastic reinvestment
+(Hull-White / CIR via `analytics/stochastic.py`, ROADMAP 5.4), distinct
+cedant-held vs reinsurer-held asset portfolios, a per-side valuation yield, and a
+modco-interest driven directly from the asset book yield in a worked notebook
+example. A generic "execute every notebook" CI sweep (this guard covers only
+notebook 04) is a possible future consolidation.

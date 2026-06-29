@@ -324,7 +324,7 @@ tracking and opening/closing reconciliation. *Delivered as Epic 2 (PRs
 
 ---
 
-### Milestone 5.4 — Asset / ALM Model 🔄 IN PROGRESS (Epic 4)
+### Milestone 5.4 — Asset / ALM Model ✅ COMPLETE (Epic 4)
 
 Modco profitability depends on investment returns on ceded reserves. Without
 an asset model, Modco pricing is incomplete. Also required for any meaningful
@@ -385,9 +385,18 @@ duration-matching or embedded value calculation.
                         first then cedant-view). ADR-116; discharges the PR-#111
                         `DealConfig.to_dict()` carry-forward (both ALM fields now
                         in `to_dict`). Additive — no portfolio → byte-identical page.
-            - [ ] Slice 4b-4 — ALM validation notebook
-- [ ] Tests: bond cash flow closed-form; duration formula verification;
-      integration with stochastic rate scenarios; 20+ tests
+            - [x] Slice 4b-4 — ALM validation notebook
+                  (`notebooks/04_alm_duration_gap.ipynb`): a seasoned whole-life
+                  block ceded 50% on coinsurance, the dual duration gap via the
+                  shared `dual_duration_gap` path, and four closed-form
+                  reconciliations (reserve run-off telescopes to the held reserve;
+                  zero-coupon duration/convexity; duration-primitive consistency;
+                  zero-gap matched block) + an immunisation demo. Self-contained
+                  synthetic Gompertz mortality; a pytest guard execs the notebook
+                  so its reconciliations run in CI. ADR-117. Epic 4 COMPLETE.
+- [x] Tests: bond cash flow closed-form; duration formula verification; ALM
+      validation notebook executed in CI. (Stochastic rate-scenario integration
+      remains a harvested follow-up — Epic 4 is deterministic by design.)
 
 ---
 
