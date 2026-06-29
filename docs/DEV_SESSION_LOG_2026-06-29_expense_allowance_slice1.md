@@ -120,10 +120,23 @@ invariant. Recorded as ADR-118.
 | Epic plan + CONTINUATION opened | ✅ | PLAN + CONTINUATION (IN PROGRESS) |
 
 ## Open Questions / Follow-ups
+- **RESOLVED (maintainer, 2026-06-29):** the framing decision flagged by the PR
+  #117 review — `COMMERCIAL_VIABILITY_REVIEW_2026-06-18` lists Tier-B B3 as a
+  *between-epics single-session pick*, but with the Tier-A ladder + C0 exhausted
+  and step 5b requiring an active epic, this run promoted B3 to a **3-slice
+  epic**. The maintainer confirmed **Option A — proceed**: B3 continues as the
+  active epic; the next session ships Slice 2 (wire the allowance into
+  `Coinsurance`/`YRT`). Decomposing rather than deferring is the intent of the
+  2026-06-18 routine change.
 - Sliding scale keys off the **ceded** loss ratio (planned for Slice 2); revisit
   if a cedant submission specifies the **gross** block basis.
 - Whether a later slice should add a dedicated allowance line to `CashFlowResult`
   (a contract change) for cleaner reporting vs folding into `expenses`.
+- **Slice-2 duration mapping (from PR #117 review P2):** the Slice-1 primitive
+  treats "first year" as the first `months_per_year` *projection* periods; Slice 2
+  must map projection periods to each policy's actual duration before applying the
+  FY rate (most inforce policies are mid-duration). Captured in the CONTINUATION
+  Slice 2 acceptance criteria and PLAN open questions.
 
 ## Parked Polish
 None. (Both follow-ups above are 1st-order follow-ups of this originally-planned

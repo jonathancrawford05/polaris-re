@@ -4,6 +4,10 @@
 **Status:** IN PROGRESS
 **Total slices:** 3
 **Estimated total scope:** ~3 dev-days
+**Epic framing:** maintainer-confirmed (2026-06-29, PR #117 — "Option A: proceed").
+B3 was promoted from a between-epics quick win to a 3-slice active epic because
+the Tier-A ladder + C0 are exhausted and step 5b requires one active epic;
+treat it as the blessed active epic until COMPLETE.
 
 ## Overall Goal
 
