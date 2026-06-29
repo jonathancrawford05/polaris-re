@@ -17,8 +17,9 @@
 > re-decomposed into **4b-1** (CLI input + duration-gap output, ADR-112 —
 > SHIPPED), **4b-2a** (reserve-backed Option-B liability stream + CLI rewire,
 > ADR-113 — SHIPPED), **4b-2b** (reinsurer/cedant dual gap + API surface,
-> ADR-114 — SHIPPED), **4b-3** (dashboard + Excel — NEXT), and **4b-4**
-> (validation notebook). No prior
+> ADR-114 — SHIPPED), **4b-3a** (Excel ALM sheet, ADR-115 — SHIPPED), **4b-3b**
+> (dashboard ALM input + display, ADR-116 — SHIPPED), and **4b-4**
+> (validation notebook — NEXT). No prior
 > asset/ALM code existed before this epic.
 > Running log: `docs/CONTINUATION_asset_alm.md`.
 >
@@ -176,9 +177,14 @@ surfaces + a notebook is more than one session (same split as Epic 3's 4c).
       "ALM Duration Gap" sheet (reinsurer-view headline first, then cedant-view,
       each side omitted when `None`) mirroring the CLI Rich block. Additive — no
       asset portfolio → no sheet → byte-identical workbooks.
-    - **4b-3b — dashboard asset-portfolio input + duration-gap display (NEXT).**
-      Carries the PR-#111 `DealConfig.to_dict()` carry-forward.
-  - **4b-4 — ALM validation notebook.**
+    - **4b-3b — dashboard asset-portfolio input + duration-gap display ✅
+      SHIPPED (ADR-116).** The Streamlit Deal Pricing page gains an optional
+      `AssetPortfolio` JSON input + ALM valuation-yield, computes the gap via the
+      same `dual_duration_gap` path (stored on `CohortPricingData.alm_duration_gap`,
+      rendered reinsurer-headline-first by `_render_alm_duration_gap`), and
+      discharges the PR-#111 `DealConfig.to_dict()` carry-forward (both ALM fields
+      now in `to_dict`). Additive — no pasted portfolio → byte-identical page.
+  - **4b-4 — ALM validation notebook (NEXT).**
 
 ## 4. Key constraints (from CLAUDE.md / ARCHITECTURE.md)
 

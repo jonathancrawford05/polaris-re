@@ -891,6 +891,17 @@ Items harvested from completed/in-flight work by the daily-dev routine
   first-deal pricing → NICE-TO-HAVE.
   *Source: ADR-115 Out of scope (1st-order — follow-up of the originally-planned Epic 4 Slice 4 surfacing).*
 
+- **NICE-TO-HAVE — Saved / file-upload asset portfolio on the dashboard ALM
+  input.** Slice 4b-3b (ADR-116) takes the dashboard asset side as a per-run JSON
+  paste in the Deal Pricing expander. The YRT rate table, by contrast, has a
+  persisted file-upload widget; an analyst iterating on a deal must re-paste the
+  portfolio JSON on each session. A saved-portfolio / `st.file_uploader`
+  affordance (parsed into the same `AssetPortfolio`) would remove the re-paste and
+  match the rate-table UX. Pure dashboard convenience — the analytics and the CLI
+  config surface are unchanged, and the per-run paste already prices correctly → so
+  no effect on first-deal correctness → NICE-TO-HAVE.
+  *Source: ADR-116 Out of scope + DEV_SESSION_LOG_2026-06-29_asset_alm_slice4b3b Open Questions (1st-order — follow-up of the originally-planned Epic 4 Slice 4b-3b dashboard surface).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

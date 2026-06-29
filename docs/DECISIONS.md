@@ -7451,3 +7451,61 @@ the two new `DealConfig` fields (`asset_portfolio`, `alm_valuation_yield`) throu
 sheet renders the gap the CLI/API already compute; it does not change the analytics
 (still one common flat valuation yield, ADR-111). A per-side number-format /
 conditional-fill polish (e.g. red-flagging a large negative gap) is not attempted.
+
+
+## ADR-116: Dashboard asset-portfolio input and duration-gap display (Epic 4 / Asset-ALM, Slice 4b-3b)
+
+**Date:** 2026-06-29
+**Status:** Accepted
+
+**Context.** ADR-114 (Slice 4b-2b) surfaced the dual `DualDurationGap`
+(reinsurer-view / cedant-view) on the CLI and the REST `/api/v1/price` response,
+and ADR-115 (Slice 4b-3a) added the "ALM Duration Gap" sheet to the deal-pricing
+Excel workbook. The interactive Streamlit **Deal Pricing** page was the last of
+the four pricing surfaces still blind to the asset side: it had no way to supply an
+`AssetPortfolio` and showed no duration gap. This sub-slice closes the surfacing
+tail's interactive surface and discharges the PR-#111 review P2 carry-forward (the
+two `DealConfig` ALM fields threaded through `DealConfig.to_dict()`).
+
+**Decision.**
+
+- *Asset side as an optional per-run input, parsed from JSON.* The Deal Pricing
+  page gains an "Asset-Liability Duration Gap (optional asset side)" expander with
+  an `AssetPortfolio` JSON text area (the same `{"bonds": [...]}` shape the CLI
+  `deal.asset_portfolio` config accepts) and an "ALM valuation yield (%)" number
+  input (0 → defer to the deal `discount_rate`, mirroring the CLI default). The
+  payload is `AssetPortfolio.model_validate_json`-parsed; an invalid payload shows
+  an error and is treated as "no asset side" — the block is simply not rendered and
+  pricing never aborts. An empty input leaves every run byte-identical.
+
+- *Reuse the analytics compute path, no recompute.* `_run_pricing_for_cohort`
+  gains optional `asset_portfolio` / `alm_valuation_yield` parameters and, when a
+  portfolio is supplied, calls `dual_duration_gap(asset_portfolio, net, ceded,
+  gap_yield, config.effective_valuation_rate)` — the identical reserve-backed
+  Option-B path the CLI/API use (ADR-113/114). The result is stored on a new
+  `CohortPricingData.alm_duration_gap` field and rendered (reinsurer-view headline
+  first, then cedant-view; a `None` side omitted) by `_render_alm_duration_gap`,
+  mirroring the CLI Rich block's layout and labels. A test asserts the dashboard
+  gap is byte-identical to a direct `dual_duration_gap` call on the cohort's own
+  net/ceded results, locking the "wire, don't reimplement" contract.
+
+- *PR-#111 carry-forward — `to_dict()` now carries the ALM fields.* With the
+  dashboard consuming them, `DealConfig.to_dict()` adds `asset_portfolio` and
+  `alm_valuation_yield` (default `None`), so the dashboard `DEFAULTS` / CLI↔Streamlit
+  parity surface carries them. 4b-1 deliberately left them out until a dashboard
+  surface used them (the `yrt_rate_table_*` precedent); that condition now holds.
+  The parsed widget values are also written back onto the deal-config dict.
+
+**Verification.** `tests/test_dashboard/test_pricing_alm.py`: a supplied portfolio
+populates a non-empty `DualDurationGap` byte-identical to a direct
+`dual_duration_gap` call; omitting it leaves the field `None`; the YRT path carries
+the cedant side only (ceded reserve ~0 → reinsurer `None`) while a proportional
+coinsurance treaty carries both; an explicit `alm_valuation_yield` overrides the
+deal discount rate; and `DealConfig.to_dict()` now surfaces both ALM fields.
+
+**Out of scope.** The ALM **validation notebook** is Slice 4b-4. The dashboard
+input is per-run (it is not persisted to an uploaded-file widget like the YRT rate
+table); a saved-portfolio / file-upload affordance is a possible follow-up. The
+analytics are unchanged (one common flat valuation yield, ADR-111); a per-side
+yield and a conditional highlight flagging a large negative gap remain
+NICE-TO-HAVE polish, already harvested.

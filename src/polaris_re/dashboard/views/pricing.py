@@ -15,7 +15,9 @@ import matplotlib.pyplot as plt  # type: ignore[import-untyped]
 import matplotlib.ticker as mticker  # type: ignore[import-untyped]
 import numpy as np
 import streamlit as st  # type: ignore[import-untyped]
+from pydantic import ValidationError
 
+from polaris_re.analytics.alm import DualDurationGap, DurationGapResult, dual_duration_gap
 from polaris_re.analytics.capital_base import capital_model_label
 from polaris_re.analytics.premium_sufficiency import (
     PremiumSufficiencyResult,
@@ -23,6 +25,7 @@ from polaris_re.analytics.premium_sufficiency import (
 )
 from polaris_re.analytics.profit_test import ProfitResultWithCapital, ProfitTestResult
 from polaris_re.assumptions.assumption_set import AssumptionSet
+from polaris_re.core.asset import AssetPortfolio
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
@@ -63,6 +66,10 @@ class CohortPricingData:
     premium_sufficiency: PremiumSufficiencyResult | None = None
     reinsurer_premium_sufficiency: PremiumSufficiencyResult | None = None
     capital_model_id: str | None = None
+    # Asset-liability duration gap (Asset/ALM epic, Slice 4b-3b). Populated only
+    # when an ``AssetPortfolio`` is supplied; None leaves an asset-free run
+    # byte-identical. Carries the dual reinsurer-view (headline) + cedant-view gap.
+    alm_duration_gap: DualDurationGap | None = None
 
 
 # Regulatory-capital jurisdiction selector (Epic 3, Slice 4b). The Deal Pricing
@@ -330,6 +337,8 @@ def _run_pricing_for_cohort(
     capital_model_id: str | None = None,
     available_capital: float | None = None,
     sufficiency_target_margin: float = 0.0,
+    asset_portfolio: AssetPortfolio | None = None,
+    alm_valuation_yield: float | None = None,
 ) -> CohortPricingData:
     """Run the full pricing pipeline for a single-product cohort.
 
@@ -486,6 +495,24 @@ def _run_pricing_for_cohort(
             target_margin=sufficiency_target_margin,
         ).run()
 
+    # 9. Asset-liability duration gap (Asset/ALM epic, Slice 4b-3b). Purely
+    #    additive: only computed when an ``AssetPortfolio`` is supplied. Mirrors
+    #    the CLI / API compute path (ADR-113/114): ``dual_duration_gap`` measures
+    #    the same assets against the reserve-backed Option-B run-off of both the
+    #    ceded (reinsurer-view, headline) and the retained (cedant-view) reserve,
+    #    at one common flat yield — the explicit ``alm_valuation_yield`` when
+    #    given, else the deal ``discount_rate``. Either side undefined at that
+    #    yield (e.g. a YRT ceded reserve ~0) is silently omitted; an empty dual
+    #    gap carries nothing and never aborts pricing.
+    alm_duration_gap: DualDurationGap | None = None
+    if asset_portfolio is not None:
+        gap_yield = alm_valuation_yield if alm_valuation_yield is not None else config.discount_rate
+        dual = dual_duration_gap(
+            asset_portfolio, net, ceded, gap_yield, config.effective_valuation_rate
+        )
+        if not dual.is_empty:
+            alm_duration_gap = dual
+
     return CohortPricingData(
         cohort_id=cohort_id,
         n_policies=cohort_inforce.n_policies,
@@ -500,6 +527,7 @@ def _run_pricing_for_cohort(
         premium_sufficiency=premium_sufficiency,
         reinsurer_premium_sufficiency=reinsurer_premium_sufficiency,
         capital_model_id=capital_model_id,
+        alm_duration_gap=alm_duration_gap,
     )
 
 
@@ -564,6 +592,84 @@ def _render_sufficiency_tiles(result: PremiumSufficiencyResult, view: str) -> No
         f"${result.pv_expenses:,.0f}",
         help="Present value of expenses at the valuation discount rate.",
     )
+
+
+def _render_duration_gap_side(side: DurationGapResult, side_label: str) -> None:
+    """Render one side (reinsurer or cedant) of the duration-gap block.
+
+    Mirrors the CLI Rich ``_render_duration_gap_side`` layout and labels: the
+    headline modified-duration gap and dollar-duration gap as tiles, then an
+    (Asset, Liability) table of value / Macaulay / modified / dollar duration.
+    ``side_label`` names the liability the assets are measured against.
+    """
+    st.markdown(f"**{side_label}**")
+    g_a, g_b, g_c = st.columns(3)
+    g_a.metric(
+        "Duration gap (yrs)",
+        f"{side.duration_gap:+.2f}",
+        help=(
+            "Asset modified duration minus liability modified duration, at the common "
+            "valuation yield. Positive means the assets are longer than the "
+            "liability (surplus falls when yields rise); negative the reverse."
+        ),
+    )
+    g_b.metric(
+        "Dollar-duration gap ($·yr)",
+        f"${side.dollar_duration_gap:+,.0f}",
+        help=(
+            "Net change in surplus per 100% (1.0) change in yield: asset dollar "
+            "duration minus liability dollar duration. The hedgeable first-order "
+            "interest-rate exposure of this side's net position."
+        ),
+    )
+    g_c.metric("Valuation yield", f"{side.valuation_yield:.2%}")
+
+    rows = [
+        {
+            "Metric": "Value ($)",
+            "Asset": f"${side.asset_market_value:,.0f}",
+            "Liability": f"${side.liability_present_value:,.0f}",
+        },
+        {
+            "Metric": "Macaulay duration (yrs)",
+            "Asset": f"{side.asset_macaulay_duration:.2f}",
+            "Liability": f"{side.liability_macaulay_duration:.2f}",
+        },
+        {
+            "Metric": "Modified duration (yrs)",
+            "Asset": f"{side.asset_modified_duration:.2f}",
+            "Liability": f"{side.liability_modified_duration:.2f}",
+        },
+        {
+            "Metric": "Dollar duration ($·yr)",
+            "Asset": f"${side.dollar_duration_asset:,.0f}",
+            "Liability": f"${side.dollar_duration_liability:,.0f}",
+        },
+    ]
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+
+
+def _render_alm_duration_gap(gap: DualDurationGap) -> None:
+    """Render the dual asset-liability duration-gap block for a cohort (Slice 4b-3b).
+
+    Shown only when an ``AssetPortfolio`` was supplied; runs without an asset side
+    are visually unchanged. The **reinsurer-view** (ceded reserve) gap is the
+    headline and is rendered first; the **cedant-view** (retained reserve) gap
+    follows. A side undefined at the valuation yield (e.g. the ceded reserve of a
+    YRT treaty, which telescopes to ~0) is omitted — exactly as the CLI does.
+    """
+    st.subheader("Asset-Liability Duration Gap")
+    st.caption(
+        "Duration gap of the supplied asset portfolio against the reserve-backed "
+        "liability run-off (Option B, ADR-113), measured at one common valuation "
+        "yield. The reinsurer view (assets vs the **ceded** reserve) is the "
+        "headline; the cedant view (assets vs the **retained** reserve) follows. "
+        "Purely additive — pricing numbers are unchanged."
+    )
+    if gap.reinsurer is not None:
+        _render_duration_gap_side(gap.reinsurer, "Reinsurer view (ceded reserve)")
+    if gap.cedant is not None:
+        _render_duration_gap_side(gap.cedant, "Cedant view (retained reserve)")
 
 
 def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: AssumptionSet) -> None:
@@ -771,6 +877,10 @@ def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: Assum
         if cohort_data.reinsurer_premium_sufficiency is not None:
             _render_sufficiency_tiles(cohort_data.reinsurer_premium_sufficiency, "Reinsurer")
 
+    # ========== ASSET-LIABILITY DURATION GAP ==========
+    if cohort_data.alm_duration_gap is not None:
+        _render_alm_duration_gap(cohort_data.alm_duration_gap)
+
     # ========== GROSS RESERVE ==========
     st.subheader("Reserve Balance")
     st.pyplot(_reserve_chart(gross))
@@ -825,6 +935,78 @@ def _render_cohort_results(cohort_data: CohortPricingData, assumption_set: Assum
     ml_mort = st.session_state.get("ml_mortality_model")
     if ml_mort is not None:
         _table_vs_ml_comparison(assumption_set, ml_mort)
+
+
+_ASSET_PORTFOLIO_PLACEHOLDER = (
+    "{\n"
+    '  "bonds": [\n'
+    '    {"face_value": 1000000.0, "coupon_rate": 0.04, '
+    '"coupon_frequency": 2, "term_months": 120}\n'
+    "  ]\n"
+    "}"
+)
+
+
+def _asset_portfolio_input(cfg: dict[str, object]) -> tuple[AssetPortfolio | None, float | None]:
+    """Render the optional ALM asset-portfolio input and parse it (Slice 4b-3b).
+
+    Mirrors the CLI ``deal.asset_portfolio`` / ``deal.alm_valuation_yield`` config
+    input. The pasted JSON is the ``AssetPortfolio`` shape (``{"bonds": [...]}``)
+    and is Pydantic-validated; an invalid payload shows an error and is treated as
+    "no asset side" (the block is simply not rendered \u2014 pricing never aborts).
+
+    Returns ``(portfolio, valuation_yield)`` \u2014 both ``None`` when no asset side is
+    supplied, so every such run stays byte-identical to the pre-slice page. The
+    parsed values are written back onto ``cfg`` so the deal-config dict mirrors the
+    CLI surface (the PR #111 ``to_dict`` carry-forward).
+    """
+    portfolio: AssetPortfolio | None = None
+    valuation_yield: float | None = None
+    with st.expander("Asset-Liability Duration Gap (optional asset side)", expanded=False):
+        st.caption(
+            "Paste an asset portfolio to report the asset-liability **duration "
+            "gap** alongside the profit test (Asset/ALM model). The same portfolio "
+            "is measured against both the ceded (reinsurer-view) and retained "
+            "(cedant-view) reserve liabilities. Leave blank to skip \u2014 pricing "
+            "numbers are unaffected either way."
+        )
+        raw = st.text_area(
+            "Asset portfolio JSON",
+            value="",
+            placeholder=_ASSET_PORTFOLIO_PLACEHOLDER,
+            key="alm_asset_portfolio_json",
+            help=(
+                "An AssetPortfolio JSON object: a list of bonds, each with "
+                "face_value, coupon_rate (annual), coupon_frequency (must divide "
+                "12), term_months, and optional book_value. Identical to the CLI "
+                "deal.asset_portfolio config input."
+            ),
+        )
+        yield_pct = st.number_input(
+            "ALM valuation yield (%, 0 \u2192 use discount rate)",
+            min_value=0.0,
+            max_value=99.0,
+            value=0.0,
+            step=0.25,
+            help=(
+                "Common flat yield both the asset and liability sides are "
+                "discounted at, isolating the timing mismatch (ADR-111). 0 defers "
+                "to the deal discount rate, mirroring the CLI default."
+            ),
+        )
+        if raw and raw.strip():
+            try:
+                portfolio = AssetPortfolio.model_validate_json(raw)
+            except (ValidationError, ValueError) as exc:
+                st.error(f"Invalid asset portfolio JSON: {exc}")
+                portfolio = None
+            else:
+                valuation_yield = yield_pct / 100.0 if yield_pct > 0 else None
+
+    # Mirror onto the deal-config dict (CLI/Streamlit parity surface).
+    cfg["asset_portfolio"] = portfolio
+    cfg["alm_valuation_yield"] = valuation_yield
+    return portfolio, valuation_yield
 
 
 def page_pricing() -> None:
@@ -950,6 +1132,10 @@ def page_pricing() -> None:
         / 100.0
     )
 
+    # Optional asset side for the ALM duration-gap block (Slice 4b-3b). Returns
+    # (None, None) when no portfolio is pasted, leaving the run byte-identical.
+    asset_portfolio, alm_valuation_yield = _asset_portfolio_input(cfg)
+
     if st.button("Run Pricing", type="primary"):
         with st.spinner("Running projection..."):
             try:
@@ -975,6 +1161,8 @@ def page_pricing() -> None:
                         capital_model_id=capital_model_id,
                         available_capital=available_capital,
                         sufficiency_target_margin=sufficiency_target_margin,
+                        asset_portfolio=asset_portfolio,
+                        alm_valuation_yield=alm_valuation_yield,
                     )
             except (PolarisValidationError, PolarisComputationError) as exc:
                 st.error(f"Pricing error: {exc}")

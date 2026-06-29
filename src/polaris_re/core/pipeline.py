@@ -148,6 +148,13 @@ class DealConfig:
         this dict backs the dashboard ``DEFAULTS`` (the dashboard manages
         its own table-upload state separately) and is a CLI/Streamlit
         parity surface, not a full serialisation of every config field.
+
+        ``asset_portfolio`` / ``alm_valuation_yield`` ARE included (default
+        ``None``) — the dashboard Deal Pricing page now consumes them for the
+        asset-liability duration-gap block (Asset/ALM epic, Slice 4b-3b), so
+        the parity surface must carry them. 4b-1 deliberately left them out
+        until a dashboard surface used them (the ``yrt_rate_table_*``
+        precedent).
         """
         return {
             "product_type": self.product_type,
@@ -164,6 +171,8 @@ class DealConfig:
             "maintenance_cost": self.maintenance_cost,
             "reserve_basis": self.reserve_basis,
             "valuation_date": self.valuation_date,
+            "asset_portfolio": self.asset_portfolio,
+            "alm_valuation_yield": self.alm_valuation_yield,
         }
 
 
