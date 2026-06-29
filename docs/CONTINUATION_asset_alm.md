@@ -2,7 +2,7 @@
 
 **Source:** COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md — Tier-C **C0** (the
 fourth epic, after the three Tier-A epics); ROADMAP Milestone 5.4.
-**Status:** IN PROGRESS
+**Status:** COMPLETE (all slices DONE — epic closed 2026-06-29, Slice 4b-4 / ADR-117)
 **Total slices:** 4
 **Estimated total scope:** ~20 dev-days (4 sessions, one slice each)
 **Plan:** `docs/PLAN_asset_alm.md` (read-only spec)
@@ -285,10 +285,42 @@ surface ships first.
     possible follow-up.
 
 ##### Slice 4b-4: ALM validation notebook
-- **Status:** NEXT
-- **Depends on:** Slice 4b-3b merged
-- **Scope:** an end-to-end ALM validation notebook (duration gap on the golden
-  block + a worked closed-form reconciliation).
+- **Status:** DONE
+- **Branch:** claude/awesome-bardeen-gdhqzd (environment-designated)
+- **PR:** (this PR)
+- **Depends on:** Slice 4b-3b merged (PR #115, on main)
+- **What was done:** Added `notebooks/04_alm_duration_gap.ipynb` — the epic's
+  end-to-end validation notebook. It builds a seasoned whole-life block, cedes
+  50% on **coinsurance** (so both `DualDurationGap` sides are defined — more
+  illustrative than the golden YRT path, whose reinsurer side is `None`), sizes a
+  backing bond portfolio to the ceded reserve, and reports the dual gap via the
+  **same** `dual_duration_gap` path the four surfaces use. It then reconciles four
+  closed forms: (1) the reserve run-off telescopes to the opening reserve
+  (ADR-113); (2) zero-coupon Macaulay = `N` yr, modified = `N/(1+y)`, convexity =
+  `N(N+1)/(1+y)²`; (3) `duration_measures` on the portfolio's own cash flows
+  reproduces the portfolio API exactly (wire-not-reimplement); (4) a perfectly
+  matched block has an exactly-zero gap. A closing section demonstrates
+  immunisation (lengthening the assets shrinks the reinsurer-side gap ~10×, from
+  −8.93 to −0.87 yr). A pytest guard
+  (`tests/test_notebooks/test_alm_duration_gap_notebook.py`) execs the notebook's
+  code cells, so the embedded reconciliations run in CI. ADR-117. Purely additive
+  — no `src/` change, goldens byte-identical.
+- **Key decisions:**
+  - **Self-contained synthetic Gompertz mortality** (`q_x = 0.0004·1.09^(x-18)`)
+    rather than a converted SOA/CIA table: flat mortality builds essentially no
+    whole-life reserve (level net premium funds a constant hazard), and a data-file
+    dependency would couple the notebook to the standing SOA-conversion failure.
+    Matches the self-contained pattern of notebooks 01–03.
+  - **The notebook is its own test.** `nbclient`/`nbconvert` are not project deps,
+    so the guard reads the `.ipynb` with `nbformat` and `exec`s its (magic-free)
+    code cells in one namespace — reproducing a kernel run. The closed-form checks
+    live in the cells as `assert` / `assert_allclose`, so notebook drift fails CI.
+  - **Coinsurance, not the golden YRT block.** The plan said "duration gap on the
+    golden block"; a coinsurance cession was chosen instead so both reinsurer and
+    cedant sides are defined (the golden config is YRT → reinsurer side `None`),
+    giving a fuller validation. The closed-form reconciliations are
+    block-independent (algebraic), so this strengthens rather than weakens the
+    validation.
 
 ## Canonical liability cash-flow stream — RESOLVED (maintainer, 2026-06-27)
 

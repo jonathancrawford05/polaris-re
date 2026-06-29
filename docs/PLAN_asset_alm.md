@@ -7,7 +7,7 @@
 > lives in `docs/CONTINUATION_asset_alm.md`, the per-session
 > `docs/DEV_SESSION_LOG_*` files, and the ADRs.
 >
-> **Status.** 🔄 IN PROGRESS — Slices 1–3 shipped (Slice 1: bond cash-flow
+> **Status.** ✅ COMPLETE (2026-06-29) — all slices shipped (Slice 1: bond cash-flow
 > model + `AssetPortfolio`, ADR-108; Slice 2: book yield, investment income,
 > duration / convexity, ADR-109; Slice 3: asset-driven modco interest,
 > ADR-110). Slice 4 (ALM analytics + surfacing) was re-decomposed into **4a**
@@ -19,7 +19,7 @@
 > ADR-113 — SHIPPED), **4b-2b** (reinsurer/cedant dual gap + API surface,
 > ADR-114 — SHIPPED), **4b-3a** (Excel ALM sheet, ADR-115 — SHIPPED), **4b-3b**
 > (dashboard ALM input + display, ADR-116 — SHIPPED), and **4b-4**
-> (validation notebook — NEXT). No prior
+> (validation notebook, ADR-117 — SHIPPED; epic closed). No prior
 > asset/ALM code existed before this epic.
 > Running log: `docs/CONTINUATION_asset_alm.md`.
 >
@@ -184,7 +184,15 @@ surfaces + a notebook is more than one session (same split as Epic 3's 4c).
       rendered reinsurer-headline-first by `_render_alm_duration_gap`), and
       discharges the PR-#111 `DealConfig.to_dict()` carry-forward (both ALM fields
       now in `to_dict`). Additive — no pasted portfolio → byte-identical page.
-  - **4b-4 — ALM validation notebook (NEXT).**
+  - **4b-4 — ALM validation notebook ✅ SHIPPED (ADR-117) — EPIC COMPLETE.**
+    `notebooks/04_alm_duration_gap.ipynb`: a seasoned whole-life block ceded 50%
+    on coinsurance, the dual duration gap via the shared `dual_duration_gap` path,
+    and four closed-form reconciliations (reserve run-off telescopes to the held
+    reserve; zero-coupon duration/convexity; duration-primitive consistency; a
+    zero-gap matched block) plus an immunisation demonstration. Self-contained
+    synthetic Gompertz mortality (no data-file dependency). A pytest guard
+    (`tests/test_notebooks/`) execs the notebook so its reconciliations run in CI.
+    Additive — no `src/` change, goldens byte-identical.
 
 ## 4. Key constraints (from CLAUDE.md / ARCHITECTURE.md)
 
