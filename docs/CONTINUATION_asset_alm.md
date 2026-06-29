@@ -256,20 +256,37 @@ surface ships first.
     `None`), exactly as the console does.
 
 ###### Slice 4b-3b: dashboard asset-portfolio input + duration-gap display
-- **Status:** NEXT
-- **Depends on:** Slice 4b-3a merged
-- **Scope:** asset-portfolio input widget + duration-gap display on the
-  Streamlit dashboard.
-- **Carry-forward (PR #111 review P2):** thread the two new `DealConfig` fields
-  (`asset_portfolio`, `alm_valuation_yield`) through `DealConfig.to_dict()` when
-  this slice adds the dashboard widget. 4b-1 deliberately left them out of
-  `to_dict()` (consistent with the `yrt_rate_table_*` precedent — `to_dict`
-  backs the dashboard `DEFAULTS` / CLI↔Streamlit parity surface, not a full
-  serialisation), which is correct until the dashboard actually consumes them.
+- **Status:** DONE
+- **Branch:** claude/awesome-bardeen-8vngcl (environment-designated)
+- **PR:** (this PR)
+- **Depends on:** Slice 4b-3a merged (PR #114, on main)
+- **What was done:** The Streamlit **Deal Pricing** page gains an optional
+  "Asset-Liability Duration Gap" expander: an `AssetPortfolio` JSON text area
+  (same `{"bonds": [...]}` shape as the CLI `deal.asset_portfolio` config) and an
+  ALM valuation-yield input (0 → deal `discount_rate`). `_run_pricing_for_cohort`
+  gained `asset_portfolio` / `alm_valuation_yield` params and, when a portfolio is
+  supplied, calls the **same** `dual_duration_gap(... net, ceded ...,
+  config.effective_valuation_rate)` path the CLI/API use; the result is stored on
+  a new `CohortPricingData.alm_duration_gap` field and rendered by
+  `_render_alm_duration_gap` (reinsurer-view headline first, then cedant-view; a
+  `None` side omitted), mirroring the CLI Rich layout/labels. Purely additive — no
+  pasted portfolio → no gap block → byte-identical page. The **PR-#111
+  carry-forward** is discharged: `DealConfig.to_dict()` now carries
+  `asset_portfolio` / `alm_valuation_yield` (default `None`). ADR-116. 7 tests
+  driving `_run_pricing_for_cohort` directly.
+- **Key decisions:**
+  - **Wire, don't reimplement.** A test asserts the dashboard gap is
+    byte-identical to a direct `dual_duration_gap` call on the cohort's own
+    net/ceded results — the page only surfaces the analytics.
+  - **Invalid JSON → no asset side, never aborts.** A bad payload shows an error
+    and is treated as "no portfolio"; the block is omitted and pricing proceeds.
+  - **Per-run input.** The asset side is a per-run JSON paste (not a persisted
+    file-upload widget like the YRT rate table); a saved-portfolio affordance is a
+    possible follow-up.
 
 ##### Slice 4b-4: ALM validation notebook
-- **Status:** PLANNED
-- **Depends on:** Slice 4b-3 merged
+- **Status:** NEXT
+- **Depends on:** Slice 4b-3b merged
 - **Scope:** an end-to-end ALM validation notebook (duration gap on the golden
   block + a worked closed-form reconciliation).
 
