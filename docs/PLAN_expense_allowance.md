@@ -123,3 +123,9 @@ is byte-identical unless the new terms are supplied.
   gross basis.
 - Experience-refund accumulation basis (with vs without interest) — deferred to
   Slice 3's ADR.
+- **First-year mapping on inforce blocks.** Slice 1's primitive treats "first
+  year" as the first `months_per_year` *projection* periods (correct for
+  new business from inception). Slice 2 must map projection periods to each
+  policy's actual duration — most inforce policies are mid-duration, so a naive
+  application would wrongly grant the first-year rate to renewal business. See
+  CONTINUATION Slice 2 acceptance criteria. *(Source: PR #117 review P2.)*

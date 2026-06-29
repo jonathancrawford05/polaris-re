@@ -65,8 +65,8 @@ def test_first_year_boundary_respects_months_per_year(
     premiums = np.ones(n_periods, dtype=np.float64)
     result = allowance.compute_allowance(premiums)
     # FY rate=1.0 → value 1.0; renewal rate=0.0 → value 0.0
-    assert int((result == 1.0).sum()) == expected_fy_count
-    assert int((result == 0.0).sum()) == n_periods - expected_fy_count
+    assert int(np.isclose(result, 1.0).sum()) == expected_fy_count
+    assert int(np.isclose(result, 0.0).sum()) == n_periods - expected_fy_count
 
 
 def test_zero_premium_yields_zero_allowance():
@@ -113,7 +113,7 @@ def sliding_allowance():
     ],
 )
 def test_renewal_rate_for_loss_ratio(sliding_allowance, loss_ratio, expected_rate):
-    assert sliding_allowance.renewal_rate_for_loss_ratio(loss_ratio) == expected_rate
+    assert sliding_allowance.renewal_rate_for_loss_ratio(loss_ratio) == pytest.approx(expected_rate)
 
 
 def test_sliding_scale_uses_realized_loss_ratio_closed_form(sliding_allowance):
@@ -203,7 +203,7 @@ def test_equal_rate_bands_are_allowed():
             ExpenseAllowanceBand(max_loss_ratio=0.70, allowance_pct=0.10),
         ],
     )
-    assert allowance.renewal_rate_for_loss_ratio(0.60) == 0.10
+    assert allowance.renewal_rate_for_loss_ratio(0.60) == pytest.approx(0.10)
 
 
 def test_premiums_must_be_one_dimensional():

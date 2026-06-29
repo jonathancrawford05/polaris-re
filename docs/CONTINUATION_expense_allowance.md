@@ -61,6 +61,18 @@ cannot reproduce any real large YRT/coinsurance treaty's cash flows.
     expected per-period allowance and the shifted net/ceded NCF.
   - Document the interaction with `CoinsuranceTreaty.include_expense_allowance`
     (the boolean proportional path) — they are independent layers.
+  - **Map projection periods → policy duration before applying the FY rate.**
+    The Slice-1 primitive defines "first year" as the first `months_per_year`
+    *projection* periods. That is correct only for new business projected from
+    inception. The primary use case is an **inforce block** where most policies
+    are mid-duration, so feeding a renewal-business stream starting at projection
+    month 0 would wrongly apply the first-year rate. Slice 2 must either (a) map
+    each policy's projection month to its actual policy duration (preferred, via
+    the seriatim duration on `InforceBlock`), or (b) explicitly document and
+    test a new-business-only assumption and guard against silent misuse on
+    inforce blocks. This becomes load-bearing the moment the allowance touches
+    the inforce projection. *(Source: PR #117 automated review, P2 Slice-2
+    design note.)*
 
 ### Slice 3: Experience refund + CLI/API/Excel surfacing
 - **Status:** PLANNED
