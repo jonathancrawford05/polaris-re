@@ -7638,3 +7638,81 @@ allowance is folded into the existing `expenses` line); reinsurance commissions
 modelled distinctly from expense allowances; and gross- vs ceded-basis loss-ratio
 selection (Slice 2 passes the ceded figures — the reinsurer's own experience drives
 its allowance).
+
+---
+
+## ADR-119: Wire ExpenseAllowance into CoinsuranceTreaty + YRTTreaty (Tier-B B3 / Expense-allowance epic, Slice 2)
+
+**Date:** 2026-06-29
+**Status:** Accepted
+
+**Context.** ADR-118 (Slice 1) added the `ExpenseAllowance` model and the pure
+`compute_allowance()` primitive but wired it into no treaty, so goldens stayed
+byte-identical. Slice 2 consumes the primitive inside the two proportional treaty
+engines so a real YRT/coinsurance treaty's expense-allowance cash flows can be
+reproduced. A reinsurer pays the cedant an allowance — a high first-year rate
+reimbursing acquisition cost, a lower renewal rate — quoted as a % of ceded
+premium, optionally on a loss-ratio sliding scale.
+
+The Slice-1 primitive defines "first year" as the first `months_per_year`
+*projection* periods. That is correct only for new business projected from
+inception. The primary use case is an **inforce block** where most policies are
+mid-duration: their acquisition cost is sunk and the renewal rate — not the
+first-year rate — applies going forward. Feeding a mid-duration renewal stream to
+the naive primitive overstates the allowance (verified: a flat $1,000/period
+renewal stream at 80% FY / 10% renewal is overstated by $8,400 over the first
+policy year). This was flagged as the binding Slice-2 design requirement (PR #117
+automated review, P2).
+
+**Decision.**
+
+- *`expense_allowance: ExpenseAllowance | None = None` on both `CoinsuranceTreaty`
+  and `YRTTreaty`.* Default `None` reproduces current behaviour exactly → goldens
+  byte-identical. When set, the per-period allowance is computed on the treaty's
+  own **ceded** premium stream (the reinsurer's premium income) and, for a sliding
+  scale, keyed off the treaty's own ceded loss ratio.
+
+- *The allowance is folded into the expense line as a reinsurer→cedant transfer*
+  (`+allowance` on ceded `expenses`, `−allowance` on net `expenses`), then both
+  NCFs are recomputed. Because the transfer nets to zero across the (net, ceded)
+  pair, `net + ceded == gross` holds on premiums, claims, expenses, and NCF — no
+  `CashFlowResult` contract change. The shared logic lives in
+  `BaseTreaty._expense_allowance_transfer()` so both engines apply it identically.
+
+- *Projection month → policy duration mapping (option (a)).* `ExpenseAllowance`
+  gains `first_year_fraction_for_block(inforce, n_periods, valuation_date)`, which
+  returns the face-weighted fraction `f[t] ∈ [0,1]` of the block still in policy
+  year one at each projection step (`duration_in_force_months + t < months_per_year`).
+  `compute_allowance()` gains an optional `first_year_fraction` argument that blends
+  `rate[t] = f[t]·first_year_pct + (1−f[t])·renewal_rate`. When a treaty is applied
+  with an `InforceBlock`, the treaty computes `f` from the block; new business yields
+  `f[t]=1` for the first policy year and `0` after (recovering the default), while a
+  mid-duration block yields `f[t]=0` everywhere (renewal rate throughout). Without an
+  `InforceBlock` the allowance falls back to the new-business projection-month basis,
+  documented on `compute_allowance()`.
+
+- *Independent of the legacy proportional layer.* `CoinsuranceTreaty.include_expense_allowance`
+  (the boolean that splits the cedant's own expenses proportionally) and the new
+  `expense_allowance` are independent layers that compose; a test asserts the
+  sliding-scale delta is identical whether the proportional split is on or off.
+
+**Verification.** `tests/test_reinsurance/test_expense_allowance.py` gains 13
+primitive tests (explicit `first_year_fraction` blend; new-business-shaped fraction
+recovers the default; shape/range validation; block-fraction mapping for new,
+mid-duration, equal-face-mixed, and unequal-face blocks; and the
+inforce-overstatement-fix closed form). `tests/test_reinsurance/test_expense_allowance_treaty.py`
+(9 tests) covers both engines: default byte-identical; additivity incl. the expense
+line; the closed-form transfer and the ±A NCF shift; mid-duration block charged the
+renewal rate only; mid-duration < new-business allowance; sliding-scale band
+selection through the treaty; and proportional-layer independence. `polaris price`
+on the golden block is unchanged (Total PV Profits Reinsurer $45,386). Full fast
+suite: 1847 passed.
+
+**Out of scope.** The experience-refund (profit-sharing) mechanism and the
+allowance/refund surfacing on `DealConfig` / CLI / API / Excel (Slice 3); a
+dedicated allowance line on `CashFlowResult` (a contract change — still folded into
+`expenses`); survivorship-weighting the first-year fraction (it is face-weighted,
+ignoring decrements between valuation and projection month `t` — exact at the
+all-new / all-renewal boundaries, a small blend only across the year-one transition
+of a mixed-duration block); and per-policy (seriatim) allowance allocation analogous
+to the YRT seriatim premium path (the aggregate face-weighted fraction is used).

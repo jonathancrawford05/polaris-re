@@ -936,6 +936,26 @@ Items harvested from completed/in-flight work by the daily-dev routine
   Reporting/presentation polish, not first-deal correctness → NICE-TO-HAVE.
   *Source: ADR-118 Out of scope + DEV_SESSION_LOG_2026-06-29_expense_allowance_slice1 Open Questions (1st-order).*
 
+- **NICE-TO-HAVE — Survivorship-weight the expense-allowance first-year fraction.**
+  Slice 2 maps projection month → policy duration via a **face-weighted** first-year
+  fraction `f[t]` (`ExpenseAllowance.first_year_fraction_for_block`), ignoring
+  decrements between valuation and projection month `t`. It is **exact at the
+  all-new and all-renewal boundaries** (the common inforce cases) and only blends
+  approximately across the policy-year-one transition of a *mixed-duration* block.
+  Weighting `f[t]` by in-force survivorship (lx) would sharpen the blend for a block
+  with policies straddling the year-one boundary. Second-order accuracy on a
+  non-common path → NICE-TO-HAVE. *Source: ADR-119 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — Per-policy (seriatim) expense-allowance allocation.** Slice 2
+  computes the allowance on the **aggregate** ceded premium stream with a
+  face-weighted first-year fraction, rather than per-policy (the way `YRTTreaty`
+  has a seriatim premium path when `seriatim_lx`/`seriatim_reserves` are present).
+  A seriatim allowance would let each policy's own duration drive its first-year
+  split exactly and support per-policy allowance reporting, at the cost of an
+  (N,T) computation. The aggregate face-weighted fraction is correct on the common
+  path (single-cohort or all-renewal blocks); seriatim matters only for large,
+  duration-heterogeneous books → NICE-TO-HAVE. *Source: ADR-119 Out of scope (1st-order).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

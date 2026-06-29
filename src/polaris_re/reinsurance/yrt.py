@@ -41,6 +41,7 @@ from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 from polaris_re.core.policy import Sex, SmokerStatus
 from polaris_re.reinsurance.base_treaty import BaseTreaty
+from polaris_re.reinsurance.expense_allowance import ExpenseAllowance
 from polaris_re.reinsurance.yrt_rate_table import YRTRateTable
 
 if TYPE_CHECKING:
@@ -93,6 +94,16 @@ class YRTTreaty(PolarisBaseModel, BaseTreaty):
             "duration_years). When set, `apply()` requires an InforceBlock "
             "and prefers per-policy seriatim NAR. Mutually exclusive with "
             "`flat_yrt_rate_per_1000`."
+        ),
+    )
+    expense_allowance: ExpenseAllowance | None = Field(
+        default=None,
+        description=(
+            "Optional sliding-scale expense allowance quoted as a % of ceded "
+            "(YRT) premium (first-year vs renewal, optional loss-ratio scale). "
+            "When set, the allowance is added to ceded expenses and removed from "
+            "net expenses as a reinsurer->cedant transfer that preserves "
+            "net + ceded == gross. Default None reproduces current behaviour."
         ),
     )
     treaty_name: str | None = Field(default=None, description="Optional treaty identifier.")
@@ -163,9 +174,17 @@ class YRTTreaty(PolarisBaseModel, BaseTreaty):
         net_reserve_inc = gross.reserve_increase.copy()
         ceded_reserve_inc = np.zeros_like(gross.reserve_increase)
 
-        # Expenses: stay with cedant
+        # Expenses: stay with cedant, except a sliding-scale expense allowance
+        # (a reinsurer->cedant transfer on ceded YRT premium). Folded into the
+        # expense line (+A ceded, -A net) so net + ceded == gross still holds.
         net_expenses = gross.expenses.copy()
         ceded_expenses = np.zeros_like(gross.expenses)
+        if self.expense_allowance is not None:
+            allowance = self._expense_allowance_transfer(
+                self.expense_allowance, ceded_premiums, ceded_claims, gross, inforce
+            )
+            ceded_expenses = ceded_expenses + allowance
+            net_expenses = net_expenses - allowance
 
         # Lapse surrenders: stay with cedant (no cash values for term)
         net_lapses = gross.lapse_surrenders.copy()

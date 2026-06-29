@@ -18,6 +18,7 @@ from polaris_re.core.cashflow import CashFlowResult
 
 if TYPE_CHECKING:
     from polaris_re.core.inforce import InforceBlock
+    from polaris_re.reinsurance.expense_allowance import ExpenseAllowance
 
 __all__ = ["BaseTreaty"]
 
@@ -71,6 +72,37 @@ class BaseTreaty(ABC):
         if inforce is None:
             return treaty_cession_pct
         return inforce.face_weighted_cession(treaty_cession_pct)
+
+    def _expense_allowance_transfer(
+        self,
+        allowance: "ExpenseAllowance",
+        ceded_premiums: np.ndarray,
+        ceded_claims: np.ndarray,
+        gross: CashFlowResult,
+        inforce: "InforceBlock | None",
+    ) -> np.ndarray:
+        """Per-period sliding-scale expense allowance for a proportional treaty.
+
+        Computes the reinsurer->cedant allowance on the ceded premium stream.
+        When an ``InforceBlock`` is supplied, each policy's projection month is
+        mapped to its actual policy duration so the first-year rate is only
+        applied to business genuinely in policy year one (see
+        ``ExpenseAllowance.first_year_fraction_for_block``). Without an
+        ``inforce`` the allowance falls back to a new-business basis: the first
+        ``months_per_year`` projection periods are treated as first year.
+
+        The caller folds the returned array into the expense lines as a
+        transfer (``ceded.expenses += A``, ``net.expenses -= A``) that preserves
+        ``net + ceded == gross``.
+        """
+        first_year_fraction = None
+        if inforce is not None:
+            first_year_fraction = allowance.first_year_fraction_for_block(
+                inforce, len(ceded_premiums), gross.valuation_date
+            )
+        return allowance.compute_allowance(
+            ceded_premiums, ceded_claims, first_year_fraction=first_year_fraction
+        )
 
     def verify_additivity(
         self,

@@ -26,6 +26,7 @@ from pydantic import Field
 from polaris_re.core.base import PolarisBaseModel
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.reinsurance.base_treaty import BaseTreaty
+from polaris_re.reinsurance.expense_allowance import ExpenseAllowance
 
 if TYPE_CHECKING:
     from polaris_re.core.inforce import InforceBlock
@@ -51,6 +52,17 @@ class CoinsuranceTreaty(PolarisBaseModel, BaseTreaty):
         description=(
             "If True, reinsurer pays a proportional expense allowance to cedant. "
             "Standard in most coinsurance treaties."
+        ),
+    )
+    expense_allowance: ExpenseAllowance | None = Field(
+        default=None,
+        description=(
+            "Optional sliding-scale expense allowance quoted as a % of ceded "
+            "premium (first-year vs renewal, optional loss-ratio scale). An "
+            "independent layer on top of the proportional `include_expense_allowance` "
+            "split: when set, the allowance is added to ceded expenses and removed "
+            "from net expenses as a reinsurer->cedant transfer that preserves "
+            "net + ceded == gross. Default None reproduces current behaviour."
         ),
     )
     treaty_name: str | None = Field(default=None, description="Optional treaty identifier.")
@@ -93,6 +105,17 @@ class CoinsuranceTreaty(PolarisBaseModel, BaseTreaty):
             # Expenses stay with cedant if no allowance
             net_expenses = gross.expenses.copy()
             ceded_expenses = np.zeros_like(gross.expenses)
+
+        # Sliding-scale expense allowance: a reinsurer->cedant transfer folded
+        # into the expense line (+A ceded, -A net) so net + ceded == gross still
+        # holds. Independent of the proportional `include_expense_allowance`
+        # split above — both can apply on the same treaty.
+        if self.expense_allowance is not None:
+            allowance = self._expense_allowance_transfer(
+                self.expense_allowance, ceded_premiums, ceded_claims, gross, inforce
+            )
+            ceded_expenses = ceded_expenses + allowance
+            net_expenses = net_expenses - allowance
 
         # Reserves: transferred proportionally (key difference from YRT)
         net_reserve_balance = gross.reserve_balance * r

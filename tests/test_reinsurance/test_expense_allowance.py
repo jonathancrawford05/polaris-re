@@ -221,3 +221,128 @@ def test_model_is_frozen():
     allowance = ExpenseAllowance(first_year_pct=1.0, renewal_pct=0.1)
     with pytest.raises(ValidationError):  # frozen-instance error
         allowance.first_year_pct = 0.5
+
+
+# ----------------------------------------------------------------------
+# Slice 2 — first-year mapping for inforce blocks (duration-aware)
+# ----------------------------------------------------------------------
+
+from datetime import date  # noqa: E402
+
+from polaris_re.core.inforce import InforceBlock  # noqa: E402
+from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus  # noqa: E402
+
+
+def _policy(policy_id: str, issue_year: int, face: float = 1_000_000.0) -> Policy:
+    """Term policy issued on 1 Jan of ``issue_year``, valued 2025-01-01."""
+    val = date(2025, 1, 1)
+    months = (val.year - issue_year) * 12
+    return Policy(
+        policy_id=policy_id,
+        issue_age=40,
+        attained_age=40 + months // 12,
+        sex=Sex.MALE,
+        smoker_status=SmokerStatus.NON_SMOKER,
+        underwriting_class="STANDARD",
+        face_amount=face,
+        annual_premium=12_000.0,
+        product_type=ProductType.TERM,
+        policy_term=30,
+        duration_inforce=months,
+        issue_date=date(issue_year, 1, 1),
+        valuation_date=val,
+    )
+
+
+def test_first_year_fraction_explicit_blend_matches_closed_form():
+    """rate[t] = f[t]*fy + (1-f[t])*renewal, applied to premium."""
+    allowance = ExpenseAllowance(first_year_pct=0.80, renewal_pct=0.10)
+    premiums = np.full(6, 1_000.0, dtype=np.float64)
+    fraction = np.array([1.0, 1.0, 0.5, 0.5, 0.0, 0.0], dtype=np.float64)
+
+    result = allowance.compute_allowance(premiums, first_year_fraction=fraction)
+
+    expected_rates = np.array([0.80, 0.80, 0.45, 0.45, 0.10, 0.10])
+    np.testing.assert_allclose(result, premiums * expected_rates)
+
+
+def test_first_year_fraction_all_ones_then_zeros_recovers_default():
+    """A new-business-shaped fraction reproduces the default projection split."""
+    allowance = ExpenseAllowance(first_year_pct=0.80, renewal_pct=0.10)
+    premiums = np.full(24, 1_000.0, dtype=np.float64)
+    fraction = np.concatenate([np.ones(12), np.zeros(12)])
+
+    blended = allowance.compute_allowance(premiums, first_year_fraction=fraction)
+    default = allowance.compute_allowance(premiums)
+    np.testing.assert_allclose(blended, default)
+
+
+def test_first_year_fraction_shape_mismatch_rejected():
+    allowance = ExpenseAllowance(first_year_pct=0.8, renewal_pct=0.1)
+    with pytest.raises(PolarisValidationError, match="first_year_fraction shape"):
+        allowance.compute_allowance(
+            np.ones(6, dtype=np.float64), first_year_fraction=np.ones(5, dtype=np.float64)
+        )
+
+
+@pytest.mark.parametrize("bad", [-0.01, 1.01])
+def test_first_year_fraction_out_of_range_rejected(bad):
+    allowance = ExpenseAllowance(first_year_pct=0.8, renewal_pct=0.1)
+    fraction = np.full(6, bad, dtype=np.float64)
+    with pytest.raises(PolarisValidationError, match=r"\[0, 1\]"):
+        allowance.compute_allowance(np.ones(6, dtype=np.float64), first_year_fraction=fraction)
+
+
+def test_block_fraction_new_business_is_one_then_zero():
+    """A brand-new block: f[t]=1 for the first policy year, 0 after."""
+    allowance = ExpenseAllowance(first_year_pct=0.8, renewal_pct=0.1)
+    block = InforceBlock(policies=[_policy("N", 2025)])  # duration 0
+    fraction = allowance.first_year_fraction_for_block(block, 24, date(2025, 1, 1))
+    np.testing.assert_allclose(fraction[:12], 1.0)
+    np.testing.assert_allclose(fraction[12:], 0.0)
+
+
+def test_block_fraction_mid_duration_is_all_zero():
+    """A 5-years-inforce block is entirely past policy year one → renewal only."""
+    allowance = ExpenseAllowance(first_year_pct=0.8, renewal_pct=0.1)
+    block = InforceBlock(policies=[_policy("O", 2020)])  # duration 60 months
+    fraction = allowance.first_year_fraction_for_block(block, 24, date(2025, 1, 1))
+    np.testing.assert_allclose(fraction, 0.0)
+
+
+def test_block_fraction_is_face_weighted_for_mixed_block():
+    """Equal-face new + mid-duration → f[t]=0.5 in year one, 0 after."""
+    allowance = ExpenseAllowance(first_year_pct=0.8, renewal_pct=0.1)
+    block = InforceBlock(policies=[_policy("N", 2025), _policy("O", 2020)])
+    fraction = allowance.first_year_fraction_for_block(block, 24, date(2025, 1, 1))
+    np.testing.assert_allclose(fraction[:12], 0.5)
+    np.testing.assert_allclose(fraction[12:], 0.0)
+
+
+def test_block_fraction_face_weighting_is_not_equal_weighting():
+    """A larger new-business face pulls the year-one fraction above 0.5."""
+    allowance = ExpenseAllowance(first_year_pct=0.8, renewal_pct=0.1)
+    block = InforceBlock(
+        policies=[_policy("N", 2025, face=3_000_000.0), _policy("O", 2020, face=1_000_000.0)]
+    )
+    fraction = allowance.first_year_fraction_for_block(block, 6, date(2025, 1, 1))
+    np.testing.assert_allclose(fraction, 0.75)
+
+
+def test_block_fraction_inforce_mapping_fixes_overstatement():
+    """The Slice-2 mapping recovers renewal-only allowance on a mid-duration block.
+
+    Reproduces the premise the routine verified: the Slice-1 primitive applied
+    naively to an inforce stream overstates the allowance by charging the
+    first-year rate; the duration-aware fraction removes it.
+    """
+    allowance = ExpenseAllowance(first_year_pct=0.80, renewal_pct=0.10)
+    premiums = np.full(24, 1_000.0, dtype=np.float64)
+    block = InforceBlock(policies=[_policy("O", 2020)])  # mid-duration
+
+    naive = allowance.compute_allowance(premiums)
+    fraction = allowance.first_year_fraction_for_block(block, 24, date(2025, 1, 1))
+    mapped = allowance.compute_allowance(premiums, first_year_fraction=fraction)
+
+    np.testing.assert_allclose(mapped, premiums * 0.10)  # all renewal
+    assert naive.sum() > mapped.sum()  # naive overstates
