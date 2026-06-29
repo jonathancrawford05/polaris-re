@@ -915,6 +915,27 @@ Items harvested from completed/in-flight work by the daily-dev routine
   on engine correctness or first-deal pricing → NICE-TO-HAVE.
   *Source: ADR-117 Out of scope + DEV_SESSION_LOG_2026-06-29_asset_alm_slice4b4 (1st-order — follow-up of the originally-planned Epic 4 Slice 4b-4 validation notebook).*
 
+- **NICE-TO-HAVE — Gross- vs ceded-basis loss ratio for the expense-allowance
+  sliding scale.** The new `ExpenseAllowance` (Expense-allowance epic, Slice 1,
+  ADR-118) selects its sliding-scale renewal rate from the **ceded** loss ratio
+  (`ceded_claims.sum()/ceded_premiums.sum()`) — the reinsurer's own experience
+  drives its allowance, which Slice 2 will pass in. Some treaties quote the
+  sliding scale against the **gross** block loss ratio instead. A basis selector
+  on `ExpenseAllowance` (ceded vs gross) would let the engine reproduce those
+  treaties. Affects only sliding-scale deals quoted on the gross basis, not the
+  flat-allowance or ceded-basis common path → NICE-TO-HAVE.
+  *Source: ADR-118 Out of scope + DEV_SESSION_LOG_2026-06-29_expense_allowance_slice1 Open Questions (1st-order).*
+
+- **NICE-TO-HAVE — Dedicated expense-allowance line on `CashFlowResult`.** The
+  Expense-allowance epic (Slice 2) folds the reinsurer→cedant allowance into the
+  existing `expenses` line as a transfer (+A ceded / −A net) so the
+  `net + ceded == gross` invariant holds with **no contract change**. A dedicated
+  `expense_allowance` array on `CashFlowResult` would let reports show the
+  allowance distinctly from operating expenses (cleaner committee presentation),
+  but it is a core-contract change requiring an ADR + backward-compat default.
+  Reporting/presentation polish, not first-deal correctness → NICE-TO-HAVE.
+  *Source: ADR-118 Out of scope + DEV_SESSION_LOG_2026-06-29_expense_allowance_slice1 Open Questions (1st-order).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

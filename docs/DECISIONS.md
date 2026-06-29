@@ -7575,3 +7575,66 @@ cedant-held vs reinsurer-held asset portfolios, a per-side valuation yield, and 
 modco-interest driven directly from the asset book yield in a worked notebook
 example. A generic "execute every notebook" CI sweep (this guard covers only
 notebook 04) is a possible future consolidation.
+
+## ADR-118: ExpenseAllowance model + computation primitive (Tier-B B3 / Expense-allowance epic, Slice 1)
+
+**Date:** 2026-06-29
+**Status:** Accepted
+
+**Context.** The four recommended epics from
+`docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` — A1 reserve-basis, A2 IFRS 17
+movement, A3 cross-jurisdiction capital, and the post-ladder C0 Asset/ALM — are all
+COMPLETE. Per the daily-dev ACTIVE-EPIC track the routine must always advance one
+epic; with the Tier-A ladder exhausted, the highest value × effort epic-sized item
+remaining is Tier-B **B3 — sliding-scale expense allowances / experience refunds**
+(★★★★☆, ~3 dev-days, "standard in large YRT deals"). Today the engine has no
+explicit expense-allowance mechanism at all: `CoinsuranceTreaty` carries only a
+boolean `include_expense_allowance` that, when true, shares the cedant's expenses
+proportionally (`ceded_expense_t = gross_expense_t × c`); YRT and Modco model no
+allowance. A real proportional treaty pays the cedant an allowance quoted as a
+percentage of **ceded premium**, with a high first-year rate and a lower renewal
+rate, frequently on a **sliding scale** keyed to loss experience. This slice (the
+data-model-first slice of a 3-slice epic, `docs/PLAN_expense_allowance.md`) adds the
+contract and computation primitive without wiring it into any treaty, so all goldens
+stay byte-identical.
+
+**Decision.**
+
+- *`reinsurance/expense_allowance.py` — `ExpenseAllowance` + `ExpenseAllowanceBand`
+  Pydantic models and a pure `compute_allowance()` primitive.* The allowance is a
+  fraction of ceded premium: `first_year_pct` on the first `months_per_year` periods
+  (duration year 1), the renewal rate thereafter. With no sliding scale the renewal
+  rate is the flat `renewal_pct`; with a sliding scale the renewal rate is selected
+  from loss-ratio bands by the realized loss ratio
+  (`ceded_claims.sum() / ceded_premiums.sum()`), where the first band whose
+  `max_loss_ratio` the loss ratio does not exceed wins (a loss ratio above every band
+  falls to the last/lowest band).
+
+- *The sliding scale is validated monotone non-increasing in loss ratio.* A band set
+  must be ascending and distinct in threshold, and its `allowance_pct` must not rise
+  as the loss ratio rises — better experience must pay at least as much as worse
+  experience. A mis-ordered scale raises `PolarisValidationError` rather than
+  silently inverting the incentive the sliding scale exists to create.
+
+- *Not wired into any treaty in this slice.* The primitive is standalone; Slice 2
+  consumes it inside `CoinsuranceTreaty`/`YRTTreaty` as a reinsurer→cedant transfer
+  (`+allowance` on the ceded expense line, `−allowance` on the net expense line) that
+  preserves the `net + ceded == gross` additivity invariant. Keeping the wiring out
+  of this slice means goldens are byte-identical here.
+
+**Verification.** `tests/test_reinsurance/test_expense_allowance.py` (26 tests):
+closed-form first-year/renewal amounts ($1,000/mo premium at 100% FY + 10% renewal →
+$12,000 yr 1, $1,200/yr after); linearity in premium; first-year boundary across
+`months_per_year` values; sliding-scale rate selection at every band boundary; the
+realized-loss-ratio closed form (60k/100k → 10% band → $500 renewal); better
+experience pays strictly more; and the ascending / distinct / monotone-non-increasing
+validators. `polaris price` on the golden block is unchanged (Total PV Profits
+Reinsurer $45,386, Cedant $3,513,563); the full reinsurance + QA suites pass.
+
+**Out of scope.** Wiring the allowance into the treaty engines (Slice 2); the
+experience-refund (profit-sharing) mechanism and CLI/API/Excel surfacing (Slice 3);
+a dedicated allowance cash-flow line on `CashFlowResult` (a contract change — the
+allowance is folded into the existing `expenses` line); reinsurance commissions
+modelled distinctly from expense allowances; and gross- vs ceded-basis loss-ratio
+selection (Slice 2 passes the ceded figures — the reinsurer's own experience drives
+its allowance).
