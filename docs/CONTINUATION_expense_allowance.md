@@ -46,9 +46,35 @@ cannot reproduce any real large YRT/coinsurance treaty's cash flows.
     existing `expenses` line — **no `CashFlowResult` contract change**.
 
 ### Slice 2: Wire into `CoinsuranceTreaty` + `YRTTreaty`
-- **Status:** NEXT
+- **Status:** DONE
+- **Branch:** claude/awesome-bardeen-0elamx
+- **PR:** (this draft)
+- **ADR:** ADR-119
+- **What was done:** Added `expense_allowance: ExpenseAllowance | None = None` to
+  both `CoinsuranceTreaty` and `YRTTreaty` (default None → goldens byte-identical).
+  When set, the allowance is computed on the treaty's own ceded premium stream and
+  folded into the expense line (+A ceded, −A net) via the shared
+  `BaseTreaty._expense_allowance_transfer()` helper, preserving
+  `net + ceded == gross`. Implemented the P2 duration mapping: `ExpenseAllowance`
+  gained `first_year_fraction_for_block()` (face-weighted fraction of the block in
+  policy year one at each projection step) and `compute_allowance()` gained an
+  optional `first_year_fraction` blend argument. New business recovers the default
+  first-12-periods split; a mid-duration inforce block is charged the renewal rate
+  throughout. 22 new tests (13 primitive + 9 treaty wiring).
+- **Key decisions:**
+  - Duration mapping chosen as option (a) — map projection month → policy duration
+    from the seriatim durations on `InforceBlock`, aggregated to a face-weighted
+    per-period first-year fraction. The fraction is face-weighted, not
+    survivorship-weighted (deliberate first cut; exact at the all-new / all-renewal
+    boundaries — see ADR-119 Out of scope).
+  - Without an `InforceBlock`, the allowance falls back to the new-business
+    projection-month basis (documented on `compute_allowance()`), rather than
+    raising — aggregate/new-business use without a block is legitimate.
+  - The legacy `CoinsuranceTreaty.include_expense_allowance` boolean and the new
+    `expense_allowance` are independent, composable layers (test asserts the delta
+    is identical with the proportional split on or off).
 - **Depends on:** Slice 1 merged
-- **Files to create/modify:**
+- **Files to create/modify (original plan):**
   - `reinsurance/coinsurance.py`, `reinsurance/yrt.py` — add optional
     `expense_allowance: ExpenseAllowance | None = None` field (default None →
     current behaviour, goldens byte-identical).
@@ -79,7 +105,7 @@ cannot reproduce any real large YRT/coinsurance treaty's cash flows.
     design note.)*
 
 ### Slice 3: Experience refund + CLI/API/Excel surfacing
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 2 merged
 - **Scope:** `ExperienceRefund` (refund % of accumulated favourable experience
   above a retention) computed from ceded cash flows; surface allowance + refund
