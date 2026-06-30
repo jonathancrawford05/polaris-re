@@ -97,17 +97,17 @@ class TestConfigParsing:
         _inf, _ass, _cfg, inputs = _build_pipeline_from_config(path)
         allowance = inputs.deal.expense_allowance
         assert isinstance(allowance, ExpenseAllowance)
-        assert allowance.first_year_pct == 0.40
-        assert allowance.renewal_pct == 0.10
+        assert allowance.first_year_pct == pytest.approx(0.40)
+        assert allowance.renewal_pct == pytest.approx(0.10)
 
     def test_experience_refund_parsed(self) -> None:
         path = _write_config(_nested_config(experience_refund=dict(_REFUND_BLOCK)))
         _inf, _ass, _cfg, inputs = _build_pipeline_from_config(path)
         refund = inputs.deal.experience_refund
         assert isinstance(refund, ExperienceRefund)
-        assert refund.refund_pct == 0.50
-        assert refund.retention == 1000.0
-        assert refund.reinsurer_margin_pct == 0.05
+        assert refund.refund_pct == pytest.approx(0.50)
+        assert refund.retention == pytest.approx(1000.0)
+        assert refund.reinsurer_margin_pct == pytest.approx(0.05)
 
     def test_sliding_scale_parsed(self) -> None:
         block = {
@@ -124,7 +124,7 @@ class TestConfigParsing:
         assert isinstance(allowance, ExpenseAllowance)
         assert allowance.sliding_scale is not None
         assert len(allowance.sliding_scale) == 2
-        assert allowance.sliding_scale[0].max_loss_ratio == 0.60
+        assert allowance.sliding_scale[0].max_loss_ratio == pytest.approx(0.60)
 
     def test_absent_terms_default_none(self) -> None:
         path = _write_config(_nested_config())
