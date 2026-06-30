@@ -7,10 +7,20 @@
 > `docs/CONTINUATION_expense_allowance.md`, the per-session
 > `docs/DEV_SESSION_LOG_*` files, and the ADRs.
 >
-> **Status.** IN PROGRESS — Slice 1 shipped 2026-06-29 (ADR-118: the
-> `ExpenseAllowance` model + computation primitive, not yet wired into any
-> treaty → goldens byte-identical). Running log:
-> `docs/CONTINUATION_expense_allowance.md`.
+> **Status.** IN PROGRESS — Slices 1, 2, and 3a shipped; Slice 3b NEXT.
+> - Slice 1 (2026-06-29, ADR-118): `ExpenseAllowance` model + computation
+>   primitive; not wired → goldens byte-identical.
+> - Slice 2 (2026-06-29, ADR-119, PR #118 merged): wired into
+>   `CoinsuranceTreaty` + `YRTTreaty` with the projection-month → policy-duration
+>   first-year mapping; default `None` → goldens byte-identical.
+> - Slice 3 was split data-model-first (the Slice-1 precedent) because surfacing
+>   across four consumers is a session of its own:
+>   - Slice 3a (2026-06-30, ADR-120): `ExperienceRefund` model + computation
+>     primitive; not wired → goldens byte-identical.
+>   - Slice 3b (NEXT): wire the refund into the treaties + surface allowance +
+>     refund on `DealConfig` / CLI / API / Excel.
+>
+> Running log: `docs/CONTINUATION_expense_allowance.md`.
 >
 > **Source.** `docs/COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md` Tier-B item
 > **B3** — "Sliding-scale expense allowances / experience refunds
@@ -80,7 +90,7 @@ the boolean approximation systematically misstates both parties' net cash flow.
 - Full unit + closed-form tests. **Not wired into any treaty** → all goldens
   byte-identical. (~250 lines + tests)
 
-### Slice 2 — wire into `CoinsuranceTreaty` + `YRTTreaty` (NEXT)
+### Slice 2 — wire into `CoinsuranceTreaty` + `YRTTreaty` (SHIPPED, ADR-119)
 - Add an optional `expense_allowance: ExpenseAllowance | None = None` field to
   both treaties (default `None` → current behaviour, goldens byte-identical).
 - When set, compute the allowance off the ceded premium and apply it as a
@@ -90,14 +100,23 @@ the boolean approximation systematically misstates both parties' net cash flow.
   hand-computed allowance; additivity holds; `include_expense_allowance`
   interaction documented. (~250 lines)
 
-### Slice 3 — experience refund + CLI/API/Excel surfacing (PLANNED)
-- `ExperienceRefund` (refund % of accumulated favourable experience above a
-  retention) computed from the ceded cash flows.
-- Surface allowance + refund terms on the deal-pricing path: `DealConfig` /
-  CLI flag(s), API field(s), and an Excel line. (~250 lines)
+### Slice 3a — `ExperienceRefund` model + computation primitive (SHIPPED, ADR-120)
+- New `reinsurance/experience_refund.py`: `ExperienceRefund` Pydantic model +
+  pure `experience_balance()` / `compute_refund()` primitives. The refund is
+  `refund_pct · max(0, balance − retention)` of an experience account
+  (`premium − claims − allowance − reinsurer_margin_pct·premium`), optionally
+  accumulated at interest (default off). **Not wired into any treaty** → goldens
+  byte-identical. Full unit + closed-form tests (25). (~190 lines + tests)
 
-Each slice leaves the suite green and is independently mergeable. Slices 1–2
-are byte-identical on existing goldens; slice 3 is opt-in (default off) so it
+### Slice 3b — wire refund into treaties + CLI/API/Excel surfacing (NEXT)
+- Apply `ExperienceRefund` inside `CoinsuranceTreaty`/`YRTTreaty` as a terminal
+  reinsurer→cedant transfer (mirroring `_expense_allowance_transfer`).
+- Surface allowance + refund terms on the deal-pricing path: `DealConfig` /
+  CLI flag(s), API field(s), and an Excel line. Off by default → byte-identical
+  unless the new terms are supplied. (~250 lines)
+
+Each slice leaves the suite green and is independently mergeable. Slices 1–3a
+are byte-identical on existing goldens; slice 3b is opt-in (default off) so it
 is byte-identical unless the new terms are supplied.
 
 ## 4. Key design decisions
@@ -116,13 +135,16 @@ is byte-identical unless the new terms are supplied.
 
 ## 5. Open design questions (resolve as slices land)
 
-- Should the sliding scale key off the **ceded** loss ratio or the **gross**
-  block loss ratio? Slice 1 computes it from whatever claims/premiums the caller
-  passes; Slice 2 will pass the **ceded** figures (the reinsurer's own
-  experience drives its allowance). Revisit if a cedant submission specifies the
-  gross basis.
-- Experience-refund accumulation basis (with vs without interest) — deferred to
-  Slice 3's ADR.
+- ~~Should the sliding scale key off the **ceded** loss ratio or the **gross**
+  block loss ratio?~~ **RESOLVED (Slice 2, ADR-119):** Slice 2 passes the
+  **ceded** figures (the reinsurer's own experience drives its allowance). A
+  gross-basis option remains a promoted NICE-TO-HAVE follow-up — revisit if a
+  cedant submission specifies the gross basis.
+- ~~Experience-refund accumulation basis (with vs without interest).~~
+  **RESOLVED (Slice 3a, ADR-120):** optional flat interest, default off
+  (`interest_rate = 0` → simple undiscounted sum); otherwise each contribution
+  accumulates forward to the settlement period at `(1 + interest_rate)^(1 /
+  months_per_year)`.
 - **First-year mapping on inforce blocks.** Slice 1's primitive treats "first
   year" as the first `months_per_year` *projection* periods (correct for
   new business from inception). Slice 2 must map projection periods to each

@@ -7716,3 +7716,71 @@ ignoring decrements between valuation and projection month `t` — exact at the
 all-new / all-renewal boundaries, a small blend only across the year-one transition
 of a mixed-duration block); and per-policy (seriatim) allowance allocation analogous
 to the YRT seriatim premium path (the aggregate face-weighted fraction is used).
+
+---
+
+## ADR-120: ExperienceRefund model + computation primitive (Tier-B B3 / Expense-allowance epic, Slice 3a)
+
+**Date:** 2026-06-30
+**Status:** Accepted
+
+**Context.** ADR-118/119 (Slices 1–2) added the `ExpenseAllowance` model and wired
+it into `CoinsuranceTreaty`/`YRTTreaty` as a reinsurer→cedant transfer. The B3 epic's
+remaining planned scope (`docs/PLAN_expense_allowance.md`, Slice 3) is the
+**experience refund** (profit sharing) plus surfacing the allowance + refund on the
+deal-pricing path (`DealConfig` / CLI / API / Excel). Surfacing across four consumers
+is a session of its own, so Slice 3 is split data-model-first (the Slice-1 precedent):
+this slice (**3a**) adds the `ExperienceRefund` contract and computation primitive,
+wired into no treaty → goldens byte-identical; Slice **3b** wires it in and surfaces
+the terms. A large YRT/coinsurance deal refunds the cedant a share of accumulated
+favourable experience when the ceded business runs better than expected — the
+standard mechanism (alongside the sliding-scale allowance) for aligning both parties
+to good experience. The engine had no experience-refund mechanism at all (verified:
+no `ExperienceRefund` / profit-sharing symbol anywhere in `src/`).
+
+**Decision.**
+
+- *`reinsurance/experience_refund.py` — `ExperienceRefund` Pydantic model + pure
+  `experience_balance()` / `compute_refund()` primitives.* The experience account
+  accumulates a per-period contribution
+  `premium − claims − allowance − reinsurer_margin_pct · premium`, where `allowance`
+  is the expense allowance already paid to the cedant (optional, default zeros) and
+  `reinsurer_margin_pct · premium` is the reinsurer's retained risk/expense charge.
+  A positive balance is favourable to the reinsurer; the refund is
+  `refund_pct · max(0, balance − retention)` — a share of the favourable balance in
+  excess of a retention the reinsurer keeps first.
+
+- *Accumulation basis: optional flat interest, default off.* This resolves the
+  PLAN open question ("with vs without interest"). With `interest_rate = 0` (default)
+  the balance is the simple undiscounted contribution sum; otherwise each period's
+  contribution is accumulated forward to the final/settlement period at the per-period
+  factor `(1 + interest_rate)^(1 / months_per_year)` — an experience fund rolled to
+  the settlement point. Keeping the default at zero means the simplest deal needs no
+  interest assumption and the primitive stays auditable.
+
+- *Refund is non-negative; the cedant never pays into the fund.* An unfavourable
+  (negative) or below-retention balance refunds nothing. Deficit carryforward (a
+  loss carried into the next experience period) is deliberately out of scope.
+
+- *Not wired into any treaty in this slice.* The primitive is standalone; Slice 3b
+  consumes it as a terminal reinsurer→cedant transfer preserving `net + ceded == gross`
+  (the refund moves money between the two parties; it is not a new external flow),
+  exactly as the allowance does. Keeping the wiring out of this slice means goldens
+  are byte-identical here.
+
+**Verification.** `tests/test_reinsurance/test_experience_refund.py` (25 tests):
+closed-form balances (12,000 premium − 7,200 claims → 4,800 favourable; allowance +
+10% margin net to 4,200; two annual 100 contributions at 10% → 210 with interest);
+refund as a share of the favourable balance (0.5·4,800 → 2,400), the retention applied
+first (0.5·(4,800 − 1,000) → 1,900), zero below the retention, zero on unfavourable
+experience, linearity in `refund_pct`, the interest closed form (→ 105), and a margin
+sensitivity sweep; plus shape-mismatch / non-1-D guards and field-range validators.
+No treaty consumes the model → `polaris price` on the golden block is unchanged
+(Total PV Profits Reinsurer $45,386); full fast suite green.
+
+**Out of scope.** Wiring the refund into the treaty engines and surfacing allowance +
+refund on `DealConfig` / CLI / API / Excel (Slice 3b); per-period or annual refund
+**settlement timing** (this slice computes a single end-of-horizon scalar — a real
+treaty may settle the refund annually); deficit carryforward across experience
+periods; and a stochastic / experience-driven re-rating of the refund across
+scenarios (the balance keys off the projected base run).

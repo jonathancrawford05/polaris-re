@@ -2,7 +2,7 @@
 
 **Source:** COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md — Tier-B **B3**
 **Status:** IN PROGRESS
-**Total slices:** 3
+**Total slices:** 3 (Slice 3 split data-model-first into 3a + 3b — see below)
 **Estimated total scope:** ~3 dev-days
 **Epic framing:** maintainer-confirmed (2026-06-29, PR #117 — "Option A: proceed").
 B3 was promoted from a between-epics quick win to a 3-slice active epic because
@@ -105,12 +105,44 @@ cannot reproduce any real large YRT/coinsurance treaty's cash flows.
     design note.)*
 
 ### Slice 3: Experience refund + CLI/API/Excel surfacing
+Split data-model-first (the Slice-1 precedent) because surfacing across four
+consumers (`DealConfig` / CLI / API / Excel) is a session of its own:
+
+#### Slice 3a: `ExperienceRefund` model + computation primitive
+- **Status:** DONE
+- **Branch:** claude/awesome-bardeen-tb1bch
+- **PR:** (this draft)
+- **ADR:** ADR-120
+- **What was done:** Added `reinsurance/experience_refund.py` with the
+  `ExperienceRefund` Pydantic model and the pure `experience_balance()` /
+  `compute_refund()` primitives. The experience account accumulates
+  `premium − claims − allowance − reinsurer_margin_pct·premium` per period
+  (allowance optional, default zeros), optionally **at interest** (default 0 →
+  simple sum); the refund is `refund_pct · max(0, balance − retention)`. Refund
+  is non-negative (an unfavourable balance refunds nothing; deficit carryforward
+  out of scope). 25 unit + closed-form tests. Not wired into any treaty →
+  goldens byte-identical.
+- **Key decisions:**
+  - Accumulation basis (PLAN open question) resolved: optional flat interest,
+    default off. Each contribution rolls forward to the final period at
+    `(1+i)^(1/months_per_year)`.
+  - The reinsurer margin (`reinsurer_margin_pct · ceded premium`) is the
+    reinsurer's retained charge — it reduces the sharable balance.
+  - A single end-of-horizon scalar refund (not per-period). Annual/periodic
+    settlement timing is a Slice-3b/future refinement.
+  - The refund will be applied (Slice 3b) as a terminal reinsurer→cedant
+    transfer folded into `expenses`, preserving `net + ceded == gross` — **no
+    `CashFlowResult` contract change** (the allowance precedent).
+
+#### Slice 3b: Wire refund into treaties + surface allowance/refund on CLI/API/Excel
 - **Status:** NEXT
-- **Depends on:** Slice 2 merged
-- **Scope:** `ExperienceRefund` (refund % of accumulated favourable experience
-  above a retention) computed from ceded cash flows; surface allowance + refund
-  terms on `DealConfig` / CLI / API / Excel. Off by default → byte-identical
-  unless supplied.
+- **Depends on:** Slice 3a merged
+- **Scope:** apply `ExperienceRefund` inside `CoinsuranceTreaty`/`YRTTreaty` as a
+  terminal transfer (mirroring `_expense_allowance_transfer`); surface both the
+  `expense_allowance` (already in the treaty contracts from Slice 2) and the new
+  `expense_refund` terms on the deal-pricing path: `DealConfig` field(s), CLI
+  flag(s), API field(s), and an Excel line. Off by default → byte-identical
+  unless the new terms are supplied.
 
 ## Context for Next Session
 
