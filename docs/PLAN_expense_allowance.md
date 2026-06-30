@@ -7,7 +7,7 @@
 > `docs/CONTINUATION_expense_allowance.md`, the per-session
 > `docs/DEV_SESSION_LOG_*` files, and the ADRs.
 >
-> **Status.** IN PROGRESS — Slices 1, 2, 3a, 3b-1, and 3b-2a shipped; Slice 3b-2b NEXT.
+> **Status.** IN PROGRESS — Slices 1, 2, 3a, 3b-1, 3b-2a, and 3b-2b-1 shipped; Slice 3b-2b-2 (Excel) NEXT.
 > - Slice 1 (2026-06-29, ADR-118): `ExpenseAllowance` model + computation
 >   primitive; not wired → goldens byte-identical.
 > - Slice 2 (2026-06-29, ADR-119, PR #118 merged): wired into
@@ -28,8 +28,11 @@
 >         pipeline deal path (`DealConfig` fields + `build_treaty` kwargs + config
 >         parsing + `_build_treaty_for_pipeline`); `polaris price --config` honours
 >         them end-to-end; default `None` → goldens byte-identical.
->       - Slice 3b-2b (NEXT): surface both terms on the API request models + the
->         deal-pricing Excel export.
+>       - Slice 3b-2b: surface both terms on the API request models + the
+>         deal-pricing Excel export — split surface-by-surface:
+>         - Slice 3b-2b-1 (2026-06-30, ADR-123): API request models (four models +
+>           `_build_treaty` threading + app-level 422 handler).
+>         - Slice 3b-2b-2 (NEXT): deal-pricing Excel export.
 >
 > Running log: `docs/CONTINUATION_expense_allowance.md`.
 >
@@ -134,13 +137,26 @@ the boolean approximation systematically misstates both parties' net cash flow.
   `_build_treaty_for_pipeline` wiring (flat + tabular YRT). `polaris price --config`
   now honours both terms end-to-end. Off by default → goldens byte-identical. 13 tests.
 
-### Slice 3b-2b — surface allowance + refund on the API + Excel (NEXT)
-- Surface both terms on the API request models (`PriceRequest`, `ScenarioRequest`,
-  `UQRequest`, `PortfolioDealRequest` — four `_build_treaty` call sites in
-  `api/main.py`) and the deal-pricing Excel export (`utils/excel_output.py`). Off by
-  default → byte-identical unless supplied. Use the same deal-path keys 3b-2a chose
-  (`expense_allowance` / `experience_refund`). Also consider the dashboard input +
-  `DealConfig.to_dict()` parity surface (omitted in 3b-2a). (~250 lines)
+### Slice 3b-2b — surface allowance + refund on the API + Excel (split 3b-2b-1 / 3b-2b-2)
+Split surface-by-surface once surveyed (the API request layer and the Excel writer
+are independent consumers — the epic's established pattern).
+
+#### Slice 3b-2b-1 — surface on the REST API request models (SHIPPED, ADR-123)
+- Added `expense_allowance` / `experience_refund` optional fields to the four
+  deal-pricing request models (`PriceRequest`, `ScenarioRequest`, `UQRequest`,
+  `PortfolioDealRequest`), threaded through `_build_treaty` (flat + tabular YRT /
+  Coinsurance, ignored for Modco/gross) at all four call sites. Added an app-level
+  `PolarisValidationError` → 422 handler so a malformed nested allowance returns a clean
+  422 (not a 500) from request-body parsing. Off by default → byte-identical. 14 tests.
+
+#### Slice 3b-2b-2 — surface on the deal-pricing Excel export (NEXT)
+- Surface both terms on the deal-pricing committee Excel workbook
+  (`utils/excel_output.py` `DealPricingExport` + `write_deal_pricing_excel`, threaded
+  from the CLI `--excel-out` path). No existing "Deal Terms" panel, so add a new
+  sheet/panel rendering the allowance (FY/renewal %, sliding-scale bands) and refund
+  (refund %, retention, margin) terms. Off by default → byte-identical workbook unless
+  supplied. Keep the same keys. Also consider the dashboard input +
+  `DealConfig.to_dict()` parity surface (still omitted). (~200 lines)
 
 Each slice leaves the suite green and is independently mergeable. Slices 1–3b-1
 are byte-identical on existing goldens; slice 3b-2 is opt-in (default off) so it

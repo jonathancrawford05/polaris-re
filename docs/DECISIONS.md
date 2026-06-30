@@ -7914,3 +7914,60 @@ and the deal-pricing Excel export (Slice 3b-2b — the next slice); the dashboar
 on inforce blocks when an `expense_allowance` is supplied (today the allowance falls back
 to the new-business projection-month basis unless `use_policy_cession` is set — a
 correctness refinement, harvested as a follow-up).
+
+
+## ADR-123: Surface expense-allowance / experience-refund terms on the REST API (Tier-B B3 / Expense-allowance epic, Slice 3b-2b-1)
+
+**Date:** 2026-06-30
+**Status:** Accepted
+
+**Context.** ADR-122 (Slice 3b-2a) surfaced `expense_allowance` / `experience_refund` on
+the CLI config / pipeline deal path, but left the REST API blind to both: a client POSTing
+`expense_allowance` to `/api/v1/price` had it silently dropped — the request models carried
+no such field and Pydantic's default `extra="ignore"` discarded the key, so `_build_treaty`
+constructed the treaty without it (premise reproduced: `PriceRequest.model_validate({...,
+"expense_allowance": {...}})` yields `model_extra is None` and no attribute). ADR-122 framed
+the remaining surfacing as Slice 3b-2b (API + Excel), but the two are independent consumers
+and, per the epic's "decompose, don't defer" pattern (the same reason 3b-2 split into 3b-2a /
+3b-2b), 3b-2b is split again: **3b-2b-1 (this slice)** does the four API request models;
+**3b-2b-2** does the deal-pricing Excel export.
+
+**Decision.**
+
+- *Two optional fields on each of the four deal-pricing request models* — `PriceRequest`,
+  `ScenarioRequest`, `UQRequest`, `PortfolioDealRequest` — `expense_allowance:
+  ExpenseAllowance | None` and `experience_refund: ExperienceRefund | None`, both default
+  `None`. The API already imports from the `reinsurance` package (`BaseTreaty`, `YRTTreaty`),
+  so the models are imported directly (no `TYPE_CHECKING` layering dance — that guard exists
+  in `core/pipeline.py` only to keep `core/` from importing `reinsurance/`). Default `None`
+  → every existing response is byte-identical.
+
+- *`_build_treaty` gains matching kwargs* threaded onto the constructed `YRTTreaty`
+  (both the flat-rate and tabular-rate-table paths) / `CoinsuranceTreaty`. Silently ignored
+  for `Modco` / gross — mirrors `build_treaty` in `core/pipeline.py` (ADR-122). The four call
+  sites (`price`, `scenario`, `uq`, `_portfolio_from_request_deals`) pass `request.*` /
+  `deal_req.*` through.
+
+- *App-level `PolarisValidationError` → HTTP 422 handler.* The nested `ExpenseAllowance`
+  validators (the monotone-non-increasing sliding-scale check, ADR-119) raise
+  `PolarisValidationError` during FastAPI's request-body parsing — *before* any endpoint
+  body runs, so the per-endpoint `except` blocks that already map this error to 422 never
+  see it, and it would surface as an unhandled 500. A single `@app.exception_handler`
+  registration maps it app-wide to 422, the same status the ADR-074 date-consistency guard
+  uses for the semantic half of request validation. This closes a 500-on-malformed-body gap
+  the new model-validated request fields would otherwise introduce.
+
+**Verification.** `tests/test_api/test_expense_allowance_api.py` (14 tests, FastAPI
+`TestClient`): absent terms → byte-identical response (price / scenario / uq / portfolio);
+a config allowance reaches the Coinsurance and YRT treaties and lowers reinsurer profit; the
+allowance is a zero-sum reinsurer→cedant transfer (cedant's undiscounted profit rises by
+exactly what the reinsurer's falls); a refund lowers reinsurer profit; a loss-ratio sliding
+scale parses and applies; Modco ignores both terms (byte-identical); a non-monotone scale
+returns 422 (not 500). `polaris price` on the golden block is byte-identical (Total PV
+Profits Reinsurer $45,386); full fast suite + qa suite green.
+
+**Out of scope.** The deal-pricing **Excel** export (Slice 3b-2b-2 — the next slice); the
+dashboard input + `DealConfig.to_dict()` parity surface (still deferred until a dashboard
+surface consumes the terms); the `use_policy_cession` block-aware duration-mapping follow-up
+(ADR-122 Out of scope, already harvested as IMPORTANT). No response-schema field is added —
+the terms are inputs that move the existing priced numbers, not new outputs.

@@ -4,7 +4,7 @@
 **Status:** IN PROGRESS
 **Total slices:** 3 (Slice 3 split data-model-first into 3a + 3b; 3b split into
 3b-1 treaty wiring + 3b-2 deal-path surfacing; 3b-2 further split into 3b-2a CLI/config
-path + 3b-2b API/Excel — see below)
+path + 3b-2b API/Excel; 3b-2b further split into 3b-2b-1 API + 3b-2b-2 Excel — see below)
 **Estimated total scope:** ~3 dev-days
 **Epic framing:** maintainer-confirmed (2026-06-29, PR #117 — "Option A: proceed").
 B3 was promoted from a between-epics quick win to a 3-slice active epic because
@@ -195,20 +195,53 @@ split — the epic's established decompose-don't-defer pattern:
     while preserving the core→reinsurance layering — justified by the existing
     `build_treaty` lazy-import pattern in the same module.
 
-#### Slice 3b-2b: Surface allowance/refund on the API + Excel
+Slice 3b-2b proved to be two distinct surfaces (the API request layer and the
+Excel writer) once surveyed — the epic's established surface-by-surface split (cf.
+3b-2 → 3b-2a/3b-2b, and the Asset/ALM 4b surfacing tail). It is split into
+3b-2b-1 (API) and 3b-2b-2 (Excel):
+
+#### Slice 3b-2b-1: Surface allowance/refund on the REST API request models
+- **Status:** DONE
+- **Branch:** claude/awesome-bardeen-mfjksj
+- **PR:** (this draft)
+- **ADR:** ADR-123
+- **What was done:** Added `expense_allowance: ExpenseAllowance | None = None` and
+  `experience_refund: ExperienceRefund | None = None` to the four deal-pricing request
+  models (`PriceRequest`, `ScenarioRequest`, `UQRequest`, `PortfolioDealRequest`),
+  imported the models directly (the API already imports from `reinsurance/`, so no
+  `TYPE_CHECKING` layering is needed — that guard exists only in `core/pipeline.py`).
+  `_build_treaty` gained matching kwargs threaded onto the YRT (flat **and** tabular
+  paths) / Coinsurance treaties, ignored for Modco / gross; all four `_build_treaty`
+  call sites (`price`, `scenario`, `uq`, `_portfolio_from_request_deals`) pass
+  `request.*` / `deal_req.*` through. Added an app-level `PolarisValidationError` → HTTP
+  422 exception handler so a malformed nested allowance (non-monotone sliding scale) —
+  which raises during FastAPI's request-body parsing, before any endpoint `except`
+  block runs — returns a clean 422 instead of a 500. 14 new tests. Golden byte-identical.
+- **Key decisions:**
+  - Direct model imports (not `TYPE_CHECKING`): the API module is a `reinsurance`
+    consumer already, so the `core/`-layering rationale behind ADR-122's `TYPE_CHECKING`
+    annotation does not apply here.
+  - The 500→422 gap on malformed request bodies is a real defect the new model-validated
+    fields would introduce; fixed in-scope via one app-wide handler (ADR-123) rather than
+    deferred, since shipping a feature that 500s on bad input is not "byte-identical and
+    correct."
+
+#### Slice 3b-2b-2: Surface allowance/refund on the deal-pricing Excel export
 - **Status:** NEXT
-- **Depends on:** Slice 3b-2a merged
-- **Scope:** surface both terms on the remaining deal-pricing consumers:
-  the API request models (`PriceRequest`, `ScenarioRequest`, `UQRequest`,
-  `PortfolioDealRequest` — four `_build_treaty` call sites in `api/main.py`) and the
-  deal-pricing Excel export. Off by default → byte-identical unless supplied.
-  - **Files to touch (surveyed):** `api/main.py` (~L738 `_build_treaty` + the four
-    request models that call it), and the deal-pricing Excel writer
-    (`utils/excel_output.py`).
-  - **Naming note:** use the same deal-path keys 3b-2a chose — `expense_allowance` /
-    `experience_refund` — on the API request models for consistency.
+- **Depends on:** Slice 3b-2b-1 merged
+- **Scope:** surface both terms on the deal-pricing Excel committee workbook so a
+  reviewer pricing a deal with an allowance/refund sees the terms in the packet they
+  circulate. There is no existing "Deal Terms" panel in the workbook, so this means a
+  new sheet (or a panel on the Summary/Assumptions sheet) rendering the allowance
+  (FY/renewal %, sliding-scale bands) and refund (refund %, retention, margin) terms,
+  plus threading them from the CLI `--excel-out` path. Off by default (no terms → no
+  panel) → byte-identical workbook unless supplied.
+  - **Files to touch (surveyed):** `utils/excel_output.py` (`DealPricingExport` +
+    `write_deal_pricing_excel`), `cli.py` (the `_cohort_to_deal_pricing_export` /
+    `--excel-out` call site).
+  - **Naming note:** keep the same keys — `expense_allowance` / `experience_refund`.
   - **Also consider:** the dashboard input surface + `DealConfig.to_dict()` parity
-    (omitted in 3b-2a until a dashboard surface consumes the terms).
+    (still omitted until a dashboard surface consumes the terms).
 
 ## Context for Next Session
 
