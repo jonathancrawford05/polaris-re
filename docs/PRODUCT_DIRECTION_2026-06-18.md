@@ -956,6 +956,28 @@ Items harvested from completed/in-flight work by the daily-dev routine
   path (single-cohort or all-renewal blocks); seriatim matters only for large,
   duration-heterogeneous books → NICE-TO-HAVE. *Source: ADR-119 Out of scope (1st-order).*
 
+- **NICE-TO-HAVE — Annual / per-period experience-refund settlement timing.** The
+  new `ExperienceRefund` (Expense-allowance epic, Slice 3a, ADR-120) computes a
+  single **end-of-horizon scalar** refund from the accumulated experience account.
+  A real large YRT/coinsurance treaty frequently settles the experience refund
+  **annually** (per experience period), refunding favourable experience each year
+  rather than once at projection end. Adding a per-period / annual settlement schedule
+  (and the matching terminal-transfer placement in Slice 3b) would let the engine
+  reproduce those treaties' year-by-year refund cash flows. The end-of-horizon scalar
+  is correct for a single-settlement treaty (the common first-deal case) → NICE-TO-HAVE.
+  *Source: ADR-120 Out of scope + DEV_SESSION_LOG_2026-06-30_experience_refund_slice3a
+  Open Questions (1st-order — follow-up of the originally-planned Slice 3).*
+
+- **NICE-TO-HAVE — Experience-refund deficit carryforward.** `ExperienceRefund`
+  (Slice 3a, ADR-120) refunds nothing on an unfavourable (negative) experience
+  balance and does **not** carry the deficit forward against future favourable
+  experience. Multi-period treaties often carry a loss forward so a good year only
+  refunds after an earlier bad year is recovered. A deficit-carryforward mode would
+  model that, but it is meaningful only once per-period settlement exists (it is a
+  refinement of the timing follow-up above) and matters only for multi-period books →
+  NICE-TO-HAVE. *Source: ADR-120 Out of scope + DEV_SESSION_LOG_2026-06-30_experience_refund_slice3a
+  Open Questions (1st-order — follow-up of the originally-planned Slice 3).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

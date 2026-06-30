@@ -12,6 +12,7 @@ from polaris_re.reinsurance.expense_allowance import (
     ExpenseAllowance,
     ExpenseAllowanceBand,
 )
+from polaris_re.reinsurance.experience_refund import ExperienceRefund
 from polaris_re.reinsurance.modco import ModcoTreaty
 from polaris_re.reinsurance.stop_loss import StopLossTreaty
 from polaris_re.reinsurance.yrt import YRTTreaty
@@ -22,6 +23,7 @@ __all__ = [
     "CoinsuranceTreaty",
     "ExpenseAllowance",
     "ExpenseAllowanceBand",
+    "ExperienceRefund",
     "ModcoTreaty",
     "StopLossTreaty",
     "YRTRateTable",
