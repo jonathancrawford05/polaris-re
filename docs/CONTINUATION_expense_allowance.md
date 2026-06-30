@@ -2,7 +2,8 @@
 
 **Source:** COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md — Tier-B **B3**
 **Status:** IN PROGRESS
-**Total slices:** 3 (Slice 3 split data-model-first into 3a + 3b — see below)
+**Total slices:** 3 (Slice 3 split data-model-first into 3a + 3b; 3b further split
+into 3b-1 treaty wiring + 3b-2 deal-path surfacing — see below)
 **Estimated total scope:** ~3 dev-days
 **Epic framing:** maintainer-confirmed (2026-06-29, PR #117 — "Option A: proceed").
 B3 was promoted from a between-epics quick win to a 3-slice active epic because
@@ -134,15 +135,50 @@ consumers (`DealConfig` / CLI / API / Excel) is a session of its own:
     transfer folded into `expenses`, preserving `net + ceded == gross` — **no
     `CashFlowResult` contract change** (the allowance precedent).
 
-#### Slice 3b: Wire refund into treaties + surface allowance/refund on CLI/API/Excel
+Slice 3b proved to be two distinct chunks once the surfacing path was surveyed:
+neither the Slice-2 `expense_allowance` nor the Slice-3a refund is on the
+deal-pricing path yet (`pipeline.py` / `api/main.py` only set the legacy
+`include_expense_allowance` boolean), so surfacing across four consumers is a
+session of its own. Following the Slice-1/3a data-model-first precedent, Slice 3b
+is split into 3b-1 (treaty wiring) and 3b-2 (surfacing).
+
+#### Slice 3b-1: Wire refund into `CoinsuranceTreaty` + `YRTTreaty`
+- **Status:** DONE
+- **Branch:** claude/awesome-bardeen-yvdvdl
+- **PR:** (this draft)
+- **ADR:** ADR-121
+- **What was done:** Added `experience_refund: ExperienceRefund | None = None` to both
+  treaties (default None → goldens byte-identical). When set, the refund is a single
+  terminal reinsurer→cedant transfer at the final projection period, computed via the
+  new `BaseTreaty._experience_refund_transfer()` helper and folded into the expense
+  line (+R ceded, −R net) so `net + ceded == gross`. The refund is computed **net of
+  the expense allowance** already paid (the allowance array the treaty computed is
+  threaded into `compute_refund`), so the two transfers compose additively without
+  double-counting. 13 new tests (byte-identical default; additivity on both treaties;
+  closed-form terminal landing + NCF shift; linearity in `refund_pct`; allowance+refund
+  composition; below-retention / unfavourable → nothing).
+- **Key decisions:**
+  - Treaty field named `experience_refund` (mirrors the `ExperienceRefund` model, as
+    `expense_allowance` mirrors `ExpenseAllowance`). The PLAN's `expense_refund` is the
+    deal-path shorthand; 3b-2 maps the deal-path name onto this field.
+  - Whole refund lands at the **final** period (single end-of-horizon settlement, per
+    ADR-120). Per-period / annual settlement timing remains a future refinement.
+  - The allowance array is threaded into the refund so the sharable balance is net of
+    the allowance already paid (no double-count).
+
+#### Slice 3b-2: Surface allowance/refund on the deal-pricing path
 - **Status:** NEXT
-- **Depends on:** Slice 3a merged
-- **Scope:** apply `ExperienceRefund` inside `CoinsuranceTreaty`/`YRTTreaty` as a
-  terminal transfer (mirroring `_expense_allowance_transfer`); surface both the
-  `expense_allowance` (already in the treaty contracts from Slice 2) and the new
-  `expense_refund` terms on the deal-pricing path: `DealConfig` field(s), CLI
-  flag(s), API field(s), and an Excel line. Off by default → byte-identical
-  unless the new terms are supplied.
+- **Depends on:** Slice 3b-1 merged
+- **Scope:** surface both the `expense_allowance` (in the treaty contracts since
+  Slice 2) and the `experience_refund` (Slice 3b-1) terms on the deal-pricing path:
+  `DealConfig` field(s), CLI flag(s)/config schema, API field(s), and an Excel line.
+  Off by default → byte-identical unless the new terms are supplied.
+  - **Files to touch (surveyed):** `core/pipeline.py` (~L567 treaty construction),
+    `api/main.py` (~L790 treaty construction + request model), the CLI config schema
+    in `cli.py`, and the deal-pricing Excel writer.
+  - **Naming note:** the treaty field is `experience_refund`; pick the deal-path key
+    (`experience_refund` vs the PLAN's `expense_refund`) consistently across all four
+    consumers and document the choice.
 
 ## Context for Next Session
 

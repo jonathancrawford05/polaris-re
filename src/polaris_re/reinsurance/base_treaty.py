@@ -19,6 +19,7 @@ from polaris_re.core.cashflow import CashFlowResult
 if TYPE_CHECKING:
     from polaris_re.core.inforce import InforceBlock
     from polaris_re.reinsurance.expense_allowance import ExpenseAllowance
+    from polaris_re.reinsurance.experience_refund import ExperienceRefund
 
 __all__ = ["BaseTreaty"]
 
@@ -103,6 +104,35 @@ class BaseTreaty(ABC):
         return allowance.compute_allowance(
             ceded_premiums, ceded_claims, first_year_fraction=first_year_fraction
         )
+
+    def _experience_refund_transfer(
+        self,
+        refund: "ExperienceRefund",
+        ceded_premiums: np.ndarray,
+        ceded_claims: np.ndarray,
+        allowances: np.ndarray | None,
+    ) -> np.ndarray:
+        """Terminal experience-refund (profit-sharing) transfer for a treaty.
+
+        Computes the scalar experience refund the reinsurer pays the cedant from
+        the accumulated ceded experience — net of any expense allowance already
+        paid to the cedant (pass the allowance array so it is not double-counted)
+        — and places the whole refund at the **final** projection period. The
+        refund settles once at the end of the experience horizon (per-period /
+        annual settlement is a future refinement, see ADR-121).
+
+        The caller folds the returned array into the expense lines as a transfer
+        (``ceded.expenses += R``, ``net.expenses -= R``) that preserves
+        ``net + ceded == gross``: the refund is a reinsurer->cedant payment, not
+        a new external cash flow, so it nets to zero across the (net, ceded) pair.
+        """
+        n = len(ceded_premiums)
+        transfer = np.zeros(n, dtype=np.float64)
+        if n == 0:
+            return transfer
+        amount = refund.compute_refund(ceded_premiums, ceded_claims, allowances)
+        transfer[-1] = amount
+        return transfer
 
     def verify_additivity(
         self,

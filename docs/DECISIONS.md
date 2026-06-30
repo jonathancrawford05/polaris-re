@@ -7784,3 +7784,62 @@ refund on `DealConfig` / CLI / API / Excel (Slice 3b); per-period or annual refu
 treaty may settle the refund annually); deficit carryforward across experience
 periods; and a stochastic / experience-driven re-rating of the refund across
 scenarios (the balance keys off the projected base run).
+
+## ADR-121: Wire ExperienceRefund into CoinsuranceTreaty + YRTTreaty (Tier-B B3 / Expense-allowance epic, Slice 3b-1)
+
+**Date:** 2026-06-30
+**Status:** Accepted
+
+**Context.** ADR-120 (Slice 3a) added the standalone `ExperienceRefund` model +
+`compute_refund()` primitive, consumed by no treaty. The B3 epic's remaining planned
+scope (`docs/PLAN_expense_allowance.md`, Slice 3b) is two distinct chunks: (1) wire
+the refund into the treaty engines as a terminal transfer, and (2) surface the
+allowance + refund terms across the four deal-pricing consumers (`DealConfig` / CLI /
+API / Excel). Surveying the surfacing path found that neither the Slice-2
+`expense_allowance` nor the Slice-3a refund is yet on the deal path — `pipeline.py`
+and `api/main.py` only set the legacy `include_expense_allowance` boolean — so the
+surfacing is a session of its own across four consumers. Following the Slice-1/3a
+data-model-first precedent, Slice 3b is split: **3b-1 (this slice)** wires the refund
+into both treaties (goldens byte-identical, off by default); **3b-2** surfaces both
+terms on the deal-pricing path.
+
+**Decision.**
+
+- *`experience_refund: ExperienceRefund | None = None` field on both
+  `CoinsuranceTreaty` and `YRTTreaty`.* The field name mirrors the model class
+  (`ExperienceRefund`), as `expense_allowance` mirrors `ExpenseAllowance`. (The PLAN
+  uses the shorthand `expense_refund` for the eventual deal-path naming; the treaty
+  field is named `experience_refund` for semantic accuracy — it is an *experience*
+  refund, not an expense refund. 3b-2 maps the deal-path name to this field.) Default
+  `None` reproduces current behaviour → goldens byte-identical.
+
+- *The refund is a single terminal reinsurer→cedant transfer at the final projection
+  period.* `BaseTreaty._experience_refund_transfer()` computes the scalar
+  `compute_refund(ceded_premiums, ceded_claims, allowances)` and returns a zeros array
+  with the refund placed at index `-1`. The caller folds it into the expense line
+  (`ceded.expenses += R`, `net.expenses -= R`), mirroring `_expense_allowance_transfer`.
+  The transfer nets to zero across the `(net, ceded)` pair, so `net + ceded == gross`
+  holds and no `CashFlowResult` contract changes. Placing the whole refund at the final
+  period (vs spreading it) matches the "single end-of-horizon settlement" basis decided
+  in ADR-120; per-period/annual settlement timing remains a future refinement.
+
+- *The refund is computed net of the expense allowance already paid.* When a treaty
+  carries both an `expense_allowance` and an `experience_refund`, the allowance array
+  the treaty already computed is passed into the refund so the sharable experience
+  balance is `premium − claims − allowance − margin·premium` — the allowance is not
+  double-counted. The two transfers compose additively on the expense line (the
+  allowance per-period + the refund at the terminal period).
+
+**Verification.** `tests/test_reinsurance/test_experience_refund_treaty.py` (13 tests):
+default (no refund) byte-identical on both treaties; `net + ceded == gross` plus
+explicit expense-line additivity with a refund on both treaties; closed-form refund
+landing **solely** on the final period and shifting net/ceded NCF by exactly `R` there;
+linearity in `refund_pct` (parametrized); allowance + refund composing additively with
+the refund computed net of the allowance (and strictly smaller than the refund without
+it); and below-retention / unfavourable experience refunding nothing (byte-identical).
+`polaris price` on the golden block is byte-identical (Total PV Profits Reinsurer
+$45,386); full fast suite green.
+
+**Out of scope.** Surfacing the allowance + refund terms on `DealConfig` / CLI / API /
+Excel (Slice 3b-2 — the next slice); per-period or annual refund **settlement timing**
+(still a single end-of-horizon scalar); deficit carryforward across experience periods.

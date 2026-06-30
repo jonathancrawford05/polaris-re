@@ -7,7 +7,7 @@
 > `docs/CONTINUATION_expense_allowance.md`, the per-session
 > `docs/DEV_SESSION_LOG_*` files, and the ADRs.
 >
-> **Status.** IN PROGRESS — Slices 1, 2, and 3a shipped; Slice 3b NEXT.
+> **Status.** IN PROGRESS — Slices 1, 2, 3a, and 3b-1 shipped; Slice 3b-2 NEXT.
 > - Slice 1 (2026-06-29, ADR-118): `ExpenseAllowance` model + computation
 >   primitive; not wired → goldens byte-identical.
 > - Slice 2 (2026-06-29, ADR-119, PR #118 merged): wired into
@@ -17,8 +17,13 @@
 >   across four consumers is a session of its own:
 >   - Slice 3a (2026-06-30, ADR-120): `ExperienceRefund` model + computation
 >     primitive; not wired → goldens byte-identical.
->   - Slice 3b (NEXT): wire the refund into the treaties + surface allowance +
->     refund on `DealConfig` / CLI / API / Excel.
+>   - Slice 3b was further split once the surfacing path was surveyed (neither the
+>     allowance nor the refund is on the deal path yet):
+>     - Slice 3b-1 (2026-06-30, ADR-121): wired `ExperienceRefund` into
+>       `CoinsuranceTreaty` + `YRTTreaty` as a terminal transfer; default `None` →
+>       goldens byte-identical.
+>     - Slice 3b-2 (NEXT): surface allowance + refund terms on `DealConfig` / CLI /
+>       API / Excel.
 >
 > Running log: `docs/CONTINUATION_expense_allowance.md`.
 >
@@ -108,15 +113,23 @@ the boolean approximation systematically misstates both parties' net cash flow.
   accumulated at interest (default off). **Not wired into any treaty** → goldens
   byte-identical. Full unit + closed-form tests (25). (~190 lines + tests)
 
-### Slice 3b — wire refund into treaties + CLI/API/Excel surfacing (NEXT)
-- Apply `ExperienceRefund` inside `CoinsuranceTreaty`/`YRTTreaty` as a terminal
-  reinsurer→cedant transfer (mirroring `_expense_allowance_transfer`).
+### Slice 3b-1 — wire refund into `CoinsuranceTreaty` + `YRTTreaty` (SHIPPED, ADR-121)
+- Added `experience_refund: ExperienceRefund | None = None` to both treaties.
+  When set, the refund is a single terminal reinsurer→cedant transfer at the
+  final projection period (`BaseTreaty._experience_refund_transfer()`), folded
+  into the expense line (+R ceded, −R net) so `net + ceded == gross`. Computed
+  net of the expense allowance already paid. Default `None` → goldens
+  byte-identical. 13 tests. (~70 lines + tests)
+
+### Slice 3b-2 — surface allowance + refund on the deal-pricing path (NEXT)
 - Surface allowance + refund terms on the deal-pricing path: `DealConfig` /
   CLI flag(s), API field(s), and an Excel line. Off by default → byte-identical
-  unless the new terms are supplied. (~250 lines)
+  unless the new terms are supplied. Surveyed surfaces: `core/pipeline.py`
+  (~L567), `api/main.py` (~L790 + request model), `cli.py` config schema, and
+  the deal-pricing Excel writer. (~250 lines)
 
-Each slice leaves the suite green and is independently mergeable. Slices 1–3a
-are byte-identical on existing goldens; slice 3b is opt-in (default off) so it
+Each slice leaves the suite green and is independently mergeable. Slices 1–3b-1
+are byte-identical on existing goldens; slice 3b-2 is opt-in (default off) so it
 is byte-identical unless the new terms are supplied.
 
 ## 4. Key design decisions
