@@ -97,7 +97,7 @@ class ExperienceRefund(PolarisBaseModel):
     months_per_year: int = Field(
         default=12,
         ge=1,
-        description="Periods per policy year, used to convert the annual interest rate to a per-period factor.",
+        description="Periods per policy year; converts the annual interest rate to per-period.",
     )
 
     # ------------------------------------------------------------------
