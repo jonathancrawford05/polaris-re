@@ -7843,3 +7843,74 @@ $45,386); full fast suite green.
 **Out of scope.** Surfacing the allowance + refund terms on `DealConfig` / CLI / API /
 Excel (Slice 3b-2 — the next slice); per-period or annual refund **settlement timing**
 (still a single end-of-horizon scalar); deficit carryforward across experience periods.
+
+---
+
+## ADR-122: Surface expense-allowance / experience-refund terms on the CLI config deal path (Tier-B B3 / Expense-allowance epic, Slice 3b-2a)
+
+**Date:** 2026-06-30
+**Status:** Accepted
+
+**Context.** ADR-119 (Slice 2) and ADR-121 (Slice 3b-1) made `expense_allowance`
+and `experience_refund` optional fields on `CoinsuranceTreaty` / `YRTTreaty`, each
+applied as a reinsurer→cedant transfer preserving `net + ceded == gross`. But neither
+term reached the deal-pricing path: a user supplying `deal.expense_allowance` in a
+`polaris price --config` file had it silently dropped — `DealConfig` had no such field
+and `_parse_config_to_pipeline_inputs` never read the key, so `build_treaty` constructed
+the treaty without it. Slice 3b-2 (surface both terms across `DealConfig` / CLI / API /
+Excel) proved larger than one quality session once surveyed: the API alone constructs
+treaties at four call sites across four request models, plus the Excel writer. Following
+the epic's established "decompose, don't defer" pattern, Slice 3b-2 is split:
+**3b-2a (this slice)** surfaces both terms on the CLI config / pipeline deal path so the
+feature is usable end-to-end via `polaris price --config`; **3b-2b** surfaces them on the
+API request models and the deal-pricing Excel export.
+
+**Decision.**
+
+- *Two optional fields on `DealConfig`:* `expense_allowance: ExpenseAllowance | None`
+  and `experience_refund: ExperienceRefund | None`, both default `None`. Default `None`
+  → `build_treaty` constructs the treaty exactly as before, so every existing config and
+  priced number is byte-identical. The annotations are imported under `TYPE_CHECKING`
+  so this `core/` module keeps the reinsurance package out of its runtime import graph —
+  the same layering intent as `build_treaty`'s lazy treaty imports (core/ orchestrates
+  the reinsurance layer without importing it at module load).
+
+- *`build_treaty` gains `expense_allowance` / `experience_refund` kwargs* threaded onto
+  the constructed `YRTTreaty` / `CoinsuranceTreaty` (the only treaties that carry the
+  fields). They are silently ignored for `Modco` / gross, which have no such field — a
+  config that sets them on a Modco deal is a no-op, not an error, mirroring how
+  `yrt_rate_per_1000` is ignored off the YRT path.
+
+- *`_parse_config_to_pipeline_inputs` parses the `deal.expense_allowance` /
+  `deal.experience_refund` JSON blocks* via `ExpenseAllowance.model_validate` /
+  `ExperienceRefund.model_validate` (new nested schema only — the legacy flat schema is
+  deprecated and unchanged). The models' own validators (`extra="forbid"`, the
+  monotone-non-increasing sliding-scale check) raise `PolarisValidationError` on a
+  malformed block *before* pricing, so a mis-ordered scale fails loudly at parse time.
+  `_build_treaty_for_pipeline` then threads `deal.expense_allowance` /
+  `deal.experience_refund` into `build_treaty` (both the flat-rate and tabular-YRT
+  construction paths).
+
+- *`DealConfig.to_dict()` deliberately omits both fields* this slice. `to_dict` is the
+  CLI↔dashboard parity surface; no dashboard surface consumes these terms yet, so they
+  are omitted exactly as the `yrt_rate_table_*` fields are (added only when a dashboard
+  slice uses them — the ALM precedent).
+
+**Verification.** `tests/test_cli_config_expense_allowance.py` (13 tests): both terms
+parse from a nested-schema config onto `DealConfig` (incl. a sliding scale); absent →
+both `None`; a non-monotone scale raises `PolarisValidationError` at parse time;
+`build_treaty` threads both onto YRT / Coinsurance, leaves them `None` by default, and
+ignores them for Modco; `_build_treaty_for_pipeline` carries the deal terms onto the
+built treaty; end-to-end, a config-supplied allowance shifts the net/ceded expense line
+while preserving `net + ceded == gross`, and an absent term applies byte-identically.
+`polaris price` on the golden block is byte-identical (Total PV Profits Reinsurer
+$45,386, Cedant $3,513,563); full fast suite (1899) + qa suite (76) green.
+
+**Out of scope.** Surfacing both terms on the API request models (`PriceRequest`,
+`ScenarioRequest`, `UQRequest`, `PortfolioDealRequest` — four `_build_treaty` call sites)
+and the deal-pricing Excel export (Slice 3b-2b — the next slice); the dashboard input +
+`to_dict` parity surface (deferred with 3b-2b's dashboard consideration); auto-forcing
+`use_policy_cession` so the allowance's block-aware first-year duration mapping engages
+on inforce blocks when an `expense_allowance` is supplied (today the allowance falls back
+to the new-business projection-month basis unless `use_policy_cession` is set — a
+correctness refinement, harvested as a follow-up).

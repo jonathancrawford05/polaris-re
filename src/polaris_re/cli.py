@@ -70,6 +70,8 @@ from polaris_re.core.pipeline import (
 )
 from polaris_re.core.policy import Policy, ProductType
 from polaris_re.core.projection import ProjectionConfig
+from polaris_re.reinsurance.expense_allowance import ExpenseAllowance
+from polaris_re.reinsurance.experience_refund import ExperienceRefund
 
 __all__ = ["app"]
 
@@ -264,6 +266,25 @@ def _parse_config_to_pipeline_inputs(
     alm_valuation_yield = (
         float(alm_valuation_yield_raw) if alm_valuation_yield_raw is not None else None
     )
+    # Optional sliding-scale expense allowance + experience refund on the
+    # proportional treaties (expense-allowance epic, Slice 3b-2). Each is the
+    # JSON shape of the corresponding Pydantic model; ``model_validate`` raises
+    # ``PolarisValidationError`` (via the models' validators) on a malformed
+    # band/scale before pricing. None (default) leaves the treaty — and every
+    # priced number — byte-identical. Only honoured for YRT / Coinsurance
+    # treaty types; ``build_treaty`` ignores them for Modco / gross.
+    expense_allowance_raw = deal_raw.get("expense_allowance")
+    expense_allowance = (
+        ExpenseAllowance.model_validate(expense_allowance_raw)
+        if expense_allowance_raw is not None
+        else None
+    )
+    experience_refund_raw = deal_raw.get("experience_refund")
+    experience_refund = (
+        ExperienceRefund.model_validate(experience_refund_raw)
+        if experience_refund_raw is not None
+        else None
+    )
     deal_cfg = DealConfig(
         product_type=deal_raw.get("product_type", "TERM"),
         treaty_type=deal_raw.get("treaty_type", "YRT"),
@@ -286,6 +307,8 @@ def _parse_config_to_pipeline_inputs(
         yrt_rate_table_smoker_distinct=bool(deal_raw.get("yrt_rate_table_smoker_distinct", True)),
         asset_portfolio=asset_portfolio,
         alm_valuation_yield=alm_valuation_yield,
+        expense_allowance=expense_allowance,
+        experience_refund=experience_refund,
     )
 
     # Stamp product_type onto each policy dict for load_inforce
@@ -387,6 +410,8 @@ def _build_treaty_for_pipeline(
             cession_pct=deal.cession_pct,
             total_face_amount=face_amount,
             yrt_rate_table=yrt_rate_table,
+            expense_allowance=deal.expense_allowance,
+            experience_refund=deal.experience_refund,
         )
         # Tabular YRT.apply() requires inforce → force the cohort inforce
         # through, regardless of the deal's use_policy_cession flag.
@@ -406,6 +431,8 @@ def _build_treaty_for_pipeline(
         face_amount=face_amount,
         modco_rate=deal.modco_rate,
         yrt_rate_per_1000=yrt_rate,
+        expense_allowance=deal.expense_allowance,
+        experience_refund=deal.experience_refund,
     )
     return treaty, deal.use_policy_cession
 
@@ -2854,6 +2881,8 @@ def _build_portfolio_from_config(
             modco_rate=inputs.deal.modco_rate,
             yrt_rate_per_1000=yrt_rate,
             treaty_name=f"{deal_id}-{inputs.deal.treaty_type}",
+            expense_allowance=inputs.deal.expense_allowance,
+            experience_refund=inputs.deal.experience_refund,
         )
         if treaty is None:
             console.print(

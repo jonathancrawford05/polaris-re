@@ -7,7 +7,7 @@
 > `docs/CONTINUATION_expense_allowance.md`, the per-session
 > `docs/DEV_SESSION_LOG_*` files, and the ADRs.
 >
-> **Status.** IN PROGRESS — Slices 1, 2, 3a, and 3b-1 shipped; Slice 3b-2 NEXT.
+> **Status.** IN PROGRESS — Slices 1, 2, 3a, 3b-1, and 3b-2a shipped; Slice 3b-2b NEXT.
 > - Slice 1 (2026-06-29, ADR-118): `ExpenseAllowance` model + computation
 >   primitive; not wired → goldens byte-identical.
 > - Slice 2 (2026-06-29, ADR-119, PR #118 merged): wired into
@@ -22,8 +22,14 @@
 >     - Slice 3b-1 (2026-06-30, ADR-121): wired `ExperienceRefund` into
 >       `CoinsuranceTreaty` + `YRTTreaty` as a terminal transfer; default `None` →
 >       goldens byte-identical.
->     - Slice 3b-2 (NEXT): surface allowance + refund terms on `DealConfig` / CLI /
->       API / Excel.
+>     - Slice 3b-2 was split once surveyed (the API alone has four `_build_treaty`
+>       call sites + the Excel writer):
+>       - Slice 3b-2a (2026-06-30, ADR-122): surfaced both terms on the CLI config /
+>         pipeline deal path (`DealConfig` fields + `build_treaty` kwargs + config
+>         parsing + `_build_treaty_for_pipeline`); `polaris price --config` honours
+>         them end-to-end; default `None` → goldens byte-identical.
+>       - Slice 3b-2b (NEXT): surface both terms on the API request models + the
+>         deal-pricing Excel export.
 >
 > Running log: `docs/CONTINUATION_expense_allowance.md`.
 >
@@ -121,12 +127,20 @@ the boolean approximation systematically misstates both parties' net cash flow.
   net of the expense allowance already paid. Default `None` → goldens
   byte-identical. 13 tests. (~70 lines + tests)
 
-### Slice 3b-2 — surface allowance + refund on the deal-pricing path (NEXT)
-- Surface allowance + refund terms on the deal-pricing path: `DealConfig` /
-  CLI flag(s), API field(s), and an Excel line. Off by default → byte-identical
-  unless the new terms are supplied. Surveyed surfaces: `core/pipeline.py`
-  (~L567), `api/main.py` (~L790 + request model), `cli.py` config schema, and
-  the deal-pricing Excel writer. (~250 lines)
+### Slice 3b-2a — surface allowance + refund on the CLI config / pipeline path (SHIPPED, ADR-122)
+- Added `expense_allowance` / `experience_refund` optional fields to `DealConfig`
+  (TYPE_CHECKING-typed, default `None`), `build_treaty` kwargs threaded onto
+  YRT / Coinsurance, config parsing in `_parse_config_to_pipeline_inputs`, and
+  `_build_treaty_for_pipeline` wiring (flat + tabular YRT). `polaris price --config`
+  now honours both terms end-to-end. Off by default → goldens byte-identical. 13 tests.
+
+### Slice 3b-2b — surface allowance + refund on the API + Excel (NEXT)
+- Surface both terms on the API request models (`PriceRequest`, `ScenarioRequest`,
+  `UQRequest`, `PortfolioDealRequest` — four `_build_treaty` call sites in
+  `api/main.py`) and the deal-pricing Excel export (`utils/excel_output.py`). Off by
+  default → byte-identical unless supplied. Use the same deal-path keys 3b-2a chose
+  (`expense_allowance` / `experience_refund`). Also consider the dashboard input +
+  `DealConfig.to_dict()` parity surface (omitted in 3b-2a). (~250 lines)
 
 Each slice leaves the suite green and is independently mergeable. Slices 1–3b-1
 are byte-identical on existing goldens; slice 3b-2 is opt-in (default off) so it

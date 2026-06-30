@@ -2,8 +2,9 @@
 
 **Source:** COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md — Tier-B **B3**
 **Status:** IN PROGRESS
-**Total slices:** 3 (Slice 3 split data-model-first into 3a + 3b; 3b further split
-into 3b-1 treaty wiring + 3b-2 deal-path surfacing — see below)
+**Total slices:** 3 (Slice 3 split data-model-first into 3a + 3b; 3b split into
+3b-1 treaty wiring + 3b-2 deal-path surfacing; 3b-2 further split into 3b-2a CLI/config
+path + 3b-2b API/Excel — see below)
 **Estimated total scope:** ~3 dev-days
 **Epic framing:** maintainer-confirmed (2026-06-29, PR #117 — "Option A: proceed").
 B3 was promoted from a between-epics quick win to a 3-slice active epic because
@@ -166,19 +167,48 @@ is split into 3b-1 (treaty wiring) and 3b-2 (surfacing).
   - The allowance array is threaded into the refund so the sharable balance is net of
     the allowance already paid (no double-count).
 
-#### Slice 3b-2: Surface allowance/refund on the deal-pricing path
+Slice 3b-2 proved larger than one quality session once surveyed (the API constructs
+treaties at four call sites across four request models, plus the Excel writer), so it is
+split — the epic's established decompose-don't-defer pattern:
+
+#### Slice 3b-2a: Surface allowance/refund on the CLI config / pipeline deal path
+- **Status:** DONE
+- **Branch:** claude/awesome-bardeen-lb2g3i
+- **PR:** (this draft)
+- **ADR:** ADR-122
+- **What was done:** Added `expense_allowance: ExpenseAllowance | None = None` and
+  `experience_refund: ExperienceRefund | None = None` to `DealConfig` (typed under
+  `TYPE_CHECKING` to keep reinsurance out of the `core/` runtime import graph; default
+  `None` → byte-identical). `build_treaty` gained matching kwargs threaded onto the
+  YRT / Coinsurance treaties (ignored for Modco / gross). `_parse_config_to_pipeline_inputs`
+  now parses the `deal.expense_allowance` / `deal.experience_refund` JSON blocks via the
+  models' `model_validate` (malformed → `PolarisValidationError` at parse time), and
+  `_build_treaty_for_pipeline` threads the deal terms into `build_treaty` on both the
+  flat-rate and tabular-YRT paths. So `polaris price --config` now honours both terms
+  end-to-end. 13 new tests. `DealConfig.to_dict()` deliberately omits both fields (the
+  `yrt_rate_table_*` / dashboard-parity omission precedent). Golden byte-identical.
+- **Key decisions:**
+  - Deal-path key chosen as **`expense_allowance` / `experience_refund`** (matching the
+    treaty fields and the model classes), not the PLAN's loose `expense_refund` shorthand.
+    Documented in ADR-122.
+  - `TYPE_CHECKING` annotation (vs `object | None`) gives the config contract real types
+    while preserving the core→reinsurance layering — justified by the existing
+    `build_treaty` lazy-import pattern in the same module.
+
+#### Slice 3b-2b: Surface allowance/refund on the API + Excel
 - **Status:** NEXT
-- **Depends on:** Slice 3b-1 merged
-- **Scope:** surface both the `expense_allowance` (in the treaty contracts since
-  Slice 2) and the `experience_refund` (Slice 3b-1) terms on the deal-pricing path:
-  `DealConfig` field(s), CLI flag(s)/config schema, API field(s), and an Excel line.
-  Off by default → byte-identical unless the new terms are supplied.
-  - **Files to touch (surveyed):** `core/pipeline.py` (~L567 treaty construction),
-    `api/main.py` (~L790 treaty construction + request model), the CLI config schema
-    in `cli.py`, and the deal-pricing Excel writer.
-  - **Naming note:** the treaty field is `experience_refund`; pick the deal-path key
-    (`experience_refund` vs the PLAN's `expense_refund`) consistently across all four
-    consumers and document the choice.
+- **Depends on:** Slice 3b-2a merged
+- **Scope:** surface both terms on the remaining deal-pricing consumers:
+  the API request models (`PriceRequest`, `ScenarioRequest`, `UQRequest`,
+  `PortfolioDealRequest` — four `_build_treaty` call sites in `api/main.py`) and the
+  deal-pricing Excel export. Off by default → byte-identical unless supplied.
+  - **Files to touch (surveyed):** `api/main.py` (~L738 `_build_treaty` + the four
+    request models that call it), and the deal-pricing Excel writer
+    (`utils/excel_output.py`).
+  - **Naming note:** use the same deal-path keys 3b-2a chose — `expense_allowance` /
+    `experience_refund` — on the API request models for consistency.
+  - **Also consider:** the dashboard input surface + `DealConfig.to_dict()` parity
+    (omitted in 3b-2a until a dashboard surface consumes the terms).
 
 ## Context for Next Session
 
