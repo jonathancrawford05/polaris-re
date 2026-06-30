@@ -27,6 +27,7 @@ from polaris_re.core.base import PolarisBaseModel
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.reinsurance.base_treaty import BaseTreaty
 from polaris_re.reinsurance.expense_allowance import ExpenseAllowance
+from polaris_re.reinsurance.experience_refund import ExperienceRefund
 
 if TYPE_CHECKING:
     from polaris_re.core.inforce import InforceBlock
@@ -62,6 +63,17 @@ class CoinsuranceTreaty(PolarisBaseModel, BaseTreaty):
             "independent layer on top of the proportional `include_expense_allowance` "
             "split: when set, the allowance is added to ceded expenses and removed "
             "from net expenses as a reinsurer->cedant transfer that preserves "
+            "net + ceded == gross. Default None reproduces current behaviour."
+        ),
+    )
+    experience_refund: ExperienceRefund | None = Field(
+        default=None,
+        description=(
+            "Optional experience refund (profit sharing). When set, a share of "
+            "the accumulated favourable ceded experience (net of the expense "
+            "allowance already paid and the reinsurer's retained margin) is "
+            "refunded to the cedant as a terminal reinsurer->cedant transfer "
+            "folded into the final-period expense line, preserving "
             "net + ceded == gross. Default None reproduces current behaviour."
         ),
     )
@@ -110,12 +122,24 @@ class CoinsuranceTreaty(PolarisBaseModel, BaseTreaty):
         # into the expense line (+A ceded, -A net) so net + ceded == gross still
         # holds. Independent of the proportional `include_expense_allowance`
         # split above — both can apply on the same treaty.
+        allowance: np.ndarray | None = None
         if self.expense_allowance is not None:
             allowance = self._expense_allowance_transfer(
                 self.expense_allowance, ceded_premiums, ceded_claims, gross, inforce
             )
             ceded_expenses = ceded_expenses + allowance
             net_expenses = net_expenses - allowance
+
+        # Experience refund (profit sharing): a terminal reinsurer->cedant
+        # transfer on the accumulated favourable ceded experience, net of any
+        # allowance already paid. Folded into the final-period expense line
+        # (+R ceded, -R net) so net + ceded == gross still holds.
+        if self.experience_refund is not None:
+            refund = self._experience_refund_transfer(
+                self.experience_refund, ceded_premiums, ceded_claims, allowance
+            )
+            ceded_expenses = ceded_expenses + refund
+            net_expenses = net_expenses - refund
 
         # Reserves: transferred proportionally (key difference from YRT)
         net_reserve_balance = gross.reserve_balance * r

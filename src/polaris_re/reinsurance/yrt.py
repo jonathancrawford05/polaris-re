@@ -42,6 +42,7 @@ from polaris_re.core.exceptions import PolarisComputationError, PolarisValidatio
 from polaris_re.core.policy import Sex, SmokerStatus
 from polaris_re.reinsurance.base_treaty import BaseTreaty
 from polaris_re.reinsurance.expense_allowance import ExpenseAllowance
+from polaris_re.reinsurance.experience_refund import ExperienceRefund
 from polaris_re.reinsurance.yrt_rate_table import YRTRateTable
 
 if TYPE_CHECKING:
@@ -103,6 +104,17 @@ class YRTTreaty(PolarisBaseModel, BaseTreaty):
             "(YRT) premium (first-year vs renewal, optional loss-ratio scale). "
             "When set, the allowance is added to ceded expenses and removed from "
             "net expenses as a reinsurer->cedant transfer that preserves "
+            "net + ceded == gross. Default None reproduces current behaviour."
+        ),
+    )
+    experience_refund: ExperienceRefund | None = Field(
+        default=None,
+        description=(
+            "Optional experience refund (profit sharing). When set, a share of "
+            "the accumulated favourable ceded experience (net of the expense "
+            "allowance already paid and the reinsurer's retained margin) is "
+            "refunded to the cedant as a terminal reinsurer->cedant transfer "
+            "folded into the final-period expense line, preserving "
             "net + ceded == gross. Default None reproduces current behaviour."
         ),
     )
@@ -179,12 +191,24 @@ class YRTTreaty(PolarisBaseModel, BaseTreaty):
         # expense line (+A ceded, -A net) so net + ceded == gross still holds.
         net_expenses = gross.expenses.copy()
         ceded_expenses = np.zeros_like(gross.expenses)
+        allowance: np.ndarray | None = None
         if self.expense_allowance is not None:
             allowance = self._expense_allowance_transfer(
                 self.expense_allowance, ceded_premiums, ceded_claims, gross, inforce
             )
             ceded_expenses = ceded_expenses + allowance
             net_expenses = net_expenses - allowance
+
+        # Experience refund (profit sharing): a terminal reinsurer->cedant
+        # transfer on the accumulated favourable ceded experience, net of any
+        # allowance already paid. Folded into the final-period expense line
+        # (+R ceded, -R net) so net + ceded == gross still holds.
+        if self.experience_refund is not None:
+            refund = self._experience_refund_transfer(
+                self.experience_refund, ceded_premiums, ceded_claims, allowance
+            )
+            ceded_expenses = ceded_expenses + refund
+            net_expenses = net_expenses - refund
 
         # Lapse surrenders: stay with cedant (no cash values for term)
         net_lapses = gross.lapse_surrenders.copy()
