@@ -176,6 +176,38 @@ def test_coinsurance_refund_closed_form_terminal(new_block):
     )
 
 
+def test_yrt_refund_closed_form_terminal(new_block):
+    """YRT: the refund lands solely on the final expense period and shifts NCF by R.
+
+    Pins the refund *magnitude* on the YRT path (additivity alone is invariant to R
+    — it cancels across net/ceded — so it does not verify the value).
+    """
+    gross = _gross_from_block(new_block)
+    refund_terms = ExperienceRefund(refund_pct=0.50)
+    # A YRT rate high enough that ceded YRT premium exceeds ceded claims (the
+    # thin default rate runs the experience account negative -> nothing to refund).
+    treaty_args = dict(cession_pct=0.5, total_face_amount=1_000_000.0, flat_yrt_rate_per_1000=20.0)
+    treaty = YRTTreaty(**treaty_args, experience_refund=refund_terms)
+
+    base_net, base_ceded = YRTTreaty(**treaty_args).apply(gross, new_block)
+    net, ceded = treaty.apply(gross, new_block)
+
+    # YRT ceded premium is the YRT premium stream; ceded claims are proportional.
+    expected_r = refund_terms.compute_refund(base_ceded.gross_premiums, base_ceded.death_claims)
+    assert expected_r > 0.0  # favourable YRT experience -> a real refund
+
+    transfer = ceded.expenses - base_ceded.expenses
+    np.testing.assert_allclose(transfer[:-1], 0.0, atol=1e-9)
+    np.testing.assert_allclose(transfer[-1], expected_r, rtol=1e-10)
+    np.testing.assert_allclose(base_net.expenses - net.expenses, transfer, rtol=1e-10)
+    np.testing.assert_allclose(
+        base_ceded.net_cash_flow[-1] - ceded.net_cash_flow[-1], expected_r, rtol=1e-10
+    )
+    np.testing.assert_allclose(
+        net.net_cash_flow[-1] - base_net.net_cash_flow[-1], expected_r, rtol=1e-10
+    )
+
+
 @pytest.mark.parametrize("refund_pct", [0.0, 0.25, 0.5, 1.0])
 def test_coinsurance_refund_linear_in_pct(new_block, refund_pct):
     """The terminal transfer scales linearly with refund_pct."""
