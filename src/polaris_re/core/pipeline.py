@@ -10,8 +10,18 @@ import os
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    # Reinsurance-layer models, referenced only as DealConfig field type
+    # annotations. Imported under TYPE_CHECKING so this core module keeps the
+    # reinsurance package out of its runtime import graph — the same intent as
+    # ``build_treaty``'s lazy treaty imports below (core/ orchestrates the
+    # reinsurance layer without importing it at module load).
+    from polaris_re.reinsurance.expense_allowance import ExpenseAllowance
+    from polaris_re.reinsurance.experience_refund import ExperienceRefund
 
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.assumptions.lapse import LapseAssumption
@@ -140,6 +150,17 @@ class DealConfig:
     # deal ``discount_rate`` so a single rate isolates the timing mismatch.
     asset_portfolio: AssetPortfolio | None = None
     alm_valuation_yield: float | None = None
+    # Optional sliding-scale expense allowance + experience refund on the
+    # proportional treaties (expense-allowance epic, Slice 3b-2). Both default
+    # ``None`` → the treaty is built exactly as before, so every existing config
+    # and priced number is byte-identical. When supplied (only honoured for
+    # ``YRT`` / ``Coinsurance`` treaty types, the only treaties that carry the
+    # fields), ``build_treaty`` threads them onto the constructed treaty, which
+    # applies each as a reinsurer→cedant transfer preserving
+    # ``net + ceded == gross`` (ADR-119/ADR-121). Typed under TYPE_CHECKING to
+    # keep the reinsurance layer out of this core module's runtime imports.
+    expense_allowance: "ExpenseAllowance | None" = None
+    experience_refund: "ExperienceRefund | None" = None
 
     def to_dict(self) -> dict[str, object]:
         """Return a plain dict suitable for dashboard session state.
@@ -155,6 +176,12 @@ class DealConfig:
         the parity surface must carry them. 4b-1 deliberately left them out
         until a dashboard surface used them (the ``yrt_rate_table_*``
         precedent).
+
+        ``expense_allowance`` / ``experience_refund`` (expense-allowance epic,
+        Slice 3b-2a) are intentionally omitted for the same reason: Slice 3b-2a
+        surfaces them only on the CLI config path; no dashboard surface consumes
+        them yet. They join this parity dict when a dashboard slice uses them
+        (the ``yrt_rate_table_*`` / ALM precedent).
         """
         return {
             "product_type": self.product_type,
@@ -530,6 +557,8 @@ def build_treaty(
     modco_rate: float = 0.045,
     yrt_rate_per_1000: float | None = None,
     treaty_name: str | None = None,
+    expense_allowance: "ExpenseAllowance | None" = None,
+    experience_refund: "ExperienceRefund | None" = None,
 ) -> object | None:
     """Construct a treaty object from the given parameters.
 
@@ -542,6 +571,14 @@ def build_treaty(
         modco_rate: Modco interest rate (used only for Modco).
         yrt_rate_per_1000: YRT rate per $1,000 NAR. Required for YRT.
         treaty_name: Optional treaty name override.
+        expense_allowance: Optional sliding-scale expense allowance
+            (expense-allowance epic). Threaded onto ``YRT`` / ``Coinsurance``
+            treaties — the only treaties that carry the field. ``None``
+            (default) leaves the treaty byte-identical. Silently ignored for
+            ``Modco`` / gross, which have no allowance field.
+        experience_refund: Optional experience refund (profit sharing),
+            threaded onto ``YRT`` / ``Coinsurance`` exactly like
+            ``expense_allowance``. ``None`` (default) is byte-identical.
 
     Returns:
         Treaty object or None for "None (Gross)".
@@ -557,6 +594,8 @@ def build_treaty(
             cession_pct=cession_pct,
             total_face_amount=face_amount,
             flat_yrt_rate_per_1000=yrt_rate_per_1000,
+            expense_allowance=expense_allowance,
+            experience_refund=experience_refund,
         )
     elif treaty_type == "Coinsurance":
         from polaris_re.reinsurance.coinsurance import CoinsuranceTreaty
@@ -565,6 +604,8 @@ def build_treaty(
             treaty_name=treaty_name or "Coinsurance",
             cession_pct=cession_pct,
             include_expense_allowance=True,
+            expense_allowance=expense_allowance,
+            experience_refund=experience_refund,
         )
     elif treaty_type == "Modco":
         from polaris_re.reinsurance.modco import ModcoTreaty

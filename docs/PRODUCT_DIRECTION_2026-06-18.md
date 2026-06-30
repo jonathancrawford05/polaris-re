@@ -978,6 +978,22 @@ Items harvested from completed/in-flight work by the daily-dev routine
   NICE-TO-HAVE. *Source: ADR-120 Out of scope + DEV_SESSION_LOG_2026-06-30_experience_refund_slice3a
   Open Questions (1st-order — follow-up of the originally-planned Slice 3).*
 
+- **IMPORTANT — Engage the block-aware first-year duration mapping when an
+  `expense_allowance` is supplied via config.** Slice 3b-2a (ADR-122) lets a
+  `polaris price --config` deal carry an `expense_allowance`, but the allowance's
+  block-aware first-year duration mapping (`first_year_fraction_for_block`, ADR-119)
+  only engages when the cohort `InforceBlock` reaches `treaty.apply()` — which today
+  happens only when `deal.use_policy_cession` is set. With an `expense_allowance` set
+  but `use_policy_cession` unset, the allowance falls back to the **new-business
+  projection-month basis** (first 12 periods = first year), so a mid-duration inforce
+  block is wrongly charged the high first-year rate on renewal business — overstating
+  the allowance on the primary (inforce) use case. The fix is to force the cohort
+  inforce through `apply()` whenever an `expense_allowance` is present (as the tabular
+  YRT path already forces it), independent of `use_policy_cession`. Affects the first
+  user of the config-supplied allowance on an inforce block → IMPORTANT.
+  *Source: ADR-122 Out of scope + DEV_SESSION_LOG_2026-06-30_expense_allowance_slice3b2a
+  Open Questions (1st-order — follow-up of the originally-planned allowance feature).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log
