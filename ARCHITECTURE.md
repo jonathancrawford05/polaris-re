@@ -230,6 +230,14 @@ reinsurer_payment_y = min(max(annual_claims_y - attachment, 0), exhaustion - att
 ```
 Monthly back-allocation is pro-rata by monthly claims. Partial final years use pro-rated attachment/exhaustion (`year_fraction = n_months / 12`).
 
+### Expense Allowance & Experience Refund
+
+Proportional treaties (`CoinsuranceTreaty`, `YRTTreaty`) carry two optional reinsurer→cedant transfers that price the deal's economics without changing the gross block — both preserve `net + ceded = gross` by netting to zero across the (net, ceded) pair, so neither adds a `CashFlowResult` field (Expense-allowance epic, Tier-B B3).
+
+**Expense allowance** (`reinsurance/expense_allowance.py`, ADR-118/119, wired in Slice 2). `ExpenseAllowance` quotes an allowance as a % of **ceded premium** — a high first-year rate (reimbursing acquisition cost) and a lower renewal rate, optionally on a **sliding scale** keyed to the realized ceded loss ratio (validated monotone non-increasing: better experience pays at least as much). When set on a treaty, the per-period allowance is folded into the expense line (`+A` ceded, `−A` net) via `BaseTreaty._expense_allowance_transfer()`. The first-year rate maps **projection month → policy duration** on an inforce block (`first_year_fraction_for_block`, face-weighted) so mid-duration renewal business is charged the renewal rate, not the first-year rate. Default `None` → byte-identical.
+
+**Experience refund** (`reinsurance/experience_refund.py`, ADR-120; model + primitive only, wiring is Slice 3b). `ExperienceRefund` refunds the cedant a share of accumulated favourable experience: an experience account accumulates `premium − claims − allowance − reinsurer_margin_pct·premium` per period (optionally at interest), and `compute_refund() = refund_pct · max(0, balance − retention)` (non-negative — an unfavourable balance refunds nothing). It is **not yet consumed by any treaty**; Slice 3b applies it as a terminal transfer (the allowance precedent) and surfaces both terms on the CLI / API / Excel deal-pricing path.
+
 ---
 
 ## 6. Output Structure

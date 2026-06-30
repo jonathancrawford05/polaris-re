@@ -74,6 +74,12 @@ default off) and records it in ADR-120.
 - `docs/DECISIONS.md` — ADR-120.
 - `docs/CONTINUATION_expense_allowance.md` — Slice 3 split into 3a (DONE) / 3b
   (NEXT); 3a documented.
+- `docs/PLAN_expense_allowance.md` — status block refreshed (Slices 1/2/3a
+  shipped, 3b next); Slice 3 split into 3a (SHIPPED) / 3b (NEXT); ceded-basis and
+  accumulation-basis open questions marked RESOLVED.
+- `ARCHITECTURE.md` — new "Expense Allowance & Experience Refund" subsection in
+  §5 (Reinsurance Treaty Layer) documenting both transfers (closes the doc gap
+  left by Slices 1–2).
 
 ## Tests Added
 - `tests/test_reinsurance/test_experience_refund.py` — new file, 25 tests:
