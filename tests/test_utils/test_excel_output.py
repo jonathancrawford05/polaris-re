@@ -2058,8 +2058,9 @@ class TestTreatyTermsPanel:
         ws = load_workbook(out)["Assumptions"]
         labels = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
         assert "Sliding Scale (renewal)" in labels
-        # One row per band, with the band's allowance % in column B.
-        band_row = _find_row_with_label(ws, "≤ loss ratio 0.8")
+        # One row per band, the threshold rendered as a percent, with the band's
+        # allowance % in column B.
+        band_row = _find_row_with_label(ws, "≤ 80% loss ratio")
         assert ws.cell(row=band_row, column=2).value == pytest.approx(0.20)
 
     def test_no_sliding_scale_rows_when_flat(self, tmp_path: Path) -> None:

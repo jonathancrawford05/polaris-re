@@ -1073,7 +1073,7 @@ def _write_treaty_terms_panel(
 
     * **Expense Allowance** — first-year / renewal % of ceded premium, plus,
       when a sliding scale is configured, one row per loss-ratio band
-      (``≤ {max_loss_ratio} loss ratio`` → allowance %). Mirrors
+      (``≤ {max_loss_ratio:%} loss ratio`` → allowance %). Mirrors
       ``reinsurance/expense_allowance.py``.
     * **Experience Refund** — refund %, retention, reinsurer margin, and the
       accumulation interest rate. Mirrors ``reinsurance/experience_refund.py``.
@@ -1108,7 +1108,12 @@ def _write_treaty_terms_panel(
             ws.cell(row=row, column=1, value="Sliding Scale (renewal)").font = header_font
             row += 1
             for band in expense_allowance.sliding_scale:
-                ws.cell(row=row, column=1, value=f"≤ loss ratio {band.max_loss_ratio}")
+                # Render the threshold as a percent (e.g. "≤ 80% loss ratio") for
+                # committee readability, matching the "0.00%" rate cell alongside it.
+                # ``:g`` on the scaled value drops trailing zeros and absorbs float
+                # noise (0.8 → "80%", 0.825 → "82.5%").
+                threshold_label = f"≤ {band.max_loss_ratio * 100:g}% loss ratio"
+                ws.cell(row=row, column=1, value=threshold_label)
                 cell = ws.cell(row=row, column=2, value=band.allowance_pct)
                 cell.number_format = "0.00%"
                 row += 1
