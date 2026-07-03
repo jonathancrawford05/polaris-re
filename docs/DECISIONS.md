@@ -8119,3 +8119,72 @@ tables (Slice-2 open question, `yrt_rate_table_path` precedent); sex/smoker-dist
 statutory table composition helper and a prescribed valuation-interest helper (epic
 refinement backlog); the 20-pay expense-allowance cap and exact VM-20 NPR X-factors
 (already-tracked NICE-TO-HAVEs).
+
+## ADR-126: Surface `valuation_mortality` on the config / CLI / API deal path — Reserve-Basis Exactness epic, Slice 2
+
+**Date:** 2026-07-03
+**Status:** Accepted
+
+**Context.** Slice 1 (ADR-125) added `AssumptionSet.valuation_mortality` and wired CRVM /
+the VM-20 NPR floor to value on it, but nothing outside a hand-built `AssumptionSet` could
+set the slot: the config parser dropped `deal.valuation_mortality` silently, and neither the
+CLI nor the REST API exposed it (premise reproduced before coding — a `golden_config_flat`
+config carrying `deal.valuation_mortality: "CSO_2001"` left `assumptions.valuation_mortality`
+`None` and `DealConfig` had no such attribute). A reinsurer cannot select the prescribed
+statutory table on the deal path, so the epic's headline capability is unreachable end-to-end.
+
+**Decision.**
+
+- *One named-source config field, not a table object.* `DealConfig.valuation_mortality: str |
+  None = None` carries a **mortality source id** (`"CSO_2001"` / `"SOA_VBT_2015"` /
+  `"CIA_2014"` / `"flat"`), the config/CLI/API-friendly equivalent of the `MortalityTable`
+  object on `AssumptionSet`. This mirrors `MortalityConfig.source` (the projection table is
+  already selected by name), so a config selects the prescribed table with a single string.
+
+- *One shared loader.* `load_valuation_mortality(source, data_dir)` (new public export in
+  `core/pipeline.py`) reuses the projection-table source resolution (`_load_mortality`) but
+  applies **no** pricing multiplier and **no** improvement — the valuation table is prescribed
+  and static (ADR-125). `build_assumption_set` calls it when `deal.valuation_mortality` is
+  set (else leaves the slot `None`); the REST API calls the same helper directly. Single
+  source of truth → the CLI/dashboard pipeline and the API resolve the table identically.
+
+- *The pricing multiplier is not applied to the valuation table.* `build_assumption_set`
+  scales only the projection mortality by `MortalityConfig.multiplier`; the valuation table
+  is loaded raw. A pinned test (`multiplier=2.0` → projection q 0.002, valuation q 0.001)
+  guards this — the prescribed table must not inherit the best-estimate loading.
+
+- *CLI: `--valuation-mortality` with flag-over-config precedence.* The `polaris price` flag
+  overrides `deal.valuation_mortality` exactly as `--reserve-basis` overrides
+  `deal.reserve_basis` (and the YRT-rate-table surfaces). Threaded through
+  `_build_pipeline_from_config(valuation_mortality_override=...)`. The prescribed table is
+  echoed in the JSON `summary` **only when set** — a run without it carries no
+  `valuation_mortality` key, so existing output stays byte-identical (no always-present
+  `null`).
+
+- *API: `valuation_mortality` request field, loaded server-side.* `PriceRequest` gains a
+  named-source field resolved from `$POLARIS_DATA_DIR/mortality_tables`; an unknown id raises
+  `PolarisValidationError`, mapped to HTTP 422 by the endpoint's catch-all. The response is
+  unchanged (no echo field) — a follow-up if audit visibility on the API is wanted.
+
+- *Notebook.* `notebooks/02_reserve_basis_comparison.ipynb` gains a section pricing CRVM on a
+  conservative **prescribed** table vs the best-estimate table, with embedded asserts (the
+  prescribed table moves CRVM; `NET_PREMIUM` ignores it). It uses a synthetic table so the
+  notebook runs without the converted CSVs.
+
+**Verification.** `tests/test_core/test_pipeline_valuation_mortality.py` (7 tests: loader,
+default `None`, attachment, multiplier isolation, unknown-source raise);
+`tests/test_cli_valuation_mortality.py` (8 tests: no key by default, flag echo,
+CRVM-on-CSO ≠ CRVM-on-projection-table on the WL cohort, `NET_PREMIUM` ignores the slot,
+unknown-source non-zero exit, config-field honoured, flag-over-config, default has no field);
+`tests/test_api/test_valuation_mortality.py` (5 tests: omitted accepted, omitted ≡ explicit
+null, CRVM-on-CSO moves the number, `NET_PREMIUM` ignores the slot, unknown-source 422);
+`tests/test_notebooks/test_reserve_basis_notebook.py` (execution guard). CSO-dependent tests
+are skipped when the converted 2001 CSO CSVs are absent (CI-safe); the multiplier-isolation,
+byte-identity, and unknown-source paths use the synthetic `"flat"` source and always run.
+Omitting the field is byte-identical on all four golden configs (none set it).
+
+**Out of scope.** A CSV-path escape hatch for an arbitrary cedant valuation table (named
+source id only for now — the `yrt_rate_table_path` precedent, Slice-2 open question); echoing
+the prescribed table in the API response and on the Excel/dashboard surfaces; GAAP FAS 60
+(Slices 3–4); the sex/smoker-distinct statutory-table composition helper and the prescribed
+valuation-interest helper (epic refinement backlog).

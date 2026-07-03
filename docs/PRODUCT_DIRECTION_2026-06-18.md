@@ -1054,6 +1054,27 @@ Items harvested from completed/in-flight work by the daily-dev routine
   *Source: ADR-125 Out of scope + CONTINUATION_reserve_basis_exactness
   Refinement Backlog (1st-order).*
 
+- **NICE-TO-HAVE — CSV-path escape hatch for an arbitrary cedant valuation
+  table.** Slice 2 (ADR-126) surfaces `valuation_mortality` as a **named source
+  id** only (`CSO_2001` / `SOA_VBT_2015` / `CIA_2014` / `flat`). A cedant whose
+  prescribed valuation table is not one of the shipped named sources cannot yet
+  point the deal at an arbitrary CSV directory the way `yrt_rate_table_path`
+  allows for YRT rates. Adding a `valuation_mortality_path` config/CLI/API
+  surface (loading a directory of valuation-table CSVs) would complete the
+  exact-reproduction story for non-standard cedant tables. Affects only cedants
+  off the named-source path, not correctness on the common path → NICE-TO-HAVE.
+  *Source: ADR-126 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — Echo the prescribed valuation table on the API response /
+  Excel / dashboard surfaces.** Slice 2 (ADR-126) echoes the selected
+  `valuation_mortality` only in the CLI JSON `summary` (conditionally, to
+  preserve byte-identity). The REST `PriceResponse`, the deal-pricing Excel
+  workbook, and the dashboard pricing surface do not record which prescribed
+  table drove the statutory reserve. Surfacing it (a nullable response field +
+  an Assumptions-sheet / dashboard line) would give the same audit visibility
+  the CLI has. Pure reporting polish, no priced-number change → NICE-TO-HAVE.
+  *Source: ADR-126 Out of scope (1st-order).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

@@ -66,7 +66,7 @@ from polaris_re.core.asset import AssetPortfolio
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
-from polaris_re.core.pipeline import derive_capital_nar
+from polaris_re.core.pipeline import derive_capital_nar, load_valuation_mortality
 from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
 from polaris_re.core.projection import ProjectionConfig
 from polaris_re.core.reserve_basis import ReserveBasis
@@ -264,6 +264,21 @@ class PriceRequest(BaseModel):
             "byte-identical to prior responses; a non-default basis changes the "
             "reserve (and therefore the priced numbers). An unsupported basis "
             "for the product yields HTTP 422."
+        ),
+    )
+    valuation_mortality: str | None = Field(
+        default=None,
+        description=(
+            "Prescribed statutory valuation mortality table for the statutory "
+            "reserve bases (Reserve-Basis Exactness epic, ADR-125): a named "
+            "source id ('CSO_2001', 'SOA_VBT_2015', 'CIA_2014', or 'flat'), "
+            "loaded server-side from ``$POLARIS_DATA_DIR/mortality_tables``. "
+            "When set, CRVM and the VM-20 NPR floor value on this table "
+            "(static — no improvement scale) so the reinsurer reproduces the "
+            "cedant's statutory reserve exactly instead of the pricing "
+            "best-estimate table; NET_PREMIUM and the VM-20 deterministic "
+            "reserve always ignore it. None (default) is byte-identical to "
+            "prior responses. An unknown source id yields HTTP 422."
         ),
     )
     asset_portfolio: AssetPortfolio | None = Field(
@@ -647,6 +662,7 @@ def _build_components(
     acquisition_cost_per_policy: float = 0.0,
     maintenance_cost_per_policy_per_year: float = 0.0,
     reserve_basis: ReserveBasis = ReserveBasis.NET_PREMIUM,
+    valuation_mortality: str | None = None,
 ) -> tuple[InforceBlock, AssumptionSet, ProjectionConfig]:
     """Convert API request data into core pipeline components (no treaty).
 
@@ -667,6 +683,7 @@ def _build_components(
     Returns:
         (InforceBlock, AssumptionSet, ProjectionConfig) ready for projection.
     """
+    import os
     from pathlib import Path
 
     n_ages = 121 - 18  # ages 18-120 inclusive = 103 ages
@@ -701,9 +718,22 @@ def _build_components(
     lapse = LapseAssumption.from_duration_table(
         {1: flat_lapse, 2: flat_lapse, 3: flat_lapse, "ultimate": flat_lapse}
     )
+
+    # Prescribed statutory valuation table (Reserve-Basis Exactness epic,
+    # ADR-125). ``None`` (default) leaves the statutory reserve on the
+    # projection best-estimate table — byte-identical to prior responses. When
+    # a named source id is supplied it is loaded server-side (static, no
+    # improvement) from ``$POLARIS_DATA_DIR/mortality_tables``; an unknown id
+    # raises ``PolarisValidationError``, which the endpoint maps to HTTP 422.
+    valuation_table = None
+    if valuation_mortality is not None:
+        data_dir = Path(os.environ.get("POLARIS_DATA_DIR", "data")) / "mortality_tables"
+        valuation_table = load_valuation_mortality(valuation_mortality, data_dir)
+
     assumptions = AssumptionSet(
         mortality=mortality,
         lapse=lapse,
+        valuation_mortality=valuation_table,
         version="api-v1",
         effective_date=date.today(),
     )
@@ -975,6 +1005,7 @@ def price(request: PriceRequest) -> PriceResponse:
             acquisition_cost_per_policy=request.acquisition_cost_per_policy,
             maintenance_cost_per_policy_per_year=request.maintenance_cost_per_policy_per_year,
             reserve_basis=request.reserve_basis,
+            valuation_mortality=request.valuation_mortality,
         )
 
         # Tabular YRT rate table (ADR-052) — server-side load before the

@@ -44,23 +44,36 @@ table, and implement GAAP (FAS 60) as a concrete selectable basis.
   - `NET_PREMIUM` ignores the slot entirely (historical pricing basis).
 
 ### Slice 2: Surface `valuation_mortality` end-to-end (2001 CSO)
-- **Status:** NEXT
-- **Depends on:** Slice 1 merged
-- **Files to create/modify:** `core/pipeline.py` (DealConfig +
-  `build_assumption_set` threading), `cli.py` (`--valuation-mortality`),
-  `api/main.py` (request-model field), `notebooks/02_reserve_basis_comparison.ipynb`,
-  tests (`tests/test_cli_*`, `tests/test_api/`).
-- **Tests to add:** config parse + threading; CLI end-to-end CRVM-on-CSO vs
-  CRVM-on-projection-table differ (`@requires_soa_tables`-gated by table
-  availability); API round-trip; malformed table id raises
-  `PolarisValidationError` at parse time.
+- **Status:** DONE
+- **Branch:** claude/loving-gauss-ipkczw
+- **PR:** (this slice)
+- **What was done:** `DealConfig.valuation_mortality: str | None = None` (a
+  named mortality source id) + the shared `load_valuation_mortality(source,
+  data_dir)` public helper in `core/pipeline.py`, threaded into
+  `build_assumption_set` (loaded raw — no pricing multiplier, no improvement).
+  CLI: `--valuation-mortality` flag with flag-over-config precedence
+  (`_build_pipeline_from_config(valuation_mortality_override=...)`), config
+  parsing of `deal.valuation_mortality` (nested + legacy), and a conditional
+  JSON `summary` echo (present only when set → byte-identical otherwise).
+  API: `PriceRequest.valuation_mortality` loaded server-side from
+  `$POLARIS_DATA_DIR/mortality_tables` via the shared helper (unknown id → 422).
+  Notebook `02` gains a CRVM-on-prescribed-table section (synthetic table, CI-safe).
+  ADR-126.
+- **Key decisions (affect later slices):**
+  - Named source id (string), not a `MortalityTable` object, on the deal path —
+    mirrors `MortalityConfig.source`. A CSV-path escape hatch is still deferred.
+  - `load_valuation_mortality` is the single loader shared by the pipeline and
+    the API; Slice 3/4 GAAP surfacing should reuse it, not re-resolve sources.
+  - Summary echo is conditional (only when set) to preserve byte-identity; the
+    API response is NOT echoed yet (follow-up if wanted).
 - **Acceptance criteria:**
-  - `polaris price --config <cfg> --reserve-basis crvm` with
-    `deal.valuation_mortality: "cso_2001"` values CRVM on 2001 CSO.
-  - Omitting the key is byte-identical on all goldens.
+  - `polaris price --config <cfg> --reserve-basis crvm --valuation-mortality
+    CSO_2001` (or `deal.valuation_mortality: "CSO_2001"`) values CRVM on 2001
+    CSO — verified: WL cedant PV differs from CRVM-on-projection-table. ✅
+  - Omitting the key is byte-identical on all goldens (none set it). ✅
 
 ### Slice 3: GAAP (FAS 60) basis for TermLife
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 2 merged
 - **Scope:** design ADR (PAD structure: mortality multiplier + interest
   haircut; config surface for PADs), `_compute_reserves_gaap` on TermLife,
@@ -108,9 +121,14 @@ table, and implement GAAP (FAS 60) as a concrete selectable basis.
 - Slice 3 PAD calibration: FAS 60 PADs are company-specific. Proposed default:
   mortality PAD as a configurable multiplier (e.g. 1.10) and a valuation-rate
   haircut, both on `ProjectionConfig` — confirm or redirect at Slice-3 review.
-- Should Slice 2 also accept a CSV path (arbitrary cedant valuation table)
-  in addition to a named source id? Leaning yes-later (the `yrt_rate_table_path`
-  precedent) — flag if wanted in Slice 2 itself.
+- ~~Should Slice 2 also accept a CSV path (arbitrary cedant valuation table)
+  in addition to a named source id?~~ **Resolved in Slice 2 (ADR-126): named
+  source id only for now; CSV-path escape hatch deferred (the
+  `yrt_rate_table_path` precedent). Promoted to the refinement backlog.**
+- Should the prescribed valuation table be echoed in the REST API response and
+  on the Excel/dashboard surfaces? Slice 2 echoes it only in the CLI JSON
+  `summary` (conditionally). Flag if API/Excel/dashboard audit visibility is
+  wanted — promoted as a NICE-TO-HAVE follow-up.
 
 ## Refinement Backlog
 
