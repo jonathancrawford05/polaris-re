@@ -87,6 +87,20 @@ max age), while the VM-20 DR keeps the projection table and its omega.
 Recorded in ADR-125; ARCHITECTURE.md reserve-basis section updated (the
 "tracked follow-up" sentence is now the shipped behaviour).
 
+**Post-review addendum (same PR, maintainer direction).** The automated
+review's P2 — extract a shared mortality-lookup helper before the GAAP slices
+add another copy — was initially encoded as a Slice-3 pre-step, then folded
+into this PR at the maintainer's request (context already loaded). The
+per-(sex,smoker) masked `get_qx_vector` lookup is now single-source:
+`BaseProduct._lookup_qx_column` with per-engine cached `_sex_smoker_masks`,
+consumed by all six former copies (TermLife projection + statutory builders,
+WholeLife projection + valuation builders, UniversalLife and Disability
+mortality builders). Callers keep their product/basis-specific wrapping
+(improvement, rating, max-age forcing, expiry masks). Verified
+byte-identical: full fast suite (1940) + QA (76) green post-refactor, and the
+golden `flat` JSON output diffs empty byte-for-byte against the pre-refactor
+run. Recorded as an ADR-125 decision bullet.
+
 An actuarial subtlety surfaced by the tests: a uniformly conservative
 (1.5×-scaled) valuation table raises the WL CRVM reserve at early/mid
 durations but sits slightly *below* baseline approaching omega — both bases
@@ -97,11 +111,17 @@ documented in the test.
 
 ## Files Changed
 - `src/polaris_re/assumptions/assumption_set.py` — `valuation_mortality` field
+- `src/polaris_re/products/base_product.py` — shared `_lookup_qx_column` +
+  cached `_sex_smoker_masks` (post-review addendum)
 - `src/polaris_re/products/term_life.py` — `_valuation_q`,
-  `_build_statutory_valuation_q`, CRVM/VM-20 dispatch, docstrings
+  `_build_statutory_valuation_q`, CRVM/VM-20 dispatch, docstrings; both
+  mortality builders now call the shared lookup
 - `src/polaris_re/products/whole_life.py` — table-parametrised
   `_build_valuation_mortality` / `_valuation_months_to_omega`, CRVM wiring,
-  docstrings
+  docstrings; both mortality builders now call the shared lookup
+- `src/polaris_re/products/universal_life.py` /
+  `src/polaris_re/products/disability.py` — mortality builders call the
+  shared lookup (pure refactor)
 - `ARCHITECTURE.md` — Reserve Basis Selection section
 - `docs/DECISIONS.md` — ADR-125
 - `docs/PLAN_reserve_basis_exactness.md` — NEW (epic plan)
@@ -130,6 +150,7 @@ documented in the test.
 | NET_PREMIUM untouched | ✅ | ignores-slot tests |
 | Default `None` byte-identical | ✅ | 1925 pre-existing tests green; golden flat exact ($45,386 / $3,513,563) |
 | WL omega follows the valuation table | ✅ | `_valuation_months_to_omega(max_age)` test |
+| Shared-lookup refactor byte-identical (review P2) | ✅ | full suite + QA green; golden JSON byte-level diff empty |
 
 ## Open Questions / Follow-ups
 - **Successor COMMERCIAL_VIABILITY_REVIEW due ~2026-07-18.** The 2026-06-18

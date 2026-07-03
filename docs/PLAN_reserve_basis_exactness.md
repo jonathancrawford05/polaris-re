@@ -63,7 +63,12 @@ basis — closing the last two gaps between "a reserve on the right method" and
   improvement is configured), improvement isolation, conservative-table
   direction, VM-20 composition (`max(NPR_stat, DR_best_estimate)`),
   closed-form independent recomputation, byte-identity when `None`.
-- Goldens: byte-identical (field defaults to `None` everywhere).
+- Also shipped (PR #124 review P2, maintainer direction): the shared
+  `BaseProduct._lookup_qx_column` / `_sex_smoker_masks` mortality-lookup
+  helper replacing all six per-product copies of the masked per-(sex,smoker)
+  lookup (Term/WL/UL/Disability). GAAP (Slices 3–4) calls the helper.
+- Goldens: byte-identical (field defaults to `None` everywhere; refactor
+  verified by an empty byte-level JSON diff).
 
 ### Slice 2: Surface `valuation_mortality` end-to-end (2001 CSO)
 - **Status:** NEXT

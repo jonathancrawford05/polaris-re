@@ -132,33 +132,15 @@ class WholeLife(BaseProduct):
         multiplier_vec = self.inforce.mortality_multiplier_vec  # (N,)
         flat_extra_monthly_vec = self.inforce.flat_extra_vec / 12000.0  # (N,) monthly
 
-        sex_list = [p.sex for p in self.inforce.policies]
-        smoker_list = [p.smoker_status for p in self.inforce.policies]
-        unique_combos = set(zip(sex_list, smoker_list, strict=True))
-
         for month in range(t):
             current_durations = duration_inforce + month
             age_increment = (current_durations // 12) - (duration_inforce // 12)
             current_ages = attained_ages + age_increment
             current_ages = np.minimum(current_ages, self.assumptions.mortality.max_age)
 
-            q_monthly_col = np.zeros(n, dtype=np.float64)
-            for sex, smoker in unique_combos:
-                mask = np.array(
-                    [
-                        (s == sex and sm == smoker)
-                        for s, sm in zip(sex_list, smoker_list, strict=True)
-                    ],
-                    dtype=bool,
-                )
-                if not np.any(mask):
-                    continue
-                q_monthly_col[mask] = self.assumptions.mortality.get_qx_vector(
-                    current_ages[mask],
-                    sex,
-                    smoker,
-                    current_durations[mask],
-                )
+            q_monthly_col = self._lookup_qx_column(
+                self.assumptions.mortality, current_ages, current_durations
+            )
 
             w_monthly_col = self.assumptions.lapse.get_lapse_vector(current_durations)
 
@@ -386,9 +368,6 @@ class WholeLife(BaseProduct):
         multiplier_vec = self.inforce.mortality_multiplier_vec  # (N,)
         flat_extra_monthly_vec = self.inforce.flat_extra_vec / 12000.0  # (N,) monthly
 
-        sex_list = [p.sex for p in self.inforce.policies]
-        smoker_list = [p.smoker_status for p in self.inforce.policies]
-        unique_combos = set(zip(sex_list, smoker_list, strict=True))
         max_age = table.max_age
 
         for month in range(t_val):
@@ -397,24 +376,7 @@ class WholeLife(BaseProduct):
             current_ages = attained_ages + age_increment
             current_ages_capped = np.minimum(current_ages, max_age)
 
-            q_monthly_col = np.zeros(n, dtype=np.float64)
-            for sex, smoker in unique_combos:
-                mask = np.array(
-                    [
-                        (s == sex and sm == smoker)
-                        for s, sm in zip(sex_list, smoker_list, strict=True)
-                    ],
-                    dtype=bool,
-                )
-                if not np.any(mask):
-                    continue
-                q_monthly_col[mask] = table.get_qx_vector(
-                    current_ages_capped[mask],
-                    sex,
-                    smoker,
-                    current_durations[mask],
-                )
-
+            q_monthly_col = self._lookup_qx_column(table, current_ages_capped, current_durations)
             q_monthly_col = np.minimum(q_monthly_col * multiplier_vec + flat_extra_monthly_vec, 1.0)
 
             # At/after max age the policy must terminate — certain death.

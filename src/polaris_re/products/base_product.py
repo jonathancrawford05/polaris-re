@@ -14,9 +14,11 @@ from abc import ABC, abstractmethod
 import numpy as np
 
 from polaris_re.assumptions.assumption_set import AssumptionSet
+from polaris_re.assumptions.mortality import MortalityTable
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.exceptions import PolarisComputationError
 from polaris_re.core.inforce import InforceBlock
+from polaris_re.core.policy import Sex, SmokerStatus
 from polaris_re.core.projection import ProjectionConfig
 from polaris_re.core.reserve_basis import ReserveBasis
 
@@ -42,6 +44,63 @@ class BaseProduct(ABC):
         self.inforce = inforce
         self.assumptions = assumptions
         self.config = config
+        self._sex_smoker_masks_cache: list[tuple[Sex, SmokerStatus, np.ndarray]] | None = None
+
+    # --- Shared mortality lookup --------------------------------------
+
+    def _sex_smoker_masks(self) -> list[tuple[Sex, SmokerStatus, np.ndarray]]:
+        """
+        Per-(sex, smoker) boolean policy masks, each shape (N,), built once.
+
+        Every mortality-rate builder iterates the block's unique
+        (sex, smoker) combinations and looks rates up per masked sub-block.
+        The masks depend only on the (immutable) inforce block, so they are
+        built once per engine instance and cached.
+        """
+        if self._sex_smoker_masks_cache is None:
+            sex_list = [p.sex for p in self.inforce.policies]
+            smoker_list = [p.smoker_status for p in self.inforce.policies]
+            combos = sorted(
+                set(zip(sex_list, smoker_list, strict=True)),
+                key=lambda combo: (str(combo[0]), str(combo[1])),
+            )
+            self._sex_smoker_masks_cache = [
+                (
+                    sex,
+                    smoker,
+                    np.array(
+                        [
+                            (s == sex and sm == smoker)
+                            for s, sm in zip(sex_list, smoker_list, strict=True)
+                        ],
+                        dtype=bool,
+                    ),
+                )
+                for sex, smoker in combos
+            ]
+        return self._sex_smoker_masks_cache
+
+    def _lookup_qx_column(
+        self,
+        table: MortalityTable,
+        ages: np.ndarray,
+        durations: np.ndarray,
+    ) -> np.ndarray:
+        """
+        One time step's monthly mortality lookup on ``table``, shape (N,).
+
+        The single source of the per-(sex, smoker) masked ``get_qx_vector``
+        lookup shared by every product's projection-rate builder and by the
+        statutory valuation-q builders (ADR-125; extracted per PR #124 review
+        so the copies cannot drift). Callers own everything around it —
+        age capping, improvement, substandard rating, max-age forcing, and
+        term-expiry masks — because those legitimately differ by product and
+        by basis.
+        """
+        q_col = np.zeros(self.inforce.n_policies, dtype=np.float64)
+        for sex, smoker, mask in self._sex_smoker_masks():
+            q_col[mask] = table.get_qx_vector(ages[mask], sex, smoker, durations[mask])
+        return q_col
 
     @abstractmethod
     def project(self, seriatim: bool = False) -> CashFlowResult:

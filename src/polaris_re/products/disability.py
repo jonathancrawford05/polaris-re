@@ -111,30 +111,14 @@ class DisabilityProduct(BaseProduct):
         attained_ages = self.inforce.attained_age_vec_at(self.config.valuation_date)
         max_age = self.assumptions.mortality.max_age
 
-        sex_list = [p.sex for p in self.inforce.policies]
-        smoker_list = [p.smoker_status for p in self.inforce.policies]
-        unique_combos = set(zip(sex_list, smoker_list, strict=True))
-
         for month in range(t):
             current_durations = duration_inforce + month
             age_increment = (current_durations // 12) - (duration_inforce // 12)
             current_ages = np.minimum(attained_ages + age_increment, max_age)
 
-            q_col = np.zeros(n, dtype=np.float64)
-            for sex, smoker in unique_combos:
-                mask = np.array(
-                    [
-                        (s == sex and sm == smoker)
-                        for s, sm in zip(sex_list, smoker_list, strict=True)
-                    ],
-                    dtype=bool,
-                )
-                if not np.any(mask):
-                    continue
-                q_col[mask] = self.assumptions.mortality.get_qx_vector(
-                    current_ages[mask], sex, smoker, current_durations[mask]
-                )
-            q[:, month] = q_col
+            q[:, month] = self._lookup_qx_column(
+                self.assumptions.mortality, current_ages, current_durations
+            )
 
         return q
 

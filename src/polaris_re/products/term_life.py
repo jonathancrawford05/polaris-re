@@ -94,11 +94,6 @@ class TermLife(BaseProduct):
         multiplier_vec = self.inforce.mortality_multiplier_vec  # (N,)
         flat_extra_monthly_vec = self.inforce.flat_extra_vec / 12000.0  # (N,) monthly
 
-        # Build unique (sex, smoker) combos for mortality lookup
-        sex_list = [p.sex for p in self.inforce.policies]
-        smoker_list = [p.smoker_status for p in self.inforce.policies]
-        unique_combos = set(zip(sex_list, smoker_list, strict=True))
-
         # Pre-compute improvement if available
         improvement = getattr(self.assumptions, "improvement", None)
         valuation_year = self.config.valuation_date.year
@@ -119,24 +114,9 @@ class TermLife(BaseProduct):
             # Active mask: policy still in term
             active = month < remaining_months  # (N,)
 
-            # Mortality: iterate over (sex, smoker) combos
-            q_monthly_col = np.zeros(n, dtype=np.float64)
-            for sex, smoker in unique_combos:
-                mask = np.array(
-                    [
-                        (s == sex and sm == smoker)
-                        for s, sm in zip(sex_list, smoker_list, strict=True)
-                    ],
-                    dtype=bool,
-                )
-                if not np.any(mask):
-                    continue
-                q_monthly_col[mask] = self.assumptions.mortality.get_qx_vector(
-                    current_ages[mask],
-                    sex,
-                    smoker,
-                    current_durations[mask],
-                )
+            q_monthly_col = self._lookup_qx_column(
+                self.assumptions.mortality, current_ages, current_durations
+            )
 
             # Apply mortality improvement if configured
             if improvement is not None:
@@ -220,13 +200,14 @@ class TermLife(BaseProduct):
         """
         Monthly statutory valuation mortality q, shape (N, T).
 
-        Mirrors the mortality half of :meth:`_build_rate_arrays` (per
-        (sex, smoker) masked lookup, duration seasoning, per-policy substandard
-        rating, rates zeroed after term expiry) with two prescribed-table
-        differences (ADR-125): rates come from
-        ``assumptions.valuation_mortality`` (ages capped at *its* max age), and
-        **no mortality improvement** is applied — statutory tables (e.g. 2001
-        CSO) are published static, without a projection improvement scale.
+        Shares the per-(sex, smoker) masked lookup with
+        :meth:`_build_rate_arrays` (via ``BaseProduct._lookup_qx_column``) and
+        mirrors its duration seasoning, per-policy substandard rating, and
+        post-expiry zeroing, with two prescribed-table differences (ADR-125):
+        rates come from ``assumptions.valuation_mortality`` (ages capped at
+        *its* max age), and **no mortality improvement** is applied —
+        statutory tables (e.g. 2001 CSO) are published static, without a
+        projection improvement scale.
         """
         table = self.assumptions.valuation_mortality
         assert table is not None  # guarded by _valuation_q
@@ -241,34 +222,13 @@ class TermLife(BaseProduct):
         multiplier_vec = self.inforce.mortality_multiplier_vec  # (N,)
         flat_extra_monthly_vec = self.inforce.flat_extra_vec / 12000.0  # (N,) monthly
 
-        sex_list = [p.sex for p in self.inforce.policies]
-        smoker_list = [p.smoker_status for p in self.inforce.policies]
-        unique_combos = set(zip(sex_list, smoker_list, strict=True))
-
         for month in range(t):
             current_durations = duration_inforce + month
             age_increment = (current_durations // 12) - (duration_inforce // 12)
             current_ages = np.minimum(attained_ages + age_increment, table.max_age)
             active = month < remaining_months
 
-            q_monthly_col = np.zeros(n, dtype=np.float64)
-            for sex, smoker in unique_combos:
-                mask = np.array(
-                    [
-                        (s == sex and sm == smoker)
-                        for s, sm in zip(sex_list, smoker_list, strict=True)
-                    ],
-                    dtype=bool,
-                )
-                if not np.any(mask):
-                    continue
-                q_monthly_col[mask] = table.get_qx_vector(
-                    current_ages[mask],
-                    sex,
-                    smoker,
-                    current_durations[mask],
-                )
-
+            q_monthly_col = self._lookup_qx_column(table, current_ages, current_durations)
             q_monthly_col = np.minimum(q_monthly_col * multiplier_vec + flat_extra_monthly_vec, 1.0)
             q[:, month] = q_monthly_col * active
 

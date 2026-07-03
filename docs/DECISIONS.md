@@ -8077,12 +8077,25 @@ active-epic rule with the Tier-A ladder exhausted.
   assumptions: `VM20 = max(NPR_statutory, DR_best_estimate)`.
 
 - *TermLife* gains `_valuation_q()` (projection `q` when the slot is unset, else
-  `_build_statutory_valuation_q()` — a mirror of `_build_rate_arrays`'s mortality half with
-  the valuation-table lookup, no improvement, rating applied, rates zeroed post-expiry, ages
-  capped at the valuation table's max age). *WholeLife*'s `_build_valuation_mortality` and
-  `_valuation_months_to_omega` take an optional table/max-age, so the CRVM valuation runs to
-  the **valuation table's omega** (certain-death forcing at its max age) while the VM-20 DR
-  keeps the projection table's omega.
+  `_build_statutory_valuation_q()` — the same masked mortality lookup as
+  `_build_rate_arrays` with the valuation-table lookup, no improvement, rating applied,
+  rates zeroed post-expiry, ages capped at the valuation table's max age). *WholeLife*'s
+  `_build_valuation_mortality` and `_valuation_months_to_omega` take an optional
+  table/max-age, so the CRVM valuation runs to the **valuation table's omega**
+  (certain-death forcing at its max age) while the VM-20 DR keeps the projection table's
+  omega.
+
+- *Shared mortality-lookup helper (PR #124 review P2, folded in at maintainer direction).*
+  The per-(sex, smoker) masked `get_qx_vector` lookup existed as six near-identical copies
+  (TermLife projection + statutory builders, WholeLife projection + valuation builders,
+  UniversalLife and Disability mortality builders), and every new reserve basis would have
+  added another. It is now single-source: `BaseProduct._lookup_qx_column(table, ages,
+  durations)` with per-engine cached `_sex_smoker_masks` (the masks depend only on the
+  immutable inforce block, so they are built once instead of per month per combo). Callers
+  keep everything that legitimately differs by product/basis — age capping, improvement,
+  substandard rating, max-age forcing, expiry masks. Pure refactor: identical float
+  operations on disjoint masks; verified byte-identical below. New mortality paths (GAAP,
+  Slices 3–4) must call the helper, not copy the loop.
 
 **Verification.** `tests/test_products/test_statutory_valuation_table.py` (15 tests): default
 `None` and same-table consistency (slot = projection table reproduces baseline CRVM exactly
@@ -8096,7 +8109,9 @@ premium, so the curves cross, empirically around month 147); an independent nump
 recomputation fed an independently built statutory q (rated block) reproduces the engine
 reserve to 1e-10; projection cash flows (claims/premiums) unchanged — only reserves move.
 Full fast suite 1940 passed; QA suite 76 passed; golden `flat` config byte-identical (Total
-PV Profits Reinsurer $45,386, Cedant $3,513,563).
+PV Profits Reinsurer $45,386, Cedant $3,513,563). The shared-lookup refactor was verified
+byte-identical separately: full fast suite + QA suite green post-refactor and the golden
+`flat` JSON output is byte-for-byte identical (empty `diff`) against the pre-refactor run.
 
 **Out of scope.** Surfacing the slot on config/CLI/API and the 2001 CSO integration test
 (Slice 2); GAAP FAS 60 (Slices 3–4); a CSV-path escape hatch for arbitrary cedant valuation

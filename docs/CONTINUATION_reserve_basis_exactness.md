@@ -28,7 +28,10 @@ table, and implement GAAP (FAS 60) as a concrete selectable basis.
   `_build_valuation_mortality` / `_valuation_months_to_omega` take an optional
   table and CRVM (hence the VM-20 NPR) uses the valuation table including its
   omega. VM-20 DR stays best-estimate on both products. Default `None` is
-  byte-identical everywhere. ADR-125.
+  byte-identical everywhere. ADR-125. Also shipped here (review P2 +
+  maintainer direction): the shared `BaseProduct._lookup_qx_column` /
+  `_sex_smoker_masks` mortality-lookup helper replacing all six per-product
+  copies of the masked per-(sex,smoker) lookup.
 - **Key decisions (affect later slices):**
   - The statutory valuation q is **static** — the mortality-improvement scale
     is never applied to it (prescribed tables are published without
@@ -62,14 +65,15 @@ table, and implement GAAP (FAS 60) as a concrete selectable basis.
 - **Scope:** design ADR (PAD structure: mortality multiplier + interest
   haircut; config surface for PADs), `_compute_reserves_gaap` on TermLife,
   add GAAP to `_supported_reserve_bases`, closed-form FAS 60 test.
-- **Pre-step (PR #124 automated review, P2):** before adding the GAAP
-  mortality path, extract a shared mortality-lookup helper from the three
-  existing mirrors (`TermLife._build_rate_arrays` mortality half,
-  `TermLife._build_statutory_valuation_q`,
-  `WholeLife._build_valuation_mortality`) — per-(sex,smoker) masked lookup +
-  duration seasoning + substandard rating — so GAAP does not create a fourth
-  copy that drifts. Pure refactor, must leave all reserve tests and goldens
-  byte-identical.
+- ~~**Pre-step (PR #124 automated review, P2):** extract a shared
+  mortality-lookup helper before the GAAP slices add another copy.~~ —
+  **DONE in Slice 1** (PR #124, maintainer direction): the per-(sex,smoker)
+  masked lookup is now `BaseProduct._lookup_qx_column` (with cached
+  `_sex_smoker_masks`), consumed by all six former copies — Term projection +
+  statutory builders, WL projection + valuation builders, UL and Disability
+  mortality builders. Verified byte-identical (full suite + QA green; golden
+  JSON diff empty pre- vs post-refactor). Slice 3's GAAP path should call the
+  same helper.
 
 ### Slice 4: GAAP (FAS 60) for WholeLife + epic close
 - **Status:** PLANNED
@@ -79,12 +83,13 @@ table, and implement GAAP (FAS 60) as a concrete selectable basis.
 
 ## Context for Next Session
 
-- The statutory-q builders deliberately mirror the mortality half of each
-  product's `_build_rate_arrays` (per-(sex,smoker) masked lookup, duration
-  seasoning via `duration_inforce_vec_at`, age caps at the **valuation
-  table's** max_age, WL certain-death forcing at its omega). If
-  `_build_rate_arrays` gains new mortality logic, mirror it or extract a
-  shared helper.
+- The per-(sex,smoker) masked lookup is single-source:
+  `BaseProduct._lookup_qx_column` (cached `_sex_smoker_masks`), used by every
+  mortality builder across Term/WL/UL/Disability. The statutory-q builders
+  still own their basis-specific wrapping (duration seasoning via
+  `duration_inforce_vec_at`, age caps at the **valuation table's** max_age,
+  no improvement, rating, WL certain-death forcing at its omega). New
+  mortality paths (e.g. GAAP) must call the shared helper, not copy the loop.
 - TermLife byte-identity is by construction: when the slot is `None` the CRVM
   / VM-20-NPR paths receive the projection q object unchanged (no rebuild).
 - WholeLife: when the slot is `None`, `_build_valuation_mortality(t_val)`
