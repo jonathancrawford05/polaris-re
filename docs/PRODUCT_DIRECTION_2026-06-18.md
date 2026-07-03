@@ -994,6 +994,27 @@ Items harvested from completed/in-flight work by the daily-dev routine
   *Source: ADR-122 Out of scope + DEV_SESSION_LOG_2026-06-30_expense_allowance_slice3b2a
   Open Questions (1st-order — follow-up of the originally-planned allowance feature).*
 
+- **NICE-TO-HAVE — Echo the applied `expense_allowance` / `experience_refund` terms
+  back on the deal-pricing responses.** Slice 3b-2b-1 (ADR-123) lets the API request
+  models carry both terms, and they move the priced numbers, but no response field
+  echoes *which* terms were applied — unlike `reserve_basis`, which `PriceResponse`
+  echoes so a client can confirm the basis that drove the numbers. A caller (or an
+  audit trail) cannot read back from a `/api/v1/price` response whether an allowance/
+  refund was honoured or what its rates were; they must trust the request. Adding an
+  optional echo block (the resolved terms) to `PriceResponse` / scenario / uq / the CLI
+  JSON would close the auditability gap. Affects reporting/audit, not the common pricing
+  path → NICE-TO-HAVE. *Source: ADR-123 Out of scope + DEV_SESSION_LOG_2026-06-30_expense_allowance_slice3b2b1
+  (1st-order — follow-up of the originally-planned allowance-surfacing feature).*
+
+- **NICE-TO-HAVE — The `use_policy_cession` block-aware-duration follow-up (above) now
+  applies to the API path too.** The same new-business-projection-month fallback the
+  IMPORTANT config item describes affects `/api/v1/price` (and scenario / uq /
+  portfolio) once an `expense_allowance` is supplied through the request models added in
+  Slice 3b-2b-1 — the fix (force the cohort inforce through `apply()` whenever an
+  allowance is present) is the single shared one in `treaty.apply()`, so this is a scope
+  note on the IMPORTANT item, not separate work. *Source: ADR-123 (2nd-order — follow-up
+  of the use_policy_cession follow-up; scope note only, NICE-TO-HAVE per the polish cap).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

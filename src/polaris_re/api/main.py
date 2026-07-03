@@ -33,7 +33,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
 
 import polaris_re
@@ -63,6 +64,7 @@ from polaris_re.assumptions.lapse import LapseAssumption
 from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
 from polaris_re.core.asset import AssetPortfolio
 from polaris_re.core.cashflow import CashFlowResult
+from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.pipeline import derive_capital_nar
 from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
@@ -70,6 +72,8 @@ from polaris_re.core.projection import ProjectionConfig
 from polaris_re.core.reserve_basis import ReserveBasis
 from polaris_re.products.dispatch import get_product_engine
 from polaris_re.reinsurance.base_treaty import BaseTreaty
+from polaris_re.reinsurance.expense_allowance import ExpenseAllowance
+from polaris_re.reinsurance.experience_refund import ExperienceRefund
 from polaris_re.reinsurance.yrt import YRTTreaty
 from polaris_re.utils.table_io import MortalityTableArray
 
@@ -86,6 +90,23 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+
+@app.exception_handler(PolarisValidationError)
+def _polaris_validation_error_handler(
+    request: Request, exc: PolarisValidationError
+) -> JSONResponse:
+    """Map a domain ``PolarisValidationError`` to HTTP 422.
+
+    Domain validators on nested request models (e.g. the
+    ``ExpenseAllowance`` sliding-scale monotonicity check, ADR-119) raise
+    ``PolarisValidationError`` during FastAPI's request-body parsing — before
+    any endpoint body runs, so the per-endpoint ``except`` blocks that already
+    map this error to 422 never see it. Registering it app-wide keeps a
+    malformed payload a clean 422 (the semantic half of request validation,
+    matching the ADR-074 date-consistency guard) instead of a 500.
+    """
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +291,30 @@ class PriceRequest(BaseModel):
             "only when ``asset_portfolio`` is supplied."
         ),
     )
+    expense_allowance: ExpenseAllowance | None = Field(
+        default=None,
+        description=(
+            "Optional sliding-scale expense allowance (expense-allowance epic, "
+            "ADR-119). A per-treaty allowance quoted as a % of ceded premium with "
+            "a first-year vs renewal split and an optional loss-ratio sliding "
+            "scale. Applied inside the YRT / Coinsurance treaty as a "
+            "reinsurer→cedant transfer folded into the expense line, preserving "
+            "``net + ceded == gross``. JSON shape mirrors ``ExpenseAllowance``. "
+            "Ignored for Modco / gross. None (default) is byte-identical."
+        ),
+    )
+    experience_refund: ExperienceRefund | None = Field(
+        default=None,
+        description=(
+            "Optional experience refund / profit sharing (expense-allowance epic, "
+            "ADR-121). A share of the favourable accumulated experience above a "
+            "retention, applied as a single terminal reinsurer→cedant transfer "
+            "(net of any expense allowance already paid) folded into the expense "
+            "line, preserving ``net + ceded == gross``. JSON shape mirrors "
+            "``ExperienceRefund``. Ignored for Modco / gross. None (default) is "
+            "byte-identical."
+        ),
+    )
 
     @model_validator(mode="after")
     def _available_capital_requires_capital_model(self) -> "PriceRequest":
@@ -377,6 +422,23 @@ class ScenarioRequest(BaseModel):
         description="Loading over expected mortality for YRT rate derivation.",
     )
     modco_interest_rate: float = Field(default=0.045, ge=0.0, le=0.20)
+    expense_allowance: ExpenseAllowance | None = Field(
+        default=None,
+        description=(
+            "Optional sliding-scale expense allowance threaded onto the YRT / "
+            "Coinsurance treaty (expense-allowance epic, ADR-119). See "
+            "/api/v1/price for the semantics. Ignored for Modco. None (default) "
+            "is byte-identical."
+        ),
+    )
+    experience_refund: ExperienceRefund | None = Field(
+        default=None,
+        description=(
+            "Optional experience refund threaded onto the YRT / Coinsurance "
+            "treaty (expense-allowance epic, ADR-121). See /api/v1/price for the "
+            "semantics. Ignored for Modco. None (default) is byte-identical."
+        ),
+    )
     perspective: Literal["reinsurer", "cedant"] = Field(
         default="reinsurer",
         description=(
@@ -438,6 +500,23 @@ class UQRequest(BaseModel):
         description="Loading over expected mortality for YRT rate derivation.",
     )
     modco_interest_rate: float = Field(default=0.045, ge=0.0, le=0.20)
+    expense_allowance: ExpenseAllowance | None = Field(
+        default=None,
+        description=(
+            "Optional sliding-scale expense allowance threaded onto the YRT / "
+            "Coinsurance treaty (expense-allowance epic, ADR-119). See "
+            "/api/v1/price for the semantics. Ignored for Modco. None (default) "
+            "is byte-identical."
+        ),
+    )
+    experience_refund: ExperienceRefund | None = Field(
+        default=None,
+        description=(
+            "Optional experience refund threaded onto the YRT / Coinsurance "
+            "treaty (expense-allowance epic, ADR-121). See /api/v1/price for the "
+            "semantics. Ignored for Modco. None (default) is byte-identical."
+        ),
+    )
     perspective: Literal["reinsurer", "cedant"] = Field(
         default="reinsurer",
         description=(
@@ -743,6 +822,8 @@ def _build_treaty(
     yrt_loading: float = 0.10,
     modco_interest_rate: float = 0.045,
     yrt_rate_table: object | None = None,
+    expense_allowance: ExpenseAllowance | None = None,
+    experience_refund: ExperienceRefund | None = None,
 ) -> BaseTreaty | None:
     """Build a treaty object based on treaty_type string.
 
@@ -753,6 +834,12 @@ def _build_treaty(
     flat rate is suppressed (mutual exclusion enforced by
     ``YRTTreaty._validate_rate_source_exclusive``). The caller must pass
     an ``InforceBlock`` to ``apply()`` for the tabular path.
+
+    ``expense_allowance`` / ``experience_refund`` (expense-allowance epic,
+    ADR-119/ADR-121) are threaded onto the ``YRT`` / ``Coinsurance`` treaties —
+    the only treaties that carry the fields. ``None`` (default) leaves the
+    treaty byte-identical. Both are silently ignored for ``Modco`` / gross,
+    which have no allowance/refund field.
     """
     if treaty_type is None:
         return None
@@ -774,12 +861,16 @@ def _build_treaty(
                 cession_pct=cession_pct,
                 total_face_amount=face_amount,
                 yrt_rate_table=yrt_rate_table,
+                expense_allowance=expense_allowance,
+                experience_refund=experience_refund,
             )
         yrt_rate = _derive_yrt_rate(gross, face_amount, yrt_loading)
         return YRTTreaty(
             cession_pct=cession_pct,
             total_face_amount=face_amount,
             flat_yrt_rate_per_1000=yrt_rate,
+            expense_allowance=expense_allowance,
+            experience_refund=experience_refund,
         )
     elif treaty_type == "Coinsurance":
         from polaris_re.reinsurance.coinsurance import CoinsuranceTreaty
@@ -788,6 +879,8 @@ def _build_treaty(
             treaty_name="COINS-API",
             cession_pct=cession_pct,
             include_expense_allowance=True,
+            expense_allowance=expense_allowance,
+            experience_refund=experience_refund,
         )
     elif treaty_type == "Modco":
         from polaris_re.reinsurance.modco import ModcoTreaty
@@ -913,6 +1006,8 @@ def price(request: PriceRequest) -> PriceResponse:
             yrt_loading=request.yrt_loading,
             modco_interest_rate=request.modco_interest_rate,
             yrt_rate_table=yrt_rate_table,
+            expense_allowance=request.expense_allowance,
+            experience_refund=request.experience_refund,
         )
 
         if treaty is not None:
@@ -1147,6 +1242,8 @@ def scenario(request: ScenarioRequest) -> ScenarioResponse:
             cession_pct=request.cession_pct,
             yrt_loading=request.yrt_loading,
             modco_interest_rate=request.modco_interest_rate,
+            expense_allowance=request.expense_allowance,
+            experience_refund=request.experience_refund,
         )
         # Reinsurer view requires a real ceded position (ADR-078); resolve
         # before the zero-cession passthrough fallback below.
@@ -1219,6 +1316,8 @@ def uq(request: UQRequest) -> UQResponse:
             cession_pct=request.cession_pct,
             yrt_loading=request.yrt_loading,
             modco_interest_rate=request.modco_interest_rate,
+            expense_allowance=request.expense_allowance,
+            experience_refund=request.experience_refund,
         )
         # Reinsurer view requires a real ceded position (ADR-078); MonteCarloUQ
         # accepts treaty=None directly, so resolve against treaty presence.
@@ -1666,6 +1765,24 @@ class PortfolioDealRequest(BaseModel):
     maintenance_cost_per_policy_per_year: float = Field(default=0.0, ge=0.0)
     yrt_loading: float = Field(default=0.10, ge=0.0, le=1.0)
     modco_interest_rate: float = Field(default=0.045, ge=0.0, le=0.20)
+    expense_allowance: ExpenseAllowance | None = Field(
+        default=None,
+        description=(
+            "Optional sliding-scale expense allowance threaded onto this deal's "
+            "YRT / Coinsurance treaty (expense-allowance epic, ADR-119). See "
+            "/api/v1/price for the semantics. Ignored for Modco. None (default) "
+            "is byte-identical."
+        ),
+    )
+    experience_refund: ExperienceRefund | None = Field(
+        default=None,
+        description=(
+            "Optional experience refund threaded onto this deal's YRT / "
+            "Coinsurance treaty (expense-allowance epic, ADR-121). See "
+            "/api/v1/price for the semantics. Ignored for Modco. None (default) "
+            "is byte-identical."
+        ),
+    )
 
 
 class PortfolioRequest(BaseModel):
@@ -1749,6 +1866,8 @@ def _portfolio_from_request_deals(
             cession_pct=deal_req.cession_pct,
             yrt_loading=deal_req.yrt_loading,
             modco_interest_rate=deal_req.modco_interest_rate,
+            expense_allowance=deal_req.expense_allowance,
+            experience_refund=deal_req.experience_refund,
         )
         if treaty is None:
             raise HTTPException(
