@@ -38,6 +38,8 @@ if TYPE_CHECKING:
     from openpyxl.workbook.workbook import Workbook
     from openpyxl.worksheet.worksheet import Worksheet
 
+    from polaris_re.reinsurance.expense_allowance import ExpenseAllowance
+    from polaris_re.reinsurance.experience_refund import ExperienceRefund
     from polaris_re.reinsurance.yrt_rate_table import YRTRateTable
 
 __all__ = [
@@ -203,6 +205,16 @@ class DealPricingExport:
     # both gap sides undefined at the valuation yield) suppresses the sheet,
     # keeping pre-ADR-115 workbooks byte-identical.
     alm_duration_gap: DualDurationGap | None = None
+    # Sliding-scale expense allowance / experience refund treaty terms
+    # (expense-allowance epic, Slice 3b-2b-2; ADR-124). When either is
+    # populated, a "Treaty Terms" panel is appended to the Assumptions sheet,
+    # rendering the allowance (first-year / renewal %, sliding-scale bands) and
+    # refund (refund %, retention, reinsurer margin, interest) terms so a
+    # reviewer pricing a deal with an allowance/refund sees the terms in the
+    # committee packet. ``None`` for both suppresses the panel, keeping every
+    # workbook priced without these terms (the common path) byte-identical.
+    expense_allowance: "ExpenseAllowance | None" = None
+    experience_refund: "ExperienceRefund | None" = None
 
 
 # ---------------------------------------------------------------------------
@@ -446,7 +458,12 @@ def write_deal_pricing_excel(export: DealPricingExport, path: Path) -> None:
                                of all three bases side by side, so the ceded
                                share is visible per line, not just on the net
                                total (ADR-086).
-        7. Assumptions       — deal + assumption-set metadata.
+        7. Assumptions       — deal + assumption-set metadata, plus an optional
+                               rated-block panel (ADR-068) and an optional
+                               "Treaty Terms" panel rendering the sliding-scale
+                               expense allowance / experience refund the deal was
+                               priced with (ADR-124), each suppressed when its
+                               source data is absent → byte-identical.
         8. Sensitivity       — OMITTED when ``export.scenario_results`` is None.
         9. YRT Rate Table    — OMITTED when ``export.yrt_rate_table`` is None;
                                otherwise one block per (sex, smoker) cohort
@@ -985,7 +1002,18 @@ def _write_assumptions_sheet(wb: "Workbook", export: DealPricingExport) -> None:
 
     next_row = 3 + len(rows)
     if export.rated_block is not None and export.rated_block.n_rated > 0:
-        _write_rated_block_panel(ws, export.rated_block, start_row=next_row + 1)
+        next_row = _write_rated_block_panel(ws, export.rated_block, start_row=next_row + 1)
+
+    # Treaty-terms panel (ADR-124): the sliding-scale expense allowance and/or
+    # experience refund the deal was priced with. Appended after the rated-block
+    # panel; suppressed when neither term is supplied → byte-identical.
+    if export.expense_allowance is not None or export.experience_refund is not None:
+        _write_treaty_terms_panel(
+            ws,
+            expense_allowance=export.expense_allowance,
+            experience_refund=export.experience_refund,
+            start_row=next_row + 1,
+        )
 
     ws.column_dimensions["A"].width = 28
     ws.column_dimensions["B"].width = 32
@@ -996,13 +1024,15 @@ def _write_rated_block_panel(
     rated: RatedBlockExport,
     *,
     start_row: int,
-) -> None:
+) -> int:
     """Append a block-rating panel to the Assumptions sheet (ADR-068).
 
     Mirrors the labels and ordering of the CLI Rich
     ``_render_rated_block_table`` so committee reviewers see the same
     numbers across surfaces. ``start_row`` is the row of the section
-    title; subsequent rows hold one labelled metric each.
+    title; subsequent rows hold one labelled metric each. Returns the
+    row index immediately after the last row written, so a following
+    panel can be appended without overlapping.
     """
     from openpyxl.styles import Font
 
@@ -1025,6 +1055,86 @@ def _write_rated_block_panel(
         cell = ws.cell(row=row_idx, column=2, value=value)
         if fmt is not None:
             cell.number_format = fmt
+    return start_row + len(panel_rows) + 1
+
+
+def _write_treaty_terms_panel(
+    ws: "Worksheet",
+    *,
+    expense_allowance: "ExpenseAllowance | None",
+    experience_refund: "ExperienceRefund | None",
+    start_row: int,
+) -> int:
+    """Append the sliding-scale allowance / experience-refund panel (ADR-124).
+
+    Renders the treaty terms a deal was priced with so a committee reviewer
+    sees them in the same packet as the profit metrics. Two independent
+    sub-sections — either may be present without the other:
+
+    * **Expense Allowance** — first-year / renewal % of ceded premium, plus,
+      when a sliding scale is configured, one row per loss-ratio band
+      (``≤ {max_loss_ratio:%} loss ratio`` → allowance %). Mirrors
+      ``reinsurance/expense_allowance.py``.
+    * **Experience Refund** — refund %, retention, reinsurer margin, and the
+      accumulation interest rate. Mirrors ``reinsurance/experience_refund.py``.
+
+    ``start_row`` is the row of the "Treaty Terms" panel title. Returns the row
+    index immediately after the last row written.
+    """
+    from openpyxl.styles import Font
+
+    title_font = Font(bold=True, italic=True)
+    section_font = Font(bold=True, underline="single")
+    header_font = Font(bold=True)
+
+    ws.cell(row=start_row, column=1, value="Treaty Terms").font = title_font
+    row = start_row + 1
+
+    if expense_allowance is not None:
+        ws.cell(row=row, column=1, value="Expense Allowance").font = section_font
+        row += 1
+        allowance_rows: list[tuple[str, object, str | None]] = [
+            ("First-Year Allowance %", expense_allowance.first_year_pct, "0.00%"),
+            ("Renewal Allowance %", expense_allowance.renewal_pct, "0.00%"),
+            ("Months per Year", expense_allowance.months_per_year, "#,##0"),
+        ]
+        for label, value, fmt in allowance_rows:
+            ws.cell(row=row, column=1, value=label).font = header_font
+            cell = ws.cell(row=row, column=2, value=value)
+            if fmt is not None:
+                cell.number_format = fmt
+            row += 1
+        if expense_allowance.sliding_scale:
+            ws.cell(row=row, column=1, value="Sliding Scale (renewal)").font = header_font
+            row += 1
+            for band in expense_allowance.sliding_scale:
+                # Render the threshold as a percent (e.g. "≤ 80% loss ratio") for
+                # committee readability, matching the "0.00%" rate cell alongside it.
+                # ``:g`` on the scaled value drops trailing zeros and absorbs float
+                # noise (0.8 → "80%", 0.825 → "82.5%").
+                threshold_label = f"≤ {band.max_loss_ratio * 100:g}% loss ratio"
+                ws.cell(row=row, column=1, value=threshold_label)
+                cell = ws.cell(row=row, column=2, value=band.allowance_pct)
+                cell.number_format = "0.00%"
+                row += 1
+
+    if experience_refund is not None:
+        ws.cell(row=row, column=1, value="Experience Refund").font = section_font
+        row += 1
+        refund_rows: list[tuple[str, object, str | None]] = [
+            ("Refund %", experience_refund.refund_pct, "0.00%"),
+            ("Retention", experience_refund.retention, "$#,##0"),
+            ("Reinsurer Margin %", experience_refund.reinsurer_margin_pct, "0.00%"),
+            ("Interest Rate", experience_refund.interest_rate, "0.00%"),
+        ]
+        for label, value, fmt in refund_rows:
+            ws.cell(row=row, column=1, value=label).font = header_font
+            cell = ws.cell(row=row, column=2, value=value)
+            if fmt is not None:
+                cell.number_format = fmt
+            row += 1
+
+    return row
 
 
 def _write_sensitivity_sheet(wb: "Workbook", scenarios: list[ScenarioMetric]) -> None:

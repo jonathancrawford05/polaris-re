@@ -7,7 +7,9 @@
 > `docs/CONTINUATION_expense_allowance.md`, the per-session
 > `docs/DEV_SESSION_LOG_*` files, and the ADRs.
 >
-> **Status.** IN PROGRESS — Slices 1, 2, 3a, 3b-1, 3b-2a, and 3b-2b-1 shipped; Slice 3b-2b-2 (Excel) NEXT.
+> **Status.** COMPLETE — all slices shipped (1, 2, 3a, 3b-1, 3b-2a, 3b-2b-1, 3b-2b-2). The
+> allowance/refund terms are consistent across all four deal-pricing consumers (config, CLI,
+> API, Excel). Final slice 3b-2b-2 (Excel "Treaty Terms" panel) shipped 2026-07-03 (ADR-124).
 > - Slice 1 (2026-06-29, ADR-118): `ExpenseAllowance` model + computation
 >   primitive; not wired → goldens byte-identical.
 > - Slice 2 (2026-06-29, ADR-119, PR #118 merged): wired into
@@ -32,7 +34,9 @@
 >         deal-pricing Excel export — split surface-by-surface:
 >         - Slice 3b-2b-1 (2026-06-30, ADR-123): API request models (four models +
 >           `_build_treaty` threading + app-level 422 handler).
->         - Slice 3b-2b-2 (NEXT): deal-pricing Excel export.
+>         - Slice 3b-2b-2 (2026-07-03, ADR-124): deal-pricing Excel export — a
+>           "Treaty Terms" panel on the Assumptions sheet + CLI `--excel-out` threading;
+>           default `None` → workbook byte-identical. **Epic COMPLETE.**
 >
 > Running log: `docs/CONTINUATION_expense_allowance.md`.
 >
@@ -149,7 +153,7 @@ are independent consumers — the epic's established pattern).
   `PolarisValidationError` → 422 handler so a malformed nested allowance returns a clean
   422 (not a 500) from request-body parsing. Off by default → byte-identical. 14 tests.
 
-#### Slice 3b-2b-2 — surface on the deal-pricing Excel export (NEXT)
+#### Slice 3b-2b-2 — surface on the deal-pricing Excel export (SHIPPED, ADR-124)
 - Surface both terms on the deal-pricing committee Excel workbook
   (`utils/excel_output.py` `DealPricingExport` + `write_deal_pricing_excel`, threaded
   from the CLI `--excel-out` path). No existing "Deal Terms" panel, so add a new

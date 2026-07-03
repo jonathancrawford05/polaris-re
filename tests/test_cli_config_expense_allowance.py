@@ -287,3 +287,62 @@ class TestEndToEndEffect:
         _g2, n2, c2 = self._project_and_apply(_nested_config(treaty_type="Coinsurance"))
         np.testing.assert_array_equal(n1.net_cash_flow, n2.net_cash_flow)
         np.testing.assert_array_equal(c1.net_cash_flow, c2.net_cash_flow)
+
+
+# --------------------------------------------------------------------------- #
+# 5. End-to-end CLI: --excel-out surfaces the Treaty Terms panel (ADR-124)     #
+# --------------------------------------------------------------------------- #
+
+
+class TestExcelTreatyTermsPanel:
+    """``polaris price --config <cfg> --excel-out`` renders the deal's
+    allowance/refund terms as a "Treaty Terms" panel on the Assumptions sheet
+    (expense-allowance epic, Slice 3b-2b-2). Suppressed when the config carries
+    neither term → workbook Assumptions sheet has no such panel."""
+
+    def _run_excel(self, config: dict, tmp_path: Path):  # type: ignore[type-arg]
+        from typer.testing import CliRunner
+
+        from polaris_re.cli import app
+
+        cfg_path = _write_config(config)
+        out = tmp_path / "result.json"
+        excel_out = tmp_path / "deal.xlsx"
+        result = CliRunner().invoke(
+            app,
+            [
+                "price",
+                "--config",
+                str(cfg_path),
+                "--output",
+                str(out),
+                "--excel-out",
+                str(excel_out),
+            ],
+        )
+        assert result.exit_code == 0, f"CLI failed:\n{result.stdout}"
+        paths = sorted(tmp_path.glob("deal*.xlsx"))
+        assert paths, "no workbook written"
+        return paths
+
+    def _assumptions_labels(self, path: Path) -> list:  # type: ignore[type-arg]
+        from openpyxl import load_workbook
+
+        ws = load_workbook(path)["Assumptions"]
+        return [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+
+    def test_panel_present_with_terms(self, tmp_path: Path) -> None:
+        config = _nested_config(
+            treaty_type="Coinsurance",
+            expense_allowance=dict(_ALLOWANCE_BLOCK),
+            experience_refund=dict(_REFUND_BLOCK),
+        )
+        for path in self._run_excel(config, tmp_path):
+            labels = self._assumptions_labels(path)
+            assert "Treaty Terms" in labels
+            assert "Expense Allowance" in labels
+            assert "Experience Refund" in labels
+
+    def test_panel_absent_without_terms(self, tmp_path: Path) -> None:
+        for path in self._run_excel(_nested_config(treaty_type="Coinsurance"), tmp_path):
+            assert "Treaty Terms" not in self._assumptions_labels(path)

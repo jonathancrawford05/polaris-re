@@ -1003,7 +1003,10 @@ def _cohort_to_deal_pricing_export(
     header (ADR-102); ``None`` labels it LICAT for backward compatibility.
     When ``alm_duration_gap`` is supplied (an asset portfolio was priced), it is
     embedded on the export so the writer appends the ``ALM Duration Gap`` sheet
-    (ADR-115); ``None`` suppresses the sheet.
+    (ADR-115); ``None`` suppresses the sheet. The deal's sliding-scale expense
+    allowance / experience refund terms (``deal.expense_allowance`` /
+    ``deal.experience_refund``, ADR-124) are threaded onto the export so the
+    writer appends the ``Treaty Terms`` panel; ``None`` for both suppresses it.
     """
     from polaris_re.utils.excel_output import (
         AssumptionsMetaExport,
@@ -1055,6 +1058,12 @@ def _cohort_to_deal_pricing_export(
         ifrs17_movement=ifrs17_movement,  # type: ignore[arg-type]
         capital_model_id=capital_model_id,
         alm_duration_gap=alm_duration_gap,
+        # Sliding-scale allowance / experience refund terms (ADR-124): thread the
+        # deal-config terms onto the export so the writer appends the "Treaty
+        # Terms" panel. ``None`` (no terms on the deal) suppresses the panel →
+        # workbook byte-identical.
+        expense_allowance=deal.expense_allowance,
+        experience_refund=deal.experience_refund,
     )
 
 

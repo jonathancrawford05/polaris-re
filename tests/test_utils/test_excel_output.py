@@ -1968,3 +1968,193 @@ class TestAlmDurationGapSheet:
         write_deal_pricing_excel(_export_with_alm_gap(gap), out)
         wb = load_workbook(out)
         assert wb["ALM Duration Gap"].max_row > 0
+
+
+# ---------------------------------------------------------------------------
+# Treaty-terms panel on the Assumptions sheet (ADR-124)
+# ---------------------------------------------------------------------------
+
+
+def _make_expense_allowance(*, sliding: bool = False):
+    """A sample ExpenseAllowance; optionally with a monotone sliding scale."""
+    from polaris_re.reinsurance.expense_allowance import (
+        ExpenseAllowance,
+        ExpenseAllowanceBand,
+    )
+
+    scale = None
+    if sliding:
+        scale = [
+            ExpenseAllowanceBand(max_loss_ratio=0.60, allowance_pct=0.30),
+            ExpenseAllowanceBand(max_loss_ratio=0.80, allowance_pct=0.20),
+            ExpenseAllowanceBand(max_loss_ratio=1.00, allowance_pct=0.10),
+        ]
+    return ExpenseAllowance(
+        first_year_pct=0.55,
+        renewal_pct=0.12,
+        sliding_scale=scale,
+    )
+
+
+def _make_experience_refund():
+    from polaris_re.reinsurance.experience_refund import ExperienceRefund
+
+    return ExperienceRefund(
+        refund_pct=0.50,
+        retention=25_000.0,
+        reinsurer_margin_pct=0.05,
+        interest_rate=0.04,
+    )
+
+
+def _export_with_terms(*, allowance=None, refund=None) -> DealPricingExport:
+    return DealPricingExport(
+        deal_meta=_make_deal_meta(),
+        assumptions_meta=_make_assumptions_meta(),
+        cedant_result=_make_profit_result(),
+        reinsurer_result=None,
+        net_cashflows=_make_cashflows("NET"),
+        expense_allowance=allowance,
+        experience_refund=refund,
+    )
+
+
+class TestTreatyTermsPanel:
+    """Slice 3b-2b-2 of the expense-allowance epic (ADR-124).
+
+    The Assumptions sheet picks up an optional "Treaty Terms" panel showing the
+    sliding-scale expense allowance and/or experience refund the deal was priced
+    with. Suppressed when neither term is supplied, so every workbook priced
+    without these terms (the common path) stays byte-identical to pre-ADR-124
+    output.
+    """
+
+    def test_panel_absent_by_default(
+        self, minimal_export: DealPricingExport, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(minimal_export, out)
+        ws = load_workbook(out)["Assumptions"]
+        labels = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+        assert "Treaty Terms" not in labels
+        assert "Expense Allowance" not in labels
+        assert "Experience Refund" not in labels
+
+    def test_allowance_rows_rendered(self, tmp_path: Path) -> None:
+        allowance = _make_expense_allowance()
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(_export_with_terms(allowance=allowance), out)
+        ws = load_workbook(out)["Assumptions"]
+        assert "Treaty Terms" in [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+        fy_row = _find_row_with_label(ws, "First-Year Allowance %")
+        assert ws.cell(row=fy_row, column=2).value == pytest.approx(0.55)
+        rn_row = _find_row_with_label(ws, "Renewal Allowance %")
+        assert ws.cell(row=rn_row, column=2).value == pytest.approx(0.12)
+
+    def test_sliding_scale_bands_rendered(self, tmp_path: Path) -> None:
+        allowance = _make_expense_allowance(sliding=True)
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(_export_with_terms(allowance=allowance), out)
+        ws = load_workbook(out)["Assumptions"]
+        labels = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+        assert "Sliding Scale (renewal)" in labels
+        # One row per band, the threshold rendered as a percent, with the band's
+        # allowance % in column B.
+        band_row = _find_row_with_label(ws, "≤ 80% loss ratio")
+        assert ws.cell(row=band_row, column=2).value == pytest.approx(0.20)
+
+    def test_no_sliding_scale_rows_when_flat(self, tmp_path: Path) -> None:
+        allowance = _make_expense_allowance(sliding=False)
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(_export_with_terms(allowance=allowance), out)
+        ws = load_workbook(out)["Assumptions"]
+        labels = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+        assert "Sliding Scale (renewal)" not in labels
+
+    def test_refund_rows_rendered(self, tmp_path: Path) -> None:
+        refund = _make_experience_refund()
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(_export_with_terms(refund=refund), out)
+        ws = load_workbook(out)["Assumptions"]
+        assert "Experience Refund" in [
+            ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)
+        ]
+        assert ws.cell(row=_find_row_with_label(ws, "Refund %"), column=2).value == pytest.approx(
+            0.50
+        )
+        assert ws.cell(row=_find_row_with_label(ws, "Retention"), column=2).value == pytest.approx(
+            25_000.0
+        )
+        assert ws.cell(
+            row=_find_row_with_label(ws, "Reinsurer Margin %"), column=2
+        ).value == pytest.approx(0.05)
+        assert ws.cell(
+            row=_find_row_with_label(ws, "Interest Rate"), column=2
+        ).value == pytest.approx(0.04)
+
+    def test_allowance_only_omits_refund_section(self, tmp_path: Path) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(_export_with_terms(allowance=_make_expense_allowance()), out)
+        ws = load_workbook(out)["Assumptions"]
+        labels = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+        assert "Expense Allowance" in labels
+        assert "Experience Refund" not in labels
+
+    def test_refund_only_omits_allowance_section(self, tmp_path: Path) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(_export_with_terms(refund=_make_experience_refund()), out)
+        ws = load_workbook(out)["Assumptions"]
+        labels = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+        assert "Experience Refund" in labels
+        assert "Expense Allowance" not in labels
+
+    def test_both_sections_present_and_ordered(self, tmp_path: Path) -> None:
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(
+            _export_with_terms(
+                allowance=_make_expense_allowance(sliding=True),
+                refund=_make_experience_refund(),
+            ),
+            out,
+        )
+        ws = load_workbook(out)["Assumptions"]
+        allow_row = _find_row_with_label(ws, "Expense Allowance")
+        refund_row = _find_row_with_label(ws, "Experience Refund")
+        # Allowance section precedes the refund section.
+        assert allow_row < refund_row
+
+    def test_panel_coexists_with_rated_block(self, tmp_path: Path) -> None:
+        """Both panels render on the Assumptions sheet without overlapping."""
+        export = DealPricingExport(
+            deal_meta=_make_deal_meta(),
+            assumptions_meta=_make_assumptions_meta(),
+            cedant_result=_make_profit_result(),
+            reinsurer_result=None,
+            net_cashflows=_make_cashflows("NET"),
+            rated_block=_make_rated_block(),
+            expense_allowance=_make_expense_allowance(),
+        )
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(export, out)
+        ws = load_workbook(out)["Assumptions"]
+        rated_row = _find_row_with_label(ws, "Rated Block")
+        terms_row = _find_row_with_label(ws, "Treaty Terms")
+        # Treaty-terms panel is appended after the rated-block panel, and the
+        # rated-block metrics are not clobbered by it.
+        assert terms_row > rated_row
+        assert (
+            ws.cell(row=_find_row_with_label(ws, "Policies Rated"), column=2).value
+            == _make_rated_block().n_rated
+        )
+
+    def test_sheet_order_unchanged(self, tmp_path: Path) -> None:
+        """The panel lives inside Assumptions; it adds no sheet."""
+        out = tmp_path / "deal.xlsx"
+        write_deal_pricing_excel(
+            _export_with_terms(
+                allowance=_make_expense_allowance(),
+                refund=_make_experience_refund(),
+            ),
+            out,
+        )
+        assert load_workbook(out).sheetnames == ["Summary", "Cash Flows", "Assumptions"]
