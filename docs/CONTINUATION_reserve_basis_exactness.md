@@ -62,6 +62,14 @@ table, and implement GAAP (FAS 60) as a concrete selectable basis.
 - **Scope:** design ADR (PAD structure: mortality multiplier + interest
   haircut; config surface for PADs), `_compute_reserves_gaap` on TermLife,
   add GAAP to `_supported_reserve_bases`, closed-form FAS 60 test.
+- **Pre-step (PR #124 automated review, P2):** before adding the GAAP
+  mortality path, extract a shared mortality-lookup helper from the three
+  existing mirrors (`TermLife._build_rate_arrays` mortality half,
+  `TermLife._build_statutory_valuation_q`,
+  `WholeLife._build_valuation_mortality`) — per-(sex,smoker) masked lookup +
+  duration seasoning + substandard rating — so GAAP does not create a fourth
+  copy that drifts. Pure refactor, must leave all reserve tests and goldens
+  byte-identical.
 
 ### Slice 4: GAAP (FAS 60) for WholeLife + epic close
 - **Status:** PLANNED
