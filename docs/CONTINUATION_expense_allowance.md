@@ -1,7 +1,8 @@
 # Continuation: Sliding-scale expense allowances & experience refunds
 
 **Source:** COMMERCIAL_VIABILITY_REVIEW_2026-06-18.md — Tier-B **B3**
-**Status:** IN PROGRESS
+**Status:** COMPLETE (all slices DONE — final slice 3b-2b-2 shipped 2026-07-03;
+follow-ups harvested to PRODUCT_DIRECTION_2026-06-18 before closure)
 **Total slices:** 3 (Slice 3 split data-model-first into 3a + 3b; 3b split into
 3b-1 treaty wiring + 3b-2 deal-path surfacing; 3b-2 further split into 3b-2a CLI/config
 path + 3b-2b API/Excel; 3b-2b further split into 3b-2b-1 API + 3b-2b-2 Excel — see below)
@@ -227,21 +228,45 @@ Excel writer) once surveyed — the epic's established surface-by-surface split 
     correct."
 
 #### Slice 3b-2b-2: Surface allowance/refund on the deal-pricing Excel export
-- **Status:** NEXT
-- **Depends on:** Slice 3b-2b-1 merged
-- **Scope:** surface both terms on the deal-pricing Excel committee workbook so a
-  reviewer pricing a deal with an allowance/refund sees the terms in the packet they
-  circulate. There is no existing "Deal Terms" panel in the workbook, so this means a
-  new sheet (or a panel on the Summary/Assumptions sheet) rendering the allowance
-  (FY/renewal %, sliding-scale bands) and refund (refund %, retention, margin) terms,
-  plus threading them from the CLI `--excel-out` path. Off by default (no terms → no
-  panel) → byte-identical workbook unless supplied.
-  - **Files to touch (surveyed):** `utils/excel_output.py` (`DealPricingExport` +
-    `write_deal_pricing_excel`), `cli.py` (the `_cohort_to_deal_pricing_export` /
-    `--excel-out` call site).
-  - **Naming note:** keep the same keys — `expense_allowance` / `experience_refund`.
-  - **Also consider:** the dashboard input surface + `DealConfig.to_dict()` parity
-    (still omitted until a dashboard surface consumes the terms).
+- **Status:** DONE
+- **Branch:** claude/awesome-bardeen-q909ah
+- **PR:** #123 (this draft)
+- **ADR:** ADR-124
+- **What was done:** Added `expense_allowance: ExpenseAllowance | None = None` and
+  `experience_refund: ExperienceRefund | None = None` to `DealPricingExport` (imported
+  under `TYPE_CHECKING`, mirroring the `YRTRateTable` annotation — the writer only reads
+  attributes off the models). When either is set, `_write_treaty_terms_panel` appends a
+  **"Treaty Terms"** panel to the Assumptions sheet (the rated-block-panel precedent,
+  ADR-068), rendering the allowance (first-year / renewal %, months/year, one row per
+  sliding-scale band) and refund (refund %, retention, reinsurer margin, interest) terms.
+  `_write_rated_block_panel` now returns the next free row so the two panels append
+  without overlap (its own output unchanged → byte-identical). `_cohort_to_deal_pricing_export`
+  threads `inputs.deal.expense_allowance` / `inputs.deal.experience_refund` onto the export,
+  so `polaris price --config --excel-out` renders the panel end-to-end. Suppressed when both
+  are `None` (the common path) → workbook byte-identical. 12 new tests (10 writer + 2 CLI
+  end-to-end). Golden byte-identical.
+- **Key decisions:**
+  - A **panel on the Assumptions sheet**, not a new sheet: the allowance/refund are deal
+    *terms*, kin to the metadata already there, and a whole sheet for a handful of scalars
+    is heavier than the content warrants. Follows the rated-block panel (ADR-068).
+  - `TYPE_CHECKING` import (like `YRTRateTable`): the writer never constructs or
+    `isinstance`-checks the models, so a type-only import keeps the module importable
+    without the `[tables]` extra and does not widen its runtime import graph.
+  - **This is the final slice of the B3 epic** — the allowance/refund terms are now
+    consistent across all four deal-pricing consumers (config, CLI, API, Excel).
+
+## Status: COMPLETE
+
+All slices DONE. Before closing, every surviving refinement was promoted to
+`PRODUCT_DIRECTION_2026-06-18.md` "Promoted Follow-ups":
+- Gross- vs ceded-basis loss ratio (Open Question #1) — already harvested (NICE-TO-HAVE).
+- Dedicated `CashFlowResult` allowance line (Open Question #2) — already harvested (NICE-TO-HAVE).
+- Annual / per-period refund settlement timing — already harvested (Slice 3a, NICE-TO-HAVE).
+- Experience-refund deficit carryforward — already harvested (Slice 3a, NICE-TO-HAVE).
+- `use_policy_cession` block-aware allowance duration mapping — already harvested (IMPORTANT).
+- Echo applied terms on the deal-pricing responses — already harvested (Slice 3b-2b-1, NICE-TO-HAVE).
+- **Dashboard input surface + `DealConfig.to_dict()` parity for the terms** — harvested THIS
+  slice (ADR-124 Out of scope, NICE-TO-HAVE) — the one deal-pricing consumer the epic did not cover.
 
 ## Context for Next Session
 

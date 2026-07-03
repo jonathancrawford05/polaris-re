@@ -7971,3 +7971,71 @@ dashboard input + `DealConfig.to_dict()` parity surface (still deferred until a 
 surface consumes the terms); the `use_policy_cession` block-aware duration-mapping follow-up
 (ADR-122 Out of scope, already harvested as IMPORTANT). No response-schema field is added —
 the terms are inputs that move the existing priced numbers, not new outputs.
+
+## ADR-124: Surface expense-allowance / experience-refund terms on the deal-pricing Excel export (Tier-B B3 / Expense-allowance epic, Slice 3b-2b-2)
+
+**Date:** 2026-07-03
+**Status:** Accepted
+
+**Context.** ADR-122 (Slice 3b-2a) surfaced `expense_allowance` / `experience_refund` on
+the CLI config / pipeline deal path and ADR-123 (Slice 3b-2b-1) on the four REST API request
+models, but the deal-pricing **Excel** committee workbook — the packet a reviewer circulates
+when pricing a deal — still rendered neither term. A deal priced with a 55%/12% sliding-scale
+allowance and a 50%-above-retention refund produced a workbook whose Assumptions sheet named
+the reserve basis, mortality, and rated-block composition but was silent on the two treaty
+terms that moved the priced numbers (premise reproduced: `grep` of `utils/excel_output.py`
+for `expense_allowance` / `experience_refund` returned nothing; no panel, no sheet). This is
+the final slice of the B3 epic — with it, the allowance/refund terms are consistent across
+all four deal-pricing consumers (config, CLI, API, Excel).
+
+**Decision.**
+
+- *Two optional fields on `DealPricingExport`* — `expense_allowance: ExpenseAllowance | None`
+  and `experience_refund: ExperienceRefund | None`, both default `None`. Imported under
+  `TYPE_CHECKING` (mirroring the existing `YRTRateTable` annotation in the same module): the
+  writer only reads attributes off the models, never constructs or `isinstance`-checks them,
+  so a type-only import keeps `utils/excel_output.py` importable without the `[tables]` extra
+  and avoids widening the module's runtime import graph. Default `None` for both → every
+  workbook priced without these terms is byte-identical.
+
+- *A "Treaty Terms" panel appended to the Assumptions sheet* (not a new sheet). This follows
+  the rated-block-panel precedent (ADR-068): the allowance/refund are deal *terms*, kin to the
+  metadata already on that sheet, and a standalone sheet for a handful of scalars would be
+  heavier than the content warrants. `_write_treaty_terms_panel` renders two independent
+  sub-sections — either may appear without the other:
+  - **Expense Allowance** — first-year %, renewal %, months/year, plus (when a sliding scale
+    is configured) one `≤ loss ratio {threshold}` → allowance-% row per band, mirroring
+    `reinsurance/expense_allowance.py`.
+  - **Experience Refund** — refund %, retention ($), reinsurer margin %, interest rate,
+    mirroring `reinsurance/experience_refund.py`.
+  The panel is suppressed entirely when both fields are `None`. To append cleanly after the
+  optional rated-block panel, `_write_rated_block_panel` now returns the next free row and
+  `_write_assumptions_sheet` threads it into the treaty-terms panel's `start_row` (the
+  rated-block output itself is unchanged — same cells, same values — so all-standard
+  workbooks stay byte-identical).
+
+- *CLI threads the deal's own terms.* `_cohort_to_deal_pricing_export` passes
+  `inputs.deal.expense_allowance` / `inputs.deal.experience_refund` (the `DealConfig` fields
+  ADR-122 added) onto the export, so `polaris price --config <cfg> --excel-out` renders the
+  panel end-to-end. `None` on the deal (the common path) → no panel.
+
+**Verification.** `tests/test_utils/test_excel_output.py::TestTreatyTermsPanel` (10 tests):
+panel absent by default (Assumptions sheet has no "Treaty Terms" label → byte-identical);
+allowance first-year/renewal rows carry the supplied rates; sliding-scale bands render one
+row per band with the band rate in column B; no sliding-scale rows when the scale is flat;
+refund rows carry refund %, retention, margin, interest; allowance-only omits the refund
+section and vice-versa; both sections present and ordered (allowance before refund); the
+panel coexists with the rated-block panel without clobbering its metrics; no extra sheet is
+added. `tests/test_cli_config_expense_allowance.py::TestExcelTreatyTermsPanel` (2 tests):
+`polaris price --config --excel-out` renders the panel when the config carries the terms and
+omits it when it does not. `polaris price` on the golden block is byte-identical (Total PV
+Profits Reinsurer $45,386, Cedant $3,513,563; before/after JSON `diff` empty). Full fast
+suite + qa suite green.
+
+**Out of scope.** The dashboard input surface + `DealConfig.to_dict()` parity (still deferred
+until a dashboard surface actually consumes the terms — the `yrt_rate_table_*` omission
+precedent); per-period / annual refund settlement timing and deficit carryforward (already
+in the NICE-TO-HAVE queue from Slice 3a); the `use_policy_cession` block-aware allowance
+duration-mapping follow-up (ADR-122 Out of scope, already harvested as IMPORTANT). No
+`CashFlowResult` or response-schema field is added — the terms are pricing inputs surfaced
+for the reviewer, not new computed outputs.

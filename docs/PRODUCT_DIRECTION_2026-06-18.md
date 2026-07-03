@@ -1015,6 +1015,21 @@ Items harvested from completed/in-flight work by the daily-dev routine
   note on the IMPORTANT item, not separate work. *Source: ADR-123 (2nd-order — follow-up
   of the use_policy_cession follow-up; scope note only, NICE-TO-HAVE per the polish cap).*
 
+- **NICE-TO-HAVE — Surface the `expense_allowance` / `experience_refund` terms on the
+  Streamlit dashboard + `DealConfig.to_dict()`.** The Expense-allowance epic (B3) surfaced
+  both terms across the config, CLI, REST API, and deal-pricing Excel export (Slices 3b-2a
+  through 3b-2b-2, ADR-122 → ADR-124), completing the epic — but the **dashboard** has no
+  input for either term, and `DealConfig.to_dict()` deliberately omits both (the
+  `yrt_rate_table_*` / reserve-basis dashboard-parity omission precedent), so a dashboard
+  round-trip silently drops them. Adding a dashboard input surface (allowance FY/renewal % +
+  optional sliding-scale bands; refund %, retention, margin, interest) and the matching
+  `to_dict()` round-trip would give the dashboard parity with the CLI/API/Excel surfaces.
+  Deferred until a dashboard surface actually consumes the terms; pure parity polish for the
+  dashboard, not first-deal correctness → NICE-TO-HAVE. *Source: ADR-124 Out of scope +
+  DEV_SESSION_LOG_2026-07-03_expense_allowance_slice3b2b2 (1st-order — follow-up of the
+  originally-planned B3 allowance-surfacing feature, the one deal-pricing consumer the epic
+  did not cover).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log
