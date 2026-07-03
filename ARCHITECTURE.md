@@ -154,9 +154,16 @@ a projection-wide selector — `core/reserve_basis.py::ReserveBasis` (a `StrEnum
 CRVM and VM-20 are implemented for `TermLife` and `WholeLife` (ADR-087–092).
 Each product declares the bases it supports; selecting an **unsupported** basis
 raises `PolarisComputationError` rather than silently falling back, so a run can
-never report a reserve on a basis the engine did not actually compute. A separate
-statutory valuation table (e.g. 2001 CSO) for *exact* cedant CRVM reproduction is
-a tracked follow-up — today CRVM/VM-20 value on the projection mortality table.
+never report a reserve on a basis the engine did not actually compute. For *exact*
+cedant CRVM reproduction, `AssumptionSet.valuation_mortality` supplies a distinct
+**prescribed statutory valuation table** (e.g. 2001 CSO) that CRVM and the VM-20
+NPR floor value on — static (no improvement scale), substandard rating applied,
+valued to the valuation table's own omega for WL (ADR-125). Default `None` keeps
+statutory bases on the projection mortality table; `NET_PREMIUM` and the VM-20
+deterministic reserve (anticipated experience by definition) always use the
+projection assumptions. Library-level today; the config/CLI/API surfacing and
+GAAP (FAS 60) are the remaining slices of the Reserve-Basis Exactness epic
+(`docs/PLAN_reserve_basis_exactness.md`).
 
 ### Product-Specific Projection Details
 

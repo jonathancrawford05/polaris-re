@@ -94,11 +94,6 @@ class TermLife(BaseProduct):
         multiplier_vec = self.inforce.mortality_multiplier_vec  # (N,)
         flat_extra_monthly_vec = self.inforce.flat_extra_vec / 12000.0  # (N,) monthly
 
-        # Build unique (sex, smoker) combos for mortality lookup
-        sex_list = [p.sex for p in self.inforce.policies]
-        smoker_list = [p.smoker_status for p in self.inforce.policies]
-        unique_combos = set(zip(sex_list, smoker_list, strict=True))
-
         # Pre-compute improvement if available
         improvement = getattr(self.assumptions, "improvement", None)
         valuation_year = self.config.valuation_date.year
@@ -119,24 +114,9 @@ class TermLife(BaseProduct):
             # Active mask: policy still in term
             active = month < remaining_months  # (N,)
 
-            # Mortality: iterate over (sex, smoker) combos
-            q_monthly_col = np.zeros(n, dtype=np.float64)
-            for sex, smoker in unique_combos:
-                mask = np.array(
-                    [
-                        (s == sex and sm == smoker)
-                        for s, sm in zip(sex_list, smoker_list, strict=True)
-                    ],
-                    dtype=bool,
-                )
-                if not np.any(mask):
-                    continue
-                q_monthly_col[mask] = self.assumptions.mortality.get_qx_vector(
-                    current_ages[mask],
-                    sex,
-                    smoker,
-                    current_durations[mask],
-                )
+            q_monthly_col = self._lookup_qx_column(
+                self.assumptions.mortality, current_ages, current_durations
+            )
 
             # Apply mortality improvement if configured
             if improvement is not None:
@@ -198,10 +178,61 @@ class TermLife(BaseProduct):
         v_monthly = (1.0 + i_val) ** (-1.0 / 12.0)  # monthly discount factor
 
         if basis is ReserveBasis.CRVM:
-            return self._compute_reserves_crvm(q, v_monthly)
+            return self._compute_reserves_crvm(self._valuation_q(q), v_monthly)
         if basis is ReserveBasis.VM20:
             return self._compute_reserves_vm20(q, w, v_monthly)
         return self._compute_reserves_net_premium(q, v_monthly)
+
+    def _valuation_q(self, q_projection: np.ndarray) -> np.ndarray:
+        """
+        Mortality array the statutory bases (CRVM / VM-20 NPR) value on, (N, T).
+
+        When ``assumptions.valuation_mortality`` is unset this is the projection
+        q unchanged (the engine's historical behaviour, byte-identical). When a
+        prescribed statutory table is set, the statutory q is rebuilt from it
+        (ADR-125) — see :meth:`_build_statutory_valuation_q`.
+        """
+        if self.assumptions.valuation_mortality is None:
+            return q_projection
+        return self._build_statutory_valuation_q()
+
+    def _build_statutory_valuation_q(self) -> np.ndarray:
+        """
+        Monthly statutory valuation mortality q, shape (N, T).
+
+        Shares the per-(sex, smoker) masked lookup with
+        :meth:`_build_rate_arrays` (via ``BaseProduct._lookup_qx_column``) and
+        mirrors its duration seasoning, per-policy substandard rating, and
+        post-expiry zeroing, with two prescribed-table differences (ADR-125):
+        rates come from ``assumptions.valuation_mortality`` (ages capped at
+        *its* max age), and **no mortality improvement** is applied —
+        statutory tables (e.g. 2001 CSO) are published static, without a
+        projection improvement scale.
+        """
+        table = self.assumptions.valuation_mortality
+        assert table is not None  # guarded by _valuation_q
+        n = self.inforce.n_policies
+        t = self.config.projection_months
+        q = np.zeros((n, t), dtype=np.float64)
+
+        duration_inforce = self.inforce.duration_inforce_vec_at(self.config.valuation_date)
+        attained_ages = self.inforce.attained_age_vec_at(self.config.valuation_date)
+        remaining_months = self.inforce.remaining_term_months_vec
+
+        multiplier_vec = self.inforce.mortality_multiplier_vec  # (N,)
+        flat_extra_monthly_vec = self.inforce.flat_extra_vec / 12000.0  # (N,) monthly
+
+        for month in range(t):
+            current_durations = duration_inforce + month
+            age_increment = (current_durations // 12) - (duration_inforce // 12)
+            current_ages = np.minimum(attained_ages + age_increment, table.max_age)
+            active = month < remaining_months
+
+            q_monthly_col = self._lookup_qx_column(table, current_ages, current_durations)
+            q_monthly_col = np.minimum(q_monthly_col * multiplier_vec + flat_extra_monthly_vec, 1.0)
+            q[:, month] = q_monthly_col * active
+
+        return q
 
     def _compute_reserves_net_premium(self, q: np.ndarray, v_monthly: float) -> np.ndarray:
         """
@@ -340,7 +371,10 @@ class TermLife(BaseProduct):
 
         * **NPR** is mapped to the CRVM reserve (:meth:`_compute_reserves_crvm`):
           a net-premium reserve with the first-year expense allowance graded in,
-          which is the formulaic floor VM-20 prescribes for the NPR. The exact
+          which is the formulaic floor VM-20 prescribes for the NPR. It values
+          on ``assumptions.valuation_mortality`` when a prescribed statutory
+          table is set (ADR-125); the DR below is anticipated-experience by
+          definition and always stays on the projection assumptions. The exact
           VM-20 NPR refinements (the term-specific mortality ``X`` factors, the
           2017 CSO valuation table, deficiency where gross < net) are a
           documented simplification — see ADR-090 "Out of scope".
@@ -356,7 +390,7 @@ class TermLife(BaseProduct):
         realistic DR can exceed the NPR floor and then drives the reserve — the
         deficiency signal a reinsurer relies on.
         """
-        npr = self._compute_reserves_crvm(q, v_monthly)
+        npr = self._compute_reserves_crvm(self._valuation_q(q), v_monthly)
         dr = self._compute_deterministic_reserve(q, w, v_monthly)
         return np.maximum(np.maximum(npr, dr), 0.0)
 
