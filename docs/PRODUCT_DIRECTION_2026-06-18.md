@@ -243,7 +243,9 @@ queue covers:
 - **Capital-weighted concentration basis on `PortfolioResultWithCapital`** —
   ~1-2 dev-days; PR #56 merged so dependency is clear.
 - **Annuity-product LICAT factor** — depends on Phase 5.4 asset/ALM engine.
-- **Sliding-scale expense allowances / experience refunds** — ~3 dev-days.
+- ~~**Sliding-scale expense allowances / experience refunds** — ~3 dev-days.~~
+  — **SHIPPED** (PRs #117–#123, Tier-B B3 epic, ADR-118–124; ledger-healed
+  2026-07-03; see `CONTINUATION_expense_allowance.md`, COMPLETE).
 - **Funds-withheld coinsurance variant** — ~2 dev-days.
 - **Duration-specific select-period customisation** — ~2 dev-days.
 - **Experience monitoring automation loop** (Phase 6.1) — ~6 dev-days.
@@ -1029,6 +1031,28 @@ Items harvested from completed/in-flight work by the daily-dev routine
   DEV_SESSION_LOG_2026-07-03_expense_allowance_slice3b2b2 (1st-order — follow-up of the
   originally-planned B3 allowance-surfacing feature, the one deal-pricing consumer the epic
   did not cover).*
+
+- **NICE-TO-HAVE — Sex/smoker-distinct statutory valuation table composition
+  helper.** The new `AssumptionSet.valuation_mortality` slot (Reserve-Basis
+  Exactness epic, Slice 1, ADR-125) takes a single composed `MortalityTable`.
+  The 2001 CSO conversion produces per-sex CSVs (and cedant filings may
+  prescribe smoker-distinct variants); composing them into the multi-key
+  `MortalityTable` the slot expects is manual today. A composition helper
+  (load per-sex/smoker CSVs → one valuation `MortalityTable`) would make the
+  Slice-2 config surface ergonomic for real filings. Affects convenience of
+  the prescribed-table path, not correctness → NICE-TO-HAVE.
+  *Source: ADR-125 Out of scope + CONTINUATION_reserve_basis_exactness
+  Refinement Backlog (1st-order).*
+
+- **NICE-TO-HAVE — Prescribed statutory valuation-interest helper.** Statutory
+  CRVM prescribes the maximum valuation interest rate by issue year / product;
+  the engine takes a single manual `valuation_interest_rate` on
+  `ProjectionConfig`. An issue-year → prescribed-rate lookup helper would
+  complete "reproduce the cedant's basis" on the interest side the way
+  ADR-125 does on the mortality side. Affects exactness convenience, not the
+  common path → NICE-TO-HAVE.
+  *Source: ADR-125 Out of scope + CONTINUATION_reserve_basis_exactness
+  Refinement Backlog (1st-order).*
 
 ## Carried Forward
 

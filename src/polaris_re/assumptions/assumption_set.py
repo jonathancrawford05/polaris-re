@@ -35,6 +35,17 @@ class AssumptionSet(PolarisBaseModel):
         default=None,
         description="Mortality improvement projection (Scale AA, MP-2020, CPM-B, or None).",
     )
+    valuation_mortality: MortalityTable | None = Field(
+        default=None,
+        description=(
+            "Prescribed statutory valuation mortality table (e.g. 2001 CSO) for the "
+            "statutory reserve bases (CRVM, and the NPR floor inside VM-20). When None "
+            "(default), statutory bases value on the projection mortality table. The "
+            "valuation table is static — the improvement scale is never applied to it "
+            "(ADR-125). NET_PREMIUM and the VM-20 deterministic reserve always use the "
+            "projection (best-estimate) assumptions."
+        ),
+    )
     # expense: ExpenseAssumption | None = None  # Phase 2+
 
     # --- Audit metadata ---

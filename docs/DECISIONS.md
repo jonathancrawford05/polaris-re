@@ -8039,3 +8039,68 @@ in the NICE-TO-HAVE queue from Slice 3a); the `use_policy_cession` block-aware a
 duration-mapping follow-up (ADR-122 Out of scope, already harvested as IMPORTANT). No
 `CashFlowResult` or response-schema field is added — the terms are pricing inputs surfaced
 for the reviewer, not new computed outputs.
+
+## ADR-125: Statutory valuation mortality table for CRVM / VM-20 NPR (`AssumptionSet.valuation_mortality`) — Reserve-Basis Exactness epic, Slice 1
+
+**Date:** 2026-07-03
+**Status:** Accepted
+
+**Context.** The reserve-basis epic (ADR-087–092) shipped CRVM and VM-20 for Term and Whole
+Life, but both value on the **projection best-estimate mortality** — TermLife's CRVM receives
+the projection `q` (improvement scale and all) and WholeLife's `_build_valuation_mortality`
+hardcodes `self.assumptions.mortality` (premise reproduced by code inspection: `AssumptionSet`
+had no valuation-table slot at all). Exact reproduction of a cedant's US statutory CRVM
+reserve — the point of the epic — requires valuing on the **prescribed** statutory table
+(2001 CSO), which is a different table from the pricing basis. This was harvested as
+IMPORTANT in PRODUCT_DIRECTION_2026-06-18 (ADR-089 Out of scope) and is Slice 1 of the
+Reserve-Basis Exactness epic (`docs/PLAN_reserve_basis_exactness.md`), started per the
+active-epic rule with the Tier-A ladder exhausted.
+
+**Decision.**
+
+- *One new optional contract slot* — `AssumptionSet.valuation_mortality: MortalityTable |
+  None = None`. `AssumptionSet` (not `ProjectionConfig`) is the home because the slot is a
+  table-valued actuarial assumption and `AssumptionSet` is the versioned audit carrier.
+  Default `None` → every statutory basis values on the projection table exactly as before
+  (byte-identical; TermLife passes the projection `q` object through unchanged, WholeLife
+  falls back inside `_build_valuation_mortality`).
+
+- *The statutory valuation q is static.* The mortality-improvement scale is **never** applied
+  to the valuation table — prescribed statutory tables (2001 CSO) are published without a
+  projection improvement scale. Per-policy substandard rating (multiplier + flat extra) **is**
+  applied, mirroring rated statutory valuation practice and the engine's existing rated
+  valuation behaviour (ADR-042).
+
+- *Scope of the slot: CRVM and the VM-20 NPR floor only.* `NET_PREMIUM` (the engine's
+  historical pricing-basis reserve) ignores it, and the VM-20 **deterministic reserve** is
+  anticipated-experience by definition, so it always stays on the projection (best-estimate)
+  assumptions: `VM20 = max(NPR_statutory, DR_best_estimate)`.
+
+- *TermLife* gains `_valuation_q()` (projection `q` when the slot is unset, else
+  `_build_statutory_valuation_q()` — a mirror of `_build_rate_arrays`'s mortality half with
+  the valuation-table lookup, no improvement, rating applied, rates zeroed post-expiry, ages
+  capped at the valuation table's max age). *WholeLife*'s `_build_valuation_mortality` and
+  `_valuation_months_to_omega` take an optional table/max-age, so the CRVM valuation runs to
+  the **valuation table's omega** (certain-death forcing at its max age) while the VM-20 DR
+  keeps the projection table's omega.
+
+**Verification.** `tests/test_products/test_statutory_valuation_table.py` (15 tests): default
+`None` and same-table consistency (slot = projection table reproduces baseline CRVM exactly
+when no improvement is configured — Term and WL); improvement isolation (a configured Scale AA
+moves the projection-q CRVM but never the valuation-table CRVM); NET_PREMIUM ignores the slot
+(Term and WL); VM-20 composition `max(NPR_stat, DR_best_estimate)` pinned on both products;
+a 1.5×-scaled conservative table raises the mid-duration Term CRVM reserve and the
+early-duration WL CRVM reserve (late-duration WL dominance deliberately not asserted — both
+bases grade to face at omega and the higher-q basis carries a higher renewal valuation
+premium, so the curves cross, empirically around month 147); an independent numpy FPT
+recomputation fed an independently built statutory q (rated block) reproduces the engine
+reserve to 1e-10; projection cash flows (claims/premiums) unchanged — only reserves move.
+Full fast suite 1940 passed; QA suite 76 passed; golden `flat` config byte-identical (Total
+PV Profits Reinsurer $45,386, Cedant $3,513,563).
+
+**Out of scope.** Surfacing the slot on config/CLI/API and the 2001 CSO integration test
+(Slice 2); GAAP FAS 60 (Slices 3–4); a CSV-path escape hatch for arbitrary cedant valuation
+tables (Slice-2 open question, `yrt_rate_table_path` precedent); sex/smoker-distinct
+statutory table composition helper and a prescribed valuation-interest helper (epic
+refinement backlog); the 20-pay expense-allowance cap and exact VM-20 NPR X-factors
+(already-tracked NICE-TO-HAVEs).

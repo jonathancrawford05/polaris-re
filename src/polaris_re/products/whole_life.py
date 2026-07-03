@@ -24,6 +24,7 @@ from enum import StrEnum
 import numpy as np
 
 from polaris_re.assumptions.assumption_set import AssumptionSet
+from polaris_re.assumptions.mortality import MortalityTable
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
@@ -332,7 +333,7 @@ class WholeLife(BaseProduct):
 
     # --- CRVM (Full Preliminary Term, prospective to omega) -----------
 
-    def _valuation_months_to_omega(self) -> int:
+    def _valuation_months_to_omega(self, max_age: int | None = None) -> int:
         """
         Number of monthly valuation steps needed to value every policy to omega.
 
@@ -340,17 +341,23 @@ class WholeLife(BaseProduct):
         (max age). The CRVM valuation grid must therefore run to omega for the
         *youngest* in-force policy, independent of the projection horizon. The
         result is floored at the projection horizon so the (N, T) reserve slice
-        is always available.
+        is always available. ``max_age`` selects the omega of the table being
+        valued on (the prescribed statutory table for CRVM when
+        ``assumptions.valuation_mortality`` is set, ADR-125); it defaults to
+        the projection table's omega.
         """
         attained_ages = self.inforce.attained_age_vec_at(self.config.valuation_date)  # (N,)
-        max_age = self.assumptions.mortality.max_age
+        if max_age is None:
+            max_age = self.assumptions.mortality.max_age
         youngest = int(attained_ages.min())
         # +1 year of margin so q is forced to 1.0 (certain death) and tpx -> 0
         # strictly inside the grid for every policy.
         months_to_omega = (max_age - youngest + 2) * 12
         return max(months_to_omega, self.config.projection_months)
 
-    def _build_valuation_mortality(self, t_val: int) -> np.ndarray:
+    def _build_valuation_mortality(
+        self, t_val: int, table: MortalityTable | None = None
+    ) -> np.ndarray:
         """
         Monthly mortality-only rate array q for valuation, shape (N, t_val).
 
@@ -361,7 +368,15 @@ class WholeLife(BaseProduct):
         per-survivor valuation reserve is mortality-only. Over the first
         ``projection_months`` columns it returns exactly the same q values as
         :meth:`_build_rate_arrays` (verified by a regression test).
+
+        ``table`` selects the mortality table valued on — the prescribed
+        statutory table for CRVM / the VM-20 NPR when
+        ``assumptions.valuation_mortality`` is set (ADR-125). It defaults to
+        the projection table (the historical behaviour, and always the choice
+        for the VM-20 deterministic reserve, which is anticipated-experience).
         """
+        if table is None:
+            table = self.assumptions.mortality
         n = self.inforce.n_policies
         q = np.zeros((n, t_val), dtype=np.float64)
 
@@ -374,7 +389,7 @@ class WholeLife(BaseProduct):
         sex_list = [p.sex for p in self.inforce.policies]
         smoker_list = [p.smoker_status for p in self.inforce.policies]
         unique_combos = set(zip(sex_list, smoker_list, strict=True))
-        max_age = self.assumptions.mortality.max_age
+        max_age = table.max_age
 
         for month in range(t_val):
             current_durations = duration_inforce + month
@@ -393,7 +408,7 @@ class WholeLife(BaseProduct):
                 )
                 if not np.any(mask):
                     continue
-                q_monthly_col[mask] = self.assumptions.mortality.get_qx_vector(
+                q_monthly_col[mask] = table.get_qx_vector(
                     current_ages_capped[mask],
                     sex,
                     smoker,
@@ -499,12 +514,15 @@ class WholeLife(BaseProduct):
 
         n = self.inforce.n_policies
         t_proj = self.config.projection_months
-        t_val = self._valuation_months_to_omega()
+        # CRVM values on the prescribed statutory table when one is set
+        # (ADR-125), including its omega; default is the projection table.
+        stat_table = self.assumptions.valuation_mortality
+        t_val = self._valuation_months_to_omega(None if stat_table is None else stat_table.max_age)
 
         i_val = self.config.effective_valuation_rate
         v_monthly = (1.0 + i_val) ** (-1.0 / 12.0)
 
-        q_val = self._build_valuation_mortality(t_val)  # (N, t_val)
+        q_val = self._build_valuation_mortality(t_val, stat_table)  # (N, t_val)
         face_vec = self.inforce.face_amount_vec  # (N,)
 
         # Premium-paying months per policy (whole-life pay runs to omega).
@@ -663,9 +681,13 @@ class WholeLife(BaseProduct):
         * **NPR** is the to-omega CRVM reserve (:meth:`_compute_reserves_crvm`):
           a net-premium reserve with the first-year expense allowance graded in.
           It raises for short limited-pay (< 20 years) via the CRVM guard, so
-          VM-20 inherits that limitation.
+          VM-20 inherits that limitation. It values on
+          ``assumptions.valuation_mortality`` when a prescribed statutory table
+          is set (ADR-125).
         * **DR** is the to-omega deterministic gross-premium reserve
-          (:meth:`_compute_deterministic_reserve`).
+          (:meth:`_compute_deterministic_reserve`). It is
+          anticipated-experience by definition, so it always values on the
+          projection (best-estimate) table, never the prescribed one.
 
         The NPR grades monotonically toward face (ADR-089), so VM-20 — being at
         least the NPR — does **not** collapse at the projection horizon. For a

@@ -79,10 +79,13 @@ queue.
   ratio + discounting + reserve-exclusion tests; no golden moved (suite pins
   only `price`, byte-identical).
 
-- **Sliding-scale expense allowances / experience refunds.** Common in
+- ~~**Sliding-scale expense allowances / experience refunds.** Common in
   large YRT deals; currently not modelled. **Scope:** ~3 dev-days in
   new `reinsurance/expense_allowance.py`.
-  *Source: PRODUCT_DIRECTION_2026-04-19.*
+  *Source: PRODUCT_DIRECTION_2026-04-19.*~~ — **SHIPPED** (PRs #117–#123,
+  Tier-B B3 epic, ADR-118–124): `ExpenseAllowance` (sliding scale) +
+  `ExperienceRefund` models, wired into YRT/Coinsurance and surfaced on
+  config/CLI/API/Excel. See `CONTINUATION_expense_allowance.md` (COMPLETE).
 
 - **Funds-withheld coinsurance variant.** Extension of Modco where the
   cedant withholds only part of the ceded reserve. Add an
