@@ -30,7 +30,7 @@ ACTIVE EPIC track requires.
 | 3a | `ExperienceRefund` model + primitive | ✅ Done | #119 |
 | 3b-1 | Wire refund into Coinsurance + YRT | ✅ Done | #120 |
 | 3b-2a | Surface on CLI config / pipeline | ✅ Done | #121 |
-| 3b-2b-1 | Surface on REST API request models | ✅ Done | (this draft) |
+| 3b-2b-1 | Surface on REST API request models | ✅ Done | #122 |
 | 3b-2b-2 | Surface on deal-pricing Excel export | ⏳ Next | — |
 
 ## VERIFY PREMISE

@@ -28,7 +28,7 @@ cannot reproduce any real large YRT/coinsurance treaty's cash flows.
 ### Slice 1: `ExpenseAllowance` model + computation primitive
 - **Status:** DONE
 - **Branch:** claude/awesome-bardeen-ckdfj4
-- **PR:** (this draft)
+- **PR:** #117 (merged)
 - **ADR:** ADR-118
 - **What was done:** Added `reinsurance/expense_allowance.py` with the
   `ExpenseAllowance` / `ExpenseAllowanceBand` Pydantic models and the pure
@@ -50,7 +50,7 @@ cannot reproduce any real large YRT/coinsurance treaty's cash flows.
 ### Slice 2: Wire into `CoinsuranceTreaty` + `YRTTreaty`
 - **Status:** DONE
 - **Branch:** claude/awesome-bardeen-0elamx
-- **PR:** (this draft)
+- **PR:** #118 (merged)
 - **ADR:** ADR-119
 - **What was done:** Added `expense_allowance: ExpenseAllowance | None = None` to
   both `CoinsuranceTreaty` and `YRTTreaty` (default None → goldens byte-identical).
@@ -113,7 +113,7 @@ consumers (`DealConfig` / CLI / API / Excel) is a session of its own:
 #### Slice 3a: `ExperienceRefund` model + computation primitive
 - **Status:** DONE
 - **Branch:** claude/awesome-bardeen-tb1bch
-- **PR:** (this draft)
+- **PR:** #119 (merged)
 - **ADR:** ADR-120
 - **What was done:** Added `reinsurance/experience_refund.py` with the
   `ExperienceRefund` Pydantic model and the pure `experience_balance()` /
@@ -146,7 +146,7 @@ is split into 3b-1 (treaty wiring) and 3b-2 (surfacing).
 #### Slice 3b-1: Wire refund into `CoinsuranceTreaty` + `YRTTreaty`
 - **Status:** DONE
 - **Branch:** claude/awesome-bardeen-yvdvdl
-- **PR:** (this draft)
+- **PR:** #120 (merged)
 - **ADR:** ADR-121
 - **What was done:** Added `experience_refund: ExperienceRefund | None = None` to both
   treaties (default None → goldens byte-identical). When set, the refund is a single
@@ -174,7 +174,7 @@ split — the epic's established decompose-don't-defer pattern:
 #### Slice 3b-2a: Surface allowance/refund on the CLI config / pipeline deal path
 - **Status:** DONE
 - **Branch:** claude/awesome-bardeen-lb2g3i
-- **PR:** (this draft)
+- **PR:** #121 (merged)
 - **ADR:** ADR-122
 - **What was done:** Added `expense_allowance: ExpenseAllowance | None = None` and
   `experience_refund: ExperienceRefund | None = None` to `DealConfig` (typed under
@@ -203,7 +203,7 @@ Excel writer) once surveyed — the epic's established surface-by-surface split 
 #### Slice 3b-2b-1: Surface allowance/refund on the REST API request models
 - **Status:** DONE
 - **Branch:** claude/awesome-bardeen-mfjksj
-- **PR:** (this draft)
+- **PR:** #122
 - **ADR:** ADR-123
 - **What was done:** Added `expense_allowance: ExpenseAllowance | None = None` and
   `experience_refund: ExperienceRefund | None = None` to the four deal-pricing request
