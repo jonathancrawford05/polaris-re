@@ -63,7 +63,7 @@ premise holds.
 ## Decomposition Plan
 | Slice | Scope | Status | PR |
 |-------|-------|--------|----|
-| 1 | `valuation_mortality` slot + CRVM/VM-20-NPR wiring (Term + WL) | ✅ Done | (this draft) |
+| 1 | `valuation_mortality` slot + CRVM/VM-20-NPR wiring (Term + WL) | ✅ Done | #124 |
 | 2 | Surface end-to-end: config / CLI / API + 2001 CSO integration + notebook | ⏳ Next | — |
 | 3 | GAAP (FAS 60) basis for TermLife (design ADR + closed-form test) | 🔲 Planned | — |
 | 4 | GAAP (FAS 60) for WholeLife + epic close | 🔲 Planned | — |
