@@ -601,13 +601,15 @@ Items harvested from completed/in-flight work by the daily-dev routine
   NICE-TO-HAVE.
   *Source: ADR-090 Out of scope (1st-order).*
 
-- **IMPORTANT — GAAP (FAS 60) concrete reserve basis.** The reserve-basis epic
-  shipped NET_PREMIUM / CRVM / VM-20 for Term and Whole Life and surfaced the
-  selector (Slice 4), but **GAAP** has only the `ReserveBasis.GAAP` enum value
-  and the dispatch guard — selecting it raises `PolarisComputationError`. US
-  GAAP (net-premium benefit reserve with locked-in best-estimate assumptions +
-  PAD) is a basis a US cedant commonly reports on, so reproducing it is part of
-  "match the cedant's basis," not polish → IMPORTANT.
+- **IMPORTANT — GAAP (FAS 60) concrete reserve basis.** *(IN PROGRESS via the
+  Reserve-Basis Exactness epic — TermLife GAAP shipped 2026-07-04, ADR-127,
+  Slice 3; WholeLife GAAP is Slice 4 / NEXT. Do not treat as unstarted.)* The
+  reserve-basis epic shipped NET_PREMIUM / CRVM / VM-20 for Term and Whole Life
+  and surfaced the selector (Slice 4), and GAAP now computes for **TermLife**
+  (net-premium benefit reserve on locked-in best-estimate + PADs); **WholeLife**
+  GAAP still raises `PolarisComputationError` until Slice 4. US GAAP is a basis a
+  US cedant commonly reports on, so reproducing it is part of "match the cedant's
+  basis," not polish → IMPORTANT.
   *Source: ADR-092 Out of scope + PLAN_reserve_basis §1 (1st-order).*
 
 - **NICE-TO-HAVE — Reserve-basis selector on `scenario` / `uq` surfaces.**
@@ -1092,6 +1094,34 @@ Items harvested from completed/in-flight work by the daily-dev routine
   an Assumptions-sheet / dashboard line) would give the same audit visibility
   the CLI has. Pure reporting polish, no priced-number change → NICE-TO-HAVE.
   *Source: ADR-126 Out of scope (1st-order).*
+
+- **IMPORTANT — Surface the GAAP (FAS 60) PADs on the deal path
+  (`DealConfig` / CLI / API).** Slice 3 (ADR-127) implemented GAAP for TermLife
+  and put the two provisions for adverse deviation on `ProjectionConfig`
+  (`gaap_mortality_pad`, `gaap_interest_margin`, both neutral-default). A
+  `ProjectionConfig` built directly (notebooks / analytics) can set them, but the
+  CLI config parser, `--gaap-*` flags, and the REST `PriceRequest` do not yet
+  expose them — so a CLI/API user gets GAAP only at neutral PADs (= locked-in
+  best-estimate NPR). FAS 60 PADs are company-specific and are exactly what
+  reproduces the cedant's GAAP benefit reserve, so this is part of "match the
+  cedant's basis," not polish. Mirror the dedicated surfacing slice
+  `valuation_mortality` got (ADR-125 engine → ADR-126 deal path) → IMPORTANT.
+  *Source: ADR-127 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — FAS 60 DAC amortisation + loss-recognition / premium-deficiency
+  test.** Slice 3 (ADR-127) models the GAAP **benefit reserve** only. A full FAS 60
+  GAAP picture also amortises deferred acquisition costs (DAC) against a premium /
+  gross-profit basis and runs a loss-recognition (premium-deficiency) test that can
+  write DAC down and establish an additional liability. These change the GAAP
+  earnings signature (not the benefit reserve) and are beyond the reserve-basis
+  epic's "reproduce the cedant's reserve" scope → NICE-TO-HAVE.
+  *Source: ADR-127 Out of scope (2nd-order — a follow-up of the GAAP follow-up).*
+
+- **NICE-TO-HAVE — Duration-varying / select-period GAAP PAD structures.** Slice 3
+  applies a single flat mortality multiplier and a flat interest haircut. A real
+  FAS 60 valuation may grade PADs by policy duration or use a select-period margin.
+  Design completeness for GAAP, not common-path correctness → NICE-TO-HAVE.
+  *Source: ADR-127 Out of scope (2nd-order — a follow-up of the GAAP follow-up).*
 
 ## Carried Forward
 

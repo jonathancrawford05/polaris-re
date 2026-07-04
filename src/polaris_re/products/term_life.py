@@ -42,10 +42,16 @@ class TermLife(BaseProduct):
     #: renewal valuation premiums stay well below the 20-pay expense-allowance
     #: cap, so the cap never binds (ADR-088). VM20 is the simplified VM-20
     #: reserve ``max(NPR, DR)`` with the CRVM reserve as the net-premium-reserve
-    #: floor and a deterministic gross-premium reserve (ADR-090). GAAP remains
-    #: unimplemented and raises via the guard.
+    #: floor and a deterministic gross-premium reserve (ADR-090). GAAP is the US
+    #: GAAP (FAS 60) net-premium benefit reserve on locked-in best-estimate
+    #: assumptions plus explicit PADs (ADR-127).
     _supported_reserve_bases = frozenset(
-        {ReserveBasis.NET_PREMIUM, ReserveBasis.CRVM, ReserveBasis.VM20}
+        {
+            ReserveBasis.NET_PREMIUM,
+            ReserveBasis.CRVM,
+            ReserveBasis.VM20,
+            ReserveBasis.GAAP,
+        }
     )
 
     def __init__(
@@ -169,6 +175,9 @@ class TermLife(BaseProduct):
           Full Preliminary Term (see :meth:`_compute_reserves_crvm`).
         * ``VM20`` — VM-20 simplified reserve ``max(NPR, DR)`` (see
           :meth:`_compute_reserves_vm20`).
+        * ``GAAP`` — US GAAP (FAS 60) net-premium benefit reserve on locked-in
+          best-estimate assumptions plus PADs (see
+          :meth:`_compute_reserves_gaap`).
 
         Unimplemented bases raise ``PolarisComputationError`` via the guard.
         """
@@ -181,6 +190,8 @@ class TermLife(BaseProduct):
             return self._compute_reserves_crvm(self._valuation_q(q), v_monthly)
         if basis is ReserveBasis.VM20:
             return self._compute_reserves_vm20(q, w, v_monthly)
+        if basis is ReserveBasis.GAAP:
+            return self._compute_reserves_gaap(q)
         return self._compute_reserves_net_premium(q, v_monthly)
 
     def _valuation_q(self, q_projection: np.ndarray) -> np.ndarray:
@@ -267,6 +278,42 @@ class TermLife(BaseProduct):
         reserves = np.maximum(reserves, 0.0)
 
         return reserves
+
+    def _compute_reserves_gaap(self, q_projection: np.ndarray) -> np.ndarray:
+        """
+        US GAAP (FAS 60) net-premium benefit reserve, shape (N, T).
+
+        FAS 60 (ASC 944) values a traditional (non-participating) life reserve
+        as a **net level premium reserve on locked-in best-estimate assumptions
+        plus explicit provisions for adverse deviation (PADs)**. Structurally it
+        is the net premium reserve of :meth:`_compute_reserves_net_premium` —
+        the same equivalence-principle net premium and backward recursion — but
+        valued on a *margined* basis:
+
+        * **Mortality** is the projection best-estimate ``q`` (``q_projection``
+          from :meth:`_build_rate_arrays`, which already carries the mortality
+          **improvement** scale and per-policy substandard rating) scaled by the
+          mortality PAD ``config.gaap_mortality_pad`` and capped at 1.0. Unlike
+          the statutory bases (CRVM / VM-20 NPR), GAAP does **not** read
+          ``assumptions.valuation_mortality`` and does **not** suppress
+          improvement — FAS 60 locks in the best-estimate (improvement included),
+          then adds margin (ADR-127; the guardrail in
+          ``docs/PLAN_reserve_basis_exactness.md`` Slice 3).
+        * **Interest** is the locked-in GAAP discount rate
+          ``config.gaap_valuation_rate`` (= ``effective_valuation_rate`` less the
+          interest PAD ``config.gaap_interest_margin``, floored at 0).
+
+        With both PADs neutral (``gaap_mortality_pad == 1.0`` and
+        ``gaap_interest_margin == 0.0``) this reduces **exactly** to the
+        locked-in best-estimate net premium reserve — the closed-form identity
+        pinned in the tests. A positive mortality PAD or interest margin raises
+        the reserve (more conservative), as adverse-deviation margins must.
+        """
+        pad = self.config.gaap_mortality_pad
+        q_gaap = np.minimum(q_projection * pad, 1.0)  # (N, T), zeros stay zero
+        i_gaap = self.config.gaap_valuation_rate
+        v_gaap = (1.0 + i_gaap) ** (-1.0 / 12.0)
+        return self._compute_reserves_net_premium(q_gaap, v_gaap)
 
     def _compute_reserves_crvm(self, q: np.ndarray, v_monthly: float) -> np.ndarray:
         """

@@ -63,6 +63,34 @@ class ProjectionConfig(PolarisBaseModel):
         ),
     )
 
+    # --- GAAP (FAS 60) provisions for adverse deviation ---
+    gaap_mortality_pad: float = Field(
+        default=1.0,
+        ge=1.0,
+        description=(
+            "GAAP (FAS 60) mortality provision for adverse deviation (PAD): a "
+            "multiplicative margin on the locked-in best-estimate mortality used "
+            "for the FAS 60 net-premium benefit reserve. 1.0 (default) = no "
+            "explicit margin (the reserve reduces to the locked-in best-estimate "
+            "net premium reserve). A real FAS 60 valuation sets it > 1.0 (e.g. "
+            "1.10). Ignored on every basis other than GAAP."
+        ),
+    )
+    gaap_interest_margin: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "GAAP (FAS 60) interest provision for adverse deviation (PAD): an "
+            "absolute reduction applied to the valuation interest rate when "
+            "discounting the FAS 60 net-premium benefit reserve, capturing "
+            "adverse deviation in future investment yield. 0.0 (default) = no "
+            "margin. The GAAP discount rate is "
+            "max(effective_valuation_rate - gaap_interest_margin, 0.0). Ignored "
+            "on every basis other than GAAP."
+        ),
+    )
+
     # --- Expense loading ---
     acquisition_cost_per_policy: float = Field(
         default=0.0,
@@ -111,3 +139,13 @@ class ProjectionConfig(PolarisBaseModel):
             if self.valuation_interest_rate is not None
             else self.discount_rate
         )
+
+    @property
+    def gaap_valuation_rate(self) -> float:
+        """
+        Locked-in GAAP (FAS 60) discount rate: the valuation rate less the
+        interest PAD, floored at 0. With a zero interest margin this equals
+        :attr:`effective_valuation_rate`, so a PAD-free GAAP reserve coincides
+        with the locked-in best-estimate net premium reserve.
+        """
+        return max(self.effective_valuation_rate - self.gaap_interest_margin, 0.0)

@@ -8219,3 +8219,75 @@ table, not its pricing best-estimate table — that is why CRVM / the VM-20 NPR 
   gating item for penny-exact reproduction and should be sequenced before "exact CRVM
   reproduction" is positioned as complete. Recorded in the CONTINUATION Refinement Backlog and
   PRODUCT_DIRECTION_2026-06-18.
+
+## ADR-127: GAAP (FAS 60) net-premium benefit reserve for TermLife — Reserve-Basis Exactness epic, Slice 3
+
+**Date:** 2026-07-04
+**Status:** Accepted
+
+**Context.** `ReserveBasis.GAAP` has existed in the enum since the original reserve-basis epic
+(ADR-092 surfaced the selector everywhere), but selecting it raised `PolarisComputationError`
+via `BaseProduct._check_reserve_basis` — no engine computed it (premise reproduced before
+coding: the baseline-green `test_reserve_basis_dispatch` asserted GAAP raises for TermLife, and
+`polaris price --reserve-basis GAAP` on a term block exited non-zero on the guard). US GAAP
+(FAS 60 / ASC 944) is the benefit-reserve basis a US cedant commonly reports on for traditional
+(non-participating) life business, and it is the second of the two IMPORTANT residuals the
+Reserve-Basis Exactness epic exists to close (`docs/PLAN_reserve_basis_exactness.md`, Slice 3).
+
+**Decision.**
+
+- *GAAP is the net premium reserve on a margined best-estimate basis.* FAS 60 values the
+  benefit reserve as a net level premium reserve on **locked-in best-estimate assumptions plus
+  explicit provisions for adverse deviation (PADs)**. `TermLife._compute_reserves_gaap` reuses
+  the existing net-premium machinery (`_compute_reserves_net_premium` — the equivalence-principle
+  level net premium and its backward recursion) but feeds it a PAD-adjusted mortality and a
+  PAD-adjusted discount rate. GAAP is added to `TermLife._supported_reserve_bases`, so selecting
+  it stops raising for term.
+
+- *Two PADs, on `ProjectionConfig`.* `gaap_mortality_pad: float = 1.0` (ge 1.0) is a
+  multiplicative margin applied to the projection best-estimate `q` (capped at 1.0);
+  `gaap_interest_margin: float = 0.0` (ge 0, le 1) is an absolute haircut subtracted from the
+  valuation interest rate, exposed as the `ProjectionConfig.gaap_valuation_rate` property
+  (`max(effective_valuation_rate - gaap_interest_margin, 0.0)`). Both default neutral, so a
+  GAAP run with no explicit PAD reduces **exactly** to the locked-in best-estimate net premium
+  reserve (the closed-form identity pinned in the tests) and every existing config/priced number
+  stays byte-identical (no golden selects GAAP).
+
+- *GUARDRAIL — GAAP defines its OWN basis; it does NOT inherit the statutory static /
+  no-improvement rule.* This is the key design boundary carried from ADR-125/126. The statutory
+  bases (CRVM / VM-20 NPR) value on a **prescribed, static, no-improvement** table
+  (`assumptions.valuation_mortality`) because they are prescribed regulatory formulas. FAS 60 is
+  a different animal — a locked-in **best-estimate** reserve plus explicit margins — and the best
+  estimate legitimately includes the mortality-improvement scale (part of the projection
+  assumptions, locked at issue). So `_compute_reserves_gaap` uses the projection `q` from
+  `_build_rate_arrays` (improvement and substandard rating already applied) and **never** reads
+  `assumptions.valuation_mortality` nor suppresses improvement. Two tests pin this: a wildly
+  different prescribed valuation table does not move GAAP (byte-identical), and a configured
+  Scale AA improvement DOES move GAAP (unlike a static statutory basis).
+
+- *Interest-margin direction is not uniform across duration.* A lower locked-in discount rate
+  raises the reserve through the accumulation phase but can flip sign in the late run-off
+  durations (the higher net premium pulls the tail down). The property test asserts the
+  unambiguous accumulation-phase direction, not a whole-horizon inequality — documenting the
+  actuarial behaviour rather than over-constraining it.
+
+**Verification.** `tests/test_products/test_term_gaap_reserve.py` (12 tests): GAAP is supported
+and produces a real reserve; neutral PADs equal NET_PREMIUM to 1e-9 (with and without a
+configured improvement scale); a mortality PAD (1.10) and an interest margin (0.01) each raise
+the accumulation-phase reserve, mortality-PAD reserve monotonic in the margin; an independent
+numpy recomputation of the FAS 60 net premium reserve on the PAD-adjusted basis
+(pad 1.15, margin 0.0075) reproduces the engine reserve to 1e-10; GAAP ignores
+`valuation_mortality` (guardrail) and reflects mortality improvement (guardrail). The
+dispatch/API tests that asserted GAAP raises for TermLife were updated to exercise WholeLife
+(GAAP still unimplemented there until Slice 4). Full fast suite 1973 passed / 1 skipped; QA
+suite 76 passed; golden `flat` byte-identical (GAAP unset everywhere; end-to-end `polaris price
+--reserve-basis GAAP` on a term-only block equals NET_PREMIUM with neutral PADs, confirming the
+identity on the deal path).
+
+**Out of scope.** GAAP for WholeLife (Slice 4 — WL still raises). Surfacing the two PAD knobs on
+the deal path (`DealConfig` / CLI flags / REST API) — this slice puts them on `ProjectionConfig`
+(the config object the notebooks/analytics build directly); the deal-path surfacing mirrors the
+dedicated surfacing slice `valuation_mortality` got (ADR-126 after ADR-125) and is harvested as
+a 1st-order follow-up. FAS 60 deferred acquisition cost (DAC) amortisation and the loss-recognition
+/ premium-deficiency test are not modelled — this is the benefit reserve only. Duration-varying
+or select-period PAD structures (a single flat mortality multiplier + flat interest haircut here).

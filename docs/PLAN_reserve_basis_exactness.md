@@ -1,6 +1,7 @@
 # PLAN: Reserve-Basis Exactness (statutory valuation table + GAAP)
 
-**Status:** IN PROGRESS — Slices 1–2 shipped 2026-07-03 (Slice 3 next: GAAP FAS 60)
+**Status:** IN PROGRESS — Slices 1–2 shipped 2026-07-03, Slice 3 (GAAP FAS 60,
+TermLife) shipped 2026-07-04 (Slice 4 next: GAAP for WholeLife + epic close)
 **Source:** PRODUCT_DIRECTION_2026-06-18.md — the two surviving IMPORTANT
 reserve-basis residuals (both 1st-order harvests of Epic 1, ADR-089/ADR-092):
 
@@ -83,7 +84,7 @@ basis — closing the last two gaps between "a reserve on the right method" and
 - Goldens: byte-identical (no config sets the new key).
 
 ### Slice 3: GAAP (FAS 60) basis for TermLife
-- **Status:** NEXT
+- **Status:** DONE (2026-07-04, ADR-127)
 - **Depends on:** Slice 2 merged.
 - Net-premium benefit reserve on locked-in assumptions with PADs (design ADR:
   PAD structure — mortality multiplier + interest haircut — and where the PADs
@@ -101,7 +102,7 @@ basis — closing the last two gaps between "a reserve on the right method" and
   only, never the statutory basis rule.
 
 ### Slice 4: GAAP (FAS 60) for WholeLife + epic close
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 3 merged.
 - WL GAAP valued prospectively to omega (no horizon-edge collapse), reusing
   the Slice-3 PAD structure; add `GAAP` to WL supported bases.

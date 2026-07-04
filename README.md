@@ -45,7 +45,7 @@ breakdown.
 | `products/` | Universal Life — COI charges, account value roll-forward, forced lapse | ✅ |
 | `products/` | Disability / Critical Illness — DI multi-state, CI single-decrement | ✅ |
 | `products/` | Per-policy substandard rating — mortality multiplier + flat extra | ✅ |
-| `core/` | Reserve-basis matching — NET_PREMIUM, CRVM (Full Preliminary Term), VM-20 simplified, for Term + Whole Life | ✅ |
+| `core/` | Reserve-basis matching — NET_PREMIUM, CRVM (Full Preliminary Term), VM-20 simplified for Term + Whole Life; GAAP (FAS 60) for Term | ✅ |
 | `reinsurance/` | YRT — NAR-based premiums, ceded claims | ✅ |
 | `reinsurance/` | Coinsurance — proportional split, reserve transfer | ✅ |
 | `reinsurance/` | Modco — cedant retains assets, modco interest | ✅ |
@@ -65,7 +65,7 @@ breakdown.
 | `assumptions/` | ML-enhanced mortality & lapse (scikit-learn / XGBoost), same protocol as table-based | ✅ |
 | `utils/` | Cedant inforce data ingestion — YAML-driven mapping, data-quality report | ✅ |
 | `api/` | REST API — FastAPI with full OpenAPI docs (price, scenario, uq, ifrs17 bba/paa/movement, portfolio, ingest, rate-schedule) | ✅ |
-| `cli.py` | CLI — `price / scenario / uq / portfolio / rate-schedule / ingest / validate / version`; `price --excel-out` (committee workbook), `--reserve-basis {NET_PREMIUM,CRVM,VM20}`, `--capital {licat,rbc,solvency2}` (RoC) | ✅ |
+| `cli.py` | CLI — `price / scenario / uq / portfolio / rate-schedule / ingest / validate / version`; `price --excel-out` (committee workbook), `--reserve-basis {NET_PREMIUM,CRVM,VM20,GAAP}` (GAAP: Term), `--capital {licat,rbc,solvency2}` (RoC) | ✅ |
 | `dashboard/` | Streamlit dashboard — pricing, scenarios, Monte Carlo, portfolio | ✅ |
 
 ---
