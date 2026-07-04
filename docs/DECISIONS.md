@@ -8188,3 +8188,34 @@ source id only for now — the `yrt_rate_table_path` precedent, Slice-2 open que
 the prescribed table in the API response and on the Excel/dashboard surfaces; GAAP FAS 60
 (Slices 3–4); the sex/smoker-distinct statutory-table composition helper and the prescribed
 valuation-interest helper (epic refinement backlog).
+
+**Design boundary & guidance for Slices 3–4 (recorded after the PR #125 review flagged the
+statutory-basis choice for a human glance).** The commercial thesis this serves is inforce-block
+reinsurance: a reinsurer reproducing a cedant's held statutory reserve (to price coinsurance /
+modco, quantify the cedant's reserve/capital relief, produce a profit signature that reports on
+the statutory ledger, and defend it to auditors/regulators) must value on the **prescribed**
+table, not its pricing best-estimate table — that is why CRVM / the VM-20 NPR value on
+`valuation_mortality`. Two boundaries constrain the work that builds on this:
+
+- *"Static / no-improvement" is a property of the US-statutory bases, NOT a global default.*
+  CRVM and the VM-20 NPR are prescribed regulatory formulas (published CSO table fixed by issue
+  year, conservatism in the table's own margins, no generational-improvement overlay); the VM-20
+  **DR** deliberately stays best-estimate *with* improvement (`VM20 = max(NPR_prescribed,
+  DR_best_estimate)`). **GAAP (FAS 60), Slices 3–4, must define its own basis** — a locked-in
+  best-estimate net-premium reserve plus explicit PADs, where the best estimate legitimately
+  includes the improvement scale locked in at issue. GAAP therefore does **not** read
+  `valuation_mortality` and does **not** suppress improvement the way
+  `_build_statutory_valuation_q` does; it reuses `load_valuation_mortality` / `_lookup_qx_column`
+  as plumbing only. The same caution applies to any future non-US path (e.g. CIA / IFRS 17),
+  where valuation mortality *does* carry improvement in some regimes. (This supersedes the
+  earlier PLAN note that "GAAP should honour `valuation_mortality` resolution order from day
+  one," which conflated the statutory basis rule with GAAP.)
+
+- *Mortality-basis exactness is only half of "reproduce the cedant's reserve."* CRVM / the
+  VM-20 NPR also use a **prescribed maximum valuation interest rate** by issue year / product;
+  the engine still takes a single manual `valuation_interest_rate`. So Slices 1–2 reproduce the
+  statutory reserve *directionally*, not to the penny. The issue-year → prescribed-rate helper
+  (and, secondarily, an issue-year → CSO-version selector for 2001-vs-2017 applicability) is the
+  gating item for penny-exact reproduction and should be sequenced before "exact CRVM
+  reproduction" is positioned as complete. Recorded in the CONTINUATION Refinement Backlog and
+  PRODUCT_DIRECTION_2026-06-18.
