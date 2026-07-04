@@ -30,8 +30,9 @@ FIXTURES = Path(__file__).parent.parent / "fixtures"
 # Bases still unimplemented per product. CRVM landed for TermLife in slice 2a
 # (ADR-088) and for WholeLife in slice 2b (ADR-089). VM-20 simplified landed for
 # TermLife in slice 3a (ADR-090) and for WholeLife (the to-omega DR) in slice 3b
-# (ADR-091). GAAP remains unimplemented on both.
-TERM_UNIMPLEMENTED_BASES = [ReserveBasis.GAAP]
+# (ADR-091). GAAP (FAS 60) landed for TermLife in the Reserve-Basis Exactness
+# epic slice 3 (ADR-127); it remains unimplemented for WholeLife until slice 4.
+TERM_UNIMPLEMENTED_BASES: list[ReserveBasis] = []
 WL_UNIMPLEMENTED_BASES = [ReserveBasis.GAAP]
 
 
@@ -150,8 +151,9 @@ class TestUnimplementedBasisRaises:
             engine.compute_reserves()
 
     def test_error_message_names_supported_basis(self, assumption_set: AssumptionSet):
-        # GAAP is still unimplemented for TermLife; the error names the
-        # supported bases (which now include CRVM and VM20).
-        engine = TermLife(_term_block(), assumption_set, _config(ReserveBasis.GAAP))
+        # GAAP is still unimplemented for WholeLife (it lands for TermLife in the
+        # Reserve-Basis Exactness slice 3, ADR-127, but for WL only in slice 4);
+        # the error names the supported bases (which include CRVM and VM20).
+        engine = WholeLife(_wl_block(), assumption_set, _config(ReserveBasis.GAAP))
         with pytest.raises(PolarisComputationError, match="NET_PREMIUM"):
             engine.compute_reserves()

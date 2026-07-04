@@ -71,9 +71,14 @@ def test_crvm_changes_priced_numbers() -> None:
 
 
 def test_unsupported_basis_for_product_is_422() -> None:
-    # GAAP is not implemented for any engine yet (only the enum + guard exist),
-    # so selecting it surfaces the PolarisComputationError as HTTP 422.
-    resp = client.post("/api/v1/price", json=_request(reserve_basis="GAAP"))
+    # GAAP (FAS 60) is implemented for TermLife (ADR-127) but not yet for
+    # WholeLife, so selecting it on a WL policy surfaces the
+    # PolarisComputationError as HTTP 422.
+    wl_policy = {**DEMO_POLICY, "policy_term": None, "annual_premium": 12_000.0}
+    resp = client.post(
+        "/api/v1/price",
+        json=_request(policies=[wl_policy], product_type="WHOLE_LIFE", reserve_basis="GAAP"),
+    )
     assert resp.status_code == 422
 
 

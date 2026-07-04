@@ -73,11 +73,30 @@ table, and implement GAAP (FAS 60) as a concrete selectable basis.
   - Omitting the key is byte-identical on all goldens (none set it). ✅
 
 ### Slice 3: GAAP (FAS 60) basis for TermLife
-- **Status:** NEXT
-- **Depends on:** Slice 2 merged
-- **Scope:** design ADR (PAD structure: mortality multiplier + interest
-  haircut; config surface for PADs), `_compute_reserves_gaap` on TermLife,
-  add GAAP to `_supported_reserve_bases`, closed-form FAS 60 test.
+- **Status:** DONE
+- **Branch:** claude/loving-gauss-l0xbfn
+- **PR:** (this slice)
+- **What was done:** `TermLife._compute_reserves_gaap` — the FAS 60 net-premium
+  benefit reserve as the net premium reserve (`_compute_reserves_net_premium`)
+  on a **margined best-estimate** basis: projection `q` (improvement + rating
+  already applied) × `gaap_mortality_pad`, discounted at
+  `ProjectionConfig.gaap_valuation_rate` (= valuation rate − `gaap_interest_margin`,
+  floored at 0). Two new neutral-default PAD fields on `ProjectionConfig`
+  (`gaap_mortality_pad=1.0`, `gaap_interest_margin=0.0`) → neutral PADs collapse
+  GAAP exactly onto the locked-in best-estimate NPR (byte-identical goldens; no
+  golden selects GAAP). GAAP added to `TermLife._supported_reserve_bases`; the
+  dispatch/API tests that asserted GAAP raises for TermLife now exercise
+  WholeLife. ADR-127.
+- **Key decisions (affect Slice 4):**
+  - GAAP does **not** read `assumptions.valuation_mortality` and does **not**
+    suppress improvement — the guardrail. It reuses `_compute_reserves_net_premium`
+    (and hence `_lookup_qx_column` via `_build_rate_arrays`) as plumbing, never
+    the statutory basis rule. Slice 4's WL GAAP must mirror this.
+  - The PADs live on `ProjectionConfig` this slice; deal-path surfacing
+    (`DealConfig` / CLI / API) is a harvested 1st-order follow-up (the
+    `valuation_mortality` ADR-125→126 precedent).
+  - Interest-margin reserve direction is accumulation-phase only (sign can flip
+    in late run-off); the property test asserts the unambiguous phase.
 - **GUARDRAIL — GAAP must NOT inherit the statutory static/no-improvement rule.**
   The "value on a prescribed, static, no-improvement table" property is specific
   to the **US-statutory** bases (CRVM / VM-20-NPR): those are prescribed
@@ -104,10 +123,15 @@ table, and implement GAAP (FAS 60) as a concrete selectable basis.
   same helper.
 
 ### Slice 4: GAAP (FAS 60) for WholeLife + epic close
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 3 merged
-- **Scope:** WL GAAP prospectively to omega; supported-bases update; notebook
-  + ARCHITECTURE; HARVEST FOLLOW-UPS then Status → COMPLETE.
+- **Scope:** WL GAAP prospectively to omega, reusing the Slice-3 PAD structure
+  (`gaap_mortality_pad` / `gaap_interest_margin` on `ProjectionConfig`, same
+  best-estimate-plus-PAD rule — NOT the statutory static/no-improvement rule);
+  add `GAAP` to WL `_supported_reserve_bases`; revert the
+  `test_reserve_basis_dispatch` / `test_api/test_reserve_basis` GAAP-raises
+  cases (they move back off WL once WL implements GAAP); notebook +
+  ARCHITECTURE; HARVEST FOLLOW-UPS then Status → COMPLETE.
 
 ## Context for Next Session
 
