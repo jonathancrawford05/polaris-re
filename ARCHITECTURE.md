@@ -149,9 +149,20 @@ a projection-wide selector — `core/reserve_basis.py::ReserveBasis` (a `StrEnum
   (the $7.18M→$56k golden-WL artefact, ADR-089).
 - **`VM20`** — VM-20 simplified principle-based reserve (the deterministic-reserve
   / net-premium-reserve floor of US PBR), for Term and Whole Life (ADR-090/091).
-- **`GAAP`** — recognised by the enum but not yet implemented.
+- **`GAAP`** — US GAAP (FAS 60) net-premium benefit reserve on locked-in
+  **best-estimate** assumptions plus explicit provisions for adverse deviation
+  (PADs): the net premium reserve valued on a margined basis — the projection
+  best-estimate `q` scaled by `ProjectionConfig.gaap_mortality_pad` and discounted
+  at `gaap_valuation_rate` (the valuation rate less `gaap_interest_margin`).
+  Neutral PADs (the defaults) collapse it exactly onto the locked-in best-estimate
+  net premium reserve. Unlike the statutory bases it does **not** read
+  `valuation_mortality` and does **not** suppress mortality improvement — FAS 60 is
+  a best-estimate-plus-PAD basis, not a prescribed static one. Implemented for
+  `TermLife` (ADR-127, Reserve-Basis Exactness Slice 3); `WholeLife` GAAP is the
+  final slice (Slice 4) and still raises until then.
 
-CRVM and VM-20 are implemented for `TermLife` and `WholeLife` (ADR-087–092).
+CRVM and VM-20 are implemented for `TermLife` and `WholeLife`, and GAAP for
+`TermLife` (ADR-087–092, ADR-127).
 Each product declares the bases it supports; selecting an **unsupported** basis
 raises `PolarisComputationError` rather than silently falling back, so a run can
 never report a reserve on a basis the engine did not actually compute. For *exact*
@@ -161,8 +172,10 @@ NPR floor value on — static (no improvement scale), substandard rating applied
 valued to the valuation table's own omega for WL (ADR-125). Default `None` keeps
 statutory bases on the projection mortality table; `NET_PREMIUM` and the VM-20
 deterministic reserve (anticipated experience by definition) always use the
-projection assumptions. Library-level today; the config/CLI/API surfacing and
-GAAP (FAS 60) are the remaining slices of the Reserve-Basis Exactness epic
+projection assumptions. `valuation_mortality` is surfaced on the config / CLI
+(`--valuation-mortality`) / API deal path (ADR-126, Slice 2), and GAAP (FAS 60)
+is implemented for `TermLife` (ADR-127, Slice 3); GAAP for `WholeLife` is the one
+remaining slice of the Reserve-Basis Exactness epic
 (`docs/PLAN_reserve_basis_exactness.md`).
 
 ### Product-Specific Projection Details
@@ -345,7 +358,7 @@ See `docs/DECISIONS.md` for full ADRs. Summary:
 |---|---|---|
 | ORM for policy data | Polars DataFrame + Pydantic | Performance over convenience |
 | Projection time step | Monthly | Industry standard for life insurance |
-| Reserve basis | Selectable `ReserveBasis` — NET_PREMIUM (default), CRVM, VM20 for Term/WL; AV (UL); zero (DI/CI) | Reproduce the cedant's statutory reserve; unsupported basis raises, never silently falls back |
+| Reserve basis | Selectable `ReserveBasis` — NET_PREMIUM (default), CRVM, VM20 for Term/WL, GAAP (FAS 60) for Term; AV (UL); zero (DI/CI) | Reproduce the cedant's statutory reserve; unsupported basis raises, never silently falls back |
 | Regulatory capital | `CapitalModel` / `CapitalSchedule` protocols; LICAT + US RBC + EU Solvency II implementations | One RoC machinery across jurisdictions; structural (runtime-checkable) seam, no inheritance |
 | IFRS 17 movement | Annual issue-year cohorts, locked-in rate per cohort, footing movement tables | Matches IASB analysis-of-change presentation; cohorts sum to the aggregate by construction |
 | Mortality table format | CSV with standard column schema | No binary dependencies; auditability |
