@@ -44,27 +44,55 @@ table, and implement GAAP (FAS 60) as a concrete selectable basis.
   - `NET_PREMIUM` ignores the slot entirely (historical pricing basis).
 
 ### Slice 2: Surface `valuation_mortality` end-to-end (2001 CSO)
-- **Status:** NEXT
-- **Depends on:** Slice 1 merged
-- **Files to create/modify:** `core/pipeline.py` (DealConfig +
-  `build_assumption_set` threading), `cli.py` (`--valuation-mortality`),
-  `api/main.py` (request-model field), `notebooks/02_reserve_basis_comparison.ipynb`,
-  tests (`tests/test_cli_*`, `tests/test_api/`).
-- **Tests to add:** config parse + threading; CLI end-to-end CRVM-on-CSO vs
-  CRVM-on-projection-table differ (`@requires_soa_tables`-gated by table
-  availability); API round-trip; malformed table id raises
-  `PolarisValidationError` at parse time.
+- **Status:** DONE
+- **Branch:** claude/loving-gauss-ipkczw
+- **PR:** (this slice)
+- **What was done:** `DealConfig.valuation_mortality: str | None = None` (a
+  named mortality source id) + the shared `load_valuation_mortality(source,
+  data_dir)` public helper in `core/pipeline.py`, threaded into
+  `build_assumption_set` (loaded raw — no pricing multiplier, no improvement).
+  CLI: `--valuation-mortality` flag with flag-over-config precedence
+  (`_build_pipeline_from_config(valuation_mortality_override=...)`), config
+  parsing of `deal.valuation_mortality` (nested + legacy), and a conditional
+  JSON `summary` echo (present only when set → byte-identical otherwise).
+  API: `PriceRequest.valuation_mortality` loaded server-side from
+  `$POLARIS_DATA_DIR/mortality_tables` via the shared helper (unknown id → 422).
+  Notebook `02` gains a CRVM-on-prescribed-table section (synthetic table, CI-safe).
+  ADR-126.
+- **Key decisions (affect later slices):**
+  - Named source id (string), not a `MortalityTable` object, on the deal path —
+    mirrors `MortalityConfig.source`. A CSV-path escape hatch is still deferred.
+  - `load_valuation_mortality` is the single loader shared by the pipeline and
+    the API; Slice 3/4 GAAP surfacing should reuse it, not re-resolve sources.
+  - Summary echo is conditional (only when set) to preserve byte-identity; the
+    API response is NOT echoed yet (follow-up if wanted).
 - **Acceptance criteria:**
-  - `polaris price --config <cfg> --reserve-basis crvm` with
-    `deal.valuation_mortality: "cso_2001"` values CRVM on 2001 CSO.
-  - Omitting the key is byte-identical on all goldens.
+  - `polaris price --config <cfg> --reserve-basis crvm --valuation-mortality
+    CSO_2001` (or `deal.valuation_mortality: "CSO_2001"`) values CRVM on 2001
+    CSO — verified: WL cedant PV differs from CRVM-on-projection-table. ✅
+  - Omitting the key is byte-identical on all goldens (none set it). ✅
 
 ### Slice 3: GAAP (FAS 60) basis for TermLife
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 2 merged
 - **Scope:** design ADR (PAD structure: mortality multiplier + interest
   haircut; config surface for PADs), `_compute_reserves_gaap` on TermLife,
   add GAAP to `_supported_reserve_bases`, closed-form FAS 60 test.
+- **GUARDRAIL — GAAP must NOT inherit the statutory static/no-improvement rule.**
+  The "value on a prescribed, static, no-improvement table" property is specific
+  to the **US-statutory** bases (CRVM / VM-20-NPR): those are prescribed
+  regulatory formulas whose inputs are fixed by the Standard Valuation Law /
+  Valuation Manual. FAS 60 is a different animal — a net-premium benefit reserve
+  on **locked-in best-estimate assumptions plus explicit PADs**. That "best
+  estimate" legitimately includes mortality improvement (the improvement scale
+  is part of the projection assumptions), locked in at issue. So GAAP defines
+  its **own** basis: it does **not** read `AssumptionSet.valuation_mortality`
+  (the prescribed statutory table), and it does **not** suppress improvement the
+  way `_build_statutory_valuation_q` does. Reuse `load_valuation_mortality` /
+  `_lookup_qx_column` as plumbing only where a table lookup is genuinely needed;
+  do not reuse the statutory *basis rule*. Same warning applies to any future
+  non-US valuation path (e.g. CIA/IFRS-17), where improvement IS applied to
+  valuation mortality in some regimes.
 - ~~**Pre-step (PR #124 automated review, P2):** extract a shared
   mortality-lookup helper before the GAAP slices add another copy.~~ —
   **DONE in Slice 1** (PR #124, maintainer direction): the per-(sex,smoker)
@@ -102,21 +130,67 @@ table, and implement GAAP (FAS 60) as a concrete selectable basis.
 - Rejected: putting the slot on `ProjectionConfig` (it is an assumption — a
   table — and `AssumptionSet` is the versioned audit carrier); building the
   statutory q with improvement applied (prescribed tables are static).
+- **Design boundary — "static / no-improvement" is a US-statutory property, not
+  a global default.** It is correct precisely because CRVM / VM-20-NPR are
+  prescribed regulatory formulas (published CSO table fixed by issue year, no
+  generational-improvement overlay, conservatism already in the table's
+  margins). The VM-20 **DR** deliberately stays on the best-estimate projection
+  table *with* improvement, because it is an anticipated-experience reserve —
+  that split (`VM20 = max(NPR_prescribed, DR_best_estimate)`) is the whole point
+  of PBR. Do not let Slice 3/4 (GAAP) or any future non-US path inherit the
+  statutory rule by accident — see the Slice-3 guardrail.
+- **Reproducing the cedant's reserve to the penny needs the interest side too.**
+  `valuation_mortality` makes the *mortality* basis prescribed, but CRVM / the
+  VM-20 NPR also use a **prescribed maximum valuation interest rate** by issue
+  year / product; the engine still takes a single manual
+  `valuation_interest_rate` on `ProjectionConfig`. Mortality-basis exactness
+  without interest-basis exactness reproduces the reserve *directionally*, not
+  exactly. The issue-year → prescribed-rate helper (Refinement Backlog) is the
+  gating item for penny-exact statutory reproduction — sequence it before
+  marketing "exact CRVM reproduction" as complete.
+- **CSO version is a per-deal domain call today.** 2001 vs 2017 CSO
+  applicability is issue-year-driven (2017 CSO mandatory for 2020+ issues,
+  elective 2017–2019); the deal takes a single named table, so a block
+  straddling a CSO boundary must be split or the correct table chosen by the
+  user. An issue-year → CSO-version selector is in the Refinement Backlog.
 
 ## Open Questions (for human)
 
 - Slice 3 PAD calibration: FAS 60 PADs are company-specific. Proposed default:
   mortality PAD as a configurable multiplier (e.g. 1.10) and a valuation-rate
   haircut, both on `ProjectionConfig` — confirm or redirect at Slice-3 review.
-- Should Slice 2 also accept a CSV path (arbitrary cedant valuation table)
-  in addition to a named source id? Leaning yes-later (the `yrt_rate_table_path`
-  precedent) — flag if wanted in Slice 2 itself.
+- ~~Should Slice 2 also accept a CSV path (arbitrary cedant valuation table)
+  in addition to a named source id?~~ **Resolved in Slice 2 (ADR-126): named
+  source id only for now; CSV-path escape hatch deferred (the
+  `yrt_rate_table_path` precedent). Promoted to the refinement backlog.**
+- Should the prescribed valuation table be echoed in the REST API response and
+  on the Excel/dashboard surfaces? Slice 2 echoes it only in the CLI JSON
+  `summary` (conditionally). Flag if API/Excel/dashboard audit visibility is
+  wanted — promoted as a NICE-TO-HAVE follow-up.
+- **Interest-basis exactness (priority domain call).** Do we want a prescribed
+  valuation-interest helper (issue-year → SVL max valuation rate / VM-20 NPR
+  discount rate) so CRVM reproduction is penny-exact, not just directional?
+  Recommended before positioning "exact statutory reproduction" as done — this
+  is the largest remaining gap. See Refinement Backlog.
+- **CSO version selection.** Should the engine auto-select 2001 vs 2017 CSO by
+  issue year (and support a block that straddles the boundary), or is
+  per-deal manual selection acceptable for now? Currently one named table per
+  deal.
 
 ## Refinement Backlog
 
 (harvest into PRODUCT_DIRECTION when this CONTINUATION closes)
 
 - Sex-distinct / smoker-distinct statutory table composition helper (2001 CSO
-  loads per sex; a cedant filing may prescribe smoker-distinct variants).
-- Statutory valuation-interest prescription helper (issue-year → prescribed
-  max valuation rate), currently manual via `valuation_interest_rate`.
+  loads per sex; a cedant filing may prescribe smoker-distinct variants), and
+  select-and-ultimate CSO / ALB-vs-ANB structure (current conversion is
+  ultimate-only, `select_years=1`).
+- **Statutory valuation-interest prescription helper (issue-year → prescribed
+  max valuation rate) — the gating item for penny-exact CRVM reproduction.**
+  Currently manual via `valuation_interest_rate`; mortality-basis exactness
+  (Slices 1–2) is only half the reserve. Rank ahead of the cosmetic follow-ups.
+- Issue-year → CSO-version selector (2001 vs 2017 CSO applicability), including
+  a block that straddles the applicability boundary.
+- VM-20 mortality machinery beyond the structural `max(NPR, DR)` split:
+  prescribed NPR margins, company-experience credibility grading to an industry
+  table, and X-factors (already a tracked NICE-TO-HAVE).

@@ -1044,15 +1044,54 @@ Items harvested from completed/in-flight work by the daily-dev routine
   *Source: ADR-125 Out of scope + CONTINUATION_reserve_basis_exactness
   Refinement Backlog (1st-order).*
 
-- **NICE-TO-HAVE — Prescribed statutory valuation-interest helper.** Statutory
-  CRVM prescribes the maximum valuation interest rate by issue year / product;
-  the engine takes a single manual `valuation_interest_rate` on
-  `ProjectionConfig`. An issue-year → prescribed-rate lookup helper would
-  complete "reproduce the cedant's basis" on the interest side the way
-  ADR-125 does on the mortality side. Affects exactness convenience, not the
-  common path → NICE-TO-HAVE.
+- **IMPORTANT — Prescribed statutory valuation-interest helper** (~~NICE-TO-HAVE~~,
+  reclassified 2026-07-04 per the PR #125 review). Statutory CRVM prescribes the
+  maximum valuation interest rate by issue year / product; the engine takes a
+  single manual `valuation_interest_rate` on `ProjectionConfig`. An issue-year →
+  prescribed-rate lookup helper would complete "reproduce the cedant's basis" on
+  the interest side the way ADR-125/126 does on the mortality side.
+  **Reclassification rationale:** the Reserve-Basis Exactness epic's headline
+  commercial claim is *penny-exact reproduction of the cedant's held statutory
+  reserve* (to price coinsurance/modco, quantify reserve/capital relief, and
+  defend the profit signature to auditors). `valuation_mortality` (Slices 1–2)
+  fixes only the **mortality** half; without prescribed valuation interest the
+  reproduction is directional, not exact — so this gates the epic's own value
+  proposition on the common statutory path, i.e. IMPORTANT, not convenience.
+  Sequence it before positioning "exact CRVM reproduction" as done.
   *Source: ADR-125 Out of scope + CONTINUATION_reserve_basis_exactness
+  Refinement Backlog (1st-order); reclassified per ADR-126 design boundary /
+  PR #125 review.*
+- **NICE-TO-HAVE — Issue-year → CSO-version selector.** 2001 vs 2017 CSO
+  applicability is issue-year-driven (2017 CSO mandatory for 2020+ issues,
+  elective 2017–2019); `valuation_mortality` takes one named table per deal, so
+  a block straddling the applicability boundary must be split or the correct
+  table chosen manually. An issue-year → CSO-version selector (and straddle
+  handling) would make the prescribed-table path correct-by-default for
+  multi-vintage blocks. Convenience on multi-vintage books, not a common-path
+  correctness bug → NICE-TO-HAVE.
+  *Source: ADR-126 design boundary + CONTINUATION_reserve_basis_exactness
   Refinement Backlog (1st-order).*
+
+- **NICE-TO-HAVE — CSV-path escape hatch for an arbitrary cedant valuation
+  table.** Slice 2 (ADR-126) surfaces `valuation_mortality` as a **named source
+  id** only (`CSO_2001` / `SOA_VBT_2015` / `CIA_2014` / `flat`). A cedant whose
+  prescribed valuation table is not one of the shipped named sources cannot yet
+  point the deal at an arbitrary CSV directory the way `yrt_rate_table_path`
+  allows for YRT rates. Adding a `valuation_mortality_path` config/CLI/API
+  surface (loading a directory of valuation-table CSVs) would complete the
+  exact-reproduction story for non-standard cedant tables. Affects only cedants
+  off the named-source path, not correctness on the common path → NICE-TO-HAVE.
+  *Source: ADR-126 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — Echo the prescribed valuation table on the API response /
+  Excel / dashboard surfaces.** Slice 2 (ADR-126) echoes the selected
+  `valuation_mortality` only in the CLI JSON `summary` (conditionally, to
+  preserve byte-identity). The REST `PriceResponse`, the deal-pricing Excel
+  workbook, and the dashboard pricing surface do not record which prescribed
+  table drove the statutory reserve. Surfacing it (a nullable response field +
+  an Assumptions-sheet / dashboard line) would give the same audit visibility
+  the CLI has. Pure reporting polish, no priced-number change → NICE-TO-HAVE.
+  *Source: ADR-126 Out of scope (1st-order).*
 
 ## Carried Forward
 

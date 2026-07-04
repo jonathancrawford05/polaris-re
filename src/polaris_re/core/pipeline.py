@@ -51,6 +51,7 @@ __all__ = [
     "dump_parity_debug",
     "iter_cohorts",
     "load_inforce",
+    "load_valuation_mortality",
 ]
 
 # ------------------------------------------------------------------ #
@@ -124,6 +125,18 @@ class DealConfig:
     # every existing config byte-identical; ``build_projection_config`` coerces
     # this to the ``ReserveBasis`` enum on the ``ProjectionConfig``.
     reserve_basis: str = "NET_PREMIUM"
+    # Prescribed statutory valuation mortality table for the statutory reserve
+    # bases (Reserve-Basis Exactness epic, ADR-125; slice 2 surfacing). A named
+    # mortality source id ("CSO_2001" | "SOA_VBT_2015" | "CIA_2014" | "flat"),
+    # the config/CLI/API equivalent of ``AssumptionSet.valuation_mortality``.
+    # When set, CRVM and the VM-20 NPR floor value on this prescribed table
+    # (static — no improvement scale) instead of the pricing best-estimate
+    # table; ``NET_PREMIUM`` and the VM-20 deterministic reserve always ignore
+    # it. None (default) leaves the statutory reserve on the projection table
+    # exactly as before, so every existing config and priced number is
+    # byte-identical. ``build_assumption_set`` loads it via
+    # ``load_valuation_mortality``.
+    valuation_mortality: str | None = None
     # Optional tabular YRT rate table (ADR-052/ADR-075). When set, YRT
     # premiums are billed from a directory of (age x duration) rate CSVs
     # instead of the flat / mortality-derived rate — the YAML/JSON config
@@ -379,11 +392,46 @@ def _apply_mortality_multiplier(
 # ------------------------------------------------------------------ #
 
 
+def load_valuation_mortality(source: str, data_dir: Path | None = None) -> MortalityTable:
+    """Load a prescribed statutory valuation mortality table by named source.
+
+    Reuses the projection-table source resolution (``"CSO_2001"`` /
+    ``"SOA_VBT_2015"`` / ``"CIA_2014"`` / ``"flat"``) but deliberately applies
+    **no** pricing multiplier and **no** mortality improvement — the statutory
+    valuation table is prescribed and static (ADR-125). This is the single
+    loader shared by the CLI/dashboard pipeline (via ``build_assumption_set``)
+    and the REST API, so both surface ``deal.valuation_mortality`` identically.
+
+    Args:
+        source: Named mortality source id.
+        data_dir: Directory of mortality-table CSVs. ``None`` resolves to
+            ``$POLARIS_DATA_DIR/mortality_tables`` (the projection-table default).
+
+    Returns:
+        The loaded ``MortalityTable``.
+
+    Raises:
+        PolarisValidationError: On an unrecognised source id.
+    """
+    return _load_mortality(MortalityConfig(source=source, data_dir=data_dir))
+
+
 def build_assumption_set(inputs: PipelineInputs) -> AssumptionSet:
     """Build an AssumptionSet matching how the dashboard builds it."""
     # Mortality
     mortality = _load_mortality(inputs.mortality)
     mortality = _apply_mortality_multiplier(mortality, inputs.mortality.multiplier)
+
+    # Prescribed statutory valuation table (ADR-125). ``None`` (default) leaves
+    # ``AssumptionSet.valuation_mortality`` unset → the statutory reserve bases
+    # value on the projection table exactly as before (byte-identical). The
+    # valuation table is loaded raw — no pricing multiplier, no improvement —
+    # from the same data directory as the projection mortality.
+    valuation_mortality = None
+    if inputs.deal.valuation_mortality is not None:
+        valuation_mortality = load_valuation_mortality(
+            inputs.deal.valuation_mortality, inputs.mortality.data_dir
+        )
 
     # Lapse
     lapse = LapseAssumption.from_duration_table(inputs.lapse.duration_table)
@@ -399,6 +447,7 @@ def build_assumption_set(inputs: PipelineInputs) -> AssumptionSet:
     return AssumptionSet(
         mortality=mortality,
         lapse=lapse,
+        valuation_mortality=valuation_mortality,
         version=f"pipeline-{inputs.mortality.source}-{date.today().isoformat()}",
         effective_date=date.today(),
     )

@@ -1,6 +1,6 @@
 # PLAN: Reserve-Basis Exactness (statutory valuation table + GAAP)
 
-**Status:** IN PROGRESS — Slice 1 shipped 2026-07-03
+**Status:** IN PROGRESS — Slices 1–2 shipped 2026-07-03 (Slice 3 next: GAAP FAS 60)
 **Source:** PRODUCT_DIRECTION_2026-06-18.md — the two surviving IMPORTANT
 reserve-basis residuals (both 1st-order harvests of Epic 1, ADR-089/ADR-092):
 
@@ -71,7 +71,7 @@ basis — closing the last two gaps between "a reserve on the right method" and
   verified by an empty byte-level JSON diff).
 
 ### Slice 2: Surface `valuation_mortality` end-to-end (2001 CSO)
-- **Status:** NEXT
+- **Status:** DONE (2026-07-03, ADR-126 — CLI/config/API/notebook)
 - **Depends on:** Slice 1 merged.
 - `DealConfig.valuation_mortality` (table source id, e.g. `"cso_2001"`),
   CLI `--valuation-mortality`, API `valuation_mortality` field; threaded via
@@ -83,13 +83,22 @@ basis — closing the last two gaps between "a reserve on the right method" and
 - Goldens: byte-identical (no config sets the new key).
 
 ### Slice 3: GAAP (FAS 60) basis for TermLife
-- **Status:** PLANNED
-- **Depends on:** Slice 2 merged (GAAP should honour `valuation_mortality`
-  resolution order from day one).
+- **Status:** NEXT
+- **Depends on:** Slice 2 merged.
 - Net-premium benefit reserve on locked-in assumptions with PADs (design ADR:
   PAD structure — mortality multiplier + interest haircut — and where the PADs
   are configured). Add `GAAP` to `TermLife._supported_reserve_bases`.
 - Closed-form verification vs a hand-worked FAS 60 example.
+- **GUARDRAIL — GAAP defines its OWN basis; it does NOT inherit the statutory
+  static/no-improvement rule.** FAS 60 is a locked-in **best-estimate** reserve
+  plus explicit PADs — the best-estimate legitimately includes the mortality
+  improvement scale (locked in at issue). So GAAP does **not** read
+  `AssumptionSet.valuation_mortality` (the prescribed statutory table) and does
+  **not** suppress improvement the way `_build_statutory_valuation_q` does.
+  (This supersedes the earlier "GAAP should honour `valuation_mortality`" note —
+  that conflated the statutory basis rule with GAAP; see ADR-126 design
+  boundary.) Reuse `load_valuation_mortality` / `_lookup_qx_column` as plumbing
+  only, never the statutory basis rule.
 
 ### Slice 4: GAAP (FAS 60) for WholeLife + epic close
 - **Status:** PLANNED
@@ -108,4 +117,9 @@ basis — closing the last two gaps between "a reserve on the right method" and
 - Exact VM-20 NPR X-factors / deficiency refinements (NICE-TO-HAVE).
 - Statutory valuation **interest** prescription (the engine already takes
   `valuation_interest_rate` on `ProjectionConfig`; prescribing it by
-  issue-year/product is config guidance, not engine work).
+  issue-year/product is config guidance, not engine work). **NOTE:** although
+  out of this epic's *engine* scope, this is the gating item for penny-exact
+  CRVM reproduction — `valuation_mortality` (Slices 1–2) fixes only the
+  mortality half of the reserve. Sequence an issue-year → prescribed-rate helper
+  before positioning "exact statutory reproduction" as complete (tracked in the
+  CONTINUATION Refinement Backlog and PRODUCT_DIRECTION).

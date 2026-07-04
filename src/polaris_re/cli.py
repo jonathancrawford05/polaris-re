@@ -201,6 +201,7 @@ def _parse_config_to_pipeline_inputs(
             acquisition_cost=float(raw.get("acquisition_cost_per_policy", 500.0)),
             maintenance_cost=float(raw.get("maintenance_cost_per_policy_per_year", 75.0)),
             reserve_basis=str(raw.get("reserve_basis", "NET_PREMIUM")),
+            valuation_mortality=raw.get("valuation_mortality"),
             valuation_date=legacy_val_date,
         )
         # Stamp product_type onto each policy dict for load_inforce
@@ -300,6 +301,7 @@ def _parse_config_to_pipeline_inputs(
         maintenance_cost=float(deal_raw.get("maintenance_cost", 75.0)),
         use_policy_cession=bool(deal_raw.get("use_policy_cession", False)),
         reserve_basis=str(deal_raw.get("reserve_basis", "NET_PREMIUM")),
+        valuation_mortality=deal_raw.get("valuation_mortality"),
         valuation_date=deal_val_date,
         yrt_rate_table_path=yrt_table_path,
         yrt_rate_table_select_period=int(deal_raw.get("yrt_rate_table_select_period", 3)),
@@ -323,6 +325,7 @@ def _build_pipeline_from_config(
     config_path: Path,
     inforce_path: Path | None = None,
     reserve_basis_override: str | None = None,
+    valuation_mortality_override: str | None = None,
 ) -> tuple:  # type: ignore[type-arg]
     """Build an inforce pipeline from a JSON config file.
 
@@ -337,6 +340,11 @@ def _build_pipeline_from_config(
     same flag-over-config precedence the YRT-rate-table surfaces use. An
     unknown value raises ``PolarisValidationError`` via ``build_projection_config``.
 
+    ``valuation_mortality_override`` (the ``--valuation-mortality`` CLI flag)
+    likewise takes precedence over any ``deal.valuation_mortality`` in the
+    config. An unknown source id raises ``PolarisValidationError`` via
+    ``build_assumption_set`` → ``load_valuation_mortality``.
+
     Returns:
         (inforce, assumptions, config, pipeline_inputs) tuple.
     """
@@ -344,6 +352,8 @@ def _build_pipeline_from_config(
     inputs, policies_raw = _parse_config_to_pipeline_inputs(raw)
     if reserve_basis_override is not None:
         inputs.deal.reserve_basis = reserve_basis_override
+    if valuation_mortality_override is not None:
+        inputs.deal.valuation_mortality = valuation_mortality_override
 
     # Load inforce
     if inforce_path is not None:
@@ -1509,6 +1519,25 @@ def price_cmd(
             ),
         ),
     ] = None,
+    valuation_mortality: Annotated[
+        str | None,
+        typer.Option(
+            "--valuation-mortality",
+            help=(
+                "Prescribed statutory valuation mortality table for the "
+                "statutory reserve bases (Reserve-Basis Exactness epic): a "
+                "named source id (CSO_2001, SOA_VBT_2015, CIA_2014, or flat). "
+                "When set, CRVM and the VM-20 NPR floor value on this table "
+                "(static — no improvement scale) so a reinsurer can reproduce "
+                "the cedant's statutory reserve exactly, instead of the pricing "
+                "best-estimate table. NET_PREMIUM and the VM-20 deterministic "
+                "reserve always ignore it. Overrides any "
+                "'deal.valuation_mortality' in the config. Omitting it leaves "
+                "the statutory reserve on the projection table (byte-identical "
+                "to prior runs). An unknown source id raises an error."
+            ),
+        ),
+    ] = None,
     ifrs17_movement: Annotated[
         bool,
         typer.Option(
@@ -1643,7 +1672,10 @@ def price_cmd(
         progress.add_task("Building pipeline...", total=None)
         if config_path is not None:
             inforce, assumptions, config, inputs = _build_pipeline_from_config(
-                config_path, inforce_path, reserve_basis_override=reserve_basis
+                config_path,
+                inforce_path,
+                reserve_basis_override=reserve_basis,
+                valuation_mortality_override=valuation_mortality,
             )
             console.print(f"[dim]Loaded config from {config_path}[/dim]")
         else:
@@ -1655,6 +1687,7 @@ def price_cmd(
                 demo_config,
                 demo_csv if demo_csv.exists() else None,
                 reserve_basis_override=reserve_basis,
+                valuation_mortality_override=valuation_mortality,
             )
             console.print("[dim]No --config supplied — running demo mode[/dim]")
 
@@ -1825,14 +1858,21 @@ def price_cmd(
 
     rated_summary = rating_composition(inforce)
 
+    summary: dict[str, object] = {
+        "n_cohorts": n_cohorts,
+        "total_pv_profits_cedant": total_cedant_pv,
+        "total_pv_profits_reinsurer": total_reinsurer_pv,
+        "reserve_basis": str(config.reserve_basis),
+    }
+    # Echo the prescribed statutory valuation table only when one is set, so a
+    # run without ``--valuation-mortality`` / ``deal.valuation_mortality`` is
+    # byte-identical to prior output (no always-present ``null`` key). When set,
+    # the audit trail records which table drove the statutory reserve.
+    if inputs.deal.valuation_mortality is not None:
+        summary["valuation_mortality"] = inputs.deal.valuation_mortality
     output_data: dict[str, object] = {
         "cohorts": cohorts_out,
-        "summary": {
-            "n_cohorts": n_cohorts,
-            "total_pv_profits_cedant": total_cedant_pv,
-            "total_pv_profits_reinsurer": total_reinsurer_pv,
-            "reserve_basis": str(config.reserve_basis),
-        },
+        "summary": summary,
         "rated_block": rated_summary,
     }
     # Back-compat: expose the first cohort's cedant/reinsurer at the top
