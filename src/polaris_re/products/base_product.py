@@ -149,9 +149,9 @@ class BaseProduct(ABC):
             raise PolarisComputationError(
                 f"Reserve basis {basis.value!r} is not yet implemented for "
                 f"{type(self).__name__}. Supported bases: {supported}. "
-                "NET_PREMIUM / CRVM / VM20 are implemented for TermLife and "
-                "WholeLife; GAAP (FAS 60) is implemented for TermLife (ADR-127) "
-                "and lands for WholeLife in the next slice (see ADR-087..092, "
-                "docs/PLAN_reserve_basis.md and docs/PLAN_reserve_basis_exactness.md)."
+                "NET_PREMIUM / CRVM / VM20 / GAAP (FAS 60) are all implemented "
+                "for TermLife and WholeLife (see ADR-087..092, ADR-127, ADR-128, "
+                "docs/PLAN_reserve_basis.md and docs/PLAN_reserve_basis_exactness.md); "
+                "other product engines currently support NET_PREMIUM only."
             )
         return basis

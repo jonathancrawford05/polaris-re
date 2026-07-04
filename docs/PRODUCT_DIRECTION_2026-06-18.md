@@ -601,15 +601,17 @@ Items harvested from completed/in-flight work by the daily-dev routine
   NICE-TO-HAVE.
   *Source: ADR-090 Out of scope (1st-order).*
 
-- **IMPORTANT — GAAP (FAS 60) concrete reserve basis.** *(IN PROGRESS via the
-  Reserve-Basis Exactness epic — TermLife GAAP shipped 2026-07-04, ADR-127,
-  Slice 3; WholeLife GAAP is Slice 4 / NEXT. Do not treat as unstarted.)* The
-  reserve-basis epic shipped NET_PREMIUM / CRVM / VM-20 for Term and Whole Life
-  and surfaced the selector (Slice 4), and GAAP now computes for **TermLife**
-  (net-premium benefit reserve on locked-in best-estimate + PADs); **WholeLife**
-  GAAP still raises `PolarisComputationError` until Slice 4. US GAAP is a basis a
-  US cedant commonly reports on, so reproducing it is part of "match the cedant's
-  basis," not polish → IMPORTANT.
+- **IMPORTANT — GAAP (FAS 60) concrete reserve basis.** *(ADDRESSED in draft,
+  pending merge — TermLife GAAP shipped 2026-07-04, ADR-127, Slice 3; WholeLife
+  GAAP shipped 2026-07-04 in a draft PR, ADR-128, Slice 4. GAAP now computes for
+  **both** Term and Whole Life; the Reserve-Basis Exactness epic is COMPLETE. The
+  morning ledger-healing step should strike this through once the Slice-4 PR
+  merges to main. Do not re-select.)* The reserve-basis epic shipped
+  NET_PREMIUM / CRVM / VM-20 / GAAP (FAS 60) for Term and Whole Life and surfaced
+  the selector. GAAP is the net-premium benefit reserve on locked-in
+  best-estimate + PADs (net **level** premium, prospective to omega for WL). US
+  GAAP is a basis a US cedant commonly reports on, so reproducing it is part of
+  "match the cedant's basis," not polish → IMPORTANT.
   *Source: ADR-092 Out of scope + PLAN_reserve_basis §1 (1st-order).*
 
 - **NICE-TO-HAVE — Reserve-basis selector on `scenario` / `uq` surfaces.**
@@ -1096,17 +1098,18 @@ Items harvested from completed/in-flight work by the daily-dev routine
   *Source: ADR-126 Out of scope (1st-order).*
 
 - **IMPORTANT — Surface the GAAP (FAS 60) PADs on the deal path
-  (`DealConfig` / CLI / API).** Slice 3 (ADR-127) implemented GAAP for TermLife
-  and put the two provisions for adverse deviation on `ProjectionConfig`
-  (`gaap_mortality_pad`, `gaap_interest_margin`, both neutral-default). A
-  `ProjectionConfig` built directly (notebooks / analytics) can set them, but the
-  CLI config parser, `--gaap-*` flags, and the REST `PriceRequest` do not yet
-  expose them — so a CLI/API user gets GAAP only at neutral PADs (= locked-in
-  best-estimate NPR). FAS 60 PADs are company-specific and are exactly what
-  reproduces the cedant's GAAP benefit reserve, so this is part of "match the
-  cedant's basis," not polish. Mirror the dedicated surfacing slice
-  `valuation_mortality` got (ADR-125 engine → ADR-126 deal path) → IMPORTANT.
-  *Source: ADR-127 Out of scope (1st-order).*
+  (`DealConfig` / CLI / API).** Slices 3–4 (ADR-127 / ADR-128) implemented GAAP
+  for **both** TermLife and WholeLife and put the two provisions for adverse
+  deviation on `ProjectionConfig` (`gaap_mortality_pad`, `gaap_interest_margin`,
+  both neutral-default). A `ProjectionConfig` built directly (notebooks /
+  analytics) can set them, but the CLI config parser, `--gaap-*` flags, and the
+  REST `PriceRequest` do not yet expose them — so a CLI/API user gets GAAP only at
+  neutral PADs (= locked-in best-estimate NPR) on either product. FAS 60 PADs are
+  company-specific and are exactly what reproduces the cedant's GAAP benefit
+  reserve, so this is part of "match the cedant's basis," not polish. Mirror the
+  dedicated surfacing slice `valuation_mortality` got (ADR-125 engine → ADR-126
+  deal path) → IMPORTANT.
+  *Source: ADR-127 / ADR-128 Out of scope (1st-order).*
 
 - **NICE-TO-HAVE — FAS 60 DAC amortisation + loss-recognition / premium-deficiency
   test.** Slice 3 (ADR-127) models the GAAP **benefit reserve** only. A full FAS 60
@@ -1122,6 +1125,38 @@ Items harvested from completed/in-flight work by the daily-dev routine
   FAS 60 valuation may grade PADs by policy duration or use a select-period margin.
   Design completeness for GAAP, not common-path correctness → NICE-TO-HAVE.
   *Source: ADR-127 Out of scope (2nd-order — a follow-up of the GAAP follow-up).*
+
+- **IMPORTANT — WholeLife does not model mortality improvement on any basis.**
+  Surfaced while implementing WL GAAP (Slice 4, ADR-128): `TermLife._build_rate_arrays`
+  applies the configured `AssumptionSet.improvement` scale to the projection `q`,
+  but `WholeLife._build_rate_arrays` (and hence every WL reserve basis —
+  NET_PREMIUM / CRVM / VM-20 / GAAP — plus the WL projection cash flows) never
+  reads `improvement`, so a WL block priced with an improvement scale configured
+  **silently ignores it**. This is a pre-existing, WL-wide gap (not GAAP-specific);
+  it is why the TermLife GAAP "reflects improvement" guardrail test has no WL
+  analogue. It affects the common WL pricing path (best-estimate mortality is a
+  touch conservative vs the intended improving basis) and the trust/auditability
+  of the projected numbers → IMPORTANT. Fix: apply `improvement` in
+  `WholeLife._build_rate_arrays` (and the to-omega `_build_valuation_mortality`
+  where a best-estimate basis is valued — GAAP/VM-20 DR — but NOT the statutory
+  `valuation_mortality` path, which is prescribed-static by design). Guard with a
+  golden-byte-identity check (no golden configures WL improvement) and a
+  closed-form improvement-isolation test mirroring TermLife.
+  *Source: ADR-128 Out of scope + DEV_SESSION_LOG_2026-07-04_reserve_basis_exactness_slice4
+  Open Questions (1st-order — surfaced by the originally-planned Slice-4 WL GAAP work).*
+
+- **NICE-TO-HAVE — Constitute the next Tier-A epic (COMMERCIAL_VIABILITY_REVIEW
+  successor).** The Reserve-Basis Exactness epic is COMPLETE with this slice, and
+  the COMMERCIAL_VIABILITY_REVIEW_2026-06-18 Tier-A ladder is exhausted, so the
+  next daily-dev run (step 5b) will find no active epic and no ranked source for
+  the next one. The review turns 30 days old on ~2026-07-18 (step 6 regeneration
+  trigger); until then the next epic must be constituted from the highest-value
+  unshipped work these Promoted Follow-ups point at (the IMPORTANT items:
+  prescribed statutory valuation-interest helper, GAAP-PAD deal-path surfacing,
+  WL mortality improvement). Regenerating the viability review to re-rank the
+  catalogue is itself a candidate session deliverable → NICE-TO-HAVE (process).
+  *Source: DEV_SESSION_LOG_2026-07-04_reserve_basis_exactness_slice4 Open Questions
+  + PLAN_reserve_basis_exactness Epic-derivation note (1st-order).*
 
 ## Carried Forward
 

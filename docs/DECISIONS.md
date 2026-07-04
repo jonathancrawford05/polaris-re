@@ -8291,3 +8291,79 @@ dedicated surfacing slice `valuation_mortality` got (ADR-126 after ADR-125) and 
 a 1st-order follow-up. FAS 60 deferred acquisition cost (DAC) amortisation and the loss-recognition
 / premium-deficiency test are not modelled — this is the benefit reserve only. Duration-varying
 or select-period PAD structures (a single flat mortality multiplier + flat interest haircut here).
+
+---
+
+## ADR-128: GAAP (FAS 60) net level premium reserve for WholeLife — Reserve-Basis Exactness epic, Slice 4
+
+**Status.** Accepted (2026-07-04).
+
+**Context.** ADR-127 implemented GAAP (FAS 60) for `TermLife`; `WholeLife` still raised on the
+GAAP basis via the dispatch guard. This is the final residual of the Reserve-Basis Exactness
+epic (`docs/PLAN_reserve_basis_exactness.md`, Slice 4). US GAAP is a basis a US cedant commonly
+reports whole life on, so a reinsurer reproducing the cedant's reserve needs it for WholeLife as
+well as TermLife.
+
+**Decision.**
+
+- *GAAP is the net LEVEL premium benefit reserve on a margined best-estimate basis, valued
+  prospectively to omega.* Like the TermLife GAAP (ADR-127) it is a net premium reserve on
+  **locked-in best-estimate assumptions plus explicit provisions for adverse deviation (PADs)**,
+  reusing the same two `ProjectionConfig` knobs (`gaap_mortality_pad`, `gaap_interest_margin`).
+  Unlike TermLife (a finite-horizon backward recursion with terminal `V_T = 0`), WholeLife
+  `_compute_reserves_gaap` values **prospectively to omega** — the same to-omega valuation grid
+  the CRVM / VM-20 paths use (`_valuation_months_to_omega`, `_build_valuation_mortality`) — so
+  the reserve does **not** collapse at the projection horizon the way the WL net-premium
+  one-period terminal estimate does (the ADR-089 artefact). GAAP is added to
+  `WholeLife._supported_reserve_bases`, so selecting it stops raising for whole life.
+
+- *Net LEVEL premium, not Full Preliminary Term.* WholeLife CRVM uses an FPT (year-1 alpha /
+  renewal beta) split to grade in the first-year expense allowance — a **statutory** device.
+  FAS 60 uses a single net **level** valuation premium (the equivalence-principle premium over
+  the premium-paying window, funding the to-omega benefit), so `_compute_reserves_gaap` computes
+  one `P = APV(benefits to omega) / APV(premium annuity)` per policy rather than reusing the
+  FPT modified premiums. The prospective-reserve reverse-cumsum machinery is otherwise identical
+  to the CRVM path.
+
+- *Margined best-estimate basis.* Mortality is the projection valuation q built to omega on the
+  **projection** table (mortality-only, per-(sex, smoker) `_lookup_qx_column`, substandard rating
+  and max-age certain-death forcing already applied) scaled by `gaap_mortality_pad` and capped at
+  1.0; interest is the locked-in `gaap_valuation_rate`. With both PADs neutral this reduces to
+  the locked-in best-estimate net level premium reserve valued to omega (the closed-form identity
+  pinned in the tests). No golden selects GAAP, so every priced number stays byte-identical.
+
+- *GUARDRAIL — WL GAAP defines its OWN basis; it does NOT read `assumptions.valuation_mortality`.*
+  Same boundary as ADR-127: FAS 60 is a best-estimate + PAD basis, not a prescribed static
+  statutory one, so `_compute_reserves_gaap` passes `table=None` to the valuation-q builder (the
+  projection table, not the prescribed statutory table). A test pins that a wildly different
+  prescribed valuation table does not move WL GAAP. WholeLife does not model mortality improvement
+  on any basis (it is not applied in `_build_rate_arrays`), so — unlike TermLife GAAP — there is
+  no improvement half to the guardrail here; the valuation-table independence is the operative
+  property, and WL improvement modelling is a separate pre-existing gap (harvested follow-up).
+
+- *Mortality-PAD direction is not uniform across duration.* As with the TermLife interest-margin
+  case, a higher mortality PAD raises the reserve through the early/mid accumulation phase but can
+  flip sign in the late run-off durations (the higher net level premium pulls the tail down). The
+  property test asserts the unambiguous early/mid-accumulation direction, not a whole-horizon
+  inequality. The interest margin raises the reserve monotonically through the checked horizon.
+
+**Verification.** `tests/test_products/test_wl_gaap_reserve.py` (13 tests): GAAP is supported
+(whole-life pay and limited-pay) and produces a real reserve; neutral-PAD, PAD-adjusted, and
+limited-pay reserves each reproduce an independent numpy recomputation of the net-level-premium-
+to-omega reserve to 1e-9 (the closed-form verification); GAAP differs materially from WL
+NET_PREMIUM at the horizon edge (the to-omega vs one-period-terminal distinction); a mortality
+PAD and an interest margin each raise the accumulation-phase reserve, mortality-PAD reserve
+monotonic in the margin at month 120; GAAP ignores `valuation_mortality` (guardrail). The
+`test_reserve_basis_dispatch` and `test_api/test_reserve_basis` GAAP-raises cases moved off
+WholeLife to UniversalLife (which still supports NET_PREMIUM only); a new API test pins that WL
+GAAP now prices successfully and echoes the basis. Full fast suite green; QA suite 76 passed;
+golden `flat` byte-identical (GAAP unset everywhere).
+
+**Out of scope.** WholeLife mortality-improvement modelling (a pre-existing gap: WL does not apply
+the improvement scale on any basis, so WL GAAP inherits the improvement-blind best estimate —
+harvested as an IMPORTANT follow-up). Surfacing the two PAD knobs on the deal path
+(`DealConfig` / CLI flags / REST API) remains the ADR-127 harvested follow-up and now covers both
+products. FAS 60 DAC amortisation and the loss-recognition / premium-deficiency test are not
+modelled (benefit reserve only). Duration-varying / select-period PAD structures (a single flat
+mortality multiplier + flat interest haircut here). This ADR closes the Reserve-Basis Exactness
+epic (`CONTINUATION_reserve_basis_exactness.md` → COMPLETE).

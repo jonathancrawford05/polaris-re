@@ -4,7 +4,9 @@
 mortality table (2001 CSO) for CRVM" + "GAAP (FAS 60) concrete reserve basis",
 both 1st-order Epic-1 residuals); epic constituted per step 5b with the
 Tier-A ladder exhausted — see `docs/PLAN_reserve_basis_exactness.md`.
-**Status:** IN PROGRESS
+**Status:** COMPLETE (all 4 slices done; Slice 4 shipped 2026-07-04, ADR-128 —
+WholeLife GAAP. Refinement Backlog + unresolved Open Questions harvested into
+PRODUCT_DIRECTION_2026-06-18 Promoted Follow-ups before closing.)
 **Total slices:** 4
 **Estimated total scope:** ~6-8 dev-days
 
@@ -123,15 +125,37 @@ table, and implement GAAP (FAS 60) as a concrete selectable basis.
   same helper.
 
 ### Slice 4: GAAP (FAS 60) for WholeLife + epic close
-- **Status:** NEXT
-- **Depends on:** Slice 3 merged
-- **Scope:** WL GAAP prospectively to omega, reusing the Slice-3 PAD structure
-  (`gaap_mortality_pad` / `gaap_interest_margin` on `ProjectionConfig`, same
-  best-estimate-plus-PAD rule — NOT the statutory static/no-improvement rule);
-  add `GAAP` to WL `_supported_reserve_bases`; revert the
-  `test_reserve_basis_dispatch` / `test_api/test_reserve_basis` GAAP-raises
-  cases (they move back off WL once WL implements GAAP); notebook +
-  ARCHITECTURE; HARVEST FOLLOW-UPS then Status → COMPLETE.
+- **Status:** DONE
+- **Branch:** claude/loving-gauss-eitwhz
+- **PR:** (this slice)
+- **What was done:** `WholeLife._compute_reserves_gaap` — the FAS 60 net **level**
+  premium benefit reserve, valued **prospectively to omega** (like CRVM/VM-20, so
+  no horizon-edge collapse) on the same margined best-estimate basis as Slice 3:
+  projection valuation q (mortality-only, to omega, on the **projection** table via
+  `_build_valuation_mortality(t_val, None)`) × `gaap_mortality_pad` (capped 1.0),
+  discounted at `ProjectionConfig.gaap_valuation_rate`. Uses a single net **level**
+  valuation premium `P = APV(benefits to omega) / APV(premium annuity)` — not the
+  CRVM Full-Preliminary-Term alpha/beta split — then the same prospective
+  reverse-cumsum reserve as the CRVM path. `GAAP` added to WL
+  `_supported_reserve_bases`. The `test_reserve_basis_dispatch` /
+  `test_api/test_reserve_basis` GAAP-raises cases moved off WholeLife to
+  UniversalLife (NET_PREMIUM-only); a new API test pins WL GAAP now prices and
+  echoes the basis. Notebook §5c (GAAP with PADs) + ARCHITECTURE updated. ADR-128.
+- **Key decisions:**
+  - GAAP does **not** read `assumptions.valuation_mortality` (guardrail — passes
+    `table=None`, the projection table). Best-estimate + PAD basis, not prescribed
+    static. Pinned by a valuation-table-independence test.
+  - Net LEVEL premium (equivalence principle), NOT FPT — the FPT expense-allowance
+    modification is a statutory (CRVM) device, not a GAAP one.
+  - Valued to omega (not the finite-horizon term recursion) so WL GAAP does not
+    collapse at the horizon edge; the neutral-PAD identity is the net-level-to-omega
+    reserve (verified by independent numpy recomputation), NOT WL NET_PREMIUM.
+  - Mortality-PAD reserve direction is early/mid-accumulation only (the higher net
+    level premium pulls the tail down); the property test asserts the unambiguous
+    phase. Interest margin raises the reserve monotonically through the horizon.
+  - WholeLife does not model mortality improvement on any basis, so there is no WL
+    analogue of the TermLife "GAAP reflects improvement" guardrail — harvested as
+    an IMPORTANT follow-up (WL-wide improvement gap).
 
 ## Context for Next Session
 

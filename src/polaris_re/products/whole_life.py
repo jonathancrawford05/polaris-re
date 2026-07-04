@@ -79,9 +79,12 @@ class WholeLife(BaseProduct):
     #: the CRVM reserve as the net-premium-reserve floor and a deterministic
     #: gross-premium reserve valued **to omega** (so the DR does not collapse at
     #: the projection horizon — the WL analogue of the finite-horizon Term DR;
-    #: ADR-091). GAAP remains unimplemented and raises via the base-class guard.
+    #: ADR-091). GAAP (FAS 60) is the net **level** premium benefit reserve on
+    #: the locked-in best-estimate mortality plus PADs, valued prospectively to
+    #: omega like CRVM/VM-20 so it does not collapse at the horizon edge
+    #: (ADR-128, Reserve-Basis Exactness Slice 4).
     _supported_reserve_bases = frozenset(
-        {ReserveBasis.NET_PREMIUM, ReserveBasis.CRVM, ReserveBasis.VM20}
+        {ReserveBasis.NET_PREMIUM, ReserveBasis.CRVM, ReserveBasis.VM20, ReserveBasis.GAAP}
     )
 
     def __init__(
@@ -259,6 +262,9 @@ class WholeLife(BaseProduct):
         * ``VM20`` — VM-20 simplified reserve ``max(NPR, DR)`` (see
           :meth:`_compute_reserves_vm20`). NPR reuses the to-omega CRVM reserve;
           DR is the to-omega deterministic gross-premium reserve.
+        * ``GAAP`` — US GAAP (FAS 60) net **level** premium benefit reserve on
+          locked-in best-estimate assumptions plus PADs, valued prospectively to
+          omega (see :meth:`_compute_reserves_gaap`).
 
         Unimplemented bases raise ``PolarisComputationError`` via the guard.
         """
@@ -267,6 +273,8 @@ class WholeLife(BaseProduct):
             return self._compute_reserves_crvm()
         if basis is ReserveBasis.VM20:
             return self._compute_reserves_vm20()
+        if basis is ReserveBasis.GAAP:
+            return self._compute_reserves_gaap()
         return self._compute_reserves_net_premium()
 
     def _compute_reserves_net_premium(self) -> np.ndarray:
@@ -311,6 +319,110 @@ class WholeLife(BaseProduct):
             ) * v_monthly - p_deducted
 
         reserves = np.maximum(reserves, 0.0)
+        return reserves
+
+    # --- GAAP (FAS 60 net level premium, prospective to omega) --------
+
+    def _compute_reserves_gaap(self) -> np.ndarray:
+        """
+        US GAAP (FAS 60) net level premium benefit reserve, shape (N, T).
+
+        FAS 60 (ASC 944) values a traditional (non-participating) life reserve
+        as a **net level premium reserve on locked-in best-estimate assumptions
+        plus explicit provisions for adverse deviation (PADs)**. The WholeLife
+        implementation mirrors the Slice-3 TermLife GAAP basis
+        (``TermLife._compute_reserves_gaap``, ADR-127) — a net premium reserve on
+        a *margined* best estimate — but is valued **prospectively to omega**
+        (like :meth:`_compute_reserves_crvm`), so it does **not** collapse at the
+        projection horizon the way the net-premium one-period terminal estimate
+        does. Concretely:
+
+        * **Mortality** is the projection best-estimate valuation q built to omega
+          on the *projection* mortality table (:meth:`_build_valuation_mortality`
+          with ``table=None`` — the same per-(sex, smoker) lookup, per-policy
+          substandard rating and max-age certain-death forcing as the projection,
+          mortality-only) scaled by the mortality PAD ``config.gaap_mortality_pad``
+          and capped at 1.0. Unlike the statutory bases (CRVM / VM-20 NPR), GAAP
+          does **not** read ``assumptions.valuation_mortality`` — FAS 60 is a
+          best-estimate + PAD basis, not a prescribed static statutory one
+          (ADR-128; the guardrail in ``docs/PLAN_reserve_basis_exactness.md``).
+        * **Interest** is the locked-in GAAP discount rate
+          ``config.gaap_valuation_rate`` (= ``effective_valuation_rate`` less the
+          interest PAD ``config.gaap_interest_margin``, floored at 0).
+        * **Premium** is a single net **level** premium over the premium-paying
+          window (the equivalence-principle premium, funding the to-omega
+          benefit) — not the year-1/renewal split of CRVM's Full Preliminary
+          Term. FAS 60 uses a level valuation premium; the FPT expense-allowance
+          modification is a statutory (CRVM) device, not a GAAP one.
+
+        With both PADs neutral (``gaap_mortality_pad == 1.0`` and
+        ``gaap_interest_margin == 0.0``) this reduces to the locked-in
+        best-estimate net level premium reserve valued to omega — the closed-form
+        identity pinned in the tests. A positive mortality PAD or interest margin
+        raises the accumulation-phase reserve (more conservative), as
+        adverse-deviation margins must.
+
+        Note: WholeLife does not model mortality improvement on any basis (it is
+        not applied in ``_build_rate_arrays``), so — unlike TermLife GAAP — there
+        is no improvement to lock in here; the best estimate is the projection
+        table as looked up. The valuation-table independence is the operative
+        guardrail.
+        """
+        n = self.inforce.n_policies
+        t_proj = self.config.projection_months
+        # Best estimate → projection table (NOT the prescribed statutory table);
+        # its omega sets the to-omega valuation grid.
+        t_val = self._valuation_months_to_omega(None)
+
+        pad = self.config.gaap_mortality_pad
+        i_gaap = self.config.gaap_valuation_rate
+        v_monthly = (1.0 + i_gaap) ** (-1.0 / 12.0)
+
+        q_be = self._build_valuation_mortality(t_val, None)  # (N, t_val), mortality-only
+        q_val = np.minimum(q_be * pad, 1.0)  # apply mortality PAD; q=1.0 at omega stays 1.0
+        face_vec = self.inforce.face_amount_vec  # (N,)
+
+        # Premium-paying months per policy (whole-life pay runs to omega).
+        if self.premium_payment_years is not None:
+            premium_months = np.full(n, self.premium_payment_years * 12, dtype=np.int64)
+        else:
+            premium_months = np.full(n, t_val, dtype=np.int64)
+
+        # Mortality-only survival and time-0 PV building blocks (as in CRVM).
+        tpx = np.ones((n, t_val), dtype=np.float64)
+        for month in range(1, t_val):
+            tpx[:, month] = tpx[:, month - 1] * (1.0 - q_val[:, month - 1])
+
+        v_powers = v_monthly ** np.arange(t_val, dtype=np.float64)  # (t_val,)
+        v_powers_plus1 = v_monthly ** np.arange(1, t_val + 1, dtype=np.float64)
+
+        benefit_pv = v_powers_plus1[np.newaxis, :] * tpx * q_val * face_vec[:, np.newaxis]  # (N,T)
+        annuity_pv = v_powers[np.newaxis, :] * tpx  # (N, t_val)
+
+        # Single net LEVEL premium over the premium-paying window (months
+        # 0 .. premium_months-1): P = APV(benefits to omega) / APV(premium annuity).
+        months = np.arange(t_val)
+        prem_window = months[np.newaxis, :] < premium_months[:, np.newaxis]  # (N, t_val)
+        apv_benefits = benefit_pv.sum(axis=1)  # (N,) benefits to omega
+        apv_prem_annuity = (annuity_pv * prem_window).sum(axis=1)  # (N,)
+        p_net = np.where(apv_prem_annuity > 0.0, apv_benefits / apv_prem_annuity, 0.0)  # (N,)
+        p_s = np.where(prem_window, p_net[:, np.newaxis], 0.0)  # (N, t_val)
+
+        # Prospective reserve: reverse-cumulative PV of (benefits - premiums),
+        # brought to time t per survivor by dividing by v^t * tpx_t.
+        future_benefits = np.cumsum(benefit_pv[:, ::-1], axis=1)[:, ::-1]  # sum_{s>=t} f_s
+        future_premiums = np.cumsum((p_s * annuity_pv)[:, ::-1], axis=1)[
+            :, ::-1
+        ]  # sum_{s>=t} P g_s
+        discount_to_t = v_powers[np.newaxis, :] * tpx  # v^t * tpx_t
+        with np.errstate(divide="ignore", invalid="ignore"):
+            reserves_val = np.where(
+                discount_to_t > 0.0,
+                (future_benefits - future_premiums) / discount_to_t,
+                0.0,
+            )
+
+        reserves = np.maximum(reserves_val[:, :t_proj], 0.0)
         return reserves
 
     # --- CRVM (Full Preliminary Term, prospective to omega) -----------
