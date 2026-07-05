@@ -1206,6 +1206,28 @@ Items harvested from completed/in-flight work by the daily-dev routine
   write `PLAN_<productization>.md` + slice 1. *Source:
   COMMERCIAL_VIABILITY_REVIEW_2026-07-05 §4–§5 (1st-order — direction item from the
   regenerated review).*
+  - **ACTED ON (2026-07-05):** the **A1′ Validation & Benchmark pack** epic was
+    constituted as the active epic and Slice 1 shipped — `PLAN_validation_benchmark.md`
+    + `CONTINUATION_validation_benchmark.md` (IN PROGRESS), ADR-130, module
+    `polaris_re.analytics.validation` (framework + closed-form seed set), 18 tests.
+    Slice 2 (published-deck reference set) is NEXT; Slice 3 surfaces a `polaris
+    validate` CLI + report notebook. The redirect go/no-go remains reserved for the
+    maintainer (interest-exactness parked open-but-deprioritised, not killed).
+
+- **NICE-TO-HAVE — AXIS/Prophet side-by-side validation case.** A licensed-tool
+  reference output would let the validation pack (A1′) assert against the incumbent
+  systems directly, not just closed-form/published references. Currently
+  REFERENCE-BLOCKED (no licensed tool / reference output obtainable in CI); revive
+  only if the maintainer supplies a reference output. *Source: ADR-130 Out of scope
+  (2nd-order — follow-up of the A1′ validation-epic follow-up → NICE-TO-HAVE per the
+  step-17 order cap).*
+
+- **NICE-TO-HAVE — WholeLife-to-omega closed-form validation case.** Slice 1 of the
+  validation pack validates via TermLife (the simplest engine); a WholeLife
+  net-single-premium / reserve closed-form case would extend coverage to the
+  accumulation-product path. Candidate for Slice 2. *Source: ADR-130 Out of scope
+  (2nd-order — follow-up of the A1′ validation-epic follow-up → NICE-TO-HAVE per the
+  step-17 order cap).*
 
 ## Carried Forward
 
