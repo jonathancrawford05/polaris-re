@@ -154,15 +154,18 @@ a projection-wide selector — `core/reserve_basis.py::ReserveBasis` (a `StrEnum
   (PADs): the net premium reserve valued on a margined basis — the projection
   best-estimate `q` scaled by `ProjectionConfig.gaap_mortality_pad` and discounted
   at `gaap_valuation_rate` (the valuation rate less `gaap_interest_margin`).
-  Neutral PADs (the defaults) collapse it exactly onto the locked-in best-estimate
-  net premium reserve. Unlike the statutory bases it does **not** read
+  Neutral PADs (the defaults) collapse it onto the locked-in best-estimate net
+  premium reserve. Unlike the statutory bases it does **not** read
   `valuation_mortality` and does **not** suppress mortality improvement — FAS 60 is
   a best-estimate-plus-PAD basis, not a prescribed static one. Implemented for
-  `TermLife` (ADR-127, Reserve-Basis Exactness Slice 3); `WholeLife` GAAP is the
-  final slice (Slice 4) and still raises until then.
+  `TermLife` (ADR-127, Slice 3) and `WholeLife` (ADR-128, Slice 4). For `TermLife`
+  it is a finite-horizon net-premium recursion (terminal `V_T = 0`); for
+  `WholeLife` it is a net **level** premium reserve valued **prospectively to
+  omega** (like CRVM/VM-20, so it does not collapse at the horizon edge), using a
+  single level valuation premium rather than CRVM's Full-Preliminary-Term split.
 
-CRVM and VM-20 are implemented for `TermLife` and `WholeLife`, and GAAP for
-`TermLife` (ADR-087–092, ADR-127).
+CRVM, VM-20, and GAAP (FAS 60) are all implemented for `TermLife` and `WholeLife`
+(ADR-087–092, ADR-127, ADR-128) — the Reserve-Basis Exactness epic is complete.
 Each product declares the bases it supports; selecting an **unsupported** basis
 raises `PolarisComputationError` rather than silently falling back, so a run can
 never report a reserve on a basis the engine did not actually compute. For *exact*
@@ -170,13 +173,13 @@ cedant CRVM reproduction, `AssumptionSet.valuation_mortality` supplies a distinc
 **prescribed statutory valuation table** (e.g. 2001 CSO) that CRVM and the VM-20
 NPR floor value on — static (no improvement scale), substandard rating applied,
 valued to the valuation table's own omega for WL (ADR-125). Default `None` keeps
-statutory bases on the projection mortality table; `NET_PREMIUM` and the VM-20
-deterministic reserve (anticipated experience by definition) always use the
+statutory bases on the projection mortality table; `NET_PREMIUM`, `GAAP`, and the
+VM-20 deterministic reserve (anticipated experience by definition) always use the
 projection assumptions. `valuation_mortality` is surfaced on the config / CLI
-(`--valuation-mortality`) / API deal path (ADR-126, Slice 2), and GAAP (FAS 60)
-is implemented for `TermLife` (ADR-127, Slice 3); GAAP for `WholeLife` is the one
-remaining slice of the Reserve-Basis Exactness epic
-(`docs/PLAN_reserve_basis_exactness.md`).
+(`--valuation-mortality`) / API deal path (ADR-126, Slice 2). The GAAP PADs
+(`gaap_mortality_pad` / `gaap_interest_margin`) currently live on
+`ProjectionConfig`; surfacing them on the `DealConfig` / CLI / API deal path is a
+tracked follow-up.
 
 ### Product-Specific Projection Details
 
@@ -358,7 +361,7 @@ See `docs/DECISIONS.md` for full ADRs. Summary:
 |---|---|---|
 | ORM for policy data | Polars DataFrame + Pydantic | Performance over convenience |
 | Projection time step | Monthly | Industry standard for life insurance |
-| Reserve basis | Selectable `ReserveBasis` — NET_PREMIUM (default), CRVM, VM20 for Term/WL, GAAP (FAS 60) for Term; AV (UL); zero (DI/CI) | Reproduce the cedant's statutory reserve; unsupported basis raises, never silently falls back |
+| Reserve basis | Selectable `ReserveBasis` — NET_PREMIUM (default), CRVM, VM20, GAAP (FAS 60) for Term/WL; AV (UL); zero (DI/CI) | Reproduce the cedant's statutory reserve; unsupported basis raises, never silently falls back |
 | Regulatory capital | `CapitalModel` / `CapitalSchedule` protocols; LICAT + US RBC + EU Solvency II implementations | One RoC machinery across jurisdictions; structural (runtime-checkable) seam, no inheritance |
 | IFRS 17 movement | Annual issue-year cohorts, locked-in rate per cohort, footing movement tables | Matches IASB analysis-of-change presentation; cohorts sum to the aggregate by construction |
 | Mortality table format | CSV with standard column schema | No binary dependencies; auditability |

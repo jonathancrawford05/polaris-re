@@ -22,6 +22,7 @@ from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
 from polaris_re.core.projection import ProjectionConfig
 from polaris_re.core.reserve_basis import ReserveBasis
 from polaris_re.products.term_life import TermLife
+from polaris_re.products.universal_life import UniversalLife
 from polaris_re.products.whole_life import WholeLife
 from polaris_re.utils.table_io import load_mortality_csv
 
@@ -31,9 +32,12 @@ FIXTURES = Path(__file__).parent.parent / "fixtures"
 # (ADR-088) and for WholeLife in slice 2b (ADR-089). VM-20 simplified landed for
 # TermLife in slice 3a (ADR-090) and for WholeLife (the to-omega DR) in slice 3b
 # (ADR-091). GAAP (FAS 60) landed for TermLife in the Reserve-Basis Exactness
-# epic slice 3 (ADR-127); it remains unimplemented for WholeLife until slice 4.
+# epic slice 3 (ADR-127) and for WholeLife in slice 4 (ADR-128). TermLife and
+# WholeLife now implement every ReserveBasis; the still-unimplemented bases live
+# on the other product engines (e.g. UniversalLife supports only NET_PREMIUM),
+# which is where the guard-message test now exercises the raise.
 TERM_UNIMPLEMENTED_BASES: list[ReserveBasis] = []
-WL_UNIMPLEMENTED_BASES = [ReserveBasis.GAAP]
+WL_UNIMPLEMENTED_BASES: list[ReserveBasis] = []
 
 
 @pytest.fixture()
@@ -112,6 +116,34 @@ def _wl_block() -> InforceBlock:
     )
 
 
+def _ul_block() -> InforceBlock:
+    # UniversalLife inherits the base default (_supported_reserve_bases =
+    # {NET_PREMIUM}), so it is the natural product for exercising the
+    # unimplemented-basis guard now that TermLife and WholeLife implement all
+    # four bases.
+    return InforceBlock(
+        policies=[
+            Policy(
+                policy_id="U1",
+                issue_age=40,
+                attained_age=40,
+                sex=Sex.MALE,
+                smoker_status=SmokerStatus.NON_SMOKER,
+                underwriting_class="STANDARD",
+                face_amount=500_000.0,
+                annual_premium=6_000.0,
+                product_type=ProductType.UNIVERSAL_LIFE,
+                duration_inforce=0,
+                reinsurance_cession_pct=0.5,
+                account_value=10_000.0,
+                credited_rate=0.04,
+                issue_date=date(2025, 1, 1),
+                valuation_date=date(2025, 1, 1),
+            )
+        ]
+    )
+
+
 class TestDefaultBasisUnchanged:
     """NET_PREMIUM (default) must reproduce the historical reserve exactly."""
 
@@ -151,9 +183,10 @@ class TestUnimplementedBasisRaises:
             engine.compute_reserves()
 
     def test_error_message_names_supported_basis(self, assumption_set: AssumptionSet):
-        # GAAP is still unimplemented for WholeLife (it lands for TermLife in the
-        # Reserve-Basis Exactness slice 3, ADR-127, but for WL only in slice 4);
-        # the error names the supported bases (which include CRVM and VM20).
-        engine = WholeLife(_wl_block(), assumption_set, _config(ReserveBasis.GAAP))
+        # TermLife and WholeLife now implement every ReserveBasis (GAAP landed for
+        # WholeLife in slice 4, ADR-128). UniversalLife still supports only
+        # NET_PREMIUM, so selecting GAAP on it surfaces the guard, whose message
+        # names the supported bases (here just NET_PREMIUM).
+        engine = UniversalLife(_ul_block(), assumption_set, _config(ReserveBasis.GAAP))
         with pytest.raises(PolarisComputationError, match="NET_PREMIUM"):
             engine.compute_reserves()

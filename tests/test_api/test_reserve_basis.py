@@ -70,14 +70,33 @@ def test_crvm_changes_priced_numbers() -> None:
     assert abs(net["pv_profits"] - crvm_json["pv_profits"]) > 1.0
 
 
-def test_unsupported_basis_for_product_is_422() -> None:
-    # GAAP (FAS 60) is implemented for TermLife (ADR-127) but not yet for
-    # WholeLife, so selecting it on a WL policy surfaces the
-    # PolarisComputationError as HTTP 422.
+def test_gaap_supported_for_whole_life() -> None:
+    # GAAP (FAS 60) is now implemented for WholeLife (ADR-128, Reserve-Basis
+    # Exactness slice 4), so selecting it on a WL policy prices successfully and
+    # echoes the basis (previously this raised as HTTP 422).
     wl_policy = {**DEMO_POLICY, "policy_term": None, "annual_premium": 12_000.0}
     resp = client.post(
         "/api/v1/price",
         json=_request(policies=[wl_policy], product_type="WHOLE_LIFE", reserve_basis="GAAP"),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["reserve_basis"] == "GAAP"
+
+
+def test_unsupported_basis_for_product_is_422() -> None:
+    # TermLife and WholeLife now implement every ReserveBasis; UniversalLife
+    # supports only NET_PREMIUM, so selecting GAAP on a UL policy surfaces the
+    # PolarisComputationError as HTTP 422.
+    ul_policy = {
+        **DEMO_POLICY,
+        "policy_term": None,
+        "annual_premium": 6_000.0,
+        "account_value": 10_000.0,
+        "credited_rate": 0.04,
+    }
+    resp = client.post(
+        "/api/v1/price",
+        json=_request(policies=[ul_policy], product_type="UNIVERSAL_LIFE", reserve_basis="GAAP"),
     )
     assert resp.status_code == 422
 

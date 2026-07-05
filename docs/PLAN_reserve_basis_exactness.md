@@ -1,7 +1,9 @@
 # PLAN: Reserve-Basis Exactness (statutory valuation table + GAAP)
 
-**Status:** IN PROGRESS — Slices 1–2 shipped 2026-07-03, Slice 3 (GAAP FAS 60,
-TermLife) shipped 2026-07-04 (Slice 4 next: GAAP for WholeLife + epic close)
+**Status:** COMPLETE — Slices 1–2 shipped 2026-07-03, Slice 3 (GAAP FAS 60,
+TermLife) shipped 2026-07-04, Slice 4 (GAAP FAS 60, WholeLife + epic close)
+shipped 2026-07-04 (ADR-128). All four bases (NET_PREMIUM / CRVM / VM-20 / GAAP)
+now compute for Term and Whole Life.
 **Source:** PRODUCT_DIRECTION_2026-06-18.md — the two surviving IMPORTANT
 reserve-basis residuals (both 1st-order harvests of Epic 1, ADR-089/ADR-092):
 
@@ -102,12 +104,16 @@ basis — closing the last two gaps between "a reserve on the right method" and
   only, never the statutory basis rule.
 
 ### Slice 4: GAAP (FAS 60) for WholeLife + epic close
-- **Status:** NEXT
+- **Status:** DONE (2026-07-04, ADR-128)
 - **Depends on:** Slice 3 merged.
-- WL GAAP valued prospectively to omega (no horizon-edge collapse), reusing
-  the Slice-3 PAD structure; add `GAAP` to WL supported bases.
+- WL GAAP valued prospectively to omega (no horizon-edge collapse) as a net
+  **level** premium reserve (not FPT), reusing the Slice-3 PAD structure;
+  `GAAP` added to WL supported bases. Guardrail: does NOT read
+  `valuation_mortality` (best-estimate + PAD, not prescribed static).
 - Selector already surfaces GAAP everywhere (ADR-092) — choosing it simply
-  stops raising. Notebook + ARCHITECTURE update; HARVEST + close CONTINUATION.
+  stops raising. Notebook §5c + ARCHITECTURE updated; HARVEST done (Refinement
+  Backlog + unresolved Open Questions → PRODUCT_DIRECTION_2026-06-18 Promoted
+  Follow-ups, incl. the new WL-mortality-improvement gap); CONTINUATION COMPLETE.
 
 ## Explicitly Out of Scope (epic level)
 
