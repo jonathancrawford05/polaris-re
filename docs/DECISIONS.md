@@ -8347,17 +8347,23 @@ well as TermLife.
   property test asserts the unambiguous early/mid-accumulation direction, not a whole-horizon
   inequality. The interest margin raises the reserve monotonically through the checked horizon.
 
-**Verification.** `tests/test_products/test_wl_gaap_reserve.py` (13 tests): GAAP is supported
+**Verification.** `tests/test_products/test_wl_gaap_reserve.py` (17 tests): GAAP is supported
 (whole-life pay and limited-pay) and produces a real reserve; neutral-PAD, PAD-adjusted, and
 limited-pay reserves each reproduce an independent numpy recomputation of the net-level-premium-
-to-omega reserve to 1e-9 (the closed-form verification); GAAP differs materially from WL
-NET_PREMIUM at the horizon edge (the to-omega vs one-period-terminal distinction); a mortality
-PAD and an interest margin each raise the accumulation-phase reserve, mortality-PAD reserve
-monotonic in the margin at month 120; GAAP ignores `valuation_mortality` (guardrail). The
-`test_reserve_basis_dispatch` and `test_api/test_reserve_basis` GAAP-raises cases moved off
-WholeLife to UniversalLife (which still supports NET_PREMIUM only); a new API test pins that WL
-GAAP now prices successfully and echoes the basis. Full fast suite green; QA suite 76 passed;
-golden `flat` byte-identical (GAAP unset everywhere).
+to-omega reserve (the closed-form verification); GAAP differs materially from WL NET_PREMIUM at
+the horizon edge (the to-omega vs one-period-terminal distinction); a mortality PAD and an
+interest margin each raise the accumulation-phase reserve, mortality-PAD reserve monotonic in the
+margin at month 120; GAAP ignores `valuation_mortality` (guardrail). Per the PR #127 review (P2),
+the closed-form recomputation uses a **different reserve formulation** than the engine — a
+per-survivor backward recursion (`V_t = (q_t*face + (1-q_t)*V_{t+1})*v - P_t`, terminal
+`V_omega = 0`) vs the engine's reverse-cumulative-PV — so the two agree to ~2e-9 (checked at
+1e-8) and catch a shared *conceptual* error, not merely a transcription slip; a
+formulation-independent equivalence-principle identity (`V_0 = APV(benefits) - P*APV(annuity) = 0`
+at issue, neutral and padded) backs it. The `test_reserve_basis_dispatch` and
+`test_api/test_reserve_basis` GAAP-raises cases moved off WholeLife to UniversalLife (which still
+supports NET_PREMIUM only); a new API test pins that WL GAAP now prices successfully and echoes
+the basis. Full fast suite green; QA suite 76 passed; golden `flat` byte-identical (GAAP unset
+everywhere).
 
 **Out of scope.** WholeLife mortality-improvement modelling (a pre-existing gap: WL does not apply
 the improvement scale on any basis, so WL GAAP inherits the improvement-blind best estimate —

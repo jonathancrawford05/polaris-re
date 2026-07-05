@@ -111,11 +111,18 @@ Recorded in ADR-128; CONTINUATION → COMPLETE (after HARVEST).
 - `docs/DEV_SESSION_LOG_2026-07-04_reserve_basis_exactness_slice4.md` — this log.
 
 ## Tests Added
-`tests/test_products/test_wl_gaap_reserve.py` (13 tests):
+`tests/test_products/test_wl_gaap_reserve.py` (17 tests):
 - GAAP supported (whole-life pay and limited-pay) and produces a real reserve.
 - Closed form — neutral-PAD, PAD-adjusted (pad 1.15, margin 0.0075), and
   limited-pay (20-pay) reserves each reproduce an independent numpy recomputation
-  of the net-level-premium-to-omega reserve to 1e-9.
+  of the net-level-premium-to-omega reserve. Per the PR #127 review (P2), the
+  recomputation uses a **different reserve formulation** than the engine (a
+  per-survivor backward recursion vs the engine's reverse-cumulative-PV), so it
+  catches a shared conceptual error rather than a transcription slip; the two
+  agree to ~2e-9 (checked at 1e-8).
+- Equivalence-principle identity (formulation-independent): the reserve at issue
+  is zero, `V_0 = APV(benefits) - P*APV(annuity) = 0`, for neutral and padded
+  bases (parametrised).
 - GAAP differs materially from WL NET_PREMIUM at the horizon edge (to-omega vs
   one-period terminal).
 - A mortality PAD (1.10) and an interest margin (0.01) each raise the
@@ -123,6 +130,14 @@ Recorded in ADR-128; CONTINUATION → COMPLETE (after HARVEST).
   PAD at month 120 (parametrised).
 - GUARDRAIL: WL GAAP ignores `valuation_mortality` (byte-identical under a 2×
   prescribed table).
+
+## Post-Review Update (PR #127 review P2)
+The automated review APPROVED (zero P0/P1). Its one finding — the closed-form
+test mirrored the engine's reverse-cumsum machinery, so it caught transcription
+slips but not a shared conceptual error — was addressed in a follow-up commit:
+the test's reserve recomputation was switched to an independent backward
+recursion, and a formulation-independent equivalence-principle identity
+(`V_0 = 0` at issue) was added. Test-only change; goldens untouched.
 
 ## Acceptance Criteria
 | Criterion | Status | Notes |
