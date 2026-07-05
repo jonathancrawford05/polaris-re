@@ -1175,6 +1175,37 @@ Items harvested from completed/in-flight work by the daily-dev routine
   staleness trigger. Scheduled as the CONTINUATION checkpoint after Slice 1.
   *Source: DEV_SESSION_LOG_2026-07-04_reserve_basis_exactness_slice4 Open Questions
   + PLAN_reserve_basis_correctness Checkpoint (1st-order).*
+  **— RESOLVED 2026-07-05 (checkpoint regenerated): `COMMERCIAL_VIABILITY_REVIEW_2026-07-05.md`.**
+
+- **NICE-TO-HAVE — Prescribed statutory valuation-interest helper (interest-
+  exactness, Reserve-Basis Correctness Slices 2–3).** Issue-year → SVL max
+  valuation rate / VM-20 NPR discount rate resolver, wired into CRVM / VM-20 NPR
+  discounting for **penny-exact** statutory reserve reproduction (today a single
+  manual `ProjectionConfig.valuation_interest_rate` makes it directional, not
+  exact). *DEMOTED from Tier-A-epic to NICE-TO-HAVE by the 2026-07-05 checkpoint:*
+  the modeling roadmap (Phases 1–5, all Tier-A epics, Asset/ALM, expense-allowance)
+  is complete, so this exactness polish (★★★☆☆) no longer out-ranks the
+  productization/credibility frontier (validation & benchmark pack, production
+  hardening, ingestion robustness). Full PLAN/CONTINUATION preserved
+  (`PLAN_reserve_basis_correctness.md` Slices 2–3) for revival on a real
+  penny-exact cedant reproduction requirement — or immediate resumption if the
+  maintainer declines the redirect (review §7). *Source:
+  COMMERCIAL_VIABILITY_REVIEW_2026-07-05 §3–§5 + CONTINUATION_reserve_basis_correctness
+  Checkpoint outcome (2nd-order — follow-up of the checkpoint follow-up above).*
+
+- **IMPORTANT — Constitute a productization / credibility epic (next active epic).**
+  With the modeling roadmap complete, the frontier is trust-and-deployment. Lead
+  candidate **A1′ — validation & benchmark pack** (reproduce published statutory
+  reserve decks / SOA illustrative values / closed-form textbook cases, and an
+  AXIS/Prophet side-by-side where a reference output is obtainable, into a
+  CI-executed validation suite + report notebook — backs the README's "credible
+  alternative to AXIS/Prophet" thesis). Fallbacks if A1′ is reference-blocked:
+  **A2′ production hardening & observability** (ROADMAP 6.2 — logging, auth, rate
+  limiting, K8s/Helm) and **A3′ cedant-ingestion robustness** (harden the 4.2
+  pipeline for messy real blocks). Next session should run a scoping pass and
+  write `PLAN_<productization>.md` + slice 1. *Source:
+  COMMERCIAL_VIABILITY_REVIEW_2026-07-05 §4–§5 (1st-order — direction item from the
+  regenerated review).*
 
 ## Carried Forward
 

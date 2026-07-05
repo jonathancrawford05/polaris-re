@@ -86,6 +86,15 @@ statutory reserve").
 - ADR entry. Update the PRODUCT_DIRECTION WL-improvement item to ADDRESSED.
 
 ### CHECKPOINT (after Slice 1): regenerate COMMERCIAL_VIABILITY_REVIEW
+- **Status:** DONE (2026-07-05) → `docs/COMMERCIAL_VIABILITY_REVIEW_2026-07-05.md`.
+  **Outcome: REDIRECT recommended** — the modeling roadmap (Phases 1–5, all
+  Tier-A epics, Asset/ALM, expense-allowance) is complete, so interest-exactness
+  (Slices 2–3) is reclassified as Tier-D exactness polish and a
+  productization/credibility epic (A1′ validation & benchmark pack, A2′
+  production hardening, A3′ ingestion robustness) now out-ranks it. Slices 2–3
+  demoted to a NICE-TO-HAVE follow-up pending the maintainer's go/no-go
+  (review §7). They remain fully planned so Slice 2 ships unchanged if the
+  maintainer prefers to finish interest-exactness first.
 - Phases 1–3 are complete and the Tier-A ladder is exhausted, so before
   committing the epic to the interest-exactness slices, regenerate
   `COMMERCIAL_VIABILITY_REVIEW` (re-review the last ~10 PRs + docs, re-rank the
