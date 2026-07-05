@@ -62,7 +62,8 @@ statutory reserve").
 ## Decomposition
 
 ### Slice 1: WholeLife mortality-improvement on best-estimate bases (THIS SLICE — NEXT)
-- **Status:** NEXT — the correctness fix; do first.
+- **Status:** DONE (2026-07-05, ADR-129). Correctness fix shipped; next up is the
+  CHECKPOINT (regenerate COMMERCIAL_VIABILITY_REVIEW) before Slice 2.
 - Apply `AssumptionSet.improvement` in `WholeLife._build_rate_arrays` (mirror
   `TermLife._build_rate_arrays` lines ~103–143: annual q → `apply_improvement(q,
   ages, cal_year)` → back to monthly via constant-force interpolation, BEFORE the

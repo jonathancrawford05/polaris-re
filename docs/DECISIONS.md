@@ -8373,3 +8373,59 @@ products. FAS 60 DAC amortisation and the loss-recognition / premium-deficiency 
 modelled (benefit reserve only). Duration-varying / select-period PAD structures (a single flat
 mortality multiplier + flat interest haircut here). This ADR closes the Reserve-Basis Exactness
 epic (`CONTINUATION_reserve_basis_exactness.md` → COMPLETE).
+
+## ADR-129: WholeLife honours the mortality-improvement scale on best-estimate bases — Reserve-Basis Correctness epic, Slice 1
+
+**Status.** Accepted (2026-07-05).
+
+**Context.** A *silent correctness bug*, surfaced by the ADR-128 GAAP-guardrail asymmetry:
+`WholeLife._build_rate_arrays` never read `AssumptionSet.improvement`, so a whole-life deal priced
+with a mortality-improvement scale configured (e.g. `MortalityImprovement.scale_aa(...)`) silently
+ignored it on **every** basis — the projection cash flows, NET_PREMIUM, GAAP, and the VM-20
+deterministic reserve. `TermLife._build_rate_arrays` has always applied improvement; WholeLife did
+not, which is why there was no WholeLife analogue of the TermLife "GAAP reflects improvement"
+guardrail. Reproduced first (per the routine's VERIFY PREMISE step): a WL block priced with and
+without a Scale AA scale produced byte-identical claims and GAAP reserve. This is the lead slice of
+the Reserve-Basis Correctness epic (`docs/PLAN_reserve_basis_correctness.md`) — a bug (wrong
+best-estimate mortality) outranks the epic's remaining interest-exactness polish.
+
+**Decision.**
+
+- *Improvement is a best-estimate property, applied per basis — mirror TermLife.*
+  `WholeLife._build_rate_arrays` now applies a configured `AssumptionSet.improvement` exactly as
+  `TermLife._build_rate_arrays` does: monthly q → annual (`1 - (1-q)**12`) → `apply_improvement(q,
+  ages, cal_year)` at the projection calendar year → back to monthly via
+  `constant_force_interpolate_rates`, **before** the per-policy substandard rating (ADR-042) and
+  the max-age certain-death forcing. This drives the projection cash flows and the NET_PREMIUM
+  reserve (which recurses off `_build_rate_arrays`).
+
+- *The best-estimate/statutory seam is the CALLER, not `table is None`.*
+  `_build_valuation_mortality` gains an explicit `apply_improvement: bool = False` parameter. The
+  **best-estimate** valuation callers pass `True` — GAAP (`_compute_reserves_gaap`) and the VM-20
+  **deterministic** reserve (`_compute_reserves_vm20`), both anticipated-experience. The
+  **prescribed statutory** callers keep the default `False` — CRVM (`_compute_reserves_crvm`) and,
+  through it, the VM-20 NPR floor — so they stay static per the ADR-125 boundary. Crucially the
+  gate cannot be `table is None`: CRVM without a prescribed `valuation_mortality` slot passes
+  `table=None` yet must stay static, while the VM-20 DR also passes `table=None` and must be
+  improved. An explicit caller flag is the only correct seam.
+
+- *Byte-identity preserved.* The `apply_improvement` default is `False` and, independently, the
+  flag is a no-op whenever no improvement is configured. No golden / QA / sample config sets a WL
+  improvement scale (verified by grep over `data/`), so every priced number stays byte-identical;
+  the golden `flat` output is unchanged.
+
+**Verification.** `tests/test_products/test_wl_improvement.py` (11 tests): projected claims,
+NET_PREMIUM, GAAP, and the VM-20-DR best-estimate q all move DOWN under a Scale AA scale; CRVM
+(with and without a prescribed table) and the VM-20 NPR floor are byte-identical under improvement
+(statutory static rule); the best-estimate valuation q (`apply_improvement=True`) equals the
+projection q over the horizon (the invariant the DR relies on); an independent hand-built numpy
+Scale AA application reproduces the engine's improved monthly q to 1e-15; and with no improvement
+configured the flag is a no-op on every path. Full product suite (198) green; the ADR-128 GAAP
+guardrail note in `test_wl_gaap_reserve.py` is updated (WL GAAP now reflects improvement).
+
+**Out of scope.** The prescribed statutory valuation-**interest** helper (issue-year → SVL max
+valuation rate) — the epic's remaining interest-exactness slices, gated behind a
+COMMERCIAL_VIABILITY_REVIEW regeneration checkpoint. Surfacing the GAAP PADs on the deal path
+(ADR-127/128 harvested follow-up). Sex/smoker-distinct statutory table composition. MP-2020 /
+CPM-B improvement scales are already supported by `MortalityImprovement`; this ADR only wires the
+existing improvement machinery into WholeLife (any scale, not just Scale AA).

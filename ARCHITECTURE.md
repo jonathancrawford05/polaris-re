@@ -175,7 +175,11 @@ NPR floor value on — static (no improvement scale), substandard rating applied
 valued to the valuation table's own omega for WL (ADR-125). Default `None` keeps
 statutory bases on the projection mortality table; `NET_PREMIUM`, `GAAP`, and the
 VM-20 deterministic reserve (anticipated experience by definition) always use the
-projection assumptions. `valuation_mortality` is surfaced on the config / CLI
+projection assumptions. A configured `AssumptionSet.improvement` scale is a
+best-estimate property: both `TermLife` and `WholeLife` apply it to the projection
+cash flows and every best-estimate reserve (`NET_PREMIUM`, `GAAP`, VM-20 DR), and
+never to the prescribed statutory bases (CRVM / VM-20 NPR), which stay static
+(WholeLife: ADR-129). `valuation_mortality` is surfaced on the config / CLI
 (`--valuation-mortality`) / API deal path (ADR-126, Slice 2). The GAAP PADs
 (`gaap_mortality_pad` / `gaap_interest_margin`) currently live on
 `ProjectionConfig`; surfacing them on the `DealConfig` / CLI / API deal path is a
