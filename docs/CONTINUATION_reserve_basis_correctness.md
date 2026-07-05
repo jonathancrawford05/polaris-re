@@ -89,7 +89,21 @@ silently produces wrong best-estimate mortality outranks penny-exactness.
   byte-identical. Record the result in the session log.
 
 ### CHECKPOINT (after Slice 1, before Slice 2): regenerate COMMERCIAL_VIABILITY_REVIEW
-- **Status:** PLANNED (process step).
+- **Status:** DONE (2026-07-05, `docs/COMMERCIAL_VIABILITY_REVIEW_2026-07-05.md`;
+  branch `claude/loving-gauss-o37i85`).
+- **Outcome — REDIRECT recommended.** The regenerated review found the entire
+  modeling roadmap complete (all Tier-A epics A1/A2/A3, C0 Asset/ALM, B3
+  expense-allowance shipped; ROADMAP Phases 1–5 ✅). Interest-exactness (Slices
+  2–3) reclassified from Tier-A-epic to **Tier-D exactness polish (★★★☆☆)** —
+  the *correctness* half of this epic shipped in Slice 1; the *exactness* half
+  no longer ranks first against the productization/credibility frontier
+  (validation & benchmark pack A1′, production hardening A2′, ingestion
+  robustness A3′). Recommendation: **demote Slices 2–3 to a NICE-TO-HAVE
+  follow-up and constitute a productization epic next.** The redirect go/no-go
+  was explicitly reserved for the maintainer in the Open Questions below —
+  surfaced in the review §7 and the session log. Slices 2–3 remain fully
+  planned/intact so the next session ships Slice 2 unchanged if the maintainer
+  prefers to finish interest-exactness first.
 - Phases 1–3 are COMPLETE and the Tier-A ladder is exhausted, so before
   committing the epic to the interest-exactness slices, regenerate
   `docs/COMMERCIAL_VIABILITY_REVIEW_<date>.md` (re-review the last ~10 PRs + docs,
@@ -103,8 +117,11 @@ silently produces wrong best-estimate mortality outranks penny-exactness.
   this checkpoint satisfies that too.
 
 ### Slice 2: Prescribed statutory valuation-interest helper — engine
-- **Status:** PLANNED (provisional, pending the checkpoint)
-- **Depends on:** Slice 1 merged + the checkpoint.
+- **Status:** DEPRIORITIZED — checkpoint (2026-07-05) recommends REDIRECT to a
+  productization epic and demoting this to a NICE-TO-HAVE follow-up. Pending
+  the maintainer's go/no-go (review §7). Still fully planned below so it can
+  ship unchanged if the maintainer prefers to finish interest-exactness first.
+- **Depends on:** Slice 1 merged + the checkpoint (both DONE).
 - Issue-year (+ product/table) → SVL max valuation rate / VM-20 NPR discount rate
   resolver; wire into the CRVM and VM-20 NPR discounting when set. Default `None`
   keeps the manual `ProjectionConfig.valuation_interest_rate` byte-identical.
