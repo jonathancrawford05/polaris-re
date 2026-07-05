@@ -33,6 +33,7 @@ from polaris_re.core.projection import ProjectionConfig
 from polaris_re.core.reserve_basis import ReserveBasis
 from polaris_re.products.base_product import BaseProduct
 from polaris_re.utils.date_utils import projection_date_index
+from polaris_re.utils.interpolation import constant_force_interpolate_rates
 
 __all__ = ["WholeLife", "WholeLifeVariant"]
 
@@ -135,6 +136,13 @@ class WholeLife(BaseProduct):
         multiplier_vec = self.inforce.mortality_multiplier_vec  # (N,)
         flat_extra_monthly_vec = self.inforce.flat_extra_vec / 12000.0  # (N,) monthly
 
+        # Mortality improvement is a best-estimate property; the projection cash
+        # flows and the best-estimate reserves (NET_PREMIUM, GAAP, VM-20 DR)
+        # honour it, mirroring TermLife (ADR-129). Prescribed statutory bases
+        # (CRVM / VM-20 NPR) stay static — see ``_build_valuation_mortality``.
+        improvement = getattr(self.assumptions, "improvement", None)
+        valuation_year = self.config.valuation_date.year
+
         for month in range(t):
             current_durations = duration_inforce + month
             age_increment = (current_durations // 12) - (duration_inforce // 12)
@@ -144,6 +152,20 @@ class WholeLife(BaseProduct):
             q_monthly_col = self._lookup_qx_column(
                 self.assumptions.mortality, current_ages, current_durations
             )
+
+            # Apply mortality improvement (best-estimate) if configured, before
+            # substandard rating and the max-age override — mirror TermLife:
+            # monthly -> annual -> improve at the projection calendar year ->
+            # back to monthly via constant-force interpolation.
+            if improvement is not None:
+                cal_year = valuation_year + (month // 12)
+                q_annual_col = 1.0 - (1.0 - q_monthly_col) ** 12
+                q_annual_improved = improvement.apply_improvement(
+                    q_annual_col, current_ages, cal_year
+                )
+                q_monthly_col = constant_force_interpolate_rates(
+                    q_annual_improved, fraction=1.0 / 12.0
+                )
 
             w_monthly_col = self.assumptions.lapse.get_lapse_vector(current_durations)
 
@@ -339,9 +361,11 @@ class WholeLife(BaseProduct):
 
         * **Mortality** is the projection best-estimate valuation q built to omega
           on the *projection* mortality table (:meth:`_build_valuation_mortality`
-          with ``table=None`` — the same per-(sex, smoker) lookup, per-policy
-          substandard rating and max-age certain-death forcing as the projection,
-          mortality-only) scaled by the mortality PAD ``config.gaap_mortality_pad``
+          with ``table=None`` and ``apply_improvement=True`` — the same
+          per-(sex, smoker) lookup, best-estimate mortality improvement,
+          per-policy substandard rating and max-age certain-death forcing as the
+          projection, mortality-only) scaled by the mortality PAD
+          ``config.gaap_mortality_pad``
           and capped at 1.0. Unlike the statutory bases (CRVM / VM-20 NPR), GAAP
           does **not** read ``assumptions.valuation_mortality`` — FAS 60 is a
           best-estimate + PAD basis, not a prescribed static statutory one
@@ -362,10 +386,12 @@ class WholeLife(BaseProduct):
         raises the accumulation-phase reserve (more conservative), as
         adverse-deviation margins must.
 
-        Note: WholeLife does not model mortality improvement on any basis (it is
-        not applied in ``_build_rate_arrays``), so — unlike TermLife GAAP — there
-        is no improvement to lock in here; the best estimate is the projection
-        table as looked up. The valuation-table independence is the operative
+        Note: as of ADR-129 WholeLife honours a configured
+        ``AssumptionSet.improvement`` scale on its best-estimate bases (mirroring
+        TermLife), so GAAP reflects it — ``_build_valuation_mortality`` is called
+        with ``apply_improvement=True`` here. The prescribed-statutory bases
+        (CRVM / VM-20 NPR) remain static. The valuation-table independence (GAAP
+        does not read ``assumptions.valuation_mortality``) is still the operative
         guardrail.
         """
         n = self.inforce.n_policies
@@ -378,7 +404,11 @@ class WholeLife(BaseProduct):
         i_gaap = self.config.gaap_valuation_rate
         v_monthly = (1.0 + i_gaap) ** (-1.0 / 12.0)
 
-        q_be = self._build_valuation_mortality(t_val, None)  # (N, t_val), mortality-only
+        # Best-estimate mortality reflects a configured improvement scale
+        # (ADR-129) — GAAP is a best-estimate + PAD basis, not a static one.
+        q_be = self._build_valuation_mortality(
+            t_val, None, apply_improvement=True
+        )  # (N, t_val), mortality-only
         q_val = np.minimum(q_be * pad, 1.0)  # apply mortality PAD; q=1.0 at omega stays 1.0
         face_vec = self.inforce.face_amount_vec  # (N,)
 
@@ -450,7 +480,10 @@ class WholeLife(BaseProduct):
         return max(months_to_omega, self.config.projection_months)
 
     def _build_valuation_mortality(
-        self, t_val: int, table: MortalityTable | None = None
+        self,
+        t_val: int,
+        table: MortalityTable | None = None,
+        apply_improvement: bool = False,
     ) -> np.ndarray:
         """
         Monthly mortality-only rate array q for valuation, shape (N, t_val).
@@ -459,8 +492,9 @@ class WholeLife(BaseProduct):
         (sex, smoker) lookup, per-policy substandard rating, max-age forcing of
         q = 1.0) but (a) extends to ``t_val`` months — out to omega rather than
         the projection horizon — and (b) carries **no lapse**, because a
-        per-survivor valuation reserve is mortality-only. Over the first
-        ``projection_months`` columns it returns exactly the same q values as
+        per-survivor valuation reserve is mortality-only. When
+        ``apply_improvement`` matches the projection setting, the first
+        ``projection_months`` columns return exactly the same q values as
         :meth:`_build_rate_arrays` (verified by a regression test).
 
         ``table`` selects the mortality table valued on — the prescribed
@@ -468,6 +502,16 @@ class WholeLife(BaseProduct):
         ``assumptions.valuation_mortality`` is set (ADR-125). It defaults to
         the projection table (the historical behaviour, and always the choice
         for the VM-20 deterministic reserve, which is anticipated-experience).
+
+        ``apply_improvement`` gates the best-estimate mortality-improvement scale
+        (ADR-129). It is a **caller/basis** decision, not a ``table is None``
+        one: the **best-estimate** bases (GAAP, VM-20 deterministic reserve)
+        pass ``True`` so they reflect a configured ``AssumptionSet.improvement``,
+        exactly as the projection cash flows do; the **prescribed statutory**
+        bases (CRVM, VM-20 NPR) pass the default ``False`` and stay static
+        (ADR-125), including CRVM without a prescribed slot, which falls back to
+        the projection table but must not be improved. With no improvement
+        configured the flag is a no-op (byte-identical either way).
         """
         if table is None:
             table = self.assumptions.mortality
@@ -480,6 +524,9 @@ class WholeLife(BaseProduct):
         multiplier_vec = self.inforce.mortality_multiplier_vec  # (N,)
         flat_extra_monthly_vec = self.inforce.flat_extra_vec / 12000.0  # (N,) monthly
 
+        improvement = getattr(self.assumptions, "improvement", None) if apply_improvement else None
+        valuation_year = self.config.valuation_date.year
+
         max_age = table.max_age
 
         for month in range(t_val):
@@ -489,6 +536,20 @@ class WholeLife(BaseProduct):
             current_ages_capped = np.minimum(current_ages, max_age)
 
             q_monthly_col = self._lookup_qx_column(table, current_ages_capped, current_durations)
+
+            # Best-estimate improvement (only when the caller opts in), before
+            # substandard rating and the max-age override — mirror the
+            # projection path in :meth:`_build_rate_arrays`.
+            if improvement is not None:
+                cal_year = valuation_year + (month // 12)
+                q_annual_col = 1.0 - (1.0 - q_monthly_col) ** 12
+                q_annual_improved = improvement.apply_improvement(
+                    q_annual_col, current_ages_capped, cal_year
+                )
+                q_monthly_col = constant_force_interpolate_rates(
+                    q_annual_improved, fraction=1.0 / 12.0
+                )
+
             q_monthly_col = np.minimum(q_monthly_col * multiplier_vec + flat_extra_monthly_vec, 1.0)
 
             # At/after max age the policy must terminate — certain death.
@@ -774,7 +835,9 @@ class WholeLife(BaseProduct):
         t_val = self._valuation_months_to_omega()
         i_val = self.config.effective_valuation_rate
         v_monthly = (1.0 + i_val) ** (-1.0 / 12.0)
-        q_val = self._build_valuation_mortality(t_val)
+        # The deterministic reserve is anticipated-experience (best-estimate),
+        # so its mortality reflects a configured improvement scale (ADR-129).
+        q_val = self._build_valuation_mortality(t_val, apply_improvement=True)
         w_val = self._build_valuation_lapse(t_val)
         dr = self._compute_deterministic_reserve(q_val, w_val, v_monthly)
         reserves: np.ndarray = np.maximum(np.maximum(npr, dr), 0.0)

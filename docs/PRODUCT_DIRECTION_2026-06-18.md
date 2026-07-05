@@ -1126,7 +1126,15 @@ Items harvested from completed/in-flight work by the daily-dev routine
   Design completeness for GAAP, not common-path correctness → NICE-TO-HAVE.
   *Source: ADR-127 Out of scope (2nd-order — a follow-up of the GAAP follow-up).*
 
-- **IMPORTANT — WholeLife does not model mortality improvement on any basis.**
+- ~~**IMPORTANT — WholeLife does not model mortality improvement on any basis.**~~
+  — **SHIPPED** (PR #128, ADR-129): `WholeLife._build_rate_arrays` now applies a
+  configured `AssumptionSet.improvement` scale (mirroring TermLife) on every
+  best-estimate basis (projection cash flows, NET_PREMIUM, GAAP, VM-20 DR); the
+  prescribed statutory bases (CRVM, VM-20 NPR) stay static via an explicit
+  `apply_improvement` caller flag on `_build_valuation_mortality`. Byte-identical
+  on all goldens (no config sets WL improvement — verified). 11 closed-form /
+  guardrail tests in `test_wl_improvement.py`. Slice 1 of the Reserve-Basis
+  Correctness epic.
   *(NEXT UP — reprioritised to the front of the queue at the maintainer's
   direction 2026-07-05, ahead of the interest-exactness work, because this is a
   silent correctness bug, not exactness polish. Constituted as **Slice 1 (NEXT)**

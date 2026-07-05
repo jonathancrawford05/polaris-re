@@ -28,7 +28,17 @@ silently produces wrong best-estimate mortality outranks penny-exactness.
 ## Decomposition
 
 ### Slice 1: WholeLife mortality-improvement on best-estimate bases
-- **Status:** NEXT
+- **Status:** DONE (2026-07-05, ADR-129; branch `claude/loving-gauss-8brpd5`, PR #128)
+- **What was done:** `WholeLife._build_rate_arrays` applies a configured
+  `AssumptionSet.improvement` scale (mirroring TermLife: monthly→annual→improve→
+  monthly via constant-force interpolation, before substandard rating and max-age
+  forcing). `_build_valuation_mortality` gained an explicit `apply_improvement:
+  bool = False` seam; GAAP and the VM-20 deterministic reserve pass `True`
+  (best-estimate), CRVM and the VM-20 NPR keep `False` (prescribed static,
+  ADR-125) — the seam is the caller, NOT `table is None`. Byte-identical on all
+  goldens (no config sets WL improvement — verified by grep). 11 tests in
+  `test_wl_improvement.py`; full fast suite + QA green; golden `flat`
+  $45,386 / $3,513,563 exact.
 - **Depends on:** nothing (independent; PR #127 / WL GAAP merged to main first).
 - **The bug:** `WholeLife._build_rate_arrays` never reads
   `AssumptionSet.improvement`, so every WL basis (NET_PREMIUM / CRVM / VM-20 /

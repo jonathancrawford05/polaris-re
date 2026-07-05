@@ -27,10 +27,11 @@ Key contract points pinned here (ADR-128, Reserve-Basis Exactness Slice 4):
 3. A formulation-independent equivalence-principle identity: the reserve at issue
    (a new-issue policy) is zero, ``V_0 = APV(benefits) - P·APV(annuity) = 0``.
 4. GUARDRAIL: WL GAAP does **not** read ``assumptions.valuation_mortality`` — it
-   is a best-estimate + PAD basis, not a prescribed static statutory basis. (WL
-   does not model mortality improvement on any basis, so the improvement half of
-   the TermLife guardrail does not apply here; the valuation-table independence
-   is the operative property.)
+   is a best-estimate + PAD basis, not a prescribed static statutory basis. As of
+   ADR-129 WL GAAP DOES reflect a configured mortality-improvement scale (the
+   improvement half of the TermLife guardrail now applies — see
+   ``test_wl_improvement.py::test_gaap_reflects_improvement``); the
+   valuation-table independence is the additional operative property pinned here.
 """
 
 from datetime import date
