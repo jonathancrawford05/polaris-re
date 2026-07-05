@@ -28,7 +28,7 @@ silently produces wrong best-estimate mortality outranks penny-exactness.
 ## Decomposition
 
 ### Slice 1: WholeLife mortality-improvement on best-estimate bases
-- **Status:** DONE (2026-07-05, ADR-129; branch `claude/loving-gauss-8brpd5`, PR pending)
+- **Status:** DONE (2026-07-05, ADR-129; branch `claude/loving-gauss-8brpd5`, PR #128)
 - **What was done:** `WholeLife._build_rate_arrays` applies a configured
   `AssumptionSet.improvement` scale (mirroring TermLife: monthly→annual→improve→
   monthly via constant-force interpolation, before substandard rating and max-age
