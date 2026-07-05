@@ -1127,6 +1127,12 @@ Items harvested from completed/in-flight work by the daily-dev routine
   *Source: ADR-127 Out of scope (2nd-order — a follow-up of the GAAP follow-up).*
 
 - **IMPORTANT — WholeLife does not model mortality improvement on any basis.**
+  *(NEXT UP — reprioritised to the front of the queue at the maintainer's
+  direction 2026-07-05, ahead of the interest-exactness work, because this is a
+  silent correctness bug, not exactness polish. Constituted as **Slice 1 (NEXT)**
+  of the active epic "Reserve-Basis Correctness & Interest Exactness" —
+  `docs/PLAN_reserve_basis_correctness.md` / `CONTINUATION_reserve_basis_correctness.md`,
+  status IN PROGRESS. The next daily-dev run picks it up at step 5.)*
   Surfaced while implementing WL GAAP (Slice 4, ADR-128): `TermLife._build_rate_arrays`
   applies the configured `AssumptionSet.improvement` scale to the projection `q`,
   but `WholeLife._build_rate_arrays` (and hence every WL reserve basis —
@@ -1145,18 +1151,22 @@ Items harvested from completed/in-flight work by the daily-dev routine
   *Source: ADR-128 Out of scope + DEV_SESSION_LOG_2026-07-04_reserve_basis_exactness_slice4
   Open Questions (1st-order — surfaced by the originally-planned Slice-4 WL GAAP work).*
 
-- **NICE-TO-HAVE — Constitute the next Tier-A epic (COMMERCIAL_VIABILITY_REVIEW
-  successor).** The Reserve-Basis Exactness epic is COMPLETE with this slice, and
-  the COMMERCIAL_VIABILITY_REVIEW_2026-06-18 Tier-A ladder is exhausted, so the
-  next daily-dev run (step 5b) will find no active epic and no ranked source for
-  the next one. The review turns 30 days old on ~2026-07-18 (step 6 regeneration
-  trigger); until then the next epic must be constituted from the highest-value
-  unshipped work these Promoted Follow-ups point at (the IMPORTANT items:
-  prescribed statutory valuation-interest helper, GAAP-PAD deal-path surfacing,
-  WL mortality improvement). Regenerating the viability review to re-rank the
-  catalogue is itself a candidate session deliverable → NICE-TO-HAVE (process).
+- **NICE-TO-HAVE — Regenerate COMMERCIAL_VIABILITY_REVIEW at the Slice-1
+  checkpoint / 30-day mark.** *(PARTIALLY RESOLVED 2026-07-05: the next epic IS
+  now constituted — "Reserve-Basis Correctness & Interest Exactness",
+  `PLAN_reserve_basis_correctness.md`, IN PROGRESS, Slice 1 = the WL-improvement
+  correctness fix above. What remains is the deliberate re-anchoring:)* the
+  Reserve-Basis Exactness epic is COMPLETE and Phases 1–3 of the ROADMAP are done,
+  so the modeling backlog is largely exhausted. Before the epic's interest-
+  exactness slices (2–3) proceed, regenerate the viability review (re-review the
+  last ~10 PRs + docs, re-rank the catalogue) to confirm interest-exactness is
+  still the highest-value continuation vs a **productization** epic (data-ingestion
+  robustness, an AXIS/Prophet benchmark validation, packaging/deployment,
+  documentation). This is the guard against an epic-level polish spiral now that
+  the modeling roadmap is done, and it also satisfies the ~2026-07-18 30-day
+  staleness trigger. Scheduled as the CONTINUATION checkpoint after Slice 1.
   *Source: DEV_SESSION_LOG_2026-07-04_reserve_basis_exactness_slice4 Open Questions
-  + PLAN_reserve_basis_exactness Epic-derivation note (1st-order).*
+  + PLAN_reserve_basis_correctness Checkpoint (1st-order).*
 
 ## Carried Forward
 
