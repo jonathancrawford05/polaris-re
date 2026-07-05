@@ -16,14 +16,16 @@ Key contract points pinned here (ADR-128, Reserve-Basis Exactness Slice 4):
 
 1. Closed form — neutral PADs (multiplier 1.0, margin 0.0) reproduce an
    independent numpy recomputation of the net-level-premium-to-omega reserve on
-   the projection best-estimate mortality, to 1e-9. (Unlike TermLife, GAAP does
-   NOT equal WL NET_PREMIUM: the net-premium path uses the horizon-truncated
-   backward recursion with a one-period terminal estimate, whereas GAAP values
-   to omega — the same artefact the CRVM path closes.)
+   the projection best-estimate mortality (a **different** reserve formulation —
+   backward recursion vs the engine's reverse-cumulative-PV — so they agree to
+   ~2e-9, checked at 1e-8). Unlike TermLife, GAAP does NOT equal WL NET_PREMIUM:
+   the net-premium path uses the horizon-truncated backward recursion with a
+   one-period terminal estimate, whereas GAAP values to omega — the same artefact
+   the CRVM path closes.
 2. A positive mortality PAD or interest margin raises the accumulation-phase
    reserve; the reserve is monotonic non-decreasing in the mortality PAD.
-3. An independent numpy recomputation of the FAS 60 net level premium reserve on
-   the PAD-adjusted basis reproduces the engine reserve to 1e-9.
+3. A formulation-independent equivalence-principle identity: the reserve at issue
+   (a new-issue policy) is zero, ``V_0 = APV(benefits) - P·APV(annuity) = 0``.
 4. GUARDRAIL: WL GAAP does **not** read ``assumptions.valuation_mortality`` — it
    is a best-estimate + PAD basis, not a prescribed static statutory basis. (WL
    does not model mortality improvement on any basis, so the improvement half of
@@ -133,6 +135,17 @@ def _recompute_net_level_to_omega(
 
     Net level premium reserve, valued prospectively to omega on the PAD-adjusted
     best-estimate mortality; sliced back to the projection horizon and floored.
+
+    Deliberately a **different numerical formulation** than the engine: the engine
+    computes the reserve by a reverse-cumulative-PV (`np.cumsum` on the reversed
+    per-month PV arrays), whereas this recomputes it by the per-survivor
+    **backward recursion** ``V_t = (q_t*face + (1-q_t)*V_{t+1})*v - P_t`` with
+    terminal ``V_omega = 0``. The two are algebraically identical but accumulate
+    floating-point error along different paths (they agree to ~2e-9, not machine
+    epsilon), so this catches a shared *conceptual* error, not merely a
+    transcription slip of the same expression (addresses PR #127 review P2). The
+    net level premium ``P`` is the equivalence-principle definition — there is
+    only one — so that half is necessarily shared.
     """
     t_val = engine._valuation_months_to_omega(None)
     n = engine.inforce.n_policies
@@ -144,33 +157,27 @@ def _recompute_net_level_to_omega(
     i_gaap = max(0.035 - margin, 0.0)
     v = (1.0 + i_gaap) ** (-1.0 / 12.0)
 
-    if premium_payment_years is not None:
-        prem_months = np.full(n, premium_payment_years * 12, dtype=np.int64)
-    else:
-        prem_months = np.full(n, t_val, dtype=np.int64)
+    prem_months = (premium_payment_years * 12) if premium_payment_years is not None else t_val
 
+    # Net level premium P = APV(benefits to omega) / APV(premium annuity-due).
     tpx = np.ones((n, t_val))
     for m in range(1, t_val):
         tpx[:, m] = tpx[:, m - 1] * (1.0 - q_val[:, m - 1])
     v_pow = v ** np.arange(t_val)
     v_pow1 = v ** np.arange(1, t_val + 1)
-
     benefit_pv = v_pow1[None, :] * tpx * q_val * face[:, None]  # (N, t_val)
     annuity_pv = v_pow[None, :] * tpx  # (N, t_val)
-
-    months = np.arange(t_val)
-    prem_window = months[None, :] < prem_months[:, None]
+    prem_window = np.arange(t_val)[None, :] < prem_months
     apv_ben = benefit_pv.sum(axis=1)
     apv_ann = (annuity_pv * prem_window).sum(axis=1)
-    p_net = np.where(apv_ann > 0.0, apv_ben / apv_ann, 0.0)
-    p_s = np.where(prem_window, p_net[:, None], 0.0)
+    p_net = np.where(apv_ann > 0.0, apv_ben / apv_ann, 0.0)  # (N,)
 
-    fut_ben = np.cumsum(benefit_pv[:, ::-1], axis=1)[:, ::-1]
-    fut_prem = np.cumsum((p_s * annuity_pv)[:, ::-1], axis=1)[:, ::-1]
-    disc_to_t = v_pow[None, :] * tpx
-    with np.errstate(divide="ignore", invalid="ignore"):
-        reserves_val = np.where(disc_to_t > 0.0, (fut_ben - fut_prem) / disc_to_t, 0.0)
-    return np.maximum(reserves_val[:, :t_proj], 0.0)
+    # INDEPENDENT reserve formulation: per-survivor backward recursion to omega.
+    reserves = np.zeros((n, t_val + 1))  # column t_val is the terminal V_omega = 0
+    for t in range(t_val - 1, -1, -1):
+        p_t = np.where(t < prem_months, p_net, 0.0)
+        reserves[:, t] = (q_val[:, t] * face + (1.0 - q_val[:, t]) * reserves[:, t + 1]) * v - p_t
+    return np.maximum(reserves[:, :t_proj], 0.0)
 
 
 class TestGaapSupported:
@@ -193,7 +200,14 @@ class TestGaapSupported:
 
 
 class TestClosedFormRecomputation:
-    """Independent numpy recomputation of the FAS 60 WL net level premium reserve."""
+    """Independent numpy recomputation of the FAS 60 WL net level premium reserve.
+
+    The recomputation uses a different reserve formulation than the engine
+    (backward recursion vs the engine's reverse-cumulative-PV), so the two agree
+    to ~2e-9 rather than machine epsilon — the ``atol=1e-8`` reflects that genuine
+    independence (a shared reverse-cumsum would agree to 1e-9). See
+    :func:`_recompute_net_level_to_omega`.
+    """
 
     def test_neutral_pad_closed_form(self):
         block = _wl_block()
@@ -202,7 +216,7 @@ class TestClosedFormRecomputation:
         expected = _recompute_net_level_to_omega(
             engine, pad=1.0, margin=0.0, premium_payment_years=None
         )
-        np.testing.assert_allclose(got, expected, rtol=0.0, atol=1e-9)
+        np.testing.assert_allclose(got, expected, rtol=0.0, atol=1e-8)
 
     def test_padded_basis_closed_form(self):
         block = _wl_block()
@@ -216,7 +230,7 @@ class TestClosedFormRecomputation:
         expected = _recompute_net_level_to_omega(
             engine, pad=pad, margin=margin, premium_payment_years=None
         )
-        np.testing.assert_allclose(got, expected, rtol=0.0, atol=1e-9)
+        np.testing.assert_allclose(got, expected, rtol=0.0, atol=1e-8)
 
     def test_limited_pay_closed_form(self):
         block = _wl_block()
@@ -227,7 +241,36 @@ class TestClosedFormRecomputation:
         expected = _recompute_net_level_to_omega(
             engine, pad=1.0, margin=0.0, premium_payment_years=20
         )
-        np.testing.assert_allclose(got, expected, rtol=0.0, atol=1e-9)
+        np.testing.assert_allclose(got, expected, rtol=0.0, atol=1e-8)
+
+
+class TestEquivalencePrincipleIdentity:
+    """A truly formulation-independent check: the reserve at issue is zero.
+
+    For a new-issue policy (duration 0 at the valuation date) the net level
+    premium is set by the equivalence principle, so the prospective reserve at
+    issue ``V_0 = APV(benefits) - P·APV(premium annuity) = 0`` exactly. This
+    identity does not depend on the reserve *formulation* at all (neither the
+    engine's reverse-cumsum nor the test's backward recursion), so it catches a
+    conceptual error the mutually-consistent recomputation cannot.
+    """
+
+    def test_reserve_zero_at_issue_neutral(self):
+        engine = WholeLife(_wl_block(), _assumptions(), _config(ReserveBasis.GAAP))
+        reserves = engine.compute_reserves()
+        np.testing.assert_allclose(reserves[:, 0], 0.0, rtol=0.0, atol=1e-6)
+
+    @pytest.mark.parametrize("pad,margin", [(1.10, 0.0), (1.0, 0.01), (1.15, 0.0075)])
+    def test_reserve_zero_at_issue_with_pads(self, pad: float, margin: float):
+        # The equivalence identity holds on whatever (margined) basis the premium
+        # is solved on, so V_0 = 0 regardless of the PADs.
+        engine = WholeLife(
+            _wl_block(),
+            _assumptions(),
+            _config(ReserveBasis.GAAP, gaap_mortality_pad=pad, gaap_interest_margin=margin),
+        )
+        reserves = engine.compute_reserves()
+        np.testing.assert_allclose(reserves[:, 0], 0.0, rtol=0.0, atol=1e-6)
 
 
 class TestNotEqualNetPremium:
