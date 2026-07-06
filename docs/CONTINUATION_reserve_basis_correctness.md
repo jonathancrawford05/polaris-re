@@ -5,9 +5,22 @@
 + "Prescribed statutory valuation-interest helper" [penny-exact CRVM]). Epic
 constituted per step 5b with the COMMERCIAL_VIABILITY_REVIEW Tier-A ladder
 exhausted and Phases 1–3 complete — see `docs/PLAN_reserve_basis_correctness.md`.
-**Status:** IN PROGRESS
+**Status:** IN PROGRESS — but **DEPRIORITISED / parked** (not the active epic).
 **Total slices:** 3 (+ a viability-review checkpoint after Slice 1)
 **Estimated total scope:** ~4–6 dev-days
+
+> **SUPERSEDED AS ACTIVE EPIC (2026-07-05).** Slice 1 (the WholeLife
+> mortality-improvement correctness fix) shipped (PR #128, ADR-129). The
+> post-Slice-1 checkpoint (`COMMERCIAL_VIABILITY_REVIEW_2026-07-05.md`)
+> recommended **redirecting** to a productization/credibility epic and demoting
+> the remaining interest-exactness Slices 2–3 to a NICE-TO-HAVE follow-up. Per
+> the review §5, absent the maintainer's go/no-go the correct autonomous action
+> is to constitute the new epic as the active driver while leaving this
+> CONTINUATION **open-but-deprioritised** (not killed). The active epic is now
+> **`PLAN_validation_benchmark.md` / `CONTINUATION_validation_benchmark.md`**
+> (Slice 1 shipped this session, ADR-130). Slices 2–3 below remain fully planned
+> and ship **unchanged** if the maintainer prefers to finish interest-exactness
+> first — this is the reserved decision (see Open Questions).
 
 ## Overall Goal
 

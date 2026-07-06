@@ -66,6 +66,14 @@ from polaris_re.analytics.solvency2 import (
 )
 from polaris_re.analytics.stochastic import CIRModel, HullWhiteModel, RateScenarios
 from polaris_re.analytics.uq import MonteCarloUQ, UQParameters, UQResult
+from polaris_re.analytics.validation import (
+    ValidationCase,
+    ValidationCategory,
+    ValidationReport,
+    ValidationResult,
+    ValidationStatus,
+    run_closed_form_benchmarks,
+)
 
 __all__ = [
     "SUPPORTED_CAPITAL_MODELS",
@@ -117,6 +125,11 @@ __all__ = [
     "SolvencyIIResult",
     "UQParameters",
     "UQResult",
+    "ValidationCase",
+    "ValidationCategory",
+    "ValidationReport",
+    "ValidationResult",
+    "ValidationStatus",
     "YRTRateSchedule",
     "apply_scenario_to_assumptions",
     "build_movement_table",
@@ -126,4 +139,5 @@ __all__ = [
     "duration_measures",
     "liability_cash_flows",
     "reserve_liability_cash_flows",
+    "run_closed_form_benchmarks",
 ]

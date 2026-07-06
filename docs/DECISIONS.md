@@ -8429,3 +8429,68 @@ COMMERCIAL_VIABILITY_REVIEW regeneration checkpoint. Surfacing the GAAP PADs on 
 (ADR-127/128 harvested follow-up). Sex/smoker-distinct statutory table composition. MP-2020 /
 CPM-B improvement scales are already supported by `MortalityImprovement`; this ADR only wires the
 existing improvement machinery into WholeLife (any scale, not just Scale AA).
+
+---
+
+## ADR-130: Validation & benchmark pack framework + closed-form seed set — Validation & Benchmark epic (A1′), Slice 1
+
+**Status.** Accepted (2026-07-05).
+
+**Context.** The modeling roadmap (ROADMAP Phases 1–5; all 2026-06-18 Tier-A epics, Asset/ALM,
+expense-allowance) is complete — the engine can price, reserve, profit-test, run capital under
+three regimes, measure IFRS 17, and aggregate portfolios. Per `COMMERCIAL_VIABILITY_REVIEW_2026-07-05.md`,
+the frontier has moved from "can it model X" to "can a sophisticated buyer *trust* the numbers."
+Polaris RE's thesis is a **credible** open-source alternative to AXIS / Prophet, yet there was **no
+published numerical validation** demonstrating that its outputs match an authoritative reference —
+the single biggest remaining credibility gap and the first thing a diligence team asks for. The
+review recommended constituting a Validation & Benchmark epic (A1′) as the next active epic; absent
+the maintainer's go/no-go on redirecting the interest-exactness epic, the review's §5 instruction is
+to run the A1′ scoping pass as a *new* epic while leaving interest-exactness open-but-deprioritised.
+This ADR is that epic's Slice 1.
+
+**Decision.**
+
+- *A declarative reference catalogue, scored against live engine output.*
+  New module `polaris_re.analytics.validation` provides `ValidationCase` (an authoritative expected
+  value + its source citation + a documented tolerance and tolerance rationale), `ValidationResult`
+  (expected/computed/abs+rel error/status), and `ValidationReport` (a scored collection with
+  pass/fail counts and a `to_markdown()` diligence table). A case holds only the *reference*; the
+  caller drives the engine to produce the *computed* value and `case.evaluate(computed)` scores it
+  with `numpy.isclose` semantics (`|computed − expected| ≤ atol + rtol·|expected|`). This separation
+  keeps the reference catalogue engine-agnostic so the later CLI/notebook slices reuse the models
+  verbatim.
+
+- *Seed the pack with closed-form references, not recalled numbers.* Slice 1 seeds three case
+  families under a **constant force of mortality** — chosen because the references are *mathematical
+  identities*, so they are unimpeachable and network-free (no external table download, no risk of a
+  mis-recalled published figure): (1) an *n*-year term-insurance net single premium vs the exact
+  discrete geometric-series closed form `F(1−a)v(1−(av)^M)/(1−av)`; (2) a temporary life
+  annuity-due APV vs `(1−(av)^M)/(1−av)`; (3) the same term-insurance APV vs the **continuous**
+  constant-force textbook identity `(μ/(μ+δ))(1−e^{−(μ+δ)n})` (Bowers et al., *Actuarial Mathematics*
+  2e §4.2; Dickson–Hardy–Waters 2e §4.4). `run_closed_form_benchmarks()` builds a synthetic
+  constant-q, zero-lapse single-policy TermLife block, projects it, and evaluates the cases.
+
+- *Exact cases assert to machine precision; the textbook case documents its convention gap.* The two
+  discrete closed forms are the closed form of the engine's own monthly recursion, so they match to
+  `rtol=1e-9` (measured ~2e-15). The continuous identity differs from the engine's monthly-discrete
+  projection by a small, bounded amount (measured ~0.2%), captured as `rtol=5e-3` with an explicit
+  `tolerance_rationale`. Encoding the tolerance *and its rationale* on every case is the mechanism
+  that keeps modelling-convention gaps documented rather than hidden.
+
+**Verification.** `tests/validation/test_closed_form_pack.py` (18 tests): the `evaluate` scoring
+primitive (exact/within-rtol/outside-rtol/zero-expected-atol); the reference derivations'
+internal consistency and known limits (zero-mortality → zero insurance and an annuity-certain;
+discrete under continuous by <1%); the TermLife engine reproduces both exact closed forms to 1e-9
+across three (q, i, age, term) parameter sets; and the assembled report passes all four cases,
+spans both provenance categories, holds the exact cases to machine precision and the textbook case
+within its documented tolerance, and renders a Markdown table. Full fast suite + QA green; goldens
+byte-identical (a new analytics module + tests only — no pricing-path change, verified via the QA
+golden suite and a `polaris price` regression run).
+
+**Out of scope.** Published statutory reserve decks (VM-20 / CRVM worked examples) and closed-form
+whole-life / annuity textbook values from the SOA Illustrative Life Table — Slice 2, which extends
+the pack with the `STATUTORY_DECK` category (already reserved in `ValidationCategory`). Surfacing
+the report on the CLI (`polaris validate`) and a `05_validation_report.ipynb` notebook — Slice 3.
+An AXIS/Prophet side-by-side is deferred and reference-blocked unless a reference output is
+obtainable (parked). This slice deliberately validates via TermLife (the simplest engine); a
+WholeLife-to-omega closed-form case is a candidate Slice-2 addition.
