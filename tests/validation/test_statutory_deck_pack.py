@@ -56,8 +56,14 @@ class TestVendoredTableTranscription:
     """The vendored CSV must be exactly the published Makeham-generated ILT."""
 
     def test_regenerated_matches_vendored(self, vendored_lx: np.ndarray) -> None:
+        # Transcription guard: the vendored CSV must equal the Makeham
+        # regeneration. A tight relative tolerance (not byte-exact) absorbs
+        # last-ULP platform differences in the transcendental generation
+        # (10**0.04 / exp / c**x vary by ~1e-16 rel across BLAS/CPU/numpy
+        # builds) while still catching any real transcription error, which
+        # would shift a value by many orders of magnitude more.
         _ages, lx_gen = _illustrative_life_table_makeham()
-        np.testing.assert_allclose(vendored_lx, lx_gen, rtol=0.0, atol=0.0)
+        np.testing.assert_allclose(vendored_lx, lx_gen, rtol=1e-12, atol=0.0)
 
     def test_table_shape_and_endpoints(self, vendored_lx: np.ndarray) -> None:
         # Ages 0 .. omega+1 inclusive.
