@@ -8,6 +8,7 @@ Commands:
     polaris scenario             — run scenario analysis with tabular output
     polaris uq                   — run Monte Carlo UQ with summary statistics
     polaris validate             — validate inforce CSV, mortality tables, assumption sets
+    polaris benchmark            — reproduce authoritative actuarial reference values
     polaris rate-schedule        — generate a YRT rate schedule for a target IRR
     polaris ingest               — ingest and normalise raw cedant inforce data
     polaris portfolio run        — aggregate a multi-deal book of reinsurance treaties
@@ -2525,6 +2526,126 @@ def validate_cmd(
         for warn in warnings:
             console.print(f"[yellow]⚠ Warning:[/yellow] {warn}")
         console.print("[green]✓ Validation PASSED[/green]")
+
+
+#: Reference packs exposed by ``polaris benchmark`` (name -> builder). Each
+#: builder returns a scored :class:`ValidationReport`; ``full`` is the union.
+_BENCHMARK_PACKS: tuple[str, ...] = ("full", "closed-form", "deck")
+
+
+@app.command("benchmark")
+def benchmark_cmd(
+    output_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Write the Markdown validation report to this path.",
+        ),
+    ] = None,
+    json_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--json",
+            help="Write the structured JSON report (report.model_dump_json) to this path.",
+        ),
+    ] = None,
+    pack: Annotated[
+        str,
+        typer.Option(
+            "--pack",
+            help=(
+                "Which reference pack to run: 'full' (default — all categories), "
+                "'closed-form' (constant-force identities + textbook anchor), or "
+                "'deck' (SOA Illustrative Life Table published-deck cases)."
+            ),
+        ),
+    ] = "full",
+) -> None:
+    """
+    [bold]Reproduce authoritative actuarial reference values (validation pack).[/bold]
+
+    Drives the live Polaris RE engine against a curated set of published and
+    closed-form references — the SOA Illustrative Life Table whole-life APVs and
+    premiums, constant-force term/annuity closed forms, and a continuous-force
+    textbook identity — and renders a diligence-grade pass/fail table. This is
+    the executable evidence behind the "credible open-source alternative to
+    AXIS / Prophet" thesis: here is the reference, here is the engine, here is
+    the (machine-precision) difference.
+
+    [bold]Distinct from[/bold] [cyan]polaris validate[/cyan], which checks the
+    schema of YOUR input files. [cyan]benchmark[/cyan] checks the ENGINE against
+    known reference values.
+
+    Exits [bold]non-zero[/bold] if any case falls outside its documented
+    tolerance, so it can gate a CI job.
+    """
+    _header()
+
+    from polaris_re.analytics.validation import (
+        ValidationStatus,
+        run_closed_form_benchmarks,
+        run_full_validation_pack,
+        run_statutory_deck_benchmarks,
+    )
+
+    builders = {
+        "full": run_full_validation_pack,
+        "closed-form": run_closed_form_benchmarks,
+        "deck": run_statutory_deck_benchmarks,
+    }
+    builder = builders.get(pack)
+    if builder is None:
+        console.print(
+            f"[red]Error:[/red] Unknown pack '{pack}'. "
+            f"Choose one of: {', '.join(_BENCHMARK_PACKS)}."
+        )
+        raise typer.Exit(code=2)
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+        transient=True,
+    ) as progress:
+        progress.add_task(f"Running the '{pack}' validation pack...", total=None)
+        report = builder()
+
+    table = Table(title=report.title, border_style="cyan")
+    table.add_column("Case", style="bold")
+    table.add_column("Category")
+    table.add_column("Expected", justify="right")
+    table.add_column("Computed", justify="right")
+    table.add_column("Rel. error", justify="right")
+    table.add_column("Status", justify="center")
+    for r in report.results:
+        status_str = (
+            "[green]PASS[/green]" if r.status is ValidationStatus.PASS else "[red]FAIL[/red]"
+        )
+        table.add_row(
+            r.name,
+            r.category.value,
+            f"{r.expected:,.6f}",
+            f"{r.computed:,.6f}",
+            f"{r.rel_error:.2e}",
+            status_str,
+        )
+    console.print(table)
+    console.print(f"\n[bold]{report.n_passed}/{report.n_cases}[/bold] cases passed.")
+
+    if output_path is not None:
+        output_path.write_text(report.to_markdown(), encoding="utf-8")
+        console.print(f"[green]Markdown report written to:[/green] {output_path}")
+    if json_path is not None:
+        json_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+        console.print(f"[green]JSON report written to:[/green] {json_path}")
+
+    if not report.all_passed:
+        console.print(
+            f"[red]Validation FAILED[/red] — {report.n_failed} case(s) outside tolerance."
+        )
+        raise typer.Exit(code=1)
+    console.print("[green]✓ All validation cases passed.[/green]")
 
 
 @app.command("rate-schedule")

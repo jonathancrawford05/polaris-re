@@ -5,7 +5,8 @@ IMPORTANT / ★★★★★. Constituted per routine step 5b as the active epic 
 post-Slice-1 checkpoint of the Reserve-Basis Correctness epic recommended
 redirecting from interest-exactness to productization. See
 `docs/PLAN_validation_benchmark.md`.
-**Status:** IN PROGRESS
+**Status:** COMPLETE (Slice 3 shipped 2026-07-06, ADR-132; optional Slice 4 remains
+parked and reference-blocked)
 **Total slices:** 3 (+ optional Slice 4, parked)
 **Estimated total scope:** ~8–12 dev-days
 
@@ -80,12 +81,21 @@ this epic then parks behind it.
     reconstruction is the anchor.
 
 ### Slice 3: Surface the validation report
-- **Status:** NEXT
-- **Depends on:** Slice 2 merged.
-- **Scope:** `polaris validate` CLI — call `run_full_validation_pack()`,
-  print/export the Markdown report; **non-zero exit on any FAIL**; a
-  `notebooks/05_validation_report.ipynb` rendering the pass/fail table for
-  diligence; ARCHITECTURE note. Run HARVEST FOLLOW-UPS, then Status → COMPLETE.
+- **Status:** DONE
+- **Branch:** `claude/loving-gauss-8kzyn5`
+- **PR:** (this session's PR)
+- **What was done:** Added the `polaris benchmark` CLI command calling
+  `run_full_validation_pack()` (with `--pack {full,closed-form,deck}` selection),
+  rendering a Rich pass/fail table, exporting the Markdown report (`-o`) and the
+  structured JSON (`--json`), and **exiting non-zero on any FAIL** so it can gate a
+  CI job. Added `notebooks/05_validation_report.ipynb` (magic-free, its diligence
+  checks embedded as executable `assert`s) with an execution-guard test. ADR-132 +
+  ARCHITECTURE note. 11 tests (8 CLI + 3 notebook). Goldens byte-identical.
+- **Key decision (verify-premise correction):** the plan named the command
+  `polaris validate`, but that verb was **already taken** by input-file schema
+  validation (inforce CSV / assumption JSON). Rather than overload or break it, the
+  new command is `polaris benchmark` — `validate` checks *your input files*,
+  `benchmark` checks *the engine* against known references. Recorded in ADR-132.
 
 ### Slice 4 (optional): AXIS/Prophet side-by-side
 - **Status:** PARKED (reference-blocked)

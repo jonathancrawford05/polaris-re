@@ -8558,3 +8558,55 @@ parked and reference-blocked. The engine's *native monthly* `A^{(12)}_x` / `ä^{
 against the annual table here (they differ by the standard `i/i^{(12)}` acceleration ≈ 2.7% and the
 `11/24` annuity offset, a documented convention gap rather than a validation failure); the annual
 reconstruction is the cleaner anchor.
+
+---
+
+## ADR-132: Surface the validation pack as `polaris benchmark` (not `polaris validate`)
+
+**Date:** 2026-07-06
+**Status:** Accepted
+**Slice:** 3 of 3 — Validation & Benchmark Pack epic (A1′). Closes the epic.
+
+**Context.** Slices 1–2 built the engine-agnostic validation pack
+(`polaris_re.analytics.validation`: `run_closed_form_benchmarks()`,
+`run_statutory_deck_benchmarks()`, and the combined `run_full_validation_pack()`;
+ADR-130 / ADR-131). Slice 3 surfaces it so a diligence reviewer can run it
+headless and read the pass/fail table. The CONTINUATION/PLAN named the command
+`polaris validate` — but that name was **already taken** by an unrelated command
+(input-file schema validation: inforce CSV / assumption JSON, exit 1 on a bad
+file). Reusing `validate` would either overload one verb with two meanings or
+silently break the existing command.
+
+**Decision.** Add a distinct command, **`polaris benchmark`**, that runs the pack
+and renders a Rich pass/fail table. It supports `--pack {full,closed-form,deck}`
+(default `full`), `-o/--output` (write the Markdown report — byte-identical to
+`ValidationReport.to_markdown()`), and `--json` (write `model_dump_json`). It
+**exits non-zero on any FAIL** (exit 1) so it can gate a CI job, and exits 2 on an
+unknown `--pack`. The existing `polaris validate` is left untouched: `validate`
+checks *your input files*; `benchmark` checks *the engine* against known
+references. A `notebooks/05_validation_report.ipynb` renders the same report with
+the diligence assertions embedded as executable `assert`s.
+
+**Rationale.** The two verbs are genuinely different operations; giving each its
+own command keeps `--help` legible and avoids a backward-incompatible change to a
+shipped command. `run_full_validation_pack()` was already the single entry point
+(ADR-131), so the command is a thin, pricing-neutral surface — no expected value
+or pricing-path code changes. Reproducing the premise first (the routine's
+verify-premise step) caught the name collision before any code was written; the
+`validate` → `benchmark` rename is the recorded correction.
+
+**Verification.** `tests/validation/test_cli_benchmark.py` (8 tests): the full
+pack exits 0 and reports 13/13; each sub-pack is selectable; an unknown `--pack`
+exits 2; a monkeypatched failing case forces exit 1 (the CI-gate contract); the
+`-o` Markdown equals `to_markdown()` and the `--json` export is well-formed
+all-PASS. `tests/test_notebooks/test_validation_report_notebook.py` (3 tests)
+executes the notebook end to end (its embedded asserts are the checks). Full fast
+suite + QA green; goldens byte-identical (a CLI command + notebook + tests only —
+no pricing-path change).
+
+**Out of scope.** The AXIS/Prophet side-by-side (Slice 4) remains parked and
+reference-blocked — revive only if a maintainer supplies a reference output. A
+published *held-reserve* deck (VM-20 / CRVM worked example) beyond the ILT's
+APV/premium columns remains a candidate deck addition, not required to close the
+epic. `polaris benchmark` runs the fixed reference catalogue only; it does not yet
+accept user-supplied reference decks.

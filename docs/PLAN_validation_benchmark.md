@@ -1,8 +1,10 @@
 # PLAN: Validation & Benchmark Pack (A1′)
 
-**Status:** IN PROGRESS — constituted 2026-07-05 as the active epic per
-`COMMERCIAL_VIABILITY_REVIEW_2026-07-05.md` §5. Slice 1 (validation framework +
-closed-form seed set) is **DONE** this session (ADR-130); Slice 2 is NEXT.
+**Status:** COMPLETE — constituted 2026-07-05 as the active epic per
+`COMMERCIAL_VIABILITY_REVIEW_2026-07-05.md` §5. Slice 1 (framework + closed-form
+seed, ADR-130), Slice 2 (SOA Illustrative Life Table deck, ADR-131), and Slice 3
+(surface via `polaris benchmark` + notebook, ADR-132) are all **DONE**. Optional
+Slice 4 (AXIS/Prophet side-by-side) remains parked and reference-blocked.
 
 **Source / derivation.** The modeling roadmap (ROADMAP Phases 1–5; all
 2026-06-18 Tier-A epics A1/A2/A3, C0 Asset/ALM, B3 expense-allowance) is
@@ -90,12 +92,15 @@ identity (documented ~0.2% discretisation tolerance). 18 tests in
   published values within a documented tolerance; report spans all three
   categories; goldens byte-identical.
 
-### Slice 3: Surface the report — PLANNED
-- **Depends on:** Slice 2 merged.
-- `polaris validate` CLI command that runs `run_closed_form_benchmarks()` (+ the
-  deck cases) and prints/exports the Markdown report; a `05_validation_report.ipynb`
-  notebook rendering the pass/fail table for diligence; ARCHITECTURE note. HARVEST
-  FOLLOW-UPS, then Status → COMPLETE.
+### Slice 3: Surface the report — DONE (2026-07-06, ADR-132) — epic COMPLETE
+- **Depends on:** Slice 2 merged (PR #131).
+- `polaris benchmark` CLI command runs `run_full_validation_pack()` (or a selected
+  sub-pack via `--pack`), renders a Rich pass/fail table, exports the Markdown
+  report (`-o`) / structured JSON (`--json`), and **exits non-zero on any FAIL**;
+  `notebooks/05_validation_report.ipynb` renders the pass/fail table with its
+  diligence checks embedded as executable `assert`s; ARCHITECTURE note. 11 tests.
+- **Naming correction:** the planned `polaris validate` name was already taken by
+  input-file schema validation, so the command is `polaris benchmark` (ADR-132).
 
 ### Slice 4 (optional): AXIS/Prophet side-by-side — PARKED (reference-blocked)
 Only if a maintainer supplies a reference output. Otherwise the epic closes at
