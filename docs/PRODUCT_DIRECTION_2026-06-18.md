@@ -1229,6 +1229,21 @@ Items harvested from completed/in-flight work by the daily-dev routine
   (2nd-order — follow-up of the A1′ validation-epic follow-up → NICE-TO-HAVE per the
   step-17 order cap).*
 
+- **NICE-TO-HAVE — reconcile the stale `tests/qa/golden_outputs/*.json` byte-format
+  with the current CLI `-o` schema.** Pre-existing on main (not introduced by any
+  recent PR): the committed golden snapshots use an older flat per-product schema
+  (`"TERM": {…}` / `"WHOLE_LIFE": {…}`) while `polaris price -o` now emits nested
+  `"cohorts": […]` / `"summary"` / `"rated_block"`. The QA guard
+  (`tests/qa/test_*_golden.py`) parses and compares per-cohort metrics, so it is
+  green regardless — but the routine's step-13 *literal* byte-diff of `-o` against
+  the snapshot always shows a spurious difference, which repeatedly costs a session
+  the effort of confirming it is not a real pricing change (happened this session,
+  PR #130). Regenerate the snapshots to the current CLI schema (a docs/tooling
+  change; verify pricing is unchanged first) OR point step-13 at the parsed QA guard
+  instead of the raw file. Repo hygiene — no production-correctness impact.
+  *Source: qa-on-pr review of PR #130 (1st-order — fresh discovery during review;
+  repo hygiene, so NICE-TO-HAVE).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

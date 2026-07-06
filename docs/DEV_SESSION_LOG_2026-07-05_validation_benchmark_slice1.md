@@ -83,6 +83,16 @@ across three (q, i, age, term) parameter sets; assembled report passes all four
 cases, spans both categories, holds exact cases to machine precision and the
 textbook case within its documented tolerance, and renders a Markdown table.
 
+## Baseline (for the next run's step-4 diff)
+Full fast suite (`pytest -m "not slow"`): **2019 passed, 2 skipped, 110
+deselected, 0 failures** (this session's baseline = the prior session's 2001
+passed + the 18 new validation tests; no new/changed failures — tolerance-aware
+check passes). **SOA-conversion state:** the 4 CIA-2014 tables were MISSING from
+this run's pymort conversion (VBT/CSO OK), but no test hard-depends on the CIA
+tables, so the standing "4 SOA-conversion failures" baseline manifested as **0
+failures** here. QA suite (`tests/qa/`, 76 tests incl. the 23 CLI + pipeline
+golden cases): all green.
+
 ## Acceptance Criteria
 | Criterion | Status | Notes |
 |-----------|--------|-------|
@@ -91,7 +101,7 @@ textbook case within its documented tolerance, and renders a Markdown table.
 | Ship Slice 1 (framework + first reference set) | ✅ | module + 18 tests, all green |
 | References are identities/cited, never guessed | ✅ | closed-form + Bowers §4.2; verify-premise run first |
 | Exactly one active epic maintained | ✅ | validation_benchmark active; interest-exactness parked open |
-| Goldens byte-identical | ✅ | new module + tests only; QA golden suite (23) green; `polaris price` regression run |
+| Goldens byte-identical | ✅ | new module + tests only; QA suite (`tests/qa/`, 76; the 23 CLI + pipeline golden cases among them) green; `polaris price` regression run |
 
 ## Open Questions / Follow-ups
 - **For Jonathan (redirect go/no-go — still reserved from the checkpoint):** this
@@ -113,5 +123,6 @@ parked.)
 
 ## Impact on Golden Baselines
 None. Slice 1 adds a new analytics module + a new test package only; it never
-touches the pricing path. The QA golden suite (`tests/qa/`, 23 tests) is green and a
-`polaris price` regression run was executed. No rebaseline.
+touches the pricing path. The QA suite (`tests/qa/`, 76 tests — of which 23 are the
+CLI + pipeline golden cases) is green and a `polaris price` regression run was
+executed. No rebaseline.
