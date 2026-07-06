@@ -51,6 +51,7 @@ COPY --from=builder /app/src /app/src
 COPY tests/ ./tests/
 COPY scripts/ ./scripts/
 COPY data/qa/ ./data/qa/
+COPY data/validation/ ./data/validation/
 COPY data/inputs/portfolio_sample/ ./data/inputs/portfolio_sample/
 COPY data/inputs/portfolio_staggered_sample/ ./data/inputs/portfolio_staggered_sample/
 COPY pyproject.toml ./

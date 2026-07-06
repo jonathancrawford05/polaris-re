@@ -73,6 +73,8 @@ from polaris_re.analytics.validation import (
     ValidationResult,
     ValidationStatus,
     run_closed_form_benchmarks,
+    run_full_validation_pack,
+    run_statutory_deck_benchmarks,
 )
 
 __all__ = [
@@ -140,4 +142,6 @@ __all__ = [
     "liability_cash_flows",
     "reserve_liability_cash_flows",
     "run_closed_form_benchmarks",
+    "run_full_validation_pack",
+    "run_statutory_deck_benchmarks",
 ]
