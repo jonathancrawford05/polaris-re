@@ -584,6 +584,11 @@ def _run_illustrative_life_table_projection(
         source_file=Path("illustrative-life-table"),
     )
     table = MortalityTable.from_table_array(
+        # `source` is a cosmetic label here: this is a validation-only synthetic
+        # table (the vendored Illustrative Life Table), never used for pricing, so
+        # the tag is not semantically meaningful. SOA_VBT_2015 is reused as a
+        # placeholder (matching Slice 1's constant-force table) rather than
+        # widening the MortalityTableSource contract for a test-only fixture.
         source=MortalityTableSource.SOA_VBT_2015,
         table_name="SOA Illustrative Life Table",
         table_array=table_array,
