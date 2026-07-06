@@ -53,35 +53,39 @@ this epic then parks behind it.
     a candidate Slice-2 addition.
 
 ### Slice 2: Published-deck reference set (`STATUTORY_DECK`)
-- **Status:** NEXT
-- **Depends on:** Slice 1 merged.
-- **Files to create/modify:**
-  - `data/validation/<table>.csv` — a small vendored reference table (e.g. SOA
-    Illustrative Life Table `l_x` at i=6%, or a published VM-20/CRVM reserve
-    example) with a citation header (source edition + table/page).
-  - `src/polaris_re/analytics/validation.py` — `STATUTORY_DECK` cases for
-    whole-life `A_x`, annuity `ä_x`, net premium `P_x` (and/or a reserve factor);
-    a loader that reads the vendored deck.
-  - `Dockerfile` `COPY` + `.dockerignore` allowlist — **in the same PR** if any
-    `data/` file is added (recurring trap, PR #61/#66).
-  - `tests/validation/` — deck cases + a self-check that the expected APVs are
-    independently recomputable from the vendored `l_x` (guards transcription).
-- **Tests to add:** engine `A_x`/`ä_x`/`P_x` (or reserve factor) reproduce the
-  published values within a documented tolerance; report spans all three
-  categories; independent-recompute self-check; goldens byte-identical.
-- **Acceptance criteria:**
-  - At least one published/textbook table deck reproduced within a documented,
-    justified tolerance.
-  - `ValidationReport` includes `STATUTORY_DECK` cases and still `all_passed`.
-  - Goldens/QA byte-identical (validation pack never touches the pricing path).
+- **Status:** DONE
+- **Branch:** `claude/loving-gauss-alct0t`
+- **PR:** (this session's PR)
+- **What was done:** Vendored the **SOA Illustrative Life Table** `l_x`
+  (`data/validation/illustrative_life_table.csv`, ages 0..121, closed at
+  `l_121=0`), generated from the table's *published Makeham law* (`A=.0007`,
+  `B=.00005`, `c=10^.04`, `l_0=100000`) — the constants are the citation, so no
+  hand-copied column. Nine `STATUTORY_DECK` cases (issue ages 35/40/65) reproduce
+  the whole-life `A_x`, annuity-due `ä_x`, and net level premium `P_x = A_x/ä_x`
+  at `i=6%`, driving the **WholeLife** engine to omega and reconstructing the
+  annual APVs from the monthly output (machine precision, `rtol=1e-9`, measured
+  ~2e-14). Added `run_statutory_deck_benchmarks()` and a combined
+  `run_full_validation_pack()`. ADR-131. Dockerfile `COPY data/validation/` +
+  `.dockerignore` allowlist updated in the same PR.
+- **Key decisions (affect later slices):**
+  - `run_full_validation_pack()` is the single entry point Slice 3's CLI/notebook
+    should call — it concatenates closed-form + deck into one report spanning all
+    three categories.
+  - The vendored table is regenerated from the Makeham law and self-checked, so
+    the CSV is reproducible; the printed-ILT anchors (`1000A_35=128.72`,
+    `ä_35=15.3926`, …) are asserted to confirm it IS the ILT.
+  - The engine's *native monthly* `A^{(12)}_x`/`ä^{(12)}_x` differ from the annual
+    table by the standard `i/i^{(12)}` acceleration (~2.7%) and the `11/24`
+    annuity offset — a documented convention gap, not a failure; the annual
+    reconstruction is the anchor.
 
 ### Slice 3: Surface the validation report
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 2 merged.
-- **Scope:** `polaris validate` CLI (runs the pack, prints/exports the Markdown
-  report; non-zero exit on any FAIL); a `notebooks/05_validation_report.ipynb`
-  rendering the pass/fail table for diligence; ARCHITECTURE note. Run HARVEST
-  FOLLOW-UPS, then Status → COMPLETE.
+- **Scope:** `polaris validate` CLI — call `run_full_validation_pack()`,
+  print/export the Markdown report; **non-zero exit on any FAIL**; a
+  `notebooks/05_validation_report.ipynb` rendering the pass/fail table for
+  diligence; ARCHITECTURE note. Run HARVEST FOLLOW-UPS, then Status → COMPLETE.
 
 ### Slice 4 (optional): AXIS/Prophet side-by-side
 - **Status:** PARKED (reference-blocked)
@@ -90,26 +94,30 @@ this epic then parks behind it.
 
 ## Context for Next Session
 
-- **Start here:** Slice 2. First decide the reference (SOA Illustrative Life Table
-  vs a published VM-20/CRVM deck — see Open Questions). Prefer a table whose
-  expected APVs are *independently recomputable from a vendored `l_x`*, so the
-  transcription self-checks and there is zero guessing.
-- The `evaluate`/`ValidationReport` machinery is done — Slice 2 only adds
-  `ValidationCase`s + a deck loader + the `data/` vendoring (with the Dockerfile /
-  `.dockerignore` update in the same PR).
-- Whole-life APV via the engine: the WholeLife net-single-premium / reserve path is
-  more involved than TermLife (omega machinery, monthly recursion) — if adding a WL
-  closed-form case, reproduce it in a scratch script first (verify-premise) as was
-  done for the TermLife cases.
+- **Start here:** Slice 3 — surface the report. `run_full_validation_pack()` is
+  the single entry point; wire it to a `polaris validate` CLI command (Typer)
+  that prints `report.to_markdown()`, optionally writes it to `-o`, and exits
+  non-zero when `not report.all_passed`. Add `notebooks/05_validation_report.ipynb`
+  rendering the table. No new references needed — Slices 1+2 provide 13 cases
+  across all three categories.
+- Slice 3 is a **surfacing** slice: it must not change any expected value or
+  touch the pricing path. Goldens stay byte-identical.
+- The deck loader (`_load_illustrative_life_table`) resolves the vendored CSV via
+  `$POLARIS_DATA_DIR/validation/` first, else the repo-relative `data/validation/`.
+  The CLI runs from an installed package, so confirm the path resolves in the
+  Docker image (the `COPY data/validation/` is already in the Dockerfile).
 
 ## Open Questions (for human)
 
 - **Redirect go/no-go (reserved from the Reserve-Basis Correctness checkpoint):**
-  confirm A1′ validation is the active epic (default taken this session) vs finishing
-  interest-exactness first.
-- **Slice 2 reference choice:** SOA Illustrative Life Table (clean textbook APVs,
-  widely cited) vs a published VM-20/CRVM reserve deck (closer to the "reproduce the
-  cedant's held reserve" use case)?
+  confirm A1′ validation is the active epic (default taken across Slices 1–2) vs
+  finishing interest-exactness first. Still unresolved; the epic continues under
+  the default until the maintainer decides.
+- **Reserve-factor deck (optional):** the ILT deck validates APV/premium columns.
+  A published VM-20/CRVM *held-reserve* worked example — closer to the "reproduce
+  the cedant's held reserve" use case — is a candidate additional deck, not
+  required to close the epic. (Slice 2's reference-choice question is otherwise
+  resolved: SOA Illustrative Life Table was chosen.)
 
 ## Refinement Backlog
 

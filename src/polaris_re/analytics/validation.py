@@ -26,13 +26,27 @@ are unimpeachable and network-free:
   authoritative anchor, matched within a documented monthly-discretisation
   tolerance.
 
-Later slices extend the pack with published statutory reserve decks
-(VM-20 / CRVM worked examples) and surface the report on the CLI + a
-validation notebook. The models here are deliberately engine-agnostic so those
-slices reuse them unchanged.
+Slice 2 (``STATUTORY_DECK``) adds a **published life-table deck** — the SOA
+Illustrative Life Table (Bowers et al., *Actuarial Mathematics* 2e, Appendix 2A).
+The table's ``l_x`` column is vendored under ``data/validation/`` and its
+whole-life net single premium :math:`A_x`, annuity-due :math:`\\ddot a_x`, and
+net level premium :math:`P_x = A_x/\\ddot a_x` at ``i = 6%`` are reproduced by
+the live WholeLife engine to machine precision (the constant-force monthly split
+preserves the table's annual decrements exactly, so the engine's monthly
+projection aggregated back to annual equals the tabulated APVs). The vendored
+``l_x`` is itself generated from the table's *published Makeham law*
+(:math:`\\mu_x = A + Bc^x`, ``A = 0.0007``, ``B = 0.00005``, ``c = 10^{0.04}``,
+``l_0 = 100000``), so the reference is a cited parametric identity, not a
+hand-copied column — yet it reproduces the printed table's tabulated
+``1000 A_35 = 128.72`` / ``ä_35 = 15.3926`` to all printed digits.
+
+Later slices surface the report on the CLI + a validation notebook. The models
+here are deliberately engine-agnostic so those slices reuse them unchanged.
 """
 
+import os
 from enum import StrEnum
+from pathlib import Path
 
 import numpy as np
 from pydantic import Field
@@ -46,6 +60,8 @@ __all__ = [
     "ValidationResult",
     "ValidationStatus",
     "run_closed_form_benchmarks",
+    "run_full_validation_pack",
+    "run_statutory_deck_benchmarks",
 ]
 
 
@@ -424,4 +440,310 @@ def run_closed_form_benchmarks() -> ValidationReport:
     return ValidationReport(
         title="Polaris RE — Closed-Form Actuarial Validation Pack",
         results=tuple(results),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Statutory / published-deck references — SOA Illustrative Life Table
+# ---------------------------------------------------------------------------
+#
+# The SOA Illustrative Life Table (Bowers et al., *Actuarial Mathematics* 2e,
+# Appendix 2A) is generated from Makeham's law
+#     mu(x) = A + B c^x
+# so the survival function from birth is the cited closed form
+#     S(x) = exp(-A x - (B/ln c)(c^x - 1))
+# and l_x = l_0 S(x). The three constants below ARE the citation — the vendored
+# ``l_x`` column is regenerated from them and self-checked against the printed
+# table (1000 A_35 = 128.72, ä_35 = 15.3926, …), so no hand-copied number is
+# ever trusted.
+
+_ILT_MAKEHAM_A = 0.0007
+_ILT_MAKEHAM_B = 0.00005
+_ILT_MAKEHAM_C = 10.0**0.04
+_ILT_L0 = 100_000.0
+#: Table closes here: everyone alive at age ω dies during the following year
+#: (q_ω = 1, l_{ω+1} = 0), matching the engine's max-age certain-death forcing.
+_ILT_OMEGA = 120
+#: The Illustrative Life Table's tabulated valuation interest rate.
+_ILT_INTEREST = 0.06
+
+#: Vendored reference file (repo-relative ``data/validation/``), overridable via
+#: ``$POLARIS_DATA_DIR`` for a mounted data root.
+_ILT_CSV_NAME = "illustrative_life_table.csv"
+
+
+def _illustrative_life_table_makeham() -> tuple[np.ndarray, np.ndarray]:
+    """Generate the Illustrative Life Table ``(ages, l_x)`` from its Makeham law.
+
+    Ages ``0 .. ω+1``; ``l_{ω+1} = 0`` closes the table. This is the single
+    source of truth for both the vendored CSV and the transcription self-check.
+    """
+    ln_c = np.log(_ILT_MAKEHAM_C)
+    ages = np.arange(0, _ILT_OMEGA + 2, dtype=np.int64)
+    x = ages.astype(np.float64)
+    survival = np.exp(-_ILT_MAKEHAM_A * x - (_ILT_MAKEHAM_B / ln_c) * (_ILT_MAKEHAM_C**x - 1.0))
+    lx = _ILT_L0 * survival
+    lx[_ILT_OMEGA + 1] = 0.0  # close the table
+    return ages, lx
+
+
+def _illustrative_life_table_path() -> Path:
+    """Resolve the vendored Illustrative Life Table CSV path.
+
+    Prefers ``$POLARIS_DATA_DIR/validation/`` when set (mounted data root),
+    else the repo-relative ``data/validation/`` alongside the source tree.
+    """
+    data_dir_env = os.environ.get("POLARIS_DATA_DIR")
+    if data_dir_env:
+        candidate = Path(data_dir_env) / "validation" / _ILT_CSV_NAME
+        if candidate.is_file():
+            return candidate
+    repo_root = Path(__file__).resolve().parents[3]
+    return repo_root / "data" / "validation" / _ILT_CSV_NAME
+
+
+def _load_illustrative_life_table() -> tuple[np.ndarray, np.ndarray]:
+    """Load the vendored Illustrative Life Table ``(ages, l_x)`` from CSV.
+
+    Comment lines (``#`` prefix — the citation header) are skipped. The file
+    carries ``age,l_x`` rows through ``age = ω+1`` (``l_x = 0``).
+    """
+    path = _illustrative_life_table_path()
+    ages_list: list[int] = []
+    lx_list: list[float] = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or line.lower().startswith("age"):
+            continue
+        age_str, lx_str = line.split(",")
+        ages_list.append(int(age_str))
+        lx_list.append(float(lx_str))
+    return (
+        np.array(ages_list, dtype=np.int64),
+        np.array(lx_list, dtype=np.float64),
+    )
+
+
+def _annual_whole_life_apvs(lx: np.ndarray, issue_age: int, i_annual: float) -> tuple[float, float]:
+    """Annual whole-life ``(A_x, ä_x)`` from a life table ``l_x`` at rate ``i``.
+
+    The textbook annual life-table identities:
+    :math:`A_x = \\sum_{k\\ge 0} v^{k+1}(l_{x+k}-l_{x+k+1})/l_x` and
+    :math:`\\ddot a_x = \\sum_{k\\ge 0} v^{k} l_{x+k}/l_x`, with ``v = 1/(1+i)``.
+    These are exact given ``l_x`` and satisfy ``A_x = 1 - d ä_x`` (``d = i/(1+i)``).
+    """
+    v = 1.0 / (1.0 + i_annual)
+    tail = lx[issue_age:]
+    deaths = tail[:-1] - tail[1:]
+    k_d = np.arange(deaths.shape[0], dtype=np.float64)
+    a_x = float(np.sum(v ** (k_d + 1.0) * deaths) / tail[0])
+    k_a = np.arange(tail.shape[0], dtype=np.float64)
+    adue_x = float(np.sum(v**k_a * tail) / tail[0])
+    return a_x, adue_x
+
+
+def _run_illustrative_life_table_projection(
+    issue_age: int, lx: np.ndarray, i_annual: float
+) -> tuple[float, float]:
+    """Drive the WholeLife engine on the ILT to omega; return annual ``(A_x, ä_x)``.
+
+    Converts the vendored ``l_x`` to annual ``q_x`` (``q_ω = 1``), projects a
+    single whole-life policy from ``issue_age`` to omega, then reconstructs the
+    *annual* APVs from the monthly engine output: monthly death benefits are
+    aggregated within each policy year and discounted to year-end, and the
+    in-force is sampled at policy-year boundaries. Under the engine's
+    constant-force monthly split these reconstructions equal the tabulated annual
+    APVs exactly, so the engine reproduces the published table to machine
+    precision.
+
+    Imports of the product/assumption layers are deferred to call time to keep
+    this analytics module free of an import cycle with ``products``.
+    """
+    from datetime import date
+
+    from polaris_re.assumptions.assumption_set import AssumptionSet
+    from polaris_re.assumptions.lapse import LapseAssumption
+    from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
+    from polaris_re.core.inforce import InforceBlock
+    from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
+    from polaris_re.core.projection import ProjectionConfig
+    from polaris_re.products.whole_life import WholeLife
+    from polaris_re.utils.table_io import MortalityTableArray
+
+    # Annual q_x from l_x; q at omega forced to 1 (certain death).
+    q_annual = np.ones(_ILT_OMEGA + 1, dtype=np.float64)
+    alive = lx[: _ILT_OMEGA + 1] > 0.0
+    q_annual[alive] = 1.0 - lx[1 : _ILT_OMEGA + 2][alive] / lx[: _ILT_OMEGA + 1][alive]
+    q_annual[_ILT_OMEGA] = 1.0
+
+    table_array = MortalityTableArray(
+        rates=q_annual.reshape(-1, 1),
+        min_age=0,
+        max_age=_ILT_OMEGA,
+        select_period=0,
+        source_file=Path("illustrative-life-table"),
+    )
+    table = MortalityTable.from_table_array(
+        # `source` is a cosmetic label here: this is a validation-only synthetic
+        # table (the vendored Illustrative Life Table), never used for pricing, so
+        # the tag is not semantically meaningful. SOA_VBT_2015 is reused as a
+        # placeholder (matching Slice 1's constant-force table) rather than
+        # widening the MortalityTableSource contract for a test-only fixture.
+        source=MortalityTableSource.SOA_VBT_2015,
+        table_name="SOA Illustrative Life Table",
+        table_array=table_array,
+        sex=Sex.MALE,
+        smoker_status=SmokerStatus.NON_SMOKER,
+    )
+    assumptions = AssumptionSet(
+        mortality=table,
+        lapse=LapseAssumption.from_duration_table({1: 0.0, "ultimate": 0.0}),
+        version="validation-illustrative-life-table",
+    )
+    term_years = _ILT_OMEGA - issue_age  # attained age reaches omega at horizon end
+    config = ProjectionConfig(
+        valuation_date=date(2025, 1, 1),
+        projection_horizon_years=term_years,
+        discount_rate=i_annual,
+    )
+    face = 1_000_000.0
+    policy = Policy(
+        policy_id="VALIDATION-ILT",
+        issue_age=issue_age,
+        attained_age=issue_age,
+        sex=Sex.MALE,
+        smoker_status=SmokerStatus.NON_SMOKER,
+        underwriting_class="STANDARD",
+        face_amount=face,
+        annual_premium=1.0,
+        product_type=ProductType.WHOLE_LIFE,
+        policy_term=term_years,
+        duration_inforce=0,
+        reinsurance_cession_pct=0.0,
+        issue_date=date(2025, 1, 1),
+        valuation_date=date(2025, 1, 1),
+    )
+    block = InforceBlock(policies=[policy])
+    result = WholeLife(block, assumptions, config).project(seriatim=True)
+
+    months = config.projection_months
+    v = 1.0 / (1.0 + i_annual)
+    n_years = months // 12
+    death_claims = np.asarray(result.death_claims, dtype=np.float64)
+    if result.seriatim_lx is None:  # pragma: no cover - project(seriatim=True) populates it
+        raise ValueError("Seriatim in-force required for the ILT annuity benchmark.")
+    lx_monthly = np.asarray(result.seriatim_lx, dtype=np.float64)[0, :]
+
+    # A_x: aggregate monthly deaths within each policy year, discount to year-end.
+    year_deaths = death_claims[: n_years * 12].reshape(n_years, 12).sum(axis=1)
+    a_x = float(np.sum(v ** np.arange(1, n_years + 1, dtype=np.float64) * year_deaths) / face)
+    # ä_x: in-force sampled at the start of each policy year.
+    adue_x = float(
+        np.sum(v ** np.arange(n_years, dtype=np.float64) * lx_monthly[: n_years * 12 : 12])
+    )
+    return a_x, adue_x
+
+
+#: Issue ages exercised against the Illustrative Life Table (young / mid / retirement).
+_ILT_ISSUE_AGES: tuple[int, ...] = (35, 40, 65)
+
+
+def run_statutory_deck_benchmarks() -> ValidationReport:
+    """Build and score the Slice-2 published-deck validation pack.
+
+    Reproduces the SOA Illustrative Life Table whole-life net single premium
+    ``A_x``, annuity-due ``ä_x``, and net level premium ``P_x`` at ``i = 6%``
+    for several issue ages, driving the live WholeLife engine and comparing to
+    the tabulated annual APVs derived from the vendored ``l_x``. All references
+    are machine-precision identities of the published table.
+    """
+    _ages, lx = _load_illustrative_life_table()
+    source = (
+        "SOA Illustrative Life Table, i=6% (Bowers et al., Actuarial Mathematics "
+        "2e, App. 2A; Makeham mu=A+Bc^x, A=.0007, B=.00005, c=10^.04)"
+    )
+    results: list[ValidationResult] = []
+    for issue_age in _ILT_ISSUE_AGES:
+        ref_a, ref_adue = _annual_whole_life_apvs(lx, issue_age, _ILT_INTEREST)
+        eng_a, eng_adue = _run_illustrative_life_table_projection(issue_age, lx, _ILT_INTEREST)
+        ref_p = ref_a / ref_adue
+        eng_p = eng_a / eng_adue
+
+        a_case = ValidationCase(
+            case_id=f"ILT-A-{issue_age}",
+            name=f"Whole-life A_{issue_age} net single premium (ILT, i=6%)",
+            category=ValidationCategory.STATUTORY_DECK,
+            source=source,
+            description=(
+                "Whole-life net single premium A_x per $1 from the Illustrative "
+                "Life Table l_x. The engine projects a whole-life policy to omega; "
+                "monthly death benefits are aggregated to annual and discounted to "
+                "year-end, reproducing the tabulated annual A_x."
+            ),
+            expected=ref_a,
+            unit="per-$1-face",
+            tolerance_rtol=1e-9,
+            tolerance_rationale=(
+                "Constant-force monthly split preserves the table's annual "
+                "decrements exactly; annual reconstruction is machine precision."
+            ),
+        )
+        results.append(a_case.evaluate(eng_a))
+
+        adue_case = ValidationCase(
+            case_id=f"ILT-ADUE-{issue_age}",
+            name=f"Whole-life annuity-due ä_{issue_age} (ILT, i=6%)",
+            category=ValidationCategory.STATUTORY_DECK,
+            source=source,
+            description=(
+                "Whole-life annuity-due ä_x from the Illustrative Life Table l_x. "
+                "The engine's in-force sampled at policy-year boundaries reproduces "
+                "the tabulated annual ä_x."
+            ),
+            expected=ref_adue,
+            unit="years",
+            tolerance_rtol=1e-9,
+            tolerance_rationale=(
+                "Annual in-force sampled from the engine equals the tabulated "
+                "survivorship exactly under the constant-force split."
+            ),
+        )
+        results.append(adue_case.evaluate(eng_adue))
+
+        p_case = ValidationCase(
+            case_id=f"ILT-P-{issue_age}",
+            name=f"Whole-life net level premium P_{issue_age} = A_x/ä_x (ILT, i=6%)",
+            category=ValidationCategory.STATUTORY_DECK,
+            source=source,
+            description=(
+                "Whole-life net level annual premium P_x = A_x/ä_x per $1 face, "
+                "the ratio of the two reproduced APVs."
+            ),
+            expected=ref_p,
+            unit="per-$1-face-per-year",
+            tolerance_rtol=1e-9,
+            tolerance_rationale=(
+                "Ratio of two machine-precision APVs; the discretisation cancels."
+            ),
+        )
+        results.append(p_case.evaluate(eng_p))
+
+    return ValidationReport(
+        title="Polaris RE — Published-Deck Validation Pack (SOA Illustrative Life Table)",
+        results=tuple(results),
+    )
+
+
+def run_full_validation_pack() -> ValidationReport:
+    """Combine every validation category into one diligence report.
+
+    Concatenates the closed-form (Slice 1) and published-deck (Slice 2) packs so
+    the CLI / notebook slices render a single pass/fail table across all
+    reference categories.
+    """
+    closed_form = run_closed_form_benchmarks()
+    deck = run_statutory_deck_benchmarks()
+    return ValidationReport(
+        title="Polaris RE — Full Actuarial Validation Pack",
+        results=closed_form.results + deck.results,
     )

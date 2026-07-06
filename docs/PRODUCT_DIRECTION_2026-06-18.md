@@ -1210,9 +1210,13 @@ Items harvested from completed/in-flight work by the daily-dev routine
     constituted as the active epic and Slice 1 shipped — `PLAN_validation_benchmark.md`
     + `CONTINUATION_validation_benchmark.md` (IN PROGRESS), ADR-130, module
     `polaris_re.analytics.validation` (framework + closed-form seed set), 18 tests.
-    Slice 2 (published-deck reference set) is NEXT; Slice 3 surfaces a `polaris
-    validate` CLI + report notebook. The redirect go/no-go remains reserved for the
-    maintainer (interest-exactness parked open-but-deprioritised, not killed).
+    Slice 2 shipped 2026-07-06 (ADR-131): the **SOA Illustrative Life Table** deck
+    (`data/validation/illustrative_life_table.csv`, `STATUTORY_DECK` cases for
+    whole-life `A_x`/`ä_x`/`P_x` reproduced by the WholeLife engine to machine
+    precision) + `run_full_validation_pack()`, 26 tests. Slice 3 (NEXT) surfaces a
+    `polaris validate` CLI + report notebook. The redirect go/no-go remains
+    reserved for the maintainer (interest-exactness parked open-but-deprioritised,
+    not killed).
 
 - **NICE-TO-HAVE — AXIS/Prophet side-by-side validation case.** A licensed-tool
   reference output would let the validation pack (A1′) assert against the incumbent
@@ -1222,12 +1226,22 @@ Items harvested from completed/in-flight work by the daily-dev routine
   (2nd-order — follow-up of the A1′ validation-epic follow-up → NICE-TO-HAVE per the
   step-17 order cap).*
 
-- **NICE-TO-HAVE — WholeLife-to-omega closed-form validation case.** Slice 1 of the
+- ~~**NICE-TO-HAVE — WholeLife-to-omega closed-form validation case.** Slice 1 of the
   validation pack validates via TermLife (the simplest engine); a WholeLife
   net-single-premium / reserve closed-form case would extend coverage to the
   accumulation-product path. Candidate for Slice 2. *Source: ADR-130 Out of scope
   (2nd-order — follow-up of the A1′ validation-epic follow-up → NICE-TO-HAVE per the
-  step-17 order cap).*
+  step-17 order cap).*~~ — **SHIPPED** (PR for Slice 2, ADR-131): the WholeLife engine
+  is now validated to omega against the SOA Illustrative Life Table `A_x`/`ä_x`/`P_x`
+  at machine precision (`STATUTORY_DECK` cases, issue ages 35/40/65).
+
+- **NICE-TO-HAVE — published held-reserve deck (VM-20 / CRVM worked example).** The
+  ILT deck (ADR-131) validates the whole-life APV / net-premium columns; a published
+  *reserve* worked example (a held statutory reserve factor for a specified policy)
+  would validate the reserve path directly — closer to the "reproduce the cedant's
+  held reserve" reinsurance use case. Not required to close the A1′ epic. *Source:
+  ADR-131 Out of scope (2nd-order — follow-up of the A1′ validation-epic deck slice
+  → NICE-TO-HAVE per the step-17 order cap).*
 
 - **NICE-TO-HAVE — reconcile the stale `tests/qa/golden_outputs/*.json` byte-format
   with the current CLI `-o` schema.** Pre-existing on main (not introduced by any

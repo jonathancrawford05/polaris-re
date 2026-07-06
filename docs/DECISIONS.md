@@ -8494,3 +8494,67 @@ the report on the CLI (`polaris validate`) and a `05_validation_report.ipynb` no
 An AXIS/Prophet side-by-side is deferred and reference-blocked unless a reference output is
 obtainable (parked). This slice deliberately validates via TermLife (the simplest engine); a
 WholeLife-to-omega closed-form case is a candidate Slice-2 addition.
+
+---
+
+## ADR-131: Published-deck validation — SOA Illustrative Life Table (WholeLife) — Validation & Benchmark epic (A1′), Slice 2
+
+**Status.** Accepted (2026-07-06).
+
+**Context.** ADR-130 seeded the validation pack with `CLOSED_FORM` / `TEXTBOOK` references validated
+via the TermLife engine. The `STATUTORY_DECK` category was reserved for a *published* reference deck —
+the first case where Polaris RE reproduces a table a diligence team already knows, rather than an
+internal identity. Slice 2 delivers it against the **SOA Illustrative Life Table** (Bowers, Gerber,
+Hickman, Jones & Nesbitt, *Actuarial Mathematics* 2e, Appendix 2A), the most widely-cited teaching
+life table, and validates the **WholeLife** engine (extending coverage beyond TermLife, the candidate
+noted in ADR-130's out-of-scope).
+
+**Decision.**
+
+- *Vendor the table, but from its published parametric law — not a hand-copied column.* The
+  Illustrative Life Table is generated from Makeham's law `μ(x) = A + B·c^x` with the table's
+  published constants `A = 0.0007`, `B = 0.00005`, `c = 10^0.04`, `l_0 = 100000`, so
+  `S(x) = exp(−A·x − (B/ln c)(c^x − 1))` and `l_x = l_0·S(x)`. Those three constants *are* the
+  citation; the vendored `data/validation/illustrative_life_table.csv` (`l_x`, ages 0..121, closed at
+  `l_121 = 0`) is regenerated from them and self-checked, so no transcribed number is ever trusted.
+  The generated table reproduces the *printed* ILT values (`1000·A_35 = 128.72`, `ä_35 = 15.3926`,
+  `1000·A_65 = 439.80`, `ä_65 = 9.8969`) to all printed digits — confirming it is the ILT.
+
+- *Reference APVs are exact annual life-table identities of the vendored `l_x`.* For issue ages
+  {35, 40, 65} the whole-life net single premium `A_x = Σ v^{k+1}(l_{x+k}−l_{x+k+1})/l_x`, annuity-due
+  `ä_x = Σ v^k·l_{x+k}/l_x`, and net level premium `P_x = A_x/ä_x` at `i = 6%` are the references
+  (nine `STATUTORY_DECK` cases). They satisfy the `A_x = 1 − d·ä_x` identity, which the tests assert
+  independently of any recalled number.
+
+- *The engine reproduces the annual table to machine precision.* The projection is monthly, but under
+  the engine's constant-force monthly split the annual decrements are preserved exactly. So driving
+  WholeLife to omega on the ILT `q_x`, then reconstructing the annual APVs from the monthly output
+  (monthly death benefits aggregated within each policy year and discounted to year-end; in-force
+  sampled at policy-year boundaries) equals the tabulated `A_x` / `ä_x` to `rtol=1e-9` (measured
+  ~2e-14). This is the same reconstruct-from-cashflows technique Slice 1 used, and it is why the deck
+  cases assert at machine precision rather than a monthly-convention tolerance. `P_x` is a ratio of
+  two reproduced APVs, so the (already-negligible) discretisation cancels.
+
+- *One combined runner for the surfacing slice.* `run_statutory_deck_benchmarks()` scores the deck;
+  `run_full_validation_pack()` concatenates the closed-form and deck packs into one report spanning
+  all three categories, so Slice 3's `polaris validate` CLI / notebook render a single diligence table.
+
+**Verification.** `tests/validation/test_statutory_deck_pack.py` (26 tests): the vendored CSV equals
+the Makeham regeneration byte-for-byte; table shape/endpoints/monotonicity; the `A_x = 1 − d·ä_x`
+identity and an independent loop-based recompute of `A_x`/`ä_x` (transcription guard on the
+derivation); reproduction of the printed ILT values; the WholeLife engine reproduces the annual APVs
+to `rtol=1e-9` across the three issue ages; and the assembled deck + full reports pass, carry only
+`STATUTORY_DECK` cases (deck) / span all three categories (full), and render Markdown. Full fast suite
++ QA green; goldens byte-identical (a new data file + analytics cases + tests only — no pricing-path
+change, verified via the QA golden suite and a `polaris price` regression run). The `data/validation/`
+tree is added to the Dockerfile `COPY` and the `.dockerignore` allowlist in this same PR (the runtime
+image runs the test suite — the PR #61/#66 trap).
+
+**Out of scope.** Surfacing the report on the CLI (`polaris validate`, non-zero exit on any FAIL) and
+a `notebooks/05_validation_report.ipynb` — Slice 3. A published *reserve* deck (VM-20 / CRVM held-reserve
+worked example, closer to the "reproduce the cedant's held reserve" use case) beyond the ILT's APV/premium
+columns — a candidate deck addition, not required for the epic. The AXIS/Prophet side-by-side remains
+parked and reference-blocked. The engine's *native monthly* `A^{(12)}_x` / `ä^{(12)}_x` are not asserted
+against the annual table here (they differ by the standard `i/i^{(12)}` acceleration ≈ 2.7% and the
+`11/24` annuity offset, a documented convention gap rather than a validation failure); the annual
+reconstruction is the cleaner anchor.
