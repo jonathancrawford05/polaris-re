@@ -68,6 +68,7 @@ uv run polaris price       # demo pricing run with Rich output
 uv run polaris scenario    # scenario analysis
 uv run polaris uq          # Monte Carlo UQ (200 scenarios by default)
 uv run polaris rate-schedule  # YRT rate schedule generation
+uv run polaris benchmark   # actuarial validation pack (reference reproduction, exit ≠ 0 on FAIL)
 ```
 
 ### Validation notebook

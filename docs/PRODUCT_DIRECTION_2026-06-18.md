@@ -1213,10 +1213,17 @@ Items harvested from completed/in-flight work by the daily-dev routine
     Slice 2 shipped 2026-07-06 (ADR-131): the **SOA Illustrative Life Table** deck
     (`data/validation/illustrative_life_table.csv`, `STATUTORY_DECK` cases for
     whole-life `A_x`/`ä_x`/`P_x` reproduced by the WholeLife engine to machine
-    precision) + `run_full_validation_pack()`, 26 tests. Slice 3 (NEXT) surfaces a
-    `polaris validate` CLI + report notebook. The redirect go/no-go remains
-    reserved for the maintainer (interest-exactness parked open-but-deprioritised,
-    not killed).
+    precision) + `run_full_validation_pack()`, 26 tests. **Slice 3 shipped
+    2026-07-06 (ADR-132) — the A1′ epic is now COMPLETE:** the pack is surfaced
+    headless by `polaris benchmark` (`--pack {full,closed-form,deck}`, `-o`
+    Markdown / `--json` export, **non-zero exit on any FAIL** so it can gate CI)
+    and by `notebooks/05_validation_report.ipynb`; 11 tests. The planned
+    `polaris validate` name was **already taken** by input-file schema validation,
+    so the command was named `polaris benchmark` (the verify-premise correction —
+    `validate` = check your files, `benchmark` = check the engine). The redirect
+    go/no-go remains reserved for the maintainer: with A1′ done, the parked
+    interest-exactness epic (`CONTINUATION_reserve_basis_correctness`, Slices 2–3)
+    is the natural next active epic unless the maintainer redirects.
 
 - **NICE-TO-HAVE — AXIS/Prophet side-by-side validation case.** A licensed-tool
   reference output would let the validation pack (A1′) assert against the incumbent
@@ -1242,6 +1249,16 @@ Items harvested from completed/in-flight work by the daily-dev routine
   held reserve" reinsurance use case. Not required to close the A1′ epic. *Source:
   ADR-131 Out of scope (2nd-order — follow-up of the A1′ validation-epic deck slice
   → NICE-TO-HAVE per the step-17 order cap).*
+
+- **NICE-TO-HAVE — user-supplied reference decks for `polaris benchmark`.** The
+  `benchmark` command (ADR-132) runs the fixed built-in reference catalogue only.
+  Accepting a user-provided deck (e.g. a cedant's own worked reserve example, or a
+  CSV of `case_id, expected, tolerance` scored against a specified projection)
+  would let a diligence team validate the engine against *their* numbers, not just
+  the vendored references — turning the pack from a shipped-in demonstration into a
+  reusable acceptance harness. *Source: ADR-132 Out of scope (2nd-order — follow-up
+  of the A1′ validation-epic surfacing slice → NICE-TO-HAVE per the step-17 order
+  cap).*
 
 - **NICE-TO-HAVE — reconcile the stale `tests/qa/golden_outputs/*.json` byte-format
   with the current CLI `-o` schema.** Pre-existing on main (not introduced by any
