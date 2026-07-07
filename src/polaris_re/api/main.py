@@ -59,6 +59,10 @@ from polaris_re.analytics.profit_test import (
 )
 from polaris_re.analytics.scenario import ScenarioRunner
 from polaris_re.analytics.uq import MonteCarloUQ, UQParameters
+from polaris_re.api.observability import (
+    RequestContextMiddleware,
+    configure_api_logging,
+)
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.assumptions.lapse import LapseAssumption
 from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
@@ -90,6 +94,12 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+# Observability (ROADMAP 6.2, Slice 1): structured JSON access logging with a
+# per-request correlation id and monotonic-clock duration. Configuring the
+# access logger is idempotent; the middleware is dependency-free.
+configure_api_logging()
+app.add_middleware(RequestContextMiddleware)
 
 
 @app.exception_handler(PolarisValidationError)
