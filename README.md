@@ -23,6 +23,7 @@ Polaris RE provides:
 - ✅ **IFRS 17** — BBA, PAA, and VFA measurement plus the period-to-period movement table
 - ✅ **Return-on-capital** — LICAT (Canada), US RBC, and EU Solvency II SCR are all selectable for return-on-capital on the CLI (`--capital`), REST API (`capital_model`), Streamlit dashboard (capital-basis selector), and the deal-pricing Excel workbook (jurisdiction-labelled capital block)
 - ✅ **Statutory reserves** — reproduce the cedant's basis (CRVM, VM-20) alongside net-premium
+- ✅ **Validated** — an executable **validation & benchmark pack** reproduces authoritative actuarial references (SOA Illustrative Life Table APVs / premiums, constant-force closed forms, a continuous-force textbook identity) to machine precision; run it headless with `polaris benchmark` (non-zero exit on any FAIL, so it can gate CI). This is the executable evidence behind the "credible alternative to AXIS / Prophet" claim.
 
 ---
 
@@ -62,10 +63,11 @@ breakdown.
 | `analytics/` | Regulatory capital — US NAIC Life RBC + shared `CapitalModel` protocol; drives return-on-capital | 🔄 module + RoC + CLI/API/dashboard/Excel selector + result-level RBC ratio (`capital_ratio`) shipped; ratio surfacing on CLI/API/Excel/dashboard pending (Slice 4c-2) |
 | `analytics/` | Regulatory capital — EU Solvency II SCR (standard-formula correlation-matrix BSCR + risk margin) | 🔄 module + CLI/API/dashboard/Excel selector + result-level solvency ratio (`capital_ratio`) shipped; ratio surfacing on CLI/API/Excel/dashboard pending (Slice 4c-2) |
 | `analytics/` | YRT rate schedule generator — flat + per-duration solve to a target IRR | ✅ |
+| `analytics/` | Validation & benchmark pack — reproduce published/closed-form actuarial references (SOA Illustrative Life Table, constant-force identities); scored pass/fail report via `polaris benchmark` + `05_validation_report.ipynb` | ✅ |
 | `assumptions/` | ML-enhanced mortality & lapse (scikit-learn / XGBoost), same protocol as table-based | ✅ |
 | `utils/` | Cedant inforce data ingestion — YAML-driven mapping, data-quality report | ✅ |
 | `api/` | REST API — FastAPI with full OpenAPI docs (price, scenario, uq, ifrs17 bba/paa/movement, portfolio, ingest, rate-schedule) | ✅ |
-| `cli.py` | CLI — `price / scenario / uq / portfolio / rate-schedule / ingest / validate / version`; `price --excel-out` (committee workbook), `--reserve-basis {NET_PREMIUM,CRVM,VM20,GAAP}` (GAAP: Term), `--capital {licat,rbc,solvency2}` (RoC) | ✅ |
+| `cli.py` | CLI — `price / scenario / uq / portfolio / rate-schedule / ingest / validate / benchmark / version`; `price --excel-out` (committee workbook), `--reserve-basis {NET_PREMIUM,CRVM,VM20,GAAP}` (GAAP: Term), `--capital {licat,rbc,solvency2}` (RoC); `benchmark` runs the actuarial validation pack (exit ≠ 0 on any FAIL) | ✅ |
 | `dashboard/` | Streamlit dashboard — pricing, scenarios, Monte Carlo, portfolio | ✅ |
 
 ---
@@ -131,6 +133,24 @@ uv run polaris price \
 Set `POLARIS_PARITY_DEBUG=1` to dump year-by-year cash flow CSVs (gross / net /
 ceded) to `data/outputs/parity/`. Override the location with
 `POLARIS_PARITY_OUTPUT=<path>`.
+
+### Validation & benchmark pack
+
+`polaris benchmark` reproduces authoritative actuarial reference values (the SOA
+Illustrative Life Table whole-life APVs / premiums, constant-force closed forms,
+and a continuous-force textbook identity) and renders a diligence-grade pass/fail
+table. It needs no config or data — the references are cited constants and
+identities. It **exits non-zero on any FAIL**, so it can gate a CI job.
+
+```bash
+uv run polaris benchmark                     # full pack (all categories), pretty table
+uv run polaris benchmark --pack deck         # just the SOA Illustrative Life Table cases
+uv run polaris benchmark -o report.md        # export the Markdown report
+uv run polaris benchmark --json report.json  # export the structured results
+```
+
+`notebooks/05_validation_report.ipynb` renders the same report with its diligence
+checks embedded as executable assertions.
 
 See [`docs/QUICKSTART.md §9`](docs/QUICKSTART.md#9-deal-pricing--excel-export) for the full
 `polaris price` command reference, workbook contents, and mixed-cohort filename behaviour.
@@ -283,7 +303,8 @@ polaris-re/
 │   ├── 01_term_life_yrt_pricing.ipynb        ← End-to-end YRT deal-pricing walkthrough
 │   ├── 02_reserve_basis_comparison.ipynb     ← CRVM / VM-20 / GAAP reserve-basis comparison
 │   ├── 03_capital_standards_comparison.ipynb ← LICAT / RBC / Solvency II capital comparison
-│   └── 04_alm_duration_gap.ipynb             ← Asset-liability duration gap + closed-form validation
+│   ├── 04_alm_duration_gap.ipynb             ← Asset-liability duration gap + closed-form validation
+│   └── 05_validation_report.ipynb            ← Validation & benchmark pack — pass/fail report vs published references
 ├── scripts/
 │   ├── convert_soa_tables.py     ← Download/convert SOA VBT 2015, CSO 2001, CIA 2014
 │   ├── validate_tables.py        ← Validate mortality CSV files
