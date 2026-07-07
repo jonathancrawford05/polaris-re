@@ -21,7 +21,7 @@ shipped; A2′ is the next Tier-A "big rock"). See `PLAN_production_hardening.md
 ### Slice 1: Observability core
 - **Status:** DONE
 - **Branch:** `claude/loving-gauss-7nbcgj` (designated remote-session branch)
-- **PR:** #TBD (this session's draft)
+- **PR:** #133 (draft)
 - **What was done:** New `polaris_re.api.observability` module — `JsonLogFormatter`,
   `RequestContextMiddleware` (correlation id + monotonic-clock duration + JSON
   access log + `X-Correlation-ID`/`X-Response-Time-Ms` response headers),
