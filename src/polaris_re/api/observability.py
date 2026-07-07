@@ -172,6 +172,10 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         duration_ms = (time.perf_counter() - start) * 1000.0
         response.headers[CORRELATION_ID_HEADER] = correlation_id
         response.headers[RESPONSE_TIME_HEADER] = f"{duration_ms:.3f}"
+        # The context var was already reset in the ``finally`` above, so the
+        # correlation id is passed explicitly via ``extra`` here — do not rely on
+        # the ``correlation_id_var`` fallback for this record, which would render
+        # the ``_UNSET`` sentinel ("-") at this point.
         self._logger.info(
             "request completed",
             extra=_access_fields(request, response.status_code, duration_ms, correlation_id),
