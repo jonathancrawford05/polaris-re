@@ -67,6 +67,21 @@ shipped; A2′ is the next Tier-A "big rock"). See `PLAN_production_hardening.md
 - Slice 1's `correlation_id_var` is deliberately exported so Slice 2's auth
   middleware (and any engine logging) can stamp the same correlation id onto its
   own log records — reuse it rather than threading the id through call args.
+- **RULE — any nested `correlation_id_var` write MUST be token-scoped
+  (`tok = correlation_id_var.set(...)` / `correlation_id_var.reset(tok)`), never a
+  bare `set()` without a matching `reset()`.** Two channels carry the correlation
+  id and they must not diverge: the `RequestContextMiddleware` summary log and the
+  `X-Correlation-ID` response header both read the request's **local** id (aligned
+  by construction, immune to any context-var mutation), while *distant* engine
+  logs have only the **ambient** `correlation_id_var` to read. That ambient channel
+  stays consistent with the header only while every writer restores the prior value
+  on exit. A bare `set()` (e.g. an auth sub-context or a future span/child id) that
+  forgets to reset would leave later engine logs stamped with the wrong id while the
+  header/summary still show the real one — a silent misalignment that is the worst
+  failure mode for a correlation feature. Scoped set/reset makes this correct by
+  rule rather than by luck. (Rationale: PR #133 review discussion — the explicit
+  pass protects the summary line + header; the ambient channel's alignment rests on
+  this discipline.)
 - `RequestContextMiddleware` is a `BaseHTTPMiddleware`; add the auth middleware
   with `app.add_middleware` too. Note Starlette runs middleware in **reverse**
   registration order (last-added is outermost). Decide ordering deliberately:
