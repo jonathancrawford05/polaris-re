@@ -128,6 +128,12 @@ shipped; A2′ is the next Tier-A "big rock"). See `PLAN_production_hardening.md
 - Reuse Slice 1's per-request `duration_ms` + `status_code` for the metrics
   histogram/counter rather than re-instrumenting; a metrics middleware can sit
   alongside the existing stack (mind the reverse registration order).
+- **Proxy-aware rate-limit keying (from PR #134 review, [P2]).** The Slice 2
+  limiter keys on `request.client.host`; behind the ingress this slice deploys,
+  that is the proxy IP and rate limiting collapses to one global bucket. Make the
+  `X-Forwarded-For` **trust decision here** (derive the client IP from XFF only
+  when the peer is a trusted proxy — XFF is spoofable otherwise), alongside the
+  K8s/ingress topology. Harvested as IMPORTANT in PRODUCT_DIRECTION.
 - **Data/Docker allowlist discipline (recurring trap, PR #61/#66):** Slice 3
   adds files under `deploy/`; update the Dockerfile `COPY` / `.dockerignore`
   allowlist in the SAME PR if the runtime image or tests reference them.

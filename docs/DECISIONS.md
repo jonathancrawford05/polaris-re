@@ -8705,7 +8705,10 @@ Starlette middlewares wired into the app inside `RequestContextMiddleware`:
 Middleware registration order makes `RequestContextMiddleware` outermost, then
 rate limiting, then auth, then the endpoint — so a `401`/`429` is logged with the
 request's correlation id and the rejection response still carries the
-`X-Correlation-ID` header.
+`X-Correlation-ID` header. The presented key is checked against the configured
+set with `hmac.compare_digest` per candidate (not a plain `in` test), so a timing
+side-channel cannot reveal how many leading bytes of a key were guessed correctly
+(PR #134 review [P2]).
 
 **Rationale.** Configuration is read from the environment on **each** request, so
 an unset environment is genuinely a no-op — the 152 pre-existing API tests pass
@@ -8741,6 +8744,10 @@ single replica only. **Per-route / per-key rate tiers** (distinct limits per
 endpoint or per API key) — the current limit is global per client host. **Key
 rotation / hashing / a secret-store integration** beyond reading env-configured
 plaintext keys. **OIDC/JWT authentication** as an alternative to static keys
-(a separate, larger epic). Slice 3 remains the deployment & metrics surfaces
+(a separate, larger epic). **Proxy-aware client identification** (an
+`X-Forwarded-For` trust decision) for rate-limit keying — behind an ingress the
+limiter keys on the proxy IP and collapses to one global bucket; this is a
+security trust-boundary decision that belongs with the Slice 3 ingress topology
+(PR #134 review [P2]). Slice 3 remains the deployment & metrics surfaces
 (K8s/Helm manifests, Prometheus `/metrics`, Grafana compose). None are required
 by any shipped feature.

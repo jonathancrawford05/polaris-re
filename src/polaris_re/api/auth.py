@@ -38,6 +38,7 @@ Design notes:
       always reach them.
 """
 
+import hmac
 import logging
 import os
 import time
@@ -188,6 +189,18 @@ def _presented_key(request: Request) -> str | None:
     return None
 
 
+def _key_is_valid(presented: str, keys: frozenset[str]) -> bool:
+    """Constant-time membership test for the presented key.
+
+    Uses :func:`hmac.compare_digest` per candidate rather than a plain
+    ``presented in keys`` so a timing side-channel cannot reveal how many
+    leading bytes of a configured key were guessed correctly. (The *number* of
+    configured keys can still be inferred from timing, but the key contents —
+    the material secret — cannot.)
+    """
+    return any(hmac.compare_digest(presented, key) for key in keys)
+
+
 class APIKeyAuthMiddleware(BaseHTTPMiddleware):
     """Require a valid API key when keys are configured; otherwise pass through."""
 
@@ -212,7 +225,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         presented = _presented_key(request)
-        if presented is None or presented not in keys:
+        if presented is None or not _key_is_valid(presented, keys):
             reason = "missing API key" if presented is None else "invalid API key"
             self._logger.warning(
                 "authentication failed",

@@ -128,6 +128,20 @@ sleeps or reads the wall clock — ADR-074 guard).
 - **Interest-exactness redirect go/no-go** still reserved for the maintainer; the
   epic stays parked (Tier-D). (Carried forward, unchanged.)
 
+## PR #134 Review Response
+The automated review APPROVED with two non-blocking [P2] items:
+- **Constant-time key comparison** — **fixed** in this branch: `_key_is_valid`
+  now uses `hmac.compare_digest` per configured key instead of a plain `in` test,
+  so a timing side-channel cannot reveal how many leading key bytes were guessed.
+  New unit test `test_key_validation_is_constant_time_and_exact`; ADR-134
+  verification note updated. Behaviour-preserving (all prior tests green).
+- **Proxy / `X-Forwarded-For` client identification** — **deferred with tracking**
+  (not implemented). Trusting `X-Forwarded-For` is a spoofable security trust
+  boundary that depends on the ingress topology defined in Slice 3; the reviewer
+  scoped it to Slice 3. Harvested to PRODUCT_DIRECTION as IMPORTANT and pinned in
+  the CONTINUATION's "Context for Slice 3" so the deployment slice makes the trust
+  decision alongside the ingress config.
+
 ## Parked Polish
 None (no 3rd-order-or-deeper follow-ups surfaced this session — the ADR-134
 out-of-scope items are all 1st-order follow-ups of the originally-planned A2′

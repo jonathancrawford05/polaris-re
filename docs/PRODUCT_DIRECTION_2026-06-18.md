@@ -1345,6 +1345,20 @@ Items harvested from completed/in-flight work by the daily-dev routine
   (1st-order — a follow-up of the originally-planned A2′ epic; NICE-TO-HAVE, the
   plaintext-env baseline is acceptable for the MVP).*
 
+- **IMPORTANT — proxy-aware client identification for rate limiting
+  (`X-Forwarded-For` trust decision).** The A2′ Slice 2 rate limiter (ADR-134)
+  keys on `request.client.host`. Behind a reverse proxy / ingress / load
+  balancer, every request presents the *proxy's* IP, so per-client rate limiting
+  silently collapses to a single global bucket — a common single-replica case,
+  distinct from the already-harvested multi-replica backend item. Fixing it means
+  deriving the client IP from `X-Forwarded-For` **only when the immediate peer is
+  a trusted proxy** (an explicit trusted-proxy / trusted-hops config), because
+  `X-Forwarded-For` is client-spoofable otherwise. This is a security trust-
+  boundary decision that belongs with the Slice 3 K8s/ingress deployment surface
+  (where the proxy topology is defined). *Source: PR #134 automated review [P2]
+  (1st-order — fresh discovery during review of the originally-planned A2′ Slice 2;
+  IMPORTANT because it silently defeats rate limiting behind any ingress).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

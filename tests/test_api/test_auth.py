@@ -25,6 +25,7 @@ from polaris_re.api.auth import (
     APIKeyAuthMiddleware,
     RateLimitMiddleware,
     SlidingWindowRateLimiter,
+    _key_is_valid,
     configured_api_keys,
     configured_rate_limit,
 )
@@ -214,6 +215,17 @@ class TestApiKeyAuth:
         client = TestClient(_build_app())
         resp = client.get("/api/v1/echo", headers={"Authorization": "Bearer secret"})
         assert resp.status_code == 200
+
+    def test_key_validation_is_constant_time_and_exact(self):
+        # `_key_is_valid` uses hmac.compare_digest per candidate: an exact match
+        # against any configured key passes; near-misses and empties fail.
+        keys = frozenset({"secret", "other"})
+        assert _key_is_valid("secret", keys) is True
+        assert _key_is_valid("other", keys) is True
+        assert _key_is_valid("secre", keys) is False
+        assert _key_is_valid("secret ", keys) is False
+        assert _key_is_valid("", keys) is False
+        assert _key_is_valid("secret", frozenset()) is False
 
     def test_probe_endpoints_exempt(self, monkeypatch):
         monkeypatch.setenv(API_KEYS_ENV, "secret")
