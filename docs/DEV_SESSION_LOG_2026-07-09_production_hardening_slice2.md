@@ -24,7 +24,7 @@ active epic; steps 5b/6 (start-a-new-epic / fallback) are therefore skipped (ste
 | Slice | Scope | Status | PR |
 |-------|-------|--------|----|
 | 1 | Observability core — JSON access log + correlation IDs + duration | ✅ Done | #133 (merged) |
-| 2 | API-key auth + rate limiting (optional, default-off) | ✅ Done | (this PR) |
+| 2 | API-key auth + rate limiting (optional, default-off) | ✅ Done | #134 |
 | 3 | K8s/Helm manifests + Prometheus `/metrics` + Grafana compose | ⏳ Next | — |
 
 ## Premise Verified (step 7b)

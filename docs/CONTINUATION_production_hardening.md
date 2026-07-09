@@ -44,7 +44,7 @@ shipped; A2′ is the next Tier-A "big rock"). See `PLAN_production_hardening.md
 ### Slice 2: API security — API-key auth + rate limiting
 - **Status:** DONE
 - **Branch:** `claude/loving-gauss-xmn386` (designated remote-session branch)
-- **PR:** (this PR)
+- **PR:** #134 (draft)
 - **Depends on:** Slice 1 merged.
 - **What was done:** New `polaris_re.api.auth` module — two **default-off**
   Starlette middlewares wired *inside* `RequestContextMiddleware`:
