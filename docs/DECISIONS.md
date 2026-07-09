@@ -8669,3 +8669,78 @@ Kubernetes/Helm manifests, a Prometheus `/metrics` endpoint, and a
 Prometheus/Grafana `docker-compose` stack. OpenTelemetry trace spans (projection /
 treaty / profit-test steps) remain a later optional-dependency follow-up. None are
 required by any shipped feature.
+
+## ADR-134: API security — optional API-key auth + dependency-free rate limiting
+
+**Date:** 2026-07-09
+**Status:** Accepted
+**Slice:** 2 of 3 — Production Hardening & Observability epic (A2′), ROADMAP 6.2.
+
+**Context.** Slice 1 (ADR-133) gave the FastAPI service structured, correlated,
+duration-instrumented request logging. The next production-operability gap is
+**access control**: every pricing/analytics endpoint was fully open, and there
+was no protection against a single client flooding the service. ROADMAP 6.2 and
+`PLAN_production_hardening.md` Slice 2 call for optional API-key authentication
+and rate limiting that an ops team can switch on without code changes and that is
+a no-op until they do.
+
+**Decision.** Add a `polaris_re.api.auth` module with two **default-off**
+Starlette middlewares wired into the app inside `RequestContextMiddleware`:
+
+- `APIKeyAuthMiddleware` — when `POLARIS_API_KEYS` (comma-separated) is non-empty,
+  a request to a protected endpoint must present a matching key via `X-API-Key`
+  or `Authorization: Bearer <key>`; a missing/invalid key returns `401` with a
+  JSON `detail` body and a correlation-stamped `WARNING` access-log record. With
+  no keys configured the middleware is a pure pass-through.
+- `RateLimitMiddleware` — when `POLARIS_API_RATE_LIMIT` is set (e.g.
+  `"100/minute"`, or a bare count = per-minute), a client past the threshold in
+  the rolling window returns `429` with a `Retry-After` header and a
+  correlation-stamped log record. Unset ⇒ pass-through. It is backed by a
+  hand-rolled `SlidingWindowRateLimiter` (per-key deque of hit timestamps,
+  injectable clock).
+- The probe/doc endpoints (`/health`, `/version`, `/docs`, `/redoc`,
+  `/openapi.json`) are exempt from both, so orchestrators and browsers always
+  reach them.
+
+Middleware registration order makes `RequestContextMiddleware` outermost, then
+rate limiting, then auth, then the endpoint — so a `401`/`429` is logged with the
+request's correlation id and the rejection response still carries the
+`X-Correlation-ID` header.
+
+**Rationale.** Configuration is read from the environment on **each** request, so
+an unset environment is genuinely a no-op — the 152 pre-existing API tests pass
+unchanged (the "default values preserve behaviour" pattern from the modeling
+epics). **Deviation from the plan, deliberate:** `PLAN_production_hardening.md`
+suggested `slowapi` for rate limiting; we instead hand-rolled a standard-library
+sliding-window limiter. `slowapi` is not currently installed and would add a new
+runtime dependency, whereas Slice 1 deliberately stayed stdlib-only and the epic's
+design anchor is "dependency-light, opt-in". The hand-rolled limiter also has an
+**injectable clock**, so window behaviour is tested deterministically without
+sleeping or reading the wall clock (ADR-074 guard) — something `slowapi`'s
+internal clock would make awkward. The auth surface is pricing-neutral: no
+pricing-path code is touched, so QA goldens and the `polaris price` regression
+stay byte-identical.
+
+**Verification.** `tests/test_api/test_auth.py` (34 tests): env parsing for keys
+(unset/blank/comma-split-and-trim) and rate limits (valid `count/period` forms,
+bare-count default, malformed ⇒ `None`); the sliding-window limiter (allow-up-to-
+limit-then-block, window eviction re-allows, per-key isolation, boundary
+eviction) on a fake clock; auth integration (disabled with no keys, 401 on
+missing/invalid key, 200 on valid `X-API-Key` and `Bearer`, probe exemption,
+401 logged with the correlation id and response carrying `X-Correlation-ID`);
+rate-limit integration (disabled when unset, 429 past threshold with `Retry-After`,
+window reset re-allows, probe exemption, 429 logged with correlation id); and
+real-app wiring (both middlewares installed, default-off leaves `/api/v1/price`
+open at 422-on-empty-body, and with `POLARIS_API_KEYS` set the same request is
+401 without a key / 422 with the key while `/health` stays open). The 76 QA tests
+stay green; goldens byte-identical.
+
+**Out of scope (harvested to PRODUCT_DIRECTION).** A **shared rate-limit backend**
+(Redis) for multi-replica deployments — the in-process limiter is correct for a
+single replica only. **Per-route / per-key rate tiers** (distinct limits per
+endpoint or per API key) — the current limit is global per client host. **Key
+rotation / hashing / a secret-store integration** beyond reading env-configured
+plaintext keys. **OIDC/JWT authentication** as an alternative to static keys
+(a separate, larger epic). Slice 3 remains the deployment & metrics surfaces
+(K8s/Helm manifests, Prometheus `/metrics`, Grafana compose). None are required
+by any shipped feature.

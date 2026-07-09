@@ -59,6 +59,7 @@ from polaris_re.analytics.profit_test import (
 )
 from polaris_re.analytics.scenario import ScenarioRunner
 from polaris_re.analytics.uq import MonteCarloUQ, UQParameters
+from polaris_re.api.auth import APIKeyAuthMiddleware, RateLimitMiddleware
 from polaris_re.api.observability import (
     RequestContextMiddleware,
     configure_api_logging,
@@ -95,10 +96,21 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# Observability (ROADMAP 6.2, Slice 1): structured JSON access logging with a
-# per-request correlation id and monotonic-clock duration. Configuring the
-# access logger is idempotent; the middleware is dependency-free.
+# Observability + security (ROADMAP 6.2, Slices 1-2). Starlette runs middleware
+# in **reverse** registration order (the last-added is outermost / runs first),
+# so the order below yields the request flow:
+#   RequestContextMiddleware  (outermost — assigns the correlation id)
+#     → RateLimitMiddleware   (throttle floods before doing auth work)
+#       → APIKeyAuthMiddleware (reject unauthorised callers)
+#         → endpoint
+# Auth and rate limiting therefore run *inside* the request-context middleware,
+# so a 401/429 is logged with the request's correlation id and the response
+# still carries the X-Correlation-ID header. Both security middlewares are
+# default-off: with no POLARIS_API_KEYS / POLARIS_API_RATE_LIMIT configured they
+# are pure pass-throughs and the pre-existing API behaviour is unchanged.
 configure_api_logging()
+app.add_middleware(APIKeyAuthMiddleware)
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(RequestContextMiddleware)
 
 

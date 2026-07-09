@@ -1232,11 +1232,19 @@ Items harvested from completed/in-flight work by the daily-dev routine
     — structured JSON access logging with a per-request **correlation id**
     (`X-Request-ID`/`X-Correlation-ID` echo or uuid4) and monotonic-clock duration,
     surfaced as `X-Correlation-ID`/`X-Response-Time-Ms` response headers via
-    `RequestContextMiddleware`; 12 tests; goldens byte-identical. Slices 2 (API-key
-    auth + rate limiting) and 3 (K8s/Helm manifests + Prometheus `/metrics` +
-    Grafana compose) are PLANNED in the CONTINUATION. The interest-exactness epic
-    remains parked open-but-deprioritised (Tier-D per the review); the maintainer
-    redirect go/no-go is still open.
+    `RequestContextMiddleware`; 12 tests; goldens byte-identical. **PR #133 MERGED
+    (ledger-healed 2026-07-09).** **Slice 2 shipped 2026-07-09 (ADR-134):**
+    `api/observability.py`'s sibling `api/auth.py` — two **default-off** Starlette
+    middlewares wired inside `RequestContextMiddleware`: `APIKeyAuthMiddleware`
+    (env `POLARIS_API_KEYS`; `X-API-Key` / `Bearer`; 401 + correlation-stamped log;
+    probes exempt) and `RateLimitMiddleware` (env `POLARIS_API_RATE_LIMIT`; 429 +
+    `Retry-After`; hand-rolled dependency-free `SlidingWindowRateLimiter` with an
+    injectable clock — a deliberate deviation from the plan's `slowapi` suggestion,
+    keeping the zero-new-runtime-dep property and clock-safe tests). 34 tests;
+    goldens byte-identical. Only **Slice 3** (K8s/Helm manifests + Prometheus
+    `/metrics` + Grafana compose) remains PLANNED (now NEXT) in the CONTINUATION.
+    The interest-exactness epic remains parked open-but-deprioritised (Tier-D per
+    the review); the maintainer redirect go/no-go is still open.
 
 - **NICE-TO-HAVE — AXIS/Prophet side-by-side validation case.** A licensed-tool
   reference output would let the validation pack (A1′) assert against the incumbent
@@ -1297,6 +1305,45 @@ Items harvested from completed/in-flight work by the daily-dev routine
   instead of the raw file. Repo hygiene — no production-correctness impact.
   *Source: qa-on-pr review of PR #130 (1st-order — fresh discovery during review;
   repo hygiene, so NICE-TO-HAVE).*
+
+- **IMPORTANT — shared rate-limit backend for multi-replica deployments.** The
+  API rate limiter shipped in A2′ Slice 2 (ADR-134) is **in-process** (a per-client
+  deque per replica). It is correct for a single replica, but behind a load
+  balancer with N replicas the effective limit becomes ~N× the configured
+  threshold (each replica counts independently), so a `POLARIS_API_RATE_LIMIT` no
+  longer means what it says. A shared backend (Redis, or a sticky-session
+  guarantee) is required before rate limiting is trustworthy on a multi-replica
+  deployment — which A2′ Slice 3 (K8s/Helm) explicitly targets. Ship alongside or
+  right after the deployment slice. *Source: ADR-134 Out of scope (1st-order — a
+  follow-up of the originally-planned A2′ production-hardening epic; IMPORTANT
+  because it is a silent correctness caveat on a shipped, deployed feature).*
+
+- **NICE-TO-HAVE — OIDC/JWT authentication as an alternative to static API keys.**
+  A2′ Slice 2 (ADR-134) ships static, env-configured `X-API-Key` / `Bearer`
+  authentication — sufficient for first-deal quoting behind an ops gateway. A
+  heavier OIDC/JWT integration (identity-provider-issued tokens, scopes,
+  expiry/refresh) is a separate, larger epic; revive only if a buyer's security
+  review requires federated identity rather than shared keys. *Source: ADR-134
+  Out of scope (1st-order — a follow-up of the originally-planned A2′ epic;
+  NICE-TO-HAVE as static keys cover the MVP path).*
+
+- **NICE-TO-HAVE — per-route / per-key rate-limit tiers.** The shipped limiter
+  (ADR-134) applies one global threshold per client host. Distinct limits per
+  endpoint (e.g. a low cap on the expensive `/api/v1/uq` Monte-Carlo path, a
+  higher cap on `/api/v1/price`) or per API key (per-tenant quotas) would let an
+  operator shape load more precisely. *Source: ADR-134 Out of scope (1st-order —
+  a follow-up of the originally-planned A2′ epic; NICE-TO-HAVE, load-shaping
+  polish over the single-threshold baseline).*
+
+- **NICE-TO-HAVE — API-key hardening: hashing, rotation, and secret-store
+  integration.** A2′ Slice 2 (ADR-134) reads plaintext keys from
+  `POLARIS_API_KEYS` and compares them directly. Production-grade credential
+  handling — comparing against salted hashes, supporting overlapping keys for
+  zero-downtime rotation, and sourcing keys from a secret store (Vault / K8s
+  Secret) rather than a raw env var — would harden the auth surface. Pairs
+  naturally with the Slice 3 K8s/secret plumbing. *Source: ADR-134 Out of scope
+  (1st-order — a follow-up of the originally-planned A2′ epic; NICE-TO-HAVE, the
+  plaintext-env baseline is acceptable for the MVP).*
 
 ## Carried Forward
 
