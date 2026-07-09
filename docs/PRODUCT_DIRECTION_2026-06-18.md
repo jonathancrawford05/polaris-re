@@ -1224,6 +1224,19 @@ Items harvested from completed/in-flight work by the daily-dev routine
     go/no-go remains reserved for the maintainer: with A1′ done, the parked
     interest-exactness epic (`CONTINUATION_reserve_basis_correctness`, Slices 2–3)
     is the natural next active epic unless the maintainer redirects.
+  - **ACTED ON (2026-07-07):** A1′ was not reference-blocked, so per the review's
+    recommended sequence (§5: A1′ → **A2′ Production hardening** → A3′) the next
+    Tier-A epic constituted is **A2′ Production Hardening & Observability**
+    (ROADMAP 6.2) — `PLAN_production_hardening.md` + `CONTINUATION_production_hardening.md`
+    (IN PROGRESS). **Slice 1 shipped 2026-07-07 (ADR-133):** `api/observability.py`
+    — structured JSON access logging with a per-request **correlation id**
+    (`X-Request-ID`/`X-Correlation-ID` echo or uuid4) and monotonic-clock duration,
+    surfaced as `X-Correlation-ID`/`X-Response-Time-Ms` response headers via
+    `RequestContextMiddleware`; 12 tests; goldens byte-identical. Slices 2 (API-key
+    auth + rate limiting) and 3 (K8s/Helm manifests + Prometheus `/metrics` +
+    Grafana compose) are PLANNED in the CONTINUATION. The interest-exactness epic
+    remains parked open-but-deprioritised (Tier-D per the review); the maintainer
+    redirect go/no-go is still open.
 
 - **NICE-TO-HAVE — AXIS/Prophet side-by-side validation case.** A licensed-tool
   reference output would let the validation pack (A1′) assert against the incumbent
@@ -1259,6 +1272,16 @@ Items harvested from completed/in-flight work by the daily-dev routine
   reusable acceptance harness. *Source: ADR-132 Out of scope (2nd-order — follow-up
   of the A1′ validation-epic surfacing slice → NICE-TO-HAVE per the step-17 order
   cap).*
+
+- **NICE-TO-HAVE — OpenTelemetry trace spans for the API.** Slice 1 of A2′
+  (ADR-133) ships structured JSON access logging + correlation IDs + request
+  duration using the standard library only. ROADMAP 6.2 also lists optional
+  OpenTelemetry trace spans (projection / treaty-application / profit-test steps)
+  behind an optional-dependency extra — deeper, span-level tracing beyond the
+  per-request access log. Deferred from Slice 1 to keep the core `api` extra
+  dependency-free; not required by any shipped feature. *Source: ADR-133 Out of
+  scope (1st-order — a follow-up of the originally-planned A2′ production-hardening
+  epic; NICE-TO-HAVE as it affects observability depth, not correctness).*
 
 - **NICE-TO-HAVE — reconcile the stale `tests/qa/golden_outputs/*.json` byte-format
   with the current CLI `-o` schema.** Pre-existing on main (not introduced by any

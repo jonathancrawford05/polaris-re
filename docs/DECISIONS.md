@@ -8610,3 +8610,62 @@ published *held-reserve* deck (VM-20 / CRVM worked example) beyond the ILT's
 APV/premium columns remains a candidate deck addition, not required to close the
 epic. `polaris benchmark` runs the fixed reference catalogue only; it does not yet
 accept user-supplied reference decks.
+
+## ADR-133: API observability core — structured JSON access logging with correlation IDs
+
+**Date:** 2026-07-07
+**Status:** Accepted
+**Slice:** 1 of 3 — Production Hardening & Observability epic (A2′), ROADMAP 6.2.
+
+**Context.** With the modeling roadmap complete and the Validation & Benchmark
+pack (A1′) shipped, `COMMERCIAL_VIABILITY_REVIEW_2026-07-05.md` §4 ranks
+production hardening (A2′) as the next Tier-A "big rock": the engine models
+correctly and a buyer can validate the numbers, but the FastAPI service had **no
+request observability** — no structured logs, no correlation IDs, no request-
+duration metric — which is the first thing an IT/ops organisation asks for before
+running it in production. ROADMAP 6.2's lead bullet is exactly this.
+
+**Decision.** Add a dependency-free `polaris_re.api.observability` module and wire
+it into the app at construction:
+
+- `JsonLogFormatter` renders each `LogRecord` as a single-line JSON object
+  (`timestamp`, `level`, `logger`, `message`, `correlation_id`, plus any
+  structured `extra` fields), so a log aggregator can parse it directly.
+- `RequestContextMiddleware` (a Starlette `BaseHTTPMiddleware`) assigns a
+  **correlation id** to every request — echoing an inbound `X-Request-ID` /
+  `X-Correlation-ID` header (trace propagation) or generating a uuid4 hex — times
+  the request on `time.perf_counter` (monotonic), emits a structured access-log
+  record, and returns the correlation id and duration to the caller as the
+  `X-Correlation-ID` and `X-Response-Time-Ms` response headers.
+- `configure_api_logging` idempotently attaches the JSON handler to a dedicated,
+  **non-propagating** access logger (`polaris_re.api.access`).
+- `correlation_id_var` (a `ContextVar`) publishes the current correlation id so
+  any engine log emitted while handling the request can be stamped with it; the
+  formatter falls back to it when a record carries no explicit `correlation_id`.
+
+**Rationale.** Standard-library only (`logging`, `uuid`, `contextvars`) keeps the
+`api` extra lean and defers OpenTelemetry / Prometheus to later, optional slices.
+The access logger does not propagate, so JSON access lines never double up with
+the application's own handlers or pytest's `caplog`. Idempotent configuration lets
+import-time and test-time calls coexist without stacking handlers. Everything is
+additive: the middleware wraps the existing app and touches no pricing-path code,
+so QA goldens and the `polaris price` regression stay byte-identical.
+
+**Verification.** `tests/test_api/test_observability.py` (12 tests): a correlation
+id is generated when absent and echoed from `X-Request-ID` / `X-Correlation-ID`
+when present; ids differ across requests; the `X-Response-Time-Ms` header is a
+non-negative float; the access-log record carries `method` / `status_code` /
+`correlation_id` / non-negative float `duration_ms` (including a 404 with its real
+status); the JSON formatter emits the intrinsic keys, honours an explicit
+`correlation_id`, falls back to the context var, and omits the key when unset;
+`configure_api_logging` is idempotent and non-propagating; the middleware is
+installed on the app. The 152 existing API tests and the 76 QA tests stay green;
+goldens byte-identical (durations are asserted non-negative only — ADR-074
+clock-safety guard).
+
+**Out of scope (harvested to PRODUCT_DIRECTION).** Slice 2 — optional API-key
+authentication + rate limiting (`slowapi`, optional extra, default-off). Slice 3 —
+Kubernetes/Helm manifests, a Prometheus `/metrics` endpoint, and a
+Prometheus/Grafana `docker-compose` stack. OpenTelemetry trace spans (projection /
+treaty / profit-test steps) remain a later optional-dependency follow-up. None are
+required by any shipped feature.
