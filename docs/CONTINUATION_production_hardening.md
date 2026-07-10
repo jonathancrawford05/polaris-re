@@ -78,7 +78,7 @@ shipped; A2′ is the next Tier-A "big rock"). See `PLAN_production_hardening.md
 ### Slice 3: Deployment & metrics surfaces
 - **Status:** DONE
 - **Branch:** `claude/loving-gauss-4gisb6` (designated remote-session branch)
-- **PR:** (draft, this session)
+- **PR:** #135 (draft)
 - **Depends on:** Slice 2 merged.
 - **What was done:** New `polaris_re.api.metrics` — a dependency-free Prometheus
   `/metrics` endpoint (text exposition v0.0.4) fed by `MetricsMiddleware`

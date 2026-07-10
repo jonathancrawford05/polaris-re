@@ -32,7 +32,7 @@ recent PLAN with an IN-PROGRESS CONTINUATION and unchecked slices).
 |-------|-------|--------|----|
 | 1 | Observability core — JSON access log + correlation IDs + duration | ✅ Done | #133 (merged) |
 | 2 | API-key auth + rate limiting (optional, default-off) | ✅ Done | #134 (merged) |
-| 3 | Metrics `/metrics` + K8s/Helm + Prometheus/Grafana + proxy keying | ✅ Done | (draft, this PR) |
+| 3 | Metrics `/metrics` + K8s/Helm + Prometheus/Grafana + proxy keying | ✅ Done | #135 (draft) |
 
 **Epic A2′ is COMPLETE** — PLAN + CONTINUATION marked COMPLETE.
 
