@@ -1,7 +1,7 @@
 # Continuation: Production Hardening & Observability (A2′)
 
 **Source:** `COMMERCIAL_VIABILITY_REVIEW_2026-07-05.md` §4 Tier-A (A2′); ROADMAP 6.2
-**Status:** IN PROGRESS
+**Status:** COMPLETE (all 3 slices DONE — Slice 3 shipped 2026-07-10, ADR-135)
 **Total slices:** 3
 **Estimated total scope:** ~8 dev-days
 
@@ -76,12 +76,38 @@ shipped; A2′ is the next Tier-A "big rock"). See `PLAN_production_hardening.md
   - Requests past the configured threshold return 429. ✅
 
 ### Slice 3: Deployment & metrics surfaces
-- **Status:** NEXT
+- **Status:** DONE
+- **Branch:** `claude/loving-gauss-4gisb6` (designated remote-session branch)
+- **PR:** (draft, this session)
 - **Depends on:** Slice 2 merged.
-- **Scope:** K8s manifests + Helm chart under `deploy/`, a Prometheus `/metrics`
-  endpoint (request count + duration histogram), `docker-compose.yml`
-  `prometheus`+`grafana` services, QUICKSTART deployment guide. Dockerfile /
-  `.dockerignore` allowlist updated for any referenced files in the same PR.
+- **What was done:** New `polaris_re.api.metrics` — a dependency-free Prometheus
+  `/metrics` endpoint (text exposition v0.0.4) fed by `MetricsMiddleware`
+  (request counter + latency histogram into a process-wide `MetricsRegistry`;
+  `path` label = matched route template, bounded by `__unmatched__`; wired inside
+  `RequestContextMiddleware` but outside the security middlewares so 401/429 are
+  still counted; `/metrics` added to `EXEMPT_PATHS`). Closed the PR #134 [P2]
+  proxy item: `RateLimitMiddleware` keys on a resolved client IP via new
+  `client_ip()`, honouring `X-Forwarded-For` only behind a `POLARIS_TRUSTED_PROXIES`
+  peer. Deployment manifests under `deploy/` (raw K8s `deployment`/`service`/
+  `configmap`/`ingress` + a Helm chart), a Prometheus scrape config, Grafana
+  datasource/dashboard provisioning, and `docker-compose` `prometheus`+`grafana`
+  services; Dockerfile `COPY deploy/`; QUICKSTART §13 deployment guide. 34 tests
+  (11 metrics + 10 proxy-keying + 13 manifests). ADR-135.
+- **Key decisions:**
+  - **Dependency-free `/metrics`** (resolving the epic's open question) — hand-
+    rolled text exposition over an optional `prometheus-client` extra, preserving
+    the zero-new-runtime-dep property held across the whole epic.
+  - **Bounded label cardinality** — `path` is the matched route template, and any
+    request that never routes collapses to `__unmatched__`, so a URL-spray cannot
+    explode the metric.
+  - **Anti-spoof XFF** — `X-Forwarded-For` is trusted only behind a configured
+    trusted-proxy peer; default (no trusted proxies) keys on the peer, unchanged.
+  - **Single-replica** — the metrics registry and rate limiter are in-process;
+    shared-backend aggregation harvested to PRODUCT_DIRECTION as IMPORTANT.
+- **Acceptance criteria:** ALL MET — `/metrics` exposes request-count/duration
+  series in Prometheus format; manifests + chart parse (helm template render
+  guarded/skipped when `helm` absent); ROADMAP 6.2 satisfied; goldens
+  byte-identical.
 
 ## Context for Next Session
 

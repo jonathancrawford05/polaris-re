@@ -1241,10 +1241,20 @@ Items harvested from completed/in-flight work by the daily-dev routine
     `Retry-After`; hand-rolled dependency-free `SlidingWindowRateLimiter` with an
     injectable clock — a deliberate deviation from the plan's `slowapi` suggestion,
     keeping the zero-new-runtime-dep property and clock-safe tests). 34 tests;
-    goldens byte-identical. Only **Slice 3** (K8s/Helm manifests + Prometheus
-    `/metrics` + Grafana compose) remains PLANNED (now NEXT) in the CONTINUATION.
-    The interest-exactness epic remains parked open-but-deprioritised (Tier-D per
-    the review); the maintainer redirect go/no-go is still open.
+    goldens byte-identical. **PR #134 MERGED (ledger-healed 2026-07-10).**
+    **Slice 3 shipped 2026-07-10 (ADR-135), epic COMPLETE:** `api/metrics.py` — a
+    dependency-free Prometheus `/metrics` endpoint (text exposition v0.0.4) fed by
+    `MetricsMiddleware` (request counter + latency histogram; route-template `path`
+    label bounded by `__unmatched__`; exempt from auth/rate-limiting), the
+    PR #134 [P2] proxy-aware rate keying (`POLARIS_TRUSTED_PROXIES` → trusted
+    `X-Forwarded-For`), deployment manifests under `deploy/` (raw K8s + Helm chart),
+    a Prometheus scrape config, Grafana provisioning, and `docker-compose`
+    `prometheus`+`grafana` services. 34 tests; goldens byte-identical. Draft PR
+    open (to be ledger-healed on merge). **The A2′ epic is now COMPLETE** —
+    `PLAN_production_hardening.md` / `CONTINUATION_production_hardening.md` are
+    marked COMPLETE. The interest-exactness epic remains parked
+    open-but-deprioritised (Tier-D per the review); the maintainer redirect
+    go/no-go is still open.
 
 - **NICE-TO-HAVE — AXIS/Prophet side-by-side validation case.** A licensed-tool
   reference output would let the validation pack (A1′) assert against the incumbent
@@ -1358,6 +1368,41 @@ Items harvested from completed/in-flight work by the daily-dev routine
   (where the proxy topology is defined). *Source: PR #134 automated review [P2]
   (1st-order — fresh discovery during review of the originally-planned A2′ Slice 2;
   IMPORTANT because it silently defeats rate limiting behind any ingress).*
+  **Update (2026-07-10): SHIPPED in A2′ Slice 3 (ADR-135)** — `client_ip()` derives
+  the client from `X-Forwarded-For` only when the immediate peer is in
+  `POLARIS_TRUSTED_PROXIES`. Draft PR open; strike through on merge (ledger-heal).
+
+- **IMPORTANT — shared backend for multi-replica metrics aggregation.** A2′
+  Slice 3 (ADR-135) ships an **in-process** `MetricsRegistry` feeding `/metrics`,
+  the exact analogue of the already-harvested in-process rate limiter. Behind N
+  replicas each pod exposes its own counters/histograms; a scrape hits one pod at
+  a time, so dashboards must aggregate `sum by (...)` across per-pod series and a
+  single pod restart resets its counters. This is inherent to the annotation-based
+  per-pod scrape (Prometheus handles the aggregation) and is not a bug — but a
+  buyer wanting exact global counts without Prometheus aggregation, or push-based
+  metrics, would need a shared/remote-write backend. Pairs with the shared
+  rate-limit backend item above (same replica-scaling root cause). *Source: ADR-135
+  Out of scope (1st-order — follow-up of the originally-planned A2′ epic; IMPORTANT
+  as a documented caveat on a shipped multi-replica-facing feature).*
+
+- **NICE-TO-HAVE — richer instrumentation via `prometheus-client` / OpenTelemetry
+  extra.** The shipped `/metrics` (ADR-135) is a hand-rolled, dependency-free text
+  exposition covering request count + latency histogram. An optional
+  `prometheus-client` (or OpenTelemetry) extra would add per-handler histograms,
+  exemplars, and distributed traces without changing the default zero-new-dep
+  install. Revive if a buyer's observability stack expects OTLP/traces. *Source:
+  ADR-135 Out of scope (1st-order — follow-up of the A2′ epic; NICE-TO-HAVE, the
+  dependency-free baseline covers the common ops need).*
+
+- **NICE-TO-HAVE — Prometheus `ServiceMonitor`/`PodMonitor` CRD + CI manifest
+  gating.** The Slice 3 manifests (ADR-135) use the annotation-based scrape
+  convention (`prometheus.io/scrape`), which the Prometheus Operator ignores in
+  favour of `ServiceMonitor`/`PodMonitor` CRDs. Shipping those CRDs (guarded so
+  the chart installs with or without the Operator) plus CI `helm lint` /
+  `kubeconform` validation and a packaged/versioned chart repo would make the
+  deployment surface Operator-native and continuously validated. *Source: ADR-135
+  Out of scope (1st-order — follow-up of the A2′ epic; NICE-TO-HAVE, annotation
+  scrape covers the common non-Operator case).*
 
 ## Carried Forward
 

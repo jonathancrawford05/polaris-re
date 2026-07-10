@@ -1,0 +1,20 @@
+# Polaris RE API — non-secret runtime configuration.
+#
+# Security credentials (POLARIS_API_KEYS) belong in a Secret, NOT here. This
+# ConfigMap carries only non-sensitive tuning knobs. All values are optional:
+# with them unset the API's security surfaces are default-off (ADR-134) and the
+# service behaves exactly as an un-hardened deployment.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: polaris-re-config
+  labels:
+    app.kubernetes.io/name: polaris-re
+    app.kubernetes.io/component: api
+data:
+  POLARIS_LOG_LEVEL: "INFO"
+  # Rate limit (default-off): e.g. "600/minute". Leave blank to disable.
+  POLARIS_API_RATE_LIMIT: ""
+  # Comma-separated trusted proxy CIDRs so X-Forwarded-For is honoured for
+  # rate-limit keying behind the ingress (ADR-135). Empty = trust nobody.
+  POLARIS_TRUSTED_PROXIES: ""

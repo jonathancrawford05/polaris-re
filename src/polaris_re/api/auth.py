@@ -15,7 +15,11 @@ pricing path:
 - ``RateLimitMiddleware`` — when ``POLARIS_API_RATE_LIMIT`` is configured (e.g.
   ``"100/minute"``), requests from a single client past the threshold within the
   rolling window return ``429``. When unset the middleware is a pure
-  pass-through.
+  pass-through. The per-client key is the resolved client IP: behind an ingress
+  the immediate peer is the proxy, so ``X-Forwarded-For`` is consulted — but
+  only when the peer is a configured **trusted proxy** (``POLARIS_TRUSTED_PROXIES``),
+  since the header is otherwise spoofable (Slice 3, ADR-135). With no trusted
+  proxies configured the immediate peer address is used, unchanged.
 
 Design notes:
     - **Dependency-free.** Consistent with Slice 1's observability core, both
@@ -39,6 +43,7 @@ Design notes:
 """
 
 import hmac
+import ipaddress
 import logging
 import os
 import time
@@ -58,12 +63,16 @@ __all__ = [
     "API_KEY_HEADER",
     "AUTHORIZATION_HEADER",
     "EXEMPT_PATHS",
+    "FORWARDED_FOR_HEADER",
     "RATE_LIMIT_ENV",
+    "TRUSTED_PROXIES_ENV",
     "APIKeyAuthMiddleware",
     "RateLimitMiddleware",
     "SlidingWindowRateLimiter",
+    "client_ip",
     "configured_api_keys",
     "configured_rate_limit",
+    "configured_trusted_proxies",
 ]
 
 # Header names a client may use to present its API key.
@@ -71,14 +80,19 @@ API_KEY_HEADER = "X-API-Key"
 AUTHORIZATION_HEADER = "Authorization"
 _BEARER_PREFIX = "bearer "
 
+# Standard proxy header carrying the original client chain (left-most = client).
+FORWARDED_FOR_HEADER = "X-Forwarded-For"
+
 # Environment variables that drive the (default-off) security surfaces.
 API_KEYS_ENV = "POLARIS_API_KEYS"
 RATE_LIMIT_ENV = "POLARIS_API_RATE_LIMIT"
+TRUSTED_PROXIES_ENV = "POLARIS_TRUSTED_PROXIES"
 
 # Endpoints that must stay reachable without a key and without being throttled:
-# orchestrator probes and the interactive API documentation.
+# orchestrator probes, the interactive API documentation, and the Prometheus
+# metrics scrape target (a scraper cannot present a key).
 EXEMPT_PATHS: frozenset[str] = frozenset(
-    {"/health", "/version", "/docs", "/redoc", "/openapi.json"}
+    {"/health", "/version", "/metrics", "/docs", "/redoc", "/openapi.json"}
 )
 
 # Rolling-window period aliases → seconds.
@@ -167,9 +181,75 @@ class SlidingWindowRateLimiter:
         return True
 
 
+def configured_trusted_proxies() -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+    """Return the trusted-proxy networks from the environment, or an empty tuple.
+
+    ``POLARIS_TRUSTED_PROXIES`` is a comma-separated list of IP addresses or
+    CIDR ranges (e.g. ``"10.0.0.0/8, 192.168.1.5"``). A bare address is treated
+    as a /32 (or /128) network. Unparseable entries are ignored. When empty
+    (the default), ``X-Forwarded-For`` is never trusted and the immediate peer
+    address is used for rate-limit keying — the pre-Slice-3 behaviour.
+    """
+    raw = os.environ.get(TRUSTED_PROXIES_ENV, "")
+    networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+    for entry in raw.split(","):
+        candidate = entry.strip()
+        if not candidate:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(candidate, strict=False))
+        except ValueError:
+            # Silently skip malformed entries — a bad config line must not open
+            # the trust boundary or crash the request path.
+            continue
+    return tuple(networks)
+
+
+def _ip_in_networks(
+    address: str,
+    networks: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...],
+) -> bool:
+    """True if ``address`` parses and falls within any of ``networks``."""
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return False
+    return any(ip in network for network in networks)
+
+
+def client_ip(
+    request: Request,
+    trusted_proxies: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] | None = None,
+) -> str:
+    """Resolve the originating client IP, honouring ``X-Forwarded-For`` safely.
+
+    ``X-Forwarded-For`` is client-supplied and therefore spoofable, so it is
+    only consulted when the immediate peer is itself a **trusted proxy** (an
+    entry in ``POLARIS_TRUSTED_PROXIES``). In that case the client is the
+    right-most address in the forwarded chain that is *not* itself a trusted
+    proxy — the first hop the trusted infrastructure actually saw. When no
+    proxies are trusted (the default), or the peer is untrusted, or the header
+    is absent/empty, the immediate peer address is returned unchanged.
+    """
+    peer = request.client.host if request.client else "unknown"
+    networks = configured_trusted_proxies() if trusted_proxies is None else trusted_proxies
+    if not networks or not _ip_in_networks(peer, networks):
+        return peer
+
+    forwarded = request.headers.get(FORWARDED_FOR_HEADER, "")
+    hops = [hop.strip() for hop in forwarded.split(",") if hop.strip()]
+    # Walk right-to-left, skipping trusted-proxy hops; the first untrusted hop
+    # is the real client. If every hop is trusted (or none parse), fall back to
+    # the peer address.
+    for hop in reversed(hops):
+        if not _ip_in_networks(hop, networks):
+            return hop
+    return peer
+
+
 def _client_key(request: Request) -> str:
-    """Rate-limit / audit key for a request — the client host, or ``"unknown"``."""
-    return request.client.host if request.client else "unknown"
+    """Rate-limit / audit key for a request — the resolved client IP."""
+    return client_ip(request)
 
 
 def _presented_key(request: Request) -> str | None:

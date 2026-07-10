@@ -1,0 +1,78 @@
+# Polaris RE API — Kubernetes Deployment.
+#
+# Runs the FastAPI service (uvicorn) built from the Dockerfile `runtime` stage.
+# Observability (Slice 1), optional API-key auth + rate limiting (Slice 2), and
+# the Prometheus /metrics endpoint (Slice 3) are all baked into the image; this
+# manifest wires probes, resources, config, and the metrics scrape annotations.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: polaris-re-api
+  labels:
+    app.kubernetes.io/name: polaris-re
+    app.kubernetes.io/component: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: polaris-re
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: polaris-re
+        app.kubernetes.io/component: api
+      annotations:
+        # Prometheus "kubernetes-pods" scrape convention (dependency-free
+        # /metrics text exposition; ADR-135).
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: api
+          image: polaris-re:runtime
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -m
+            - uvicorn
+            - polaris_re.api.main:app
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "8000"
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: polaris-re-config
+          env:
+            # API keys are pulled from a Secret; the key is optional so the
+            # Deployment applies even before the Secret exists (auth default-off).
+            - name: POLARIS_API_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: polaris-re-secrets
+                  key: api-keys
+                  optional: true
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"

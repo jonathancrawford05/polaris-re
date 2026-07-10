@@ -1,0 +1,53 @@
+{
+  "title": "Polaris RE API",
+  "uid": "polaris-re-api",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "15s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Request rate (req/s) by path",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (path) (rate(polaris_http_requests_total[5m]))",
+          "legendFormat": "{{path}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Error rate (5xx, req/s)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(polaris_http_requests_total{status=~\"5..\"}[5m]))",
+          "legendFormat": "5xx"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "p95 request latency (s) by path",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, path) (rate(polaris_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{path}}"
+        }
+      ]
+    }
+  ]
+}

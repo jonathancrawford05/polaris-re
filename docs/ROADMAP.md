@@ -522,18 +522,24 @@ blended table updates without manual intervention.
 
 ### Milestone 6.2 — Production Hardening & Observability
 
-- [ ] `api/main.py` — structured JSON request/response logging with
-      correlation IDs; request duration metrics
+- [x] `api/observability.py` — structured JSON request/response logging with
+      correlation IDs; request duration metrics (Slice 1, ADR-133)
 - [ ] OpenTelemetry integration (optional dep): trace spans for projection,
-      treaty application, and profit test steps
-- [ ] `api/auth.py` — optional API key authentication middleware
-- [ ] Rate limiting via `slowapi` (optional dep)
-- [ ] Kubernetes deployment manifests: `deploy/k8s/deployment.yaml`,
-      `deploy/k8s/service.yaml`, `deploy/k8s/configmap.yaml`
-- [ ] Helm chart: `deploy/helm/polaris-re/` for parameterised K8s deployment
-- [ ] `docker-compose.yml` — add `prometheus` and `grafana` services for
-      local metrics dashboard
-- [ ] `docs/DECISIONS.md` — ADR-038: observability approach
+      treaty application, and profit test steps (harvested NICE-TO-HAVE, ADR-135)
+- [x] `api/auth.py` — optional API key authentication middleware (Slice 2, ADR-134)
+- [x] Rate limiting — dependency-free sliding window (deliberate deviation from
+      `slowapi`, ADR-134); proxy-aware keying (Slice 3, ADR-135)
+- [x] `api/metrics.py` + `/metrics` — dependency-free Prometheus text exposition
+      (Slice 3, ADR-135)
+- [x] Kubernetes deployment manifests: `deploy/k8s/deployment.yaml`,
+      `deploy/k8s/service.yaml`, `deploy/k8s/configmap.yaml` (+`ingress.yaml`)
+      (Slice 3, ADR-135)
+- [x] Helm chart: `deploy/helm/polaris-re/` for parameterised K8s deployment
+      (Slice 3, ADR-135)
+- [x] `docker-compose.yml` — add `prometheus` and `grafana` services for
+      local metrics dashboard (Slice 3, ADR-135)
+- [x] `docs/DECISIONS.md` — observability/security/metrics approach
+      (ADR-133 / ADR-134 / ADR-135)
 
 ---
 

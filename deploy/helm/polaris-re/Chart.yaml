@@ -1,0 +1,15 @@
+apiVersion: v2
+name: polaris-re
+description: Life reinsurance cash flow projection and deal pricing engine (REST API)
+type: application
+# Chart version — bump on chart changes.
+version: 0.1.0
+# The application version this chart deploys (mirrors polaris_re.__version__).
+appVersion: "0.1.0"
+keywords:
+  - actuarial
+  - reinsurance
+  - pricing
+home: https://github.com/jonathancrawford05/polaris-re
+maintainers:
+  - name: Jonathan Crawford

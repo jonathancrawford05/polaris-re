@@ -1,0 +1,27 @@
+# Polaris RE API — Kubernetes Ingress.
+#
+# Terminates external traffic and routes it to the ClusterIP Service. When an
+# ingress sits in front of the API, the pod's peer address is the ingress IP —
+# set POLARIS_TRUSTED_PROXIES (see the ConfigMap) to the ingress/pod CIDR so the
+# rate limiter keys on the real client via X-Forwarded-For (ADR-135).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: polaris-re-api
+  labels:
+    app.kubernetes.io/name: polaris-re
+    app.kubernetes.io/component: api
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+spec:
+  rules:
+    - host: polaris-re.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: polaris-re-api
+                port:
+                  name: http
