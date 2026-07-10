@@ -2,7 +2,9 @@
 
 **Status:** IN PROGRESS — constituted 2026-07-07 as the active epic. Slice 1
 (observability core: structured JSON access logging + correlation IDs +
-per-request duration, ADR-133) is **DONE**. Slices 2–3 PLANNED.
+per-request duration, ADR-133) and Slice 2 (API security: default-off API-key
+auth + dependency-free rate limiting, ADR-134) are **DONE**. Slice 3 (deployment
+& metrics surfaces) is NEXT.
 
 **Source / derivation.** With the modeling roadmap complete (ROADMAP Phases 1–5;
 all 2026-06-18 Tier-A epics, C0 Asset/ALM, B3 expense-allowance) and the
@@ -59,7 +61,20 @@ Wired into `api/main.py` at app construction. 12 tests in
 `tests/test_api/test_observability.py`. Goldens byte-identical; the 152 existing
 API tests and the 76 QA tests stay green.
 
-### Slice 2: API security — API-key auth + rate limiting — NEXT
+### Slice 2: API security — API-key auth + rate limiting — DONE (2026-07-09, ADR-134)
+`polaris_re.api.auth`: two default-off Starlette middlewares wired inside
+`RequestContextMiddleware`. `APIKeyAuthMiddleware` (env `POLARIS_API_KEYS`;
+`X-API-Key` / `Authorization: Bearer`; 401 + correlation-stamped log; probes
+exempt) and `RateLimitMiddleware` (env `POLARIS_API_RATE_LIMIT`; 429 +
+`Retry-After`; hand-rolled `SlidingWindowRateLimiter` with an injectable clock).
+Config read per-request so unset env is a true no-op. **Deviation from the plan
+below:** rate limiting is dependency-free (stdlib sliding window) rather than
+`slowapi` — `slowapi` is uninstalled and would add a runtime dependency, and the
+injectable clock keeps the window tests clock-safe (ADR-134 rationale). 34 tests
+in `tests/test_api/test_auth.py`; the 152 existing API tests + 76 QA tests stay
+green; goldens byte-identical.
+
+Original plan (superseded where noted):
 - **Depends on:** Slice 1 merged.
 - Optional API-key authentication middleware (`api/auth.py`): when a configured
   key set is present (env-driven), require a matching `X-API-Key` (or
@@ -75,7 +90,7 @@ API tests and the 76 QA tests stay green.
   a logged auth-failure carrying the correlation id; with no keys configured the
   API behaves exactly as today; rate-limit returns 429 past the threshold.
 
-### Slice 3: Deployment & metrics surfaces — PLANNED
+### Slice 3: Deployment & metrics surfaces — NEXT
 - **Depends on:** Slice 2 merged.
 - Kubernetes manifests (`deploy/k8s/deployment.yaml`, `service.yaml`,
   `configmap.yaml`), a Helm chart (`deploy/helm/polaris-re/`), a Prometheus

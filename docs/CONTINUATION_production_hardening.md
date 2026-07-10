@@ -42,20 +42,41 @@ shipped; A2′ is the next Tier-A "big rock"). See `PLAN_production_hardening.md
     only (ADR-074 clock-safety guard).
 
 ### Slice 2: API security — API-key auth + rate limiting
-- **Status:** NEXT
+- **Status:** DONE
+- **Branch:** `claude/loving-gauss-xmn386` (designated remote-session branch)
+- **PR:** #134 (draft)
 - **Depends on:** Slice 1 merged.
-- **Files to create/modify:** `api/auth.py` (new); `api/main.py` (wire
-  middleware); `pyproject.toml` (optional `slowapi` extra); tests.
-- **Tests to add:** authorised / unauthorised / absent-config auth paths; probe
-  endpoints exempt; rate-limit 429; auth-failure log carries the correlation id.
-- **Acceptance criteria:**
+- **What was done:** New `polaris_re.api.auth` module — two **default-off**
+  Starlette middlewares wired *inside* `RequestContextMiddleware`:
+  `APIKeyAuthMiddleware` (env `POLARIS_API_KEYS`; `X-API-Key` or
+  `Authorization: Bearer`; 401 + correlation-stamped log; probes exempt) and
+  `RateLimitMiddleware` (env `POLARIS_API_RATE_LIMIT` e.g. `100/minute`; 429 +
+  `Retry-After`; backed by a hand-rolled `SlidingWindowRateLimiter` with an
+  injectable clock). Config read per-request ⇒ unset env is a true no-op. 34 new
+  tests; the 152 existing API tests + 76 QA tests stay green; goldens
+  byte-identical. ADR-134.
+- **Key decisions:**
+  - **Dependency-free rate limiter** (deliberate deviation from this plan's
+    `slowapi` suggestion): `slowapi` is not installed and would add a runtime
+    dependency, whereas Slice 1 stayed stdlib-only and the epic anchor is
+    "dependency-light". The hand-rolled limiter's injectable clock makes
+    window behaviour testable without the wall clock (ADR-074 guard).
+  - Middleware order: `RequestContext` (outer) → `RateLimit` → `Auth` (inner),
+    so a 401/429 is logged with the correlation id and the rejection response
+    carries `X-Correlation-ID`. (Followed the CONTINUATION guidance: auth runs
+    inside the context middleware and reads the already-set `correlation_id_var`
+    — no nested `correlation_id_var.set()`, so the token-scoping rule is moot
+    here.)
+  - Rate limit is per client host, in-process (single-replica correct); Redis
+    backend + per-route/per-key tiers harvested as follow-ups.
+- **Acceptance criteria:** ALL MET
   - Keys configured → request without a valid `X-API-Key` returns 401 with a
-    logged, correlation-stamped auth failure.
-  - No keys configured → API behaves exactly as today (all existing tests pass).
-  - Requests past the configured threshold return 429.
+    logged, correlation-stamped auth failure. ✅
+  - No keys configured → API behaves exactly as today (all existing tests pass). ✅
+  - Requests past the configured threshold return 429. ✅
 
 ### Slice 3: Deployment & metrics surfaces
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 2 merged.
 - **Scope:** K8s manifests + Helm chart under `deploy/`, a Prometheus `/metrics`
   endpoint (request count + duration histogram), `docker-compose.yml`
@@ -93,14 +114,37 @@ shipped; A2′ is the next Tier-A "big rock"). See `PLAN_production_hardening.md
   backward-compat pattern the modeling epics used (default values preserve
   behaviour).
 
+## Context for Slice 3 (metrics & deployment)
+
+- Slice 2 settled the auth/rate-limit surfaces: static env-driven `X-API-Key`
+  (default-off) and an **in-process** sliding-window limiter. Redis backend and
+  per-route/per-key tiers were harvested to PRODUCT_DIRECTION as follow-ups, not
+  built. Slice 3 does not need to revisit them.
+- `EXEMPT_PATHS` in `api/auth.py` (`/health`, `/version`, `/docs`, `/redoc`,
+  `/openapi.json`) is the canonical probe/doc set. If Slice 3 adds a `/metrics`
+  endpoint that a Prometheus scraper hits, decide whether it too should be
+  exempt from auth/rate-limiting (a scraper cannot present a key) — likely yes;
+  add it to `EXEMPT_PATHS`.
+- Reuse Slice 1's per-request `duration_ms` + `status_code` for the metrics
+  histogram/counter rather than re-instrumenting; a metrics middleware can sit
+  alongside the existing stack (mind the reverse registration order).
+- **Proxy-aware rate-limit keying (from PR #134 review, [P2]).** The Slice 2
+  limiter keys on `request.client.host`; behind the ingress this slice deploys,
+  that is the proxy IP and rate limiting collapses to one global bucket. Make the
+  `X-Forwarded-For` **trust decision here** (derive the client IP from XFF only
+  when the peer is a trusted proxy — XFF is spoofable otherwise), alongside the
+  K8s/ingress topology. Harvested as IMPORTANT in PRODUCT_DIRECTION.
+- **Data/Docker allowlist discipline (recurring trap, PR #61/#66):** Slice 3
+  adds files under `deploy/`; update the Dockerfile `COPY` / `.dockerignore`
+  allowlist in the SAME PR if the runtime image or tests reference them.
+
 ## Open Questions (for human)
 
-- **Auth model:** static `X-API-Key` from an env var / secret (simple, no
-  external service) vs. a heavier OIDC/JWT integration (separate larger epic)?
-  Default next session: static API keys, env-driven, default-off.
-- **Rate-limit backend:** in-memory per-process (fine for one replica) vs. a
-  shared Redis backend for multi-replica. Default: in-memory; Redis noted as a
-  Slice-3/follow-up option.
-- **Metrics dependency:** dependency-free `/metrics` text exposition vs. optional
-  `prometheus-client` extra. Default: optional extra so the core install stays
-  lean.
+- **Metrics dependency (Slice 3):** dependency-free `/metrics` text exposition
+  vs. optional `prometheus-client` extra. Default: dependency-free text
+  exposition to keep the zero-new-runtime-dep property the whole epic has held.
+- **Rate-limit backend for multi-replica:** the shipped limiter is in-process
+  (single-replica correct). A shared Redis backend is a harvested follow-up
+  (IMPORTANT) — confirm whether multi-replica is an early deployment target.
+- **Auth model beyond static keys:** static `X-API-Key` (shipped) vs. a heavier
+  OIDC/JWT integration (harvested as a separate larger-epic follow-up).
