@@ -8836,3 +8836,22 @@ extra (histograms per handler, exemplars, traces). **A Prometheus
 manifests use the annotation-based scrape convention). **Helm chart publishing**
 (a packaged/versioned chart repo) and **CI `helm lint`/`kubeconform`** gating.
 None are required by any shipped feature.
+
+**Design note — multi-tenant keying (not a work item).** The Slice 3 surfaces are
+single-tenant by construction, and two of their design choices become limitations
+the day Polaris is deployed for several actuary teams behind a shared front end (a
+shared Streamlit app, or one org ingress). (1) **Rate-limit keying is per-IP, not
+per-tenant.** With `POLARIS_TRUSTED_PROXIES` configured, `client_ip()` does recover
+distinct client IPs through the proxy — but users sharing one NAT/egress IP still
+collapse into a single bucket, and a *per-team / per-tenant* quota is a business
+dimension an IP cannot express at all: it must key on the **API key**, not the
+resolved IP. (2) **`/metrics` carries no tenant dimension.** Its labels are
+`method` / `path` / `status`, so per-team load cannot be attributed from the
+scrape. A future tenant label must stay **bounded** — a fixed API-key→team map, the
+same cardinality discipline as the `__unmatched__` route collapse — never the raw
+key (which would make cardinality unbounded and leak the secret into metrics). Both
+are second-order to, and would land alongside, the already-harvested shared
+rate-limit/metrics backend and richer-instrumentation follow-ups; neither is
+short-term while the deployment is single-user. *Source: PR #135 review discussion
+(2026-07-10) — design consideration recorded against ADR-135, deliberately not
+promoted to PRODUCT_DIRECTION so it does not re-enter the work-selection queue.*
