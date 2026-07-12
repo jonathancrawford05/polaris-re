@@ -1,0 +1,25 @@
+# Polaris RE API — Kubernetes Service (ClusterIP).
+#
+# Exposes the API pods inside the cluster on port 80 → container 8000. Also
+# carries the Prometheus scrape annotations for a Service-based scrape config.
+apiVersion: v1
+kind: Service
+metadata:
+  name: polaris-re-api
+  labels:
+    app.kubernetes.io/name: polaris-re
+    app.kubernetes.io/component: api
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: polaris-re
+    app.kubernetes.io/component: api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

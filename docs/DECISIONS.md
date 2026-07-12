@@ -8751,3 +8751,107 @@ security trust-boundary decision that belongs with the Slice 3 ingress topology
 (PR #134 review [P2]). Slice 3 remains the deployment & metrics surfaces
 (K8s/Helm manifests, Prometheus `/metrics`, Grafana compose). None are required
 by any shipped feature.
+
+---
+
+## ADR-135: Deployment & metrics surfaces — dependency-free Prometheus `/metrics`, K8s/Helm, proxy-aware rate keying
+
+**Date:** 2026-07-10
+**Status:** Accepted
+**Slice:** 3 of 3 (final) — Production Hardening & Observability epic (A2′), ROADMAP 6.2.
+
+**Context.** Slices 1–2 (ADR-133, ADR-134) gave the FastAPI service structured
+correlated request logging and optional API-key auth + rate limiting. The last
+production-operability gap in ROADMAP 6.2 is **deployability and monitoring**: an
+ops team needs a metrics endpoint their monitoring stack can scrape, and
+ready-to-apply Kubernetes/Helm manifests. Two loose ends also land here by
+design: the PR #134 review [P2] deferred the `X-Forwarded-For` trust decision to
+"the slice that defines the ingress topology", and the epic's open question on a
+metrics dependency needed resolving.
+
+**Decision.**
+
+1. **Dependency-free `/metrics`.** A new `polaris_re.api.metrics` module
+   hand-renders the Prometheus text-exposition format (v0.0.4) — no
+   `prometheus-client`. `MetricsMiddleware` counts requests
+   (`polaris_http_requests_total{method,path,status}`) and records a latency
+   histogram (`polaris_http_request_duration_seconds`, default Prometheus
+   buckets) into a process-wide `MetricsRegistry`; a `/metrics` endpoint renders
+   it. The middleware sits *inside* `RequestContextMiddleware` but *outside* the
+   security middlewares, so 401/429 rejections are still counted.
+2. **Bounded label cardinality.** The `path` label is the *matched route
+   template* (e.g. `/api/v1/price`), never the raw URL. A request that never
+   routes — a 404, or a 401/429 short-circuit before routing — collapses to a
+   single `__unmatched__` label, so an attacker spraying random URLs cannot
+   explode metric cardinality.
+3. **`/metrics` is exempt** from auth and rate limiting (added to `EXEMPT_PATHS`)
+   because a Prometheus scraper cannot present an API key.
+4. **Proxy-aware rate-limit keying (closes PR #134 [P2]).** The rate limiter now
+   keys on a *resolved* client IP. `X-Forwarded-For` is consulted **only** when
+   the immediate peer is a configured trusted proxy (`POLARIS_TRUSTED_PROXIES`,
+   comma-separated IPs/CIDRs); the client is the right-most XFF hop that is not
+   itself a trusted proxy. With no trusted proxies configured (the default), the
+   immediate peer address is used — identical to Slice 2 behaviour.
+5. **Deployment manifests** under `deploy/`: raw K8s (`deployment`, `service`,
+   `configmap`, `ingress`), a Helm chart (`deploy/helm/polaris-re/`), a
+   Prometheus scrape config, and Grafana datasource/dashboard provisioning. The
+   `docker-compose.yml` gains `prometheus` + `grafana` services for a one-command
+   local metrics stack. The Dockerfile `COPY deploy/` keeps the manifests in the
+   runtime image so the test suite (which runs in that image) can parse them
+   (recurring PR #61/#66 trap).
+
+**Rationale.** The dependency-free exposition keeps the zero-new-runtime-dep
+property the whole epic has held (resolving the epic's open question in favour of
+hand-rolled text over an optional `prometheus-client` extra); the exposition
+format is simple and stable (v0.0.4) and the text is trivially testable without a
+client library. Keying `X-Forwarded-For` only behind a trusted peer is the
+standard anti-spoofing posture: XFF is client-supplied, so honouring it from an
+untrusted peer would let any caller forge their rate-limit identity. Metrics
+collection is read-only and never touches the pricing path, so QA goldens and the
+`polaris price` regression stay byte-identical.
+
+**Verification.** `tests/test_api/test_metrics.py` (11): counter increments per
+method/path/status; cumulative histogram buckets + `_sum`/`_count`; negative
+duration clamped; label escaping; middleware records the matched route template
+and collapses unmatched paths to one label; the real-app `/metrics` endpoint
+returns the Prometheus content type and is reachable without a key while a
+protected endpoint stays gated. `tests/test_api/test_proxy_keying.py` (10): the
+trust boundary — default/untrusted peer ignores XFF, trusted peer resolves the
+client (skipping trusted hops, falling back to the peer when the whole chain is
+trusted or XFF is absent), malformed proxy entries are skipped, explicit-argument
+override. `tests/test_deploy/test_manifests.py` (13): every K8s manifest and the
+Prometheus/Grafana configs parse and carry their operator-relevant keys, the
+dashboard JSON queries the Polaris metrics, and `helm template` renders a
+Deployment/Service/ConfigMap (skipped when `helm` is absent). The 152 pre-existing
+API tests and the 76 QA tests stay green; goldens byte-identical.
+
+**Out of scope (harvested to PRODUCT_DIRECTION).** A **shared rate-limit backend**
+(Redis) for multi-replica deployments — still the biggest gap now that the
+deployment surface makes multi-replica realistic; the in-process limiter and
+in-process metrics registry are both single-replica constructs (behind N replicas
+the effective rate limit is ~N× and Prometheus must aggregate per-pod series).
+**`prometheus-client` / OpenTelemetry** as an optional richer-instrumentation
+extra (histograms per handler, exemplars, traces). **A Prometheus
+`ServiceMonitor`/`PodMonitor` CRD** for the Operator-based scrape path (the
+manifests use the annotation-based scrape convention). **Helm chart publishing**
+(a packaged/versioned chart repo) and **CI `helm lint`/`kubeconform`** gating.
+None are required by any shipped feature.
+
+**Design note — multi-tenant keying (not a work item).** The Slice 3 surfaces are
+single-tenant by construction, and two of their design choices become limitations
+the day Polaris is deployed for several actuary teams behind a shared front end (a
+shared Streamlit app, or one org ingress). (1) **Rate-limit keying is per-IP, not
+per-tenant.** With `POLARIS_TRUSTED_PROXIES` configured, `client_ip()` does recover
+distinct client IPs through the proxy — but users sharing one NAT/egress IP still
+collapse into a single bucket, and a *per-team / per-tenant* quota is a business
+dimension an IP cannot express at all: it must key on the **API key**, not the
+resolved IP. (2) **`/metrics` carries no tenant dimension.** Its labels are
+`method` / `path` / `status`, so per-team load cannot be attributed from the
+scrape. A future tenant label must stay **bounded** — a fixed API-key→team map, the
+same cardinality discipline as the `__unmatched__` route collapse — never the raw
+key (which would make cardinality unbounded and leak the secret into metrics). Both
+are second-order to, and would land alongside, the already-harvested shared
+rate-limit/metrics backend and richer-instrumentation follow-ups; neither is
+short-term while the deployment is single-user. *Source: PR #135 review discussion
+(2026-07-10) — design consideration recorded against ADR-135, deliberately not
+promoted to PRODUCT_DIRECTION so it does not re-enter the work-selection queue.*

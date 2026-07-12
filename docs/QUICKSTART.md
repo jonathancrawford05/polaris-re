@@ -1109,6 +1109,80 @@ concentration charts).
 
 ---
 
+## 13. Production Deployment (ROADMAP 6.2 — A2′)
+
+The REST API ships with the observability, security, and metrics surfaces an ops
+team expects (ADR-133 / ADR-134 / ADR-135). Everything is **default-off**: an
+un-configured deployment behaves exactly like the plain API.
+
+### Observability, security & metrics envs
+
+| Env var | Effect | Default |
+|---|---|---|
+| `POLARIS_API_KEYS` | Comma-separated API keys. When set, protected endpoints require `X-API-Key` (or `Authorization: Bearer`); else `401`. | unset → auth disabled |
+| `POLARIS_API_RATE_LIMIT` | e.g. `600/minute` (or a bare count = per-minute). Past the threshold → `429` + `Retry-After`. | unset → no limit |
+| `POLARIS_TRUSTED_PROXIES` | Comma-separated IPs/CIDRs of trusted proxies. Only then is `X-Forwarded-For` used for rate-limit keying (anti-spoof). | unset → key on peer IP |
+| `POLARIS_LOG_LEVEL` | Access-log level for the JSON access logger. | `INFO` |
+
+Every request emits a single-line JSON access log with a correlation id
+(`X-Correlation-ID`, echoed from an inbound `X-Request-ID`/`X-Correlation-ID` or
+generated) and a duration. `/health`, `/version`, `/metrics`, and the docs are
+always reachable (exempt from auth + rate limiting).
+
+### Metrics
+
+`GET /metrics` exposes Prometheus text exposition (v0.0.4) — no extra dependency:
+
+```bash
+docker compose up -d api
+curl http://localhost:8000/metrics
+# polaris_http_requests_total{method="GET",path="/health",status="200"} 3
+# polaris_http_request_duration_seconds_bucket{method="POST",path="/api/v1/price",le="0.5"} 5
+```
+
+The `path` label is the matched route template (e.g. `/api/v1/price`); requests
+that never route (404, or a pre-routing 401/429) collapse to `__unmatched__`, so
+label cardinality stays bounded.
+
+### Local metrics stack (Prometheus + Grafana)
+
+```bash
+docker compose up -d api prometheus grafana
+# Prometheus  → http://localhost:9090   (scrapes api:8000/metrics every 15s)
+# Grafana     → http://localhost:3000   (anonymous admin; "Polaris RE API" dashboard
+#                                          auto-provisioned: req rate, 5xx rate, p95 latency)
+```
+
+### Kubernetes / Helm
+
+Apply the raw manifests:
+
+```bash
+kubectl apply -f deploy/k8s/          # deployment, service, configmap, ingress
+# API keys go in a Secret named polaris-re-secrets, key "api-keys" (optional):
+kubectl create secret generic polaris-re-secrets --from-literal=api-keys='key1,key2'
+```
+
+Or install the chart:
+
+```bash
+helm install polaris-re deploy/helm/polaris-re \
+  --set image.tag=runtime \
+  --set config.POLARIS_API_RATE_LIMIT=600/minute \
+  --set-string apiKeys='key1,key2' \
+  --set ingress.enabled=true
+```
+
+The pods/service carry `prometheus.io/scrape` annotations for annotation-based
+Prometheus discovery. Behind the ingress, set `config.POLARIS_TRUSTED_PROXIES` to
+the ingress/pod CIDR so the rate limiter keys on the real client (ADR-135).
+
+> **Single-replica note.** The rate limiter and metrics registry are in-process.
+> Behind N replicas the effective rate limit is ~N× and Prometheus aggregates
+> per-pod series. A shared (Redis) rate-limit backend is a tracked follow-up.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |

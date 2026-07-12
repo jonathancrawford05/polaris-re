@@ -1,10 +1,12 @@
 # PLAN: Production Hardening & Observability (A2′)
 
-**Status:** IN PROGRESS — constituted 2026-07-07 as the active epic. Slice 1
+**Status:** COMPLETE — constituted 2026-07-07 as the active epic. Slice 1
 (observability core: structured JSON access logging + correlation IDs +
-per-request duration, ADR-133) and Slice 2 (API security: default-off API-key
-auth + dependency-free rate limiting, ADR-134) are **DONE**. Slice 3 (deployment
-& metrics surfaces) is NEXT.
+per-request duration, ADR-133), Slice 2 (API security: default-off API-key
+auth + dependency-free rate limiting, ADR-134), and Slice 3 (deployment &
+metrics surfaces: dependency-free Prometheus `/metrics`, K8s/Helm manifests,
+Prometheus/Grafana compose, proxy-aware rate keying, ADR-135) are all **DONE**.
+The epic is closed; see `CONTINUATION_production_hardening.md`.
 
 **Source / derivation.** With the modeling roadmap complete (ROADMAP Phases 1–5;
 all 2026-06-18 Tier-A epics, C0 Asset/ALM, B3 expense-allowance) and the
@@ -90,7 +92,20 @@ Original plan (superseded where noted):
   a logged auth-failure carrying the correlation id; with no keys configured the
   API behaves exactly as today; rate-limit returns 429 past the threshold.
 
-### Slice 3: Deployment & metrics surfaces — NEXT
+### Slice 3: Deployment & metrics surfaces — DONE (2026-07-10, ADR-135)
+`polaris_re.api.metrics`: a dependency-free `/metrics` endpoint (Prometheus text
+exposition v0.0.4) fed by `MetricsMiddleware` (request counter + latency
+histogram into a process-wide `MetricsRegistry`; `path` label = matched route
+template, bounded by `__unmatched__`; exempt from auth/rate-limiting). Closes the
+PR #134 [P2] proxy item: `RateLimitMiddleware` keys on a resolved client IP,
+honouring `X-Forwarded-For` only behind a configured `POLARIS_TRUSTED_PROXIES`
+peer. Manifests under `deploy/` (raw K8s + Helm chart), a Prometheus scrape
+config, Grafana datasource/dashboard provisioning, and `docker-compose`
+`prometheus`+`grafana` services; Dockerfile `COPY deploy/`. 34 new tests
+(11 metrics + 10 proxy-keying + 13 manifests); the 152 pre-existing API tests +
+76 QA tests stay green; goldens byte-identical.
+
+Original plan:
 - **Depends on:** Slice 2 merged.
 - Kubernetes manifests (`deploy/k8s/deployment.yaml`, `service.yaml`,
   `configmap.yaml`), a Helm chart (`deploy/helm/polaris-re/`), a Prometheus

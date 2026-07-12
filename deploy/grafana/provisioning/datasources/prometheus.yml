@@ -1,0 +1,11 @@
+# Grafana datasource provisioning — wires the local Prometheus as the default
+# datasource so the bundled dashboard renders without manual setup.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true

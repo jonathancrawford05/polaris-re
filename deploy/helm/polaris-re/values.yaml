@@ -1,0 +1,48 @@
+# Default values for the polaris-re chart.
+
+replicaCount: 2
+
+image:
+  repository: polaris-re
+  tag: runtime
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+
+# Prometheus /metrics is always exposed (dependency-free text exposition,
+# ADR-135). These annotations opt the pods/service into a Prometheus scrape.
+metrics:
+  enabled: true
+  port: 8000
+  path: /metrics
+
+ingress:
+  enabled: false
+  className: nginx
+  host: polaris-re.example.com
+  path: /
+  pathType: Prefix
+
+# Non-secret runtime config (rendered into a ConfigMap). All optional — unset
+# leaves the security surfaces default-off (ADR-134).
+config:
+  POLARIS_LOG_LEVEL: "INFO"
+  # e.g. "600/minute"; empty disables rate limiting.
+  POLARIS_API_RATE_LIMIT: ""
+  # Comma-separated trusted-proxy CIDRs for X-Forwarded-For keying (ADR-135).
+  POLARIS_TRUSTED_PROXIES: ""
+
+# API keys (ADR-134). When empty, auth is disabled and no Secret is created.
+# In production, supply via --set-string or a sealed/external Secret rather than
+# committing keys to values.yaml.
+apiKeys: ""
+
+resources:
+  requests:
+    cpu: "250m"
+    memory: "512Mi"
+  limits:
+    cpu: "1"
+    memory: "1Gi"

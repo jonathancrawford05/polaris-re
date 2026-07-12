@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field, model_validator
 
 import polaris_re
@@ -60,6 +60,11 @@ from polaris_re.analytics.profit_test import (
 from polaris_re.analytics.scenario import ScenarioRunner
 from polaris_re.analytics.uq import MonteCarloUQ, UQParameters
 from polaris_re.api.auth import APIKeyAuthMiddleware, RateLimitMiddleware
+from polaris_re.api.metrics import (
+    METRICS_CONTENT_TYPE,
+    MetricsMiddleware,
+    render_latest,
+)
 from polaris_re.api.observability import (
     RequestContextMiddleware,
     configure_api_logging,
@@ -96,21 +101,27 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# Observability + security (ROADMAP 6.2, Slices 1-2). Starlette runs middleware
-# in **reverse** registration order (the last-added is outermost / runs first),
-# so the order below yields the request flow:
+# Observability + security + metrics (ROADMAP 6.2, Slices 1-3). Starlette runs
+# middleware in **reverse** registration order (the last-added is outermost /
+# runs first), so the order below yields the request flow:
 #   RequestContextMiddleware  (outermost — assigns the correlation id)
-#     → RateLimitMiddleware   (throttle floods before doing auth work)
-#       → APIKeyAuthMiddleware (reject unauthorised callers)
-#         → endpoint
-# Auth and rate limiting therefore run *inside* the request-context middleware,
-# so a 401/429 is logged with the request's correlation id and the response
-# still carries the X-Correlation-ID header. Both security middlewares are
-# default-off: with no POLARIS_API_KEYS / POLARIS_API_RATE_LIMIT configured they
-# are pure pass-throughs and the pre-existing API behaviour is unchanged.
+#     → MetricsMiddleware     (count + time every request, incl. 401/429)
+#       → RateLimitMiddleware (throttle floods before doing auth work)
+#         → APIKeyAuthMiddleware (reject unauthorised callers)
+#           → endpoint
+# Auth and rate limiting run *inside* the request-context middleware, so a
+# 401/429 is logged with the request's correlation id and the response still
+# carries the X-Correlation-ID header. Metrics sits *outside* the security
+# middlewares so rejections are still counted (they collapse to the
+# ``__unmatched__`` path label because they never reach the router). All three
+# added surfaces are default-off or read-only: with no POLARIS_API_KEYS /
+# POLARIS_API_RATE_LIMIT configured the security middlewares are pure
+# pass-throughs, and metrics collection never touches the pricing path — so the
+# pre-existing API behaviour is unchanged.
 configure_api_logging()
 app.add_middleware(APIKeyAuthMiddleware)
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(MetricsMiddleware)
 app.add_middleware(RequestContextMiddleware)
 
 
@@ -1004,6 +1015,18 @@ def version() -> dict[str, str]:
         "polaris_re": polaris_re.__version__,
         "python": sys.version.split()[0],
     }
+
+
+@app.get("/metrics", tags=["System"], include_in_schema=False)
+def metrics() -> PlainTextResponse:
+    """Expose request metrics in Prometheus text-exposition format (v0.0.4).
+
+    Scraped by a Prometheus server (see ``deploy/prometheus/prometheus.yml``).
+    Exempt from API-key auth and rate limiting (``EXEMPT_PATHS`` in
+    ``api/auth.py``) so a scraper — which cannot present a key — can always
+    reach it.
+    """
+    return PlainTextResponse(render_latest(), media_type=METRICS_CONTENT_TYPE)
 
 
 @app.post("/api/v1/price", response_model=PriceResponse, tags=["Pricing"])

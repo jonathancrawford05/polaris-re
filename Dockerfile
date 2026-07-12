@@ -50,6 +50,9 @@ COPY --from=builder /app/src /app/src
 
 COPY tests/ ./tests/
 COPY scripts/ ./scripts/
+# deploy/ manifests are parsed by tests/test_deploy/ (ROADMAP 6.2 Slice 3); the
+# runtime image runs the test suite, so they must be present in the image.
+COPY deploy/ ./deploy/
 COPY data/qa/ ./data/qa/
 COPY data/validation/ ./data/validation/
 COPY data/inputs/portfolio_sample/ ./data/inputs/portfolio_sample/
