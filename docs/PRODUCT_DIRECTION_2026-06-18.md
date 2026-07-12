@@ -1404,6 +1404,24 @@ Items harvested from completed/in-flight work by the daily-dev routine
   Out of scope (1st-order — follow-up of the A2′ epic; NICE-TO-HAVE, annotation
   scrape covers the common non-Operator case).*
 
+- **NICE-TO-HAVE — engine-level, entry-point-agnostic metrics.** The A2′ metrics
+  surface (ADR-135) is transport-level: `MetricsMiddleware` counts/times **HTTP
+  requests to the FastAPI app** only, so a pricing run through the **CLI**
+  (`polaris price`) or the **Streamlit dashboard** — both of which call the engine
+  in-process (`BaseProduct.project`, `ProfitTester.run`) with no HTTP hop —
+  produces **zero** metrics even with the full Prometheus/Grafana stack running.
+  Genuine engine observability (projection duration, policies priced, treaty
+  applications) that is identical regardless of entry point would instrument the
+  **engine core** rather than the transport: a small counter/timer around the hot
+  paths that every caller (API, CLI, Streamlit) feeds, exposed through the same
+  dependency-free registry. Distinct from the shared-backend and richer-HTTP-
+  instrumentation follow-ups above (those still only see the API). NICE-TO-HAVE:
+  operational observability, not first-deal-quoting correctness; but unlike the
+  ADR-135 *multi-tenant design note* (recorded in DECISIONS.md, not promoted), this
+  is actionable work a session could pick up. *Source: PR #135 review discussion
+  (2026-07-10) — fresh discovery while demonstrating the Grafana stack; 1st-order
+  follow-up of the A2′ metrics feature.*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log
