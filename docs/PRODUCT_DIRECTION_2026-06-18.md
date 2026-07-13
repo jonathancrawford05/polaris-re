@@ -1516,6 +1516,30 @@ constraint and a future session must not rebuild these as a naive wall-time log.
   maintainer discussion 2026-07-12 — 2nd-order (supports the creep store) →
   NICE-TO-HAVE per the step-17 order cap; separable one-off effort.*
 
+- **NICE-TO-HAVE — durable epic-grained history ledger (`CHANGELOG.md` /
+  `docs/EPICS.md`).** The project has no durable, growing, **epic-grained** record
+  of what shipped: a `CONTINUATION_*` flips `COMPLETE` and drops out of the
+  routine's read scope, `ROADMAP.md` is forward-looking checkboxes (not a shipped
+  narrative), and `PRODUCT_DIRECTION`'s "Recently Completed" is slice-grained and
+  rolls over — so completed **epics effectively vanish from view**. The unit of
+  *meaning* is the epic (each introduced a user-visible capability); the PR/slice
+  is only the unit of *work* (a delivery increment gated by merge cadence). Add a
+  **two-layer** history: **Layer 1** — an append-only epic ledger (Keep-a-Changelog
+  style but sectioned by capability/epic, not raw version bumps) with one row per
+  completed epic — `Epic | Capability delivered | Slices/PRs | ADRs | Shipped` —
+  and **Layer 2** = the existing PR/ADR/session-log audit trail it *links into*
+  (preserve PR traceability for the "which commit moved this number" case; don't
+  drop slice-grain, just index it). Wire it: when the daily-dev routine flips a
+  `CONTINUATION` to `COMPLETE`, it appends the row (it already maintains
+  append-only ledgers — one more step, and it directly fixes the vanishing-epic
+  hole). Doubles as the README "what's new" / diligence capability list — a real
+  credibility asset for an open-source AXIS/Prophet alternative. **Guardrail:** this
+  is Tier-B meta/process work; per the 2026-07-12 [P1] direction flag it must NOT
+  precede constituting the next Tier-A epic (A3′) — fold it in alongside an epic's
+  final slice, don't let it jump the queue. *Source: maintainer discussion
+  2026-07-12 — 1st-order (fresh discovery: history should be epic-grained, not
+  PR-grained); NICE-TO-HAVE process improvement.*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log
