@@ -30,7 +30,7 @@ picked.
 ## Decomposition Plan (active epic status)
 | Slice | Scope | Status | PR |
 |-------|-------|--------|----|
-| 1 | Row-level quarantine + richer `DataQualityReport` | ✅ Done | (this draft PR) |
+| 1 | Row-level quarantine + richer `DataQualityReport` | ✅ Done | #137 (draft) |
 | 2 | Robust value coercion (mixed dates + unit/currency) | ⏳ Next | — |
 | 3 | Surfaces — CLI/API rejects file + report | 🔲 Planned | — |
 

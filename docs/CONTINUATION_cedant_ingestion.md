@@ -22,7 +22,7 @@ the next Tier-A "big rock"). See `PLAN_cedant_ingestion.md`.
 ### Slice 1: Row-level quarantine + richer report
 - **Status:** DONE
 - **Branch:** `claude/loving-gauss-4gisb6` (designated remote-session branch)
-- **PR:** (draft, this session)
+- **PR:** #137 (draft)
 - **What was done:** New `partition_inforce_rows(df) -> (clean, rejects, report)`
   in `utils/ingestion.py`. Rows failing any blocking rule (missing required cell,
   non-positive face/premium, negative age, attained-before-issue) are separated
