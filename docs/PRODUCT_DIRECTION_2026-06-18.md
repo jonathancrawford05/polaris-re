@@ -1422,6 +1422,124 @@ Items harvested from completed/in-flight work by the daily-dev routine
   (2026-07-10) — fresh discovery while demonstrating the Grafana stack; 1st-order
   follow-up of the A2′ metrics feature.*
 
+### CI performance & smoke tracking (maintainer discussion 2026-07-12)
+
+A coherent group from a maintainer design discussion after A2′ shipped. Items
+**#2/#4/#5 form one capability** (a perf-tracking harness + committed history +
+seed) that could be run as a small decomposed epic; **#1 is an independent quick
+win**; **#3 bridges the "comment gap"** by reusing the pr-review routine. Explicit
+dependency ordering is stated per item — do not start a dependent before its
+prerequisite is on `main`. The **overriding design rule for the whole group**:
+*deterministic / noise-normalized metrics may gate or alert; raw wall-time only
+informs.* GitHub-hosted runners vary 2–3× run-to-run, so any gate on absolute
+latency is an alert-fatigue generator — this is the single most important
+constraint and a future session must not rebuild these as a naive wall-time log.
+
+- **IMPORTANT — CI smoke-test job (real entry points).** CI today runs lint, the
+  pytest matrix, a Docker build, and a one-line *import* smoke check — but nothing
+  boots the real surfaces. Add a fast (<30s) smoke job that: boots `uvicorn` and
+  curls `/health`, `/metrics`, and one real `/api/v1/price` (asserting 200 +
+  shape); runs `polaris price` on `data/qa/golden_inforce.csv` (exit 0); and runs
+  `polaris benchmark --pack closed-form` (exit 0). Deterministic, low-flake —
+  **gate merges on it.** Independent of the perf items below. *Source: maintainer
+  discussion 2026-07-12 (CI perf/smoke thread) — 1st-order; IMPORTANT as it catches
+  "won't boot / entrypoint broken / endpoint 500s" that unit tests miss.*
+
+- **IMPORTANT — performance harness with same-run head-vs-main baseline.** A
+  `polaris perfbench` / `tests/perf/` harness (built on `pytest-benchmark`) that
+  times the engine hot paths (`BaseProduct.project`, `ProfitTester.run`) on a
+  **fixed synthetic block**, plus deterministic structural metrics (array
+  allocations, engine-iteration counts, peak RSS, policies×months processed) and a
+  fixed calibration microbench (e.g. a fixed-size NumPy matmul) as a runner-speed
+  **normalizer**. In CI, benchmark the **PR head *and* `main` in the same job**
+  (`git checkout main`, re-run) so the reported delta is a same-runner ratio —
+  noise largely cancels, and **no persistent storage / gh-pages / token is
+  required**. Emit `perf.json` `{head, base, delta, deterministic_metrics,
+  calibration}` as a CI artifact; optionally a *hard* fail only on egregious
+  regression (>50%) as a deterministic backstop. Measure engine throughput, **not**
+  API latency (deterministic workload, commercially meaningful — "can it price a
+  large inforce block fast enough"). Keep distinct from `polaris benchmark`, which
+  is *correctness* validation (closed-form APVs), not performance. *Source:
+  maintainer discussion 2026-07-12 — 1st-order follow-up of the observability
+  theme; IMPORTANT; prerequisite for #3, #4, #5 below.*
+
+- **NICE-TO-HAVE — pr-review routine posts the perf judgment comment (the
+  "comment gap" bridge).** Rather than stand up `github-action-benchmark` +
+  `gh-pages` purely to emit a PR comment, extend the existing pr-review Claude
+  routine to read the perf harness's `perf.json` artifact and fold a perf verdict
+  into the review it already posts: the head-vs-main delta **plus judgment a
+  mechanical threshold cannot supply** — is the regression *expected* given the
+  diff (e.g. a legitimately heavier calc) or *unexplained*; a root-cause hint from
+  the diff; and noise-band suppression ("±11% is within this runner's variance —
+  not flagging"). Keep the agent **advisory, not the hard gate** (agent output is
+  non-deterministic; the CI backstop in #2 is the deterministic gate). This covers
+  the **per-PR** comment; it does **not** see long-term creep (that is #4).
+  **Depends on:** #2 (perf harness emitting `perf.json`). *Source: maintainer
+  discussion 2026-07-12 — 2nd-order (follow-up of the perf harness) → NICE-TO-HAVE
+  per the step-17 order cap; the bridge that makes perf tracking change behaviour
+  without new infra.*
+
+- **IMPORTANT — committed per-merge performance log (`perf/history.jsonl`) + creep
+  detection.** The one thing the per-PR comment (#3) structurally cannot catch:
+  slow multi-month creep (each PR +3%, all green, 40% over a quarter). Persist one
+  append-only row **per merge to `main`** (keyed by merge SHA) under
+  `perf/history.jsonl`, plus a short `perf/README.md` (or ADR) stating the metrics
+  and the **interpretation rules the agent follows** (which metrics are
+  deterministic vs. informational; the noise band; "flag only unexplained
+  regression >X% on a deterministic metric"; "≥3 consecutive down-merges = creep
+  alert"). This fits the repo's existing committed-ledger pattern
+  (DECISIONS/PRODUCT_DIRECTION) and needs **no gh-pages/token** — strictly better
+  for an audit-first project. **Design rule (non-negotiable):** the log is
+  **deterministic-first** — lead with structural/normalized metrics (op counts,
+  allocations, peak RSS, `engine_time / calibration_time`); keep raw wall-time as a
+  secondary *informational* column with runner metadata (CPU, Python version).
+  Deterministic metrics may alert; raw wall-time never gates — else the committed
+  log becomes a noise generator with a git history. Wire the routines: **daily-dev
+  appends** the row on merge (it already maintains ledgers); **pr-review reads** the
+  log and adds creep context to its comment ("4th down-merge in a row"). **Depends
+  on:** #2. *Source: maintainer discussion 2026-07-12 — 1st-order (core
+  creep-tracking capability from the original discussion, not a derivative of the
+  harness — hence IMPORTANT despite depending on #2); the creep tracker; upgrades
+  the earlier "gh-pages CSV" idea to a committed, normalized, agent-read JSONL.*
+
+- **NICE-TO-HAVE — seed `perf/history.jsonl` by backfilling meaningful commits
+  (one-off).** So creep detection is useful on day one instead of accumulating from
+  zero, backfill the log over ~10–15 engine-touching merges (select via `git log`
+  on `src/polaris_re/products/`, `reinsurance/`, `analytics/profit_test.py` —
+  substandard-rating slices, the YRT per-duration solver, portfolio aggregation,
+  IFRS-17, the capital modules; **cap the count**). Run them **back-to-back on one
+  machine** so the seeded history is *mutually comparable by construction* (a
+  cleaner gold reference than scattered-runner points; the #2 normalizer aligns
+  future points to it). Bonus: the archaeology may itself **surface a past
+  regression** worth a finding. A bounded, one-off task an agent can drive once the
+  harness (#2) and log format (#4) exist. **Depends on:** #2, #4. *Source:
+  maintainer discussion 2026-07-12 — 2nd-order (supports the creep store) →
+  NICE-TO-HAVE per the step-17 order cap; separable one-off effort.*
+
+- **NICE-TO-HAVE — durable epic-grained history ledger (`CHANGELOG.md` /
+  `docs/EPICS.md`).** The project has no durable, growing, **epic-grained** record
+  of what shipped: a `CONTINUATION_*` flips `COMPLETE` and drops out of the
+  routine's read scope, `ROADMAP.md` is forward-looking checkboxes (not a shipped
+  narrative), and `PRODUCT_DIRECTION`'s "Recently Completed" is slice-grained and
+  rolls over — so completed **epics effectively vanish from view**. The unit of
+  *meaning* is the epic (each introduced a user-visible capability); the PR/slice
+  is only the unit of *work* (a delivery increment gated by merge cadence). Add a
+  **two-layer** history: **Layer 1** — an append-only epic ledger (Keep-a-Changelog
+  style but sectioned by capability/epic, not raw version bumps) with one row per
+  completed epic — `Epic | Capability delivered | Slices/PRs | ADRs | Shipped` —
+  and **Layer 2** = the existing PR/ADR/session-log audit trail it *links into*
+  (preserve PR traceability for the "which commit moved this number" case; don't
+  drop slice-grain, just index it). Wire it: when the daily-dev routine flips a
+  `CONTINUATION` to `COMPLETE`, it appends the row (it already maintains
+  append-only ledgers — one more step, and it directly fixes the vanishing-epic
+  hole). Doubles as the README "what's new" / diligence capability list — a real
+  credibility asset for an open-source AXIS/Prophet alternative. **Guardrail:** this
+  is Tier-B meta/process work; per the 2026-07-12 [P1] direction flag it must NOT
+  precede constituting the next Tier-A epic (A3′) — fold it in alongside an epic's
+  final slice, don't let it jump the queue. *Source: maintainer discussion
+  2026-07-12 — 1st-order (fresh discovery: history should be epic-grained, not
+  PR-grained); NICE-TO-HAVE process improvement.*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log
