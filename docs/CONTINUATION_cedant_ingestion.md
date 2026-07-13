@@ -48,7 +48,7 @@ the next Tier-A "big rock"). See `PLAN_cedant_ingestion.md`.
 ### Slice 2: Robust value coercion
 - **Status:** DONE
 - **Branch:** `claude/loving-gauss-1wcw10` (designated remote-session branch)
-- **PR:** #TBD (draft)
+- **PR:** #138 (draft)
 - **What was done:** New `apply_value_coercion(df, config) -> (df, warnings)` in
   `utils/ingestion.py`, a config-gated stage that runs between
   `ingest_cedant_data` and `partition_inforce_rows`. (1) **Date coercion** for
