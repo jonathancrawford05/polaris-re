@@ -8922,3 +8922,82 @@ flagging, unparseable→reject) and unit/currency normalisation (`unit_scale`,
 richer report through the `polaris ingest` CLI and `/api/v1/ingest` API, with a
 thresholded exit/response, is Slice 3. Neither is required by any shipped feature;
 Slice 1 stands alone as an additive library capability.
+
+---
+
+## ADR-137: Cedant ingestion — config-gated value coercion (dates + unit/currency)
+
+**Date:** 2026-07-13
+**Status:** Accepted
+**Slice:** 2 of 3 — Cedant Data-Ingestion Robustness epic (A3'), commercial review 2026-07-05 §4.
+
+**Context.** After Slice 1 (ADR-136) a reinsurer can quarantine unusable *rows*.
+The remaining gap is messy *values* in otherwise-usable rows. `ingest_cedant_data`
+passes date strings through verbatim, yet downstream `InforceBlock.from_csv`
+parses them with `date.fromisoformat` — so any non-ISO date (US `MM/DD/YYYY`, EU
+`DD/MM/YYYY`, an Excel serial) crashes the load rather than being coerced or
+quarantined. There is likewise no way to normalise a face reported in thousands,
+a monthly premium, or a foreign-currency amount. Real cedant extracts routinely
+carry all four.
+
+**Decision.** Add `apply_value_coercion(df, config) -> (df, warnings)`, a
+config-gated stage that runs between `ingest_cedant_data` and
+`partition_inforce_rows`. Two independent transformations, both default-off:
+
+- **Date coercion** (`date_columns`, `date_formats`). For each configured date
+  column, infer the source format (ISO, `%Y/%m/%d`, US `%m/%d/%Y`, EU
+  `%d/%m/%Y`, or Excel serial via the 1899-12-30 epoch) and rewrite parseable
+  cells to canonical ISO (`YYYY-MM-DD`). US/EU order is inferred from decisive
+  evidence (a component > 12); a genuinely ambiguous column (all components ≤ 12)
+  assumes US and raises a warning telling the user to set `date_formats[col]`.
+  An unparseable non-empty cell is **left as its original string** so the Slice-1
+  machinery quarantines its row.
+- **Unit / premium / currency scaling** (`unit_scale`, `premium_mode`,
+  `currency`). Per-column multiplicative factors are composed and applied in one
+  pass: `unit_scale` (e.g. `{face_amount: 1000}` for a face in thousands),
+  `premium_mode` annualisation (monthly x12 / quarterly x4 / semiannual x2 on
+  `annual_premium`), and a static `CurrencyConfig(code, rate)` applied to the
+  monetary columns (`reporting = source x rate`).
+
+A new blocking rule family `_date_reject_rules` adds an `unparseable_<col>`
+reason for present-but-unparseable date strings in `issue_date` / `valuation_date`;
+`partition_inforce_rows` now combines `_row_rules + _date_reject_rules`.
+
+**Rationale.** The stage is **additive and pricing-neutral**: every new
+`IngestConfig` field defaults to a no-op (`unit_scale={}`, `premium_mode='annual'`,
+`currency=None`, `date_columns=[]`), so a config that does not opt in returns the
+frame byte-identical and the pricing/golden path is untouched. Coercing values
+*before* partitioning means a value that fails coercion becomes either a null
+(caught by `missing_required_field`) or an explicit `unparseable_<col>` reject —
+it lands in the rejects frame with an actionable reason instead of crashing
+downstream, reusing the Slice-1 rejects machinery rather than duplicating it. The
+`_date_reject_rules` check only applies to string-typed date columns, so a clean
+ISO block (every existing caller) is unaffected: ISO parses under the first
+candidate, so nothing is flagged and `clean.equals(df)` holds. The ambiguous-date
+default (assume US + warn, rather than hard-fail) keeps ingestion best-effort and
+loud — a reinsurer disambiguates with one config line rather than having a whole
+file rejected on a formatting nicety.
+
+**Verification.** `tests/test_utils/test_ingestion.py::TestApplyValueCoercion`
+(20 tests): default config is a byte-identical no-op with empty warnings; the new
+fields default to no-op values; `unit_scale` closed-form (face 500 x 1000 →
+500,000); `premium_mode` annualisation parametrised across all four frequencies;
+currency scaling of every monetary column; multiplicative composition of
+`unit_scale` x `currency`; `CurrencyConfig` rejects non-positive rates;
+ISO/US/EU/Excel-serial/explicit-format inputs all coerce to identical ISO dates;
+ambiguous columns warn and assume US; an explicit format suppresses the warning;
+an unparseable date is left in place, warned, and quarantined downstream; a
+coerced US block partitions with zero rejects; and an end-to-end
+ingest→coerce→partition→`InforceBlock` round-trip (US dates + face in thousands +
+monthly premium). Two partition tests confirm the `unparseable_<col>` reject fires
+for a bad date string and stays silent for a clean ISO block. All pre-existing
+ingestion and QA tests stay green; goldens byte-identical.
+
+**Out of scope (this slice; carried in the CONTINUATION / PLAN).** Slice 3
+surfaces value coercion and the rejects file through the `polaris ingest` CLI and
+`/api/v1/ingest` API — reading the coercion `warnings`, writing the rejects frame
+to a file, and a thresholded exit/response. Not implemented here: a live-FX or
+per-cohort currency rate (the hook is a single static rate), per-row provenance of
+*which* source format each date cell used, and coercion of columns beyond the
+monetary and date families (e.g. free-text sex/smoker normalisation, which the
+existing `code_translations` already covers).

@@ -9,9 +9,11 @@ import yaml
 from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.utils.ingestion import (
     REJECT_REASON_COLUMN,
+    CurrencyConfig,
     IngestConfig,
     RatingCodeEntry,
     RatingCodeMap,
+    apply_value_coercion,
     ingest_cedant_data,
     partition_inforce_rows,
     validate_inforce_df,
@@ -871,3 +873,208 @@ class TestPartitionInforceRows:
         assert report.n_rejected == 0
         assert report.n_policies == 2
         assert clean.equals(df)
+
+    def test_unparseable_date_string_is_rejected(self):
+        """A present-but-unparseable date string quarantines the row (A3' Slice 2)."""
+        df = _inforce_rows(issue_date=["2022-01-01", "not-a-date", "2022-01-01"])
+        _, rejects, report = partition_inforce_rows(df)
+        assert report.n_rejected == 1
+        assert report.reject_reasons.get("unparseable_issue_date") == 1
+        assert rejects["policy_id"].to_list() == ["P2"]
+        assert "unparseable_issue_date" in rejects[REJECT_REASON_COLUMN].item()
+
+    def test_iso_dates_are_not_flagged_unparseable(self):
+        """A clean ISO block adds no unparseable-date rejects (byte-identical path)."""
+        df = _inforce_rows()
+        clean, _, report = partition_inforce_rows(df)
+        assert report.n_rejected == 0
+        assert "unparseable_issue_date" not in report.reject_reasons
+        assert "unparseable_valuation_date" not in report.reject_reasons
+        assert clean.equals(df)
+
+
+def _coercion_config(**overrides) -> IngestConfig:
+    """An IngestConfig carrying only value-coercion settings (no column mapping)."""
+    return IngestConfig(column_mapping={}, **overrides)
+
+
+class TestApplyValueCoercion:
+    """Config-gated value coercion — dates + unit/currency (A3' Slice 2, ADR-137)."""
+
+    def test_default_config_is_noop(self):
+        """A config with no coercion settings returns the frame unchanged."""
+        df = _inforce_rows()
+        out, warnings = apply_value_coercion(df, _coercion_config())
+        assert out.equals(df)
+        assert warnings == []
+
+    def test_new_fields_default_to_noop(self):
+        """The new IngestConfig fields default to no-op values."""
+        cfg = _coercion_config()
+        assert cfg.unit_scale == {}
+        assert cfg.premium_mode == "annual"
+        assert cfg.currency is None
+        assert cfg.date_columns == []
+        assert cfg.date_formats == {}
+
+    def test_unit_scale_face_in_thousands(self):
+        """Closed-form: face 500 (thousands) x unit_scale 1000 → 500_000."""
+        df = _inforce_rows(face_amount=[500.0, 250.0, 300.0])
+        out, _ = apply_value_coercion(df, _coercion_config(unit_scale={"face_amount": 1000.0}))
+        assert out["face_amount"].to_list() == [500_000.0, 250_000.0, 300_000.0]
+
+    @pytest.mark.parametrize(
+        ("mode", "factor"),
+        [("annual", 1.0), ("semiannual", 2.0), ("quarterly", 4.0), ("monthly", 12.0)],
+    )
+    def test_premium_mode_annualisation(self, mode, factor):
+        """Closed-form: a per-period premium is annualised by the mode's factor."""
+        df = _inforce_rows(annual_premium=[100.0, 100.0, 100.0])
+        out, _ = apply_value_coercion(df, _coercion_config(premium_mode=mode))
+        assert out["annual_premium"].to_list() == [100.0 * factor] * 3
+
+    def test_currency_conversion_scales_money_columns(self):
+        """A currency rate multiplies every monetary column."""
+        df = _inforce_rows(
+            face_amount=[500_000.0, 250_000.0, 300_000.0],
+            annual_premium=[1_000.0, 1_000.0, 1_000.0],
+        )
+        cfg = _coercion_config(currency=CurrencyConfig(code="CAD", rate=0.5))
+        out, warnings = apply_value_coercion(df, cfg)
+        assert out["face_amount"].to_list() == [250_000.0, 125_000.0, 150_000.0]
+        assert out["annual_premium"].to_list() == [500.0, 500.0, 500.0]
+        assert any("CAD" in w for w in warnings)
+
+    def test_scalings_compose_multiplicatively(self):
+        """unit_scale and currency compose (500 x 1000 x 2 = 1_000_000)."""
+        df = _inforce_rows(face_amount=[500.0, 250.0, 300.0])
+        cfg = _coercion_config(
+            unit_scale={"face_amount": 1000.0},
+            currency=CurrencyConfig(code="EUR", rate=2.0),
+        )
+        out, _ = apply_value_coercion(df, cfg)
+        assert out["face_amount"].to_list() == [1_000_000.0, 500_000.0, 600_000.0]
+
+    def test_currency_rate_must_be_positive(self):
+        """CurrencyConfig rejects non-positive rates."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            CurrencyConfig(code="CAD", rate=0.0)
+        with pytest.raises(ValidationError):
+            CurrencyConfig(code="CAD", rate=-1.0)
+
+    @pytest.mark.parametrize(
+        ("raw", "fmt"),
+        [
+            (["2022-03-04", "2021-12-31", "2020-06-15"], None),  # ISO passthrough
+            (["03/04/2022", "12/31/2021", "06/15/2020"], None),  # US MM/DD/YYYY
+            (["04/03/2022", "31/12/2021", "15/06/2020"], None),  # EU DD/MM/YYYY (decisive)
+            (["44624", "44561", "43997"], None),  # Excel serials
+            (["04/03/2022", "31/12/2021", "15/06/2020"], "%d/%m/%Y"),  # explicit EU
+        ],
+    )
+    def test_date_formats_coerce_to_iso(self, raw, fmt):
+        """Mixed source date formats all coerce to the same canonical ISO dates."""
+        df = _inforce_rows(issue_date=raw)
+        date_formats = {"issue_date": fmt} if fmt else {}
+        cfg = _coercion_config(date_columns=["issue_date"], date_formats=date_formats)
+        out, _ = apply_value_coercion(df, cfg)
+        assert out["issue_date"].to_list() == ["2022-03-04", "2021-12-31", "2020-06-15"]
+
+    def test_ambiguous_date_column_warns_and_assumes_us(self):
+        """All-≤12 slash dates are ambiguous: warn and assume US (MM/DD/YYYY)."""
+        df = _inforce_rows(issue_date=["03/04/2022", "05/06/2022", "07/08/2022"])
+        out, warnings = apply_value_coercion(df, _coercion_config(date_columns=["issue_date"]))
+        # US reading: 03/04 → Mar 4, 05/06 → May 6, 07/08 → Jul 8.
+        assert out["issue_date"].to_list() == ["2022-03-04", "2022-05-06", "2022-07-08"]
+        assert any("Ambiguous date format" in w and "issue_date" in w for w in warnings)
+
+    def test_explicit_format_suppresses_ambiguity_warning(self):
+        """Providing an explicit format resolves ambiguity with no warning."""
+        df = _inforce_rows(issue_date=["03/04/2022", "05/06/2022", "07/08/2022"])
+        cfg = _coercion_config(date_columns=["issue_date"], date_formats={"issue_date": "%d/%m/%Y"})
+        out, warnings = apply_value_coercion(df, cfg)
+        # EU reading (%d/%m/%Y): 03/04 → 3 Apr, 05/06 → 5 Jun, 07/08 → 7 Aug.
+        assert out["issue_date"].to_list() == ["2022-04-03", "2022-06-05", "2022-08-07"]
+        assert not any("Ambiguous" in w for w in warnings)
+
+    def test_unparseable_date_left_for_quarantine(self):
+        """An unparseable date is left as-is, warned, and rejected downstream."""
+        df = _inforce_rows(issue_date=["03/04/2022", "junk", "07/08/2022"])
+        cfg = _coercion_config(date_columns=["issue_date"])
+        out, warnings = apply_value_coercion(df, cfg)
+        assert out["issue_date"].to_list() == ["2022-03-04", "junk", "2022-07-08"]
+        assert any("could not be parsed" in w for w in warnings)
+        # The Slice-1 machinery then quarantines the offending row.
+        _, rejects, report = partition_inforce_rows(out)
+        assert report.reject_reasons.get("unparseable_issue_date") == 1
+        assert rejects["policy_id"].to_list() == ["P2"]
+
+    def test_coerced_us_dates_partition_clean(self):
+        """Coercing US dates first lets the whole block partition with no rejects."""
+        df = _inforce_rows(
+            issue_date=["01/02/2022", "03/04/2022", "05/06/2022"],
+            valuation_date=["01/02/2024", "03/04/2024", "05/06/2024"],
+        )
+        cfg = _coercion_config(date_columns=["issue_date", "valuation_date"])
+        out, _ = apply_value_coercion(df, cfg)
+        clean, _, report = partition_inforce_rows(out)
+        assert report.n_rejected == 0
+        assert clean.height == 3
+
+    def test_end_to_end_ingest_coerce_partition_roundtrip(self, tmp_path):
+        """ingest → coerce (US dates + face in thousands) → partition → InforceBlock."""
+        from polaris_re.core.inforce import InforceBlock
+
+        csv_path = tmp_path / "messy.csv"
+        rows = [
+            {
+                "policy_id": "M1",
+                "issue_age": 35,
+                "attained_age": 40,
+                "sex": "M",
+                "smoker_status": "NS",
+                "face_amount": 500,  # in thousands
+                "annual_premium": 100.0,  # monthly basis
+                "product_type": "TERM",
+                "duration_inforce": 60,
+                "issue_date": "01/15/2020",  # US format
+                "valuation_date": "01/15/2025",
+            },
+            {
+                "policy_id": "M2",
+                "issue_age": 45,
+                "attained_age": 49,
+                "sex": "F",
+                "smoker_status": "S",
+                "face_amount": 250,
+                "annual_premium": 200.0,
+                "product_type": "TERM",
+                "duration_inforce": 54,
+                "issue_date": "07/15/2020",
+                "valuation_date": "01/15/2025",
+            },
+        ]
+        pl.DataFrame(rows).write_csv(csv_path)
+        cfg = IngestConfig(
+            column_mapping={},
+            unit_scale={"face_amount": 1000.0},
+            premium_mode="monthly",
+            date_columns=["issue_date", "valuation_date"],
+        )
+        df = ingest_cedant_data(csv_path, cfg)
+        df, _warnings = apply_value_coercion(df, cfg)
+        clean, _rejects, report = partition_inforce_rows(df)
+        assert report.n_rejected == 0
+        assert clean["face_amount"].to_list() == [500_000.0, 250_000.0]
+        assert clean["annual_premium"].to_list() == [1_200.0, 2_400.0]
+        assert clean["issue_date"].to_list() == ["2020-01-15", "2020-07-15"]
+
+        normalised = tmp_path / "normalised.csv"
+        clean.write_csv(normalised)
+        block = InforceBlock.from_csv(normalised)
+        assert block.n_policies == 2
+        by_id = {p.policy_id: p for p in block.policies}
+        assert by_id["M1"].face_amount == pytest.approx(500_000.0)
+        assert by_id["M1"].issue_date.isoformat() == "2020-01-15"
