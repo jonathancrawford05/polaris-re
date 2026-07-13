@@ -1497,7 +1497,9 @@ constraint and a future session must not rebuild these as a naive wall-time log.
   log becomes a noise generator with a git history. Wire the routines: **daily-dev
   appends** the row on merge (it already maintains ledgers); **pr-review reads** the
   log and adds creep context to its comment ("4th down-merge in a row"). **Depends
-  on:** #2. *Source: maintainer discussion 2026-07-12 — the creep tracker; upgrades
+  on:** #2. *Source: maintainer discussion 2026-07-12 — 1st-order (core
+  creep-tracking capability from the original discussion, not a derivative of the
+  harness — hence IMPORTANT despite depending on #2); the creep tracker; upgrades
   the earlier "gh-pages CSV" idea to a committed, normalized, agent-read JSONL.*
 
 - **NICE-TO-HAVE — seed `perf/history.jsonl` by backfilling meaningful commits
