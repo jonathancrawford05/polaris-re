@@ -22,11 +22,13 @@ from polaris_re.core.base import PolarisBaseModel
 from polaris_re.core.exceptions import PolarisValidationError
 
 __all__ = [
+    "REJECT_REASON_COLUMN",
     "DataQualityReport",
     "IngestConfig",
     "RatingCodeEntry",
     "RatingCodeMap",
     "ingest_cedant_data",
+    "partition_inforce_rows",
     "validate_inforce_df",
 ]
 
@@ -198,7 +200,16 @@ class IngestConfig(PolarisBaseModel):
 
 @dataclass
 class DataQualityReport:
-    """Summary of data quality checks on an ingested inforce DataFrame."""
+    """Summary of data quality checks on an ingested inforce DataFrame.
+
+    Summary statistics (``n_policies`` and below) describe the rows that
+    passed validation — i.e. the *clean* block that will actually be priced.
+    The row-level quarantine fields (``n_input`` / ``n_rejected`` /
+    ``reject_reasons``) are populated by :func:`partition_inforce_rows`, which
+    separates unusable rows instead of failing the whole block; they stay at
+    their defaults for the frame-level :func:`validate_inforce_df` path so that
+    function's behaviour is unchanged (A3' Slice 1, ADR-136).
+    """
 
     n_policies: int = 0
     total_face_amount: float = 0.0
@@ -211,11 +222,29 @@ class DataQualityReport:
     mean_multiplier_rated: float = 0.0
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # Row-level quarantine diagnostics (A3' Slice 1). ``n_input`` is the total
+    # rows examined; ``n_rejected`` the rows quarantined; ``reject_reasons`` maps
+    # each blocking rule name → how many rows failed it (a row failing two rules
+    # increments both, so the values can sum to more than ``n_rejected``).
+    n_input: int = 0
+    n_rejected: int = 0
+    reject_reasons: dict[str, int] = field(default_factory=dict)
 
     @property
     def is_valid(self) -> bool:
-        """True if no blocking errors were found."""
+        """True if no blocking errors were found on the clean block.
+
+        Note this reflects the *clean* rows only. A partitioned block can have
+        ``is_valid`` True while ``n_rejected > 0`` — that is the intended
+        outcome: unusable rows were quarantined so the rest can be priced. Use
+        :attr:`has_rejects` to test whether any rows were dropped.
+        """
         return len(self.errors) == 0
+
+    @property
+    def has_rejects(self) -> bool:
+        """True if any rows were quarantined by row-level validation."""
+        return self.n_rejected > 0
 
 
 def _apply_rating_code_map(df: pl.DataFrame, mapping: RatingCodeMap) -> pl.DataFrame:
@@ -447,3 +476,128 @@ def validate_inforce_df(df: pl.DataFrame) -> DataQualityReport:
                 report.errors.append(f"Column '{col}' has {n_null} null values.")
 
     return report
+
+
+# Row-level blocking rules. Each maps a rule name → a callable building a Polars
+# boolean expression that is True when the row is INVALID for that rule. A rule
+# is only applied when the columns it needs are present. Non-blocking issues
+# (duplicate ids, age > 120) stay warnings on the report and never reject a row.
+REJECT_REASON_COLUMN = "_reject_reason"
+
+
+def _row_rules(columns: list[str]) -> list[tuple[str, pl.Expr]]:
+    """Blocking row-rule expressions applicable to the given column set."""
+    cols = set(columns)
+    rules: list[tuple[str, pl.Expr]] = []
+
+    # 1. Any required cell is null → the row cannot be built into a Policy.
+    required_present = [c for c in REQUIRED_COLUMNS if c in cols]
+    if required_present:
+        rules.append(
+            (
+                "missing_required_field",
+                pl.any_horizontal([pl.col(c).is_null() for c in required_present]),
+            )
+        )
+
+    # 2. Non-positive money fields (nulls are covered by rule 1).
+    if "face_amount" in cols:
+        rules.append(
+            (
+                "non_positive_face_amount",
+                (pl.col("face_amount").cast(pl.Float64, strict=False) <= 0.0).fill_null(False),
+            )
+        )
+    if "annual_premium" in cols:
+        rules.append(
+            (
+                "non_positive_premium",
+                (pl.col("annual_premium").cast(pl.Float64, strict=False) <= 0.0).fill_null(False),
+            )
+        )
+
+    # 3. Negative ages.
+    for age_col in ("issue_age", "attained_age"):
+        if age_col in cols:
+            rules.append(
+                (
+                    f"negative_{age_col}",
+                    (pl.col(age_col).cast(pl.Float64, strict=False) < 0.0).fill_null(False),
+                )
+            )
+
+    # 4. Attained age before issue age — an internally inconsistent record.
+    if {"issue_age", "attained_age"} <= cols:
+        rules.append(
+            (
+                "attained_before_issue",
+                (
+                    pl.col("attained_age").cast(pl.Float64, strict=False)
+                    < pl.col("issue_age").cast(pl.Float64, strict=False)
+                ).fill_null(False),
+            )
+        )
+
+    return rules
+
+
+def partition_inforce_rows(
+    df: pl.DataFrame,
+) -> tuple[pl.DataFrame, pl.DataFrame, DataQualityReport]:
+    """Split a normalised inforce frame into clean and rejected rows.
+
+    Unlike :func:`validate_inforce_df` (which flags the whole frame as invalid
+    when any blocking problem is present), this partitions the block so a
+    reinsurer can price the usable rows and quarantine the rest — the common
+    reality with real cedant extracts (A3' Slice 1, ADR-136).
+
+    A row is **rejected** when it violates any blocking rule in
+    :func:`_row_rules` (missing required cell, non-positive face/premium,
+    negative age, attained-before-issue). Rejected rows are returned in a second
+    frame carrying a ``_reject_reason`` column that lists every rule they failed
+    (``"; "``-joined). The returned :class:`DataQualityReport` describes the
+    **clean** rows (its summary stats are computed on them, reusing
+    :func:`validate_inforce_df`) and additionally records ``n_input``,
+    ``n_rejected``, and a per-rule ``reject_reasons`` breakdown.
+
+    Args:
+        df: Normalised Polaris RE DataFrame (post-``ingest_cedant_data``).
+
+    Returns:
+        ``(clean_df, rejects_df, report)``. ``clean_df`` has the input columns;
+        ``rejects_df`` has the input columns plus ``_reject_reason`` (and is
+        empty with just the reason column appended when nothing is rejected).
+    """
+    n_input = len(df)
+    rules = _row_rules(df.columns)
+
+    if not rules or n_input == 0:
+        clean = df
+        rejects = df.clear().with_columns(pl.lit(None, dtype=pl.Utf8).alias(REJECT_REASON_COLUMN))
+        report = validate_inforce_df(clean)
+        report.n_input = n_input
+        report.n_rejected = 0
+        return clean, rejects, report
+
+    invalid_expr = pl.any_horizontal([expr for _, expr in rules]).alias("__invalid")
+    reason_expr = pl.concat_str(
+        [pl.when(expr).then(pl.lit(name)).otherwise(None) for name, expr in rules],
+        separator="; ",
+        ignore_nulls=True,
+    ).alias(REJECT_REASON_COLUMN)
+
+    annotated = df.with_columns([invalid_expr, reason_expr])
+    clean = annotated.filter(~pl.col("__invalid")).drop("__invalid", REJECT_REASON_COLUMN)
+    rejects = annotated.filter(pl.col("__invalid")).drop("__invalid")
+
+    # Per-rule counts over the whole input (a row can count toward several rules).
+    rule_counts = df.select([expr.cast(pl.Int64).sum().alias(name) for name, expr in rules]).row(
+        0, named=True
+    )
+    reject_reasons = {name: int(count) for name, count in rule_counts.items() if count}
+
+    report = validate_inforce_df(clean)
+    report.n_input = n_input
+    report.n_rejected = len(rejects)
+    report.reject_reasons = reject_reasons
+    return clean, rejects, report

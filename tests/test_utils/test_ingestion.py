@@ -8,12 +8,37 @@ import yaml
 
 from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.utils.ingestion import (
+    REJECT_REASON_COLUMN,
     IngestConfig,
     RatingCodeEntry,
     RatingCodeMap,
     ingest_cedant_data,
+    partition_inforce_rows,
     validate_inforce_df,
 )
+
+
+def _inforce_rows(**overrides) -> pl.DataFrame:
+    """A small, fully-populated, all-clean normalised inforce frame.
+
+    Column values are lists of equal length; pass keyword overrides to inject
+    defects for a specific row (e.g. ``face_amount=[500_000.0, 0.0]``).
+    """
+    base = {
+        "policy_id": ["P1", "P2", "P3"],
+        "issue_age": [35, 40, 45],
+        "attained_age": [37, 42, 47],
+        "sex": ["M", "F", "M"],
+        "smoker_status": ["NS", "NS", "S"],
+        "face_amount": [500_000.0, 250_000.0, 300_000.0],
+        "annual_premium": [1_200.0, 950.0, 800.0],
+        "product_type": ["TERM", "TERM", "TERM"],
+        "duration_inforce": [24, 24, 24],
+        "issue_date": ["2022-01-01", "2022-01-01", "2022-01-01"],
+        "valuation_date": ["2024-01-01", "2024-01-01", "2024-01-01"],
+    }
+    base.update(overrides)
+    return pl.DataFrame(base)
 
 
 def _write_cedant_csv(path: Path) -> None:
@@ -725,3 +750,124 @@ class TestValidateRatingReport:
         # No rating fields in df → report.n_rated stays 0
         assert report.n_rated == 0
         assert report.pct_rated_by_count == pytest.approx(0.0)
+
+
+class TestPartitionInforceRows:
+    """Row-level quarantine partitioning (A3' Slice 1, ADR-136)."""
+
+    def test_all_clean_passthrough(self):
+        """A clean frame yields zero rejects and preserves every row."""
+        df = _inforce_rows()
+        clean, rejects, report = partition_inforce_rows(df)
+        assert report.n_input == 3
+        assert report.n_rejected == 0
+        assert report.n_policies == 3
+        assert not report.has_rejects
+        assert report.is_valid
+        assert report.reject_reasons == {}
+        assert clean.equals(df)
+        assert rejects.height == 0
+        assert REJECT_REASON_COLUMN in rejects.columns
+
+    def test_clean_frame_is_idempotent(self):
+        """Re-partitioning the clean output rejects nothing."""
+        df = _inforce_rows()
+        clean, _, _ = partition_inforce_rows(df)
+        clean2, _, report2 = partition_inforce_rows(clean)
+        assert report2.n_rejected == 0
+        assert clean2.equals(clean)
+
+    def test_non_positive_face_is_rejected(self):
+        """A zero or negative face amount quarantines exactly that row."""
+        df = _inforce_rows(face_amount=[500_000.0, 0.0, -1.0])
+        clean, rejects, report = partition_inforce_rows(df)
+        assert report.n_rejected == 2
+        assert report.reject_reasons["non_positive_face_amount"] == 2
+        assert clean["policy_id"].to_list() == ["P1"]
+        assert set(rejects["policy_id"].to_list()) == {"P2", "P3"}
+        assert all("non_positive_face_amount" in r for r in rejects[REJECT_REASON_COLUMN].to_list())
+
+    def test_non_positive_premium_is_rejected(self):
+        df = _inforce_rows(annual_premium=[1_200.0, 0.0, 800.0])
+        _, rejects, report = partition_inforce_rows(df)
+        assert report.n_rejected == 1
+        assert report.reject_reasons == {"non_positive_premium": 1}
+        assert rejects["policy_id"].to_list() == ["P2"]
+
+    def test_negative_age_is_rejected(self):
+        df = _inforce_rows(issue_age=[35, -1, 45])
+        _, rejects, report = partition_inforce_rows(df)
+        assert report.n_rejected == 1
+        assert "negative_issue_age" in report.reject_reasons
+        assert rejects["policy_id"].to_list() == ["P2"]
+
+    def test_attained_before_issue_is_rejected(self):
+        """Attained age below issue age is an internally inconsistent record."""
+        df = _inforce_rows(issue_age=[35, 50, 45], attained_age=[37, 48, 47])
+        _, rejects, report = partition_inforce_rows(df)
+        assert report.n_rejected == 1
+        assert "attained_before_issue" in report.reject_reasons
+        assert rejects["policy_id"].to_list() == ["P2"]
+
+    def test_missing_required_cell_is_rejected(self):
+        """A null in a required column quarantines the row."""
+        df = _inforce_rows(sex=["M", None, "M"])
+        _, rejects, report = partition_inforce_rows(df)
+        assert report.n_rejected == 1
+        assert "missing_required_field" in report.reject_reasons
+        assert rejects["policy_id"].to_list() == ["P2"]
+
+    def test_multiple_reasons_are_all_recorded(self):
+        """A row failing several rules lists every reason and counts each."""
+        # P2: zero face AND attained(30) < issue(40) → two blocking rules.
+        df = _inforce_rows(
+            face_amount=[500_000.0, 0.0, 300_000.0],
+            issue_age=[35, 40, 45],
+            attained_age=[37, 30, 47],
+        )
+        _, rejects, report = partition_inforce_rows(df)
+        assert report.n_rejected == 1
+        reason = rejects.filter(pl.col("policy_id") == "P2")[REJECT_REASON_COLUMN].item()
+        assert "non_positive_face_amount" in reason
+        assert "attained_before_issue" in reason
+        # Per-rule counts can sum to more than n_rejected (one row, two rules).
+        assert report.reject_reasons["non_positive_face_amount"] == 1
+        assert report.reject_reasons["attained_before_issue"] == 1
+
+    def test_summary_stats_computed_on_clean_rows(self):
+        """The report's summary statistics describe the clean block only."""
+        df = _inforce_rows(face_amount=[500_000.0, 0.0, 300_000.0])
+        _, _, report = partition_inforce_rows(df)
+        # Clean rows are P1 (500k) + P3 (300k); the rejected 0.0 is excluded.
+        assert report.total_face_amount == pytest.approx(800_000.0)
+        assert report.n_policies == 2
+
+    def test_all_rows_rejected_yields_empty_clean(self):
+        df = _inforce_rows(face_amount=[-1.0, 0.0, -5.0])
+        clean, _, report = partition_inforce_rows(df)
+        assert report.n_rejected == 3
+        assert clean.height == 0
+        # Empty clean frame → validate flags it (is_valid False), but the
+        # partition still succeeded and quarantined every row.
+        assert not report.is_valid
+        assert report.has_rejects
+
+    def test_empty_input(self):
+        clean, rejects, report = partition_inforce_rows(_inforce_rows().clear())
+        assert report.n_input == 0
+        assert report.n_rejected == 0
+        assert clean.height == 0
+        assert rejects.height == 0
+        assert REJECT_REASON_COLUMN in rejects.columns
+
+    def test_ingest_then_partition_end_to_end(self, tmp_path):
+        """The mapped ingestion output flows cleanly through partitioning."""
+        csv_path = tmp_path / "cedant.csv"
+        yaml_path = tmp_path / "mapping.yaml"
+        _write_cedant_csv(csv_path)
+        _write_mapping_yaml(yaml_path)
+        df = ingest_cedant_data(csv_path, IngestConfig.from_yaml(yaml_path))
+        clean, _, report = partition_inforce_rows(df)
+        assert report.n_rejected == 0
+        assert report.n_policies == 2
+        assert clean.equals(df)

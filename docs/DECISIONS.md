@@ -8855,3 +8855,70 @@ rate-limit/metrics backend and richer-instrumentation follow-ups; neither is
 short-term while the deployment is single-user. *Source: PR #135 review discussion
 (2026-07-10) — design consideration recorded against ADR-135, deliberately not
 promoted to PRODUCT_DIRECTION so it does not re-enter the work-selection queue.*
+
+---
+
+## ADR-136: Cedant ingestion — row-level quarantine instead of block-level abort
+
+**Date:** 2026-07-13
+**Status:** Accepted
+**Slice:** 1 of 3 — Cedant Data-Ingestion Robustness epic (A3'), commercial review 2026-07-05 §4.
+
+**Context.** The ingestion pipeline (`utils/ingestion.py`) was built against clean
+sample data. `ingest_cedant_data` maps columns / translates codes / applies
+defaults and then **hard-fails the whole block** if a required *column* is
+missing; `validate_inforce_df` produces summary stats plus frame-level
+`errors`/`warnings` and an all-or-nothing `is_valid`. Real cedant extracts are
+not clean: a 100k-policy file routinely carries a handful of unusable rows
+(missing cells, zero/negative face, an attained age below the issue age). Today a
+single bad row's blocking condition taints the whole-frame verdict, and there is
+no way to price the good rows while setting the bad ones aside. A3' Slice 1 adds
+that capability.
+
+**Decision.** Add a new `partition_inforce_rows(df) -> (clean, rejects, report)`
+that separates rows failing any **blocking row-rule** into a `rejects` frame,
+leaving the usable rows in `clean`:
+
+- Blocking rules (`_row_rules`, each guarded by column presence): a null in any
+  required cell (`missing_required_field`), non-positive `face_amount` /
+  `annual_premium`, negative `issue_age` / `attained_age`, and
+  `attained_before_issue` (attained age below issue age — an internally
+  inconsistent record).
+- The `rejects` frame carries a `_reject_reason` column listing **every** rule a
+  row failed (`"; "`-joined), so a data steward can see all problems at once.
+- `DataQualityReport` gains default-valued fields `n_input`, `n_rejected`, and
+  `reject_reasons` (per-rule counts) plus a `has_rejects` property. Its summary
+  statistics are computed on the **clean** rows (reusing `validate_inforce_df`),
+  so downstream figures describe what will actually be priced.
+
+**Rationale.** The change is deliberately **additive**: `validate_inforce_df` and
+the existing `DataQualityReport` fields are untouched (new fields default), and
+`partition_inforce_rows` is a separate entry point — so no existing caller, test,
+or golden moves (the pricing path is not touched; QA goldens and the
+`polaris price` regression stay byte-identical). The rejects rows travel in a
+**returned frame** rather than being stored on the report, keeping the report
+lightweight and serialisable and giving Slice 3 a frame to write straight to a
+rejects file. `is_valid` retains its "no frame-level errors on the clean block"
+meaning, so a partitioned block can be `is_valid` while `has_rejects` — the
+intended outcome (quarantine the bad, price the rest). Per-rule counts can sum to
+more than `n_rejected` because a row failing two rules increments both; this is
+documented and is the more actionable behaviour (it shows the full defect
+profile, not just a first-match).
+
+**Verification.** `tests/test_utils/test_ingestion.py::TestPartitionInforceRows`
+(12 tests): all-clean passthrough (zero rejects, rows preserved, idempotent on
+re-partition); each blocking rule in isolation quarantines exactly the offending
+row with the right reason; a row failing several rules lists and counts every
+reason; summary stats are computed on the clean subset (rejected `0.0` face
+excluded from `total_face_amount`); all-rows-rejected yields an empty clean frame
+that `validate_inforce_df` still flags; empty input; and an end-to-end
+ingest→partition on the mapped cedant fixture. The 33 pre-existing ingestion
+tests stay green; goldens byte-identical.
+
+**Out of scope (this slice; carried in the CONTINUATION / PLAN).** Robust value
+**coercion** — mixed date formats (ISO/US/EU/Excel serial, ambiguous-date
+flagging, unparseable→reject) and unit/currency normalisation (`unit_scale`,
+`premium_mode`, `currency`) — is Slice 2. **Surfacing** the rejects file and the
+richer report through the `polaris ingest` CLI and `/api/v1/ingest` API, with a
+thresholded exit/response, is Slice 3. Neither is required by any shipped feature;
+Slice 1 stands alone as an additive library capability.
