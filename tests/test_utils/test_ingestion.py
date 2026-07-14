@@ -964,6 +964,32 @@ class TestApplyValueCoercion:
         with pytest.raises(ValidationError):
             CurrencyConfig(code="CAD", rate=-1.0)
 
+    def test_explicit_unit_scale_of_one_processes_column_to_float(self):
+        """An explicit scale of 1.0 still processes the column (identity → Float64).
+
+        Scaling gates on config, not on the composed factor, so a column the user
+        explicitly lists is always normalised to canonical monetary float64 — even
+        when the net factor works out to exactly 1.0. This pins that contract.
+        """
+        df = _inforce_rows(face_amount=[500_000, 250_000, 300_000])  # int column
+        assert df["face_amount"].dtype == pl.Int64
+        out, _ = apply_value_coercion(df, _coercion_config(unit_scale={"face_amount": 1.0}))
+        assert out["face_amount"].dtype == pl.Float64
+        assert out["face_amount"].to_list() == [500_000.0, 250_000.0, 300_000.0]
+
+    def test_untouched_column_is_byte_identical(self):
+        """A column no config source touches keeps its dtype (int stays int).
+
+        Complements the explicit-1.0 case: the no-op guarantee is a property of
+        control flow (empty ``factors`` → early return), so an unscaled int column
+        is returned unchanged rather than cast.
+        """
+        df = _inforce_rows(face_amount=[500_000, 250_000, 300_000])  # int column
+        out, warnings = apply_value_coercion(df, _coercion_config(unit_scale={}))
+        assert out["face_amount"].dtype == pl.Int64
+        assert out.equals(df)
+        assert warnings == []
+
     @pytest.mark.parametrize(
         ("raw", "fmt"),
         [

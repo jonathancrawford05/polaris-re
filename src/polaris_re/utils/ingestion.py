@@ -478,21 +478,39 @@ def _scale_value_columns(
     """Apply unit / premium-annualisation / currency scaling to monetary columns.
 
     All three are multiplicative, so per-column factors are composed and applied
-    in a single pass. Default config (empty ``unit_scale``, ``premium_mode``
-    'annual', ``currency`` None) yields no factors and returns ``df`` unchanged.
+    in a single pass. A column enters ``factors`` only when a config source
+    actually touches it — an explicit ``unit_scale`` entry, a non-``annual``
+    ``premium_mode`` (for ``annual_premium``), or a configured ``currency`` (for
+    the monetary columns). Membership in ``factors`` is therefore the "was
+    scaling configured for this column?" signal: with a default config nothing is
+    added, ``factors`` is empty, and the frame is returned byte-identical — the
+    no-op guarantee the golden suite relies on is a property of the control flow,
+    not of a float-equality check on the composed factor.
+
+    A column that a config source *does* touch is always processed (cast to
+    ``Float64`` and multiplied), even when its net factor works out to exactly
+    ``1.0`` (e.g. an explicit ``unit_scale`` of ``1.0``, or a coincidental
+    product). This is deliberate: the user asked us to scale that column, so we
+    normalise its dtype to the canonical monetary ``float64`` rather than
+    silently short-circuiting on an arithmetic identity.
     """
     factors: dict[str, float] = {}
+
+    # Unit scale — every column the user explicitly listed is configured.
     for col, scale in config.unit_scale.items():
         if col in df.columns:
             factors[col] = factors.get(col, 1.0) * float(scale)
 
-    premium_factor = PREMIUM_ANNUALISATION[config.premium_mode]
-    if premium_factor != 1.0 and "annual_premium" in df.columns:
+    # Premium annualisation — gate on the mode, not the factor. 'annual' is the
+    # only mode with a unit factor, so a non-'annual' mode always means "scale".
+    if config.premium_mode != "annual" and "annual_premium" in df.columns:
+        premium_factor = PREMIUM_ANNUALISATION[config.premium_mode]
         factors["annual_premium"] = factors.get("annual_premium", 1.0) * premium_factor
         warnings.append(
             f"Annualised 'annual_premium' from {config.premium_mode} basis (x{premium_factor:g})."
         )
 
+    # Currency — gate on a rate being configured.
     if config.currency is not None:
         for col in MONEY_COLUMNS:
             if col in df.columns:
@@ -502,12 +520,13 @@ def _scale_value_columns(
             f"{config.currency.rate:g} to the reporting currency."
         )
 
+    if not factors:
+        return df
     exprs = [
         (pl.col(col).cast(pl.Float64, strict=False) * factor).alias(col)
         for col, factor in factors.items()
-        if factor != 1.0
     ]
-    return df.with_columns(exprs) if exprs else df
+    return df.with_columns(exprs)
 
 
 def _coerce_date_columns(

@@ -8978,8 +8978,25 @@ default (assume US + warn, rather than hard-fail) keeps ingestion best-effort an
 loud — a reinsurer disambiguates with one config line rather than having a whole
 file rejected on a formatting nicety.
 
+**Scaling gates on config, not on the factor.** `_scale_value_columns` enters a
+column into its `factors` map only when a config source actually touches it (an
+explicit `unit_scale` entry, a non-`annual` `premium_mode`, or a configured
+`currency`); it then applies every collected factor and returns `df` unchanged
+when the map is empty. Membership is thus the "was scaling configured?" signal, so
+the no-op guarantee the golden suite relies on is a property of the control flow
+rather than of a `factor != 1.0` float-equality check (which the house convention
+flags; PR #138 review [P2]). The deliberate consequence: a column a config source
+*does* touch is always processed — cast to the canonical monetary `float64` and
+multiplied — even when its net factor is exactly `1.0` (an explicit `unit_scale`
+of `1.0`, or a coincidental product). The user asked us to scale that column, so
+we normalise its dtype rather than short-circuiting on an arithmetic identity;
+`test_explicit_unit_scale_of_one_processes_column_to_float` pins this and
+`test_untouched_column_is_byte_identical` pins the untouched-column case. A
+tolerance-based check (`math.isclose`) was rejected — the intent is to skip *only*
+the configured/unconfigured distinction, not to compare computed values.
+
 **Verification.** `tests/test_utils/test_ingestion.py::TestApplyValueCoercion`
-(20 tests): default config is a byte-identical no-op with empty warnings; the new
+(22 tests): default config is a byte-identical no-op with empty warnings; the new
 fields default to no-op values; `unit_scale` closed-form (face 500 x 1000 →
 500,000); `premium_mode` annualisation parametrised across all four frequencies;
 currency scaling of every monetary column; multiplicative composition of

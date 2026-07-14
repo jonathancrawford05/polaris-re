@@ -115,6 +115,22 @@ correctness): live-FX / per-cohort currency rate; per-row provenance of which da
 format each cell used; coercion of columns beyond the monetary/date families. See
 that file's "Promoted Follow-ups" section.
 
+## Post-Review Refinement (PR #138 [P2])
+The automated review flagged a P2: `_scale_value_columns` used float `!= 1.0`
+guards to skip no-op scalings (correct as an exact-identity check, but trips the
+house float-equality convention). Rather than annotate it, the guards were
+**removed** by gating on config instead of on the composed factor:
+`config.premium_mode != "annual"` replaces the premium float guard, and a column
+enters the `factors` map only when a config source touches it (empty map → early
+`return df`). The no-op guarantee is now a control-flow property. Deliberate,
+now-tested contract change: an explicit `unit_scale` of `1.0` (or a coincidental
+identity product) processes the column to canonical `float64` rather than being
+skipped — the user asked us to scale it. Two new tests pin this
+(`test_explicit_unit_scale_of_one_processes_column_to_float`,
+`test_untouched_column_is_byte_identical`); ADR-137 updated. Folded into this PR
+(not deferred) at maintainer request. `math.isclose` was rejected — the intent is
+the configured/unconfigured distinction, not an approximate value compare.
+
 ## Parked Polish
 None. (No 3rd-order-or-deeper follow-ups this session.)
 
@@ -126,6 +142,7 @@ the `polaris price` regression on `golden_config_flat.json` ran clean.
 ```
 Baseline `make test` (this session, on main post-#137): 2148 passed, 3 skipped,
   110 deselected, 0 failures.
-After this slice: 2170 passed, 3 skipped, 110 deselected (+22 = TestApplyValueCoercion
-  [20] + 2 new partition tests). Tolerance-aware check: no new/changed failures.
+After this slice: 2172 passed, 3 skipped, 110 deselected (+24 = TestApplyValueCoercion
+  [22] + 2 new partition tests; includes the 2 post-review dtype-contract tests).
+  Tolerance-aware check: no new/changed failures.
 ```

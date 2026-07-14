@@ -61,8 +61,8 @@ the next Tier-A "big rock"). See `PLAN_cedant_ingestion.md`.
   static `CurrencyConfig(code, rate)` on the monetary columns — composed
   multiplicatively in one pass. A new `_date_reject_rules` adds an
   `unparseable_<col>` reason to the Slice-1 rejects machinery, and
-  `partition_inforce_rows` now runs `_row_rules + _date_reject_rules`. 22 tests
-  (20 in `TestApplyValueCoercion` + 2 partition). ADR-137.
+  `partition_inforce_rows` now runs `_row_rules + _date_reject_rules`. 24 tests
+  (22 in `TestApplyValueCoercion` + 2 partition). ADR-137.
 - **Key decisions:**
   - **Design Y — coercion is a distinct stage, not folded into
     `ingest_cedant_data`.** `ingest_cedant_data` is left byte-identical (zero risk
@@ -71,6 +71,12 @@ the next Tier-A "big rock"). See `PLAN_cedant_ingestion.md`.
   - **Default-off ⇒ byte-identical.** Every new `IngestConfig` field defaults to a
     no-op; a config that does not opt in returns the frame unchanged, so goldens
     are byte-identical (the pricing path is never touched).
+  - **Scaling gates on config, not on the float factor** (PR #138 review [P2]).
+    `_scale_value_columns` adds a column to its `factors` map only when a config
+    source touches it and returns `df` unchanged when the map is empty — so the
+    no-op guarantee is a control-flow property, not a `factor != 1.0` float check.
+    Deliberate consequence: an explicit `unit_scale` of `1.0` still normalises the
+    column to `float64` (pinned by two dtype tests). `math.isclose` was rejected.
   - **Unparseable dates land in rejects with an explicit reason.** Coercion leaves
     an unparseable non-empty cell as its original string; `_date_reject_rules`
     then quarantines it as `unparseable_<col>` — reusing Slice-1 machinery rather
