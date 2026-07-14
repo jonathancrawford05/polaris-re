@@ -1566,6 +1566,30 @@ constraint and a future session must not rebuild these as a naive wall-time log.
   the roughest extracts. Separable, low-frequency; NICE-TO-HAVE. *Source: ADR-137
   Out of scope (1st-order).*
 
+- **NICE-TO-HAVE — machine-readable ingestion report sidecar.** A3' Slice 3
+  (ADR-138) surfaces the quarantine report to the console (`polaris ingest`) and
+  in the JSON response (`/api/v1/ingest`), and writes the rejected *rows* to a
+  CSV. It does not write the *report itself* (counts + per-reason breakdown +
+  coercion warnings) as a machine-readable sidecar (e.g. `<output>.report.json`)
+  for a pipeline to gate on without parsing console text. Additive on top of the
+  existing report object. Ops/automation nicety, not a common-path gate.
+  *Source: ADR-138 Out of scope (1st-order — follow-up of the A3' epic).*
+
+- **NICE-TO-HAVE — rejects-file format option.** A3' Slice 3 writes the rejects
+  frame as CSV (matching the clean output). A cedant returning a mixed-type or
+  nested extract might prefer Parquet/JSON for the rejects file (to preserve
+  dtypes or round-trip back into a correction workflow). A `--rejects-format`
+  option is a small additive surface. Low-frequency; NICE-TO-HAVE. *Source:
+  ADR-138 Out of scope (1st-order — follow-up of the A3' epic).*
+
+- **NICE-TO-HAVE — streaming ingestion for out-of-core files.** The pipeline
+  (ingest → coerce → partition) is eager: it materialises the full frame in
+  memory. A cedant extract too large to hold in memory (multi-GB, tens of
+  millions of rows) would need a streaming/lazy path (Polars `scan_csv` +
+  chunked partition). No current deal needs it; revive when a book exceeds
+  single-node memory. NICE-TO-HAVE (scale, not correctness). *Source: ADR-138
+  Out of scope (1st-order — follow-up of the A3' epic).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

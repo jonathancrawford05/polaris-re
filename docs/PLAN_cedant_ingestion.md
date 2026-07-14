@@ -1,9 +1,10 @@
 # PLAN: Cedant Data-Ingestion Robustness (A3')
 
-**Status:** IN PROGRESS — constituted 2026-07-13 as the active epic. Slice 1
-(row-level quarantine + richer `DataQualityReport`, ADR-136) and Slice 2 (robust
-value coercion — dates + unit/currency, ADR-137) are **DONE**; Slice 3 (CLI/API
-surfaces) is next.
+**Status:** COMPLETE — constituted 2026-07-13 as the active epic. Slice 1
+(row-level quarantine + richer `DataQualityReport`, ADR-136), Slice 2 (robust
+value coercion — dates + unit/currency, ADR-137), and Slice 3 (CLI/API surfaces +
+rejects file + thresholded exit, ADR-138) are all **DONE** (2026-07-14). The epic
+is fully surfaced through `polaris ingest` and `/api/v1/ingest`.
 
 **Source / derivation.** With A1' (Validation & Benchmark) and A2' (Production
 Hardening & Observability, PRs #133–135) shipped, `COMMERCIAL_VIABILITY_REVIEW_2026-07-05.md`
@@ -66,14 +67,18 @@ quarantine. Unit/currency normalisation (`unit_scale`, `premium_mode`,
 `IngestConfig` fields default to a no-op, so goldens stay byte-identical. 22 tests
 in `TestApplyValueCoercion` (20) + `TestPartitionInforceRows` (2 date rejects).
 
-### Slice 3: Surfaces — NEXT
-- **Depends on:** Slice 2 merged.
-- Wire into the `polaris ingest` CLI and `/api/v1/ingest` API: write the
-  **rejects file** alongside the clean output, print/return the richer report,
-  thresholded exit / response. QUICKSTART section; ADR.
-- Tests: CLI + API integration; rejects-file round-trip.
-- **Acceptance:** a messy fixture ingests to a clean block + a rejects file + a
-  report enumerating what was dropped and why; goldens byte-identical.
+### Slice 3: Surfaces — DONE (2026-07-14, ADR-138)
+Wired the completed library into both surfaces via
+`ingest → apply_value_coercion → partition_inforce_rows`. `polaris ingest` writes
+the clean frame to `--output` and the rejects frame (with `_reject_reason`) to
+`--rejects` (default `<output>.rejects.csv`), reports rows-examined / clean /
+rejected with a per-reason breakdown and coercion warnings, and is best-effort
+(exit 0) with an optional `--max-reject-pct` hard-fail gate. `/api/v1/ingest`
+accepts the coercion fields in its `mapping` and returns `n_input` / `n_rejected` /
+`reject_reasons` / `rejects` alongside the clean `policies` (defaults preserve the
+old response shape). QUICKSTART §6 updated. 20 tests (12 CLI in
+`tests/test_cli_ingest.py` + 8 API in `TestIngestEndpoint`). Reject-threshold open
+question resolved (best-effort + optional gate). Goldens byte-identical.
 
 ## Open Questions (for human)
 

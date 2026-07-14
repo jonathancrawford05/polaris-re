@@ -3570,8 +3570,28 @@ def ingest(
     ] = ...,  # type: ignore[assignment]
     output: Annotated[
         Path,
-        typer.Option("--output", "-o", help="Output normalised CSV path"),
+        typer.Option("--output", "-o", help="Output normalised (clean) CSV path"),
     ] = Path("data/normalised_block.csv"),
+    rejects: Annotated[
+        Path | None,
+        typer.Option(
+            "--rejects",
+            help=(
+                "Path for the quarantined-rows CSV. Defaults to the output path with "
+                "a '.rejects.csv' suffix. Only written when rows are rejected."
+            ),
+        ),
+    ] = None,
+    max_reject_pct: Annotated[
+        float | None,
+        typer.Option(
+            "--max-reject-pct",
+            help=(
+                "Hard-fail (exit 1) when the rejected-row fraction exceeds this percent "
+                "(0-100). Default: best-effort — ingest whatever is usable, exit 0."
+            ),
+        ),
+    ] = None,
     validate_only: Annotated[
         bool,
         typer.Option("--validate-only", help="Only validate, do not write"),
@@ -3580,12 +3600,21 @@ def ingest(
     """
     Ingest raw cedant inforce data and normalise to Polaris RE schema.
 
-    Applies a YAML mapping config to rename columns, translate codes,
-    and fill defaults. Reports data quality summary.
+    Applies a YAML mapping config to rename columns, translate codes, and fill
+    defaults, then coerces messy values (mixed date formats, unit/currency
+    scaling — all config-gated) and quarantines any rows that still cannot be
+    priced. Usable rows are written to ``--output``; quarantined rows are written
+    to ``--rejects`` with a per-row reason. Reports a data-quality summary
+    enumerating what was dropped and why (A3', ADR-138).
     """
     _header()
 
-    from polaris_re.utils.ingestion import IngestConfig, ingest_cedant_data, validate_inforce_df
+    from polaris_re.utils.ingestion import (
+        IngestConfig,
+        apply_value_coercion,
+        ingest_cedant_data,
+        partition_inforce_rows,
+    )
 
     if not input_path.exists():
         console.print(f"[red]Error:[/red] Input file not found: {input_path}")
@@ -3602,35 +3631,73 @@ def ingest(
         prog.add_task("Ingesting raw data...", total=None)
         df = ingest_cedant_data(input_path, config)
 
-        prog.add_task("Validating...", total=None)
-        report = validate_inforce_df(df)
+        prog.add_task("Coercing values...", total=None)
+        df, coercion_warnings = apply_value_coercion(df, config)
 
-    # Summary
+        prog.add_task("Partitioning rows...", total=None)
+        clean_df, rejects_df, report = partition_inforce_rows(df)
+
+    # Summary (describes the clean block that will be priced)
     summary = Table(title="Ingestion Summary")
     summary.add_column("Metric", style="cyan")
     summary.add_column("Value")
-    summary.add_row("Policies", f"{report.n_policies:,}")
+    summary.add_row("Rows examined", f"{report.n_input:,}")
+    summary.add_row("Clean policies", f"{report.n_policies:,}")
+    summary.add_row("Rejected rows", f"{report.n_rejected:,}")
     summary.add_row("Total Face Amount", f"${report.total_face_amount:,.0f}")
     summary.add_row("Mean Age", f"{report.mean_age:.1f}")
     summary.add_row("Sex Split", str(report.sex_split))
     summary.add_row("Smoker Split", str(report.smoker_split))
     console.print(summary)
 
-    if report.warnings:
-        for w in report.warnings:
-            console.print(f"[yellow]⚠ {w}[/yellow]")
+    # Per-reason breakdown of what was quarantined and why
+    if report.has_rejects:
+        breakdown = Table(title="Reject Reasons")
+        breakdown.add_column("Reason", style="cyan")
+        breakdown.add_column("Rows", justify="right")
+        for reason, count in sorted(report.reject_reasons.items()):
+            breakdown.add_row(reason, f"{count:,}")
+        console.print(breakdown)
 
+    # Coercion diagnostics (mixed dates, unit/currency scaling) then quality warnings
+    for w in coercion_warnings:
+        console.print(f"[yellow]⚠ {w}[/yellow]")
+    for w in report.warnings:
+        console.print(f"[yellow]⚠ {w}[/yellow]")
+
+    # A non-empty clean block should carry no blocking errors (bad rows were
+    # quarantined). If it does — e.g. every row was rejected and the block is
+    # empty — that is a hard failure.
     if report.errors:
         for e in report.errors:
             console.print(f"[red]✗ {e}[/red]")
         raise typer.Exit(code=1)
 
-    console.print("[green]✓ Validation passed[/green]")
+    reject_fraction = report.n_rejected / report.n_input if report.n_input else 0.0
+    if max_reject_pct is not None and reject_fraction * 100.0 > max_reject_pct:
+        console.print(
+            f"[red]✗ Rejected {reject_fraction:.1%} of rows, exceeding the "
+            f"--max-reject-pct {max_reject_pct:g}% threshold.[/red]"
+        )
+        raise typer.Exit(code=1)
+
+    if report.has_rejects:
+        console.print(
+            f"[yellow]✓ Ingested {report.n_policies:,} of {report.n_input:,} rows; "
+            f"{report.n_rejected:,} quarantined.[/yellow]"
+        )
+    else:
+        console.print("[green]✓ Validation passed — no rows quarantined[/green]")
 
     if not validate_only:
         output.parent.mkdir(parents=True, exist_ok=True)
-        df.write_csv(output)
+        clean_df.write_csv(output)
         console.print(f"\nNormalised data written to {output}")
+        if report.has_rejects:
+            rejects_path = rejects if rejects is not None else output.with_suffix(".rejects.csv")
+            rejects_path.parent.mkdir(parents=True, exist_ok=True)
+            rejects_df.write_csv(rejects_path)
+            console.print(f"Quarantined rows written to {rejects_path}")
 
 
 if __name__ == "__main__":

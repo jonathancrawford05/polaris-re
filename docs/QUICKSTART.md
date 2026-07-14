@@ -445,6 +445,18 @@ code_translations:
     F: "F"
 defaults:
   underwriting_class: "STANDARD"
+# Optional value coercion (all default to a no-op if omitted):
+unit_scale:
+  face_amount: 1000.0        # face reported in thousands → dollars
+premium_mode: "annual"       # or monthly / quarterly / semiannual (annualised)
+currency:
+  code: "CAD"                # static FX: reporting = source × rate
+  rate: 0.75
+date_columns:                # coerce mixed date formats to canonical ISO
+  - issue_date
+  - valuation_date
+date_formats:                # optional explicit format per column
+  issue_date: "%d/%m/%Y"     # forces EU order + suppresses the ambiguity warning
 ```
 
 ### Run ingestion
@@ -457,6 +469,32 @@ uv run polaris ingest --config mapping.yaml --output normalised.csv raw_cedant.c
 from polaris_re.core.inforce import InforceBlock
 block = InforceBlock.from_csv("normalised.csv")
 ```
+
+### Messy files — quarantine instead of abort
+
+Real cedant extracts have bad rows (missing cells, non-positive face/premium,
+unparseable dates) mixed in with usable ones. Ingestion is **best-effort**: it
+coerces messy *values*, prices the usable rows, and quarantines the rest instead
+of failing the whole block.
+
+```bash
+uv run polaris ingest \
+  --config mapping.yaml \
+  --output clean.csv \
+  --rejects clean.rejects.csv \      # default: <output>.rejects.csv; only written if rows are rejected
+  --max-reject-pct 5 \               # optional: hard-fail (exit 1) if > 5% of rows are rejected
+  raw_cedant.csv
+```
+
+The summary reports rows examined / clean / rejected with a per-reason
+breakdown; `clean.csv` holds the priceable block (values coerced) and
+`clean.rejects.csv` holds each dropped row with a `_reject_reason` column
+listing every rule it failed. Without `--max-reject-pct`, the command ingests
+whatever is usable and exits 0.
+
+The same behaviour is available on the API: `POST /api/v1/ingest` accepts the
+coercion fields in its `mapping` object and returns `n_input` / `n_rejected` /
+`reject_reasons` and a `rejects` list alongside the clean `policies`.
 
 ---
 

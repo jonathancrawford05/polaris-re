@@ -9018,3 +9018,81 @@ per-cohort currency rate (the hook is a single static rate), per-row provenance 
 *which* source format each date cell used, and coercion of columns beyond the
 monetary and date families (e.g. free-text sex/smoker normalisation, which the
 existing `code_translations` already covers).
+
+---
+
+## ADR-138: Cedant ingestion — surface coercion + row-level quarantine through the CLI/API
+
+**Date:** 2026-07-14
+**Status:** Accepted
+**Slice:** 3 of 3 — Cedant Data-Ingestion Robustness epic (A3'), commercial review 2026-07-05 §4.
+
+**Context.** Slices 1–2 built the library: `partition_inforce_rows(df) -> (clean,
+rejects, report)` (ADR-136) and `apply_value_coercion(df, config) -> (df, warnings)`
+(ADR-137). But neither the `polaris ingest` CLI nor the `/api/v1/ingest` API used
+them. The CLI still ran `ingest_cedant_data` → `validate_inforce_df` and **aborted
+the whole block** (exit 1, no output) on the first bad row; the API path had its
+own inline rename/translate/defaults pipeline that returned every row unpartitioned
+and never coerced values. Reproduced before coding: a 3-row extract with one
+negative-face row, faces in thousands, and US `MM/DD/YYYY` dates produced
+`✗ Non-positive face_amount found`, exit 1, and no file — the two good rows were
+lost with the one bad one, and had the block passed, its un-coerced US dates would
+have crashed the later `InforceBlock.from_csv`.
+
+**Decision.** Wire the completed library into both surfaces. This is a pure
+surfacing slice — it adds no new computation, only plumbs config in and
+diagnostics/rejects out. Canonical pipeline on both paths:
+`ingest → apply_value_coercion → partition_inforce_rows`.
+
+- **CLI `polaris ingest`.** After `ingest_cedant_data`, run `apply_value_coercion`
+  then `partition_inforce_rows`. Write the *clean* frame to `--output`; write the
+  *rejects* frame (with its `_reject_reason` column) to `--rejects` (default:
+  `--output` with a `.rejects.csv` suffix), only when rows are rejected. The
+  summary now reports rows-examined / clean / rejected, a per-reason breakdown
+  table, and the coercion warnings. Default behaviour is **best-effort** — usable
+  rows ingest and the command exits 0 even with rejects. A new optional
+  `--max-reject-pct` hard-fails (exit 1) when the rejected fraction exceeds the
+  threshold. An empty clean block (every row rejected) is still a hard failure via
+  the report's `errors`.
+- **API `/api/v1/ingest`.** `IngestColumnMapping` gains the coercion fields
+  (`unit_scale`, `premium_mode`, `currency`, `date_columns`, `date_formats`), all
+  defaulting to a no-op. `IngestResponse` gains `n_input`, `n_rejected`,
+  `reject_reasons`, and `rejects` (default 0 / `{}` / `[]`); `policies` now holds
+  the clean block and `warnings` prepends the coercion warnings. The inline
+  rename/translate/defaults pipeline is retained (the API receives records, not a
+  file path) and the coercion + partition stages are appended after it.
+
+**Rationale — reject thresholds (open question resolved).** Best-effort with an
+optional `--max-reject-pct` gate, not always-hard-fail. A reinsurer's first
+instinct on a 100k-policy file with a handful of bad rows is to price the 99,990
+usable ones and get a report on the rest, not to be blocked. The threshold gives
+ops a guardrail (e.g. "fail if > 5% rejected → the mapping is probably wrong")
+without making best-effort opt-in.
+
+**Backward compatibility.** For a clean block (every existing caller and the QA
+goldens), partitioning returns all rows as clean with zero rejects and coercion is
+a config-gated no-op, so the clean output is byte-identical, the API `policies`
+list is unchanged, and the new response fields take their defaults
+(`n_rejected=0`, `rejects=[]`). The pricing path is never touched — QA goldens and
+the `polaris price` regression stay byte-identical. The only behaviour change is
+the intended one: a *messy* block that previously aborted now ingests best-effort.
+
+**Verification.** `tests/test_cli_ingest.py` (12 tests): a messy file exits 0
+best-effort; the clean output holds only good rows with faces unit-scaled and
+dates ISO-coerced; the bad row lands in a rejects file with its reason; the report
+enumerates input/rejected counts and reasons; `--rejects` honours a custom path;
+an unparseable-date row is quarantined (not crashed); `--max-reject-pct` fails
+above / passes below threshold; a clean file writes no rejects file; and
+`--validate-only` writes nothing. `tests/test_api/test_main.py::TestIngestEndpoint`
+(8 tests): clean input is back-compatible (zero rejects, all policies returned);
+a bad row is quarantined with `_reject_reason`; `reject_reasons` breaks down by
+rule; unit-scale, date coercion, currency conversion, and premium annualisation
+apply to the clean policies and surface their warnings. All dates pinned
+(ADR-074 guard). All pre-existing tests stay green; goldens byte-identical.
+
+**Out of scope (this slice — harvested follow-ups).** A rejects-file *format*
+option (the frame is written as CSV like the clean output); streaming ingestion of
+files too large to hold in memory; and a machine-readable report artefact (the
+report is printed to the console / returned in the JSON response, not written as a
+sidecar JSON file). These are NICE-TO-HAVE refinements of the A3' epic, not
+common-path correctness gaps.

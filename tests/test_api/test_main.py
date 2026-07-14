@@ -684,3 +684,113 @@ class TestPriceAlmDurationGap:
             },
         )
         assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/ingest — cedant inforce ingestion (A3' Slice 3)
+# ---------------------------------------------------------------------------
+
+# Raw records using Polaris column names + an identity mapping; dates are US
+# MM/DD/YYYY (need date coercion) and faces are in thousands (need unit_scale).
+# All dates pinned (ADR-074 guard).
+_INGEST_ROW_A1 = {
+    "policy_id": "A1",
+    "issue_age": 35,
+    "attained_age": 37,
+    "sex": "M",
+    "smoker_status": "NS",
+    "face_amount": 500,
+    "annual_premium": 1200,
+    "product_type": "TERM",
+    "duration_inforce": 24,
+    "issue_date": "01/15/2022",
+    "valuation_date": "01/15/2024",
+}
+_INGEST_ROW_A2 = dict(
+    _INGEST_ROW_A1,
+    policy_id="A2",
+    sex="F",
+    face_amount=250,
+    issue_date="03/10/2022",
+    valuation_date="03/10/2024",
+)
+# Bad row: negative face → quarantined as non_positive_face_amount.
+_INGEST_ROW_BAD = dict(_INGEST_ROW_A1, policy_id="A3", face_amount=-999)
+
+_IDENTITY_MAPPING = {"column_mapping": {c: c for c in _INGEST_ROW_A1}}
+_COERCION_MAPPING = {
+    **_IDENTITY_MAPPING,
+    "unit_scale": {"face_amount": 1000.0},
+    "date_columns": ["issue_date", "valuation_date"],
+}
+
+
+class TestIngestEndpoint:
+    def test_clean_input_returns_200(self):
+        payload = {"policies": [_INGEST_ROW_A1, _INGEST_ROW_A2], "mapping": _COERCION_MAPPING}
+        response = client.post("/api/v1/ingest", json=payload)
+        assert response.status_code == 200, response.text
+
+    def test_clean_input_backward_compatible_shape(self):
+        """A clean block reports zero rejects and returns all policies (back-compat)."""
+        payload = {"policies": [_INGEST_ROW_A1, _INGEST_ROW_A2], "mapping": _COERCION_MAPPING}
+        data = client.post("/api/v1/ingest", json=payload).json()
+        assert data["n_policies"] == 2
+        assert data["n_input"] == 2
+        assert data["n_rejected"] == 0
+        assert data["rejects"] == []
+        assert len(data["policies"]) == 2
+
+    def test_quarantines_bad_row(self):
+        """A negative-face row is separated into rejects; clean policies exclude it."""
+        payload = {
+            "policies": [_INGEST_ROW_A1, _INGEST_ROW_A2, _INGEST_ROW_BAD],
+            "mapping": _COERCION_MAPPING,
+        }
+        data = client.post("/api/v1/ingest", json=payload).json()
+        assert data["n_input"] == 3
+        assert data["n_rejected"] == 1
+        assert data["n_policies"] == 2
+        clean_ids = {p["policy_id"] for p in data["policies"]}
+        assert clean_ids == {"A1", "A2"}
+        assert len(data["rejects"]) == 1
+        assert data["rejects"][0]["policy_id"] == "A3"
+        assert "non_positive_face_amount" in data["rejects"][0]["_reject_reason"]
+
+    def test_reject_reasons_breakdown(self):
+        payload = {
+            "policies": [_INGEST_ROW_A1, _INGEST_ROW_BAD],
+            "mapping": _COERCION_MAPPING,
+        }
+        data = client.post("/api/v1/ingest", json=payload).json()
+        assert data["reject_reasons"].get("non_positive_face_amount") == 1
+
+    def test_unit_scale_applied_to_clean_policies(self):
+        payload = {"policies": [_INGEST_ROW_A1, _INGEST_ROW_A2], "mapping": _COERCION_MAPPING}
+        data = client.post("/api/v1/ingest", json=payload).json()
+        faces = {p["policy_id"]: p["face_amount"] for p in data["policies"]}
+        assert faces["A1"] == 500_000.0
+        assert faces["A2"] == 250_000.0
+
+    def test_dates_coerced_to_iso(self):
+        payload = {"policies": [_INGEST_ROW_A1, _INGEST_ROW_A2], "mapping": _COERCION_MAPPING}
+        data = client.post("/api/v1/ingest", json=payload).json()
+        issue = {p["policy_id"]: p["issue_date"] for p in data["policies"]}
+        assert issue["A1"] == "2022-01-15"
+        assert issue["A2"] == "2022-03-10"
+
+    def test_currency_conversion_warns_and_scales(self):
+        mapping = {**_COERCION_MAPPING, "currency": {"code": "CAD", "rate": 0.75}}
+        payload = {"policies": [_INGEST_ROW_A1], "mapping": mapping}
+        data = client.post("/api/v1/ingest", json=payload).json()
+        # face 500 (thousands) * 1000 (unit) * 0.75 (currency) = 375,000
+        face = data["policies"][0]["face_amount"]
+        assert face == 375_000.0
+        assert any("CAD" in w for w in data["warnings"])
+
+    def test_premium_annualisation_warns(self):
+        mapping = {**_IDENTITY_MAPPING, "premium_mode": "monthly"}
+        payload = {"policies": [_INGEST_ROW_A1], "mapping": mapping}
+        data = client.post("/api/v1/ingest", json=payload).json()
+        assert data["policies"][0]["annual_premium"] == 1200 * 12
+        assert any("monthly" in w for w in data["warnings"])
