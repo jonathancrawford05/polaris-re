@@ -490,7 +490,11 @@ The summary reports rows examined / clean / rejected with a per-reason
 breakdown; `clean.csv` holds the priceable block (values coerced) and
 `clean.rejects.csv` holds each dropped row with a `_reject_reason` column
 listing every rule it failed. Without `--max-reject-pct`, the command ingests
-whatever is usable and exits 0.
+whatever is usable and exits 0. When `--max-reject-pct` is breached the command
+exits 1 and **still writes the rejects file** (so you can see which rows failed)
+but **withholds the clean output** — a breach means the mapping is probably wrong,
+so no clean block is emitted for a downstream step to consume. `--validate-only`
+reports without writing either file.
 
 The same behaviour is available on the API: `POST /api/v1/ingest` accepts the
 coercion fields in its `mapping` object and returns `n_input` / `n_rejected` /

@@ -3674,12 +3674,7 @@ def ingest(
         raise typer.Exit(code=1)
 
     reject_fraction = report.n_rejected / report.n_input if report.n_input else 0.0
-    if max_reject_pct is not None and reject_fraction * 100.0 > max_reject_pct:
-        console.print(
-            f"[red]✗ Rejected {reject_fraction:.1%} of rows, exceeding the "
-            f"--max-reject-pct {max_reject_pct:g}% threshold.[/red]"
-        )
-        raise typer.Exit(code=1)
+    breach = max_reject_pct is not None and reject_fraction * 100.0 > max_reject_pct
 
     if report.has_rejects:
         console.print(
@@ -3689,14 +3684,30 @@ def ingest(
     else:
         console.print("[green]✓ Validation passed — no rows quarantined[/green]")
 
+    # Always write the rejects file when there are rejects (even on a threshold
+    # breach) so an operator triaging the failure can see *which* rows failed and
+    # why. The clean output, by contrast, is written only on success — a
+    # threshold breach means "trust nothing", so we do not emit a clean block a
+    # downstream pipeline might consume. --validate-only writes nothing.
+    rejects_path = rejects if rejects is not None else output.with_suffix(".rejects.csv")
+    if not validate_only and report.has_rejects:
+        rejects_path.parent.mkdir(parents=True, exist_ok=True)
+        rejects_df.write_csv(rejects_path)
+
+    if breach:
+        console.print(
+            f"[red]✗ Rejected {reject_fraction:.1%} of rows, exceeding the "
+            f"--max-reject-pct {max_reject_pct:g}% threshold.[/red]"
+        )
+        if not validate_only and report.has_rejects:
+            console.print(f"Quarantined rows written to {rejects_path} — inspect to triage.")
+        raise typer.Exit(code=1)
+
     if not validate_only:
         output.parent.mkdir(parents=True, exist_ok=True)
         clean_df.write_csv(output)
         console.print(f"\nNormalised data written to {output}")
         if report.has_rejects:
-            rejects_path = rejects if rejects is not None else output.with_suffix(".rejects.csv")
-            rejects_path.parent.mkdir(parents=True, exist_ok=True)
-            rejects_df.write_csv(rejects_path)
             console.print(f"Quarantined rows written to {rejects_path}")
 
 

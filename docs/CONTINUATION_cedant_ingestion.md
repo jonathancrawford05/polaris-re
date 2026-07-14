@@ -102,7 +102,7 @@ the next Tier-A "big rock"). See `PLAN_cedant_ingestion.md`.
   `currency` / `date_columns` / `date_formats`, all no-op defaults);
   `IngestResponse` gains `n_input` / `n_rejected` / `reject_reasons` / `rejects`
   (defaults preserve the old shape) and `policies` now returns the clean block.
-  QUICKSTART §6 updated; ADR-138. 20 tests (12 CLI + 8 API).
+  QUICKSTART §6 updated; ADR-138. 22 tests (14 CLI + 8 API).
 - **Key decisions:**
   - **Reject-threshold open question resolved: best-effort + optional
     `--max-reject-pct`.** A reinsurer's first instinct on a large file with a few

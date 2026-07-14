@@ -193,6 +193,42 @@ class TestIngestThreshold:
         assert result.exit_code == 1, result.output
         assert "reject" in result.output.lower()
 
+    def test_max_reject_pct_breach_writes_rejects_but_not_clean(self, tmp_path):
+        """On a threshold breach the rejects file is written for triage, but the
+        clean output is withheld (breach = trust nothing)."""
+        raw, mapping, output, rejects = _setup(tmp_path)  # 33% rejected
+        result = runner.invoke(
+            app,
+            ["ingest", "-c", str(mapping), "-o", str(output), "--max-reject-pct", "10", str(raw)],
+        )
+        assert result.exit_code == 1, result.output
+        assert not output.exists(), "clean output must not be written on a threshold breach"
+        assert rejects.exists(), "rejects file should be written so the operator can triage"
+        rej = pl.read_csv(rejects)
+        assert rej["policy_id"].to_list() == ["A3"]
+        assert "non_positive_face_amount" in rej["_reject_reason"][0]
+
+    def test_max_reject_pct_breach_validate_only_writes_nothing(self, tmp_path):
+        """--validate-only never writes files, even when the threshold is breached."""
+        raw, mapping, output, rejects = _setup(tmp_path)
+        result = runner.invoke(
+            app,
+            [
+                "ingest",
+                "-c",
+                str(mapping),
+                "-o",
+                str(output),
+                "--max-reject-pct",
+                "10",
+                "--validate-only",
+                str(raw),
+            ],
+        )
+        assert result.exit_code == 1, result.output
+        assert not output.exists()
+        assert not rejects.exists()
+
     def test_max_reject_pct_within_threshold_exits_0(self, tmp_path):
         """Below the threshold, the command succeeds."""
         raw, mapping, output, _ = _setup(tmp_path)  # 33% rejected

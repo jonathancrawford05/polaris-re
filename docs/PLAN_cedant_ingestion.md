@@ -76,7 +76,7 @@ rejected with a per-reason breakdown and coercion warnings, and is best-effort
 (exit 0) with an optional `--max-reject-pct` hard-fail gate. `/api/v1/ingest`
 accepts the coercion fields in its `mapping` and returns `n_input` / `n_rejected` /
 `reject_reasons` / `rejects` alongside the clean `policies` (defaults preserve the
-old response shape). QUICKSTART §6 updated. 20 tests (12 CLI in
+old response shape). QUICKSTART §6 updated. 22 tests (14 CLI in
 `tests/test_cli_ingest.py` + 8 API in `TestIngestEndpoint`). Reject-threshold open
 question resolved (best-effort + optional gate). Goldens byte-identical.
 

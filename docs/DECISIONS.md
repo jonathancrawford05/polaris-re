@@ -9053,7 +9053,11 @@ diagnostics/rejects out. Canonical pipeline on both paths:
   rows ingest and the command exits 0 even with rejects. A new optional
   `--max-reject-pct` hard-fails (exit 1) when the rejected fraction exceeds the
   threshold. An empty clean block (every row rejected) is still a hard failure via
-  the report's `errors`.
+  the report's `errors`. **On a threshold breach the rejects file is still written**
+  (so an operator can triage *which* rows failed) **but the clean output is
+  withheld** — a breach means "the mapping is probably wrong, trust nothing", so no
+  clean block is emitted that a downstream pipeline might consume (PR #139 review
+  [P2]). `--validate-only` writes nothing in any case.
 - **API `/api/v1/ingest`.** `IngestColumnMapping` gains the coercion fields
   (`unit_scale`, `premium_mode`, `currency`, `date_columns`, `date_formats`), all
   defaulting to a no-op. `IngestResponse` gains `n_input`, `n_rejected`,
@@ -9082,8 +9086,10 @@ best-effort; the clean output holds only good rows with faces unit-scaled and
 dates ISO-coerced; the bad row lands in a rejects file with its reason; the report
 enumerates input/rejected counts and reasons; `--rejects` honours a custom path;
 an unparseable-date row is quarantined (not crashed); `--max-reject-pct` fails
-above / passes below threshold; a clean file writes no rejects file; and
-`--validate-only` writes nothing. `tests/test_api/test_main.py::TestIngestEndpoint`
+above / passes below threshold; a threshold breach writes the rejects file but
+withholds the clean output (and `--validate-only` writes nothing even on breach);
+a clean file writes no rejects file; and `--validate-only` writes nothing (14 CLI
+tests). `tests/test_api/test_main.py::TestIngestEndpoint`
 (8 tests): clean input is back-compatible (zero rejects, all policies returned);
 a bad row is quarantined with `_reject_reason`; `reject_reasons` breaks down by
 rule; unit-scale, date coercion, currency conversion, and premium annualisation

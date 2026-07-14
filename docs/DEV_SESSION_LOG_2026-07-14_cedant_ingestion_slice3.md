@@ -149,6 +149,19 @@ transition:
 - ADR-136 / ADR-137 out-of-scope items were harvested by their own slice sessions
   (already in the same file's Promoted Follow-ups) — not re-promoted.
 
+## Post-Review Refinement (PR #139 [P2])
+The automated review approved the PR (zero P0) with one optional [P2]: a
+`--max-reject-pct` breach raised `Exit(1)` *before* the file-write block, so an
+operator triaging the failure got no rejects file to see which rows failed. Folded
+into this PR: on a breach the command now **writes the rejects file** (pure
+diagnostic) before exiting 1, but still **withholds the clean output** — a breach
+means "the mapping is probably wrong, trust nothing", so no clean block is emitted
+that a downstream step might consume. `--validate-only` still writes nothing even
+on breach. Two new CLI tests pin this
+(`test_max_reject_pct_breach_writes_rejects_but_not_clean`,
+`test_max_reject_pct_breach_validate_only_writes_nothing`); ADR-138 + QUICKSTART §6
+updated. CLI test count 12 → 14; slice total 20 → 22.
+
 ## Parked Polish
 None. (No 3rd-order-or-deeper follow-ups this session.)
 
@@ -162,5 +175,6 @@ no-op; the pricing path is untouched. QA golden suite is green and the
 Baseline `make test` (this session, on main post-#138): 2172 passed, 3 skipped,
   110 deselected, 0 failures (matches the previous session log's post-Slice-2 set;
   tolerance-aware check: no new/changed failures).
-After this slice: 2192 passed, 3 skipped, 110 deselected (+20 = 12 CLI + 8 API).
+After this slice: 2194 passed, 3 skipped, 110 deselected (+22 = 14 CLI + 8 API;
+  includes the 2 post-review threshold-breach tests).
 ```
