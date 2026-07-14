@@ -1540,6 +1540,32 @@ constraint and a future session must not rebuild these as a naive wall-time log.
   2026-07-12 — 1st-order (fresh discovery: history should be epic-grained, not
   PR-grained); NICE-TO-HAVE process improvement.*
 
+- **NICE-TO-HAVE — live / per-cohort currency conversion for ingestion.** A3'
+  Slice 2 (ADR-137) added a single **static** `CurrencyConfig(code, rate)` applied
+  to the monetary columns (`reporting = source × rate`). A multi-currency cedant
+  book, or a valuation that must strike money at a period-end FX rate, needs a
+  rate *source* (a lookup by currency, or an as-of FX curve) rather than one hard
+  number — and possibly a per-cohort/per-currency column. Additive on top of the
+  existing hook. Affects only multi-currency books, so NICE-TO-HAVE, not a
+  common-path gate. *Source: ADR-137 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — per-row provenance of the inferred date format.** A3' Slice 2
+  coerces mixed date formats to canonical ISO and warns (at column granularity)
+  when a column is ambiguous or has unparseable cells, but it does not record
+  *which* source format each individual cell was read under. For a data steward
+  auditing a coerced extract, a per-row/per-column "read as %m/%d/%Y" annotation
+  (e.g. an optional diagnostics frame) would make the coercion fully traceable.
+  Diagnostic nicety, not correctness. *Source: ADR-137 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — value coercion for columns beyond the monetary/date families.**
+  A3' Slice 2 coerces the monetary columns and `issue_date`/`valuation_date`.
+  Other messy free-text columns (e.g. non-standard `sex`/`smoker_status` spellings
+  not covered by an explicit `code_translations` map, whitespace/case in
+  `product_type`) are still left to the existing `code_translations` mechanism. A
+  light normaliser (trim/upper + fuzzy code match) could reduce reject rates on
+  the roughest extracts. Separable, low-frequency; NICE-TO-HAVE. *Source: ADR-137
+  Out of scope (1st-order).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

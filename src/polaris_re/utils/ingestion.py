@@ -12,7 +12,9 @@ Pipeline:
 """
 
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
+from typing import Literal
 
 import polars as pl
 import yaml
@@ -23,10 +25,12 @@ from polaris_re.core.exceptions import PolarisValidationError
 
 __all__ = [
     "REJECT_REASON_COLUMN",
+    "CurrencyConfig",
     "DataQualityReport",
     "IngestConfig",
     "RatingCodeEntry",
     "RatingCodeMap",
+    "apply_value_coercion",
     "ingest_cedant_data",
     "partition_inforce_rows",
     "validate_inforce_df",
@@ -65,6 +69,37 @@ REQUIRED_COLUMNS = [
     "issue_date",
     "valuation_date",
 ]
+
+# --- A3' Slice 2 value-coercion constants (ADR-137) -------------------------
+# Monetary columns eligible for unit / currency scaling.
+MONEY_COLUMNS = ("face_amount", "annual_premium")
+
+# Calendar-date columns eligible for date coercion and the unparseable-date
+# reject rule. These are the required date columns downstream ``InforceBlock``
+# parses with ``date.fromisoformat`` — i.e. they must end up as ISO strings.
+DATE_COLUMNS = ("issue_date", "valuation_date")
+
+# Canonical output date format: ISO-8601, matching ``date.fromisoformat``.
+CANONICAL_DATE_FORMAT = "%Y-%m-%d"
+
+# Candidate source date formats, tried in preference order when a column has no
+# explicit format. ISO first so already-clean data is a no-op; US (MM/DD/YYYY)
+# before EU (DD/MM/YYYY) is the North-American reinsurance default. Excel serials
+# are handled separately (see :func:`_date_parse_expr`).
+DATE_CANDIDATE_FORMATS = ("%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y", "%d/%m/%Y")
+
+# Excel's day-zero epoch (Excel's 1900 leap-year bug means serial 1 == 1900-01-01,
+# so the epoch is 1899-12-30).
+EXCEL_EPOCH = date(1899, 12, 30)
+
+# Premium-reporting-frequency → annualisation factor. ``annual_premium`` is
+# multiplied by the factor to convert a per-period figure to an annual one.
+PREMIUM_ANNUALISATION: dict[str, float] = {
+    "annual": 1.0,
+    "semiannual": 2.0,
+    "quarterly": 4.0,
+    "monthly": 12.0,
+}
 
 
 class SourceFormat(PolarisBaseModel):
@@ -151,6 +186,28 @@ class RatingCodeMap(PolarisBaseModel):
     )
 
 
+class CurrencyConfig(PolarisBaseModel):
+    """
+    Static currency conversion applied to monetary columns during coercion.
+
+    A single fixed multiplicative rate converts source-currency figures to the
+    reporting currency (``reporting = source x rate``). This is deliberately a
+    static-rate hook — a live FX feed or per-cohort rate is out of scope for
+    A3' Slice 2 (ADR-137). Applied to :data:`MONEY_COLUMNS` only.
+    """
+
+    code: str = Field(
+        description="ISO code of the source currency, e.g. 'CAD'. Recorded for provenance."
+    )
+    rate: float = Field(
+        gt=0.0,
+        description=(
+            "Multiplicative rate converting source → reporting currency "
+            "(reporting = source x rate). Must be positive."
+        ),
+    )
+
+
 class IngestConfig(PolarisBaseModel):
     """
     YAML-driven mapping configuration for cedant inforce ingestion.
@@ -159,6 +216,12 @@ class IngestConfig(PolarisBaseModel):
     code translations (e.g. ``M → MALE``), optionally derives the
     per-policy substandard rating fields from a cedant rating-code column,
     and provides default values for missing optional fields.
+
+    The value-coercion fields (``unit_scale`` / ``premium_mode`` / ``currency``
+    / ``date_columns`` / ``date_formats``, A3' Slice 2, ADR-137) drive
+    :func:`apply_value_coercion`. They all default to a no-op, so a config that
+    does not set them leaves the ingested frame byte-identical to today's
+    behaviour.
     """
 
     source_format: SourceFormat = Field(default_factory=SourceFormat)
@@ -181,6 +244,45 @@ class IngestConfig(PolarisBaseModel):
     defaults: dict[str, str | float | int] = Field(
         default_factory=dict,
         description="Default values for optional fields not present in source.",
+    )
+    unit_scale: dict[str, float] = Field(
+        default_factory=dict,
+        description=(
+            "Per-column multiplicative scale applied during value coercion, e.g. "
+            "{'face_amount': 1000.0} to convert a face reported in thousands to "
+            "dollars. Empty (default) leaves values unchanged."
+        ),
+    )
+    premium_mode: Literal["annual", "semiannual", "quarterly", "monthly"] = Field(
+        default="annual",
+        description=(
+            "Reporting frequency of ``annual_premium`` in the source. Non-annual "
+            "values are annualised (monthly → x12, quarterly → x4, semiannual → "
+            "x2). Default 'annual' is a no-op."
+        ),
+    )
+    currency: CurrencyConfig | None = Field(
+        default=None,
+        description=(
+            "Optional static currency conversion applied to monetary columns "
+            "during coercion. None (default) leaves values unchanged."
+        ),
+    )
+    date_columns: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Columns to coerce to canonical ISO dates during value coercion. "
+            "Empty (default) means no date coercion — source strings pass through "
+            "unchanged, preserving current behaviour."
+        ),
+    )
+    date_formats: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Explicit source strftime format per date column (e.g. "
+            "{'issue_date': '%d/%m/%Y'}). Overrides auto-inference and suppresses "
+            "the ambiguous-format warning for that column."
+        ),
     )
 
     @classmethod
@@ -306,6 +408,196 @@ def _apply_rating_code_map(df: pl.DataFrame, mapping: RatingCodeMap) -> pl.DataF
         df = df.drop(drop_cols)
 
     return df.with_columns([multiplier_expr, flat_extra_expr])
+
+
+def _date_parse_expr(col: str, formats: list[str]) -> pl.Expr:
+    """Build a Date expression parsing ``col`` under any of ``formats``.
+
+    Attempts each strftime format in order and coalesces the results, so a
+    column that mixes a few formats still parses row-by-row. All-digit strings
+    are additionally parsed as Excel serials (days since :data:`EXCEL_EPOCH`).
+    Cells matching no format resolve to null.
+    """
+    s = pl.col(col).cast(pl.Utf8, strict=False).str.strip_chars()
+    attempts = [s.str.to_date(fmt, strict=False) for fmt in formats]
+    serial = (
+        pl.when(s.str.contains(r"^\d+$"))
+        .then(
+            (pl.lit(EXCEL_EPOCH) + pl.duration(days=s.cast(pl.Int64, strict=False))).cast(pl.Date)
+        )
+        .otherwise(None)
+    )
+    attempts.append(serial)
+    return pl.coalesce(attempts)
+
+
+def _infer_date_order(series: pl.Series, explicit: str | None) -> tuple[list[str], bool]:
+    """Infer the format-preference order for a date column.
+
+    Returns ``(ordered_formats, ambiguous)``. When ``explicit`` is given it is
+    used verbatim and ``ambiguous`` is False. Otherwise the slash-delimited
+    values are inspected: a first component > 12 forces EU (DD/MM/YYYY), a second
+    component > 12 forces US (MM/DD/YYYY). When neither is decisive but some value
+    has both components ≤ 12 and unequal, the column is genuinely ambiguous —
+    US order is chosen (the North-American default) and ``ambiguous`` is True so a
+    warning is raised.
+    """
+    if explicit:
+        return [explicit], False
+
+    s = series.cast(pl.Utf8, strict=False).str.strip_chars()
+    first = s.str.extract(r"^(\d{1,2})/\d{1,2}/\d{2,4}$", 1).cast(pl.Int64, strict=False)
+    second = s.str.extract(r"^\d{1,2}/(\d{1,2})/\d{2,4}$", 1).cast(pl.Int64, strict=False)
+    stats = (
+        series.to_frame()
+        .select(
+            saw_slash=first.is_not_null().any(),
+            must_eu=(first > 12).any(),
+            must_us=(second > 12).any(),
+            both_le_12=((first <= 12) & (second <= 12) & (first != second)).any(),
+        )
+        .row(0, named=True)
+    )
+
+    us, eu = "%m/%d/%Y", "%d/%m/%Y"
+    base = ["%Y-%m-%d", "%Y/%m/%d"]
+    ambiguous = False
+    if stats["must_eu"] and not stats["must_us"]:
+        order = [*base, eu, us]
+    elif stats["must_us"] and not stats["must_eu"]:
+        order = [*base, us, eu]
+    else:
+        order = [*base, us, eu]
+        ambiguous = bool(stats["saw_slash"] and stats["both_le_12"] and not stats["must_us"])
+    return order, ambiguous
+
+
+def _scale_value_columns(
+    df: pl.DataFrame, config: IngestConfig, warnings: list[str]
+) -> pl.DataFrame:
+    """Apply unit / premium-annualisation / currency scaling to monetary columns.
+
+    All three are multiplicative, so per-column factors are composed and applied
+    in a single pass. A column enters ``factors`` only when a config source
+    actually touches it — an explicit ``unit_scale`` entry, a non-``annual``
+    ``premium_mode`` (for ``annual_premium``), or a configured ``currency`` (for
+    the monetary columns). Membership in ``factors`` is therefore the "was
+    scaling configured for this column?" signal: with a default config nothing is
+    added, ``factors`` is empty, and the frame is returned byte-identical — the
+    no-op guarantee the golden suite relies on is a property of the control flow,
+    not of a float-equality check on the composed factor.
+
+    A column that a config source *does* touch is always processed (cast to
+    ``Float64`` and multiplied), even when its net factor works out to exactly
+    ``1.0`` (e.g. an explicit ``unit_scale`` of ``1.0``, or a coincidental
+    product). This is deliberate: the user asked us to scale that column, so we
+    normalise its dtype to the canonical monetary ``float64`` rather than
+    silently short-circuiting on an arithmetic identity.
+    """
+    factors: dict[str, float] = {}
+
+    # Unit scale — every column the user explicitly listed is configured.
+    for col, scale in config.unit_scale.items():
+        if col in df.columns:
+            factors[col] = factors.get(col, 1.0) * float(scale)
+
+    # Premium annualisation — gate on the mode, not the factor. 'annual' is the
+    # only mode with a unit factor, so a non-'annual' mode always means "scale".
+    if config.premium_mode != "annual" and "annual_premium" in df.columns:
+        premium_factor = PREMIUM_ANNUALISATION[config.premium_mode]
+        factors["annual_premium"] = factors.get("annual_premium", 1.0) * premium_factor
+        warnings.append(
+            f"Annualised 'annual_premium' from {config.premium_mode} basis (x{premium_factor:g})."
+        )
+
+    # Currency — gate on a rate being configured.
+    if config.currency is not None:
+        for col in MONEY_COLUMNS:
+            if col in df.columns:
+                factors[col] = factors.get(col, 1.0) * config.currency.rate
+        warnings.append(
+            f"Converted monetary columns from {config.currency.code} at rate "
+            f"{config.currency.rate:g} to the reporting currency."
+        )
+
+    if not factors:
+        return df
+    exprs = [
+        (pl.col(col).cast(pl.Float64, strict=False) * factor).alias(col)
+        for col, factor in factors.items()
+    ]
+    return df.with_columns(exprs)
+
+
+def _coerce_date_columns(
+    df: pl.DataFrame, config: IngestConfig, warnings: list[str]
+) -> pl.DataFrame:
+    """Coerce the configured date columns to canonical ISO strings.
+
+    Parseable cells become ``YYYY-MM-DD`` strings (what downstream
+    ``InforceBlock.from_csv`` expects); unparseable non-empty cells are left as
+    their original string so :func:`partition_inforce_rows` can quarantine them
+    with an ``unparseable_<col>`` reason. Genuinely ambiguous columns raise a
+    warning naming the assumed order and how to disambiguate.
+    """
+    for col in config.date_columns:
+        if col not in df.columns or df.schema[col] not in (pl.Utf8, pl.String):
+            continue
+        explicit = config.date_formats.get(col)
+        order, ambiguous = _infer_date_order(df[col], explicit)
+        if ambiguous:
+            warnings.append(
+                f"Ambiguous date format in column '{col}': values fit both US "
+                f"(MM/DD/YYYY) and EU (DD/MM/YYYY). Assumed US. Set "
+                f"date_formats['{col}'] to disambiguate."
+            )
+        parsed = _date_parse_expr(col, order)
+        original = pl.col(col).cast(pl.Utf8, strict=False).str.strip_chars()
+        n_unparseable = int(
+            df.select(
+                (original.is_not_null() & (original.str.len_chars() > 0) & parsed.is_null()).sum()
+            ).item()
+        )
+        if n_unparseable:
+            warnings.append(
+                f"Column '{col}': {n_unparseable} value(s) could not be parsed as a "
+                f"date; affected rows will be quarantined."
+            )
+        iso = parsed.dt.strftime(CANONICAL_DATE_FORMAT)
+        df = df.with_columns(pl.coalesce([iso, pl.col(col).cast(pl.Utf8, strict=False)]).alias(col))
+    return df
+
+
+def apply_value_coercion(df: pl.DataFrame, config: IngestConfig) -> tuple[pl.DataFrame, list[str]]:
+    """Apply config-gated value coercion to a normalised inforce frame.
+
+    Two independent, default-off transformations (A3' Slice 2, ADR-137):
+
+    * **Unit / premium / currency scaling** of monetary columns
+      (``unit_scale`` x ``premium_mode`` x ``currency``).
+    * **Date coercion** of ``date_columns`` to canonical ISO strings, with
+      per-column format inference, Excel-serial support, and ambiguity flagging.
+
+    Intended to run between :func:`ingest_cedant_data` and
+    :func:`partition_inforce_rows`: scaling and canonicalisation happen first so
+    that a value which fails coercion becomes a null (caught by
+    ``missing_required_field``) or an ``unparseable_<col>`` reject — either way
+    it lands in the rejects frame with a clear reason instead of crashing
+    downstream.
+
+    Args:
+        df:     Normalised Polaris RE DataFrame (post-``ingest_cedant_data``).
+        config: Mapping/coercion configuration.
+
+    Returns:
+        ``(coerced_df, warnings)``. With a default config the frame is returned
+        byte-identical and ``warnings`` is empty — the pricing/golden path is
+        never affected.
+    """
+    warnings: list[str] = []
+    df = _scale_value_columns(df, config, warnings)
+    df = _coerce_date_columns(df, config, warnings)
+    return df, warnings
 
 
 def ingest_cedant_data(
@@ -541,6 +833,29 @@ def _row_rules(columns: list[str]) -> list[tuple[str, pl.Expr]]:
     return rules
 
 
+def _date_reject_rules(df: pl.DataFrame) -> list[tuple[str, pl.Expr]]:
+    """Blocking rules for string date columns that fail to parse (A3' Slice 2).
+
+    A cell is rejected (``unparseable_<col>``) when it is a non-empty string that
+    matches none of :data:`DATE_CANDIDATE_FORMATS` (nor an Excel serial). Empty /
+    null cells are left to ``missing_required_field``. Only string-typed
+    :data:`DATE_COLUMNS` are checked — already-temporal columns are skipped — so
+    a clean ISO block (the common case, and every existing caller) is unaffected.
+    """
+    rules: list[tuple[str, pl.Expr]] = []
+    for col in DATE_COLUMNS:
+        if col in df.columns and df.schema[col] in (pl.Utf8, pl.String):
+            original = pl.col(col).cast(pl.Utf8, strict=False).str.strip_chars()
+            parseable = _date_parse_expr(col, list(DATE_CANDIDATE_FORMATS))
+            rules.append(
+                (
+                    f"unparseable_{col}",
+                    original.is_not_null() & (original.str.len_chars() > 0) & parseable.is_null(),
+                )
+            )
+    return rules
+
+
 def partition_inforce_rows(
     df: pl.DataFrame,
 ) -> tuple[pl.DataFrame, pl.DataFrame, DataQualityReport]:
@@ -553,7 +868,8 @@ def partition_inforce_rows(
 
     A row is **rejected** when it violates any blocking rule in
     :func:`_row_rules` (missing required cell, non-positive face/premium,
-    negative age, attained-before-issue). Rejected rows are returned in a second
+    negative age, attained-before-issue) or :func:`_date_reject_rules` (a
+    present-but-unparseable date string, A3' Slice 2). Rejected rows are returned in a second
     frame carrying a ``_reject_reason`` column that lists every rule they failed
     (``"; "``-joined). The returned :class:`DataQualityReport` describes the
     **clean** rows (its summary stats are computed on them, reusing
@@ -569,7 +885,7 @@ def partition_inforce_rows(
         empty with just the reason column appended when nothing is rejected).
     """
     n_input = len(df)
-    rules = _row_rules(df.columns)
+    rules = _row_rules(df.columns) + _date_reject_rules(df)
 
     if not rules or n_input == 0:
         clean = df

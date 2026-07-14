@@ -46,42 +46,88 @@ the next Tier-A "big rock"). See `PLAN_cedant_ingestion.md`.
     clean block", so a partitioned block can be `is_valid` while `has_rejects`.
 
 ### Slice 2: Robust value coercion
-- **Status:** NEXT
-- **Depends on:** Slice 1 merged.
-- **Files to modify:** `utils/ingestion.py` (date coercion + unit/currency
-  normalisation step; `IngestConfig` gains `unit_scale` / `premium_mode` /
-  `currency`), `tests/test_utils/test_ingestion.py`.
-- **Acceptance criteria:**
-  - Mixed date formats (ISO / US / EU / Excel serial) parse; ambiguous dates are
-    flagged on the report; unparseable dates route the row to rejects.
-  - `unit_scale` closed-form: face `500` in thousands → `500000`; `premium_mode`
-    monthly → annual (×12). Default-off leaves current behaviour.
+- **Status:** DONE
+- **Branch:** `claude/loving-gauss-1wcw10` (designated remote-session branch)
+- **PR:** #138 (draft)
+- **What was done:** New `apply_value_coercion(df, config) -> (df, warnings)` in
+  `utils/ingestion.py`, a config-gated stage that runs between
+  `ingest_cedant_data` and `partition_inforce_rows`. (1) **Date coercion** for
+  `IngestConfig.date_columns`: infers ISO / US `%m/%d/%Y` / EU `%d/%m/%Y` /
+  `%Y/%m/%d` / Excel-serial format per column, rewrites parseable cells to
+  canonical ISO, flags genuinely ambiguous columns (assume US + warn; explicit
+  `date_formats[col]` overrides), and leaves unparseable cells in place for
+  quarantine. (2) **Unit/premium/currency scaling**: `unit_scale` (per-column
+  multiplier), `premium_mode` annualisation (monthly/quarterly/semiannual), and a
+  static `CurrencyConfig(code, rate)` on the monetary columns — composed
+  multiplicatively in one pass. A new `_date_reject_rules` adds an
+  `unparseable_<col>` reason to the Slice-1 rejects machinery, and
+  `partition_inforce_rows` now runs `_row_rules + _date_reject_rules`. 24 tests
+  (22 in `TestApplyValueCoercion` + 2 partition). ADR-137.
+- **Key decisions:**
+  - **Design Y — coercion is a distinct stage, not folded into
+    `ingest_cedant_data`.** `ingest_cedant_data` is left byte-identical (zero risk
+    to its callers). The documented pipeline is
+    ingest → `apply_value_coercion` → `partition_inforce_rows`; Slice 3 wires it.
+  - **Default-off ⇒ byte-identical.** Every new `IngestConfig` field defaults to a
+    no-op; a config that does not opt in returns the frame unchanged, so goldens
+    are byte-identical (the pricing path is never touched).
+  - **Scaling gates on config, not on the float factor** (PR #138 review [P2]).
+    `_scale_value_columns` adds a column to its `factors` map only when a config
+    source touches it and returns `df` unchanged when the map is empty — so the
+    no-op guarantee is a control-flow property, not a `factor != 1.0` float check.
+    Deliberate consequence: an explicit `unit_scale` of `1.0` still normalises the
+    column to `float64` (pinned by two dtype tests). `math.isclose` was rejected.
+  - **Unparseable dates land in rejects with an explicit reason.** Coercion leaves
+    an unparseable non-empty cell as its original string; `_date_reject_rules`
+    then quarantines it as `unparseable_<col>` — reusing Slice-1 machinery rather
+    than duplicating it. Empty/null cells fall to `missing_required_field`.
+  - **Ambiguous-date policy resolved: assume US + warn** (not hard-fail), keeping
+    ingestion best-effort and loud. An explicit `date_formats[col]` suppresses the
+    warning. (See Open Questions — this is the taken default.)
+  - **Currency is a single static rate** (`reporting = source x rate`); a live-FX
+    or per-cohort rate is deliberately out of scope (harvested follow-up).
 
 ### Slice 3: Surfaces (CLI/API + rejects file)
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 2 merged.
 - **Scope:** `polaris ingest` CLI + `/api/v1/ingest` API emit the rejects file
   and the richer report; thresholded exit/response; QUICKSTART section; ADR.
+  Reads the `apply_value_coercion` `warnings` and the partition `report`; wires
+  the config's coercion fields through the CLI/API request schema.
+- **Acceptance:** a messy fixture (mixed dates, face in thousands, a bad row)
+  ingests to a clean block + a rejects file + a report enumerating what was
+  dropped and why; goldens byte-identical.
 
 ## Context for Next Session
 
-- **Blocking rules live in `_row_rules(columns)`** — a list of
-  `(name, polars-bool-expr)` guarded by column presence. Slice 2's "unparseable
-  date" reject is added here (a rule that fires when a date column failed to
-  coerce), so the rejects machinery is reused rather than duplicated.
-- **Order matters for Slice 2:** coerce/normalise values *before*
-  `partition_inforce_rows`, so a value that fails coercion becomes a null (caught
-  by `missing_required_field`) or an explicit unparseable-date reject — either
-  way it lands in the rejects frame with a clear reason rather than crashing.
-- `REJECT_REASON_COLUMN = "_reject_reason"` is the canonical rejects annotation;
-  Slice 3's rejects file writes the rejects frame as-is (it already carries it).
+- **Slice 3 is a pure surfacing slice.** The library is complete:
+  `apply_value_coercion(df, config) -> (df, warnings)` returns human-readable
+  coercion diagnostics, and `partition_inforce_rows(df) -> (clean, rejects,
+  report)` returns the rejects frame + report. Slice 3 wires those into the
+  `polaris ingest` CLI and `/api/v1/ingest` API — it should NOT add new
+  computation, only plumb config in and diagnostics/rejects out.
+- **The canonical pipeline order is** ingest → `apply_value_coercion` →
+  `partition_inforce_rows`. Coercion runs first so a bad value becomes a null
+  (→ `missing_required_field`) or is left in place (→ `unparseable_<col>`) — both
+  quarantined by the Slice-1 machinery, never crashing downstream.
+- **Blocking rules:** `_row_rules(columns)` (Slice 1) + `_date_reject_rules(df)`
+  (Slice 2, `unparseable_<col>` for string date columns). `REJECT_REASON_COLUMN
+  = "_reject_reason"` is the canonical rejects annotation; Slice 3's rejects file
+  writes the rejects frame as-is (it already carries it).
+- **Config surface Slice 3 must expose:** `unit_scale`, `premium_mode`,
+  `currency` (code + rate), `date_columns`, `date_formats`. All default to a
+  no-op; the CLI/API request schema should accept them optionally.
 - Goldens are byte-identical because nothing touches the pricing path and the new
-  code is additive/opt-in. Keep that invariant through Slices 2–3 (only the final
-  surfacing is user-visible, and even it doesn't change pricing outputs).
+  code is additive/opt-in. Keep that invariant through Slice 3 (surfacing is
+  user-visible but does not change pricing outputs).
 
 ## Open Questions (for human)
 
 - **Reject thresholds (Slice 3):** hard-fail above a reject fraction, or always
   best-effort + loud report? Leaning best-effort with an optional `--max-reject-pct`.
-- **Ambiguous-date policy (Slice 2):** require an explicit `date_format` for a
-  flagged-ambiguous column, or warn-and-assume-ISO? Leaning require-explicit.
+- **Ambiguous-date policy (Slice 2):** ~~require an explicit `date_format` for a
+  flagged-ambiguous column, or warn-and-assume-ISO?~~ **RESOLVED (Slice 2):**
+  assume US (`MM/DD/YYYY`) and emit a loud warning naming the column and telling
+  the user to set `date_formats[col]`; an explicit format suppresses the warning.
+  Chosen over hard-fail to keep ingestion best-effort (a whole file shouldn't be
+  rejected on a formatting nicety). Revisit if a cedant base is predominantly EU.

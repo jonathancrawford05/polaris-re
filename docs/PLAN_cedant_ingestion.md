@@ -1,7 +1,9 @@
 # PLAN: Cedant Data-Ingestion Robustness (A3')
 
 **Status:** IN PROGRESS — constituted 2026-07-13 as the active epic. Slice 1
-(row-level quarantine + richer `DataQualityReport`, ADR-136) is **DONE**.
+(row-level quarantine + richer `DataQualityReport`, ADR-136) and Slice 2 (robust
+value coercion — dates + unit/currency, ADR-137) are **DONE**; Slice 3 (CLI/API
+surfaces) is next.
 
 **Source / derivation.** With A1' (Validation & Benchmark) and A2' (Production
 Hardening & Observability, PRs #133–135) shipped, `COMMERCIAL_VIABILITY_REVIEW_2026-07-05.md`
@@ -52,20 +54,19 @@ default-valued fields and the existing frame-level `validate_inforce_df` is
 untouched, so goldens stay byte-identical. 12 tests in
 `tests/test_utils/test_ingestion.py::TestPartitionInforceRows`.
 
-### Slice 2: Robust value coercion — NEXT
-- **Depends on:** Slice 1 merged.
-- Mixed **date formats**: infer per-column format across candidates (ISO, US
-  `MM/DD/YYYY`, EU `DD/MM/YYYY`, Excel serial); coerce; flag genuinely ambiguous
-  dates (e.g. `03/04/2024`) on the report; unparseable dates route the row to the
-  rejects frame via the Slice-1 machinery.
-- **Unit/currency normalisation**: `IngestConfig` gains `unit_scale` (e.g. face
-  in thousands → ×1000), `premium_mode` (monthly → annual), and a `currency` +
-  conversion hook; a normalisation step with report summaries. Default-off → no
-  behaviour change.
-- Tests: parametrised date-format matrix; unit-scale closed-form (face `500` in
-  thousands → `500000`); ambiguity flagged; unparseable → reject.
+### Slice 2: Robust value coercion — DONE (2026-07-13, ADR-137)
+`utils/ingestion.py`: new `apply_value_coercion(df, config) -> (df, warnings)`,
+a config-gated stage between `ingest_cedant_data` and `partition_inforce_rows`.
+Date coercion (`date_columns` / `date_formats`) infers ISO / US `%m/%d/%Y` / EU
+`%d/%m/%Y` / `%Y/%m/%d` / Excel-serial format per column, rewrites parseable
+cells to canonical ISO, flags ambiguous columns (assume US + warn), and leaves
+unparseable cells for the new `_date_reject_rules` (`unparseable_<col>`) to
+quarantine. Unit/currency normalisation (`unit_scale`, `premium_mode`,
+`CurrencyConfig`) scales the monetary columns multiplicatively. All new
+`IngestConfig` fields default to a no-op, so goldens stay byte-identical. 22 tests
+in `TestApplyValueCoercion` (20) + `TestPartitionInforceRows` (2 date rejects).
 
-### Slice 3: Surfaces — PLANNED
+### Slice 3: Surfaces — NEXT
 - **Depends on:** Slice 2 merged.
 - Wire into the `polaris ingest` CLI and `/api/v1/ingest` API: write the
   **rejects file** alongside the clean output, print/return the richer report,
