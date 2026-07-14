@@ -162,6 +162,19 @@ on breach. Two new CLI tests pin this
 `test_max_reject_pct_breach_validate_only_writes_nothing`); ADR-138 + QUICKSTART §6
 updated. CLI test count 12 → 14; slice total 20 → 22.
 
+Two further diagnosability improvements followed from a review-thread discussion
+(bundled here as both are small):
+- **`missing_required_field` → `missing_<field>`.** The Slice-1 catch-all didn't
+  name which required cell was null — the one reason not self-diagnosing. Now one
+  rule per required column, harmonised with the existing per-column
+  `negative_<col>` / `unparseable_<col>` rules; a high single-field count signals a
+  wrong `column_mapping` line rather than dirty data. Updated the one test on the
+  old name + added `test_missing_multiple_required_cells_names_each_field`.
+- **Reject-reason catalogue in QUICKSTART §6** — a reference table (reason ·
+  trigger · cause → fix) over the closed rule set, previously discoverable only by
+  reading `_row_rules` / `_date_reject_rules`; points back to the code as the
+  single source of truth. Both recorded in ADR-138's post-review additions.
+
 ## Parked Polish
 None. (No 3rd-order-or-deeper follow-ups this session.)
 

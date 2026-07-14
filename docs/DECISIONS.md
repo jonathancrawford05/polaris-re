@@ -9096,6 +9096,30 @@ rule; unit-scale, date coercion, currency conversion, and premium annualisation
 apply to the clean policies and surface their warnings. All dates pinned
 (ADR-074 guard). All pre-existing tests stay green; goldens byte-identical.
 
+**Post-review additions (PR #139 discussion).** Two diagnosability improvements
+folded in while documenting the rejects file:
+
+- **`missing_required_field` → `missing_<field>`.** The Slice-1 catch-all rule
+  fired if *any* required cell was null but did not name *which* field, making it
+  the one reason not diagnosable from its string alone (every other reason —
+  `non_positive_face_amount`, `attained_before_issue`, the per-column
+  `negative_<col>` / `unparseable_<col>` — already names its field). It is now one
+  rule per required column (`missing_issue_age`, `missing_face_amount`, …),
+  harmonising it with the existing per-column rules: a row missing two fields
+  lists both, and `reject_reasons` counts each field independently. This turns a
+  high single-field count (e.g. `missing_face_amount: 9,812`) into an immediate
+  signal that one `column_mapping` line is wrong, not that the data is dirty. The
+  reason strings are diagnostic text, not a stable API contract; the one test
+  asserting the old name was updated and a multi-field test added.
+- **Reject-reason catalogue in QUICKSTART §6.** The reason strings lived only in
+  code (`_row_rules` / `_date_reject_rules`). QUICKSTART now carries a reference
+  table (reason · trigger · typical cause → fix) over the closed set, with a
+  pointer back to the code as the single source of truth. Rationale: the reasons
+  are individually self-explanatory, but the *set* was undiscoverable without
+  reading the source, and the fix for `unparseable_<col>` (set `date_formats`) and
+  the mapping-vs-data signal from `missing_<field>` counts are not obvious from the
+  strings.
+
 **Out of scope (this slice — harvested follow-ups).** A rejects-file *format*
 option (the frame is written as CSV like the clean output); streaming ingestion of
 files too large to hold in memory; and a machine-readable report artefact (the
