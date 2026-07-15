@@ -1,7 +1,7 @@
 # Continuation: Cedant Data-Ingestion Robustness (A3')
 
 **Source:** `COMMERCIAL_VIABILITY_REVIEW_2026-07-05.md` §4 Tier-A (A3'); PR #136 review [P1]
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 **Total slices:** 3
 **Estimated total scope:** ~5–7 dev-days
 
@@ -88,15 +88,36 @@ the next Tier-A "big rock"). See `PLAN_cedant_ingestion.md`.
     or per-cohort rate is deliberately out of scope (harvested follow-up).
 
 ### Slice 3: Surfaces (CLI/API + rejects file)
-- **Status:** NEXT
-- **Depends on:** Slice 2 merged.
-- **Scope:** `polaris ingest` CLI + `/api/v1/ingest` API emit the rejects file
-  and the richer report; thresholded exit/response; QUICKSTART section; ADR.
-  Reads the `apply_value_coercion` `warnings` and the partition `report`; wires
-  the config's coercion fields through the CLI/API request schema.
+- **Status:** DONE
+- **Branch:** `claude/loving-gauss-6fixu5` (designated remote-session branch).
+- **PR:** this session (draft).
+- **What was done:** Wired the completed library into both surfaces via the
+  canonical `ingest → apply_value_coercion → partition_inforce_rows` pipeline.
+  **CLI `polaris ingest`:** writes the clean frame to `--output` and the rejects
+  frame (with `_reject_reason`) to `--rejects` (default `<output>.rejects.csv`,
+  only when rows are rejected); the summary reports rows-examined / clean /
+  rejected, a per-reason breakdown table, and coercion warnings; best-effort exit
+  0 with an optional `--max-reject-pct` hard-fail gate. **API `/api/v1/ingest`:**
+  `IngestColumnMapping` gains the coercion fields (`unit_scale` / `premium_mode` /
+  `currency` / `date_columns` / `date_formats`, all no-op defaults);
+  `IngestResponse` gains `n_input` / `n_rejected` / `reject_reasons` / `rejects`
+  (defaults preserve the old shape) and `policies` now returns the clean block.
+  QUICKSTART §6 updated; ADR-138. 22 tests (14 CLI + 8 API).
+- **Key decisions:**
+  - **Reject-threshold open question resolved: best-effort + optional
+    `--max-reject-pct`.** A reinsurer's first instinct on a large file with a few
+    bad rows is to price the usable ones and get a report, not to be blocked; the
+    optional threshold is the ops guardrail.
+  - **Backward compatible.** For a clean block, partitioning returns all rows
+    clean with zero rejects and coercion is a config-gated no-op, so the clean
+    output is byte-identical, the API `policies` list is unchanged, and the new
+    response fields take their defaults. Only a *messy* block changes behaviour
+    (best-effort instead of abort). Pricing path untouched → goldens byte-identical.
+  - **API keeps its inline rename/translate/defaults pipeline** (it receives
+    records, not a file path); coercion + partition are appended after it.
 - **Acceptance:** a messy fixture (mixed dates, face in thousands, a bad row)
   ingests to a clean block + a rejects file + a report enumerating what was
-  dropped and why; goldens byte-identical.
+  dropped and why; goldens byte-identical. ✅ verified end-to-end.
 
 ## Context for Next Session
 
@@ -123,8 +144,10 @@ the next Tier-A "big rock"). See `PLAN_cedant_ingestion.md`.
 
 ## Open Questions (for human)
 
-- **Reject thresholds (Slice 3):** hard-fail above a reject fraction, or always
-  best-effort + loud report? Leaning best-effort with an optional `--max-reject-pct`.
+- **Reject thresholds (Slice 3):** ~~hard-fail above a reject fraction, or always
+  best-effort + loud report?~~ **RESOLVED (Slice 3):** best-effort by default
+  (ingest whatever is usable, exit 0) with an optional `--max-reject-pct` gate
+  that hard-fails (exit 1) above the threshold. Recorded in ADR-138.
 - **Ambiguous-date policy (Slice 2):** ~~require an explicit `date_format` for a
   flagged-ambiguous column, or warn-and-assume-ISO?~~ **RESOLVED (Slice 2):**
   assume US (`MM/DD/YYYY`) and emit a loud warning naming the column and telling

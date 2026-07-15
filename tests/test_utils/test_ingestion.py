@@ -812,12 +812,29 @@ class TestPartitionInforceRows:
         assert rejects["policy_id"].to_list() == ["P2"]
 
     def test_missing_required_cell_is_rejected(self):
-        """A null in a required column quarantines the row."""
+        """A null in a required column quarantines the row and the reason names it."""
         df = _inforce_rows(sex=["M", None, "M"])
         _, rejects, report = partition_inforce_rows(df)
         assert report.n_rejected == 1
-        assert "missing_required_field" in report.reject_reasons
+        # The reason names the offending field (missing_sex), not a generic catch-all.
+        assert "missing_sex" in report.reject_reasons
+        assert (
+            rejects.filter(pl.col("policy_id") == "P2")[REJECT_REASON_COLUMN].item()
+            == "missing_sex"
+        )
         assert rejects["policy_id"].to_list() == ["P2"]
+
+    def test_missing_multiple_required_cells_names_each_field(self):
+        """A row missing two required cells lists both fields in its reason."""
+        df = _inforce_rows(sex=["M", None, "M"], product_type=["TERM", None, "TERM"])
+        _, rejects, report = partition_inforce_rows(df)
+        assert report.n_rejected == 1
+        reason = rejects.filter(pl.col("policy_id") == "P2")[REJECT_REASON_COLUMN].item()
+        assert "missing_sex" in reason
+        assert "missing_product_type" in reason
+        # Each field is counted independently in the per-rule breakdown.
+        assert report.reject_reasons.get("missing_sex") == 1
+        assert report.reject_reasons.get("missing_product_type") == 1
 
     def test_multiple_reasons_are_all_recorded(self):
         """A row failing several rules lists every reason and counts each."""

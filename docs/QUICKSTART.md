@@ -445,6 +445,18 @@ code_translations:
     F: "F"
 defaults:
   underwriting_class: "STANDARD"
+# Optional value coercion (all default to a no-op if omitted):
+unit_scale:
+  face_amount: 1000.0        # face reported in thousands → dollars
+premium_mode: "annual"       # or monthly / quarterly / semiannual (annualised)
+currency:
+  code: "CAD"                # static FX: reporting = source × rate
+  rate: 0.75
+date_columns:                # coerce mixed date formats to canonical ISO
+  - issue_date
+  - valuation_date
+date_formats:                # optional explicit format per column
+  issue_date: "%d/%m/%Y"     # forces EU order + suppresses the ambiguity warning
 ```
 
 ### Run ingestion
@@ -457,6 +469,64 @@ uv run polaris ingest --config mapping.yaml --output normalised.csv raw_cedant.c
 from polaris_re.core.inforce import InforceBlock
 block = InforceBlock.from_csv("normalised.csv")
 ```
+
+### Messy files — quarantine instead of abort
+
+Real cedant extracts have bad rows (missing cells, non-positive face/premium,
+unparseable dates) mixed in with usable ones. Ingestion is **best-effort**: it
+coerces messy *values*, prices the usable rows, and quarantines the rest instead
+of failing the whole block.
+
+```bash
+uv run polaris ingest \
+  --config mapping.yaml \
+  --output clean.csv \
+  --rejects clean.rejects.csv \      # default: <output>.rejects.csv; only written if rows are rejected
+  --max-reject-pct 5 \               # optional: hard-fail (exit 1) if > 5% of rows are rejected
+  raw_cedant.csv
+```
+
+The summary reports rows examined / clean / rejected with a per-reason
+breakdown; `clean.csv` holds the priceable block (values coerced) and
+`clean.rejects.csv` holds each dropped row with a `_reject_reason` column
+listing every rule it failed. Without `--max-reject-pct`, the command ingests
+whatever is usable and exits 0. When `--max-reject-pct` is breached the command
+exits 1 and **still writes the rejects file** (so you can see which rows failed)
+but **withholds the clean output** — a breach means the mapping is probably wrong,
+so no clean block is emitted for a downstream step to consume. `--validate-only`
+reports without writing either file.
+
+The same behaviour is available on the API: `POST /api/v1/ingest` accepts the
+coercion fields in its `mapping` object and returns `n_input` / `n_rejected` /
+`reject_reasons` and a `rejects` list alongside the clean `policies`.
+
+### Reject-reason catalogue
+
+Each rejected row's `_reject_reason` is a `"; "`-joined list of every rule it
+failed; the report's `reject_reasons` counts each rule independently (so the
+counts can sum to more than the rejected-row total when a row fails several
+rules). The rules are the closed set below — the reason strings are the
+authoritative names emitted by `_row_rules()` / `_date_reject_rules()` in
+`utils/ingestion.py` (single source of truth; this table mirrors them).
+
+| `_reject_reason` | Triggers when | Typical cause → fix |
+|------------------|---------------|---------------------|
+| `missing_<field>` | a required cell is null/empty (one reason per field, e.g. `missing_issue_age`, `missing_face_amount`) | source column unmapped or misnamed → check `column_mapping` covers that field; or the cell is genuinely blank in the extract |
+| `non_positive_face_amount` | `face_amount` ≤ 0 | sentinel value (0, −1, −999), face mapped to the wrong column, or a unit left unapplied → verify `column_mapping` + `unit_scale` |
+| `non_positive_premium` | `annual_premium` ≤ 0 | sentinel, wrong column, or a genuinely paid-up policy (0 premium) → verify mapping; paid-up blocks need separate handling |
+| `negative_issue_age` / `negative_attained_age` | the age is < 0 | sentinel or parse error in the age column → check the source values |
+| `attained_before_issue` | `attained_age` < `issue_age` | transposed age columns in the mapping, or a data error → fix the mapping / correct the record |
+| `unparseable_<col>` | a non-empty `issue_date` / `valuation_date` string matches no known format (ISO, US `MM/DD/YYYY`, EU `DD/MM/YYYY`, `YYYY/MM/DD`, or Excel serial) | an exotic date format or free-text ("N/A", "unknown") → set `date_formats['<col>']` to the explicit format; if it is free text, the row is genuinely bad |
+
+Required fields (any of which can raise `missing_<field>`): `policy_id`,
+`issue_age`, `attained_age`, `sex`, `smoker_status`, `face_amount`,
+`annual_premium`, `product_type`, `duration_inforce`, `issue_date`,
+`valuation_date`.
+
+Because `missing_<field>` names the offending column, a high count against a
+single field (e.g. `missing_face_amount: 9,812`) usually points at one wrong
+`column_mapping` line rather than dirty data — the fastest signal that a mapping,
+not the extract, needs fixing.
 
 ---
 

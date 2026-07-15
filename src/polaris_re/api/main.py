@@ -1595,8 +1595,22 @@ def ifrs17_movement(request: IFRS17MovementRequest) -> IFRS17MovementResponse:
 # =========================================================================
 
 
+class IngestCurrency(BaseModel):
+    """Static currency conversion applied to monetary columns during coercion."""
+
+    code: str = Field(description="ISO code of the source currency, e.g. 'CAD'.")
+    rate: float = Field(
+        gt=0.0, description="Multiplicative rate converting source → reporting currency."
+    )
+
+
 class IngestColumnMapping(BaseModel):
-    """Column mapping from source to Polaris RE schema."""
+    """Column mapping + value-coercion configuration from source to Polaris RE schema.
+
+    The coercion fields (``unit_scale`` / ``premium_mode`` / ``currency`` /
+    ``date_columns`` / ``date_formats``, A3' Slice 2-3) all default to a no-op, so
+    a request that does not set them behaves exactly as before.
+    """
 
     column_mapping: dict[str, str] = Field(description="Maps Polaris field → source column name.")
     code_translations: dict[str, dict[str, str]] = Field(
@@ -1604,6 +1618,25 @@ class IngestColumnMapping(BaseModel):
     )
     defaults: dict[str, str | float | int] = Field(
         default_factory=dict, description="Default values for missing fields."
+    )
+    unit_scale: dict[str, float] = Field(
+        default_factory=dict,
+        description="Per-column multiplicative scale (e.g. {'face_amount': 1000.0}).",
+    )
+    premium_mode: Literal["annual", "semiannual", "quarterly", "monthly"] = Field(
+        default="annual",
+        description="Reporting frequency of annual_premium; non-annual values are annualised.",
+    )
+    currency: IngestCurrency | None = Field(
+        default=None, description="Optional static currency conversion of monetary columns."
+    )
+    date_columns: list[str] = Field(
+        default_factory=list,
+        description="Columns to coerce to canonical ISO dates. Empty = no coercion.",
+    )
+    date_formats: dict[str, str] = Field(
+        default_factory=dict,
+        description="Explicit source strftime format per date column (overrides inference).",
     )
 
 
@@ -1617,17 +1650,32 @@ class IngestRequest(BaseModel):
 
 
 class IngestResponse(BaseModel):
-    """Response body for inforce data ingestion."""
+    """Response body for inforce data ingestion.
 
-    n_policies: int = Field(description="Number of policies ingested.")
-    total_face_amount: float = Field(description="Total face amount.")
-    mean_age: float = Field(description="Mean attained age.")
-    sex_split: dict[str, int] = Field(description="Count by sex.")
-    smoker_split: dict[str, int] = Field(description="Count by smoker status.")
-    errors: list[str] = Field(description="Validation errors.")
-    warnings: list[str] = Field(description="Validation warnings.")
+    Summary statistics describe the *clean* block (usable rows). The
+    quarantine fields (``n_input`` / ``n_rejected`` / ``reject_reasons`` /
+    ``rejects``) enumerate rows that could not be priced and why; for a fully
+    clean block ``n_rejected`` is 0 and ``rejects`` is empty (back-compatible).
+    """
+
+    n_policies: int = Field(description="Number of clean policies ingested.")
+    total_face_amount: float = Field(description="Total face amount (clean block).")
+    mean_age: float = Field(description="Mean attained age (clean block).")
+    sex_split: dict[str, int] = Field(description="Count by sex (clean block).")
+    smoker_split: dict[str, int] = Field(description="Count by smoker status (clean block).")
+    errors: list[str] = Field(description="Validation errors on the clean block.")
+    warnings: list[str] = Field(description="Coercion + validation warnings.")
     policies: list[dict[str, str | float | int | None]] = Field(
-        description="Normalised policy records."
+        description="Normalised clean policy records."
+    )
+    n_input: int = Field(default=0, description="Total rows examined before quarantine.")
+    n_rejected: int = Field(default=0, description="Rows quarantined as unusable.")
+    reject_reasons: dict[str, int] = Field(
+        default_factory=dict, description="Per-rule count of rejected rows."
+    )
+    rejects: list[dict[str, str | float | int | None]] = Field(
+        default_factory=list,
+        description="Quarantined rows, each carrying a '_reject_reason' column.",
     )
 
 
@@ -1637,17 +1685,29 @@ def api_ingest(request: IngestRequest) -> IngestResponse:
     import polars as pl
 
     from polaris_re.utils.ingestion import (
+        CurrencyConfig,
         IngestConfig,
-        validate_inforce_df,
+        apply_value_coercion,
+        partition_inforce_rows,
     )
 
     try:
         df = pl.DataFrame(request.policies)
 
+        currency = (
+            CurrencyConfig(code=request.mapping.currency.code, rate=request.mapping.currency.rate)
+            if request.mapping.currency is not None
+            else None
+        )
         config = IngestConfig(
             column_mapping=request.mapping.column_mapping,
             code_translations=request.mapping.code_translations,
             defaults=request.mapping.defaults,
+            unit_scale=request.mapping.unit_scale,
+            premium_mode=request.mapping.premium_mode,
+            currency=currency,
+            date_columns=request.mapping.date_columns,
+            date_formats=request.mapping.date_formats,
         )
 
         # Apply rename
@@ -1669,9 +1729,13 @@ def api_ingest(request: IngestRequest) -> IngestResponse:
             if field_name not in df.columns:
                 df = df.with_columns(pl.lit(default_value).alias(field_name))
 
-        report = validate_inforce_df(df)
+        # Coerce messy values (mixed dates, unit/currency — config-gated), then
+        # quarantine rows that still cannot be priced (A3' Slice 3, ADR-138).
+        df, coercion_warnings = apply_value_coercion(df, config)
+        clean_df, rejects_df, report = partition_inforce_rows(df)
 
-        policies_out = df.to_dicts()
+        policies_out = clean_df.to_dicts()
+        rejects_out = rejects_df.to_dicts()
 
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -1683,8 +1747,12 @@ def api_ingest(request: IngestRequest) -> IngestResponse:
         sex_split=report.sex_split,
         smoker_split=report.smoker_split,
         errors=report.errors,
-        warnings=report.warnings,
+        warnings=coercion_warnings + report.warnings,
         policies=policies_out,
+        n_input=report.n_input,
+        n_rejected=report.n_rejected,
+        reject_reasons=report.reject_reasons,
+        rejects=rejects_out,
     )
 
 

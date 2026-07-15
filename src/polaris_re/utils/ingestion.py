@@ -581,7 +581,7 @@ def apply_value_coercion(df: pl.DataFrame, config: IngestConfig) -> tuple[pl.Dat
     Intended to run between :func:`ingest_cedant_data` and
     :func:`partition_inforce_rows`: scaling and canonicalisation happen first so
     that a value which fails coercion becomes a null (caught by
-    ``missing_required_field``) or an ``unparseable_<col>`` reject — either way
+    ``missing_<col>``) or an ``unparseable_<col>`` reject — either way
     it lands in the rejects frame with a clear reason instead of crashing
     downstream.
 
@@ -782,15 +782,12 @@ def _row_rules(columns: list[str]) -> list[tuple[str, pl.Expr]]:
     cols = set(columns)
     rules: list[tuple[str, pl.Expr]] = []
 
-    # 1. Any required cell is null → the row cannot be built into a Policy.
-    required_present = [c for c in REQUIRED_COLUMNS if c in cols]
-    if required_present:
-        rules.append(
-            (
-                "missing_required_field",
-                pl.any_horizontal([pl.col(c).is_null() for c in required_present]),
-            )
-        )
+    # 1. Any required cell is null → the row cannot be built into a Policy. One
+    #    rule per required column so the reason names the offending field
+    #    (``missing_issue_age``), consistent with the per-column ``negative_<col>``
+    #    and ``unparseable_<col>`` rules — a row missing two fields lists both.
+    for col in (c for c in REQUIRED_COLUMNS if c in cols):
+        rules.append((f"missing_{col}", pl.col(col).is_null()))
 
     # 2. Non-positive money fields (nulls are covered by rule 1).
     if "face_amount" in cols:
@@ -838,7 +835,7 @@ def _date_reject_rules(df: pl.DataFrame) -> list[tuple[str, pl.Expr]]:
 
     A cell is rejected (``unparseable_<col>``) when it is a non-empty string that
     matches none of :data:`DATE_CANDIDATE_FORMATS` (nor an Excel serial). Empty /
-    null cells are left to ``missing_required_field``. Only string-typed
+    null cells are left to the ``missing_<col>`` rules. Only string-typed
     :data:`DATE_COLUMNS` are checked — already-temporal columns are skipped — so
     a clean ISO block (the common case, and every existing caller) is unaffected.
     """
