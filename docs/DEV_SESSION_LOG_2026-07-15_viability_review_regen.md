@@ -81,8 +81,41 @@ No code changed; this is a strategic document only.
 
 ## Files Changed
 - `docs/COMMERCIAL_VIABILITY_REVIEW_2026-07-15.md` — new (the regenerated
-  review).
+  review); §4/§5/§6 updated post-scoping to name the reframed A4′ epic and
+  point at the locked PLAN.
+- `docs/PLAN_experience_gam.md` — new (the locked A4′ epic plan; see addendum).
 - `docs/DEV_SESSION_LOG_2026-07-15_viability_review_regen.md` — this log.
+
+## Maintainer Scoping Addendum (2026-07-15) — A4′ PLAN locked
+After the review was drafted, a scoping discussion with the maintainer
+reshaped and **constituted the next epic** this session (ahead of the "next
+session" default), so the deliverable grew from "review only" to "review +
+locked PLAN":
+- **Reframe:** ROADMAP 6.1 shifts from a black-box `--retrain-ml` loop to an
+  **interpretable GAM layer** for experience analysis — the auditable middle
+  between the grouped-A/E credibility in `analytics/experience_study.py` and
+  the XGBoost path in `assumptions/ml_mortality.py`.
+- **Headline:** a **tensor mortality-improvement surface** `te(age,
+  calendar_year)` on a **static select-base offset**, emitted as a
+  `MortalityImprovement`-compatible `MI_x(y)` scale. Confirmed the existing
+  VBT/CIA tables are select-and-ultimate (`get_qx_vector(ages, sex, smoker,
+  durations)`), so the offset that pins age×duration is already available.
+- **Key modeling decisions locked:** A/E over direct-qx (identical MI gradient,
+  plus variance reduction + native multiplicative output); duration enters
+  twice (select-base offset + penalized residual smoother); **Lexis/APC
+  identifiability** default = calendar trend → improvement with the issue-year
+  term constrained to zero and an optional `underwriting_era` factor escape
+  hatch; `statsmodels GLMGam` (Slice 1) → `bambi`/`pymc` HSGP (Slice 2+) for
+  the anisotropic tensor + partial pooling + honest forward projection; `mgcv`
+  via `rpy2` as an **offline validation oracle only**, never a runtime dep.
+- **Dependency staging call:** `bambi`/`pymc` pins recorded in the PLAN but
+  added to the `[ml]` extra by the slice that imports them (`pymc` is
+  compile-heavy — not added ahead of Slice 2). No `pyproject.toml` change this
+  session.
+- **Scope boundary:** the maintainer's new-data-source risk-segmentation work
+  is explicitly **out of scope** (forward prospective-rating, not retrospective
+  experience — carriers lack the fields historically); flagged as a later
+  Phase-7 candidate reusing the same GAM machinery.
 
 ## Tests Added
 None — docs-only session. Baseline `make test` was run at session start to
@@ -109,9 +142,10 @@ so the quality gate's pytest/ruff steps have nothing to act on.
   captured in the review, not a scoped work item.
 - **AXIS/Prophet side-by-side (validation Slice 4).** Remains
   reference-blocked; revive on a maintainer-supplied reference output.
-- **Next session:** constitute A4′ — write `PLAN_experience_monitoring.md` +
-  `CONTINUATION_experience_monitoring.md` (IN PROGRESS) and ship Slice 1 (the
-  export primitives).
+- **Next session:** A4′ PLAN is now locked (`PLAN_experience_gam.md`). Write
+  `CONTINUATION_experience_gam.md` (status IN PROGRESS) and ship **Slice 1**
+  (experience-data contract + marginal effect isolation, `statsmodels GLMGam`,
+  additive / byte-identical). The tensor MI surface is Slice 2.
 
 ## Harvest (step 17)
 Nothing to harvest into PRODUCT_DIRECTION this session: no ADR was introduced,

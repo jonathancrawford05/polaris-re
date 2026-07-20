@@ -169,14 +169,24 @@ number of staggered slices.
 
 | # | Feature | Value | Effort | Phases | Source |
 |---|---------|-------|--------|--------|--------|
-| **A4′** | **Experience-Monitoring Automation (ROADMAP 6.1)** — `ExperienceStudy.export_to_lapse_csv()` / `export_to_mortality_csv()` (credibility-blended rates in the Polaris CSV schema) → `scripts/update_assumptions.py` (load claims → study → export → optional ML retrain → log to DECISIONS) → `polaris experience run` CLI → assumption versioning under `data/assumption_versions/` | ★★★★☆ | ~6 d | 3–4 | ROADMAP 6.1; 2026-07-05 C2; the ML-native thesis (CLAUDE.md §1) |
+| **A4′** | **Data-Driven Experience Analysis & Assumption-Setting (GAM)** — reframes ROADMAP 6.1 from a black-box `--retrain-ml` loop into an **interpretable GAM layer**: marginal feature-effect isolation → **tensor mortality-improvement surface `te(age, calendar_year)` (headline)** → hierarchical partial pooling (smooth credibility) → CLI/versioning. New `analytics/experience_gam.py`; exports plug into `MortalityImprovement.apply_improvement`. **PLAN locked: `docs/PLAN_experience_gam.md`.** | ★★★★☆ | ~7 d | 4 | ROADMAP 6.1; 2026-07-05 C2; ML-native thesis (CLAUDE.md §1); maintainer scoping 2026-07-15 |
 
 **Why A4′ leads (and is the last roadmap epic).** It is the only unstarted
 multi-session item backed by a written roadmap spec, and it directly realises
-the project's stated reason to exist versus AXIS/Prophet. It decomposes
-cleanly along the routine's "Pattern B — new module, then integration":
-export primitives (byte-identical to existing surfaces) → the automation
-script → the CLI surface → versioning. Suggested decomposition in §6.
+the project's stated reason to exist versus AXIS/Prophet. Per the maintainer
+scoping discussion (2026-07-15), the meaningful ML enablement is the
+**auditable middle** between the grouped-A/E credibility already in
+`analytics/experience_study.py` and the black-box XGBoost in
+`assumptions/ml_mortality.py` — a GAM that isolates standard feature effects
+with honest uncertainty and sets bases actuaries can defend. The **headline
+deliverable is a tensor MI surface** (age-varying improvement estimated from
+experience, emitted as a `MortalityImprovement`-compatible scale), built on a
+static select-base offset with the Lexis/APC identifiability handled
+explicitly (calendar trend → improvement; issue-year drift constrained, with an
+optional `underwriting_era` factor). Backend: `statsmodels GLMGam` (marginal) →
+`bambi`/`pymc` HSGP (anisotropic tensor + partial pooling + honest forward
+projection); `mgcv` used offline only as a validation oracle. Full four-slice
+decomposition, design anchors, and dependency staging: **`docs/PLAN_experience_gam.md`**.
 
 ### Tier B — High value, single-to-short (between-epic quick wins)
 
@@ -235,18 +245,21 @@ slice is blocked on an unmerged predecessor.
 ## 5. Verdict & Recommended Sequence
 
 **Verdict:** The 2026-07-05 productization ladder is fully shipped. The next
-active epic is **A4′ Experience-Monitoring Automation (ROADMAP 6.1)** — the
-last unstarted roadmap milestone and the operational form of the project's
-ML-native thesis. It out-ranks the Tier-B quick wins (single-session
-fallbacks) and every Tier-C/D item.
+active epic is **A4′ Data-Driven Experience Analysis & Assumption-Setting
+(GAM)** — the reframed ROADMAP 6.1, the last unstarted roadmap milestone and
+the operational form of the project's ML-native thesis. It out-ranks the
+Tier-B quick wins (single-session fallbacks) and every Tier-C/D item. **The
+PLAN was locked this session (`docs/PLAN_experience_gam.md`) via a maintainer
+scoping discussion** — the epic is constituted; Slice 1 is NEXT.
 
 **Recommended sequence:**
 
-1. **Constitute A4′ as the active epic.** Next dev session writes
-   `docs/PLAN_experience_monitoring.md` (decomposition in §6) +
-   `docs/CONTINUATION_experience_monitoring.md` (status IN PROGRESS) and
-   ships **Slice 1** (the export primitives — byte-identical to existing
-   surfaces). Writing the plan + slice 1 is that session's deliverable.
+1. **A4′ is constituted** — `docs/PLAN_experience_gam.md` is written and
+   locked (four slices, design anchors, dependency staging). Next dev session
+   writes `docs/CONTINUATION_experience_gam.md` (status IN PROGRESS) and ships
+   **Slice 1** (experience-data contract + marginal effect isolation, additive
+   / byte-identical to the engine). Shipping Slice 1 is that session's
+   deliverable.
 2. **B1 + B2 as the between-epic Sprint-0 quick wins** — pick them up only
    when an A4′ slice is blocked on an unmerged predecessor (the epic advances
    ~one slice per human merge; see the routine's merge-cadence note).
@@ -254,44 +267,52 @@ fallbacks) and every Tier-C/D item.
    load-test quality gate (C6) and the reference-blocked validation Slice 4.
    At that point the routine has no further Tier-A "big rock" — see §7.
 
-**This session's deliverable is this regenerated review** (Tier-A ladder
-exhausted; a thorough re-rank is a substantial analytical task). Per routine
-step 6, when regenerating the review and shipping a slice would together blow
-the wall-clock guardrail, the regeneration *is* the deliverable and the slice
-is **deferred to the next run**. No code slice ships this session; A4′ Slice 1
-ships next.
+**This session's deliverable is this regenerated review plus the locked A4′
+PLAN** (Tier-A ladder exhausted; the re-rank + epic constitution is a
+substantial analytical task). Per routine step 6, when the re-rank and a code
+slice would together blow the wall-clock guardrail, the analysis is the
+deliverable and the slice is **deferred to the next run**. No code slice ships
+this session; A4′ Slice 1 ships next.
 
 ---
 
-## 6. Suggested A4′ Decomposition (for next session's PLAN)
+## 6. A4′ Decomposition — LOCKED (`docs/PLAN_experience_gam.md`)
 
-Routine "Pattern B — new module, then integration". Each slice leaves all
-tests green and goldens byte-identical until the surfacing slice.
+The full plan (design anchors, canonical model form, backends, dependency
+staging, out-of-scope, open decisions) lives in `docs/PLAN_experience_gam.md`,
+locked 2026-07-15 via the maintainer scoping discussion. Four slices, each
+additive / byte-identical to the engine until the Slice-4 surface:
 
-- **Slice 1 — Export primitives.** `ExperienceStudy.export_to_lapse_csv()`
-  and `export_to_mortality_csv()`: write credibility-blended rates in the
-  Polaris CSV schema so they round-trip through `LapseAssumption.load()` and
-  `MortalityTable.load()`. Unit tests: round-trip study → export → load →
-  identical rates; schema conformance; credibility-weight application. No CLI,
-  no script — pure library. Byte-identical to all existing surfaces
-  (additive). (~200–250 lines)
-- **Slice 2 — Automation script.** `scripts/update_assumptions.py`: load
-  claims data → run experience study → export blended CSVs → (optional) ML
-  retrain → append a change record to `docs/DECISIONS.md`. Tests drive the
-  script end-to-end on a pinned fixture (no wall-clock — pinned `study_date`).
-  (~250–300 lines)
-- **Slice 3 — CLI surface + versioning.** `polaris experience run` with
-  `--data`, `--output-dir`, `--retrain-ml`; assumption versioning under
-  `data/assumption_versions/` with study-date + credibility-weight tags and a
-  preserved version history. Tests: CLI invocation, version-tag preservation,
-  round-trip of a versioned CSV into a projection. (~250 lines)
-- **Slice 4 (optional) — dashboard/API surface** if warranted after Slice 3.
+- **Slice 1 — Experience-data contract + marginal effect isolation (NEXT).**
+  New `analytics/experience_gam.py`; the experience-record schema; static
+  select-base offset via `MortalityTable.get_qx_vector`; additive A/E GAM
+  (`s(age)+s(duration)+Σ factors`, Poisson/NB) with per-feature effects + CIs;
+  `export_to_mortality_csv` round-trip. Backend: `statsmodels GLMGam`. No
+  tensor/hierarchy — de-risks the data-contract + offset + export plumbing.
+- **Slice 2 — Tensor MI surface (HEADLINE).** `te(age, calendar_year)`
+  age-varying improvement with static select-base offset + residual
+  `s_resid(duration)`; anisotropic `bambi`/`pymc` HSGP; extract `MI_x(y)` grid
+  with credible intervals; posterior-predictive forward projection anchored to
+  a long-term rate → emit a `MortalityImprovement`-compatible scale. Encodes
+  the Lexis/APC identifiability rule (calendar → improvement; issue-year
+  constrained; optional `underwriting_era` factor).
+- **Slice 3 — Hierarchical partial pooling (credibility).** Segment-level
+  deviations shrunk toward the global surface (Pedersen GS/GI HGAM);
+  generalizes `ExperienceStudy`'s limited-fluctuation `Z`.
+- **Slice 4 — Surface + versioning + validation + docs (CLOSES EPIC).**
+  `polaris experience improvement`/`fit`; assumption versioning; diagnostics;
+  `mgcv`-via-`rpy2` offline validation oracle; ADR + ARCHITECTURE + QUICKSTART.
 
-**Guardrails to carry into the PLAN:** pin all study/as-of dates (ADR-074
-guard — no `date.today()`); if any exported CSV is referenced by a test,
-update the Dockerfile COPY + `.dockerignore` allowlist in the same PR (the
-recurring #61/#66 trap); ML retrain must be optional (default off) so the loop
-runs without XGBoost present in minimal environments.
+**Key design anchors (full list in the PLAN):** A/E on the log-mortality scale
+offset by a **static** (never generational) select base; duration enters twice
+(primary in the offset, residual smoother for company-specific select drift);
+`bambi`/`pymc` deps staged into `[ml]` with the slice that imports them
+(`pymc` is compile-heavy — not added ahead of Slice 2); `mgcv` never a runtime
+dependency; all fixtures pin dates (ADR-074); Dockerfile COPY + `.dockerignore`
+updated in-PR for any test-referenced data (#61/#66 trap). **Out of scope:** the
+maintainer's new-data-source risk segmentation is a *forward / prospective-
+rating* capability (a later Phase-7 candidate reusing this machinery), not this
+retrospective experience epic.
 
 ---
 
