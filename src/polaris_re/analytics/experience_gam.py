@@ -1066,7 +1066,12 @@ class TensorMIModel:
 
     def _reference(self, frame: pl.DataFrame, factors: list[str]) -> dict[str, object]:
         """Reference covariates: median duration, modal factor level. Attained age
-        and calendar year are supplied per-grid-point by the surface extractor."""
+        and calendar year are supplied per-grid-point by the surface extractor.
+
+        Unlike ``GAMFitResult`` (which keeps ``__levels__<factor>`` lists for its
+        per-level ``factor_effect`` contrasts), the MI surface never marginalises a
+        single factor's levels — the year-to-year contrast cancels every
+        calendar-invariant term — so only the modal reference level is stored."""
         ref: dict[str, object] = {}
         ref["attained_age"] = float(np.median(frame["attained_age"].to_numpy()))
         ref["calendar_year"] = float(np.median(frame["calendar_year"].to_numpy()))
@@ -1075,7 +1080,6 @@ class TensorMIModel:
         for f in factors:
             vc = frame.group_by(f).len().sort("len", descending=True)
             ref[f] = vc[f][0]
-            ref[f"__levels__{f}"] = sorted(frame[f].unique().to_list())
         return ref
 
     def fit(self) -> MISurfaceResult:
