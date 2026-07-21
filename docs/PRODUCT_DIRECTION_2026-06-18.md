@@ -1590,6 +1590,25 @@ constraint and a future session must not rebuild these as a naive wall-time log.
   single-node memory. NICE-TO-HAVE (scale, not correctness). *Source: ADR-138
   Out of scope (1st-order — follow-up of the A3' epic).*
 
+- **NICE-TO-HAVE — full negative-binomial (estimated α) likelihood on the
+  by-amount experience basis.** A4' Slice 1 (ADR-139) handles by-amount
+  overdispersion with quasi-Poisson Pearson-φ scaling (widens SEs by √φ). A full
+  NB with an estimated dispersion `α` is the textbook alternative and gives a
+  likelihood-based fit rather than a moment-scaled one. Quasi-Poisson is the
+  robust, dependency-light Slice-1 choice; promote NB only if a validation deck
+  shows the quasi-Poisson bands materially misstate uncertainty. Separable,
+  low-frequency; NICE-TO-HAVE. *Source: ADR-139 Out of scope (1st-order —
+  follow-up of the A4' epic).*
+
+- **NICE-TO-HAVE — lapse experience through the same GAM machinery.** The
+  A4' Experience-GAM module (ADR-139) is built for mortality; the additive
+  A/E-over-static-base form generalizes directly to lapse (swap the base
+  offset for a lapse assumption and the death measure for lapse counts). The
+  epic's Slices 1–4 are mortality (incl. the tensor MI surface); lapse is an
+  explicit epic-level out-of-scope. Revive as a self-contained follow-up once
+  the mortality slices land. NICE-TO-HAVE. *Source: ADR-139 / PLAN_experience_gam
+  "Explicitly Out of Scope" (1st-order — follow-up of the A4' epic).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

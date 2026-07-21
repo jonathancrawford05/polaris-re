@@ -21,6 +21,13 @@ from polaris_re.analytics.capital_base import (
     CapitalSchedule,
     capital_model_for,
 )
+from polaris_re.analytics.experience_gam import (
+    ExperienceGAM,
+    GAMFitResult,
+    SmoothEffect,
+    aggregate_seriatim,
+    attach_base_rate,
+)
 from polaris_re.analytics.experience_study import AEResult, ExperienceStudy
 from polaris_re.analytics.ifrs17 import (
     IFRS17Cohort,
@@ -90,7 +97,9 @@ __all__ = [
     "DualDurationGap",
     "DurationGapResult",
     "DurationMeasures",
+    "ExperienceGAM",
     "ExperienceStudy",
+    "GAMFitResult",
     "HullWhiteModel",
     "IFRS17Cohort",
     "IFRS17CohortManager",
@@ -121,6 +130,7 @@ __all__ = [
     "ScenarioAdjustment",
     "ScenarioResult",
     "ScenarioRunner",
+    "SmoothEffect",
     "SolveMode",
     "SolvencyIICapital",
     "SolvencyIIFactors",
@@ -133,7 +143,9 @@ __all__ = [
     "ValidationResult",
     "ValidationStatus",
     "YRTRateSchedule",
+    "aggregate_seriatim",
     "apply_scenario_to_assumptions",
+    "attach_base_rate",
     "build_movement_table",
     "capital_model_for",
     "dual_duration_gap",

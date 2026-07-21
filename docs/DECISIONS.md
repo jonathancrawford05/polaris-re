@@ -9126,3 +9126,76 @@ files too large to hold in memory; and a machine-readable report artefact (the
 report is printed to the console / returned in the JSON response, not written as a
 sidecar JSON file). These are NICE-TO-HAVE refinements of the A3' epic, not
 common-path correctness gaps.
+
+## ADR-139: Experience GAM (A4′ Slice 1) — additive A/E model over grouped cells, offset by a static select base
+
+**Date:** 2026-07-21
+**Status:** Accepted
+**Slice:** 1 of 4 — Data-Driven Experience Analysis & Assumption-Setting epic (A4′),
+ROADMAP 6.1. See `docs/PLAN_experience_gam.md` and `docs/CONTINUATION_experience_gam.md`.
+
+**Context.** The epic gives actuaries a data-driven, *interpretable* way to isolate
+standard feature effects and set mortality bases from experience — the auditable
+middle between the grouped limited-fluctuation credibility in
+`analytics/experience_study.py` and the black-box XGBoost in
+`assumptions/ml_mortality.py`. Slice 1 de-risks the plumbing (data contract, static
+offset, additive fit, export round-trip) before the hard modelling (the tensor MI
+surface is Slice 2, hierarchical pooling Slice 3). It ships no tensor, no
+calendar-year improvement term, and no hierarchy.
+
+**Decision.**
+
+1. **New module `analytics/experience_gam.py`.** Defines the canonical grouped-cell
+   contract (`CANONICAL_KEY_COLUMNS` + the `COUNT_MEASURES` / `AMOUNT_MEASURES`
+   pairs), an `ExperienceGAM` fitter, a `GAMFitResult` with per-feature effect and
+   export helpers, and the `aggregate_seriatim` / `attach_base_rate` contract
+   helpers. Sibling to `experience_study.py`; no pricing-path or golden change.
+
+2. **A/E parameterization on the log scale, offset by the static select base
+   (Design Anchors 1–2).** `log μ = log[exposure * q_base(x,d)] + η`, so `exp(η)` is
+   the fitted multiplicative A/E deviation from the table. `q_base` is the existing
+   VBT/CIA *annual* select-and-ultimate rate, obtained by inverting
+   `MortalityTable.get_qx_vector`'s constant-force monthly rate
+   (`q_annual = 1 - (1-q_monthly)**12`, exact). The base MUST be a single-reference-
+   year static table; a generational base would fold assumed improvement into the
+   residual and is out of scope for this static-only slice.
+
+3. **Grouped cells are the canonical input; grouping is sufficiency, not compromise
+   (Design Anchor 7).** The grouped Poisson likelihood equals the seriatim
+   likelihood up to a constant, so a `aggregate_seriatim` fold-in gives identical
+   coefficients — verified to 1e-6 in the test suite using a *balanced* synthetic
+   seriatim (equal replication per age preserves the B-spline knot quantiles).
+
+4. **Backend: statsmodels regression splines (not penalized GAM selection).** The
+   additive model is `bs(attained_age) + bs(duration_years) + Σ C(factor)` fit as a
+   Poisson GLM with a log offset, via `patsy` B-splines. Fixed-df regression splines
+   are far more robust and deterministic than penalized-smoothness selection — the
+   right choice for a de-risking slice; the anisotropic HSGP sophistication is
+   deliberately deferred to Slice 2 (bambi/pymc). `statsmodels` is added to the
+   `[ml]` extra and imported **lazily** so `import polaris_re.analytics` still
+   succeeds without `[ml]`; the first `fit()` then raises an actionable
+   `PolarisComputationError`.
+
+5. **Overdispersion via quasi-Poisson (Pearson φ scaling), mandatory on the
+   by-amount basis (Design Anchor 7).** `basis="amount"` defaults `overdispersion=
+   True`, fitting with `scale="X2"` so standard errors and confidence bands widen by
+   √φ. `dispersion` (φ = Pearson χ²/df) is always reported. A full negative-binomial
+   likelihood with an estimated `α` is deferred (harvested follow-up) — quasi-
+   Poisson is the robust, dependency-light choice for Slice 1.
+
+6. **Blended base×multiplier export round-trips through the Polaris CSV loader.**
+   `export_to_mortality_csv` evaluates the fitted A/E multiplier at reference
+   covariates over an age grid, multiplies by `q_base(age)`, and writes the ultimate-
+   only `age,rate` schema that `load_mortality_csv(select_period=0)` reads back
+   identically.
+
+**Out of scope (this slice — harvested follow-ups).** The tensor MI surface
+`te(x,t)` with credible intervals and forward projection (Slice 2); hierarchical
+partial pooling / credibility shrinkage (Slice 3); the CLI surface, assumption
+versioning, diagnostic plots, and the HMD/ILEC/CIA validation decks + loaders
+(Slice 4); a full negative-binomial (estimated-α) likelihood on the by-amount
+basis as an alternative to quasi-Poisson dispersion; an `underwriting_era` factor
+for the Lexis identifiability escape hatch (relevant only once the calendar term
+lands in Slice 2); and lapse experience (the module generalizes but Slices 1–4 are
+mortality). These are refinements/continuations of the A4′ epic, tracked in the
+CONTINUATION and PLAN, not common-path correctness gaps.
