@@ -1,8 +1,8 @@
 # PLAN: Data-Driven Experience Analysis & Assumption-Setting (GAM)
 
-**Status:** CONSTITUTED (plan locked 2026-07-15) — this is the next active
-epic (A4′). Slice 1 is NEXT; the backing `CONTINUATION_experience_gam.md`
-flips to IN PROGRESS when Slice 1 ships.
+**Status:** IN PROGRESS (plan locked 2026-07-15; Slice 1 shipped 2026-07-21,
+ADR-139) — this is the active epic (A4′). Slice 2 (tensor MI surface) is NEXT;
+the backing `CONTINUATION_experience_gam.md` is IN PROGRESS.
 
 **Source / derivation.** Reframes ROADMAP Milestone 6.1 (Experience-Monitoring
 Automation) and the 2026-07-05 review's C2, re-ranked to the active Tier-A epic
@@ -145,8 +145,10 @@ pack, wired in Slice 4).
 
 ## Decomposition
 
-### Slice 1: Experience-data contract + marginal effect isolation (NEXT)
-- **Backend:** statsmodels `GLMGam`. **Status:** NEXT.
+### Slice 1: Experience-data contract + marginal effect isolation (DONE)
+- **Backend:** statsmodels `GLM` + `patsy` B-splines (regression splines — the
+  robust de-risking choice; penalized/HSGP starts Slice 2). **Status:** DONE
+  (shipped 2026-07-21, ADR-139; see `CONTINUATION_experience_gam.md`).
 - **New module** `analytics/experience_gam.py` (sibling to
   `experience_study.py`). Defines the **canonical grouped-cell contract** (one
   row per covariate combination; anchor 7): keys `issue_age, duration_months,
