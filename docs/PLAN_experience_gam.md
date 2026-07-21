@@ -61,6 +61,16 @@ continuous generalization of the limited-fluctuation `Z` already in
    surface. All fixtures pin dates (ADR-074 guard). If any exported/fixture CSV
    is referenced by a test, update the Dockerfile COPY + `.dockerignore`
    allowlist in the same PR (#61/#66 trap).
+7. **Grouped Lexis cells are the canonical input (not seriatim).** For the
+   Poisson/NB GAM with a log-exposure offset, grouped exposed-and-deaths cells
+   give **identical** smooth/coefficient estimates to seriatim (the grouped
+   likelihood equals the seriatim likelihood up to a constant when covariates
+   are constant within a cell) — so grouping is sufficiency, not compromise, and
+   it collapses 10⁸–10⁹ policy-years to 10⁵–10⁶ cells. This is also the shape
+   the public data ships in (SOA ILEC). A seriatim extract is folded in via an
+   optional aggregator. **Carry both by-count and by-amount exposure/deaths; the
+   by-amount basis is overdispersed (a few large claims dominate) → NB /
+   dispersion parameter is mandatory there, optional for by-count.**
 
 ## Canonical Model Form (target, reached by Slice 2)
 
@@ -95,25 +105,70 @@ so it lands only when Slice 2's code imports it — Slice 1 CI stays lean. Both
 guarded behind the `[ml]` optional extra; the module import-errors with an
 actionable message when `[ml]` is absent (mirrors `ml_mortality.py`).
 
+## Data Sources & Strategy
+
+Industry experience data is intercompany-**aggregated**; true seriatim is
+confidential to contributing companies, and licensed insured files are not
+repo-redistributable. The strategy separates *building/testing the method* from
+*validating on insured data*, and ships **loaders, not data** (mirrors
+`scripts/convert_soa_tables.py` + the QA-golden pattern):
+
+- **Develop & unit-test the tensor-MI engine on population data — Human
+  Mortality Database (mortality.org).** Free (account + citation), programmatic,
+  gives **Deaths and Exposures as age × calendar-year matrices** by sex — the
+  exact `(age, year)` Lexis structure `te(age, calendar_year)` consumes.
+  Population, not insured, but ideal for engineering/regression-testing the
+  improvement surface on *real* data before touching insured files. **CHMD**
+  (Canada) / **USMDB** (US states) share the format.
+- **Fit & validate insured experience — SOA ILEC.** The 2019 Individual Life
+  Mortality Experience report (observation years **2012–2019**, and prior
+  vintages back to 2009) publishes a **grouped exposed-and-deaths flat file +
+  interactive tool** under a data-use agreement. Its schema carries **all three
+  Lexis axes** (issue age, duration, observation year) plus gender / smoker /
+  plan / face band / preferred class, with **both policy- and amount-**exposure
+  and deaths — a one-to-one match to this epic's model form and the anchor-7
+  grouped contract. **SOA MIM-2021** ships an ILEC-derived insured dataset +
+  improvement tool — a ready-made reference for the Slice-2 `MI_x(y)` output.
+- **Canadian validation targets — CIA.** The annual Canadian Individual Life
+  Experience study (to policy year 2022–23) and **CIA2014** (2009–2019;
+  *already in this repo*) are published as **aggregated tables / workbooks**,
+  not a row-level file — so CIA is a validation *target*, not a fit source. The
+  CIA credibility-theory paper is directly relevant to Slice 3's partial
+  pooling.
+
+**Loaders-not-data rule:** provide `load_hmd()` / `load_ilec()` fetch-and-cache
+helpers + a small **synthetic or sampled** in-repo fixture (respecting each
+source's terms); keep large/licensed files **out of the Docker image and CI**
+(anchor 6 / the #61/#66 trap). HMD is the primary real-data test fixture; ILEC +
+CIA are the insured validation decks (the A4′ analogue of the A1′ validation
+pack, wired in Slice 4).
+
 ## Decomposition
 
 ### Slice 1: Experience-data contract + marginal effect isolation (NEXT)
 - **Backend:** statsmodels `GLMGam`. **Status:** NEXT.
 - **New module** `analytics/experience_gam.py` (sibling to
-  `experience_study.py`). Defines the experience-record contract
-  (`exposure, deaths, attained_age, issue_age, duration_months, calendar_year,
-  sex, smoker, band, product, uw_class, channel, segment`), builds the static
+  `experience_study.py`). Defines the **canonical grouped-cell contract** (one
+  row per covariate combination; anchor 7): keys `issue_age, duration_months,
+  attained_age, calendar_year, sex, smoker, band, product, uw_class, channel,
+  segment` → measures `central_exposure, death_count` and the by-amount pair
+  `amount_exposed, death_amount`, plus an NB **dispersion** parameter (mandatory
+  on the by-amount basis). Ships an **optional seriatim→grouped aggregator** so a
+  cedant's row-level extract folds into the same contract. Builds the static
   select-base offset via `MortalityTable.get_qx_vector`, fits an **additive**
-  A/E GAM (`s(x) + s(d) + Σ factors`, Poisson/NB), and exposes per-feature
-  smooth effect functions + confidence bands.
+  A/E GAM (`s(attained_age) + s(duration) + Σ factors`, Poisson/NB), and exposes
+  per-feature smooth effect functions + confidence bands.
 - **Export** `export_to_mortality_csv()` writing a blended base×multiplier
   table in the Polaris CSV schema that round-trips through
   `MortalityTable.load()`.
 - **No tensor, no hierarchy, no calendar term yet** — de-risks the data
   contract + offset + export plumbing before the hard modeling.
-- **Tests:** synthetic-recovery (data generated from a known multiplier surface
-  → GAM recovers within tolerance); round-trip export→load identity; effect-CI
-  coverage; import-guard when `[ml]` absent. ADR for the module + A/E design.
+- **Tests:** grouped-vs-seriatim sufficiency (aggregating a synthetic seriatim
+  set and fitting gives identical coefficients within tolerance); synthetic
+  multiplier-surface recovery; by-amount overdispersion handled (NB dispersion >
+  1 recovered); round-trip export→load identity; effect-CI coverage;
+  import-guard when `[ml]` absent. ADR for the module + A/E design + grouped
+  contract.
 
 ### Slice 2: Tensor MI surface (HEADLINE)
 - **Backend:** bambi HSGP / pymc. **Depends on:** Slice 1 merged.
@@ -125,10 +180,12 @@ actionable message when `[ml]` is absent (mirrors `ml_mortality.py`).
 - Encodes the Design-Anchor-3 identifiability rule: default issue-year term
   constrained to zero; optional `underwriting_era` factor.
 - **Tests:** recover a known age×year improvement surface from synthetic data;
-  MI grid matches an `mgcv` offline oracle within tolerance; projection anchors
-  to the long-term rate; static-vs-generational-offset guard (a generational
-  base offset is rejected / warned). ADR for the tensor form + attribution
-  assumption + projection.
+  **recover a plausible improvement gradient from a real HMD age×year
+  Deaths/Exposures slice** (see Data Sources — sanity, not a golden); MI grid
+  matches an `mgcv` offline oracle within tolerance; projection anchors to the
+  long-term rate; static-vs-generational-offset guard (a generational base
+  offset is rejected / warned). ADR for the tensor form + attribution assumption
+  + projection.
 
 ### Slice 3: Hierarchical partial pooling (credibility)
 - **Backend:** bambi hierarchical HSGP. **Depends on:** Slice 2 merged.
@@ -142,8 +199,13 @@ actionable message when `[ml]` is absent (mirrors `ml_mortality.py`).
 - CLI `polaris experience improvement` (+ `polaris experience fit`);
   assumption versioning under `data/assumption_versions/` (study-date +
   credibility-weight tags, preserved history); effect-shape + MI-surface
-  diagnostic plots; ARCHITECTURE + QUICKSTART; ADR. Offline `mgcv`-via-`rpy2`
-  validation oracle wired as a dev-only check.
+  diagnostic plots; ARCHITECTURE + QUICKSTART; ADR.
+- **Validation decks + loaders (per Data Sources & Strategy):** `load_hmd()` /
+  `load_ilec()` fetch-and-cache helpers (loaders-not-data; large/licensed files
+  excluded from the image + CI); an insured **A/E + improvement validation
+  deck** against SOA ILEC / MIM-2021 and CIA aggregated tables (the A4′ analogue
+  of the A1′ validation pack); the offline `mgcv`-via-`rpy2` oracle wired as a
+  dev-only check. In-repo tests use a small synthetic/sampled fixture only.
 - HARVEST FOLLOW-UPS, then `CONTINUATION_experience_gam` → COMPLETE.
 
 ## Explicitly Out of Scope (epic level)

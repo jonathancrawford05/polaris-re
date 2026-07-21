@@ -116,6 +116,19 @@ locked PLAN":
   is explicitly **out of scope** (forward prospective-rating, not retrospective
   experience — carriers lack the fields historically); flagged as a later
   Phase-7 candidate reusing the same GAM machinery.
+- **Data-structure + sources research (folded into the PLAN):** established
+  that **grouped Lexis cells are the canonical input** — Poisson/NB
+  sufficiency makes grouped exposed-and-deaths identical to seriatim for the
+  GAM, and it is the shape public data ships in (new Design Anchor 7; Slice-1
+  contract now carries by-count + by-amount + NB dispersion + an optional
+  seriatim aggregator). Added a **Data Sources & Strategy** section: **HMD**
+  (mortality.org) as the real age×year dev/test fixture; **SOA ILEC** (2012–19
+  grouped flat file — all three Lexis axes, by-count + by-amount) + **MIM-2021**
+  as the insured fit/validation source; **CIA** (annual study to PY2022-23,
+  CIA2014 already in-repo, credibility paper) as Canadian validation targets;
+  **loaders-not-data** rule (large/licensed files out of the image + CI). Slice
+  2 gains an HMD improvement-recovery sanity test; Slice 4 gains the
+  ILEC/CIA/HMD validation decks + loaders. Sources cited in the chat thread.
 
 ## Tests Added
 None — docs-only session. Baseline `make test` was run at session start to
