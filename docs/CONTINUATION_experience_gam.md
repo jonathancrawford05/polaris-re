@@ -54,7 +54,7 @@ mirrors the Slice-1 de-risking pattern (regression splines before penalized/GP).
 #### Slice 2a: Frequentist tensor MI surface + `MI_x(y)` grid
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-4zyfr7
-- **PR:** _(draft — this session)_
+- **PR:** #142 (draft — awaiting review/merge)
 - **Backend:** statsmodels tensor-product B-splines (`bs(x, df):bs(t, df)` + margins)
   — reuses the Slice-1 `[ml]` dependency; no `pymc`/`bambi` yet.
 - **What was done:** `TensorMIModel` fits `te(attained_age, calendar_year)` on the
