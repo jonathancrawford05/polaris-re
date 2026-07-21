@@ -20,7 +20,7 @@ XGBoost in `ml_mortality.py`.
 ### Slice 1: Experience-data contract + marginal effect isolation
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-gjz7ld
-- **PR:** _(draft — this session)_
+- **PR:** #141 — **MERGED** 2026-07-21
 - **Backend:** statsmodels `GLM` + `patsy` B-splines (regression splines).
 - **What was done:** New module `analytics/experience_gam.py` defining the canonical
   grouped-cell contract, an `ExperienceGAM` additive A/E fitter (Poisson / quasi-
@@ -42,23 +42,55 @@ XGBoost in `ml_mortality.py`.
     de-risking choice. Penalized/HSGP sophistication starts in Slice 2.
 
 ### Slice 2: Tensor MI surface (HEADLINE)
+
+Sub-decomposed to keep CI lean and the suite deterministic: **2a** ships the tensor
+surface + `MI_x(y)` grid on the existing statsmodels backend (frequentist, no new
+dependency); **2b** adds the Bayesian HSGP backend for honest posterior credible
+intervals + posterior-predictive projection; **2c** emits the
+`MortalityImprovement`-compatible custom scale (the `ImprovementScale.CUSTOM` /
+from-grid contract change, landed with the projected surface that feeds it). This
+mirrors the Slice-1 de-risking pattern (regression splines before penalized/GP).
+
+#### Slice 2a: Frequentist tensor MI surface + `MI_x(y)` grid
+- **Status:** DONE
+- **Branch:** claude/loving-gauss-4zyfr7
+- **PR:** #142 (draft — awaiting review/merge)
+- **Backend:** statsmodels tensor-product B-splines (`bs(x, df):bs(t, df)` + margins)
+  — reuses the Slice-1 `[ml]` dependency; no `pymc`/`bambi` yet.
+- **What was done:** `TensorMIModel` fits `te(attained_age, calendar_year)` on the
+  static-base offset; `MISurfaceResult.improvement_surface()` extracts
+  `MI_x(y) = 1 − exp[η(x,y) − η(x,y−1)]` with a **delta-method** confidence band
+  (`MISurface`). Design-Anchor-3 encoded by construction (no issue-year term; real
+  `underwriting_era` factor as the escape hatch). Anchor-1 static-base guard
+  (`_assert_static_base`) rejects a generational offset and unidentifiable
+  (single-year-per-cell) data. ADR-140.
+- **Key decisions (carry into 2b/2c):**
+  - Frequentist tensor gradient = the fitted improvement; the delta-method band is the
+    frequentist analogue of the Slice-2b credible interval.
+  - MI is reported as year-to-year steps; the surface spans `years[1:]` (each column
+    is the *end* year of an annual step). 2c's `MortalityImprovement` export consumes
+    this grid directly (`q(Y) = q(base)·Π(1−MI)`).
+  - `underwriting_era` added to `CANONICAL_KEY_COLUMNS` + candidate factors
+    (backward-compatible — activates only when present with >1 level).
+
+#### Slice 2b: Bayesian HSGP credible intervals + projection
 - **Status:** NEXT
-- **Depends on:** Slice 1 merged.
+- **Depends on:** Slice 2a merged.
 - **Backend:** bambi HSGP / pymc (adds `bambi>=0.14`, `pymc>=5.16` to `[ml]`, imported
   only where used).
-- **Files to create/modify:** extend `experience_gam.py` (or a `experience_mi.py`
-  sibling) with the `te(x, t)` age-varying improvement term + `s_resid(d)`; a
-  `MortalityImprovement`-compatible from-grid constructor / `ImprovementScale.CUSTOM`.
-- **Tests to add:** recover a known age×year improvement surface from synthetic data;
-  recover a plausible gradient from a real HMD age×year Deaths/Exposures slice; MI grid
-  matches an `mgcv` offline oracle within tolerance; projection anchors to a settable
-  long-term rate; static-vs-generational-offset guard.
-- **Acceptance criteria:**
-  - `te(x, t)` fitted with the static-base offset + `s_resid(d)`; anisotropic HSGP.
-  - `MI_x(y)` grid extracted **with credible intervals**.
-  - Emits a `MortalityImprovement`-compatible custom scale.
-  - Encodes Design-Anchor-3 identifiability: default issue-year term = 0; optional
-    `underwriting_era` factor.
+- **Scope:** anisotropic HSGP `te(x, t)` with **posterior credible intervals** on
+  `MI_x(y)` and posterior-predictive **forward projection** anchored to a settable
+  long-term rate (locked default: Matérn mean-reverting; RW2 offered). MAP+Laplace and
+  full-NUTS run modes. Validate against the 2a frequentist grid + an `mgcv` offline
+  oracle within tolerance; a plausible gradient from a real HMD age×year slice.
+
+#### Slice 2c: `MortalityImprovement`-compatible custom-scale emission
+- **Status:** PLANNED
+- **Depends on:** Slice 2b merged.
+- **Scope:** a from-grid constructor / `ImprovementScale.CUSTOM` (core-contract change,
+  backward-compatible defaults, human-review flagged) that turns the projected
+  `MI_x(y)` surface into a `MortalityImprovement` that plugs into
+  `apply_improvement`. Static-vs-generational-offset guard already lives in 2a.
 
 ### Slice 3: Hierarchical partial pooling (credibility)
 - **Status:** PLANNED

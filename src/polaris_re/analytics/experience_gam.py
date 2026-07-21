@@ -29,10 +29,22 @@ Design anchors (see docs/PLAN_experience_gam.md — Slice 1 subset):
    is overdispersed → a dispersion parameter (quasi-Poisson scale) is mandatory
    there, optional for by-count.
 
-Slice-1 scope deliberately excludes the tensor MI surface, the calendar-year
-improvement term, and hierarchical pooling — those are Slices 2-3. This slice
-de-risks the data contract, the static offset, the additive fit, and the export
-plumbing.
+Slice-2a adds the **tensor mortality-improvement (MI) surface** — the epic
+headline. :class:`TensorMIModel` fits an age-varying calendar-improvement term
+``te(attained_age, calendar_year)`` on top of the same static-base offset and
+extracts the annual improvement grid ``MI_x(y) = 1 - exp[te(x, y) - te(x, y-1)]``
+with pointwise (delta-method) confidence bands. It encodes Design-Anchor-3
+identifiability by construction (no issue-year term → the calendar gradient is
+attributed to improvement; an optional ``underwriting_era`` factor exposes the
+alternative), and guards against a *generational* base offset (which would make
+the fitted trend residual-vs-assumed improvement, not MI). Slice 2a is the
+frequentist, CI-lean de-risking of the surface (statsmodels tensor-product
+B-splines, no new dependency); the Bayesian HSGP backend (honest posterior
+credible intervals + posterior-predictive projection) and the
+``MortalityImprovement``-compatible custom-scale emission are Slices 2b-2c.
+
+Still out of scope here: hierarchical partial pooling (Slice 3) and the CLI /
+assumption-versioning / validation surfaces (Slice 4).
 
 Backend: ``statsmodels`` (penalized/regression splines via ``patsy`` B-splines).
 Both are guarded behind the ``[ml]`` optional extra — this module imports them
@@ -57,7 +69,10 @@ __all__ = [
     "COUNT_MEASURES",
     "ExperienceGAM",
     "GAMFitResult",
+    "MISurface",
+    "MISurfaceResult",
     "SmoothEffect",
+    "TensorMIModel",
     "aggregate_seriatim",
     "attach_base_rate",
 ]
@@ -77,6 +92,7 @@ CANONICAL_KEY_COLUMNS: tuple[str, ...] = (
     "uw_class",
     "channel",
     "segment",
+    "underwriting_era",
 )
 """Covariate keys of the canonical grouped-cell contract. Only a subset is
 required for a given study (see :class:`ExperienceGAM`); the rest are optional
@@ -90,6 +106,9 @@ AMOUNT_MEASURES: tuple[str, str] = ("amount_exposed", "death_amount")
 (overdispersed → dispersion parameter mandatory)."""
 
 # Factors that may enter the additive model when present with >1 level.
+# ``underwriting_era`` is the Design-Anchor-3 escape hatch: a cedant with a known
+# underwriting change in the experience window can expose it to attribute part of
+# the calendar gradient to a secular underwriting shift rather than improvement.
 _CANDIDATE_FACTORS: tuple[str, ...] = (
     "sex",
     "smoker",
@@ -98,6 +117,7 @@ _CANDIDATE_FACTORS: tuple[str, ...] = (
     "uw_class",
     "channel",
     "segment",
+    "underwriting_era",
 )
 
 
@@ -669,4 +689,449 @@ class ExperienceGAM:
             _result=result,
             _design_info=design_info,
             _smooth_specs=smooth_specs,
+        )
+
+
+# --- Slice 2a: tensor mortality-improvement (MI) surface -------------------------
+
+# Columns that determine the *static* select-and-ultimate base rate q_base(x, d).
+# The generational-base guard groups by these: within an otherwise-identical cell,
+# a static base is constant across calendar years, a generational one is not.
+_QBASE_DETERMINANTS: tuple[str, ...] = ("attained_age", "duration_months", "sex", "smoker")
+
+
+def _predict_eta_se(
+    result: object,
+    design_info: object,
+    frame: pl.DataFrame,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Rebuild the fitted design matrix for ``frame`` (offset excluded) and return
+    ``(design, eta, se_eta)``.
+
+    The stateful ``patsy`` transforms captured in ``design_info`` reuse the
+    *fitted* spline knots, so predictions on a fresh grid are consistent with the
+    fit. ``se_eta`` is the linear-predictor standard error from the parameter
+    covariance — the frequentist analogue of a posterior SE.
+    """
+    from patsy import build_design_matrices
+
+    data = {c: frame[c].to_numpy() for c in frame.columns}
+    (design_obj,) = build_design_matrices([design_info], data)
+    design = np.asarray(design_obj, dtype=np.float64)
+    params = np.asarray(result.params, dtype=np.float64)  # type: ignore[attr-defined]
+    cov = np.asarray(result.cov_params(), dtype=np.float64)  # type: ignore[attr-defined]
+    eta = design @ params
+    se = np.sqrt(np.einsum("ij,jk,ik->i", design, cov, design))
+    return design, eta, se
+
+
+def _assert_static_base(cells: pl.DataFrame, tol: float = 1e-9) -> None:
+    """
+    Guard: verify the ``q_base`` offset is a *static* single-reference-year table,
+    not a generational/projected one (Design Anchor 1).
+
+    Groups cells by the base-rate determinants (attained age, duration, sex,
+    smoker) and checks that ``q_base`` is constant across calendar years within
+    each group. A generational base varies with calendar year for a fixed
+    (age, duration, sex, smoker), which would make the fitted calendar gradient
+    *residual-vs-assumed* improvement rather than the improvement itself.
+
+    Raises:
+        PolarisValidationError: If any group's ``q_base`` spread exceeds ``tol``,
+            or if there is no calendar variation to test the guard against.
+    """
+    determinants = [c for c in _QBASE_DETERMINANTS if c in cells.columns]
+    if "calendar_year" not in cells.columns:
+        raise PolarisValidationError("TensorMIModel requires a 'calendar_year' column.")
+    if not determinants:
+        # Nothing to group on — cannot verify staticness; treat as a contract error.
+        raise PolarisValidationError(
+            "Cannot verify a static base offset without at least an 'attained_age' column."
+        )
+    spread = (
+        cells.group_by(determinants)
+        .agg(
+            (pl.col("q_base").max() - pl.col("q_base").min()).alias("_spread"),
+            pl.col("calendar_year").n_unique().alias("_n_years"),
+        )
+        .filter(pl.col("_n_years") > 1)
+    )
+    if spread.height == 0:
+        raise PolarisValidationError(
+            "No (age, duration, sex, smoker) cell spans multiple calendar years, so the "
+            "static-base guard cannot run and the calendar/improvement trend is not "
+            "identifiable. Supply experience covering >1 calendar year per covariate cell."
+        )
+    max_spread = float(spread["_spread"].max())
+    if max_spread > tol:
+        raise PolarisValidationError(
+            f"q_base varies by up to {max_spread:.3g} across calendar years within a fixed "
+            "(age, duration, sex, smoker) cell — the base offset looks generational, not "
+            "static. Fit the MI surface against a single-reference-year base table (Anchor 1), "
+            "or pass allow_generational_base=True to override (the fitted trend will then be "
+            "residual-vs-assumed improvement, not improvement)."
+        )
+
+
+@dataclass(frozen=True)
+class MISurface:
+    """
+    A fitted mortality-improvement surface: the annual improvement rate
+    ``MI_x(y)`` over an age x calendar-year grid, with a pointwise confidence band.
+
+    ``MI_x(y) = 1 - exp[te(x, y) - te(x, y-1)]`` is the fraction by which the
+    A/E-implied mortality at attained age ``x`` falls going from calendar year
+    ``y-1`` to ``y`` (positive = improving/declining mortality). Each ``years[j]``
+    is the *end* year of an annual step, so ``mi_grid`` has one fewer column than
+    the calendar range spanned. This plugs into
+    ``MortalityImprovement.apply_improvement`` as ``q(Y) = q(base) * Π (1 - MI)``
+    (the ``MortalityImprovement``-compatible export lands in Slice 2b/2c).
+    """
+
+    ages: np.ndarray
+    """Attained ages of the surface rows, shape (A,), int."""
+
+    years: np.ndarray
+    """End year of each annual improvement step, shape (Y,), int."""
+
+    mi_grid: np.ndarray
+    """Annual improvement rate ``MI_x(y)``, shape (A, Y), float64."""
+
+    mi_lower: np.ndarray
+    """Lower confidence bound on ``MI_x(y)``, shape (A, Y), float64."""
+
+    mi_upper: np.ndarray
+    """Upper confidence bound on ``MI_x(y)``, shape (A, Y), float64."""
+
+    confidence_level: float
+    """Two-sided confidence level of the band (e.g. 0.95)."""
+
+    def to_frame(self) -> pl.DataFrame:
+        """Long-format DataFrame with columns ``[attained_age, calendar_year,
+        mi, mi_lower, mi_upper]`` — one row per (age, step-end-year)."""
+        a = np.repeat(self.ages, len(self.years))
+        y = np.tile(self.years, len(self.ages))
+        return pl.DataFrame(
+            {
+                "attained_age": a.astype(np.int64),
+                "calendar_year": y.astype(np.int64),
+                "mi": self.mi_grid.reshape(-1).astype(np.float64),
+                "mi_lower": self.mi_lower.reshape(-1).astype(np.float64),
+                "mi_upper": self.mi_upper.reshape(-1).astype(np.float64),
+            }
+        )
+
+
+@dataclass
+class MISurfaceResult:
+    """
+    Result of fitting a :class:`TensorMIModel`.
+
+    Carries the fitted overall A/E level and prediction helpers to extract the
+    ``MI_x(y)`` improvement surface with confidence bands.
+    """
+
+    basis: str
+    """``'count'`` or ``'amount'`` — which exposure/deaths pair was fit."""
+
+    factors: list[str]
+    """Categorical factors that entered the additive model."""
+
+    age_varying: bool
+    """Whether the age x calendar tensor interaction was included (age-varying MI)
+    vs a separable age + calendar model (improvement constant across age)."""
+
+    overall_ae: float
+    """Total actual deaths / total expected deaths (exposure * q_base)."""
+
+    dispersion: float
+    """Pearson dispersion φ = Pearson χ² / residual df."""
+
+    overdispersion_applied: bool
+    """Whether the covariance was scaled by φ (quasi-Poisson)."""
+
+    n_cells: int
+    """Number of grouped cells in the fit."""
+
+    observed_ages: tuple[int, int]
+    """(min, max) attained age observed in the fit."""
+
+    observed_years: tuple[int, int]
+    """(min, max) calendar year observed in the fit."""
+
+    reference: dict[str, object]
+    """Reference covariate values (median smooth, modal factor level) used when
+    marginalising the surface over duration and factors."""
+
+    _result: object = field(default=None, repr=False)
+    _design_info: object = field(default=None, repr=False)
+
+    def _reference_frame(self, n: int) -> dict[str, np.ndarray]:
+        """Length-n covariate frame with every field at its reference (excluding
+        the ``__levels__`` bookkeeping entries)."""
+        return {
+            k: np.repeat(np.asarray([v]), n)
+            for k, v in self.reference.items()
+            if not k.startswith("__levels__")
+        }
+
+    def improvement_surface(
+        self,
+        ages: np.ndarray | None = None,
+        years: np.ndarray | None = None,
+        confidence_level: float = 0.95,
+    ) -> MISurface:
+        """
+        Extract the annual improvement grid ``MI_x(y)`` with a pointwise band.
+
+        For each attained age and each annual step ``y-1 -> y``, the improvement is
+        ``1 - exp(d)`` where ``d = η(x, y) - η(x, y-1)`` is the year-to-year change
+        in the linear predictor with every non-calendar covariate held at its
+        reference. Because those non-calendar terms and the base offset are
+        calendar-invariant, they cancel in ``d`` — so the grid is exactly the
+        fitted calendar/tensor trend regardless of the reference choice. The band
+        is the delta-method interval from the covariance of the linear contrast.
+
+        Args:
+            ages:             Contiguous integer ages; defaults to the observed
+                              attained-age range.
+            years:            Contiguous integer calendar years; defaults to the
+                              observed calendar-year range. Improvement is reported
+                              for the interior steps, so the returned surface spans
+                              ``years[1:]``.
+            confidence_level: Two-sided confidence level for the band.
+
+        Returns:
+            An :class:`MISurface` of shape (len(ages), len(years) - 1).
+
+        Raises:
+            PolarisValidationError: If fewer than two calendar years are supplied.
+        """
+        from scipy.stats import norm
+
+        if ages is None:
+            ages = np.arange(self.observed_ages[0], self.observed_ages[1] + 1)
+        if years is None:
+            years = np.arange(self.observed_years[0], self.observed_years[1] + 1)
+        ages = np.asarray(ages).astype(np.int64)
+        years = np.asarray(years).astype(np.int64)
+        if len(years) < 2:
+            raise PolarisValidationError(
+                "improvement_surface needs at least two calendar years to form an "
+                "annual improvement step."
+            )
+
+        n_age, n_year = len(ages), len(years)
+        grid_age = np.repeat(ages, n_year).astype(np.float64)
+        grid_year = np.tile(years, n_age).astype(np.float64)
+        ref = self._reference_frame(n_age * n_year)
+        ref["attained_age"] = grid_age
+        ref["calendar_year"] = grid_year
+        frame = pl.DataFrame(ref)
+
+        design, eta, _ = _predict_eta_se(self._result, self._design_info, frame)
+        p = design.shape[1]
+        design = design.reshape(n_age, n_year, p)
+        eta = eta.reshape(n_age, n_year)
+
+        # Annual step contrasts: d[a, j] = η(a, year_j) - η(a, year_{j-1}).
+        d = eta[:, 1:] - eta[:, :-1]  # (A, Y-1)
+        contrast = design[:, 1:, :] - design[:, :-1, :]  # (A, Y-1, p)
+        cov = np.asarray(self._result.cov_params(), dtype=np.float64)  # type: ignore[attr-defined]
+        var = np.einsum("ayp,pq,ayq->ay", contrast, cov, contrast)
+        se = np.sqrt(np.clip(var, 0.0, None))
+
+        z = float(norm.ppf(0.5 + confidence_level / 2.0))
+        mi = 1.0 - np.exp(d)
+        # d larger => smaller MI, so the +z*se side is the lower MI bound.
+        mi_lower = 1.0 - np.exp(d + z * se)
+        mi_upper = 1.0 - np.exp(d - z * se)
+        return MISurface(
+            ages=ages,
+            years=years[1:],
+            mi_grid=mi.astype(np.float64),
+            mi_lower=mi_lower.astype(np.float64),
+            mi_upper=mi_upper.astype(np.float64),
+            confidence_level=confidence_level,
+        )
+
+
+class TensorMIModel:
+    """
+    Age-varying mortality-improvement surface over grouped experience cells.
+
+    Fits ``deaths ~ offset(log[exposure * q_base]) + te(attained_age, calendar_year)
+    + s(duration_years) + Σ factors`` with a Poisson (by-count) or quasi-Poisson
+    (by-amount) family, where ``te(attained_age, calendar_year)`` is a
+    tensor-product B-spline surface. The calendar gradient of that surface is the
+    fitted mortality improvement; :meth:`MISurfaceResult.improvement_surface`
+    turns it into the ``MI_x(y)`` grid.
+
+    Identifiability (Design Anchor 3): the model carries **no issue-year term**, so
+    the calendar gradient is attributed to improvement by construction (issue-year
+    term constrained to zero). A cedant with a known underwriting change can add an
+    ``underwriting_era`` column, which enters as an ordinary factor.
+
+    Args:
+        cells:            Grouped cells in the canonical contract. Must carry
+                          ``attained_age``, ``calendar_year`` (>1 distinct value),
+                          a static ``q_base`` (see :func:`attach_base_rate`), and
+                          the exposure/deaths pair for ``basis``.
+        basis:            ``'count'`` or ``'amount'``.
+        age_df:           Spline df for the attained-age margin.
+        year_df:          Spline df for the calendar-year margin (the trend).
+        duration_df:      Spline df for the residual duration smooth (when it varies).
+        age_varying:      Include the age x calendar tensor interaction (age-varying
+                          improvement). ``False`` fits a separable age + calendar
+                          model (improvement constant across age).
+        overdispersion:   Scale the covariance by the Pearson dispersion φ
+                          (quasi-Poisson). ``None`` enables it for the by-amount
+                          basis and disables it for by-count.
+        allow_generational_base: Skip the static-base guard (Anchor 1). The fitted
+                          trend then measures residual-vs-assumed improvement.
+
+    Raises:
+        PolarisValidationError: On a missing/invalid contract or a non-static base.
+    """
+
+    REQUIRED_ALWAYS: ClassVar[set[str]] = {"attained_age", "calendar_year", "q_base"}
+
+    def __init__(
+        self,
+        cells: pl.DataFrame,
+        *,
+        basis: str = "count",
+        age_df: int = 6,
+        year_df: int = 4,
+        duration_df: int = 4,
+        age_varying: bool = True,
+        overdispersion: bool | None = None,
+        allow_generational_base: bool = False,
+    ) -> None:
+        if basis not in {"count", "amount"}:
+            raise PolarisValidationError(f"basis must be 'count' or 'amount', got {basis!r}.")
+        exposure_col, deaths_col = COUNT_MEASURES if basis == "count" else AMOUNT_MEASURES
+        required = self.REQUIRED_ALWAYS | {exposure_col, deaths_col}
+        missing = required - set(cells.columns)
+        if missing:
+            raise PolarisValidationError(
+                f"Grouped cells missing required columns for basis={basis!r}: {missing}"
+            )
+        if cells.height == 0:
+            raise PolarisValidationError("Grouped cells DataFrame is empty.")
+        if cells["calendar_year"].n_unique() < 2:
+            raise PolarisValidationError(
+                "TensorMIModel needs >1 distinct calendar_year to identify an improvement trend."
+            )
+
+        q_base = cells["q_base"].to_numpy().astype(np.float64)
+        if np.any(q_base <= 0.0) or np.any(q_base > 1.0):
+            raise PolarisValidationError("q_base must lie in (0, 1] for every cell.")
+
+        if not allow_generational_base:
+            _assert_static_base(cells)
+
+        self.cells = cells
+        self.basis = basis
+        self.exposure_col = exposure_col
+        self.deaths_col = deaths_col
+        self.age_df = age_df
+        self.year_df = year_df
+        self.duration_df = duration_df
+        self.age_varying = age_varying
+        self.overdispersion = (basis == "amount") if overdispersion is None else overdispersion
+        self.allow_generational_base = allow_generational_base
+
+    def _build_frame(self) -> tuple[pl.DataFrame, list[str]]:
+        """Assemble the modelling frame (adds ``duration_years``) and active factors."""
+        frame = self.cells
+        if "duration_months" in frame.columns:
+            frame = frame.with_columns((pl.col("duration_months") / 12.0).alias("duration_years"))
+        factors = [f for f in _CANDIDATE_FACTORS if f in frame.columns and frame[f].n_unique() > 1]
+        return frame, factors
+
+    def _formula(self, frame: pl.DataFrame, factors: list[str]) -> str:
+        """Right-hand-side patsy formula for the tensor-MI model."""
+        age_term = f"bs(attained_age, df={self.age_df})"
+        year_term = f"bs(calendar_year, df={self.year_df})"
+        terms = [age_term, year_term]
+        if self.age_varying:
+            # Tensor-product interaction => age-varying improvement surface.
+            terms.append(f"{age_term}:{year_term}")
+        if "duration_years" in frame.columns and frame["duration_years"].n_unique() > 1:
+            terms.append(f"bs(duration_years, df={self.duration_df})")
+        terms.extend(f"C({f})" for f in factors)
+        return " + ".join(terms)
+
+    def _reference(self, frame: pl.DataFrame, factors: list[str]) -> dict[str, object]:
+        """Reference covariates: median duration, modal factor level. Attained age
+        and calendar year are supplied per-grid-point by the surface extractor.
+
+        Unlike ``GAMFitResult`` (which keeps ``__levels__<factor>`` lists for its
+        per-level ``factor_effect`` contrasts), the MI surface never marginalises a
+        single factor's levels — the year-to-year contrast cancels every
+        calendar-invariant term — so only the modal reference level is stored."""
+        ref: dict[str, object] = {}
+        ref["attained_age"] = float(np.median(frame["attained_age"].to_numpy()))
+        ref["calendar_year"] = float(np.median(frame["calendar_year"].to_numpy()))
+        if "duration_years" in frame.columns:
+            ref["duration_years"] = float(np.median(frame["duration_years"].to_numpy()))
+        for f in factors:
+            vc = frame.group_by(f).len().sort("len", descending=True)
+            ref[f] = vc[f][0]
+        return ref
+
+    def fit(self) -> MISurfaceResult:
+        """
+        Fit the tensor-MI model and return a :class:`MISurfaceResult`.
+
+        Raises:
+            PolarisComputationError: If ``statsmodels`` is unavailable or the fit
+                fails to converge.
+        """
+        sm = ExperienceGAM._require_backend()
+        from patsy import dmatrix
+
+        frame, factors = self._build_frame()
+        rhs = self._formula(frame, factors)
+
+        data = {c: frame[c].to_numpy() for c in frame.columns}
+        design = dmatrix(rhs, data, return_type="dataframe")
+        design_info = design.design_info
+        x = np.asarray(design, dtype=np.float64)
+
+        exposure = frame[self.exposure_col].to_numpy().astype(np.float64)
+        deaths = frame[self.deaths_col].to_numpy().astype(np.float64)
+        q_base = frame["q_base"].to_numpy().astype(np.float64)
+        expected = exposure * q_base
+        if np.any(expected <= 0.0):
+            raise PolarisValidationError(
+                "Every cell must have positive exposure * q_base to form the offset."
+            )
+        offset = np.log(expected)
+
+        model = sm.GLM(deaths, x, family=sm.families.Poisson(), offset=offset)
+        result = model.fit(scale="X2") if self.overdispersion else model.fit()
+        if not getattr(result, "converged", True):
+            raise PolarisComputationError("Tensor MI model fit did not converge.")
+
+        dispersion = float(result.pearson_chi2 / result.df_resid)
+        overall_ae = float(deaths.sum() / expected.sum())
+        cal = self.cells["calendar_year"].to_numpy()
+        age = self.cells["attained_age"].to_numpy()
+
+        return MISurfaceResult(
+            basis=self.basis,
+            factors=factors,
+            age_varying=self.age_varying,
+            overall_ae=overall_ae,
+            dispersion=dispersion,
+            overdispersion_applied=self.overdispersion,
+            n_cells=frame.height,
+            observed_ages=(int(age.min()), int(age.max())),
+            observed_years=(int(cal.min()), int(cal.max())),
+            reference=self._reference(frame, factors),
+            _result=result,
+            _design_info=design_info,
         )

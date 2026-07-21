@@ -1,8 +1,11 @@
 # PLAN: Data-Driven Experience Analysis & Assumption-Setting (GAM)
 
-**Status:** IN PROGRESS (plan locked 2026-07-15; Slice 1 shipped 2026-07-21,
-ADR-139) — this is the active epic (A4′). Slice 2 (tensor MI surface) is NEXT;
-the backing `CONTINUATION_experience_gam.md` is IN PROGRESS.
+**Status:** IN PROGRESS (plan locked 2026-07-15; Slice 1 shipped 2026-07-21 as
+PR #141/ADR-139; Slice 2a — frequentist tensor MI surface + `MI_x(y)` grid —
+shipped 2026-07-21, ADR-140) — this is the active epic (A4′). Slice 2 is
+sub-decomposed 2a/2b/2c (see CONTINUATION); **Slice 2b (Bayesian HSGP credible
+intervals + projection) is NEXT**. The backing `CONTINUATION_experience_gam.md`
+is IN PROGRESS.
 
 **Source / derivation.** Reframes ROADMAP Milestone 6.1 (Experience-Monitoring
 Automation) and the 2026-07-05 review's C2, re-ranked to the active Tier-A epic
@@ -173,7 +176,15 @@ pack, wired in Slice 4).
   contract.
 
 ### Slice 2: Tensor MI surface (HEADLINE)
-- **Backend:** bambi HSGP / pymc. **Depends on:** Slice 1 merged.
+- **Sub-decomposed 2a/2b/2c** (CI-lean de-risking, mirrors Slice 1). **2a — DONE**
+  (2026-07-21, ADR-140): frequentist tensor-product `te(x, t)` on the statsmodels
+  backend, `MI_x(y)` grid via `1 − exp[η(x,y) − η(x,y−1)]` with a delta-method band,
+  Design-Anchor-3 by construction (no issue-year term; real `underwriting_era`
+  factor), Anchor-1 static-base guard. **2b — NEXT**: Bayesian HSGP credible intervals
+  + posterior-predictive projection. **2c**: `MortalityImprovement`-compatible
+  custom-scale emission (`ImprovementScale.CUSTOM` / from-grid). Original Slice-2
+  spec (the full target) follows.
+- **Backend:** bambi HSGP / pymc (2b). **Depends on:** Slice 1 merged.
 - `te(x, t)` age-varying improvement with the static select-base offset +
   `s_resid(d)`; anisotropic HSGP; extract `MI_x(y)` grid **with credible
   intervals**; posterior-predictive projection with a settable long-term-rate

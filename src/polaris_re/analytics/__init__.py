@@ -24,7 +24,10 @@ from polaris_re.analytics.capital_base import (
 from polaris_re.analytics.experience_gam import (
     ExperienceGAM,
     GAMFitResult,
+    MISurface,
+    MISurfaceResult,
     SmoothEffect,
+    TensorMIModel,
     aggregate_seriatim,
     attach_base_rate,
 )
@@ -111,6 +114,8 @@ __all__ = [
     "IFRS17Result",
     "LICATCapital",
     "LICATFactors",
+    "MISurface",
+    "MISurfaceResult",
     "MonteCarloUQ",
     "NetPremiumCalculator",
     "NetPremiumResult",
@@ -135,6 +140,7 @@ __all__ = [
     "SolvencyIICapital",
     "SolvencyIIFactors",
     "SolvencyIIResult",
+    "TensorMIModel",
     "UQParameters",
     "UQResult",
     "ValidationCase",

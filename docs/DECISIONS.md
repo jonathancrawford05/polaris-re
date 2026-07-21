@@ -9199,3 +9199,74 @@ for the Lexis identifiability escape hatch (relevant only once the calendar term
 lands in Slice 2); and lapse experience (the module generalizes but Slices 1–4 are
 mortality). These are refinements/continuations of the A4′ epic, tracked in the
 CONTINUATION and PLAN, not common-path correctness gaps.
+
+## ADR-140: Experience GAM (A4′ Slice 2a) — frequentist tensor MI surface + MI_x(y) grid
+
+**Date:** 2026-07-21
+**Status:** Accepted
+**Slice:** 2a of the Slice-2 HEADLINE — Data-Driven Experience Analysis epic (A4′),
+ROADMAP 6.1. See `docs/PLAN_experience_gam.md` and `docs/CONTINUATION_experience_gam.md`.
+
+**Context.** Slice 2 is the epic headline: an age-varying mortality-improvement (MI)
+surface `MI_x(y)` estimated from experience. The PLAN's target backend is a Bayesian
+anisotropic HSGP (bambi/pymc) for honest posterior credible intervals and
+posterior-predictive projection. `pymc` is compile-heavy and its NUTS sampling is
+slow and non-deterministic — a poor fit for a single autonomous session that must
+keep CI lean and leave the suite deterministic. Following the same de-risking pattern
+Slice 1 used (regression splines before penalized/GP sophistication), Slice 2 is
+sub-decomposed: **2a delivers the tensor surface and the `MI_x(y)` grid on the
+existing statsmodels backend**, and the Bayesian HSGP credible intervals + projection
+(2b) and the `MortalityImprovement`-compatible custom-scale emission (2c) follow.
+
+**Decision.**
+
+1. **`TensorMIModel` + `MISurfaceResult` + `MISurface` in `experience_gam.py`.** Fits
+   `deaths ~ offset(log[exposure * q_base]) + te(attained_age, calendar_year)
+   + s(duration_years) + Σ factors` as a Poisson / quasi-Poisson GLM, where
+   `te(attained_age, calendar_year)` is a **tensor-product B-spline** (the patsy
+   interaction `bs(attained_age, df):bs(calendar_year, df)` plus its margins). The
+   calendar gradient of that surface is the fitted improvement. `age_varying=False`
+   drops the interaction for a separable age + calendar model (improvement constant
+   across age).
+
+2. **`MI_x(y) = 1 − exp[η(x, y) − η(x, y−1)]`, with a delta-method band.** The
+   surface is extracted as year-to-year steps: for each age and interior year the
+   linear-predictor change `d = η(x,y) − η(x,y−1)` gives `MI = 1 − exp(d)`. Because
+   the base offset and every non-calendar term are calendar-invariant, they cancel in
+   `d`, so the grid is exactly the fitted calendar/tensor trend regardless of the
+   reference covariates. The band is the covariance of the linear contrast
+   `X(x,y) − X(x,y−1)` propagated through `1 − exp(·)` — the frequentist analogue of
+   the Slice-2b credible interval. Verified: constant and age-varying improvements are
+   recovered to machine precision from deterministic synthetic data; the band brackets
+   the truth and widens as exposure thins and as the confidence level rises.
+
+3. **Design-Anchor-3 identifiability by construction.** The model carries **no
+   issue-year term**, so the calendar gradient is attributed to improvement (issue-year
+   term constrained to zero) — the locked default. The escape hatch is a real,
+   supported `underwriting_era` factor (added to `CANONICAL_KEY_COLUMNS` and the
+   candidate-factor list): a cedant with a known underwriting change exposes it to move
+   a cohort shift off the trend. Both additions are backward-compatible — the factor
+   only activates when the column is present with >1 level, so Slice 1 behaviour is
+   unchanged.
+
+4. **Anchor-1 static-base guard.** `_assert_static_base` groups cells by the base-rate
+   determinants (attained age, duration, sex, smoker) and rejects a `q_base` that
+   drifts with calendar year — a *generational* offset would make the fitted trend
+   residual-vs-assumed improvement rather than the improvement itself. It also rejects
+   experience where no covariate cell spans >1 calendar year (the trend is then
+   unidentifiable). `allow_generational_base=True` overrides the guard with the
+   documented caveat.
+
+5. **No new dependency; engine byte-identical.** Slice 2a reuses the `[ml]`
+   `statsmodels` backend from Slice 1 (lazy import, actionable error when `[ml]` is
+   absent), adds no pricing-path or golden change, and its 15 tests run in ~1.4s.
+
+**Out of scope (this slice — deferred to 2b/2c, tracked in the CONTINUATION).** The
+Bayesian anisotropic HSGP backend (bambi/pymc) for honest posterior credible
+intervals and posterior-predictive forward projection with a settable long-term-rate
+anchor (2b); emission of a `MortalityImprovement`-compatible custom scale — the
+`ImprovementScale.CUSTOM` / from-grid contract change that lets the fitted `MI_x(y)`
+grid drive `apply_improvement`, deferred so the core-contract change lands with the
+projected surface it feeds (2c); a full negative-binomial (estimated-α) likelihood;
+hierarchical partial pooling (Slice 3); and the CLI / versioning / validation surfaces
+(Slice 4). These are continuations of the A4′ epic, not common-path correctness gaps.
