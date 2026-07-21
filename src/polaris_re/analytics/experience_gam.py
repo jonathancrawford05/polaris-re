@@ -321,20 +321,34 @@ class GAMFitResult:
         Returns:
             (eta, se_eta) arrays of shape (len(frame),).
         """
-        from patsy import build_design_matrices
-
-        data = {c: frame[c].to_numpy() for c in frame.columns}
-        (design,) = build_design_matrices([self._design_info], data)
-        x = np.asarray(design, dtype=np.float64)
+        x = self._design_matrix(frame)
         params = np.asarray(self._result.params, dtype=np.float64)
         cov = np.asarray(self._result.cov_params(), dtype=np.float64)
         eta = x @ params
         se = np.sqrt(np.einsum("ij,jk,ik->i", x, cov, x))
         return eta, se
 
+    def _design_matrix(self, frame: pl.DataFrame) -> np.ndarray:
+        """Rebuild the fitted design matrix for ``frame`` (offset excluded)."""
+        from patsy import build_design_matrices
+
+        data = {c: frame[c].to_numpy() for c in frame.columns}
+        (design,) = build_design_matrices([self._design_info], data)
+        return np.asarray(design, dtype=np.float64)
+
     def _reference_frame(self, n: int) -> dict[str, np.ndarray]:
-        """Build a length-n covariate frame with every field at its reference."""
-        return {k: np.repeat(np.asarray([v]), n) for k, v in self.reference.items()}
+        """
+        Build a length-n covariate frame with every field at its reference.
+
+        The ``__levels__<factor>`` entries in ``self.reference`` are bookkeeping
+        lists (the distinct levels of each factor), not covariate values — they
+        must be excluded or they produce ragged columns.
+        """
+        return {
+            k: np.repeat(np.asarray([v]), n)
+            for k, v in self.reference.items()
+            if not k.startswith("__levels__")
+        }
 
     def smooth_effect(
         self,
@@ -388,6 +402,12 @@ class GAMFitResult:
         A/E multiplier per level of a categorical ``factor``, relative to the
         reference level, with a confidence band.
 
+        The multiplier and its band are formed from the **contrast** against the
+        reference level, ``eta(level) - eta(ref)``, with all other covariates held at
+        their reference. The band is the SE of that contrast (not of the level's
+        absolute prediction), so the reference level lands at exactly multiplier
+        1.0 with a zero-width band.
+
         Returns:
             DataFrame with columns ``[factor, multiplier, lower, upper]``; the
             reference level has multiplier 1.0.
@@ -402,16 +422,19 @@ class GAMFitResult:
                 f"'{factor}' is not a fitted factor. Available: {self.factors}"
             )
         levels = list(self.reference[f"__levels__{factor}"])  # type: ignore[call-overload]
-        ref_level = self.reference[factor]
         n = len(levels)
         base = self._reference_frame(n)
         base[factor] = np.asarray(levels)
-        frame = pl.DataFrame(base)
-        eta, se = self._predict_eta(frame)
-        # Express relative to the reference level.
-        eta_ref, _ = self._predict_eta(pl.DataFrame(self._reference_frame(1)))
+        x_levels = self._design_matrix(pl.DataFrame(base))
+        x_ref = self._design_matrix(pl.DataFrame(self._reference_frame(1)))
+
+        # Contrast design rows: level prediction minus the reference prediction.
+        contrast = x_levels - x_ref
+        params = np.asarray(self._result.params, dtype=np.float64)
+        cov = np.asarray(self._result.cov_params(), dtype=np.float64)
+        rel = contrast @ params
+        se = np.sqrt(np.einsum("ij,jk,ik->i", contrast, cov, contrast))
         z = float(norm.ppf(0.5 + confidence_level / 2.0))
-        rel = eta - eta_ref[0]
         return pl.DataFrame(
             {
                 factor: np.asarray(levels),
@@ -419,11 +442,6 @@ class GAMFitResult:
                 "lower": np.exp(rel - z * se),
                 "upper": np.exp(rel + z * se),
             }
-        ).with_columns(
-            pl.when(pl.col(factor) == pl.lit(ref_level))
-            .then(1.0)
-            .otherwise(pl.col("multiplier"))
-            .alias("multiplier")
         )
 
     def predict_multiplier(self, cells: pl.DataFrame) -> np.ndarray:

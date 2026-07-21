@@ -186,6 +186,71 @@ def test_recovers_age_varying_multiplier_shape():
 
 
 # --------------------------------------------------------------------------- #
+# Multi-factor path (regression guard for the __levels__ bookkeeping bug)
+# --------------------------------------------------------------------------- #
+
+
+def test_factor_path_predict_smooth_and_export_with_varying_factor():
+    """
+    With a varying categorical factor in the fit, smooth_effect / factor_effect /
+    export_to_mortality_csv all succeed and recover the injected factor multiplier.
+
+    Guards the bug where the ``__levels__<factor>`` bookkeeping entries leaked into
+    the reference frame as ragged columns, crashing every prediction/export path
+    the moment a factor entered the model.
+    """
+    ages = np.arange(40, 75)
+    rng = np.random.default_rng(SEED + 6)
+    q_base = 0.004 * np.exp(0.06 * (ages - 40))
+    exposure = np.full(ages.size, 40000.0)
+    female_ratio = 0.7  # females run 0.7x the male A/E level
+
+    frames = []
+    for sex, ratio in (("M", 1.0), ("F", female_ratio)):
+        deaths = rng.poisson(exposure * q_base * 1.2 * ratio).astype(np.float64)
+        frames.append(
+            pl.DataFrame(
+                {
+                    "attained_age": ages.astype(np.int64),
+                    "sex": [sex] * ages.size,
+                    "central_exposure": exposure,
+                    "death_count": deaths,
+                    "q_base": q_base,
+                }
+            )
+        )
+    cells = pl.concat(frames)
+
+    fit = ExperienceGAM(cells, basis="count", age_df=5).fit()
+    assert "sex" in fit.factors
+
+    # factor_effect recovers the injected ratio; reference level pinned to 1.0.
+    fe = fit.factor_effect("sex")
+    fe_map = {row["sex"]: row["multiplier"] for row in fe.to_dicts()}
+    band = {row["sex"]: (row["lower"], row["upper"]) for row in fe.to_dicts()}
+    # One level is the reference (multiplier exactly 1.0, zero-width band).
+    ref_level = next(k for k, v in fe_map.items() if v == pytest.approx(1.0, abs=1e-12))
+    other = "F" if ref_level == "M" else "M"
+    expected_ratio = female_ratio if other == "F" else 1.0 / female_ratio
+    assert fe_map[other] == pytest.approx(expected_ratio, rel=0.12)
+    # Reference-level band is degenerate (pinned).
+    assert band[ref_level][0] == pytest.approx(1.0, abs=1e-9)
+    assert band[ref_level][1] == pytest.approx(1.0, abs=1e-9)
+
+    # smooth_effect works with a factor present (others held at modal level).
+    eff = fit.smooth_effect("attained_age", grid=np.array([45.0, 65.0]))
+    assert np.all(eff.lower <= eff.multiplier)
+    assert np.all(eff.multiplier <= eff.upper)
+
+    # export succeeds with a factor in the fit.
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as d:
+        out = fit.export_to_mortality_csv(Path(d) / "blended.csv", ages=ages, q_base_by_age=q_base)
+        assert out.exists()
+
+
+# --------------------------------------------------------------------------- #
 # By-amount overdispersion
 # --------------------------------------------------------------------------- #
 
