@@ -1609,6 +1609,19 @@ constraint and a future session must not rebuild these as a naive wall-time log.
   the mortality slices land. NICE-TO-HAVE. *Source: ADR-139 / PLAN_experience_gam
   "Explicitly Out of Scope" (1st-order — follow-up of the A4' epic).*
 
+- **NICE-TO-HAVE — data-driven smoothness selection for the frequentist tensor MI
+  surface.** A4' Slice 2a (ADR-140) fits `te(attained_age, calendar_year)` with
+  **fixed-df** tensor-product regression B-splines (the robust, deterministic
+  de-risking choice), so the surface's wiggliness is a hyperparameter, not
+  data-estimated. On real (noisy) experience this can under- or over-smooth the
+  improvement gradient and mis-scale the delta-method band. Slice 2b's Bayesian
+  anisotropic HSGP largely **subsumes** this (ARD length-scales are the estimated
+  smoothing parameters), so promote a standalone frequentist penalized-GAM
+  (`GLMGam` / mgcv-style GCV) variant only if a validation deck shows the fixed-df
+  bands materially misstate uncertainty *and* 2b's HSGP is not the chosen path.
+  2nd-order (a follow-up of the 2a implementation choice) → NICE-TO-HAVE. *Source:
+  ADR-140 Out of scope (2nd-order — follow-up of the A4' Slice-2a de-risking choice).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log
