@@ -10,8 +10,10 @@ Slice 2c — `MortalityImprovement`-compatible custom-scale emission
 — this is the active epic (A4′). Slice 2 is sub-decomposed 2a/2b/2c and Slice 2b
 is further split **2b-surface / 2b-projection** (see CONTINUATION). Slice 3
 (hierarchical partial pooling / credibility) shipped 2026-07-22 as PR #146/ADR-144.
-**Slices 1–3 are complete; Slice 4 (CLI + versioning + validation + docs, CLOSES
-EPIC) is NEXT.** The optional
+**Slices 1–3 are complete. Slice 4 (CLOSES EPIC) is sub-decomposed 4a/4b/4c/4d
+(see CONTINUATION); Slice 4a — the `polaris experience improvement` CLI surface
+— shipped 2026-07-22 as PR #147/ADR-145, so Slice 4b (fit diagnostics +
+assumption versioning + config wiring) is NEXT.** The optional
 `pymc`-NUTS audit path for the projection is deferred/gated on the maintainer
 confirming the ADR-141 backend direction (see CONTINUATION Open Questions). Note
 (ADR-141): the

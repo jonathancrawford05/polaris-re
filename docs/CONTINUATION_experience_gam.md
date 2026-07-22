@@ -195,18 +195,85 @@ own sub-slice. Mirrors the Slice-1/2a de-risking pattern. See ADR-141.
     (Pedersen GS/GI) and per-segment projection are harvested NICE-TO-HAVE.
 
 ### Slice 4: Surface + versioning + validation + docs (CLOSES EPIC)
-- **Status:** NEXT
+
+Sub-decomposed 4a/4b/4c/4d (mirrors the Slice-1/2 de-risking pattern) because the
+original Slice-4 scope is 4+ sessions: **4a** ships the headline CLI surface
+(`polaris experience improvement`) end-to-end (fit → emit CUSTOM scale); **4b** adds the
+`fit` diagnostics + assumption versioning + `--config`/`AssumptionSet` wiring; **4c** adds
+the loaders + insured validation deck + `mgcv` oracle; **4d** adds diagnostic plots +
+ARCHITECTURE/QUICKSTART docs and CLOSES the epic. Each leaves goldens byte-identical.
+
+#### Slice 4a: `polaris experience improvement` CLI surface
+- **Status:** DONE
+- **Branch:** claude/loving-gauss-wty4t3
+- **PR:** #147 (draft — awaiting review/merge)
 - **Depends on:** Slice 3 merged (#146).
-- **Scope:** CLI `polaris experience improvement` (+ `polaris experience fit`);
-  assumption versioning under `data/assumption_versions/`; effect-shape + MI-surface
-  diagnostic plots; `load_hmd()` / `load_ilec()` fetch-and-cache loaders (loaders-not-
-  data; large/licensed files excluded from image + CI); insured A/E + improvement
-  validation deck vs SOA ILEC / MIM-2021 + CIA; offline `mgcv`-via-`rpy2` oracle as a
-  dev-only check; ARCHITECTURE + QUICKSTART; ADR. HARVEST FOLLOW-UPS, then this
-  CONTINUATION → COMPLETE.
+- **What was done:** New `experience` Typer command group + `polaris experience improvement`
+  in `cli.py`. Reads a grouped-cell experience CSV (canonical contract), attaches the static
+  `q_base` offset (used as-is if present, else `--table` + `attach_base_rate`, Anchor 1),
+  fits the tensor MI surface (`--frequentist` default `TensorMIModel` / `--bayesian`
+  `BayesianTensorMIModel`), optionally forward-projects (`--project-horizon`/`--long-term-rate`,
+  Bayesian-only, ADR-142), and emits the `ImprovementScale.CUSTOM` `MortalityImprovement`
+  as JSON (`--output`) plus the raw `MI_x(y)` grid long-format (`--grid-out`). Rich summary
+  of A/E, dispersion, observed ranges, sampled MI grid + band, and the emitted scale. Heavy
+  imports lazy; engine/goldens byte-identical (+11 tests). ADR-145.
+- **Key decisions (carry into 4b/4c/4d):**
+  - The CSV-on-disk contract accepts a pre-built `q_base` column OR builds it from a named
+    standard table — so a Slice-1-exported extract and a raw grouped file both work.
+  - The emitted CUSTOM-scale JSON (`model_dump_json`) is exactly the artifact Slice 4b's
+    `data/assumption_versions/` persistence and `--config` wiring will consume.
+  - `--project-horizon` is gated on `--bayesian` (the projection needs the posterior anchor).
+
+#### Slice 4b: `polaris experience fit` diagnostics + assumption versioning + config wiring
+- **Status:** NEXT
+- **Depends on:** Slice 4a merged (#147).
+- **Scope:** `polaris experience fit` (Slice-1 `ExperienceGAM` per-feature effect-shape
+  diagnostics); persist/load a CUSTOM scale under `data/assumption_versions/` (study-date +
+  credibility tags, preserved history); wire `ImprovementScale.CUSTOM` into the pricing
+  `--config` schema + an `AssumptionSet` selector so a versioned experience-derived scale
+  drives a `polaris price` run.
+
+#### Slice 4c: Loaders + insured validation deck + `mgcv` oracle
+- **Status:** PLANNED
+- **Depends on:** Slice 4b merged.
+- **Scope:** `load_hmd()` / `load_ilec()` fetch-and-cache loaders (loaders-not-data;
+  large/licensed files excluded from image + CI); insured A/E + improvement validation deck
+  vs SOA ILEC / MIM-2021 + CIA; offline `mgcv`-via-`rpy2` oracle as a dev-only check.
+
+#### Slice 4d: Diagnostic plots + docs (CLOSES EPIC)
+- **Status:** PLANNED
+- **Depends on:** Slice 4c merged.
+- **Scope:** effect-shape + MI-surface diagnostic plots; ARCHITECTURE + QUICKSTART; ADR.
+  HARVEST FOLLOW-UPS, then this CONTINUATION → COMPLETE.
+- **Uncertainty bands — LOCKED (maintainer decision 2026-07-22).** Every diagnostic plot
+  renders its band by default — the bands are already first-class in the data structures
+  (`SmoothEffect.lower/upper`, `MISurface.mi_lower/upper + confidence_level`,
+  `MIProjection.mi_lower/upper`), so rendering them is the default, not extra scope.
+  Rendering choices (the band drives the form):
+  - **Smooth effects:** line + shaded band (`fill_between`). **Factor effects:** point +
+    error bars.
+  - **MI surface:** do NOT paint a band onto a 3-D age×year surface (unreadable). Render
+    **1-D slices** (MI vs calendar year for selected ages; MI vs age for selected years) as
+    line + shaded band; optionally a separate band-*width* heatmap to show where the surface
+    is well- vs poorly-identified (edges / thin cells).
+  - **Projection:** a **fan chart** — the band shape (widest at the join, narrowing to the
+    deterministic long-term rate) is the point, so it is front-and-centre.
+  - **Label the band type** in every caption/legend — frequentist *confidence* vs Bayesian
+    *credible* vs projection *posterior-predictive* are NOT interchangeable.
+  - **Backend note (matplotlib out of the runtime path):** primary rendering is *data →
+    existing Streamlit dashboard* (reuse `--effects-out`/`--grid-out` output, no new heavy
+    dep); an optional static `plot_effects()`/`plot_mi_surface()` helper lives behind a
+    `[viz]` extra for reports (dev/report-only, never imported by the pricing path).
 
 ## Context for Next Session
 
+- **Slice 4d bands (maintainer decision 2026-07-22, see Slice 4d scope):** diagnostic plots
+  render uncertainty bands by default. Rationale worth carrying: per ADR-143,
+  `to_mortality_improvement` **drops the band at the assumption boundary** (an improvement
+  scale is a point basis), so the 4d diagnostics are the one place the uncertainty stays
+  visible — they are where a reviewer signs off on the basis *before* it is frozen into a
+  CUSTOM scale. Do not try to carry the band into the emitted scale (that is a separate
+  harvested NICE-TO-HAVE — a stochastic CUSTOM scale).
 - Slice 1 leaves the engine byte-identical — no pricing path or golden touched. The
   new module is additive and only reachable via `polaris_re.analytics.ExperienceGAM`.
 - The `[ml]` extra now includes `statsmodels>=0.14` (pulls `patsy`, `scipy`). Slice 2
