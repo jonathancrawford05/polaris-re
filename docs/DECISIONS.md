@@ -9650,10 +9650,13 @@ established de-risking cadence.)
 2. **Fits Slice-1 `ExperienceGAM` and reports per-feature effect shapes.** `--age-df` /
    `--duration-df` set the smooth spline df; the Rich summary reports the overall A/E,
    quasi-Poisson dispersion φ, whether overdispersion scaling was applied, the grouped-cell
-   count, and the active factors. Each smooth term is sampled at `--grid-points` evenly-
-   spaced points across its **observed** range (read from the cells, not the fit result,
-   which does not carry the range) and each factor contributes one row per level — the
-   contrast against its modal reference — every effect with a `--confidence-level` band.
+   count, and the active factors. Each smooth term (enumerated via the public
+   `GAMFitResult.smooth_features` accessor — the smooth-term counterpart of the existing
+   public `factors`, added here so the CLI does not reach into the private `_smooth_specs`
+   dict) is sampled at `--grid-points` evenly-spaced points across its **observed** range
+   (read from the cells, not the fit result, which does not carry the range) and each factor
+   contributes one row per level — the contrast against its modal reference — every effect
+   with a `--confidence-level` band.
 
 3. **`--effects-out` writes a tidy long-format CSV** (`feature, term_type, x, x_value,
    multiplier, lower, upper`; `x_value` is the numeric grid value for smooths, null for

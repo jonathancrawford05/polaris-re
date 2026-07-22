@@ -4115,7 +4115,7 @@ def _collect_experience_effects(
     import polars as pl
 
     frames: list[pl.DataFrame] = []
-    for feature in result._smooth_specs:
+    for feature in result.smooth_features:
         if feature == "duration_years" and feature not in cells.columns:
             # duration_years is derived at fit time; recover its observed span.
             span = (cells["duration_months"] / 12.0).to_numpy().astype(np.float64)
@@ -4189,7 +4189,7 @@ def _render_experience_fit(
     summary.add_row("Band level", f"{confidence_level:.0%}")
     console.print(summary)
 
-    for feature in result._smooth_specs:
+    for feature in result.smooth_features:
         rows = effects.filter((effects["feature"] == feature) & (effects["term_type"] == "smooth"))
         if rows.height == 0:
             continue
