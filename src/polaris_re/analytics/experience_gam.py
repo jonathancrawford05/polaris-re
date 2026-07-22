@@ -1675,9 +1675,12 @@ class BayesianTensorMIModel:
         if not converged:
             raise PolarisComputationError("Bayesian MI surface Newton iteration did not converge.")
 
-        cov = np.linalg.inv(hess)
+        # Recompute the Hessian at the converged theta (the loop's `hess` is one
+        # Newton step stale) so the Laplace covariance is exact and consistent with
+        # the effective-df computed from the same mu.
         mu = np.exp(np.clip(design @ theta + offset, -50.0, 50.0))
         unpenalised_hess = (design.T * mu) @ design
+        cov = np.linalg.inv(unpenalised_hess + prec_mat)
         effective_df = float(np.trace(cov @ unpenalised_hess))
         resid_df = max(n - effective_df, 1.0)
         pearson_chi2 = float(np.sum((deaths - mu) ** 2 / np.clip(mu, 1e-12, None)))
