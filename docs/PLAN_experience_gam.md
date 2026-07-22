@@ -8,8 +8,10 @@ mean-reverting posterior-predictive MI projection — shipped 2026-07-22, ADR-14
 Slice 2c — `MortalityImprovement`-compatible custom-scale emission
 (`ImprovementScale.CUSTOM` / `from_grid`) — shipped 2026-07-22, ADR-143)
 — this is the active epic (A4′). Slice 2 is sub-decomposed 2a/2b/2c and Slice 2b
-is further split **2b-surface / 2b-projection** (see CONTINUATION). **Slice 2 is now
-complete; Slice 3 (hierarchical partial pooling / credibility) is NEXT.** The optional
+is further split **2b-surface / 2b-projection** (see CONTINUATION). Slice 3
+(hierarchical partial pooling / credibility) shipped 2026-07-22 as PR #146/ADR-144.
+**Slices 1–3 are complete; Slice 4 (CLI + versioning + validation + docs, CLOSES
+EPIC) is NEXT.** The optional
 `pymc`-NUTS audit path for the projection is deferred/gated on the maintainer
 confirming the ADR-141 backend direction (see CONTINUATION Open Questions). Note
 (ADR-141): the
@@ -215,13 +217,20 @@ pack, wired in Slice 4).
   offset is rejected / warned). ADR for the tensor form + attribution assumption
   + projection.
 
-### Slice 3: Hierarchical partial pooling (credibility)
-- **Backend:** bambi hierarchical HSGP. **Depends on:** Slice 2 merged.
-- Segment-level MI/effect deviations shrunk toward the global surface (Pedersen
-  GS/GI HGAM); generalizes `ExperienceStudy`'s limited-fluctuation `Z`. Thin
-  segments borrow the population trend; shrinkage is estimated, not imposed.
-- **Tests:** a thin segment shrinks toward the global surface; a data-rich
-  segment escapes pooling; pooled estimate lies between raw-cell and global.
+### Slice 3: Hierarchical partial pooling (credibility) — DONE
+- **Backend:** reduced-rank GP + Laplace posterior (ADR-141), NOT bambi HSGP — the
+  segment random effect is a ridge block with an EB-estimated variance; deterministic,
+  core-only. **Status:** DONE (shipped 2026-07-22, ADR-144; PR #146).
+- Segment-level MI/level deviations shrunk toward the global surface; generalizes
+  `ExperienceStudy`'s limited-fluctuation `Z`. Thin segments borrow the population
+  trend; shrinkage is estimated by empirical Bayes, not imposed. Sum-to-zero
+  identifiability so per-segment credibility reflects each segment's own exposure.
+- **Tests (all green):** a thin segment shrinks toward the global surface; a data-rich
+  segment escapes pooling; the pooled estimate lies between the raw-cell and the global;
+  credibility rises monotonically with exposure; EB recovers a known variance component;
+  segment trend deviations shrink; deterministic; contract validation.
+- **Deferred/harvested:** exposure-weighted centring; age-varying group-specific
+  *smoother* (Pedersen GS/GI); per-segment forward projection; NB variance component.
 
 ### Slice 4: Surface + versioning + validation + docs (CLOSES EPIC)
 - CLI `polaris experience improvement` (+ `polaris experience fit`);
