@@ -52,8 +52,13 @@ from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
 
 if TYPE_CHECKING:
+    import polars as pl
+
+    from polaris_re.analytics.experience_gam import MISurface
     from polaris_re.analytics.scenario import ScenarioAdjustment
+    from polaris_re.assumptions.improvement import MortalityImprovement
     from polaris_re.assumptions.lapse import LapseAssumption
+    from polaris_re.assumptions.mortality import MortalityTableSource
     from polaris_re.utils.excel_output import DealPricingExport, IFRS17MovementExport
 from polaris_re.core.pipeline import (
     DealConfig,
@@ -3709,6 +3714,373 @@ def ingest(
         console.print(f"\nNormalised data written to {output}")
         if report.has_rejects:
             console.print(f"Quarantined rows written to {rejects_path}")
+
+
+# --------------------------------------------------------------------------- #
+# Experience-derived assumption setting — `polaris experience` (A4' Slice 4a)
+# --------------------------------------------------------------------------- #
+
+experience_app = typer.Typer(
+    name="experience",
+    help=(
+        "Experience-derived assumption setting — fit a data-driven mortality-"
+        "improvement surface from grouped experience and emit a "
+        "MortalityImprovement scale (A4' epic; ADR-139..144)."
+    ),
+    rich_markup_mode="rich",
+)
+app.add_typer(experience_app, name="experience")
+
+
+def _resolve_mortality_source(name: str) -> "MortalityTableSource":
+    """Resolve a ``--table`` string to a ``MortalityTableSource`` (case-insensitive)."""
+    from polaris_re.assumptions.mortality import MortalityTableSource
+
+    try:
+        return MortalityTableSource(name.upper())
+    except ValueError:
+        valid = ", ".join(s.value for s in MortalityTableSource)
+        console.print(
+            f"[red]Error:[/red] unknown mortality table {name!r}. Valid sources: {valid}."
+        )
+        raise typer.Exit(code=1) from None
+
+
+def _load_experience_cells(experience: Path) -> "pl.DataFrame":
+    """Load a grouped-cell experience CSV into a Polars frame with a clear error."""
+    import polars as pl
+
+    if not experience.exists():
+        console.print(f"[red]Error:[/red] experience file not found: {experience}")
+        raise typer.Exit(code=1)
+    try:
+        return pl.read_csv(experience)
+    except Exception as exc:  # broad — surface any CSV parse error to the CLI user
+        console.print(f"[red]Error reading experience CSV:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+
+def _attach_base_rate_for_experience(
+    cells: "pl.DataFrame",
+    table: str | None,
+    data_dir: Path | None,
+    default_smoker: str,
+) -> "pl.DataFrame":
+    """Ensure the cells carry a static ``q_base`` offset column.
+
+    If the experience CSV already carries ``q_base`` it is used as-is (the
+    caller supplied a pre-built static base). Otherwise ``--table`` is required
+    and the annual select-and-ultimate base is attached from that standard
+    table via :func:`attach_base_rate` (Anchor 1 — a single-reference-year
+    static table).
+    """
+    if "q_base" in cells.columns:
+        return cells
+
+    if table is None:
+        console.print(
+            "[red]Error:[/red] experience cells have no 'q_base' column and no "
+            "--table was given. Supply --table (e.g. soa_vbt_2015) to attach the "
+            "static base rate, or add a q_base column to the CSV."
+        )
+        raise typer.Exit(code=1)
+
+    from polaris_re.analytics.experience_gam import attach_base_rate
+    from polaris_re.assumptions.mortality import MortalityTable
+    from polaris_re.core.exceptions import PolarisValidationError
+    from polaris_re.core.policy import SmokerStatus
+
+    source = _resolve_mortality_source(table)
+    key = default_smoker.strip().upper()
+    try:
+        # Accept either the enum name (SMOKER / NON_SMOKER / UNKNOWN) or its value
+        # (S / NS / U).
+        smoker = SmokerStatus[key] if key in SmokerStatus.__members__ else SmokerStatus(key)
+    except ValueError:
+        valid = ", ".join(f"{s.name.lower()} ({s.value})" for s in SmokerStatus)
+        console.print(
+            f"[red]Error:[/red] unknown --default-smoker {default_smoker!r}. Valid: {valid}."
+        )
+        raise typer.Exit(code=1) from None
+
+    try:
+        mortality_table = MortalityTable.load(source, data_dir=data_dir)
+        return attach_base_rate(cells, mortality_table, default_smoker=smoker)
+    except PolarisValidationError as exc:
+        console.print(f"[red]Error attaching base rate:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+
+def _render_experience_mi(
+    *,
+    backend: str,
+    basis: str,
+    kind: str,
+    overall_ae: float,
+    dispersion: float,
+    n_cells: int,
+    observed_ages: tuple[int, int],
+    observed_years: tuple[int, int],
+    surface: "MISurface",
+    improvement: "MortalityImprovement",
+) -> None:
+    """Render a Rich summary of a fitted / projected MI surface and the emitted scale."""
+    band_label = "credible" if backend == "bayesian" else "confidence"
+
+    summary = Table(title="Experience mortality-improvement surface", show_header=False)
+    summary.add_column("Field", style="cyan")
+    summary.add_column("Value", justify="right")
+    summary.add_row("Backend", f"{backend} ({kind})")
+    summary.add_row("Basis", basis)
+    summary.add_row("Grouped cells", f"{n_cells:,}")
+    summary.add_row("Overall A/E", f"{overall_ae:.4f}")
+    summary.add_row("Dispersion φ", f"{dispersion:.3f}")
+    summary.add_row("Observed ages", f"{observed_ages[0]}-{observed_ages[1]}")
+    summary.add_row("Observed years", f"{observed_years[0]}-{observed_years[1]}")
+    summary.add_row(f"Band ({band_label})", f"{surface.confidence_level:.0%}")
+    console.print(summary)
+
+    # Sampled MI grid: a handful of evenly-spaced ages, mean MI and the final-year
+    # improvement with its band — enough to read the surface at a glance.
+    ages = surface.ages
+    years = surface.years
+    n_sample = min(6, len(ages))
+    idx = np.linspace(0, len(ages) - 1, n_sample).round().astype(int)
+    grid_tbl = Table(title=f"MI_x(y) sample — years {int(years[0])}-{int(years[-1])}")
+    grid_tbl.add_column("Age", justify="right", style="cyan")
+    grid_tbl.add_column("Mean MI", justify="right")
+    grid_tbl.add_column(f"MI @ {int(years[-1])}", justify="right")
+    grid_tbl.add_column(f"{surface.confidence_level:.0%} band", justify="right")
+    for i in idx:
+        mean_mi = float(surface.mi_grid[i].mean())
+        last_mi = float(surface.mi_grid[i, -1])
+        lo = float(surface.mi_lower[i, -1])
+        hi = float(surface.mi_upper[i, -1])
+        grid_tbl.add_row(
+            str(int(ages[i])),
+            f"{mean_mi:+.3%}",
+            f"{last_mi:+.3%}",
+            f"[{lo:+.3%}, {hi:+.3%}]",
+        )
+    console.print(grid_tbl)
+
+    emitted = Table(title="Emitted MortalityImprovement (CUSTOM scale)", show_header=False)
+    emitted.add_column("Field", style="cyan")
+    emitted.add_column("Value", justify="right")
+    emitted.add_row("Scale", improvement.scale.value)
+    emitted.add_row("Base year", str(improvement.base_year))
+    emitted.add_row("Grid ages", f"{int(ages[0])}-{int(ages[-1])}")
+    emitted.add_row("Grid years", f"{int(years[0])}-{int(years[-1])}")
+    emitted.add_row("Ultimate rate", f"{improvement.custom_ultimate_rate:+.3%}")
+    console.print(emitted)
+
+
+@experience_app.command("improvement")
+def experience_improvement_cmd(
+    experience: Annotated[
+        Path,
+        typer.Option(
+            "--experience",
+            "-e",
+            help="Grouped-cell experience CSV in the canonical contract "
+            "(attained_age, calendar_year, exposure/deaths; optional q_base).",
+        ),
+    ],
+    table: Annotated[
+        str | None,
+        typer.Option(
+            "--table",
+            help="Standard mortality table to build the static q_base offset "
+            "(e.g. soa_vbt_2015, cia_2014). Omit if the CSV carries q_base.",
+        ),
+    ] = None,
+    data_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--data-dir",
+            help="Mortality-table directory (defaults to $POLARIS_DATA_DIR/mortality_tables).",
+        ),
+    ] = None,
+    default_smoker: Annotated[
+        str,
+        typer.Option(
+            "--default-smoker",
+            help="Smoker status for the q_base lookup when cells carry no smoker column.",
+        ),
+    ] = "unknown",
+    basis: Annotated[
+        str,
+        typer.Option("--basis", help="Experience basis: 'count' (policy) or 'amount' (face)."),
+    ] = "count",
+    bayesian: Annotated[
+        bool,
+        typer.Option(
+            "--bayesian/--frequentist",
+            help="Fit the Bayesian reduced-rank-GP surface (posterior credible "
+            "bands; enables --project-horizon) vs the frequentist tensor-spline.",
+        ),
+    ] = False,
+    age_df: Annotated[
+        int,
+        typer.Option("--age-df", help="Frequentist attained-age spline df.", min=3),
+    ] = 6,
+    year_df: Annotated[
+        int,
+        typer.Option("--year-df", help="Frequentist calendar-year spline df.", min=3),
+    ] = 4,
+    age_varying: Annotated[
+        bool,
+        typer.Option(
+            "--age-varying/--no-age-varying",
+            help="Include the agexcalendar interaction (age-varying improvement).",
+        ),
+    ] = True,
+    project_horizon: Annotated[
+        int,
+        typer.Option(
+            "--project-horizon",
+            help="Project MI this many years past the experience window "
+            "(requires --bayesian). 0 emits the in-window surface.",
+            min=0,
+        ),
+    ] = 0,
+    long_term_rate: Annotated[
+        float,
+        typer.Option(
+            "--long-term-rate",
+            help="Long-term annual improvement the projection mean-reverts to.",
+        ),
+    ] = 0.01,
+    convergence_period: Annotated[
+        int,
+        typer.Option(
+            "--convergence-period",
+            help="Years to converge to the long-term rate (with --project-horizon).",
+            min=1,
+        ),
+    ] = 20,
+    confidence_level: Annotated[
+        float,
+        typer.Option(
+            "--confidence-level",
+            help="Two-sided confidence/credible level for the reported band.",
+            min=0.5,
+            max=0.999,
+        ),
+    ] = 0.95,
+    ultimate_rate: Annotated[
+        float | None,
+        typer.Option(
+            "--ultimate-rate",
+            help="Improvement applied beyond the emitted grid (default: 0 for a "
+            "surface, the long-term rate for a projection).",
+        ),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Write the emitted MortalityImprovement (CUSTOM scale) as JSON.",
+        ),
+    ] = None,
+    grid_out: Annotated[
+        Path | None,
+        typer.Option("--grid-out", help="Write the MI_x(y) surface (long format) as CSV."),
+    ] = None,
+) -> None:
+    """
+    Fit an experience mortality-improvement surface and emit a MortalityImprovement.
+
+    Reads grouped experience cells, attaches a static select-and-ultimate base
+    (Anchor 1), fits the tensor MI surface (frequentist tensor-spline by default,
+    or the Bayesian reduced-rank-GP with ``--bayesian``), and emits a data-driven
+    ``ImprovementScale.CUSTOM`` mortality-improvement scale — the auditable A4'
+    hand-off that plugs straight into ``MortalityImprovement.apply_improvement``
+    (``q(Y) = q(base)·Π(1-MI_x(y))``).
+
+    With ``--bayesian --project-horizon N`` the emitted scale is the CMI/MP-style
+    forward projection that mean-reverts to ``--long-term-rate``; otherwise it is
+    the in-window fitted surface.
+    """
+    _header()
+
+    if basis not in {"count", "amount"}:
+        console.print(f"[red]Error:[/red] --basis must be 'count' or 'amount', got {basis!r}.")
+        raise typer.Exit(code=1)
+    if project_horizon > 0 and not bayesian:
+        console.print(
+            "[red]Error:[/red] --project-horizon requires --bayesian (only the "
+            "Bayesian surface carries the posterior anchor the projection needs)."
+        )
+        raise typer.Exit(code=1)
+
+    from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
+
+    cells = _load_experience_cells(experience)
+    cells = _attach_base_rate_for_experience(cells, table, data_dir, default_smoker)
+
+    with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}")) as prog:
+        prog.add_task("Fitting mortality-improvement surface...", total=None)
+        try:
+            if bayesian:
+                from polaris_re.analytics.experience_gam import BayesianTensorMIModel
+
+                result = BayesianTensorMIModel(cells, basis=basis, age_varying=age_varying).fit()
+                if project_horizon > 0:
+                    surface = result.project_improvement(
+                        project_horizon,
+                        long_term_rate,
+                        convergence_period=convergence_period,
+                        credible_level=confidence_level,
+                    )
+                    kind = f"projected +{project_horizon}y → {long_term_rate:+.2%}"
+                else:
+                    surface = result.improvement_surface(credible_level=confidence_level)
+                    kind = "in-window surface"
+            else:
+                from polaris_re.analytics.experience_gam import TensorMIModel
+
+                result = TensorMIModel(
+                    cells,
+                    basis=basis,
+                    age_df=age_df,
+                    year_df=year_df,
+                    age_varying=age_varying,
+                ).fit()
+                surface = result.improvement_surface(confidence_level=confidence_level)
+                kind = "in-window surface"
+        except (PolarisValidationError, PolarisComputationError) as exc:
+            console.print(f"[red]Fit failed:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
+
+    if ultimate_rate is not None:
+        improvement = surface.to_mortality_improvement(ultimate_rate=ultimate_rate)
+    else:
+        improvement = surface.to_mortality_improvement()
+
+    _render_experience_mi(
+        backend="bayesian" if bayesian else "frequentist",
+        basis=basis,
+        kind=kind,
+        overall_ae=result.overall_ae,
+        dispersion=result.dispersion,
+        n_cells=result.n_cells,
+        observed_ages=result.observed_ages,
+        observed_years=result.observed_years,
+        surface=surface,
+        improvement=improvement,
+    )
+
+    if grid_out is not None:
+        grid_out.parent.mkdir(parents=True, exist_ok=True)
+        surface.to_frame().write_csv(grid_out)
+        console.print(f"\nMI_x(y) surface written to {grid_out}")
+
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(improvement.model_dump_json(indent=2))
+        console.print(f"Improvement scale (CUSTOM) written to {output}")
 
 
 if __name__ == "__main__":

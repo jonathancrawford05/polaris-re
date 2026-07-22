@@ -195,15 +195,56 @@ own sub-slice. Mirrors the Slice-1/2a de-risking pattern. See ADR-141.
     (Pedersen GS/GI) and per-segment projection are harvested NICE-TO-HAVE.
 
 ### Slice 4: Surface + versioning + validation + docs (CLOSES EPIC)
-- **Status:** NEXT
+
+Sub-decomposed 4a/4b/4c/4d (mirrors the Slice-1/2 de-risking pattern) because the
+original Slice-4 scope is 4+ sessions: **4a** ships the headline CLI surface
+(`polaris experience improvement`) end-to-end (fit → emit CUSTOM scale); **4b** adds the
+`fit` diagnostics + assumption versioning + `--config`/`AssumptionSet` wiring; **4c** adds
+the loaders + insured validation deck + `mgcv` oracle; **4d** adds diagnostic plots +
+ARCHITECTURE/QUICKSTART docs and CLOSES the epic. Each leaves goldens byte-identical.
+
+#### Slice 4a: `polaris experience improvement` CLI surface
+- **Status:** DONE
+- **Branch:** claude/loving-gauss-wty4t3
+- **PR:** #147 (draft — awaiting review/merge)
 - **Depends on:** Slice 3 merged (#146).
-- **Scope:** CLI `polaris experience improvement` (+ `polaris experience fit`);
-  assumption versioning under `data/assumption_versions/`; effect-shape + MI-surface
-  diagnostic plots; `load_hmd()` / `load_ilec()` fetch-and-cache loaders (loaders-not-
-  data; large/licensed files excluded from image + CI); insured A/E + improvement
-  validation deck vs SOA ILEC / MIM-2021 + CIA; offline `mgcv`-via-`rpy2` oracle as a
-  dev-only check; ARCHITECTURE + QUICKSTART; ADR. HARVEST FOLLOW-UPS, then this
-  CONTINUATION → COMPLETE.
+- **What was done:** New `experience` Typer command group + `polaris experience improvement`
+  in `cli.py`. Reads a grouped-cell experience CSV (canonical contract), attaches the static
+  `q_base` offset (used as-is if present, else `--table` + `attach_base_rate`, Anchor 1),
+  fits the tensor MI surface (`--frequentist` default `TensorMIModel` / `--bayesian`
+  `BayesianTensorMIModel`), optionally forward-projects (`--project-horizon`/`--long-term-rate`,
+  Bayesian-only, ADR-142), and emits the `ImprovementScale.CUSTOM` `MortalityImprovement`
+  as JSON (`--output`) plus the raw `MI_x(y)` grid long-format (`--grid-out`). Rich summary
+  of A/E, dispersion, observed ranges, sampled MI grid + band, and the emitted scale. Heavy
+  imports lazy; engine/goldens byte-identical (+11 tests). ADR-145.
+- **Key decisions (carry into 4b/4c/4d):**
+  - The CSV-on-disk contract accepts a pre-built `q_base` column OR builds it from a named
+    standard table — so a Slice-1-exported extract and a raw grouped file both work.
+  - The emitted CUSTOM-scale JSON (`model_dump_json`) is exactly the artifact Slice 4b's
+    `data/assumption_versions/` persistence and `--config` wiring will consume.
+  - `--project-horizon` is gated on `--bayesian` (the projection needs the posterior anchor).
+
+#### Slice 4b: `polaris experience fit` diagnostics + assumption versioning + config wiring
+- **Status:** NEXT
+- **Depends on:** Slice 4a merged (#147).
+- **Scope:** `polaris experience fit` (Slice-1 `ExperienceGAM` per-feature effect-shape
+  diagnostics); persist/load a CUSTOM scale under `data/assumption_versions/` (study-date +
+  credibility tags, preserved history); wire `ImprovementScale.CUSTOM` into the pricing
+  `--config` schema + an `AssumptionSet` selector so a versioned experience-derived scale
+  drives a `polaris price` run.
+
+#### Slice 4c: Loaders + insured validation deck + `mgcv` oracle
+- **Status:** PLANNED
+- **Depends on:** Slice 4b merged.
+- **Scope:** `load_hmd()` / `load_ilec()` fetch-and-cache loaders (loaders-not-data;
+  large/licensed files excluded from image + CI); insured A/E + improvement validation deck
+  vs SOA ILEC / MIM-2021 + CIA; offline `mgcv`-via-`rpy2` oracle as a dev-only check.
+
+#### Slice 4d: Diagnostic plots + docs (CLOSES EPIC)
+- **Status:** PLANNED
+- **Depends on:** Slice 4c merged.
+- **Scope:** effect-shape + MI-surface diagnostic plots; ARCHITECTURE + QUICKSTART; ADR.
+  HARVEST FOLLOW-UPS, then this CONTINUATION → COMPLETE.
 
 ## Context for Next Session
 

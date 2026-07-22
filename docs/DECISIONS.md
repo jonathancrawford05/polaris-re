@@ -9551,3 +9551,65 @@ GAM convention; a full negative-binomial variance component; nested/crossed rand
 group-specific *smoother*, not just a level+linear-trend deviation); per-segment forward
 projection (`project_improvement` per segment); and the CLI/versioning/validation surfaces
 (Slice 4). These are A4′ continuations, not common-path gaps.
+
+## ADR-145: Experience GAM (A4′ Slice 4a) — `polaris experience improvement` CLI surface
+
+**Date:** 2026-07-22
+**Status:** Accepted
+**Slice:** 4a of the Data-Driven Experience Analysis epic (A4′), ROADMAP 6.1 — the first
+sub-slice of Slice 4 (CLI + versioning + validation + docs, CLOSES EPIC). See
+`docs/PLAN_experience_gam.md` and `docs/CONTINUATION_experience_gam.md`. Surfaces the
+Slice-1/2/3 machinery (ADR-139..144).
+
+**Context.** Slices 1–3 built the whole experience → mortality-improvement pipeline —
+the grouped-cell contract and static-base offset (ADR-139), the frequentist and Bayesian
+tensor `MI_x(y)` surfaces (ADR-140/141), the CMI/MP-style forward projection (ADR-142),
+the `ImprovementScale.CUSTOM` emission (ADR-143), and hierarchical credibility (ADR-144)
+— but every one of them was reachable only from Python (`polaris_re.analytics`). An
+actuary could not fit an improvement basis from an experience extract without writing
+code. Slice 4 surfaces the epic; this first sub-slice ships the headline command that
+takes an experience file to a versionable improvement scale end-to-end.
+
+**Decision.** New `experience` Typer command group in `cli.py` with one command,
+`polaris experience improvement`:
+
+1. **Input = the canonical grouped-cell contract (Anchor 7), on disk as CSV.** The command
+   reads a grouped-cell experience CSV (`attained_age`, `calendar_year`, the
+   exposure/deaths pair for `--basis`). If the CSV already carries a static `q_base`
+   offset it is used as-is; otherwise `--table` names a standard `MortalityTableSource`
+   and the annual select-and-ultimate base is attached via `attach_base_rate` (Anchor 1 —
+   a single-reference-year static table, `--data-dir`/`$POLARIS_DATA_DIR`,
+   `--default-smoker` for the lookup).
+
+2. **Both backends, one command.** `--frequentist` (default) fits `TensorMIModel`
+   (tensor-spline surface + delta-method band, `--age-df`/`--year-df`); `--bayesian` fits
+   `BayesianTensorMIModel` (reduced-rank-GP surface + posterior credible band). Deterministic
+   either way — no MCMC (ADR-141).
+
+3. **Projection is opt-in and Bayesian-only.** `--project-horizon N --long-term-rate R`
+   forward-projects the surface to a CMI/MP-style mean-reverting scale (ADR-142);
+   `--project-horizon` is rejected without `--bayesian` because only the Bayesian surface
+   carries the posterior anchor the projection needs.
+
+4. **Output = a versionable `MortalityImprovement` (CUSTOM scale).** The fitted surface (or
+   projection) is emitted via `to_mortality_improvement` and written as JSON (`--output`);
+   the raw `MI_x(y)` grid is optionally written long-format (`--grid-out`). The emitted
+   scale round-trips through JSON and reproduces `apply_improvement` exactly (ADR-143). The
+   beyond-grid `--ultimate-rate` defaults to `0` for a surface and to the long-term rate for
+   a projection. A Rich summary reports the A/E level, dispersion, observed age/year ranges,
+   a sampled `MI_x(y)` grid with its band, and the emitted scale's base year / ultimate rate.
+
+**Backward compatibility.** Purely additive — a new command group and helpers in `cli.py`,
+no change to any existing command, pricing path, assumption contract, or golden baseline;
+the engine is byte-identical. The heavy analytics/`statsmodels` imports are lazy (inside the
+command), so the CLI startup and the non-`[ml]` install are unaffected; the `[ml]`
+import-guard message from `experience_gam` surfaces through the command's error handling.
+
+**Out of scope (this sub-slice — Slice 4 continuations).** `polaris experience fit` (the
+per-feature effect-shape diagnostics from Slice 1's `ExperienceGAM`); assumption versioning
+under `data/assumption_versions/` and wiring `ImprovementScale.CUSTOM` into
+`--config`/`AssumptionSet` so a versioned experience-derived scale drives a pricing run;
+effect-shape + MI-surface diagnostic plots; `load_hmd()`/`load_ilec()` fetch-and-cache
+loaders and the insured A/E + improvement validation deck; the offline `mgcv`-via-`rpy2`
+oracle; ARCHITECTURE/QUICKSTART docs. These are the remaining Slice-4 sub-slices that close
+the epic.
