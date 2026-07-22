@@ -114,7 +114,7 @@ own sub-slice. Mirrors the Slice-1/2a de-risking pattern. See ADR-141.
 ##### Slice 2b-projection: posterior-predictive forward projection + NUTS audit
 - **Status:** DONE (deterministic projection; `pymc`-NUTS audit path deferred — gated)
 - **Branch:** claude/loving-gauss-koxn1s
-- **PR:** #144 (draft — awaiting review/merge)
+- **PR:** #144 — **MERGED** 2026-07-22 (merge commit `7961e4e`)
 - **Backend:** the same reduced-rank GP (ADR-141) — deterministic, pure NumPy/SciPy,
   core-only. The optional lazily-imported `pymc`-NUTS audit path is **deferred**: it is
   gated on the maintainer confirming the ADR-141 backend-deviation direction (an Open
@@ -141,7 +141,7 @@ own sub-slice. Mirrors the Slice-1/2a de-risking pattern. See ADR-141.
 
 #### Slice 2c: `MortalityImprovement`-compatible custom-scale emission
 - **Status:** NEXT
-- **Depends on:** Slice 2b merged (surface #143 merged; projection #144 draft).
+- **Depends on:** Slice 2b merged (surface #143 merged; projection #144 merged 2026-07-22).
 - **Scope:** a from-grid constructor / `ImprovementScale.CUSTOM` (core-contract change,
   backward-compatible defaults, human-review flagged) that turns the projected
   `MI_x(y)` surface into a `MortalityImprovement` that plugs into
