@@ -1673,6 +1673,26 @@ constraint and a future session must not rebuild these as a naive wall-time log.
   follow-up of the planned Slice-2b surface) → NICE-TO-HAVE. *Source: ADR-141 Out of
   scope (1st-order — follow-up of the A4' Slice-2b surface).*
 
+- **NICE-TO-HAVE — select-and-ultimate (per-duration) CUSTOM improvement grids.**
+  A4' Slice 2c (ADR-143) emits `ImprovementScale.CUSTOM` from an **attained-age ×
+  calendar-year** `MI_x(y)` grid (`from_grid` / `to_mortality_improvement`). Real
+  improvement can also vary by select duration (early-duration wear-off differs from
+  ultimate). A per-duration custom grid (a third grid axis, or a select/ultimate pair)
+  would let a CUSTOM scale carry duration structure the way the base table does.
+  Improvement is duration-invariant in the current epic form (PLAN Design-Anchor-4), so
+  this is design polish, not common-path correctness → NICE-TO-HAVE. 1st-order (a
+  follow-up of the planned Slice-2c emission). *Source: ADR-143 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — carry a credible/confidence band alongside a CUSTOM improvement
+  scale.** A4' Slice 2c (ADR-143) emits a **point** `MI_x(y)` basis — the `MISurface`/
+  `MIProjection` credible band is dropped, because `MortalityImprovement.apply_improvement`
+  returns a single improved-rate vector. Propagating the band (e.g. a low/mid/high CUSTOM
+  triple, or an optional band payload consumed by a stochastic pricing run) would let the
+  MI uncertainty flow into scenario/UQ pricing rather than being discarded at the
+  assumption boundary. Point basis is correct for deterministic pricing → NICE-TO-HAVE.
+  1st-order (a follow-up of the planned Slice-2c emission). *Source: ADR-143 Out of scope
+  (1st-order).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

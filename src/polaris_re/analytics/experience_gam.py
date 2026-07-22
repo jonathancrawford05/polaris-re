@@ -59,6 +59,7 @@ from typing import ClassVar
 import numpy as np
 import polars as pl
 
+from polaris_re.assumptions.improvement import MortalityImprovement
 from polaris_re.assumptions.mortality import MortalityTable
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 from polaris_re.core.policy import Sex, SmokerStatus
@@ -825,6 +826,23 @@ class MISurface:
             }
         )
 
+    def to_mortality_improvement(self, ultimate_rate: float = 0.0) -> MortalityImprovement:
+        """
+        Emit a ``MortalityImprovement`` (CUSTOM scale) from this fitted surface.
+
+        The point-estimate ``mi_grid`` becomes the annual improvement grid; the base
+        year is ``years[0] - 1`` (the anchor whose mortality the surface improves
+        forward). Step-end years beyond the surface window use ``ultimate_rate``
+        (default 0.0 — no assumed improvement outside the observed window). Bands are
+        not carried into the deterministic improvement scale.
+        """
+        return MortalityImprovement.from_grid(
+            ages=self.ages,
+            years=self.years,
+            mi_grid=self.mi_grid,
+            ultimate_rate=ultimate_rate,
+        )
+
 
 @dataclass(frozen=True)
 class MIProjection:
@@ -913,6 +931,31 @@ class MIProjection:
         emission reads it directly.
         """
         return np.cumprod(1.0 - self.mi_grid, axis=1).astype(np.float64)
+
+    def to_mortality_improvement(self, ultimate_rate: float | None = None) -> MortalityImprovement:
+        """
+        Emit a ``MortalityImprovement`` (CUSTOM scale) from this forward projection.
+
+        The projected ``mi_grid`` becomes the annual improvement grid; the base year
+        is ``last_observed_year`` (``years[0] - 1``), so the emitted scale improves
+        the last-observed-year mortality forward through the projection horizon. For
+        step-end years beyond the horizon, ``ultimate_rate`` applies — it defaults to
+        ``long_term_rate`` (the rate the projection mean-reverts to), so pricing past
+        the horizon continues the deterministic long-term assumption rather than
+        snapping to zero improvement. Pass ``ultimate_rate=0.0`` to stop improvement
+        at the horizon instead. The credible band is not carried into the scale.
+
+        The result satisfies ``apply_improvement(q, ages, years[k]) ==
+        q * cumulative_factor()[:, k]`` on the projected ages/years (the CUSTOM scale
+        reproduces :meth:`cumulative_factor` exactly).
+        """
+        rate = self.long_term_rate if ultimate_rate is None else ultimate_rate
+        return MortalityImprovement.from_grid(
+            ages=self.ages,
+            years=self.years,
+            mi_grid=self.mi_grid,
+            ultimate_rate=rate,
+        )
 
 
 @dataclass
