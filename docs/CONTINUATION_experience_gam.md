@@ -245,9 +245,35 @@ ARCHITECTURE/QUICKSTART docs and CLOSES the epic. Each leaves goldens byte-ident
 - **Depends on:** Slice 4c merged.
 - **Scope:** effect-shape + MI-surface diagnostic plots; ARCHITECTURE + QUICKSTART; ADR.
   HARVEST FOLLOW-UPS, then this CONTINUATION → COMPLETE.
+- **Uncertainty bands — LOCKED (maintainer decision 2026-07-22).** Every diagnostic plot
+  renders its band by default — the bands are already first-class in the data structures
+  (`SmoothEffect.lower/upper`, `MISurface.mi_lower/upper + confidence_level`,
+  `MIProjection.mi_lower/upper`), so rendering them is the default, not extra scope.
+  Rendering choices (the band drives the form):
+  - **Smooth effects:** line + shaded band (`fill_between`). **Factor effects:** point +
+    error bars.
+  - **MI surface:** do NOT paint a band onto a 3-D age×year surface (unreadable). Render
+    **1-D slices** (MI vs calendar year for selected ages; MI vs age for selected years) as
+    line + shaded band; optionally a separate band-*width* heatmap to show where the surface
+    is well- vs poorly-identified (edges / thin cells).
+  - **Projection:** a **fan chart** — the band shape (widest at the join, narrowing to the
+    deterministic long-term rate) is the point, so it is front-and-centre.
+  - **Label the band type** in every caption/legend — frequentist *confidence* vs Bayesian
+    *credible* vs projection *posterior-predictive* are NOT interchangeable.
+  - **Backend note (matplotlib out of the runtime path):** primary rendering is *data →
+    existing Streamlit dashboard* (reuse `--effects-out`/`--grid-out` output, no new heavy
+    dep); an optional static `plot_effects()`/`plot_mi_surface()` helper lives behind a
+    `[viz]` extra for reports (dev/report-only, never imported by the pricing path).
 
 ## Context for Next Session
 
+- **Slice 4d bands (maintainer decision 2026-07-22, see Slice 4d scope):** diagnostic plots
+  render uncertainty bands by default. Rationale worth carrying: per ADR-143,
+  `to_mortality_improvement` **drops the band at the assumption boundary** (an improvement
+  scale is a point basis), so the 4d diagnostics are the one place the uncertainty stays
+  visible — they are where a reviewer signs off on the basis *before* it is frozen into a
+  CUSTOM scale. Do not try to carry the band into the emitted scale (that is a separate
+  harvested NICE-TO-HAVE — a stochastic CUSTOM scale).
 - Slice 1 leaves the engine byte-identical — no pricing path or golden touched. The
   new module is additive and only reachable via `polaris_re.analytics.ExperienceGAM`.
 - The `[ml]` extra now includes `statsmodels>=0.14` (pulls `patsy`, `scipy`). Slice 2
