@@ -37,7 +37,7 @@ emission method — there was no path from an experience-fitted improvement grid
 | 2a | Frequentist tensor `te(x,t)` surface + `MI_x(y)` grid + delta-method band | ✅ Done | #142 (merged) |
 | 2b-surface | Bayesian reduced-rank-GP MI surface + posterior credible intervals | ✅ Done | #143 (merged) |
 | 2b-projection | CMI/MP-style mean-reverting posterior-predictive MI projection | ✅ Done | #144 (merged) |
-| 2c | `MortalityImprovement` CUSTOM scale (`from_grid` / `to_mortality_improvement`) | ✅ Done | _(this draft PR)_ |
+| 2c | `MortalityImprovement` CUSTOM scale (`from_grid` / `to_mortality_improvement`) | ✅ Done | #145 (draft) |
 | 3 | Hierarchical partial pooling (credibility shrinkage) | ⏳ Next | — |
 | 4 | CLI + assumption versioning + validation decks/loaders + docs (CLOSES EPIC) | 🔲 Planned | — |
 

@@ -142,7 +142,7 @@ own sub-slice. Mirrors the Slice-1/2a de-risking pattern. See ADR-141.
 #### Slice 2c: `MortalityImprovement`-compatible custom-scale emission
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-vvdlm3
-- **PR:** _(this session's draft PR — Slice 2c)_
+- **PR:** #145 (draft — awaiting review/merge)
 - **Depends on:** Slice 2b merged (surface #143 merged; projection #144 merged 2026-07-22).
 - **What was done:** Added `ImprovementScale.CUSTOM` + a backward-compatible data-driven
   grid payload (`custom_ages`/`custom_years`/`custom_mi_grid`/`custom_ultimate_rate`,
