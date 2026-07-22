@@ -1693,6 +1693,33 @@ constraint and a future session must not rebuild these as a naive wall-time log.
   1st-order (a follow-up of the planned Slice-2c emission). *Source: ADR-143 Out of scope
   (1st-order).*
 
+- **NICE-TO-HAVE — age-varying group-specific MI *smoother* (full Pedersen GS/GI HGAM).**
+  A4' Slice 3 (ADR-144) pools a per-segment **level** deviation and a per-segment **linear
+  calendar-trend** deviation toward the global surface. The PLAN's fuller framing is a
+  group-specific *smoother* — each segment gets its own shrunk `te(age, year)` deviation
+  surface (age-varying segment improvement), not just a level + linear trend. This is
+  modelling richness for books with genuinely different age-shaped segment improvement, not
+  common-path first-deal correctness → NICE-TO-HAVE. 1st-order (a follow-up of the planned
+  Slice-3 hierarchy). *Source: ADR-144 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — exposure-weighted sum-to-zero centring for segment deviations.** A4'
+  Slice 3 centres the segment random effect on the *unweighted* average segment (the
+  standard GAM sum-to-zero constraint), so "the global" is the mean segment, not the
+  exposure-weighted book. A weighted (Bühlmann-collective) centring would report each
+  segment's deviation relative to the exposure-weighted population baseline — closer to
+  actuarial credibility convention. The current convention is defensible and the deviations
+  are correct up to the choice of origin → NICE-TO-HAVE. 1st-order (a follow-up of the
+  Slice-3 identifiability choice). *Source: ADR-144 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — per-segment forward MI projection + NB variance component (Slice 3).**
+  `HierarchicalMISurfaceResult` exposes the in-window segment surface but not a per-segment
+  `project_improvement` (the CMI/MP-style mean-reverting projection is only on the global
+  `BayesianMISurfaceResult`); and the between-segment variance component is Gaussian
+  (quasi-Poisson dispersion on the likelihood), not a full negative-binomial. Both are
+  refinements for by-amount / thin-segment projection work, not common-path correctness →
+  NICE-TO-HAVE. 1st-order (a follow-up of the planned Slice-3 hierarchy). *Source: ADR-144
+  Out of scope (1st-order).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

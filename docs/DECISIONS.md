@@ -9478,3 +9478,76 @@ here); persisting/loading a CUSTOM scale under `data/assumption_versions/` (Slic
 versioning store — the tuple/JSON representation is chosen to make this trivial); carrying
 the credible band into the deterministic scale (an improvement scale is a point basis).
 These are A4′ continuations, not common-path gaps.
+
+## ADR-144: Experience GAM (A4′ Slice 3) — hierarchical partial pooling (segment credibility)
+
+**Date:** 2026-07-22
+**Status:** Accepted
+**Slice:** 3 of the Data-Driven Experience Analysis epic (A4′), ROADMAP 6.1. See
+`docs/PLAN_experience_gam.md` and `docs/CONTINUATION_experience_gam.md`. Extends
+ADR-141 (the reduced-rank-GP surface) and ADR-142.
+
+**Context.** The Slice-2 surface fits one global `MI_x(y)` improvement surface plus a
+company A/E level and optional categorical factors. A `segment` grouping (e.g. cedant
+cohort, distribution channel, plan family) entered only as **fixed dummies** with a
+near-flat `1e-6` prior — fully credible, no pooling: a thin segment with a handful of
+deaths got the same un-shrunk trust as a segment with millions of policy-years. That is
+exactly the limited-fluctuation problem `analytics/experience_study.py` solves with an
+imposed credibility factor `Z`. Slice 3 makes segment level/trend deviations **borrow
+strength** from the global surface, with the pooling strength *learned* from the data.
+
+**Decision.** New `HierarchicalMIModel` + `HierarchicalMISurfaceResult` in
+`analytics/experience_gam.py`.
+
+1. **Segment deviations as a Gaussian random effect, not fixed dummies.** A per-segment
+   log-A/E **level** deviation `b0_g` and (optionally) a per-segment calendar **trend**
+   (MI) deviation `b1_g`, each with a shared zero-mean Gaussian prior. The prior shrinks
+   thin segments toward the global surface (`b_g -> 0`) and lets data-rich segments escape
+   pooling — the continuous generalisation of `ExperienceStudy`'s `Z`.
+
+2. **Empirical Bayes for the pooling strength (estimated, not imposed).** The prior SDs
+   `tau_level`, `tau_trend` are estimated by an EM variance-component loop that alternates
+   (i) the penalised-Poisson MAP fit at the current priors and (ii) the closed-form update
+   `tau_k^2 <- mean(alpha_k^2 + Var_post(alpha_k))`. Deterministic and monotone in the
+   marginal likelihood. `tau` collapses toward complete pooling when segments are truly
+   identical and grows toward no pooling when they genuinely differ.
+
+3. **Sum-to-zero identifiability.** A complete set of segment indicators is exactly
+   collinear with the global intercept (and the trend block with the global calendar
+   gradient), which — combined with a soft prior — inflates every segment's posterior
+   variance by the same shared, intercept-confounded mode, so credibility comes out
+   identical regardless of exposure. The random effect is therefore parameterised in an
+   orthonormal **sum-to-zero** basis `Z` (`G × (G-1)`): deviations are pure deviations from
+   the global surface, and each segment's posterior variance reflects **its own** Fisher
+   information (exposure). This is the standard GAM random-effect identifiability
+   constraint. The global surface itself is byte-for-byte the Slice-2 reduced-rank-GP model
+   with `segment` excluded from the fixed factors (a small backward-compatible
+   `exclude_factors` hook on `BayesianTensorMIModel`).
+
+4. **Credibility weight `Z_g = clip(1 - Var_post(b_g) / prior_var, 0, 1)`** — the fraction
+   of the prior variance a segment's own data resolved (`0` = fully pooled, `1` = fully
+   escaped). `segment_effects()` reports it alongside the shrunk level multiplier, its
+   posterior band, exposure, and (when `include_trend`) the per-year MI deviation in MI
+   units (positive = the segment improves faster than the global trend).
+   `improvement_surface(segment=...)` returns the segment-specific surface (global + the
+   pooled trend deviation) or the global surface (`segment=None`).
+
+**Why not `bambi`/`pymc` hierarchical HSGP (the PLAN's anticipated backend).** Same
+reason as ADR-141: the closed-form reduced-rank-GP + Laplace posterior is deterministic,
+CI-lean, and core-only (pure NumPy/SciPy — no MCMC, no `[ml]` dependency). A Gaussian
+random effect with an EB-estimated variance is a ridge block whose precision is updated by
+EM — it composes with the existing penalised-IRLS machinery with no new dependency. The
+`pymc`-NUTS audit path remains gated on the ADR-141 backend confirmation (unchanged).
+
+**Backward compatibility.** Purely additive — a new model class and result, plus an
+optional `exclude_factors` kwarg on `BayesianTensorMIModel` (default empty → prior
+behaviour). No pricing path, assumption contract, or golden baseline is touched; the engine
+is byte-identical (`polaris price` golden + the full QA/validation suite unchanged).
+
+**Out of scope (this slice — harvested).** Weighted (exposure-weighted) sum-to-zero
+centring — deviations here are relative to the *unweighted* average segment, the standard
+GAM convention; a full negative-binomial variance component; nested/crossed random effects
+(segment × factor); age-varying segment MI-surface deviations (a Pedersen GS/GI
+group-specific *smoother*, not just a level+linear-trend deviation); per-segment forward
+projection (`project_improvement` per segment); and the CLI/versioning/validation surfaces
+(Slice 4). These are A4′ continuations, not common-path gaps.

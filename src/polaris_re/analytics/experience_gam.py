@@ -72,6 +72,8 @@ __all__ = [
     "BayesianTensorMIModel",
     "ExperienceGAM",
     "GAMFitResult",
+    "HierarchicalMIModel",
+    "HierarchicalMISurfaceResult",
     "MIProjection",
     "MISurface",
     "MISurfaceResult",
@@ -1766,6 +1768,9 @@ class BayesianTensorMIModel:
         overdispersion:   Scale the posterior covariance by the Pearson dispersion
                           phi (quasi-Poisson). ``None`` enables it for by-amount.
         allow_generational_base: Skip the static-base guard (Anchor 1).
+        exclude_factors:  Candidate factors to keep OUT of the additive model (e.g.
+                          a ``segment`` grouping handled as a random effect by
+                          :class:`HierarchicalMIModel` rather than fixed dummies).
 
     Raises:
         PolarisValidationError: On a missing/invalid contract or a non-static base.
@@ -1789,6 +1794,7 @@ class BayesianTensorMIModel:
         age_varying: bool = True,
         overdispersion: bool | None = None,
         allow_generational_base: bool = False,
+        exclude_factors: frozenset[str] | set[str] | None = None,
     ) -> None:
         if basis not in {"count", "amount"}:
             raise PolarisValidationError(f"basis must be 'count' or 'amount', got {basis!r}.")
@@ -1830,12 +1836,17 @@ class BayesianTensorMIModel:
         self.age_varying = age_varying
         self.overdispersion = (basis == "amount") if overdispersion is None else overdispersion
         self.allow_generational_base = allow_generational_base
+        self.exclude_factors = frozenset(exclude_factors or ())
 
     def _build_frame(self) -> tuple[pl.DataFrame, list[str]]:
         frame = self.cells
         if "duration_months" in frame.columns:
             frame = frame.with_columns((pl.col("duration_months") / 12.0).alias("duration_years"))
-        factors = [f for f in _CANDIDATE_FACTORS if f in frame.columns and frame[f].n_unique() > 1]
+        factors = [
+            f
+            for f in _CANDIDATE_FACTORS
+            if f in frame.columns and frame[f].n_unique() > 1 and f not in self.exclude_factors
+        ]
         return frame, factors
 
     def _build_spec(self, frame: pl.DataFrame, factors: list[str]) -> _RRGPSpec:
@@ -1977,4 +1988,640 @@ class BayesianTensorMIModel:
             _spec=spec,
             _theta=theta,
             _cov=cov,
+        )
+
+
+# --- Slice 3: Hierarchical partial pooling (credibility) ------------------------
+
+
+def _penalised_poisson_irls(
+    design: np.ndarray,
+    prec: np.ndarray,
+    offset: np.ndarray,
+    deaths: np.ndarray,
+    *,
+    theta0: np.ndarray | None = None,
+    max_iter: int = 100,
+    tol: float = 1e-9,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """MAP fit of a penalised Poisson GLM by Newton/IRLS (deterministic).
+
+    Maximises ``sum[deaths*eta - exp(eta)] - 0.5 theta' diag(prec) theta`` with
+    ``eta = design*theta + offset``. Returns ``(theta, cov, mu, unpenalised_hess)``
+    where ``cov = (unpenalised_hess + diag(prec))^-1`` is the **unscaled** Laplace
+    posterior covariance (no quasi-Poisson dispersion applied - the caller scales
+    it for reporting). This is the exact math :meth:`BayesianTensorMIModel.fit`
+    uses inline; it is factored out here so the empirical-Bayes EM loop in
+    :class:`HierarchicalMIModel` can re-solve it as the prior precision changes.
+
+    Raises:
+        PolarisComputationError: If the Newton iteration fails to converge.
+    """
+    p = design.shape[1]
+    theta = np.zeros(p, dtype=np.float64) if theta0 is None else theta0.astype(np.float64).copy()
+    prec_mat = np.diag(prec)
+    converged = False
+    for _ in range(max_iter):
+        eta = design @ theta + offset
+        mu = np.exp(np.clip(eta, -50.0, 50.0))
+        grad = design.T @ (deaths - mu) - prec * theta
+        hess = (design.T * mu) @ design + prec_mat  # = -Hessian of the log-posterior
+        step = np.linalg.solve(hess, grad)
+        theta = theta + step
+        if np.max(np.abs(step)) < tol * (1.0 + np.max(np.abs(theta))):
+            converged = True
+            break
+    if not converged:
+        raise PolarisComputationError("Hierarchical MI surface Newton iteration did not converge.")
+    mu = np.exp(np.clip(design @ theta + offset, -50.0, 50.0))
+    unpenalised_hess = (design.T * mu) @ design
+    cov = np.linalg.inv(unpenalised_hess + prec_mat)
+    return theta, cov, mu, unpenalised_hess
+
+
+def _sum_to_zero_basis(g: int) -> np.ndarray:
+    """Orthonormal ``G x (G-1)`` basis for the sum-to-zero subspace ``1_G^perp``.
+
+    The columns are orthonormal (``Z'Z = I``) and orthogonal to ``1_G``, so any
+    ``b = Z alpha`` satisfies ``sum(b) = 0``. Built deterministically from the
+    centring projector's eigenvectors (eigenvalue 1 has multiplicity ``G-1``; the
+    lone eigenvalue-0 eigenvector is ``1_G``, dropped). This is the standard GAM
+    identifiability constraint for a random effect against a free intercept.
+    """
+    projector = np.eye(g, dtype=np.float64) - np.full((g, g), 1.0 / g, dtype=np.float64)
+    _w, vecs = np.linalg.eigh(projector)  # ascending; column 0 == the ones direction
+    z = vecs[:, 1:]
+    # Deterministic sign convention (eigh sign is arbitrary): make each column's
+    # first non-negligible entry positive so the fit is bit-identical across BLAS.
+    for j in range(z.shape[1]):
+        col = z[:, j]
+        lead = col[np.argmax(np.abs(col) > 1e-12)]
+        if lead < 0:
+            z[:, j] = -col
+    return z
+
+
+@dataclass(frozen=True)
+class _SegmentSpec:
+    """Random-effect design block for segment-level partial pooling.
+
+    A segment enters not as fully-credible fixed dummies (no pooling) but as a
+    **zero-mean Gaussian random effect**: a per-segment log-A/E *level* deviation
+    and, optionally, a per-segment calendar *trend* (MI) deviation. The block is
+    parameterised in a **sum-to-zero** orthonormal basis ``Z`` (``G x (G-1)``) so
+    the segment deviations are pure deviations from the global surface — identified
+    against the global intercept and calendar trend rather than confounded with
+    them. Each per-segment deviation is ``b_g = (Z alpha)_g``; the free
+    coefficients ``alpha`` carry an i.i.d. ``Normal(0, tau**2)`` prior, so their
+    prior precision is diagonal (``1/tau**2``).
+
+    Column order: ``G-1`` level columns, then (if ``include_trend``) ``G-1`` trend
+    columns. The calendar coordinate is centred/scaled to match the global GP.
+    """
+
+    segment_col: str
+    levels: tuple[object, ...]
+    include_trend: bool
+    year_center: float
+    year_scale: float
+    ztz: np.ndarray  # (G, G-1) sum-to-zero orthonormal basis
+
+    @property
+    def n_seg(self) -> int:
+        return len(self.levels)
+
+    @property
+    def n_free(self) -> int:
+        """Free coefficients per block (sum-to-zero drops one)."""
+        return self.n_seg - 1
+
+    @property
+    def width(self) -> int:
+        return self.n_free * (2 if self.include_trend else 1)
+
+    def _level_rows(self, seg: np.ndarray) -> np.ndarray:
+        """Map each row's segment to its ``Z`` row, shape (n, G-1)."""
+        index = {lvl: i for i, lvl in enumerate(self.levels)}
+        gi = np.array([index[s] for s in seg.tolist()], dtype=np.int64)
+        return self.ztz[gi, :]
+
+    def design(self, cols: dict[str, np.ndarray]) -> np.ndarray:
+        """Assemble the (n, width) random-effect block for the given columns."""
+        seg = np.asarray(cols[self.segment_col])
+        lvl = self._level_rows(seg)
+        if not self.include_trend:
+            return lvl
+        yn = (
+            np.asarray(cols["calendar_year"], dtype=np.float64) - self.year_center
+        ) / self.year_scale
+        return np.concatenate([lvl, lvl * yn[:, None]], axis=1)
+
+    def precision(self, tau_level: float, tau_trend: float) -> np.ndarray:
+        """Prior precision for the (diagonal) ``alpha`` blocks: ``1/tau**2`` each."""
+        parts = [np.full(self.n_free, 1.0 / tau_level**2)]
+        if self.include_trend:
+            parts.append(np.full(self.n_free, 1.0 / tau_trend**2))
+        return np.concatenate(parts)
+
+    def per_segment_prior_var(self, tau: float) -> float:
+        """Prior variance of a single per-segment deviation ``b_g = (Z alpha)_g``.
+
+        With ``alpha ~ N(0, tau**2 I)`` and ``Z`` orthonormal, ``Cov(b) =
+        tau**2 Z Z' = tau**2 (I - 1 1'/G)``, whose diagonal is ``tau**2 (1-1/G)`` —
+        the reference the credibility weight ``Z_g = 1 - Var_post / prior_var`` uses.
+        """
+        return tau**2 * (1.0 - 1.0 / self.n_seg)
+
+
+@dataclass
+class HierarchicalMISurfaceResult:
+    """
+    Result of fitting a :class:`HierarchicalMIModel`.
+
+    Carries the global reduced-rank-GP MI surface (identical in form to
+    :class:`BayesianMISurfaceResult`) **plus** the estimated segment random
+    effects. Exposes the population (``segment=None``) and each segment-specific
+    improvement surface, and a per-segment credibility table: the shrunk level /
+    trend deviation, its posterior SE, and the credibility weight
+    ``Z = 1 - Var_post / tau**2`` — the fraction of the prior variance the
+    segment's own data resolved (``0`` = fully pooled toward the global surface,
+    ``1`` = fully escaped pooling). ``Z`` is the continuous, estimated analogue of
+    the limited-fluctuation credibility factor in :class:`ExperienceStudy`.
+    """
+
+    basis: str
+    """``'count'`` or ``'amount'`` — which exposure/deaths pair was fit."""
+
+    factors: list[str]
+    """Categorical factors (excluding the pooled segment) in the global model."""
+
+    age_varying: bool
+    """Whether the age x calendar interaction (age-varying MI) was included."""
+
+    segment_col: str
+    """The grouping column pooled as a random effect."""
+
+    segment_levels: tuple[object, ...]
+    """Segment levels in the fixed column order of the random-effect block."""
+
+    include_trend: bool
+    """Whether a per-segment calendar-trend (MI) deviation was fit."""
+
+    overall_ae: float
+    """Total actual deaths / total expected deaths (exposure * q_base)."""
+
+    dispersion: float
+    """Pearson dispersion phi = Pearson chi-squared / effective residual df."""
+
+    overdispersion_applied: bool
+    """Whether the reported posterior covariance was scaled by phi (quasi-Poisson)."""
+
+    effective_df: float
+    """Effective degrees of freedom trace(H0 @ H^-1) of the pooled model."""
+
+    n_cells: int
+    """Number of grouped cells in the fit."""
+
+    observed_ages: tuple[int, int]
+    """(min, max) attained age observed in the fit."""
+
+    observed_years: tuple[int, int]
+    """(min, max) calendar year observed in the fit."""
+
+    prior_scale: float
+    """GP amplitude / coefficient prior standard deviation used."""
+
+    length_scales: dict[str, float]
+    """Standardised-coordinate length-scales per GP dimension."""
+
+    tau_level: float
+    """Empirical-Bayes estimated prior SD of the segment log-A/E level deviations
+    (the pooling strength; small => strong shrinkage toward the global surface)."""
+
+    tau_trend: float
+    """Empirical-Bayes estimated prior SD of the segment calendar-trend deviations
+    (``0.0`` when ``include_trend`` is False)."""
+
+    em_iterations: int
+    """Number of EM variance-component iterations run to estimate the taus."""
+
+    reference: dict[str, object]
+    """Reference covariate values for the global surface (segment excluded)."""
+
+    _spec: _RRGPSpec = field(default=None, repr=False)  # type: ignore[assignment]
+    _seg_spec: _SegmentSpec = field(default=None, repr=False)  # type: ignore[assignment]
+    _theta: np.ndarray = field(default=None, repr=False)  # type: ignore[assignment]
+    _cov: np.ndarray = field(default=None, repr=False)  # type: ignore[assignment]
+    _p_global: int = field(default=0, repr=False)
+    _segment_exposure: dict[object, float] = field(default_factory=dict, repr=False)
+    _segment_cells: dict[object, int] = field(default_factory=dict, repr=False)
+
+    def _grid_cols(self, ages: np.ndarray, years: np.ndarray) -> dict[str, np.ndarray]:
+        n_age, n_year = len(ages), len(years)
+        cols: dict[str, np.ndarray] = {
+            "attained_age": np.repeat(ages, n_year).astype(np.float64),
+            "calendar_year": np.tile(years, n_age).astype(np.float64),
+        }
+        for k, v in self.reference.items():
+            if k in ("attained_age", "calendar_year"):
+                continue
+            cols[k] = np.repeat(np.asarray([v]), n_age * n_year)
+        return cols
+
+    def _combined_design(
+        self, ages: np.ndarray, years: np.ndarray, segment: object | None
+    ) -> np.ndarray:
+        """Global design for the grid concatenated with the segment block.
+
+        ``segment=None`` zeroes the random-effect block (the population-mean
+        surface); a level selects that segment's indicator (+ trend) columns.
+        """
+        cols = self._grid_cols(ages, years)
+        gdesign = self._spec.design(cols)
+        n = gdesign.shape[0]
+        if segment is None:
+            sdesign = np.zeros((n, self._seg_spec.width), dtype=np.float64)
+        else:
+            if segment not in self.segment_levels:
+                raise PolarisValidationError(
+                    f"Unknown segment {segment!r}; known levels: {list(self.segment_levels)}."
+                )
+            scols = {
+                self.segment_col: np.repeat(np.asarray([segment]), n),
+                "calendar_year": cols["calendar_year"],
+            }
+            sdesign = self._seg_spec.design(scols)
+        return np.concatenate([gdesign, sdesign], axis=1)
+
+    def improvement_surface(
+        self,
+        segment: object | None = None,
+        ages: np.ndarray | None = None,
+        years: np.ndarray | None = None,
+        credible_level: float = 0.95,
+    ) -> MISurface:
+        """
+        Extract the annual improvement grid ``MI_x(y)`` with a posterior credible
+        band, for the global population (``segment=None``) or one segment.
+
+        The math is the :class:`BayesianMISurfaceResult` year-to-year contrast on
+        the *combined* (global + segment) design and covariance. For a segment the
+        pooled trend deviation adds a constant per-step shift to the improvement
+        and its posterior uncertainty (jointly with the global surface) to the
+        band; the level deviation cancels in the contrast. A thin segment's trend
+        deviation is shrunk to ~0, so its surface collapses onto the global one.
+
+        Args:
+            segment:        A segment level, or ``None`` for the global surface.
+            ages:           Contiguous integer ages; defaults to the observed range.
+            years:          Contiguous integer calendar years; defaults to the
+                            observed range (the surface spans ``years[1:]``).
+            credible_level: Two-sided posterior credible level for the band.
+
+        Returns:
+            An :class:`MISurface` of shape (len(ages), len(years) - 1).
+
+        Raises:
+            PolarisValidationError: On fewer than two years or an unknown segment.
+        """
+        from scipy.stats import norm
+
+        if ages is None:
+            ages = np.arange(self.observed_ages[0], self.observed_ages[1] + 1)
+        if years is None:
+            years = np.arange(self.observed_years[0], self.observed_years[1] + 1)
+        ages = np.asarray(ages).astype(np.int64)
+        years = np.asarray(years).astype(np.int64)
+        if len(years) < 2:
+            raise PolarisValidationError(
+                "improvement_surface needs at least two calendar years to form an "
+                "annual improvement step."
+            )
+
+        n_age, n_year = len(ages), len(years)
+        design = self._combined_design(ages, years, segment)
+        p = design.shape[1]
+        design = design.reshape(n_age, n_year, p)
+        eta = (design @ self._theta).reshape(n_age, n_year)
+
+        d = eta[:, 1:] - eta[:, :-1]
+        contrast = design[:, 1:, :] - design[:, :-1, :]
+        var = np.einsum("ayp,pq,ayq->ay", contrast, self._cov, contrast)
+        se = np.sqrt(np.clip(var, 0.0, None))
+
+        z = float(norm.ppf(0.5 + credible_level / 2.0))
+        mi = 1.0 - np.exp(d)
+        mi_lower = 1.0 - np.exp(d + z * se)
+        mi_upper = 1.0 - np.exp(d - z * se)
+        return MISurface(
+            ages=ages,
+            years=years[1:],
+            mi_grid=mi.astype(np.float64),
+            mi_lower=mi_lower.astype(np.float64),
+            mi_upper=mi_upper.astype(np.float64),
+            confidence_level=credible_level,
+        )
+
+    def segment_effects(self, credible_level: float = 0.95) -> pl.DataFrame:
+        """
+        Per-segment credibility table.
+
+        One row per segment level, sorted in the random-effect column order:
+
+        - ``level_deviation`` — the shrunk log-A/E level deviation ``b0_g``.
+        - ``level_multiplier`` — ``exp(b0_g)``, the A/E multiplier relative to the
+          global surface (``1.0`` = on the population level).
+        - ``level_se`` / ``level_lower`` / ``level_upper`` — posterior SE and band
+          on ``level_multiplier``.
+        - ``credibility`` — ``Z = clip(1 - Var_post(b0_g) / tau_level**2, 0, 1)``.
+        - ``trend_deviation`` / ``trend_se`` / ``trend_credibility`` — present when
+          ``include_trend``; the per-year MI (improvement) deviation vs the global
+          trend (positive = the segment improves faster) and its credibility.
+        - ``n_cells`` / ``exposure`` — the segment's data volume.
+
+        The band uses the reported (dispersion-scaled if applicable) covariance.
+        """
+        from scipy.stats import norm
+
+        z = float(norm.ppf(0.5 + credible_level / 2.0))
+        spec = self._seg_spec
+        p0, nf, ztz = self._p_global, spec.n_free, spec.ztz
+
+        # Map the free alpha coefficients back to per-segment deviations b = Z alpha.
+        a0 = self._theta[p0 : p0 + nf]
+        cov0 = self._cov[p0 : p0 + nf, p0 : p0 + nf]
+        b0 = ztz @ a0
+        var0 = np.einsum("gi,ij,gj->g", ztz, cov0, ztz)
+        prior_var0 = spec.per_segment_prior_var(self.tau_level)
+        cred0 = np.clip(1.0 - var0 / prior_var0, 0.0, 1.0)
+
+        if self.include_trend:
+            a1 = self._theta[p0 + nf : p0 + 2 * nf]
+            cov1 = self._cov[p0 + nf : p0 + 2 * nf, p0 + nf : p0 + 2 * nf]
+            b1 = ztz @ a1
+            var1 = np.einsum("gi,ij,gj->g", ztz, cov1, ztz)
+            prior_var1 = spec.per_segment_prior_var(self.tau_trend)
+            cred1 = np.clip(1.0 - var1 / prior_var1, 0.0, 1.0)
+
+        rows = []
+        for i, lvl in enumerate(self.segment_levels):
+            se0 = float(np.sqrt(max(var0[i], 0.0)))
+            row: dict[str, object] = {
+                "segment": lvl,
+                "n_cells": int(self._segment_cells.get(lvl, 0)),
+                "exposure": float(self._segment_exposure.get(lvl, 0.0)),
+                "level_deviation": float(b0[i]),
+                "level_multiplier": float(np.exp(b0[i])),
+                "level_se": se0,
+                "level_lower": float(np.exp(b0[i] - z * se0)),
+                "level_upper": float(np.exp(b0[i] + z * se0)),
+                "credibility": float(cred0[i]),
+            }
+            if self.include_trend:
+                # The trend column uses the standardised year; the annual step of
+                # b1*yn is b1 / year_scale (the segment's extra log-mortality slope).
+                # Report it in MI units: the improvement step is 1 - exp(slope) ~=
+                # -slope, so a POSITIVE trend_deviation means the segment improves
+                # FASTER than the global trend (consistent with the MI convention).
+                scale = spec.year_scale
+                se1 = float(np.sqrt(max(var1[i], 0.0)))
+                row["trend_deviation"] = -float(b1[i] / scale)
+                row["trend_se"] = se1 / scale
+                row["trend_credibility"] = float(cred1[i])
+            rows.append(row)
+        return pl.DataFrame(rows)
+
+
+class HierarchicalMIModel:
+    """
+    Segment-credibility mortality-improvement surface (Slice 3 — HGAM pooling).
+
+    Extends :class:`BayesianTensorMIModel` with **hierarchical partial pooling**
+    over a segment grouping. Rather than entering ``segment`` as fully-credible
+    fixed dummies (the un-pooled default — every segment fit on its own thin
+    data), it fits a zero-mean Gaussian random effect: a per-segment log-A/E
+    *level* deviation and, optionally, a per-segment calendar *trend* (MI)
+    deviation. The shared prior variances (``tau_level``, ``tau_trend``) are the
+    pooling strengths and are estimated by **empirical Bayes** — an EM
+    variance-component loop that alternates the penalised-Poisson MAP fit with the
+    closed-form variance update ``tau**2 <- mean(b_g**2 + Var_post(b_g))``. The
+    prior shrinks thin segments toward the global surface and lets data-rich
+    segments escape pooling, the continuous, *estimated* generalisation of the
+    limited-fluctuation credibility ``Z`` in :class:`ExperienceStudy` (whose ``Z``
+    is imposed by a formula, not learned).
+
+    Everything else — the reduced-rank-GP tensor surface, the static-base offset,
+    Design-Anchor-3 identifiability, and pure NumPy/SciPy determinism — is
+    inherited from :class:`BayesianTensorMIModel`. No MCMC / ``pymc`` / ``bambi``.
+    See ADR-144.
+
+    Args:
+        cells:          Grouped cells in the canonical contract, including the
+                        ``segment_col``.
+        segment_col:    The grouping column to pool (default ``"segment"``).
+        segment_trend:  Also fit a per-segment calendar-trend (MI) deviation, not
+                        only a level deviation (default ``True``).
+        tau_init:       Initial prior SD for the EM loop (both blocks).
+        max_em_iter:    Maximum EM variance-component iterations.
+        em_tol:         Relative convergence tolerance on the taus.
+        tau_floor:      Lower clamp on each tau (keeps the ridge finite when a
+                        block collapses toward complete pooling).
+        (all other args mirror :class:`BayesianTensorMIModel`.)
+
+    Raises:
+        PolarisValidationError: On a missing/invalid contract, a non-static base,
+            or fewer than two segment levels.
+    """
+
+    def __init__(
+        self,
+        cells: pl.DataFrame,
+        *,
+        segment_col: str = "segment",
+        segment_trend: bool = True,
+        basis: str = "count",
+        age_basis: int = 8,
+        year_basis: int = 8,
+        duration_basis: int = 6,
+        boundary_factor: float = 1.6,
+        age_length_scale: float = 1.2,
+        year_length_scale: float = 1.5,
+        duration_length_scale: float = 1.5,
+        prior_scale: float = 5.0,
+        age_varying: bool = True,
+        overdispersion: bool | None = None,
+        allow_generational_base: bool = False,
+        tau_init: float = 0.25,
+        max_em_iter: int = 200,
+        em_tol: float = 1e-8,
+        tau_floor: float = 1e-4,
+    ) -> None:
+        if segment_col not in cells.columns:
+            raise PolarisValidationError(
+                f"segment_col {segment_col!r} is not a column of the grouped cells."
+            )
+        if cells[segment_col].n_unique() < 2:
+            raise PolarisValidationError(
+                "HierarchicalMIModel needs >= 2 segment levels to pool; got "
+                f"{cells[segment_col].n_unique()}."
+            )
+        if tau_init <= 0.0 or tau_floor <= 0.0:
+            raise PolarisValidationError("tau_init and tau_floor must be positive.")
+
+        # The global surface is a BayesianTensorMIModel with the segment column
+        # held OUT of the fixed factors (it is a random effect here). This reuses
+        # its validated frame / spec / offset / static-base-guard machinery.
+        self._base = BayesianTensorMIModel(
+            cells,
+            basis=basis,
+            age_basis=age_basis,
+            year_basis=year_basis,
+            duration_basis=duration_basis,
+            boundary_factor=boundary_factor,
+            age_length_scale=age_length_scale,
+            year_length_scale=year_length_scale,
+            duration_length_scale=duration_length_scale,
+            prior_scale=prior_scale,
+            age_varying=age_varying,
+            overdispersion=overdispersion,
+            allow_generational_base=allow_generational_base,
+            exclude_factors={segment_col},
+        )
+        self.cells = cells
+        self.segment_col = segment_col
+        self.segment_trend = segment_trend
+        self.tau_init = tau_init
+        self.max_em_iter = max_em_iter
+        self.em_tol = em_tol
+        self.tau_floor = tau_floor
+
+    def fit(self, max_iter: int = 100, tol: float = 1e-9) -> HierarchicalMISurfaceResult:
+        """
+        Fit the pooled surface, estimating the segment prior variances by
+        empirical Bayes, and return a :class:`HierarchicalMISurfaceResult`.
+
+        The EM loop alternates (i) a penalised-Poisson MAP fit at the current
+        priors and (ii) the variance-component update
+        ``tau_k**2 <- mean_g (b_gk**2 + Var_post(b_gk))`` for the level (and trend)
+        blocks. It is deterministic and monotone in the marginal likelihood.
+
+        Raises:
+            PolarisComputationError: If the inner Newton iteration fails to
+                converge.
+        """
+        base = self._base
+        frame, factors = base._build_frame()
+        spec = base._build_spec(frame, factors)
+
+        cols = {c: frame[c].to_numpy() for c in frame.columns}
+        gdesign = spec.design(cols)
+        gprec = spec.precision()
+        p_global = gdesign.shape[1]
+
+        # Segment random-effect block (kept in a fixed level order), parameterised
+        # in the sum-to-zero basis so the deviations are identified against the
+        # global intercept / calendar trend rather than confounded with them.
+        levels = tuple(
+            sorted(frame[self.segment_col].unique().to_list(), key=lambda x: (x is None, x))
+        )
+        seg_spec = _SegmentSpec(
+            segment_col=self.segment_col,
+            levels=levels,
+            include_trend=self.segment_trend,
+            year_center=spec.year_center,
+            year_scale=spec.year_scale,
+            ztz=_sum_to_zero_basis(len(levels)),
+        )
+        sdesign = seg_spec.design(cols)
+        design = np.concatenate([gdesign, sdesign], axis=1)
+        n_free = seg_spec.n_free
+
+        exposure = frame[base.exposure_col].to_numpy().astype(np.float64)
+        deaths = frame[base.deaths_col].to_numpy().astype(np.float64)
+        q_base = frame["q_base"].to_numpy().astype(np.float64)
+        expected = exposure * q_base
+        if np.any(expected <= 0.0):
+            raise PolarisValidationError(
+                "Every cell must have positive exposure * q_base to form the offset."
+            )
+        offset = np.log(expected)
+
+        # Empirical-Bayes EM over the variance components.
+        tau_level = tau_trend = float(self.tau_init)
+        theta = None
+        cov_unscaled = None
+        unpen_hess = None
+        em_iterations = 0
+        for it in range(self.max_em_iter):
+            prec = np.concatenate([gprec, seg_spec.precision(tau_level, tau_trend)])
+            theta, cov_unscaled, _mu, unpen_hess = _penalised_poisson_irls(
+                design, prec, offset, deaths, theta0=theta, max_iter=max_iter, tol=tol
+            )
+            diag = np.diag(cov_unscaled)
+            # EM variance-component update on the free alpha coefficients:
+            # tau**2 <- mean(alpha**2 + Var_post(alpha)).
+            a0 = theta[p_global : p_global + n_free]
+            va0 = diag[p_global : p_global + n_free]
+            new_level = float(np.sqrt(max(np.mean(a0**2 + va0), self.tau_floor**2)))
+            new_trend = tau_trend
+            if seg_spec.include_trend:
+                a1 = theta[p_global + n_free : p_global + 2 * n_free]
+                va1 = diag[p_global + n_free : p_global + 2 * n_free]
+                new_trend = float(np.sqrt(max(np.mean(a1**2 + va1), self.tau_floor**2)))
+            em_iterations = it + 1
+            d_level = abs(new_level - tau_level)
+            d_trend = abs(new_trend - tau_trend)
+            tau_level, tau_trend = new_level, new_trend
+            if d_level < self.em_tol * (1.0 + tau_level) and d_trend < self.em_tol * (
+                1.0 + tau_trend
+            ):
+                break
+
+        # Final reporting quantities on the converged fit.
+        mu = np.exp(np.clip(design @ theta + offset, -50.0, 50.0))
+        effective_df = float(np.trace(cov_unscaled @ unpen_hess))
+        n = design.shape[0]
+        resid_df = max(n - effective_df, 1.0)
+        pearson_chi2 = float(np.sum((deaths - mu) ** 2 / np.clip(mu, 1e-12, None)))
+        dispersion = pearson_chi2 / resid_df
+        cov = cov_unscaled * dispersion if base.overdispersion else cov_unscaled
+
+        seg_np = frame[self.segment_col].to_numpy()
+        seg_exposure = {lvl: float(exposure[seg_np == lvl].sum()) for lvl in levels}
+        seg_cells = {lvl: int(np.count_nonzero(seg_np == lvl)) for lvl in levels}
+
+        overall_ae = float(deaths.sum() / expected.sum())
+        cal = self.cells["calendar_year"].to_numpy()
+        age = self.cells["attained_age"].to_numpy()
+        return HierarchicalMISurfaceResult(
+            basis=base.basis,
+            factors=factors,
+            age_varying=base.age_varying,
+            segment_col=self.segment_col,
+            segment_levels=levels,
+            include_trend=seg_spec.include_trend,
+            overall_ae=overall_ae,
+            dispersion=dispersion,
+            overdispersion_applied=base.overdispersion,
+            effective_df=effective_df,
+            n_cells=frame.height,
+            observed_ages=(int(age.min()), int(age.max())),
+            observed_years=(int(cal.min()), int(cal.max())),
+            prior_scale=base.prior_scale,
+            length_scales={
+                "attained_age": base.age_length_scale,
+                "calendar_year": base.year_length_scale,
+                "duration_years": base.duration_length_scale,
+            },
+            tau_level=tau_level,
+            tau_trend=tau_trend if seg_spec.include_trend else 0.0,
+            em_iterations=em_iterations,
+            reference=base._reference(frame, factors),
+            _spec=spec,
+            _seg_spec=seg_spec,
+            _theta=theta,
+            _cov=cov,
+            _p_global=p_global,
+            _segment_exposure=seg_exposure,
+            _segment_cells=seg_cells,
         )

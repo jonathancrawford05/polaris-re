@@ -142,7 +142,7 @@ own sub-slice. Mirrors the Slice-1/2a de-risking pattern. See ADR-141.
 #### Slice 2c: `MortalityImprovement`-compatible custom-scale emission
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-vvdlm3
-- **PR:** #145 (draft — awaiting review/merge)
+- **PR:** #145 — **MERGED** 2026-07-22 (merge commit `0b0580c`)
 - **Depends on:** Slice 2b merged (surface #143 merged; projection #144 merged 2026-07-22).
 - **What was done:** Added `ImprovementScale.CUSTOM` + a backward-compatible data-driven
   grid payload (`custom_ages`/`custom_years`/`custom_mi_grid`/`custom_ultimate_rate`,
@@ -167,15 +167,36 @@ own sub-slice. Mirrors the Slice-1/2a de-risking pattern. See ADR-141.
     CUSTOM scale are **Slice 4** scope (the tuple/JSON representation is chosen for it).
 
 ### Slice 3: Hierarchical partial pooling (credibility)
-- **Status:** NEXT
-- **Depends on:** Slice 2 merged (2a #142, 2b-surface #143, 2b-projection #144, 2c this PR).
-- **Scope:** segment-level MI/effect deviations shrunk toward the global surface
-  (Pedersen GS/GI HGAM); generalizes `ExperienceStudy`'s limited-fluctuation `Z`.
-  Thin segments borrow the population trend; shrinkage estimated, not imposed.
+- **Status:** DONE
+- **Branch:** claude/loving-gauss-0c0ars
+- **PR:** #146 (draft — awaiting review/merge)
+- **Depends on:** Slice 2 merged (2a #142, 2b-surface #143, 2b-projection #144, 2c #145 — all merged 2026-07-22).
+- **Backend:** the same reduced-rank GP + Laplace posterior (ADR-141) — deterministic,
+  pure NumPy/SciPy, core-only. Segment random effects are a ridge block whose prior
+  precision is estimated by an EM variance-component loop. No `pymc`/`bambi`.
+- **What was done:** `HierarchicalMIModel` + `HierarchicalMISurfaceResult` in
+  `analytics/experience_gam.py`. A `segment` grouping enters as a **zero-mean Gaussian
+  random effect** — a per-segment log-A/E *level* deviation and (optionally) a per-segment
+  calendar *trend* (MI) deviation — shrunk toward the global surface, with the pooling SDs
+  `tau_level`/`tau_trend` estimated by **empirical Bayes** (EM: `tau^2 <- mean(alpha^2 +
+  Var_post(alpha))`). The random effect is parameterised in an orthonormal **sum-to-zero**
+  basis so each segment's posterior variance reflects its own exposure (not a shared
+  intercept-confounded mode). `segment_effects()` reports the shrunk multiplier, posterior
+  band, and the credibility weight `Z_g = 1 − Var_post/prior_var`;
+  `improvement_surface(segment=...)` returns the segment-specific or global surface. Reuses
+  the Slice-2 global surface via a small backward-compatible `exclude_factors` hook on
+  `BayesianTensorMIModel`. Engine/goldens byte-identical (+21 tests). ADR-144.
+- **Key decisions (carry into 4):**
+  - Sum-to-zero (unweighted) identifiability — deviations are relative to the *average
+    segment*; a weighted (exposure-weighted) centring is a harvested follow-up.
+  - `trend_deviation` is reported in MI units (positive = the segment improves faster than
+    the global trend), matching `MI = 1 − exp(Δη)`.
+  - Level + linear-trend deviations only; a full age-varying group-specific *smoother*
+    (Pedersen GS/GI) and per-segment projection are harvested NICE-TO-HAVE.
 
 ### Slice 4: Surface + versioning + validation + docs (CLOSES EPIC)
-- **Status:** PLANNED
-- **Depends on:** Slice 3 merged.
+- **Status:** NEXT
+- **Depends on:** Slice 3 merged (#146).
 - **Scope:** CLI `polaris experience improvement` (+ `polaris experience fit`);
   assumption versioning under `data/assumption_versions/`; effect-shape + MI-surface
   diagnostic plots; `load_hmd()` / `load_ilec()` fetch-and-cache loaders (loaders-not-
