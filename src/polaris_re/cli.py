@@ -54,7 +54,12 @@ from polaris_re.core.inforce import InforceBlock
 if TYPE_CHECKING:
     import polars as pl
 
-    from polaris_re.analytics.experience_gam import MISurface
+    from polaris_re.analytics.experience_gam import (
+        BayesianMISurfaceResult,
+        MIProjection,
+        MISurface,
+        MISurfaceResult,
+    )
     from polaris_re.analytics.scenario import ScenarioAdjustment
     from polaris_re.assumptions.improvement import MortalityImprovement
     from polaris_re.assumptions.lapse import LapseAssumption
@@ -3821,7 +3826,7 @@ def _render_experience_mi(
     n_cells: int,
     observed_ages: tuple[int, int],
     observed_years: tuple[int, int],
-    surface: "MISurface",
+    surface: "MISurface | MIProjection",
     improvement: "MortalityImprovement",
 ) -> None:
     """Render a Rich summary of a fitted / projected MI surface and the emitted scale."""
@@ -3845,7 +3850,7 @@ def _render_experience_mi(
     ages = surface.ages
     years = surface.years
     n_sample = min(6, len(ages))
-    idx = np.linspace(0, len(ages) - 1, n_sample).round().astype(int)
+    idx = np.linspace(0, len(ages) - 1, n_sample).round().astype(np.int64)
     grid_tbl = Table(title=f"MI_x(y) sample — years {int(years[0])}-{int(years[-1])}")
     grid_tbl.add_column("Age", justify="right", style="cyan")
     grid_tbl.add_column("Mean MI", justify="right")
@@ -4020,6 +4025,11 @@ def experience_improvement_cmd(
     cells = _load_experience_cells(experience)
     cells = _attach_base_rate_for_experience(cells, table, data_dir, default_smoker)
 
+    # The two backends return distinct result/surface types that share the
+    # duck-typed interface the renderer and to_mortality_improvement consume;
+    # the union annotations let mypy narrow each branch to its concrete type.
+    result: MISurfaceResult | BayesianMISurfaceResult
+    surface: MISurface | MIProjection
     with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}")) as prog:
         prog.add_task("Fitting mortality-improvement surface...", total=None)
         try:
