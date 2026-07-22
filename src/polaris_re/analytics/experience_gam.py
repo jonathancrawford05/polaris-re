@@ -2048,7 +2048,7 @@ def _sum_to_zero_basis(g: int) -> np.ndarray:
     lone eigenvalue-0 eigenvector is ``1_G``, dropped). This is the standard GAM
     identifiability constraint for a random effect against a free intercept.
     """
-    projector = np.eye(g) - np.full((g, g), 1.0 / g)
+    projector = np.eye(g, dtype=np.float64) - np.full((g, g), 1.0 / g, dtype=np.float64)
     _w, vecs = np.linalg.eigh(projector)  # ascending; column 0 == the ones direction
     z = vecs[:, 1:]
     # Deterministic sign convention (eigh sign is arbitrary): make each column's
