@@ -88,7 +88,7 @@ own sub-slice. Mirrors the Slice-1/2a de-risking pattern. See ADR-141.
 ##### Slice 2b-surface: Bayesian reduced-rank-GP MI surface + credible intervals
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-dpfie6
-- **PR:** #143 (draft — awaiting review/merge)
+- **PR:** #143 — **MERGED** 2026-07-22
 - **Backend:** pure NumPy/SciPy Hilbert-space (reduced-rank) GP — Matérn-5/2
   anisotropic `te(attained_age, calendar_year)`, fit to MAP by penalised-Poisson
   IRLS with a closed-form **Laplace** posterior covariance. **No new dependency**
@@ -112,21 +112,36 @@ own sub-slice. Mirrors the Slice-1/2a de-risking pattern. See ADR-141.
   - `pymc`/`bambi` deferred to the projection sub-slice, imported lazily there.
 
 ##### Slice 2b-projection: posterior-predictive forward projection + NUTS audit
-- **Status:** NEXT
-- **Depends on:** Slice 2b-surface merged.
-- **Backend:** the same reduced-rank GP for the deterministic projection mean/band;
-  an optional lazily-imported `pymc`-NUTS audit path (adds `pymc`/`bambi` to `[ml]`
-  only if that path is built).
-- **Scope:** posterior-predictive **forward projection** of `MI_x(y)` beyond the
-  data window, anchored to a settable long-term rate (locked default: Matérn
-  mean-reverting; RW2 offered). Validate against the 2a frequentist grid + an `mgcv`
-  offline oracle within tolerance; a plausible gradient from a real HMD age×year
-  slice. Confirm the ADR-141 backend deviation direction with the maintainer before
-  committing to a `pymc`-NUTS audit path.
+- **Status:** DONE (deterministic projection; `pymc`-NUTS audit path deferred — gated)
+- **Branch:** claude/loving-gauss-koxn1s
+- **PR:** #144 (draft — awaiting review/merge)
+- **Backend:** the same reduced-rank GP (ADR-141) — deterministic, pure NumPy/SciPy,
+  core-only. The optional lazily-imported `pymc`-NUTS audit path is **deferred**: it is
+  gated on the maintainer confirming the ADR-141 backend-deviation direction (an Open
+  Question), and adds `pymc`/`bambi` to `[ml]` only if/when that path is built.
+- **What was done:** `MIProjection` dataclass + `BayesianMISurfaceResult.
+  project_improvement(horizon_years, long_term_rate, ...)`. Each age's improvement
+  anchors on `initial_mi(x)` (the fitted final-step annual improvement + its Laplace
+  posterior SE) and **mean-reverts** to a settable `long_term_rate` over
+  `convergence_period` years — the CMI/MP-style locked default. Convergence shape is
+  selectable (`cosine` default / `linear` / `immediate`). The band is
+  posterior-predictive (`MI ± z·w_k·se(initial_mi)`): widest at the join (= the in-window
+  surface band), narrowing to zero as improvement converges to the deterministic
+  long-term rate. `MIProjection.cumulative_factor()` returns `Π(1−MI)` — the multiplier
+  Slice 2c's `MortalityImprovement` emission consumes. Additive; engine byte-identical.
+  ADR-142.
+- **Key decisions (carry into 2c):**
+  - The reduced-rank GP eigenbasis is valid only inside its fit-time boundary, so the
+    projection mean-reverts the *improvement rate* rather than re-evaluating the basis
+    out of domain (ADR-142). This is the honest, deterministic route.
+  - The long-term rate is a deterministic actuarial assumption (a scalar) → the band
+    narrows to it. A per-age long-term rate and the RW2 fanning-band alternative are
+    harvested follow-ups, not shipped.
+  - `cumulative_factor()` is the Slice-2c hand-off: `q(Y) = q(base)·Π(1−MI)`.
 
 #### Slice 2c: `MortalityImprovement`-compatible custom-scale emission
-- **Status:** PLANNED
-- **Depends on:** Slice 2b merged.
+- **Status:** NEXT
+- **Depends on:** Slice 2b merged (surface #143 merged; projection #144 draft).
 - **Scope:** a from-grid constructor / `ImprovementScale.CUSTOM` (core-contract change,
   backward-compatible defaults, human-review flagged) that turns the projected
   `MI_x(y)` surface into a `MortalityImprovement` that plugs into
@@ -168,6 +183,13 @@ own sub-slice. Mirrors the Slice-1/2a de-risking pattern. See ADR-141.
 
 ## Open Questions (for human)
 
+- **`pymc`-NUTS audit backend (gated).** The 2b-projection slice ships only the
+  deterministic reduced-rank-GP projection. Per ADR-141's human-review flag, adding the
+  optional `pymc`-NUTS audit path (and the `pymc`/`bambi` dependency) is **held until the
+  maintainer confirms the ADR-141 reduced-rank-GP backend direction**. If confirmed and an
+  audit path is still wanted, it lands as a follow-up; if the maintainer prefers the
+  original `bambi`/`pymc` backend, that supersedes ADR-141/142. Harvested to
+  PRODUCT_DIRECTION as IMPORTANT.
 - **Projection prior (Slice 2):** default Matérn HSGP mean-reverting to a settable
   long-term rate (CMI/MP-style) vs RW2 linear extrapolation — finalise in Slice 2's
   ADR. Locked default per the PLAN is Matérn; recorded so an autonomous run does not

@@ -3,10 +3,14 @@
 **Status:** IN PROGRESS (plan locked 2026-07-15; Slice 1 shipped 2026-07-21 as
 PR #141/ADR-139; Slice 2a — frequentist tensor MI surface + `MI_x(y)` grid —
 shipped 2026-07-21, ADR-140; Slice 2b-surface — Bayesian credible-interval MI
-surface — shipped 2026-07-22, ADR-141) — this is the active epic (A4′). Slice 2
-is sub-decomposed 2a/2b/2c and Slice 2b is further split **2b-surface /
-2b-projection** (see CONTINUATION). **Slice 2b-projection (posterior-predictive
-forward projection + optional pymc-NUTS audit) is NEXT.** Note (ADR-141): the
+surface — shipped 2026-07-22, ADR-141; Slice 2b-projection — CMI/MP-style
+mean-reverting posterior-predictive MI projection — shipped 2026-07-22, ADR-142)
+— this is the active epic (A4′). Slice 2 is sub-decomposed 2a/2b/2c and Slice 2b
+is further split **2b-surface / 2b-projection** (see CONTINUATION). **Slice 2c
+(`MortalityImprovement`-compatible custom-scale emission) is NEXT.** The optional
+`pymc`-NUTS audit path for the projection is deferred/gated on the maintainer
+confirming the ADR-141 backend direction (see CONTINUATION Open Questions). Note
+(ADR-141): the
 PLAN's locked `bambi`/`pymc` `laplace` backend is defective in the installed
 versions (`NullTypeGradError` on HSGP + offset), so the surface ships as the
 identical HSGP math in closed form (a pure-NumPy/SciPy reduced-rank GP —
@@ -186,10 +190,13 @@ pack, wired in Slice 4).
   (2026-07-21, ADR-140): frequentist tensor-product `te(x, t)` on the statsmodels
   backend, `MI_x(y)` grid via `1 − exp[η(x,y) − η(x,y−1)]` with a delta-method band,
   Design-Anchor-3 by construction (no issue-year term; real `underwriting_era`
-  factor), Anchor-1 static-base guard. **2b — NEXT**: Bayesian HSGP credible intervals
-  + posterior-predictive projection. **2c**: `MortalityImprovement`-compatible
-  custom-scale emission (`ImprovementScale.CUSTOM` / from-grid). Original Slice-2
-  spec (the full target) follows.
+  factor), Anchor-1 static-base guard. **2b — DONE** (split surface/projection):
+  2b-surface (ADR-141) ships the Bayesian reduced-rank-GP credible-interval surface;
+  2b-projection (ADR-142) ships the CMI/MP-style mean-reverting posterior-predictive
+  `MI_x(y)` forward projection (deterministic; optional `pymc`-NUTS audit deferred/
+  gated). **2c — NEXT**: `MortalityImprovement`-compatible custom-scale emission
+  (`ImprovementScale.CUSTOM` / from-grid). Original Slice-2 spec (the full target)
+  follows.
 - **Backend:** bambi HSGP / pymc (2b). **Depends on:** Slice 1 merged.
 - `te(x, t)` age-varying improvement with the static select-base offset +
   `s_resid(d)`; anisotropic HSGP; extract `MI_x(y)` grid **with credible

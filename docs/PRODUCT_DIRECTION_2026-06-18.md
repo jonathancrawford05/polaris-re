@@ -1636,7 +1636,29 @@ constraint and a future session must not rebuild these as a naive wall-time log.
   projection (if still wanted) would land. 1st-order (a discovery on the planned
   Slice-2b feature) → IMPORTANT (architecture/direction decision gating the next
   slice). *Source: ADR-141 human-review flag + DEV_SESSION_LOG_2026-07-22 DISCOVERY
-  (step 11b) (1st-order).*
+  (step 11b) (1st-order).* **Update (2026-07-22, projection session):** Slice
+  2b-projection (ADR-142) shipped the deterministic reduced-rank-GP projection and
+  **deferred** the optional `pymc`-NUTS audit path pending this confirmation — so the
+  epic advanced without resolving the gate, but the gate now blocks only the (optional)
+  audit backend, not the epic. Confirm the direction so the audit path can either land
+  or be dropped.
+
+- **NICE-TO-HAVE — RW2 (linear-trend) forward-projection prior as an alternative to
+  mean-reversion.** A4' Slice 2b-projection (ADR-142) ships the locked default —
+  CMI/MP-style mean-reversion of `MI_x(y)` to a settable long-term rate (band narrows to
+  the deterministic rate). The PLAN also offered **RW2 linear extrapolation** (extrapolate
+  the last *rate of change*; the credible band fans out) as an alternative projection
+  model. It is a genuinely different prior, not shipped here. Promote if a validation deck
+  (or a maintainer preference) wants the fanning-band behaviour for long-horizon
+  projections. 1st-order (a follow-up of the planned Slice-2b projection). *Source:
+  ADR-142 Out of scope + PLAN_experience_gam Open Decisions (1st-order).*
+
+- **NICE-TO-HAVE — per-age (or per-segment) long-term improvement rate in the MI
+  projection.** `project_improvement` takes a single scalar `long_term_rate` (the CMI
+  convention). Real MI projections sometimes taper to an age-varying long-term rate (e.g.
+  higher at younger ages). Accept `long_term_rate: float | np.ndarray` (broadcast over
+  ages) once a use-case needs it. 1st-order (a follow-up of the planned Slice-2b
+  projection) → NICE-TO-HAVE. *Source: ADR-142 Out of scope (1st-order).*
 
 - **NICE-TO-HAVE — empirical-Bayes length-scale / amplitude selection for the
   Bayesian MI surface.** A4' Slice 2b-surface (ADR-141) fixes the GP length-scales

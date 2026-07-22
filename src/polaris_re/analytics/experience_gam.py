@@ -71,6 +71,7 @@ __all__ = [
     "BayesianTensorMIModel",
     "ExperienceGAM",
     "GAMFitResult",
+    "MIProjection",
     "MISurface",
     "MISurfaceResult",
     "SmoothEffect",
@@ -825,6 +826,95 @@ class MISurface:
         )
 
 
+@dataclass(frozen=True)
+class MIProjection:
+    """
+    A **forward-projected** mortality-improvement surface: the annual improvement
+    rate ``MI_x(y)`` for calendar years *beyond* the experience window, with a
+    posterior credible band.
+
+    Produced by :meth:`BayesianMISurfaceResult.project_improvement`. Each column
+    ``years[k]`` is a future calendar year (strictly after the last observed year);
+    ``mi_grid[:, k]`` is the projected annual improvement at that year. The
+    projection is **CMI/MP-style mean-reverting**: each age's improvement starts at
+    its last fitted rate ``initial_mi`` and converges over ``convergence_period``
+    years to the settable ``long_term_rate`` (the locked default per
+    docs/PLAN_experience_gam.md — "Matern HSGP mean-reverting to a settable
+    long-term rate"). Because the long-term rate is a deterministic assumption, the
+    credible band is widest at the join (where it equals the in-window surface
+    band) and narrows to zero as the improvement converges to ``long_term_rate``.
+
+    The cumulative product ``Π (1 - MI_x(y))`` (see :meth:`cumulative_factor`) is
+    the projected mortality multiplier relative to the last observed year — exactly
+    what the Slice-2c ``MortalityImprovement`` custom-scale emission consumes.
+    """
+
+    ages: np.ndarray
+    """Attained ages of the projected rows, shape (A,), int."""
+
+    years: np.ndarray
+    """Projected calendar years (strictly after ``last_observed_year``), shape
+    (K,), int."""
+
+    mi_grid: np.ndarray
+    """Projected annual improvement rate ``MI_x(y)``, shape (A, K), float64."""
+
+    mi_lower: np.ndarray
+    """Lower credible bound on the projected ``MI_x(y)``, shape (A, K), float64."""
+
+    mi_upper: np.ndarray
+    """Upper credible bound on the projected ``MI_x(y)``, shape (A, K), float64."""
+
+    confidence_level: float
+    """Two-sided posterior credible level of the band (e.g. 0.95)."""
+
+    long_term_rate: float
+    """The settable long-term annual improvement rate the projection reverts to."""
+
+    convergence_period: int
+    """Years over which each age's improvement converges from ``initial_mi`` to
+    ``long_term_rate`` (improvement equals ``long_term_rate`` at and beyond it)."""
+
+    method: str
+    """Convergence shape: ``'cosine'`` (CMI-style), ``'linear'`` (RW-style linear
+    taper), or ``'immediate'`` (jump straight to the long-term rate)."""
+
+    last_observed_year: int
+    """Final calendar year of the fitted experience window (the projection anchor)."""
+
+    initial_mi: np.ndarray
+    """Per-age fitted annual improvement at ``last_observed_year`` — the anchor the
+    projection converges from, shape (A,), float64."""
+
+    def to_frame(self) -> pl.DataFrame:
+        """Long-format DataFrame with columns ``[attained_age, calendar_year, mi,
+        mi_lower, mi_upper]`` — one row per (age, projected-year)."""
+        a = np.repeat(self.ages, len(self.years))
+        y = np.tile(self.years, len(self.ages))
+        return pl.DataFrame(
+            {
+                "attained_age": a.astype(np.int64),
+                "calendar_year": y.astype(np.int64),
+                "mi": self.mi_grid.reshape(-1).astype(np.float64),
+                "mi_lower": self.mi_lower.reshape(-1).astype(np.float64),
+                "mi_upper": self.mi_upper.reshape(-1).astype(np.float64),
+            }
+        )
+
+    def cumulative_factor(self) -> np.ndarray:
+        """
+        Cumulative mortality multiplier ``Π_{j<=k} (1 - MI_x(year_j))`` relative to
+        the last observed year, shape (A, K), float64.
+
+        Column ``k`` is the factor by which the base-year mortality is scaled at
+        ``years[k]`` — i.e. ``q(year_k) = q(last_observed_year) * factor[:, k]``.
+        This is the quantity :meth:`MortalityImprovement.apply_improvement`
+        accumulates (``q(Y) = q(base) * Π (1 - MI)``); the Slice-2c custom-scale
+        emission reads it directly.
+        """
+        return np.cumprod(1.0 - self.mi_grid, axis=1).astype(np.float64)
+
+
 @dataclass
 class MISurfaceResult:
     """
@@ -1454,6 +1544,138 @@ class BayesianMISurfaceResult:
             mi_lower=mi_lower.astype(np.float64),
             mi_upper=mi_upper.astype(np.float64),
             confidence_level=credible_level,
+        )
+
+    _CONVERGENCE_METHODS: ClassVar[frozenset[str]] = frozenset({"cosine", "linear", "immediate"})
+
+    def _convergence_weights(self, method: str, horizon: int, period: int) -> np.ndarray:
+        """Per-step weight ``w_k`` (k = 1..horizon) on the ``initial_mi`` deviation.
+
+        ``w`` starts near 1 at the first projected year and reaches 0 at
+        ``k >= period`` (``immediate`` is 0 everywhere). The projected improvement
+        is ``long_term_rate + w_k * (initial_mi - long_term_rate)``, so ``w`` also
+        scales the credible band — the band narrows to zero as the improvement
+        converges to the (deterministic) long-term rate.
+        """
+        k = np.arange(1, horizon + 1, dtype=np.float64)
+        if method == "immediate":
+            return np.zeros_like(k)
+        frac = np.clip(k / float(period), 0.0, 1.0)
+        if method == "linear":
+            return 1.0 - frac
+        # "cosine" — the smooth CMI mortality-improvement convergence shape.
+        return 0.5 * (1.0 + np.cos(np.pi * frac))
+
+    def project_improvement(
+        self,
+        horizon_years: int,
+        long_term_rate: float,
+        *,
+        ages: np.ndarray | None = None,
+        convergence_period: int = 20,
+        method: str = "cosine",
+        credible_level: float = 0.95,
+    ) -> MIProjection:
+        """
+        Forward-project the annual improvement ``MI_x(y)`` beyond the experience
+        window, mean-reverting to a settable long-term rate.
+
+        For each attained age the projection anchors on ``initial_mi(x)`` — the
+        fitted annual improvement across the final observed step
+        ``last_observed_year - 1 -> last_observed_year`` — and converges it toward
+        ``long_term_rate`` over ``convergence_period`` years:
+
+        ``MI_x(last_observed_year + k) = long_term_rate
+                                          + w_k * (initial_mi(x) - long_term_rate)``
+
+        where ``w_k`` (see :meth:`_convergence_weights`) tapers from ~1 to 0. This
+        is the CMI/MP-style projection locked as the epic default
+        (docs/PLAN_experience_gam.md — "Matern HSGP mean-reverting to a settable
+        long-term rate"); the ``te(x, t)`` reduced-rank GP supplies the anchor
+        rate *and its posterior uncertainty*, and the long-term rate is a
+        deterministic actuarial assumption.
+
+        The band is **posterior-predictive**: ``initial_mi(x)`` is Gaussian under
+        the Laplace posterior (variance of the last year-to-year contrast, delta-
+        method through ``1 - exp(.)``), the long-term rate is fixed, and the
+        projected improvement is affine in ``initial_mi(x)`` — so the band is
+        ``mi ± z * w_k * se(initial_mi)``. It equals the in-window surface band at
+        the join and narrows to zero at ``long_term_rate``.
+
+        Args:
+            horizon_years:      Number of future calendar years to project (>= 1).
+            long_term_rate:     Annual improvement the projection reverts to (an
+                                assumption; may be negative for deterioration; < 1).
+            ages:               Contiguous integer ages; defaults to the observed
+                                attained-age range.
+            convergence_period: Years to reach ``long_term_rate`` (>= 1).
+            method:             ``'cosine'`` (CMI-style, default), ``'linear'``, or
+                                ``'immediate'``.
+            credible_level:     Two-sided posterior credible level for the band.
+
+        Returns:
+            An :class:`MIProjection` of shape (len(ages), horizon_years) spanning
+            calendar years ``last_observed_year + 1 .. + horizon_years``.
+
+        Raises:
+            PolarisValidationError: On a non-positive horizon/period, an unknown
+                convergence method, or a long-term rate >= 1.
+        """
+        from scipy.stats import norm
+
+        if horizon_years < 1:
+            raise PolarisValidationError("horizon_years must be >= 1.")
+        if convergence_period < 1:
+            raise PolarisValidationError("convergence_period must be >= 1.")
+        if method not in self._CONVERGENCE_METHODS:
+            raise PolarisValidationError(
+                f"method must be one of {sorted(self._CONVERGENCE_METHODS)}, got {method!r}."
+            )
+        if long_term_rate >= 1.0:
+            raise PolarisValidationError(
+                "long_term_rate is an annual improvement fraction and must be < 1."
+            )
+
+        if ages is None:
+            ages = np.arange(self.observed_ages[0], self.observed_ages[1] + 1)
+        ages = np.asarray(ages).astype(np.int64)
+
+        # Anchor: the last observed annual step's log-contrast and its posterior SE.
+        y_last = int(self.observed_years[1])
+        step_years = np.array([y_last - 1, y_last], dtype=np.int64)
+        design = self._spec.design(self._grid_cols(ages, step_years))
+        p = design.shape[1]
+        design = design.reshape(len(ages), 2, p)
+        d_last = (design @ self._theta).reshape(len(ages), 2)
+        d_last = d_last[:, 1] - d_last[:, 0]
+        contrast = design[:, 1, :] - design[:, 0, :]
+        var = np.einsum("ap,pq,aq->a", contrast, self._cov, contrast)
+        se_d = np.sqrt(np.clip(var, 0.0, None))
+
+        initial_mi = 1.0 - np.exp(d_last)
+        # Delta method: d(1 - exp(d))/dd = -exp(d); the SE of MI is exp(d) * se_d.
+        se_mi = np.exp(d_last) * se_d
+
+        weights = self._convergence_weights(method, horizon_years, convergence_period)
+        # Broadcast: (A, 1) anchor deviation * (1, K) weights.
+        dev = (initial_mi - long_term_rate)[:, None]
+        mi_grid = long_term_rate + dev * weights[None, :]
+        se_grid = se_mi[:, None] * weights[None, :]
+
+        z = float(norm.ppf(0.5 + credible_level / 2.0))
+        years = np.arange(y_last + 1, y_last + horizon_years + 1, dtype=np.int64)
+        return MIProjection(
+            ages=ages,
+            years=years,
+            mi_grid=mi_grid.astype(np.float64),
+            mi_lower=(mi_grid - z * se_grid).astype(np.float64),
+            mi_upper=(mi_grid + z * se_grid).astype(np.float64),
+            confidence_level=credible_level,
+            long_term_rate=float(long_term_rate),
+            convergence_period=int(convergence_period),
+            method=method,
+            last_observed_year=y_last,
+            initial_mi=initial_mi.astype(np.float64),
         )
 
 

@@ -34,6 +34,7 @@ import pytest
 from polaris_re.analytics.experience_gam import (
     BayesianMISurfaceResult,
     BayesianTensorMIModel,
+    MIProjection,
     MISurface,
     TensorMIModel,
 )
@@ -391,3 +392,177 @@ def test_too_few_surface_years_rejected():
     result = BayesianTensorMIModel(cells).fit()
     with pytest.raises(PolarisValidationError, match="two calendar years"):
         result.improvement_surface(years=np.array([2010]))
+
+
+# --------------------------------------------------------------------------- #
+# Slice 2b-projection: posterior-predictive forward projection
+# --------------------------------------------------------------------------- #
+
+
+def _cosine_weight(k: int, period: int) -> float:
+    """Reference CMI-style convergence weight (mirrors the implementation)."""
+    frac = min(k / period, 1.0)
+    return 0.5 * (1.0 + np.cos(np.pi * frac))
+
+
+def _fit_constant(mi: float = 0.015) -> BayesianMISurfaceResult:
+    return BayesianTensorMIModel(_mi_cells(_AGES, _YEARS, lambda a: mi)).fit()
+
+
+def test_projection_shape_and_future_years():
+    """The projection spans exactly the horizon in strictly-future calendar years."""
+    result = _fit_constant()
+    proj = result.project_improvement(horizon_years=25, long_term_rate=0.01)
+    assert isinstance(proj, MIProjection)
+    assert proj.mi_grid.shape == (len(_AGES), 25)
+    assert proj.years[0] == _YEARS.max() + 1
+    assert proj.years[-1] == _YEARS.max() + 25
+    assert np.all(proj.years > result.observed_years[1])
+
+
+def test_projection_matches_convergence_formula():
+    """Closed-form check: MI = ltr + w_k * (initial_mi - ltr), the documented form."""
+    result = _fit_constant()
+    ltr, period = 0.008, 20
+    proj = result.project_improvement(
+        horizon_years=30, long_term_rate=ltr, convergence_period=period, method="cosine"
+    )
+    weights = np.array([_cosine_weight(k, period) for k in range(1, 31)])
+    expected = ltr + (proj.initial_mi[:, None] - ltr) * weights[None, :]
+    np.testing.assert_allclose(proj.mi_grid, expected, atol=1e-12)
+
+
+def test_projection_converges_to_long_term_rate():
+    """At and beyond the convergence period the improvement equals the LTR exactly."""
+    result = _fit_constant()
+    ltr, period = 0.005, 15
+    proj = result.project_improvement(
+        horizon_years=25, long_term_rate=ltr, convergence_period=period
+    )
+    # years[period-1] is the step k=period (0-indexed) — weight is exactly 0 there.
+    np.testing.assert_allclose(proj.mi_grid[:, period:], ltr, atol=1e-12)
+
+
+def test_projection_anchors_to_last_fitted_improvement():
+    """The first projected year is a smooth continuation of the fitted surface: with
+    a long convergence period it stays near the last fitted annual improvement."""
+    result = _fit_constant(mi=0.02)
+    surface = result.improvement_surface()
+    last_fitted = surface.mi_grid[:, -1]  # MI at the final observed step
+    proj = result.project_improvement(horizon_years=5, long_term_rate=0.0, convergence_period=200)
+    # initial_mi is exactly the last fitted step; the first projected year is close.
+    np.testing.assert_allclose(proj.initial_mi, last_fitted, atol=1e-9)
+    assert np.all(np.abs(proj.mi_grid[:, 0] - proj.initial_mi) < 2e-3)
+
+
+@pytest.mark.parametrize("method", ["cosine", "linear"])
+def test_projection_band_narrows_to_the_long_term_rate(method):
+    """The credible band is widest at the join and monotonically narrows to zero as
+    the improvement converges to the deterministic long-term rate."""
+    result = _fit_constant()
+    period = 20
+    proj = result.project_improvement(
+        horizon_years=30, long_term_rate=0.01, convergence_period=period, method=method
+    )
+    halfwidth = proj.mi_upper - proj.mi_lower  # (A, K)
+    # Non-increasing along the projection horizon for every age.
+    assert np.all(np.diff(halfwidth, axis=1) <= 1e-12)
+    # Zero once converged (weight is 0 at and beyond the convergence period).
+    np.testing.assert_allclose(halfwidth[:, period:], 0.0, atol=1e-12)
+
+
+def test_projection_band_widens_with_credible_level():
+    """A higher credible level gives a wider band at the join."""
+    result = _fit_constant()
+    p95 = result.project_improvement(horizon_years=10, long_term_rate=0.01, credible_level=0.95)
+    p50 = result.project_improvement(horizon_years=10, long_term_rate=0.01, credible_level=0.50)
+    w95 = (p95.mi_upper - p95.mi_lower)[:, 0]
+    w50 = (p50.mi_upper - p50.mi_lower)[:, 0]
+    assert np.all(w95 > w50)
+
+
+def test_projection_immediate_method_jumps_to_long_term_rate():
+    """The 'immediate' method reverts every projected year to the long-term rate."""
+    result = _fit_constant()
+    proj = result.project_improvement(horizon_years=10, long_term_rate=0.012, method="immediate")
+    np.testing.assert_allclose(proj.mi_grid, 0.012, atol=1e-12)
+    np.testing.assert_allclose(proj.mi_upper - proj.mi_lower, 0.0, atol=1e-12)
+
+
+def test_projection_linear_reaches_half_at_midpoint():
+    """Linear convergence: at half the period the deviation from the LTR is halved."""
+    result = _fit_constant()
+    ltr, period = 0.0, 20
+    proj = result.project_improvement(
+        horizon_years=period, long_term_rate=ltr, convergence_period=period, method="linear"
+    )
+    mid = period // 2  # step k = 10 → weight 1 - 10/20 = 0.5
+    np.testing.assert_allclose(
+        proj.mi_grid[:, mid - 1], 0.5 * proj.initial_mi, rtol=1e-9, atol=1e-12
+    )
+
+
+def test_projection_negative_long_term_rate_deterioration():
+    """A negative long-term rate (mortality deterioration) is honoured on convergence."""
+    result = _fit_constant()
+    proj = result.project_improvement(
+        horizon_years=25, long_term_rate=-0.005, convergence_period=10
+    )
+    np.testing.assert_allclose(proj.mi_grid[:, 10:], -0.005, atol=1e-12)
+
+
+def test_projection_cumulative_factor():
+    """The cumulative factor is the running product of (1 - MI) and monotone ≤ 1."""
+    result = _fit_constant()
+    proj = result.project_improvement(horizon_years=20, long_term_rate=0.01)
+    cf = proj.cumulative_factor()
+    assert cf.shape == proj.mi_grid.shape
+    np.testing.assert_allclose(cf, np.cumprod(1.0 - proj.mi_grid, axis=1), atol=1e-15)
+    # Improving mortality ⇒ factor strictly decreasing and below 1.
+    assert np.all(cf < 1.0)
+    assert np.all(np.diff(cf, axis=1) < 0.0)
+
+
+def test_projection_is_deterministic():
+    """The projection is bit-identical on re-fit + re-project (no MCMC)."""
+    a = _fit_constant().project_improvement(horizon_years=20, long_term_rate=0.01)
+    b = _fit_constant().project_improvement(horizon_years=20, long_term_rate=0.01)
+    np.testing.assert_array_equal(a.mi_grid, b.mi_grid)
+    np.testing.assert_array_equal(a.mi_lower, b.mi_lower)
+    np.testing.assert_array_equal(a.mi_upper, b.mi_upper)
+
+
+def test_projection_to_frame_shape():
+    result = _fit_constant()
+    proj = result.project_improvement(horizon_years=12, long_term_rate=0.01)
+    frame = proj.to_frame()
+    assert frame.columns == ["attained_age", "calendar_year", "mi", "mi_lower", "mi_upper"]
+    assert frame.height == len(_AGES) * 12
+    assert set(frame["calendar_year"].to_list()) == set(proj.years.tolist())
+
+
+def test_projection_custom_ages_subset():
+    """A caller-supplied age subset projects only those ages."""
+    result = _fit_constant()
+    ages = np.array([50, 55, 60])
+    proj = result.project_improvement(horizon_years=8, long_term_rate=0.01, ages=ages)
+    assert proj.mi_grid.shape == (3, 8)
+    np.testing.assert_array_equal(proj.ages, ages)
+
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        ({"horizon_years": 0, "long_term_rate": 0.01}, "horizon_years"),
+        (
+            {"horizon_years": 5, "long_term_rate": 0.01, "convergence_period": 0},
+            "convergence_period",
+        ),
+        ({"horizon_years": 5, "long_term_rate": 0.01, "method": "spline"}, "method must be"),
+        ({"horizon_years": 5, "long_term_rate": 1.0}, "must be < 1"),
+    ],
+)
+def test_projection_invalid_arguments_rejected(kwargs, match):
+    result = _fit_constant()
+    with pytest.raises(PolarisValidationError, match=match):
+        result.project_improvement(**kwargs)
