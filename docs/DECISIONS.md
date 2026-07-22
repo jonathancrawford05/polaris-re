@@ -9415,3 +9415,66 @@ alternative prior; a per-age long-term rate (the anchor is a single scalar rate 
 real HMD age×year validation slice and the offline `mgcv` oracle (Slice 4); the
 `MortalityImprovement`-compatible custom-scale emission / `ImprovementScale.CUSTOM` (Slice
 2c). These are continuations of the A4′ epic, not common-path gaps.
+
+---
+
+## ADR-143: Experience GAM (A4′ Slice 2c) — `MortalityImprovement`-compatible custom-scale emission (`ImprovementScale.CUSTOM`)
+
+**Date:** 2026-07-22
+**Status:** Accepted
+**Slice:** 2c (final sub-slice) of the Slice-2 HEADLINE — Data-Driven Experience Analysis
+epic (A4′), ROADMAP 6.1. See `docs/PLAN_experience_gam.md` and
+`docs/CONTINUATION_experience_gam.md`. Consumes ADR-140/141/142 (the fitted/projected
+`MI_x(y)` grid).
+
+**Context.** Slices 2a/2b produce an experience-fitted mortality-improvement grid
+`MI_x(y)` — the in-window surface (`MISurface`, ADR-140/141) and the forward projection
+(`MIProjection`, ADR-142), each carrying `ages`, step-end `years`, and an annual
+improvement `mi_grid`. Until now that grid was a terminal analytics artefact: there was no
+way to feed a data-driven improvement basis into the pricing engine, which only understood
+the four built-in scales (`SCALE_AA`, `MP_2020`, `CPM_B`, `NONE`). Slice 2c closes the loop.
+
+**Decision.**
+
+1. **New `ImprovementScale.CUSTOM` + a data-driven grid payload on `MortalityImprovement`.**
+   Four backward-compatible optional fields (`custom_ages`, `custom_years`,
+   `custom_mi_grid`, `custom_ultimate_rate`) hold an age × calendar-year `MI_x(y)` grid.
+   They default to `None`/`0.0`, so every existing caller and the four built-in scales are
+   byte-unchanged. A `@model_validator(mode="after")` enforces the CUSTOM contract (grid
+   present iff scale is CUSTOM; consistent shapes; strictly-increasing **contiguous** age
+   and year axes; `base_year == custom_years[0] - 1`) and forbids a stray grid on a
+   non-CUSTOM scale. The grid is stored as immutable nested **tuples** so the frozen model
+   stays hashable and the scale round-trips cleanly through JSON — the serialisation the
+   Slice-4 assumption-versioning store needs.
+
+2. **`MortalityImprovement.from_grid(ages, years, mi_grid, ultimate_rate=0.0)`.** The
+   assumptions-layer constructor: `base_year = years[0] - 1` (the anchor the grid improves
+   forward). `apply_improvement` accumulates
+   `q(Y) = q(base) · Π_{Z=base+1}^{Y} (1 − MI_x(Z))`, reusing the same year-by-year product
+   form as `MP_2020`. Step-end years past the last grid year use `custom_ultimate_rate`;
+   attained ages outside the grid clamp to the nearest edge row (constant extrapolation,
+   matching the existing `SCALE_AA`/`CPM_B` clamp convention). `improvement.py` stays
+   dependency-free (no import of `analytics`), preserving the core layering.
+
+3. **`MISurface.to_mortality_improvement` / `MIProjection.to_mortality_improvement`.** Thin
+   analytics-layer hand-offs that call `from_grid`. The projection default
+   `ultimate_rate = long_term_rate`, so pricing beyond the projection horizon continues the
+   deterministic long-term assumption rather than snapping to zero improvement (pass
+   `ultimate_rate=0.0` to stop improvement at the horizon). The emitted CUSTOM scale
+   reproduces the dataclass's own `cumulative_factor()` exactly — the acceptance identity
+   `apply_improvement(q, ages, years[k]) == q · cumulative_factor()[:, k]`.
+
+**Backward compatibility / core-contract note.** `MortalityImprovement` is a shared
+assumption contract; the PLAN flagged this slice as a contract change requiring
+human-review sign-off. The change is additive with `None`/`0.0` defaults and an
+all-existing-tests-green guarantee, so it preserves backward compatibility. Flagged in the
+PR for human review per the guardrails. The engine and all golden baselines are
+byte-identical: the CUSTOM scale is only reachable when a caller explicitly constructs one.
+
+**Out of scope (this slice — deferred/harvested).** Wiring CUSTOM into the CLI/dashboard
+`--config` schema and an `AssumptionSet` selector (a surfacing step — Slice 4);
+select-and-ultimate (per-duration) custom grids (the grid is attained-age × calendar-year
+here); persisting/loading a CUSTOM scale under `data/assumption_versions/` (Slice 4's
+versioning store — the tuple/JSON representation is chosen to make this trivial); carrying
+the credible band into the deterministic scale (an improvement scale is a point basis).
+These are A4′ continuations, not common-path gaps.

@@ -140,16 +140,35 @@ own sub-slice. Mirrors the Slice-1/2a de-risking pattern. See ADR-141.
   - `cumulative_factor()` is the Slice-2c hand-off: `q(Y) = q(base)·Π(1−MI)`.
 
 #### Slice 2c: `MortalityImprovement`-compatible custom-scale emission
-- **Status:** NEXT
+- **Status:** DONE
+- **Branch:** claude/loving-gauss-vvdlm3
+- **PR:** _(this session's draft PR — Slice 2c)_
 - **Depends on:** Slice 2b merged (surface #143 merged; projection #144 merged 2026-07-22).
-- **Scope:** a from-grid constructor / `ImprovementScale.CUSTOM` (core-contract change,
-  backward-compatible defaults, human-review flagged) that turns the projected
-  `MI_x(y)` surface into a `MortalityImprovement` that plugs into
-  `apply_improvement`. Static-vs-generational-offset guard already lives in 2a.
+- **What was done:** Added `ImprovementScale.CUSTOM` + a backward-compatible data-driven
+  grid payload (`custom_ages`/`custom_years`/`custom_mi_grid`/`custom_ultimate_rate`,
+  all `None`/`0.0` by default) and a `@model_validator` guard on `MortalityImprovement`;
+  a `MortalityImprovement.from_grid(ages, years, mi_grid, ultimate_rate)` constructor
+  (`base_year = years[0] − 1`) whose `apply_improvement` accumulates
+  `q(Y)=q(base)·Π(1−MI_x(Z))` (reusing the MP_2020 year-by-year product form, ages
+  clamped to grid edges, step-end years past the grid using `custom_ultimate_rate`); and
+  thin `MISurface.to_mortality_improvement` / `MIProjection.to_mortality_improvement`
+  hand-offs (projection default `ultimate_rate = long_term_rate`). The emitted scale
+  reproduces the dataclass `cumulative_factor()` exactly. Grid stored as immutable tuples
+  → hashable + JSON round-trips (Slice-4 versioning). Engine/goldens byte-identical.
+  ADR-143.
+- **Key decisions (carry into 3/4):**
+  - `improvement.py` stays dependency-free (no `analytics` import); the analytics dataclasses
+    call `from_grid`, preserving core layering.
+  - CUSTOM grid axes are attained-age × calendar-year (duration-invariant, per
+    Design-Anchor-4). Per-duration (select/ultimate) custom grids are harvested NICE-TO-HAVE.
+  - The credible band is dropped at the assumption boundary (an improvement scale is a
+    point basis); carrying it into a stochastic pricing run is harvested NICE-TO-HAVE.
+  - CLI/`--config`/`AssumptionSet` surfacing + `data/assumption_versions/` persistence of a
+    CUSTOM scale are **Slice 4** scope (the tuple/JSON representation is chosen for it).
 
 ### Slice 3: Hierarchical partial pooling (credibility)
-- **Status:** PLANNED
-- **Depends on:** Slice 2 merged.
+- **Status:** NEXT
+- **Depends on:** Slice 2 merged (2a #142, 2b-surface #143, 2b-projection #144, 2c this PR).
 - **Scope:** segment-level MI/effect deviations shrunk toward the global surface
   (Pedersen GS/GI HGAM); generalizes `ExperienceStudy`'s limited-fluctuation `Z`.
   Thin segments borrow the population trend; shrinkage estimated, not imposed.

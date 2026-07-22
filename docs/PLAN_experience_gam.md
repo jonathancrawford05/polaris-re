@@ -4,10 +4,12 @@
 PR #141/ADR-139; Slice 2a — frequentist tensor MI surface + `MI_x(y)` grid —
 shipped 2026-07-21, ADR-140; Slice 2b-surface — Bayesian credible-interval MI
 surface — shipped 2026-07-22, ADR-141; Slice 2b-projection — CMI/MP-style
-mean-reverting posterior-predictive MI projection — shipped 2026-07-22, ADR-142)
+mean-reverting posterior-predictive MI projection — shipped 2026-07-22, ADR-142;
+Slice 2c — `MortalityImprovement`-compatible custom-scale emission
+(`ImprovementScale.CUSTOM` / `from_grid`) — shipped 2026-07-22, ADR-143)
 — this is the active epic (A4′). Slice 2 is sub-decomposed 2a/2b/2c and Slice 2b
-is further split **2b-surface / 2b-projection** (see CONTINUATION). **Slice 2c
-(`MortalityImprovement`-compatible custom-scale emission) is NEXT.** The optional
+is further split **2b-surface / 2b-projection** (see CONTINUATION). **Slice 2 is now
+complete; Slice 3 (hierarchical partial pooling / credibility) is NEXT.** The optional
 `pymc`-NUTS audit path for the projection is deferred/gated on the maintainer
 confirming the ADR-141 backend direction (see CONTINUATION Open Questions). Note
 (ADR-141): the
