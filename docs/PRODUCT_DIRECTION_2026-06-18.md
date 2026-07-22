@@ -1622,6 +1622,35 @@ constraint and a future session must not rebuild these as a naive wall-time log.
   2nd-order (a follow-up of the 2a implementation choice) → NICE-TO-HAVE. *Source:
   ADR-140 Out of scope (2nd-order — follow-up of the A4' Slice-2a de-risking choice).*
 
+- **IMPORTANT — confirm the ADR-141 backend deviation for the Bayesian MI surface
+  (reduced-rank GP vs `bambi`/`pymc` HSGP).** A4' Slice 2b-surface **deviated from a
+  locked PLAN decision**: the PLAN's `bambi`/`pymc` `inference_method="laplace"`
+  backend is **defective in the installed versions** (`pymc` 6.1.0 / `bambi` 0.19.0 →
+  `NullTypeGradError` in `pymc.tuning.scaling.find_hessian` when an HSGP term is
+  combined with an `offset()` term; reproduced), and full NUTS is non-deterministic +
+  too slow for CI. The surface therefore ships as a **pure-NumPy/SciPy reduced-rank
+  GP** — the identical HSGP math in closed form (deterministic, core-only, no heavy
+  dependency). This is strictly better for CI but reverses the locked backend choice,
+  so the maintainer should confirm the direction **before the 2b-projection slice**,
+  which is where a `pymc`-NUTS audit path for the posterior-predictive forward
+  projection (if still wanted) would land. 1st-order (a discovery on the planned
+  Slice-2b feature) → IMPORTANT (architecture/direction decision gating the next
+  slice). *Source: ADR-141 human-review flag + DEV_SESSION_LOG_2026-07-22 DISCOVERY
+  (step 11b) (1st-order).*
+
+- **NICE-TO-HAVE — empirical-Bayes length-scale / amplitude selection for the
+  Bayesian MI surface.** A4' Slice 2b-surface (ADR-141) fixes the GP length-scales
+  (in standardised coordinates) and `prior_scale` amplitude as smoothness dials — the
+  Bayesian analogue of the frequentist fixed spline df. Data-driven selection by
+  maximising the Laplace marginal likelihood (evidence) was prototyped but **deferred**
+  because the Matérn spectral density underflows at large length-scales, singularising
+  the Laplace Hessian — it added numerical fragility for no gain on the closed-form
+  recovery tests. Promote a hardened evidence-maximising (or cross-validated)
+  length-scale/amplitude selector only if a validation deck shows the fixed defaults
+  materially misstate the credible-band width on real experience. 1st-order (a
+  follow-up of the planned Slice-2b surface) → NICE-TO-HAVE. *Source: ADR-141 Out of
+  scope (1st-order — follow-up of the A4' Slice-2b surface).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

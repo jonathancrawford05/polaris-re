@@ -9270,3 +9270,77 @@ grid drive `apply_improvement`, deferred so the core-contract change lands with 
 projected surface it feeds (2c); a full negative-binomial (estimated-α) likelihood;
 hierarchical partial pooling (Slice 3); and the CLI / versioning / validation surfaces
 (Slice 4). These are continuations of the A4′ epic, not common-path correctness gaps.
+
+---
+
+## ADR-141: Experience GAM (A4′ Slice 2b, surface) — Bayesian reduced-rank-GP MI surface with posterior credible intervals
+
+**Date:** 2026-07-22
+**Status:** Accepted
+**Slice:** 2b (surface sub-slice) of the Slice-2 HEADLINE — Data-Driven Experience
+Analysis epic (A4′), ROADMAP 6.1. See `docs/PLAN_experience_gam.md` and
+`docs/CONTINUATION_experience_gam.md`.
+
+**Context.** Slice 2b upgrades the Slice-2a frequentist tensor MI surface (ADR-140,
+delta-method confidence band) to honest **posterior credible intervals** on
+`MI_x(y)`. The PLAN's target backend is a Bayesian anisotropic HSGP via `bambi`
+(on `pymc`), fit with `inference_method="laplace"` for a deterministic point +
+covariance and full NUTS as the audit mode.
+
+**Discovery (VERIFY-PREMISE / step 11b).** Reproduced first with the installed
+stack (`pymc` 6.1.0, `bambi` 0.19.0): a `bambi` HSGP model with an `offset()` term
+fit via `inference_method="laplace"` raises `NullTypeGradError` inside
+`pymc.tuning.scaling.find_hessian` (the Laplace Hessian cannot be differentiated
+through the HSGP + offset graph). Full NUTS avoids the defect but is
+non-deterministic across platforms and too slow for the default suite. So the PLAN's
+locked default backend does **not** work as specified in the available versions —
+following it literally would ship either a broken import or a flaky, slow test.
+
+**Decision.**
+
+1. **Ship the surface as a pure-NumPy/SciPy reduced-rank GP.** A Hilbert-space GP
+   (Solin & Särkkä 2020) is *exactly* the same GP, represented on the Laplacian
+   eigenbasis `φ_j(x) = L^{-1/2} sin(π j (x+L)/(2L))` with a Matérn-5/2 spectral
+   density scaling the coefficient prior. Fixing the (anisotropic) length-scales
+   turns the GP into a **penalised-Poisson GLM**, fit to its MAP by Newton/IRLS with
+   a closed-form **Laplace** posterior covariance `(XᵀWX + P)⁻¹`. The year-to-year
+   MI contrast is linear in the coefficients, so its posterior is Gaussian and the
+   credible band propagates the Laplace covariance through `1 − exp(·)` exactly.
+   `BayesianTensorMIModel` + `BayesianMISurfaceResult` return the same `MISurface`
+   dataclass as the frequentist model; only the band interpretation changes
+   (posterior credible interval vs delta-method CI).
+
+2. **Fixed length-scales are the smoothness dial, mirroring the frequentist df.**
+   `TensorMIModel` fixes spline df (`age_df`, `year_df`); the Bayesian model fixes
+   GP length-scales (in standardised coordinates) and the amplitude `prior_scale`.
+   Empirical-Bayes length-scale selection was prototyped but deferred — it added
+   numerical fragility (a Matérn spectral-density that underflows at large
+   length-scales → singular Laplace Hessian) for no gain on the closed-form recovery
+   tests. It is harvested as a follow-up.
+
+3. **No heavy dependency; ships in core.** `numpy` and `scipy` are already core
+   dependencies, so — unlike Slice 2a's statsmodels backend — this surface needs no
+   `[ml]` extra. The whole fit is deterministic (bit-identical on re-run) and the 23
+   tests run in ~1.4s. `pymc`/`bambi` are therefore **not** added to `pyproject.toml`
+   in this slice (contrary to the PLAN's dependency plan); they will be added lazily,
+   only if and where the deferred `pymc`-NUTS audit backend imports them.
+
+4. **Scale-robust convergence.** The Newton stop is relative
+   (`max|step| < tol·(1+max|θ|)`); an absolute tolerance is unreachable when the
+   by-amount deaths run to 1e8 and floating-point noise floors the step.
+
+**Human review flag.** This slice **deviates from a locked PLAN decision** (the
+`bambi`/`pymc` HSGP backend) because that backend is defective in the available
+library versions. The reduced-rank GP is the identical GP math in closed form and is
+strictly better for CI (deterministic, fast, core-only), but the maintainer should
+confirm the direction before the projection slice, which may still want a `pymc`-NUTS
+audit path for the posterior-predictive forward projection.
+
+**Out of scope (this slice — deferred, tracked in the CONTINUATION).**
+Posterior-predictive **forward projection** with a settable long-term-rate anchor
+(Matérn mean-reverting / RW2) and the optional `pymc`-NUTS audit backend (the 2b
+"projection" sub-slice); the `MortalityImprovement`-compatible custom-scale emission
+(`ImprovementScale.CUSTOM` / from-grid, 2c); empirical-Bayes length-scale / amplitude
+selection; a real HMD age×year validation slice and the offline `mgcv` oracle
+(Slice 4); a full negative-binomial (estimated-α) likelihood; hierarchical partial
+pooling (Slice 3). These are continuations of the A4′ epic, not common-path gaps.

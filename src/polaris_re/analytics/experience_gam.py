@@ -67,6 +67,8 @@ __all__ = [
     "AMOUNT_MEASURES",
     "CANONICAL_KEY_COLUMNS",
     "COUNT_MEASURES",
+    "BayesianMISurfaceResult",
+    "BayesianTensorMIModel",
     "ExperienceGAM",
     "GAMFitResult",
     "MISurface",
@@ -1134,4 +1136,580 @@ class TensorMIModel:
             reference=self._reference(frame, factors),
             _result=result,
             _design_info=design_info,
+        )
+
+
+# --- Bayesian reduced-rank-GP (HSGP) tensor MI surface (Slice 2b) ----------------
+#
+# The Bayesian analogue of ``TensorMIModel``. Where the frequentist model fits a
+# tensor-product B-spline and reports a *delta-method* band, this fits an
+# anisotropic Gaussian-process surface ``te(attained_age, calendar_year)`` and
+# reports honest **posterior credible intervals** on ``MI_x(y)``.
+#
+# The GP is represented by its Hilbert-space reduced-rank (HSGP) expansion (Solin
+# & Sarkka 2020): on a centred, scaled box ``[-L, L]`` the Laplacian eigenfunctions
+# ``phi_j(x) = L**-0.5 sin(pi j (x + L) / (2L))`` with eigenvalues
+# ``lambda_j = (pi j / (2L))**2`` form a fixed basis, and a stationary GP prior
+# becomes independent coefficients ``beta_j ~ Normal(0, prior_scale**2 * S(sqrt(lambda_j)))``
+# where ``S`` is the Matern-5/2 spectral density. This turns the GP into a
+# penalised-Poisson GLM that is fit deterministically by Newton/IRLS to its MAP,
+# with a closed-form **Laplace** posterior covariance ``(X'WX + P)^-1``. No MCMC,
+# no compile-heavy sampler dependency — the whole surface is pure NumPy/SciPy, so
+# it ships in the core install and keeps CI lean and the suite deterministic.
+#
+# (ADR-141 records why this is the tested default backend rather than the
+# ``bambi``/``pymc`` HSGP the PLAN anticipated: the ``inference_method="laplace"``
+# path of ``bambi`` 0.19 / ``pymc`` 6.1 raises a ``NullTypeGradError`` on an HSGP
+# term combined with an ``offset`` term, and full NUTS is non-deterministic and too
+# slow for CI. The reduced-rank expansion above is the identical GP math done in
+# closed form. A ``pymc``-NUTS audit backend is deferred to the projection slice.)
+
+
+def _rrgp_eigenbasis_1d(
+    xn: np.ndarray, boundary: float, n_basis: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Hilbert-space GP eigenbasis on ``[-boundary, boundary]``.
+
+    Returns ``(phi, sqrt_lambda)`` where ``phi`` has shape ``(len(xn), n_basis)``
+    and ``sqrt_lambda`` holds the square-rooted eigenvalues (the spectral
+    frequencies the density is evaluated at). ``xn`` must be the centred, scaled
+    coordinate; ``boundary`` must exceed ``max(|xn|)`` for the expansion to be
+    valid (the caller enforces this via ``boundary_factor``).
+    """
+    j = np.arange(1, n_basis + 1, dtype=np.float64)
+    sqrt_lambda = np.pi * j / (2.0 * boundary)
+    phi = (1.0 / np.sqrt(boundary)) * np.sin(np.outer(xn + boundary, sqrt_lambda))
+    return phi, sqrt_lambda
+
+
+def _matern52_spectral_density(omega: np.ndarray, length_scale: float) -> np.ndarray:
+    """1-D Matern-5/2 spectral density ``S(omega)`` (unit marginal variance).
+
+    ``S(w) = c * (2*nu/l**2 + w**2)**-(nu + d/2)`` with ``nu = 5/2``, ``d = 1``.
+    The overall amplitude is carried separately by ``prior_scale``; this returns
+    the *shape* that down-weights high-frequency eigenfunctions (larger
+    ``length_scale`` => faster decay => smoother surface).
+    """
+    from scipy.special import gamma
+
+    nu, dim = 2.5, 1
+    kappa = 2.0 * nu / length_scale**2
+    coef = (2.0**dim * np.pi ** (dim / 2.0) * gamma(nu + dim / 2.0) * (2.0 * nu) ** nu) / (
+        gamma(nu) * length_scale ** (2.0 * nu)
+    )
+    return coef * (kappa + omega**2) ** (-(nu + dim / 2.0))
+
+
+@dataclass(frozen=True)
+class _RRGPSpec:
+    """Fixed design specification for the reduced-rank-GP MI surface.
+
+    Captured at fit time so the identical basis (same centring, boundary,
+    length-scales, eigenfunction count, and factor level maps) can be rebuilt on
+    an arbitrary prediction grid. All GP coordinates are standardised to unit
+    standard deviation; ``boundary`` is in those standardised units.
+    """
+
+    age_center: float
+    age_scale: float
+    age_boundary: float
+    age_basis: int
+    age_length_scale: float
+    year_center: float
+    year_scale: float
+    year_boundary: float
+    year_basis: int
+    year_length_scale: float
+    prior_scale: float
+    age_varying: bool
+    duration_center: float | None
+    duration_scale: float | None
+    duration_boundary: float | None
+    duration_basis: int
+    duration_length_scale: float
+    factor_levels: dict[str, list[object]]
+
+    def _gp_block_1d(
+        self,
+        values: np.ndarray,
+        center: float,
+        scale: float,
+        boundary: float,
+        n_basis: int,
+        ls: float,
+    ) -> np.ndarray:
+        xn = (np.asarray(values, dtype=np.float64) - center) / scale
+        phi, sqrt_lambda = _rrgp_eigenbasis_1d(xn, boundary, n_basis)
+        sd = np.sqrt(_matern52_spectral_density(sqrt_lambda, ls))
+        return phi * sd[None, :]
+
+    def design(self, cols: dict[str, np.ndarray]) -> np.ndarray:
+        """Assemble the model matrix for the given columns.
+
+        Column order (fixed): intercept, age main effect, year main effect,
+        [age x year interaction if ``age_varying``], [duration smooth if active],
+        then one dummy per non-baseline level of each factor. Every GP block is
+        pre-scaled by the square-root spectral density so its coefficients carry
+        the shared ``Normal(0, prior_scale**2)`` prior.
+        """
+        n = len(cols["attained_age"])
+        blocks = [np.ones((n, 1), dtype=np.float64)]
+        age_b = self._gp_block_1d(
+            cols["attained_age"],
+            self.age_center,
+            self.age_scale,
+            self.age_boundary,
+            self.age_basis,
+            self.age_length_scale,
+        )
+        year_b = self._gp_block_1d(
+            cols["calendar_year"],
+            self.year_center,
+            self.year_scale,
+            self.year_boundary,
+            self.year_basis,
+            self.year_length_scale,
+        )
+        blocks.append(age_b)
+        blocks.append(year_b)
+        if self.age_varying:
+            # Separable Matern tensor: the (i, j) product basis carries prior sd
+            # sqrt(S_age_i * S_year_j) = (scaled age col i) * (scaled year col j).
+            inter = np.einsum("ni,nj->nij", age_b, year_b).reshape(n, -1)
+            blocks.append(inter)
+        if self.duration_center is not None and "duration_years" in cols:
+            blocks.append(
+                self._gp_block_1d(
+                    cols["duration_years"],
+                    self.duration_center,
+                    self.duration_scale,
+                    self.duration_boundary,
+                    self.duration_basis,
+                    self.duration_length_scale,
+                )
+            )
+        for factor, levels in self.factor_levels.items():
+            col = np.asarray(cols[factor])
+            for lvl in levels[1:]:  # drop-first dummy encoding
+                blocks.append((col == lvl).astype(np.float64)[:, None])
+        return np.concatenate(blocks, axis=1)
+
+    def precision(self) -> np.ndarray:
+        """Prior precision (ridge) for every design column.
+
+        GP coefficients (age, year, interaction, duration) share
+        ``1 / prior_scale**2``; the intercept and factor dummies get a near-flat
+        ``1e-6`` so they are effectively unpenalised.
+        """
+        gp_prec = 1.0 / self.prior_scale**2
+        parts = [np.array([1e-6])]  # intercept
+        parts.append(np.full(self.age_basis, gp_prec))
+        parts.append(np.full(self.year_basis, gp_prec))
+        if self.age_varying:
+            parts.append(np.full(self.age_basis * self.year_basis, gp_prec))
+        if self.duration_center is not None:
+            parts.append(np.full(self.duration_basis, gp_prec))
+        n_dummies = sum(len(levels) - 1 for levels in self.factor_levels.values())
+        parts.append(np.full(n_dummies, 1e-6))
+        return np.concatenate(parts)
+
+
+@dataclass
+class BayesianMISurfaceResult:
+    """
+    Result of fitting a :class:`BayesianTensorMIModel`.
+
+    Carries the MAP coefficients and their Laplace posterior covariance, and
+    extracts the ``MI_x(y)`` improvement surface with honest **posterior credible
+    intervals** (the Bayesian analogue of :class:`MISurfaceResult`'s delta-method
+    band). Because the year-to-year contrast is linear in the coefficients, the
+    credible interval propagates the Laplace covariance through the contrast and
+    the ``1 - exp(.)`` link exactly.
+    """
+
+    basis: str
+    """``'count'`` or ``'amount'`` — which exposure/deaths pair was fit."""
+
+    factors: list[str]
+    """Categorical factors that entered the additive model."""
+
+    age_varying: bool
+    """Whether the age x calendar interaction was included (age-varying MI) vs a
+    separable age + calendar model (improvement constant across age)."""
+
+    overall_ae: float
+    """Total actual deaths / total expected deaths (exposure * q_base)."""
+
+    dispersion: float
+    """Pearson dispersion phi = Pearson chi-squared / effective residual df."""
+
+    overdispersion_applied: bool
+    """Whether the posterior covariance was scaled by phi (quasi-Poisson)."""
+
+    effective_df: float
+    """Effective degrees of freedom trace(H0 @ H^-1) — the penalised model size."""
+
+    n_cells: int
+    """Number of grouped cells in the fit."""
+
+    observed_ages: tuple[int, int]
+    """(min, max) attained age observed in the fit."""
+
+    observed_years: tuple[int, int]
+    """(min, max) calendar year observed in the fit."""
+
+    prior_scale: float
+    """GP amplitude / coefficient prior standard deviation used."""
+
+    length_scales: dict[str, float]
+    """Standardised-coordinate length-scales per GP dimension."""
+
+    reference: dict[str, object]
+    """Reference covariate values (median duration, modal factor level)."""
+
+    _spec: _RRGPSpec = field(default=None, repr=False)  # type: ignore[assignment]
+    _theta: np.ndarray = field(default=None, repr=False)  # type: ignore[assignment]
+    _cov: np.ndarray = field(default=None, repr=False)  # type: ignore[assignment]
+
+    def _grid_cols(self, ages: np.ndarray, years: np.ndarray) -> dict[str, np.ndarray]:
+        """Build the covariate columns for an (age x year) grid with every
+        non-surface covariate held at its reference (they cancel in the
+        year-to-year contrast, so the choice does not affect the surface)."""
+        n_age, n_year = len(ages), len(years)
+        cols: dict[str, np.ndarray] = {
+            "attained_age": np.repeat(ages, n_year).astype(np.float64),
+            "calendar_year": np.tile(years, n_age).astype(np.float64),
+        }
+        for k, v in self.reference.items():
+            if k in ("attained_age", "calendar_year"):
+                continue
+            cols[k] = np.repeat(np.asarray([v]), n_age * n_year)
+        return cols
+
+    def improvement_surface(
+        self,
+        ages: np.ndarray | None = None,
+        years: np.ndarray | None = None,
+        credible_level: float = 0.95,
+    ) -> MISurface:
+        """
+        Extract the annual improvement grid ``MI_x(y)`` with a posterior credible
+        band.
+
+        For each attained age and annual step ``y-1 -> y`` the improvement is
+        ``1 - exp(d)`` with ``d = eta(x, y) - eta(x, y-1)``. ``d`` is a linear
+        contrast of the coefficients, so its posterior (under the Laplace
+        approximation) is Gaussian with variance ``c' Cov c``; the band is the
+        equal-tailed ``credible_level`` interval mapped through ``1 - exp(.)``.
+        Every calendar-invariant term (intercept, age main effect, factors,
+        duration) cancels in ``d``, so the surface is exactly the fitted
+        calendar/tensor trend regardless of the reference covariates.
+
+        Args:
+            ages:           Contiguous integer ages; defaults to the observed range.
+            years:          Contiguous integer calendar years; defaults to the
+                            observed range. Improvement is reported for interior
+                            steps, so the surface spans ``years[1:]``.
+            credible_level: Two-sided posterior credible level for the band.
+
+        Returns:
+            An :class:`MISurface` of shape (len(ages), len(years) - 1).
+
+        Raises:
+            PolarisValidationError: If fewer than two calendar years are supplied.
+        """
+        from scipy.stats import norm
+
+        if ages is None:
+            ages = np.arange(self.observed_ages[0], self.observed_ages[1] + 1)
+        if years is None:
+            years = np.arange(self.observed_years[0], self.observed_years[1] + 1)
+        ages = np.asarray(ages).astype(np.int64)
+        years = np.asarray(years).astype(np.int64)
+        if len(years) < 2:
+            raise PolarisValidationError(
+                "improvement_surface needs at least two calendar years to form an "
+                "annual improvement step."
+            )
+
+        n_age, n_year = len(ages), len(years)
+        design = self._spec.design(self._grid_cols(ages, years))
+        p = design.shape[1]
+        design = design.reshape(n_age, n_year, p)
+        eta = (design @ self._theta).reshape(n_age, n_year)
+
+        d = eta[:, 1:] - eta[:, :-1]
+        contrast = design[:, 1:, :] - design[:, :-1, :]
+        var = np.einsum("ayp,pq,ayq->ay", contrast, self._cov, contrast)
+        se = np.sqrt(np.clip(var, 0.0, None))
+
+        z = float(norm.ppf(0.5 + credible_level / 2.0))
+        mi = 1.0 - np.exp(d)
+        mi_lower = 1.0 - np.exp(d + z * se)
+        mi_upper = 1.0 - np.exp(d - z * se)
+        return MISurface(
+            ages=ages,
+            years=years[1:],
+            mi_grid=mi.astype(np.float64),
+            mi_lower=mi_lower.astype(np.float64),
+            mi_upper=mi_upper.astype(np.float64),
+            confidence_level=credible_level,
+        )
+
+
+class BayesianTensorMIModel:
+    """
+    Bayesian anisotropic-GP mortality-improvement surface over grouped cells.
+
+    The Bayesian counterpart to :class:`TensorMIModel`. Fits
+    ``deaths ~ offset(log[exposure * q_base]) + te(attained_age, calendar_year)
+    + s(duration_years) + Sigma factors`` where ``te`` is an **anisotropic
+    reduced-rank Gaussian process** (Hilbert-space HSGP expansion, Matern-5/2
+    covariance with per-axis length-scales), fit to its MAP by penalised-Poisson
+    IRLS with a closed-form **Laplace** posterior covariance. The calendar
+    gradient of the surface is the fitted improvement;
+    :meth:`BayesianMISurfaceResult.improvement_surface` turns it into the
+    ``MI_x(y)`` grid with honest **posterior credible intervals**.
+
+    The whole model is pure NumPy/SciPy (no MCMC, no ``pymc``/``bambi``), so it is
+    deterministic and ships in the core install. See ADR-141 for why this
+    reduced-rank backend is preferred over the ``bambi``/``pymc`` HSGP the PLAN
+    anticipated.
+
+    Identifiability (Design Anchor 3) is inherited from the frequentist model:
+    no issue-year term, so the calendar gradient is attributed to improvement;
+    an optional ``underwriting_era`` factor exposes the alternative. The
+    Anchor-1 static-base guard rejects a generational offset.
+
+    Args:
+        cells:            Grouped cells in the canonical contract (see
+                          :class:`TensorMIModel`).
+        basis:            ``'count'`` or ``'amount'``.
+        age_basis:        Number of HSGP eigenfunctions on the attained-age axis.
+        year_basis:       Number of HSGP eigenfunctions on the calendar-year axis.
+        duration_basis:   Eigenfunctions for the residual duration smooth.
+        boundary_factor:  Domain half-width as a multiple of the standardised data
+                          range (must exceed 1; the eigenfunctions are only valid
+                          inside ``[-L, L]``).
+        age_length_scale / year_length_scale / duration_length_scale:
+                          Standardised-coordinate GP length-scales (larger =>
+                          smoother). These are fixed smoothness dials, the direct
+                          analogue of the frequentist model's spline df.
+        prior_scale:      GP amplitude (coefficient prior standard deviation).
+        age_varying:      Include the age x calendar interaction (age-varying
+                          improvement). ``False`` fits a separable model.
+        overdispersion:   Scale the posterior covariance by the Pearson dispersion
+                          phi (quasi-Poisson). ``None`` enables it for by-amount.
+        allow_generational_base: Skip the static-base guard (Anchor 1).
+
+    Raises:
+        PolarisValidationError: On a missing/invalid contract or a non-static base.
+    """
+
+    REQUIRED_ALWAYS: ClassVar[set[str]] = {"attained_age", "calendar_year", "q_base"}
+
+    def __init__(
+        self,
+        cells: pl.DataFrame,
+        *,
+        basis: str = "count",
+        age_basis: int = 8,
+        year_basis: int = 8,
+        duration_basis: int = 6,
+        boundary_factor: float = 1.6,
+        age_length_scale: float = 1.2,
+        year_length_scale: float = 1.5,
+        duration_length_scale: float = 1.5,
+        prior_scale: float = 5.0,
+        age_varying: bool = True,
+        overdispersion: bool | None = None,
+        allow_generational_base: bool = False,
+    ) -> None:
+        if basis not in {"count", "amount"}:
+            raise PolarisValidationError(f"basis must be 'count' or 'amount', got {basis!r}.")
+        if boundary_factor <= 1.0:
+            raise PolarisValidationError("boundary_factor must exceed 1.0 for a valid HSGP basis.")
+        if min(age_basis, year_basis) < 2:
+            raise PolarisValidationError("age_basis and year_basis must each be >= 2.")
+        exposure_col, deaths_col = COUNT_MEASURES if basis == "count" else AMOUNT_MEASURES
+        required = self.REQUIRED_ALWAYS | {exposure_col, deaths_col}
+        missing = required - set(cells.columns)
+        if missing:
+            raise PolarisValidationError(
+                f"Grouped cells missing required columns for basis={basis!r}: {missing}"
+            )
+        if cells.height == 0:
+            raise PolarisValidationError("Grouped cells DataFrame is empty.")
+        if cells["calendar_year"].n_unique() < 2:
+            raise PolarisValidationError(
+                "BayesianTensorMIModel needs >1 distinct calendar_year to identify a trend."
+            )
+        q_base = cells["q_base"].to_numpy().astype(np.float64)
+        if np.any(q_base <= 0.0) or np.any(q_base > 1.0):
+            raise PolarisValidationError("q_base must lie in (0, 1] for every cell.")
+        if not allow_generational_base:
+            _assert_static_base(cells)
+
+        self.cells = cells
+        self.basis = basis
+        self.exposure_col = exposure_col
+        self.deaths_col = deaths_col
+        self.age_basis = age_basis
+        self.year_basis = year_basis
+        self.duration_basis = duration_basis
+        self.boundary_factor = boundary_factor
+        self.age_length_scale = age_length_scale
+        self.year_length_scale = year_length_scale
+        self.duration_length_scale = duration_length_scale
+        self.prior_scale = prior_scale
+        self.age_varying = age_varying
+        self.overdispersion = (basis == "amount") if overdispersion is None else overdispersion
+        self.allow_generational_base = allow_generational_base
+
+    def _build_frame(self) -> tuple[pl.DataFrame, list[str]]:
+        frame = self.cells
+        if "duration_months" in frame.columns:
+            frame = frame.with_columns((pl.col("duration_months") / 12.0).alias("duration_years"))
+        factors = [f for f in _CANDIDATE_FACTORS if f in frame.columns and frame[f].n_unique() > 1]
+        return frame, factors
+
+    def _build_spec(self, frame: pl.DataFrame, factors: list[str]) -> _RRGPSpec:
+        def stats(name: str) -> tuple[float, float, float]:
+            v = frame[name].to_numpy().astype(np.float64)
+            center = float(v.mean())
+            scale = float(v.std())
+            scale = scale if scale > 0.0 else 1.0
+            xn = (v - center) / scale
+            boundary = float(self.boundary_factor * np.max(np.abs(xn)))
+            boundary = boundary if boundary > 0.0 else 1.0
+            return center, scale, boundary
+
+        age_c, age_s, age_bnd = stats("attained_age")
+        yr_c, yr_s, yr_bnd = stats("calendar_year")
+        dur_active = "duration_years" in frame.columns and frame["duration_years"].n_unique() > 1
+        if dur_active:
+            dur_c, dur_s, dur_bnd = stats("duration_years")
+        else:
+            dur_c = dur_s = dur_bnd = None
+        levels = {
+            f: sorted(frame[f].unique().to_list(), key=lambda x: (x is None, x)) for f in factors
+        }
+        return _RRGPSpec(
+            age_center=age_c,
+            age_scale=age_s,
+            age_boundary=age_bnd,
+            age_basis=self.age_basis,
+            age_length_scale=self.age_length_scale,
+            year_center=yr_c,
+            year_scale=yr_s,
+            year_boundary=yr_bnd,
+            year_basis=self.year_basis,
+            year_length_scale=self.year_length_scale,
+            prior_scale=self.prior_scale,
+            age_varying=self.age_varying,
+            duration_center=dur_c,
+            duration_scale=dur_s,
+            duration_boundary=dur_bnd,
+            duration_basis=self.duration_basis,
+            duration_length_scale=self.duration_length_scale,
+            factor_levels=levels,
+        )
+
+    def _reference(self, frame: pl.DataFrame, factors: list[str]) -> dict[str, object]:
+        ref: dict[str, object] = {
+            "attained_age": float(np.median(frame["attained_age"].to_numpy())),
+            "calendar_year": float(np.median(frame["calendar_year"].to_numpy())),
+        }
+        if "duration_years" in frame.columns:
+            ref["duration_years"] = float(np.median(frame["duration_years"].to_numpy()))
+        for f in factors:
+            vc = frame.group_by(f).len().sort("len", descending=True)
+            ref[f] = vc[f][0]
+        return ref
+
+    def fit(self, max_iter: int = 100, tol: float = 1e-9) -> BayesianMISurfaceResult:
+        """
+        Fit the surface to its MAP and return a :class:`BayesianMISurfaceResult`.
+
+        The penalised Poisson log-posterior is maximised by Newton/IRLS; the
+        Laplace posterior covariance is the inverse Hessian at the mode. Both
+        steps are deterministic — the result is identical on every run.
+
+        Raises:
+            PolarisComputationError: If the Newton iteration fails to converge.
+        """
+        frame, factors = self._build_frame()
+        spec = self._build_spec(frame, factors)
+
+        cols = {c: frame[c].to_numpy() for c in frame.columns}
+        design = spec.design(cols)
+        prec = spec.precision()
+
+        exposure = frame[self.exposure_col].to_numpy().astype(np.float64)
+        deaths = frame[self.deaths_col].to_numpy().astype(np.float64)
+        q_base = frame["q_base"].to_numpy().astype(np.float64)
+        expected = exposure * q_base
+        if np.any(expected <= 0.0):
+            raise PolarisValidationError(
+                "Every cell must have positive exposure * q_base to form the offset."
+            )
+        offset = np.log(expected)
+
+        n, p = design.shape
+        theta = np.zeros(p, dtype=np.float64)
+        prec_mat = np.diag(prec)
+        converged = False
+        for _ in range(max_iter):
+            eta = design @ theta + offset
+            mu = np.exp(np.clip(eta, -50.0, 50.0))
+            grad = design.T @ (deaths - mu) - prec * theta
+            hess = (design.T * mu) @ design + prec_mat  # positive-definite (= -Hessian of logpost)
+            step = np.linalg.solve(hess, grad)
+            theta = theta + step
+            # Scale-robust criterion: the coefficient step is negligible relative to
+            # the coefficient magnitude. An absolute tol is unreachable when the
+            # by-amount deaths run to 1e8 and floating-point noise floors the step.
+            if np.max(np.abs(step)) < tol * (1.0 + np.max(np.abs(theta))):
+                converged = True
+                break
+        if not converged:
+            raise PolarisComputationError("Bayesian MI surface Newton iteration did not converge.")
+
+        # Recompute the Hessian at the converged theta (the loop's `hess` is one
+        # Newton step stale) so the Laplace covariance is exact and consistent with
+        # the effective-df computed from the same mu.
+        mu = np.exp(np.clip(design @ theta + offset, -50.0, 50.0))
+        unpenalised_hess = (design.T * mu) @ design
+        cov = np.linalg.inv(unpenalised_hess + prec_mat)
+        effective_df = float(np.trace(cov @ unpenalised_hess))
+        resid_df = max(n - effective_df, 1.0)
+        pearson_chi2 = float(np.sum((deaths - mu) ** 2 / np.clip(mu, 1e-12, None)))
+        dispersion = pearson_chi2 / resid_df
+        if self.overdispersion:
+            cov = cov * dispersion
+
+        overall_ae = float(deaths.sum() / expected.sum())
+        cal = self.cells["calendar_year"].to_numpy()
+        age = self.cells["attained_age"].to_numpy()
+        return BayesianMISurfaceResult(
+            basis=self.basis,
+            factors=factors,
+            age_varying=self.age_varying,
+            overall_ae=overall_ae,
+            dispersion=dispersion,
+            overdispersion_applied=self.overdispersion,
+            effective_df=effective_df,
+            n_cells=frame.height,
+            observed_ages=(int(age.min()), int(age.max())),
+            observed_years=(int(cal.min()), int(cal.max())),
+            prior_scale=self.prior_scale,
+            length_scales={
+                "attained_age": self.age_length_scale,
+                "calendar_year": self.year_length_scale,
+                "duration_years": self.duration_length_scale,
+            },
+            reference=self._reference(frame, factors),
+            _spec=spec,
+            _theta=theta,
+            _cov=cov,
         )
