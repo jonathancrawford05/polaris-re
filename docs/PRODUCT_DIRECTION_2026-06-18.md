@@ -421,6 +421,23 @@ Items harvested from completed/in-flight work by the daily-dev routine
   any pricing path → NICE-TO-HAVE. Surfaced while wiring the 4b-1 diagnostics CLI.
   *Source: ADR-146 Out of scope + DEV_SESSION_LOG_2026-07-22_experience_gam_slice4b1 Open Questions (2nd-order — a follow-up on the Slice-1 `factor_effect` behaviour).*
 
+- **NICE-TO-HAVE — Capture observed feature ranges on `GAMFitResult` so effect
+  assembly drops the `cells` reach-back.** `_collect_experience_effects` in the CLI
+  reads each smooth term's observed span from the `cells` frame because the
+  `GAMFitResult` does not carry the range; `smooth_effect(feature)` therefore also
+  cannot default its grid to the observed range. Storing
+  `feature_ranges: dict[str, tuple[float, float]]` on the result at fit time would
+  let `smooth_effect` default its grid and let effect-shape assembly move onto the
+  model as a public `all_effects(...) -> pl.DataFrame` (option 2/3 from the PR #148
+  review) — so the CLI *and* the incoming Slice-4d dashboard call one public method
+  instead of each re-deriving ranges from `cells`. Best landed **as part of Slice 4d**
+  (when the dashboard becomes a second consumer of the tidy long-format frame), per
+  the reviewer's recommendation — touch this surface once. The public
+  `GAMFitResult.smooth_features` accessor (the P2 one-liner) already shipped in PR
+  #148; this is the remaining, larger half. Internal coupling cleanup, no correctness
+  or commercial impact → NICE-TO-HAVE.
+  *Source: PR #148 review [P2] (option 3) + ADR-146 + CONTINUATION_experience_gam Slice-4b-1 key decisions (1st-order — a review-driven refinement of the 4b-1 GAM-fit surface).*
+
 _Slice 4b-1's remaining ADR-146 out-of-scope items (assumption versioning, `--config`/
 `AssumptionSet` wiring, loaders + validation deck, diagnostic plots + docs) are already
 first-class planned slices in `CONTINUATION_experience_gam` (4b-2/4b-3/4c/4d) and are picked

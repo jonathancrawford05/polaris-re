@@ -284,6 +284,15 @@ goldens byte-identical.
 - **Depends on:** Slice 4c merged.
 - **Scope:** effect-shape + MI-surface diagnostic plots; ARCHITECTURE + QUICKSTART; ADR.
   HARVEST FOLLOW-UPS, then this CONTINUATION → COMPLETE.
+- **Fold in the PR #148 review option-3 cleanup here (recommended landing point).** When the
+  dashboard becomes a *second* consumer of the tidy effect-shape frame, capture
+  `feature_ranges: dict[str, tuple[float, float]]` on `GAMFitResult` at fit time and move
+  `_collect_experience_effects` onto the model as a public `all_effects(...) -> pl.DataFrame`
+  (defaulting `smooth_effect`'s grid to the observed range). This removes the CLI's
+  `cells`-frame reach-back for smooth spans so the CLI and the 4d dashboard call one public
+  method instead of each re-deriving ranges. The public `GAMFitResult.smooth_features`
+  accessor (the P2 half) already shipped in PR #148; this is the remaining half. See the
+  PRODUCT_DIRECTION Promoted Follow-up (*Source: PR #148 review [P2] option 3*).
 - **Uncertainty bands — LOCKED (maintainer decision 2026-07-22).** Every diagnostic plot
   renders its band by default — the bands are already first-class in the data structures
   (`SmoothEffect.lower/upper`, `MISurface.mi_lower/upper + confidence_level`,
