@@ -54,7 +54,7 @@ mirrors the Slice-1 de-risking pattern (regression splines before penalized/GP).
 #### Slice 2a: Frequentist tensor MI surface + `MI_x(y)` grid
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-4zyfr7
-- **PR:** #142 (draft — awaiting review/merge)
+- **PR:** #142 — **MERGED** 2026-07-21
 - **Backend:** statsmodels tensor-product B-splines (`bs(x, df):bs(t, df)` + margins)
   — reuses the Slice-1 `[ml]` dependency; no `pymc`/`bambi` yet.
 - **What was done:** `TensorMIModel` fits `te(attained_age, calendar_year)` on the
@@ -74,15 +74,55 @@ mirrors the Slice-1 de-risking pattern (regression splines before penalized/GP).
     (backward-compatible — activates only when present with >1 level).
 
 #### Slice 2b: Bayesian HSGP credible intervals + projection
+
+Sub-decomposed **surface / projection** during the surface session (2026-07-22)
+after a VERIFY-PREMISE discovery: the PLAN's locked `bambi`/`pymc`
+`inference_method="laplace"` backend raises `NullTypeGradError` on an HSGP + offset
+graph in the installed versions (`pymc` 6.1.0, `bambi` 0.19.0), and full NUTS is
+non-deterministic + too slow for CI. The **surface** sub-slice therefore ships the
+credible-interval surface as a pure-NumPy/SciPy reduced-rank GP (the identical HSGP
+math in closed form — deterministic, core-only, no heavy dependency); the
+stochastic **projection** work (and any `pymc`-NUTS audit path) is isolated into its
+own sub-slice. Mirrors the Slice-1/2a de-risking pattern. See ADR-141.
+
+##### Slice 2b-surface: Bayesian reduced-rank-GP MI surface + credible intervals
+- **Status:** DONE
+- **Branch:** claude/loving-gauss-dpfie6
+- **PR:** #143 (draft — awaiting review/merge)
+- **Backend:** pure NumPy/SciPy Hilbert-space (reduced-rank) GP — Matérn-5/2
+  anisotropic `te(attained_age, calendar_year)`, fit to MAP by penalised-Poisson
+  IRLS with a closed-form **Laplace** posterior covariance. **No new dependency**
+  (numpy/scipy are core); `pymc`/`bambi` NOT added.
+- **What was done:** `BayesianTensorMIModel` + `BayesianMISurfaceResult` in
+  `experience_gam.py`. Extracts the same `MISurface` grid as the frequentist model
+  but with honest **posterior credible intervals** (`MI_x(y) = 1−exp[η(x,y)−η(x,y−1)]`,
+  band propagated from the Laplace covariance through the linear year-contrast).
+  Anisotropic fixed length-scales are the smoothness dial (the GP analogue of the
+  frequentist spline df); `age_varying=False` gives a separable model. Reuses the
+  Anchor-1 static-base guard and the Design-Anchor-3 (no issue-year term;
+  `underwriting_era` escape hatch) structure. Deterministic (bit-identical on
+  re-run); 23 tests in ~1.4s. ADR-141.
+- **Key decisions (carry into 2b-projection/2c):**
+  - Fixed length-scales, not empirical-Bayes selection (deferred — Matérn PSD
+    underflows at large length-scales → singular Laplace Hessian; harvested).
+  - The Laplace credible band == the delta-method band evaluated on the **posterior**
+    covariance; it agrees with the 2a frequentist grid on the point estimate (tested).
+  - Scale-robust Newton convergence (`max|step| < tol·(1+max|θ|)`) — absolute tol is
+    unreachable at the by-amount 1e8 deaths scale.
+  - `pymc`/`bambi` deferred to the projection sub-slice, imported lazily there.
+
+##### Slice 2b-projection: posterior-predictive forward projection + NUTS audit
 - **Status:** NEXT
-- **Depends on:** Slice 2a merged.
-- **Backend:** bambi HSGP / pymc (adds `bambi>=0.14`, `pymc>=5.16` to `[ml]`, imported
-  only where used).
-- **Scope:** anisotropic HSGP `te(x, t)` with **posterior credible intervals** on
-  `MI_x(y)` and posterior-predictive **forward projection** anchored to a settable
-  long-term rate (locked default: Matérn mean-reverting; RW2 offered). MAP+Laplace and
-  full-NUTS run modes. Validate against the 2a frequentist grid + an `mgcv` offline
-  oracle within tolerance; a plausible gradient from a real HMD age×year slice.
+- **Depends on:** Slice 2b-surface merged.
+- **Backend:** the same reduced-rank GP for the deterministic projection mean/band;
+  an optional lazily-imported `pymc`-NUTS audit path (adds `pymc`/`bambi` to `[ml]`
+  only if that path is built).
+- **Scope:** posterior-predictive **forward projection** of `MI_x(y)` beyond the
+  data window, anchored to a settable long-term rate (locked default: Matérn
+  mean-reverting; RW2 offered). Validate against the 2a frequentist grid + an `mgcv`
+  offline oracle within tolerance; a plausible gradient from a real HMD age×year
+  slice. Confirm the ADR-141 backend deviation direction with the maintainer before
+  committing to a `pymc`-NUTS audit path.
 
 #### Slice 2c: `MortalityImprovement`-compatible custom-scale emission
 - **Status:** PLANNED

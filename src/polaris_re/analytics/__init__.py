@@ -22,6 +22,8 @@ from polaris_re.analytics.capital_base import (
     capital_model_for,
 )
 from polaris_re.analytics.experience_gam import (
+    BayesianMISurfaceResult,
+    BayesianTensorMIModel,
     ExperienceGAM,
     GAMFitResult,
     MISurface,
@@ -90,6 +92,8 @@ from polaris_re.analytics.validation import (
 __all__ = [
     "SUPPORTED_CAPITAL_MODELS",
     "AEResult",
+    "BayesianMISurfaceResult",
+    "BayesianTensorMIModel",
     "CIRModel",
     "CapitalModel",
     "CapitalModelId",

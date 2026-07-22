@@ -2,10 +2,16 @@
 
 **Status:** IN PROGRESS (plan locked 2026-07-15; Slice 1 shipped 2026-07-21 as
 PR #141/ADR-139; Slice 2a — frequentist tensor MI surface + `MI_x(y)` grid —
-shipped 2026-07-21, ADR-140) — this is the active epic (A4′). Slice 2 is
-sub-decomposed 2a/2b/2c (see CONTINUATION); **Slice 2b (Bayesian HSGP credible
-intervals + projection) is NEXT**. The backing `CONTINUATION_experience_gam.md`
-is IN PROGRESS.
+shipped 2026-07-21, ADR-140; Slice 2b-surface — Bayesian credible-interval MI
+surface — shipped 2026-07-22, ADR-141) — this is the active epic (A4′). Slice 2
+is sub-decomposed 2a/2b/2c and Slice 2b is further split **2b-surface /
+2b-projection** (see CONTINUATION). **Slice 2b-projection (posterior-predictive
+forward projection + optional pymc-NUTS audit) is NEXT.** Note (ADR-141): the
+PLAN's locked `bambi`/`pymc` `laplace` backend is defective in the installed
+versions (`NullTypeGradError` on HSGP + offset), so the surface ships as the
+identical HSGP math in closed form (a pure-NumPy/SciPy reduced-rank GP —
+deterministic, core-only); `pymc`/`bambi` are deferred to the projection slice.
+The backing `CONTINUATION_experience_gam.md` is IN PROGRESS.
 
 **Source / derivation.** Reframes ROADMAP Milestone 6.1 (Experience-Monitoring
 Automation) and the 2026-07-05 review's C2, re-ranked to the active Tier-A epic
