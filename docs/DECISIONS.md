@@ -9344,3 +9344,74 @@ Posterior-predictive **forward projection** with a settable long-term-rate ancho
 selection; a real HMD age×year validation slice and the offline `mgcv` oracle
 (Slice 4); a full negative-binomial (estimated-α) likelihood; hierarchical partial
 pooling (Slice 3). These are continuations of the A4′ epic, not common-path gaps.
+
+## ADR-142: Experience GAM (A4′ Slice 2b, projection) — CMI/MP-style mean-reverting posterior-predictive MI projection
+
+**Date:** 2026-07-22
+**Status:** Accepted
+**Slice:** 2b (projection sub-slice) of the Slice-2 HEADLINE — Data-Driven Experience
+Analysis epic (A4′), ROADMAP 6.1. See `docs/PLAN_experience_gam.md` and
+`docs/CONTINUATION_experience_gam.md`. Builds on ADR-141 (the reduced-rank-GP surface).
+
+**Context.** Slice 2b-surface (ADR-141) fits the in-window `MI_x(y)` surface with a
+posterior credible band on the reduced-rank-GP backend. The remaining Slice-2b work is
+the **forward projection**: extending `MI_x(y)` to calendar years beyond the experience
+window, anchored to a settable long-term improvement rate. The PLAN's locked default
+projection prior is "Matérn HSGP mean-reverting to a settable long-term rate (CMI/MP-
+style)", with RW2 linear extrapolation offered as an alternative.
+
+**Problem with a naïve GP extrapolation.** The reduced-rank GP is a fixed Laplacian
+eigenbasis valid only inside its boundary `[-L, L]` (in standardised coordinates), and
+`L` — plus the fitted coefficients `θ` tied to that basis — is frozen at fit time over
+the *observed* year range. Evaluating the same eigenbasis at future years outside `[-L,
+L]` is not a valid GP extrapolation (the `sin` eigenfunctions re-enter and oscillate);
+re-solving with a wider boundary would change the basis and invalidate `θ`. So the
+honest, deterministic route is to project the *improvement rate* itself, not to re-run
+the eigenbasis out of domain.
+
+**Decision.**
+
+1. **Mean-revert the improvement rate to a settable long-term rate (the CMI/MP form).**
+   `BayesianMISurfaceResult.project_improvement(horizon_years, long_term_rate, ...)`
+   anchors each age on `initial_mi(x)` — the fitted annual improvement across the final
+   observed step `y_last−1 → y_last`, read from the *same* Laplace-covariance contrast
+   machinery as `improvement_surface` — and converges it toward `long_term_rate` over
+   `convergence_period` years:
+   `MI_x(y_last+k) = long_term_rate + w_k · (initial_mi(x) − long_term_rate)`.
+   The weight `w_k` tapers from ~1 at the join to 0 at `k ≥ convergence_period`. This is
+   the locked default (Matérn mean-reverting to a long-term rate); the long-term rate is
+   a deterministic actuarial assumption (CMI-style), not estimated.
+
+2. **Convergence shape is selectable.** `method="cosine"` (default) is the smooth CMI
+   mortality-improvement convergence `w_k = ½(1+cos(π·min(k,T)/T))`; `"linear"` is a
+   straight taper; `"immediate"` reverts to the long-term rate at the first projected
+   year (a floor/sanity mode). Full **RW2 linear-trend extrapolation** (the fanning-band
+   alternative, which extrapolates the last *rate of change* rather than mean-reverting)
+   is a genuinely different projection model and is deferred/harvested, not shipped here.
+
+3. **The band is posterior-predictive and narrows to the long-term rate.** `initial_mi(x)`
+   is Gaussian under the Laplace posterior (the last year-to-year contrast, delta-method
+   through `1−exp(·)`); the long-term rate is fixed; the projected rate is affine in
+   `initial_mi(x)`, so the credible band is `MI ± z·w_k·se(initial_mi(x))`. It equals the
+   in-window surface band at the join and narrows to zero as the improvement converges to
+   the deterministic long-term rate. This is the honest interpretation: the uncertainty
+   is in the *current* rate of improvement; the long-term rate is an assumption.
+
+4. **`MIProjection` carries a cumulative factor.** `cumulative_factor()` returns
+   `Π_{j≤k}(1 − MI_x(year_j))` — the projected mortality multiplier relative to `y_last`,
+   exactly what `MortalityImprovement.apply_improvement` accumulates and what the Slice-2c
+   custom-scale emission will consume. No pricing path or core contract changes; the whole
+   projection is pure NumPy/SciPy, deterministic, and ships in core (no `[ml]` extra).
+
+**Human review flag / gated deferral.** The optional **`pymc`-NUTS audit backend** for the
+projection is **not** shipped: per ADR-141's human-review flag, the maintainer should first
+confirm the reduced-rank-GP backend direction before a `pymc`/`bambi` dependency is added.
+The deterministic reduced-rank projection above is the common-path deliverable and is
+independent of that decision. This keeps the slice self-contained and the suite lean.
+
+**Out of scope (this slice — deferred, tracked in the CONTINUATION).** The `pymc`-NUTS
+audit path (gated on maintainer sign-off); RW2 linear-trend (fanning-band) projection as an
+alternative prior; a per-age long-term rate (the anchor is a single scalar rate here); the
+real HMD age×year validation slice and the offline `mgcv` oracle (Slice 4); the
+`MortalityImprovement`-compatible custom-scale emission / `ImprovementScale.CUSTOM` (Slice
+2c). These are continuations of the A4′ epic, not common-path gaps.
