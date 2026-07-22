@@ -234,6 +234,172 @@ def test_table_attach_path_builds_q_base(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Effect-shape diagnostics — `polaris experience fit` (A4' Slice 4b-1)
+# --------------------------------------------------------------------------- #
+
+
+def _write_factor_experience_csv(
+    path: Path, *, mi: float = 0.015, female_mult: float = 0.8
+) -> None:
+    """Grouped cells with a ``sex`` factor whose female A/E multiplier is exact.
+
+    Actual mortality is ``q_base(age)·sex_mult·(1-mi)^(year-base)`` with the
+    male level at 1.0 and the female level at ``female_mult`` — so a fitted
+    ``ExperienceGAM`` recovers ``female_mult`` on the ``sex`` factor exactly
+    (closed-form verification of the effect-shape diagnostics).
+    """
+    rows = []
+    for a in _AGES:
+        q0 = _q_base(int(a))
+        for y in _YEARS:
+            for sex, mult in (("M", 1.0), ("F", female_mult)):
+                actual_q = q0 * mult * (1.0 - mi) ** (int(y) - _BASE_YEAR)
+                rows.append((int(a), int(y), q0, sex, 2.0e6, 2.0e6 * actual_q))
+    pl.DataFrame(
+        rows,
+        schema=[
+            "attained_age",
+            "calendar_year",
+            "q_base",
+            "sex",
+            "central_exposure",
+            "death_count",
+        ],
+        orient="row",
+    ).write_csv(path)
+
+
+def test_fit_reports_overall_ae_and_active_factors(tmp_path: Path) -> None:
+    """``experience fit`` renders the fit summary (A/E, dispersion, factors)."""
+    exp = tmp_path / "exp.csv"
+    _write_factor_experience_csv(exp, female_mult=0.8)
+
+    result = runner.invoke(app, ["experience", "fit", "-e", str(exp)])
+    assert result.exit_code == 0, result.output
+    # Summary surfaces the headline diagnostics and the active `sex` factor.
+    assert "A/E" in result.output
+    assert "Dispersion" in result.output
+    assert "sex" in result.output
+
+
+def test_fit_effects_out_recovers_factor_multiplier(tmp_path: Path) -> None:
+    """The ``--effects-out`` long-format CSV recovers the exact factor multiplier."""
+    exp = tmp_path / "exp.csv"
+    effects = tmp_path / "effects.csv"
+    _write_factor_experience_csv(exp, female_mult=0.75)
+
+    result = runner.invoke(
+        app, ["experience", "fit", "-e", str(exp), "--effects-out", str(effects)]
+    )
+    assert result.exit_code == 0, result.output
+
+    df = pl.read_csv(effects)
+    assert set(df.columns) == {
+        "feature",
+        "term_type",
+        "x",
+        "x_value",
+        "multiplier",
+        "lower",
+        "upper",
+    }
+    # Both a smooth (attained_age) and a factor (sex) effect are present.
+    assert set(df["term_type"].unique().to_list()) == {"smooth", "factor"}
+    assert "attained_age" in df["feature"].unique().to_list()
+
+    # factor_effect reports each level relative to the modal reference level
+    # (which of M/F is reference is a tie here), so the *contrast* F/M — not the
+    # absolute multiplier — is the invariant the fit recovers.
+    female = df.filter((pl.col("feature") == "sex") & (pl.col("x") == "F"))
+    male = df.filter((pl.col("feature") == "sex") & (pl.col("x") == "M"))
+    assert female.height == 1 and male.height == 1
+    ratio = female["multiplier"].to_numpy()[0] / male["multiplier"].to_numpy()[0]
+    np.testing.assert_allclose(ratio, 0.75, atol=1e-3)
+    # Exactly one level is the reference — it sits at exactly 1.0.
+    mults = df.filter(pl.col("feature") == "sex")["multiplier"].to_numpy()
+    assert np.isclose(mults, 1.0).sum() == 1
+
+
+def test_fit_smooth_grid_spans_observed_range(tmp_path: Path) -> None:
+    """Smooth effects are sampled across the observed feature range at --grid-points."""
+    exp = tmp_path / "exp.csv"
+    effects = tmp_path / "effects.csv"
+    _write_factor_experience_csv(exp)
+
+    result = runner.invoke(
+        app,
+        ["experience", "fit", "-e", str(exp), "--effects-out", str(effects), "--grid-points", "25"],
+    )
+    assert result.exit_code == 0, result.output
+
+    df = pl.read_csv(effects)
+    age = df.filter((pl.col("feature") == "attained_age") & (pl.col("term_type") == "smooth"))
+    assert age.height == 25
+    assert age["x_value"].min() == float(_AGES.min())
+    assert age["x_value"].max() == float(_AGES.max())
+
+
+def test_fit_amount_basis(tmp_path: Path) -> None:
+    """``--basis amount`` fits the face-weighted experience (dispersion widens)."""
+    exp = tmp_path / "exp.csv"
+    rows = []
+    for a in _AGES:
+        q0 = _q_base(int(a))
+        for y in _YEARS:
+            actual_q = q0 * (1.0 - 0.015) ** (int(y) - _BASE_YEAR)
+            rows.append((int(a), int(y), q0, 5.0e8, 5.0e8 * actual_q))
+    pl.DataFrame(
+        rows,
+        schema=["attained_age", "calendar_year", "q_base", "amount_exposed", "death_amount"],
+        orient="row",
+    ).write_csv(exp)
+
+    result = runner.invoke(app, ["experience", "fit", "-e", str(exp), "--basis", "amount"])
+    assert result.exit_code == 0, result.output
+    assert "amount" in result.output
+
+
+def test_fit_table_attach_path_builds_q_base(tmp_path: Path) -> None:
+    """A CSV lacking ``q_base`` attaches the static base from ``--table``."""
+    exp = tmp_path / "exp.csv"
+    _write_experience_csv(exp, with_q_base=False)
+    data_dir = tmp_path / "data"
+    _write_synthetic_cso_dir(data_dir)
+
+    result = runner.invoke(
+        app,
+        [
+            "experience",
+            "fit",
+            "-e",
+            str(exp),
+            "--table",
+            "cso_2001",
+            "--data-dir",
+            str(data_dir / "mortality_tables"),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "A/E" in result.output
+
+
+def test_fit_error_bad_basis(tmp_path: Path) -> None:
+    """An unknown ``--basis`` is rejected, exit 1."""
+    exp = tmp_path / "exp.csv"
+    _write_experience_csv(exp)
+    result = runner.invoke(app, ["experience", "fit", "-e", str(exp), "--basis", "bogus"])
+    assert result.exit_code == 1
+    assert "basis" in result.output.lower()
+
+
+def test_fit_error_missing_experience_file(tmp_path: Path) -> None:
+    """A missing experience file is a clear error, exit 1."""
+    result = runner.invoke(app, ["experience", "fit", "-e", str(tmp_path / "nope.csv")])
+    assert result.exit_code == 1
+    assert "not found" in result.output
+
+
+# --------------------------------------------------------------------------- #
 # Error paths
 # --------------------------------------------------------------------------- #
 

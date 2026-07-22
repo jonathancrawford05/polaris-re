@@ -407,6 +407,25 @@ above — this file does not duplicate the SHIPPED-footer detail.
 Items harvested from completed/in-flight work by the daily-dev routine
 (step 17), with provenance. These are first-class work items, not commentary.
 
+- **NICE-TO-HAVE — Exposure-weighted modal reference level for `ExperienceGAM`
+  factor effects.** `ExperienceGAM.factor_effect` reports each categorical level's
+  A/E multiplier relative to the **modal** reference level, chosen by row count
+  (`group_by(f).len()`). When two levels have equal cell counts (e.g. a balanced
+  synthetic or a perfectly split book) the reference is a nondeterministic
+  tie-break, so which level renders at multiplier 1.0 can vary run-to-run. The
+  reported *contrasts* are reference-invariant (correctness is unaffected), and
+  real studies have unequal exposure so it is deterministic in practice — this is
+  cosmetic. An exposure-weighted (or largest-exposure) modal reference would make
+  the reference deterministic and actuarially the more natural baseline. Affects
+  only the diagnostic display of `polaris experience fit` / Slice-1 effects, not
+  any pricing path → NICE-TO-HAVE. Surfaced while wiring the 4b-1 diagnostics CLI.
+  *Source: ADR-146 Out of scope + DEV_SESSION_LOG_2026-07-22_experience_gam_slice4b1 Open Questions (2nd-order — a follow-up on the Slice-1 `factor_effect` behaviour).*
+
+_Slice 4b-1's remaining ADR-146 out-of-scope items (assumption versioning, `--config`/
+`AssumptionSet` wiring, loaders + validation deck, diagnostic plots + docs) are already
+first-class planned slices in `CONTINUATION_experience_gam` (4b-2/4b-3/4c/4d) and are picked
+up by the routine via step 5, so they are not re-promoted here (would duplicate the ledger)._
+
 - **NICE-TO-HAVE — Configurable held-capital basis (target multiple of ACL)
   for US RBC.** The US RBC module (Epic 3 Slice 1) fixes the held-capital basis
   fed to return-on-capital at the **Company Action Level** (= 2× Authorized

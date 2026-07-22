@@ -56,9 +56,11 @@ if TYPE_CHECKING:
 
     from polaris_re.analytics.experience_gam import (
         BayesianMISurfaceResult,
+        GAMFitResult,
         MIProjection,
         MISurface,
         MISurfaceResult,
+        SmoothEffect,
     )
     from polaris_re.analytics.scenario import ScenarioAdjustment
     from polaris_re.assumptions.improvement import MortalityImprovement
@@ -4091,6 +4093,255 @@ def experience_improvement_cmd(
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(improvement.model_dump_json(indent=2))
         console.print(f"Improvement scale (CUSTOM) written to {output}")
+
+
+def _collect_experience_effects(
+    result: "GAMFitResult",
+    cells: "pl.DataFrame",
+    *,
+    grid_points: int,
+    confidence_level: float,
+) -> "pl.DataFrame":
+    """Assemble the per-feature effect shapes into one tidy long-format frame.
+
+    Each smooth term (``attained_age``, ``duration_years`` when present) is
+    sampled at ``grid_points`` evenly-spaced points across its observed range
+    (read from ``cells``); each categorical factor contributes one row per level
+    (the contrast against its reference). Columns: ``feature, term_type, x,
+    x_value, multiplier, lower, upper`` — ``x`` is a universal label, ``x_value``
+    the numeric grid value for smooths (null for factors). This is the artifact
+    the Slice-4d diagnostic dashboard consumes.
+    """
+    import polars as pl
+
+    frames: list[pl.DataFrame] = []
+    for feature in result._smooth_specs:
+        if feature == "duration_years" and feature not in cells.columns:
+            # duration_years is derived at fit time; recover its observed span.
+            span = (cells["duration_months"] / 12.0).to_numpy().astype(np.float64)
+        elif feature in cells.columns:
+            span = cells[feature].to_numpy().astype(np.float64)
+        else:
+            span = cells["attained_age"].to_numpy().astype(np.float64)
+        grid = np.linspace(float(span.min()), float(span.max()), grid_points)
+        effect: SmoothEffect = result.smooth_effect(
+            feature, grid, confidence_level=confidence_level
+        )
+        frames.append(
+            pl.DataFrame(
+                {
+                    "feature": [feature] * grid_points,
+                    "term_type": ["smooth"] * grid_points,
+                    "x": [f"{g:g}" for g in effect.grid],
+                    "x_value": effect.grid.astype(np.float64),
+                    "multiplier": effect.multiplier.astype(np.float64),
+                    "lower": effect.lower.astype(np.float64),
+                    "upper": effect.upper.astype(np.float64),
+                }
+            )
+        )
+    for factor in result.factors:
+        fe = result.factor_effect(factor, confidence_level=confidence_level)
+        frames.append(
+            pl.DataFrame(
+                {
+                    "feature": [factor] * fe.height,
+                    "term_type": ["factor"] * fe.height,
+                    "x": fe[factor].cast(pl.Utf8),
+                    "x_value": pl.Series([None] * fe.height, dtype=pl.Float64),
+                    "multiplier": fe["multiplier"],
+                    "lower": fe["lower"],
+                    "upper": fe["upper"],
+                }
+            )
+        )
+    if not frames:
+        return pl.DataFrame(
+            schema={
+                "feature": pl.Utf8,
+                "term_type": pl.Utf8,
+                "x": pl.Utf8,
+                "x_value": pl.Float64,
+                "multiplier": pl.Float64,
+                "lower": pl.Float64,
+                "upper": pl.Float64,
+            }
+        )
+    return pl.concat(frames, how="vertical")
+
+
+def _render_experience_fit(
+    result: "GAMFitResult",
+    effects: "pl.DataFrame",
+    *,
+    confidence_level: float,
+) -> None:
+    """Render a Rich summary of the fitted GAM and its per-feature effect shapes."""
+    summary = Table(title="Experience A/E GAM fit", show_header=False)
+    summary.add_column("Field", style="cyan")
+    summary.add_column("Value", justify="right")
+    summary.add_row("Basis", result.basis)
+    summary.add_row("Grouped cells", f"{result.n_cells:,}")
+    summary.add_row("Overall A/E", f"{result.overall_ae:.4f}")
+    summary.add_row("Dispersion φ", f"{result.dispersion:.3f}")
+    summary.add_row("Overdispersion", "quasi-Poisson" if result.overdispersion_applied else "off")
+    summary.add_row("Active factors", ", ".join(result.factors) if result.factors else "(none)")
+    summary.add_row("Band level", f"{confidence_level:.0%}")
+    console.print(summary)
+
+    for feature in result._smooth_specs:
+        rows = effects.filter((effects["feature"] == feature) & (effects["term_type"] == "smooth"))
+        if rows.height == 0:
+            continue
+        x_value = rows["x_value"].to_numpy()
+        mult = rows["multiplier"].to_numpy()
+        lo = rows["lower"].to_numpy()
+        hi = rows["upper"].to_numpy()
+        n_sample = min(6, rows.height)
+        idx = np.linspace(0, rows.height - 1, n_sample).round().astype(np.int64)
+        tbl = Table(title=f"Smooth effect — {feature} (A/E multiplier)")
+        tbl.add_column(feature, justify="right", style="cyan")
+        tbl.add_column("Multiplier", justify="right")
+        tbl.add_column(f"{confidence_level:.0%} band", justify="right")
+        for i in idx:
+            tbl.add_row(
+                f"{x_value[i]:g}",
+                f"{mult[i]:.4f}",
+                f"[{lo[i]:.4f}, {hi[i]:.4f}]",
+            )
+        console.print(tbl)
+
+    for factor in result.factors:
+        rows = effects.filter((effects["feature"] == factor) & (effects["term_type"] == "factor"))
+        tbl = Table(title=f"Factor effect — {factor} (A/E multiplier vs reference)")
+        tbl.add_column("Level", justify="left", style="cyan")
+        tbl.add_column("Multiplier", justify="right")
+        tbl.add_column(f"{confidence_level:.0%} band", justify="right")
+        for level, mult, lo, hi in zip(
+            rows["x"].to_list(),
+            rows["multiplier"].to_list(),
+            rows["lower"].to_list(),
+            rows["upper"].to_list(),
+            strict=True,
+        ):
+            tbl.add_row(str(level), f"{mult:.4f}", f"[{lo:.4f}, {hi:.4f}]")
+        console.print(tbl)
+
+
+@experience_app.command("fit")
+def experience_fit_cmd(
+    experience: Annotated[
+        Path,
+        typer.Option(
+            "--experience",
+            "-e",
+            help="Grouped-cell experience CSV in the canonical contract "
+            "(attained_age, exposure/deaths; optional q_base, duration_months, factors).",
+        ),
+    ],
+    table: Annotated[
+        str | None,
+        typer.Option(
+            "--table",
+            help="Standard mortality table to build the static q_base offset "
+            "(e.g. soa_vbt_2015, cia_2014). Omit if the CSV carries q_base.",
+        ),
+    ] = None,
+    data_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--data-dir",
+            help="Mortality-table directory (defaults to $POLARIS_DATA_DIR/mortality_tables).",
+        ),
+    ] = None,
+    default_smoker: Annotated[
+        str,
+        typer.Option(
+            "--default-smoker",
+            help="Smoker status for the q_base lookup when cells carry no smoker column.",
+        ),
+    ] = "unknown",
+    basis: Annotated[
+        str,
+        typer.Option("--basis", help="Experience basis: 'count' (policy) or 'amount' (face)."),
+    ] = "count",
+    age_df: Annotated[
+        int,
+        typer.Option("--age-df", help="Attained-age spline df.", min=3),
+    ] = 6,
+    duration_df: Annotated[
+        int,
+        typer.Option("--duration-df", help="Select-duration spline df.", min=3),
+    ] = 4,
+    grid_points: Annotated[
+        int,
+        typer.Option(
+            "--grid-points",
+            help="Points at which each smooth effect is sampled across its observed range.",
+            min=2,
+        ),
+    ] = 50,
+    confidence_level: Annotated[
+        float,
+        typer.Option(
+            "--confidence-level",
+            help="Two-sided confidence level for the reported effect bands.",
+            min=0.5,
+            max=0.999,
+        ),
+    ] = 0.95,
+    effects_out: Annotated[
+        Path | None,
+        typer.Option(
+            "--effects-out",
+            help="Write per-feature effect shapes (long format) as CSV for plotting.",
+        ),
+    ] = None,
+) -> None:
+    """
+    Fit the interpretable additive A/E GAM and report per-feature effect shapes.
+
+    Reads grouped experience cells, attaches a static select-and-ultimate base
+    (Anchor 1), and fits ``deaths ~ offset(log[exposure·q_base]) + s(attained_age)
+    + s(duration_years) + Σ factors`` (Slice-1 ``ExperienceGAM``). Renders the
+    fitted A/E level, quasi-Poisson dispersion, and each standard feature's
+    smooth/categorical contribution to the A/E multiplier surface with a
+    confidence band — the diagnostic view an actuary signs off on *before* the
+    improvement surface is frozen into a CUSTOM scale (``experience improvement``).
+
+    With ``--effects-out`` the effect shapes are written in a tidy long format
+    the Slice-4d diagnostic dashboard consumes.
+    """
+    _header()
+
+    if basis not in {"count", "amount"}:
+        console.print(f"[red]Error:[/red] --basis must be 'count' or 'amount', got {basis!r}.")
+        raise typer.Exit(code=1)
+
+    from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
+
+    cells = _load_experience_cells(experience)
+    cells = _attach_base_rate_for_experience(cells, table, data_dir, default_smoker)
+
+    with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}")) as prog:
+        prog.add_task("Fitting experience A/E GAM...", total=None)
+        try:
+            from polaris_re.analytics.experience_gam import ExperienceGAM
+
+            result = ExperienceGAM(cells, basis=basis, age_df=age_df, duration_df=duration_df).fit()
+        except (PolarisValidationError, PolarisComputationError) as exc:
+            console.print(f"[red]Fit failed:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
+
+    effects = _collect_experience_effects(
+        result, cells, grid_points=grid_points, confidence_level=confidence_level
+    )
+    _render_experience_fit(result, effects, confidence_level=confidence_level)
+
+    if effects_out is not None:
+        effects_out.parent.mkdir(parents=True, exist_ok=True)
+        effects.write_csv(effects_out)
+        console.print(f"\nEffect shapes written to {effects_out}")
 
 
 if __name__ == "__main__":
