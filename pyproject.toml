@@ -66,6 +66,9 @@ dashboard = [
     "matplotlib>=3.9",
     "plotly>=5.20",
 ]
+viz = [
+    "matplotlib>=3.9",
+]
 
 [project.scripts]
 polaris = "polaris_re.cli:app"

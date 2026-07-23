@@ -424,7 +424,7 @@ byte-identical; only the plots slice adds a rendering surface.
 ##### Slice 4d-1: public `all_effects()`/`feature_ranges` + `fitted_glm_arrays()` accessors
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-tutmj6
-- **PR:** #154 (draft — awaiting review/merge)
+- **PR:** #154 — **MERGED** 2026-07-23 (merge commit `350162f`)
 - **Depends on:** Slice 4c merged (4c-1 #151, 4c-2 #152, 4c-3 #153 — all merged 2026-07-23).
 - **What was done:** Landed the two folded-in review items as a pure-refactor foundation the 4d-2
   plots consume. (1) **PR #148 review option-3:** added `GAMFitResult.feature_ranges` (observed
@@ -450,16 +450,38 @@ byte-identical; only the plots slice adds a rendering surface.
     `_result` as private from here on.
 
 ##### Slice 4d-2: effect-shape + MI-surface + projection diagnostic plots
-- **Status:** NEXT
-- **Depends on:** Slice 4d-1 merged.
-- **Scope:** the diagnostic plots below (consuming `all_effects()` / `--grid-out` / the projection
-  fan), rendering the LOCKED uncertainty bands. Primary path is data → the existing Streamlit
-  dashboard; an optional static `plot_effects()`/`plot_mi_surface()` helper lives behind a `[viz]`
-  extra (dev/report-only, never on the pricing path). Goldens byte-identical.
+- **Status:** DONE
+- **Branch:** claude/loving-gauss-93tjdn
+- **PR:** #155 (draft — awaiting review/merge)
+- **Depends on:** Slice 4d-1 merged (#154, merge `350162f`).
+- **What was done:** Shipped the static matplotlib diagnostic helpers behind a new `[viz]` extra as
+  a self-contained `polaris_re.viz` subpackage (`experience_plots.py`), rendering the LOCKED
+  uncertainty bands straight from the Slice-4d-1 public structures — no range/band re-derivation:
+  - `plot_effects(all_effects_frame, …)` — smooths as line + shaded `fill_between` band, factors as
+    point + error bars, A/E=1 reference line.
+  - `plot_mi_surface(surface, …)` — the two 1-D slice panels (MI vs calendar year for selected ages;
+    MI vs age for selected years), each line + shaded band (no band painted on the 3-D surface).
+  - `plot_mi_surface_bandwidth(surface, …)` — the band-*width* heatmap showing where the surface is
+    well- vs poorly-identified.
+  - `plot_mi_projection(projection, …)` — the fan chart for one age (band widest at the join,
+    narrowing to the `long_term_rate`, which is drawn as a reference line).
+  Every band is captioned with its **kind** (`BandKind` = `confidence` | `credible` |
+  `posterior-predictive`) so frequentist/Bayesian/projection uncertainty are never conflated.
+  matplotlib is imported **lazily** inside the helpers (subprocess-guarded test proves
+  `import polaris_re.viz` does not import matplotlib); the pricing path never imports viz. ADR-153.
+  Additive-only; engine/goldens byte-identical (+21 tests).
+- **Key decisions (carry into 4d-3):**
+  - The static `[viz]` helpers are the report/dev rendering surface. **Wiring the effect/MI/
+    projection diagnostics into the Streamlit dashboard is deferred to a follow-up** (harvested to
+    PRODUCT_DIRECTION) — the dashboard is a heavier, less deterministically-testable surface, and the
+    static helpers already satisfy the locked plot spec (bands on by default, kind-labelled). 4d-3
+    (docs + epic close) does not depend on the dashboard wiring.
+  - `BandKind` is caller-declared, not inferred: a `MISurface` from the frequentist vs Bayesian
+    backend is the same dataclass, so the caller states which band it carries.
 
 ##### Slice 4d-3: ARCHITECTURE + QUICKSTART docs (CLOSES EPIC)
-- **Status:** PLANNED
-- **Depends on:** Slice 4d-2 merged.
+- **Status:** NEXT
+- **Depends on:** Slice 4d-2 merged (#155).
 - **Scope:** ARCHITECTURE + QUICKSTART documentation of the experience-GAM capability end-to-end;
   ADR. HARVEST FOLLOW-UPS (Refinement Backlog + every ADR's Out-of-scope + unresolved Open
   Questions), then this CONTINUATION → COMPLETE.

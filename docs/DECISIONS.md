@@ -10106,3 +10106,65 @@ projection-fan diagnostic plots (data → the existing Streamlit dashboard; opti
 bands. Slice 4d-3: ARCHITECTURE + QUICKSTART documentation of the experience-GAM capability, HARVEST
 FOLLOW-UPS, and closing the CONTINUATION (→ COMPLETE). Still open from 4c-2: a caller-side diligence
 run fitting a *real* cached ILEC extract against *actual* published MIM-2021/CIA targets.
+
+## ADR-153: Experience GAM (A4' Slice 4d-2) — static `[viz]` diagnostic plots
+
+**Date:** 2026-07-23
+**Status:** Accepted
+**Slice:** 4d-2 of the Data-Driven Experience Analysis epic (A4'), ROADMAP 6.1 — the diagnostic-plot
+sub-slice of the epic-closing Slice 4d. See `docs/PLAN_experience_gam.md` and
+`docs/CONTINUATION_experience_gam.md` (Slice 4d-2 scope; the LOCKED uncertainty-band plot spec).
+
+**Context.** Slice 4d-1 (ADR-152, PR #154) landed the public `GAMFitResult.all_effects()` frame and
+the `MISurface`/`MIProjection` band-carrying data structures. Slice 4d-2 renders them. The locked
+maintainer decision (2026-07-22) is that every diagnostic **renders its uncertainty band by
+default** — the bands are already first-class in the structures (`SmoothEffect.lower/upper`,
+`MISurface.mi_lower/upper`, `MIProjection.mi_lower/upper`), so rendering them is the default, not
+extra scope. The spec also requires each band be **labelled by kind** (frequentist *confidence* vs
+Bayesian *credible* vs projection *posterior-predictive*, which are not interchangeable), and that
+the rendering dependency stay **off the pricing path**.
+
+**Decision.** Add a self-contained `polaris_re.viz` subpackage (`experience_plots.py`) exposing four
+static matplotlib helpers, each returning a `matplotlib.figure.Figure` built straight from the
+Slice-4d-1 public structures with no range/band re-derivation:
+
+1. `plot_effects(all_effects_frame, *, band_kind, confidence_level, title)` — one panel per feature;
+   smooths as a line over `x_value` with a shaded `fill_between` band, factors as points + error
+   bars, with an A/E = 1 reference line.
+2. `plot_mi_surface(surface, *, ages, years, band_kind, title)` — two 1-D slice panels (MI vs
+   calendar year for selected ages; MI vs age for selected years), each line + shaded band. A band
+   is deliberately **not** painted onto the 3-D age-by-year surface (unreadable).
+3. `plot_mi_surface_bandwidth(surface, *, title)` — a band-*width* (`mi_upper - mi_lower`) heatmap
+   showing where the surface is well- vs poorly-identified (edges / thin cells).
+4. `plot_mi_projection(projection, *, age, band_kind, title)` — a fan chart for one age: the band is
+   widest at the join and narrows to the `long_term_rate` (drawn as a reference line).
+
+`BandKind` (`Literal["confidence", "credible", "posterior-predictive"]`) is **caller-declared**, not
+inferred — a `MISurface` from the frequentist vs Bayesian backend is the same dataclass, so the
+caller states which band it carries; every figure captions the band with its kind. matplotlib is
+required only via a new optional **`[viz]`** extra and is imported **lazily** inside each helper (via
+`_require_matplotlib`, which raises a clear `PolarisComputationError` if the extra is absent), so
+`import polaris_re.viz` works without matplotlib and nothing on the pricing/CLI/analytics import path
+pulls it in.
+
+**Consequences.** Reviewers get auditable effect-shape, MI-surface, and projection diagnostics with
+their uncertainty visible — the one place the band stays visible before it is dropped at the
+assumption boundary (per ADR-143, an improvement scale is a point basis). The helpers are the
+report/dev rendering surface; the pricing engine is untouched.
+
+**Backward compatibility.** Purely additive — a new subpackage and a new optional extra; no pricing
+path, `Policy`/`CashFlowResult`/`InforceBlock` contract, treaty, CLI, or golden is touched. The
+engine and golden `polaris price` output are byte-identical. No files land under `data/`; the
+Dockerfile/`.dockerignore` allowlist is untouched.
+
+**Reproducibility (ADR-074 guard).** New tests pin literal seeds/ages/years and build figures on the
+headless Agg backend; none read the wall clock. A subprocess test guards the lazy-import property
+(`import polaris_re.viz` must not import matplotlib).
+
+**Out of scope (remaining Slice-4d work, CLOSES EPIC on 4d-3).** Wiring the effect/MI/projection
+diagnostics into the **Streamlit dashboard** is deferred to a harvested follow-up (a heavier,
+less-deterministically-testable surface; the static `[viz]` helpers already satisfy the locked plot
+spec). Slice 4d-3: ARCHITECTURE + QUICKSTART documentation of the experience-GAM capability
+end-to-end, HARVEST FOLLOW-UPS, and closing the CONTINUATION (→ COMPLETE). Still open from 4c-2: a
+caller-side diligence run fitting a *real* cached ILEC extract against *actual* published
+MIM-2021/CIA targets.
