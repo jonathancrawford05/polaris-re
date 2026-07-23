@@ -298,7 +298,9 @@ class TestPlotMIProjection:
             # Reconstruct rendered width from the projection the figure was built from.
             i = int(np.nonzero(proj.ages == 50)[0][0])
             width = proj.mi_upper[i] - proj.mi_lower[i]
-            assert width[0] == width.max()
+            # Widest at the join: the max sits at index 0 (integer index compare,
+            # not a float-equality check — repo convention).
+            assert int(np.argmax(width)) == 0
             assert np.all(np.diff(width) <= 1e-12)
             assert band is not None
         finally:
