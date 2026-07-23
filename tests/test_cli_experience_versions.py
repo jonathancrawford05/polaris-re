@@ -13,6 +13,7 @@ from datetime import date
 from pathlib import Path
 
 import numpy as np
+import pytest
 from typer.testing import CliRunner
 
 from polaris_re.assumptions.improvement import MortalityImprovement
@@ -62,7 +63,7 @@ def test_save_persists_versioned_scale(tmp_path: Path) -> None:
 
     version = AssumptionVersionStore(store_dir).load("2024-12-31-001")
     assert version.study_date == date(2024, 12, 31)
-    assert version.credibility == 0.8
+    assert version.credibility == pytest.approx(0.8)
     assert version.label == "term-block-A"
 
 
