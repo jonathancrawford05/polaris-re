@@ -322,7 +322,7 @@ deck, and the `mgcv` oracle) — each is its own session and each leaves the gol
 ##### Slice 4c-1: HMD / SOA-ILEC experience data loaders (loaders-not-data)
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-84fcs2
-- **PR:** _(this draft PR)_
+- **PR:** #151 (draft — awaiting review/merge)
 - **Depends on:** Slice 4b merged (4b-1 #148, 4b-2 #149, 4b-3 #150 — all merged 2026-07-23).
 - **What was done:** New `analytics/experience_loaders.py` — loaders, not data (Anchor 6 /
   #61/#66 trap). `parse_hmd_1x1` parses one HMD 1x1 text file (Deaths/Exposures) into long

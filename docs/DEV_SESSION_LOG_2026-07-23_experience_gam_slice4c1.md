@@ -41,7 +41,7 @@ were already crossed).
 | 4b-1 | `polaris experience fit` effect-shape diagnostics CLI | ✅ Done | #148 |
 | 4b-2 | Assumption versioning under `data/assumption_versions/` | ✅ Done | #149 |
 | 4b-3 | Wire `ImprovementScale.CUSTOM` into `--config` + `AssumptionSet` | ✅ Done | #150 |
-| 4c-1 | HMD / SOA-ILEC experience data loaders | ✅ Done (this PR) | — |
+| 4c-1 | HMD / SOA-ILEC experience data loaders | ✅ Done (this PR) | #151 |
 | 4c-2 | Insured A/E + improvement validation deck | ⏳ Next | — |
 | 4c-3 | Offline `mgcv`-via-`rpy2` oracle (dev-only) | 🔲 Planned | — |
 | 4d | Diagnostic plots + docs (CLOSES EPIC) | 🔲 Planned | — |
