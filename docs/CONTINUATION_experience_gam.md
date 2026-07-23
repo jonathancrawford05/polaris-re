@@ -388,7 +388,7 @@ deck, and the `mgcv` oracle) — each is its own session and each leaves the gol
 ##### Slice 4c-3: offline `mgcv`-via-`rpy2` oracle (dev-only)
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-tp4x3a
-- **PR:** (draft — awaiting review/merge)
+- **PR:** #153 (draft — awaiting review/merge)
 - **Depends on:** Slice 4c-2 merged (#152).
 - **What was done:** New dev-only module `analytics/experience_oracle.py` — a
   correct-by-construction cross-check that the Python tensor-MI coefficients match R `mgcv` on a

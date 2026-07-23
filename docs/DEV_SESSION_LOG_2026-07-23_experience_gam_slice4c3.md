@@ -45,7 +45,7 @@ been the wrong call.
 | 4b-3 | Wire `ImprovementScale.CUSTOM` into `--config` + `AssumptionSet` | ✅ Done | #150 |
 | 4c-1 | HMD / SOA-ILEC experience data loaders | ✅ Done | #151 |
 | 4c-2 | Insured A/E + improvement validation deck | ✅ Done | #152 |
-| 4c-3 | Offline `mgcv`-via-`rpy2` oracle (dev-only) | ✅ Done (this PR) | — |
+| 4c-3 | Offline `mgcv`-via-`rpy2` oracle (dev-only) | ✅ Done (this PR) | #153 |
 | 4d | Diagnostic plots + docs (CLOSES EPIC) | ⏳ Next | — |
 
 ## Verify Premise (step 7b)
