@@ -10041,3 +10041,68 @@ ARCHITECTURE + QUICKSTART documentation of the experience-GAM capability; the PR
 option-3 `all_effects()`/`feature_ranges` consolidation; and closing the CONTINUATION. Also still
 open from 4c-2: a caller-side diligence run fitting a *real* cached ILEC extract against *actual*
 published MIM-2021/CIA targets (licensed local file, not a CI test).
+
+---
+
+## ADR-152: Experience GAM (A4′ Slice 4d-1) — public `all_effects()`/`feature_ranges` + `fitted_glm_arrays()` accessors
+
+**Date:** 2026-07-23
+**Status:** Accepted
+**Slice:** 4d-1 of the Data-Driven Experience Analysis epic (A4′), ROADMAP 6.1 — the public-accessor
+refactor foundation, the first sub-slice of the epic-closing Slice 4d. See
+`docs/PLAN_experience_gam.md` and `docs/CONTINUATION_experience_gam.md` (Slice 4d scope, the two
+folded-in review items).
+
+**Context.** Slice 4d closes the epic with diagnostic plots + docs. Two folded-in review items
+(carried in the CONTINUATION Slice-4d scope) are *foundations* the plots consume, and both are pure
+refactors that leave the goldens byte-identical — so, mirroring the epic's established
+de-risking cadence (regression splines before penalized GP; loaders before decks), they land first
+as their own slice before any rendering code:
+
+1. **PR #148 review option-3.** The `experience fit` CLI assembled its `--effects-out` long-format
+   frame in a private `_collect_experience_effects(result, cells, …)` helper that reached back into
+   the *source cells* to recover each smooth's observed span (including the fit-derived
+   `duration_years`, which is never a cells column). A second consumer (the Slice-4d dashboard)
+   would have had to re-derive the same ranges the same fragile way.
+2. **PR #153 review.** `experience_oracle.build_oracle_case` pulled the fitted design/response/
+   offset/coefficients out of the tensor model's **private** `MISurfaceResult._result` field
+   (`glm.model.exog` / `.offset` / `.endog` / `params`) — a reach-in the reviewer flagged for a
+   public accessor, deferred to 4d.
+
+**Decision.** Add the public accessors and point both consumers at them:
+
+1. **`GAMFitResult.feature_ranges: dict[str, tuple[float, float]]`** — the observed `(min, max)` of
+   each fitted smooth, captured in `ExperienceGAM.fit()` from the modelling frame (so
+   `duration_years`'s span is recorded at the one place it exists), keyed by the same names as
+   `smooth_features`.
+2. **`GAMFitResult.all_effects(*, grid_points=50, confidence_level=0.95) -> pl.DataFrame`** — the
+   tidy long-format effect frame (`feature, term_type, x, x_value, multiplier, lower, upper`), now a
+   method on the result. It samples each smooth over its own `feature_ranges` span instead of the
+   caller's cells. The CLI drops `_collect_experience_effects` and calls this; the emitted
+   `--effects-out` CSV is byte-identical (the ranges are the same numbers, now sourced from the fit).
+3. **`FittedGLMArrays`** (a frozen dataclass: `response`, `design`, `offset`, `coefficients`) and
+   **`MISurfaceResult.fitted_glm_arrays() -> FittedGLMArrays`** — a public accessor for the exact
+   `statsmodels` fit artefacts. `experience_oracle.build_oracle_case` consumes it instead of
+   reaching into `_result`. Both are exported from `analytics/__init__.py`.
+
+**Consequences.** The CLI and the future 4d dashboard call one public `all_effects()` rather than
+each re-deriving smooth spans from cells; the dev-only oracle no longer depends on a private field's
+shape. The effect-frame contract (columns, band-first-class semantics) is now owned by the model,
+not the CLI. `feature_ranges` is a new field with a `default_factory=dict` default, so any code
+constructing a `GAMFitResult` directly (there is none outside `fit()`) stays valid.
+
+**Backward compatibility.** Purely additive/refactor — no pricing path, `Policy`/`CashFlowResult`/
+`InforceBlock` contract, treaty, or golden is touched; the engine and golden `polaris price` output
+are byte-identical. The `--effects-out` artifact is byte-identical (guarded by a regression test that
+reproduces the old cells-derived frame and asserts equality at `atol=0`). No files land under
+`data/`; the Dockerfile/`.dockerignore` allowlist is untouched.
+
+**Reproducibility (ADR-074 guard).** New tests pin literal seeds and ages/years; none read the wall
+clock.
+
+**Out of scope (remaining Slice-4d work, CLOSES EPIC).** Slice 4d-2: the effect-shape + MI-surface +
+projection-fan diagnostic plots (data → the existing Streamlit dashboard; optional `[viz]` static
+`plot_effects()`/`plot_mi_surface()` helper behind the extra), rendering the locked uncertainty
+bands. Slice 4d-3: ARCHITECTURE + QUICKSTART documentation of the experience-GAM capability, HARVEST
+FOLLOW-UPS, and closing the CONTINUATION (→ COMPLETE). Still open from 4c-2: a caller-side diligence
+run fitting a *real* cached ILEC extract against *actual* published MIM-2021/CIA targets.

@@ -309,3 +309,50 @@ def test_import_guard_when_statsmodels_absent(monkeypatch):
     monkeypatch.setitem(sys.modules, "statsmodels.api", None)
     with pytest.raises(PolarisComputationError, match="statsmodels"):
         model.fit()
+
+
+# --------------------------------------------------------------------------- #
+# Slice 4d-1: public fitted-GLM accessor (PR #153 review — de-privatise the
+# oracle's reach-in to MISurfaceResult._result)
+# --------------------------------------------------------------------------- #
+
+
+def test_fitted_glm_arrays_exposes_exact_fit_state():
+    """``fitted_glm_arrays`` returns the fitted GLM's (response, design, offset,
+    coefficients) byte-identical to the private ``_result`` — the public accessor
+    the dev-only mgcv oracle consumes instead of reaching into ``_result``."""
+    from polaris_re.analytics.experience_gam import FittedGLMArrays
+
+    cells = _mi_cells_poisson(_AGES, _YEARS, 0.015, exposure=2e5, seed=SEED)
+    result = TensorMIModel(cells, age_df=5, year_df=4, age_varying=True).fit()
+
+    arrays = result.fitted_glm_arrays()
+    assert isinstance(arrays, FittedGLMArrays)
+
+    glm = result._result  # the private state the accessor wraps
+    np.testing.assert_array_equal(arrays.response, np.asarray(glm.model.endog, dtype=np.float64))
+    np.testing.assert_array_equal(arrays.design, np.asarray(glm.model.exog, dtype=np.float64))
+    np.testing.assert_array_equal(arrays.offset, np.asarray(glm.model.offset, dtype=np.float64))
+    np.testing.assert_array_equal(arrays.coefficients, np.asarray(glm.params, dtype=np.float64))
+
+    # Shapes are internally consistent: design (n_cells, n_params) vs response/offset.
+    n, p = arrays.design.shape
+    assert arrays.response.shape == (n,)
+    assert arrays.offset.shape == (n,)
+    assert arrays.coefficients.shape == (p,)
+    assert n == cells.height
+
+    # All float64 (CLAUDE.md dtype discipline).
+    for a in (arrays.response, arrays.design, arrays.offset, arrays.coefficients):
+        assert a.dtype == np.float64
+
+
+def test_fitted_glm_arrays_sits_at_poisson_optimum():
+    """The exposed arrays satisfy the Poisson score identity Xᵀ(y-μ) ≈ 0 at the
+    fitted coefficients — the property the mgcv cross-check relies on."""
+    cells = _mi_cells_poisson(_AGES, _YEARS, 0.015, exposure=2e5, seed=SEED)
+    result = TensorMIModel(cells, age_df=5, year_df=4, age_varying=True).fit()
+    a = result.fitted_glm_arrays()
+    mu = np.exp(a.design @ a.coefficients + a.offset)
+    score = np.max(np.abs(a.design.T @ (a.response - mu)))
+    assert score < 1e-4

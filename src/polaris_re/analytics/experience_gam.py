@@ -71,6 +71,7 @@ __all__ = [
     "BayesianMISurfaceResult",
     "BayesianTensorMIModel",
     "ExperienceGAM",
+    "FittedGLMArrays",
     "GAMFitResult",
     "HierarchicalMIModel",
     "HierarchicalMISurfaceResult",
@@ -334,6 +335,14 @@ class GAMFitResult:
     """Reference covariate values (median smooth, modal factor level) used when
     marginalising a single feature's effect."""
 
+    feature_ranges: dict[str, tuple[float, float]] = field(default_factory=dict)
+    """Observed ``(min, max)`` of each fitted smooth feature, captured at fit time.
+
+    Keyed by the same names as :attr:`smooth_features`. This lets a consumer
+    (the CLI, a diagnostic plot, the dashboard) sample a smooth over its fitted
+    range via :meth:`all_effects` without reaching back into the source cells to
+    re-derive the span."""
+
     # Internal fit state (excluded from any serialisation / repr noise).
     _result: object = field(default=None, repr=False)
     _design_info: object = field(default=None, repr=False)
@@ -481,6 +490,73 @@ class GAMFitResult:
                 "upper": np.exp(rel + z * se),
             }
         )
+
+    def all_effects(
+        self,
+        *,
+        grid_points: int = 50,
+        confidence_level: float = 0.95,
+    ) -> pl.DataFrame:
+        """Assemble every per-feature effect shape into one tidy long-format frame.
+
+        Each smooth term is sampled at ``grid_points`` evenly-spaced points across
+        its fit-time observed range (:attr:`feature_ranges`); each categorical
+        factor contributes one row per level (the contrast against its reference).
+
+        Returns:
+            A frame with columns ``feature, term_type, x, x_value, multiplier,
+            lower, upper`` — ``x`` is a universal string label, ``x_value`` the
+            numeric grid value for smooths (null for factors). Bands are
+            first-class (``lower``/``upper``), so a downstream plot or dashboard
+            renders them straight from this frame without re-deriving feature
+            ranges from the source cells.
+        """
+        frames: list[pl.DataFrame] = []
+        for feature in self.smooth_features:
+            lo_x, hi_x = self.feature_ranges[feature]
+            grid = np.linspace(lo_x, hi_x, grid_points)
+            effect = self.smooth_effect(feature, grid, confidence_level=confidence_level)
+            frames.append(
+                pl.DataFrame(
+                    {
+                        "feature": [feature] * grid_points,
+                        "term_type": ["smooth"] * grid_points,
+                        "x": [f"{g:g}" for g in effect.grid],
+                        "x_value": effect.grid.astype(np.float64),
+                        "multiplier": effect.multiplier.astype(np.float64),
+                        "lower": effect.lower.astype(np.float64),
+                        "upper": effect.upper.astype(np.float64),
+                    }
+                )
+            )
+        for factor in self.factors:
+            fe = self.factor_effect(factor, confidence_level=confidence_level)
+            frames.append(
+                pl.DataFrame(
+                    {
+                        "feature": [factor] * fe.height,
+                        "term_type": ["factor"] * fe.height,
+                        "x": fe[factor].cast(pl.Utf8),
+                        "x_value": pl.Series([None] * fe.height, dtype=pl.Float64),
+                        "multiplier": fe["multiplier"],
+                        "lower": fe["lower"],
+                        "upper": fe["upper"],
+                    }
+                )
+            )
+        if not frames:
+            return pl.DataFrame(
+                schema={
+                    "feature": pl.Utf8,
+                    "term_type": pl.Utf8,
+                    "x": pl.Utf8,
+                    "x_value": pl.Float64,
+                    "multiplier": pl.Float64,
+                    "lower": pl.Float64,
+                    "upper": pl.Float64,
+                }
+            )
+        return pl.concat(frames, how="vertical")
 
     def predict_multiplier(self, cells: pl.DataFrame) -> np.ndarray:
         """A/E multiplier ``exp(η)`` for each supplied cell (offset excluded)."""
@@ -695,6 +771,11 @@ class ExperienceGAM:
         dispersion = float(result.pearson_chi2 / result.df_resid)
         overall_ae = float(deaths.sum() / expected.sum())
         reference = self._reference(frame, factors)
+        # Observed span of each fitted smooth, captured now so consumers sample a
+        # smooth over its fitted range without reaching back into the cells.
+        feature_ranges = {
+            feat: (float(frame[feat].min()), float(frame[feat].max())) for feat in smooth_specs
+        }
 
         return GAMFitResult(
             basis=self.basis,
@@ -704,6 +785,7 @@ class ExperienceGAM:
             overdispersion_applied=self.overdispersion,
             n_cells=frame.height,
             reference=reference,
+            feature_ranges=feature_ranges,
             _result=result,
             _design_info=design_info,
             _smooth_specs=smooth_specs,
@@ -972,6 +1054,29 @@ class MIProjection:
         )
 
 
+@dataclass(frozen=True)
+class FittedGLMArrays:
+    """The exact arrays of a fitted Poisson GLM, exposed for external cross-checks.
+
+    Carries the response, design matrix, log-exposure offset, and fitted
+    coefficients byte-identical to what ``statsmodels`` fit — the artefacts a
+    conformance oracle (e.g. the dev-only R ``mgcv`` cross-check) consumes without
+    reaching into the private fit state of a result object.
+    """
+
+    response: np.ndarray
+    """Response vector ``y`` (deaths), shape (n_cells,)."""
+
+    design: np.ndarray
+    """Design matrix ``X``, shape (n_cells, n_params)."""
+
+    offset: np.ndarray
+    """Log-exposure offset ``log(exposure · q_base)``, shape (n_cells,)."""
+
+    coefficients: np.ndarray
+    """Fitted coefficients ``β``, shape (n_params,)."""
+
+
 @dataclass
 class MISurfaceResult:
     """
@@ -1024,6 +1129,23 @@ class MISurfaceResult:
             for k, v in self.reference.items()
             if not k.startswith("__levels__")
         }
+
+    def fitted_glm_arrays(self) -> FittedGLMArrays:
+        """Return the fitted GLM's ``(response, design, offset, coefficients)``.
+
+        A public accessor for the exact ``statsmodels`` fit artefacts — used by the
+        dev-only R ``mgcv`` oracle (:mod:`polaris_re.analytics.experience_oracle`)
+        to cross-check the tensor-MI coefficients without reaching into the private
+        ``_result`` field. The arrays are byte-identical to what the model fit;
+        nothing is re-derived.
+        """
+        glm = self._result
+        return FittedGLMArrays(
+            response=np.asarray(glm.model.endog, dtype=np.float64),  # type: ignore[attr-defined]
+            design=np.asarray(glm.model.exog, dtype=np.float64),  # type: ignore[attr-defined]
+            offset=np.asarray(glm.model.offset, dtype=np.float64),  # type: ignore[attr-defined]
+            coefficients=np.asarray(glm.params, dtype=np.float64),  # type: ignore[attr-defined]
+        )
 
     def improvement_surface(
         self,

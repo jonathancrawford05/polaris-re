@@ -60,7 +60,6 @@ if TYPE_CHECKING:
         MIProjection,
         MISurface,
         MISurfaceResult,
-        SmoothEffect,
     )
     from polaris_re.analytics.scenario import ScenarioAdjustment
     from polaris_re.assumptions.improvement import MortalityImprovement
@@ -4147,81 +4146,6 @@ def experience_improvement_cmd(
         console.print(f"Improvement scale (CUSTOM) written to {output}")
 
 
-def _collect_experience_effects(
-    result: "GAMFitResult",
-    cells: "pl.DataFrame",
-    *,
-    grid_points: int,
-    confidence_level: float,
-) -> "pl.DataFrame":
-    """Assemble the per-feature effect shapes into one tidy long-format frame.
-
-    Each smooth term (``attained_age``, ``duration_years`` when present) is
-    sampled at ``grid_points`` evenly-spaced points across its observed range
-    (read from ``cells``); each categorical factor contributes one row per level
-    (the contrast against its reference). Columns: ``feature, term_type, x,
-    x_value, multiplier, lower, upper`` — ``x`` is a universal label, ``x_value``
-    the numeric grid value for smooths (null for factors). This is the artifact
-    the Slice-4d diagnostic dashboard consumes.
-    """
-    import polars as pl
-
-    frames: list[pl.DataFrame] = []
-    for feature in result.smooth_features:
-        if feature == "duration_years" and feature not in cells.columns:
-            # duration_years is derived at fit time; recover its observed span.
-            span = (cells["duration_months"] / 12.0).to_numpy().astype(np.float64)
-        elif feature in cells.columns:
-            span = cells[feature].to_numpy().astype(np.float64)
-        else:
-            span = cells["attained_age"].to_numpy().astype(np.float64)
-        grid = np.linspace(float(span.min()), float(span.max()), grid_points)
-        effect: SmoothEffect = result.smooth_effect(
-            feature, grid, confidence_level=confidence_level
-        )
-        frames.append(
-            pl.DataFrame(
-                {
-                    "feature": [feature] * grid_points,
-                    "term_type": ["smooth"] * grid_points,
-                    "x": [f"{g:g}" for g in effect.grid],
-                    "x_value": effect.grid.astype(np.float64),
-                    "multiplier": effect.multiplier.astype(np.float64),
-                    "lower": effect.lower.astype(np.float64),
-                    "upper": effect.upper.astype(np.float64),
-                }
-            )
-        )
-    for factor in result.factors:
-        fe = result.factor_effect(factor, confidence_level=confidence_level)
-        frames.append(
-            pl.DataFrame(
-                {
-                    "feature": [factor] * fe.height,
-                    "term_type": ["factor"] * fe.height,
-                    "x": fe[factor].cast(pl.Utf8),
-                    "x_value": pl.Series([None] * fe.height, dtype=pl.Float64),
-                    "multiplier": fe["multiplier"],
-                    "lower": fe["lower"],
-                    "upper": fe["upper"],
-                }
-            )
-        )
-    if not frames:
-        return pl.DataFrame(
-            schema={
-                "feature": pl.Utf8,
-                "term_type": pl.Utf8,
-                "x": pl.Utf8,
-                "x_value": pl.Float64,
-                "multiplier": pl.Float64,
-                "lower": pl.Float64,
-                "upper": pl.Float64,
-            }
-        )
-    return pl.concat(frames, how="vertical")
-
-
 def _render_experience_fit(
     result: "GAMFitResult",
     effects: "pl.DataFrame",
@@ -4385,9 +4309,7 @@ def experience_fit_cmd(
             console.print(f"[red]Fit failed:[/red] {exc}")
             raise typer.Exit(code=1) from exc
 
-    effects = _collect_experience_effects(
-        result, cells, grid_points=grid_points, confidence_level=confidence_level
-    )
+    effects = result.all_effects(grid_points=grid_points, confidence_level=confidence_level)
     _render_experience_fit(result, effects, confidence_level=confidence_level)
 
     if effects_out is not None:

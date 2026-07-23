@@ -170,9 +170,9 @@ def build_oracle_case(*, age_varying: bool = True, seed: int = _DEFAULT_SEED) ->
 
     The returned :class:`OracleCase` carries the *exact* design, offset, response, and
     coefficients of the Python fit — the artefacts the R ``mgcv`` cross-check consumes.
-    Extraction is from the fitted ``statsmodels`` result (``model.exog`` / ``.offset`` /
-    ``.endog`` and ``params``), so the design is byte-identical to what the model fit;
-    nothing is re-derived.
+    Extraction is via the public :meth:`MISurfaceResult.fitted_glm_arrays` accessor, so
+    the design is byte-identical to what the model fit; nothing is re-derived and the
+    oracle does not reach into the result's private fit state.
 
     Args:
         age_varying: Fit the age-by-year tensor interaction (age-varying improvement).
@@ -191,13 +191,13 @@ def build_oracle_case(*, age_varying: bool = True, seed: int = _DEFAULT_SEED) ->
         age_varying=age_varying,
     ).fit()
 
-    glm = result._result
+    arrays = result.fitted_glm_arrays()
     return OracleCase(
         age_varying=age_varying,
-        deaths=np.asarray(glm.model.endog, dtype=np.float64),
-        design=np.asarray(glm.model.exog, dtype=np.float64),
-        offset=np.asarray(glm.model.offset, dtype=np.float64),
-        python_coef=np.asarray(glm.params, dtype=np.float64),
+        deaths=arrays.response,
+        design=arrays.design,
+        offset=arrays.offset,
+        python_coef=arrays.coefficients,
         seed=seed,
     )
 
