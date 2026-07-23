@@ -12,8 +12,13 @@ is further split **2b-surface / 2b-projection** (see CONTINUATION). Slice 3
 (hierarchical partial pooling / credibility) shipped 2026-07-22 as PR #146/ADR-144.
 **Slices 1–3 are complete. Slice 4 (CLOSES EPIC) is sub-decomposed 4a/4b/4c/4d
 (see CONTINUATION); Slice 4a — the `polaris experience improvement` CLI surface
-— shipped 2026-07-22 as PR #147/ADR-145, so Slice 4b (fit diagnostics +
-assumption versioning + config wiring) is NEXT.** The optional
+— shipped 2026-07-22 as PR #147/ADR-145. Slice 4b (fit diagnostics + assumption
+versioning + config wiring) is itself sub-decomposed 4b-1/4b-2/4b-3: 4b-1
+(`polaris experience fit` diagnostics) shipped as PR #148/ADR-146; 4b-2 (append-only
+assumption versioning) shipped as PR #149/ADR-147; 4b-3 (wire
+`ImprovementScale.CUSTOM` into `--config` + `AssumptionSet`) shipped 2026-07-23 as
+ADR-148 (this session). Slice 4c (loaders + insured validation deck + `mgcv`
+oracle) is NEXT.** The optional
 `pymc`-NUTS audit path for the projection is deferred/gated on the maintainer
 confirming the ADR-141 backend direction (see CONTINUATION Open Questions). Note
 (ADR-141): the

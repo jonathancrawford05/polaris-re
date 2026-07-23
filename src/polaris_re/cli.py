@@ -21,7 +21,6 @@ All commands accept --config / --output arguments and write JSON results to disk
 """
 
 import json
-import os
 import sys
 from dataclasses import dataclass
 from datetime import date
@@ -68,7 +67,7 @@ if TYPE_CHECKING:
     from polaris_re.assumptions.lapse import LapseAssumption
     from polaris_re.assumptions.mortality import MortalityTableSource
     from polaris_re.utils.excel_output import DealPricingExport, IFRS17MovementExport
-from polaris_re.assumptions.version_store import DEFAULT_ASSUMPTION_KIND
+from polaris_re.assumptions.version_store import DEFAULT_ASSUMPTION_KIND, default_store_root
 from polaris_re.core.pipeline import (
     DealConfig,
     LapseConfig,
@@ -230,11 +229,22 @@ def _parse_config_to_pipeline_inputs(
     lapse_raw = raw.get("lapse", {})
     deal_raw = raw.get("deal", {})
 
+    # Optional experience-derived improvement selector (A4' Slice 4b-3, ADR-148).
+    # ``improvement_version_id`` names a versioned CUSTOM scale in the append-only
+    # store; ``improvement_store_dir`` (path, used as-is like ``data_dir``) and
+    # ``improvement_kind`` are optional overrides. All absent (default) leaves the
+    # improvement unset → byte-identical to prior runs.
+    improvement_store_dir_raw = mort_raw.get("improvement_store_dir")
     mort_cfg = MortalityConfig(
         source=mort_raw.get("source", "SOA_VBT_2015"),
         multiplier=float(mort_raw.get("multiplier", 1.0)),
         flat_qx=mort_raw.get("flat_qx"),
         data_dir=Path(mort_raw["data_dir"]) if "data_dir" in mort_raw else None,
+        improvement_version_id=mort_raw.get("improvement_version_id"),
+        improvement_store_dir=(
+            Path(str(improvement_store_dir_raw)) if improvement_store_dir_raw is not None else None
+        ),
+        improvement_kind=mort_raw.get("improvement_kind", DEFAULT_ASSUMPTION_KIND),
     )
 
     # Parse lapse duration table — JSON keys are strings, need int conversion
@@ -341,6 +351,7 @@ def _build_pipeline_from_config(
     inforce_path: Path | None = None,
     reserve_basis_override: str | None = None,
     valuation_mortality_override: str | None = None,
+    improvement_version_override: str | None = None,
 ) -> tuple:  # type: ignore[type-arg]
     """Build an inforce pipeline from a JSON config file.
 
@@ -360,6 +371,13 @@ def _build_pipeline_from_config(
     config. An unknown source id raises ``PolarisValidationError`` via
     ``build_assumption_set`` → ``load_valuation_mortality``.
 
+    ``improvement_version_override`` (the ``--improvement-version`` CLI flag,
+    A4' Slice 4b-3) likewise takes precedence over any
+    ``mortality.improvement_version_id`` in the config; the store dir / kind are
+    taken from the config (or their defaults). An unknown version id raises
+    ``PolarisValidationError`` via ``build_assumption_set`` →
+    ``load_improvement_version``.
+
     Returns:
         (inforce, assumptions, config, pipeline_inputs) tuple.
     """
@@ -369,6 +387,8 @@ def _build_pipeline_from_config(
         inputs.deal.reserve_basis = reserve_basis_override
     if valuation_mortality_override is not None:
         inputs.deal.valuation_mortality = valuation_mortality_override
+    if improvement_version_override is not None:
+        inputs.mortality.improvement_version_id = improvement_version_override
 
     # Load inforce
     if inforce_path is not None:
@@ -1553,6 +1573,23 @@ def price_cmd(
             ),
         ),
     ] = None,
+    improvement_version: Annotated[
+        str | None,
+        typer.Option(
+            "--improvement-version",
+            help=(
+                "Version id of an experience-derived mortality-improvement basis "
+                "in the assumption-version store (A4' epic, ADR-148), e.g. "
+                "'2024-12-31-001'. When set, that frozen ImprovementScale.CUSTOM "
+                "scale drives best-estimate mortality for the priced run (the "
+                "store dir / kind come from the config's mortality block or their "
+                "defaults). Overrides any 'mortality.improvement_version_id' in "
+                "the config. Omitting it applies no improvement (byte-identical to "
+                "prior runs). An unknown version id raises an error. Save a basis "
+                "with `polaris experience save`."
+            ),
+        ),
+    ] = None,
     ifrs17_movement: Annotated[
         bool,
         typer.Option(
@@ -1691,6 +1728,7 @@ def price_cmd(
                 inforce_path,
                 reserve_basis_override=reserve_basis,
                 valuation_mortality_override=valuation_mortality,
+                improvement_version_override=improvement_version,
             )
             console.print(f"[dim]Loaded config from {config_path}[/dim]")
         else:
@@ -1703,6 +1741,7 @@ def price_cmd(
                 demo_csv if demo_csv.exists() else None,
                 reserve_basis_override=reserve_basis,
                 valuation_mortality_override=valuation_mortality,
+                improvement_version_override=improvement_version,
             )
             console.print("[dim]No --config supplied — running demo mode[/dim]")
 
@@ -1885,6 +1924,12 @@ def price_cmd(
     # the audit trail records which table drove the statutory reserve.
     if inputs.deal.valuation_mortality is not None:
         summary["valuation_mortality"] = inputs.deal.valuation_mortality
+    # Echo the experience-derived improvement basis only when one is selected, so
+    # a run without ``--improvement-version`` / ``mortality.improvement_version_id``
+    # is byte-identical (no always-present ``null`` key). When set, the audit trail
+    # records which frozen basis drove best-estimate mortality (A4' Slice 4b-3).
+    if inputs.mortality.improvement_version_id is not None:
+        summary["mortality_improvement_version"] = inputs.mortality.improvement_version_id
     output_data: dict[str, object] = {
         "cohorts": cohorts_out,
         "summary": summary,
@@ -4355,11 +4400,13 @@ def _resolve_store_dir(store_dir: Path | None) -> Path:
     """Resolve the assumption-version store root.
 
     Defaults to ``$POLARIS_DATA_DIR/assumption_versions`` (``data/`` if the env
-    var is unset), mirroring the mortality-table directory resolution.
+    var is unset), mirroring the mortality-table directory resolution. Shares the
+    single ``default_store_root`` default with the ``--config`` improvement
+    selector (A4' Slice 4b-3) so both surfaces resolve the store identically.
     """
     if store_dir is not None:
         return store_dir
-    return Path(os.environ.get("POLARIS_DATA_DIR", "data")) / "assumption_versions"
+    return default_store_root()
 
 
 def _parse_study_date(value: str) -> date:

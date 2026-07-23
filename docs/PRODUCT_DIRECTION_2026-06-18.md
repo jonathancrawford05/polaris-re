@@ -1771,6 +1771,27 @@ constraint and a future session must not rebuild these as a naive wall-time log.
   refinement — deliberately a human decision today, not routine → NICE-TO-HAVE. 1st-order
   (a follow-up of the planned Slice-4b-2 versioning). *Source: ADR-147 Out of scope (1st-order).*
 
+- **IMPORTANT — Surface the experience-improvement selector on the dashboard + REST API.**
+  Slice 4b-3 (ADR-148) wired a versioned `ImprovementScale.CUSTOM` basis into the pricing
+  `--config` schema + a `--improvement-version` CLI flag, so a frozen experience basis can drive
+  a `polaris price` run. The **dashboard Deal Pricing page** and the **REST API** `/price`
+  request schema do not yet expose the selector, so a non-CLI user cannot pick a versioned basis
+  (they get the no-improvement default). Deferred by the `yrt_rate_table_*` / ALM precedent (a
+  config field joins the dashboard/API parity surfaces only when a slice consumes it), but it is
+  the natural completion of making the feature reachable across product surfaces → IMPORTANT.
+  1st-order (a follow-up of the planned Slice-4b-3 config wiring). *Source: ADR-148 Out of scope
+  (1st-order).*
+
+- **NICE-TO-HAVE — Config selector for a built-in improvement scale (Scale AA / MP-2020).**
+  Slice 4b-3 (ADR-148) wires only the experience-derived **CUSTOM** path (a versioned basis from
+  the assumption store) into `--config`/`AssumptionSet`. A run cannot yet select a **built-in**
+  improvement scale (Scale AA, MP-2020, CPM-B) from config — the only way to apply one is to
+  build the `AssumptionSet` in Python. A `mortality.improvement_scale` config field (enum → the
+  built-in `ImprovementScale` values, with the scale parameters) would let a config apply a
+  standard improvement basis without the version store. Orthogonal to the CUSTOM path and design
+  polish, not common-path correctness → NICE-TO-HAVE. 1st-order (a follow-up of the planned
+  Slice-4b-3 config wiring). *Source: ADR-148 Out of scope (1st-order).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

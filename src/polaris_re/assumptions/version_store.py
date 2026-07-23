@@ -22,6 +22,7 @@ clock (ADR-074 guard) — the store is fully deterministic given its inputs.
 """
 
 import json
+import os
 from datetime import date
 from pathlib import Path
 
@@ -35,6 +36,7 @@ __all__ = [
     "DEFAULT_ASSUMPTION_KIND",
     "AssumptionVersion",
     "AssumptionVersionStore",
+    "default_store_root",
 ]
 
 # The only assumption kind versioned in this slice — an experience-derived
@@ -42,6 +44,18 @@ __all__ = [
 # slices (lapse, base mortality) can add sibling kinds without changing the
 # store contract.
 DEFAULT_ASSUMPTION_KIND = "mortality_improvement"
+
+
+def default_store_root() -> Path:
+    """Default assumption-version store root: ``$POLARIS_DATA_DIR/assumption_versions``.
+
+    ``data/assumption_versions`` when the env var is unset, mirroring the
+    mortality-table directory resolution. This is the single default shared by
+    the ``polaris experience save/list`` CLI (via ``_resolve_store_dir``) and the
+    ``--config`` improvement selector (A4' Slice 4b-3), so both resolve the store
+    root identically.
+    """
+    return Path(os.environ.get("POLARIS_DATA_DIR", "data")) / "assumption_versions"
 
 
 class AssumptionVersion(PolarisBaseModel):

@@ -24,8 +24,14 @@ if TYPE_CHECKING:
     from polaris_re.reinsurance.experience_refund import ExperienceRefund
 
 from polaris_re.assumptions.assumption_set import AssumptionSet
+from polaris_re.assumptions.improvement import MortalityImprovement
 from polaris_re.assumptions.lapse import LapseAssumption
 from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
+from polaris_re.assumptions.version_store import (
+    DEFAULT_ASSUMPTION_KIND,
+    AssumptionVersionStore,
+    default_store_root,
+)
 from polaris_re.core.asset import AssetPortfolio
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.exceptions import PolarisValidationError
@@ -50,6 +56,7 @@ __all__ = [
     "derive_yrt_rate",
     "dump_parity_debug",
     "iter_cohorts",
+    "load_improvement_version",
     "load_inforce",
     "load_valuation_mortality",
 ]
@@ -86,6 +93,20 @@ class MortalityConfig:
     multiplier: float = 1.0
     flat_qx: float | None = None  # only used when source == "flat"
     data_dir: Path | None = None  # None → $POLARIS_DATA_DIR / mortality_tables
+    # Optional experience-derived mortality-improvement scale selected from the
+    # append-only assumption-version store (A4' epic Slice 4b-3, ADR-148). When
+    # ``improvement_version_id`` is set, ``build_assumption_set`` loads that
+    # versioned ``ImprovementScale.CUSTOM`` MortalityImprovement (ADR-143/147)
+    # and threads it onto ``AssumptionSet.improvement`` so a frozen, audited
+    # experience basis drives the priced run. None (default) leaves
+    # ``AssumptionSet.improvement`` unset exactly as before — every existing
+    # config and priced number is byte-identical. ``improvement_store_dir``
+    # defaults to ``$POLARIS_DATA_DIR/assumption_versions`` (the same root the
+    # ``polaris experience save/list`` CLI uses); ``improvement_kind`` selects
+    # the store family (default ``mortality_improvement``).
+    improvement_version_id: str | None = None
+    improvement_store_dir: Path | None = None
+    improvement_kind: str = DEFAULT_ASSUMPTION_KIND
     # TODO: ml_mortality_path — future ML model loading
 
 
@@ -416,11 +437,48 @@ def load_valuation_mortality(source: str, data_dir: Path | None = None) -> Morta
     return _load_mortality(MortalityConfig(source=source, data_dir=data_dir))
 
 
+def load_improvement_version(
+    version_id: str,
+    *,
+    store_dir: Path | None = None,
+    kind: str = DEFAULT_ASSUMPTION_KIND,
+) -> MortalityImprovement:
+    """Load a versioned experience-derived CUSTOM improvement scale for pricing.
+
+    Resolves the append-only assumption-version store (``store_dir``, else
+    ``$POLARIS_DATA_DIR/assumption_versions``), loads the ``AssumptionVersion``
+    identified by ``version_id`` under ``kind`` (default
+    ``mortality_improvement``), and returns its ``ImprovementScale.CUSTOM``
+    :class:`MortalityImprovement`. Raises ``PolarisValidationError`` (via the
+    store) when the version is absent.
+
+    This is the ``--config`` / ``AssumptionSet`` selector (A4' epic Slice 4b-3,
+    ADR-148) that lets a frozen, audited experience basis drive a
+    ``polaris price`` run: the returned scale is threaded onto
+    ``AssumptionSet.improvement`` by :func:`build_assumption_set`.
+    """
+    store = AssumptionVersionStore(store_dir if store_dir is not None else default_store_root())
+    return store.load(version_id, kind=kind).improvement
+
+
 def build_assumption_set(inputs: PipelineInputs) -> AssumptionSet:
     """Build an AssumptionSet matching how the dashboard builds it."""
     # Mortality
     mortality = _load_mortality(inputs.mortality)
     mortality = _apply_mortality_multiplier(mortality, inputs.mortality.multiplier)
+
+    # Experience-derived mortality improvement (A4' epic Slice 4b-3, ADR-148).
+    # None (default) leaves ``AssumptionSet.improvement`` unset → the projection
+    # applies no improvement exactly as before (byte-identical). When a versioned
+    # id is supplied, the frozen CUSTOM scale is loaded from the append-only
+    # store and threaded onto the assumption set so it drives the priced run.
+    improvement = None
+    if inputs.mortality.improvement_version_id is not None:
+        improvement = load_improvement_version(
+            inputs.mortality.improvement_version_id,
+            store_dir=inputs.mortality.improvement_store_dir,
+            kind=inputs.mortality.improvement_kind,
+        )
 
     # Prescribed statutory valuation table (ADR-125). ``None`` (default) leaves
     # ``AssumptionSet.valuation_mortality`` unset → the statutory reserve bases
@@ -447,6 +505,7 @@ def build_assumption_set(inputs: PipelineInputs) -> AssumptionSet:
     return AssumptionSet(
         mortality=mortality,
         lapse=lapse,
+        improvement=improvement,
         valuation_mortality=valuation_mortality,
         version=f"pipeline-{inputs.mortality.source}-{date.today().isoformat()}",
         effective_date=date.today(),

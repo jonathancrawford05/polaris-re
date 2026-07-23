@@ -9754,3 +9754,77 @@ validation deck + `mgcv` oracle (Slice 4c); the diagnostic plots + ARCHITECTURE/
 kinds (lapse, base mortality) reuse the same contract via the `kind` field but are not exercised
 here. A `remove`/`prune` or retention policy is intentionally absent — the store is append-only
 by design, and pruning a frozen basis is a human decision, not a routine one.
+
+## ADR-148: Experience GAM (A4′ Slice 4b-3) — wire `ImprovementScale.CUSTOM` into `--config` + `AssumptionSet`
+
+**Date:** 2026-07-23
+**Status:** Accepted
+**Slice:** 4b-3 of the Data-Driven Experience Analysis epic (A4′), ROADMAP 6.1 — the third
+sub-slice of Slice 4b (fit diagnostics + assumption versioning + `--config` wiring). See
+`docs/PLAN_experience_gam.md` and `docs/CONTINUATION_experience_gam.md`.
+
+**Context.** Slice 4b-2 (ADR-147) added the append-only `AssumptionVersionStore` that freezes an
+experience-derived `ImprovementScale.CUSTOM` `MortalityImprovement` with study-date/credibility
+provenance and a stable handle (`{study_date}-{seq:03d}`). `AssumptionSet.improvement` has always
+been consumed by the product engines (TermLife/WholeLife `_build_rate_arrays`, ADR-125/Reserve-
+Basis Correctness Slice 1), but `build_assumption_set` never populated it — the pricing
+`--config` schema had **no** path to a mortality-improvement scale, so a frozen experience basis
+could be saved and listed yet never actually drive a `polaris price` run. This is the last link
+in the A4′ chain: experience data → fitted MI surface → emitted CUSTOM scale → versioned basis →
+**priced deal**.
+
+**Decision.** Wire the versioned scale in as a default-preserving selector:
+
+1. **`MortalityConfig` gains three optional fields** (`core/pipeline.py`):
+   `improvement_version_id: str | None = None`, `improvement_store_dir: Path | None = None`,
+   `improvement_kind: str = DEFAULT_ASSUMPTION_KIND`. All default to leaving the improvement
+   unset. Improvement is a mortality concept, so the selector lives in the `mortality` config
+   block (mapping to `MortalityConfig`), alongside the base table `source`/`multiplier`.
+
+2. **`load_improvement_version(version_id, *, store_dir, kind)`** — the `AssumptionSet` selector.
+   Resolves the store root (`store_dir`, else `default_store_root()`), loads the
+   `AssumptionVersion` by id, and returns its CUSTOM `MortalityImprovement`. An absent version
+   raises `PolarisValidationError` via the store.
+
+3. **`build_assumption_set` threads it onto the set.** When `improvement_version_id` is set, the
+   loaded scale is passed as `AssumptionSet(improvement=...)`; otherwise `improvement=None` (the
+   prior behaviour, byte-identical). The product engines then apply it to best-estimate mortality
+   exactly as a built-in scale (Scale AA / MP-2020) would be — no engine change.
+
+4. **CLI surface.** The nested-config parser reads the three `mortality.*` fields; a new
+   `--improvement-version` flag on `polaris price` overrides `mortality.improvement_version_id`
+   (store dir / kind still come from the config or their defaults), matching the flag-over-config
+   precedence of `--valuation-mortality` / `--reserve-basis` / the YRT-rate-table surfaces. The
+   selected version id is echoed into the JSON summary as `mortality_improvement_version`
+   **only when set**, so a run without a selector is byte-identical (no always-present `null`
+   key — the `valuation_mortality` echo precedent).
+
+5. **`default_store_root()`** is lifted into `version_store.py` as the single shared default
+   (`$POLARIS_DATA_DIR/assumption_versions`); the `experience save/list` CLI helper
+   `_resolve_store_dir` now delegates to it, so the persistence and pricing surfaces resolve the
+   store identically.
+
+**Consequences.** A frozen, audited experience-derived improvement basis can now drive a priced
+deal end-to-end: `experience improvement` → `experience save` → `price --improvement-version` (or
+`mortality.improvement_version_id` in the config). The audit trail records which basis drove
+best-estimate mortality in the priced output. `MortalityConfig` is a plain dataclass shared by
+CLI / dashboard / API; the new fields default such that the dashboard and REST API are
+unaffected until they choose to surface them.
+
+**Backward compatibility.** Default-preserving and contract-adjacent (the change is to the config
+*schema*, not to any Pydantic data contract — `CashFlowResult`, `Policy`, `InforceBlock` are
+untouched). With no selector supplied, `AssumptionSet.improvement` stays `None`, the summary omits
+the new key, and the golden `polaris price` regression + the full QA suite are byte-identical.
+Human-review-flagged in the PR per the contract-adjacent guardrail.
+
+**Docker/data allowlist (#61/#66 trap).** No files land under `data/` — every test persists its
+store to a `tmp_path` root, so the Dockerfile `COPY` and `.dockerignore` allowlist are untouched.
+
+**Out of scope (remaining Slice-4c/4d work).** `load_hmd()`/`load_ilec()` loaders + the insured
+validation deck + `mgcv` oracle (Slice 4c); the diagnostic plots + ARCHITECTURE/QUICKSTART docs
+(Slice 4d, CLOSES EPIC). Surfacing the improvement selector on the **dashboard** Deal Pricing page
+and in the **REST API** request schema is deliberately deferred to a dedicated slice (the
+`yrt_rate_table_*` / ALM precedent — a config field joins the dashboard/API parity surfaces only
+when a slice consumes it). A per-run selection of a **built-in** scale (Scale AA / MP-2020) via
+config — as opposed to a versioned CUSTOM basis — is a separate, orthogonal follow-up; this slice
+wires only the experience-derived CUSTOM path that Slice 4b-2 froze.

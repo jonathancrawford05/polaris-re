@@ -259,7 +259,7 @@ goldens byte-identical.
 ##### Slice 4b-2: assumption versioning under `data/assumption_versions/`
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-yyrw5z
-- **PR:** (draft — awaiting review/merge)
+- **PR:** #149 — **MERGED** 2026-07-23 (merge commit `e0488ce`; ledger-healed this session)
 - **Depends on:** Slice 4b-1 merged (#148).
 - **What was done:** New `assumptions/version_store.py` — an `AssumptionVersion`
   (`PolarisBaseModel`) wrapping an experience-derived `ImprovementScale.CUSTOM`
@@ -284,15 +284,38 @@ goldens byte-identical.
     can be reviewed/edited before it is frozen into the versioned store.
 
 ##### Slice 4b-3: wire `ImprovementScale.CUSTOM` into `--config` + `AssumptionSet`
-- **Status:** NEXT
-- **Depends on:** Slice 4b-2 merged.
-- **Scope:** wire `ImprovementScale.CUSTOM` into the pricing `--config` schema + an
-  `AssumptionSet` selector so a versioned experience-derived scale drives a `polaris price`
-  run. Contract-adjacent (config schema) — default-preserving, human-review-flagged.
+- **Status:** DONE
+- **Branch:** claude/loving-gauss-hdfvde
+- **PR:** _(this draft PR)_
+- **Depends on:** Slice 4b-2 merged (#149).
+- **What was done:** `MortalityConfig` gained three optional default-preserving fields
+  (`improvement_version_id` / `improvement_store_dir` / `improvement_kind`); a new
+  `load_improvement_version(version_id, *, store_dir, kind)` selector loads the frozen CUSTOM
+  scale from the append-only store; and `build_assumption_set` threads it onto
+  `AssumptionSet.improvement` (else `None`, byte-identical). The product engines already consume
+  `AssumptionSet.improvement` (ADR-125), so the versioned experience basis now drives
+  best-estimate mortality on a `polaris price` run with no engine change. CLI: the nested-config
+  parser reads `mortality.improvement_version_id` (+ store-dir/kind); a new
+  `--improvement-version` flag overrides it (flag-over-config, the `--valuation-mortality`
+  precedent); the selected id is echoed into the JSON summary as
+  `mortality_improvement_version` only when set. `default_store_root()` lifted into
+  `version_store.py` as the single shared store-root default (the `experience save/list`
+  `_resolve_store_dir` now delegates to it). Contract-adjacent (config schema, not a data
+  contract) — default-preserving, human-review-flagged. Engine/goldens byte-identical (+12
+  tests). ADR-148.
+- **Key decisions (carry into 4c/4d):**
+  - The selector lives in the `mortality` config block (→ `MortalityConfig`), alongside the base
+    table, since improvement is a mortality concept; `valuation_mortality` (a `deal`-block
+    assumption selector) is the surfacing precedent but improvement groups with base mortality.
+  - Dashboard + REST API request-schema surfacing is deferred to a dedicated slice (the
+    `yrt_rate_table_*` / ALM precedent — a config field joins the parity surfaces only when a
+    slice consumes it). `MortalityConfig`'s new fields default so both are unaffected today.
+  - Only the experience-derived CUSTOM path is wired; a config selector for a **built-in** scale
+    (Scale AA / MP-2020) is an orthogonal follow-up (harvested NICE-TO-HAVE).
 
 #### Slice 4c: Loaders + insured validation deck + `mgcv` oracle
-- **Status:** PLANNED
-- **Depends on:** Slice 4b merged.
+- **Status:** NEXT
+- **Depends on:** Slice 4b merged (4b-1 #148, 4b-2 #149, 4b-3 this PR — all merged/ready).
 - **Scope:** `load_hmd()` / `load_ilec()` fetch-and-cache loaders (loaders-not-data;
   large/licensed files excluded from image + CI); insured A/E + improvement validation deck
   vs SOA ILEC / MIM-2021 + CIA; offline `mgcv`-via-`rpy2` oracle as a dev-only check.
