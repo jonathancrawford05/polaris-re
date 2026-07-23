@@ -377,7 +377,8 @@ deck, and the `mgcv` oracle) — each is its own session and each leaves the gol
     the reference values are the injected parametric targets (stated in each case `source`).
     Reproducing actual licensed MIM-2021/CIA tables would require vendoring them and is out of
     scope. A caller-side diligence run can fit a *real* cached ILEC extract against real targets
-    with the same builder — harvested as IMPORTANT follow-up.
+    with the same builder — harvested as NICE-TO-HAVE follow-up (diligence artifact, not
+    production correctness; matches the PRODUCT_DIRECTION ledger classification).
   - `q_base` is injected directly as the cited parametric Makeham base (the recovery is invariant
     to base shape — it cancels in the year-to-year contrast), keeping the deck data-free without a
     `MortalityTable` file dependency.
