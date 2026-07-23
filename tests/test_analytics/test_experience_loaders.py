@@ -349,6 +349,38 @@ def test_load_ilec_missing_attained_age_raises(tmp_path: Path) -> None:
         load_ilec(path, basis="count")
 
 
+def test_load_ilec_unmapped_gender_raises(tmp_path: Path) -> None:
+    df = pl.DataFrame(
+        {
+            "Attained Age": [45],
+            "Observation Year": [2015],
+            "Gender": ["Nonbinary"],
+            "Policies Exposed": [1000.0],
+            "Death Count": [2.0],
+        }
+    )
+    path = tmp_path / "badgender.csv"
+    df.write_csv(path)
+    with pytest.raises(PolarisValidationError, match="unmapped label"):
+        load_ilec(path, basis="count")
+
+
+def test_load_ilec_unmapped_smoker_raises(tmp_path: Path) -> None:
+    df = pl.DataFrame(
+        {
+            "Attained Age": [45],
+            "Observation Year": [2015],
+            "Smoker Status": ["Vaper"],
+            "Policies Exposed": [1000.0],
+            "Death Count": [2.0],
+        }
+    )
+    path = tmp_path / "badsmoker.csv"
+    df.write_csv(path)
+    with pytest.raises(PolarisValidationError, match="unmapped label"):
+        load_ilec(path, basis="count")
+
+
 # --------------------------------------------------------------------------- #
 # default_experience_cache_dir (env-var precedence)
 # --------------------------------------------------------------------------- #

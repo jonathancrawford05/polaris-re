@@ -336,6 +336,33 @@ _ILEC_BASIS_MEASURES: dict[str, tuple[str, ...]] = {
 }
 
 
+def _canonicalise_label(
+    frame: pl.DataFrame,
+    column: str,
+    mapping: dict[str, str],
+    label_kind: str,
+) -> pl.DataFrame:
+    """Strip/upper-case ``column`` and map it to canonical codes, raising on any
+    unmapped label.
+
+    Polars ``replace`` passes an unrecognised value through unchanged, which would
+    silently flow a non-canonical ``sex``/``smoker`` value downstream. This guard
+    checks the distinct (non-null) labels against ``mapping`` first and raises a
+    clear :class:`PolarisValidationError` naming the offenders — consistent with
+    :func:`load_hmd`'s explicit sex-code guard.
+    """
+    normalised = frame.get_column(column).cast(pl.Utf8).str.strip_chars().str.to_uppercase()
+    present = {v for v in normalised.unique().to_list() if v is not None}
+    unmapped = sorted(present - set(mapping))
+    if unmapped:
+        raise PolarisValidationError(
+            f"ILEC {label_kind} column has unmapped label(s) {unmapped}; "
+            f"expected a subset of {sorted(mapping)}. Supply a canonicalised "
+            f"column or extend the label map."
+        )
+    return frame.with_columns(normalised.replace(mapping).alias(column))
+
+
 def load_ilec(
     path: str | Path,
     *,
@@ -401,25 +428,13 @@ def load_ilec(
             "column_map that maps the source attained-age column."
         )
 
-    # Canonicalise gender/smoker labels.
+    # Canonicalise gender/smoker labels — fail loud on an unmapped label (mirrors
+    # load_hmd's explicit sex-code guard) so a real vintage with an unrecognised
+    # spelling surfaces here, not later as an opaque base-rate-lookup failure.
     if "sex" in frame.columns:
-        frame = frame.with_columns(
-            pl.col("sex")
-            .cast(pl.Utf8)
-            .str.strip_chars()
-            .str.to_uppercase()
-            .replace(ILEC_SEX_LABELS)
-            .alias("sex")
-        )
+        frame = _canonicalise_label(frame, "sex", ILEC_SEX_LABELS, "gender")
     if "smoker" in frame.columns:
-        frame = frame.with_columns(
-            pl.col("smoker")
-            .cast(pl.Utf8)
-            .str.strip_chars()
-            .str.to_uppercase()
-            .replace(ILEC_SMOKER_LABELS)
-            .alias("smoker")
-        )
+        frame = _canonicalise_label(frame, "smoker", ILEC_SMOKER_LABELS, "smoker")
 
     # 1-based policy-year duration → select duration in months.
     if "duration" in frame.columns:

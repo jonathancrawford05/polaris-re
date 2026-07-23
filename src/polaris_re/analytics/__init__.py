@@ -37,6 +37,7 @@ from polaris_re.analytics.experience_gam import (
     attach_base_rate,
 )
 from polaris_re.analytics.experience_loaders import (
+    default_experience_cache_dir,
     fetch_hmd,
     hmd_1x1_url,
     load_hmd,
@@ -171,6 +172,7 @@ __all__ = [
     "attach_base_rate",
     "build_movement_table",
     "capital_model_for",
+    "default_experience_cache_dir",
     "dual_duration_gap",
     "duration_gap",
     "duration_measures",
