@@ -286,7 +286,7 @@ goldens byte-identical.
 ##### Slice 4b-3: wire `ImprovementScale.CUSTOM` into `--config` + `AssumptionSet`
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-hdfvde
-- **PR:** _(this draft PR)_
+- **PR:** #150 — **MERGED** 2026-07-23 (merge commit `9f6551e`; ledger-healed 2026-07-23)
 - **Depends on:** Slice 4b-2 merged (#149).
 - **What was done:** `MortalityConfig` gained three optional default-preserving fields
   (`improvement_version_id` / `improvement_store_dir` / `improvement_kind`); a new
@@ -314,11 +314,57 @@ goldens byte-identical.
     (Scale AA / MP-2020) is an orthogonal follow-up (harvested NICE-TO-HAVE).
 
 #### Slice 4c: Loaders + insured validation deck + `mgcv` oracle
+
+Sub-decomposed 4c-1/4c-2/4c-3 (mirrors the Slice-1/2/4a/4b de-risking cadence) because the
+original 4c bundles three distinct capabilities (fetch-and-cache loaders, an insured validation
+deck, and the `mgcv` oracle) — each is its own session and each leaves the goldens byte-identical.
+
+##### Slice 4c-1: HMD / SOA-ILEC experience data loaders (loaders-not-data)
+- **Status:** DONE
+- **Branch:** claude/loving-gauss-84fcs2
+- **PR:** #151 (draft — awaiting review/merge)
+- **Depends on:** Slice 4b merged (4b-1 #148, 4b-2 #149, 4b-3 #150 — all merged 2026-07-23).
+- **What was done:** New `analytics/experience_loaders.py` — loaders, not data (Anchor 6 /
+  #61/#66 trap). `parse_hmd_1x1` parses one HMD 1x1 text file (Deaths/Exposures) into long
+  `(calendar_year, attained_age, sex, value)` — `.` missing markers and the `Total` column
+  dropped, open `110+` parsed to age 110. `load_hmd(deaths, exposures, ...)` inner-joins the two
+  on `(year, age, sex)` → by-count canonical cells (`central_exposure`/`death_count`), drops the
+  open age group by default, applies year/age/sex windows, sorts deterministically.
+  `load_ilec(path, *, basis, column_map, aggregate)` renames source columns via a default
+  (overridable) `ILEC_COLUMN_MAP`, canonicalises gender/smoker to Polaris enum values, converts
+  1-based `Duration` → `duration_months=(d-1)*12`, selects the `count`/`amount`/`both` measure
+  pair(s), and group-and-sums over the present canonical keys (Anchor 7). `fetch_hmd` is a thin,
+  dependency-injected fetch-and-cache helper (`hmd_1x1_url` + `default_experience_cache_dir`) —
+  the `downloader` transport is injectable so tests exercise URL/cache/skip logic with no
+  network; the default urllib transport is `pragma: no cover`. `sex`/`smoker` emitted as enum
+  values so loaded cells feed `attach_base_rate` + `TensorMIModel` with no re-mapping (proven
+  end-to-end). Additive; engine/goldens byte-identical (+32 tests). ADR-149. **No files land
+  under `data/`** — tests use `tmp_path`; allowlist untouched.
+- **Key decisions (carry into 4c-2/4c-3/4d):**
+  - HMD is population (by-count only, no select/duration/factors) → the primary real-data
+    engineering/regression fixture. ILEC is the insured source with all three Lexis axes + both
+    count/amount bases → the validation-deck fit source (4c-2).
+  - The parsers take a *local cached path* (hermetic, CI-safe); network is isolated to
+    `fetch_hmd` with an injectable transport. ILEC has no fetch helper — it is a manual
+    data-use-agreement download the loader then consumes.
+  - `ILEC_COLUMN_MAP` is overridable per-vintage (ILEC header spellings differ between releases);
+    the default targets the common SOA-ILEC flat-file names.
+
+##### Slice 4c-2: insured A/E + improvement validation deck
 - **Status:** NEXT
-- **Depends on:** Slice 4b merged (4b-1 #148, 4b-2 #149, 4b-3 this PR — all merged/ready).
-- **Scope:** `load_hmd()` / `load_ilec()` fetch-and-cache loaders (loaders-not-data;
-  large/licensed files excluded from image + CI); insured A/E + improvement validation deck
-  vs SOA ILEC / MIM-2021 + CIA; offline `mgcv`-via-`rpy2` oracle as a dev-only check.
+- **Depends on:** Slice 4c-1 merged (this PR).
+- **Scope:** insured A/E + improvement **validation deck** (the A4′ analogue of the A1′
+  validation pack) — fit the tensor MI surface on an ILEC extract (via `load_ilec`) and check the
+  emitted `MI_x(y)` against SOA MIM-2021 / CIA aggregated improvement targets within tolerance;
+  wire into the `analytics/validation.py` benchmark harness. In-repo tests use a small
+  synthetic/sampled fixture only (loaders-not-data).
+
+##### Slice 4c-3: offline `mgcv`-via-`rpy2` oracle (dev-only)
+- **Status:** PLANNED
+- **Depends on:** Slice 4c-2 merged.
+- **Scope:** the offline `mgcv`-via-`rpy2` oracle wired as a dev-only check (never a runtime/CI
+  dependency, Anchor 5) — a `@pytest.mark.slow`/opt-in cross-check that the Python GAM
+  coefficients match R `mgcv` on a shared synthetic dataset.
 
 #### Slice 4d: Diagnostic plots + docs (CLOSES EPIC)
 - **Status:** PLANNED

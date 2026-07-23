@@ -9828,3 +9828,75 @@ and in the **REST API** request schema is deliberately deferred to a dedicated s
 when a slice consumes it). A per-run selection of a **built-in** scale (Scale AA / MP-2020) via
 config — as opposed to a versioned CUSTOM basis — is a separate, orthogonal follow-up; this slice
 wires only the experience-derived CUSTOM path that Slice 4b-2 froze.
+## ADR-149: Experience GAM (A4′ Slice 4c-1) — HMD / SOA-ILEC experience data loaders (loaders-not-data)
+
+**Date:** 2026-07-23
+**Status:** Accepted
+**Slice:** 4c-1 of the Data-Driven Experience Analysis epic (A4′), ROADMAP 6.1 — the first
+sub-slice of Slice 4c (loaders + insured validation deck + `mgcv` oracle). See
+`docs/PLAN_experience_gam.md` "Data Sources & Strategy" and `docs/CONTINUATION_experience_gam.md`.
+
+**Context.** Slices 1–4b built and surfaced the tensor MI engine on *synthetic* grouped cells.
+To engineer/regression-test the improvement surface on **real** data — and to build the insured
+validation deck (Slice 4c-2) — the epic needs to read the two public experience sources named in
+the PLAN into the canonical grouped-cell contract: the **Human Mortality Database** (free
+population Deaths/Exposures as age×calendar-year matrices by sex — the exact
+`te(attained_age, calendar_year)` Lexis structure) and the **SOA ILEC** grouped insured
+exposed-and-deaths flat file (all three Lexis axes + gender/smoker/plan/band/class, both policy-
+and amount-exposure). Neither file may ship in the repo, the Docker image, or CI (HMD requires an
+account; ILEC is under a data-use agreement; both are large) — the #61/#66 trap and Design Anchor 6.
+
+**Decision.** Add `analytics/experience_loaders.py` — **loaders, not data**, mirroring
+`scripts/convert_soa_tables.py` and the QA-golden pattern:
+
+1. **Parsers take a local cached path and return the canonical grouped-cell frame** — hermetic,
+   unit-tested on tiny synthetic fixtures written to `tmp_path`:
+   - `parse_hmd_1x1(path, *, value_name)` parses one HMD 1x1 text file (Deaths or Exposures) into
+     long `(calendar_year, attained_age, sex, value)`. HMD's `.` missing marker and the `Total`
+     column are dropped; the open `110+` group is parsed to age 110.
+   - `load_hmd(deaths_path, exposures_path, ...)` inner-joins the two on `(year, age, sex)` and
+     emits the by-count cells (`central_exposure`/`death_count`); drops the open age group by
+     default; applies year/age/sex windows; sorts deterministically.
+   - `load_ilec(path, *, basis, column_map, aggregate)` renames source columns via a default
+     (overridable) `ILEC_COLUMN_MAP`, canonicalises gender/smoker labels to the Polaris enum
+     values, converts the 1-based policy-year `Duration` to `duration_months = (d-1)*12` (so
+     `duration_months // 12` recovers the select year-index the base-rate lookup uses), selects
+     the measure pair(s) for `basis` (`count`/`amount`/`both`), and — by default — group-and-sums
+     over the present canonical keys (Anchor 7: grouping is sufficiency, not compromise).
+
+2. **`sex`/`smoker` are emitted as the Polaris enum *values*** (`"M"`/`"F"`, `"S"`/`"NS"`/`"U"`),
+   so the loaded cells feed `attach_base_rate` and the tensor MI models with no re-mapping — the
+   integration is proven end-to-end (loaded ILEC → `attach_base_rate` → `TensorMIModel` →
+   `MI_x(y)` grid).
+
+3. **The network fetch is a thin, dependency-injected helper.** `fetch_hmd(country, *, cache_dir,
+   downloader, overwrite)` builds the authenticated 1x1 URLs (`hmd_1x1_url`), writes to the cache
+   (`default_experience_cache_dir()` — `$POLARIS_EXPERIENCE_CACHE_DIR` → `$POLARIS_DATA_DIR/
+   experience_cache` → `./data/experience_cache`), skips already-cached files unless `overwrite`,
+   and surfaces any transport failure as `PolarisComputationError`. The `downloader` transport is
+   injectable so tests exercise the URL/cache-path/skip logic **without any network**; the default
+   urllib transport is `# pragma: no cover` (network + HMD account required on the caller's box).
+   ILEC has no fetch helper — it is a manual, data-use-agreement download; the loader consumes the
+   downloaded file.
+
+**Consequences.** The epic can now fit and regression-test the MI surface on real population data
+(HMD) and build the insured validation deck against ILEC (Slice 4c-2) from local cached files,
+with no licensed/large data in the repo, image, or CI. The canonical output plugs straight into
+the existing GAM stack.
+
+**Backward compatibility.** Purely additive — a new module + five public functions exported from
+`analytics/__init__.py`. No pricing path, assumption/data contract, or golden is touched; the
+engine and the golden `polaris price` output are byte-identical.
+
+**Docker/data allowlist (#61/#66 trap).** No files land under `data/` — every test writes its
+synthetic HMD/ILEC fixtures to `tmp_path`, and the cache dir is a runtime cache, deliberately
+excluded from the image and CI. The Dockerfile `COPY` and `.dockerignore` allowlist are untouched.
+
+**Out of scope (remaining Slice-4c/4d work).** The insured **A/E + improvement validation deck**
+against SOA ILEC / MIM-2021 and CIA aggregated tables (Slice 4c-2); the offline `mgcv`-via-`rpy2`
+oracle wired as a dev-only check (Slice 4c-3); diagnostic plots + ARCHITECTURE/QUICKSTART docs
+(Slice 4d, CLOSES EPIC). A CLI surface for the loaders (`polaris experience load-hmd/load-ilec`)
+is a possible convenience but not required by the epic — the loaders are a library API consumed by
+the validation deck; harvested as NICE-TO-HAVE. HMD authenticated-session handling (login/token
+flow) beyond a plain authenticated-URL GET is left to the caller's environment; harvested as
+NICE-TO-HAVE.

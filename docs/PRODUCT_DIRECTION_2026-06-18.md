@@ -1792,6 +1792,28 @@ constraint and a future session must not rebuild these as a naive wall-time log.
   polish, not common-path correctness → NICE-TO-HAVE. 1st-order (a follow-up of the planned
   Slice-4b-3 config wiring). *Source: ADR-148 Out of scope (1st-order).*
 
+- **NICE-TO-HAVE — CLI surface for the experience data loaders (`polaris experience
+  load-hmd` / `load-ilec`).** Slice 4c-1 (ADR-149) added `load_hmd()` / `load_ilec()` as a
+  **library** API (`analytics/experience_loaders.py`) that maps HMD / SOA-ILEC files into the
+  canonical grouped-cell contract. There is no CLI command to run them from the shell — a user
+  scripting the pipeline calls the Python API directly. A thin `polaris experience load-hmd
+  --deaths ... --exposures -o cells.csv` / `load-ilec --basis ... -o cells.csv` convenience
+  wrapper would let the fit/improvement/save chain start from a raw cached file without a Python
+  script. The loaders are consumed by the Slice-4c-2 validation deck as a library, so a CLI is
+  not required by the epic → NICE-TO-HAVE. 1st-order (a follow-up of the planned Slice-4c-1
+  loaders). *Source: ADR-149 Out of scope + DEV_SESSION_LOG_2026-07-23_experience_gam_slice4c1
+  Open Questions (1st-order).*
+
+- **NICE-TO-HAVE — Built-in HMD authenticated-session (login/token) flow in `fetch_hmd`.**
+  Slice 4c-1's `fetch_hmd` (ADR-149) takes an injectable `downloader` transport and its default
+  urllib transport does a plain authenticated-URL GET; a full HMD account login/token flow
+  (mortality.org requires an account) is left to the caller's environment. A built-in session
+  handler (accept credentials, obtain the session cookie/token, then fetch) would make
+  `fetch_hmd` self-contained for a fresh machine. Network + credential handling, never exercised
+  in CI, and the injectable transport already unblocks any real fetch → NICE-TO-HAVE. 1st-order
+  (a follow-up of the planned Slice-4c-1 loaders). *Source: ADR-149 Out of scope +
+  DEV_SESSION_LOG_2026-07-23_experience_gam_slice4c1 Open Questions (1st-order).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log
