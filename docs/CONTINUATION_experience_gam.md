@@ -169,7 +169,7 @@ own sub-slice. Mirrors the Slice-1/2a de-risking pattern. See ADR-141.
 ### Slice 3: Hierarchical partial pooling (credibility)
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-0c0ars
-- **PR:** #146 (draft — awaiting review/merge)
+- **PR:** #146 — **MERGED** 2026-07-22
 - **Depends on:** Slice 2 merged (2a #142, 2b-surface #143, 2b-projection #144, 2c #145 — all merged 2026-07-22).
 - **Backend:** the same reduced-rank GP + Laplace posterior (ADR-141) — deterministic,
   pure NumPy/SciPy, core-only. Segment random effects are a ridge block whose prior
@@ -206,7 +206,7 @@ ARCHITECTURE/QUICKSTART docs and CLOSES the epic. Each leaves goldens byte-ident
 #### Slice 4a: `polaris experience improvement` CLI surface
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-wty4t3
-- **PR:** #147 (draft — awaiting review/merge)
+- **PR:** #147 — **MERGED** 2026-07-22
 - **Depends on:** Slice 3 merged (#146).
 - **What was done:** New `experience` Typer command group + `polaris experience improvement`
   in `cli.py`. Reads a grouped-cell experience CSV (canonical contract), attaches the static
@@ -225,13 +225,52 @@ ARCHITECTURE/QUICKSTART docs and CLOSES the epic. Each leaves goldens byte-ident
   - `--project-horizon` is gated on `--bayesian` (the projection needs the posterior anchor).
 
 #### Slice 4b: `polaris experience fit` diagnostics + assumption versioning + config wiring
-- **Status:** NEXT
+
+Sub-decomposed 4b-1/4b-2/4b-3 (mirrors the Slice-1/2/4a de-risking cadence) because the
+original 4b bundles three distinct capabilities (a diagnostics command, versioned
+persistence, and pricing-config wiring) — each is its own session and each leaves the
+goldens byte-identical.
+
+##### Slice 4b-1: `polaris experience fit` effect-shape diagnostics CLI
+- **Status:** DONE
+- **Branch:** claude/loving-gauss-3tkl4n
+- **PR:** #148 (draft — awaiting review/merge)
 - **Depends on:** Slice 4a merged (#147).
-- **Scope:** `polaris experience fit` (Slice-1 `ExperienceGAM` per-feature effect-shape
-  diagnostics); persist/load a CUSTOM scale under `data/assumption_versions/` (study-date +
-  credibility tags, preserved history); wire `ImprovementScale.CUSTOM` into the pricing
-  `--config` schema + an `AssumptionSet` selector so a versioned experience-derived scale
-  drives a `polaris price` run.
+- **What was done:** New `polaris experience fit` command in the existing `experience` Typer
+  group. Reads the same grouped-cell contract as `experience improvement` (reusing
+  `_load_experience_cells` / `_attach_base_rate_for_experience`), fits the Slice-1
+  interpretable additive A/E GAM (`ExperienceGAM`, ADR-139), and reports each standard
+  feature's smooth/categorical effect on the A/E multiplier with a confidence band. The Rich
+  summary reports overall A/E, quasi-Poisson dispersion φ, overdispersion state, cell count,
+  and active factors; each smooth is sampled at `--grid-points` across its observed range and
+  each factor gives one row per level (contrast vs modal reference). `--effects-out` writes a
+  tidy long-format CSV (`feature, term_type, x, x_value, multiplier, lower, upper`) — the
+  artifact the Slice-4d diagnostic plots/dashboard consume, bands first-class. Additive;
+  engine/goldens byte-identical (+7 tests). ADR-146.
+- **Key decisions (carry into 4b-2/4b-3/4d):**
+  - The smooth grid range is read from the cells frame in the CLI (the `GAMFitResult` does
+    not carry the observed feature range); `_collect_experience_effects` takes `cells`.
+  - `--effects-out` schema is deliberately the plot-ready long format (numeric `x_value` for
+    smooths, null for factors) so Slice 4d renders bands straight from it (per the locked 4d
+    band decision) — no band info lost between fit and plot.
+  - Modal-reference factor level is a tie-break at equal exposure (inherited from Slice-1
+    `factor_effect`); contrasts are reference-invariant, so it is cosmetic.
+
+##### Slice 4b-2: assumption versioning under `data/assumption_versions/`
+- **Status:** NEXT
+- **Depends on:** Slice 4b-1 merged (#148).
+- **Scope:** persist/load a CUSTOM scale (the `experience improvement` JSON artifact) under
+  `data/assumption_versions/` with study-date + credibility tags and preserved history
+  (append-only, never overwrite); a `polaris experience save`/`list` (or `--save`) surface.
+  If files land under `data/`, update the Dockerfile COPY + `.dockerignore` allowlist in the
+  same PR (recurring trap — PR #61/#66).
+
+##### Slice 4b-3: wire `ImprovementScale.CUSTOM` into `--config` + `AssumptionSet`
+- **Status:** PLANNED
+- **Depends on:** Slice 4b-2 merged.
+- **Scope:** wire `ImprovementScale.CUSTOM` into the pricing `--config` schema + an
+  `AssumptionSet` selector so a versioned experience-derived scale drives a `polaris price`
+  run. Contract-adjacent (config schema) — default-preserving, human-review-flagged.
 
 #### Slice 4c: Loaders + insured validation deck + `mgcv` oracle
 - **Status:** PLANNED
@@ -245,6 +284,15 @@ ARCHITECTURE/QUICKSTART docs and CLOSES the epic. Each leaves goldens byte-ident
 - **Depends on:** Slice 4c merged.
 - **Scope:** effect-shape + MI-surface diagnostic plots; ARCHITECTURE + QUICKSTART; ADR.
   HARVEST FOLLOW-UPS, then this CONTINUATION → COMPLETE.
+- **Fold in the PR #148 review option-3 cleanup here (recommended landing point).** When the
+  dashboard becomes a *second* consumer of the tidy effect-shape frame, capture
+  `feature_ranges: dict[str, tuple[float, float]]` on `GAMFitResult` at fit time and move
+  `_collect_experience_effects` onto the model as a public `all_effects(...) -> pl.DataFrame`
+  (defaulting `smooth_effect`'s grid to the observed range). This removes the CLI's
+  `cells`-frame reach-back for smooth spans so the CLI and the 4d dashboard call one public
+  method instead of each re-deriving ranges. The public `GAMFitResult.smooth_features`
+  accessor (the P2 half) already shipped in PR #148; this is the remaining half. See the
+  PRODUCT_DIRECTION Promoted Follow-up (*Source: PR #148 review [P2] option 3*).
 - **Uncertainty bands — LOCKED (maintainer decision 2026-07-22).** Every diagnostic plot
   renders its band by default — the bands are already first-class in the data structures
   (`SmoothEffect.lower/upper`, `MISurface.mi_lower/upper + confidence_level`,

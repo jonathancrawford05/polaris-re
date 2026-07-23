@@ -407,6 +407,42 @@ above — this file does not duplicate the SHIPPED-footer detail.
 Items harvested from completed/in-flight work by the daily-dev routine
 (step 17), with provenance. These are first-class work items, not commentary.
 
+- **NICE-TO-HAVE — Exposure-weighted modal reference level for `ExperienceGAM`
+  factor effects.** `ExperienceGAM.factor_effect` reports each categorical level's
+  A/E multiplier relative to the **modal** reference level, chosen by row count
+  (`group_by(f).len()`). When two levels have equal cell counts (e.g. a balanced
+  synthetic or a perfectly split book) the reference is a nondeterministic
+  tie-break, so which level renders at multiplier 1.0 can vary run-to-run. The
+  reported *contrasts* are reference-invariant (correctness is unaffected), and
+  real studies have unequal exposure so it is deterministic in practice — this is
+  cosmetic. An exposure-weighted (or largest-exposure) modal reference would make
+  the reference deterministic and actuarially the more natural baseline. Affects
+  only the diagnostic display of `polaris experience fit` / Slice-1 effects, not
+  any pricing path → NICE-TO-HAVE. Surfaced while wiring the 4b-1 diagnostics CLI.
+  *Source: ADR-146 Out of scope + DEV_SESSION_LOG_2026-07-22_experience_gam_slice4b1 Open Questions (2nd-order — a follow-up on the Slice-1 `factor_effect` behaviour).*
+
+- **NICE-TO-HAVE — Capture observed feature ranges on `GAMFitResult` so effect
+  assembly drops the `cells` reach-back.** `_collect_experience_effects` in the CLI
+  reads each smooth term's observed span from the `cells` frame because the
+  `GAMFitResult` does not carry the range; `smooth_effect(feature)` therefore also
+  cannot default its grid to the observed range. Storing
+  `feature_ranges: dict[str, tuple[float, float]]` on the result at fit time would
+  let `smooth_effect` default its grid and let effect-shape assembly move onto the
+  model as a public `all_effects(...) -> pl.DataFrame` (option 2/3 from the PR #148
+  review) — so the CLI *and* the incoming Slice-4d dashboard call one public method
+  instead of each re-deriving ranges from `cells`. Best landed **as part of Slice 4d**
+  (when the dashboard becomes a second consumer of the tidy long-format frame), per
+  the reviewer's recommendation — touch this surface once. The public
+  `GAMFitResult.smooth_features` accessor (the P2 one-liner) already shipped in PR
+  #148; this is the remaining, larger half. Internal coupling cleanup, no correctness
+  or commercial impact → NICE-TO-HAVE.
+  *Source: PR #148 review [P2] (option 3) + ADR-146 + CONTINUATION_experience_gam Slice-4b-1 key decisions (1st-order — a review-driven refinement of the 4b-1 GAM-fit surface).*
+
+_Slice 4b-1's remaining ADR-146 out-of-scope items (assumption versioning, `--config`/
+`AssumptionSet` wiring, loaders + validation deck, diagnostic plots + docs) are already
+first-class planned slices in `CONTINUATION_experience_gam` (4b-2/4b-3/4c/4d) and are picked
+up by the routine via step 5, so they are not re-promoted here (would duplicate the ledger)._
+
 - **NICE-TO-HAVE — Configurable held-capital basis (target multiple of ACL)
   for US RBC.** The US RBC module (Epic 3 Slice 1) fixes the held-capital basis
   fed to return-on-capital at the **Company Action Level** (= 2× Authorized

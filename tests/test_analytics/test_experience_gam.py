@@ -185,6 +185,39 @@ def test_recovers_age_varying_multiplier_shape():
     assert np.all(eff.multiplier <= eff.upper)
 
 
+def test_smooth_features_lists_fitted_smooth_terms():
+    """``smooth_features`` is the public, drift-free list of fitted smooth terms.
+
+    It mirrors :attr:`factors`, is authoritative for :meth:`smooth_effect`
+    (every listed name resolves; nothing else does), and grows to include
+    ``duration_years`` exactly when a varying duration enters the fit.
+    """
+    ages = np.arange(40, 70)
+    rng = np.random.default_rng(SEED + 9)
+    q_base = 0.004 * np.exp(0.06 * (ages - 40))
+    exposure = np.full(ages.size, 30000.0)
+    deaths = rng.poisson(exposure * q_base * 1.1).astype(np.float64)
+    base = {
+        "attained_age": ages.astype(np.int64),
+        "central_exposure": exposure,
+        "death_count": deaths,
+        "q_base": q_base,
+    }
+
+    # Age-only fit: exactly the attained-age smooth, and every listed name works.
+    fit = ExperienceGAM(pl.DataFrame(base), basis="count", age_df=5).fit()
+    assert fit.smooth_features == ["attained_age"]
+    for feature in fit.smooth_features:
+        fit.smooth_effect(feature, grid=np.array([45.0, 60.0]))  # resolves
+    with pytest.raises(PolarisValidationError):
+        fit.smooth_effect("duration_years", grid=np.array([1.0]))  # not fitted
+
+    # Add a varying duration → the duration smooth joins the public list.
+    with_dur = pl.DataFrame({**base, "duration_months": (12 * ((ages - 40) % 5 + 1))})
+    fit_dur = ExperienceGAM(with_dur, basis="count", age_df=5, duration_df=4).fit()
+    assert set(fit_dur.smooth_features) == {"attained_age", "duration_years"}
+
+
 # --------------------------------------------------------------------------- #
 # Multi-factor path (regression guard for the __levels__ bookkeeping bug)
 # --------------------------------------------------------------------------- #

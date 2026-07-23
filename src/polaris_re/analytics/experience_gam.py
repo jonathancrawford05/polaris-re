@@ -339,6 +339,18 @@ class GAMFitResult:
     _design_info: object = field(default=None, repr=False)
     _smooth_specs: dict[str, str] = field(default_factory=dict, repr=False)
 
+    @property
+    def smooth_features(self) -> list[str]:
+        """Names of the fitted smooth terms (e.g. ``'attained_age'``,
+        ``'duration_years'``) — the smooth-term counterpart of :attr:`factors`.
+
+        The underlying spline specs (``_smooth_specs``) stay private (an
+        implementation detail); only the feature names are contract. A property
+        over the private dict keeps that dict the single source of truth, so the
+        listed names and :meth:`smooth_effect`'s membership check cannot drift.
+        """
+        return list(self._smooth_specs)
+
     def _predict_eta(self, frame: pl.DataFrame) -> tuple[np.ndarray, np.ndarray]:
         """
         Predict the linear predictor η (offset excluded) and its standard error

@@ -9613,3 +9613,75 @@ effect-shape + MI-surface diagnostic plots; `load_hmd()`/`load_ilec()` fetch-and
 loaders and the insured A/E + improvement validation deck; the offline `mgcv`-via-`rpy2`
 oracle; ARCHITECTURE/QUICKSTART docs. These are the remaining Slice-4 sub-slices that close
 the epic.
+
+---
+
+## ADR-146: Experience GAM (A4′ Slice 4b-1) — `polaris experience fit` effect-shape diagnostics CLI
+
+**Date:** 2026-07-22
+**Status:** Accepted
+**Slice:** 4b-1 of the Data-Driven Experience Analysis epic (A4′), ROADMAP 6.1 — the first
+sub-slice of Slice 4b (fit diagnostics + assumption versioning + `--config` wiring). See
+`docs/PLAN_experience_gam.md` and `docs/CONTINUATION_experience_gam.md`. Surfaces the
+Slice-1 `ExperienceGAM` (ADR-139) through the CLI.
+
+**Context.** Slice 4a shipped `polaris experience improvement`, which fits the *tensor MI
+surface* (the `TensorMIModel`/`BayesianTensorMIModel` from ADR-140/141) and emits a CUSTOM
+improvement scale. But the epic's Slice-1 deliverable — the interpretable additive A/E GAM
+(`ExperienceGAM`, ADR-139) that isolates each standard feature's smooth/categorical effect
+(attained age, select duration, sex/smoker/band/… factors) — was still reachable only from
+Python. That model is the diagnostic an actuary reads *before* freezing an improvement
+basis: it answers "does my experience deviate from the standard table by age, duration, and
+risk class, and by how much, with what confidence?" Slice 4b surfaces it; this first
+sub-slice ships the diagnostics command. (Slice 4b's other two capabilities — assumption
+versioning under `data/assumption_versions/` and `ImprovementScale.CUSTOM` `--config`/
+`AssumptionSet` wiring — are deferred to their own sub-slices 4b-2/4b-3, per this epic's
+established de-risking cadence.)
+
+**Decision.** New `polaris experience fit` command in the existing `experience` Typer group:
+
+1. **Same on-disk input contract as `experience improvement`.** Reuses the
+   `_load_experience_cells` / `_attach_base_rate_for_experience` helpers — a grouped-cell
+   CSV with `attained_age`, the `--basis` exposure/deaths pair, and either a pre-built
+   static `q_base` column or a `--table` to attach it (Anchor 1). `duration_months` and any
+   canonical factor (`sex`, `smoker`, `band`, `product`, `uw_class`, `channel`, `segment`,
+   `underwriting_era`) become model terms when present and varying.
+
+2. **Fits Slice-1 `ExperienceGAM` and reports per-feature effect shapes.** `--age-df` /
+   `--duration-df` set the smooth spline df; the Rich summary reports the overall A/E,
+   quasi-Poisson dispersion φ, whether overdispersion scaling was applied, the grouped-cell
+   count, and the active factors. Each smooth term (enumerated via the public
+   `GAMFitResult.smooth_features` accessor — the smooth-term counterpart of the existing
+   public `factors`, added here so the CLI does not reach into the private `_smooth_specs`
+   dict) is sampled at `--grid-points` evenly-spaced points across its **observed** range
+   (read from the cells, not the fit result, which does not carry the range) and each factor
+   contributes one row per level — the contrast against its modal reference — every effect
+   with a `--confidence-level` band.
+
+3. **`--effects-out` writes a tidy long-format CSV** (`feature, term_type, x, x_value,
+   multiplier, lower, upper`; `x_value` is the numeric grid value for smooths, null for
+   factors). This is the artifact the Slice-4d diagnostic dashboard/plots consume — the
+   4d bands render straight from these columns, so no band information is lost between fit
+   and plot.
+
+**Consequences.** An actuary can now inspect the interpretable A/E decomposition end-to-end
+from an experience extract without writing Python — the auditable middle-layer view that
+complements the `experience improvement` surface. The effect bands stay first-class in the
+`--effects-out` schema, ready for the Slice-4d rendering (per the maintainer's locked 4d
+band decision).
+
+**Backward compatibility.** Purely additive — a second command in the existing `experience`
+group plus two private helpers in `cli.py`. No change to any existing command, the pricing
+path, any assumption contract, or a golden baseline; the engine is byte-identical. The
+heavy analytics/`statsmodels` imports stay lazy inside the command, so CLI startup and the
+non-`[ml]` install are unaffected.
+
+**Out of scope (this sub-slice — remaining Slice-4b/4c/4d work).** Assumption versioning
+under `data/assumption_versions/` (study-date + credibility tags, preserved history) and
+wiring `ImprovementScale.CUSTOM` into the pricing `--config` schema + an `AssumptionSet`
+selector (Slice 4b-2/4b-3); `load_hmd()`/`load_ilec()` loaders + the insured A/E +
+improvement validation deck + the `mgcv`-via-`rpy2` oracle (Slice 4c); the diagnostic plots
+that render `--effects-out`/`--grid-out` and ARCHITECTURE/QUICKSTART docs (Slice 4d, CLOSES
+EPIC). The modal-reference factor level is a tie-break when levels have equal exposure
+(inherited from Slice-1 `factor_effect`); real studies have unequal exposure so it is
+deterministic in practice, and the reported contrasts are reference-invariant regardless.
