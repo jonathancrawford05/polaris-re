@@ -140,33 +140,27 @@ def _synthetic_cells(seed: int) -> pl.DataFrame:
     ``Poisson(exposure · q0(x) · (1 - MI(x))**(y - base_year))`` under the pinned seed.
     """
     rng = np.random.default_rng(seed)
-    q_by_age = {int(a): float(q) for a, q in zip(_AGES, _q0(_AGES), strict=True)}
-    mi_by_age = {int(a): float(m) for a, m in zip(_AGES, _mi(_AGES), strict=True)}
+    n_age, n_year = len(_AGES), len(_YEARS)
+    n_cell = n_age * n_year
 
-    ages_col: list[int] = []
-    years_col: list[int] = []
-    exposed_col: list[float] = []
-    deaths_col: list[float] = []
-    qbase_col: list[float] = []
-    for a in _AGES:
-        base = q_by_age[int(a)]
-        mi = mi_by_age[int(a)]
-        for y in _YEARS:
-            q = base * (1.0 - mi) ** (int(y) - _BASE_YEAR)
-            ages_col.append(int(a))
-            years_col.append(int(y))
-            exposed_col.append(_EXPOSURE)
-            deaths_col.append(float(rng.poisson(_EXPOSURE * q)))
-            qbase_col.append(base)
+    # Age-major grid (attained age slowest, calendar year fastest) over _AGES x _YEARS.
+    ages = np.repeat(_AGES, n_year).astype(np.int64)
+    years = np.tile(_YEARS, n_age).astype(np.int64)
+    q_base = np.repeat(_q0(_AGES), n_year).astype(np.float64)
+    mi = np.repeat(_mi(_AGES), n_year).astype(np.float64)
+
+    # Expected deaths under the injected improvement, then a single Poisson draw.
+    q = q_base * (1.0 - mi) ** (years - _BASE_YEAR).astype(np.float64)
+    deaths = rng.poisson(_EXPOSURE * q).astype(np.float64)
 
     return pl.DataFrame(
         {
-            "attained_age": ages_col,
-            "calendar_year": years_col,
-            "central_exposure": exposed_col,
-            "death_count": deaths_col,
-            "q_base": qbase_col,
-            "duration_months": [120] * len(ages_col),
+            "attained_age": ages,
+            "calendar_year": years,
+            "central_exposure": np.full(n_cell, _EXPOSURE, dtype=np.float64),
+            "death_count": deaths,
+            "q_base": q_base,
+            "duration_months": np.full(n_cell, 120, dtype=np.int64),
         }
     )
 

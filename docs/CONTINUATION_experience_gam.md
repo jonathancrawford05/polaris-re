@@ -429,6 +429,11 @@ deck, and the `mgcv` oracle) — each is its own session and each leaves the gol
   method instead of each re-deriving ranges. The public `GAMFitResult.smooth_features`
   accessor (the P2 half) already shipped in PR #148; this is the remaining half. See the
   PRODUCT_DIRECTION Promoted Follow-up (*Source: PR #148 review [P2] option 3*).
+  - **Also migrate the Slice-4c-3 oracle off the private `MISurfaceResult._result` reach-in here.**
+    `experience_oracle.build_oracle_case` currently pulls `model.exog`/`.offset`/`.endog`/`params`
+    from the private `_result` field. When this slice adds a public accessor for the fitted
+    design/statsmodels result (the same public-accessor direction PR #148 set), point the oracle at
+    it. *Source: PR #153 review [P2] — deferred to 4d per the reviewer's recommendation.*
 - **Uncertainty bands — LOCKED (maintainer decision 2026-07-22).** Every diagnostic plot
   renders its band by default — the bands are already first-class in the data structures
   (`SmoothEffect.lower/upper`, `MISurface.mi_lower/upper + confidence_level`,
