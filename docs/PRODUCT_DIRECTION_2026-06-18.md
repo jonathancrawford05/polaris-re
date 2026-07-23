@@ -1814,6 +1814,20 @@ constraint and a future session must not rebuild these as a naive wall-time log.
   (a follow-up of the planned Slice-4c-1 loaders). *Source: ADR-149 Out of scope +
   DEV_SESSION_LOG_2026-07-23_experience_gam_slice4c1 Open Questions (1st-order).*
 
+- **NICE-TO-HAVE — Real-data experience-improvement diligence run (HMD/ILEC vs published targets).**
+  Slice 4c-2's improvement-recovery deck (ADR-150) is a *synthetic recovery identity*: it proves
+  the tensor MI GAM recovers a *known injected* surface from ILEC-shaped cells, deliberately not
+  reproducing licensed SOA MIM-2021 / CIA published numbers (which cannot ship in the repo/CI). A
+  caller-side diligence run — fit the tensor MI surface on a real *cached* ILEC extract (via
+  `load_ilec`) or the freely-available HMD population data (via `load_hmd`), then compare the
+  emitted `MI_x(y)` against actual MIM-2021 / CIA aggregate targets within tolerance — would
+  strengthen the credibility claim from "recovers a known surface" to "matches published
+  improvement". Gated on licensed/large local data, never a CI test; the existing
+  `run_experience_improvement_benchmarks()` builder is the reusable scaffold. NICE-TO-HAVE
+  (diligence artifact, not production correctness). 1st-order (a follow-up of the planned
+  Slice-4c-2 validation deck). *Source: ADR-150 Out of scope +
+  DEV_SESSION_LOG_2026-07-23_experience_gam_slice4c2 Open Questions (1st-order).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

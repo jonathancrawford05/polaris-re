@@ -9900,3 +9900,71 @@ is a possible convenience but not required by the epic — the loaders are a lib
 the validation deck; harvested as NICE-TO-HAVE. HMD authenticated-session handling (login/token
 flow) beyond a plain authenticated-URL GET is left to the caller's environment; harvested as
 NICE-TO-HAVE.
+
+---
+
+## ADR-150: Experience GAM (A4′ Slice 4c-2) — experience-analysis improvement-recovery validation deck
+
+**Date:** 2026-07-23
+**Status:** Accepted
+**Slice:** 4c-2 of the Data-Driven Experience Analysis epic (A4′), ROADMAP 6.1 — the insured
+A/E + improvement **validation deck**, the second sub-slice of Slice 4c. See
+`docs/PLAN_experience_gam.md` and `docs/CONTINUATION_experience_gam.md`.
+
+**Context.** Slices 1–4c-1 built the tensor MI engine, surfaced it on the CLI, versioned and
+wired its output into pricing, and (4c-1) added the HMD/ILEC loaders. The epic's credibility
+claim — that the GAM sets a *trustworthy* mortality-improvement basis from experience — needs the
+experience-analysis analogue of the pricing engine's validation pack (`analytics/validation.py`,
+which reproduces closed-form and SOA Illustrative Life Table references). The obvious framing,
+"reproduce SOA MIM-2021 / CIA published improvement numbers", is unavailable network-free: MIM-2021
+and the CIA aggregate scales are licensed/large and may not ship in the repo, image, or CI (the
+#61/#66 trap and Design Anchor 6, same constraint that made 4c-1 loaders-not-data).
+
+**Decision.** Add `analytics/experience_validation.py` — a **recovery-identity** deck, the exact
+analogue of the whole-life deck's parametric Makeham reference (which reproduces the Illustrative
+Life Table from its *published law*, not a copied column):
+
+1. Inject a *known* annual improvement surface `MI(x)` into a synthetic, ILEC-*source*-schema
+   extract whose `Death Count` is the **expected** deaths under that surface,
+   `d(x, y) = E · q0(x) · (1 - MI(x))**(y - base_year)`, with `q0(x)` the cited Makeham base.
+   Because `MI(x)` is constant across calendar years, `log d(x, y)` is **linear in `y`** with an
+   age-varying slope — a function the tensor-product B-spline basis spans *exactly*.
+2. Feed the extract through the real `load_ilec` loader (loaders-not-data — the synthetic extract
+   is generated into a `tempfile.TemporaryDirectory()` at run time; nothing is vendored).
+3. Refit the tensor MI GAM and check the recovered `MI_x(y)` against the injected target within a
+   tight, documented tolerance (`atol=1e-6`; observed residual < 3e-12).
+
+Two sub-decks: a **flat** improvement recovered by a separable age+calendar fit, and an
+**age-declining** improvement (the general shape of the SOA MIM-2021 / CIA aggregate scales — 2.0%
+per year at age 40 tapering to 0.5% at age 85) recovered by the age-varying tensor fit. Five
+sampled cases join the harness via a new `ValidationCategory.EXPERIENCE_IMPROVEMENT` and a
+`run_experience_improvement_benchmarks()` builder, wired into `run_full_validation_pack()` (lazy
+import — keeps `validation` importable without `[ml]`) and the `polaris benchmark --pack
+experience` CLI. Noiseless expected-death data fits the Poisson mean exactly, which statsmodels
+flags as perfect separation / no residual to converge on — both benign for a recovery identity, so
+those two warnings (and only those two) are filtered around the fit.
+
+**Consequences.** The A4′ capability now carries diligence-grade, network-free evidence that the
+GAM recovers a known improvement surface from grouped, ILEC-shaped experience — the credibility
+question for an experience-derived basis. The full validation pack grows from 13 to 18 cases; the
+experience deck runs two GAM fits (~1s) and so `benchmark full`/`benchmark experience` now require
+the `[ml]` extra (statsmodels), consistent with every other `experience` surface.
+
+**Backward compatibility.** Purely additive — a new module + one exported builder + one new
+`ValidationCategory` member. No pricing path, assumption/data contract, or golden is touched; the
+engine and the golden `polaris price` output are byte-identical. The full-pack CLI tests read the
+case count dynamically, so the 13→18 growth needs no test edits.
+
+**Docker/data allowlist (#61/#66 trap).** No files land under `data/` — the synthetic extract is
+written to a `tempfile.TemporaryDirectory()` and the reference is parametric (a Makeham base + two
+literal improvement shapes). The Dockerfile `COPY` and `.dockerignore` allowlist are untouched.
+
+**Reference honesty.** The deck's reference values are the *injected* parametric targets, not
+vendored MIM-2021/CIA numbers; the claim it proves is "the GAM recovers a known improvement
+surface", stated as such in the case sources. Reproducing *actual* published MIM-2021/CIA numbers
+would require vendoring those licensed tables and is deliberately not attempted here.
+
+**Out of scope (remaining Slice-4c/4d work).** Fitting on a *real* cached ILEC extract and checking
+against *actual* MIM-2021/CIA published targets (a caller-side diligence run with a licensed local
+file, not a CI test); the offline `mgcv`-via-`rpy2` oracle (Slice 4c-3); diagnostic plots +
+ARCHITECTURE/QUICKSTART docs (Slice 4d, CLOSES EPIC).

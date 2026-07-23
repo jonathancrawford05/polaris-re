@@ -322,7 +322,7 @@ deck, and the `mgcv` oracle) — each is its own session and each leaves the gol
 ##### Slice 4c-1: HMD / SOA-ILEC experience data loaders (loaders-not-data)
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-84fcs2
-- **PR:** #151 (draft — awaiting review/merge)
+- **PR:** #151 — **MERGED** 2026-07-23 (merge commit `dd6e725`; ledger-healed 2026-07-23)
 - **Depends on:** Slice 4b merged (4b-1 #148, 4b-2 #149, 4b-3 #150 — all merged 2026-07-23).
 - **What was done:** New `analytics/experience_loaders.py` — loaders, not data (Anchor 6 /
   #61/#66 trap). `parse_hmd_1x1` parses one HMD 1x1 text file (Deaths/Exposures) into long
@@ -351,16 +351,42 @@ deck, and the `mgcv` oracle) — each is its own session and each leaves the gol
     the default targets the common SOA-ILEC flat-file names.
 
 ##### Slice 4c-2: insured A/E + improvement validation deck
-- **Status:** NEXT
-- **Depends on:** Slice 4c-1 merged (this PR).
-- **Scope:** insured A/E + improvement **validation deck** (the A4′ analogue of the A1′
-  validation pack) — fit the tensor MI surface on an ILEC extract (via `load_ilec`) and check the
-  emitted `MI_x(y)` against SOA MIM-2021 / CIA aggregated improvement targets within tolerance;
-  wire into the `analytics/validation.py` benchmark harness. In-repo tests use a small
-  synthetic/sampled fixture only (loaders-not-data).
+- **Status:** DONE
+- **Branch:** claude/loving-gauss-6gxn54
+- **PR:** (draft — awaiting review/merge)
+- **Depends on:** Slice 4c-1 merged (#151).
+- **What was done:** New `analytics/experience_validation.py` — a **recovery-identity** deck, the
+  A4′ analogue of the whole-life deck's parametric Makeham reference. A known annual improvement
+  surface `MI(x)` is injected into a synthetic, ILEC-*source*-schema extract whose `Death Count`
+  is the *expected* deaths under it (`d(x,y) = E·q0(x)·(1-MI(x))^(y-base_year)`, `q0` a cited
+  Makeham base); the extract is written to a `tempfile.TemporaryDirectory()` and fed through the
+  real `load_ilec` (loaders-not-data); the tensor MI GAM is refit and the recovered `MI_x(y)` is
+  checked against the injected target. Because `MI(x)` is constant across calendar years,
+  `log d(x,y)` is linear in `y` with an age-varying slope — spanned *exactly* by the tensor
+  B-spline basis, so recovery is numerical (observed residual < 3e-12; `atol=1e-6`). Two sub-decks:
+  a **flat** improvement recovered by a separable fit and an **age-declining** improvement (SOA
+  MIM-2021 / CIA-style shape) recovered by the age-varying tensor fit — 5 sampled cases join the
+  harness via a new `ValidationCategory.EXPERIENCE_IMPROVEMENT` and
+  `run_experience_improvement_benchmarks()`, wired into `run_full_validation_pack()` (lazy import —
+  avoids the `validation ↔ experience_validation` import cycle and keeps `validation` importable
+  without `[ml]`) and the `polaris benchmark --pack experience` CLI. Additive; engine/goldens
+  byte-identical (+19 tests; full pack 13 → 18 cases). ADR-150. **No files land under `data/`** —
+  synthetic extract in `tmp`, reference is parametric; allowlist untouched.
+- **Key decisions (carry into 4c-3/4d):**
+  - The deck is a **recovery identity**, not a reproduction of *published* MIM-2021/CIA numbers:
+    the reference values are the injected parametric targets (stated in each case `source`).
+    Reproducing actual licensed MIM-2021/CIA tables would require vendoring them and is out of
+    scope. A caller-side diligence run can fit a *real* cached ILEC extract against real targets
+    with the same builder — harvested as NICE-TO-HAVE follow-up (diligence artifact, not
+    production correctness; matches the PRODUCT_DIRECTION ledger classification).
+  - `q_base` is injected directly as the cited parametric Makeham base (the recovery is invariant
+    to base shape — it cancels in the year-to-year contrast), keeping the deck data-free without a
+    `MortalityTable` file dependency.
+  - Noiseless expected-death data fits the Poisson mean exactly → benign statsmodels
+    PerfectSeparation/Convergence warnings; only those two are filtered around the fit.
 
 ##### Slice 4c-3: offline `mgcv`-via-`rpy2` oracle (dev-only)
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 4c-2 merged.
 - **Scope:** the offline `mgcv`-via-`rpy2` oracle wired as a dev-only check (never a runtime/CI
   dependency, Anchor 5) — a `@pytest.mark.slow`/opt-in cross-check that the Python GAM

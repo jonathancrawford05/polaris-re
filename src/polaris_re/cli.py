@@ -2589,7 +2589,7 @@ def validate_cmd(
 
 #: Reference packs exposed by ``polaris benchmark`` (name -> builder). Each
 #: builder returns a scored :class:`ValidationReport`; ``full`` is the union.
-_BENCHMARK_PACKS: tuple[str, ...] = ("full", "closed-form", "deck")
+_BENCHMARK_PACKS: tuple[str, ...] = ("full", "closed-form", "deck", "experience")
 
 
 @app.command("benchmark")
@@ -2615,8 +2615,9 @@ def benchmark_cmd(
             "--pack",
             help=(
                 "Which reference pack to run: 'full' (default — all categories), "
-                "'closed-form' (constant-force identities + textbook anchor), or "
-                "'deck' (SOA Illustrative Life Table published-deck cases)."
+                "'closed-form' (constant-force identities + textbook anchor), "
+                "'deck' (SOA Illustrative Life Table published-deck cases), or "
+                "'experience' (tensor MI GAM improvement-recovery identity)."
             ),
         ),
     ] = "full",
@@ -2641,6 +2642,9 @@ def benchmark_cmd(
     """
     _header()
 
+    from polaris_re.analytics.experience_validation import (
+        run_experience_improvement_benchmarks,
+    )
     from polaris_re.analytics.validation import (
         ValidationStatus,
         run_closed_form_benchmarks,
@@ -2652,6 +2656,7 @@ def benchmark_cmd(
         "full": run_full_validation_pack,
         "closed-form": run_closed_form_benchmarks,
         "deck": run_statutory_deck_benchmarks,
+        "experience": run_experience_improvement_benchmarks,
     }
     builder = builders.get(pack)
     if builder is None:

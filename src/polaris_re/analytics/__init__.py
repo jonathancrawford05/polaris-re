@@ -45,6 +45,9 @@ from polaris_re.analytics.experience_loaders import (
     parse_hmd_1x1,
 )
 from polaris_re.analytics.experience_study import AEResult, ExperienceStudy
+from polaris_re.analytics.experience_validation import (
+    run_experience_improvement_benchmarks,
+)
 from polaris_re.analytics.ifrs17 import (
     IFRS17Cohort,
     IFRS17CohortManager,
@@ -184,6 +187,7 @@ __all__ = [
     "parse_hmd_1x1",
     "reserve_liability_cash_flows",
     "run_closed_form_benchmarks",
+    "run_experience_improvement_benchmarks",
     "run_full_validation_pack",
     "run_statutory_deck_benchmarks",
 ]
