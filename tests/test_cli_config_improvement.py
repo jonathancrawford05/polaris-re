@@ -66,8 +66,8 @@ def _make_custom_scale(mi_rate: float = 0.02) -> MortalityImprovement:
     2026-04-01) and its attained-age range, so the scale bites on every priced
     cohort. Ages/years are pinned (never the wall clock) per the ADR-074 guard.
     """
-    ages = np.arange(30, 91)
-    years = np.arange(2026, 2031)
+    ages = np.arange(30, 91, dtype=np.int32)
+    years = np.arange(2026, 2031, dtype=np.int32)
     grid = np.full((len(ages), len(years)), mi_rate, dtype=np.float64)
     return MortalityImprovement.from_grid(ages, years, grid, ultimate_rate=mi_rate)
 
