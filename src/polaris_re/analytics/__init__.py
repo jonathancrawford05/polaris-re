@@ -36,6 +36,13 @@ from polaris_re.analytics.experience_gam import (
     aggregate_seriatim,
     attach_base_rate,
 )
+from polaris_re.analytics.experience_loaders import (
+    fetch_hmd,
+    hmd_1x1_url,
+    load_hmd,
+    load_ilec,
+    parse_hmd_1x1,
+)
 from polaris_re.analytics.experience_study import AEResult, ExperienceStudy
 from polaris_re.analytics.ifrs17 import (
     IFRS17Cohort,
@@ -167,7 +174,12 @@ __all__ = [
     "dual_duration_gap",
     "duration_gap",
     "duration_measures",
+    "fetch_hmd",
+    "hmd_1x1_url",
     "liability_cash_flows",
+    "load_hmd",
+    "load_ilec",
+    "parse_hmd_1x1",
     "reserve_liability_cash_flows",
     "run_closed_form_benchmarks",
     "run_full_validation_pack",
