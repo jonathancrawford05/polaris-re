@@ -32,7 +32,7 @@ straight from the public `all_effects()` frame rather than each re-deriving smoo
 | Slice | Scope | Status | PR |
 |-------|-------|--------|----|
 | 1 … 4c-3 | (see CONTINUATION — all merged 2026-07-21..23) | ✅ Done | #141–#153 |
-| 4d-1 | Public `all_effects()`/`feature_ranges` + `fitted_glm_arrays()` | ✅ Done (this PR) | #{TBD} |
+| 4d-1 | Public `all_effects()`/`feature_ranges` + `fitted_glm_arrays()` | ✅ Done (this PR) | #154 |
 | 4d-2 | Effect-shape + MI-surface + projection diagnostic plots | ⏳ Next | — |
 | 4d-3 | ARCHITECTURE + QUICKSTART docs (CLOSES EPIC) | 🔲 Planned | — |
 

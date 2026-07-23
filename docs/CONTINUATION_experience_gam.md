@@ -424,7 +424,7 @@ byte-identical; only the plots slice adds a rendering surface.
 ##### Slice 4d-1: public `all_effects()`/`feature_ranges` + `fitted_glm_arrays()` accessors
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-tutmj6
-- **PR:** #{TBD} (draft — awaiting review/merge)
+- **PR:** #154 (draft — awaiting review/merge)
 - **Depends on:** Slice 4c merged (4c-1 #151, 4c-2 #152, 4c-3 #153 — all merged 2026-07-23).
 - **What was done:** Landed the two folded-in review items as a pure-refactor foundation the 4d-2
   plots consume. (1) **PR #148 review option-3:** added `GAMFitResult.feature_ranges` (observed
