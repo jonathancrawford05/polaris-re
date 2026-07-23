@@ -388,7 +388,7 @@ deck, and the `mgcv` oracle) — each is its own session and each leaves the gol
 ##### Slice 4c-3: offline `mgcv`-via-`rpy2` oracle (dev-only)
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-tp4x3a
-- **PR:** #153 (draft — awaiting review/merge)
+- **PR:** #153 — **MERGED** 2026-07-23 (merge commit `e7f341f`; ledger-healed 2026-07-23)
 - **Depends on:** Slice 4c-2 merged (#152).
 - **What was done:** New dev-only module `analytics/experience_oracle.py` — a
   correct-by-construction cross-check that the Python tensor-MI coefficients match R `mgcv` on a
@@ -415,26 +415,56 @@ deck, and the `mgcv` oracle) — each is its own session and each leaves the gol
     public API) — this also keeps `rpy2` off every package-import path.
 
 #### Slice 4d: Diagnostic plots + docs (CLOSES EPIC)
+
+Sub-decomposed 4d-1/4d-2/4d-3 (mirrors the Slice-1/2/4a/4b/4c de-risking cadence) because the
+original 4d bundles four distinct pieces (two public-accessor refactors, the diagnostic plots, and
+the docs + epic close) that together are 3+ sessions. Each sub-slice leaves the goldens
+byte-identical; only the plots slice adds a rendering surface.
+
+##### Slice 4d-1: public `all_effects()`/`feature_ranges` + `fitted_glm_arrays()` accessors
+- **Status:** DONE
+- **Branch:** claude/loving-gauss-tutmj6
+- **PR:** #154 (draft — awaiting review/merge)
+- **Depends on:** Slice 4c merged (4c-1 #151, 4c-2 #152, 4c-3 #153 — all merged 2026-07-23).
+- **What was done:** Landed the two folded-in review items as a pure-refactor foundation the 4d-2
+  plots consume. (1) **PR #148 review option-3:** added `GAMFitResult.feature_ranges` (observed
+  `(min, max)` per fitted smooth, captured in `ExperienceGAM.fit()` from the modelling frame — so
+  the fit-derived `duration_years` span is recorded where it exists) and moved the CLI's private
+  `_collect_experience_effects(result, cells, …)` onto the model as a public
+  `GAMFitResult.all_effects(*, grid_points, confidence_level) -> pl.DataFrame`, sampling each smooth
+  over its own `feature_ranges` span. The CLI now calls `result.all_effects(...)` and the
+  `--effects-out` CSV is byte-identical (regression-guarded at `atol=0` against the old
+  cells-derived frame). (2) **PR #153 review:** added `FittedGLMArrays` (frozen: response/design/
+  offset/coefficients) + `MISurfaceResult.fitted_glm_arrays()`, and pointed
+  `experience_oracle.build_oracle_case` at it instead of the private `MISurfaceResult._result`
+  reach-in. Both types exported from `analytics/__init__.py`. Additive/refactor; engine/goldens
+  byte-identical (+6 tests). ADR-152.
+- **Key decisions (carry into 4d-2/4d-3):**
+  - The effect-frame contract (columns `feature, term_type, x, x_value, multiplier, lower, upper`;
+    bands first-class) is now owned by `GAMFitResult.all_effects`, not the CLI — 4d-2's plots and
+    the dashboard render straight from it (or from the `--effects-out` CSV it writes) with no range
+    re-derivation.
+  - `feature_ranges` defaults to `{}` (`default_factory`) so direct `GAMFitResult` construction stays
+    valid; only `fit()` populates it.
+  - `fitted_glm_arrays()` is the sanctioned way to read a tensor fit's design/coefficients; treat
+    `_result` as private from here on.
+
+##### Slice 4d-2: effect-shape + MI-surface + projection diagnostic plots
 - **Status:** NEXT
-- **Depends on:** Slice 4c merged (4c-1 #151, 4c-2 #152; 4c-3 draft — the plots/docs do not depend
-  on the oracle, but 4d CLOSES the epic, so it should land after 4c-3 is merged).
-- **Scope:** effect-shape + MI-surface diagnostic plots; ARCHITECTURE + QUICKSTART; ADR.
-  HARVEST FOLLOW-UPS, then this CONTINUATION → COMPLETE.
-- **Fold in the PR #148 review option-3 cleanup here (recommended landing point).** When the
-  dashboard becomes a *second* consumer of the tidy effect-shape frame, capture
-  `feature_ranges: dict[str, tuple[float, float]]` on `GAMFitResult` at fit time and move
-  `_collect_experience_effects` onto the model as a public `all_effects(...) -> pl.DataFrame`
-  (defaulting `smooth_effect`'s grid to the observed range). This removes the CLI's
-  `cells`-frame reach-back for smooth spans so the CLI and the 4d dashboard call one public
-  method instead of each re-deriving ranges. The public `GAMFitResult.smooth_features`
-  accessor (the P2 half) already shipped in PR #148; this is the remaining half. See the
-  PRODUCT_DIRECTION Promoted Follow-up (*Source: PR #148 review [P2] option 3*).
-  - **Also migrate the Slice-4c-3 oracle off the private `MISurfaceResult._result` reach-in here.**
-    `experience_oracle.build_oracle_case` currently pulls `model.exog`/`.offset`/`.endog`/`params`
-    from the private `_result` field. When this slice adds a public accessor for the fitted
-    design/statsmodels result (the same public-accessor direction PR #148 set), point the oracle at
-    it. *Source: PR #153 review [P2] — deferred to 4d per the reviewer's recommendation.*
-- **Uncertainty bands — LOCKED (maintainer decision 2026-07-22).** Every diagnostic plot
+- **Depends on:** Slice 4d-1 merged.
+- **Scope:** the diagnostic plots below (consuming `all_effects()` / `--grid-out` / the projection
+  fan), rendering the LOCKED uncertainty bands. Primary path is data → the existing Streamlit
+  dashboard; an optional static `plot_effects()`/`plot_mi_surface()` helper lives behind a `[viz]`
+  extra (dev/report-only, never on the pricing path). Goldens byte-identical.
+
+##### Slice 4d-3: ARCHITECTURE + QUICKSTART docs (CLOSES EPIC)
+- **Status:** PLANNED
+- **Depends on:** Slice 4d-2 merged.
+- **Scope:** ARCHITECTURE + QUICKSTART documentation of the experience-GAM capability end-to-end;
+  ADR. HARVEST FOLLOW-UPS (Refinement Backlog + every ADR's Out-of-scope + unresolved Open
+  Questions), then this CONTINUATION → COMPLETE.
+
+**Slice 4d-2 plot spec — uncertainty bands — LOCKED (maintainer decision 2026-07-22).** Every diagnostic plot
   renders its band by default — the bands are already first-class in the data structures
   (`SmoothEffect.lower/upper`, `MISurface.mi_lower/upper + confidence_level`,
   `MIProjection.mi_lower/upper`), so rendering them is the default, not extra scope.

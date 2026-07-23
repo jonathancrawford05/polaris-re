@@ -512,3 +512,169 @@ def test_fit_without_statsmodels_raises_actionable_error(monkeypatch):
     monkeypatch.setitem(sys.modules, "statsmodels.api", None)
     with pytest.raises(PolarisComputationError, match="statsmodels"):
         gam.fit()
+
+
+# --------------------------------------------------------------------------- #
+# Slice 4d-1: public feature_ranges + all_effects (PR #148 review option-3)
+# --------------------------------------------------------------------------- #
+
+
+def _rich_cells() -> pl.DataFrame:
+    """A cells frame exercising all effect branches: age + varying duration + factor."""
+    ages = np.arange(40, 75)
+    rng = np.random.default_rng(SEED + 21)
+    q_base = 0.004 * np.exp(0.06 * (ages - 40))
+    exposure = np.full(ages.size, 40000.0)
+    frames = []
+    for sex, ratio in (("M", 1.0), ("F", 0.7)):
+        deaths = rng.poisson(exposure * q_base * 1.2 * ratio).astype(np.float64)
+        frames.append(
+            pl.DataFrame(
+                {
+                    "attained_age": ages.astype(np.int64),
+                    "sex": [sex] * ages.size,
+                    "central_exposure": exposure,
+                    "death_count": deaths,
+                    "q_base": q_base,
+                    "duration_months": (12 * ((ages - 40) % 5 + 1)).astype(np.int64),
+                }
+            )
+        )
+    return pl.concat(frames)
+
+
+def test_feature_ranges_captured_at_fit():
+    """``feature_ranges`` records each smooth's observed span at fit time, keyed
+    by the same names as ``smooth_features`` — including the fit-derived
+    ``duration_years`` (which never appears in the source cells)."""
+    cells = _rich_cells()
+    fit = ExperienceGAM(cells, basis="count", age_df=5, duration_df=4).fit()
+
+    assert set(fit.feature_ranges) == set(fit.smooth_features)
+    # attained_age span matches the cells directly.
+    age = cells["attained_age"].to_numpy().astype(np.float64)
+    assert fit.feature_ranges["attained_age"] == (float(age.min()), float(age.max()))
+    # duration_years is derived (duration_months / 12) and not a cells column.
+    assert "duration_years" not in cells.columns
+    dur = (cells["duration_months"] / 12.0).to_numpy().astype(np.float64)
+    lo, hi = fit.feature_ranges["duration_years"]
+    np.testing.assert_allclose([lo, hi], [dur.min(), dur.max()])
+
+
+def test_feature_ranges_age_only_fit():
+    """With no varying duration, only the attained-age smooth carries a range."""
+    ages = np.arange(45, 70)
+    rng = np.random.default_rng(SEED + 22)
+    q_base = 0.005 * np.exp(0.05 * (ages - 45))
+    exposure = np.full(ages.size, 25000.0)
+    deaths = rng.poisson(exposure * q_base * 1.1).astype(np.float64)
+    cells = pl.DataFrame(
+        {
+            "attained_age": ages.astype(np.int64),
+            "central_exposure": exposure,
+            "death_count": deaths,
+            "q_base": q_base,
+        }
+    )
+    fit = ExperienceGAM(cells, basis="count", age_df=5).fit()
+    assert list(fit.feature_ranges) == ["attained_age"]
+    assert fit.feature_ranges["attained_age"] == (float(ages.min()), float(ages.max()))
+
+
+def test_all_effects_tidy_schema_and_grid():
+    """``all_effects`` returns the tidy long-format frame: a smooth block per
+    smooth feature (sampled over its fitted range) plus one row per factor level,
+    with first-class ``lower``/``upper`` bands."""
+    cells = _rich_cells()
+    fit = ExperienceGAM(cells, basis="count", age_df=5, duration_df=4).fit()
+    gp = 30
+    eff = fit.all_effects(grid_points=gp, confidence_level=0.95)
+
+    assert eff.columns == [
+        "feature",
+        "term_type",
+        "x",
+        "x_value",
+        "multiplier",
+        "lower",
+        "upper",
+    ]
+    # Each smooth contributes gp rows spanning exactly its feature_ranges.
+    for feature in fit.smooth_features:
+        block = eff.filter((pl.col("feature") == feature) & (pl.col("term_type") == "smooth"))
+        assert block.height == gp
+        lo, hi = fit.feature_ranges[feature]
+        xs = block["x_value"].to_numpy()
+        np.testing.assert_allclose([xs.min(), xs.max()], [lo, hi])
+    # The factor contributes one row per level, all with a null x_value.
+    fac = eff.filter(pl.col("term_type") == "factor")
+    assert set(fac["feature"].unique().to_list()) == {"sex"}
+    assert fac["x_value"].null_count() == fac.height
+    # Bands bracket the point estimate everywhere.
+    assert (eff["lower"] <= eff["multiplier"]).all()
+    assert (eff["multiplier"] <= eff["upper"]).all()
+
+
+def test_all_effects_matches_legacy_cells_derived_frame():
+    """Regression guard: ``all_effects`` reproduces the exact frame the CLI used to
+    build by reaching back into the source cells for smooth spans — so the
+    ``--effects-out`` artifact is byte-identical after the refactor."""
+
+    def _legacy_collect(result, cells, *, grid_points, confidence_level):
+        frames = []
+        for feature in result.smooth_features:
+            if feature == "duration_years" and feature not in cells.columns:
+                span = (cells["duration_months"] / 12.0).to_numpy().astype(np.float64)
+            elif feature in cells.columns:
+                span = cells[feature].to_numpy().astype(np.float64)
+            else:
+                span = cells["attained_age"].to_numpy().astype(np.float64)
+            grid = np.linspace(float(span.min()), float(span.max()), grid_points)
+            e = result.smooth_effect(feature, grid, confidence_level=confidence_level)
+            frames.append(
+                pl.DataFrame(
+                    {
+                        "feature": [feature] * grid_points,
+                        "term_type": ["smooth"] * grid_points,
+                        "x": [f"{g:g}" for g in e.grid],
+                        "x_value": e.grid.astype(np.float64),
+                        "multiplier": e.multiplier.astype(np.float64),
+                        "lower": e.lower.astype(np.float64),
+                        "upper": e.upper.astype(np.float64),
+                    }
+                )
+            )
+        for factor in result.factors:
+            fe = result.factor_effect(factor, confidence_level=confidence_level)
+            frames.append(
+                pl.DataFrame(
+                    {
+                        "feature": [factor] * fe.height,
+                        "term_type": ["factor"] * fe.height,
+                        "x": fe[factor].cast(pl.Utf8),
+                        "x_value": pl.Series([None] * fe.height, dtype=pl.Float64),
+                        "multiplier": fe["multiplier"],
+                        "lower": fe["lower"],
+                        "upper": fe["upper"],
+                    }
+                )
+            )
+        return pl.concat(frames, how="vertical")
+
+    cells = _rich_cells()
+    fit = ExperienceGAM(cells, basis="count", age_df=5, duration_df=4).fit()
+    legacy = _legacy_collect(fit, cells, grid_points=50, confidence_level=0.9)
+    new = fit.all_effects(grid_points=50, confidence_level=0.9)
+
+    assert legacy.columns == new.columns
+    assert legacy.schema == new.schema
+    for col in ("feature", "term_type", "x"):
+        assert legacy[col].to_list() == new[col].to_list()
+    for col in ("x_value", "multiplier", "lower", "upper"):
+        np.testing.assert_allclose(
+            new[col].to_numpy().astype(np.float64),
+            legacy[col].to_numpy().astype(np.float64),
+            rtol=0.0,
+            atol=0.0,
+            equal_nan=True,
+        )

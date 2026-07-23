@@ -421,7 +421,7 @@ Items harvested from completed/in-flight work by the daily-dev routine
   any pricing path → NICE-TO-HAVE. Surfaced while wiring the 4b-1 diagnostics CLI.
   *Source: ADR-146 Out of scope + DEV_SESSION_LOG_2026-07-22_experience_gam_slice4b1 Open Questions (2nd-order — a follow-up on the Slice-1 `factor_effect` behaviour).*
 
-- **NICE-TO-HAVE — Capture observed feature ranges on `GAMFitResult` so effect
+- ~~**NICE-TO-HAVE — Capture observed feature ranges on `GAMFitResult` so effect
   assembly drops the `cells` reach-back.** `_collect_experience_effects` in the CLI
   reads each smooth term's observed span from the `cells` frame because the
   `GAMFitResult` does not carry the range; `smooth_effect(feature)` therefore also
@@ -436,7 +436,7 @@ Items harvested from completed/in-flight work by the daily-dev routine
   `GAMFitResult.smooth_features` accessor (the P2 one-liner) already shipped in PR
   #148; this is the remaining, larger half. Internal coupling cleanup, no correctness
   or commercial impact → NICE-TO-HAVE.
-  *Source: PR #148 review [P2] (option 3) + ADR-146 + CONTINUATION_experience_gam Slice-4b-1 key decisions (1st-order — a review-driven refinement of the 4b-1 GAM-fit surface).*
+  *Source: PR #148 review [P2] (option 3) + ADR-146 + CONTINUATION_experience_gam Slice-4b-1 key decisions (1st-order — a review-driven refinement of the 4b-1 GAM-fit surface).*~~ — **SHIPPED** (A4′ Slice 4d-1, PR #154): `GAMFitResult.feature_ranges` captured at fit time + public `GAMFitResult.all_effects(...)`; CLI drops `_collect_experience_effects`/`cells` reach-back (`--effects-out` byte-identical, regression-guarded). Same slice also shipped the PR #153 review's public `MISurfaceResult.fitted_glm_arrays()` so the mgcv oracle drops its `_result` reach-in. ADR-152.
 
 _Slice 4b-1's remaining ADR-146 out-of-scope items (assumption versioning, `--config`/
 `AssumptionSet` wiring, loaders + validation deck, diagnostic plots + docs) are already
