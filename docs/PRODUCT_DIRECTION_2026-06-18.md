@@ -1827,6 +1827,18 @@ constraint and a future session must not rebuild these as a naive wall-time log.
   (diligence artifact, not production correctness). 1st-order (a follow-up of the planned
   Slice-4c-2 validation deck). *Source: ADR-150 Out of scope +
   DEV_SESSION_LOG_2026-07-23_experience_gam_slice4c2 Open Questions (1st-order).*
+- **NICE-TO-HAVE — Execute the `mgcv` oracle on a dev machine with R to exercise the `rpy2` glue.**
+  Slice 4c-3's oracle (ADR-151, `analytics/experience_oracle.py`) is *correct by construction* — the
+  Poisson GLM is strictly concave, so `poisson_score_infinity_norm` proving the shipped design sits
+  at the unique MLE pins what R `mgcv` must return, and that property is asserted by runnable
+  CI tests. What is **not** executed anywhere in CI/this environment (R and `rpy2` are absent by
+  design, Anchor 5) is the `rpy2`→`mgcv` transport itself in `fit_mgcv_coefficients` / the two
+  `@pytest.mark.slow` `test_matches_mgcv_oracle` cases. A one-off run on a dev box with `rpy2` + R +
+  `mgcv` installed would confirm the glue (globalenv assignment, `numpy2ri`, the `y ~ 0 + X` matrix
+  formula, coef ordering) executes and the coefficients match, and shake out any rpy2-API drift.
+  Dev diligence, not production correctness (nothing in the runtime depends on it). 1st-order (a
+  follow-up of the planned Slice-4c-3 oracle). *Source: ADR-151 Out of scope +
+  DEV_SESSION_LOG_2026-07-23_experience_gam_slice4c3 Open Questions (1st-order).*
 
 ## Carried Forward
 
