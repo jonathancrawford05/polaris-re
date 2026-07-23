@@ -83,11 +83,16 @@ class ValidationCategory(StrEnum):
       modelling-convention tolerance.
     * ``STATUTORY_DECK`` — reserved for later slices: a published regulatory
       worked example (e.g. a VM-20 reserve deck).
+    * ``EXPERIENCE_IMPROVEMENT`` — a *recovery identity*: the tensor
+      mortality-improvement GAM recovers a known injected improvement surface
+      from grouped, ILEC-shaped experience (the A4' experience-analysis analogue
+      of the parametric whole-life deck).
     """
 
     CLOSED_FORM = "CLOSED_FORM"
     TEXTBOOK = "TEXTBOOK"
     STATUTORY_DECK = "STATUTORY_DECK"
+    EXPERIENCE_IMPROVEMENT = "EXPERIENCE_IMPROVEMENT"
 
 
 class ValidationResult(PolarisBaseModel):
@@ -737,13 +742,23 @@ def run_statutory_deck_benchmarks() -> ValidationReport:
 def run_full_validation_pack() -> ValidationReport:
     """Combine every validation category into one diligence report.
 
-    Concatenates the closed-form (Slice 1) and published-deck (Slice 2) packs so
-    the CLI / notebook slices render a single pass/fail table across all
-    reference categories.
+    Concatenates the closed-form (Slice 1), published-deck (Slice 2), and
+    experience-analysis improvement-recovery (A4') packs so the CLI / notebook
+    slices render a single pass/fail table across all reference categories.
+
+    The experience deck is imported lazily: it fits the tensor MI GAM, which
+    needs the ``[ml]`` extra (statsmodels). Keeping the import here (not at module
+    top) means ``validation`` still imports without ``[ml]`` for the pricing-only
+    packs; ``benchmark full`` / ``benchmark experience`` require ``[ml]``.
     """
+    from polaris_re.analytics.experience_validation import (
+        run_experience_improvement_benchmarks,
+    )
+
     closed_form = run_closed_form_benchmarks()
     deck = run_statutory_deck_benchmarks()
+    experience = run_experience_improvement_benchmarks()
     return ValidationReport(
         title="Polaris RE — Full Actuarial Validation Pack",
-        results=closed_form.results + deck.results,
+        results=closed_form.results + deck.results + experience.results,
     )

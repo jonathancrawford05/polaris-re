@@ -33,7 +33,7 @@ class TestBenchmarkCommand:
         assert "cases passed" in result.output
 
     def test_full_pack_reports_all_cases(self) -> None:
-        """Console output announces the full pass count (13/13)."""
+        """Console output announces the full pass count (computed dynamically)."""
         n_cases = run_full_validation_pack().n_cases
         result = runner.invoke(app, ["benchmark"])
         assert result.exit_code == 0, result.output
@@ -48,6 +48,12 @@ class TestBenchmarkCommand:
         result = runner.invoke(app, ["benchmark", "--pack", "deck"])
         assert result.exit_code == 0, result.output
         assert "Illustrative Life Table" in result.output
+
+    def test_experience_pack_selectable(self) -> None:
+        """The A4' experience improvement-recovery deck is selectable and passes."""
+        result = runner.invoke(app, ["benchmark", "--pack", "experience"])
+        assert result.exit_code == 0, result.output
+        assert "5/5 cases passed" in result.output
 
     def test_unknown_pack_exits_two(self) -> None:
         """An unrecognised --pack is a usage error (exit 2), not a silent no-op."""

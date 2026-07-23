@@ -191,14 +191,22 @@ class TestFullPack:
     def test_full_pack_spans_all_categories(self) -> None:
         report = run_full_validation_pack()
         categories = {r.category for r in report.results}
+        # The full pack now also carries the A4' experience improvement-recovery
+        # deck (ADR-150), so EXPERIENCE_IMPROVEMENT joins the earlier categories.
         assert categories == {
             ValidationCategory.CLOSED_FORM,
             ValidationCategory.TEXTBOOK,
             ValidationCategory.STATUTORY_DECK,
+            ValidationCategory.EXPERIENCE_IMPROVEMENT,
         }
 
     def test_full_pack_is_union_of_subpacks(self) -> None:
+        from polaris_re.analytics.experience_validation import (
+            run_experience_improvement_benchmarks,
+        )
+
         closed = run_closed_form_benchmarks()
         deck = run_statutory_deck_benchmarks()
+        experience = run_experience_improvement_benchmarks()
         full = run_full_validation_pack()
-        assert full.n_cases == closed.n_cases + deck.n_cases
+        assert full.n_cases == closed.n_cases + deck.n_cases + experience.n_cases
