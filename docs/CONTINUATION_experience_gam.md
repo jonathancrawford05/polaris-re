@@ -353,7 +353,7 @@ deck, and the `mgcv` oracle) — each is its own session and each leaves the gol
 ##### Slice 4c-2: insured A/E + improvement validation deck
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-6gxn54
-- **PR:** (draft — awaiting review/merge)
+- **PR:** #152 — **MERGED** 2026-07-23 (merge commit `5eeb60e`; ledger-healed 2026-07-23)
 - **Depends on:** Slice 4c-1 merged (#151).
 - **What was done:** New `analytics/experience_validation.py` — a **recovery-identity** deck, the
   A4′ analogue of the whole-life deck's parametric Makeham reference. A known annual improvement
@@ -386,15 +386,38 @@ deck, and the `mgcv` oracle) — each is its own session and each leaves the gol
     PerfectSeparation/Convergence warnings; only those two are filtered around the fit.
 
 ##### Slice 4c-3: offline `mgcv`-via-`rpy2` oracle (dev-only)
-- **Status:** NEXT
-- **Depends on:** Slice 4c-2 merged.
-- **Scope:** the offline `mgcv`-via-`rpy2` oracle wired as a dev-only check (never a runtime/CI
-  dependency, Anchor 5) — a `@pytest.mark.slow`/opt-in cross-check that the Python GAM
-  coefficients match R `mgcv` on a shared synthetic dataset.
+- **Status:** DONE
+- **Branch:** claude/loving-gauss-tp4x3a
+- **PR:** (draft — awaiting review/merge)
+- **Depends on:** Slice 4c-2 merged (#152).
+- **What was done:** New dev-only module `analytics/experience_oracle.py` — a
+  correct-by-construction cross-check that the Python tensor-MI coefficients match R `mgcv` on a
+  shared synthetic dataset, verifiable *without R present*. `build_oracle_case()` fits
+  `TensorMIModel` on grouped cells (Makeham static base, age-declining improvement, Poisson deaths
+  under a pinned seed) and packages the *exact* design `X`, log-exposure offset, response, and
+  coefficients extracted from the fitted `statsmodels` result. The tensor fit is a Poisson GLM over
+  a fixed unpenalized B-spline design → strictly concave → unique maximiser, so any correct solver
+  on the identical `(deaths, X, offset)` returns the same coefficients; the oracle ships that design
+  to `mgcv::gam(deaths ~ 0 + X, family=poisson(), offset=off)` (pure-parametric `gam` = that GLM)
+  and asserts agreement. `poisson_score_infinity_norm` proves the shipped design sits at the MLE
+  (`||Xᵀ(y−μ)||∞` < 2e-10) — the network-free guarantee the R comparison must hold. `mgcv_available`
+  is a total guard; `fit_mgcv_coefficients` imports `rpy2` lazily. The R cross-check is
+  `@pytest.mark.slow` and skips without `rpy2`/R/`mgcv` (Anchor 5 — verified: both absent here).
+  Additive; engine/goldens byte-identical (+9 runnable tests, +2 skipped opt-in). ADR-151. **No
+  files land under `data/`**; `rpy2` added to no extra (out-of-band dev install by design).
+- **Key decisions (carry into 4d):**
+  - The oracle feeds `mgcv::gam` the *exact Python design as parametric terms* (not `mgcv`'s own
+    penalized `te()` basis) so coefficients match by convex optimisation, not by basis-span
+    coincidence — the only way to author-and-verify the oracle in an R-less autonomous environment.
+    A future dev-machine run with R installed exercises the actual `rpy2`→`mgcv` glue (the two
+    `@slow` cases); the glue itself is unexecuted here (no R) — a known, bounded dev-only risk.
+  - The module is intentionally **not** re-exported from `analytics/__init__.py` (dev tool, not
+    public API) — this also keeps `rpy2` off every package-import path.
 
 #### Slice 4d: Diagnostic plots + docs (CLOSES EPIC)
-- **Status:** PLANNED
-- **Depends on:** Slice 4c merged.
+- **Status:** NEXT
+- **Depends on:** Slice 4c merged (4c-1 #151, 4c-2 #152; 4c-3 draft — the plots/docs do not depend
+  on the oracle, but 4d CLOSES the epic, so it should land after 4c-3 is merged).
 - **Scope:** effect-shape + MI-surface diagnostic plots; ARCHITECTURE + QUICKSTART; ADR.
   HARVEST FOLLOW-UPS, then this CONTINUATION → COMPLETE.
 - **Fold in the PR #148 review option-3 cleanup here (recommended landing point).** When the

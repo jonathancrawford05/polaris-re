@@ -9968,3 +9968,76 @@ would require vendoring those licensed tables and is deliberately not attempted 
 against *actual* MIM-2021/CIA published targets (a caller-side diligence run with a licensed local
 file, not a CI test); the offline `mgcv`-via-`rpy2` oracle (Slice 4c-3); diagnostic plots +
 ARCHITECTURE/QUICKSTART docs (Slice 4d, CLOSES EPIC).
+
+## ADR-151: Experience GAM (A4′ Slice 4c-3) — offline `mgcv`-via-`rpy2` oracle (dev-only)
+
+**Date:** 2026-07-23
+**Status:** Accepted
+**Slice:** 4c-3 of the Data-Driven Experience Analysis epic (A4′), ROADMAP 6.1 — the offline
+`mgcv`-via-`rpy2` oracle, the third and final sub-slice of Slice 4c. See
+`docs/PLAN_experience_gam.md` (Design Anchor 5) and `docs/CONTINUATION_experience_gam.md`.
+
+**Context.** Design Anchor 5 of the epic commits to validating the Python tensor-MI GAM against an
+independent, authoritative GAM implementation — R's `mgcv` — but **never** shipping the R
+dependency at runtime or in CI (it would break the Python-native thesis in CLAUDE.md §1 and the
+Docker/CI image, the same discipline as the loaders-not-data trap). Slice 4c-2 added the
+recovery-identity validation deck (a *self-consistency* check: the GAM recovers a surface it
+generated). What was missing is an *external* oracle: confirmation that the GAM's coefficients
+agree with a second, independent implementation on the same data.
+
+**Decision.** Add `analytics/experience_oracle.py` — a dev-only, opt-in cross-check, structured so
+its numerical claim is **correct by construction** and therefore verifiable *without R present*:
+
+1. `build_oracle_case()` fits `TensorMIModel` on a shared synthetic grouped-cell dataset (Makeham
+   static base, a known age-declining improvement, Poisson-sampled deaths under a pinned RNG seed),
+   and packages the *exact* design `X`, log-exposure offset, response, and Python coefficients —
+   extracted from the fitted `statsmodels` result (`model.exog`/`.offset`/`.endog` and `params`),
+   never re-derived.
+2. The tensor-MI fit is a Poisson GLM with a log link over a **fixed, unpenalized** B-spline
+   design. That log-likelihood is strictly concave, so its maximiser is **unique**: any correct
+   Poisson-GLM solver on the identical `(deaths, X, offset)` returns the same coefficients. The
+   oracle ships that design to `mgcv::gam(deaths ~ 0 + X, family = poisson(), offset = offset)` — a
+   pure-parametric `gam`, which is exactly that GLM — and asserts the coefficients agree
+   (`fit_mgcv_coefficients`, gated by `mgcv_available`).
+3. Because the maximiser is unique, the claim is provable network-free:
+   `poisson_score_infinity_norm` shows the shipped design sits at the MLE (`||Xᵀ(y − μ)||∞ ≈ 0`,
+   observed < 2e-10), which pins what any conformant R solve must return. The runnable tests assert
+   this property, so this session's coverage does not depend on R being installed.
+
+**Why not compare fitted values with `mgcv`'s own penalized `te()` basis.** `mgcv`'s default smooth
+bases are penalized and use different knot conventions from `patsy`'s `bs()`, so raw coefficients
+would not match a penalized `te()` fit, and matching *fitted values* would depend on the two bases
+spanning the identical space (fragile across `mgcv`/`patsy` versions). Feeding `mgcv::gam` the exact
+Python design as parametric terms sidesteps both: it is still `mgcv` (the Anchor-5 oracle), the
+comparison is on coefficients (the plan's literal ask), and agreement is guaranteed by convex
+optimisation rather than by basis-span coincidence — which is what makes the oracle authorable and
+trustworthy in an R-less autonomous environment.
+
+**Consequences.** The epic gains an external, independent-implementation cross-check for the
+headline GAM. It costs nothing in CI or the runtime: `experience_oracle` imports `rpy2` only inside
+the R functions (lazily), `mgcv_available()` is a total guard that returns `False` without
+`rpy2`/R/`mgcv`, and the single R-dependent test is `@pytest.mark.slow` and skips cleanly (verified
+here — R and `rpy2` are absent). Nine runnable assertions (shapes, determinism, the static-offset
+structure, and the Poisson-optimum property for both the separable and age-varying fits) run in the
+normal suite; the two `mgcv` comparisons skip.
+
+**Backward compatibility.** Purely additive — a new dev-only module + its test file. No pricing
+path, assumption/data contract, `analytics` public export, CLI surface, or golden is touched; the
+engine and the golden `polaris price` output are byte-identical. The module is intentionally **not**
+re-exported from `analytics/__init__.py` — it is a developer tool, not part of the analytics public
+API, which also keeps `rpy2` off every package-import path.
+
+**Docker/data allowlist (#61/#66 trap).** No files land under `data/` — the synthetic dataset is
+generated in-memory under a pinned seed. The Dockerfile `COPY` and `.dockerignore` allowlist are
+untouched. `rpy2` is not added to any extra in `pyproject.toml`: a developer running the oracle
+installs `rpy2` + R + `mgcv` out of band, by design (Anchor 5).
+
+**Reproducibility (ADR-074 guard).** The Poisson death draw uses a pinned literal seed
+(`20050101`) and literal ages/years; no test reads the wall clock.
+
+**Out of scope (remaining Slice-4d work, CLOSES EPIC).** Effect-shape + MI-surface diagnostic
+plots (data → the existing Streamlit dashboard, with an optional `[viz]` static-plot helper);
+ARCHITECTURE + QUICKSTART documentation of the experience-GAM capability; the PR #148 review
+option-3 `all_effects()`/`feature_ranges` consolidation; and closing the CONTINUATION. Also still
+open from 4c-2: a caller-side diligence run fitting a *real* cached ILEC extract against *actual*
+published MIM-2021/CIA targets (licensed local file, not a CI test).
