@@ -234,7 +234,7 @@ goldens byte-identical.
 ##### Slice 4b-1: `polaris experience fit` effect-shape diagnostics CLI
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-3tkl4n
-- **PR:** #148 (draft — awaiting review/merge)
+- **PR:** #148 — **MERGED** 2026-07-23 (merge commit `df0aad0`; ledger-healed this session)
 - **Depends on:** Slice 4a merged (#147).
 - **What was done:** New `polaris experience fit` command in the existing `experience` Typer
   group. Reads the same grouped-cell contract as `experience improvement` (reusing
@@ -257,16 +257,34 @@ goldens byte-identical.
     `factor_effect`); contrasts are reference-invariant, so it is cosmetic.
 
 ##### Slice 4b-2: assumption versioning under `data/assumption_versions/`
-- **Status:** NEXT
+- **Status:** DONE
+- **Branch:** claude/loving-gauss-yyrw5z
+- **PR:** (draft — awaiting review/merge)
 - **Depends on:** Slice 4b-1 merged (#148).
-- **Scope:** persist/load a CUSTOM scale (the `experience improvement` JSON artifact) under
-  `data/assumption_versions/` with study-date + credibility tags and preserved history
-  (append-only, never overwrite); a `polaris experience save`/`list` (or `--save`) surface.
-  If files land under `data/`, update the Dockerfile COPY + `.dockerignore` allowlist in the
-  same PR (recurring trap — PR #61/#66).
+- **What was done:** New `assumptions/version_store.py` — an `AssumptionVersion`
+  (`PolarisBaseModel`) wrapping an experience-derived `ImprovementScale.CUSTOM`
+  `MortalityImprovement` with `study_date` + optional `credibility` (∈[0,1]) + `label`/`notes`
+  provenance, and an append-only `AssumptionVersionStore` persisting records under
+  `{root}/{kind}/{version_id}.json` (`version_id = {study_date}-{seq:03d}`). `save` allocates
+  the next sequence per `(kind, study_date)` so re-saving a study date never overwrites — the
+  full history of frozen bases is preserved. Version ids are keyed on the pinned study date +
+  a sequence counter, never the wall clock (ADR-074). CLI surface: `polaris experience save`
+  (consumes the `experience improvement --output` JSON, wraps it, appends) and
+  `polaris experience list` (Rich table of the stored history). `--store-dir` defaults to
+  `$POLARIS_DATA_DIR/assumption_versions`. Additive; engine/goldens byte-identical (+19 tests).
+  ADR-147. **No files land under `data/`** — tests use `tmp_path` exclusively, so the
+  Dockerfile/`.dockerignore` allowlist is untouched (the #61/#66 trap does not apply).
+- **Key decisions (carry into 4b-3):**
+  - The store persists CUSTOM scales only (a `@model_validator` guard) — the study/credibility
+    provenance is meaningless for a built-in scale. 4b-3 loads a version by id and threads its
+    `.improvement` into the pricing `--config`/`AssumptionSet`.
+  - `version_id` is the stable, human-legible handle (`{study_date}-{seq:03d}`) 4b-3's config
+    schema references — deterministic, filesystem-safe, sortable.
+  - `save` is decoupled from `improvement` (it consumes the emitted JSON artifact), so a scale
+    can be reviewed/edited before it is frozen into the versioned store.
 
 ##### Slice 4b-3: wire `ImprovementScale.CUSTOM` into `--config` + `AssumptionSet`
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 4b-2 merged.
 - **Scope:** wire `ImprovementScale.CUSTOM` into the pricing `--config` schema + an
   `AssumptionSet` selector so a versioned experience-derived scale drives a `polaris price`

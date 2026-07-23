@@ -21,6 +21,7 @@ All commands accept --config / --output arguments and write JSON results to disk
 """
 
 import json
+import os
 import sys
 from dataclasses import dataclass
 from datetime import date
@@ -67,6 +68,7 @@ if TYPE_CHECKING:
     from polaris_re.assumptions.lapse import LapseAssumption
     from polaris_re.assumptions.mortality import MortalityTableSource
     from polaris_re.utils.excel_output import DealPricingExport, IFRS17MovementExport
+from polaris_re.assumptions.version_store import DEFAULT_ASSUMPTION_KIND
 from polaris_re.core.pipeline import (
     DealConfig,
     LapseConfig,
@@ -4342,6 +4344,182 @@ def experience_fit_cmd(
         effects_out.parent.mkdir(parents=True, exist_ok=True)
         effects.write_csv(effects_out)
         console.print(f"\nEffect shapes written to {effects_out}")
+
+
+# --------------------------------------------------------------------------- #
+# Assumption versioning — `polaris experience save` / `list` (A4' Slice 4b-2)
+# --------------------------------------------------------------------------- #
+
+
+def _resolve_store_dir(store_dir: Path | None) -> Path:
+    """Resolve the assumption-version store root.
+
+    Defaults to ``$POLARIS_DATA_DIR/assumption_versions`` (``data/`` if the env
+    var is unset), mirroring the mortality-table directory resolution.
+    """
+    if store_dir is not None:
+        return store_dir
+    return Path(os.environ.get("POLARIS_DATA_DIR", "data")) / "assumption_versions"
+
+
+def _parse_study_date(value: str) -> date:
+    """Parse an ISO ``YYYY-MM-DD`` study date, exiting with a clear CLI error."""
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        console.print(f"[red]Error:[/red] --study-date must be ISO YYYY-MM-DD, got {value!r}.")
+        raise typer.Exit(code=1) from None
+
+
+@experience_app.command("save")
+def experience_save_cmd(
+    improvement: Annotated[
+        Path,
+        typer.Option(
+            "--improvement",
+            "-i",
+            help="CUSTOM MortalityImprovement JSON emitted by "
+            "`polaris experience improvement --output`.",
+        ),
+    ],
+    study_date: Annotated[
+        str,
+        typer.Option(
+            "--study-date",
+            help="Experience study date (ISO YYYY-MM-DD) this basis was fitted as of.",
+        ),
+    ],
+    credibility: Annotated[
+        float | None,
+        typer.Option(
+            "--credibility",
+            help="Optional credibility weight for this basis, in [0, 1].",
+            min=0.0,
+            max=1.0,
+        ),
+    ] = None,
+    label: Annotated[
+        str | None,
+        typer.Option("--label", help="Optional short human label (e.g. a segment tag)."),
+    ] = None,
+    notes: Annotated[
+        str | None,
+        typer.Option("--notes", help="Optional free-form provenance note."),
+    ] = None,
+    kind: Annotated[
+        str,
+        typer.Option("--kind", help="Assumption family to file this version under."),
+    ] = DEFAULT_ASSUMPTION_KIND,
+    store_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--store-dir",
+            help="Store root (defaults to $POLARIS_DATA_DIR/assumption_versions).",
+        ),
+    ] = None,
+) -> None:
+    """
+    Persist an experience-derived CUSTOM improvement scale as a versioned basis.
+
+    Wraps the emitted ``ImprovementScale.CUSTOM`` scale with study-date +
+    credibility provenance and appends it to the store under
+    ``{store}/{kind}/{version_id}.json``. The store is append-only: re-saving the
+    same study date allocates a fresh sequence rather than overwriting, so the
+    full history of frozen bases is preserved for audit.
+    """
+    _header()
+
+    from polaris_re.assumptions.improvement import MortalityImprovement
+    from polaris_re.assumptions.version_store import AssumptionVersionStore
+    from polaris_re.core.exceptions import PolarisValidationError
+
+    study = _parse_study_date(study_date)
+
+    if not improvement.exists():
+        console.print(f"[red]Error:[/red] improvement JSON not found: {improvement}")
+        raise typer.Exit(code=1)
+    try:
+        scale = MortalityImprovement.model_validate_json(improvement.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        console.print(f"[red]Error reading improvement JSON:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    store = AssumptionVersionStore(_resolve_store_dir(store_dir))
+    try:
+        version = store.save(
+            scale,
+            study,
+            credibility=credibility,
+            label=label,
+            notes=notes,
+            kind=kind,
+        )
+    except PolarisValidationError as exc:
+        console.print(f"[red]Error saving version:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    console.print(
+        f"Saved assumption version [cyan]{version.version_id}[/cyan] "
+        f"(kind={version.kind}) to {store.root / version.kind / f'{version.version_id}.json'}"
+    )
+
+
+@experience_app.command("list")
+def experience_list_cmd(
+    kind: Annotated[
+        str | None,
+        typer.Option("--kind", help="Filter to one assumption family (default: all)."),
+    ] = None,
+    store_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--store-dir",
+            help="Store root (defaults to $POLARIS_DATA_DIR/assumption_versions).",
+        ),
+    ] = None,
+) -> None:
+    """
+    List stored assumption versions (append-only history), newest study last.
+
+    Reads ``{store}/{kind}/*.json`` and renders each version's provenance tags
+    and the emitted grid extent. Ordering is deterministic
+    (kind → study date → version id).
+    """
+    _header()
+
+    from polaris_re.assumptions.version_store import AssumptionVersionStore
+
+    store = AssumptionVersionStore(_resolve_store_dir(store_dir))
+    versions = store.list_versions(kind=kind)
+    if not versions:
+        console.print(f"[yellow]No assumption versions found under {store.root}.[/yellow]")
+        return
+
+    tbl = Table(title=f"Assumption versions ({len(versions)})")
+    tbl.add_column("Version", style="cyan")
+    tbl.add_column("Kind")
+    tbl.add_column("Study date")
+    tbl.add_column("Credibility", justify="right")
+    tbl.add_column("Grid ages")
+    tbl.add_column("Grid years")
+    tbl.add_column("Label")
+    for v in versions:
+        scale = v.improvement
+        if scale.custom_ages and scale.custom_years:
+            ages = f"{scale.custom_ages[0]}-{scale.custom_ages[-1]}"
+            years = f"{scale.custom_years[0]}-{scale.custom_years[-1]}"
+        else:  # pragma: no cover - guarded by the CUSTOM-only record contract
+            ages = years = "-"
+        tbl.add_row(
+            v.version_id,
+            v.kind,
+            v.study_date.isoformat(),
+            "-" if v.credibility is None else f"{v.credibility:.2f}",
+            ages,
+            years,
+            v.label or "-",
+        )
+    console.print(tbl)
 
 
 if __name__ == "__main__":

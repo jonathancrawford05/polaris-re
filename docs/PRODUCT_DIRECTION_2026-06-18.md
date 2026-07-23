@@ -1756,6 +1756,21 @@ constraint and a future session must not rebuild these as a naive wall-time log.
   NICE-TO-HAVE. 1st-order (a follow-up of the planned Slice-3 hierarchy). *Source: ADR-144
   Out of scope (1st-order).*
 
+- **NICE-TO-HAVE — sibling assumption kinds in the version store (lapse, base mortality).**
+  `AssumptionVersionStore` (Slice 4b-2, ADR-147) versions the `mortality_improvement` kind
+  only. The `kind` field already parameterises the store contract, but no lapse-improvement or
+  base-mortality version is emitted or consumed anywhere — a `polaris experience lapse` /
+  base-table versioning surface would exercise it. Scale/breadth, not common-path correctness
+  → NICE-TO-HAVE. 1st-order (a follow-up of the planned Slice-4b-2 versioning). *Source:
+  ADR-147 Out of scope (1st-order).*
+
+- **NICE-TO-HAVE — retention / prune policy for the append-only version store.**
+  The store (Slice 4b-2, ADR-147) is append-only by design with no `remove`/`prune` or
+  retention surface, so a long-lived study cadence accumulates one file per re-fit forever.
+  A retention policy (or an explicit `polaris experience prune --keep-latest`) is a housekeeping
+  refinement — deliberately a human decision today, not routine → NICE-TO-HAVE. 1st-order
+  (a follow-up of the planned Slice-4b-2 versioning). *Source: ADR-147 Out of scope (1st-order).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log

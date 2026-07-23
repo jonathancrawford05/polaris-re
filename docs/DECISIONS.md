@@ -9685,3 +9685,72 @@ that render `--effects-out`/`--grid-out` and ARCHITECTURE/QUICKSTART docs (Slice
 EPIC). The modal-reference factor level is a tie-break when levels have equal exposure
 (inherited from Slice-1 `factor_effect`); real studies have unequal exposure so it is
 deterministic in practice, and the reported contrasts are reference-invariant regardless.
+
+## ADR-147: Experience GAM (A4′ Slice 4b-2) — append-only assumption versioning under `data/assumption_versions/`
+
+**Date:** 2026-07-23
+**Status:** Accepted
+**Slice:** 4b-2 of the Data-Driven Experience Analysis epic (A4′), ROADMAP 6.1 — the second
+sub-slice of Slice 4b (fit diagnostics + assumption versioning + `--config` wiring). See
+`docs/PLAN_experience_gam.md` and `docs/CONTINUATION_experience_gam.md`.
+
+**Context.** Slice 4a's `polaris experience improvement` emits a data-driven
+`ImprovementScale.CUSTOM` `MortalityImprovement` — an experience-fitted MI surface/projection
+(ADR-140..143). That JSON artifact carries the `MI_x(y)` grid but *no provenance*: which
+experience study produced it, as of what study date, and at what credibility. Freezing an
+assumption basis for a priced deal needs that provenance preserved and immutable, and needs a
+handle by which Slice 4b-3's `--config`/`AssumptionSet` wiring can select a specific frozen
+basis. Storing bare scale JSONs in ad-hoc paths loses the study/credibility context and risks
+silent overwrite of a previously-frozen basis.
+
+**Decision.** New `assumptions/version_store.py`:
+
+1. **`AssumptionVersion` (`PolarisBaseModel`)** wraps a CUSTOM `MortalityImprovement` with
+   `study_date` (the pinned as-of date the experience was observed), optional `credibility`
+   (validated ∈[0,1]), and optional `label`/`notes` provenance tags, plus a `kind` (default
+   `mortality_improvement`) and a store-allocated `version_id`. A `@model_validator` rejects
+   any non-CUSTOM scale — the study/credibility provenance is meaningless for a built-in
+   scale, and the store's role is to version *experience-derived* bases.
+
+2. **`AssumptionVersionStore` — append-only filesystem store.** Records live at
+   `{root}/{kind}/{version_id}.json` with `version_id = {study_date.isoformat()}-{seq:03d}`
+   (e.g. `2024-12-31-001`). `save` allocates the next sequence for a `(kind, study_date)` pair
+   (`1 + max existing`), so re-saving the same study date appends a fresh version rather than
+   overwriting — the full history of frozen bases is preserved for audit. `load`/`list_versions`
+   read back deterministically (sorted by kind → study date → version id).
+
+3. **Version ids are keyed on the pinned study date + a sequence counter, never the wall
+   clock** (ADR-074 guard). The store is fully deterministic given its inputs: the same
+   sequence of saves against a fresh root yields byte-identical ids and files.
+
+4. **CLI surface.** `polaris experience save` consumes the `experience improvement --output`
+   JSON (decoupled — a scale can be reviewed before it is frozen), wraps it with the
+   `--study-date`/`--credibility`/`--label`/`--notes` provenance, and appends it to the store;
+   `polaris experience list` renders the stored history as a Rich table (id, kind, study date,
+   credibility, grid extent, label). `--store-dir` defaults to
+   `$POLARIS_DATA_DIR/assumption_versions` (`data/` if unset), mirroring the mortality-table
+   directory resolution.
+
+**Consequences.** An experience-derived basis is now a first-class, provenance-tagged,
+immutable artifact with a stable human-legible handle (`{study_date}-{seq:03d}`). Slice 4b-3
+loads a version by id and threads its `.improvement` into the pricing `--config`/`AssumptionSet`
+so a versioned experience-derived scale can drive a `polaris price` run.
+
+**Backward compatibility.** Purely additive — a new module + two commands in the existing
+`experience` group. No change to any existing command, the pricing path, any assumption
+contract, or a golden baseline; the engine is byte-identical. `MortalityImprovement` already
+stores its CUSTOM grid as immutable tuples that JSON round-trip (ADR-143), so the record
+serialises without new plumbing.
+
+**Docker/data allowlist (#61/#66 trap).** No files land under `data/` — all tests persist to
+`tmp_path` roots, so the Dockerfile `COPY` and `.dockerignore` allowlist are untouched. A
+committed store directory is deliberately avoided; the store creates its root on first save.
+
+**Out of scope (this sub-slice — remaining Slice-4b/4c/4d work).** Wiring
+`ImprovementScale.CUSTOM` into the pricing `--config` schema + an `AssumptionSet` selector so a
+versioned scale drives a run (Slice 4b-3); `load_hmd()`/`load_ilec()` loaders + the insured
+validation deck + `mgcv` oracle (Slice 4c); the diagnostic plots + ARCHITECTURE/QUICKSTART docs
+(Slice 4d, CLOSES EPIC). The store versions the `mortality_improvement` kind only; sibling
+kinds (lapse, base mortality) reuse the same contract via the `kind` field but are not exercised
+here. A `remove`/`prune` or retention policy is intentionally absent — the store is append-only
+by design, and pruning a frozen basis is a human decision, not a routine one.
