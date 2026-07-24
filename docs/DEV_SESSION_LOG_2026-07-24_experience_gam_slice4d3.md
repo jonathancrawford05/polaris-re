@@ -103,7 +103,24 @@ CLI `--help` surfaces and (b) importing every documented `analytics`/`viz` symbo
 | CONTINUATION → COMPLETE | ✅ | Status set; harvest verification recorded |
 | Engine / goldens byte-identical | ✅ | No code changed; QA 76/76 (incl. golden CLI + pipeline) green; `polaris price` golden run OK |
 
+## PR #156 Review Response (post-open)
+The automated review APPROVED (0 P0/P1-blocking) and raised two valid findings on the QUICKSTART
+§14 example I authored — both fixed in a follow-up commit on this branch:
+- **[P1] non-runnable import order (fixed).** `from polaris_re.assumptions.mortality import ...` as
+  the first `polaris_re` import raises a circular `ImportError` via `core/pipeline.py:26`; it only
+  resolves if `polaris_re.analytics` is imported first. Reproduced it, reordered the example
+  (analytics import first) with a one-line note, and re-ran the exact snippet to confirm it now runs.
+  My earlier "imports resolve" check had run in a primed order that masked this.
+- **[P2] phantom parameter (fixed).** Dropped the `allow_generational_base=False` parenthetical from
+  the `attach_base_rate` comment — that kwarg is on `TensorMIModel`, not `attach_base_rate`.
+- **Underlying circular import (filed, not fixed here).** The latent `core/pipeline.py` ↔
+  `assumptions.assumption_set` circular import is pre-existing on `main` and out of this docs PR's
+  scope (discovery protocol: quantify-file-ship, don't balloon the PR). Filed as a NICE-TO-HAVE
+  promoted follow-up in PRODUCT_DIRECTION_2026-06-18 with the repro and the proper fix.
+
 ## Open Questions / Follow-ups
+- **Latent `core/pipeline.py` circular import (filed NICE-TO-HAVE).** See the PR #156 review
+  response above; harvested to PRODUCT_DIRECTION_2026-06-18.
 - **PRODUCT_DIRECTION regeneration is OVERDUE (housekeeping).** `PRODUCT_DIRECTION_2026-06-18.md` is
   now ~36 days old (>30). Every session since #151 has APPENDED to it rather than regenerating
   mid-epic (the wall-clock guardrail: a full regeneration alongside a slice risks the budget). With

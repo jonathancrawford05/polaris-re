@@ -1377,7 +1377,8 @@ uv run polaris price \
 
 ```python
 import polars as pl
-from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
+# Import polaris_re.analytics before assumptions.mortality — analytics primes the
+# core/pipeline import chain in the right order (a known package import-order quirk).
 from polaris_re.analytics import (
     TensorMIModel,             # frequentist surface (delta-method band)
     BayesianTensorMIModel,     # reduced-rank GP (credible band) + projection
@@ -1386,9 +1387,10 @@ from polaris_re.analytics import (
     attach_base_rate,          # attach the static q_base offset (Anchor 1)
     load_hmd, load_ilec,       # loaders, not data
 )
+from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
 
 # Cells must carry a static `q_base` offset. If the CSV lacks it, attach it from a
-# standard table (or pass allow_generational_base=False semantics — a generational base is rejected).
+# standard table (the fit rejects a generational/projected base — Anchor 1).
 cells = pl.read_csv("experience_cells.csv")
 if "q_base" not in cells.columns:
     table = MortalityTable.load(MortalityTableSource.SOA_VBT_2015)

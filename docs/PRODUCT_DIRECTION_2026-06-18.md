@@ -1853,6 +1853,20 @@ constraint and a future session must not rebuild these as a naive wall-time log.
   ADR-153 Out of scope + DEV_SESSION_LOG_2026-07-23_experience_gam_slice4d2 Open Questions
   (1st-order).*
 
+- **NICE-TO-HAVE — Fix the latent `core/pipeline.py` ↔ `assumptions.assumption_set` circular
+  import.** `import polaris_re.assumptions.mortality` as the *first* `polaris_re` import raises
+  `ImportError: cannot import name 'AssumptionSet' ... (circular import)` via `core/pipeline.py:26`
+  (`core/__init__` eagerly imports `core.pipeline`, which imports `assumptions.assumption_set`,
+  which is mid-initialisation). It only succeeds when `polaris_re.analytics` (or another module that
+  primes the chain) is imported first. No shipped code path hits it — the CLI, API, and analytics
+  all import in a priming order — so it is latent, not a runtime bug; the QUICKSTART §14 Python
+  example was reordered (analytics-first) to dodge it. Proper fix: make `core.pipeline`'s
+  `AssumptionSet` import lazy (function-local) or break the `core/__init__` eager import so import
+  order is irrelevant. Developer-ergonomics polish on the package import graph, not pricing
+  correctness → NICE-TO-HAVE. 1st-order (a defect surfaced while writing the 4d-3 docs). *Source:
+  PR #156 review [P1] + DEV_SESSION_LOG_2026-07-24_experience_gam_slice4d3 Open Questions
+  (1st-order).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log
