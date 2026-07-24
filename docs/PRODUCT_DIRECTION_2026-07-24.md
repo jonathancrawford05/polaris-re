@@ -222,31 +222,35 @@ Run in order; each is single-session. This supersedes the prior file's stale
   `pipeline` re-export from `core/__init__.py`; zero callers; goldens
   byte-identical). The *proper* architectural fix is now **S1** below.
 - **S1 — Proper `core`→`assumptions` layering fix (maintainer-directed, NEXT).**
-  Relocate `pipeline.py` out of `core/` (e.g. `polaris_re/pipeline.py`), update
-  the 27 importers + `__all__`, add an ADR — retires the CLAUDE.md §6 layering
-  exception entirely, not just the symptom ADR-155 removed. Bundle the
-  eager-cross-layer-`__init__`-re-export sweep (look for the same anti-pattern
-  elsewhere). Behaviour-neutral → goldens byte-identical; guard with the
-  existing `tests/test_core/test_import_layering.py`. Likely SMALL/one session
-  (mechanical import churn + ADR); if the sweep surfaces more, decompose per
-  step 6. *Source: maintainer directive 2026-07-24; ADR-155 Out of scope
-  (1st-order) — see Carried-Forward → Ops/architecture.*
+  **PLAN LOCKED: `docs/PLAN_pipeline_relocation.md`.** Relocate `pipeline.py`
+  out of `core/` (`polaris_re/pipeline.py`), update the ~30 call sites
+  (`grep -rln core.pipeline src/ tests/ scripts/`), add an ADR — retires the
+  CLAUDE.md §6 layering exception entirely, not just the symptom ADR-155
+  removed. Bundle the eager-cross-layer-`__init__`-re-export sweep (look for the
+  same anti-pattern elsewhere). Behaviour-neutral → goldens byte-identical;
+  guard with the existing `tests/test_core/test_import_layering.py`. Likely
+  SMALL/MEDIUM one session (mechanical import churn + ADR); if the sweep
+  surfaces more, decompose per step 6. Next session opens
+  `docs/CONTINUATION_pipeline_relocation.md` and ships Slice 1. *Source:
+  maintainer directive 2026-07-24; ADR-155 Out of scope (1st-order) — see
+  Carried-Forward → Ops/architecture.*
 - **S2 — MI (mortality-improvement) page on the Streamlit dashboard
-  (maintainer-directed, SECOND).** A dedicated dashboard page surfacing the
-  experience-GAM / mortality-improvement capability to non-CLI users, folding
-  two carried-forward items: (a) the **versioned improvement-scale selector**
-  (IMPORTANT #12 / ADR-148 — so a dashboard user can drive a priced run from a
-  versioned `ImprovementScale.CUSTOM` basis, the dashboard half of the
-  selector; the REST-API half of #12 may follow separately), and (b) the
+  (maintainer-directed, SECOND).** **PLAN LOCKED: `docs/PLAN_mi_dashboard.md`.**
+  A dedicated dashboard page surfacing the experience-GAM / mortality-improvement
+  capability to non-CLI users, folding two carried-forward items: (a) the
+  **versioned improvement-scale selector** (IMPORTANT #12 / ADR-148 — so a
+  dashboard user can drive a priced run from a versioned
+  `ImprovementScale.CUSTOM` basis, the dashboard half of the selector; the
+  REST-API half of #12 may follow separately as optional Slice 3), and (b) the
   **MI diagnostics view** (NICE-TO-HAVE experience-GAM #89 / ADR-153 — effects /
-  MI-surface `MI_x(y)` slices / projection fan, reusing `all_effects()` and the
-  `--grid-out` output already shipped for the `[viz]` helpers). Add dashboard
-  flow tests (`tests/qa/test_dashboard_flows.py` pattern) + `DealConfig.to_dict()`
-  round-trip for any new selector state; pin all dates (ADR-074). Likely MEDIUM
-  (one dashboard page + tests, possibly the API selector) — if it grows, write
-  `docs/PLAN_mi_dashboard.md` + a CONTINUATION per step 6/7. *Source: maintainer
-  directive 2026-07-24; IMPORTANT #12 (ADR-148) + Carried-Forward experience-GAM
-  #89 (ADR-153).*
+  MI-surface `MI_x(y)` slices / projection fan, reusing `viz/experience_plots.py`
+  + `all_effects()`/`--grid-out` already shipped for the `[viz]` helpers). Add
+  `AppTest` dashboard flow tests (`tests/qa/test_dashboard_flows.py` pattern) +
+  `DealConfig.to_dict()` round-trip for the selector state; pin all dates
+  (ADR-074); exclude the view from coverage (ADR-032). MEDIUM — 2 slices (+1
+  optional API slice); the PLAN decomposes it and the next session opens
+  `docs/CONTINUATION_mi_dashboard.md`. *Source: maintainer directive 2026-07-24;
+  IMPORTANT #12 (ADR-148) + Carried-Forward experience-GAM #89 (ADR-153).*
 - **S3 — Tier-B quick wins in value-per-day order: B1 → B2 → B4** (was S0.3; now
   follows S1+S2; see the re-ranked catalogue). Independently valuable
   maintenance-mode PRs while no Phase-7 frontier is chosen.
