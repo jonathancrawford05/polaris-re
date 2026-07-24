@@ -52,6 +52,8 @@ from polaris_re.analytics.experience_gam import (
     AMOUNT_MEASURES,
     COUNT_MEASURES,
     ExperienceGAM,
+    GAMFitResult,
+    MISurface,
     TensorMIModel,
 )
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
@@ -135,7 +137,7 @@ def _fit_diagnostics(
     year_df: int,
     age_varying: bool,
     confidence_level: float,
-) -> tuple[object, object]:
+) -> tuple[GAMFitResult, MISurface]:
     """Fit the additive A/E GAM and the tensor MI surface, returning both results.
 
     Returns ``(gam_result, mi_surface)`` where ``gam_result`` is a
