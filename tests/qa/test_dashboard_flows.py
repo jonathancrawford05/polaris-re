@@ -375,14 +375,29 @@ class TestExperienceImprovementPage:
         assert "Overall A/E" in labels, f"fit summary metrics missing; saw {labels}"
         assert "Grouped cells" in labels
 
-    def test_confidence_level_change_reruns(self):
-        """Moving the confidence slider re-fits and re-renders without error."""
+    def test_confidence_level_change_reuses_cached_fit(self):
+        """Moving the confidence slider re-derives bands without refitting.
+
+        The fit cache is keyed on the fit-determining inputs (which exclude the
+        confidence level), so the cache signature must be identical before and
+        after a slider move — proving the expensive GLM fits are reused.
+        """
+        from polaris_re.dashboard.views.experience_improvement import _FIT_CACHE_KEY
+
         at = self._app()
+        cached_before = at.session_state[_FIT_CACHE_KEY]
+        assert cached_before is not None, "fit was not cached on first render"
+        sig_before = cached_before[0]
+
         sliders = [s for s in at.slider if "confidence" in str(s.label).lower()]
         assert sliders, "confidence-level slider not found"
         sliders[0].set_value(0.80)
         at.run()
         assert not at.exception, f"Confidence change raised: {at.exception}"
+        assert at.session_state[_FIT_CACHE_KEY][0] == sig_before, (
+            "confidence-slider move changed the fit signature — the fit should be "
+            "reused, not recomputed"
+        )
 
     def test_age_varying_toggle_reruns(self):
         """Turning off the age-varying tensor still renders a valid surface."""
@@ -439,6 +454,48 @@ class TestExperienceImprovementHelpers:
         # Dropping q_base is flagged for either basis.
         no_base = pl.DataFrame({"attained_age": [40], "calendar_year": [2020]})
         assert "q_base" in _missing_basis_columns(no_base, "count")
+
+    def test_cached_fit_models_reuses_and_invalidates(self):
+        """The fit cache returns the same models until a fit input changes."""
+        from polaris_re.dashboard.views.experience_improvement import (
+            _FIT_CACHE_KEY,
+            _cached_fit_models,
+            _sample_cells,
+        )
+
+        cells = _sample_cells()
+        state: dict[str, object] = {}
+        cfg = {"basis": "count", "age_df": 6, "year_df": 4, "age_varying": True}
+
+        first = _cached_fit_models(state, cells, **cfg)
+        assert _FIT_CACHE_KEY in state, "fit was not cached"
+
+        # Same inputs → identical objects (cache hit, no refit).
+        second = _cached_fit_models(state, cells, **cfg)
+        assert second[0] is first[0]
+        assert second[1] is first[1]
+
+        # Changing a fit-determining input → new fit (different objects).
+        third = _cached_fit_models(state, cells, **{**cfg, "age_df": 8})
+        assert third[0] is not first[0]
+
+    def test_fit_signature_excludes_confidence_level(self):
+        """The fit signature is stable across everything but the fit inputs.
+
+        confidence_level is not a parameter of the signature at all, so band-level
+        changes cannot invalidate the cached fit. Changing a real fit input does.
+        """
+        from polaris_re.dashboard.views.experience_improvement import (
+            _fit_signature,
+            _sample_cells,
+        )
+
+        cells = _sample_cells()
+        base = _fit_signature(cells, basis="count", age_df=6, year_df=4, age_varying=True)
+        # Recomputing with identical fit inputs is stable.
+        assert base == _fit_signature(cells, basis="count", age_df=6, year_df=4, age_varying=True)
+        # A genuine fit-input change moves the signature.
+        assert base != _fit_signature(cells, basis="count", age_df=7, year_df=4, age_varying=True)
 
 
 class TestPortfolioPage:

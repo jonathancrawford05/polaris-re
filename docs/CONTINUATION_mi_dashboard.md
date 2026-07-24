@@ -41,6 +41,10 @@ goldens byte-identical.
     (0.43s on the sample, but kept opt-in per PLAN §5).
   - Slice 1 requires a pre-built `q_base` column on the CSV; the standard-table
     attach path (`--table` in the CLI) is deferred (harvested follow-up).
+  - The GLM fits are cached in `st.session_state` keyed on a content+config
+    signature that excludes `confidence_level` (folded in post-review at
+    maintainer request), so a confidence-slider move re-derives bands without
+    refitting. The saved-version load path remains Slice 2.
   - Built-in sample pins all ages/years as literals (ADR-074).
   - View excluded from coverage (ADR-032 `dashboard/*` omit) but covered by
     `AppTest` flows + pure-function helper unit tests in

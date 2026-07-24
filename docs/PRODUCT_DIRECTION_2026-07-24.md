@@ -455,10 +455,13 @@ polish on a shipped surface, not a production-correctness gap):
   `polaris experience improvement --table` does) so a dashboard user can fit
   from an experience CSV that lacks a pre-built `q_base` column. Slice 1
   requires the column. *Source: ADR-157 Out of scope (1st-order).*
-- **Cache the interactive MI fit across reruns / add a saved-version load path**
-  — Slice 1 refits the frequentist (and, on toggle, Bayesian) surface on every
-  Streamlit rerun; cache by a config signature in `st.session_state`, and add a
-  "load a saved version from the store" path alongside upload/sample. *Source:
+- ~~**Cache the interactive MI fit across reruns**~~ — **SHIPPED** (PR #159,
+  ADR-157 follow-up, maintainer-directed): the frequentist GLM fits are now
+  cached in `st.session_state` by a content+config signature that excludes the
+  confidence level, so a slider move re-derives bands without refitting.
+- **Add a saved-version load path on the MI dashboard page** — load a fitted MI
+  surface from the version store alongside upload/sample (the caching half of
+  this item shipped above; this remainder is deferred to Slice 2). *Source:
   ADR-157 Out of scope (1st-order).*
 
 > The Deal-Pricing versioned-selector (IMPORTANT #12 dashboard half) and the

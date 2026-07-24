@@ -105,7 +105,7 @@ tests. The built-in sample pins all ages/years as literals (ADR-074).
 |-----------|--------|-------|
 | Page renders the three diagnostics from a fixture CSV | ✅ | Effects + MI-surface + band-width on the sample; +Bayesian projection behind the toggle |
 | Sits behind a new "Mortality Improvement" sidebar entry | ✅ | `app.py` radio + dispatch → `page_experience_improvement()` |
-| Sample-or-upload with cached fit | ✅ | Sample default (AppTest-driveable) + upload path; fit runs per rerun (caching harvested as a follow-up) |
+| Sample-or-upload with cached fit | ✅ | Sample default (AppTest-driveable) + upload path; the GLM fits are cached in `st.session_state` (signature excludes confidence level → slider moves re-derive bands, no refit). Folded in post-review at maintainer request. |
 | AppTest flow green | ✅ | 5 flows + 2 helper unit tests, all pass |
 | View excluded from coverage (ADR-032) | ✅ | `dashboard/*` omit already covers `views/experience_improvement.py` |
 | Dates pinned (ADR-074) | ✅ | Sample ages/years are literals; no `date.today()` |

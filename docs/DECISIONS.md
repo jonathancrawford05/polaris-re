@@ -10408,5 +10408,15 @@ a clear error when `[ml]` is absent.
 half of #12** (a `/api/v1/price` `improvement_version` field) — optional Slice 3, may split to its own
 PR; IMPORTANT #12 stays open until it ships. (3) A **table-attach path** on the page (build `q_base`
 from a standard mortality table when the CSV lacks it, as the CLI's `--table` does) — Slice 1 requires
-a pre-built `q_base` column; the attach path is deferred. (4) Caching the fit across reruns / a
-saved-version load path — the interactive fit is cheap enough that Slice 1 refits per run.
+a pre-built `q_base` column; the attach path is deferred. (4) A **saved-version load path** (load a
+fitted MI surface from the version store alongside upload/sample) — deferred to Slice 2.
+
+**Follow-up folded in (fit caching).** After the initial diagnostics page, the maintainer requested
+folding in the caching refinement (the harvested NICE-TO-HAVE): the two GLM fits are now cached in
+`st.session_state` keyed by a content+config signature (`_fit_signature` / `_cached_fit_models`) that
+**deliberately excludes `confidence_level`**, so moving the confidence slider re-derives only the
+(cheap) surface/effects bands from the already-fit GLM rather than refitting. New pure-function tests
+assert the cache reuses the fit on identical inputs, invalidates on a fit-input change, and that the
+signature ignores the band level; an `AppTest` asserts the fit signature is unchanged across a
+confidence-slider move. Behaviour-neutral; goldens byte-identical. The **saved-version load path**
+remains Slice 2.

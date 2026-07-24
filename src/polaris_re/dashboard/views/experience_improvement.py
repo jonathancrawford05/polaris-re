@@ -41,7 +41,8 @@ not shipped here — see the CONTINUATION.
 """
 
 import io
-from typing import Protocol
+from collections.abc import MutableMapping
+from typing import Protocol, cast
 
 import matplotlib.pyplot as plt  # type: ignore[import-untyped]
 import numpy as np
@@ -53,7 +54,7 @@ from polaris_re.analytics.experience_gam import (
     COUNT_MEASURES,
     ExperienceGAM,
     GAMFitResult,
-    MISurface,
+    MISurfaceResult,
     TensorMIModel,
 )
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
@@ -129,21 +130,47 @@ def _missing_basis_columns(df: pl.DataFrame, basis: str) -> set[str]:
     return required - set(df.columns)
 
 
-def _fit_diagnostics(
+_FIT_CACHE_KEY = "mi_fit_cache"
+"""``st.session_state`` slot holding ``(signature, (GAMFitResult, MISurfaceResult))``
+for the frequentist diagnostics fit."""
+
+type _FitModels = tuple[GAMFitResult, MISurfaceResult]
+
+
+def _fit_signature(
     cells: pl.DataFrame,
     *,
     basis: str,
     age_df: int,
     year_df: int,
     age_varying: bool,
-    confidence_level: float,
-) -> tuple[GAMFitResult, MISurface]:
-    """Fit the additive A/E GAM and the tensor MI surface, returning both results.
+) -> int:
+    """Content+config hash of the inputs that determine the fit.
 
-    Returns ``(gam_result, mi_surface)`` where ``gam_result`` is a
-    ``GAMFitResult`` (for the effects panel) and ``mi_surface`` is an
-    ``MISurface`` (for the surface/band-width panels). Both fits share the same
-    grouped cells; nothing here changes pricing behaviour.
+    Deliberately EXCLUDES ``confidence_level``: the band level only re-derives
+    the (cheap) surface/effects from an already-fit GLM, so a slider move must
+    reuse the cached fit rather than trigger a refit. ``hash_rows`` is
+    order-sensitive over the full cell content; combined with the spline/basis
+    config it uniquely keys a fit. Integer/tuple hashing is unsalted, so the key
+    is stable across Streamlit reruns.
+    """
+    row_hashes = tuple(cells.hash_rows().to_list())
+    return hash((row_hashes, basis, age_df, year_df, age_varying))
+
+
+def _fit_models(
+    cells: pl.DataFrame,
+    *,
+    basis: str,
+    age_df: int,
+    year_df: int,
+    age_varying: bool,
+) -> _FitModels:
+    """Fit the additive A/E GAM and the tensor MI model (the expensive step).
+
+    Returns ``(gam_result, mi_result)`` — the ``GAMFitResult`` for the effects
+    panel and the ``MISurfaceResult`` whose bands are re-derived per render at
+    the current confidence level. Nothing here changes pricing behaviour.
     """
     gam_result = ExperienceGAM(cells, basis=basis, age_df=age_df).fit()
     mi_result = TensorMIModel(
@@ -153,8 +180,37 @@ def _fit_diagnostics(
         year_df=year_df,
         age_varying=age_varying,
     ).fit()
-    surface = mi_result.improvement_surface(confidence_level=confidence_level)
-    return gam_result, surface
+    return gam_result, mi_result
+
+
+def _cached_fit_models(
+    session_state: MutableMapping[str, object],
+    cells: pl.DataFrame,
+    *,
+    basis: str,
+    age_df: int,
+    year_df: int,
+    age_varying: bool,
+) -> _FitModels:
+    """Return the fitted models, refitting only when the fit signature changes.
+
+    Streamlit reruns the whole script on every widget interaction; without this
+    the two GLM fits would recompute on every rerun (e.g. a confidence-slider
+    move). Caches ``(signature, models)`` in ``session_state`` and reuses the
+    fit whenever the fit-determining inputs are unchanged. ``session_state`` is
+    any mutable mapping (``st.session_state`` in the app, a plain dict in tests).
+    """
+    sig = _fit_signature(
+        cells, basis=basis, age_df=age_df, year_df=year_df, age_varying=age_varying
+    )
+    cached = session_state.get(_FIT_CACHE_KEY)
+    if isinstance(cached, tuple) and cached[0] == sig:
+        return cast(_FitModels, cached[1])
+    models = _fit_models(
+        cells, basis=basis, age_df=age_df, year_df=year_df, age_varying=age_varying
+    )
+    session_state[_FIT_CACHE_KEY] = (sig, models)
+    return models
 
 
 def page_experience_improvement() -> None:
@@ -263,16 +319,20 @@ def page_experience_improvement() -> None:
         "across age).",
     )
 
-    # --- Fit the frequentist diagnostics ---
+    # --- Fit the frequentist diagnostics (cached across reruns) ---
+    # The two GLM fits are cached on the fit-determining inputs, so moving the
+    # confidence slider re-derives only the (cheap) surface/effects bands below
+    # rather than refitting.
     try:
-        gam_result, surface = _fit_diagnostics(
+        gam_result, mi_result = _cached_fit_models(
+            cast(MutableMapping[str, object], st.session_state),
             cells,
             basis=basis,
             age_df=age_df,
             year_df=year_df,
             age_varying=age_varying,
-            confidence_level=confidence_level,
         )
+        surface = mi_result.improvement_surface(confidence_level=confidence_level)
     except PolarisValidationError as exc:
         st.error(f"Validation error: {exc}")
         return
