@@ -46,7 +46,7 @@ surfacing, not a no-op. Also smoke-ran the full fit→viz flow on the built-in s
 ## Decomposition Plan
 | Slice | Scope | Status | PR |
 |-------|-------|--------|----|
-| 1 | MI diagnostics page (effects / MI-surface / band-width / Bayesian projection) + sidebar registration + AppTest flows | ✅ Done | _(this PR)_ |
+| 1 | MI diagnostics page (effects / MI-surface / band-width / Bayesian projection) + sidebar registration + AppTest flows | ✅ Done | #159 |
 | 2 | Versioned improvement-scale selector wired into Deal Pricing (#12 dashboard half) + `DealConfig.to_dict()` round-trip | ⏳ Next | — |
 | 3 | REST-API improvement selector (#12 API half) — optional, may split | 🔲 Planned | — |
 

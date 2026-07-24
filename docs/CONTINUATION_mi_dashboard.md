@@ -22,7 +22,7 @@ goldens byte-identical.
 ### Slice 1: MI diagnostics page (the #89 half)
 - **Status:** DONE
 - **Branch:** `claude/loving-gauss-q4swra` (environment-designated)
-- **PR:** _(this PR — draft)_
+- **PR:** #159 (draft)
 - **What was done:** New `views/experience_improvement.py` with
   `page_experience_improvement()`, registered in `app.py` (sidebar radio +
   dispatch). The user loads a built-in sample grouped-cell experience (default,
