@@ -338,6 +338,109 @@ class TestExperienceStudyPage:
         assert not at.exception, f"Multi-dimension group-by raised: {at.exception}"
 
 
+class TestExperienceImprovementPage:
+    """ADR — Mortality Improvement (experience-GAM diagnostics) page via AppTest.
+
+    Slice 1 of the MI dashboard page (docs/PLAN_mi_dashboard.md): the diagnostics
+    half. The page defaults to the built-in sample grouped-cell experience, so the
+    frequentist fit + effects/surface/band-width diagnostics render on the first
+    run without needing a file upload (which AppTest cannot drive).
+    """
+
+    @staticmethod
+    def _app() -> "AppTest":
+        at = AppTest.from_file(APP_PATH, default_timeout=60)
+        at.run()
+        at.sidebar.radio[0].set_value("Mortality Improvement")
+        at.run()
+        return at
+
+    @staticmethod
+    def _metric_labels(at: "AppTest") -> list[str]:
+        return [str(m.label) for m in at.metric]
+
+    def test_mi_page_in_navigation(self):
+        """Sidebar nav should expose 'Mortality Improvement' as a page option."""
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        nav = at.sidebar.radio[0]
+        assert "Mortality Improvement" in nav.options
+
+    def test_sample_diagnostics_render(self):
+        """The default sample path fits and renders the diagnostics cleanly."""
+        at = self._app()
+        assert not at.exception, f"MI page raised: {at.exception}"
+        # Fit summary metrics prove the frequentist fit ran end to end.
+        labels = self._metric_labels(at)
+        assert "Overall A/E" in labels, f"fit summary metrics missing; saw {labels}"
+        assert "Grouped cells" in labels
+
+    def test_confidence_level_change_reruns(self):
+        """Moving the confidence slider re-fits and re-renders without error."""
+        at = self._app()
+        sliders = [s for s in at.slider if "confidence" in str(s.label).lower()]
+        assert sliders, "confidence-level slider not found"
+        sliders[0].set_value(0.80)
+        at.run()
+        assert not at.exception, f"Confidence change raised: {at.exception}"
+
+    def test_age_varying_toggle_reruns(self):
+        """Turning off the age-varying tensor still renders a valid surface."""
+        at = self._app()
+        boxes = [c for c in at.checkbox if "age-varying" in str(c.label).lower()]
+        assert boxes, "age-varying checkbox not found"
+        boxes[0].set_value(False)
+        at.run()
+        assert not at.exception, f"Age-varying toggle raised: {at.exception}"
+
+    def test_bayesian_projection_path(self):
+        """Enabling the Bayesian projection renders the forward fan without error."""
+        at = self._app()
+        boxes = [c for c in at.checkbox if "bayesian" in str(c.label).lower()]
+        assert boxes, "Bayesian projection checkbox not found"
+        boxes[0].set_value(True)
+        at.run()
+        assert not at.exception, f"Bayesian projection raised: {at.exception}"
+
+
+class TestExperienceImprovementHelpers:
+    """Pure-function coverage for the MI page's data helpers (no AppTest)."""
+
+    def test_sample_cells_canonical_contract(self):
+        """The built-in sample carries the count-basis canonical contract."""
+        from polaris_re.dashboard.views.experience_improvement import _sample_cells
+
+        cells = _sample_cells()
+        assert set(cells.columns) == {
+            "attained_age",
+            "calendar_year",
+            "q_base",
+            "central_exposure",
+            "death_count",
+        }
+        assert cells["calendar_year"].n_unique() >= 2  # needed to identify a trend
+        assert cells.height > 0
+        q = cells["q_base"].to_numpy()
+        assert (q > 0.0).all() and (q <= 1.0).all()
+
+    def test_missing_basis_columns_detects_absent(self):
+        """The basis-column check reports exactly the absent required columns."""
+        import polars as pl
+
+        from polaris_re.dashboard.views.experience_improvement import (
+            _missing_basis_columns,
+            _sample_cells,
+        )
+
+        cells = _sample_cells()
+        assert _missing_basis_columns(cells, "count") == set()
+        # The sample lacks the amount-basis pair.
+        assert _missing_basis_columns(cells, "amount") == {"amount_exposed", "death_amount"}
+        # Dropping q_base is flagged for either basis.
+        no_base = pl.DataFrame({"attained_age": [40], "calendar_year": [2020]})
+        assert "q_base" in _missing_basis_columns(no_base, "count")
+
+
 class TestPortfolioPage:
     """Slice 2 — Portfolio page smoke tests via AppTest session-state injection.
 

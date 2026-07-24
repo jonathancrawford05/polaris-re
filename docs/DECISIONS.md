@@ -10351,3 +10351,62 @@ construction, cohort iteration are separable concerns) — a candidate future re
 NICE-TO-HAVE follow-up. The `target-path` alternative `polaris_re/composition/pipeline.py` (for an
 anticipated future split) was considered and rejected in favour of the minimal top-level move
 (`PLAN_pipeline_relocation.md` §5).
+
+---
+
+## ADR-157: Mortality Improvement dashboard page (experience-GAM diagnostics) — MI dashboard Slice 1
+
+**Date:** 2026-07-24
+**Status:** Accepted
+**Scope:** `src/polaris_re/dashboard/views/experience_improvement.py` (new);
+`src/polaris_re/dashboard/app.py` (sidebar registration + dispatch);
+`tests/qa/test_dashboard_flows.py` (new `TestExperienceImprovementPage` /
+`TestExperienceImprovementHelpers`). Maintainer-directed **S2**
+(`PRODUCT_DIRECTION_2026-07-24` "Recommended Next Sprint"), backed by
+`docs/PLAN_mi_dashboard.md` and `docs/CONTINUATION_mi_dashboard.md` (Slice 1 of 2, +1 optional).
+
+**Context.** The A4' experience-GAM epic (ADR-139..154) shipped the data-driven mortality-improvement
+capability end to end, but its only interactive surface was the CLI (`polaris experience improvement`).
+A dashboard user — the deal-committee persona the Streamlit app targets — could neither inspect a
+fitted `MI_x(y)` surface nor drive a priced run from a versioned experience basis. Two carried-forward
+follow-ups name the gap: NICE-TO-HAVE experience-GAM #89 (ADR-153 — wire the diagnostics into the
+dashboard) and IMPORTANT #12 (ADR-148 — surface the versioned improvement selector). The plan folds
+both into one MI page across two slices; this ADR covers **Slice 1**, the diagnostics half.
+
+**Decision.** Add a "Mortality Improvement" sidebar page (`page_experience_improvement`) that fits and
+renders the experience-GAM diagnostics **as a pure presentation layer** over shipped analytics. The
+user loads the built-in sample grouped-cell experience (default) or uploads a canonical-contract CSV,
+then sees four diagnostics rendered straight from the shipped data structures via the `[viz]` helpers
+(`polaris_re.viz.experience_plots`): (1) fitted per-feature effect shapes from
+`ExperienceGAM.all_effects()` (`plot_effects`); (2) the `MI_x(y)` surface sliced by age and year from
+`TensorMIModel.improvement_surface()` (`plot_mi_surface`); (3) a band-width identification heatmap
+(`plot_mi_surface_bandwidth`); and (4) — behind an explicit "run Bayesian (slow)" toggle — the
+CMI/MP-style forward projection fan from `BayesianTensorMIModel.project_improvement()`
+(`plot_mi_projection`). A "download MI surface grid (CSV)" button reuses the same surface, mirroring
+the CLI `--grid-out`.
+
+**Rationale.** The page mirrors the shipped `views/experience_study.py` precedent (data-source radio
+with a built-in sample so the flow is exercisable without a file upload — which `AppTest` cannot
+drive). It computes nothing new: the frequentist tensor fit is the interactive default (sub-second on
+the sample), and the heavier Bayesian reduced-rank-GP path is gated behind a toggle so the common path
+stays fast. No pricing/engine code, no golden config, and no core data contract
+(`Policy`/`InforceBlock`/`CashFlowResult`/`ProjectionConfig`) is touched, so goldens are
+byte-identical. The view is **excluded from coverage** per ADR-032 (the `dashboard/*` omit) but tested
+via `streamlit.testing.v1.AppTest` in `tests/qa/test_dashboard_flows.py` so widget-wiring regressions
+are caught, plus pure-function unit tests for the sample-data and basis-column helpers. The built-in
+sample pins all ages and years as literals (ADR-074 — no wall-clock dependence).
+
+**Impact.** Goldens byte-identical (presentation layer only; no baseline regeneration). Seven new
+tests (five `AppTest` flows: nav presence, sample diagnostics render, confidence-slider re-run,
+age-varying toggle, Bayesian projection path; two helper unit tests). No new runtime dependency — the
+page reuses the already-shipped `[ml]` (statsmodels) and `[viz]` (matplotlib) extras and degrades with
+a clear error when `[ml]` is absent.
+
+**Out of scope.** (1) The **versioned improvement-scale selector wired into Deal Pricing** (IMPORTANT
+#12 / ADR-148, the #12 dashboard half) — that is **Slice 2** of this feature (`views/pricing.py` +
+`components/state.py` + a backward-compatible `DealConfig.to_dict()` round-trip). (2) The **REST-API
+half of #12** (a `/api/v1/price` `improvement_version` field) — optional Slice 3, may split to its own
+PR; IMPORTANT #12 stays open until it ships. (3) A **table-attach path** on the page (build `q_base`
+from a standard mortality table when the CSV lacks it, as the CLI's `--table` does) — Slice 1 requires
+a pre-built `q_base` column; the attach path is deferred. (4) Caching the fit across reruns / a
+saved-version load path — the interactive fit is cheap enough that Slice 1 refits per run.
