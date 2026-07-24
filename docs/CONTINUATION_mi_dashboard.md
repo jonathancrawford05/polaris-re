@@ -89,7 +89,7 @@ goldens byte-identical.
 ### Slice 3: REST-API improvement selector (the #12 API half)
 - **Status:** DONE
 - **Branch:** `claude/loving-gauss-mlexia` (environment-designated)
-- **PR:** #TBD (draft)
+- **PR:** #161 (draft)
 - **Depends on:** Slice 2 merged (PR #160, on `main` at `4511558`)
 - **What was done:** `PriceRequest` gains an optional
   `improvement_version: str | None = None` (a store `version_id`). When set,

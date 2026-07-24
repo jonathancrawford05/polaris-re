@@ -318,7 +318,7 @@ BLOCKER remains.
     closed across MI dashboard Slices 2–3). Dashboard half: PR #160 / ADR-158 (Slice 2) —
     the Deal Pricing page's versioned-improvement selector lists the store's CUSTOM bases
     and drives the run byte-identically to the CLI `--improvement-version` path. REST-API
-    half: PR #TBD / ADR-159 (Slice 3) — `PriceRequest` gains an optional
+    half: PR #161 / ADR-159 (Slice 3) — `PriceRequest` gains an optional
     `improvement_version` (a store `version_id`) loaded server-side via
     `load_improvement_version` and threaded onto `AssumptionSet.improvement`, echoed on
     the response; unknown id → 422; default `None` byte-identical. **All three surfaces
