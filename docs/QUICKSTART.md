@@ -1253,6 +1253,177 @@ the ingress/pod CIDR so the rate limiter keys on the real client (ADR-135).
 
 ---
 
+## 14. Experience Analysis & Assumption-Setting (GAM)
+
+The `polaris experience` command group (A4′ epic; ADR-139…153) fits a **data-driven,
+interpretable** mortality basis from your own experience and emits a
+`MortalityImprovement` scale the pricing engine consumes directly. It is the auditable
+middle layer between the grouped credibility in `experience_study.py` and the black-box
+XGBoost in `ml_mortality.py`. All commands need the `[ml]` extra (`uv sync --all-extras`
+installs it); the static diagnostic plots also need `[viz]`.
+
+### Input — the canonical grouped-cell CSV
+
+The fit input is **grouped Lexis cells** — one row per covariate combination, not seriatim
+(grouping is statistically sufficient for the Poisson/log-exposure GAM). Minimum columns for a
+mortality-improvement surface:
+
+```
+attained_age,calendar_year,central_exposure,death_count
+55,2015,120000.0,180.0
+55,2016,124000.0,176.0
+56,2015,118000.0,205.0
+...
+```
+
+- **`q_base` is optional.** If present it is used as-is as the static select-and-ultimate
+  offset. Otherwise pass `--table` (e.g. `soa_vbt_2015`) and Polaris attaches the annual base
+  from that standard table (Anchor 1 — a single-reference-year *static* table; a generational
+  base is rejected). Additional optional keys — `duration_months`, `sex`, `smoker`, `band`,
+  `product`, `uw_class`, `channel`, `underwriting_era`, `segment`, and the by-amount pair
+  `amount_exposed` / `death_amount` — activate the corresponding effects when present.
+
+A seriatim extract folds into this contract via `analytics.aggregate_seriatim`, and real public
+data loads via `analytics.load_hmd` / `analytics.load_ilec` (loaders, not data — see the Python
+API below).
+
+### Fit an improvement surface and emit a CUSTOM scale
+
+```bash
+# Frequentist tensor MI surface (delta-method band) → emit an ImprovementScale.CUSTOM scale
+uv run polaris experience improvement \
+  --experience experience_cells.csv \
+  --table soa_vbt_2015 \
+  --output custom_improvement.json \
+  --grid-out mi_grid.csv
+
+# Bayesian reduced-rank-GP surface (honest posterior CREDIBLE band), forward-projected
+# 40 years mean-reverting to a 1% long-term rate (CMI/MP-style)
+uv run polaris experience improvement \
+  --experience experience_cells.csv \
+  --table soa_vbt_2015 \
+  --bayesian \
+  --project-horizon 40 --long-term-rate 0.01 \
+  --output custom_improvement_projected.json
+```
+
+`--output` writes the `MortalityImprovement` (`ImprovementScale.CUSTOM`) JSON — the artifact the
+versioned store and the pricing config consume. `--grid-out` writes the raw `MI_x(y)` grid
+(long-format, with band). `--project-horizon` requires `--bayesian` (the projection anchors on the
+posterior). Tuning knobs: `--age-df` / `--year-df` (spline flexibility), `--basis {count,amount}`,
+`--confidence-level`, `--age-varying/--no-age-varying`, `--convergence-period`.
+
+### Inspect per-feature effect shapes (diagnostics)
+
+```bash
+uv run polaris experience fit \
+  --experience experience_cells.csv \
+  --table soa_vbt_2015 \
+  --effects-out effects.csv
+```
+
+Reports overall A/E, quasi-Poisson dispersion φ, and each standard feature's smooth/categorical
+effect on the A/E multiplier with a confidence band. `--effects-out` writes the plot-ready
+long-format CSV (`feature, term_type, x, x_value, multiplier, lower, upper`).
+
+### Freeze and version a basis
+
+The store is **append-only** — re-saving a study date never overwrites, so the full history of
+frozen bases is preserved. Version ids are `{study_date}-{seq:03d}` (keyed on the pinned study
+date, never the wall clock).
+
+```bash
+# Persist the emitted CUSTOM scale as a versioned basis
+uv run polaris experience save \
+  --improvement custom_improvement.json \
+  --study-date 2024-12-31 \
+  --credibility 0.8 \
+  --label "US term, 2019 study" \
+  --store-dir data/assumption_versions
+
+# List the stored history (newest study last)
+uv run polaris experience list --store-dir data/assumption_versions
+```
+
+### Drive a priced run from a versioned basis
+
+A frozen basis flows into `polaris price` through the `mortality` config block or a CLI flag; it is
+threaded onto `AssumptionSet.improvement`, which the product engines already consume — no engine
+change. Omitting the selector leaves pricing byte-identical.
+
+```jsonc
+// in your --config JSON, under "mortality":
+"mortality": {
+  "table": "soa_vbt_2015",
+  "improvement_version_id": "2024-12-31-001",
+  "improvement_store_dir": "data/assumption_versions"
+}
+```
+
+```bash
+# Or override the config's version id from the command line (flag beats config):
+uv run polaris price \
+  --inforce data/qa/golden_inforce.csv \
+  --config my_config.json \
+  --improvement-version 2024-12-31-001 \
+  -o priced.json
+# The selected id is echoed in the JSON summary as "mortality_improvement_version".
+```
+
+> Dashboard and REST-API surfacing of the improvement selector is a tracked follow-up (the
+> config/CLI path is wired today).
+
+### Python API
+
+```python
+import polars as pl
+# Import polaris_re.analytics before assumptions.mortality — analytics primes the
+# core/pipeline import chain in the right order (a known package import-order quirk).
+from polaris_re.analytics import (
+    TensorMIModel,             # frequentist surface (delta-method band)
+    BayesianTensorMIModel,     # reduced-rank GP (credible band) + projection
+    HierarchicalMIModel,       # segment partial pooling (credibility)
+    ExperienceGAM,             # interpretable additive A/E GAM
+    attach_base_rate,          # attach the static q_base offset (Anchor 1)
+    load_hmd, load_ilec,       # loaders, not data
+)
+from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
+
+# Cells must carry a static `q_base` offset. If the CSV lacks it, attach it from a
+# standard table (the fit rejects a generational/projected base — Anchor 1).
+cells = pl.read_csv("experience_cells.csv")
+if "q_base" not in cells.columns:
+    table = MortalityTable.load(MortalityTableSource.SOA_VBT_2015)
+    cells = attach_base_rate(cells, table)
+
+# Frequentist tensor MI surface → emit a MortalityImprovement the engine consumes
+result = TensorMIModel(cells, age_df=6, year_df=4).fit()   # cells to the constructor, fit() takes none
+surface = result.improvement_surface()                     # MI_x(y) grid + delta-method band
+improvement = surface.to_mortality_improvement()           # ImprovementScale.CUSTOM
+
+# Bayesian credible band + CMI/MP-style forward projection (40y → 1% long-term rate)
+bres = BayesianTensorMIModel(cells).fit()
+projection = bres.project_improvement(horizon_years=40, long_term_rate=0.01)
+projected_scale = projection.to_mortality_improvement()    # band narrows to the long-term rate
+
+# The emitted scale plugs into any AssumptionSet / projection exactly like a built-in scale.
+```
+
+Population data loads via `load_hmd(deaths_path, exposures_path)` (HMD 1x1 Deaths/Exposures →
+by-count cells; `fetch_hmd` is a fetch-and-cache helper) and insured grouped files via
+`load_ilec(path, basis="both")`. Neither ships data — you supply the cached/licensed file. The
+recovery-identity validation deck runs headless via `polaris benchmark --pack experience`.
+
+### Static diagnostic plots (`[viz]` extra)
+
+```python
+from polaris_re.viz import plot_effects, plot_mi_surface, plot_mi_projection
+# Every band is captioned with its kind — confidence (frequentist) / credible (Bayesian) /
+# posterior-predictive (projection) — so the three are never conflated.
+```
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |

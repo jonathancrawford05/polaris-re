@@ -1,5 +1,60 @@
 # Product Direction — 2026-06-18
 
+## ⏭️ Next Sprint — QUEUED (post-A4′ close, set up 2026-07-24, maintainer-directed)
+
+**Context.** With A4′ (Data-Driven Experience Analysis / GAM) closing via PR #156, the **entire
+written roadmap is complete** (Phases 1–6.2 shipped; only the 6.3 load-test gate (C6) and the
+reference-blocked AXIS/Prophet validation Slice 4 remain). The routine is at the post-roadmap
+inflection surfaced in `COMMERCIAL_VIABILITY_REVIEW_2026-07-15` §7: no Tier-A "big rock" is queued,
+so the next runs are a deliberate Sprint 0 of housekeeping + between-epic quick wins **while the
+maintainer chooses the next frontier**. Run these in order; each is single-session.
+
+**S0.1 — PRODUCT_DIRECTION regeneration + Phase-7 frontier decision (do first; the next run's sole
+deliverable).** The nightly line (`PRODUCT_DIRECTION_2026-06-18`) is now >30 days old and overdue.
+Regenerate `PRODUCT_DIRECTION_2026-07-{dd}`: list shipped-since #69…#156 (A1′/A2′/A3′/A4′ epics
+struck through), carry forward the unresolved "Promoted Follow-ups", and re-rank the catalogue.
+Surface the §7 Phase-7 decision to the maintainer (candidates: real AXIS/Prophet reconciliation to
+unblock validation Slice 4; a new product frontier — GMxB variable/indexed annuities with living
+benefits, or group/worksite; stochastic ALM / nested-stochastic / ESG for VM-21 PBR; or multi-user
+persistence + audit — deal DB, run history). Until a frontier is chosen, log that the routine is in
+*maintenance*, not *growth*, mode. *Source: DEV_SESSION_LOG_2026-07-24_experience_gam_slice4d3 Open
+Questions + COMMERCIAL_VIABILITY_REVIEW_2026-07-15 §5/§7/§8.*
+
+**S0.2 — Fix the latent `core/pipeline.py` ↔ `assumptions.assumption_set` circular import
+(maintainer-requested 2026-07-24).** Root cause: `core/pipeline.py` imports from `assumptions/`
+(a CLAUDE.md §6 layer violation — `core/` may not import `assumptions/`), and `core/__init__.py`
+eagerly re-imports `pipeline`, so a leaf `core.base` import drags in `pipeline`, which then needs a
+still-initialising `AssumptionSet`. Latent (no shipped path hits it — CLI/API/analytics import in a
+priming order); surfaced writing the QUICKSTART §14 example, which was reordered to dodge it.
+Two dispositions:
+- **Cheap symptom fix (~5–10 min, very low risk):** delete the eager `from polaris_re.core.pipeline
+  import (…)` block + its `__all__` entries from `core/__init__.py`. Verified safe — **zero** callers
+  use the re-export (`from polaris_re.core import DealConfig/…` = 0; no `core.DealConfig` attribute
+  use); all 27 importers already use the direct `core.pipeline` path. **Bundle into the S0.1
+  regeneration session** (it has no epic slice competing for wall-clock) or the next session that
+  already touches `core/__init__.py`/`pipeline.py`. Behaviour-neutral → goldens byte-identical; its
+  own small PR (a source change, not stacked on the docs-only #156).
+- **Proper architectural fix (~30–60 min):** move `pipeline.py` out of `core/` (e.g.
+  `polaris_re/pipeline.py`), update the 27 importers + `__all__` + an ADR — retires the layer
+  violation, not just the symptom. Preferred if paired with S0.1; otherwise the cheap fix suffices.
+*Source: PR #156 review [P1] + maintainer request 2026-07-24 (see "Promoted Follow-ups" entry).*
+
+**S0.3 — Tier-B between-epic quick wins (value-per-day order; unshipped after two reviews).**
+- **B1 — Switch capital surfaces to `for_product_interim`** (expose the built C-1/C-3 factors
+  everywhere; behaviour change → golden rebaseline + ADR). ★★★★☆, ~1–2 d.
+- **B2 — Scale benchmark at 100K–500K policies** (publish a timing table; back the README
+  performance claim). ★★★★☆, ~1 d.
+- **B4 — Premium-deficiency reserve / loss recognition** (turn the sufficiency analyzer into a
+  reserve floor). ★★★☆☆, ~1–2 d.
+*Source: COMMERCIAL_VIABILITY_REVIEW_2026-07-15 §4 Tier-B / §5 Sprint-0 set.*
+
+> The Tier-C queue (C3 funds-withheld coinsurance, C4 parallel portfolio, C5 per-deal hurdle rates,
+> C6 6.3 load-test gate) and Tier-D polish follow S0.3 only if no Phase-7 frontier is chosen. The
+> stale "Recommended Next Sprint" section below (dated 2026-06-18, leading with long-shipped
+> reserve-basis work) is superseded by this block and will be dropped in the S0.1 regeneration.
+
+---
+
 ## Reasonability Assessment
 
 The nightly regression suite is **clean**: 1,476 unit tests + 72 QA tests + all
@@ -1852,6 +1907,21 @@ constraint and a future session must not rebuild these as a naive wall-time log.
   pricing path → NICE-TO-HAVE. 1st-order (a follow-up of the planned Slice-4d-2 plots). *Source:
   ADR-153 Out of scope + DEV_SESSION_LOG_2026-07-23_experience_gam_slice4d2 Open Questions
   (1st-order).*
+
+- **NICE-TO-HAVE — Fix the latent `core/pipeline.py` ↔ `assumptions.assumption_set` circular
+  import.** `import polaris_re.assumptions.mortality` as the *first* `polaris_re` import raises
+  `ImportError: cannot import name 'AssumptionSet' ... (circular import)` via `core/pipeline.py:26`
+  (`core/__init__` eagerly imports `core.pipeline`, which imports `assumptions.assumption_set`,
+  which is mid-initialisation). It only succeeds when `polaris_re.analytics` (or another module that
+  primes the chain) is imported first. No shipped code path hits it — the CLI, API, and analytics
+  all import in a priming order — so it is latent, not a runtime bug; the QUICKSTART §14 Python
+  example was reordered (analytics-first) to dodge it. Proper fix: make `core.pipeline`'s
+  `AssumptionSet` import lazy (function-local) or break the `core/__init__` eager import so import
+  order is irrelevant. Developer-ergonomics polish on the package import graph, not pricing
+  correctness → NICE-TO-HAVE. 1st-order (a defect surfaced while writing the 4d-3 docs). *Source:
+  PR #156 review [P1] + DEV_SESSION_LOG_2026-07-24_experience_gam_slice4d3 Open Questions
+  (1st-order).* **Queued as Next-Sprint S0.2 (maintainer-directed 2026-07-24) — see the "⏭️ Next
+  Sprint — QUEUED" block at the top of this file.**
 
 ## Carried Forward
 

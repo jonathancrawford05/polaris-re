@@ -1,6 +1,10 @@
 # PLAN: Data-Driven Experience Analysis & Assumption-Setting (GAM)
 
-**Status:** IN PROGRESS (plan locked 2026-07-15; Slice 1 shipped 2026-07-21 as
+**Status:** COMPLETE — epic closed 2026-07-24 (all 15 shipped slices merged #141–#155; Slice 4d-3
+docs + close, ADR-154, is the final draft PR). See `CONTINUATION_experience_gam.md` (COMPLETE).
+Historical progress trail below.
+
+**Status (historical):** IN PROGRESS (plan locked 2026-07-15; Slice 1 shipped 2026-07-21 as
 PR #141/ADR-139; Slice 2a — frequentist tensor MI surface + `MI_x(y)` grid —
 shipped 2026-07-21, ADR-140; Slice 2b-surface — Bayesian credible-interval MI
 surface — shipped 2026-07-22, ADR-141; Slice 2b-projection — CMI/MP-style
