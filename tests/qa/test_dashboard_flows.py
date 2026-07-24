@@ -1264,3 +1264,134 @@ class TestScenarioUQPerspective:
         assert self._caption_says(at, "perspective: **cedant**"), (
             f"Expected cedant perspective caption; saw {[str(c.value) for c in at.caption]}"
         )
+
+
+class TestVersionedImprovementSelector:
+    """mi-dashboard Slice 2 — versioned experience-improvement selector on Deal Pricing.
+
+    The Deal Pricing page surfaces the frozen ``ImprovementScale.CUSTOM`` bases in
+    the append-only assumption-version store (``polaris experience save``) so an
+    actuary can override the Assumptions-page improvement with an audited,
+    experience-derived basis — the dashboard half of IMPORTANT #12 / ADR-148.
+
+    The store root is ``$POLARIS_DATA_DIR/assumption_versions`` (the same default
+    the CLI uses), so these tests point ``POLARIS_DATA_DIR`` at a seeded tmp dir.
+    Session state (inforce + flat-mortality assumptions) is injected directly,
+    mirroring ``TestDealPricingWithInjectedState`` — flat mortality means no SOA
+    table files are needed under the redirected data dir.
+    """
+
+    _STUDY_DATE_ISO = "2025-12-31"
+
+    def _seed_store(self, root) -> str:
+        from datetime import date
+
+        import numpy as np
+
+        from polaris_re.assumptions.improvement import MortalityImprovement
+        from polaris_re.assumptions.version_store import AssumptionVersionStore
+
+        ages = np.arange(40, 71, dtype=np.int32)
+        years = np.arange(2026, 2046, dtype=np.int32)
+        mi_grid = np.full((ages.size, years.size), 0.02, dtype=np.float64)
+        improvement = MortalityImprovement.from_grid(ages, years, mi_grid, ultimate_rate=0.02)
+        version = AssumptionVersionStore(root).save(
+            improvement,
+            study_date=date.fromisoformat(self._STUDY_DATE_ISO),
+            credibility=0.8,
+            label="apptest-basis",
+        )
+        return version.version_id
+
+    def _app_with_state(self):
+        from polaris_re.pipeline import (
+            DealConfig,
+            LapseConfig,
+            MortalityConfig,
+            PipelineInputs,
+            build_pipeline,
+            load_inforce,
+        )
+
+        policies = [
+            {
+                "policy_id": "TEST-IMP-001",
+                "issue_age": 45,
+                "attained_age": 45,
+                "sex": "M",
+                "smoker": False,
+                "face_amount": 1_000_000.0,
+                "annual_premium": 3_000.0,
+                "policy_term": 20,
+                "duration_inforce": 0,
+                "issue_date": "2026-01-01",
+                "valuation_date": "2026-01-01",
+                "product_type": "TERM",
+            }
+        ]
+        inforce = load_inforce(policies_dict=policies)
+        inputs = PipelineInputs(
+            mortality=MortalityConfig(source="flat", flat_qx=0.01),
+            lapse=LapseConfig(),
+            deal=DealConfig(product_type="TERM", treaty_type="YRT", projection_years=15),
+        )
+        inf, assumptions, _config = build_pipeline(inforce, inputs)
+        assert assumptions.improvement is None
+
+        at = AppTest.from_file(APP_PATH, default_timeout=60)
+        at.run()
+        at.session_state["inforce_block"] = inf
+        at.session_state["assumption_set"] = assumptions
+        at.sidebar.radio[0].set_value("Deal Pricing")
+        at.run()
+        return at
+
+    @staticmethod
+    def _version_selectbox(at):
+        for sb in at.selectbox:
+            if sb.label == "Versioned improvement basis":
+                return sb
+        return None
+
+    def test_selector_lists_stored_version(self, tmp_path, monkeypatch):
+        """With a populated store the selector renders and offers the stored id."""
+        monkeypatch.setenv("POLARIS_DATA_DIR", str(tmp_path))
+        version_id = self._seed_store(tmp_path / "assumption_versions")
+        at = self._app_with_state()
+        sb = self._version_selectbox(at)
+        assert sb is not None, f"selector missing; saw {[s.label for s in at.selectbox]}"
+        # AppTest exposes the format_func'd labels; the id is embedded in one.
+        assert any(version_id in opt for opt in sb.options), sb.options
+        # Default selection is the empty sentinel → no override applied.
+        assert at.session_state["deal_config"]["improvement_version_id"] is None
+
+    def test_selected_version_echoed_and_prices(self, tmp_path, monkeypatch):
+        """Selecting a version echoes its id on deal_config and prices cleanly."""
+        monkeypatch.setenv("POLARIS_DATA_DIR", str(tmp_path))
+        version_id = self._seed_store(tmp_path / "assumption_versions")
+        at = self._app_with_state()
+        sb = self._version_selectbox(at)
+        assert sb is not None
+        sb.set_value(version_id)
+        at.run()
+        assert at.session_state["deal_config"]["improvement_version_id"] == version_id
+
+        run_buttons = [b for b in at.button if b.label == "Run Pricing"]
+        assert run_buttons, f"Run Pricing button not found; saw {[b.label for b in at.button]}"
+        run_buttons[0].click()
+        at.run()
+        assert not at.exception, f"Pricing run raised: {at.exception}"
+        # The versioned basis id survives the run on the echoed config.
+        assert at.session_state["deal_config"]["improvement_version_id"] == version_id
+        assert "pricing_cohorts" in at.session_state
+        assert at.session_state["pricing_cohorts"]
+
+    def test_empty_store_shows_no_versions_caption(self, tmp_path, monkeypatch):
+        """An empty/absent store degrades to a caption; no override, no error."""
+        monkeypatch.setenv("POLARIS_DATA_DIR", str(tmp_path))  # nothing seeded
+        at = self._app_with_state()
+        assert not at.exception
+        assert self._version_selectbox(at) is None
+        captions = " ".join(str(c.value) for c in at.caption)
+        assert "No versioned experience-derived improvement bases" in captions
+        assert at.session_state["deal_config"]["improvement_version_id"] is None

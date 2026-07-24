@@ -51,24 +51,43 @@ goldens byte-identical.
     `tests/qa/test_dashboard_flows.py`.
 
 ### Slice 2: Versioned improvement-scale selector wired into pricing (the #12 dashboard half)
-- **Status:** NEXT
-- **Depends on:** Slice 1 merged
-- **Files to create/modify:** `views/pricing.py`, `components/state.py`, and the
-  MI page (or a shared component) to list
-  `AssumptionVersionStore.list_versions(kind="mortality_improvement")` and thread
-  the chosen `improvement_version_id` into the pricing `DealConfig`; ensure
-  `DealConfig.to_dict()` round-trips the field (add if missing — a controlled,
-  backward-compatible addition, default `None`).
-- **Tests to add:** `AppTest` flow selecting a version and asserting the priced
-  run consumes it (echoed config carries the version id); a `to_dict()`
-  round-trip unit test.
+- **Status:** DONE
+- **Branch:** `claude/loving-gauss-ovcw39` (environment-designated)
+- **PR:** #160 (draft)
+- **What was done:** The Deal Pricing page (`views/pricing.py`) now renders a
+  `_improvement_version_selector` that lists the CUSTOM bases in the
+  assumption-version store
+  (`AssumptionVersionStore(default_store_root()).list_versions(kind="mortality_improvement")`)
+  and lets the actuary pick one. The chosen `version_id` is mirrored onto the
+  session `deal_config`; the frozen scale is loaded via the same
+  `load_improvement_version` path the CLI `--improvement-version` flag uses and
+  applied to the run as `assumption_set.model_copy(update={"improvement": <loaded>})`
+  (frozen Pydantic model). `DealConfig` gains an
+  `improvement_version_id: str | None = None` field round-tripped in `to_dict()`.
+  An empty/absent store degrades to a "none available" caption. ADR-158.
+- **Key decisions:**
+  - The selector lives on the **Deal Pricing** page (not the Assumptions page) —
+    #12 is specifically the Deal Pricing selector, and co-locating the override
+    with the Run button keeps the "this run uses a frozen basis" decision next to
+    pricing and echoed on `deal_config`.
+  - The override reuses the CLI loader + the same `AssumptionSet.improvement`
+    field the engine consumes, so a dashboard-selected basis prices
+    **byte-identically** to the CLI path (regression-guarded at `atol=0`).
+  - `DealConfig.improvement_version_id` is the **dashboard parity surface only**;
+    the CLI/config path keeps `improvement_version_id` on `MortalityConfig`
+    (`inputs.mortality`), where `build_assumption_set` reads it. Default `None`
+    keeps every existing config byte-identical.
+  - Tests seed a CUSTOM version into a `tmp_path` store and redirect
+    `POLARIS_DATA_DIR`; the `AppTest` fixture uses flat mortality so no SOA
+    table files are needed under the redirected root.
 - **Acceptance criteria:**
   - A dashboard-selected versioned basis drives the priced run identically to the
-    CLI `--improvement-version` / `mortality.improvement_version_id` path.
-  - `DealConfig.to_dict()` round-trips the field; goldens untouched.
+    CLI `--improvement-version` / `mortality.improvement_version_id` path. ✅
+    (byte-identical gross death claims + `pv_profits` at `atol=0`)
+  - `DealConfig.to_dict()` round-trips the field; goldens untouched. ✅
 
 ### Slice 3 (optional / may split to its own PR): REST-API improvement selector (the #12 API half)
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 2 merged
 - **Scope:** Add `improvement_version` to the `/api/v1/price` `PriceRequest`
   schema, thread through the same pipeline path, echo on the response. If not
