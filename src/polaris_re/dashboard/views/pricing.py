@@ -25,6 +25,7 @@ from polaris_re.analytics.premium_sufficiency import (
 )
 from polaris_re.analytics.profit_test import ProfitResultWithCapital, ProfitTestResult
 from polaris_re.assumptions.assumption_set import AssumptionSet
+from polaris_re.assumptions.improvement import MortalityImprovement
 from polaris_re.core.asset import AssetPortfolio
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
@@ -39,7 +40,7 @@ from polaris_re.dashboard.components.projection import (
     run_treaty_projection,
 )
 from polaris_re.dashboard.components.state import get_deal_config
-from polaris_re.pipeline import derive_capital_nar, iter_cohorts
+from polaris_re.pipeline import derive_capital_nar, iter_cohorts, load_improvement_version
 
 __all__ = ["page_pricing"]
 
@@ -1009,6 +1010,96 @@ def _asset_portfolio_input(cfg: dict[str, object]) -> tuple[AssetPortfolio | Non
     return portfolio, valuation_yield
 
 
+def _improvement_version_label(version: object) -> str:
+    """Human-readable selectbox label for one stored assumption version.
+
+    Compact provenance so a pricing actuary can tell frozen bases apart:
+    the store-allocated ``version_id`` plus the study date, the optional
+    human label, and the credibility weight when present.
+    """
+    vid = getattr(version, "version_id", "?")
+    study = getattr(version, "study_date", "?")
+    parts = [f"{vid}  (study {study}"]
+    label = getattr(version, "label", None)
+    if label:
+        parts.append(f", {label}")
+    credibility = getattr(version, "credibility", None)
+    if credibility is not None:
+        parts.append(f", Z={credibility:.0%}")
+    return "".join(parts) + ")"
+
+
+def _improvement_version_selector(cfg: dict[str, object]) -> MortalityImprovement | None:
+    """Render the versioned experience-improvement selector (mi-dashboard Slice 2).
+
+    Lists the ``ImprovementScale.CUSTOM`` bases frozen in the append-only
+    assumption-version store (``polaris experience save``) and lets the actuary
+    pick one to drive the priced run. The chosen ``version_id`` is mirrored onto
+    the ``deal_config`` dict (``improvement_version_id``) so the parity surface
+    round-trips it, and the frozen scale is loaded via the same
+    ``load_improvement_version`` path the CLI ``--improvement-version`` flag uses,
+    so a dashboard-selected basis prices identically to the CLI.
+
+    Returns the loaded :class:`MortalityImprovement` when a version is selected,
+    else ``None`` (leaving the run on the Assumptions-page improvement \u2014 the
+    byte-identical default). Never raises: an empty or absent store degrades to a
+    disabled "none available" caption.
+    """
+    from polaris_re.assumptions.version_store import (
+        DEFAULT_ASSUMPTION_KIND,
+        AssumptionVersionStore,
+        default_store_root,
+    )
+
+    with st.expander("Experience-derived mortality improvement (versioned)", expanded=False):
+        store = AssumptionVersionStore(default_store_root())
+        versions = store.list_versions(kind=DEFAULT_ASSUMPTION_KIND)
+
+        if not versions:
+            st.caption(
+                "No versioned experience-derived improvement bases are available. "
+                "Freeze one with `polaris experience save` (an "
+                "`ImprovementScale.CUSTOM` scale), then it appears here to drive "
+                "the priced run \u2014 identically to the CLI `--improvement-version` "
+                "flag (ADR-148)."
+            )
+            cfg["improvement_version_id"] = None
+            return None
+
+        # "None" first, then one option per stored version. Options are the
+        # version ids (None sentinel = ""); labels carry the provenance.
+        id_to_label = {v.version_id: _improvement_version_label(v) for v in versions}
+        options: list[str] = [""] + [v.version_id for v in versions]
+        current = cfg.get("improvement_version_id")
+        current_id = current if isinstance(current, str) and current in id_to_label else ""
+        selected = st.selectbox(
+            "Versioned improvement basis",
+            options=options,
+            index=options.index(current_id),
+            format_func=lambda vid: (
+                "None (use the Assumptions-page improvement)" if vid == "" else id_to_label[vid]
+            ),
+            help=(
+                "Select a frozen, audited experience-improvement basis to override "
+                "the Assumptions-page improvement scale for this run. This is the "
+                "dashboard equivalent of the CLI `--improvement-version` / "
+                "`mortality.improvement_version_id` config key (ADR-148)."
+            ),
+        )
+
+        if not selected:
+            cfg["improvement_version_id"] = None
+            return None
+
+        cfg["improvement_version_id"] = selected
+        improvement = load_improvement_version(selected, kind=DEFAULT_ASSUMPTION_KIND)
+        st.info(
+            f"Versioned basis **{selected}** ({id_to_label[selected]}) overrides the "
+            "Assumptions-page improvement scale for this priced run."
+        )
+        return improvement
+
+
 def page_pricing() -> None:
     """Deal pricing page \u2014 requires session state from Pages 1-2.
 
@@ -1136,6 +1227,17 @@ def page_pricing() -> None:
     # (None, None) when no portfolio is pasted, leaving the run byte-identical.
     asset_portfolio, alm_valuation_yield = _asset_portfolio_input(cfg)
 
+    # Optional versioned experience-derived improvement basis (mi-dashboard
+    # Slice 2). When a stored CUSTOM scale is selected it overrides the
+    # Assumptions-page improvement for this run, mirroring the CLI
+    # ``--improvement-version`` path; None leaves the run byte-identical.
+    improvement_override = _improvement_version_selector(cfg)
+    effective_assumption_set = (
+        assumption_set.model_copy(update={"improvement": improvement_override})
+        if improvement_override is not None
+        else assumption_set
+    )
+
     if st.button("Run Pricing", type="primary"):
         with st.spinner("Running projection..."):
             try:
@@ -1151,7 +1253,7 @@ def page_pricing() -> None:
                     cohort_data_map[cohort_id] = _run_pricing_for_cohort(
                         cohort_id=cohort_id,
                         cohort_inforce=cohort_inforce,
-                        assumption_set=assumption_set,
+                        assumption_set=effective_assumption_set,
                         config=config,
                         treaty_type=treaty_type,
                         use_policy_cession=use_policy_cession,
@@ -1197,7 +1299,7 @@ def page_pricing() -> None:
 
     if len(cohort_data_map) == 1:
         only = next(iter(cohort_data_map.values()))
-        _render_cohort_results(only, assumption_set)
+        _render_cohort_results(only, effective_assumption_set)
         return
 
     # Mixed-cohort summary table above the tabs
@@ -1240,4 +1342,4 @@ def page_pricing() -> None:
     tabs = st.tabs(tab_labels)
     for tab, cohort_id in zip(tabs, tab_labels, strict=True):
         with tab:
-            _render_cohort_results(cohort_data_map[cohort_id], assumption_set)
+            _render_cohort_results(cohort_data_map[cohort_id], effective_assumption_set)

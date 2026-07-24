@@ -169,6 +169,19 @@ class DealConfig:
     # byte-identical. ``build_assumption_set`` loads it via
     # ``load_valuation_mortality``.
     valuation_mortality: str | None = None
+    # Optional experience-derived versioned mortality-improvement basis selected
+    # on the dashboard Deal Pricing page (mi-dashboard epic, Slice 2 — the
+    # dashboard half of IMPORTANT #12 / ADR-148). Names a versioned
+    # ``ImprovementScale.CUSTOM`` scale in the append-only assumption-version
+    # store (``polaris experience save``); the dashboard resolves it via
+    # ``load_improvement_version`` and threads the frozen scale onto the priced
+    # run's ``AssumptionSet.improvement``, exactly as the CLI
+    # ``--improvement-version`` flag / ``mortality.improvement_version_id`` config
+    # key do (which live on ``MortalityConfig``). This DealConfig field is the
+    # dashboard/parity surface: None (default) leaves the run on the
+    # Assumptions-page improvement, so every existing config and priced number is
+    # byte-identical.
+    improvement_version_id: str | None = None
     # Optional tabular YRT rate table (ADR-052/ADR-075). When set, YRT
     # premiums are billed from a directory of (age x duration) rate CSVs
     # instead of the flat / mortality-derived rate — the YAML/JSON config
@@ -227,6 +240,11 @@ class DealConfig:
         surfaces them only on the CLI config path; no dashboard surface consumes
         them yet. They join this parity dict when a dashboard slice uses them
         (the ``yrt_rate_table_*`` / ALM precedent).
+
+        ``improvement_version_id`` (mi-dashboard epic, Slice 2) IS included
+        (default ``None``): the Deal Pricing page's versioned-improvement
+        selector reads and writes it on the session-state ``deal_config`` dict,
+        so the parity surface must round-trip it.
         """
         return {
             "product_type": self.product_type,
@@ -245,6 +263,7 @@ class DealConfig:
             "valuation_date": self.valuation_date,
             "asset_portfolio": self.asset_portfolio,
             "alm_valuation_yield": self.alm_valuation_yield,
+            "improvement_version_id": self.improvement_version_id,
         }
 
 

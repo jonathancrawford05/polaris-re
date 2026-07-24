@@ -10420,3 +10420,61 @@ assert the cache reuses the fit on identical inputs, invalidates on a fit-input 
 signature ignores the band level; an `AppTest` asserts the fit signature is unchanged across a
 confidence-slider move. Behaviour-neutral; goldens byte-identical. The **saved-version load path**
 remains Slice 2.
+
+## ADR-158: Versioned experience-improvement selector on Deal Pricing — MI dashboard Slice 2
+
+**Status:** Accepted (2026-07-24). Slice 2 of the MI dashboard epic
+(`docs/PLAN_mi_dashboard.md` / `docs/CONTINUATION_mi_dashboard.md`); the dashboard half
+of IMPORTANT #12 / ADR-148.
+
+**Context.** The A4′ epic (ADR-139..154) built an experience-derived mortality-improvement
+capability whose frozen, audited `ImprovementScale.CUSTOM` bases are persisted in the
+append-only `AssumptionVersionStore` (`polaris experience save`) and can drive a priced run
+via the CLI `--improvement-version` flag / `mortality.improvement_version_id` config key
+(ADR-148, loaded by `build_assumption_set` → `load_improvement_version`). The Streamlit
+dashboard had no equivalent: a non-CLI pricing actuary could not select a versioned basis, so
+IMPORTANT #12's dashboard half was unmet. Slice 1 (ADR-157) shipped the MI *diagnostics* page;
+this slice wires the *selector* into Deal Pricing.
+
+**Decision.** The Deal Pricing page (`views/pricing.py`) now renders a
+`_improvement_version_selector` that lists the CUSTOM bases in the assumption-version store
+(`AssumptionVersionStore(default_store_root()).list_versions(kind="mortality_improvement")` —
+the same default root the CLI resolves) and lets the actuary pick one. The selected `version_id`
+is mirrored onto the session-state `deal_config` dict; the frozen scale is loaded via the same
+`load_improvement_version` path the CLI uses and applied to the priced run as
+`assumption_set.model_copy(update={"improvement": <loaded>})` (`AssumptionSet` is a frozen
+Pydantic model). Because the override reuses the CLI loader and the same `AssumptionSet.improvement`
+field the engine already consumes, a dashboard-selected basis prices **byte-identically** to the
+CLI `--improvement-version` path (regression-guarded at `atol=0` on gross death claims and
+`pv_profits`).
+
+`DealConfig` gains an `improvement_version_id: str | None = None` field, round-tripped through
+`to_dict()` so the dashboard parity surface (`state.DEFAULTS`) carries it. This is the dashboard's
+config surface only — the CLI/config path keeps `improvement_version_id` on `MortalityConfig`
+(`inputs.mortality`), where `build_assumption_set` reads it; the DealConfig field is not consumed by
+the pipeline. Default `None` leaves the run on the Assumptions-page improvement, so every existing
+config and priced number is byte-identical.
+
+**Alternatives considered.** (1) Extend the Assumptions-page `_improvement_section()` to offer
+versioned bases alongside Scale AA / MP-2020 / CPM-B. Rejected: #12 is specifically the *Deal
+Pricing* selector, and placing the override next to the Run button keeps the "this run uses a frozen
+basis" decision co-located with pricing and echoed on `deal_config`. (2) Thread the version through a
+rebuilt `MortalityConfig` at price time. Rejected: the dashboard prices from the session `AssumptionSet`
+(built on the Assumptions page), not from `PipelineInputs`, so a `model_copy` override of the single
+`improvement` field is the minimal, contract-faithful insertion point.
+
+**Impact.** Goldens byte-identical (no baseline regeneration — the default path is untouched).
+Contract touch: one new backward-compatible `DealConfig` field (default `None`), flagged in the PR.
+Ten new tests — two direct (`to_dict` round-trip; dashboard-vs-CLI byte-identical + it-bites) and
+three `AppTest` flows (selector lists a stored version; selection echoed on `deal_config` and prices
+cleanly; empty store degrades to a caption). Tests seed a CUSTOM version into a `tmp_path` store and
+redirect `POLARIS_DATA_DIR`; the `AppTest` fixture uses flat mortality so no SOA table files are needed
+under the redirected root. No new runtime dependency; the store and `load_improvement_version` already
+ship.
+
+**Out of scope.** (1) The **REST-API half of #12** — a `/api/v1/price` `improvement_version` field
+threaded through the same pipeline path — is optional Slice 3; **IMPORTANT #12 stays open** until it
+ships (only the dashboard half lands here). (2) A **store-management UI** (create/save versions from
+the dashboard) — versions are still authored via the `polaris experience save` CLI; the dashboard is
+read-only over the store. (3) Surfacing the selected basis's **provenance detail** (study date /
+credibility / notes) beyond the compact selectbox label and the override info line.

@@ -315,8 +315,11 @@ BLOCKER remains.
     versioned `ImprovementScale.CUSTOM` basis is wired into `--config` and a
     `--improvement-version` CLI flag but not the dashboard Deal Pricing page or REST
     `/price` schema. *Source: ADR-148 Out of scope (1st-order).* **→ the dashboard
-    half is Next Sprint S2 (maintainer-directed 2026-07-24), folded into the MI
-    dashboard page; the REST-API half may follow.**
+    half ~~is Next Sprint S2~~ — **SHIPPED** (PR #160, ADR-158, MI dashboard Slice 2):
+    the Deal Pricing page's versioned-improvement selector lists the store's CUSTOM
+    bases and drives the run byte-identically to the CLI `--improvement-version` path.
+    IMPORTANT #12 stays OPEN for the remaining REST-API half (a `/api/v1/price`
+    `improvement_version` field — optional Slice 3, see `PLAN_mi_dashboard.md`).**
 
 > **CI performance & smoke tracking (maintainer discussion 2026-07-12) — group
 > context.** IMPORTANT #8/#9/#10 and NICE-TO-HAVE #62/#63/#64 form one coherent
@@ -459,16 +462,31 @@ polish on a shipped surface, not a production-correctness gap):
   ADR-157 follow-up, maintainer-directed): the frequentist GLM fits are now
   cached in `st.session_state` by a content+config signature that excludes the
   confidence level, so a slider move re-derives bands without refitting.
-- **Add a saved-version load path on the MI dashboard page** — load a fitted MI
-  surface from the version store alongside upload/sample (the caching half of
-  this item shipped above; this remainder is deferred to Slice 2). *Source:
-  ADR-157 Out of scope (1st-order).*
+- **Add a saved-version load path on the MI *diagnostics* page** — load a fitted MI
+  surface from the version store alongside upload/sample on the diagnostics page
+  (the caching half of this item shipped above). This is distinct from Slice 2's
+  *pricing* selector (PR #160), which reads the store to drive a priced run but
+  does not render a stored surface's diagnostics. *Source: ADR-157 Out of scope
+  (1st-order).*
+- **REST-API half of the experience-improvement selector (IMPORTANT #12, API
+  half)** — add `improvement_version` to the `/api/v1/price` `PriceRequest`
+  schema and thread it through the same pipeline path, echoed on the response.
+  The dashboard half shipped in Slice 2 (PR #160); this is the optional Slice 3.
+  *Source: ADR-158 Out of scope (1st-order); carried forward from IMPORTANT #12.*
+- **Fuller provenance panel in the Deal-Pricing version selector** — the Slice-2
+  selectbox shows a compact label (id + study date + optional label + credibility)
+  and an override info line; surface the version's `notes` / source-study
+  provenance in a panel so the actuary sees the full audit trail before pricing on
+  it. NICE-TO-HAVE. *Source: ADR-158 Out of scope (2nd-order).*
+- **Store-management UI over the assumption-version store** — versions are authored
+  only via `polaris experience save`; the dashboard is read-only over the store.
+  A create/save-from-dashboard flow would let a fitted MI surface be frozen without
+  dropping to the CLI. NICE-TO-HAVE. *Source: ADR-158 Out of scope (2nd-order).*
 
-> The Deal-Pricing versioned-selector (IMPORTANT #12 dashboard half) and the
-> REST-API half of #12 are **not** harvested here — the dashboard half is
-> **Slice 2** of this same feature (tracked in `CONTINUATION_mi_dashboard.md`,
-> not a loose follow-up), and the API half remains carried-forward **IMPORTANT
-> #12** above. IMPORTANT #12 stays OPEN — only the diagnostics half shipped.
+> The Deal-Pricing versioned-selector (IMPORTANT #12 **dashboard half**) **SHIPPED**
+> in **Slice 2** (PR #160, ADR-158) — see the struck-through note under IMPORTANT
+> #12 above. The **REST-API half** of #12 remains open (harvested just above as the
+> optional Slice 3). IMPORTANT #12 stays OPEN until the API half ships.
 
 ---
 

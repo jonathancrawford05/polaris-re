@@ -8,8 +8,10 @@
 > DECISIONS + DEV_SESSION_LOG at the end of every slice — this plan is the
 > read-only spec, not the running log.
 >
-> **Status.** ⏳ IN PROGRESS — **Slice 1 shipped** (diagnostics page, ADR-157);
-> Slice 2 (versioned selector into pricing) is NEXT. Queued as **Next Sprint S2**
+> **Status.** ⏳ IN PROGRESS — **Slices 1–2 shipped** (Slice 1 diagnostics page,
+> ADR-157, PR #159; Slice 2 versioned selector into Deal Pricing, ADR-158, PR
+> #160). The optional Slice 3 (REST-API half of #12) is NEXT; IMPORTANT #12 stays
+> open until it ships. Queued as **Next Sprint S2**
 > (maintainer-directed 2026-07-24) in `PRODUCT_DIRECTION_2026-07-24.md` — the
 > second item, after S1 (`pipeline.py` relocation) and ahead of the Tier-B quick
 > wins. Running log: `docs/CONTINUATION_mi_dashboard.md`.
@@ -108,19 +110,22 @@ surfacing gap for the epic's headline capability.
 - **Acceptance:** page renders the three diagnostics from a fixture CSV; AppTest
   green; goldens untouched; ruff clean.
 
-### Slice 2 — Versioned improvement-scale selector wired into pricing (the #12 dashboard half)
-- On the MI page (or a shared component), list `AssumptionVersionStore.list_versions(kind="mortality_improvement")`;
-  `st.selectbox` the version id; store the choice in the shared pricing state.
-- In `views/pricing.py` (+ `components/state.py`), consume the selected
-  `improvement_version_id` into the `DealConfig` the pricing run builds, exactly
-  as the CLI threads `--improvement-version` / `mortality.improvement_version_id`.
-- Ensure `DealConfig.to_dict()` round-trips the field (add if missing — a
-  controlled, backward-compatible addition; default `None` preserves behaviour).
-- Tests: AppTest flow selecting a version and asserting the priced run consumes
-  it (e.g. the echoed config carries the version id); a `to_dict()` round-trip
-  unit test.
-- **Acceptance:** a dashboard-selected versioned basis drives the priced run
-  identically to the CLI path; round-trip test green; goldens untouched.
+### Slice 2 — Versioned improvement-scale selector wired into pricing (the #12 dashboard half) ✅ SHIPPED (PR #160, ADR-158)
+- **Landed on the Deal Pricing page directly** (not the MI page): `views/pricing.py`
+  `_improvement_version_selector` lists
+  `AssumptionVersionStore(default_store_root()).list_versions(kind="mortality_improvement")`,
+  `st.selectbox`'s the version id, and mirrors the choice onto the session
+  `deal_config`. When a version is selected it is loaded via the CLI's own
+  `load_improvement_version` and applied to the run as
+  `assumption_set.model_copy(update={"improvement": <loaded>})`.
+- `DealConfig` gained `improvement_version_id: str | None = None`, round-tripped in
+  `to_dict()` (controlled, backward-compatible; default `None`). It is the
+  dashboard parity surface only — the CLI keeps the field on `MortalityConfig`.
+- Tests: 3 `AppTest` flows (selector lists a stored version; selection echoed on
+  `deal_config` + prices cleanly; empty store degrades to a caption) + 2 direct
+  (`to_dict` round-trip; dashboard-vs-CLI byte-identical at `atol=0` + it-bites).
+- **Acceptance:** ✅ a dashboard-selected versioned basis drives the priced run
+  byte-identically to the CLI path; ✅ round-trip test green; ✅ goldens untouched.
 
 ### Slice 3 (optional / may split to its own PR) — REST-API improvement selector (the #12 API half)
 - Add `improvement_version` to the `/api/v1/price` `PriceRequest` schema and
