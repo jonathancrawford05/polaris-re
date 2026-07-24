@@ -5,7 +5,7 @@ projection execution so every page produces identical results for
 the same inputs.
 
 Core helpers (derive_yrt_rate, build_treaty, ceded_to_reinsurer_view)
-are imported from ``polaris_re.core.pipeline`` — the single source of truth
+are imported from ``polaris_re.pipeline`` — the single source of truth
 shared with the CLI. Dashboard-specific UI glue lives here.
 """
 
@@ -13,15 +13,15 @@ from datetime import date
 
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.exceptions import PolarisValidationError
-from polaris_re.core.pipeline import (
+from polaris_re.core.projection import ProjectionConfig
+from polaris_re.dashboard.components.state import get_deal_config
+from polaris_re.pipeline import (
     build_treaty as _pipeline_build_treaty,
 )
-from polaris_re.core.pipeline import (
+from polaris_re.pipeline import (
     ceded_to_reinsurer_view,
     derive_yrt_rate,
 )
-from polaris_re.core.projection import ProjectionConfig
-from polaris_re.dashboard.components.state import get_deal_config
 
 __all__ = [
     "build_projection_config",
@@ -91,7 +91,7 @@ def build_treaty(
 ) -> object | None:
     """Construct a treaty object from the given parameters.
 
-    Delegates to the shared ``core.pipeline.build_treaty`` with dashboard
+    Delegates to the shared ``polaris_re.pipeline.build_treaty`` with dashboard
     treaty name convention. When ``yrt_rate_table`` is supplied for a YRT
     treaty, it is wired directly onto the constructed ``YRTTreaty`` (the
     pipeline factory does not yet know about tabular rates — the dashboard

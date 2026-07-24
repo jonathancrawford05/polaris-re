@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 
 from polaris_re.core.exceptions import PolarisValidationError
-from polaris_re.core.pipeline import (
+from polaris_re.pipeline import (
     DealConfig,
     MortalityConfig,
     PipelineInputs,

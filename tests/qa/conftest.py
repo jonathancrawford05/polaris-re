@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from polaris_re.core.pipeline import load_inforce
+from polaris_re.pipeline import load_inforce
 
 from .golden_runner import GOLDEN_CSV, GOLDEN_OUTPUTS_DIR, has_soa_tables
 

@@ -31,7 +31,7 @@ from pathlib import Path
 # config parsing — if they change, the goldens should reflect that.
 from polaris_re.analytics.profit_test import ProfitTester
 from polaris_re.cli import _load_json_config, _parse_config_to_pipeline_inputs
-from polaris_re.core.pipeline import (
+from polaris_re.pipeline import (
     PipelineInputs,
     build_pipeline,
     build_treaty,

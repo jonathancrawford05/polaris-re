@@ -33,7 +33,10 @@ from polaris_re.assumptions.lapse import LapseAssumption
 from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
 from polaris_re.core.exceptions import PolarisComputationError
 from polaris_re.core.inforce import InforceBlock
-from polaris_re.core.pipeline import (
+from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
+from polaris_re.core.projection import ProjectionConfig
+from polaris_re.core.reserve_basis import ReserveBasis
+from polaris_re.pipeline import (
     DealConfig,
     LapseConfig,
     MortalityConfig,
@@ -41,9 +44,6 @@ from polaris_re.core.pipeline import (
     build_assumption_set,
     load_inforce,
 )
-from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
-from polaris_re.core.projection import ProjectionConfig
-from polaris_re.core.reserve_basis import ReserveBasis
 from polaris_re.products.whole_life import WholeLife
 from polaris_re.reinsurance.yrt import YRTTreaty
 from polaris_re.utils.table_io import load_mortality_csv

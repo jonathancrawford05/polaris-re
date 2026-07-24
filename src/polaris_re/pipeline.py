@@ -1,4 +1,15 @@
-"""Shared pipeline builder — single source of truth for CLI and dashboard.
+"""Shared pipeline builder — the deal composition root, single source of truth.
+
+This module is the engine's **composition root**: it wires a ``DealConfig`` into
+the concrete ``(InforceBlock, AssumptionSet, ProjectionConfig)`` tuple that every
+entry point (CLI, dashboard, REST API, analytics) prices from. As a root it sits
+*above* every sub-package — ``core/``, ``assumptions/``, ``products/``, and
+``reinsurance/`` — and legitimately imports across all of them. That is why it
+lives at the package top level (``polaris_re.pipeline``) rather than inside
+``core/``: the CLAUDE.md §6 rule forbids ``core/`` from importing ``assumptions/``,
+and this module imports ``AssumptionSet``, ``MortalityTable``, ``LapseAssumption``,
+``MortalityImprovement``, and the version store. Relocating it here (ADR-156)
+retires the former §6 exception rather than merely masking its symptom (ADR-155).
 
 Both the CLI and Streamlit dashboard construct identical
 (InforceBlock, AssumptionSet, ProjectionConfig) tuples from this module.

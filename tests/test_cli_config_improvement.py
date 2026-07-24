@@ -45,7 +45,7 @@ from polaris_re.assumptions.version_store import (
 )
 from polaris_re.cli import app
 from polaris_re.core.exceptions import PolarisValidationError
-from polaris_re.core.pipeline import (
+from polaris_re.pipeline import (
     MortalityConfig,
     PipelineInputs,
     build_assumption_set,

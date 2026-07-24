@@ -2,7 +2,7 @@
 
 import streamlit as st  # type: ignore[import-untyped]
 
-from polaris_re.core.pipeline import DealConfig
+from polaris_re.pipeline import DealConfig
 
 __all__ = [
     "DEFAULTS",

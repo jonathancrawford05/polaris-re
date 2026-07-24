@@ -67,7 +67,9 @@ if TYPE_CHECKING:
     from polaris_re.assumptions.mortality import MortalityTableSource
     from polaris_re.utils.excel_output import DealPricingExport, IFRS17MovementExport
 from polaris_re.assumptions.version_store import DEFAULT_ASSUMPTION_KIND, default_store_root
-from polaris_re.core.pipeline import (
+from polaris_re.core.policy import Policy, ProductType
+from polaris_re.core.projection import ProjectionConfig
+from polaris_re.pipeline import (
     DealConfig,
     LapseConfig,
     MortalityConfig,
@@ -81,8 +83,6 @@ from polaris_re.core.pipeline import (
     iter_cohorts,
     load_inforce,
 )
-from polaris_re.core.policy import Policy, ProductType
-from polaris_re.core.projection import ProjectionConfig
 from polaris_re.reinsurance.expense_allowance import ExpenseAllowance
 from polaris_re.reinsurance.experience_refund import ExperienceRefund
 

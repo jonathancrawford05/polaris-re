@@ -22,7 +22,7 @@ import pytest
 
 from polaris_re.cli import _build_pipeline_from_config, _build_treaty_for_pipeline
 from polaris_re.core.exceptions import PolarisValidationError
-from polaris_re.core.pipeline import build_treaty
+from polaris_re.pipeline import build_treaty
 from polaris_re.products.dispatch import get_product_engine
 from polaris_re.reinsurance.coinsurance import CoinsuranceTreaty
 from polaris_re.reinsurance.expense_allowance import ExpenseAllowance

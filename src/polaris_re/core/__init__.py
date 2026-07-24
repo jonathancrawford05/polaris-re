@@ -5,13 +5,14 @@ Exports the primary data models used throughout the engine:
 Policy, InforceBlock, ProjectionConfig, CashFlowResult, base exceptions,
 and the asset model.
 
-The pipeline builder (``DealConfig``/``build_pipeline``/etc.) deliberately is
-NOT re-exported here. ``core/pipeline.py`` imports from ``assumptions/`` (a
-CLAUDE.md §6 layering exception it is granted as the composition root), so an
-eager re-export made a leaf ``core.base`` import drag ``pipeline`` — and thus
-``assumptions``, mid-initialisation — into the graph, producing a latent
-circular ImportError. Import those symbols from ``polaris_re.core.pipeline``
-directly. See ADR-155.
+The pipeline builder (``DealConfig``/``build_pipeline``/etc.) is not part of the
+``core`` layer at all: it is the deal **composition root** and lives at the
+package top level, ``polaris_re.pipeline``. It imports from ``assumptions/`` (and
+every other sub-package), which the CLAUDE.md §6 rule forbids ``core/`` from
+doing — so it must sit above ``core/``, not inside it. Import those symbols from
+``polaris_re.pipeline`` directly. ADR-156 relocated the module out of ``core/``
+to retire that §6 exception entirely; ADR-155 was the earlier symptom-only fix
+(removing an eager re-export from this ``__init__``).
 """
 
 from polaris_re.core.asset import AssetPortfolio, Bond

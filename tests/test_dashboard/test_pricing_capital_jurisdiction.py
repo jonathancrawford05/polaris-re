@@ -19,17 +19,17 @@ import numpy as np
 import pytest
 
 from polaris_re.analytics.profit_test import ProfitResultWithCapital, ProfitTestResult
-from polaris_re.core.pipeline import (
+from polaris_re.dashboard.views.pricing import (
+    _CAPITAL_MODEL_CHOICES,
+    _run_pricing_for_cohort,
+)
+from polaris_re.pipeline import (
     DealConfig,
     LapseConfig,
     MortalityConfig,
     PipelineInputs,
     build_pipeline,
     load_inforce,
-)
-from polaris_re.dashboard.views.pricing import (
-    _CAPITAL_MODEL_CHOICES,
-    _run_pricing_for_cohort,
 )
 
 

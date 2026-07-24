@@ -76,10 +76,10 @@ from polaris_re.core.asset import AssetPortfolio
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
-from polaris_re.core.pipeline import derive_capital_nar, load_valuation_mortality
 from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
 from polaris_re.core.projection import ProjectionConfig
 from polaris_re.core.reserve_basis import ReserveBasis
+from polaris_re.pipeline import derive_capital_nar, load_valuation_mortality
 from polaris_re.products.dispatch import get_product_engine
 from polaris_re.reinsurance.base_treaty import BaseTreaty
 from polaris_re.reinsurance.expense_allowance import ExpenseAllowance
