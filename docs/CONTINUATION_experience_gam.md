@@ -1,8 +1,12 @@
 # Continuation: Data-Driven Experience Analysis & Assumption-Setting (GAM)
 
 **Source:** docs/PLAN_experience_gam.md — Tier-A epic A4′ (COMMERCIAL_VIABILITY_REVIEW_2026-07-15 §3/§5; ROADMAP 6.1)
-**Status:** IN PROGRESS
-**Total slices:** 4
+**Status:** COMPLETE — all slices shipped (1, 2a, 2b-surface, 2b-projection, 2c, 3, 4a, 4b-1,
+4b-2, 4b-3, 4c-1, 4c-2, 4c-3, 4d-1, 4d-2 all MERGED #141–#155; 4d-3 docs + close = this draft PR,
+ADR-154). Epic closed 2026-07-24. HARVEST FOLLOW-UPS completed (all surviving refinements were
+harvested during the per-slice sessions into PRODUCT_DIRECTION_2026-06-18 Promoted Follow-ups and
+re-verified present this session — see "Harvest verification (epic close)" below).
+**Total slices:** 4 (sub-decomposed to 15 shipped slices)
 **Estimated total scope:** ~10–14 dev-days
 
 ## Overall Goal
@@ -452,7 +456,8 @@ byte-identical; only the plots slice adds a rendering surface.
 ##### Slice 4d-2: effect-shape + MI-surface + projection diagnostic plots
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-93tjdn
-- **PR:** #155 (draft — awaiting review/merge)
+- **PR:** #155 — **MERGED** 2026-07-24 (merge commit `bd6d59f`; ledger-healed this session — the
+  "draft — awaiting review/merge" marker was stale because the routine never merges its own PRs).
 - **Depends on:** Slice 4d-1 merged (#154, merge `350162f`).
 - **What was done:** Shipped the static matplotlib diagnostic helpers behind a new `[viz]` extra as
   a self-contained `polaris_re.viz` subpackage (`experience_plots.py`), rendering the LOCKED
@@ -480,11 +485,28 @@ byte-identical; only the plots slice adds a rendering surface.
     backend is the same dataclass, so the caller states which band it carries.
 
 ##### Slice 4d-3: ARCHITECTURE + QUICKSTART docs (CLOSES EPIC)
-- **Status:** NEXT
+- **Status:** DONE
+- **Branch:** claude/loving-gauss-km5fwp
+- **PR:** _(this draft PR)_
 - **Depends on:** Slice 4d-2 merged (#155).
-- **Scope:** ARCHITECTURE + QUICKSTART documentation of the experience-GAM capability end-to-end;
-  ADR. HARVEST FOLLOW-UPS (Refinement Backlog + every ADR's Out-of-scope + unresolved Open
-  Questions), then this CONTINUATION → COMPLETE.
+- **What was done:** Documented the experience-GAM capability end-to-end in the two canonical entry
+  points and closed the epic (ADR-154). `ARCHITECTURE.md` §7 gained an "Experience Analysis &
+  Assumption-Setting (GAM)" subsection (module role, grouped-cell contract, the four design anchors,
+  the four model tiers with backends/uncertainty semantics, the emission path to
+  `ImprovementScale.CUSTOM`, and the versioning/CLI/config/loaders/validation/oracle/viz surfaces —
+  each ADR-cited) plus a §8 Key-Design-Decisions row. `docs/QUICKSTART.md` §14 is a new runnable
+  section (canonical CSV schema; `improvement`/`fit`/`save`/`list` CLI workflow; driving a priced run
+  from a versioned basis; the Python API with the correct `TensorMIModel(cells).fit()` /
+  `project_improvement` shapes, re-verified against the live commands and module signatures; loaders;
+  `polaris benchmark --pack experience`; `[viz]` plots). No source/contract/CLI/golden touched —
+  engine and goldens byte-identical; no new tests (the deliverable is prose, every path is already
+  covered by ADR-139…153).
+- **Key decisions:** Documented the whole capability in one coherent place at epic close rather than
+  churning the docs 15 times against a moving surface (matches how the reserve-basis and capital
+  epics were documented). All surviving A4′ refinements were harvested during the per-slice sessions
+  (PRODUCT_DIRECTION_2026-06-18 Promoted Follow-ups) and remain first-class after this CONTINUATION
+  goes COMPLETE; the harvest-before-close guardrail is satisfied by that prior harvesting, re-verified
+  this session (see below).
 
 **Slice 4d-2 plot spec — uncertainty bands — LOCKED (maintainer decision 2026-07-22).** Every diagnostic plot
   renders its band by default — the bands are already first-class in the data structures
@@ -528,6 +550,33 @@ byte-identical; only the plots slice adds a rendering surface.
   for a benign knot-placement reason, not a real discrepancy.
 - The export writes the ultimate-only `age,rate` schema (`select_period=0`). A select-
   and-ultimate export (per-duration columns) is a Slice-2+ option if wanted.
+
+## Harvest verification (epic close)
+
+Per the guardrail "NEVER close a CONTINUATION without first running HARVEST FOLLOW-UPS," this
+session re-verified that every surviving refinement is already a first-class item in the latest
+`PRODUCT_DIRECTION_2026-06-18.md` "Promoted Follow-ups" section (the per-slice sessions harvested
+diligently as they went). Confirmed present (with provenance/order lines):
+
+- IMPORTANT — dashboard + REST-API surfacing of the improvement selector (ADR-148).
+- IMPORTANT — gated `pymc`-NUTS audit backend / reduced-rank-GP backend confirmation (ADR-141/142,
+  the Open Questions below).
+- NICE-TO-HAVE — full negative-binomial (estimated-α) likelihood on the by-amount basis (ADR-139).
+- NICE-TO-HAVE — RW2 (linear-trend) projection prior; per-age/per-segment long-term rate (ADR-142).
+- NICE-TO-HAVE — select-and-ultimate (per-duration) CUSTOM grids; band-carrying (stochastic) CUSTOM
+  scale (ADR-143).
+- NICE-TO-HAVE — exposure-weighted / age-varying (Pedersen GS/GI) segment refinements; per-segment
+  projection + NB variance component (ADR-144).
+- NICE-TO-HAVE — standalone penalized-GAM (GCV) surface variant (ADR-140); empirical-Bayes
+  length-scale selection (ADR-141).
+- NICE-TO-HAVE — CLI surface + authenticated-session flow for the loaders (ADR-149); real-data
+  ILEC/MIM-2021 diligence run (ADR-150); execute the `mgcv` oracle on an R-equipped machine (ADR-151).
+- NICE-TO-HAVE — wire the diagnostics into the Streamlit dashboard (ADR-153); lapse experience
+  through the same GAM machinery (PLAN "Explicitly Out of Scope").
+
+No new (previously-unharvested) refinement surfaced from the 4d-3 docs work itself. The one genuinely
+open housekeeping item is the **overdue full `PRODUCT_DIRECTION` regeneration** (recommended sole
+deliverable of the next run) — flagged in the 4d-3 session log, not a feature follow-up.
 
 ## Open Questions (for human)
 

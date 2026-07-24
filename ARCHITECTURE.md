@@ -358,6 +358,100 @@ The asset side (Epic 4, Tier-C C0, ROADMAP 5.4) gives the engine fixed-income as
 `analytics/validation.py` is the **validation & benchmark pack** — the executable evidence behind the "credible open-source alternative to AXIS / Prophet" thesis (ADR-130 / ADR-131 / ADR-132). It holds engine-agnostic reference cases (`ValidationCase` = authoritative expected value + citation + documented tolerance; `ValidationReport` scores them and renders a diligence-grade Markdown pass/fail table). References are **identities or cited constants, never recalled numbers**: constant-force term/annuity APVs vs their exact discrete closed forms and the continuous-force textbook identity (`run_closed_form_benchmarks()`), and the SOA Illustrative Life Table whole-life `A_x` / `ä_x` / `P_x` at `i=6%` reproduced by the live WholeLife engine to machine precision (`run_statutory_deck_benchmarks()`; the vendored `l_x` is regenerated from the table's published Makeham law and self-checked). `run_full_validation_pack()` is the single entry point spanning all three categories. It is surfaced headless by `polaris benchmark` (`--pack {full,closed-form,deck}`, `-o` Markdown / `--json` export, **non-zero exit on any FAIL** so it can gate CI — ADR-132; distinct from `polaris validate`, which checks *input-file* schemas) and by `notebooks/05_validation_report.ipynb`, whose embedded `assert`s make executing it the verification. The pack never touches the pricing path, so every surface is pricing-neutral and leaves goldens byte-identical.
 
 ### API Observability
+### Experience Analysis & Assumption-Setting (GAM)
+
+`analytics/experience_gam.py` is the **interpretable GAM layer** (A4′ epic, ROADMAP 6.1;
+ADR-139…144, ADR-152) — the auditable middle between the grouped limited-fluctuation
+credibility in `experience_study.py` and the black-box XGBoost in `assumptions/ml_mortality.py`.
+It lets an actuary isolate standard feature effects and set a mortality basis from experience,
+with honest uncertainty, and emit the result as a `MortalityImprovement` scale the pricing engine
+already consumes. Everything is additive: the module is reachable only via
+`polaris_re.analytics` (heavy backends imported lazily behind the `[ml]` extra), so the pricing
+path and every golden stay byte-identical.
+
+**Canonical input — grouped Lexis cells (Design Anchor 7).** One row per covariate combination
+(keys `issue_age, duration_months, attained_age, calendar_year, sex, smoker, band, product,
+uw_class, channel, underwriting_era, segment` → measures `central_exposure, death_count` and the
+by-amount pair `amount_exposed, death_amount`). For a Poisson/quasi-Poisson GAM with a
+log-exposure offset the grouped likelihood equals the seriatim likelihood up to a constant, so
+grouping is **sufficiency, not compromise** — it collapses 10⁸–10⁹ policy-years to 10⁵–10⁶ cells
+and matches the shape public data (SOA ILEC) ships in. `aggregate_seriatim` folds a row-level
+extract into the same contract.
+
+**Design anchors (carried through every tier).** (1) Model on the log-mortality scale, offset by
+the **static** select-and-ultimate base `q_base(x,d)` from `MortalityTable.get_qx_vector` (annual
+`q = 1−(1−q_monthly)^12`, the exact inverse of the table's constant-force monthly rate) — a
+generational/projected offset is **rejected** by `_assert_static_base`, else the fitted trend
+would be residual-vs-assumed improvement rather than MI. (2) **A/E parameterization**, so the
+output is a native multiplicative `MI_x(y)` that plugs straight into
+`apply_improvement` (`q(Y)=q(base)·Π(1−MI_x(Z))`). (3) The **three-axis (Lexis) identifiability
+rule**: the calendar gradient is attributed to improvement and the issue-year term constrained to
+zero, with an optional `underwriting_era` factor as the escape hatch for a known UW change. (4)
+Duration enters twice — as the base offset and (optionally) a shrunk residual smoother.
+
+**Model tiers (staged, de-risked).**
+- **`ExperienceGAM`** (ADR-139) — the Slice-1 interpretable additive A/E GAM on statsmodels
+  `GLM` + `patsy` B-splines (regression splines, fixed df): `s(attained_age)+s(duration)+Σ f_k(z_k)`,
+  Poisson with default-on quasi-Poisson dispersion on the by-amount basis. Exposes per-feature
+  smooth/factor effect functions with confidence bands (`GAMFitResult.all_effects(...)` — the
+  plot-ready long-format frame owned by the model, ADR-152) and a blended base×multiplier
+  `export_to_mortality_csv` that round-trips through `MortalityTable.load()`.
+- **`TensorMIModel`** (ADR-140) — the **headline** frequentist tensor-product surface
+  `te(attained_age, calendar_year)` on the static-base offset; `MISurfaceResult.improvement_surface()`
+  extracts `MI_x(y)=1−exp[η(x,y)−η(x,y−1)]` as a `MISurface` grid with a **delta-method** band.
+- **`BayesianTensorMIModel`** (ADR-141) — the same surface as a pure-NumPy/SciPy Hilbert-space
+  (reduced-rank) GP fit to MAP by penalised-Poisson IRLS with a closed-form **Laplace** posterior,
+  giving honest posterior **credible** intervals with no new dependency (the PLAN's `bambi`/`pymc`
+  Laplace backend is defective in the installed versions — see ADR-141). `project_improvement(...)`
+  (ADR-142) forward-projects a `MIProjection` that anchors on the fitted final-step improvement and
+  **mean-reverts** to a settable long-term rate (CMI/MP-style) with a posterior-predictive band
+  widest at the join, narrowing to the deterministic rate.
+- **`HierarchicalMIModel`** (ADR-144) — segment partial pooling: a per-segment level (and optional
+  trend) deviation as a zero-mean Gaussian random effect in a sum-to-zero basis, its pooling SDs
+  estimated by empirical Bayes (EM). `segment_effects()` reports the shrunk multiplier, posterior
+  band, and a credibility weight `Z_g` — a continuous generalization of `ExperienceStudy`'s
+  limited-fluctuation `Z`.
+
+**Emission → engine.** `MISurface.to_mortality_improvement()` / `MIProjection.to_mortality_improvement()`
+build an `ImprovementScale.CUSTOM` `MortalityImprovement` via `MortalityImprovement.from_grid(ages,
+years, mi_grid, ultimate_rate)` (ADR-143), whose `apply_improvement` reproduces the dataclass
+`cumulative_factor()` exactly. `improvement.py` stays dependency-free (no `analytics` import) —
+the analytics dataclasses call `from_grid`, preserving core layering. The band is dropped at the
+assumption boundary (an improvement scale is a point basis); the diagnostic plots are where a
+reviewer sees the uncertainty before freezing a basis.
+
+**Versioning, surface, validation, tooling.**
+- `assumptions/version_store.py` (ADR-147) — an append-only `AssumptionVersionStore` persisting each
+  frozen CUSTOM scale as an `AssumptionVersion` (study date + optional credibility + provenance)
+  under `{root}/{kind}/{version_id}.json` (`version_id = {study_date}-{seq:03d}`, keyed on the
+  pinned study date, never the wall clock — ADR-074). `save` allocates the next sequence so the full
+  history is preserved (no overwrite, no prune).
+- **CLI** `polaris experience` (ADR-145/146) — `improvement` (fit → optionally project → emit the
+  CUSTOM scale JSON + raw `MI_x(y)` grid), `fit` (per-feature effect-shape diagnostics → plot-ready
+  `--effects-out` CSV), `save`/`list` (the versioned store). A versioned basis drives a priced run:
+  `MortalityConfig.improvement_version_id` (+ store-dir/kind) and a `--improvement-version` flag
+  (flag-over-config) thread the frozen scale onto `AssumptionSet.improvement` (ADR-148), which the
+  product engines already consume (ADR-125) — no engine change. Dashboard + REST-API surfacing is a
+  tracked follow-up (the `yrt_rate_table_*` / ALM precedent).
+- `analytics/experience_loaders.py` (ADR-149) — **loaders, not data** (Anchor 6 / the #61/#66 trap):
+  `load_hmd` (population Deaths/Exposures → by-count cells; `fetch_hmd` a dependency-injected
+  fetch-and-cache helper) and `load_ilec` (insured grouped file with all three Lexis axes + both
+  count/amount bases). No files land under `data/`.
+- `analytics/experience_validation.py` (ADR-150) — a **recovery-identity** deck (the A4′ analogue of
+  the whole-life Makeham deck): a known `MI(x)` is injected into a synthetic ILEC-schema extract, fed
+  through the real `load_ilec`, and the refit surface is checked against the injected target
+  (residual < 3e-12). Wired into `run_full_validation_pack()` and `polaris benchmark --pack experience`
+  via `ValidationCategory.EXPERIENCE_IMPROVEMENT`.
+- `analytics/experience_oracle.py` (ADR-151) — a dev-only `mgcv`-via-`rpy2` cross-check verifiable
+  **without R present** (`poisson_score_infinity_norm` proves the shipped design sits at the MLE);
+  the R comparison is `@pytest.mark.slow` and skips absent `rpy2`/R/`mgcv` (Anchor 5). Not
+  re-exported from `analytics/__init__.py` (keeps `rpy2` off every import path).
+- `polaris_re.viz.experience_plots` (ADR-153) — static matplotlib diagnostics behind a `[viz]` extra
+  (`plot_effects`, `plot_mi_surface`, `plot_mi_surface_bandwidth`, `plot_mi_projection`). matplotlib
+  is imported lazily; `import polaris_re.viz` does not import it and the pricing path never touches
+  it. Every band is captioned with its `BandKind` (`confidence` | `credible` | `posterior-predictive`)
+  so frequentist/Bayesian/projection uncertainty are never conflated.
+
 `api/observability.py` is the production-hardening layer for the REST service (A2′, ROADMAP 6.2, Slice 1 — ADR-133). `RequestContextMiddleware` (a Starlette `BaseHTTPMiddleware` wired in at app construction) assigns every request a **correlation id** — echoing an inbound `X-Request-ID` / `X-Correlation-ID` header for trace propagation, otherwise a generated uuid4 — times it on `time.perf_counter` (monotonic), emits a structured access-log record, and returns the correlation id and duration as the `X-Correlation-ID` / `X-Response-Time-Ms` response headers. `JsonLogFormatter` renders each record as single-line JSON (timestamp, level, logger, message, correlation id, structured `extra`s) for a log aggregator; `configure_api_logging` idempotently attaches it to a dedicated, non-propagating `polaris_re.api.access` logger; and `correlation_id_var` (a `ContextVar`) publishes the id so any engine log during the request can be stamped with it. Standard-library only (no new runtime dependency), fully additive — the pricing path is untouched and goldens stay byte-identical.
 
 `api/auth.py` adds the **security** layer (A2′, Slice 2 — ADR-134): two **default-off** middlewares wired *inside* `RequestContextMiddleware` so a rejection is logged with the request's correlation id and still carries the `X-Correlation-ID` header. `APIKeyAuthMiddleware` requires a matching `X-API-Key` (or `Authorization: Bearer`) header when `POLARIS_API_KEYS` (comma-separated) is configured, else `401`; with no keys set it is a pure pass-through. `RateLimitMiddleware` returns `429` (+`Retry-After`) when a client exceeds `POLARIS_API_RATE_LIMIT` (e.g. `100/minute`) in the rolling window, backed by a hand-rolled `SlidingWindowRateLimiter` with an injectable clock; unset ⇒ pass-through. Config is read per-request so both stay default-off and reconfigurable without an app rebuild, and the probe/doc endpoints (`/health`, `/version`, `/metrics`, `/docs`, `/redoc`, `/openapi.json`) are exempt from both. Dependency-free (a deliberate deviation from the plan's `slowapi` suggestion — see ADR-134) and pricing-neutral (goldens byte-identical).
@@ -377,6 +471,7 @@ See `docs/DECISIONS.md` for full ADRs. Summary:
 | Reserve basis | Selectable `ReserveBasis` — NET_PREMIUM (default), CRVM, VM20, GAAP (FAS 60) for Term/WL; AV (UL); zero (DI/CI) | Reproduce the cedant's statutory reserve; unsupported basis raises, never silently falls back |
 | Regulatory capital | `CapitalModel` / `CapitalSchedule` protocols; LICAT + US RBC + EU Solvency II implementations | One RoC machinery across jurisdictions; structural (runtime-checkable) seam, no inheritance |
 | IFRS 17 movement | Annual issue-year cohorts, locked-in rate per cohort, footing movement tables | Matches IASB analysis-of-change presentation; cohorts sum to the aggregate by construction |
+| Experience GAM (A4′) | Interpretable additive A/E GAM + tensor `MI_x(y)` surface (frequentist delta-method / Bayesian reduced-rank-GP credible / mean-reverting projection); A/E on a static select-base offset; grouped Lexis cells canonical; emits `ImprovementScale.CUSTOM` via `from_grid`; append-only versioned store | Auditable middle layer between grouped credibility and black-box ML; grouping is sufficiency; static base keeps the calendar gradient = improvement; additive so goldens stay byte-identical |
 | Mortality table format | CSV with standard column schema | No binary dependencies; auditability |
 | Improvement scales | Embedded NumPy constants | Small data (< 15KB); no file I/O dependency |
 | UL forced lapse | Indicator combined with voluntary lapse | Handles AV→0 gracefully in vectorized framework |

@@ -10168,3 +10168,66 @@ spec). Slice 4d-3: ARCHITECTURE + QUICKSTART documentation of the experience-GAM
 end-to-end, HARVEST FOLLOW-UPS, and closing the CONTINUATION (→ COMPLETE). Still open from 4c-2: a
 caller-side diligence run fitting a *real* cached ILEC extract against *actual* published
 MIM-2021/CIA targets.
+
+## ADR-154: Experience GAM (A4′ Slice 4d-3) — ARCHITECTURE + QUICKSTART docs; epic CLOSES
+
+**Date:** 2026-07-24
+**Status:** Accepted
+**Slice:** 4d-3 of the Data-Driven Experience Analysis epic (A4′), ROADMAP 6.1 — the
+documentation-and-close sub-slice of Slice 4d. This slice **closes the epic**. See
+`docs/PLAN_experience_gam.md` and `docs/CONTINUATION_experience_gam.md`.
+
+**Context.** Fifteen slices (PRs #141–#155, ADR-139…153) built the experience-GAM capability
+end-to-end: the interpretable additive A/E GAM (`ExperienceGAM`), the frequentist and Bayesian
+tensor `MI_x(y)` surfaces (`TensorMIModel` / `BayesianTensorMIModel`), CMI/MP-style forward
+projection, hierarchical segment pooling (`HierarchicalMIModel`), emission to
+`ImprovementScale.CUSTOM`, an append-only versioned store, the `polaris experience`
+`improvement`/`fit`/`save`/`list` CLI, `--config`/`AssumptionSet` pricing wiring, HMD/ILEC
+loaders, a recovery-identity validation deck, a dev-only `mgcv` oracle, and static `[viz]`
+diagnostic plots. None of it was documented in `ARCHITECTURE.md` or `docs/QUICKSTART.md` — the
+capability was reachable only by reading the module source and the per-slice ADRs. A reinsurer
+evaluating Polaris as an AXIS/Prophet alternative could not discover or drive the feature from the
+public docs.
+
+**Decision.** Document the capability in the two canonical entry points and close the epic. No code
+changes — this slice is docs + ledger only.
+
+- **`ARCHITECTURE.md` §7 (Analytics Layer)** gains an "Experience Analysis & Assumption-Setting
+  (GAM)" subsection: the module's role as the auditable middle layer, the canonical grouped-cell
+  Lexis contract (Anchor 7 — grouping is sufficiency), the four design anchors (static base offset,
+  A/E parameterization, three-axis identifiability, duration-enters-twice), the four model tiers
+  with their backends and uncertainty semantics, the emission path to `ImprovementScale.CUSTOM`
+  (`from_grid`, core-layering preserved), and the versioning / CLI / config-wiring / loaders /
+  validation-deck / oracle / viz surfaces — each ADR-cited. A row is added to the §8 Key Design
+  Decisions summary table.
+- **`docs/QUICKSTART.md` §14** is a new runnable "Experience Analysis & Assumption-Setting (GAM)"
+  section: the canonical CSV schema, the `polaris experience improvement`/`fit`/`save`/`list`
+  workflow (frequentist vs Bayesian, forward projection, versioning), driving a priced run from a
+  versioned basis via the `mortality` config block / `--improvement-version` flag, the Python API
+  (with `attach_base_rate` and the correct `TensorMIModel(cells).fit()` / `project_improvement`
+  call shapes), the loaders, the `polaris benchmark --pack experience` deck, and the `[viz]` plots.
+
+**Rationale.** The docs are the discovery and adoption surface; the per-slice ADRs are the audit
+trail, not the user manual. Documenting the whole capability in one place at epic close (rather than
+incrementally per slice, which would have churned the docs 15 times against a moving surface) keeps
+the description coherent and matches how the reserve-basis and capital epics were documented.
+
+**Impact.** No source, contract, CLI, treaty, or golden is touched — the engine and every golden are
+byte-identical. `make test` and the QA suite are unchanged (this slice adds no tests: the deliverable
+is prose, and every code path it describes is already test-covered by ADR-139…153; the documented
+CLI/Python call shapes were re-verified against the live commands and module signatures while
+writing).
+
+**Out of scope (harvested — carried in `PRODUCT_DIRECTION_2026-06-18` Promoted Follow-ups).** All
+surviving A4′ refinements were harvested during the per-slice sessions and remain first-class work
+items after this CONTINUATION goes COMPLETE: dashboard + REST-API surfacing of the improvement
+selector (IMPORTANT); the gated `pymc`-NUTS audit backend (IMPORTANT, pending maintainer sign-off on
+the ADR-141 reduced-rank-GP direction); full negative-binomial (estimated-α) likelihood; RW2 /
+per-age long-term-rate projection variants; select-and-ultimate CUSTOM grids; a stochastic
+(band-carrying) CUSTOM scale; exposure-weighted / age-varying segment refinements; a CLI surface and
+authenticated-session flow for the loaders; a real-data ILEC/MIM-2021 diligence run; executing the
+`mgcv` oracle on an R-equipped machine; wiring the diagnostics into the Streamlit dashboard; and
+lapse experience through the same GAM machinery. A full `PRODUCT_DIRECTION` regeneration
+(list-shipped-since #69…#155, carry-forward unresolved, re-rank against the fresh
+`COMMERCIAL_VIABILITY_REVIEW_2026-07-15`) is **overdue** and is the recommended sole deliverable of
+the next routine run.
