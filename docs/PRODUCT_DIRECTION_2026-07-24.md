@@ -139,8 +139,9 @@ maintenance mode**.
 | **B2** | **Scale benchmark at 100K–500K policies** — publish a timing table; back the README perf claim | ★★★★☆ | ~1 d | Unshipped after **three** reviews. Pairs with NICE-TO-HAVE perf-harness work. |
 | **B4** | **Premium-deficiency reserve / loss recognition** — turn the sufficiency analyzer into a reserve floor | ★★★☆☆ | ~1–2 d | Unshipped after **three** reviews. |
 
-B1 and B2 are the cleanest between-epic fallback picks and the obvious S0.3
-sequence (value-per-day order: B1 → B2 → B4).
+B1 and B2 are the cleanest between-epic fallback picks and the **S3** sequence
+(value-per-day order: B1 → B2 → B4), now behind the maintainer-directed S1
+(`pipeline.py` relocation) and S2 (MI dashboard page).
 
 ### Tier C — Medium value, enabling / operational
 
@@ -191,6 +192,12 @@ micro-polish.
 > → B4 as single-session quick wins while this stays open — but the routine is
 > then in **maintenance mode, not growth mode**, and each session log must say
 > so. *Source: COMMERCIAL_VIABILITY_REVIEW_2026-07-15 §7; DEV_SESSION_LOG_2026-07-24_experience_gam_slice4d3 Open Questions.*
+>
+> **Maintainer response (2026-07-24, live):** Phase-7 frontier **still open / not
+> yet chosen.** In the interim the maintainer directed the next two *maintenance*
+> items explicitly — **S1** (proper `pipeline.py` relocation) then **S2** (MI
+> dashboard page) — ahead of the B1/B2/B4 default (see "Recommended Next Sprint").
+> The routine remains in **maintenance mode** until a Phase-7 frontier is chosen.
 
 ---
 
@@ -199,16 +206,50 @@ micro-polish.
 Run in order; each is single-session. This supersedes the prior file's stale
 "Recommended Next Sprint" (which led with long-shipped reserve-basis work).
 
-- **S0.1 — PRODUCT_DIRECTION regeneration + Phase-7 surfacing.** ✅ **this
+> **⏭️ Maintainer directive (2026-07-24, live).** The next **two** routine
+> items are fixed, in this order and **ahead of the Tier-B quick wins**: **S1 —
+> the proper `core`→`assumptions` layering fix (relocate `pipeline.py`)**, then
+> **S2 — an MI (mortality-improvement) page on the Streamlit dashboard.** Both
+> are maintenance-mode refinements of shipped work, so the routine stays in
+> maintenance mode; the Phase-7 frontier decision (above) remains open and is
+> unblocked by neither. Step 5b/step 6 should select S1 next, then S2, then fall
+> to S3.
+
+- **S0.1 — PRODUCT_DIRECTION regeneration + Phase-7 surfacing.** ✅ **done this
   session** (this file).
-- **S0.2 — Fix the latent `core`→`assumptions` circular import.** ✅ **this
-  session** (ADR-155; cheap symptom fix — removed the eager `pipeline`
-  re-export from `core/__init__.py`; zero callers; goldens byte-identical). The
-  *proper* architectural fix (relocate `pipeline.py` out of `core/`) remains a
-  NICE-TO-HAVE (see Carried-Forward → Ops/architecture).
-- **S0.3 — Tier-B quick wins in value-per-day order: B1 → B2 → B4** (see the
-  re-ranked catalogue). Pick these up while no Phase-7 frontier is chosen; each
-  is an independently valuable maintenance-mode PR.
+- **S0.2 — Fix the latent `core`→`assumptions` circular import (symptom).** ✅
+  **done this session** (ADR-155; cheap symptom fix — removed the eager
+  `pipeline` re-export from `core/__init__.py`; zero callers; goldens
+  byte-identical). The *proper* architectural fix is now **S1** below.
+- **S1 — Proper `core`→`assumptions` layering fix (maintainer-directed, NEXT).**
+  Relocate `pipeline.py` out of `core/` (e.g. `polaris_re/pipeline.py`), update
+  the 27 importers + `__all__`, add an ADR — retires the CLAUDE.md §6 layering
+  exception entirely, not just the symptom ADR-155 removed. Bundle the
+  eager-cross-layer-`__init__`-re-export sweep (look for the same anti-pattern
+  elsewhere). Behaviour-neutral → goldens byte-identical; guard with the
+  existing `tests/test_core/test_import_layering.py`. Likely SMALL/one session
+  (mechanical import churn + ADR); if the sweep surfaces more, decompose per
+  step 6. *Source: maintainer directive 2026-07-24; ADR-155 Out of scope
+  (1st-order) — see Carried-Forward → Ops/architecture.*
+- **S2 — MI (mortality-improvement) page on the Streamlit dashboard
+  (maintainer-directed, SECOND).** A dedicated dashboard page surfacing the
+  experience-GAM / mortality-improvement capability to non-CLI users, folding
+  two carried-forward items: (a) the **versioned improvement-scale selector**
+  (IMPORTANT #12 / ADR-148 — so a dashboard user can drive a priced run from a
+  versioned `ImprovementScale.CUSTOM` basis, the dashboard half of the
+  selector; the REST-API half of #12 may follow separately), and (b) the
+  **MI diagnostics view** (NICE-TO-HAVE experience-GAM #89 / ADR-153 — effects /
+  MI-surface `MI_x(y)` slices / projection fan, reusing `all_effects()` and the
+  `--grid-out` output already shipped for the `[viz]` helpers). Add dashboard
+  flow tests (`tests/qa/test_dashboard_flows.py` pattern) + `DealConfig.to_dict()`
+  round-trip for any new selector state; pin all dates (ADR-074). Likely MEDIUM
+  (one dashboard page + tests, possibly the API selector) — if it grows, write
+  `docs/PLAN_mi_dashboard.md` + a CONTINUATION per step 6/7. *Source: maintainer
+  directive 2026-07-24; IMPORTANT #12 (ADR-148) + Carried-Forward experience-GAM
+  #89 (ADR-153).*
+- **S3 — Tier-B quick wins in value-per-day order: B1 → B2 → B4** (was S0.3; now
+  follows S1+S2; see the re-ranked catalogue). Independently valuable
+  maintenance-mode PRs while no Phase-7 frontier is chosen.
 - **Then** Tier-C (C3/C4/C5/C6) or a chosen Phase-7 epic (which, once picked,
   is constituted via step 5b: PLAN + slice 1).
 
@@ -269,7 +310,9 @@ BLOCKER remains.
 12. **Surface the experience-improvement selector on the dashboard + REST API.** The
     versioned `ImprovementScale.CUSTOM` basis is wired into `--config` and a
     `--improvement-version` CLI flag but not the dashboard Deal Pricing page or REST
-    `/price` schema. *Source: ADR-148 Out of scope (1st-order).*
+    `/price` schema. *Source: ADR-148 Out of scope (1st-order).* **→ the dashboard
+    half is Next Sprint S2 (maintainer-directed 2026-07-24), folded into the MI
+    dashboard page; the REST-API half may follow.**
 
 > **CI performance & smoke tracking (maintainer discussion 2026-07-12) — group
 > context.** IMPORTANT #8/#9/#10 and NICE-TO-HAVE #62/#63/#64 form one coherent
@@ -352,7 +395,7 @@ Each: **title** — one-line. *Source.* (Full prose in the 2026-06-18 file.)
 - **Reconcile stale `tests/qa/golden_outputs/*.json` byte-format with the CLI `-o` schema** — regenerate snapshots or point the check at the parsed QA guard. *qa-on-pr review of PR #130.*
 
 **Ops / observability / architecture (8)**
-- **Relocate `pipeline.py` out of `core/` (proper fix for the S0.2 layer violation)** — move to `polaris_re/pipeline.py`, update 27 importers + ADR; retires the CLAUDE.md §6 exception, not just the symptom fixed in ADR-155. Also: sweep other `__init__.py` for the same eager cross-layer re-export anti-pattern. *ADR-155 Out of scope (1st-order).*
+- **Relocate `pipeline.py` out of `core/` (proper fix for the S0.2 layer violation)** — move to `polaris_re/pipeline.py`, update 27 importers + ADR; retires the CLAUDE.md §6 exception, not just the symptom fixed in ADR-155. Also: sweep other `__init__.py` for the same eager cross-layer re-export anti-pattern. *ADR-155 Out of scope (1st-order).* **→ Next Sprint S1 (maintainer-directed 2026-07-24) — the immediate next routine item.**
 - **OpenTelemetry trace spans for the API** — span-level tracing behind an optional extra. *ADR-133.*
 - **OIDC/JWT authentication as an alternative to static API keys** — IdP tokens, scopes, expiry/refresh. *ADR-134.*
 - **Per-route / per-key rate-limit tiers** — shape load beyond the single global threshold. *ADR-134.*
@@ -394,7 +437,7 @@ Each: **title** — one-line. *Source.* (Full prose in the 2026-06-18 file.)
 - **Built-in HMD authenticated-session flow in `fetch_hmd`** — self-contained login on a fresh machine. *ADR-149 + DEV_SESSION_LOG_2026-07-23_experience_gam_slice4c1.*
 - **Real-data experience-improvement diligence run (HMD/ILEC vs published targets)** — compare fitted `MI_x(y)` against MIM-2021/CIA (gated on licensed data, never CI). *ADR-150 + DEV_SESSION_LOG_2026-07-23_experience_gam_slice4c2.*
 - **Execute the `mgcv` oracle on an R-equipped dev box** — exercise the `rpy2`→`mgcv` glue (absent in CI by design). *ADR-151 + DEV_SESSION_LOG_2026-07-23_experience_gam_slice4c3.*
-- **Wire experience-GAM diagnostics into the Streamlit dashboard** — interactive effects / MI-surface slices / projection fan reusing `all_effects()`/`--grid-out`. *ADR-153 + DEV_SESSION_LOG_2026-07-23_experience_gam_slice4d2.*
+- **Wire experience-GAM diagnostics into the Streamlit dashboard** — interactive effects / MI-surface slices / projection fan reusing `all_effects()`/`--grid-out`. *ADR-153 + DEV_SESSION_LOG_2026-07-23_experience_gam_slice4d2.* **→ folded into Next Sprint S2 (maintainer-directed 2026-07-24), the MI dashboard page.**
 
 ---
 

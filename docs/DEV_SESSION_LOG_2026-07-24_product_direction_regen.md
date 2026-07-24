@@ -91,16 +91,19 @@ carried forward as a NICE-TO-HAVE.
 | ruff format + check clean | ✅ | 237 files unchanged; all checks passed |
 
 ## Open Questions / Follow-ups
-- **Phase-7 go/no-go (maintainer).** The single strategic decision this regeneration surfaces. Until a
-  frontier is chosen, the routine is in maintenance mode: S0.3 harvests B1 → B2 → B4. Candidates:
-  real AXIS/Prophet reconciliation (unblocks validation Slice 4), a new product frontier (GMxB / group),
-  stochastic ALM / nested-stochastic, or multi-user persistence + audit. *(Carried into the new file.)*
-- **Proper `pipeline.py` relocation (the architectural S0.2 fix).** ADR-155 shipped only the cheap
-  symptom fix; moving `pipeline.py` out of `core/` to retire the §6 exception (27 importers + ADR) is
-  filed NICE-TO-HAVE in `PRODUCT_DIRECTION_2026-07-24`. A sweep for other eager cross-layer `__init__`
-  re-exports is bundled into that item.
-- **S0.3 next:** B1 (capital surfaces → `for_product_interim`, golden rebaseline + ADR) is the top
-  value-per-day between-epic pick.
+- **Phase-7 go/no-go (maintainer).** The single strategic decision this regeneration surfaces.
+  **Maintainer response (2026-07-24, live): still open / not yet chosen** — the routine stays in
+  maintenance mode. Candidates unchanged: real AXIS/Prophet reconciliation (unblocks validation
+  Slice 4), a new product frontier (GMxB / group), stochastic ALM / nested-stochastic, or multi-user
+  persistence + audit. *(Carried into the new file.)*
+- **Next-sprint order changed by live maintainer directive (2026-07-24).** The maintainer directed the
+  next **two** routine items explicitly, ahead of the Tier-B B1/B2/B4 default:
+  **S1 — proper `pipeline.py` relocation** (the architectural fix for the S0.2 layer violation; ADR-155
+  shipped only the cheap symptom fix), then **S2 — an MI (mortality-improvement) page on the Streamlit
+  dashboard** (folding IMPORTANT #12's dashboard half / ADR-148 + the experience-GAM diagnostics
+  view / ADR-153). Both are maintenance-mode refinements → the routine stays in maintenance mode. Baked
+  into `PRODUCT_DIRECTION_2026-07-24` "Recommended Next Sprint" (S1/S2/S3) + annotated on the relevant
+  catalogue items. S1 is the immediate next pick; S2 follows; B1→B2→B4 become S3.
 
 ## Parked Polish
 None. No 3rd-order-or-deeper follow-ups surfaced. The regeneration only re-classified and re-grouped
