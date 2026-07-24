@@ -1291,8 +1291,8 @@ class TestVersionedImprovementSelector:
         from polaris_re.assumptions.improvement import MortalityImprovement
         from polaris_re.assumptions.version_store import AssumptionVersionStore
 
-        ages = np.arange(40, 71, dtype=np.int64)
-        years = np.arange(2026, 2046, dtype=np.int64)
+        ages = np.arange(40, 71, dtype=np.int32)
+        years = np.arange(2026, 2046, dtype=np.int32)
         mi_grid = np.full((ages.size, years.size), 0.02, dtype=np.float64)
         improvement = MortalityImprovement.from_grid(ages, years, mi_grid, ultimate_rate=0.02)
         version = AssumptionVersionStore(root).save(

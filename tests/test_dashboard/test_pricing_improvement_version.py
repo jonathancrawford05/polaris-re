@@ -51,8 +51,8 @@ _STUDY_DATE = date(2025, 12, 31)
 
 
 def _make_custom_improvement() -> MortalityImprovement:
-    ages = np.arange(40, 71, dtype=np.int64)
-    years = np.arange(2026, 2046, dtype=np.int64)
+    ages = np.arange(40, 71, dtype=np.int32)
+    years = np.arange(2026, 2046, dtype=np.int32)
     mi_grid = np.full((ages.size, years.size), 0.02, dtype=np.float64)
     mi = MortalityImprovement.from_grid(ages, years, mi_grid, ultimate_rate=0.02)
     assert mi.scale is ImprovementScale.CUSTOM
