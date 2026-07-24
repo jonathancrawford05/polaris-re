@@ -9,6 +9,7 @@
   retire the latent `core` → `assumptions` circular import (ADR-155).
 - **Slice:** complete (single PR; not multi-session).
 - **Branch:** `claude/loving-gauss-60wrng` (environment-designated; `feat/auto-*` default overridden).
+- **PR:** #157 (draft) — https://github.com/jonathancrawford05/polaris-re/pull/157
 
 ## Selection Rationale
 **Step 5 (continuation check):** the only IN PROGRESS CONTINUATION is `reserve_basis_correctness`,
