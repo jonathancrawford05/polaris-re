@@ -48,6 +48,7 @@ def main() -> None:
 
     from polaris_re.dashboard.components.state import init_session_state
     from polaris_re.dashboard.views.assumptions import page_assumptions
+    from polaris_re.dashboard.views.experience_improvement import page_experience_improvement
     from polaris_re.dashboard.views.experience_study import page_experience_study
     from polaris_re.dashboard.views.ifrs17 import page_ifrs17
     from polaris_re.dashboard.views.inforce import page_inforce
@@ -81,6 +82,7 @@ def main() -> None:
             "Monte Carlo UQ",
             "IFRS 17",
             "Experience Study",
+            "Mortality Improvement",
         ],
     )
 
@@ -102,6 +104,8 @@ def main() -> None:
         page_ifrs17()
     elif page == "Experience Study":
         page_experience_study()
+    elif page == "Mortality Improvement":
+        page_experience_improvement()
 
 
 if __name__ == "__main__":

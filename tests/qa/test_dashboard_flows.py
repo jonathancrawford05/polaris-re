@@ -338,6 +338,166 @@ class TestExperienceStudyPage:
         assert not at.exception, f"Multi-dimension group-by raised: {at.exception}"
 
 
+class TestExperienceImprovementPage:
+    """ADR — Mortality Improvement (experience-GAM diagnostics) page via AppTest.
+
+    Slice 1 of the MI dashboard page (docs/PLAN_mi_dashboard.md): the diagnostics
+    half. The page defaults to the built-in sample grouped-cell experience, so the
+    frequentist fit + effects/surface/band-width diagnostics render on the first
+    run without needing a file upload (which AppTest cannot drive).
+    """
+
+    @staticmethod
+    def _app() -> "AppTest":
+        at = AppTest.from_file(APP_PATH, default_timeout=60)
+        at.run()
+        at.sidebar.radio[0].set_value("Mortality Improvement")
+        at.run()
+        return at
+
+    @staticmethod
+    def _metric_labels(at: "AppTest") -> list[str]:
+        return [str(m.label) for m in at.metric]
+
+    def test_mi_page_in_navigation(self):
+        """Sidebar nav should expose 'Mortality Improvement' as a page option."""
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        nav = at.sidebar.radio[0]
+        assert "Mortality Improvement" in nav.options
+
+    def test_sample_diagnostics_render(self):
+        """The default sample path fits and renders the diagnostics cleanly."""
+        at = self._app()
+        assert not at.exception, f"MI page raised: {at.exception}"
+        # Fit summary metrics prove the frequentist fit ran end to end.
+        labels = self._metric_labels(at)
+        assert "Overall A/E" in labels, f"fit summary metrics missing; saw {labels}"
+        assert "Grouped cells" in labels
+
+    def test_confidence_level_change_reuses_cached_fit(self):
+        """Moving the confidence slider re-derives bands without refitting.
+
+        The fit cache is keyed on the fit-determining inputs (which exclude the
+        confidence level), so the cache signature must be identical before and
+        after a slider move — proving the expensive GLM fits are reused.
+        """
+        from polaris_re.dashboard.views.experience_improvement import _FIT_CACHE_KEY
+
+        at = self._app()
+        cached_before = at.session_state[_FIT_CACHE_KEY]
+        assert cached_before is not None, "fit was not cached on first render"
+        sig_before = cached_before[0]
+
+        sliders = [s for s in at.slider if "confidence" in str(s.label).lower()]
+        assert sliders, "confidence-level slider not found"
+        sliders[0].set_value(0.80)
+        at.run()
+        assert not at.exception, f"Confidence change raised: {at.exception}"
+        assert at.session_state[_FIT_CACHE_KEY][0] == sig_before, (
+            "confidence-slider move changed the fit signature — the fit should be "
+            "reused, not recomputed"
+        )
+
+    def test_age_varying_toggle_reruns(self):
+        """Turning off the age-varying tensor still renders a valid surface."""
+        at = self._app()
+        boxes = [c for c in at.checkbox if "age-varying" in str(c.label).lower()]
+        assert boxes, "age-varying checkbox not found"
+        boxes[0].set_value(False)
+        at.run()
+        assert not at.exception, f"Age-varying toggle raised: {at.exception}"
+
+    def test_bayesian_projection_path(self):
+        """Enabling the Bayesian projection renders the forward fan without error."""
+        at = self._app()
+        boxes = [c for c in at.checkbox if "bayesian" in str(c.label).lower()]
+        assert boxes, "Bayesian projection checkbox not found"
+        boxes[0].set_value(True)
+        at.run()
+        assert not at.exception, f"Bayesian projection raised: {at.exception}"
+
+
+class TestExperienceImprovementHelpers:
+    """Pure-function coverage for the MI page's data helpers (no AppTest)."""
+
+    def test_sample_cells_canonical_contract(self):
+        """The built-in sample carries the count-basis canonical contract."""
+        from polaris_re.dashboard.views.experience_improvement import _sample_cells
+
+        cells = _sample_cells()
+        assert set(cells.columns) == {
+            "attained_age",
+            "calendar_year",
+            "q_base",
+            "central_exposure",
+            "death_count",
+        }
+        assert cells["calendar_year"].n_unique() >= 2  # needed to identify a trend
+        assert cells.height > 0
+        q = cells["q_base"].to_numpy()
+        assert (q > 0.0).all() and (q <= 1.0).all()
+
+    def test_missing_basis_columns_detects_absent(self):
+        """The basis-column check reports exactly the absent required columns."""
+        import polars as pl
+
+        from polaris_re.dashboard.views.experience_improvement import (
+            _missing_basis_columns,
+            _sample_cells,
+        )
+
+        cells = _sample_cells()
+        assert _missing_basis_columns(cells, "count") == set()
+        # The sample lacks the amount-basis pair.
+        assert _missing_basis_columns(cells, "amount") == {"amount_exposed", "death_amount"}
+        # Dropping q_base is flagged for either basis.
+        no_base = pl.DataFrame({"attained_age": [40], "calendar_year": [2020]})
+        assert "q_base" in _missing_basis_columns(no_base, "count")
+
+    def test_cached_fit_models_reuses_and_invalidates(self):
+        """The fit cache returns the same models until a fit input changes."""
+        from polaris_re.dashboard.views.experience_improvement import (
+            _FIT_CACHE_KEY,
+            _cached_fit_models,
+            _sample_cells,
+        )
+
+        cells = _sample_cells()
+        state: dict[str, object] = {}
+        cfg = {"basis": "count", "age_df": 6, "year_df": 4, "age_varying": True}
+
+        first = _cached_fit_models(state, cells, **cfg)
+        assert _FIT_CACHE_KEY in state, "fit was not cached"
+
+        # Same inputs → identical objects (cache hit, no refit).
+        second = _cached_fit_models(state, cells, **cfg)
+        assert second[0] is first[0]
+        assert second[1] is first[1]
+
+        # Changing a fit-determining input → new fit (different objects).
+        third = _cached_fit_models(state, cells, **{**cfg, "age_df": 8})
+        assert third[0] is not first[0]
+
+    def test_fit_signature_excludes_confidence_level(self):
+        """The fit signature is stable across everything but the fit inputs.
+
+        confidence_level is not a parameter of the signature at all, so band-level
+        changes cannot invalidate the cached fit. Changing a real fit input does.
+        """
+        from polaris_re.dashboard.views.experience_improvement import (
+            _fit_signature,
+            _sample_cells,
+        )
+
+        cells = _sample_cells()
+        base = _fit_signature(cells, basis="count", age_df=6, year_df=4, age_varying=True)
+        # Recomputing with identical fit inputs is stable.
+        assert base == _fit_signature(cells, basis="count", age_df=6, year_df=4, age_varying=True)
+        # A genuine fit-input change moves the signature.
+        assert base != _fit_signature(cells, basis="count", age_df=7, year_df=4, age_varying=True)
+
+
 class TestPortfolioPage:
     """Slice 2 — Portfolio page smoke tests via AppTest session-state injection.
 
