@@ -1840,6 +1840,19 @@ constraint and a future session must not rebuild these as a naive wall-time log.
   follow-up of the planned Slice-4c-3 oracle). *Source: ADR-151 Out of scope +
   DEV_SESSION_LOG_2026-07-23_experience_gam_slice4c3 Open Questions (1st-order).*
 
+- **NICE-TO-HAVE — Wire the experience-GAM diagnostics (effects / MI-surface slices / projection
+  fan) into the Streamlit dashboard.** Slice 4d-2 (ADR-153, PR #155) shipped the *static* `[viz]`
+  matplotlib helpers (`polaris_re.viz.experience_plots`) rendering the locked, kind-labelled
+  uncertainty bands. The originally-planned 4d-2 scope also named a dashboard view as the "primary
+  path"; that wiring was deliberately deferred because the Streamlit surface is heavier and far less
+  deterministically testable, while the static helpers already satisfy the locked plot spec. A
+  dashboard view (a new `dashboard/views/experience_gam.py` reusing `all_effects()` / `--grid-out`
+  output and the same band-kind labels) would surface the diagnostics interactively for a reviewer
+  signing off a basis. UI presentation of an analytics capability, not production correctness on the
+  pricing path → NICE-TO-HAVE. 1st-order (a follow-up of the planned Slice-4d-2 plots). *Source:
+  ADR-153 Out of scope + DEV_SESSION_LOG_2026-07-23_experience_gam_slice4d2 Open Questions
+  (1st-order).*
+
 ## Carried Forward
 
 No item was partially completed in this period — every dev-session log
