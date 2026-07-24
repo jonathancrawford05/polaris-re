@@ -311,15 +311,19 @@ BLOCKER remains.
     shipped a pure-NumPy/SciPy reduced-rank GP instead of the PLAN-locked
     `bambi`/`pymc` HSGP (defective in installed versions); maintainer should confirm
     this direction — it now blocks only the optional `pymc`-NUTS audit path. *Source: ADR-141 human-review flag + DEV_SESSION_LOG_2026-07-22 DISCOVERY (1st-order).*
-12. **Surface the experience-improvement selector on the dashboard + REST API.** The
+12. ~~**Surface the experience-improvement selector on the dashboard + REST API.** The
     versioned `ImprovementScale.CUSTOM` basis is wired into `--config` and a
     `--improvement-version` CLI flag but not the dashboard Deal Pricing page or REST
-    `/price` schema. *Source: ADR-148 Out of scope (1st-order).* **→ the dashboard
-    half ~~is Next Sprint S2~~ — **SHIPPED** (PR #160, ADR-158, MI dashboard Slice 2):
-    the Deal Pricing page's versioned-improvement selector lists the store's CUSTOM
-    bases and drives the run byte-identically to the CLI `--improvement-version` path.
-    IMPORTANT #12 stays OPEN for the remaining REST-API half (a `/api/v1/price`
-    `improvement_version` field — optional Slice 3, see `PLAN_mi_dashboard.md`).**
+    `/price` schema. *Source: ADR-148 Out of scope (1st-order).*~~ — **SHIPPED** (fully
+    closed across MI dashboard Slices 2–3). Dashboard half: PR #160 / ADR-158 (Slice 2) —
+    the Deal Pricing page's versioned-improvement selector lists the store's CUSTOM bases
+    and drives the run byte-identically to the CLI `--improvement-version` path. REST-API
+    half: PR #TBD / ADR-159 (Slice 3) — `PriceRequest` gains an optional
+    `improvement_version` (a store `version_id`) loaded server-side via
+    `load_improvement_version` and threaded onto `AssumptionSet.improvement`, echoed on
+    the response; unknown id → 422; default `None` byte-identical. **All three surfaces
+    (CLI, dashboard, API) now drive a priced run from a versioned experience basis —
+    IMPORTANT #12 CLOSED.**
 
 > **CI performance & smoke tracking (maintainer discussion 2026-07-12) — group
 > context.** IMPORTANT #8/#9/#10 and NICE-TO-HAVE #62/#63/#64 form one coherent
@@ -468,11 +472,25 @@ polish on a shipped surface, not a production-correctness gap):
   *pricing* selector (PR #160), which reads the store to drive a priced run but
   does not render a stored surface's diagnostics. *Source: ADR-157 Out of scope
   (1st-order).*
-- **REST-API half of the experience-improvement selector (IMPORTANT #12, API
+- ~~**REST-API half of the experience-improvement selector (IMPORTANT #12, API
   half)** — add `improvement_version` to the `/api/v1/price` `PriceRequest`
   schema and thread it through the same pipeline path, echoed on the response.
   The dashboard half shipped in Slice 2 (PR #160); this is the optional Slice 3.
-  *Source: ADR-158 Out of scope (1st-order); carried forward from IMPORTANT #12.*
+  *Source: ADR-158 Out of scope (1st-order); carried forward from IMPORTANT #12.*~~
+  — **SHIPPED** (MI dashboard Slice 3 / ADR-159): `PriceRequest.improvement_version`
+  (a store `version_id`) loaded server-side via `load_improvement_version` and threaded
+  onto `AssumptionSet.improvement`; echoed on `PriceResponse`; unknown id → 422; default
+  `None` byte-identical. Closes IMPORTANT #12.
+- **Thread `improvement_version` through `/api/v1/scenario` and `/api/v1/uq`** — Slice 3
+  surfaced the versioned basis on `/api/v1/price` only; a stressed / Monte-Carlo run on a
+  frozen experience basis is not yet reachable over the API (the scenario/uq DTOs already
+  omit `reserve_basis` / `valuation_mortality` for the same "pricing surface first" reason).
+  NICE-TO-HAVE. *Source: ADR-159 Out of scope (2nd-order).*
+- **Store-authoring REST API over the assumption-version store** — versions are authored
+  only via `polaris experience save`; both the dashboard and the REST API are read-only
+  over the store. A create/freeze-over-HTTP flow would let an integration client persist a
+  fitted MI surface without the CLI. NICE-TO-HAVE. *Source: ADR-159 Out of scope
+  (2nd-order).*
 - **Fuller provenance panel in the Deal-Pricing version selector** — the Slice-2
   selectbox shows a compact label (id + study date + optional label + credibility)
   and an override info line; surface the version's `notes` / source-study
@@ -483,10 +501,11 @@ polish on a shipped surface, not a production-correctness gap):
   A create/save-from-dashboard flow would let a fitted MI surface be frozen without
   dropping to the CLI. NICE-TO-HAVE. *Source: ADR-158 Out of scope (2nd-order).*
 
-> The Deal-Pricing versioned-selector (IMPORTANT #12 **dashboard half**) **SHIPPED**
-> in **Slice 2** (PR #160, ADR-158) — see the struck-through note under IMPORTANT
-> #12 above. The **REST-API half** of #12 remains open (harvested just above as the
-> optional Slice 3). IMPORTANT #12 stays OPEN until the API half ships.
+> The experience-improvement selector (IMPORTANT #12) is now **fully SHIPPED** across
+> all three surfaces: CLI (`--improvement-version` / `mortality.improvement_version_id`),
+> dashboard Deal Pricing (**Slice 2** — PR #160, ADR-158), and the REST API
+> (**Slice 3** — ADR-159, `/api/v1/price` `improvement_version`). **IMPORTANT #12 CLOSED**;
+> the MI dashboard epic (`CONTINUATION_mi_dashboard.md`) is COMPLETE.
 
 ---
 

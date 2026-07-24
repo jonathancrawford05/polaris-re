@@ -10478,3 +10478,59 @@ ships (only the dashboard half lands here). (2) A **store-management UI** (creat
 the dashboard) — versions are still authored via the `polaris experience save` CLI; the dashboard is
 read-only over the store. (3) Surfacing the selected basis's **provenance detail** (study date /
 credibility / notes) beyond the compact selectbox label and the override info line.
+
+## ADR-159: Versioned experience-improvement selector on the REST API — MI dashboard Slice 3
+
+**Status:** Accepted (2026-07-24). Slice 3 (final) of the MI dashboard epic
+(`docs/PLAN_mi_dashboard.md` / `docs/CONTINUATION_mi_dashboard.md`); the REST-API half of
+IMPORTANT #12 / ADR-148. Closes IMPORTANT #12 — all three surfaces (CLI, dashboard, API) now
+drive a priced run from a versioned experience basis.
+
+**Context.** The A4′ epic (ADR-139..154) built an experience-derived mortality-improvement
+capability whose frozen, audited `ImprovementScale.CUSTOM` bases are persisted in the
+append-only `AssumptionVersionStore` (`polaris experience save`) and can drive a priced run via
+the CLI `--improvement-version` flag / `mortality.improvement_version_id` config key (ADR-148,
+loaded by `build_assumption_set` → `load_improvement_version`) and, since Slice 2 (ADR-158), the
+dashboard Deal-Pricing selector. `POST /api/v1/price` had no equivalent: an integration client
+could not price on a frozen versioned basis, so IMPORTANT #12's API half was unmet.
+
+**Decision.** `PriceRequest` gains an optional `improvement_version: str | None = None` — a
+`version_id` in the append-only store. When set, `_build_components` loads the frozen scale
+server-side via the pipeline's own `load_improvement_version` (which resolves the store at
+`$POLARIS_DATA_DIR/assumption_versions` = `default_store_root()`, the same root the CLI and
+dashboard use) and threads it onto the constructed `AssumptionSet.improvement` — the exact field
+the projection engine consumes and the exact insertion point `build_assumption_set` uses for the
+CLI path. The `improvement_version` echoes back on `PriceResponse` so a client can confirm which
+frozen basis drove the mortality (mirroring the `reserve_basis` echo, ADR-125). The load sits
+inside the endpoint's `try/except`, so an unknown id — which `AssumptionVersionStore.load` raises
+`PolarisValidationError` for — maps to a clean HTTP 422.
+
+The field is threaded through the shared `_build_components` (default `None`) rather than the
+`price` endpoint alone, keeping the parameter co-located with `valuation_mortality` and
+`reserve_basis`; the `scenario` / `uq` endpoints do not pass it, so they are byte-identical.
+
+**Alternatives considered.** (1) Load the scale in the `price` endpoint body and `model_copy` it
+onto the assumption set (mirroring the dashboard's `AssumptionSet.model_copy(update=...)`).
+Rejected: the API builds its `AssumptionSet` from scratch in `_build_components` (unlike the
+dashboard, which prices from a session `AssumptionSet` built elsewhere), so passing `improvement=`
+to the constructor is the minimal, contract-faithful path — no post-hoc copy needed. (2) Accept the
+full versioned scale inline in the request body. Rejected: the store is the audited system of
+record; a `version_id` reference keeps the API consistent with the CLI/dashboard and preserves
+provenance.
+
+**Impact.** Goldens byte-identical (no baseline regeneration — the default `None` path is
+untouched; omitting the field or passing `null` is byte-identical to prior responses). No core
+data-contract change (the request/response models are API-only DTOs). Four new API tests
+(`tests/test_api/test_improvement_version.py`): default accepted + echo null; omit == explicit
+null; a stored version echoes back and materially lowers the priced mortality (it-bites); an
+unknown id is 422. Tests seed a CUSTOM version into a `tmp_path` store and repoint
+`POLARIS_DATA_DIR`; the flat-`flat_qx` synthetic mortality path needs no table CSVs under the
+redirected root. No new runtime dependency; the store and `load_improvement_version` already ship.
+
+**Out of scope.** (1) Threading `improvement_version` through the `/api/v1/scenario` and
+`/api/v1/uq` endpoints — the epic's scope is the pricing surface; the scenario/uq DTOs already omit
+`reserve_basis` / `valuation_mortality` for the same reason. If a client needs a stressed run on a
+versioned basis it can be a follow-up. (2) A store-management / version-authoring API (versions are
+still authored via `polaris experience save`; the API is read-only over the store, matching the
+dashboard). (3) Surfacing the selected basis's provenance detail (study date / credibility / notes)
+on the response beyond the echoed id.
