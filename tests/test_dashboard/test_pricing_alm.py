@@ -28,7 +28,9 @@ import numpy as np
 
 from polaris_re.analytics.alm import DualDurationGap, dual_duration_gap
 from polaris_re.core.asset import AssetPortfolio
-from polaris_re.core.pipeline import (
+from polaris_re.dashboard.components.state import get_deal_config
+from polaris_re.dashboard.views.pricing import CohortPricingData, _run_pricing_for_cohort
+from polaris_re.pipeline import (
     DealConfig,
     LapseConfig,
     MortalityConfig,
@@ -36,8 +38,6 @@ from polaris_re.core.pipeline import (
     build_pipeline,
     load_inforce,
 )
-from polaris_re.dashboard.components.state import get_deal_config
-from polaris_re.dashboard.views.pricing import CohortPricingData, _run_pricing_for_cohort
 
 # A 10-year zero-coupon bond — a clean, well-defined asset side (Macaulay
 # duration == term, no coupon timing to reason about). Matches the shape used in

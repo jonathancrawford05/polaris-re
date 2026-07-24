@@ -1,5 +1,5 @@
 """
-Tests for `polaris_re.core.pipeline.derive_capital_nar` (ADR-049, Slice 3).
+Tests for `polaris_re.pipeline.derive_capital_nar` (ADR-049, Slice 3).
 
 The helper feeds NAR vectors into `LICATCapital.required_capital` for
 the cedant- and reinsurer-view profit tests at the CLI / API / dashboard
@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from polaris_re.core.cashflow import CashFlowResult
-from polaris_re.core.pipeline import derive_capital_nar
+from polaris_re.pipeline import derive_capital_nar
 
 
 def _gross_with_runoff(

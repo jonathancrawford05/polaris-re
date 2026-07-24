@@ -154,7 +154,7 @@ class TestDealPricingWithInjectedState:
     @pytest.fixture()
     def app_with_inforce(self):
         """App with a synthetic inforce block injected into state."""
-        from polaris_re.core.pipeline import (
+        from polaris_re.pipeline import (
             DealConfig,
             LapseConfig,
             MortalityConfig,
@@ -737,14 +737,14 @@ class TestTabularYRTUpload:
         from pathlib import Path
 
         from polaris_re.core.inforce import InforceBlock
-        from polaris_re.core.pipeline import (
+        from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
+        from polaris_re.pipeline import (
             DealConfig,
             LapseConfig,
             MortalityConfig,
             PipelineInputs,
             build_pipeline,
         )
-        from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
         from polaris_re.utils.yrt_rate_table_io import parse_uploaded_yrt_rate_table
 
         fixtures = Path(__file__).parent.parent / "fixtures" / "yrt_rate_tables"
@@ -838,7 +838,7 @@ class TestDashboardComputationErrorHandling:
     @staticmethod
     def _term_pipeline():
         """Build a minimal single-TERM-policy (inforce, assumptions, config)."""
-        from polaris_re.core.pipeline import (
+        from polaris_re.pipeline import (
             DealConfig,
             LapseConfig,
             MortalityConfig,
@@ -1001,7 +1001,7 @@ class TestScenarioUQPerspective:
 
     @staticmethod
     def _term_pipeline():
-        from polaris_re.core.pipeline import (
+        from polaris_re.pipeline import (
             DealConfig,
             LapseConfig,
             MortalityConfig,

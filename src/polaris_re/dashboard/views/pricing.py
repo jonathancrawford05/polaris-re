@@ -29,7 +29,6 @@ from polaris_re.core.asset import AssetPortfolio
 from polaris_re.core.cashflow import CashFlowResult
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
-from polaris_re.core.pipeline import derive_capital_nar, iter_cohorts
 from polaris_re.core.projection import ProjectionConfig
 from polaris_re.dashboard.components.charts import cashflow_waterfall
 from polaris_re.dashboard.components.projection import (
@@ -40,6 +39,7 @@ from polaris_re.dashboard.components.projection import (
     run_treaty_projection,
 )
 from polaris_re.dashboard.components.state import get_deal_config
+from polaris_re.pipeline import derive_capital_nar, iter_cohorts
 
 __all__ = ["page_pricing"]
 
@@ -346,7 +346,7 @@ def _run_pricing_for_cohort(
     profit-test objects for later rendering. Does NOT touch session state.
     """
     from polaris_re.analytics.profit_test import ProfitTester
-    from polaris_re.core.pipeline import dump_parity_debug
+    from polaris_re.pipeline import dump_parity_debug
 
     cfg = get_deal_config()
     yrt_rate_table = cfg.get("yrt_rate_table") if treaty_type == "YRT" else None

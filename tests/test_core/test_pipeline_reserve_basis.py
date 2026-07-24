@@ -9,13 +9,13 @@ clean error on a bad value.
 import pytest
 
 from polaris_re.core.exceptions import PolarisValidationError
-from polaris_re.core.pipeline import (
+from polaris_re.core.reserve_basis import ReserveBasis
+from polaris_re.pipeline import (
     DealConfig,
     PipelineInputs,
     _coerce_reserve_basis,
     build_projection_config,
 )
-from polaris_re.core.reserve_basis import ReserveBasis
 
 
 class TestCoerceReserveBasis:

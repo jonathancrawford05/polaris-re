@@ -11,8 +11,8 @@ from datetime import date
 import numpy as np
 
 from polaris_re.core.inforce import InforceBlock
-from polaris_re.core.pipeline import DealConfig, PipelineInputs, build_projection_config
 from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
+from polaris_re.pipeline import DealConfig, PipelineInputs, build_projection_config
 
 
 def _make_policy(
@@ -244,7 +244,7 @@ class TestBuildPipelineResolution:
     @staticmethod
     def _inputs(deal: DealConfig | None = None) -> PipelineInputs:
         # Flat mortality so no SOA table CSVs are required.
-        from polaris_re.core.pipeline import MortalityConfig
+        from polaris_re.pipeline import MortalityConfig
 
         kwargs = {"mortality": MortalityConfig(source="flat", flat_qx=0.003)}
         if deal is not None:
@@ -257,7 +257,7 @@ class TestBuildPipelineResolution:
         This is the QA-gap regression: the resolved config must never
         silently land on date.today() when the block carries real dates.
         """
-        from polaris_re.core.pipeline import build_pipeline
+        from polaris_re.pipeline import build_pipeline
 
         block_date = date(2025, 7, 1)
         _inf, _assumptions, config = build_pipeline(self._block(block_date), self._inputs())
@@ -266,7 +266,7 @@ class TestBuildPipelineResolution:
 
     def test_deal_date_overrides_block_date(self):
         """An explicit DealConfig.valuation_date beats the block date."""
-        from polaris_re.core.pipeline import build_pipeline
+        from polaris_re.pipeline import build_pipeline
 
         inputs = self._inputs(DealConfig(valuation_date=date(2025, 9, 1)))
         _inf, _assumptions, config = build_pipeline(self._block(date(2025, 7, 1)), inputs)
@@ -274,7 +274,7 @@ class TestBuildPipelineResolution:
 
     def test_explicit_arg_overrides_everything(self):
         """The explicit valuation_date argument beats deal and block dates."""
-        from polaris_re.core.pipeline import build_pipeline
+        from polaris_re.pipeline import build_pipeline
 
         inputs = self._inputs(DealConfig(valuation_date=date(2025, 9, 1)))
         _inf, _assumptions, config = build_pipeline(
@@ -324,7 +324,7 @@ class TestValidateDateConsistency:
         import pytest
 
         from polaris_re.core.exceptions import PolarisValidationError
-        from polaris_re.core.pipeline import load_inforce
+        from polaris_re.pipeline import load_inforce
 
         with pytest.raises(PolarisValidationError, match="internally inconsistent"):
             load_inforce(

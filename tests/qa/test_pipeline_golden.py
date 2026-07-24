@@ -113,7 +113,7 @@ class TestGoldenSanity:
 
     def test_cohort_partitioning(self, golden_inforce):
         """iter_cohorts splits golden block into exactly 2 cohorts."""
-        from polaris_re.core.pipeline import iter_cohorts
+        from polaris_re.pipeline import iter_cohorts
 
         cohorts = iter_cohorts(golden_inforce)
         assert len(cohorts) == 2

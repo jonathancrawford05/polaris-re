@@ -13,14 +13,14 @@ from pathlib import Path
 import numpy as np
 import streamlit as st  # type: ignore[import-untyped]
 
-from polaris_re.core.pipeline import DEFAULT_LAPSE_CURVE
 from polaris_re.core.policy import ProductType
 from polaris_re.dashboard.components.state import get_deal_config
+from polaris_re.pipeline import DEFAULT_LAPSE_CURVE
 
 __all__ = ["page_assumptions"]
 
 # Default lapse curve: derived from the shared DEFAULT_LAPSE_CURVE
-# in core.pipeline (the single source of truth), re-keyed with display labels.
+# in polaris_re.pipeline (the single source of truth), re-keyed with display labels.
 _DEFAULT_LAPSE_RATES: dict[str, float] = {
     **{f"Year {k}": v for k, v in DEFAULT_LAPSE_CURVE.items() if isinstance(k, int)},
     "Ultimate": DEFAULT_LAPSE_CURVE["ultimate"],

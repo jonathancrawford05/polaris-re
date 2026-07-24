@@ -11,7 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from polaris_re.core.pipeline import (
+from polaris_re.core.policy import ProductType
+from polaris_re.pipeline import (
     DEFAULT_LAPSE_CURVE,
     DealConfig,
     LapseConfig,
@@ -24,7 +25,6 @@ from polaris_re.core.pipeline import (
     iter_cohorts,
     load_inforce,
 )
-from polaris_re.core.policy import ProductType
 from polaris_re.products.dispatch import get_product_engine
 
 FIXTURE_CSV = Path("data/inputs/test_inforce.csv")

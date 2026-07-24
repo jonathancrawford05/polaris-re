@@ -7,10 +7,11 @@
 > DECISIONS + DEV_SESSION_LOG at the end of every slice — this plan is the
 > read-only spec, not the running log.
 >
-> **Status.** 🔲 PLANNED (not started). Queued as **Next Sprint S1**
-> (maintainer-directed 2026-07-24) in `PRODUCT_DIRECTION_2026-07-24.md` — the
-> immediate next routine item, ahead of the Tier-B quick wins. Running log (to
-> be created by Slice 1): `docs/CONTINUATION_pipeline_relocation.md`.
+> **Status.** ✅ COMPLETE (shipped 2026-07-24, PR #158, ADR-156). Executed as
+> **Next Sprint S1** (maintainer-directed 2026-07-24) in
+> `PRODUCT_DIRECTION_2026-07-24.md`. Slice 2 (anti-pattern sweep) was folded into
+> Slice 1 as the plan permitted; the sweep found no other instances. Running log:
+> `docs/CONTINUATION_pipeline_relocation.md` (COMPLETE).
 >
 > **Provenance.** ADR-155 "Out of scope" (the proper architectural fix; ADR-155
 > shipped only the cheap symptom fix — removing the eager re-export from

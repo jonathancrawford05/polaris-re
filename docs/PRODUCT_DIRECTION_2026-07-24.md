@@ -221,19 +221,19 @@ Run in order; each is single-session. This supersedes the prior file's stale
   **done this session** (ADR-155; cheap symptom fix — removed the eager
   `pipeline` re-export from `core/__init__.py`; zero callers; goldens
   byte-identical). The *proper* architectural fix is now **S1** below.
-- **S1 — Proper `core`→`assumptions` layering fix (maintainer-directed, NEXT).**
-  **PLAN LOCKED: `docs/PLAN_pipeline_relocation.md`.** Relocate `pipeline.py`
-  out of `core/` (`polaris_re/pipeline.py`), update the ~30 call sites
-  (`grep -rln core.pipeline src/ tests/ scripts/`), add an ADR — retires the
-  CLAUDE.md §6 layering exception entirely, not just the symptom ADR-155
-  removed. Bundle the eager-cross-layer-`__init__`-re-export sweep (look for the
-  same anti-pattern elsewhere). Behaviour-neutral → goldens byte-identical;
-  guard with the existing `tests/test_core/test_import_layering.py`. Likely
-  SMALL/MEDIUM one session (mechanical import churn + ADR); if the sweep
-  surfaces more, decompose per step 6. Next session opens
-  `docs/CONTINUATION_pipeline_relocation.md` and ships Slice 1. *Source:
-  maintainer directive 2026-07-24; ADR-155 Out of scope (1st-order) — see
-  Carried-Forward → Ops/architecture.*
+- **S1 — Proper `core`→`assumptions` layering fix (maintainer-directed).** ✅
+  **done this session** (PR #158, ADR-156; `CONTINUATION_pipeline_relocation` →
+  COMPLETE). `git mv`'d `core/pipeline.py` → `polaris_re/pipeline.py`, rewrote all
+  28 in-repo importers (no backward-compat shim), rewrote the module +
+  `core/__init__` docstrings, and extended
+  `tests/test_core/test_import_layering.py` (4 fresh-interpreter guards, incl. the
+  old path no longer resolving). The CLAUDE.md §6 layering exception is **retired
+  entirely** — `core/` can no longer import `assumptions/` at all. The
+  eager-cross-layer-`__init__`-re-export **sweep was folded in**: every
+  `src/polaris_re/**/__init__.py` audited; **no other instances found** (each
+  re-exports only its own sub-package). Behaviour-neutral → goldens
+  byte-identical. Single session (mechanical import churn + ADR); Slice 2 folded
+  into Slice 1 per the PLAN.
 - **S2 — MI (mortality-improvement) page on the Streamlit dashboard
   (maintainer-directed, SECOND).** **PLAN LOCKED: `docs/PLAN_mi_dashboard.md`.**
   A dedicated dashboard page surfacing the experience-GAM / mortality-improvement
@@ -399,7 +399,8 @@ Each: **title** — one-line. *Source.* (Full prose in the 2026-06-18 file.)
 - **Reconcile stale `tests/qa/golden_outputs/*.json` byte-format with the CLI `-o` schema** — regenerate snapshots or point the check at the parsed QA guard. *qa-on-pr review of PR #130.*
 
 **Ops / observability / architecture (8)**
-- **Relocate `pipeline.py` out of `core/` (proper fix for the S0.2 layer violation)** — move to `polaris_re/pipeline.py`, update 27 importers + ADR; retires the CLAUDE.md §6 exception, not just the symptom fixed in ADR-155. Also: sweep other `__init__.py` for the same eager cross-layer re-export anti-pattern. *ADR-155 Out of scope (1st-order).* **→ Next Sprint S1 (maintainer-directed 2026-07-24) — the immediate next routine item.**
+- ~~**Relocate `pipeline.py` out of `core/` (proper fix for the S0.2 layer violation)** — move to `polaris_re/pipeline.py`, update 27 importers + ADR; retires the CLAUDE.md §6 exception, not just the symptom fixed in ADR-155. Also: sweep other `__init__.py` for the same eager cross-layer re-export anti-pattern. *ADR-155 Out of scope (1st-order).*~~ — **SHIPPED** (S1 / ADR-156, PR #158): `git mv`'d `core/pipeline.py` → `polaris_re/pipeline.py`, rewrote all 28 in-repo importers, no shim; §6 exception retired. Anti-pattern sweep folded in — **no other eager cross-layer `__init__.py` re-exports found**. Goldens byte-identical.
+- **Decompose the `polaris_re.pipeline` composition root (~887 lines)** — config parsing, treaty construction, and cohort iteration are separable concerns that could split into focused modules under a `composition/` package now that the file sits at the top level. Pure maintainability; no behaviour change. *ADR-156 Out of scope (1st-order).*
 - **OpenTelemetry trace spans for the API** — span-level tracing behind an optional extra. *ADR-133.*
 - **OIDC/JWT authentication as an alternative to static API keys** — IdP tokens, scopes, expiry/refresh. *ADR-134.*
 - **Per-route / per-key rate-limit tiers** — shape load beyond the single global threshold. *ADR-134.*

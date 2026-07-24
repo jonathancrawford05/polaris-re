@@ -10288,3 +10288,66 @@ pre-fix `__init__.py` (verified red-green).
 symptom) — filed NICE-TO-HAVE in `PRODUCT_DIRECTION_2026-07-24`. No other `__init__.py` re-exports
 were audited for the same anti-pattern in this PR; a sweep for other eager cross-layer re-exports is
 a candidate follow-up.
+
+## ADR-156: Relocate `pipeline.py` out of `core/` — retire the §6 layering exception (Sprint 0 / S1)
+
+**Date:** 2026-07-24
+**Status:** Accepted
+**Scope:** `src/polaris_re/pipeline.py` (moved via `git mv` from `src/polaris_re/core/pipeline.py`);
+the ~28 in-repo importers (CLI, REST API, all `dashboard/**`, `analytics/scenario.py`,
+`analytics/portfolio.py`, and the CLI/dashboard/QA/core/products test suites);
+`src/polaris_re/core/__init__.py` docstring; `tests/test_core/test_import_layering.py`.
+Maintainer-directed **S1** (`PRODUCT_DIRECTION_2026-07-24` "Recommended Next Sprint"), backed by
+`docs/PLAN_pipeline_relocation.md` and `docs/CONTINUATION_pipeline_relocation.md`. Supersedes the
+symptom-only ADR-155.
+
+**Context.** The deal composition root — `DealConfig` / `build_pipeline` / `build_treaty` /
+`ceded_to_reinsurer_view` / etc. — lived at `core/pipeline.py`, yet it imports `AssumptionSet`,
+`MortalityTable`, `LapseAssumption`, `MortalityImprovement`, and the version store from
+`assumptions/`. The CLAUDE.md §6 rule forbids `core/` from importing `assumptions/`, so the module
+was carried as an explicit, load-bearing **exception**. That exception was not benign: because
+`core/__init__.py` runs on any leaf `core.*` import, an eager pipeline re-export there dragged
+`assumptions` into the graph mid-initialisation and produced a latent circular `ImportError` (see
+ADR-155). ADR-155 removed the eager re-export — the blast radius — but left the *cause*: a `core`
+submodule that still imports `assumptions`. The maintainer requested the proper fix (2026-07-24).
+
+**Decision.** `git mv src/polaris_re/core/pipeline.py src/polaris_re/pipeline.py`. `pipeline.py` is a
+**composition root**: it sits *above* `core/`, `assumptions/`, `products/`, and `reinsurance/` and
+legitimately imports across all of them, so its correct home is the package top level, not inside a
+leaf layer. Every in-repo call site now imports `from polaris_re.pipeline import (...)`. The module
+docstring and the `core/__init__.py` note were rewritten to state the new home and the retirement of
+the §6 exception. With `pipeline.py` no longer under `core/`, the `core` package **cannot import
+`assumptions/` at all**, and the §6 rule now holds with **no exception**.
+
+**No backward-compat shim.** No stub was left at the old `core/pipeline.py` path. A re-export shim
+there would keep a `core` submodule importing `assumptions` (re-opening the exact violation this
+retires) and keep `import polaris_re.core.pipeline` resolving (re-opening the ADR-155 cycle). The
+usual reason to leave a one-release deprecation shim — not breaking *external* importers mid-release —
+does not apply: this is an internal package with no external importers, so the in-repo call sites were
+rewritten and the old file deleted outright. `tests/test_core/test_import_layering.py` now asserts
+the old path no longer resolves (`importlib.util.find_spec('polaris_re.core.pipeline') is None`).
+
+**Anti-pattern sweep (folded-in Slice 2).** Every `src/polaris_re/**/__init__.py` was audited for the
+same eager cross-layer re-export anti-pattern (a lower-/sibling-layer package `__init__` eagerly
+importing a higher- or cross-layer module). **No other instances were found** — each `__init__.py`
+re-exports only modules from its own sub-package. The `core/__init__ → core.pipeline` edge was the
+sole occurrence, and the relocation makes it structurally impossible rather than merely absent.
+
+**Rationale.** This is a pure move + import rewrite: no pipeline *behaviour* changes, no `core/` data
+contract (`Policy`, `InforceBlock`, `CashFlowResult`, `ProjectionConfig`) changes, and the ~887-line
+module's internals are untouched (a future decomposition is out of scope). The value is honest
+layering: the §6 invariant is now enforceable without a documented exception, and the class of latent
+circular import ADR-155 patched cannot recur through `core`.
+
+**Impact.** Goldens **byte-identical** — `polaris price` on all four golden configs reproduces its
+committed baseline; QA suite unchanged; the full unit suite is byte-identical in count. The import
+layering guards were extended to four tests: (1) `assumptions.mortality` imports first in a fresh
+process; (2) `import polaris_re.core` drags in neither `polaris_re.pipeline` nor the `assumptions`
+layer; (3) the old `polaris_re.core.pipeline` path no longer resolves; (4) the pipeline symbols are
+reachable at the new canonical path `polaris_re.pipeline`.
+
+**Out of scope.** Decomposing `pipeline.py`'s ~887-line internals (config parsing, treaty
+construction, cohort iteration are separable concerns) — a candidate future refactor, filed as a
+NICE-TO-HAVE follow-up. The `target-path` alternative `polaris_re/composition/pipeline.py` (for an
+anticipated future split) was considered and rejected in favour of the minimal top-level move
+(`PLAN_pipeline_relocation.md` §5).

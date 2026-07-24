@@ -19,17 +19,17 @@ from pathlib import Path
 import numpy as np
 
 from polaris_re.core.inforce import InforceBlock
-from polaris_re.core.pipeline import (
+from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
+from polaris_re.dashboard.components.projection import (
+    run_gross_projection,
+    run_treaty_projection,
+)
+from polaris_re.pipeline import (
     DealConfig,
     LapseConfig,
     MortalityConfig,
     PipelineInputs,
     build_pipeline,
-)
-from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
-from polaris_re.dashboard.components.projection import (
-    run_gross_projection,
-    run_treaty_projection,
 )
 from polaris_re.products.dispatch import get_product_engine
 from polaris_re.reinsurance.yrt_rate_table import (
