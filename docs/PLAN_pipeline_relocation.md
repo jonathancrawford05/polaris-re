@@ -46,12 +46,16 @@ and the §6 rule holds without exception.
    (56 hits incl. pycache; ~30 real files — CLI, API, all `dashboard/views/*`
    + `components/*`, `analytics/scenario.py`, `analytics/portfolio.py`, and the
    CLI/dashboard/QA test suites).
-3. **No backward-compat shim in `core/`** — a `core/pipeline.py` shim that
-   re-imports from the new location would keep a `core` module importing
-   `assumptions`, re-introducing the very violation this retires. Update the
-   call sites instead. (A single-release deprecation shim at
-   `polaris_re/pipeline.py` is unnecessary — this is an internal package with no
-   external importers.)
+3. **No backward-compat shim at the old `core/pipeline.py` path** — a shim (a
+   stub left at `core/pipeline.py` that re-exports the names from the new
+   `polaris_re.pipeline`) would keep a `core` module importing `assumptions`,
+   re-introducing the very violation this retires, and keep
+   `import polaris_re.core.pipeline` working (re-opening the ADR-155 circular
+   import). Update the call sites instead. The usual reason to leave a
+   one-release deprecation shim at an old path — not breaking external
+   importers mid-release — does not apply here: this is an internal package with
+   no external importers, so rewrite the in-repo call sites and delete the old
+   file outright.
 4. `docs/DECISIONS.md` gains an ADR (next free number, ADR-156 at time of
    writing — confirm) recording the relocation, the §6-exception retirement, and
    the "no shim" decision.
@@ -116,9 +120,11 @@ paths. ADR-155 patched the blast radius; this makes the layering honest.
 
 ## 5. Open Decisions (locked defaults; revivable by maintainer)
 
-- **No backward-compat shim** (default, locked): update call sites directly.
-  Revive a one-release `polaris_re/pipeline.py`-only shim only if an external
-  consumer is discovered.
+- **No backward-compat shim** (default, locked): update call sites directly and
+  delete `core/pipeline.py`. Revive a one-release deprecation shim **at the old
+  `core/pipeline.py` path** (re-exporting from `polaris_re.pipeline`) only if an
+  external consumer of the old import path is discovered — accepting that such a
+  shim would temporarily keep `core` importing `assumptions`.
 - **Target path** `polaris_re/pipeline.py` (default). Alternative
   `polaris_re/composition/pipeline.py` if a future split is anticipated —
   not now; keep the move minimal.
