@@ -118,9 +118,22 @@ The automated review APPROVED (0 P0/P1-blocking) and raised two valid findings o
   scope (discovery protocol: quantify-file-ship, don't balloon the PR). Filed as a NICE-TO-HAVE
   promoted follow-up in PRODUCT_DIRECTION_2026-06-18 with the repro and the proper fix.
 
+## Next Sprint Queued (maintainer-directed 2026-07-24)
+At the maintainer's request, set up an explicit post-A4′ Sprint 0 in the latest PRODUCT_DIRECTION
+("⏭️ Next Sprint — QUEUED" block at the top of `PRODUCT_DIRECTION_2026-06-18.md`), since A4′ closing
+completes the written roadmap and leaves no queued Tier-A epic:
+- **S0.1** — overdue PRODUCT_DIRECTION regeneration + surface the §7 Phase-7 frontier decision (next
+  run's sole deliverable).
+- **S0.2** — fix the latent `core/pipeline.py` ↔ `assumptions.assumption_set` circular import (the
+  maintainer-requested item): cheap `core/__init__` re-export removal bundled into S0.1, or the
+  proper `pipeline` module-move as its own small PR.
+- **S0.3** — Tier-B quick wins B1 (capital surfaces) / B2 (scale benchmark) / B4 (deficiency
+  reserve).
+
 ## Open Questions / Follow-ups
-- **Latent `core/pipeline.py` circular import (filed NICE-TO-HAVE).** See the PR #156 review
-  response above; harvested to PRODUCT_DIRECTION_2026-06-18.
+- **Latent `core/pipeline.py` circular import (filed NICE-TO-HAVE; now queued as Sprint S0.2).** See
+  the PR #156 review response above; harvested to PRODUCT_DIRECTION_2026-06-18 and elevated into the
+  queued Next Sprint block.
 - **PRODUCT_DIRECTION regeneration is OVERDUE (housekeeping).** `PRODUCT_DIRECTION_2026-06-18.md` is
   now ~36 days old (>30). Every session since #151 has APPENDED to it rather than regenerating
   mid-epic (the wall-clock guardrail: a full regeneration alongside a slice risks the budget). With
