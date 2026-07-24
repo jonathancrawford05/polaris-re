@@ -10231,3 +10231,60 @@ lapse experience through the same GAM machinery. A full `PRODUCT_DIRECTION` rege
 (list-shipped-since #69…#155, carry-forward unresolved, re-rank against the fresh
 `COMMERCIAL_VIABILITY_REVIEW_2026-07-15`) is **overdue** and is the recommended sole deliverable of
 the next routine run.
+
+## ADR-155: Retire the latent `core` → `assumptions` circular import (Sprint 0 / S0.2)
+
+**Date:** 2026-07-24
+**Status:** Accepted
+**Scope:** `src/polaris_re/core/__init__.py` (drop the eager pipeline re-export). Bundled with the
+`PRODUCT_DIRECTION_2026-07-24` regeneration session (S0.1); tracked as S0.2 in the queued Sprint 0
+(`PRODUCT_DIRECTION_2026-06-18` "Next Sprint — QUEUED", maintainer-requested 2026-07-24).
+
+**Context.** `core/pipeline.py` is the engine's composition root: it imports `AssumptionSet`,
+`MortalityTable`, `LapseAssumption`, `MortalityImprovement`, and the version store from
+`assumptions/` (lines 26–30). That is a deliberate exception to the CLAUDE.md §6 layering rule
+(`core/` may not import `assumptions/`) — a composition root legitimately reaches across layers.
+The defect was not the exception itself but that `core/__init__.py` *eagerly* re-exported the
+pipeline symbols (`DealConfig`, `LapseConfig`, `MortalityConfig`, `PipelineInputs`,
+`build_pipeline`). Because `core/__init__.py` runs whenever *any* `polaris_re.core.*` leaf module is
+imported, that eager line dragged `pipeline` — and therefore the whole `assumptions` layer,
+mid-initialisation — into the graph. Importing `assumptions.mortality` before anything had primed
+`analytics` therefore raised:
+
+    ImportError: cannot import name 'AssumptionSet' from partially initialized module
+    'polaris_re.assumptions.assumption_set' (most likely due to a circular import)
+
+The bug was *latent*: every shipped entry point (CLI, REST API, analytics) imports in an order that
+primes `analytics` first and masks it. It surfaced only when authoring the QUICKSTART §14 example
+(PR #156 review [P1]), whose import block had to be reordered to dodge it — treating the symptom, not
+the cause. The maintainer requested the underlying fix (2026-07-24).
+
+**Decision.** Remove the eager `from polaris_re.core.pipeline import (...)` block and its five
+`__all__` entries from `core/__init__.py`. Callers import those symbols from
+`polaris_re.core.pipeline` directly — which is what **every** caller already does: a repo-wide search
+found **zero** users of the re-export (`from polaris_re.core import DealConfig/…` = 0; no
+`core.DealConfig` attribute access; all 27 importers use the direct `core.pipeline` path). The eager
+re-export was dead surface whose only effect was to force the cross-layer import at package-init time.
+
+This is the **cheap symptom fix** of the two dispositions catalogued in S0.2. The **proper**
+architectural fix — physically moving `pipeline.py` out of `core/` (e.g. to `polaris_re/pipeline.py`)
+to retire the layer exception entirely — is left as a NICE-TO-HAVE follow-up (carried in
+`PRODUCT_DIRECTION_2026-07-24`): it touches 27 importers and buys clean layering, but the symptom fix
+already removes every path that triggers the cycle.
+
+**Rationale.** Removing the eager re-export is behaviour-neutral (dead surface, zero callers) yet
+breaks the only edge that made a leaf `core.*` import pull `assumptions`. The `pipeline` module keeps
+its composition-root cross-layer imports because that is legitimate for a root; the fix is simply to
+stop *forcing* that root into every `core` package import.
+
+**Impact.** No engine, contract, CLI, treaty, or golden path changes — `polaris price` on the golden
+configs is byte-identical and the QA suite is unchanged. Three fresh-interpreter regression tests
+(`tests/test_core/test_import_layering.py`) pin the fix: (1) `assumptions.mortality` imports first in
+a clean process, (2) `import polaris_re.core` does not drag `core.pipeline` into `sys.modules`, and
+(3) the pipeline symbols remain reachable at their canonical path. Tests (1) and (2) fail against the
+pre-fix `__init__.py` (verified red-green).
+
+**Out of scope.** The proper `pipeline`-module relocation (retire the §6 exception, not just the
+symptom) — filed NICE-TO-HAVE in `PRODUCT_DIRECTION_2026-07-24`. No other `__init__.py` re-exports
+were audited for the same anti-pattern in this PR; a sweep for other eager cross-layer re-exports is
+a candidate follow-up.

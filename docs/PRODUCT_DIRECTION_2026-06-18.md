@@ -1908,7 +1908,7 @@ constraint and a future session must not rebuild these as a naive wall-time log.
   ADR-153 Out of scope + DEV_SESSION_LOG_2026-07-23_experience_gam_slice4d2 Open Questions
   (1st-order).*
 
-- **NICE-TO-HAVE — Fix the latent `core/pipeline.py` ↔ `assumptions.assumption_set` circular
+- ~~**NICE-TO-HAVE — Fix the latent `core/pipeline.py` ↔ `assumptions.assumption_set` circular
   import.** `import polaris_re.assumptions.mortality` as the *first* `polaris_re` import raises
   `ImportError: cannot import name 'AssumptionSet' ... (circular import)` via `core/pipeline.py:26`
   (`core/__init__` eagerly imports `core.pipeline`, which imports `assumptions.assumption_set`,
@@ -1921,7 +1921,11 @@ constraint and a future session must not rebuild these as a naive wall-time log.
   correctness → NICE-TO-HAVE. 1st-order (a defect surfaced while writing the 4d-3 docs). *Source:
   PR #156 review [P1] + DEV_SESSION_LOG_2026-07-24_experience_gam_slice4d3 Open Questions
   (1st-order).* **Queued as Next-Sprint S0.2 (maintainer-directed 2026-07-24) — see the "⏭️ Next
-  Sprint — QUEUED" block at the top of this file.**
+  Sprint — QUEUED" block at the top of this file.**~~ — **SHIPPED** (S0.2, ADR-155, this PR): removed
+  the eager `pipeline` re-export from `core/__init__.py` (cheap symptom fix; zero callers of the
+  re-export; goldens byte-identical). Regression-guarded by `tests/test_core/test_import_layering.py`
+  (fresh-interpreter). The proper architectural fix (relocate `pipeline.py` out of `core/`) is carried
+  forward as a NICE-TO-HAVE in `PRODUCT_DIRECTION_2026-07-24`.
 
 ## Carried Forward
 
