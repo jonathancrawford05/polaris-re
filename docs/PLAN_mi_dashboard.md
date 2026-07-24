@@ -8,11 +8,11 @@
 > DECISIONS + DEV_SESSION_LOG at the end of every slice — this plan is the
 > read-only spec, not the running log.
 >
-> **Status.** 🔲 PLANNED (not started). Queued as **Next Sprint S2**
+> **Status.** ⏳ IN PROGRESS — **Slice 1 shipped** (diagnostics page, ADR-157);
+> Slice 2 (versioned selector into pricing) is NEXT. Queued as **Next Sprint S2**
 > (maintainer-directed 2026-07-24) in `PRODUCT_DIRECTION_2026-07-24.md` — the
 > second item, after S1 (`pipeline.py` relocation) and ahead of the Tier-B quick
-> wins. Running log (to be created by Slice 1):
-> `docs/CONTINUATION_mi_dashboard.md`.
+> wins. Running log: `docs/CONTINUATION_mi_dashboard.md`.
 >
 > **Provenance.** Folds two carried-forward follow-ups: IMPORTANT #12 (ADR-148 —
 > surface the versioned improvement selector on the dashboard) and NICE-TO-HAVE

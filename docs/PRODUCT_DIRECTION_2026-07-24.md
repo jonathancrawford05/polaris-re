@@ -442,7 +442,30 @@ Each: **title** — one-line. *Source.* (Full prose in the 2026-06-18 file.)
 - **Built-in HMD authenticated-session flow in `fetch_hmd`** — self-contained login on a fresh machine. *ADR-149 + DEV_SESSION_LOG_2026-07-23_experience_gam_slice4c1.*
 - **Real-data experience-improvement diligence run (HMD/ILEC vs published targets)** — compare fitted `MI_x(y)` against MIM-2021/CIA (gated on licensed data, never CI). *ADR-150 + DEV_SESSION_LOG_2026-07-23_experience_gam_slice4c2.*
 - **Execute the `mgcv` oracle on an R-equipped dev box** — exercise the `rpy2`→`mgcv` glue (absent in CI by design). *ADR-151 + DEV_SESSION_LOG_2026-07-23_experience_gam_slice4c3.*
-- **Wire experience-GAM diagnostics into the Streamlit dashboard** — interactive effects / MI-surface slices / projection fan reusing `all_effects()`/`--grid-out`. *ADR-153 + DEV_SESSION_LOG_2026-07-23_experience_gam_slice4d2.* **→ folded into Next Sprint S2 (maintainer-directed 2026-07-24), the MI dashboard page.**
+- ~~**Wire experience-GAM diagnostics into the Streamlit dashboard** — interactive effects / MI-surface slices / projection fan reusing `all_effects()`/`--grid-out`. *ADR-153 + DEV_SESSION_LOG_2026-07-23_experience_gam_slice4d2.* **→ folded into Next Sprint S2 (maintainer-directed 2026-07-24), the MI dashboard page.**~~ — **SHIPPED** (S2 Slice 1 / ADR-157, PR #159): new "Mortality Improvement" dashboard page (`views/experience_improvement.py`) rendering fitted effects (`plot_effects`), the `MI_x(y)` surface slices (`plot_mi_surface`), a band-width heatmap (`plot_mi_surface_bandwidth`), and — behind a slow toggle — the Bayesian projection fan (`plot_mi_projection`), plus an MI-grid CSV download. `AppTest` flows + helper unit tests; goldens byte-identical.
+
+### Harvested 2026-07-24 (MI dashboard Slice 1 — ADR-157)
+
+New follow-ups surfaced by ADR-157's "Out of scope" (all 1st-order — follow-ups
+of the originally-planned S2 MI dashboard page; both NICE-TO-HAVE — convenience
+polish on a shipped surface, not a production-correctness gap):
+
+- **Standard-table `q_base` attach path on the MI dashboard page** — build the
+  static base offset from a standard mortality table (as the CLI's
+  `polaris experience improvement --table` does) so a dashboard user can fit
+  from an experience CSV that lacks a pre-built `q_base` column. Slice 1
+  requires the column. *Source: ADR-157 Out of scope (1st-order).*
+- **Cache the interactive MI fit across reruns / add a saved-version load path**
+  — Slice 1 refits the frequentist (and, on toggle, Bayesian) surface on every
+  Streamlit rerun; cache by a config signature in `st.session_state`, and add a
+  "load a saved version from the store" path alongside upload/sample. *Source:
+  ADR-157 Out of scope (1st-order).*
+
+> The Deal-Pricing versioned-selector (IMPORTANT #12 dashboard half) and the
+> REST-API half of #12 are **not** harvested here — the dashboard half is
+> **Slice 2** of this same feature (tracked in `CONTINUATION_mi_dashboard.md`,
+> not a loose follow-up), and the API half remains carried-forward **IMPORTANT
+> #12** above. IMPORTANT #12 stays OPEN — only the diagnostics half shipped.
 
 ---
 
