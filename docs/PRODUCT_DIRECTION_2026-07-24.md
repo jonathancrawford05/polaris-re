@@ -136,7 +136,7 @@ maintenance mode**.
 | # | Feature | Value | Effort | Notes |
 |---|---------|-------|--------|-------|
 | ~~**B1**~~ | ~~**Switch capital surfaces to `for_product_interim`** — expose the built C-1/C-3 factors everywhere~~ — **SHIPPED** (PR #162 / ADR-160): the `licat` branch of `capital_model_for` now resolves to `for_product_interim`, surfacing interim C-1/C-3 + extended C-2 on the CLI/API/dashboard priced path, aligned with the portfolio roll-up and RBC/SII. **No golden rebaseline** — no QA golden config enables a capital model, so `polaris price` is byte-identical (guards 23/23). Behaviour change flagged for human review on the draft PR. | ★★★★☆ | ~1–2 d | Was unshipped after three reviews; shipped 2026-07-25. |
-| **B2** | **Scale benchmark at 100K–500K policies** — publish a timing table; back the README perf claim | ★★★★☆ | ~1 d | Unshipped after **three** reviews. Pairs with NICE-TO-HAVE perf-harness work. |
+| ~~**B2**~~ | ~~**Scale benchmark at 100K–500K policies** — publish a timing table; back the README perf claim~~ — **SHIPPED** (PR #163 / ADR-161): `analytics/scale_benchmark.py` harness times the production `project()` path across sizes; committed table (1K→500K, ~linear time growth, ~7.5K–17K policies/sec) published in the README *Performance & scale* section + `docs/PERFORMANCE.md`; regenerator `scripts/scale_benchmark.py`. Additive-only — goldens byte-identical. | ★★★★☆ | ~1 d | Shipped 2026-07-25; was unshipped after three reviews. |
 | **B4** | **Premium-deficiency reserve / loss recognition** — turn the sufficiency analyzer into a reserve floor | ★★★☆☆ | ~1–2 d | Unshipped after **three** reviews. |
 
 B1 and B2 are the cleanest between-epic fallback picks and the **S3** sequence
@@ -538,6 +538,30 @@ out-of-scope items are **1st-order** and promoted normally.
   examples or notebook cells that printed LICAT `peak_capital` / `pv_capital` / RoC on the priced
   path now understate the interim-basis figures; a sweep would keep the docs consistent with the
   shipped default. *Source: ADR-160 Out of scope (1st-order).* **NICE-TO-HAVE.**
+
+### Harvested 2026-07-25 (B2 scale benchmark — ADR-161)
+
+New follow-ups from ADR-161's "Out of scope". B2 is a catalogue (planned) Tier-B item, so its
+out-of-scope items are **1st-order** and promoted normally.
+
+- **Surface the scale benchmark as a `polaris` CLI subcommand.** B2 ships the harness as
+  `analytics/scale_benchmark.py` + `scripts/scale_benchmark.py`; it is deliberately **not** a
+  `polaris` subcommand so the correctness-only `polaris benchmark` stays unambiguous. A distinct
+  `polaris scale-benchmark` (or `polaris benchmark --timing`) would give ops a one-command timing
+  check without the `scripts/` invocation. *Source: ADR-161 Out of scope (1st-order).*
+  **NICE-TO-HAVE.**
+- **Benchmark product engines beyond TermLife (WholeLife / UL / DI-CI).** The published table times
+  only the TERM engine. The other product engines share the vectorized `(N × T)` design, so a
+  per-engine timing table would extend the perf evidence across the modeled surface (and catch a
+  per-engine `O(N²)` regression the TERM-only slow test would miss). Pairs with the existing
+  NICE-TO-HAVE "parallel portfolio execution" (Tier-C C4) but is independent of it. *Source:
+  ADR-161 Out of scope (1st-order).* **NICE-TO-HAVE.**
+- **CI performance-regression gate.** ADR-161 adds a `@pytest.mark.slow` scaling-shape test (4× the
+  block must take < 6× the time) that catches a reintroduced per-policy Python loop, but there is no
+  CI job that runs it or trends wall-clock over time. Folding a timing job into CI **overlaps the
+  existing IMPORTANT "CI perf/smoke infra" follow-up** — recorded here as the B2-specific slice of
+  that item, not as a new duplicate. *Source: ADR-161 Out of scope (1st-order; overlaps existing
+  IMPORTANT CI-perf item).* **NICE-TO-HAVE.**
 
 ---
 
