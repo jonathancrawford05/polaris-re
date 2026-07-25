@@ -137,7 +137,10 @@ def build_homogeneous_block(
     # are needed; the RNG is seeded so blocks are reproducible.
     import numpy as np
 
-    ages = np.random.default_rng(seed).integers(issue_age_min, issue_age_max, n_policies)
+    # Ages/counts use int32 per the §5 dtype convention (values are unchanged).
+    ages = np.random.default_rng(seed).integers(
+        issue_age_min, issue_age_max, n_policies, dtype=np.int32
+    )
     policies = [
         Policy(
             policy_id=f"BENCH{i:07d}",
