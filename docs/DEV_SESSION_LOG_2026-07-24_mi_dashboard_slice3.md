@@ -92,7 +92,7 @@ ADR-159.
 | Omitting / null byte-identical to prior responses | ✅ | `omit == explicit null` |
 | `scenario` / `uq` unchanged | ✅ | field not threaded into their DTOs |
 | Goldens byte-identical | ✅ | `polaris price flat` exit 0, \$45,386 unchanged |
-| Quality gate | ✅ | API 220 passed; QA 88 passed; ruff format + check clean |
+| Quality gate | ✅ | Full suite 2587 passed / 5 skipped / 0 failures (API 220; QA 88 within it); ruff format + check clean |
 
 ## Open Questions / Follow-ups
 - **Thread `improvement_version` through `/api/v1/scenario` and `/api/v1/uq`** — Slice 3
