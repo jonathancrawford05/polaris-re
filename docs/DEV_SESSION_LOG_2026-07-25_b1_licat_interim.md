@@ -93,7 +93,9 @@ mortality-only `for_product` basis on an identical reserve/NAR stream. Verified 
 - **Confirm the default flip (maintainer).** Making the interim ADR-072 placeholders the default
   LICAT priced basis is an actuarial-policy call, not just plumbing. The factors are conservative
   committee-stage placeholders; the "proper" successor is an ALM-derived shock-based calibration.
-  The PR is draft and flags this for review before merge.
+  **RESOLVED — maintainer accepted the proposed default C-values (2026-07-25, live).** PR #162
+  marked ready for review; the routine will not self-merge (guardrail). The ALM-derived
+  calibration remains the follow-up successor (harvested IMPORTANT below), not a blocker.
 - **ALM-derived shock-based C-1/C-3 calibration** to supersede the interim placeholders now that
   they are the default (harvested below — IMPORTANT).
 - **Configurable capital-basis selector** (interim vs mortality-only) on the CLI/API, if a user
