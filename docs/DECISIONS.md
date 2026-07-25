@@ -10615,3 +10615,54 @@ capital-basis selector (interim vs mortality-only) on the CLI/API. (3) Interim
 asset/interest loadings for RBC / Solvency II beyond what their `for_product`
 constructors already carry. (4) Rebaselining any downstream capital figure in
 documentation or notebooks that quoted the pre-B1 LICAT numbers.
+
+## ADR-161: Scale benchmark — publish reproducible projection timings (B2)
+
+**Status:** Accepted (2026-07-25)
+
+**Context.** The README claims the engine is "vectorized — NumPy `(N × T)` arrays
+throughout; no loops over policies", but that claim was unbacked by any published
+number. `polaris benchmark` validates numerical *correctness* against actuarial
+references; it says nothing about *speed* or *scaling*. PRODUCT_DIRECTION_2026-07-24
+Tier-B item **B2** ("Scale benchmark at 100K–500K policies — publish a timing table;
+back the README perf claim") had gone unshipped after three reviews. This is a
+gated Tier-B fallback pick: the routine is in maintainer-declared maintenance mode
+(no unstarted Tier-A epic; Phase-7 frontier not yet chosen), B1 shipped as PR #162,
+and B2 is next in the review's Sprint-0 value-per-day order (B1 → B2 → B4).
+
+**Decision.** Add `analytics/scale_benchmark.py`: a diagnostic harness that times
+the **production** pricing path (`get_product_engine(...).project()` — the same call
+the CLI/API use) across a sequence of block sizes and returns a Pydantic
+`ScaleBenchmarkReport` (per-row `n_policies`, `projection_seconds`,
+`policies_per_second`, `cell_updates_per_second`, `peak_rss_mb`) with a Markdown
+renderer. A companion `scripts/scale_benchmark.py` regenerates the table published
+in the README's new *Performance & scale* section and in `docs/PERFORMANCE.md`.
+
+Design choices:
+- **Strictly-ascending sizes required.** `ru_maxrss` is a process high-water mark,
+  so measuring sizes in ascending order makes each row's peak-RSS attribution exact
+  (each larger run's peak *is* that size's peak). Non-ascending / non-positive /
+  empty size lists raise `PolarisValidationError`.
+- **Only `project()` is timed**, excluding block construction, so the number
+  reflects engine throughput rather than Pydantic build cost.
+- **Clock-independent, deterministic fixtures.** `build_homogeneous_block` requires
+  a caller-pinned `valuation_date` (never `date.today()`, per the ADR-074 guard) and
+  a seeded RNG, so blocks are reproducible.
+- **Additive-only / off the hot path.** New module + optional script + docs; no
+  pricing path, `Policy`/`CashFlowResult`/`InforceBlock` contract, treaty, or CLI
+  pricing surface touched. Goldens are byte-identical.
+
+The published property is *linear scaling*: throughput stays within one order of
+magnitude from 1K to 500K policies and time grows ~linearly with `N` (5× the
+policies → ~5.8× the time, 100K→500K), the observable signature of an `O(N)`
+vectorized engine. A `@pytest.mark.slow` test guards this invariant (4× the block
+must take < 6× the time), catching a regression that reintroduced a per-policy
+Python loop.
+
+**Out of scope.** (1) Surfacing the benchmark as a `polaris` CLI subcommand
+(kept a standalone script so the correctness-only `polaris benchmark` stays
+unambiguous). (2) Multi-core / parallel-portfolio timing (Tier-C C4). (3)
+Benchmarking product engines other than TermLife. (4) A CI performance-regression
+gate (absolute times are hardware-dependent; the slow scaling test guards the
+shape, not wall-clock thresholds). (5) The Phase-6.3 concurrent-`/api/v1/price`
+load test (Tier-C C6) — a distinct API-latency concern, not block-scale throughput.

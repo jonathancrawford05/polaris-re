@@ -155,6 +155,27 @@ checks embedded as executable assertions.
 See [`docs/QUICKSTART.md §9`](docs/QUICKSTART.md#9-deal-pricing--excel-export) for the full
 `polaris price` command reference, workbook contents, and mixed-cohort filename behaviour.
 
+### Performance & scale
+
+The engine vectorizes over policies — a block projects as `(N × T)` NumPy arrays
+with no Python loop over policies — so projection time grows **linearly** with the
+block size. Measured on one core, projecting a synthetic TERM block over a 20-year
+monthly horizon:
+
+| Policies | Projection time | Policies / sec |
+|---------:|----------------:|---------------:|
+| 1,000    | 0.06 s          | ~17,000        |
+| 10,000   | 0.63 s          | ~16,000        |
+| 100,000  | 11.4 s          | ~8,800         |
+| 500,000  | 66.2 s          | ~7,500         |
+
+Half a million policies price in about a minute on a single core (peak ~10 GB RAM).
+Regenerate the table on your own hardware — see [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md):
+
+```bash
+uv run python scripts/scale_benchmark.py --sizes 1000 10000 100000 500000
+```
+
 ---
 
 ## Example: Price a YRT Deal on a Term Life Block
