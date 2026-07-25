@@ -10534,3 +10534,84 @@ versioned basis it can be a follow-up. (2) A store-management / version-authorin
 still authored via `polaris experience save`; the API is read-only over the store, matching the
 dashboard). (3) Surfacing the selected basis's provenance detail (study date / credibility / notes)
 on the response beyond the echoed id.
+
+## ADR-160: Resolve the LICAT capital surface to `for_product_interim` (B1)
+
+**Status:** Accepted (2026-07-25). Sprint-0 Tier-B quick win **B1** from
+`COMMERCIAL_VIABILITY_REVIEW_2026-07-15` / `PRODUCT_DIRECTION_2026-07-24` ("Switch
+capital surfaces to `for_product_interim` — expose the built C-1/C-3 factors
+everywhere"), unshipped after three reviews. **Behaviour change to LICAT capital
+on the single-deal priced path — flagged for human review before merge.**
+
+**Context.** `capital_model_for(model_id, product_type)` (ADR-101) is the single
+registry behind the CLI `--capital` flag, the API `capital_model` field, and the
+dashboard capital toggle. Its `licat` branch resolved to
+`LICATCapital.for_product(product_type)`, which populates **only** the C-2
+mortality factor (ADR-047) and leaves C-1 (asset default), C-3 (interest rate),
+and the C-2 lapse/morbidity sub-factors (ADR-065) at zero. Meanwhile:
+
+- The **portfolio roll-up** (`dashboard/views/portfolio.py`) already constructs
+  `LICATCapital.for_product_interim(product_type)` — the full committee-stage
+  screening basis (extended C-2 lapse/morbidity per ADR-065 + interim C-1/C-3 per
+  ADR-072). So a deal's stand-alone LICAT capital and its contribution basis
+  inside a portfolio **disagreed**.
+- **US RBC** (`RBCCapital.for_product`) and **EU Solvency II**
+  (`SolvencyIICapital.for_product`) already load asset/interest components in
+  their per-product constructors, so LICAT was the outlier jurisdiction
+  understating required capital on the priced path.
+
+The interim C-1/C-3 factors (ADR-072: C-1 = 0.5% of reserves uniformly; C-3
+duration-scaled — TERM 0.5%, WL 1.0%, UL 1.5%, ANNUITY 2.0%) were built but
+reachable only via the portfolio surface and a direct constructor call. B1 wires
+them into the single chokepoint so all three price surfaces expose them.
+
+**Decision.** The `licat` branch of `capital_model_for` now returns
+`LICATCapital.for_product_interim(product_type)`. This is the minimal, one-line
+change at the single registry, so the CLI, REST API, and dashboard Deal-Pricing
+surfaces all move together (the "one place" invariant ADR-101 was built for). The
+`for_product` / `for_product_extended` constructors are unchanged and remain
+available for callers that want the mortality-only or extended-C-2-without-C-1/C-3
+bases explicitly.
+
+The precise delta on the priced LICAT path, per product, is: C-2 mortality
+unchanged; **C-2 lapse** 0 → the ADR-065 default (e.g. TERM 0.05 × reserve);
+**C-2 morbidity** 0 → the ADR-065 default (non-zero only for DI/CI); **C-1** 0 →
+0.005 × reserve; **C-3** 0 → the duration-scaled ADR-072 default. Required
+capital therefore strictly increases, return-on-capital and capital-adjusted IRR
+decrease, and the LICAT solvency ratio falls for a fixed available-capital
+numerator.
+
+**Alternatives considered.** (1) Add *only* C-1/C-3 to the resolver while keeping
+C-2 mortality-only. Rejected: it would require a new fourth constructor, would
+still leave the single-deal path inconsistent with the portfolio roll-up on C-2,
+and B1 explicitly names `for_product_interim` (the basis the portfolio already
+uses). (2) Make the basis configurable via a new CLI/API flag defaulting to the
+old behaviour. Rejected for this slice: it defers the alignment B1 asks for and
+adds surface area; a per-run factor override already exists on `LICATFactors`
+for callers with calibration data. (3) Leave it until the Phase-5.4 asset/ALM
+model derives shock-based C-1/C-3. Rejected: the ALM epic (ADR-108..117) shipped
+duration-gap/modco-interest analytics but did **not** populate the LICAT C-1/C-3
+factors, so the interim placeholders remain the only built asset/interest
+loading — the alignment need is live now, and the interim label is preserved so
+a future ALM-derived calibration supersedes it cleanly.
+
+**Impact.** **No QA golden regeneration** — none of the four golden configs
+(`yrt`, `coins`, `policy_cession`, `flat`) enable a capital model, so
+`polaris price` output on the committed configs is byte-identical (verified). The
+API capital tests assert `peak_capital > 0` / `pv_capital > 0` (already true via
+C-2) and a scale-invariant capital-ratio relationship, all preserved. No core
+data contract changes (`CashFlowResult`, `Policy`, `LICATFactors` fields, and the
+`CapitalModel`/`CapitalSchedule` protocols are untouched). New tests
+(`tests/test_analytics/test_capital_base.py::TestLicatResolverUsesInterimFactors`,
+18 cases): the resolver's LICAT factors equal `for_product_interim` for every
+product, carry non-zero C-1, scale C-3 with reserve duration, agree with the
+portfolio path, and produce strictly larger peak required capital than the
+old mortality-only basis on an identical cash-flow stream.
+
+**Out of scope.** (1) Replacing the interim ADR-072 placeholders with an
+ALM-derived, shock-based C-1/C-3 calibration (the proper Phase-5.4 successor;
+this slice only surfaces the existing placeholders). (2) A configurable
+capital-basis selector (interim vs mortality-only) on the CLI/API. (3) Interim
+asset/interest loadings for RBC / Solvency II beyond what their `for_product`
+constructors already carry. (4) Rebaselining any downstream capital figure in
+documentation or notebooks that quoted the pre-B1 LICAT numbers.

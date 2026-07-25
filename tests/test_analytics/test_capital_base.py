@@ -76,6 +76,92 @@ class TestCapitalModelRegistry:
         assert term.factors != whole.factors
 
 
+class TestLicatResolverUsesInterimFactors:
+    """The LICAT resolver exposes the built C-1/C-3 factors (ADR-160, B1).
+
+    ``capital_model_for("licat", …)`` resolves to the interim committee-stage
+    screening basis (`LICATCapital.for_product_interim`) — the same basis the
+    portfolio roll-up (`dashboard/views/portfolio.py`) already uses — rather than
+    the mortality-only `for_product` basis. This closes the single-deal-vs-
+    portfolio inconsistency and brings LICAT in line with US RBC / EU Solvency II,
+    whose `for_product` constructors already load asset/interest components.
+    """
+
+    @pytest.mark.parametrize("product_type", list(ProductType))
+    def test_licat_resolver_matches_for_product_interim(self, product_type):
+        """Every product resolves to the exact `for_product_interim` factor set."""
+        resolved = capital_model_for("licat", product_type)
+        interim = LICATCapital.for_product_interim(product_type)
+        assert isinstance(resolved, LICATCapital)
+        assert resolved.factors == interim.factors
+
+    @pytest.mark.parametrize("product_type", list(ProductType))
+    def test_licat_resolver_carries_non_zero_c1(self, product_type):
+        """The built C-1 asset-default factor is now surfaced on the priced path."""
+        resolved = capital_model_for("licat", product_type)
+        assert resolved.factors.c1_asset_default > 0.0
+
+    @pytest.mark.parametrize(
+        ("product_type", "expected_c3"),
+        [
+            (ProductType.TERM, 0.005),
+            (ProductType.WHOLE_LIFE, 0.010),
+            (ProductType.UNIVERSAL_LIFE, 0.015),
+            (ProductType.ANNUITY, 0.020),
+        ],
+    )
+    def test_licat_resolver_c3_scales_with_reserve_duration(self, product_type, expected_c3):
+        """C-3 scales with effective reserve duration (TERM short … ANNUITY long)."""
+        resolved = capital_model_for("licat", product_type)
+        assert resolved.factors.c3_interest_rate == pytest.approx(expected_c3)
+
+    def test_licat_resolver_consistent_with_portfolio_path(self):
+        """The single-deal resolver and the portfolio roll-up agree on LICAT factors.
+
+        `dashboard/views/portfolio.py` constructs `for_product_interim` directly;
+        the resolver behind the single-deal CLI/API/dashboard price must now use
+        the identical basis so a deal's stand-alone capital equals its
+        contribution basis inside a portfolio.
+        """
+        for product_type in ProductType:
+            resolved = capital_model_for("licat", product_type)
+            portfolio_basis = LICATCapital.for_product_interim(product_type)
+            assert resolved.factors == portfolio_basis.factors
+
+    def test_licat_resolver_capital_exceeds_mortality_only_basis(self):
+        """The priced-path required capital strictly exceeds the old mortality-only basis.
+
+        Closed-form sanity: the interim basis adds C-2 lapse (0.05 * reserve for
+        TERM) plus C-1 (0.005 * reserve) and C-3 (0.005 * reserve) on top of the
+        C-2 mortality component, so peak required capital must be strictly larger
+        than the pre-B1 `for_product` basis on an identical cash-flow stream.
+        """
+        from datetime import date
+
+        import numpy as np
+
+        from polaris_re.core.cashflow import CashFlowResult
+
+        months = 12
+        reserve = np.full(months, 1_000_000.0, dtype=np.float64)
+        nar = np.full(months, 500_000.0, dtype=np.float64)
+        cashflows = CashFlowResult(
+            run_id="b1-closed-form",
+            valuation_date=date(2025, 1, 1),
+            basis="GROSS",
+            assumption_set_version="test-v1",
+            product_type="TERM",
+            projection_months=months,
+            reserve_balance=reserve,
+        )
+
+        old_basis = LICATCapital.for_product(ProductType.TERM)
+        new_basis = capital_model_for("licat", ProductType.TERM)
+        old_cap = old_basis.required_capital(cashflows, nar=nar)
+        new_cap = new_basis.required_capital(cashflows, nar=nar)
+        assert new_cap.peak_capital > old_cap.peak_capital
+
+
 class TestCapitalModelLabels:
     """The shared display labels behind the dashboard tiles / Excel header (ADR-102)."""
 
