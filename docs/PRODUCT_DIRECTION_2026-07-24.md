@@ -135,7 +135,7 @@ maintenance mode**.
 
 | # | Feature | Value | Effort | Notes |
 |---|---------|-------|--------|-------|
-| **B1** | **Switch capital surfaces to `for_product_interim`** — expose the built C-1/C-3 factors everywhere | ★★★★☆ | ~1–2 d | Behaviour change → golden rebaseline + ADR. Unshipped after **three** reviews. |
+| ~~**B1**~~ | ~~**Switch capital surfaces to `for_product_interim`** — expose the built C-1/C-3 factors everywhere~~ — **SHIPPED** (PR #162 / ADR-160): the `licat` branch of `capital_model_for` now resolves to `for_product_interim`, surfacing interim C-1/C-3 + extended C-2 on the CLI/API/dashboard priced path, aligned with the portfolio roll-up and RBC/SII. **No golden rebaseline** — no QA golden config enables a capital model, so `polaris price` is byte-identical (guards 23/23). Behaviour change flagged for human review on the draft PR. | ★★★★☆ | ~1–2 d | Was unshipped after three reviews; shipped 2026-07-25. |
 | **B2** | **Scale benchmark at 100K–500K policies** — publish a timing table; back the README perf claim | ★★★★☆ | ~1 d | Unshipped after **three** reviews. Pairs with NICE-TO-HAVE perf-harness work. |
 | **B4** | **Premium-deficiency reserve / loss recognition** — turn the sufficiency analyzer into a reserve floor | ★★★☆☆ | ~1–2 d | Unshipped after **three** reviews. |
 
@@ -251,9 +251,12 @@ Run in order; each is single-session. This supersedes the prior file's stale
   optional API slice); the PLAN decomposes it and the next session opens
   `docs/CONTINUATION_mi_dashboard.md`. *Source: maintainer directive 2026-07-24;
   IMPORTANT #12 (ADR-148) + Carried-Forward experience-GAM #89 (ADR-153).*
-- **S3 — Tier-B quick wins in value-per-day order: B1 → B2 → B4** (was S0.3; now
+- **S3 — Tier-B quick wins in value-per-day order: ~~B1~~ → B2 → B4** (was S0.3; now
   follows S1+S2; see the re-ranked catalogue). Independently valuable
-  maintenance-mode PRs while no Phase-7 frontier is chosen.
+  maintenance-mode PRs while no Phase-7 frontier is chosen. **B1 SHIPPED**
+  2026-07-25 (PR #162 / ADR-160 — LICAT resolver → `for_product_interim`). **B2**
+  (scale benchmark at 100K–500K policies) is the immediate next pick; then **B4**
+  (premium-deficiency reserve / loss recognition).
 - **Then** Tier-C (C3/C4/C5/C6) or a chosen Phase-7 epic (which, once picked,
   is constituted via step 5b: PLAN + slice 1).
 
@@ -506,6 +509,35 @@ polish on a shipped surface, not a production-correctness gap):
 > dashboard Deal Pricing (**Slice 2** — PR #160, ADR-158), and the REST API
 > (**Slice 3** — ADR-159, `/api/v1/price` `improvement_version`). **IMPORTANT #12 CLOSED**;
 > the MI dashboard epic (`CONTINUATION_mi_dashboard.md`) is COMPLETE.
+
+### Harvested 2026-07-25 (B1 LICAT interim resolver — ADR-160)
+
+New follow-ups from ADR-160's "Out of scope". B1 is a catalogue (planned) Tier-B item, so its
+out-of-scope items are **1st-order** and promoted normally.
+
+- **ALM-derived shock-based C-1 / C-3 calibration for LICAT (supersede the interim placeholders).**
+  B1 made the interim ADR-072 committee-stage placeholders (C-1 = 0.5% of reserves; C-3
+  duration-scaled) the **default** LICAT priced basis. They are conservative screening placeholders,
+  not calibrated capital. The proper successor derives C-1 (asset default) and C-3 (interest-rate)
+  from a shock-based asset / ALM model — the Phase-5.4 work the ADR-072 comment anticipated and the
+  Asset/ALM epic (ADR-108..117) did **not** deliver for the LICAT factors. Now that these factors
+  drive every priced LICAT deal (not just the portfolio surface), calibrating them is a
+  production-correctness concern. Overlaps the existing NICE-TO-HAVE "Mutually calibrate the three
+  capital standards' factors" (Capital & solvency group) — this promotes the LICAT half to
+  **IMPORTANT** given the default flip. *Source: ADR-160 Out of scope (1st-order).* **IMPORTANT.**
+- **Configurable capital-basis selector (interim vs mortality-only) on the CLI / API.** A user who
+  wants the pre-B1 mortality-only `for_product` basis (or the extended-C-2-without-C-1/C-3 basis)
+  has no flag to select it; B1 hard-switches the resolver. A `--capital-basis` option (or a
+  per-run factor override surfaced on the config) would restore that choice. *Source: ADR-160 Out
+  of scope (1st-order).* **NICE-TO-HAVE.**
+- **Interim asset/interest loadings for RBC / Solvency II beyond their `for_product` defaults.**
+  Their `for_product` constructors already load asset/interest components, but there is no
+  `for_product_interim`-equivalent screening overlay for parity with the LICAT interim basis if one
+  is ever wanted. *Source: ADR-160 Out of scope (1st-order).* **NICE-TO-HAVE.**
+- **Rebaseline any documentation / notebook that quotes pre-B1 LICAT capital numbers.** Worked
+  examples or notebook cells that printed LICAT `peak_capital` / `pv_capital` / RoC on the priced
+  path now understate the interim-basis figures; a sweep would keep the docs consistent with the
+  shipped default. *Source: ADR-160 Out of scope (1st-order).* **NICE-TO-HAVE.**
 
 ---
 

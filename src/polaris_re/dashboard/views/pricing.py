@@ -420,8 +420,10 @@ def _run_pricing_for_cohort(
         except ValueError:
             product_type_enum = ProductType.TERM
         # One registry behind CLI / API / dashboard (ADR-101/102): LICAT, US
-        # RBC, or EU Solvency II. ``licat`` resolves to the same
-        # ``LICATCapital.for_product`` as before, so that path is byte-identical.
+        # RBC, or EU Solvency II. ``licat`` resolves to
+        # ``LICATCapital.for_product_interim`` (ADR-160), so the priced LICAT
+        # capital carries the built C-1/C-3 asset/interest factors and matches
+        # the portfolio roll-up's basis.
         capital_model = capital_model_for(capital_model_id, product_type_enum)
         cession_pct = float(cfg.get("cession_pct", 0.90)) if treaty_type != "None (Gross)" else None
         cedant_nar = derive_capital_nar(

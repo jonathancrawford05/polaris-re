@@ -107,7 +107,9 @@ def capital_model_for(model_id: str, product_type: ProductType) -> "CapitalModel
     Args:
         model_id: One of :data:`SUPPORTED_CAPITAL_MODELS` (case-insensitive).
         product_type: Drives the per-product factor defaults via the
-            calculator's ``for_product`` constructor.
+            calculator's per-product constructor — ``for_product`` for US RBC /
+            EU Solvency II, and ``for_product_interim`` for LICAT (ADR-160), so
+            the LICAT surface carries the built C-1/C-3 asset/interest factors.
 
     Returns:
         A calculator (`LICATCapital` / `RBCCapital` / `SolvencyIICapital`)
@@ -121,7 +123,15 @@ def capital_model_for(model_id: str, product_type: ProductType) -> "CapitalModel
     if normalized == "licat":
         from polaris_re.analytics.capital import LICATCapital
 
-        return LICATCapital.for_product(product_type)
+        # ADR-160 (B1): resolve to the interim committee-stage screening basis
+        # (extended C-2 lapse/morbidity + interim C-1/C-3, ADR-065/072) rather
+        # than the mortality-only ``for_product`` basis. This surfaces the built
+        # C-1/C-3 asset/interest factors on the single-deal priced path, aligns
+        # LICAT with US RBC / EU Solvency II (whose ``for_product`` constructors
+        # already load asset/interest components), and matches the basis the
+        # portfolio roll-up (``dashboard/views/portfolio.py``) already uses — so a
+        # deal's stand-alone capital equals its contribution basis in a portfolio.
+        return LICATCapital.for_product_interim(product_type)
     if normalized == "rbc":
         from polaris_re.analytics.rbc import RBCCapital
 
