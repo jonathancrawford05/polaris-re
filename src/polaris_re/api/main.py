@@ -79,7 +79,11 @@ from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
 from polaris_re.core.projection import ProjectionConfig
 from polaris_re.core.reserve_basis import ReserveBasis
-from polaris_re.pipeline import derive_capital_nar, load_valuation_mortality
+from polaris_re.pipeline import (
+    derive_capital_nar,
+    load_improvement_version,
+    load_valuation_mortality,
+)
 from polaris_re.products.dispatch import get_product_engine
 from polaris_re.reinsurance.base_treaty import BaseTreaty
 from polaris_re.reinsurance.expense_allowance import ExpenseAllowance
@@ -314,6 +318,25 @@ class PriceRequest(BaseModel):
             "prior responses. An unknown source id yields HTTP 422."
         ),
     )
+    improvement_version: str | None = Field(
+        default=None,
+        description=(
+            "Versioned experience-derived mortality-improvement scale "
+            "(mi-dashboard epic, ADR-159 — API half of IMPORTANT #12). "
+            "A ``version_id`` in the append-only assumption-version store, "
+            "loaded server-side from "
+            "``$POLARIS_DATA_DIR/assumption_versions`` (kind "
+            "``mortality_improvement``). When set, the frozen "
+            "``ImprovementScale.CUSTOM`` scale is threaded onto the priced run's "
+            "``AssumptionSet.improvement`` — identical to the CLI "
+            "``--improvement-version`` flag / ``mortality.improvement_version_id`` "
+            "config key and the dashboard Deal-Pricing selector — so the run "
+            "prices on the frozen experience basis instead of the default "
+            "no-improvement projection table. The response echoes it back. None "
+            "(default) is byte-identical to prior responses. An unknown "
+            "version id yields HTTP 422."
+        ),
+    )
     asset_portfolio: AssetPortfolio | None = Field(
         default=None,
         description=(
@@ -436,6 +459,12 @@ class PriceResponse(BaseModel):
     # request's reserve_basis so a client can confirm which basis drove the
     # reserve, NAR, and profit numbers in this response.
     reserve_basis: ReserveBasis = ReserveBasis.NET_PREMIUM
+    # Versioned experience-derived improvement scale the run was priced on
+    # (mi-dashboard epic, API half of IMPORTANT #12). Echoes the request's
+    # ``improvement_version`` so a client can confirm which frozen basis drove
+    # the mortality (and therefore the priced numbers). None when the run used
+    # the default no-improvement projection table.
+    improvement_version: str | None = None
     # Asset-liability duration gap (Asset/ALM epic, Slice 4b-2b). Populated only
     # when ``asset_portfolio`` was supplied; None otherwise (the block is purely
     # additive, so existing responses are unchanged except for this null field).
@@ -696,6 +725,7 @@ def _build_components(
     maintenance_cost_per_policy_per_year: float = 0.0,
     reserve_basis: ReserveBasis = ReserveBasis.NET_PREMIUM,
     valuation_mortality: str | None = None,
+    improvement_version: str | None = None,
 ) -> tuple[InforceBlock, AssumptionSet, ProjectionConfig]:
     """Convert API request data into core pipeline components (no treaty).
 
@@ -763,9 +793,23 @@ def _build_components(
         data_dir = Path(os.environ.get("POLARIS_DATA_DIR", "data")) / "mortality_tables"
         valuation_table = load_valuation_mortality(valuation_mortality, data_dir)
 
+    # Versioned experience-derived mortality improvement (mi-dashboard epic,
+    # ADR-159 — API half of IMPORTANT #12). ``None`` (default) leaves
+    # ``AssumptionSet.improvement`` unset → the projection applies no improvement
+    # exactly as before (byte-identical). When a version id is supplied, the
+    # frozen ``ImprovementScale.CUSTOM`` scale is loaded server-side from the
+    # append-only store (``$POLARIS_DATA_DIR/assumption_versions``) and threaded
+    # onto the assumption set — the same path the CLI ``--improvement-version``
+    # flag and the dashboard selector use. An unknown id raises
+    # ``PolarisValidationError``, which the endpoint maps to HTTP 422.
+    improvement = None
+    if improvement_version is not None:
+        improvement = load_improvement_version(improvement_version)
+
     assumptions = AssumptionSet(
         mortality=mortality,
         lapse=lapse,
+        improvement=improvement,
         valuation_mortality=valuation_table,
         version="api-v1",
         effective_date=date.today(),
@@ -1051,6 +1095,7 @@ def price(request: PriceRequest) -> PriceResponse:
             maintenance_cost_per_policy_per_year=request.maintenance_cost_per_policy_per_year,
             reserve_basis=request.reserve_basis,
             valuation_mortality=request.valuation_mortality,
+            improvement_version=request.improvement_version,
         )
 
         # Tabular YRT rate table (ADR-052) — server-side load before the
@@ -1220,6 +1265,7 @@ def price(request: PriceRequest) -> PriceResponse:
         n_policies=len(request.policies),
         projection_months=config.projection_months,
         reserve_basis=config.reserve_basis,
+        improvement_version=request.improvement_version,
         alm_duration_gap=alm_gap,
     )
 

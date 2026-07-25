@@ -2,8 +2,8 @@
 
 **Source:** PRODUCT_DIRECTION_2026-07-24.md — Recommended Next Sprint **S2**
 (maintainer-directed 2026-07-24). Backing spec: `docs/PLAN_mi_dashboard.md`.
-**Status:** IN PROGRESS
-**Total slices:** 2 (+1 optional API slice)
+**Status:** COMPLETE
+**Total slices:** 3 (dashboard diagnostics + dashboard selector + REST-API selector)
 **Estimated total scope:** ~2 dev-days (MEDIUM)
 
 ## Overall Goal
@@ -86,13 +86,34 @@ goldens byte-identical.
     (byte-identical gross death claims + `pv_profits` at `atol=0`)
   - `DealConfig.to_dict()` round-trips the field; goldens untouched. ✅
 
-### Slice 3 (optional / may split to its own PR): REST-API improvement selector (the #12 API half)
-- **Status:** NEXT
-- **Depends on:** Slice 2 merged
-- **Scope:** Add `improvement_version` to the `/api/v1/price` `PriceRequest`
-  schema, thread through the same pipeline path, echo on the response. If not
-  co-shipped, IMPORTANT #12 stays open in PRODUCT_DIRECTION noting only the
-  dashboard half shipped.
+### Slice 3: REST-API improvement selector (the #12 API half)
+- **Status:** DONE
+- **Branch:** `claude/loving-gauss-mlexia` (environment-designated)
+- **PR:** #161 (draft)
+- **Depends on:** Slice 2 merged (PR #160, on `main` at `4511558`)
+- **What was done:** `PriceRequest` gains an optional
+  `improvement_version: str | None = None` (a store `version_id`). When set,
+  `_build_components` loads the frozen `ImprovementScale.CUSTOM` scale
+  server-side via the pipeline's own `load_improvement_version` (resolving the
+  store at `$POLARIS_DATA_DIR/assumption_versions` = `default_store_root()`, the
+  same root the CLI/dashboard use) and threads it onto the constructed
+  `AssumptionSet.improvement` — the exact field the engine consumes and the exact
+  insertion point `build_assumption_set` uses for the CLI path. The
+  `improvement_version` echoes back on `PriceResponse`. The load sits inside the
+  endpoint `try/except`, so an unknown id (`PolarisValidationError` from the store)
+  maps to HTTP 422. Default `None` is byte-identical. ADR-159.
+- **Key decisions:**
+  - Threaded through the shared `_build_components` (default `None`), not the
+    `price` endpoint alone, keeping the param co-located with `valuation_mortality`
+    / `reserve_basis`; `scenario` / `uq` do not pass it, so they stay byte-identical.
+  - A `version_id` reference (not an inline scale) keeps the API consistent with
+    the CLI/dashboard and preserves the store as the audited system of record.
+- **Acceptance criteria:**
+  - A stored version echoes on `PriceResponse.improvement_version` and materially
+    lowers the priced mortality (it-bites). ✅
+  - Omitting the field / passing `null` is byte-identical to prior responses. ✅
+  - An unknown version id → HTTP 422. ✅
+  - Goldens byte-identical (`polaris price flat` $45,386 unchanged). ✅
 
 ## Context for Next Session
 
@@ -121,6 +142,11 @@ goldens byte-identical.
   it as the default on small blocks. Left as the locked frequentist default for
   Slice 1.
 
-When all slices are DONE, update Status to COMPLETE — and run HARVEST
-FOLLOW-UPS first (routine step 17) so the deferred table-attach path and any
-surviving refinement items reach the latest PRODUCT_DIRECTION.
+**Epic closed 2026-07-24 (Slice 3 / ADR-159).** All three slices DONE; Status →
+COMPLETE. HARVEST FOLLOW-UPS (routine step 17) ran first: the REST-API-half follow-up
+was struck as SHIPPED and two surviving 2nd-order NICE-TO-HAVE items (thread
+`improvement_version` through `/api/v1/scenario` + `/api/v1/uq`; a store-authoring REST
+API) were promoted to `PRODUCT_DIRECTION_2026-07-24.md`. IMPORTANT #12 is CLOSED — the
+versioned experience basis drives a priced run from all three surfaces (CLI, dashboard,
+REST API). The Open Questions above were locked-default Slice-1 decisions (resolved by
+shipping); nothing unresolved carried forward.

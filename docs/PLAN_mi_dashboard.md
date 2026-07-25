@@ -8,13 +8,13 @@
 > DECISIONS + DEV_SESSION_LOG at the end of every slice — this plan is the
 > read-only spec, not the running log.
 >
-> **Status.** ⏳ IN PROGRESS — **Slices 1–2 shipped** (Slice 1 diagnostics page,
+> **Status.** ✅ COMPLETE — **all three slices shipped** (Slice 1 diagnostics page,
 > ADR-157, PR #159; Slice 2 versioned selector into Deal Pricing, ADR-158, PR
-> #160). The optional Slice 3 (REST-API half of #12) is NEXT; IMPORTANT #12 stays
-> open until it ships. Queued as **Next Sprint S2**
-> (maintainer-directed 2026-07-24) in `PRODUCT_DIRECTION_2026-07-24.md` — the
-> second item, after S1 (`pipeline.py` relocation) and ahead of the Tier-B quick
-> wins. Running log: `docs/CONTINUATION_mi_dashboard.md`.
+> #160; Slice 3 REST-API `improvement_version`, ADR-159). IMPORTANT #12 is now
+> CLOSED — the versioned experience basis drives a priced run from all three
+> surfaces (CLI, dashboard, API). Was queued as **Next Sprint S2**
+> (maintainer-directed 2026-07-24) in `PRODUCT_DIRECTION_2026-07-24.md`. Running
+> log: `docs/CONTINUATION_mi_dashboard.md`.
 >
 > **Provenance.** Folds two carried-forward follow-ups: IMPORTANT #12 (ADR-148 —
 > surface the versioned improvement selector on the dashboard) and NICE-TO-HAVE
@@ -127,12 +127,16 @@ surfacing gap for the epic's headline capability.
 - **Acceptance:** ✅ a dashboard-selected versioned basis drives the priced run
   byte-identically to the CLI path; ✅ round-trip test green; ✅ goldens untouched.
 
-### Slice 3 (optional / may split to its own PR) — REST-API improvement selector (the #12 API half)
-- Add `improvement_version` to the `/api/v1/price` `PriceRequest` schema and
-  thread it through the same pipeline path; echo it on the response.
-- Tests: API test asserting the field is accepted and consumed.
-- If not co-shipped, leave IMPORTANT #12 open in `PRODUCT_DIRECTION` with a note
-  that only the dashboard half shipped.
+### Slice 3 — REST-API improvement selector (the #12 API half) ✅ SHIPPED (ADR-159)
+- `PriceRequest` gained an optional `improvement_version: str | None = None` (a store
+  `version_id`), loaded server-side in `_build_components` via `load_improvement_version`
+  and threaded onto `AssumptionSet.improvement`; echoed on `PriceResponse`. Unknown id →
+  HTTP 422; default `None` byte-identical; `scenario` / `uq` unchanged.
+- Tests: `tests/test_api/test_improvement_version.py` (4) — default accepted + null echo;
+  omit == explicit null; a stored version echoes back and materially lowers the priced
+  mortality (it-bites); unknown id → 422.
+- **Acceptance:** ✅ field accepted, consumed, and echoed; ✅ IMPORTANT #12 CLOSED (all
+  three surfaces ship the versioned basis); ✅ goldens untouched.
 
 ## 4. Guardrails (from the routine + CLAUDE.md)
 
