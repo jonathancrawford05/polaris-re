@@ -137,7 +137,7 @@ maintenance mode**.
 |---|---------|-------|--------|-------|
 | ~~**B1**~~ | ~~**Switch capital surfaces to `for_product_interim`** — expose the built C-1/C-3 factors everywhere~~ — **SHIPPED** (PR #162 / ADR-160): the `licat` branch of `capital_model_for` now resolves to `for_product_interim`, surfacing interim C-1/C-3 + extended C-2 on the CLI/API/dashboard priced path, aligned with the portfolio roll-up and RBC/SII. **No golden rebaseline** — no QA golden config enables a capital model, so `polaris price` is byte-identical (guards 23/23). Behaviour change flagged for human review on the draft PR. | ★★★★☆ | ~1–2 d | Was unshipped after three reviews; shipped 2026-07-25. |
 | ~~**B2**~~ | ~~**Scale benchmark at 100K–500K policies** — publish a timing table; back the README perf claim~~ — **SHIPPED** (PR #163 / ADR-161): `analytics/scale_benchmark.py` harness times the production `project()` path across sizes; committed table (1K→500K, ~linear time growth, ~7.5K–17K policies/sec) published in the README *Performance & scale* section + `docs/PERFORMANCE.md`; regenerator `scripts/scale_benchmark.py`. Additive-only — goldens byte-identical. | ★★★★☆ | ~1 d | Shipped 2026-07-25; was unshipped after three reviews. |
-| **B4** | **Premium-deficiency reserve / loss recognition** — turn the sufficiency analyzer into a reserve floor | ★★★☆☆ | ~1–2 d | Unshipped after **three** reviews. |
+| ~~**B4**~~ | ~~**Premium-deficiency reserve / loss recognition** — turn the sufficiency analyzer into a reserve floor~~ — **SHIPPED** (PR #164 / ADR-162): `analytics/premium_deficiency.py` `PremiumDeficiencyTester` computes the FAS 60 / ASC 944 loss-recognition test at the valuation date — `GPV = PV(benefits + expenses) − PV(premiums)` (exactly `−sufficiency_margin`, reusing `PremiumSufficiencyTester` verbatim), `PDR = max(0, GPV − existing_reserve)`, `reserve_floor = max(existing_reserve, GPV)`. Additive-only — goldens byte-identical. | ★★★☆☆ | ~1 d | Shipped 2026-07-26; was unshipped after three reviews. |
 
 B1 and B2 are the cleanest between-epic fallback picks and the **S3** sequence
 (value-per-day order: B1 → B2 → B4), now behind the maintainer-directed S1
@@ -251,14 +251,17 @@ Run in order; each is single-session. This supersedes the prior file's stale
   optional API slice); the PLAN decomposes it and the next session opens
   `docs/CONTINUATION_mi_dashboard.md`. *Source: maintainer directive 2026-07-24;
   IMPORTANT #12 (ADR-148) + Carried-Forward experience-GAM #89 (ADR-153).*
-- **S3 — Tier-B quick wins in value-per-day order: ~~B1~~ → B2 → B4** (was S0.3; now
+- **S3 — Tier-B quick wins in value-per-day order: ~~B1~~ → ~~B2~~ → ~~B4~~** (was S0.3; now
   follows S1+S2; see the re-ranked catalogue). Independently valuable
-  maintenance-mode PRs while no Phase-7 frontier is chosen. **B1 SHIPPED**
-  2026-07-25 (PR #162 / ADR-160 — LICAT resolver → `for_product_interim`). **B2**
-  (scale benchmark at 100K–500K policies) is the immediate next pick; then **B4**
-  (premium-deficiency reserve / loss recognition).
+  maintenance-mode PRs while no Phase-7 frontier is chosen. **ALL THREE SHIPPED:**
+  **B1** 2026-07-25 (PR #162 / ADR-160 — LICAT resolver → `for_product_interim`);
+  **B2** 2026-07-25 (PR #163 / ADR-161 — scale benchmark at 100K–500K policies);
+  **B4** 2026-07-26 (PR #164 / ADR-162 — premium-deficiency reserve / loss
+  recognition). **S3 is now complete** — the Tier-B Sprint-0 queue is drawn down.
 - **Then** Tier-C (C3/C4/C5/C6) or a chosen Phase-7 epic (which, once picked,
-  is constituted via step 5b: PLAN + slice 1).
+  is constituted via step 5b: PLAN + slice 1). With S3 exhausted, the next
+  maintenance-mode fallback is the Tier-C queue (in value-per-day order) unless
+  the maintainer charts a Phase-7 frontier.
 
 ---
 
@@ -562,6 +565,36 @@ out-of-scope items are **1st-order** and promoted normally.
   existing IMPORTANT "CI perf/smoke infra" follow-up** — recorded here as the B2-specific slice of
   that item, not as a new duplicate. *Source: ADR-161 Out of scope (1st-order; overlaps existing
   IMPORTANT CI-perf item).* **NICE-TO-HAVE.**
+
+### Harvested 2026-07-26 (B4 premium-deficiency reserve — ADR-162)
+
+New follow-ups from ADR-162's "Out of scope". B4 is a catalogue (planned) Tier-B item, so its
+out-of-scope items are **1st-order** and promoted normally.
+
+- **Per-period roll-forward of the reserve floor across the projection.** ADR-162 ships the
+  point-in-time loss-recognition test at the valuation date only. A roll-forward would compare the
+  prospective gross premium reserve to the held reserve at every future duration and report the
+  reserve-floor *path* (catching a deficiency that emerges mid-projection even when the inception
+  test passes). The blocker is a design question: the aggregate `CashFlowResult` flows embed
+  survivorship from inception, so a per-duration prospective reserve needs a per-survivor
+  normalization decision. *Source: ADR-162 Out of scope (1st-order).* **IMPORTANT** — a
+  deficiency the inception test misses is a production-correctness gap on the loss-recognition
+  common path, not polish.
+- **Surface the premium-deficiency reserve on the CLI / dashboard / REST API.** The tester is
+  module-only (mirroring how `PremiumSufficiencyTester` itself was module-first, then surfaced over
+  later slices — ADR-083). A deficiency panel alongside the existing sufficiency tables (CLI Rich
+  table + JSON dict; dashboard; `/api/v1/price` echo) would make the reserve floor reachable to
+  non-Python users. *Source: ADR-162 Out of scope (1st-order).* **NICE-TO-HAVE.**
+- **Wire the reserve floor back into the projected `reserve_balance`.** ADR-162 reports the PDR as
+  a standalone diagnostic; it does not strengthen the projected reserve so downstream profit / IRR
+  reflect the established deficiency reserve. Doing so touches the `CashFlowResult` reserve path and
+  the profit tester — a controlled contract change, not additive. *Source: ADR-162 Out of scope
+  (1st-order).* **NICE-TO-HAVE.**
+- **DAC / unearned-premium components of the full FAS 60 test.** The benefit-reserve-only model
+  carries no DAC balance, so the test nets only against `existing_reserve`. A model with deferred
+  acquisition costs would add the unamortized DAC to the deficiency comparison (cf. ADR-127's
+  loss-recognition follow-up). *Source: ADR-162 Out of scope (1st-order; overlaps ADR-127 DAC
+  follow-up).* **NICE-TO-HAVE.**
 
 ---
 
