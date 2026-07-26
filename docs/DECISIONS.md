@@ -10666,3 +10666,84 @@ Benchmarking product engines other than TermLife. (4) A CI performance-regressio
 gate (absolute times are hardware-dependent; the slow scaling test guards the
 shape, not wall-clock thresholds). (5) The Phase-6.3 concurrent-`/api/v1/price`
 load test (Tier-C C6) — a distinct API-latency concern, not block-scale throughput.
+
+---
+
+## ADR-162: Premium-deficiency reserve / loss-recognition floor (B4)
+
+**Status:** Accepted (2026-07-26)
+
+**Context.** `PremiumSufficiencyTester` (ADR-083) answers the deal-screening
+question "does the premium cover future benefits plus expenses?" and reports a
+signed `sufficiency_margin`. What it did *not* do is turn that signed margin into
+its balance-sheet consequence: when a premium is insufficient, GAAP loss
+recognition (FAS 60 / ASC 944) and statutory practice require establishing a
+**premium-deficiency reserve** so the held reserve is no less than the prospective
+gross premium reserve. Reproduced before writing code: on a deficient block the
+analyzer reports `is_sufficient=False` with a negative margin, but nothing floors
+that shortfall into a reserve. PRODUCT_DIRECTION_2026-07-24 Tier-B item **B4**
+("Premium-deficiency reserve / loss recognition — turn the sufficiency analyzer
+into a reserve floor") had gone unshipped after three reviews. Gated Tier-B
+fallback pick: the routine is in maintainer-declared maintenance mode (no
+unstarted Tier-A epic; Phase-7 frontier not yet chosen), the sole IN PROGRESS
+CONTINUATION (`reserve_basis_correctness`) is parked, and B4 is next in the
+review's Sprint-0 value-per-day order (B1 → B2 → **B4**), after B1 (#162) and
+B2 (#163).
+
+**Decision.** Add `analytics/premium_deficiency.py`: `PremiumDeficiencyTester`
+computes the point-in-time loss-recognition test at the valuation date. The
+prospective gross premium reserve is
+
+    GPV = PV(death_claims + lapse_surrenders) + PV(expenses) - PV(gross_premiums)
+
+and the premium-deficiency reserve and reserve floor are
+
+    PDR           = max(0, GPV - existing_reserve)
+    reserve_floor = max(existing_reserve, GPV) = existing_reserve + PDR
+
+returned on a `PremiumDeficiencyResult` (PV components, `gross_premium_reserve`,
+`premium_deficiency_reserve`, `reserve_floor`, `is_deficient`).
+
+Design choices:
+- **Compose, don't duplicate.** The tester constructs a `PremiumSufficiencyTester`
+  internally and reads `GPV = -sufficiency_margin`, reusing its discounting
+  (`v = (1 + rate) ** (-1/12)`, factors `v ** [1 .. T]`) verbatim. The gross
+  premium reserve therefore agrees with the sufficiency margin to floating-point —
+  the two views can never silently diverge. This is literally "turn the sufficiency
+  analyzer into a reserve floor."
+- **Reserve movement excluded, consistent with sufficiency.** GPV is an
+  economic-cost comparison (benefits + expenses vs premiums), not a balance-sheet
+  one; the held reserve enters only as the explicit `existing_reserve` credit.
+- **`existing_reserve` explicit, default 0.0.** The default is the bare test
+  (premiums alone against future benefits + expenses); passing the reserve held at
+  the valuation date runs the full FAS 60 net loss-recognition test. Validated
+  non-negative (a held benefit reserve cannot be negative) — raises
+  `PolarisValidationError` otherwise, per the CLAUDE.md §5 error-handling
+  convention ("business logic failures"). This diverges deliberately from the
+  sibling `PremiumSufficiencyTester`, which raises a raw `ValueError`
+  (`premium_sufficiency.py`); aligning that sibling and the ~11 other analytics
+  modules with the same drift is a tracked follow-up sweep, not part of this PR.
+- **A surplus never creates a negative reserve.** `max(0, …)` / `max(existing, GPV)`
+  floor the outputs; a premium surplus yields PDR = 0, `is_deficient=False`.
+- **Additive-only / off the hot path.** New module + `__init__` export + tests;
+  no pricing path, `Policy`/`CashFlowResult`/`InforceBlock` contract, treaty, CLI,
+  or golden touched. Goldens are byte-identical.
+
+Closed-form verification: rate-0 arithmetic (GPV = 240 on a 12-month
+premium-100 / benefit-90 / expense-30 block); `existing_reserve` netting
+(0/100/240/300 → PDR 240/140/0/0); `gross_premium_reserve == -sufficiency_margin`
+across discount rates; the `reserve_floor = existing_reserve + PDR` identity;
+single-payment discounting; zero-premium and empty-projection edges; and a
+TermLife GROSS integration cross-checked against the sufficiency analyzer.
+
+**Out of scope.** (1) A **per-period roll-forward** of the reserve floor across the
+projection — comparing the prospective GPV to the held reserve at every future
+duration and reporting the reserve-floor path (this ADR ships the point-in-time
+test at the valuation date only; the aggregate-vs-per-survivor normalization the
+roll-forward needs is a design question of its own). (2) Surfacing the deficiency
+reserve on the **CLI / dashboard / REST API** alongside the sufficiency panels
+(the sufficiency analyzer itself was module-first, then surfaced over later
+slices). (3) **DAC / unearned-premium** components of the full FAS 60 test — the
+benefit-reserve-only model carries no DAC balance (cf. ADR-127's loss-recognition
+follow-up). (4) Wiring the reserve floor back into the projected `reserve_balance`
+so downstream profit/IRR reflect the strengthened reserve.
