@@ -80,6 +80,12 @@ from polaris_re.analytics.profit_test import (
 )
 from polaris_re.analytics.rate_schedule import SolveMode, YRTRateSchedule
 from polaris_re.analytics.rbc import RBCCapital, RBCFactors, RBCResult
+from polaris_re.analytics.scale_benchmark import (
+    ScaleBenchmarkReport,
+    ScaleBenchmarkRow,
+    build_homogeneous_block,
+    run_scale_benchmark,
+)
 from polaris_re.analytics.scenario import (
     ScenarioAdjustment,
     ScenarioResult,
@@ -155,6 +161,8 @@ __all__ = [
     "RBCFactors",
     "RBCResult",
     "RateScenarios",
+    "ScaleBenchmarkReport",
+    "ScaleBenchmarkRow",
     "ScenarioAdjustment",
     "ScenarioResult",
     "ScenarioRunner",
@@ -175,6 +183,7 @@ __all__ = [
     "aggregate_seriatim",
     "apply_scenario_to_assumptions",
     "attach_base_rate",
+    "build_homogeneous_block",
     "build_movement_table",
     "capital_model_for",
     "default_experience_cache_dir",
@@ -191,5 +200,6 @@ __all__ = [
     "run_closed_form_benchmarks",
     "run_experience_improvement_benchmarks",
     "run_full_validation_pack",
+    "run_scale_benchmark",
     "run_statutory_deck_benchmarks",
 ]
