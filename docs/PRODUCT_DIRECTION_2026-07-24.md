@@ -147,7 +147,7 @@ B1 and B2 are the cleanest between-epic fallback picks and the **S3** sequence
 
 | # | Feature | Value | Effort |
 |---|---------|-------|--------|
-| C3 | Funds-withheld coinsurance (`FWCoinsuranceTreaty`) | ★★★☆☆ | ~2 d |
+| C3 | Funds-withheld coinsurance (`FWCoinsuranceTreaty`) — **IN PROGRESS** (Slice 1 shipped 2026-07-26, ADR-163: treaty module + funds-withheld interest, additive/goldens byte-identical; Slice 2 = surface on CLI/API/dashboard. `docs/PLAN_fw_coinsurance.md` / `docs/CONTINUATION_fw_coinsurance.md`) | ★★★☆☆ | ~2 d |
 | C4 | Parallel portfolio execution + caching + `remove_deal` | ★★★☆☆ | ~2 d |
 | C5 | Per-deal hurdle rates on `Portfolio` | ★★★☆☆ | ~5 d |
 | C6 | Phase-6.3 load test (100 concurrent `/api/v1/price` < 2s) + QUICKSTART K8s guide | ★★★☆☆ | ~1–2 d |
@@ -598,6 +598,34 @@ out-of-scope items are **1st-order** and promoted normally.
   acquisition costs would add the unamortized DAC to the deficiency comparison (cf. ADR-127's
   loss-recognition follow-up). *Source: ADR-162 Out of scope (1st-order; overlaps ADR-127 DAC
   follow-up).* **NICE-TO-HAVE.**
+
+### Harvested 2026-07-26 (FW coinsurance Slice 1 — ADR-163)
+
+New follow-ups from ADR-163's "Out of scope (Slice 1)". C3 is a catalogue
+(planned) Tier-C item, so its out-of-scope items are **1st-order** and promoted
+normally. (The Slice-2 **surfacing** work — wiring `FWCoinsurance` into
+`build_treaty` / CLI / REST / dashboard + a pipeline golden — is NOT harvested
+here: it is the next slice of the IN PROGRESS `CONTINUATION_fw_coinsurance` and
+is tracked there.)
+
+- **Sliding-scale `ExpenseAllowance` / `ExperienceRefund` layers on FW coinsurance.**
+  `CoinsuranceTreaty` / `YRTTreaty` carry the optional sliding-scale expense
+  allowance and terminal experience-refund transfers; `FWCoinsuranceTreaty`
+  Slice 1 models only the proportional `include_expense_allowance` split. Adding
+  the two optional layers (reusing `BaseTreaty._expense_allowance_transfer` /
+  `_experience_refund_transfer`) would bring FW coinsurance to parity with the
+  other proportional treaties for treaties quoting an allowance / profit share.
+  *Source: ADR-163 Out of scope (1st-order).* **NICE-TO-HAVE.**
+- **Stochastic / amortising funds-withheld balance distinct from the ceded reserve.**
+  Slice 1 takes the funds-withheld balance equal to the ceded reserve balance.
+  A real funds-withheld account can diverge (deposits, withdrawals, its own
+  crediting mechanics); a distinct balance track would let the interest accrue on
+  an actual FW-account roll-forward rather than the notional ceded reserve.
+  *Source: ADR-163 Out of scope (1st-order).* **NICE-TO-HAVE.**
+- **"Funds-withheld modco" variant.** FW mechanics (withheld assets + interest
+  credit) applied to a modco-style *non-transferred* reserve — a further treaty
+  variant distinct from `FWCoinsuranceTreaty` (which transfers the reserve like
+  coinsurance). *Source: ADR-163 Out of scope (1st-order).* **NICE-TO-HAVE.**
 
 ---
 
