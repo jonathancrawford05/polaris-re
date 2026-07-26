@@ -10717,8 +10717,12 @@ Design choices:
 - **`existing_reserve` explicit, default 0.0.** The default is the bare test
   (premiums alone against future benefits + expenses); passing the reserve held at
   the valuation date runs the full FAS 60 net loss-recognition test. Validated
-  non-negative (a held benefit reserve cannot be negative) — `ValueError` otherwise,
-  matching the sufficiency tester's guardrail style.
+  non-negative (a held benefit reserve cannot be negative) — raises
+  `PolarisValidationError` otherwise, per the CLAUDE.md §5 error-handling
+  convention ("business logic failures"). This diverges deliberately from the
+  sibling `PremiumSufficiencyTester`, which raises a raw `ValueError`
+  (`premium_sufficiency.py`); aligning that sibling and the ~11 other analytics
+  modules with the same drift is a tracked follow-up sweep, not part of this PR.
 - **A surplus never creates a negative reserve.** `max(0, …)` / `max(existing, GPV)`
   floor the outputs; a premium surplus yields PDR = 0, `is_deficient=False`.
 - **Additive-only / off the hot path.** New module + `__init__` export + tests;

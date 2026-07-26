@@ -29,6 +29,7 @@ from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.assumptions.lapse import LapseAssumption
 from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
 from polaris_re.core.cashflow import CashFlowResult
+from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
 from polaris_re.core.projection import ProjectionConfig
@@ -217,7 +218,7 @@ class TestEdgeCases:
 
     def test_negative_existing_reserve_raises(self) -> None:
         cf = _make_cashflow(premiums=np.full(12, 100.0, dtype=np.float64))
-        with pytest.raises(ValueError, match="existing_reserve"):
+        with pytest.raises(PolarisValidationError, match="existing_reserve"):
             PremiumDeficiencyTester(cf, discount_rate=0.04, existing_reserve=-1.0)
 
 

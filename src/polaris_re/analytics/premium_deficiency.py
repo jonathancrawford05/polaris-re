@@ -45,6 +45,7 @@ from dataclasses import dataclass
 
 from polaris_re.analytics.premium_sufficiency import PremiumSufficiencyTester
 from polaris_re.core.cashflow import CashFlowResult
+from polaris_re.core.exceptions import PolarisValidationError
 
 __all__ = ["PremiumDeficiencyResult", "PremiumDeficiencyTester"]
 
@@ -92,7 +93,7 @@ class PremiumDeficiencyTester:
             against future benefits + expenses).
 
     Raises:
-        ValueError: if `existing_reserve` is negative.
+        PolarisValidationError: if `existing_reserve` is negative.
     """
 
     def __init__(
@@ -103,7 +104,7 @@ class PremiumDeficiencyTester:
         existing_reserve: float = 0.0,
     ) -> None:
         if existing_reserve < 0.0:
-            raise ValueError(
+            raise PolarisValidationError(
                 f"existing_reserve must be non-negative, got {existing_reserve}. It is "
                 "the reserve already held for the block at the valuation date."
             )

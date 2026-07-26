@@ -584,7 +584,10 @@ out-of-scope items are **1st-order** and promoted normally.
   module-only (mirroring how `PremiumSufficiencyTester` itself was module-first, then surfaced over
   later slices — ADR-083). A deficiency panel alongside the existing sufficiency tables (CLI Rich
   table + JSON dict; dashboard; `/api/v1/price` echo) would make the reserve floor reachable to
-  non-Python users. *Source: ADR-162 Out of scope (1st-order).* **NICE-TO-HAVE.**
+  non-Python users. **The dashboard surface is spec'd in `docs/PLAN_pdr_dashboard.md`** (key
+  constraint: net against the block's valuation-date held reserve `reserve_balance[0]`, not the
+  0.0 default — otherwise the tile is redundant with the sufficiency margin). *Source: ADR-162 Out
+  of scope (1st-order).* **NICE-TO-HAVE.**
 - **Wire the reserve floor back into the projected `reserve_balance`.** ADR-162 reports the PDR as
   a standalone diagnostic; it does not strengthen the projected reserve so downstream profit / IRR
   reflect the established deficiency reserve. Doing so touches the `CashFlowResult` reserve path and
