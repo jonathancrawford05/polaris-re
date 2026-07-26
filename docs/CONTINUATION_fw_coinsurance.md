@@ -20,7 +20,7 @@ dashboard exactly as Coinsurance / Modco are today.
 ### Slice 1: Treaty module + funds-withheld interest
 - **Status:** DONE
 - **Branch:** `claude/loving-gauss-saf8oc`
-- **PR:** _(this draft PR)_
+- **PR:** #165
 - **What was done:** New `reinsurance/fw_coinsurance.py` `FWCoinsuranceTreaty`.
   Proportional split of premiums / claims / lapses / expenses / **reserves**
   (like coinsurance), plus a funds-withheld interest credit

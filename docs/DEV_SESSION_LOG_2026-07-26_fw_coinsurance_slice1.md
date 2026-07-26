@@ -40,7 +40,7 @@ plumbing (C5 ~5 d is the lowest value-per-day).
 ## Decomposition Plan
 | Slice | Scope | Status | PR |
 |-------|-------|--------|----|
-| 1 | Treaty module + funds-withheld interest + `CashFlowResult` field; unit tests; ADR-163 | ✅ Done | _(this draft PR)_ |
+| 1 | Treaty module + funds-withheld interest + `CashFlowResult` field; unit tests; ADR-163 | ✅ Done | #165 |
 | 2 | Surface `FWCoinsurance` on CLI / REST API / dashboard + pipeline golden | ⏳ Next | — |
 
 ## VERIFY PREMISE (step 7b)
