@@ -626,6 +626,14 @@ is tracked there.)
   credit) applied to a modco-style *non-transferred* reserve — a further treaty
   variant distinct from `FWCoinsuranceTreaty` (which transfers the reserve like
   coinsurance). *Source: ADR-163 Out of scope (1st-order).* **NICE-TO-HAVE.**
+- **Remove the dead `validate_fw_rate_positive` / `validate_modco_rate_positive`
+  `@model_validator`s.** Both `FWCoinsuranceTreaty` and `ModcoTreaty` declare the
+  rate field with `Field(ge=0.0, le=1.0)`, so Pydantic rejects negatives at field
+  validation before the after-validator body runs — the `< 0.0` branch is
+  unreachable dead code. A one-line cleanup in **both** `fw_coinsurance.py` and
+  `modco.py` (kept consistent across the two sibling proportional-interest
+  treaties; not expanded into this Slice-1 PR to avoid touching the unrelated
+  `modco.py`). *Source: PR #165 automated review [P2] (2nd-order).* **NICE-TO-HAVE.**
 
 ---
 
