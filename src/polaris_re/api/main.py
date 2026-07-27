@@ -1195,13 +1195,16 @@ def price(request: PriceRequest) -> PriceResponse:
             # Pass ``inforce`` ALWAYS so a sliding-scale ``ExpenseAllowance`` is
             # mapped to each policy's actual duration (block-aware first-year
             # rate) — not just on the tabular-YRT path (ADR-166;
-            # expense-allowance duration Slice 2). This is cession-neutral for
-            # existing responses: ``PolicyInput`` carries no per-policy cession
-            # override (Policy is built with ``reinsurance_cession_pct=None``),
-            # so the face-weighted cession equals the flat ``treaty.cession_pct``
-            # and the default ``use_policy_cession=True`` changes nothing. Only
-            # an allowance on a mid-duration block moves — which is the fix.
-            net, ceded = treaty.apply(gross, inforce=inforce)
+            # expense-allowance duration Slice 2). ``use_policy_cession`` is
+            # threaded EXPLICITLY (not left to the default) so this call does not
+            # silently change behaviour if ``apply``'s default ever flips, and so
+            # the intent is legible alongside the CLI / dashboard callers that
+            # thread it too. It is cession-neutral for existing responses:
+            # ``PolicyInput`` carries no per-policy cession override (Policy is
+            # built with ``reinsurance_cession_pct=None``), so the face-weighted
+            # cession equals the flat ``treaty.cession_pct`` regardless of the
+            # flag. Only an allowance on a mid-duration block moves — the fix.
+            net, ceded = treaty.apply(gross, inforce=inforce, use_policy_cession=True)
         else:
             net, ceded = gross, None
 
