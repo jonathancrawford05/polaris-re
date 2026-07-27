@@ -26,7 +26,7 @@ independent of the cession flag.
 ### Slice 1: Engine — decouple cession honouring from allowance mapping
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-ubiesb
-- **PR:** _(this draft PR)_
+- **PR:** #168
 - **ADR:** ADR-166
 - **What was done:** Added a keyword-only `use_policy_cession: bool = True` to
   `BaseTreaty.apply` and every concrete override (YRT, Coinsurance, Modco,

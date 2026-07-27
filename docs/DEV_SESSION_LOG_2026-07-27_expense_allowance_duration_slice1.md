@@ -40,7 +40,7 @@ infra. Skipped this session:
 
 | Slice | Scope | Status | PR |
 |-------|-------|--------|----|
-| 1 | Engine: decouple cession honouring (flag) from block-aware allowance mapping (`inforce` presence) in `BaseTreaty.apply` + closed-form tests | ✅ Done | _(this draft PR)_ |
+| 1 | Engine: decouple cession honouring (flag) from block-aware allowance mapping (`inforce` presence) in `BaseTreaty.apply` + closed-form tests | ✅ Done | #168 |
 | 2 | Wire CLI / API / dashboard callers to pass `inforce` always + `use_policy_cession` flag so the fix reaches the priced path | ⏳ Next | — |
 | 3 | (optional / 2nd-order) scenario / uq / portfolio parity | 🔲 Planned | — |
 
