@@ -293,7 +293,7 @@ BLOCKER remains.
    the interest side (currently directional via a single manual rate). *Source: ADR-125 Out of scope + CONTINUATION_reserve_basis_exactness Refinement Backlog (1st-order); reclassified per ADR-126 / PR #125 review.*
 5. ~~**Surface the GAAP (FAS 60) PADs on the deal path (`DealConfig` / CLI / API).**
    The two GAAP PADs live on `ProjectionConfig` but are not exposed via the CLI
-   config parser, `--gaap-*` flags, or REST `PriceRequest`. *Source: ADR-127 / ADR-128 Out of scope (1st-order).*~~ — **SHIPPED** (this PR, ADR-165) — PENDING MERGE.
+   config parser, `--gaap-*` flags, or REST `PriceRequest`. *Source: ADR-127 / ADR-128 Out of scope (1st-order).*~~ — **SHIPPED** (PR #167, ADR-165) — PENDING MERGE.
    `DealConfig.gaap_mortality_pad` / `gaap_interest_margin` (both neutral by
    default) parse from both config schemas and thread through
    `build_projection_config`; `--gaap-mortality-pad` / `--gaap-interest-margin`
