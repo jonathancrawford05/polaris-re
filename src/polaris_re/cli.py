@@ -214,6 +214,8 @@ def _parse_config_to_pipeline_inputs(
             acquisition_cost=float(raw.get("acquisition_cost_per_policy", 500.0)),
             maintenance_cost=float(raw.get("maintenance_cost_per_policy_per_year", 75.0)),
             reserve_basis=str(raw.get("reserve_basis", "NET_PREMIUM")),
+            gaap_mortality_pad=float(raw.get("gaap_mortality_pad", 1.0)),
+            gaap_interest_margin=float(raw.get("gaap_interest_margin", 0.0)),
             valuation_mortality=raw.get("valuation_mortality"),
             valuation_date=legacy_val_date,
         )
@@ -325,6 +327,8 @@ def _parse_config_to_pipeline_inputs(
         maintenance_cost=float(deal_raw.get("maintenance_cost", 75.0)),
         use_policy_cession=bool(deal_raw.get("use_policy_cession", False)),
         reserve_basis=str(deal_raw.get("reserve_basis", "NET_PREMIUM")),
+        gaap_mortality_pad=float(deal_raw.get("gaap_mortality_pad", 1.0)),
+        gaap_interest_margin=float(deal_raw.get("gaap_interest_margin", 0.0)),
         valuation_mortality=deal_raw.get("valuation_mortality"),
         valuation_date=deal_val_date,
         yrt_rate_table_path=yrt_table_path,
@@ -351,6 +355,8 @@ def _build_pipeline_from_config(
     reserve_basis_override: str | None = None,
     valuation_mortality_override: str | None = None,
     improvement_version_override: str | None = None,
+    gaap_mortality_pad_override: float | None = None,
+    gaap_interest_margin_override: float | None = None,
 ) -> tuple:  # type: ignore[type-arg]
     """Build an inforce pipeline from a JSON config file.
 
@@ -377,6 +383,13 @@ def _build_pipeline_from_config(
     ``PolarisValidationError`` via ``build_assumption_set`` →
     ``load_improvement_version``.
 
+    ``gaap_mortality_pad_override`` / ``gaap_interest_margin_override`` (the
+    ``--gaap-mortality-pad`` / ``--gaap-interest-margin`` CLI flags) likewise take
+    precedence over any ``deal.gaap_mortality_pad`` / ``deal.gaap_interest_margin``
+    in the config. Out-of-range values raise ``PolarisValidationError`` via
+    ``build_projection_config`` → ``ProjectionConfig`` field validation. Both are
+    consumed only on the GAAP reserve basis.
+
     Returns:
         (inforce, assumptions, config, pipeline_inputs) tuple.
     """
@@ -388,6 +401,10 @@ def _build_pipeline_from_config(
         inputs.deal.valuation_mortality = valuation_mortality_override
     if improvement_version_override is not None:
         inputs.mortality.improvement_version_id = improvement_version_override
+    if gaap_mortality_pad_override is not None:
+        inputs.deal.gaap_mortality_pad = gaap_mortality_pad_override
+    if gaap_interest_margin_override is not None:
+        inputs.deal.gaap_interest_margin = gaap_interest_margin_override
 
     # Load inforce
     if inforce_path is not None:
@@ -1572,6 +1589,38 @@ def price_cmd(
             ),
         ),
     ] = None,
+    gaap_mortality_pad: Annotated[
+        float | None,
+        typer.Option(
+            "--gaap-mortality-pad",
+            help=(
+                "GAAP (FAS 60) mortality provision for adverse deviation (PAD): a "
+                "multiplicative margin (>= 1.0) on locked-in best-estimate "
+                "mortality for the FAS 60 net-premium benefit reserve. Only "
+                "affects the GAAP reserve basis (--reserve-basis GAAP); ignored on "
+                "every other basis. Overrides any 'deal.gaap_mortality_pad' in the "
+                "config. Omitting it (or 1.0) is byte-identical to prior runs; a "
+                "value > 1.0 raises the GAAP reserve so a reinsurer can reproduce "
+                "the cedant's held FAS 60 reserve. A value < 1.0 raises an error."
+            ),
+        ),
+    ] = None,
+    gaap_interest_margin: Annotated[
+        float | None,
+        typer.Option(
+            "--gaap-interest-margin",
+            help=(
+                "GAAP (FAS 60) interest provision for adverse deviation (PAD): an "
+                "absolute reduction (in [0, 1]) applied to the valuation interest "
+                "rate when discounting the FAS 60 net-premium benefit reserve. "
+                "Only affects the GAAP reserve basis (--reserve-basis GAAP); "
+                "ignored on every other basis. Overrides any "
+                "'deal.gaap_interest_margin' in the config. Omitting it (or 0.0) is "
+                "byte-identical to prior runs; a positive value lowers the GAAP "
+                "discount rate, raising the reserve. An out-of-range value errors."
+            ),
+        ),
+    ] = None,
     improvement_version: Annotated[
         str | None,
         typer.Option(
@@ -1697,6 +1746,24 @@ def price_cmd(
             )
             raise typer.Exit(code=1) from None
 
+    # Validate the GAAP PAD flags eagerly (before any projection work) so an
+    # out-of-range value fails with a clear message, mirroring the reserve-basis
+    # check above. The ranges match ``ProjectionConfig`` (which validates them
+    # again on construction): the mortality PAD is a multiplicative margin
+    # (>= 1.0) and the interest margin is an absolute reduction (in [0, 1]).
+    if gaap_mortality_pad is not None and gaap_mortality_pad < 1.0:
+        console.print(
+            f"[red]Error:[/red] --gaap-mortality-pad must be >= 1.0 "
+            f"(a multiplicative mortality margin), got {gaap_mortality_pad}."
+        )
+        raise typer.Exit(code=1)
+    if gaap_interest_margin is not None and not (0.0 <= gaap_interest_margin <= 1.0):
+        console.print(
+            f"[red]Error:[/red] --gaap-interest-margin must be in [0, 1] "
+            f"(an absolute interest-rate reduction), got {gaap_interest_margin}."
+        )
+        raise typer.Exit(code=1)
+
     # Tabular YRT rate table (ADR-052) — loaded once and reused across
     # cohorts. The label defaults to "yrt" so the typical filename is
     # ``yrt_male_ns.csv`` etc. unless the user overrides it. The CLI flag is
@@ -1728,6 +1795,8 @@ def price_cmd(
                 reserve_basis_override=reserve_basis,
                 valuation_mortality_override=valuation_mortality,
                 improvement_version_override=improvement_version,
+                gaap_mortality_pad_override=gaap_mortality_pad,
+                gaap_interest_margin_override=gaap_interest_margin,
             )
             console.print(f"[dim]Loaded config from {config_path}[/dim]")
         else:
@@ -1741,6 +1810,8 @@ def price_cmd(
                 reserve_basis_override=reserve_basis,
                 valuation_mortality_override=valuation_mortality,
                 improvement_version_override=improvement_version,
+                gaap_mortality_pad_override=gaap_mortality_pad,
+                gaap_interest_margin_override=gaap_interest_margin,
             )
             console.print("[dim]No --config supplied — running demo mode[/dim]")
 
@@ -1923,6 +1994,14 @@ def price_cmd(
     # the audit trail records which table drove the statutory reserve.
     if inputs.deal.valuation_mortality is not None:
         summary["valuation_mortality"] = inputs.deal.valuation_mortality
+    # Echo the GAAP (FAS 60) PADs only when a margin is actually set (mortality
+    # PAD > 1.0 or interest margin > 0.0), so a run without them is byte-identical
+    # (no always-present neutral keys). When set, the audit trail records the
+    # adverse-deviation basis the GAAP reserve was valued on.
+    if config.gaap_mortality_pad > 1.0:
+        summary["gaap_mortality_pad"] = config.gaap_mortality_pad
+    if config.gaap_interest_margin > 0.0:
+        summary["gaap_interest_margin"] = config.gaap_interest_margin
     # Echo the experience-derived improvement basis only when one is selected, so
     # a run without ``--improvement-version`` / ``mortality.improvement_version_id``
     # is byte-identical (no always-present ``null`` key). When set, the audit trail

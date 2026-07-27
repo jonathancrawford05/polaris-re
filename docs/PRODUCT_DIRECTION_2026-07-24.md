@@ -147,7 +147,7 @@ B1 and B2 are the cleanest between-epic fallback picks and the **S3** sequence
 
 | # | Feature | Value | Effort |
 |---|---------|-------|--------|
-| C3 | Funds-withheld coinsurance (`FWCoinsuranceTreaty`) — **COMPLETE, PENDING MERGE** (Slice 1 shipped 2026-07-26 PR #165, ADR-163: treaty module + funds-withheld interest; Slice 2 done 2026-07-27, ADR-164: surfaced on CLI/API/dashboard + `golden_fw_coins`. Draft PR open on `claude/loving-gauss-pdd5zq`; strike through as SHIPPED once merged. `docs/PLAN_fw_coinsurance.md` / `docs/CONTINUATION_fw_coinsurance.md` [COMPLETE]) | ★★★☆☆ | ~2 d |
+| ~~C3~~ | ~~Funds-withheld coinsurance (`FWCoinsuranceTreaty`)~~ — **SHIPPED** (PR #166): Slice 1 (PR #165, ADR-163: treaty module + funds-withheld interest) + Slice 2 (PR #166, ADR-164: surfaced on CLI/API/dashboard + `golden_fw_coins`); both merged to main 2026-07-27. `docs/CONTINUATION_fw_coinsurance.md` [COMPLETE]. (Ledger-healed this session, step 4b.) | ★★★☆☆ | ~2 d |
 | C4 | Parallel portfolio execution + caching + `remove_deal` | ★★★☆☆ | ~2 d |
 | C5 | Per-deal hurdle rates on `Portfolio` | ★★★☆☆ | ~5 d |
 | C6 | Phase-6.3 load test (100 concurrent `/api/v1/price` < 2s) + QUICKSTART K8s guide | ★★★☆☆ | ~1–2 d |
@@ -291,9 +291,16 @@ BLOCKER remains.
 4. **Prescribed statutory valuation-interest helper.** Issue-year → prescribed
    valuation-interest-rate lookup so statutory CRVM reproduction is penny-exact on
    the interest side (currently directional via a single manual rate). *Source: ADR-125 Out of scope + CONTINUATION_reserve_basis_exactness Refinement Backlog (1st-order); reclassified per ADR-126 / PR #125 review.*
-5. **Surface the GAAP (FAS 60) PADs on the deal path (`DealConfig` / CLI / API).**
+5. ~~**Surface the GAAP (FAS 60) PADs on the deal path (`DealConfig` / CLI / API).**
    The two GAAP PADs live on `ProjectionConfig` but are not exposed via the CLI
-   config parser, `--gaap-*` flags, or REST `PriceRequest`. *Source: ADR-127 / ADR-128 Out of scope (1st-order).*
+   config parser, `--gaap-*` flags, or REST `PriceRequest`. *Source: ADR-127 / ADR-128 Out of scope (1st-order).*~~ — **SHIPPED** (PR #167, ADR-165) — PENDING MERGE.
+   `DealConfig.gaap_mortality_pad` / `gaap_interest_margin` (both neutral by
+   default) parse from both config schemas and thread through
+   `build_projection_config`; `--gaap-mortality-pad` / `--gaap-interest-margin`
+   CLI flags override the config (echoed in the JSON summary only when non-neutral);
+   `PriceRequest` carries both (out-of-range → 422) and `PriceResponse` echoes them.
+   Neutral defaults keep every existing config / run / response byte-identical; the
+   PADs are consumed only on the GAAP reserve basis. Strike through once merged.
 6. **Shared rate-limit backend for multi-replica deployments.** The in-process
    limiter counts per replica, so behind N replicas the effective limit is ~N× the
    configured threshold — a silent correctness caveat on a shipped, deployed
@@ -662,6 +669,28 @@ common path — so all are NICE-TO-HAVE.
   threads an asset portfolio into a *proportional* treaty today — a shared gap
   with Modco, not FW-specific. Surfacing it is a cross-treaty enhancement.
   *Source: CONTINUATION_fw_coinsurance Refinement Backlog #3 / ADR-164 Out of scope (1st-order).* **NICE-TO-HAVE.**
+
+### Harvested 2026-07-28 (GAAP PADs on the deal path — ADR-165; IMPORTANT #5 shipped)
+
+IMPORTANT #5 shipped (ADR-165): the two GAAP (FAS 60) PADs are now surfaced on the
+CLI (`--gaap-mortality-pad` / `--gaap-interest-margin` + config keys) and the REST
+`PriceRequest` / `PriceResponse`. Surviving out-of-scope item promoted per the
+HARVEST step. 1st-order (follow-up of the originally-planned IMPORTANT #5); it is
+convenience polish on a shipped surface, not a production-correctness gap → NICE-TO-HAVE.
+
+- **Surface the two GAAP PADs on the Streamlit dashboard Deal Pricing page +
+  `DealConfig.to_dict()` round-trip.** ADR-165 surfaced the PADs CLI/API-first
+  (the `valuation_mortality` / `expense_allowance` precedent: no dashboard surface
+  consumes them yet, so they are omitted from `to_dict()`). A dashboard slice
+  would add two inputs (a mortality-PAD number and an interest-margin number,
+  shown/enabled only when the reserve basis is GAAP) and round-trip them through
+  the session-state `deal_config` dict, giving non-CLI users the same
+  adverse-deviation control. *Source: ADR-165 Out of scope (1st-order).* **NICE-TO-HAVE.**
+
+> The other two ADR-165 out-of-scope items — **duration-varying / select-period
+> GAAP PAD structures** and **FAS 60 DAC amortisation / full loss-recognition on
+> the deal path** — are already carried in the NICE-TO-HAVE **GAAP (2)** group
+> above (from ADR-127); ADR-165 does not create new duplicates, it reinforces them.
 
 ---
 
