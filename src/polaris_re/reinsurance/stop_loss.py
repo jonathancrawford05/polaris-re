@@ -73,16 +73,21 @@ class StopLossTreaty(PolarisBaseModel, BaseTreaty):
         self,
         gross: CashFlowResult,
         inforce: "InforceBlock | None" = None,
+        *,
+        use_policy_cession: bool = True,
     ) -> tuple[CashFlowResult, CashFlowResult]:
         """
         Apply aggregate stop loss treaty to gross cash flows.
 
-        Note: Stop loss does not use cession_pct — the inforce parameter
-        is accepted for interface consistency but is not used.
+        Note: Stop loss does not use cession_pct — the ``inforce`` and
+        ``use_policy_cession`` parameters are accepted for interface
+        consistency but are not used.
 
         Args:
             gross:   GROSS basis CashFlowResult.
             inforce: Not used by stop loss. Accepted for interface consistency.
+            use_policy_cession: Not used by stop loss. Accepted for interface
+                     consistency with :meth:`BaseTreaty.apply`.
 
         Returns:
             (net, ceded) CashFlowResult tuple.

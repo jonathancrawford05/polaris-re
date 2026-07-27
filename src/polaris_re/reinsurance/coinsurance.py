@@ -83,6 +83,8 @@ class CoinsuranceTreaty(PolarisBaseModel, BaseTreaty):
         self,
         gross: CashFlowResult,
         inforce: "InforceBlock | None" = None,
+        *,
+        use_policy_cession: bool = True,
     ) -> tuple[CashFlowResult, CashFlowResult]:
         """
         Apply coinsurance treaty to gross cash flows.
@@ -92,12 +94,19 @@ class CoinsuranceTreaty(PolarisBaseModel, BaseTreaty):
 
         Args:
             gross:   GROSS basis CashFlowResult.
-            inforce: Optional InforceBlock for policy-level cession overrides.
+            inforce: Optional InforceBlock. Drives block-aware first-year
+                     allowance mapping whenever supplied, and — when
+                     ``use_policy_cession`` is True — per-policy cession
+                     overrides.
+            use_policy_cession: When True (default), per-policy cession
+                     overrides on ``inforce`` are honored; when False, the flat
+                     treaty ``cession_pct`` is used (allowance mapping still
+                     uses ``inforce``). See :meth:`BaseTreaty.apply`.
 
         Returns:
             (net, ceded) CashFlowResult tuple.
         """
-        c = self._resolve_cession(self.cession_pct, inforce)
+        c = self._resolve_cession(self.cession_pct, inforce, use_policy_cession)
         r = 1.0 - c  # retention proportion
 
         # All lines split proportionally
