@@ -22,7 +22,7 @@ raw wall-time only informs (maintainer rule, 2026-07-12). Unblocks the per-merge
 ### Slice 1: Deterministic perf-probe core
 - **Status:** DONE
 - **Branch:** `claude/loving-gauss-ixouzo`
-- **PR:** #_(this session's draft)_
+- **PR:** #171
 - **What was done:** Added `analytics/perf_harness.py` — `PerfProbe` (one
   hot-path measurement row) + `PerfReport` (container with `to_perf_dict()` /
   `to_json()` emitting the `perf.json` shape), and `run_perf_probe(...)` timing

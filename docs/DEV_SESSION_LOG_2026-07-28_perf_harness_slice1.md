@@ -52,7 +52,7 @@ session.
 ## Decomposition Plan
 | Slice | Scope | Status | PR |
 |-------|-------|--------|----|
-| 1 | Deterministic perf-probe core (`analytics/perf_harness.py` + `tests/perf/`) | ✅ Done | *(this PR)* |
+| 1 | Deterministic perf-probe core (`analytics/perf_harness.py` + `tests/perf/`) | ✅ Done | #171 |
 | 2 | Head-vs-main same-job driver + `perf.json` diff/verdict | ⏳ Next | — |
 | 3 | CI perf job (gates structural deltas, alerts on wall-time ratio) — closes #9 | 🔲 Planned | — |
 | 4 | (optional / IMPORTANT #10) per-merge `perf/history.jsonl` + creep detection | 🔲 Planned | — |
