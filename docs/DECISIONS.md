@@ -10747,3 +10747,70 @@ slices). (3) **DAC / unearned-premium** components of the full FAS 60 test — t
 benefit-reserve-only model carries no DAC balance (cf. ADR-127's loss-recognition
 follow-up). (4) Wiring the reserve floor back into the projected `reserve_balance`
 so downstream profit/IRR reflect the strengthened reserve.
+
+## ADR-163: Funds-withheld coinsurance treaty (`FWCoinsuranceTreaty`) — Slice 1 (C3)
+
+**Status:** Accepted (2026-07-26)
+
+**Context.** The reinsurance layer modeled YRT, coinsurance, modco, and stop-loss
+but not **funds-withheld (FW) coinsurance** — a structure a sophisticated cedant
+routinely brings, in which the reinsurer assumes the full proportional risk
+(premiums, claims, lapses, expenses AND reserves, exactly like coinsurance) but
+the **assets** backing the ceded reserve are *withheld* by the cedant in a
+funds-withheld account, with the cedant crediting funds-withheld interest to the
+reinsurer in lieu of transferring the assets. It is the economic dual of the two
+existing proportional treaties: it shares coinsurance's *reserve transfer* and
+modco's *interest-on-retained-assets* mechanic. Reproduced before writing code:
+`grep` confirmed no `FWCoinsurance` / `funds_withheld` symbol anywhere in `src/`,
+and `build_treaty` accepted only `YRT` / `Coinsurance` / `Modco` / gross. This is
+the Tier-C catalogue item **C3** (`COMMERCIAL_VIABILITY_REVIEW_2026-07-15` §4;
+carried into `PRODUCT_DIRECTION_2026-07-24` Tier-C), selected as gated
+maintenance-mode fallback: the routine has **no unstarted Tier-A epic** (A4′
+closed; the Phase-7 frontier is awaiting a maintainer decision and cannot be
+autonomously constituted), the sole IN PROGRESS CONTINUATION
+(`reserve_basis_correctness`) is parked, and among the Tier-C queue C3 is the
+self-contained, closed-form-verifiable modeling item that best fits the
+`BaseTreaty` pattern.
+
+**Decision.** Add `reinsurance/fw_coinsurance.py` with `FWCoinsuranceTreaty`
+(`PolarisBaseModel` + `BaseTreaty`, mirroring `ModcoTreaty`/`CoinsuranceTreaty`).
+Every cash-flow line is split proportionally by the effective cession rate —
+**including reserves** (`net_reserve = gross_reserve * (1 - c)`), the distinction
+from modco (which keeps the full reserve with the cedant). A funds-withheld
+interest credit is then folded in as a cedant→reinsurer transfer:
+
+    funds_withheld_interest_t = ceded_reserve_balance_t * fw_rate / 12
+    net_ncf   -= funds_withheld_interest      ceded_ncf += funds_withheld_interest
+
+so `net + ceded == gross` holds exactly (the interest cancels — verified in the
+suite). `fw_rate` is the flat `funds_withheld_rate` by default; when an
+`AssetPortfolio` is passed to `apply()`, its gross `book_yield()` takes precedence
+(**Option A**, identical to `ModcoTreaty`), with the flat rate as the fallback
+when the yield is unrecoverable — omitting the portfolio is byte-identical. An
+`include_expense_allowance` toggle (default `True`) mirrors coinsurance's
+proportional expense split. The interest vector is recorded on both results in a
+**new optional `CashFlowResult.funds_withheld_interest` field** (`np.ndarray |
+None = None`) — an additive, backward-compatible contract change following the
+exact precedent of the `modco_interest` / `yrt_premiums` / `nar` informational
+arrays; every existing construction defaults it to `None`. **Flagged for human
+review** per the core-contract guardrail; goldens are byte-identical (no config
+references the treaty yet — that is Slice 2).
+
+Closed-form verification: `fwi = ceded_reserve * rate / 12` over the whole
+vector; the `FW == coinsurance + interest-transfer` NCF identity; interest equal
+on both sides; rate/cession-zero nulls; linear rate sensitivity; the
+Option-A book-yield closed form and flat-rate fallback; reserve-transfer parity
+with coinsurance and contrast with modco; the expense toggle; and validation /
+edge cases (empty reserve → `PolarisComputationError`, full/zero cession,
+negative-rate and out-of-range-cession rejection). Additivity is asserted across
+five cession levels via `@pytest.mark.parametrize`.
+
+**Out of scope (Slice 1).** (1) **Surfacing** — wiring `FWCoinsuranceTreaty` into
+`build_treaty` / the CLI + REST `treaty_type` parser and the dashboard treaty
+selector (Slice 2, the surfacing slice — goldens gain an `FWCoinsurance` config
+only there). (2) The optional **sliding-scale `ExpenseAllowance` / `ExperienceRefund`**
+layers that coinsurance carries (only the proportional `include_expense_allowance`
+split is modeled here). (3) A **stochastic / amortising funds-withheld balance**
+distinct from the ceded reserve (the balance is taken equal to the withheld ceded
+reserve). (4) **Funds-withheld modco** (FW applied to a modco-style non-transferred
+reserve) — a further variant, not this treaty.
