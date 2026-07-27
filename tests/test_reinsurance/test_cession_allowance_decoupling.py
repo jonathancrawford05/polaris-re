@@ -43,6 +43,8 @@ from polaris_re.core.projection import ProjectionConfig
 from polaris_re.products.term_life import TermLife
 from polaris_re.reinsurance.coinsurance import CoinsuranceTreaty
 from polaris_re.reinsurance.expense_allowance import ExpenseAllowance
+from polaris_re.reinsurance.fw_coinsurance import FWCoinsuranceTreaty
+from polaris_re.reinsurance.modco import ModcoTreaty
 from polaris_re.reinsurance.yrt import YRTTreaty
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
@@ -166,6 +168,46 @@ def test_flag_gates_per_policy_cession_override():
     # Honored → 0.5 of gross premiums ceded; flat → 0.9 of gross premiums.
     np.testing.assert_allclose(ceded_honored.gross_premiums, gross.gross_premiums * 0.5)
     np.testing.assert_allclose(ceded_flat.gross_premiums, gross.gross_premiums * 0.9)
+
+
+# ----------------------------------------------------------------------
+# 2b. The flag gates cession on ALL four proportional treaties.
+# ----------------------------------------------------------------------
+
+
+def _proportional_treaty(kind: str):
+    """One treaty of each proportional kind, all with a 0.9 flat cession.
+
+    Every proportional treaty cedes ``death_claims * c``; the constructors
+    differ only in their extra required fields (YRT rate, modco/FW rate).
+    """
+    if kind == "coinsurance":
+        return CoinsuranceTreaty(cession_pct=0.9)
+    if kind == "yrt":
+        return YRTTreaty(cession_pct=0.9, total_face_amount=1_000_000.0, flat_yrt_rate_per_1000=2.0)
+    if kind == "modco":
+        return ModcoTreaty(cession_pct=0.9, modco_interest_rate=0.045)
+    if kind == "fw_coinsurance":
+        return FWCoinsuranceTreaty(cession_pct=0.9, funds_withheld_rate=0.045)
+    raise AssertionError(kind)
+
+
+@pytest.mark.parametrize("kind", ["coinsurance", "yrt", "modco", "fw_coinsurance"])
+def test_flag_gates_cession_all_proportional_treaties(kind):
+    """Explicit coverage that ``use_policy_cession`` threads through every
+    proportional treaty's ``apply`` → ``_resolve_cession``: a 0.5 per-policy
+    override is honored only when the flag is True; otherwise the flat 0.9
+    treaty cession is used. Asserted on ``ceded.death_claims`` (= gross * c for
+    all four)."""
+    block = InforceBlock(policies=[_policy("OVR", 2015, cession=0.5)])
+    gross = _gross(block)
+    treaty = _proportional_treaty(kind)
+
+    _, ceded_honored = treaty.apply(gross, inforce=block, use_policy_cession=True)
+    _, ceded_flat = treaty.apply(gross, inforce=block, use_policy_cession=False)
+
+    np.testing.assert_allclose(ceded_honored.death_claims, gross.death_claims * 0.5)
+    np.testing.assert_allclose(ceded_flat.death_claims, gross.death_claims * 0.9)
 
 
 # ----------------------------------------------------------------------
