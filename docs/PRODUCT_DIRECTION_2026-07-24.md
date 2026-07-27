@@ -692,6 +692,26 @@ convenience polish on a shipped surface, not a production-correctness gap → NI
 > the deal path** — are already carried in the NICE-TO-HAVE **GAAP (2)** group
 > above (from ADR-127); ADR-165 does not create new duplicates, it reinforces them.
 
+### Appended 2026-07-27 (expense-allowance duration Slice 2, ADR-167)
+
+- **Block-aware allowance mapping on the scenario / uq / portfolio paths.**
+  ADR-167 (Slice 2) wired the block-aware sliding-scale allowance duration
+  mapping into the common quoting path — CLI `polaris price`, REST
+  `/api/v1/price`, and the dashboard projection — closing the IMPORTANT #3
+  correctness gap there. The `/api/v1/scenario`, `/api/v1/uq`, and portfolio
+  treaty-apply paths still run the allowance on the treaty's own internal path
+  (the CLI scenario/uq *parity dumps* are rewired, but the `ScenarioRunner` /
+  `MonteCarloUQ` / portfolio engines are not). Those DTOs also omit
+  `reserve_basis` / `valuation_mortality` for the same "pricing-surface-first"
+  reason, so this is design-parity polish on the non-headline surfaces, not a
+  correctness gap on the common quoting path. Also tracked as the optional
+  Slice 3 in `docs/CONTINUATION_expense_allowance_duration.md` (IN PROGRESS).
+  *Source: ADR-167 Out of scope (2nd-order — companion to IMPORTANT #3).* **NICE-TO-HAVE.**
+
+> **On IMPORTANT #3 (this section, above).** Its common-path fix ships in Slice 2
+> (ADR-167) but the PR is an unmerged draft, so the entry is left un-struck; the
+> morning ledger-healing step (4b) should strike it once the Slice 2 PR merges.
+
 ---
 
 ## Comparison with Previous Assessment

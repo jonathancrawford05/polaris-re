@@ -11008,3 +11008,66 @@ so the fix reaches the user-facing deal path — and extending the same fix to t
 to IMPORTANT #3, ADR-123). Slice 1 ships the engine capability + closed-form
 tests only; no caller is rewired yet, so nothing changes on the priced path
 until Slice 2. See `docs/CONTINUATION_expense_allowance_duration.md`.
+
+## ADR-167: Wire the deal-path callers to block-aware allowance mapping — Slice 2
+
+**Status:** Accepted (2026-07-27)
+
+**Context.** ADR-166 (Slice 1) made `BaseTreaty.apply` decouple the two roles
+`inforce` plays: per-policy cession honouring is gated by a keyword-only
+`use_policy_cession` flag, while block-aware first-year allowance mapping stays
+keyed on `inforce` *presence*. But no caller was rewired, so the engine
+capability did not yet reach the user-facing deal path. Every deal-path caller
+still gated **whether `inforce` was passed** on the cession flag
+(`inforce_arg = cohort_inforce if use_policy_cession else None`). A renewal
+(mid-duration) block priced with `use_policy_cession=False` and a sliding-scale
+allowance therefore still received the new-business first-year basis. Reproduced
+before writing code on the mid-duration golden block (6 TERM policies, 5 years
+in force, 40% first-year / 10% renewal coinsurance allowance, `use_policy_cession=false`
+via `polaris price`): the reinsurer's `pv_profits` was **−$37,147** on the buggy
+gated path versus **−$35,919** once `inforce` is passed unconditionally — a
+**+$1,228** correction, entirely the first-year rate wrongly charged on renewal
+business.
+
+**Decision (Slice 2 — caller wiring).** Pass `inforce` to `treaty.apply`
+**always** (when a cohort inforce is available) and thread the deal's
+`use_policy_cession` as the keyword flag, at every deal-path caller:
+- `cli.py` — the price single-cohort apply (`_price_single_cohort`) and the two
+  scenario / uq parity-diagnostic dumps. The tabular-YRT forcing of
+  `use_policy_cession=True` is unchanged (it flows through
+  `_build_treaty_for_pipeline`, which already returns `True` for the table path).
+- `api/main.py` — `/api/v1/price` now passes `inforce=inforce` unconditionally
+  (previously only on the tabular-YRT path). `PolicyInput` carries no per-policy
+  cession override (the API always builds `Policy` with
+  `reinsurance_cession_pct=None`), so the default `use_policy_cession=True` is
+  cession-neutral — the face-weighted cession equals the flat `treaty.cession_pct`.
+- `dashboard/components/projection.py` — `run_treaty_projection` passes
+  `inforce` always with the caller's `use_policy_cession` flag.
+
+**Backward compatible / goldens byte-identical.** No golden config carries an
+`expense_allowance`, and for an override-free block the face-weighted cession
+equals the flat treaty default, so passing `inforce` with the correct flag moves
+nothing on the goldens. Verified: all four golden configs + `polaris price` on
+`golden_config_flat.json` and the full `tests/qa/` suite are byte-identical
+(94 passed). Only a config **with** a sliding-scale allowance on a **mid-duration**
+block changes — which is the fix.
+
+**Verification.** `tests/test_cli_allowance_duration_wiring.py` drives the real
+CLI pricing entry point (`_price_single_cohort`) on a 10-year in-force block +
+allowance + `use_policy_cession=false` and asserts the priced `ceded_cashflows`
+match the block-aware reference (renewal rate throughout), strictly below the
+new-business basis; that cession stays flat when the flag is False even though a
+per-policy override is present; that an allowance-free config is byte-identical
+to the former `inforce=None` path; and that a new-business (duration 0) block is
+unaffected. `tests/test_api/test_allowance_duration_wiring.py` asserts a
+mid-duration block is charged a materially smaller allowance transfer than a
+matched new-business block via `/api/v1/price` (before Slice 2 both got the
+new-business basis). The existing API byte-identical / zero-sum tests still hold.
+
+**Out of scope (this slice).** Extending the same `inforce` + `use_policy_cession`
+threading to `/api/v1/scenario`, `/api/v1/uq`, and the portfolio path (Slice 3,
+optional / 2nd-order — those DTOs also omit `reserve_basis` / `valuation_mortality`
+for the same "pricing surface first" reason, so this is polish, not a correctness
+gap on the common quoting path). The CLI scenario / uq *parity dumps* are rewired
+here, but the ScenarioRunner / MonteCarloUQ engines still apply the treaty
+internally on their own path. See `docs/CONTINUATION_expense_allowance_duration.md`.

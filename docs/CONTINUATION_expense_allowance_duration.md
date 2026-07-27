@@ -41,58 +41,82 @@ independent of the cession flag.
   is byte-identical to the flat path — this is what lets Slice 2 pass `inforce`
   unconditionally without moving any override-free golden.
 
-### Slice 2: Wire the deal-path callers (NEXT)
-- **Status:** NEXT
-- **Depends on:** Slice 1 merged
-- **Files to create/modify:**
-  - `src/polaris_re/cli.py` — the 3 `inforce_arg = ... if use_policy_cession
-    else None` sites (~561, ~2263, ~2494): pass `inforce` **always** (when a
-    cohort inforce is available) plus `use_policy_cession=deal.use_policy_cession`
-    to `treaty.apply`. Keep the YRT-rate-table forcing of `use_policy_cession=True`.
-  - `src/polaris_re/api/main.py` — the `treaty.apply(gross, inforce=inforce if
-    yrt_rate_table is not None else None)` site (~1200): pass `inforce` when an
-    allowance (or rate table) is present, with the correct `use_policy_cession`.
-  - `src/polaris_re/dashboard/components/projection.py` (~254) — same pattern.
-- **Tests to add:**
-  - CLI flow: a config with a mid-duration inforce block + `expense_allowance`
-    + `use_policy_cession=false` prices the allowance on the renewal rate
-    (assert the JSON summary's ceded allowance / expense line matches the
-    block-aware value, strictly below the new-business value).
-  - Byte-identical guard: a config **without** an allowance is unchanged by the
-    caller rewire (the four golden configs already cover this; add an explicit
-    parity assertion).
-  - API `/api/v1/price` analogue.
-- **Acceptance criteria:**
-  - A renewal block + allowance priced with `use_policy_cession=false` via CLI /
-    API charges the renewal (not first-year) rate on mid-duration business.
-  - Per-policy cession overrides are still honoured **iff** `use_policy_cession`
-    is true (no silent cession change).
-  - All four golden configs + `polaris price` byte-identical.
+### Slice 2: Wire the deal-path callers (DONE)
+- **Status:** DONE
+- **Branch:** claude/loving-gauss-aeq051
+- **PR:** (draft — pending review)
+- **ADR:** ADR-167
+- **What was done:** Rewired every deal-path caller to pass `inforce` to
+  `treaty.apply` **always** (when a cohort inforce is available) and thread the
+  deal's `use_policy_cession` as the keyword flag, instead of gating whether
+  `inforce` is passed on that flag:
+  - `cli.py` — `_price_single_cohort` (the priced apply) + the scenario / uq
+    parity-diagnostic dumps. Tabular-YRT forcing of `use_policy_cession=True`
+    is unchanged (flows through `_build_treaty_for_pipeline`).
+  - `api/main.py` — `/api/v1/price` passes `inforce=inforce` unconditionally.
+    Cession-neutral because `PolicyInput` has no per-policy cession override
+    (`Policy` built with `reinsurance_cession_pct=None`).
+  - `dashboard/components/projection.py` — `run_treaty_projection` passes
+    `inforce` always with the caller's `use_policy_cession`.
+  Reproduced the gap on the golden block first: reinsurer `pv_profits`
+  −$37,147 (buggy) → −$35,919 (fixed) with a coinsurance allowance +
+  `use_policy_cession=false`. All four goldens + `tests/qa/` byte-identical
+  (no golden carries an allowance). Tests in
+  `tests/test_cli_allowance_duration_wiring.py` +
+  `tests/test_api/test_allowance_duration_wiring.py`.
+- **Key decisions:** No golden config carries an `expense_allowance`, so the
+  rewire moves nothing on the goldens — the byte-identical guarantee holds by
+  inspection. The scenario / uq **parity dumps** are rewired, but the
+  `ScenarioRunner` / `MonteCarloUQ` engines still apply the treaty on their own
+  internal path — extending the fix there is the optional Slice 3.
 
-### Slice 3 (optional / 2nd-order — may fold into Slice 2 or defer): scenario/uq/portfolio parity
-- **Status:** PLANNED
-- **Scope:** Extend the same `inforce` + `use_policy_cession` threading to
-  `/api/v1/scenario`, `/api/v1/uq`, and the portfolio path (the 2nd-order
-  companion to IMPORTANT #3, ADR-123). These DTOs currently also omit
-  `reserve_basis` / `valuation_mortality` for the same "pricing surface first"
-  reason, so this is genuinely optional polish, not a correctness gap on the
-  common quoting path.
+- **Acceptance criteria (Slice 2 — all MET):**
+  - ✅ A renewal block + allowance priced with `use_policy_cession=false` via
+    CLI / API charges the renewal (not first-year) rate on mid-duration
+    business (CLI: `ceded_cashflows` matches block-aware reference; API:
+    mid-duration transfer strictly smaller than new-business).
+  - ✅ Per-policy cession overrides are still honoured **iff**
+    `use_policy_cession` is true (no silent cession change — pinned by
+    `test_cli_cession_stays_flat_when_flag_false`).
+  - ✅ All four golden configs + `polaris price` byte-identical (no golden
+    carries an allowance; full `tests/qa/` 94 passed).
+
+### Slice 3 (optional / 2nd-order — may fold or defer): scenario/uq/portfolio parity
+- **Status:** PLANNED (optional). The common quoting-path correctness gap
+  (IMPORTANT #3) is closed by Slice 2; Slice 3 is polish. Promoted to the latest
+  PRODUCT_DIRECTION as NICE-TO-HAVE so it survives independently of this
+  CONTINUATION.
+- **Depends on:** Slice 2 merged
+- **Scope:** Extend the same `inforce` + `use_policy_cession` threading to the
+  `/api/v1/scenario`, `/api/v1/uq`, and portfolio treaty-apply paths **inside**
+  `ScenarioRunner` / `MonteCarloUQ` / the portfolio pipeline (the CLI scenario /
+  uq *parity dumps* are already rewired in Slice 2, but the runner engines apply
+  the treaty on their own internal path). The 2nd-order companion to IMPORTANT
+  #3, ADR-123. These DTOs also omit `reserve_basis` / `valuation_mortality` for
+  the same "pricing surface first" reason, so this is genuinely optional polish,
+  not a correctness gap on the common quoting path.
 
 ## Context for Next Session
 
-- The engine capability is complete and tested; Slice 2 is **pure caller
-  wiring** — no new engine logic. The risk is entirely "does a golden move?",
-  and the answer is no for any config without a mid-duration inforce block +
-  allowance (which none of the goldens have).
-- The subtle correctness point for Slice 2: pass `inforce` to `apply` **always**
-  (when available), and thread the deal's `use_policy_cession` as the flag —
-  do NOT keep gating whether `inforce` is passed. That is the whole fix.
-- Consider adding a golden/QA fixture that exercises a renewal block + allowance
-  so the fix is regression-pinned at the CLI level (not just unit level). If you
-  add a data file under `data/`, update the Dockerfile COPY + `.dockerignore`
-  allowlist in the same PR (the #61/#66 trap).
+- Slices 1 (engine) and 2 (caller wiring) are both DONE. The IMPORTANT #3
+  correctness gap on the common quoting path (CLI `polaris price` / REST
+  `/api/v1/price` / dashboard) is **closed**. Slice 3 is optional polish for the
+  scenario / uq / portfolio runner-internal treaty applies only.
+- Slice 2 was verified byte-identical by inspection (no golden config carries an
+  `expense_allowance`) rather than by a new golden fixture. The regression is
+  pinned at the CLI and API levels by
+  `tests/test_cli_allowance_duration_wiring.py` and
+  `tests/test_api/test_allowance_duration_wiring.py`. A dedicated golden/QA
+  fixture with a renewal block + allowance remains a nice-to-have (would need
+  the Dockerfile COPY + `.dockerignore` update if it adds a `data/` file — the
+  #61/#66 trap) and is folded into the Slice 3 polish scope.
+- To advance Slice 3, thread `inforce` + `use_policy_cession` into the treaty
+  apply **inside** `ScenarioRunner` / `MonteCarloUQ` / the portfolio pipeline,
+  not just the CLI parity dumps (already done in Slice 2).
 
 ## Open Questions (for human)
 
-- None blocking. Slice 2 is mechanical and low-risk; it can ship next session
-  once Slice 1 is merged.
+- Close this CONTINUATION as COMPLETE (Slice 3 deferred to the promoted
+  NICE-TO-HAVE follow-up) once Slice 2's PR merges, OR keep it IN PROGRESS to
+  land Slice 3? The mandatory scope is done either way. Left IN PROGRESS for now
+  because Slice 2's PR is an unmerged draft.
