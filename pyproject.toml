@@ -136,6 +136,7 @@ addopts = "-v --tb=short"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests requiring a full projection run",
+    "smoke: marks tests that boot the real deployed entry points (select with '-m smoke'; also tagged slow)",
 ]
 
 # ---------------------------------------------------------------------------

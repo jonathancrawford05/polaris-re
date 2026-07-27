@@ -11071,3 +11071,64 @@ for the same "pricing surface first" reason, so this is polish, not a correctnes
 gap on the common quoting path). The CLI scenario / uq *parity dumps* are rewired
 here, but the ScenarioRunner / MonteCarloUQ engines still apply the treaty
 internally on their own path. See `docs/CONTINUATION_expense_allowance_duration.md`.
+
+---
+
+## ADR-168: CI smoke-test job — boot the real deployed entry points
+
+**Status:** Accepted (2026-07-27)
+
+**Context.** The suite drives the app entirely *in-process*: `tests/test_api/`
+uses FastAPI's `TestClient` (an in-process ASGI transport), and the CLI tests
+import and call the Typer command functions directly. Neither exercises the
+**deployed** entry points — a real `uvicorn` server process and the `polaris`
+console script. A class of "won't boot / endpoint 500s" regressions is therefore
+structurally invisible to the green suite: a broken ASGI **lifespan** startup,
+console-script / packaging wiring that fails only when launched as a real
+process, an import-time failure on a fresh interpreter, or a `benchmark` / `price`
+entry point that crashes only when invoked as a subprocess. Every one of these
+would ship green. This gap was promoted as IMPORTANT #8 in
+`PRODUCT_DIRECTION_2026-07-24` (Source: maintainer discussion 2026-07-12, CI
+perf/smoke thread). Verified the gap before writing code: no `smoke` marker, no
+`tests/smoke/`, and no CI job boots a live server or the console script.
+
+**Decision.** Add a fast, deterministic **smoke** layer that launches the real
+entry points and asserts they boot and answer:
+- `tests/smoke/test_smoke_entrypoints.py` — a module-scoped fixture spawns
+  `python -m uvicorn polaris_re.api.main:app` on an ephemeral port and polls
+  `/health` (bounded by a 30 s boot timeout; fails loudly and dumps captured
+  server output if the process dies or never answers). Tests then hit the live
+  server for `/health`, `/metrics` (Prometheus exposition text), and a real
+  `POST /api/v1/price` (asserting priced output — `pv_profits`,
+  `reinsurer_pv_profits`, `premium_sufficiency`, `n_policies` — not merely that
+  JSON parsed). Two further tests shell out to the CLI (`python -m polaris_re.cli`)
+  for `price` on the golden deal (exit 0 + valid JSON written) and
+  `benchmark --pack closed-form` (exit 0 → every reference case passed).
+- The tests carry a new `smoke` marker **and** the existing `slow` marker, so
+  the default fast matrix (`make test` / CI `-m "not slow"`) and the Docker job
+  (`-m 'not slow'`) skip them — no real server is booted inside the broad
+  matrix or the container. A dedicated CI `smoke` job selects them via
+  `-m smoke`; locally, `make smoke`.
+- The `smoke` CI job mirrors the `test` job's setup (uv sync `--all-extras`,
+  generate mortality tables) and gates the merge alongside `lint` / `test` /
+  `docker`. The whole smoke suite runs in ~5 s — well inside the ~30 s budget.
+
+**Design rule (from the CI perf/smoke group).** Smoke assertions are
+**pass/fail on deterministic outcomes** (does it boot, is the status 200, did
+the benchmark cases pass) — never on wall-clock latency, which GitHub runners
+vary 2–3× run-to-run. This job therefore *gates*; the separate performance-trend
+work (IMPORTANT #9/#10) is what may only *alert*.
+
+**Backward compatible / goldens byte-identical.** Test-, CI-, and docs-only —
+no `src/` code changed, so every golden config and `polaris price` output is
+byte-identical by construction (confirmed: `polaris price` on
+`golden_config_flat.json` unchanged; `tests/qa/` 94 passed). The price payload
+pins `issue_date` / `valuation_date` (ADR-074, no wall-clock dependency).
+
+**Out of scope.** Booting `uvicorn` with `--workers > 1` or under gunicorn (the
+job uses the single-process default that CI can afford); curling `/metrics`
+*content* assertions beyond the counter's presence; a real `/api/v1/price` under
+API-key auth (the smoke job runs auth-disabled, the deployment default); and
+extending the smoke pack to `scenario` / `uq` / `ingest` entry points. Folding a
+head-vs-main **performance** verdict into CI remains IMPORTANT #9/#10 (a distinct,
+noise-normalized concern) and is deliberately not part of this pass/fail gate.

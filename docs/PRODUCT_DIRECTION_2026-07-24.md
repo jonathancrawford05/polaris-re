@@ -275,19 +275,37 @@ BLOCKER remains.
 
 ### IMPORTANT (12)
 
-1. **Statutory valuation mortality table (2001 CSO) for CRVM.** TermLife/WholeLife
+1. ~~**Statutory valuation mortality table (2001 CSO) for CRVM.** TermLife/WholeLife
    CRVM value on projection best-estimate mortality, not the prescribed 2001 CSO
    table; a distinct `valuation_mortality` slot is needed to reproduce a cedant's
-   US statutory CRVM reserve exactly. *Source: ADR-089 Out of scope (1st-order).*
+   US statutory CRVM reserve exactly. *Source: ADR-089 Out of scope (1st-order).*~~
+   — **SHIPPED** (PR #125 / ADR-125, Reserve-Basis Exactness Slice 1): the distinct
+   `assumptions.valuation_mortality` slot exists and CRVM / VM-20 NPR value on it
+   (`TermLife._valuation_q` / `_build_rate_arrays`; `--valuation-mortality` CLI flag,
+   `deal.valuation_mortality` config key, `load_valuation_mortality`; no improvement
+   applied on the valuation grid). **Closed by inspection this session (step 6 PRUNE):**
+   the carried-forward item predates ADR-125 (Source was ADR-089). The residual
+   sex/smoker composition + CSO-version selection are already tracked as the separate
+   NICE-TO-HAVE items "Sex/smoker-distinct statutory valuation-table composition
+   helper" (ADR-125) and "Issue-year → CSO-version selector" (ADR-126) — not
+   reopened here.
 2. **Close the WL terminal-reserve artefact on the NET_PREMIUM basis.** The default
    NET_PREMIUM WL reserve still uses a one-period terminal estimate that collapses
    at the horizon; prospective-to-omega valuation moves goldens → needs its own ADR
    + rebaseline. *Source: ADR-089 Out of scope + DEV_SESSION_LOG_2026-06-19_reserve_basis_slice2b Open Questions (1st-order).*
-3. **Engage block-aware first-year duration mapping when an `expense_allowance` is
+3. ~~**Engage block-aware first-year duration mapping when an `expense_allowance` is
    supplied via config.** With an allowance set but `use_policy_cession` unset, the
    allowance falls back to the new-business projection-month basis, wrongly charging
    the high first-year rate on renewal inforce; fix is to force the cohort inforce
-   through `apply()` whenever an allowance is present. *Source: ADR-122 Out of scope + DEV_SESSION_LOG_2026-06-30_expense_allowance_slice3b2a Open Questions (1st-order).*
+   through `apply()` whenever an allowance is present. *Source: ADR-122 Out of scope + DEV_SESSION_LOG_2026-06-30_expense_allowance_slice3b2a Open Questions (1st-order).*~~
+   — **SHIPPED** (PR #168 / ADR-166 engine + PR #169 / ADR-167 caller wiring):
+   `BaseTreaty.apply` decouples per-policy cession (keyword `use_policy_cession`)
+   from block-aware allowance mapping (keyed on `inforce` presence), and every
+   deal-path caller (CLI `_price_single_cohort`, `/api/v1/price`, dashboard) now
+   passes `inforce` unconditionally with the deal's flag. **MERGED** to main
+   2026-07-27 (ledger-healed this session, step 4b). The optional Slice 3
+   (scenario/uq/portfolio runner-internal parity) is 2nd-order and tracked as a
+   NICE-TO-HAVE.
 4. **Prescribed statutory valuation-interest helper.** Issue-year → prescribed
    valuation-interest-rate lookup so statutory CRVM reproduction is penny-exact on
    the interest side (currently directional via a single manual rate). *Source: ADR-125 Out of scope + CONTINUATION_reserve_basis_exactness Refinement Backlog (1st-order); reclassified per ADR-126 / PR #125 review.*
@@ -711,6 +729,36 @@ convenience polish on a shipped surface, not a production-correctness gap → NI
 > **On IMPORTANT #3 (this section, above).** Its common-path fix ships in Slice 2
 > (ADR-167) but the PR is an unmerged draft, so the entry is left un-struck; the
 > morning ledger-healing step (4b) should strike it once the Slice 2 PR merges.
+> **UPDATE 2026-07-27:** PR #169 (Slice 2) is now **MERGED** to main; IMPORTANT #3
+> struck through above (step 4b, this session).
+
+### Harvested 2026-07-27 (CI smoke-test job — ADR-168; IMPORTANT #8 shipped)
+
+IMPORTANT #8 shipped (ADR-168): a CI `smoke` job now boots the real deployed
+entry points — a live `uvicorn` server (`/health`, `/metrics`, real
+`POST /api/v1/price`) and the `polaris` console script (`price` on the golden
+deal + `benchmark --pack closed-form`) — gating merges alongside lint/test/docker.
+Surviving out-of-scope items promoted per the HARVEST step. All 1st-order
+(follow-ups of the originally-planned smoke job); all test-/CI-infra convenience,
+not production-correctness gaps → NICE-TO-HAVE.
+
+- **Extend the smoke pack to the remaining real entry points (`scenario` / `uq` /
+  `ingest`).** The gate boots `/api/v1/price` + `polaris price` + `polaris benchmark`;
+  the `scenario` / `uq` / `ingest` CLI subcommands and their `/api/v1/*` routes are
+  not yet smoke-covered, so a boot-only regression on one of those entry points
+  would still ship green. Additive to `tests/smoke/`. *Source: ADR-168 Out of scope
+  (1st-order).* **NICE-TO-HAVE.**
+- **Smoke the auth-enabled and multi-worker server modes.** The job boots the
+  single-process, auth-disabled default (what CI can afford). A real
+  `POST /api/v1/price` behind API-key auth, and a `--workers > 1` / gunicorn boot,
+  exercise deployment configurations the current gate does not. *Source: ADR-168
+  Out of scope (1st-order).* **NICE-TO-HAVE.**
+
+> The remaining ADR-168 out-of-scope note — folding a head-vs-main **performance**
+> verdict into CI — is *not* a new item: it is the existing IMPORTANT #9/#10
+> (noise-normalized perf harness + per-merge log), deliberately kept out of this
+> pass/fail smoke gate per the group's "deterministic may gate; wall-time only
+> informs" rule. No duplicate created.
 
 ---
 
