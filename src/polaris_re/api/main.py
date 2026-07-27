@@ -320,6 +320,33 @@ class PriceRequest(BaseModel):
             "prior responses. An unknown source id yields HTTP 422."
         ),
     )
+    gaap_mortality_pad: float = Field(
+        default=1.0,
+        ge=1.0,
+        description=(
+            "GAAP (FAS 60) mortality provision for adverse deviation (PAD): a "
+            "multiplicative margin (>= 1.0) on locked-in best-estimate mortality "
+            "for the FAS 60 net-premium benefit reserve. Consumed only on the "
+            "GAAP reserve basis (reserve_basis=GAAP); ignored on every other "
+            "basis. 1.0 (default) is byte-identical to prior responses; a value "
+            "> 1.0 raises the GAAP reserve so a reinsurer can reproduce the "
+            "cedant's held FAS 60 reserve. A value < 1.0 yields HTTP 422."
+        ),
+    )
+    gaap_interest_margin: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "GAAP (FAS 60) interest provision for adverse deviation (PAD): an "
+            "absolute reduction (in [0, 1]) applied to the valuation interest "
+            "rate when discounting the FAS 60 net-premium benefit reserve. "
+            "Consumed only on the GAAP reserve basis (reserve_basis=GAAP); "
+            "ignored on every other basis. 0.0 (default) is byte-identical to "
+            "prior responses; a positive value lowers the GAAP discount rate, "
+            "raising the reserve. An out-of-range value yields HTTP 422."
+        ),
+    )
     improvement_version: str | None = Field(
         default=None,
         description=(
@@ -461,6 +488,12 @@ class PriceResponse(BaseModel):
     # request's reserve_basis so a client can confirm which basis drove the
     # reserve, NAR, and profit numbers in this response.
     reserve_basis: ReserveBasis = ReserveBasis.NET_PREMIUM
+    # GAAP (FAS 60) provisions for adverse deviation the run was priced on.
+    # Echo the request's PADs so a client can confirm the adverse-deviation
+    # basis the GAAP reserve was valued on (neutral 1.0 / 0.0 unless set, and
+    # consumed only on the GAAP reserve basis).
+    gaap_mortality_pad: float = 1.0
+    gaap_interest_margin: float = 0.0
     # Versioned experience-derived improvement scale the run was priced on
     # (mi-dashboard epic, API half of IMPORTANT #12). Echoes the request's
     # ``improvement_version`` so a client can confirm which frozen basis drove
@@ -730,6 +763,8 @@ def _build_components(
     reserve_basis: ReserveBasis = ReserveBasis.NET_PREMIUM,
     valuation_mortality: str | None = None,
     improvement_version: str | None = None,
+    gaap_mortality_pad: float = 1.0,
+    gaap_interest_margin: float = 0.0,
 ) -> tuple[InforceBlock, AssumptionSet, ProjectionConfig]:
     """Convert API request data into core pipeline components (no treaty).
 
@@ -857,6 +892,8 @@ def _build_components(
         acquisition_cost_per_policy=acquisition_cost_per_policy,
         maintenance_cost_per_policy_per_year=maintenance_cost_per_policy_per_year,
         reserve_basis=reserve_basis,
+        gaap_mortality_pad=gaap_mortality_pad,
+        gaap_interest_margin=gaap_interest_margin,
     )
 
     return inforce, assumptions, config
@@ -1117,6 +1154,8 @@ def price(request: PriceRequest) -> PriceResponse:
             reserve_basis=request.reserve_basis,
             valuation_mortality=request.valuation_mortality,
             improvement_version=request.improvement_version,
+            gaap_mortality_pad=request.gaap_mortality_pad,
+            gaap_interest_margin=request.gaap_interest_margin,
         )
 
         # Tabular YRT rate table (ADR-052) — server-side load before the
@@ -1286,6 +1325,8 @@ def price(request: PriceRequest) -> PriceResponse:
         n_policies=len(request.policies),
         projection_months=config.projection_months,
         reserve_basis=config.reserve_basis,
+        gaap_mortality_pad=config.gaap_mortality_pad,
+        gaap_interest_margin=config.gaap_interest_margin,
         improvement_version=request.improvement_version,
         alm_duration_gap=alm_gap,
     )

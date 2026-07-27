@@ -10870,3 +10870,74 @@ sliding-scale `ExpenseAllowance` / `ExperienceRefund` layers and the
 treaty engine supports the asset path, but no surface threads an asset portfolio
 into a proportional treaty today — a shared gap with Modco, not FW-specific).
 This closes the FW-coinsurance CONTINUATION.
+
+---
+
+## ADR-165: Surface the GAAP (FAS 60) PADs on the deal path (CLI / config / REST API)
+
+**Status:** Accepted (2026-07-28)
+
+**Context.** The GAAP (FAS 60) reserve basis values on locked-in best-estimate
+assumptions **plus** two explicit provisions for adverse deviation (PADs):
+`gaap_mortality_pad` (a multiplicative margin on mortality) and
+`gaap_interest_margin` (an absolute reduction to the valuation interest rate).
+Both were built onto `ProjectionConfig` (ADR-127/128) and are honoured by the
+TermLife / WholeLife GAAP reserve engines, but they were **not reachable from any
+deal-configuration surface**: neither `DealConfig` (the config parser), the CLI
+`price` flags, nor the REST `PriceRequest` carried them. Reproduced before writing
+code: a config setting `deal.gaap_mortality_pad = 1.10` parsed to a
+`ProjectionConfig` with the neutral default `1.0` — the value was silently
+dropped. The consequence is that **every GAAP-basis deal priced via config / CLI /
+API produced a PAD-free reserve**, so a reinsurer could not reproduce a cedant's
+held FAS 60 reserve (which carries real adverse-deviation margins). This is
+PRODUCT_DIRECTION_2026-07-24 IMPORTANT #5 (an auditability/correctness gap on the
+GAAP path), promoted from ADR-127/128 Out of scope.
+
+**Decision.** Thread both PADs through all three deal surfaces, additively and
+default-preserving:
+- **`DealConfig`** gains `gaap_mortality_pad: float = 1.0` and
+  `gaap_interest_margin: float = 0.0`; `build_projection_config` threads them onto
+  the `ProjectionConfig` (which validates the ranges — pad ≥ 1.0, margin ∈ [0, 1]).
+- **CLI**: both config schemas (legacy flat + nested `deal` block) parse the two
+  keys; `--gaap-mortality-pad` / `--gaap-interest-margin` flags override the config
+  (flag-over-config precedence, matching `--reserve-basis`), validated eagerly with
+  a clear message. The JSON summary **echoes** each PAD only when it is non-neutral
+  (pad > 1.0 or margin > 0.0), so a run without them is byte-identical (no
+  always-present neutral keys) — the same "echo only when set" convention used for
+  `valuation_mortality` and the improvement version.
+- **REST**: `PriceRequest` gains `gaap_mortality_pad` (≥ 1.0) and
+  `gaap_interest_margin` (∈ [0, 1]); an out-of-range value yields HTTP 422 via
+  Pydantic field validation. `PriceResponse` echoes both (always present, like
+  `reserve_basis`) so a client can confirm the adverse-deviation basis the reserve
+  was valued on. `_build_components` gains the two params (defaulted neutral) so
+  every other endpoint that calls it is unaffected.
+
+**Neutral defaults preserve behaviour.** Both PADs default to their neutral values
+(1.0 / 0.0) across every surface, so all existing configs, CLI runs, and API
+responses are byte-identical (the four golden configs unchanged; `polaris price`
+on `golden_config_flat.json` byte-identical). They are consumed **only** on the
+GAAP reserve basis — a NET_PREMIUM / CRVM / VM20 run ignores them (verified: a
+padded NET_PREMIUM run equals the plain run).
+
+**Verification.** Pipeline plumbing tests (`build_projection_config` threads both
+PADs; neutral defaults; range validation delegated to `ProjectionConfig`); CLI
+flow tests (neutral run has no PAD summary keys; a mortality PAD and an interest
+margin each move the priced numbers on GAAP and are echoed; PADs ignored on
+NET_PREMIUM; flag-over-config precedence; config field honoured; out-of-range
+flags error cleanly); REST tests (omitting is byte-identical to explicit neutral;
+each PAD moves `pv_profits` on GAAP and is echoed on the response; ignored on
+NET_PREMIUM; out-of-range yields 422). The engine-level closed-form PAD behaviour
+(a mortality PAD raises the reserve) is already pinned by
+`tests/test_products/test_term_gaap_reserve.py` /
+`test_wl_gaap_reserve.py` — this ADR surfaces those inputs, it does not re-derive
+them.
+
+**Out of scope.** (1) Surfacing the two PADs on the Streamlit dashboard Deal
+Pricing page + `DealConfig.to_dict()` round-trip — omitted here for the same
+reason `valuation_mortality` / `expense_allowance` were surfaced CLI/API-first (no
+dashboard surface consumes them yet); a dashboard slice is a NICE-TO-HAVE
+follow-up. (2) Duration-varying / select-period GAAP PAD structures (grade the PAD
+by duration rather than a single flat multiplier) — carried NICE-TO-HAVE from
+ADR-127. (3) FAS 60 DAC amortisation / the full loss-recognition test on the deal
+path — separate carried NICE-TO-HAVE (ADR-127; B4 shipped the standalone
+premium-deficiency tester).

@@ -157,6 +157,19 @@ class DealConfig:
     # every existing config byte-identical; ``build_projection_config`` coerces
     # this to the ``ReserveBasis`` enum on the ``ProjectionConfig``.
     reserve_basis: str = "NET_PREMIUM"
+    # GAAP (FAS 60) provisions for adverse deviation (PADs), the config/CLI/API
+    # surface of the two fields built onto ``ProjectionConfig`` (ADR-127/128).
+    # Both default to their neutral values so every existing config and priced
+    # number is byte-identical; ``build_projection_config`` threads them onto the
+    # ``ProjectionConfig``, which validates the ranges. They are consumed only on
+    # the GAAP reserve basis (ignored on NET_PREMIUM / CRVM / VM20):
+    # ``gaap_mortality_pad`` (>= 1.0) is a multiplicative margin on locked-in
+    # best-estimate mortality; ``gaap_interest_margin`` (in [0, 1]) is an
+    # absolute reduction to the valuation interest rate when discounting the
+    # FAS 60 net-premium benefit reserve. A real FAS 60 valuation sets one or
+    # both > neutral so a reinsurer can reproduce the cedant's held GAAP reserve.
+    gaap_mortality_pad: float = 1.0
+    gaap_interest_margin: float = 0.0
     # Prescribed statutory valuation mortality table for the statutory reserve
     # bases (Reserve-Basis Exactness epic, ADR-125; slice 2 surfacing). A named
     # mortality source id ("CSO_2001" | "SOA_VBT_2015" | "CIA_2014" | "flat"),
@@ -588,6 +601,8 @@ def build_projection_config(
         acquisition_cost_per_policy=inputs.deal.acquisition_cost,
         maintenance_cost_per_policy_per_year=inputs.deal.maintenance_cost,
         reserve_basis=_coerce_reserve_basis(inputs.deal.reserve_basis),
+        gaap_mortality_pad=inputs.deal.gaap_mortality_pad,
+        gaap_interest_margin=inputs.deal.gaap_interest_margin,
     )
 
 
