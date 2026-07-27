@@ -114,7 +114,7 @@ class TestPipelineBuilder:
 
     def test_build_treaty_fw_coinsurance_reuses_modco_rate(self) -> None:
         """The FWCoinsurance branch builds an FWCoinsuranceTreaty and reuses the
-        ``modco_rate`` argument as the funds-withheld rate (ADR-166)."""
+        ``modco_rate`` argument as the funds-withheld rate (ADR-164)."""
         from polaris_re.reinsurance.fw_coinsurance import FWCoinsuranceTreaty
 
         treaty = build_treaty(

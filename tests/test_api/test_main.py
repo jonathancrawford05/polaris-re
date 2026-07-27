@@ -797,7 +797,7 @@ class TestIngestEndpoint:
 
 
 class TestPriceEndpointFWCoinsurance:
-    """/api/v1/price funds-withheld coinsurance flow (ADR-163/166, Slice 2).
+    """/api/v1/price funds-withheld coinsurance flow (ADR-163/164, Slice 2).
 
     Surfaces ``FWCoinsuranceTreaty`` through the REST API. FW coinsurance is
     coinsurance + a funds-withheld interest transfer (cedant→reinsurer), so at

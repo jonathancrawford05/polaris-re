@@ -103,7 +103,7 @@ class TestCLIGoldenSmoke:
     @requires_soa_tables
     def test_price_fw_coinsurance(self, tmp_path):
         """polaris price runs with a funds-withheld coinsurance treaty and
-        produces a net/ceded split (ADR-163/166, Slice 2)."""
+        produces a net/ceded split (ADR-163/164, Slice 2)."""
         output = tmp_path / "result.json"
         result = runner.invoke(
             app,

@@ -952,7 +952,7 @@ def _build_treaty(
     treaty byte-identical. Both are silently ignored for ``Modco`` /
     ``FWCoinsurance`` / gross, which have no allowance/refund field.
 
-    ``FWCoinsurance`` (funds-withheld coinsurance, ADR-163/166) reuses the
+    ``FWCoinsurance`` (funds-withheld coinsurance, ADR-163/164) reuses the
     ``modco_interest_rate`` request field as its funds-withheld interest rate.
     """
     if treaty_type is None:

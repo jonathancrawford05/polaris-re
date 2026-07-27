@@ -263,7 +263,7 @@ class TestDealPricingWithInjectedState:
 
 
 class TestFWCoinsuranceTreatySurface:
-    """FW coinsurance surfaced on the dashboard (ADR-163/166, Slice 2).
+    """FW coinsurance surfaced on the dashboard (ADR-163/164, Slice 2).
 
     The Assumptions-page treaty selector must offer ``FWCoinsurance`` and, when
     chosen, expose the funds-withheld rate slider (the reused ``modco_rate``
