@@ -649,11 +649,13 @@ def _treaty_section() -> dict[str, object]:
 
     tc1, tc2, tc3 = st.columns(3)
     with tc1:
+        _treaty_options = ["YRT", "Coinsurance", "Modco", "FWCoinsurance", "None (Gross)"]
+        _current_treaty = str(cfg.get("treaty_type", "YRT"))
         treaty_type = st.selectbox(
             "Default Treaty Type",
-            ["YRT", "Coinsurance", "Modco", "None (Gross)"],
-            index=["YRT", "Coinsurance", "Modco", "None (Gross)"].index(
-                str(cfg.get("treaty_type", "YRT"))
+            _treaty_options,
+            index=_treaty_options.index(
+                _current_treaty if _current_treaty in _treaty_options else "YRT"
             ),
             key="assum_treaty_type",
         )
@@ -671,13 +673,16 @@ def _treaty_section() -> dict[str, object]:
             / 100.0
         )
     with tc3:
+        # ``modco_rate`` doubles as the funds-withheld interest rate for
+        # FWCoinsurance (both are interest on cedant-retained/withheld reserve
+        # assets — ADR-164), so the same slider serves both treaty types.
         modco_rate = 0.045
-        if treaty_type == "Modco":
+        if treaty_type in ("Modco", "FWCoinsurance"):
+            _rate_label = (
+                "Modco Interest Rate (%)" if treaty_type == "Modco" else "Funds-Withheld Rate (%)"
+            )
             modco_rate = (
-                float(
-                    st.slider("Modco Interest Rate (%)", 1.0, 8.0, 4.5, step=0.5, key="assum_modco")
-                )
-                / 100.0
+                float(st.slider(_rate_label, 1.0, 8.0, 4.5, step=0.5, key="assum_modco")) / 100.0
             )
 
     # YRT rate configuration

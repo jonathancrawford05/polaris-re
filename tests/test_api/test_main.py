@@ -794,3 +794,73 @@ class TestIngestEndpoint:
         data = client.post("/api/v1/ingest", json=payload).json()
         assert data["policies"][0]["annual_premium"] == 1200 * 12
         assert any("monthly" in w for w in data["warnings"])
+
+
+class TestPriceEndpointFWCoinsurance:
+    """/api/v1/price funds-withheld coinsurance flow (ADR-163/164, Slice 2).
+
+    Surfaces ``FWCoinsuranceTreaty`` through the REST API. FW coinsurance is
+    coinsurance + a funds-withheld interest transfer (cedant→reinsurer), so at
+    the same cession the reinsurer is better off and the cedant worse off by the
+    same amount, while the cedant+reinsurer PV sum is preserved (the transfer
+    nets to zero — ``net + ceded == gross``).
+    """
+
+    def _price(self, **overrides) -> dict:
+        payload = {
+            "policies": [SEASONED_POLICY],
+            "product_type": "WHOLE_LIFE",
+            "treaty_type": "FWCoinsurance",
+            "cession_pct": 0.5,
+            "modco_interest_rate": 0.045,
+        }
+        payload.update(overrides)
+        response = client.post("/api/v1/price", json=payload)
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    def test_fw_coinsurance_prices_200(self) -> None:
+        data = self._price()
+        assert data["reinsurer_pv_profits"] is not None
+        assert data["pv_profits"] is not None
+
+    def test_fw_is_coinsurance_plus_interest_transfer(self) -> None:
+        """FW cedant/reinsurer PVs differ from coinsurance by an equal-and-
+        opposite transfer, and the two-sided PV sum is preserved."""
+        fw = self._price()
+        coins = self._price(treaty_type="Coinsurance")
+
+        fw_sum = fw["pv_profits"] + fw["reinsurer_pv_profits"]
+        coins_sum = coins["pv_profits"] + coins["reinsurer_pv_profits"]
+        # Additivity: the funds-withheld interest is a pure transfer, so the
+        # combined PV is unchanged vs coinsurance.
+        assert fw_sum == pytest.approx(coins_sum, rel=1e-6)
+
+        transfer_cedant = coins["pv_profits"] - fw["pv_profits"]
+        transfer_reinsurer = fw["reinsurer_pv_profits"] - coins["reinsurer_pv_profits"]
+        # A real (non-trivial) transfer, symmetric between the two sides.
+        assert transfer_cedant > 0.0
+        assert transfer_cedant == pytest.approx(transfer_reinsurer, rel=1e-6)
+
+    def test_zero_fw_rate_matches_coinsurance(self) -> None:
+        """A 0% funds-withheld rate makes FW coinsurance identical to plain
+        coinsurance (no interest transfer)."""
+        fw0 = self._price(modco_interest_rate=0.0)
+        coins = self._price(treaty_type="Coinsurance")
+        assert fw0["pv_profits"] == pytest.approx(coins["pv_profits"], rel=1e-9)
+        assert fw0["reinsurer_pv_profits"] == pytest.approx(coins["reinsurer_pv_profits"], rel=1e-9)
+
+    def test_unknown_treaty_type_rejected_with_helpful_message(self) -> None:
+        """An unknown treaty type is rejected and the message enumerates
+        FWCoinsurance among the valid types.
+
+        The endpoint's exception handler surfaces ``_build_treaty``'s 400 as a
+        422 (the request-level failure code — pre-existing behaviour for any
+        unrecognised treaty); the point of this test is the helpful detail.
+        """
+        response = client.post(
+            "/api/v1/price",
+            json={"policies": [SEASONED_POLICY], "treaty_type": "NopeCoinsurance"},
+        )
+        assert response.status_code == 422
+        assert "FWCoinsurance" in response.json()["detail"]

@@ -703,17 +703,21 @@ def build_treaty(
     Consolidated from dashboard and CLI — single factory for all callers.
 
     Args:
-        treaty_type: "YRT", "Coinsurance", "Modco", or "None (Gross)".
+        treaty_type: "YRT", "Coinsurance", "Modco", "FWCoinsurance", or
+            "None (Gross)".
         cession_pct: Proportion ceded (e.g. 0.90).
         face_amount: Total in-force face amount.
-        modco_rate: Modco interest rate (used only for Modco).
+        modco_rate: Interest rate on retained/withheld reserve assets. Used for
+            ``Modco`` (the modco interest rate) and reused as the
+            ``funds_withheld_rate`` for ``FWCoinsurance`` — both are "interest
+            on reserve assets held by the cedant" (ADR-164). Ignored otherwise.
         yrt_rate_per_1000: YRT rate per $1,000 NAR. Required for YRT.
         treaty_name: Optional treaty name override.
         expense_allowance: Optional sliding-scale expense allowance
             (expense-allowance epic). Threaded onto ``YRT`` / ``Coinsurance``
             treaties — the only treaties that carry the field. ``None``
             (default) leaves the treaty byte-identical. Silently ignored for
-            ``Modco`` / gross, which have no allowance field.
+            ``Modco`` / ``FWCoinsurance`` / gross, which have no allowance field.
         experience_refund: Optional experience refund (profit sharing),
             threaded onto ``YRT`` / ``Coinsurance`` exactly like
             ``expense_allowance``. ``None`` (default) is byte-identical.
@@ -752,6 +756,18 @@ def build_treaty(
             treaty_name=treaty_name or "Modco",
             cession_pct=cession_pct,
             modco_interest_rate=modco_rate,
+        )
+    elif treaty_type == "FWCoinsurance":
+        from polaris_re.reinsurance.fw_coinsurance import FWCoinsuranceTreaty
+
+        # Funds-withheld coinsurance reuses the ``modco_rate`` config field as
+        # its funds-withheld interest rate — both are interest on reserve assets
+        # retained/withheld by the cedant (ADR-164). ``include_expense_allowance``
+        # defaults True, matching Coinsurance's proportional expense split.
+        return FWCoinsuranceTreaty(
+            treaty_name=treaty_name or "FWCoinsurance",
+            cession_pct=cession_pct,
+            funds_withheld_rate=modco_rate,
         )
 
     return None

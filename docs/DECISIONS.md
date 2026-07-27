@@ -10814,3 +10814,59 @@ split is modeled here). (3) A **stochastic / amortising funds-withheld balance**
 distinct from the ceded reserve (the balance is taken equal to the withheld ceded
 reserve). (4) **Funds-withheld modco** (FW applied to a modco-style non-transferred
 reserve) — a further variant, not this treaty.
+
+## ADR-164: Surface funds-withheld coinsurance on CLI / REST API / dashboard — Slice 2 (C3)
+
+**Status:** Accepted (2026-07-27)
+
+**Context.** ADR-163 (Slice 1) added the `FWCoinsuranceTreaty` engine and its
+tests but deliberately left it unwired: `build_treaty` accepted only `YRT` /
+`Coinsurance` / `Modco` / gross, so a config or request naming `FWCoinsurance`
+returned `None` and was **silently priced as gross** (reproduced before writing
+code: `build_treaty('FWCoinsurance', …)` returned `None`). Slice 2 is the
+surfacing slice: make FW coinsurance selectable and priceable from every entry
+point exactly as Coinsurance / Modco are.
+
+**Decision.** Thread `FWCoinsurance` through all three pricing surfaces:
+- `pipeline.build_treaty` and the REST `_build_treaty` gain an `FWCoinsurance`
+  branch constructing `FWCoinsuranceTreaty(cession_pct=…, funds_withheld_rate=…)`.
+- The dashboard Assumptions-page treaty selector offers `FWCoinsurance`, and its
+  funds-withheld rate reuses the existing modco-rate slider (relabelled
+  "Funds-Withheld Rate (%)" for that treaty type).
+- A committed `data/qa/golden_config_fw_coins.json` + `golden_fw_coins` baseline
+  exercise the config-driven pipeline (the first FW golden). The existing four
+  goldens are byte-identical — the change is purely additive.
+
+**Config-field reuse (the one design choice).** FW coinsurance needs a
+funds-withheld interest rate. Rather than add a new `funds_withheld_rate` field
+to `DealConfig` / `PriceRequest`, Slice 2 **reuses the existing `modco_rate` /
+`modco_interest_rate` field** as the funds-withheld rate for the `FWCoinsurance`
+branch. Both are economically the same quantity — an annual interest rate on
+reserve assets retained/withheld by the cedant — and reuse keeps the deal
+contract stable (no new field to migrate configs, dashboards, and the API schema
+for). The cost is that a single config cannot express *distinct* modco and FW
+rates simultaneously; that is a non-issue because a deal carries exactly one
+proportional treaty type. Should a future need arise (e.g. a treaty-comparison
+surface pricing modco and FW side by side with different rates), splitting into a
+dedicated `funds_withheld_rate` field is a clean, additive follow-up — harvested
+as NICE-TO-HAVE.
+
+**Verification.** `build_treaty` factory unit test (reuses `modco_rate`,
+`include_expense_allowance` default `True`); REST flow tests (FW = coinsurance +
+a symmetric cedant→reinsurer interest transfer, the two-sided PV sum preserved; a
+0% rate reproduces plain coinsurance exactly; the 400 error enumerates
+`FWCoinsurance`); CLI golden flow tests (FW config prices with a reinsurer side;
+FW-vs-coinsurance transfer symmetry + additivity); a dashboard `AppTest` flow
+(selector offers `FWCoinsurance`, the funds-withheld slider appears, a pricing
+run yields a ceded side carrying non-zero funds-withheld interest); and the
+committed `golden_fw_coins` pipeline regression.
+
+**Out of scope.** (1) A dedicated `funds_withheld_rate` config field distinct
+from `modco_rate` (reuse is intentional — see above). (2) Adding `FWCoinsurance`
+to the dashboard **Treaty Comparison** page (the deal-pricing selector is the
+Slice-2 surface; a comparison-page column is a NICE-TO-HAVE follow-up). (3) The
+sliding-scale `ExpenseAllowance` / `ExperienceRefund` layers and the
+`AssetPortfolio` book-yield path on FW coinsurance through the surfaces (the
+treaty engine supports the asset path, but no surface threads an asset portfolio
+into a proportional treaty today — a shared gap with Modco, not FW-specific).
+This closes the FW-coinsurance CONTINUATION.

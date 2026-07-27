@@ -100,6 +100,73 @@ class TestCLIGoldenSmoke:
         )
         assert result.exit_code == 0, f"CLI failed:\n{result.stdout}"
 
+    @requires_soa_tables
+    def test_price_fw_coinsurance(self, tmp_path):
+        """polaris price runs with a funds-withheld coinsurance treaty and
+        produces a net/ceded split (ADR-163/164, Slice 2)."""
+        output = tmp_path / "result.json"
+        result = runner.invoke(
+            app,
+            [
+                "price",
+                "--config",
+                str(GOLDEN_CONFIGS_DIR / "golden_config_fw_coins.json"),
+                "--inforce",
+                str(GOLDEN_CSV),
+                "--output",
+                str(output),
+            ],
+        )
+        assert result.exit_code == 0, f"CLI failed:\n{result.stdout}"
+        payload = json.loads(output.read_text())
+        # FWCoinsurance is a proportional treaty → every cohort has a
+        # reinsurer (ceded) side, unlike gross.
+        for cohort in payload["cohorts"]:
+            assert cohort["reinsurer"] is not None
+            assert "pv_profits" in cohort["reinsurer"]
+
+    @requires_soa_tables
+    def test_fw_coinsurance_is_coinsurance_plus_transfer(self, tmp_path):
+        """FW coinsurance and plain coinsurance at the same 50% cession differ
+        only by the funds-withheld interest transfer: the per-cohort
+        cedant+reinsurer PV sum is preserved (additivity), and the reinsurer
+        gains exactly what the cedant loses."""
+        fw_out = tmp_path / "fw.json"
+        coins_out = tmp_path / "coins.json"
+        for cfg, out in (
+            ("golden_config_fw_coins.json", fw_out),
+            ("golden_config_coins.json", coins_out),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "price",
+                    "--config",
+                    str(GOLDEN_CONFIGS_DIR / cfg),
+                    "--inforce",
+                    str(GOLDEN_CSV),
+                    "--output",
+                    str(out),
+                ],
+            )
+            assert result.exit_code == 0, f"CLI failed ({cfg}):\n{result.stdout}"
+
+        fw = {c["product_type"]: c for c in json.loads(fw_out.read_text())["cohorts"]}
+        coins = {c["product_type"]: c for c in json.loads(coins_out.read_text())["cohorts"]}
+        assert fw.keys() == coins.keys()
+
+        for pt in fw:
+            fw_sum = fw[pt]["cedant"]["pv_profits"] + fw[pt]["reinsurer"]["pv_profits"]
+            coins_sum = coins[pt]["cedant"]["pv_profits"] + coins[pt]["reinsurer"]["pv_profits"]
+            assert fw_sum == pytest.approx(coins_sum, rel=1e-6), pt
+
+            cedant_loss = coins[pt]["cedant"]["pv_profits"] - fw[pt]["cedant"]["pv_profits"]
+            reinsurer_gain = (
+                fw[pt]["reinsurer"]["pv_profits"] - coins[pt]["reinsurer"]["pv_profits"]
+            )
+            assert cedant_loss > 0.0, pt
+            assert cedant_loss == pytest.approx(reinsurer_gain, rel=1e-6), pt
+
     def test_scenario_rejects_mixed_block(self, tmp_path):
         """polaris scenario exits non-zero on mixed product block."""
         result = runner.invoke(

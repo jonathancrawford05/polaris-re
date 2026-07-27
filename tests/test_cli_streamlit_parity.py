@@ -112,6 +112,23 @@ class TestPipelineBuilder:
         assert d["discount_rate"] == 0.06
         assert "yrt_rate_per_1000" in d
 
+    def test_build_treaty_fw_coinsurance_reuses_modco_rate(self) -> None:
+        """The FWCoinsurance branch builds an FWCoinsuranceTreaty and reuses the
+        ``modco_rate`` argument as the funds-withheld rate (ADR-164)."""
+        from polaris_re.reinsurance.fw_coinsurance import FWCoinsuranceTreaty
+
+        treaty = build_treaty(
+            treaty_type="FWCoinsurance",
+            cession_pct=0.6,
+            face_amount=1_000_000.0,
+            modco_rate=0.052,
+        )
+        assert isinstance(treaty, FWCoinsuranceTreaty)
+        assert treaty.cession_pct == 0.6
+        assert treaty.funds_withheld_rate == 0.052
+        # Matches Coinsurance's proportional expense-split default.
+        assert treaty.include_expense_allowance is True
+
 
 class TestDeriveYRTRate:
     """Verify YRT rate derivation from gross projection."""
