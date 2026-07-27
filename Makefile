@@ -1,4 +1,4 @@
-.PHONY: install sync lint format test test-all smoke coverage clean docker-build docker-test notebook
+.PHONY: install sync lint format test test-all smoke perf coverage clean docker-build docker-test notebook
 
 # ---------------------------------------------------------------------------
 # Environment — managed by uv
@@ -37,6 +37,9 @@ test-all:
 
 smoke:
 	uv run pytest tests/smoke -m smoke
+
+perf:
+	uv run pytest tests/perf -m perf
 
 coverage:
 	uv run pytest --cov=polaris_re --cov-report=term-missing --cov-report=html tests/

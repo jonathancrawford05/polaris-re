@@ -326,15 +326,31 @@ BLOCKER remains.
 7. **Shared backend for multi-replica metrics aggregation.** The in-process
    `MetricsRegistry` exposes per-pod counters; exact global counts (without
    Prometheus sum-by) need a shared/remote-write backend. *Source: ADR-135 Out of scope (1st-order).*
-8. **CI smoke-test job (real entry points).** A fast (<30s) deterministic job that
+8. ~~**CI smoke-test job (real entry points).** A fast (<30s) deterministic job that
    boots uvicorn and curls `/health`, `/metrics`, a real `/api/v1/price`, runs
    `polaris price` + `polaris benchmark --pack closed-form`, gating merges — catches
-   "won't boot / endpoint 500s" that unit tests miss. *Source: maintainer discussion 2026-07-12 (CI perf/smoke thread), 1st-order.*
+   "won't boot / endpoint 500s" that unit tests miss. *Source: maintainer discussion 2026-07-12 (CI perf/smoke thread), 1st-order.*~~
+   — **SHIPPED** (PR #170 / ADR-168): a CI `smoke` job boots a live `uvicorn` server
+   (`/health`, `/metrics`, real `POST /api/v1/price`) and the `polaris` console script
+   (`price` on the golden deal + `benchmark --pack closed-form`), gating merges alongside
+   lint/test/docker; whole pack ~4.6 s, all `-m smoke`/`slow`-tagged. **MERGED** to main
+   2026-07-27 (ledger-healed this session, step 4b).
 9. **Performance harness with same-run head-vs-main baseline.** A `polaris perfbench`
    / `tests/perf/` harness timing engine hot paths on a fixed synthetic block +
    deterministic structural metrics, benchmarking head and main **in the same job**
    (noise-cancelling ratio → `perf.json`). Prerequisite for #10 and NICE-TO-HAVE
    #62/#63. *Source: maintainer discussion 2026-07-12, 1st-order.*
+   — **IN PROGRESS** (this session): constituted as a MEDIUM epic and decomposed —
+   `docs/PLAN_perf_harness.md` + `docs/CONTINUATION_perf_harness.md` (IN PROGRESS).
+   **Slice 1 shipped** (ADR-169, this PR): the deterministic perf-probe core
+   (`analytics/perf_harness.py` — `PerfProbe`/`PerfReport`/`run_perf_probe`,
+   `to_perf_dict()`/`to_json()` `perf.json` shape, deterministic counts + output
+   fingerprint + MiB-peak + best-of-k timing), reusing B2's `build_homogeneous_block`;
+   fast unit + `perf`+`slow` reproducibility tests; `perf` marker; `make perf`.
+   Goldens byte-identical. **Remaining #9 work is tracked as the epic's own Slice 2
+   (head-vs-main same-job driver + `perf.json` diff) and Slice 3 (CI perf job — gates
+   structural deltas, alerts on wall-time ratio), in the CONTINUATION.** Strike through
+   once Slice 3 closes #9.
 10. **Committed per-merge performance log (`perf/history.jsonl`) + creep detection.**
     One append-only deterministic-first row per merge to `main`, to catch slow
     multi-month creep a per-PR comment structurally cannot. Depends on #9. *Source: maintainer discussion 2026-07-12, 1st-order.*
@@ -759,6 +775,34 @@ not production-correctness gaps → NICE-TO-HAVE.
 > (noise-normalized perf harness + per-merge log), deliberately kept out of this
 > pass/fail smoke gate per the group's "deterministic may gate; wall-time only
 > informs" rule. No duplicate created.
+
+### Harvested 2026-07-28 (perf harness Slice 1 — ADR-169; IMPORTANT #9 IN PROGRESS)
+
+IMPORTANT #9 was constituted as a MEDIUM epic and decomposed this session
+(`docs/PLAN_perf_harness.md` + `docs/CONTINUATION_perf_harness.md`, IN PROGRESS);
+**Slice 1** (the deterministic perf-probe core) shipped as ADR-169. The bulk of
+ADR-169's "Out of scope" is the epic's **own tracked later slices** — the
+head-vs-main same-job driver (Slice 2), the CI perf job that gates on structural
+deltas and alerts on the wall-time ratio (Slice 3, which closes #9), and the
+per-merge `perf/history.jsonl` creep log (Slice 4 = the existing IMPORTANT #10).
+These live in the CONTINUATION (visible to the next routine run via step 5/5b),
+so they are **not** re-promoted here as loose items. The genuinely-new loose
+out-of-scope follow-up is promoted below; it is 1st-order (a follow-up of the
+originally-planned perf epic) but touches only harness depth, not production
+correctness → NICE-TO-HAVE.
+
+- **Finer engine sub-path probes (rate-array build, treaty apply) in the perf
+  harness.** Slice 1 times the full `project()` hot path only. `run_perf_probe`
+  already accepts a caller-supplied `hot_paths` map, so adding named sub-path
+  probes (e.g. `_build_rate_arrays`, `BaseTreaty.apply`) needs no contract change
+  — it would localise a regression to the sub-step that slowed, not just the whole
+  projection. *Source: ADR-169 Out of scope (1st-order).* **NICE-TO-HAVE.**
+
+> The other ADR-169 out-of-scope note — **benchmark product engines beyond
+> TermLife** in the default probe — is *not* a new item: it is the existing
+> ADR-161 NICE-TO-HAVE "Benchmark product engines beyond TermLife
+> (WholeLife / UL / DI-CI)" (B2 scale-benchmark group). The perf harness already
+> accepts a caller-supplied engine, so it is not blocked. No duplicate created.
 
 ---
 

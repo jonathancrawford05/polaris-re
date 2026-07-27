@@ -60,6 +60,13 @@ from polaris_re.analytics.ifrs17 import (
     IFRS17Result,
     build_movement_table,
 )
+from polaris_re.analytics.perf_harness import (
+    PerfProbe,
+    PerfReport,
+    default_hot_paths,
+    output_fingerprint,
+    run_perf_probe,
+)
 from polaris_re.analytics.portfolio import (
     Deal,
     DealResult,
@@ -152,6 +159,8 @@ __all__ = [
     "MonteCarloUQ",
     "NetPremiumCalculator",
     "NetPremiumResult",
+    "PerfProbe",
+    "PerfReport",
     "Portfolio",
     "PortfolioResult",
     "PortfolioResultWithCapital",
@@ -193,6 +202,7 @@ __all__ = [
     "build_movement_table",
     "capital_model_for",
     "default_experience_cache_dir",
+    "default_hot_paths",
     "dual_duration_gap",
     "duration_gap",
     "duration_measures",
@@ -201,11 +211,13 @@ __all__ = [
     "liability_cash_flows",
     "load_hmd",
     "load_ilec",
+    "output_fingerprint",
     "parse_hmd_1x1",
     "reserve_liability_cash_flows",
     "run_closed_form_benchmarks",
     "run_experience_improvement_benchmarks",
     "run_full_validation_pack",
+    "run_perf_probe",
     "run_scale_benchmark",
     "run_statutory_deck_benchmarks",
 ]

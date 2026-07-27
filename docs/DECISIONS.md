@@ -11132,3 +11132,84 @@ API-key auth (the smoke job runs auth-disabled, the deployment default); and
 extending the smoke pack to `scenario` / `uq` / `ingest` entry points. Folding a
 head-vs-main **performance** verdict into CI remains IMPORTANT #9/#10 (a distinct,
 noise-normalized concern) and is deliberately not part of this pass/fail gate.
+
+---
+
+## ADR-169: Performance-regression harness — deterministic-first probe (perf epic Slice 1)
+
+**Date:** 2026-07-28
+**Status:** Accepted
+
+**Context:** The CI smoke gate (ADR-168) proves the deployed entry points
+*boot*; nothing proves the projection engine has not gotten *slower* or started
+*allocating more*. The B2 scale benchmark (ADR-161) publishes a static committed
+timing *table* across block sizes and one `slow` scaling-shape test (4× block <
+6× time), but it emits no machine-readable payload, does no per-run head-vs-main
+comparison, and cannot catch slow multi-month creep. IMPORTANT #9/#10 in
+`PRODUCT_DIRECTION_2026-07-24.md` call for a performance harness that benchmarks
+head vs `main` in the same CI job (noise-cancelling ratio → `perf.json`) plus a
+per-merge history log. This is a MEDIUM epic (`docs/PLAN_perf_harness.md`,
+`docs/CONTINUATION_perf_harness.md`); this ADR records **Slice 1**, the
+deterministic probe core, byte-identical to the pricing path.
+
+**The governing constraint** is the CI perf/smoke group's non-negotiable design
+rule (maintainer discussion 2026-07-12): *deterministic / noise-normalized
+metrics may gate or alert; raw wall-time only informs.* GitHub runners vary 2–3×
+run-to-run, so any gate on absolute latency is an alert-fatigue generator.
+Scoping evidence (a 3 000-policy × 240-month TERM projection, repeated
+in-process) confirmed the rule empirically: single-run wall-clock showed ~2×
+local jitter (651 ms first call → ~290–320 ms after); `tracemalloc` peak carried
+~0.005% byte-level jitter (numpy's allocator) but was stable at MiB granularity;
+and the structural counts + a rounded output digest were exactly reproducible.
+
+**Decision:** Add `analytics/perf_harness.py` — `PerfProbe` (one hot-path row) +
+`PerfReport` (container with `to_perf_dict()` / `to_json()` emitting the
+`perf.json` shape), and `run_perf_probe(...)` which times a mapping of named
+hot-path callables (default: the production `get_product_engine(...).project()`
+path) on a *fixed* synthetic block reused from B2's `build_homogeneous_block`.
+Each probe captures three tiers of metric, split by how a consumer must treat
+them:
+
+- **Deterministic (hard-gate-safe):** `n_policies`, `projection_months`,
+  `n_cells` (`N × T`), and an `output_fingerprint` — a blake2b digest of the
+  rounded core `CashFlowResult` arrays. `PerfProbe.deterministic_metrics()`
+  exposes exactly this set for a future CI gate (Slice 3). The fingerprint
+  doubles as a correctness tripwire proving head and main ran the *same*
+  computation, so a timing comparison is apples-to-apples.
+- **Coarse / alert-grade:** `peak_mib` — the `tracemalloc` peak rounded to whole
+  MiB (raw `peak_bytes` kept but marked informational).
+- **Informational only:** `best_of_k_seconds` (the minimum over `k` timed runs —
+  the stable estimator, not the mean) plus the raw `samples_seconds`.
+
+Timing runs each rebuild the engine over the same block so no cross-call caching
+skews the number and Pydantic block-build cost is excluded (mirroring B2). Tests
+split into a fast unit layer (`tests/test_analytics/test_perf_harness_units.py`
+— fingerprint, models, `perf.json` shape, input validation; no engine) and a
+`perf`+`slow` end-to-end layer (`tests/perf/test_perf_harness.py`) whose
+load-bearing assertion is that two runs on the same block yield byte-identical
+deterministic metrics (MiB-peak to within ±1). A `perf` pytest marker (also
+`slow`) and a `make perf` target select them; the fast matrix and Docker job
+(`-m "not slow"`) skip them.
+
+**Rationale:** Splitting metrics by consumption discipline bakes the maintainer
+rule into the data model rather than a convention a CI author must remember —
+the gate reads `deterministic_metrics()`, never a millisecond. Reusing B2's
+block builder keeps a single synthetic-block definition and adds no
+test-referenced data file (so no Dockerfile / `.dockerignore` change — the
+#61/#66 trap does not apply). Best-of-k-min over the mean avoids the first-call /
+GC outlier that would otherwise make even the informational number needlessly
+noisy.
+
+**Backward compatible / goldens byte-identical.** A new, self-contained
+diagnostic module off the import/pricing hot path plus tests, one marker, one
+Makefile target, and docs — no `src/` pricing code changed, so every golden
+config and `polaris price` output is byte-identical by construction.
+
+**Out of scope (this slice):** the head-vs-`main` same-job driver + `perf.json`
+diff/verdict (Slice 2); the CI perf job that gates on structural deltas and
+alerts on the wall-time ratio (Slice 3, which closes IMPORTANT #9); the per-merge
+`perf/history.jsonl` creep log (IMPORTANT #10 / optional Slice 4); and finer
+sub-path probes (rate-array build, treaty apply) beyond the full `project()`
+path — the harness already accepts a caller-supplied `hot_paths` map so these
+need no contract change. Benchmarking product engines beyond TERM in the default
+probe stays the separate ADR-161 NICE-TO-HAVE.
