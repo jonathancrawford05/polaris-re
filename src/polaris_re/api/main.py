@@ -191,7 +191,9 @@ class PriceRequest(BaseModel):
     )
     treaty_type: str | None = Field(
         default="YRT",
-        description="Treaty type: 'YRT', 'Coinsurance', 'Modco', or null for gross only.",
+        description=(
+            "Treaty type: 'YRT', 'Coinsurance', 'Modco', 'FWCoinsurance', or null for gross only."
+        ),
     )
     projection_horizon_years: int = Field(ge=1, le=40, default=20)
     discount_rate: float = Field(ge=0.0, le=1.0, default=0.06)
@@ -482,7 +484,8 @@ class ScenarioRequest(BaseModel):
         default="TERM", description="Product type: 'TERM', 'WHOLE_LIFE', or 'UL'."
     )
     treaty_type: str | None = Field(
-        default="YRT", description="Treaty type: 'YRT', 'Coinsurance', 'Modco', or null."
+        default="YRT",
+        description="Treaty type: 'YRT', 'Coinsurance', 'Modco', 'FWCoinsurance', or null.",
     )
     projection_horizon_years: int = Field(ge=1, le=40, default=20)
     discount_rate: float = Field(ge=0.0, le=1.0, default=0.06)
@@ -555,7 +558,8 @@ class UQRequest(BaseModel):
         default="TERM", description="Product type: 'TERM', 'WHOLE_LIFE', or 'UL'."
     )
     treaty_type: str | None = Field(
-        default="YRT", description="Treaty type: 'YRT', 'Coinsurance', 'Modco', or null."
+        default="YRT",
+        description="Treaty type: 'YRT', 'Coinsurance', 'Modco', 'FWCoinsurance', or null.",
     )
     projection_horizon_years: int = Field(ge=1, le=40, default=20)
     discount_rate: float = Field(ge=0.0, le=1.0, default=0.06)
@@ -945,8 +949,11 @@ def _build_treaty(
     ``expense_allowance`` / ``experience_refund`` (expense-allowance epic,
     ADR-119/ADR-121) are threaded onto the ``YRT`` / ``Coinsurance`` treaties —
     the only treaties that carry the fields. ``None`` (default) leaves the
-    treaty byte-identical. Both are silently ignored for ``Modco`` / gross,
-    which have no allowance/refund field.
+    treaty byte-identical. Both are silently ignored for ``Modco`` /
+    ``FWCoinsurance`` / gross, which have no allowance/refund field.
+
+    ``FWCoinsurance`` (funds-withheld coinsurance, ADR-163/166) reuses the
+    ``modco_interest_rate`` request field as its funds-withheld interest rate.
     """
     if treaty_type is None:
         return None
@@ -997,10 +1004,24 @@ def _build_treaty(
             cession_pct=cession_pct,
             modco_interest_rate=modco_interest_rate,
         )
+    elif treaty_type == "FWCoinsurance":
+        from polaris_re.reinsurance.fw_coinsurance import FWCoinsuranceTreaty
+
+        # Funds-withheld coinsurance reuses the ``modco_interest_rate`` request
+        # field as its funds-withheld interest rate (ADR-164) — both credit
+        # interest on reserve assets retained/withheld by the cedant.
+        return FWCoinsuranceTreaty(
+            treaty_name="FWCOINS-API",
+            cession_pct=cession_pct,
+            funds_withheld_rate=modco_interest_rate,
+        )
 
     raise HTTPException(
         status_code=400,
-        detail=f"Unknown treaty_type '{treaty_type}'. Use 'YRT', 'Coinsurance', 'Modco', or null.",
+        detail=(
+            f"Unknown treaty_type '{treaty_type}'. "
+            "Use 'YRT', 'Coinsurance', 'Modco', 'FWCoinsurance', or null."
+        ),
     )
 
 
@@ -1927,7 +1948,8 @@ class PortfolioDealRequest(BaseModel):
     assumptions) plus a ``deal_id`` and ``cedant`` label used for the
     portfolio's per-deal breakdown and concentration metrics. Stop-loss
     and other non-proportional structures are out of scope for Slice 2 —
-    ``treaty_type`` must be one of ``YRT`` / ``Coinsurance`` / ``Modco``.
+    ``treaty_type`` must be one of ``YRT`` / ``Coinsurance`` / ``Modco`` /
+    ``FWCoinsurance``.
     """
 
     deal_id: str = Field(description="Unique identifier for the deal within the portfolio.")

@@ -262,6 +262,120 @@ class TestDealPricingWithInjectedState:
         )
 
 
+class TestFWCoinsuranceTreatySurface:
+    """FW coinsurance surfaced on the dashboard (ADR-163/166, Slice 2).
+
+    The Assumptions-page treaty selector must offer ``FWCoinsurance`` and, when
+    chosen, expose the funds-withheld rate slider (the reused ``modco_rate``
+    surface). A pricing run on an FWCoinsurance deal must produce a ceded
+    (reinsurer) side carrying the funds-withheld interest.
+    """
+
+    @staticmethod
+    def _treaty_selectbox(at):
+        for sb in at.selectbox:
+            if sb.key == "assum_treaty_type":
+                return sb
+        return None
+
+    def test_treaty_selectbox_includes_fw_coinsurance(self):
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        at.sidebar.radio[0].set_value("Assumptions")
+        at.run()
+        assert not at.exception
+        sb = self._treaty_selectbox(at)
+        assert sb is not None, f"treaty selectbox not found; saw {[s.key for s in at.selectbox]}"
+        assert "FWCoinsurance" in list(sb.options)
+
+    def test_selecting_fw_coinsurance_shows_funds_withheld_slider(self):
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        at.sidebar.radio[0].set_value("Assumptions")
+        at.run()
+        sb = self._treaty_selectbox(at)
+        assert sb is not None
+        sb.set_value("FWCoinsurance")
+        at.run()
+        assert not at.exception, f"Selecting FWCoinsurance raised: {at.exception}"
+        fw_sliders = [
+            s for s in at.slider if "funds-withheld" in str(getattr(s, "label", "")).lower()
+        ]
+        seen_labels = [str(getattr(s, "label", "")) for s in at.slider]
+        assert fw_sliders, f"Funds-Withheld Rate slider not shown; saw {seen_labels}"
+
+    @pytest.fixture()
+    def app_with_wl_inforce(self):
+        """App with a synthetic seasoned WHOLE_LIFE block (non-trivial reserves)."""
+        from polaris_re.pipeline import (
+            DealConfig,
+            LapseConfig,
+            MortalityConfig,
+            PipelineInputs,
+            build_pipeline,
+            load_inforce,
+        )
+
+        policies = [
+            {
+                "policy_id": "FW-WL-001",
+                "issue_age": 40,
+                "attained_age": 45,
+                "sex": "M",
+                "smoker": False,
+                "face_amount": 1_000_000.0,
+                "annual_premium": 12_000.0,
+                "policy_term": 20,
+                "duration_inforce": 60,
+                "issue_date": "2021-04-01",
+                "valuation_date": "2026-04-01",
+                "product_type": "WHOLE_LIFE",
+            }
+        ]
+        inforce = load_inforce(policies_dict=policies)
+        inputs = PipelineInputs(
+            mortality=MortalityConfig(source="flat", flat_qx=0.01),
+            lapse=LapseConfig(),
+            deal=DealConfig(product_type="WHOLE_LIFE", projection_years=10),
+        )
+        inf, assumptions, _config = build_pipeline(inforce, inputs)
+
+        at = AppTest.from_file(APP_PATH, default_timeout=30)
+        at.run()
+        at.session_state["inforce_block"] = inf
+        at.session_state["assumption_set"] = assumptions
+        return at
+
+    def test_pricing_fw_coinsurance_produces_ceded_side(self, app_with_wl_inforce):
+        """A FWCoinsurance pricing run yields a reinsurer (ceded) side carrying
+        the funds-withheld interest — proving the treaty was actually applied,
+        not silently dropped to gross."""
+        at = app_with_wl_inforce
+        cfg = dict(at.session_state["deal_config"])
+        cfg["treaty_type"] = "FWCoinsurance"
+        cfg["cession_pct"] = 0.5
+        cfg["modco_rate"] = 0.045
+        cfg["product_type"] = "WHOLE_LIFE"
+        at.session_state["deal_config"] = cfg
+
+        at.sidebar.radio[0].set_value("Deal Pricing")
+        at.run()
+        run_buttons = [b for b in at.button if b.label == "Run Pricing"]
+        assert run_buttons, f"Run Pricing button not found; saw {[b.label for b in at.button]}"
+        run_buttons[0].click()
+        at.run()
+        assert not at.exception, f"FWCoinsurance pricing run raised: {at.exception}"
+
+        cohorts = at.session_state["pricing_cohorts"]
+        assert cohorts, "no cohorts stored after FWCoinsurance run"
+        only = next(iter(cohorts.values()))
+        assert only.ceded is not None, "FWCoinsurance produced no ceded side (dropped to gross?)"
+        assert only.reinsurer_result is not None
+        # The funds-withheld interest array is populated on the ceded result.
+        assert only.ceded.funds_withheld_interest is not None
+        assert float(only.ceded.funds_withheld_interest.sum()) > 0.0
+
+
 class TestExperienceStudyPage:
     """ADR-056 — Experience Study (A/E) page end-to-end via AppTest."""
 

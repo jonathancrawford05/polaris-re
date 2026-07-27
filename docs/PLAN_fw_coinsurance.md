@@ -1,6 +1,6 @@
 # PLAN: Funds-Withheld Coinsurance (`FWCoinsuranceTreaty`)
 
-**Status:** IN PROGRESS (Slice 1 shipped 2026-07-26)
+**Status:** COMPLETE (Slice 1 shipped 2026-07-26 PR #165; Slice 2 shipped 2026-07-27)
 **Source:** `COMMERCIAL_VIABILITY_REVIEW_2026-07-15` §4 Tier-C **C3**; carried into
 `PRODUCT_DIRECTION_2026-07-24` Tier-C. Gated maintenance-mode fallback (no
 unstarted Tier-A epic; Phase-7 frontier awaiting maintainer).
@@ -50,13 +50,15 @@ book-yield precedence; `include_expense_allowance` toggle; new optional
 Closed-form + additivity + asset-driven + edge-case unit tests. **Not** wired
 into `build_treaty` — goldens byte-identical. **~250 lines + tests.**
 
-### Slice 2 — Surface on CLI / REST API / dashboard (NEXT)
-Thread `FWCoinsurance` through `build_treaty` (and the `DealConfig.treaty_type`
-schema, the CLI `--treaty-type` choices, the REST `PriceRequest` treaty enum,
-and the Streamlit treaty selector). Add an `FWCoinsurance` pipeline golden config
-(with Dockerfile/`.dockerignore` allowlist update if a new data file is added).
-`AppTest`/CLI/API flow tests + a pipeline golden. This is the surfacing slice —
-the only one that touches goldens. **~200 lines + tests.**
+### Slice 2 — Surface on CLI / REST API / dashboard (SHIPPED)
+Threaded `FWCoinsurance` through `pipeline.build_treaty` and the REST
+`_build_treaty` (reusing `modco_rate` as the funds-withheld rate, ADR-164), and
+added it to the dashboard Assumptions-page treaty selector with a
+"Funds-Withheld Rate (%)" slider. Committed `data/qa/golden_config_fw_coins.json`
++ `golden_fw_coins` baseline (first FW golden; no Dockerfile/`.dockerignore`
+change needed — `data/qa/` copied wholesale). `AppTest` + CLI + REST flow tests
+and a `build_treaty` factory unit test. This is the surfacing slice — the only
+one that touches goldens. **~120 lines + tests.**
 
 ## Out of Scope (whole feature)
 

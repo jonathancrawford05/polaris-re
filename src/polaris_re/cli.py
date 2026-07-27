@@ -3120,7 +3120,8 @@ def _build_portfolio_from_config(
         if treaty is None:
             console.print(
                 f"[red]Error:[/red] Deal {deal_id!r}: portfolio requires a proportional "
-                f"treaty (YRT / Coinsurance / Modco); got {inputs.deal.treaty_type!r}."
+                f"treaty (YRT / Coinsurance / Modco / FWCoinsurance); "
+                f"got {inputs.deal.treaty_type!r}."
             )
             raise typer.Exit(code=1)
         try:

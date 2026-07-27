@@ -76,13 +76,14 @@ class TestGoldenBaselineCoverage:
         )
 
     def test_discovers_all_known_configs(self):
-        """Sanity: the four shipped configs are all discovered."""
+        """Sanity: the shipped configs are all discovered."""
         names = {c.name for c in _GOLDEN_CASES}
         assert {
             "golden_flat",
             "golden_yrt",
             "golden_coins",
             "golden_policy_cession",
+            "golden_fw_coins",
         } <= names, names
 
 

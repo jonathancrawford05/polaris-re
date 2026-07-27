@@ -2,7 +2,7 @@
 
 **Source:** `COMMERCIAL_VIABILITY_REVIEW_2026-07-15` §4 Tier-C **C3** /
 `PRODUCT_DIRECTION_2026-07-24` Tier-C
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 **Total slices:** 2
 **Estimated total scope:** ~2 dev-days
 
@@ -42,27 +42,38 @@ dashboard exactly as Coinsurance / Modco are today.
     `modco_interest`, for audit clarity — flagged for human review.
 
 ### Slice 2: Surface on CLI / REST API / dashboard
-- **Status:** NEXT
-- **Depends on:** Slice 1 merged.
-- **Files to create/modify:**
-  - `src/polaris_re/pipeline.py` — add the `FWCoinsurance` branch to
-    `build_treaty` (thread `cession_pct`, `funds_withheld_rate` [reuse the
-    `modco_rate` config field or add a `fw_rate` field], `face_amount`).
-  - `DealConfig` (pipeline.py) — accept `treaty_type == "FWCoinsurance"`; decide
-    whether `funds_withheld_rate` reuses `modco_rate` or gets its own field.
-  - CLI `--treaty-type` choices + REST `PriceRequest` treaty enum + dashboard
-    treaty selectbox.
-  - A pipeline golden config (`data/qa/…`) exercising `FWCoinsurance` — update
-    the **Dockerfile COPY + `.dockerignore` allowlist** in the SAME PR if a new
-    data file is added (#61/#66 trap).
-- **Tests to add:** CLI flow test, REST API flow test, `AppTest` dashboard flow,
-  and a pipeline golden regression (the first slice to touch goldens — document
-  the intentional new baseline).
+- **Status:** DONE
+- **Branch:** `claude/loving-gauss-pdd5zq` (environment-designated)
+- **PR:** (this PR)
+- **Depends on:** Slice 1 merged (PR #165, merged 2026-07-27).
+- **What was done:** Added the `FWCoinsurance` branch to `pipeline.build_treaty`
+  and the REST `_build_treaty`, constructing
+  `FWCoinsuranceTreaty(cession_pct, funds_withheld_rate=modco_rate)`. The
+  dashboard Assumptions-page treaty selector now offers `FWCoinsurance` and
+  reuses the modco-rate slider (relabelled "Funds-Withheld Rate (%)") for it.
+  Committed `data/qa/golden_config_fw_coins.json` + `golden_fw_coins` baseline
+  (the first FW golden). No Dockerfile/`.dockerignore` change needed — `data/qa/`
+  is copied wholesale and the allowlist already covers `data/qa/**`. ADR-164.
+- **Config-field decision (resolved):** REUSE `modco_rate` /
+  `modco_interest_rate` as the funds-withheld rate (recommended path); a
+  dedicated `funds_withheld_rate` field is a harvested NICE-TO-HAVE follow-up.
 - **Acceptance criteria:**
   - `polaris price --config <fw-config>` produces a net/ceded split whose
-    additivity holds and whose funds-withheld interest matches the module.
-  - The REST `/api/v1/price` and dashboard both accept and price `FWCoinsurance`.
-  - A committed `FWCoinsurance` pipeline golden reproduces within tolerance.
+    additivity holds and whose funds-withheld interest matches the module. ✅
+  - The REST `/api/v1/price` and dashboard both accept and price
+    `FWCoinsurance`. ✅
+  - A committed `FWCoinsurance` pipeline golden reproduces within tolerance. ✅
+
+## Refinement Backlog (harvested to PRODUCT_DIRECTION on close)
+
+1. Dedicated `funds_withheld_rate` config/request field distinct from
+   `modco_rate` (only needed if one config must express distinct modco vs FW
+   rates simultaneously — a treaty-comparison surface).
+2. Add `FWCoinsurance` to the dashboard **Treaty Comparison** page columns.
+3. Thread `ExpenseAllowance` / `ExperienceRefund` and the `AssetPortfolio`
+   book-yield path through the surfaces for FW coinsurance (shared gap with
+   Modco — no surface threads an asset portfolio into a proportional treaty
+   today).
 
 ## Context for Next Session
 
@@ -80,9 +91,13 @@ dashboard exactly as Coinsurance / Modco are today.
 
 ## Open Questions (for human)
 
-- **New `CashFlowResult.funds_withheld_interest` field** — a controlled additive
-  core-contract change (optional, `None` default, backward-compatible), flagged
-  for review per the guardrail. Confirm the distinct field is preferred over
-  reusing `modco_interest`.
-- **Funds-withheld rate config surface (Slice 2)** — reuse `modco_rate` vs a
-  dedicated `funds_withheld_rate` field (see Context above).
+- **New `CashFlowResult.funds_withheld_interest` field** (RESOLVED for the
+  routine's purposes; still flagged for human confirmation on the merged PR
+  #165) — a controlled additive core-contract change (optional, `None` default,
+  backward-compatible). Shipped in Slice 1 as a distinct field (not a reuse of
+  `modco_interest`) for audit clarity; carried here so the human reviewer can
+  confirm the distinct-field choice.
+- **Funds-withheld rate config surface** (RESOLVED) — Slice 2 reuses
+  `modco_rate` / `modco_interest_rate` as the funds-withheld rate (ADR-164). A
+  dedicated `funds_withheld_rate` field is a harvested NICE-TO-HAVE
+  (Refinement Backlog #1).

@@ -147,7 +147,7 @@ B1 and B2 are the cleanest between-epic fallback picks and the **S3** sequence
 
 | # | Feature | Value | Effort |
 |---|---------|-------|--------|
-| C3 | Funds-withheld coinsurance (`FWCoinsuranceTreaty`) — **IN PROGRESS** (Slice 1 shipped 2026-07-26, ADR-163: treaty module + funds-withheld interest, additive/goldens byte-identical; Slice 2 = surface on CLI/API/dashboard. `docs/PLAN_fw_coinsurance.md` / `docs/CONTINUATION_fw_coinsurance.md`) | ★★★☆☆ | ~2 d |
+| C3 | Funds-withheld coinsurance (`FWCoinsuranceTreaty`) — **COMPLETE, PENDING MERGE** (Slice 1 shipped 2026-07-26 PR #165, ADR-163: treaty module + funds-withheld interest; Slice 2 done 2026-07-27, ADR-164: surfaced on CLI/API/dashboard + `golden_fw_coins`. Draft PR open on `claude/loving-gauss-pdd5zq`; strike through as SHIPPED once merged. `docs/PLAN_fw_coinsurance.md` / `docs/CONTINUATION_fw_coinsurance.md` [COMPLETE]) | ★★★☆☆ | ~2 d |
 | C4 | Parallel portfolio execution + caching + `remove_deal` | ★★★☆☆ | ~2 d |
 | C5 | Per-deal hurdle rates on `Portfolio` | ★★★☆☆ | ~5 d |
 | C6 | Phase-6.3 load test (100 concurrent `/api/v1/price` < 2s) + QUICKSTART K8s guide | ★★★☆☆ | ~1–2 d |
@@ -634,6 +634,34 @@ is tracked there.)
   `modco.py` (kept consistent across the two sibling proportional-interest
   treaties; not expanded into this Slice-1 PR to avoid touching the unrelated
   `modco.py`). *Source: PR #165 automated review [P2] (2nd-order).* **NICE-TO-HAVE.**
+
+### Harvested 2026-07-27 (FW coinsurance Slice 2 — ADR-164; CONTINUATION closed)
+
+Slice 2 surfaced `FWCoinsurance` on the CLI / REST API / dashboard (ADR-164) and
+**closes `CONTINUATION_fw_coinsurance`**. Surviving refinement items promoted per
+the HARVEST step. All are 1st-order follow-ups of a planned Tier-C feature but
+touch only advanced / comparison use — none affect production correctness on the
+common path — so all are NICE-TO-HAVE.
+
+- **Dedicated `funds_withheld_rate` config/request field distinct from `modco_rate`.**
+  Slice 2 reuses `modco_rate` / `modco_interest_rate` as the funds-withheld rate
+  (ADR-164). A separate field is only needed if a single config must express
+  *distinct* modco and FW rates simultaneously (e.g. a treaty-comparison surface
+  pricing both side by side). Additive follow-up.
+  *Source: CONTINUATION_fw_coinsurance Refinement Backlog #1 / ADR-164 Out of scope (1st-order).* **NICE-TO-HAVE.**
+- **Add `FWCoinsurance` to the dashboard Treaty Comparison page.** Slice 2
+  surfaced it on the Deal Pricing (Assumptions) treaty selector; the
+  Treaty Comparison page's multiselect (`Gross / YRT / Coinsurance / Modco`)
+  does not yet offer it. A one-line options addition plus the comparison
+  page's projection wiring.
+  *Source: CONTINUATION_fw_coinsurance Refinement Backlog #2 / ADR-164 Out of scope (1st-order).* **NICE-TO-HAVE.**
+- **Thread `ExpenseAllowance` / `ExperienceRefund` and the `AssetPortfolio`
+  book-yield path through the surfaces for FW coinsurance.** The
+  `FWCoinsuranceTreaty` engine supports the asset-driven funds-withheld rate
+  (Option A) and could carry the allowance/refund layers, but no pricing surface
+  threads an asset portfolio into a *proportional* treaty today — a shared gap
+  with Modco, not FW-specific. Surfacing it is a cross-treaty enhancement.
+  *Source: CONTINUATION_fw_coinsurance Refinement Backlog #3 / ADR-164 Out of scope (1st-order).* **NICE-TO-HAVE.**
 
 ---
 
