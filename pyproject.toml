@@ -137,6 +137,7 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests requiring a full projection run",
     "smoke: marks tests that boot the real deployed entry points (select with '-m smoke'; also tagged slow)",
+    "perf: marks performance-harness tests that time engine hot paths (select with '-m perf'; also tagged slow)",
 ]
 
 # ---------------------------------------------------------------------------
