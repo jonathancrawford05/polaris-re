@@ -26,7 +26,7 @@ consumed the session.
 | Slice | Scope | Status | PR |
 |-------|-------|--------|----|
 | 1 | Engine: decouple cession honouring from allowance mapping in `BaseTreaty.apply` (keyword-only `use_policy_cession`) | ✅ Done | #168 (merged) |
-| 2 | Wire the deal-path callers (CLI price + scenario/uq parity dumps, REST `/api/v1/price`, dashboard) to pass `inforce` always | ✅ Done (draft PR) | this session |
+| 2 | Wire the deal-path callers (CLI price + scenario/uq parity dumps, REST `/api/v1/price`, dashboard) to pass `inforce` always | ✅ Done (draft PR) | #169 |
 | 3 | *(optional / 2nd-order)* scenario/uq/portfolio runner-internal parity | 🔲 Deferred → promoted NICE-TO-HAVE | — |
 
 ## What Was Done
@@ -83,7 +83,7 @@ via the full `tests/qa/` suite (94 passed) and `polaris price` on
 ## Acceptance Criteria
 | Criterion | Status | Notes |
 |-----------|--------|-------|
-| Renewal block + allowance + `use_policy_cession=false` priced on the renewal rate via CLL / API | ✅ | CLI: `ceded_cashflows` == block-aware ref; API: mid-duration transfer < new-business |
+| Renewal block + allowance + `use_policy_cession=false` priced on the renewal rate via CLI / API | ✅ | CLI: `ceded_cashflows` == block-aware ref; API: mid-duration transfer < new-business |
 | Per-policy cession overrides honoured iff `use_policy_cession` true (no silent cession change) | ✅ | `test_cli_cession_stays_flat_when_flag_false` |
 | All four golden configs + `polaris price` byte-identical | ✅ | No golden carries an allowance; `tests/qa/` 94 passed |
 | Quality gate (ruff format + check, pytest not-slow, qa) | ✅ | See "Impact"; full non-slow suite green |

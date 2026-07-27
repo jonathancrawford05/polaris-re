@@ -44,7 +44,7 @@ independent of the cession flag.
 ### Slice 2: Wire the deal-path callers (DONE)
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-aeq051
-- **PR:** (draft — pending review)
+- **PR:** #169 (draft — pending review)
 - **ADR:** ADR-167
 - **What was done:** Rewired every deal-path caller to pass `inforce` to
   `treaty.apply` **always** (when a cohort inforce is available) and thread the
