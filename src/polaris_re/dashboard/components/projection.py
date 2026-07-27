@@ -251,6 +251,12 @@ def run_treaty_projection(
     if treaty is None:
         return gross, None
 
-    inforce_arg = inforce if use_policy_cession else None
-    net, ceded = treaty.apply(gross, inforce=inforce_arg)  # type: ignore[union-attr]
+    # Pass ``inforce`` ALWAYS for block-aware sliding-scale allowance mapping;
+    # ``use_policy_cession`` independently gates per-policy cession overrides
+    # (ADR-166; expense-allowance duration Slice 2). Byte-identical to the
+    # former ``inforce=None`` path for an override-free block with the flag
+    # False and no allowance.
+    net, ceded = treaty.apply(  # type: ignore[union-attr]
+        gross, inforce=inforce, use_policy_cession=use_policy_cession
+    )
     return net, ceded

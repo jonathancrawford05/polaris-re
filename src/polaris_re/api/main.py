@@ -1192,14 +1192,19 @@ def price(request: PriceRequest) -> PriceResponse:
         )
 
         if treaty is not None:
-            # Tabular YRT requires inforce. The flat-rate path is
-            # backward-compatible because YRTTreaty.apply() ignores
-            # inforce when the tabular table is absent (cession is
-            # resolved via face-weighted average — same scalar as
-            # treaty.cession_pct when policies have no overrides).
-            net, ceded = treaty.apply(
-                gross, inforce=inforce if yrt_rate_table is not None else None
-            )
+            # Pass ``inforce`` ALWAYS so a sliding-scale ``ExpenseAllowance`` is
+            # mapped to each policy's actual duration (block-aware first-year
+            # rate) — not just on the tabular-YRT path (ADR-166;
+            # expense-allowance duration Slice 2). ``use_policy_cession`` is
+            # threaded EXPLICITLY (not left to the default) so this call does not
+            # silently change behaviour if ``apply``'s default ever flips, and so
+            # the intent is legible alongside the CLI / dashboard callers that
+            # thread it too. It is cession-neutral for existing responses:
+            # ``PolicyInput`` carries no per-policy cession override (Policy is
+            # built with ``reinsurance_cession_pct=None``), so the face-weighted
+            # cession equals the flat ``treaty.cession_pct`` regardless of the
+            # flag. Only an allowance on a mid-duration block moves — the fix.
+            net, ceded = treaty.apply(gross, inforce=inforce, use_policy_cession=True)
         else:
             net, ceded = gross, None
 

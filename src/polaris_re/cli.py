@@ -558,8 +558,17 @@ def _price_single_cohort(
 
     # 3. Apply treaty
     if treaty is not None:
-        inforce_arg = cohort_inforce if use_policy_cession else None
-        net, ceded = treaty.apply(gross, inforce=inforce_arg)  # type: ignore[attr-defined]
+        # Pass ``inforce`` ALWAYS (not gated on the cession flag) so a
+        # sliding-scale ``ExpenseAllowance`` is mapped to each policy's actual
+        # duration (block-aware first-year rate). The deal's
+        # ``use_policy_cession`` flag independently controls whether per-policy
+        # cession overrides are honored — the two roles ``inforce`` plays are
+        # decoupled in ``BaseTreaty.apply`` (ADR-166; expense-allowance duration
+        # Slice 2). For an override-free block with the flag False this is
+        # byte-identical to the former ``inforce=None`` path.
+        net, ceded = treaty.apply(  # type: ignore[attr-defined]
+            gross, inforce=cohort_inforce, use_policy_cession=use_policy_cession
+        )
     else:
         net, ceded = gross, None
 
@@ -2258,10 +2267,13 @@ def scenario_cmd(
         # fallback below). Drives the reinsurer-view availability (ADR-077).
         has_real_treaty = treaty_obj is not None
 
-        # Parity diagnostic dump (set POLARIS_PARITY_DEBUG=1 to enable)
+        # Parity diagnostic dump (set POLARIS_PARITY_DEBUG=1 to enable).
+        # Pass ``inforce`` always for block-aware allowance mapping; thread the
+        # deal's cession flag independently (ADR-166; Slice 2).
         if treaty_obj is not None:
-            inforce_arg = inforce if use_policy_cession else None
-            _net, _ceded = treaty_obj.apply(gross, inforce=inforce_arg)
+            _net, _ceded = treaty_obj.apply(
+                gross, inforce=inforce, use_policy_cession=use_policy_cession
+            )
             dump_parity_debug("cli_scenario", gross, _net, _ceded)
         else:
             dump_parity_debug("cli_scenario", gross)
@@ -2489,10 +2501,13 @@ def uq_cmd(
         # availability (ADR-077). MonteCarloUQ accepts treaty=None directly.
         has_real_treaty = treaty_obj is not None
 
-        # Parity diagnostic dump (set POLARIS_PARITY_DEBUG=1 to enable)
+        # Parity diagnostic dump (set POLARIS_PARITY_DEBUG=1 to enable).
+        # Pass ``inforce`` always for block-aware allowance mapping; thread the
+        # deal's cession flag independently (ADR-166; Slice 2).
         if treaty_obj is not None:
-            inforce_arg = inforce if use_policy_cession else None
-            _net, _ceded = treaty_obj.apply(gross, inforce=inforce_arg)
+            _net, _ceded = treaty_obj.apply(
+                gross, inforce=inforce, use_policy_cession=use_policy_cession
+            )
             dump_parity_debug("cli_uq", gross, _net, _ceded)
         else:
             dump_parity_debug("cli_uq", gross)
