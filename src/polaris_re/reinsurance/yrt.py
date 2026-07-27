@@ -134,16 +134,23 @@ class YRTTreaty(PolarisBaseModel, BaseTreaty):
         self,
         gross: CashFlowResult,
         inforce: "InforceBlock | None" = None,
+        *,
+        use_policy_cession: bool = True,
     ) -> tuple[CashFlowResult, CashFlowResult]:
         """
         Apply YRT treaty to gross cash flows.
 
         Args:
             gross:   GROSS basis CashFlowResult with reserve_balance populated.
-            inforce: Optional InforceBlock for policy-level cession overrides.
-                     When provided, face-weighted average cession is used
-                     instead of treaty-level cession_pct. Required when
-                     `yrt_rate_table` is set.
+            inforce: Optional InforceBlock. Drives block-aware first-year
+                     allowance mapping whenever supplied, and — when
+                     ``use_policy_cession`` is True — per-policy cession
+                     overrides (face-weighted average). Required when
+                     `yrt_rate_table` is set (tabular rate lookups).
+            use_policy_cession: When True (default), per-policy cession
+                     overrides on ``inforce`` are honored; when False, the flat
+                     treaty ``cession_pct`` is used (allowance mapping still
+                     uses ``inforce``). See :meth:`BaseTreaty.apply`.
 
         Returns:
             (net, ceded) CashFlowResult tuple.
@@ -153,7 +160,7 @@ class YRTTreaty(PolarisBaseModel, BaseTreaty):
                 "YRT treaty requires reserve_balance in gross CashFlowResult."
             )
 
-        c = self._resolve_cession(self.cession_pct, inforce)
+        c = self._resolve_cession(self.cession_pct, inforce, use_policy_cession)
 
         # Ceded claims: proportional to gross (face-weighted scalar).
         ceded_claims = gross.death_claims * c

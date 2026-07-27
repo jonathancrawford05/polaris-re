@@ -124,6 +124,8 @@ class FWCoinsuranceTreaty(PolarisBaseModel, BaseTreaty):
         gross: CashFlowResult,
         inforce: "InforceBlock | None" = None,
         asset_portfolio: "AssetPortfolio | None" = None,
+        *,
+        use_policy_cession: bool = True,
     ) -> tuple[CashFlowResult, CashFlowResult]:
         """
         Apply the funds-withheld coinsurance treaty to gross cash flows.
@@ -136,7 +138,11 @@ class FWCoinsuranceTreaty(PolarisBaseModel, BaseTreaty):
         Args:
             gross:   GROSS basis CashFlowResult. ``reserve_balance`` must be
                      populated for the funds-withheld interest to be meaningful.
-            inforce: Optional InforceBlock for policy-level cession overrides.
+            inforce: Optional InforceBlock for policy-level cession overrides
+                     (gated by ``use_policy_cession``).
+            use_policy_cession: When True (default), per-policy cession
+                     overrides on ``inforce`` are honored; when False, the flat
+                     treaty ``cession_pct`` is used. See :meth:`BaseTreaty.apply`.
             asset_portfolio: Optional ``AssetPortfolio`` backing the withheld
                      reserves. When supplied, its gross ``book_yield()`` drives
                      the funds-withheld interest (Option A precedence) instead of
@@ -153,7 +159,7 @@ class FWCoinsuranceTreaty(PolarisBaseModel, BaseTreaty):
                 "FWCoinsuranceTreaty requires reserve_balance in gross CashFlowResult."
             )
 
-        c = self._resolve_cession(self.cession_pct, inforce)
+        c = self._resolve_cession(self.cession_pct, inforce, use_policy_cession)
         r = 1.0 - c  # retention proportion
 
         # All lines split proportionally (identical to coinsurance).

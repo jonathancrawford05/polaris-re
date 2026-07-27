@@ -44,16 +44,37 @@ class BaseTreaty(ABC):
         self,
         gross: CashFlowResult,
         inforce: "InforceBlock | None" = None,
+        *,
+        use_policy_cession: bool = True,
     ) -> tuple[CashFlowResult, CashFlowResult]:
         """
         Apply the treaty to gross cash flows.
 
+        ``inforce`` drives two independent concerns; keep them decoupled:
+
+        * **Cession resolution** — honoring per-policy
+          ``reinsurance_cession_pct`` overrides is gated by
+          ``use_policy_cession``, NOT by the mere presence of ``inforce``.
+        * **Block-aware first-year allowance mapping** — a sliding-scale
+          ``ExpenseAllowance`` maps projection month to actual policy duration
+          whenever ``inforce`` is supplied (see
+          :meth:`_expense_allowance_transfer`), regardless of
+          ``use_policy_cession``.
+
+        This lets a renewal (mid-duration) block be priced on a flat treaty
+        cession while its allowance is still charged on genuine policy-year-one
+        business only.
+
         Args:
             gross:   CashFlowResult on GROSS basis from a product engine.
-            inforce: Optional InforceBlock. When provided, policy-level
-                     reinsurance_cession_pct values override the treaty-level
-                     cession_pct. A face-weighted average is computed for
-                     aggregate cash flow splitting.
+            inforce: Optional InforceBlock. Supplied for block-aware allowance
+                     mapping and — when ``use_policy_cession`` is True — for
+                     per-policy cession overrides (face-weighted average).
+            use_policy_cession: When True (default), per-policy
+                     ``reinsurance_cession_pct`` overrides on ``inforce`` are
+                     honored via a face-weighted average. When False, the flat
+                     treaty ``cession_pct`` is used even though ``inforce`` is
+                     supplied (the allowance mapping still uses it).
 
         Returns:
             (net, ceded) tuple. net + ceded must equal gross for all lines.
@@ -63,14 +84,16 @@ class BaseTreaty(ABC):
         self,
         treaty_cession_pct: float,
         inforce: "InforceBlock | None",
+        use_policy_cession: bool = True,
     ) -> float:
         """Resolve the effective aggregate cession rate.
 
-        If ``inforce`` is provided, computes a face-weighted average of
-        per-policy effective cession rates (policy override where set,
-        treaty default where not). Otherwise returns ``treaty_cession_pct``.
+        If ``inforce`` is provided AND ``use_policy_cession`` is True, computes
+        a face-weighted average of per-policy effective cession rates (policy
+        override where set, treaty default where not). Otherwise returns the
+        flat ``treaty_cession_pct``.
         """
-        if inforce is None:
+        if inforce is None or not use_policy_cession:
             return treaty_cession_pct
         return inforce.face_weighted_cession(treaty_cession_pct)
 

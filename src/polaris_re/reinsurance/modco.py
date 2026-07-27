@@ -99,6 +99,8 @@ class ModcoTreaty(PolarisBaseModel, BaseTreaty):
         gross: CashFlowResult,
         inforce: "InforceBlock | None" = None,
         asset_portfolio: "AssetPortfolio | None" = None,
+        *,
+        use_policy_cession: bool = True,
     ) -> tuple[CashFlowResult, CashFlowResult]:
         """
         Apply Modco treaty to gross cash flows.
@@ -106,7 +108,11 @@ class ModcoTreaty(PolarisBaseModel, BaseTreaty):
         Args:
             gross:   GROSS basis CashFlowResult. reserve_balance must be populated
                      for modco interest calculation to be meaningful.
-            inforce: Optional InforceBlock for policy-level cession overrides.
+            inforce: Optional InforceBlock for policy-level cession overrides
+                     (gated by ``use_policy_cession``).
+            use_policy_cession: When True (default), per-policy cession
+                     overrides on ``inforce`` are honored; when False, the flat
+                     treaty ``cession_pct`` is used. See :meth:`BaseTreaty.apply`.
             asset_portfolio: Optional ``AssetPortfolio`` backing the ceded
                      reserves. When supplied, its gross ``book_yield()`` drives
                      the modco interest (Option A precedence) instead of the flat
@@ -123,7 +129,7 @@ class ModcoTreaty(PolarisBaseModel, BaseTreaty):
                 "ModcoTreaty requires reserve_balance in gross CashFlowResult."
             )
 
-        c = self._resolve_cession(self.cession_pct, inforce)
+        c = self._resolve_cession(self.cession_pct, inforce, use_policy_cession)
 
         # Premiums: split proportionally (identical to coinsurance)
         net_premiums = gross.gross_premiums * (1.0 - c)

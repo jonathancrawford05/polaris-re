@@ -10941,3 +10941,70 @@ by duration rather than a single flat multiplier) — carried NICE-TO-HAVE from
 ADR-127. (3) FAS 60 DAC amortisation / the full loss-recognition test on the deal
 path — separate carried NICE-TO-HAVE (ADR-127; B4 shipped the standalone
 premium-deficiency tester).
+
+## ADR-166: Decouple per-policy cession from block-aware allowance mapping in `BaseTreaty.apply` — Slice 1
+
+**Status:** Accepted (2026-07-27)
+
+**Context.** In `BaseTreaty.apply(gross, inforce=...)` a single lever — whether
+the caller passes an `InforceBlock` — controlled **two independent** concerns:
+1. **Cession resolution**: whether per-policy `reinsurance_cession_pct`
+   overrides are honoured (face-weighted) or the flat treaty `cession_pct` is
+   used (`_resolve_cession`).
+2. **Block-aware first-year allowance mapping**: whether a sliding-scale
+   `ExpenseAllowance` charges the first-year rate on genuine policy-year-one
+   business (`ExpenseAllowance.first_year_fraction_for_block`, keyed on each
+   policy's `duration_inforce`) or falls back to the new-business
+   projection-month basis (first `months_per_year` periods).
+
+The CLI / API / dashboard gate passing `inforce` on the deal's
+`use_policy_cession` flag (`inforce_arg = cohort_inforce if use_policy_cession
+else None`). So a **renewal (mid-duration) block priced with
+`use_policy_cession=False` and a sliding-scale allowance** received the
+new-business mapping — over-charging the first-year rate on business that is
+years past policy year one. Reproduced before writing code: a single 10-year
+in-force policy (face $1M, 40% first-year / 10% renewal allowance, 0.5
+coinsurance) was charged ~$200/mo for the first 12 months on the `inforce=None`
+path versus the correct ~$50/mo renewal rate — a **+$1,767 (+65%) overstated
+ceded expense allowance** over the run, distorting the net/ceded split for both
+parties. This is `PRODUCT_DIRECTION_2026-06-18` IMPORTANT #3 (a
+production-correctness gap on the expense-allowance common path), promoted from
+ADR-122 Out of scope.
+
+**Decision (Slice 1 — engine layer).** Add a keyword-only
+`use_policy_cession: bool = True` to `BaseTreaty.apply` and every concrete
+override (`YRTTreaty`, `CoinsuranceTreaty`, `ModcoTreaty`,
+`FWCoinsuranceTreaty`; `StopLossTreaty` accepts it for interface consistency,
+unused). `_resolve_cession` now gates honouring overrides on the flag —
+`if inforce is None or not use_policy_cession: return treaty_cession_pct` — so
+**cession honouring is keyed on the flag** while **block-aware allowance
+mapping stays keyed on `inforce` presence** (`_expense_allowance_transfer` is
+unchanged). A caller can now pass `inforce` for the allowance mapping while
+keeping a flat treaty cession: `apply(gross, inforce=block,
+use_policy_cession=False)`.
+
+**Backward compatible / goldens byte-identical.** The default `True` preserves
+the prior "`inforce` present → honour overrides" behaviour exactly, and the
+existing `inforce=None` call sites are untouched, so all four golden configs and
+`polaris price` on `golden_config_flat.json` are byte-identical. Because
+`InforceBlock.face_weighted_cession` returns the flat treaty default when no
+policy overrides cession, passing `inforce` with the default flag on an
+override-free block is also byte-identical to the flat path (pinned by test).
+
+**Verification.** Closed-form treaty tests
+(`test_cession_allowance_decoupling.py`): (a) THE FIX — coinsurance and YRT with
+`use_policy_cession=False` + an allowance on a renewal block charge the renewal
+rate throughout (matching the block-aware `inforce` path, strictly below the
+new-business path) while cession stays flat; (b) the flag gates per-policy
+overrides (0.5 override vs 0.9 treaty default → honoured only when True); (c)
+backward compatibility — default equals explicit `True`, and an override-free
+block with the default flag equals the flat `inforce=None` path byte-for-byte.
+
+**Out of scope (Slice 2, this feature).** Wiring the CLI (`cli.py` 3 sites),
+REST API (`api/main.py`), and Streamlit dashboard callers to pass
+`inforce` **always** (when available) plus `use_policy_cession=deal.use_policy_cession`,
+so the fix reaches the user-facing deal path — and extending the same fix to the
+`/api/v1/scenario`, `/api/v1/uq`, and portfolio paths (the 2nd-order companion
+to IMPORTANT #3, ADR-123). Slice 1 ships the engine capability + closed-form
+tests only; no caller is rewired yet, so nothing changes on the priced path
+until Slice 2. See `docs/CONTINUATION_expense_allowance_duration.md`.
