@@ -9,10 +9,11 @@
 > before writing code. This is the read-only spec, not the running log — the
 > running log is `CONTINUATION_mcp_server.md` (opened when Slice 1 starts).
 
-**Status:** 🔲 PROPOSED — awaiting maintainer sign-off on the Phase-7 framing and
-the Open Decisions below. Not yet constituted as the active epic. On sign-off,
-the next dev session opens `CONTINUATION_mcp_server.md` (status IN PROGRESS) and
-ships Slice 1.
+**Status:** ✅ APPROVED / CONSTITUTED — maintainer signed off 2026-07-27 on the
+Phase-7 framing and all five Open Decisions (see "Decisions — LOCKED" below).
+This is the **active Phase-7 Tier-A epic**; the routine leaves maintenance mode.
+The next dev session opens `CONTINUATION_mcp_server.md` (status IN PROGRESS) and
+ships Slice 1 (service-layer extraction).
 
 **Source / derivation.** Maintainer-requested 2026-07-27 (this session). The
 routine is in the post-roadmap maintenance inflection (`PRODUCT_DIRECTION_2026-07-24`
@@ -167,29 +168,26 @@ evals + docs and closes the epic.
 
 ---
 
-## Open Decisions (for the maintainer — please confirm before Slice 1)
+## Decisions — LOCKED (maintainer sign-off 2026-07-27)
 
-1. **In-process vs. HTTP proxy (the load-bearing one).** The plan assumes
-   **in-process** (MCP tool → `run_price` → engine, no running API needed). The
-   alternative is a **thin HTTP client** MCP server that calls a *deployed*
-   `/api/v1/price`. In-process is simpler, offline-capable, and DRY; the HTTP
-   proxy is better only if you specifically want the MCP server to be a
-   lightweight remote client against a central hosted API (multi-tenant, central
-   auth/rate-limit/observability). **Recommendation: in-process**, with the HTTP
-   *transport* of the same in-process server (Slice 3) covering the "remote,
-   shared" case without becoming a proxy. Confirm?
-2. **Inforce reference model.** How should an agent point at a block? Plan
-   assumes **file path + built-in sample ids + inline policies**. For Claude Code
-   (filesystem access) a file path is natural. Do you also want a **registered
-   block registry** (named blocks the server resolves), or is file-path + sample
-   enough for v1?
-3. **Surface breadth for v1.** Plan ships **price + scenario + uq** (Slices 2–3)
-   and defers ifrs17/ingest/portfolio. Is that the right initial cut, or do you
-   want one of those in the first release?
-4. **Packaging.** In-repo `[mcp]` extra (plan's default, matches `[api]`/`[ml]`)
-   vs. a **separate `polaris-re-mcp` package**. In-repo is simpler and keeps the
-   models in lockstep; a separate package decouples release cadence. Confirm
-   in-repo?
-5. **Constitute as the Phase-7 epic?** This would become the active Tier-A epic
-   (ends maintenance mode) and set the routine's next frontier. Or keep it as a
-   maintainer-directed one-off outside the epic track. Confirm the framing.
+All five resolved as recommended; the plan above reflects them.
+
+1. **In-process, NOT an HTTP proxy.** ✅ The MCP tool calls `run_price` → engine
+   in the same process; no deployed/`uvicorn` API is required to run the engine.
+   The optional streamable-HTTP **transport** of this same in-process server
+   (Slice 3) covers the "remote, shared" case — it is a transport, not a proxy to
+   a separate API service. Rationale captured in the "Two runtime models"
+   discussion: the engine is always a same-process library call (CLI, FastAPI
+   route, or MCP tool all invoke it in-process).
+2. **Inforce reference = file path + built-in sample ids + inline policies.** ✅
+   No named block-registry in v1 (Claude Code has local filesystem access, so a
+   path is natural; the golden CSV is the built-in sample). A registry is a
+   possible later follow-up, not v1.
+3. **v1 surface = price + scenario + uq.** ✅ ifrs17 / ingest / rate-schedule /
+   portfolio deferred to a post-epic follow-up (each is another `run_*` service
+   fn + a thin tool once the pattern is proven).
+4. **In-repo `[mcp]` extra.** ✅ Matches `[api]`/`[ml]`; keeps the tool schemas in
+   lockstep with the Pydantic models. No separate `polaris-re-mcp` package.
+5. **Constituted as the active Phase-7 Tier-A epic.** ✅ Ends the routine's
+   maintenance mode; `PRODUCT_DIRECTION` / `COMMERCIAL_VIABILITY_REVIEW` should
+   record MCP integration as the chosen Phase-7 frontier.
