@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "polaris": {
+      "command": "uv",
+      "args": ["run", "--directory", ".", "polaris-mcp"],
+      "env": {
+        "POLARIS_DATA_DIR": "./data"
+      }
+    }
+  }
+}

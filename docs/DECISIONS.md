@@ -11272,3 +11272,87 @@ service layer (Slice 3 of the epic — the scenario/uq route bodies stay inline 
 now); the MCP package, `[mcp]` extra, and any MCP tool (Slice 2); moving the
 scenario/uq/ifrs17/portfolio request-response models out of `api/main.py`
 (deferred until their own service extraction).
+
+---
+
+## ADR-171: MCP server — in-process stdio pricing tools over the service layer (MCP-server epic Slice 2)
+
+**Date:** 2026-07-28
+**Status:** Accepted
+
+**Context:** Slice 1 (ADR-170) extracted `run_price(PriceRequest) -> PriceResponse`
+into `services/pricing.py` as the shared, web-framework-free engine-invocation
+path. Slice 2 of the MCP-server epic (`docs/PLAN_mcp_server.md`, the active
+Phase-7 Tier-A epic, maintainer sign-off 2026-07-27) builds the first agent-facing
+surface on top of it: an in-process **Model Context Protocol** server so an actuary
+can drive the engine conversationally from Claude Code / Claude Desktop ("price the
+golden block YRT 90% at 6% discount, valuation 2025-01-01 — reinsurer IRR?"). The
+engine is an unusually clean MCP target: deterministic, read-only, with typed
+Pydantic v2 contracts and a single `run_price` composition root.
+
+**Decision:** Add a `src/polaris_re/mcp/` package (`server.py`) hosting a FastMCP
+stdio server (`mcp` official SDK, staged into a new `[mcp]` extra, added in the
+slice that first imports it — mirroring `[api]`/`[ml]`). Three surfaces:
+
+- **`polaris_price_block`** (headline workflow tool) — takes an *inforce reference*
+  (a built-in sample id such as `"golden"` → `data/qa/golden_inforce.csv`, or a
+  file path) plus high-level deal params, mirroring the CLI's `--inforce/--config`
+  ergonomics rather than a 25-field `policies[]` array. It loads the block via
+  `InforceBlock.from_csv`, filters to the policies whose `product_type` matches the
+  request (a single `run_price` covers one product engine; `n_policies` reflects the
+  filtered count, and a block with no match raises an actionable error naming the
+  types present), assembles a `PriceRequest`, and calls `run_price`.
+- **`polaris_price`** — the full inline-`PriceRequest` tool for programmatic callers;
+  FastMCP derives its input schema directly from the Pydantic contract (no
+  hand-copied schema).
+- **`polaris://capabilities`** resource — enumerates the priceable product types
+  (TERM / WHOLE_LIFE / UL — the dispatch registry, *not* the full `ProductType`
+  enum, so DI/CI/ANNUITY are not advertised), treaty types, capital models, reserve
+  bases, and sample-block ids, so an agent discovers valid values instead of
+  guessing.
+
+A committed project-scope `.mcp.json` registers the stdio server via
+`uv run --directory . polaris-mcp` with `POLARIS_DATA_DIR=./data`, and a
+`polaris-mcp` console entry point (`[project.scripts]`) is added.
+
+**Key decisions:**
+
+- **Explicit, required `valuation_date` that re-values the block (ADR-074).** The
+  block tool never defaults to `date.today()`; the supplied date is authoritative
+  and each policy's `attained_age` / `duration_inforce` are re-derived from its
+  `issue_date` (`months_between`), so the assembled block is internally consistent
+  and a quote is reproducible. This gives the actuarial "value this block as of
+  <date>" semantics for free.
+- **Compact-by-default output.** Each pricing tool returns a `PriceBlockResult`
+  (`summary` headline + full typed `price`). At `detail=false` (default) the large
+  per-year `profit_by_year` / `reinsurer_profit_by_year` arrays are cleared for
+  context safety; at `detail=true` `price` is byte-identical to `run_price` and the
+  REST API. FastMCP's high-level decorator serialises one return value into both
+  structured content and JSON text, so the compact-text intent is carried by the
+  `summary` field plus the array gating rather than a separate hand-built content
+  block — the simplest fully-typed, schema-derived option.
+- **Read-only annotations** (`readOnlyHint = idempotentHint = True`,
+  `destructiveHint = openWorldHint = False`) on both tools — true because the engine
+  mutates nothing, so a host may call them freely.
+- **Actionable errors.** Domain failures from `run_price`
+  (`PolarisValidationError` / `ValueError`) are caught and re-raised as FastMCP
+  `ToolError`s (with the original guidance, e.g. the valid treaty list); bad inforce
+  references / product types raise `ToolError` before the engine runs.
+
+**Consequences / backward compatibility:** Purely additive — a new optional package
+behind the `[mcp]` extra, a new console script, a new `.mcp.json`. No engine code
+changed; `polaris price` on all four golden configs and the full API suite are
+byte-identical. 35 new tests assert tool/`run_price`/API parity, the read-only
+annotations and structured-output schemas, the compact/`detail` behaviour, sample
+loading + re-valuation, the actionable errors, the capabilities enumeration, and
+that the committed `.mcp.json` names `polaris-mcp` and sets `POLARIS_DATA_DIR`.
+
+**Out of scope (this slice, harvested to PRODUCT_DIRECTION):** `polaris_run_scenario`
+/ `polaris_run_uq` tools and the `run_scenario` / `run_uq` service extraction they
+need (Slice 3); the optional streamable-HTTP transport with `APIKeyAuthMiddleware`
+reuse (Slice 3); the 10-question MCP eval set and full error-message hardening
+(Slice 4); ifrs17 / ingest / rate-schedule / portfolio tools (post-epic, once the
+pattern is proven); MCP prompt templates and desktop-extension (MCPB) packaging.
+The `.mcp.json` uses relative `--directory .` / `./data`; whether those resolve
+from an arbitrary client launch CWD is documented in QUICKSTART with an absolute-path
+fallback (`claude mcp add`).

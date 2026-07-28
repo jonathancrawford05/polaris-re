@@ -69,10 +69,14 @@ dashboard = [
 viz = [
     "matplotlib>=3.9",
 ]
+mcp = [
+    "mcp>=1.2",
+]
 
 [project.scripts]
 polaris = "polaris_re.cli:app"
 polaris-convert-tables = "polaris_re.scripts.convert_soa_tables:main"
+polaris-mcp = "polaris_re.mcp.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/polaris_re"]
@@ -98,6 +102,7 @@ dev = [
     "uvicorn[standard]>=0.30",
     "streamlit>=1.35",
     "plotly>=5.20",
+    "mcp>=1.2",
 ]
 
 # ---------------------------------------------------------------------------
