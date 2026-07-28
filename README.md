@@ -29,10 +29,10 @@ Polaris RE provides:
 
 ## Status
 
-Phases 1–4 are complete and Phase 5 (capital, portfolio & IFRS 17 production) is
-substantially delivered. 1,500+ tests, coverage ≥ 90% enforced in CI, ADRs
-through ADR-098. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the milestone-level
-breakdown.
+Phases 1–5 (capital, portfolio & IFRS 17 production) are substantially complete
+and Phase 6 (operationalisation & ecosystem) is underway. 2,700+ tests, coverage
+≥ 90% enforced in CI, ADRs through ADR-170. See [`docs/ROADMAP.md`](docs/ROADMAP.md)
+for the milestone-level breakdown.
 
 | Module | Feature | Status |
 |---|---|---|
@@ -60,8 +60,8 @@ breakdown.
 | `analytics/` | Experience Studies — A/E, limited-fluctuation credibility, blended rates | ✅ |
 | `analytics/` | Portfolio aggregation — multi-deal runner, concentration/HHI, calendar alignment, portfolio scenarios | ✅ |
 | `analytics/` | Regulatory capital — LICAT (C-1/C-2/C-3 + lapse/morbidity) → return-on-capital | ✅ |
-| `analytics/` | Regulatory capital — US NAIC Life RBC + shared `CapitalModel` protocol; drives return-on-capital | 🔄 module + RoC + CLI/API/dashboard/Excel selector + result-level RBC ratio (`capital_ratio`) shipped; ratio surfacing on CLI/API/Excel/dashboard pending (Slice 4c-2) |
-| `analytics/` | Regulatory capital — EU Solvency II SCR (standard-formula correlation-matrix BSCR + risk margin) | 🔄 module + CLI/API/dashboard/Excel selector + result-level solvency ratio (`capital_ratio`) shipped; ratio surfacing on CLI/API/Excel/dashboard pending (Slice 4c-2) |
+| `analytics/` | Regulatory capital — US NAIC Life RBC + shared `CapitalModel` protocol; drives return-on-capital | ✅ module + RoC + CLI/API/dashboard/Excel selector + RBC ratio (`capital_ratio`) surfaced on CLI/API/Excel/dashboard |
+| `analytics/` | Regulatory capital — EU Solvency II SCR (standard-formula correlation-matrix BSCR + risk margin) | ✅ module + CLI/API/dashboard/Excel selector + solvency ratio (`capital_ratio`) surfaced on CLI/API/Excel/dashboard |
 | `analytics/` | YRT rate schedule generator — flat + per-duration solve to a target IRR | ✅ |
 | `analytics/` | Validation & benchmark pack — reproduce published/closed-form actuarial references (SOA Illustrative Life Table, constant-force identities); scored pass/fail report via `polaris benchmark` + `05_validation_report.ipynb` | ✅ |
 | `assumptions/` | ML-enhanced mortality & lapse (scikit-learn / XGBoost), same protocol as table-based | ✅ |
@@ -304,7 +304,7 @@ polaris-re/
 ├── docs/
 │   ├── QUICKSTART.md      ← Setup guide: local, Docker, Codespaces, API, tables, Excel export
 │   ├── ROADMAP.md         ← Phased feature plan with milestone checklists
-│   ├── DECISIONS.md       ← Architecture decision records (ADRs 001–098)
+│   ├── DECISIONS.md       ← Architecture decision records (ADRs 001–170)
 │   └── ACTUARIAL_GLOSSARY.md  ← Domain terminology reference
 ├── src/polaris_re/
 │   ├── core/              ← Policy, InforceBlock, ProjectionConfig, CashFlowResult, ReserveBasis
@@ -320,7 +320,7 @@ polaris-re/
 │   ├── dashboard/         ← Streamlit dashboard
 │   ├── utils/             ← Table loaders, interpolation, date utilities, Excel writer, ingestion
 │   └── cli.py             ← Typer CLI entry point
-├── tests/                 ← 1,500+ tests, coverage ≥ 90% (CI-enforced)
+├── tests/                 ← 2,700+ tests, coverage ≥ 90% (CI-enforced)
 ├── notebooks/
 │   ├── 01_term_life_yrt_pricing.ipynb        ← End-to-end YRT deal-pricing walkthrough
 │   ├── 02_reserve_basis_comparison.ipynb     ← CRVM / VM-20 / GAAP reserve-basis comparison
