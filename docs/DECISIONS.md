@@ -11213,3 +11213,62 @@ sub-path probes (rate-array build, treaty apply) beyond the full `project()`
 path — the harness already accepts a caller-supplied `hot_paths` map so these
 need no contract change. Benchmarking product engines beyond TERM in the default
 probe stays the separate ADR-161 NICE-TO-HAVE.
+
+## ADR-170: Pricing service layer — extract `run_price` from the FastAPI route (MCP-server epic Slice 1)
+
+**Date:** 2026-07-28
+**Status:** Accepted
+
+**Context:** The MCP-server epic (`docs/PLAN_mcp_server.md`, constituted as the
+active Phase-7 Tier-A epic) will expose the pricing engine to agent hosts. Its
+governing design anchor is that the MCP tool and the FastAPI route call **one**
+in-process engine path — no second request→engine mapping to drift, and no
+`fastapi` / `uvicorn` dependency required merely to price a deal. Until now the
+entire deal-pricing invocation (build components → gross projection → apply
+treaty → cedant + reinsurer profit tests, optionally with regulatory capital →
+premium sufficiency → optional ALM duration gap → assemble `PriceResponse`) lived
+inline in the `POST /api/v1/price` route body in `api/main.py`, reachable only
+through FastAPI. This is Slice 1 of that epic: the engine-neutral extraction that
+creates the shared composition root, continuing the ADR-156 cleanup.
+
+**Decision:** Add `src/polaris_re/services/pricing.py` owning
+`run_price(request: PriceRequest) -> PriceResponse` plus the request/response
+contracts (`PolicyInput`, `PriceRequest`, `PriceResponse`) and the engine-
+composition helpers (`_build_components`, `_run_gross_projection`,
+`_derive_yrt_rate`, `_ceded_to_reinsurer_view`, `_build_treaty`,
+`_resolve_yrt_rate_table_path`, `_capital_block`, `_sufficiency_block`) — all
+moved verbatim out of `api/main.py`. The module imports **no** `fastapi`. The two
+helpers that previously raised `fastapi.HTTPException` (`_build_treaty` for an
+unknown treaty / bad rate-table type; `_resolve_yrt_rate_table_path` for a
+missing `POLARIS_DATA_DIR`, a traversal attempt, or an absent directory) now
+raise the domain `PolarisValidationError` instead. The `/api/v1/price` route
+becomes a thin adapter: `try: return run_price(request) except Exception: raise
+HTTPException(422, ...)`. `api/main.py` re-imports the moved names so every prior
+import path (`from polaris_re.api.main import PriceRequest`, `api_main._build_treaty`,
+…) and the OpenAPI schema are unchanged. The scenario / uq / ifrs17 / portfolio /
+rate-schedule endpoints keep their inline bodies and now call the moved helpers
+through the same re-import.
+
+**Rationale:** The composition root is the smallest change that unblocks Slice 2
+(the MCP server builds a `PriceRequest` and calls `run_price`) without importing
+the web stack. Converting the two helpers' `HTTPException` to
+`PolarisValidationError` is observably byte-identical: every caller already ran
+inside a `try/except Exception → HTTPException(422)` wrapper, so those errors
+already surfaced as 422 (the `api_main` tests assert exactly that, e.g. the
+unknown-treaty message still enumerating `FWCoinsurance`); and the app-wide
+`PolarisValidationError → 422` handler covers any future non-wrapped caller. The
+only unreachable behavioural change is that a failure during response assembly —
+pure field-copying that cannot fail — would now map to 422 rather than 500.
+
+**Backward compatible / goldens byte-identical.** No pricing logic changed — the
+code moved. `polaris price` on all four golden configs is byte-identical
+(verified: cedant PV `$3,513,563.42`, output sha256 unchanged), the full API
+suite passes unchanged, and a new route/service-parity test asserts the HTTP
+endpoint and a direct `run_price` call return the identical `PriceResponse`
+across product/treaty/capital variations.
+
+**Out of scope (this slice):** extracting `run_scenario` / `run_uq` into the
+service layer (Slice 3 of the epic — the scenario/uq route bodies stay inline for
+now); the MCP package, `[mcp]` extra, and any MCP tool (Slice 2); moving the
+scenario/uq/ifrs17/portfolio request-response models out of `api/main.py`
+(deferred until their own service extraction).
