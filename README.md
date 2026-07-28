@@ -315,6 +315,7 @@ polaris-re/
 │   │                         (incl. movement table), stochastic rates, experience studies,
 │   │                         portfolio aggregation, regulatory capital (LICAT, RBC, Solvency II),
 │   │                         YRT rate schedule
+│   ├── services/          ← Engine-invocation composition root (run_price) shared by every host
 │   ├── api/               ← FastAPI application
 │   ├── dashboard/         ← Streamlit dashboard
 │   ├── utils/             ← Table loaders, interpolation, date utilities, Excel writer, ingestion
