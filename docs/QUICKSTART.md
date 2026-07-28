@@ -266,7 +266,7 @@ docker compose down             # stop and remove container
 
 ```bash
 make docker-test
-# Equivalent to CI job 3: builds image, runs the full test suite (1,500+), tears down
+# Equivalent to CI job 3: builds image, runs the full test suite (2,700+), tears down
 ```
 
 ### Start the Streamlit dashboard

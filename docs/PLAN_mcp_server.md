@@ -9,11 +9,12 @@
 > before writing code. This is the read-only spec, not the running log — the
 > running log is `CONTINUATION_mcp_server.md` (opened when Slice 1 starts).
 
-**Status:** ✅ APPROVED / CONSTITUTED — maintainer signed off 2026-07-27 on the
-Phase-7 framing and all five Open Decisions (see "Decisions — LOCKED" below).
-This is the **active Phase-7 Tier-A epic**; the routine leaves maintenance mode.
-The next dev session opens `CONTINUATION_mcp_server.md` (status IN PROGRESS) and
-ships Slice 1 (service-layer extraction).
+**Status:** 🚧 IN PROGRESS — Slice 1 (service-layer extraction) shipped
+2026-07-28 (ADR-170; `CONTINUATION_mcp_server.md` opened, status IN PROGRESS).
+Maintainer signed off 2026-07-27 on the Phase-7 framing and all five Open
+Decisions (see "Decisions — LOCKED" below). This is the **active Phase-7 Tier-A
+epic**; the routine has left maintenance mode. Slice 2 (the MCP server + core
+`polaris_price_block` tool) is NEXT once Slice 1 merges.
 
 **Source / derivation.** Maintainer-requested 2026-07-27 (this session). The
 routine is in the post-roadmap maintenance inflection (`PRODUCT_DIRECTION_2026-07-24`
@@ -86,7 +87,7 @@ MCP server for the core `price` workflow; 3 adds stress/UQ + HTTP; 4 hardens wit
 evals + docs and closes the epic.
 
 ### Slice 1 — Service-layer extraction (engine-neutral refactor)
-- **Status:** PLANNED (NEXT once constituted)
+- **Status:** ✅ DONE (2026-07-28, ADR-170)
 - **Scope.** Create `src/polaris_re/services/pricing.py` with `run_price(req:
   PriceRequest) -> PriceResponse` (and stubs/plan for `run_scenario`, `run_uq`),
   extracting the logic currently inline in the `/api/v1/price` route body after
