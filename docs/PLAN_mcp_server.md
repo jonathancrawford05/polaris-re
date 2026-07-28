@@ -115,15 +115,57 @@ evals + docs and closes the epic.
   - `polaris_capabilities` — a **resource** listing valid product types, treaty
     types, capital models, reserve bases (the enums), so the agent discovers
     them instead of guessing.
-  - A console entry point `polaris-mcp` (pyproject `[project.scripts]`).
+  - A console entry point `polaris-mcp` (pyproject `[project.scripts]`, e.g.
+    `polaris-mcp = "polaris_re.mcp.server:main"` — mirrors the existing
+    `polaris = "polaris_re.cli:app"`).
+  - **A committed project-scope `.mcp.json`** at the repo root so the server is
+    one-command usable after `git clone` (no manual `claude mcp add`). It
+    registers the stdio server via `uv run polaris-mcp` with `--directory` and
+    the `POLARIS_DATA_DIR` env, e.g.:
+    ```jsonc
+    {
+      "mcpServers": {
+        "polaris": {
+          "command": "uv",
+          "args": ["run", "--directory", ".", "polaris-mcp"],
+          "env": { "POLARIS_DATA_DIR": "./data" }
+        }
+      }
+    }
+    ```
+    (Confirm whether relative `--directory .` / `./data` resolve correctly from
+    the client's launch CWD during Slice 2; fall back to a documented absolute
+    path in QUICKSTART if not.)
 - **Tests.** In-process tests that each tool returns valid structured output for
   the sample block and that `polaris_price_block` == `run_price` == the API for
-  the same inputs. Schema/annotation assertions (readOnly etc.). Dates pinned.
+  the same inputs. Schema/annotation assertions (readOnly etc.). Dates pinned. A
+  test that the committed `.mcp.json` is valid JSON and names the `polaris-mcp`
+  command (guards against the config rotting).
 - **Acceptance.** `polaris-mcp` boots over stdio; an agent can price the sample
-  block and get headline PVs/IRR; capabilities resource enumerates the enums.
+  block and get headline PVs/IRR; capabilities resource enumerates the enums;
+  the committed `.mcp.json` makes the server available after clone with no manual
+  registration.
 - **ADR.** MCP server architecture + tool/transport design.
-- **Docs.** QUICKSTART "Connect from Claude Code / Claude Desktop" (the
-  `claude mcp add` / config-JSON snippet).
+- **Docs — QUICKSTART "Connect from Claude Code / Claude Desktop"** must include,
+  concretely:
+  1. **Pre-warm the venv** so first launch beats the 30 s startup timeout:
+     `uv sync --extra mcp`.
+  2. **Standalone smoke-test with the MCP Inspector** (no Claude Code — browser
+     UI to call each tool and see raw JSON):
+     `npx @modelcontextprotocol/inspector -- uv run polaris-mcp`.
+  3. **Register with Claude Code** — the exact `claude mcp add` line (note the
+     `--` separates Claude's flags from the launch command, and the server name
+     must NOT sit directly after `--env`; keep `--scope` between them):
+     `claude mcp add --env POLARIS_DATA_DIR=/abs/path/to/polaris-re/data --scope local polaris -- uv run --directory /abs/path/to/polaris-re polaris-mcp`
+     — plus a note that committing/using the project-scope `.mcp.json` above is
+     the zero-config alternative for anyone who clones the repo.
+  4. **Verify + use**: `claude mcp list` / `claude mcp get polaris` and the
+     in-session `/mcp` panel to confirm it connected and lists the tools; then a
+     sample prompt ("price the `golden` sample block YRT 90% cession at 6%
+     discount, valuation 2025-01-01 — reinsurer IRR?").
+  5. **Debug + reload gotchas**: run `uv run polaris-mcp` directly to see stderr;
+     `MCP_TIMEOUT=60000 claude` for a slow cold start; stdio servers are **not**
+     hot-reloaded — exit and restart the session after changing server code.
 
 ### Slice 3 — Scenario + UQ tools, and streamable-HTTP transport
 - **Status:** PLANNED
