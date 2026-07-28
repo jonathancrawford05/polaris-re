@@ -843,6 +843,24 @@ production correctness → NICE-TO-HAVE.
   deferral) or a per-product aggregated headline could price all cohorts of a mixed
   block in one call. *Source: DEV_SESSION_LOG_2026-07-28 mcp_server_slice2 Open
   Questions (1st-order).* **NICE-TO-HAVE.**
+- **Service-layer DTO base-class convention (§5 vs the merged `BaseModel`
+  precedent).** CLAUDE.md §5 says every model inherits `PolarisBaseModel`, but the
+  transport/boundary DTOs deliberately deviated: `PolicyInput` / `PriceRequest` /
+  `PriceResponse` (`services/pricing.py`, Slice 1) and the MCP `PriceBlockResult`
+  (Slice 2) all use plain `BaseModel`. The PR #174 review raised this as a [P2] and
+  correctly recommended *no per-model flip* — a wrapper on `PolarisBaseModel` around
+  a family of plain-`BaseModel` DTOs is *more* internally inconsistent, not less.
+  Decide it family-wide in one ADR, not ad hoc. Evidence gathered this session:
+  switching is a **wash for the payload** — a parent model's `ConfigDict` does *not*
+  propagate to nested model instances, so `model_dump()` and the nested
+  `PriceResponse` serialise byte-identically either way (parity tests unaffected).
+  The *only* observable delta is that `extra="forbid"` adds
+  `"additionalProperties": false` to the **client-facing output/OpenAPI schema** of
+  each DTO — a boundary-contract tightening that a strict MCP/HTTP client validates
+  against, which is exactly why it should be a deliberate, family-wide decision with
+  the schema impact re-checked, not an incidental change inside a feature slice.
+  *Source: PR #174 review [P2] + follow-up analysis (1st-order — convention/design,
+  not correctness).* **NICE-TO-HAVE.**
 
 ---
 
