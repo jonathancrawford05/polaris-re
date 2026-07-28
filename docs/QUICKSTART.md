@@ -11,6 +11,7 @@ This guide covers four paths to get Polaris RE running and tested:
 7. [ML-Enhanced Assumptions](#7-ml-enhanced-assumptions) — training ML mortality/lapse models
 8. [YRT Rate Schedule](#8-yrt-rate-schedule-generation) — generating reinsurer rate tables
 9. [Deal Pricing & Excel Export](#9-deal-pricing--excel-export) — `polaris price` with `--excel-out`
+10. [Connect from Claude Code / Claude Desktop (MCP)](#10-connect-from-claude-code--claude-desktop-mcp) — drive the engine conversationally
 
 ---
 
@@ -1421,6 +1422,86 @@ from polaris_re.viz import plot_effects, plot_mi_surface, plot_mi_projection
 # Every band is captioned with its kind — confidence (frequentist) / credible (Bayesian) /
 # posterior-predictive (projection) — so the three are never conflated.
 ```
+
+---
+
+## 10. Connect from Claude Code / Claude Desktop (MCP)
+
+Polaris RE ships an **in-process MCP (Model Context Protocol) server** so you can
+drive the pricing engine conversationally from an agent host — "price the `golden`
+sample block YRT 90% cession at 6% discount, valuation 2025-01-01 — what's the
+reinsurer IRR?". The server calls the same `run_price` engine path as the REST API
+(no HTTP proxy, no `uvicorn` at runtime), so tool output matches the API exactly.
+
+It exposes two read-only tools — `polaris_price_block` (a named sample block or an
+inforce CSV path + high-level deal params) and `polaris_price` (a full inline
+`PriceRequest`) — plus a `polaris://capabilities` resource that enumerates the valid
+product types, treaty types, capital models, reserve bases, and sample-block ids.
+
+### Step 1 — Install the `[mcp]` extra (pre-warm the venv)
+
+Installing first means the first launch beats the 30 s MCP startup timeout:
+
+```bash
+uv sync --extra mcp        # adds the `mcp` SDK; or `uv sync --all-extras`
+```
+
+### Step 2 — Standalone smoke-test with the MCP Inspector
+
+No Claude Code required — a browser UI to call each tool and see the raw JSON:
+
+```bash
+POLARIS_DATA_DIR=./data npx @modelcontextprotocol/inspector -- uv run polaris-mcp
+```
+
+Or just run the server directly to see stderr (Ctrl+C to stop):
+
+```bash
+POLARIS_DATA_DIR=./data uv run polaris-mcp
+```
+
+### Step 3 — Register with Claude Code
+
+**Zero-config (recommended):** a project-scope `.mcp.json` is committed at the repo
+root, so a cloned checkout is one approval away — open Claude Code in the repo and
+accept the `polaris` server when prompted. It launches `uv run --directory .
+polaris-mcp` with `POLARIS_DATA_DIR=./data`.
+
+**Manual (absolute paths — most robust):** if the relative `--directory .` / `./data`
+in `.mcp.json` do not resolve from your client's launch CWD, register with absolute
+paths instead (note the `--` separates Claude's flags from the launch command, and
+keep `--scope` *between* `--env` and the server name):
+
+```bash
+claude mcp add --env POLARIS_DATA_DIR=/abs/path/to/polaris-re/data --scope local \
+  polaris -- uv run --directory /abs/path/to/polaris-re polaris-mcp
+```
+
+### Step 4 — Verify and use
+
+```bash
+claude mcp list            # confirms `polaris` is registered
+claude mcp get polaris     # shows the launch command + env
+```
+
+Inside a Claude Code session, the `/mcp` panel confirms it connected and lists the
+tools. Then try a prompt:
+
+> price the `golden` sample block YRT 90% cession at 6% discount, valuation
+> 2025-01-01 — what is the reinsurer IRR?
+
+Output is compact by default (a headline summary plus the structured response with
+the large per-year profit arrays cleared); ask for `detail` to get the full
+per-year arrays.
+
+### Debug + reload gotchas
+
+- Run `uv run polaris-mcp` directly to see server stderr.
+- Slow cold start? `MCP_TIMEOUT=60000 claude` raises the launch timeout.
+- stdio servers are **not** hot-reloaded — exit and restart the Claude Code session
+  after changing server code.
+- **MCP support lives in the host, not the model** — a local model (e.g. via ollama)
+  can drive the server only through an MCP-capable host.
 
 ---
 

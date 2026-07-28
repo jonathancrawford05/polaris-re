@@ -60,6 +60,9 @@ COPY data/inputs/portfolio_staggered_sample/ ./data/inputs/portfolio_staggered_s
 COPY pyproject.toml ./
 COPY Makefile ./
 COPY .env.example ./
+# Committed project-scope MCP config (ADR-171); tests/test_mcp/ asserts it names
+# the polaris-mcp command, and the runtime image runs the test suite.
+COPY .mcp.json ./
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

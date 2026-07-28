@@ -21,9 +21,9 @@ five LOCKED decisions before each slice.
 ## Decomposition
 
 ### Slice 1: Service-layer extraction (engine-neutral refactor)
-- **Status:** DONE
+- **Status:** DONE (merged)
 - **Branch:** `claude/loving-gauss-s03y22`
-- **PR:** _(this PR — draft)_
+- **PR:** #173 (merged 2026-07-28)
 - **What was done:** Created `src/polaris_re/services/pricing.py` owning
   `run_price(request: PriceRequest) -> PriceResponse` plus the request/response
   contracts (`PolicyInput` / `PriceRequest` / `PriceResponse`) and the
@@ -47,36 +47,43 @@ five LOCKED decisions before each slice.
     before wiring the scenario/uq MCP tools.
 
 ### Slice 2: MCP server + core `polaris_price_block` tool (stdio)
-- **Status:** NEXT
-- **Depends on:** Slice 1 merged.
-- **Files to create/modify:** new `src/polaris_re/mcp/` package
-  (`server.py`, `__init__.py`); a staged `[mcp]` extra in `pyproject.toml`
-  (`mcp` / `fastmcp`, added in the slice that first imports it); a
-  `polaris-mcp` console entry point (`[project.scripts]`); a committed
-  project-scope `.mcp.json` at the repo root; QUICKSTART "Connect from Claude
-  Code / Claude Desktop" section.
-- **Tools to expose:** `polaris_price_block` (inforce file path **or** a built-in
-  sample id like `"golden"` + high-level deal params, **valuation_date
-  required**, `detail=false` default → structured `PriceResponse` + a compact
-  text summary via `run_price`); `polaris_price` (full inline-`policies[]`);
-  `polaris_capabilities` (a resource enumerating product / treaty / capital /
-  reserve-basis enums). Read-only annotations
-  (`readOnlyHint=true, idempotentHint=true, destructiveHint=false, openWorldHint=false`).
-- **Tests to add:** in-process tests that each tool returns valid structured
-  output for the sample block and that `polaris_price_block == run_price == the
-  API` for the same inputs; schema/annotation assertions; dates pinned; a test
-  that the committed `.mcp.json` is valid JSON and names the `polaris-mcp`
-  command.
-- **Acceptance criteria:**
-  - `polaris-mcp` boots over stdio; an agent can price the sample block and get
-    headline PVs/IRR.
-  - The capabilities resource enumerates the enums.
-  - The committed `.mcp.json` makes the server available after clone with no
-    manual registration.
-- **ADR:** MCP server architecture + tool/transport design.
+- **Status:** DONE (draft PR — awaiting merge)
+- **Branch:** `claude/loving-gauss-m45k5w` (environment-designated)
+- **PR:** _(this slice — draft)_
+- **What was done:** Added `src/polaris_re/mcp/` (`server.py`, `__init__.py`)
+  hosting a FastMCP stdio server (`mcp` official SDK, staged into a new `[mcp]`
+  extra + the dev group). Three surfaces: `polaris_price_block` (inforce
+  reference — the `"golden"` sample id or a CSV path — plus high-level deal
+  params, **required `valuation_date`** that re-values the block, product-type
+  filtered because a single `run_price` covers one engine); `polaris_price` (full
+  inline `PriceRequest`, schema derived from the contract); and a
+  `polaris://capabilities` resource enumerating the priceable enums + sample ids.
+  Every pricing tool wraps `run_price` and returns a compact-by-default
+  `PriceBlockResult` (`summary` + full `price`, per-year arrays gated on
+  `detail`), with read-only annotations and actionable `ToolError`s. A
+  `polaris-mcp` console entry point, a committed project-scope `.mcp.json`, a
+  QUICKSTART §10 "Connect from Claude Code / Claude Desktop" section, and the
+  `.mcp.json` COPY into the Dockerfile. ADR-171. Additive — golden configs +
+  API suite byte-identical.
+- **Key decisions (affect later slices):**
+  - The `mcp` SDK (bundled FastMCP), not standalone `fastmcp`, is pinned in the
+    `[mcp]` extra. Slice 3's scenario/uq tools reuse the same `FastMCP` instance
+    (`polaris_re.mcp.server.mcp`).
+  - Tools return the `PriceBlockResult` wrapper (`summary` + `price`) rather than a
+    bare `PriceResponse`, because FastMCP's high-level decorator serialises one
+    return value into both structured content and JSON text — the summary field +
+    `detail` array-gating carry the compact-output intent. Slice 3's tools should
+    follow the same wrapper shape for consistency.
+  - `run_scenario` / `run_uq` are still inline in `api/main.py`; Slice 3 extracts
+    them into `services/` first (same pattern as Slice 1) before wiring their tools.
+- **Acceptance criteria:** ✅ `polaris-mcp` boots over stdio and prices the sample
+  block (headline PVs/IRR via the `summary`); ✅ capabilities resource enumerates
+  the enums; ✅ committed `.mcp.json` names `polaris-mcp` + sets `POLARIS_DATA_DIR`;
+  ✅ `polaris_price_block == run_price == the API` (35 tests).
+- **ADR:** ADR-171 (MCP server architecture + tool design).
 
 ### Slice 3: Scenario + UQ tools, and streamable-HTTP transport
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 2 merged.
 - **Scope:** first extract `run_scenario` / `run_uq` into `services/` (same
   pattern as Slice 1), then add `polaris_run_scenario` (standard stress set) and

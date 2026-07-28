@@ -804,6 +804,46 @@ correctness → NICE-TO-HAVE.
 > (WholeLife / UL / DI-CI)" (B2 scale-benchmark group). The perf harness already
 > accepts a caller-supplied engine, so it is not blocked. No duplicate created.
 
+### Harvested 2026-07-28 — MCP Server epic, Slice 2 (ADR-171)
+
+The scenario/UQ tools + HTTP transport (Slice 3) and the eval set + hardening
+(Slice 4) are future slices of the **active** MCP epic, tracked in
+`CONTINUATION_mcp_server.md` (visible to the next routine run via step 5/5b), so
+they are **not** re-promoted here as loose items. The genuinely-new loose
+out-of-scope follow-ups are promoted below. All are 1st-order (follow-ups of the
+originally-planned MCP epic) and extend the agent-access surface or polish it, not
+production correctness → NICE-TO-HAVE.
+
+- **MCP tools for the remaining `run_*` endpoints (ifrs17 / ingest / rate-schedule
+  / portfolio).** Slices 1–4 cover the price/scenario/uq core. Each remaining
+  endpoint is another `run_*` service extraction + a thin tool once the pattern is
+  proven. *Source: ADR-171 Out of scope + PLAN_mcp_server Out of Scope (1st-order).*
+  **NICE-TO-HAVE.**
+- **MCP prompt templates and MCPB / desktop-extension packaging.** MCP prompt
+  templates for common deal-pricing flows, plus a packaged desktop extension and a
+  published-registry entry, so the server installs without a manual `claude mcp
+  add`. *Source: ADR-171 Out of scope + PLAN_mcp_server Out of Scope (1st-order).*
+  **NICE-TO-HAVE.**
+- **Genuinely-distinct compact text content block for MCP tool results.** FastMCP's
+  high-level decorator emits one serialised value as both structured content and
+  JSON text; the compact-output intent is currently carried by the
+  `PriceBlockResult.summary` field + `detail` array-gating. A dedicated short text
+  block (dropping to the lower-level `CallToolResult`) would shrink the text
+  content further for context-tight hosts. *Source: DEV_SESSION_LOG_2026-07-28
+  mcp_server_slice2 Open Questions (1st-order).* **NICE-TO-HAVE.**
+- **Confirm `.mcp.json` relative-path resolution on a real host.** The committed
+  config uses `--directory .` / `./data`; whether these resolve from an arbitrary
+  Claude Code launch CWD is untested end-to-end (QUICKSTART documents the
+  absolute-path `claude mcp add` fallback). Verify during Slice 4 hardening.
+  *Source: DEV_SESSION_LOG_2026-07-28 mcp_server_slice2 Open Questions (1st-order).*
+  **NICE-TO-HAVE.**
+- **Per-product / named-block headline for a mixed sample block.**
+  `polaris_price_block` prices only the policies matching `product_type`
+  (transparent via `n_policies`); a future named-block registry (a locked v1
+  deferral) or a per-product aggregated headline could price all cohorts of a mixed
+  block in one call. *Source: DEV_SESSION_LOG_2026-07-28 mcp_server_slice2 Open
+  Questions (1st-order).* **NICE-TO-HAVE.**
+
 ---
 
 ## Comparison with Previous Assessment
