@@ -83,9 +83,9 @@ five LOCKED decisions before each slice.
 - **ADR:** ADR-171 (MCP server architecture + tool design).
 
 ### Slice 3: Scenario + UQ service extraction + MCP tools
-- **Status:** DONE (draft PR — awaiting merge)
+- **Status:** DONE (draft PR #175 — awaiting merge)
 - **Branch:** `claude/loving-gauss-mlp5ki` (environment-designated)
-- **PR:** _(this slice — draft)_
+- **PR:** #175 (draft)
 - **What was done:** Extracted `run_scenario(ScenarioRequest) -> ScenarioResponse`
   and `run_uq(UQRequest) -> UQResponse` into `services/pricing.py` (moving the
   `Scenario*` / `UQ*` contracts and the `_resolve_perspective` helper out of

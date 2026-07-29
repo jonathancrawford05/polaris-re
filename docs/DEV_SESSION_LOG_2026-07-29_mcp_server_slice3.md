@@ -36,7 +36,7 @@ returned only the two Slice-2 pricing tools. Premise confirmed.
 |-------|-------|--------|----|
 | 1 | Service-layer extraction (`run_price`) | ✅ Done | #173 |
 | 2 | MCP server + core `polaris_price_block` tool (stdio) | ✅ Done | #174 |
-| 3 | Scenario + UQ service extraction + MCP tools | ✅ Done (this PR) | _(draft)_ |
+| 3 | Scenario + UQ service extraction + MCP tools | ✅ Done | #175 (draft) |
 | 3b | Streamable-HTTP transport (split from Slice 3) | ⏳ Next | — |
 | 4 | Evals, hardening, docs (closes epic) | 🔲 Planned | — |
 
