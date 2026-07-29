@@ -2,12 +2,17 @@
 Polaris RE — MCP (Model Context Protocol) server.
 
 Exposes the deterministic, read-only pricing engine to agent hosts (Claude Code /
-Claude Desktop) as an **in-process** stdio MCP server (MCP-server epic Slice 2;
-``docs/PLAN_mcp_server.md``). Every tool is a thin wrapper over the shared
-service-layer entry point :func:`polaris_re.services.pricing.run_price` (extracted
-in Slice 1, ADR-170) — the same in-process engine path the FastAPI
-``POST /api/v1/price`` route delegates to — so an MCP tool call, an API request,
-and a batch script all invoke one engine path with no second mapping to drift.
+Claude Desktop) as an **in-process** stdio MCP server (MCP-server epic Slices 2-3;
+``docs/PLAN_mcp_server.md``). Every tool is a thin wrapper over a shared
+service-layer entry point in :mod:`polaris_re.services.pricing` — ``run_price``
+(Slice 1, ADR-170), ``run_scenario`` and ``run_uq`` (Slice 3, ADR-172) — the same
+in-process engine paths the FastAPI ``/api/v1/price`` / ``/scenario`` / ``/uq``
+routes delegate to, so an MCP tool call, an API request, and a batch script all
+invoke one engine path with no second mapping to drift.
+
+Tools: ``polaris_price_block`` / ``polaris_price`` (deal pricing),
+``polaris_run_scenario`` (standard stress set) and ``polaris_run_uq`` (Monte-Carlo
+profit bands), plus the ``polaris://capabilities`` resource.
 
 Design anchors (from the plan, LOCKED 2026-07-27):
 
@@ -60,13 +65,23 @@ from polaris_re.services.pricing import (
     PolicyInput,
     PriceRequest,
     PriceResponse,
+    ScenarioRequest,
+    ScenarioResponse,
+    UQRequest,
+    UQResponse,
     run_price,
+    run_scenario,
+    run_uq,
 )
 from polaris_re.utils.date_utils import months_between
 
 __all__ = [
     "PriceBlockResult",
+    "ScenarioBlockResult",
+    "UQBlockResult",
     "build_price_request_from_block",
+    "build_scenario_request_from_block",
+    "build_uq_request_from_block",
     "load_sample_block_ids",
     "main",
     "mcp",
@@ -132,6 +147,44 @@ class PriceBlockResult(BaseModel):
     )
 
 
+class ScenarioBlockResult(BaseModel):
+    """Compact MCP stress-scenario result (mirrors :class:`PriceBlockResult`).
+
+    ``summary`` is a short human headline — the base run plus each stressed
+    scenario's PV profit and IRR under the effective perspective — so an agent
+    reads the stress deltas without parsing the full payload. ``scenario`` is the
+    full typed :class:`ScenarioResponse` (already compact: a per-scenario summary
+    list, no per-year arrays), byte-identical to ``run_scenario(request)`` and the
+    REST API.
+    """
+
+    summary: str = Field(
+        description=(
+            "One-line headline: the effective perspective and each scenario's PV "
+            "profit and IRR (base first), so the stress deltas read at a glance."
+        )
+    )
+    scenario: ScenarioResponse = Field(description="Full structured scenario response.")
+
+
+class UQBlockResult(BaseModel):
+    """Compact MCP Monte-Carlo-UQ result (mirrors :class:`PriceBlockResult`).
+
+    ``summary`` is a short human headline — the base PV profit plus the P5 / P50 /
+    P95 band and the 95% VaR / CVaR under the effective perspective. ``uq`` is the
+    full typed :class:`UQResponse` (already compact: scalar percentiles, no
+    per-scenario arrays), byte-identical to ``run_uq(request)`` and the REST API.
+    """
+
+    summary: str = Field(
+        description=(
+            "One-line headline: the effective perspective, base PV profit, the "
+            "P5/P50/P95 profit band, and the 95% VaR / CVaR."
+        )
+    )
+    uq: UQResponse = Field(description="Full structured uncertainty-quantification response.")
+
+
 # ---------------------------------------------------------------------------
 # Helpers — inforce resolution, block loading, request assembly, summary
 # ---------------------------------------------------------------------------
@@ -176,25 +229,16 @@ def _resolve_inforce_path(inforce: str) -> Path:
     return path
 
 
-def build_price_request_from_block(
+def _load_block_policies(
     *,
     inforce: str,
     valuation_date: date,
-    product_type: str = "TERM",
-    treaty_type: str | None = "YRT",
-    cession_pct: float = 0.90,
-    discount_rate: float = 0.06,
-    hurdle_rate: float = 0.10,
-    projection_horizon_years: int = 20,
-    reserve_basis: ReserveBasis = ReserveBasis.NET_PREMIUM,
-    capital_model: CapitalModelId | None = None,
-    available_capital: float | None = None,
-    flat_qx: float = 0.003,
-    flat_lapse: float = 0.05,
-    acquisition_cost_per_policy: float = 0.0,
-    maintenance_cost_per_policy_per_year: float = 0.0,
-) -> PriceRequest:
-    """Assemble a :class:`PriceRequest` from an inforce reference + deal params.
+    product_type: str,
+) -> list[PolicyInput]:
+    """Load an inforce reference into re-valued :class:`PolicyInput` rows.
+
+    Shared by every ``build_*_request_from_block`` helper (price / scenario / uq)
+    so the three tools resolve, filter, and re-value a block identically.
 
     The block is loaded via :meth:`InforceBlock.from_csv` (which validates the
     source CSV's own age/duration columns against its embedded valuation date,
@@ -204,10 +248,9 @@ def build_price_request_from_block(
     valuation date. This is the actuarial "value this block as of <date>"
     semantics and keeps the run reproducible (never ``date.today()``).
 
-    ``run_price`` prices a single product engine, so only the policies whose
-    ``product_type`` matches ``product_type`` are included (a sample block such as
-    ``"golden"`` mixes TERM and WHOLE_LIFE); the assembled request's
-    ``n_policies`` reflects the filtered count, and a block with no matching
+    Every engine workflow prices a single product engine, so only the policies
+    whose ``product_type`` matches ``product_type`` are returned (a sample block
+    such as ``"golden"`` mixes TERM and WHOLE_LIFE). A block with no matching
     policies raises :class:`ToolError` naming the product types it does contain.
 
     Raises :class:`PolarisValidationError` / ``ValueError`` for an unusable block
@@ -227,7 +270,7 @@ def build_price_request_from_block(
         raise ToolError(
             f"No {wanted.value} policies in inforce {inforce!r} "
             f"(it contains: {present}). Set product_type to one of those, since a "
-            "single price run covers one product engine."
+            "single run covers one product engine."
         )
 
     policies: list[PolicyInput] = []
@@ -253,7 +296,37 @@ def build_price_request_from_block(
                 credited_rate=p.credited_rate if p.credited_rate is not None else 0.0,
             )
         )
+    return policies
 
+
+def build_price_request_from_block(
+    *,
+    inforce: str,
+    valuation_date: date,
+    product_type: str = "TERM",
+    treaty_type: str | None = "YRT",
+    cession_pct: float = 0.90,
+    discount_rate: float = 0.06,
+    hurdle_rate: float = 0.10,
+    projection_horizon_years: int = 20,
+    reserve_basis: ReserveBasis = ReserveBasis.NET_PREMIUM,
+    capital_model: CapitalModelId | None = None,
+    available_capital: float | None = None,
+    flat_qx: float = 0.003,
+    flat_lapse: float = 0.05,
+    acquisition_cost_per_policy: float = 0.0,
+    maintenance_cost_per_policy_per_year: float = 0.0,
+) -> PriceRequest:
+    """Assemble a :class:`PriceRequest` from an inforce reference + deal params.
+
+    The block is loaded and re-valued to ``valuation_date`` via
+    :func:`_load_block_policies` (ADR-074 semantics; only ``product_type``
+    policies are kept, since ``run_price`` prices one product engine). The
+    assembled request's ``n_policies`` reflects the filtered count.
+    """
+    policies = _load_block_policies(
+        inforce=inforce, valuation_date=valuation_date, product_type=product_type
+    )
     return PriceRequest(
         policies=policies,
         product_type=product_type,
@@ -265,6 +338,100 @@ def build_price_request_from_block(
         reserve_basis=reserve_basis,
         capital_model=capital_model,
         available_capital=available_capital,
+        flat_qx=flat_qx,
+        flat_lapse=flat_lapse,
+        acquisition_cost_per_policy=acquisition_cost_per_policy,
+        maintenance_cost_per_policy_per_year=maintenance_cost_per_policy_per_year,
+    )
+
+
+def build_scenario_request_from_block(
+    *,
+    inforce: str,
+    valuation_date: date,
+    product_type: str = "TERM",
+    treaty_type: str | None = "YRT",
+    cession_pct: float = 0.90,
+    discount_rate: float = 0.06,
+    hurdle_rate: float = 0.10,
+    projection_horizon_years: int = 20,
+    perspective: str = "reinsurer",
+    flat_qx: float = 0.003,
+    flat_lapse: float = 0.05,
+    acquisition_cost_per_policy: float = 0.0,
+    maintenance_cost_per_policy_per_year: float = 0.0,
+) -> ScenarioRequest:
+    """Assemble a :class:`ScenarioRequest` from an inforce reference + deal params.
+
+    Loads and re-values the block exactly as :func:`build_price_request_from_block`
+    does (via :func:`_load_block_policies`), then wraps it in the scenario contract.
+    The ``perspective`` (``"reinsurer"`` default, ADR-078) is downgraded to
+    ``"cedant"`` inside ``run_scenario`` when no treaty is configured.
+    """
+    policies = _load_block_policies(
+        inforce=inforce, valuation_date=valuation_date, product_type=product_type
+    )
+    return ScenarioRequest(
+        policies=policies,
+        product_type=product_type,
+        treaty_type=treaty_type,
+        cession_pct=cession_pct,
+        discount_rate=discount_rate,
+        hurdle_rate=hurdle_rate,
+        projection_horizon_years=projection_horizon_years,
+        perspective=perspective,  # type: ignore[arg-type]
+        flat_qx=flat_qx,
+        flat_lapse=flat_lapse,
+        acquisition_cost_per_policy=acquisition_cost_per_policy,
+        maintenance_cost_per_policy_per_year=maintenance_cost_per_policy_per_year,
+    )
+
+
+def build_uq_request_from_block(
+    *,
+    inforce: str,
+    valuation_date: date,
+    product_type: str = "TERM",
+    treaty_type: str | None = "YRT",
+    cession_pct: float = 0.90,
+    discount_rate: float = 0.06,
+    hurdle_rate: float = 0.10,
+    projection_horizon_years: int = 20,
+    perspective: str = "reinsurer",
+    n_scenarios: int = 200,
+    seed: int = 42,
+    mortality_log_sigma: float = 0.10,
+    lapse_log_sigma: float = 0.15,
+    interest_rate_sigma: float = 0.005,
+    flat_qx: float = 0.003,
+    flat_lapse: float = 0.05,
+    acquisition_cost_per_policy: float = 0.0,
+    maintenance_cost_per_policy_per_year: float = 0.0,
+) -> UQRequest:
+    """Assemble a :class:`UQRequest` from an inforce reference + deal params.
+
+    Loads and re-values the block exactly as :func:`build_price_request_from_block`
+    does (via :func:`_load_block_policies`), then wraps it in the Monte-Carlo-UQ
+    contract. ``seed`` (default 42) makes the sampled distribution reproducible;
+    ``n_scenarios`` sets the sample count and the sigmas the assumption spreads.
+    """
+    policies = _load_block_policies(
+        inforce=inforce, valuation_date=valuation_date, product_type=product_type
+    )
+    return UQRequest(
+        policies=policies,
+        product_type=product_type,
+        treaty_type=treaty_type,
+        cession_pct=cession_pct,
+        discount_rate=discount_rate,
+        hurdle_rate=hurdle_rate,
+        projection_horizon_years=projection_horizon_years,
+        perspective=perspective,  # type: ignore[arg-type]
+        n_scenarios=n_scenarios,
+        seed=seed,
+        mortality_log_sigma=mortality_log_sigma,
+        lapse_log_sigma=lapse_log_sigma,
+        interest_rate_sigma=interest_rate_sigma,
         flat_qx=flat_qx,
         flat_lapse=flat_lapse,
         acquisition_cost_per_policy=acquisition_cost_per_policy,
@@ -319,6 +486,55 @@ def _price(request: PriceRequest, *, detail: bool) -> PriceBlockResult:
     return _to_block_result(response, detail=detail)
 
 
+def _summarise_scenario(response: ScenarioResponse) -> str:
+    """Build the one-line headline for :class:`ScenarioBlockResult`.
+
+    Lists each scenario's PV profit and IRR under the effective perspective so an
+    agent reads the stress deltas at a glance (the ``ScenarioRunner`` puts the
+    base run first).
+    """
+    parts = [f"{response.n_scenarios} scenarios ({response.perspective} view):"]
+    parts.extend(
+        f"{s.scenario_name} PV profit {_fmt_money(s.pv_profits)} (IRR {_fmt_pct(s.irr)})."
+        for s in response.scenarios
+    )
+    return " ".join(parts)
+
+
+def _summarise_uq(response: UQResponse) -> str:
+    """Build the one-line headline for :class:`UQBlockResult`.
+
+    Reports the base PV profit, the P5 / P50 / P95 band, and the 95% VaR / CVaR
+    under the effective perspective.
+    """
+    return (
+        f"{response.n_scenarios} sims, seed {response.seed} ({response.perspective} view). "
+        f"Base PV profit {_fmt_money(response.base_pv_profit)} "
+        f"(IRR {_fmt_pct(response.base_irr)}). "
+        f"PV profit band P5 {_fmt_money(response.p5_pv_profit)} / "
+        f"P50 {_fmt_money(response.p50_pv_profit)} / P95 {_fmt_money(response.p95_pv_profit)}. "
+        f"95% VaR {_fmt_money(response.var_95)}, CVaR {_fmt_money(response.cvar_95)}."
+    )
+
+
+def _scenario(request: ScenarioRequest) -> ScenarioBlockResult:
+    """Run ``run_scenario`` and map any domain failure to an actionable tool error."""
+    try:
+        response = run_scenario(request)
+    except (PolarisValidationError, ValueError) as exc:
+        raise ToolError(f"Scenario analysis failed: {exc}") from exc
+    return ScenarioBlockResult(summary=_summarise_scenario(response), scenario=response)
+
+
+def _uq(request: UQRequest) -> UQBlockResult:
+    """Run ``run_uq`` and map any domain failure to an actionable tool error."""
+    try:
+        response = run_uq(request)
+    except (PolarisValidationError, ValueError) as exc:
+        raise ToolError(f"Uncertainty quantification failed: {exc}") from exc
+    return UQBlockResult(summary=_summarise_uq(response), uq=response)
+
+
 # ---------------------------------------------------------------------------
 # Server + tools
 # ---------------------------------------------------------------------------
@@ -331,9 +547,12 @@ mcp = FastMCP(
         "inforce CSV with high-level deal params; use polaris_price for inline "
         "policies. Read the polaris://capabilities resource for the valid product "
         "types, treaty types, capital models, reserve bases, and sample block ids. "
-        "Every pricing tool requires an explicit valuation_date so quotes are "
-        "reproducible; results are compact by default (pass detail=true for the "
-        "full per-year profit arrays)."
+        "Use polaris_run_scenario to stress the block under the standard scenario "
+        "set (mortality shock, lapse stress, rate shock) and read the PV/IRR delta, "
+        "and polaris_run_uq for Monte-Carlo profit bands (P5/P50/P95, VaR/CVaR). "
+        "Every tool requires an explicit valuation_date so quotes are reproducible "
+        "(polaris_run_uq also takes a seed); the price tools are compact by default "
+        "(pass detail=true for the full per-year profit arrays)."
     ),
 )
 
@@ -407,6 +626,114 @@ def polaris_price(request: PriceRequest, detail: bool = False) -> PriceBlockResu
     default; pass ``detail=true`` for the full per-year profit arrays.
     """
     return _price(request, detail=detail)
+
+
+@mcp.tool(
+    title="Stress an inforce block",
+    annotations=_READ_ONLY,
+)
+def polaris_run_scenario(
+    valuation_date: date,
+    inforce: str = "golden",
+    product_type: str = "TERM",
+    treaty_type: str | None = "YRT",
+    cession_pct: float = 0.90,
+    discount_rate: float = 0.06,
+    hurdle_rate: float = 0.10,
+    projection_horizon_years: int = 20,
+    perspective: str = "reinsurer",
+    flat_qx: float = 0.003,
+    flat_lapse: float = 0.05,
+    acquisition_cost_per_policy: float = 0.0,
+    maintenance_cost_per_policy_per_year: float = 0.0,
+) -> ScenarioBlockResult:
+    """Run the standard stress-scenario set on a named sample block or inforce CSV.
+
+    Applies the pre-defined stress scenarios (base, mortality shock, lapse stress,
+    rate shock) to the block and returns each scenario's PV profit, profit margin,
+    and IRR — so an agent can read the stress sensitivity of a deal. ``inforce`` and
+    ``valuation_date`` behave exactly as in ``polaris_price_block`` (the block is
+    re-valued to the pinned date). ``perspective`` (``"reinsurer"`` default,
+    ADR-078) is downgraded to ``"cedant"`` when ``treaty_type`` is null.
+
+    ``flat_qx`` / ``flat_lapse`` drive the demo flat-rate assumption table this
+    engine path uses (0.003 / 0.05 mirror the golden QA block).
+    """
+    request = build_scenario_request_from_block(
+        inforce=inforce,
+        valuation_date=valuation_date,
+        product_type=product_type,
+        treaty_type=treaty_type,
+        cession_pct=cession_pct,
+        discount_rate=discount_rate,
+        hurdle_rate=hurdle_rate,
+        projection_horizon_years=projection_horizon_years,
+        perspective=perspective,
+        flat_qx=flat_qx,
+        flat_lapse=flat_lapse,
+        acquisition_cost_per_policy=acquisition_cost_per_policy,
+        maintenance_cost_per_policy_per_year=maintenance_cost_per_policy_per_year,
+    )
+    return _scenario(request)
+
+
+@mcp.tool(
+    title="Monte-Carlo UQ on an inforce block",
+    annotations=_READ_ONLY,
+)
+def polaris_run_uq(
+    valuation_date: date,
+    inforce: str = "golden",
+    product_type: str = "TERM",
+    treaty_type: str | None = "YRT",
+    cession_pct: float = 0.90,
+    discount_rate: float = 0.06,
+    hurdle_rate: float = 0.10,
+    projection_horizon_years: int = 20,
+    perspective: str = "reinsurer",
+    n_scenarios: int = 200,
+    seed: int = 42,
+    mortality_log_sigma: float = 0.10,
+    lapse_log_sigma: float = 0.15,
+    interest_rate_sigma: float = 0.005,
+    flat_qx: float = 0.003,
+    flat_lapse: float = 0.05,
+    acquisition_cost_per_policy: float = 0.0,
+    maintenance_cost_per_policy_per_year: float = 0.0,
+) -> UQBlockResult:
+    """Run Monte-Carlo uncertainty quantification on a sample block or inforce CSV.
+
+    Samples assumption multipliers from LogNormal (mortality, lapse) and Normal
+    (interest-rate) distributions and returns the profit distribution: base PV
+    profit, the P5 / P50 / P95 band, the 95% VaR / CVaR, and the margin band — so
+    an agent can read the downside risk of a deal. ``inforce`` and
+    ``valuation_date`` behave exactly as in ``polaris_price_block``. ``seed``
+    (default 42) makes the sampled distribution reproducible (ADR-074 discipline);
+    ``n_scenarios`` sets the sample count and the sigmas the assumption spreads.
+    ``perspective`` (``"reinsurer"`` default, ADR-078) is downgraded to ``"cedant"``
+    when ``treaty_type`` is null.
+    """
+    request = build_uq_request_from_block(
+        inforce=inforce,
+        valuation_date=valuation_date,
+        product_type=product_type,
+        treaty_type=treaty_type,
+        cession_pct=cession_pct,
+        discount_rate=discount_rate,
+        hurdle_rate=hurdle_rate,
+        projection_horizon_years=projection_horizon_years,
+        perspective=perspective,
+        n_scenarios=n_scenarios,
+        seed=seed,
+        mortality_log_sigma=mortality_log_sigma,
+        lapse_log_sigma=lapse_log_sigma,
+        interest_rate_sigma=interest_rate_sigma,
+        flat_qx=flat_qx,
+        flat_lapse=flat_lapse,
+        acquisition_cost_per_policy=acquisition_cost_per_policy,
+        maintenance_cost_per_policy_per_year=maintenance_cost_per_policy_per_year,
+    )
+    return _uq(request)
 
 
 @mcp.resource(

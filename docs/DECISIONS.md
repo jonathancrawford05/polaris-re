@@ -11356,3 +11356,69 @@ pattern is proven); MCP prompt templates and desktop-extension (MCPB) packaging.
 The `.mcp.json` uses relative `--directory .` / `./data`; whether those resolve
 from an arbitrary client launch CWD is documented in QUICKSTART with an absolute-path
 fallback (`claude mcp add`).
+
+## ADR-172: MCP scenario + UQ tools over an extended service layer (MCP-server epic Slice 3)
+
+**Date:** 2026-07-29
+**Status:** Accepted
+
+**Context:** Slice 2 (ADR-171) shipped the core `polaris_price_block` / `polaris_price`
+MCP tools over the `run_price` service (ADR-170). The plan's Slice 3
+(`docs/PLAN_mcp_server.md`, the active Phase-7 Tier-A epic) adds the two remaining
+core analytics an actuary drives conversationally — *stress a priced block and read
+the IRR delta* (`ScenarioRunner`) and *see the Monte-Carlo profit bands*
+(`MonteCarloUQ`) — plus, as originally scoped, an optional streamable-HTTP transport.
+The scenario and UQ engine-invocation logic still lived inline in the FastAPI
+`POST /api/v1/scenario` and `/api/v1/uq` route bodies, so the MCP tools had no shared
+path to wrap (the same gap Slice 1 closed for pricing).
+
+**Decision:** Extract the scenario and UQ workflows into the service layer and wrap
+them as MCP tools, mirroring the Slice 1 + Slice 2 pattern exactly:
+
+- **Service extraction (same as ADR-170).** Move `ScenarioRequest` / `ScenarioSummary`
+  / `ScenarioResponse` / `UQRequest` / `UQResponse` and the perspective-resolution
+  helper (`_resolve_perspective`, ADR-078) out of `api/main.py` into
+  `services/pricing.py`, and add `run_scenario(ScenarioRequest) -> ScenarioResponse`
+  and `run_uq(UQRequest) -> UQResponse` holding the verbatim engine logic (build
+  components → gross projection → treaty → `ScenarioRunner` / `MonteCarloUQ`). Both
+  routes become thin adapters that delegate and map any domain error to HTTP 422 —
+  observably byte-identical, since the prior inline bodies already re-wrapped every
+  error into 422. `api/main.py` re-imports the moved contracts so every prior import
+  path (e.g. `from polaris_re.api.main import ScenarioRequest, UQRequest`) and the
+  OpenAPI schema are unchanged. The service module stays web-framework-free.
+- **MCP tools.** `polaris_run_scenario` (standard stress set) and `polaris_run_uq`
+  (Monte-Carlo bands) take an *inforce reference* + high-level deal params, exactly
+  like `polaris_price_block`. A shared `_load_block_policies` helper (refactored out
+  of `build_price_request_from_block`) resolves, filters, and re-values the block once
+  for all three tools, so their loading semantics cannot drift. Each tool returns a
+  compact wrapper (`ScenarioBlockResult` / `UQBlockResult`: a `summary` headline +
+  the full typed response), matching the Slice 2 `PriceBlockResult` shape; the
+  scenario/UQ responses are already compact (a summary list / scalar percentiles), so
+  no array gating is needed.
+
+**Key decisions:**
+
+- **Reproducibility (ADR-074).** `polaris_run_scenario` / `polaris_run_uq` require an
+  explicit `valuation_date` (never `date.today()`); `polaris_run_uq` also takes a
+  `seed` (default 42) so a sampled distribution is byte-identical run to run — a test
+  asserts two same-seed runs match.
+- **Perspective resolution (ADR-078) lives in the service.** `run_scenario` / `run_uq`
+  resolve a requested `"reinsurer"` perspective down to `"cedant"` when no treaty is
+  configured, so the CLI, REST API, and MCP tools share one rule.
+- **Read-only annotations + actionable errors** carry over unchanged from Slice 2.
+
+**Consequences / backward compatibility:** Additive on the engine — no pricing number
+moves. `polaris price` on all four golden configs is byte-identical; the full API
+suite (including the scenario/UQ perspective tests that import the moved contracts and
+call the service helpers via `api.main`) passes unchanged. New tests assert
+route↔service parity for scenario/UQ, MCP tool ↔ `run_*` ↔ REST parity, the read-only
+annotations / structured-output schemas, seed reproducibility, the summary headlines,
+and the actionable-error paths.
+
+**Out of scope (this slice, harvested to PRODUCT_DIRECTION):** the optional
+streamable-HTTP (stateless JSON) transport reusing `APIKeyAuthMiddleware` — originally
+bundled into Slice 3, split out to a follow-on **Slice 3b** to keep this PR to the
+higher-value analytics tools and one reviewable, byte-identical change (stdio remains
+the only transport, which is what Claude Code / Claude Desktop spawn). Also deferred:
+the Slice-4 eval set + error-message hardening; ifrs17 / ingest / rate-schedule /
+portfolio tools (post-epic).

@@ -3,8 +3,8 @@
 **Source:** `docs/PLAN_mcp_server.md` — active **Phase-7 Tier-A epic**
 (maintainer-constituted 2026-07-27; ends the routine's maintenance mode).
 **Status:** IN PROGRESS
-**Total slices:** 4
-**Estimated total scope:** ~6–8 dev-days (4 mergeable slices)
+**Total slices:** 5 (Slice 3 split into 3 + 3b — see Decomposition)
+**Estimated total scope:** ~6–8 dev-days (5 mergeable slices)
 
 ## Overall Goal
 
@@ -47,9 +47,9 @@ five LOCKED decisions before each slice.
     before wiring the scenario/uq MCP tools.
 
 ### Slice 2: MCP server + core `polaris_price_block` tool (stdio)
-- **Status:** DONE (draft PR — awaiting merge)
+- **Status:** DONE (merged)
 - **Branch:** `claude/loving-gauss-m45k5w` (environment-designated)
-- **PR:** _(this slice — draft)_
+- **PR:** #174 (merged 2026-07-28)
 - **What was done:** Added `src/polaris_re/mcp/` (`server.py`, `__init__.py`)
   hosting a FastMCP stdio server (`mcp` official SDK, staged into a new `[mcp]`
   extra + the dev group). Three surfaces: `polaris_price_block` (inforce
@@ -82,21 +82,52 @@ five LOCKED decisions before each slice.
   ✅ `polaris_price_block == run_price == the API` (35 tests).
 - **ADR:** ADR-171 (MCP server architecture + tool design).
 
-### Slice 3: Scenario + UQ tools, and streamable-HTTP transport
+### Slice 3: Scenario + UQ service extraction + MCP tools
+- **Status:** DONE (draft PR — awaiting merge)
+- **Branch:** `claude/loving-gauss-mlp5ki` (environment-designated)
+- **PR:** _(this slice — draft)_
+- **What was done:** Extracted `run_scenario(ScenarioRequest) -> ScenarioResponse`
+  and `run_uq(UQRequest) -> UQResponse` into `services/pricing.py` (moving the
+  `Scenario*` / `UQ*` contracts and the `_resolve_perspective` helper out of
+  `api/main.py` verbatim, same pattern as Slice 1). The `/api/v1/scenario` and
+  `/api/v1/uq` routes are now thin adapters that delegate and map errors to 422;
+  `api/main.py` re-imports the moved contracts so every prior import path + the
+  OpenAPI schema are unchanged. Added `polaris_run_scenario` (standard stress set)
+  and `polaris_run_uq` (Monte-Carlo bands) MCP tools over them — inforce-reference
+  ergonomics via a shared `_load_block_policies` helper refactored out of the price
+  tool, compact `ScenarioBlockResult` / `UQBlockResult` wrappers (summary +
+  response), required `valuation_date`, UQ `seed`. ADR-172. Additive — golden
+  configs + full API suite byte-identical.
+- **Key decisions (affect later slices):**
+  - **Streamable-HTTP transport split out to a new Slice 3b** (below) to keep this
+    PR to the higher-value analytics tools and one reviewable byte-identical change.
+    stdio remains the only transport, which is what Claude Code / Claude Desktop
+    spawn. Slice 4 (evals) does not depend on HTTP, so 3b and 4 can be sequenced in
+    either order.
+  - `run_scenario` / `run_uq` now live in `services/pricing.py` alongside `run_price`
+    (they share the private `_build_components` / `_build_treaty` /
+    `_run_gross_projection` helpers); perspective resolution (ADR-078) is a shared
+    service helper so CLI / API / MCP agree.
+- **Acceptance criteria:** ✅ scenario/uq route↔service parity; ✅ MCP tool ↔ `run_*`
+  ↔ REST parity (scenario + uq); ✅ UQ seed reproducibility; ✅ read-only annotations
+  + structured-output schemas; ✅ actionable errors; ✅ goldens byte-identical.
+- **ADR:** ADR-172 (scenario/uq service extraction + MCP tools).
+
+### Slice 3b: Streamable-HTTP transport (split from Slice 3)
 - **Status:** NEXT
-- **Depends on:** Slice 2 merged.
-- **Scope:** first extract `run_scenario` / `run_uq` into `services/` (same
-  pattern as Slice 1), then add `polaris_run_scenario` (standard stress set) and
-  `polaris_run_uq` (Monte-Carlo bands) tools over them; add an optional
-  streamable-HTTP (stateless JSON) transport reusing the existing
-  `APIKeyAuthMiddleware` for the shared-deployment case (stdio stays default).
-- **Tests:** scenario/uq tool parity with the API; HTTP-mode auth; deterministic
-  UQ seed.
-- **ADR:** scenario/uq service extraction + tools + HTTP transport + auth reuse.
+- **Depends on:** Slice 3 merged.
+- **Scope:** add an optional streamable-HTTP (stateless JSON) transport mode to the
+  same in-process FastMCP server, reusing the existing `APIKeyAuthMiddleware` for the
+  shared-deployment case; stdio stays the default. A transport switch (env / CLI flag)
+  selects it. This is a *transport of the same server*, not a proxy to the REST API
+  (LOCKED decision #1).
+- **Tests:** HTTP-mode auth (missing key → rejected when `POLARIS_API_KEYS` set; open
+  when unset); the tools return the same payloads over HTTP as over stdio.
+- **ADR:** HTTP transport + auth reuse.
 
 ### Slice 4: Evaluations, hardening, docs (CLOSES EPIC)
 - **Status:** PLANNED
-- **Depends on:** Slice 3 merged.
+- **Depends on:** Slice 3 merged (independent of Slice 3b).
 - **Scope:** a 10-question MCP eval set (realistic, read-only, verifiable pricing
   Q&A against the sample block); actionable error messages (bad file path →
   guidance; out-of-range param → the valid range); ARCHITECTURE.md MCP section;
@@ -107,25 +138,25 @@ five LOCKED decisions before each slice.
 ## Context for Next Session
 
 - **Merge cadence gates the epic.** The routine never merges its own PR, and each
-  slice depends on `main`, so Slice 2 cannot start until this Slice-1 PR is
-  merged. If the draft sits unmerged, the next routine run legitimately falls back
-  to gated polish (step 5b/6). Merge promptly to keep the epic moving, or
+  slice depends on `main`, so Slice 3b (and Slice 4) cannot start until this Slice-3
+  PR is merged. If the draft sits unmerged, the next routine run legitimately falls
+  back to gated polish (step 5b/6). Merge promptly to keep the epic moving, or
   authorise stacked branches.
-- **Byte-identical discipline holds through Slice 3.** No slice changes a pricing
+- **Byte-identical discipline holds through Slice 3b.** No slice changes a pricing
   number until (if ever) a deliberately surfacing change; Slices 1–3 leave the
-  goldens byte-identical. Slice 2/3 add a NEW surface, they do not alter the
-  engine.
-- **Read the `mcp-builder` skill before Slice 2** for the FastMCP patterns, and
-  reuse the Pydantic contracts as the tool schemas (do not hand-copy).
-- **`_build_components` currently constructs a synthetic flat-rate table** (demo
-  mortality); the MCP sample-block tool should price the committed
-  `data/qa/golden_inforce.csv` for a realistic headline, mirroring the CLI.
-- **`.mcp.json` relative-path caveat:** confirm `--directory .` / `./data`
-  resolve from the client's launch CWD during Slice 2; fall back to a documented
-  absolute path in QUICKSTART if not.
+  goldens byte-identical, and 3b (a transport) and 4 (evals/docs) will too. Each
+  slice adds a NEW surface, not an engine change.
+- **`run_scenario` / `run_uq` now live in `services/pricing.py`** alongside
+  `run_price`, reusing the private `_build_components` / `_build_treaty` /
+  `_run_gross_projection` helpers. A future host reaches all three the same way.
+- **Slice 3b transport switch.** Add HTTP as an alternate transport of the SAME
+  `polaris_re.mcp.server.mcp` instance (env var / CLI flag), not a new server; reuse
+  `api.auth.APIKeyAuthMiddleware`. stdio stays the default.
 
 ## Open Questions (for human)
 
 - None blocking. The five design decisions are LOCKED in `docs/PLAN_mcp_server.md`
-  (maintainer sign-off 2026-07-27). Slice 2 should confirm the FastMCP version to
-  pin in the `[mcp]` extra when it first imports `mcp` / `fastmcp`.
+  (maintainer sign-off 2026-07-27). Slice 3 split the streamable-HTTP transport out
+  to Slice 3b (see Decomposition) so this PR ships the higher-value scenario/UQ tools
+  as one reviewable, byte-identical change; confirm that ordering is acceptable
+  (3b and 4 are independent and can be sequenced either way).
