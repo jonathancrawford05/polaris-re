@@ -809,10 +809,12 @@ correctness → NICE-TO-HAVE.
 The scenario/UQ tools + HTTP transport (Slice 3) and the eval set + hardening
 (Slice 4) are future slices of the **active** MCP epic, tracked in
 `CONTINUATION_mcp_server.md` (visible to the next routine run via step 5/5b), so
-they are **not** re-promoted here as loose items. The genuinely-new loose
-out-of-scope follow-ups are promoted below. All are 1st-order (follow-ups of the
-originally-planned MCP epic) and extend the agent-access surface or polish it, not
-production correctness → NICE-TO-HAVE.
+they are **not** re-promoted here as loose items. *(Update 2026-07-29: Slice 3
+shipped the scenario/UQ tools — ADR-172 — and split the streamable-HTTP transport
+out to a new epic-internal **Slice 3b**, still tracked in the CONTINUATION, not a
+loose item.)* The genuinely-new loose out-of-scope follow-ups are promoted below.
+All are 1st-order (follow-ups of the originally-planned MCP epic) and extend the
+agent-access surface or polish it, not production correctness → NICE-TO-HAVE.
 
 - **MCP tools for the remaining `run_*` endpoints (ifrs17 / ingest / rate-schedule
   / portfolio).** Slices 1–4 cover the price/scenario/uq core. Each remaining
@@ -861,6 +863,21 @@ production correctness → NICE-TO-HAVE.
   the schema impact re-checked, not an incidental change inside a feature slice.
   *Source: PR #174 review [P2] + follow-up analysis (1st-order — convention/design,
   not correctness).* **NICE-TO-HAVE.**
+
+### Harvested 2026-07-29 — MCP Server epic, Slice 3 (ADR-172)
+
+Slice 3 extracted `run_scenario` / `run_uq` into `services/pricing.py` and added
+the `polaris_run_scenario` / `polaris_run_uq` MCP tools (byte-identical goldens).
+Per ADR-172's "Out of scope", the streamable-HTTP transport was split out to an
+epic-internal **Slice 3b**, and the Slice-4 eval set + hardening remain epic
+slices — **both tracked in `CONTINUATION_mcp_server.md`, not re-promoted here as
+loose items** (same convention as the Slice-2 harvest above). No genuinely-new
+loose out-of-scope follow-up surfaced this slice: the scenario/UQ tools reused the
+proven Slice-1/Slice-2 pattern, and the one design item they touch (the
+service-layer DTO base-class convention) is already promoted above from the PR #174
+review — the new `Scenario*` / `UQ*` contracts and the `ScenarioBlockResult` /
+`UQBlockResult` wrappers are the same plain-`BaseModel` family that item already
+covers, so that family-wide decision now spans price + scenario + uq DTOs.
 
 ---
 

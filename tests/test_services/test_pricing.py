@@ -26,7 +26,13 @@ from polaris_re.services.pricing import (
     PolicyInput,
     PriceRequest,
     PriceResponse,
+    ScenarioRequest,
+    ScenarioResponse,
+    UQRequest,
+    UQResponse,
     run_price,
+    run_scenario,
+    run_uq,
 )
 
 client = TestClient(app)
@@ -131,6 +137,123 @@ class TestRouteServiceParity:
         original message (pre-existing behaviour, now via the service)."""
         response = client.post(
             "/api/v1/price",
+            json={"policies": [_POLICY_KW], "treaty_type": "NopeCoinsurance"},
+        )
+        assert response.status_code == 422
+        assert "FWCoinsurance" in response.json()["detail"]
+
+
+def _scenario_request(**overrides: object) -> ScenarioRequest:
+    """Build a valid single-policy ``ScenarioRequest`` with optional overrides."""
+    return ScenarioRequest(policies=[PolicyInput(**_POLICY_KW)], **overrides)
+
+
+def _uq_request(**overrides: object) -> UQRequest:
+    """Build a valid single-policy ``UQRequest`` with optional overrides."""
+    return UQRequest(policies=[PolicyInput(**_POLICY_KW)], **overrides)
+
+
+class TestRunScenarioContract:
+    def test_returns_scenario_response(self) -> None:
+        """``run_scenario`` returns a typed ``ScenarioResponse`` with the standard
+        stress set and a resolved reinsurer perspective (a YRT deal has a treaty)."""
+        result = run_scenario(_scenario_request())
+        assert isinstance(result, ScenarioResponse)
+        assert result.n_scenarios == len(result.scenarios)
+        assert result.n_scenarios >= 3  # base + at least mortality/lapse/rate shocks
+        assert result.perspective == "reinsurer"
+        names = {s.scenario_name for s in result.scenarios}
+        assert any(n.upper().startswith("BASE") for n in names)
+
+    def test_reinsurer_downgraded_to_cedant_without_treaty(self) -> None:
+        """With no treaty the reinsurer view is undefined, so the effective
+        perspective is downgraded to cedant (ADR-078), matching the API."""
+        result = run_scenario(_scenario_request(treaty_type=None))
+        assert result.perspective == "cedant"
+
+    def test_web_framework_free_domain_error(self) -> None:
+        """An unknown treaty raises the domain error, not an HTTPException."""
+        with pytest.raises(PolarisValidationError) as excinfo:
+            run_scenario(_scenario_request(treaty_type="NopeCoinsurance"))
+        assert "FWCoinsurance" in str(excinfo.value)
+
+
+class TestRunUQContract:
+    def test_returns_uq_response(self) -> None:
+        """``run_uq`` returns a typed ``UQResponse`` with an ordered P5<=P50<=P95
+        band and the seed echoed for reproducibility."""
+        result = run_uq(_uq_request(n_scenarios=100, seed=7))
+        assert isinstance(result, UQResponse)
+        assert result.n_scenarios == 100
+        assert result.seed == 7
+        assert result.p5_pv_profit <= result.p50_pv_profit <= result.p95_pv_profit
+        assert result.perspective == "reinsurer"
+
+    def test_seed_makes_run_reproducible(self) -> None:
+        """Two runs with the same seed are byte-identical (ADR-074 discipline)."""
+        a = run_uq(_uq_request(n_scenarios=100, seed=99)).model_dump()
+        b = run_uq(_uq_request(n_scenarios=100, seed=99)).model_dump()
+        assert a == b
+
+    def test_reinsurer_downgraded_to_cedant_without_treaty(self) -> None:
+        result = run_uq(_uq_request(treaty_type=None, n_scenarios=50))
+        assert result.perspective == "cedant"
+
+
+class TestScenarioUQRouteServiceParity:
+    """The scenario / uq HTTP routes are thin adapters — they must return exactly
+    what a direct ``run_scenario`` / ``run_uq`` call returns for the same inputs."""
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {},
+            {"treaty_type": "Coinsurance", "cession_pct": 0.8},
+            {"treaty_type": None},
+            {"perspective": "cedant"},
+        ],
+    )
+    def test_scenario_route_equals_service(self, overrides: dict[str, object]) -> None:
+        request = _scenario_request(**overrides)
+        service_json = run_scenario(request).model_dump()
+
+        payload = {"policies": [_POLICY_KW], **overrides}
+        response = client.post("/api/v1/scenario", json=payload)
+        assert response.status_code == 200, response.text
+        route_json = ScenarioResponse(**response.json()).model_dump()
+
+        assert route_json == service_json
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"n_scenarios": 100, "seed": 3},
+            {"treaty_type": "Coinsurance", "cession_pct": 0.8, "n_scenarios": 100, "seed": 3},
+            {"treaty_type": None, "n_scenarios": 100, "seed": 3},
+        ],
+    )
+    def test_uq_route_equals_service(self, overrides: dict[str, object]) -> None:
+        request = _uq_request(**overrides)
+        service_json = run_uq(request).model_dump()
+
+        payload = {"policies": [_POLICY_KW], **overrides}
+        response = client.post("/api/v1/uq", json=payload)
+        assert response.status_code == 200, response.text
+        route_json = UQResponse(**response.json()).model_dump()
+
+        assert route_json == service_json
+
+    def test_scenario_route_maps_domain_error_to_422(self) -> None:
+        response = client.post(
+            "/api/v1/scenario",
+            json={"policies": [_POLICY_KW], "treaty_type": "NopeCoinsurance"},
+        )
+        assert response.status_code == 422
+        assert "FWCoinsurance" in response.json()["detail"]
+
+    def test_uq_route_maps_domain_error_to_422(self) -> None:
+        response = client.post(
+            "/api/v1/uq",
             json={"policies": [_POLICY_KW], "treaty_type": "NopeCoinsurance"},
         )
         assert response.status_code == 422

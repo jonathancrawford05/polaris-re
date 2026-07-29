@@ -32,13 +32,26 @@ from fastapi.testclient import TestClient
 from polaris_re.api.main import app
 from polaris_re.mcp.server import (
     PriceBlockResult,
+    ScenarioBlockResult,
+    UQBlockResult,
     build_price_request_from_block,
+    build_scenario_request_from_block,
+    build_uq_request_from_block,
     main,
     mcp,
     polaris_price,
     polaris_price_block,
+    polaris_run_scenario,
+    polaris_run_uq,
 )
-from polaris_re.services.pricing import PriceResponse, run_price
+from polaris_re.services.pricing import (
+    PriceResponse,
+    ScenarioResponse,
+    UQResponse,
+    run_price,
+    run_scenario,
+    run_uq,
+)
 
 # Repo root = tests/test_mcp/<file> → parents[2]. The sample block resolves
 # under $POLARIS_DATA_DIR; pin it to the repo's data/ dir so the tests do not
@@ -304,6 +317,143 @@ class TestMcpJson:
     def test_sets_data_dir_env(self) -> None:
         server = json.loads(_MCP_JSON.read_text())["mcpServers"]["polaris"]
         assert "POLARIS_DATA_DIR" in server["env"]
+
+
+# ---------------------------------------------------------------------------
+# Scenario + UQ tools (Slice 3): registration, parity, summary, errors
+# ---------------------------------------------------------------------------
+
+
+class TestScenarioUQRegistration:
+    def test_all_four_tools_registered(self) -> None:
+        names = {t.name for t in asyncio.run(mcp.list_tools())}
+        assert {
+            "polaris_price_block",
+            "polaris_price",
+            "polaris_run_scenario",
+            "polaris_run_uq",
+        } <= names
+
+    @pytest.mark.parametrize("tool_name", ["polaris_run_scenario", "polaris_run_uq"])
+    def test_read_only_annotations(self, tool_name: str) -> None:
+        tool = next(t for t in asyncio.run(mcp.list_tools()) if t.name == tool_name)
+        assert tool.annotations is not None
+        assert tool.annotations.readOnlyHint is True
+        assert tool.annotations.idempotentHint is True
+        assert tool.annotations.destructiveHint is False
+        assert tool.annotations.openWorldHint is False
+
+    @pytest.mark.parametrize("tool_name", ["polaris_run_scenario", "polaris_run_uq"])
+    def test_tools_declare_structured_output(self, tool_name: str) -> None:
+        tool = next(t for t in asyncio.run(mcp.list_tools()) if t.name == tool_name)
+        assert tool.outputSchema is not None
+
+    @pytest.mark.parametrize("tool_name", ["polaris_run_scenario", "polaris_run_uq"])
+    def test_valuation_date_required(self, tool_name: str) -> None:
+        """ADR-074 guard: neither tool defaults the valuation date."""
+        tool = next(t for t in asyncio.run(mcp.list_tools()) if t.name == tool_name)
+        assert "valuation_date" in tool.inputSchema.get("required", [])
+
+
+class TestScenarioToolParity:
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {},
+            {"treaty_type": "Coinsurance", "cession_pct": 0.8},
+            {"treaty_type": None},
+            {"perspective": "cedant"},
+        ],
+    )
+    def test_tool_equals_run_scenario(self, overrides: dict[str, object]) -> None:
+        """The tool prices through ``run_scenario`` — byte-identical output."""
+        request = build_scenario_request_from_block(
+            inforce="golden", valuation_date=_VDATE, **overrides
+        )
+        expected = run_scenario(request).model_dump()
+
+        result = polaris_run_scenario(valuation_date=_VDATE, **overrides)
+        assert isinstance(result, ScenarioBlockResult)
+        assert result.scenario.model_dump() == expected
+
+    def test_tool_equals_rest_api(self) -> None:
+        """The MCP scenario tool and the REST scenario endpoint agree — one path."""
+        request = build_scenario_request_from_block(inforce="golden", valuation_date=_VDATE)
+        mcp_json = polaris_run_scenario(valuation_date=_VDATE).scenario.model_dump()
+
+        response = client.post("/api/v1/scenario", json=request.model_dump(mode="json"))
+        assert response.status_code == 200, response.text
+        api_json = ScenarioResponse(**response.json()).model_dump()
+
+        assert mcp_json == api_json
+
+    def test_summary_lists_scenarios(self) -> None:
+        result = polaris_run_scenario(valuation_date=_VDATE)
+        assert "reinsurer view" in result.summary
+        assert "PV profit" in result.summary
+
+    def test_gross_only_downgrades_to_cedant(self) -> None:
+        result = polaris_run_scenario(valuation_date=_VDATE, treaty_type=None)
+        assert result.scenario.perspective == "cedant"
+
+
+class TestUQToolParity:
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"n_scenarios": 100, "seed": 3},
+            {"treaty_type": "Coinsurance", "cession_pct": 0.8, "n_scenarios": 100, "seed": 3},
+            {"treaty_type": None, "n_scenarios": 100, "seed": 3},
+        ],
+    )
+    def test_tool_equals_run_uq(self, overrides: dict[str, object]) -> None:
+        request = build_uq_request_from_block(inforce="golden", valuation_date=_VDATE, **overrides)
+        expected = run_uq(request).model_dump()
+
+        result = polaris_run_uq(valuation_date=_VDATE, **overrides)
+        assert isinstance(result, UQBlockResult)
+        assert result.uq.model_dump() == expected
+
+    def test_tool_equals_rest_api(self) -> None:
+        request = build_uq_request_from_block(
+            inforce="golden", valuation_date=_VDATE, n_scenarios=100, seed=5
+        )
+        mcp_json = polaris_run_uq(valuation_date=_VDATE, n_scenarios=100, seed=5).uq.model_dump()
+
+        response = client.post("/api/v1/uq", json=request.model_dump(mode="json"))
+        assert response.status_code == 200, response.text
+        api_json = UQResponse(**response.json()).model_dump()
+
+        assert mcp_json == api_json
+
+    def test_seed_makes_tool_reproducible(self) -> None:
+        a = polaris_run_uq(valuation_date=_VDATE, n_scenarios=100, seed=11).uq.model_dump()
+        b = polaris_run_uq(valuation_date=_VDATE, n_scenarios=100, seed=11).uq.model_dump()
+        assert a == b
+
+    def test_summary_reports_band(self) -> None:
+        result = polaris_run_uq(valuation_date=_VDATE, n_scenarios=100)
+        assert "Base PV profit" in result.summary
+        assert "P5" in result.summary and "VaR" in result.summary
+
+
+class TestScenarioUQActionableErrors:
+    @pytest.mark.parametrize("tool", [polaris_run_scenario, polaris_run_uq])
+    def test_unknown_treaty_maps_to_tool_error(self, tool: object) -> None:
+        from mcp.server.fastmcp.exceptions import ToolError
+
+        with pytest.raises(ToolError) as excinfo:
+            tool(valuation_date=_VDATE, treaty_type="NopeCoinsurance")  # type: ignore[operator]
+        assert "FWCoinsurance" in str(excinfo.value)
+
+    def test_scenario_unknown_product_in_block(self) -> None:
+        from mcp.server.fastmcp.exceptions import ToolError
+
+        with pytest.raises(ToolError) as excinfo:
+            build_scenario_request_from_block(
+                inforce="golden", valuation_date=_VDATE, product_type="UL"
+            )
+        assert "contains" in str(excinfo.value)
 
 
 def test_server_module_exposes_main_entry_point() -> None:

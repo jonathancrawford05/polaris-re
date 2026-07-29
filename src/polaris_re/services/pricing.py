@@ -26,13 +26,15 @@ Byte-identical guarantee: this is an engine-neutral extraction. ``polaris price`
 and every API pricing response are unchanged; no pricing number moves.
 
 The scenario and Monte-Carlo-UQ workflows (``run_scenario`` / ``run_uq``) are the
-natural next tenants of this layer; they are extracted in a later slice of the
-MCP-server epic (see ``docs/PLAN_mcp_server.md`` Slice 3). Until then they remain
-inline in :mod:`polaris_re.api.main`.
+natural next tenants of this layer and now live here too (MCP-server epic Slice 3,
+ADR-172), extracted verbatim from the ``/api/v1/scenario`` and ``/api/v1/uq`` route
+bodies the same way ``run_price`` was in Slice 1. Each FastAPI route delegates to
+the matching ``run_*`` function; the MCP server wraps them as agent tools.
 """
 
 from datetime import date
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 from pydantic import BaseModel, Field, model_validator
@@ -48,6 +50,8 @@ from polaris_re.analytics.profit_test import (
     ProfitTester,
     ProfitTestResult,
 )
+from polaris_re.analytics.scenario import ScenarioRunner
+from polaris_re.analytics.uq import MonteCarloUQ, UQParameters
 from polaris_re.assumptions.assumption_set import AssumptionSet
 from polaris_re.assumptions.lapse import LapseAssumption
 from polaris_re.assumptions.mortality import MortalityTable, MortalityTableSource
@@ -70,7 +74,19 @@ from polaris_re.reinsurance.experience_refund import ExperienceRefund
 from polaris_re.reinsurance.yrt import YRTTreaty
 from polaris_re.utils.table_io import MortalityTableArray
 
-__all__ = ["PolicyInput", "PriceRequest", "PriceResponse", "run_price"]
+__all__ = [
+    "PolicyInput",
+    "PriceRequest",
+    "PriceResponse",
+    "ScenarioRequest",
+    "ScenarioResponse",
+    "ScenarioSummary",
+    "UQRequest",
+    "UQResponse",
+    "run_price",
+    "run_scenario",
+    "run_uq",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -427,6 +443,160 @@ class PriceResponse(BaseModel):
     # (retained reserve) gaps; either side is null when its reserve is ~0 (e.g. the
     # ceded reserve of a YRT treaty).
     alm_duration_gap: DualDurationGap | None = None
+
+
+class ScenarioRequest(BaseModel):
+    """Request body for the scenario workflow (``POST /api/v1/scenario``)."""
+
+    policies: list[PolicyInput] = Field(min_length=1)
+    product_type: str = Field(
+        default="TERM", description="Product type: 'TERM', 'WHOLE_LIFE', or 'UL'."
+    )
+    treaty_type: str | None = Field(
+        default="YRT",
+        description="Treaty type: 'YRT', 'Coinsurance', 'Modco', 'FWCoinsurance', or null.",
+    )
+    projection_horizon_years: int = Field(ge=1, le=40, default=20)
+    discount_rate: float = Field(ge=0.0, le=1.0, default=0.06)
+    hurdle_rate: float = Field(ge=0.0, le=1.0, default=0.10)
+    cession_pct: float = Field(ge=0.0, le=1.0, default=0.90)
+    flat_qx: float = Field(ge=0.0, le=1.0, default=0.001)
+    flat_lapse: float = Field(ge=0.0, le=1.0, default=0.05)
+    acquisition_cost_per_policy: float = Field(default=0.0, ge=0.0)
+    maintenance_cost_per_policy_per_year: float = Field(default=0.0, ge=0.0)
+    yrt_loading: float = Field(
+        default=0.10,
+        ge=0.0,
+        le=1.0,
+        description="Loading over expected mortality for YRT rate derivation.",
+    )
+    modco_interest_rate: float = Field(default=0.045, ge=0.0, le=0.20)
+    expense_allowance: ExpenseAllowance | None = Field(
+        default=None,
+        description=(
+            "Optional sliding-scale expense allowance threaded onto the YRT / "
+            "Coinsurance treaty (expense-allowance epic, ADR-119). See "
+            "/api/v1/price for the semantics. Ignored for Modco. None (default) "
+            "is byte-identical."
+        ),
+    )
+    experience_refund: ExperienceRefund | None = Field(
+        default=None,
+        description=(
+            "Optional experience refund threaded onto the YRT / Coinsurance "
+            "treaty (expense-allowance epic, ADR-121). See /api/v1/price for the "
+            "semantics. Ignored for Modco. None (default) is byte-identical."
+        ),
+    )
+    perspective: Literal["reinsurer", "cedant"] = Field(
+        default="reinsurer",
+        description=(
+            "Profit-test perspective (ADR-078). 'reinsurer' reports the ceded "
+            "economics re-viewed as NET (matches POST /api/v1/price and "
+            "polaris price / scenario); 'cedant' reports the cedant's retained "
+            "net position. When no treaty is configured the reinsurer view is "
+            "undefined and is downgraded to 'cedant'."
+        ),
+    )
+
+
+class ScenarioSummary(BaseModel):
+    """Results for a single scenario."""
+
+    scenario_name: str
+    pv_profits: float
+    profit_margin: float | None  # None when pv_premiums <= 0 (ADR-041)
+    irr: float | None
+
+
+class ScenarioResponse(BaseModel):
+    """Response body for the scenario workflow (``POST /api/v1/scenario``)."""
+
+    scenarios: list[ScenarioSummary]
+    n_scenarios: int
+    perspective: Literal["reinsurer", "cedant"] = Field(
+        description="Effective profit-test perspective that produced these results (ADR-078)."
+    )
+
+
+class UQRequest(BaseModel):
+    """Request body for the Monte-Carlo-UQ workflow (``POST /api/v1/uq``)."""
+
+    policies: list[PolicyInput] = Field(min_length=1)
+    product_type: str = Field(
+        default="TERM", description="Product type: 'TERM', 'WHOLE_LIFE', or 'UL'."
+    )
+    treaty_type: str | None = Field(
+        default="YRT",
+        description="Treaty type: 'YRT', 'Coinsurance', 'Modco', 'FWCoinsurance', or null.",
+    )
+    projection_horizon_years: int = Field(ge=1, le=40, default=20)
+    discount_rate: float = Field(ge=0.0, le=1.0, default=0.06)
+    hurdle_rate: float = Field(ge=0.0, le=1.0, default=0.10)
+    cession_pct: float = Field(ge=0.0, le=1.0, default=0.90)
+    flat_qx: float = Field(ge=0.0, le=1.0, default=0.001)
+    flat_lapse: float = Field(ge=0.0, le=1.0, default=0.05)
+    n_scenarios: int = Field(ge=10, le=10_000, default=200)
+    seed: int = Field(default=42)
+    mortality_log_sigma: float = Field(ge=0.0, le=1.0, default=0.10)
+    lapse_log_sigma: float = Field(ge=0.0, le=1.0, default=0.15)
+    interest_rate_sigma: float = Field(ge=0.0, le=0.10, default=0.005)
+    acquisition_cost_per_policy: float = Field(default=0.0, ge=0.0)
+    maintenance_cost_per_policy_per_year: float = Field(default=0.0, ge=0.0)
+    yrt_loading: float = Field(
+        default=0.10,
+        ge=0.0,
+        le=1.0,
+        description="Loading over expected mortality for YRT rate derivation.",
+    )
+    modco_interest_rate: float = Field(default=0.045, ge=0.0, le=0.20)
+    expense_allowance: ExpenseAllowance | None = Field(
+        default=None,
+        description=(
+            "Optional sliding-scale expense allowance threaded onto the YRT / "
+            "Coinsurance treaty (expense-allowance epic, ADR-119). See "
+            "/api/v1/price for the semantics. Ignored for Modco. None (default) "
+            "is byte-identical."
+        ),
+    )
+    experience_refund: ExperienceRefund | None = Field(
+        default=None,
+        description=(
+            "Optional experience refund threaded onto the YRT / Coinsurance "
+            "treaty (expense-allowance epic, ADR-121). See /api/v1/price for the "
+            "semantics. Ignored for Modco. None (default) is byte-identical."
+        ),
+    )
+    perspective: Literal["reinsurer", "cedant"] = Field(
+        default="reinsurer",
+        description=(
+            "Profit-test perspective (ADR-078). 'reinsurer' reports the ceded "
+            "economics re-viewed as NET (matches polaris price / scenario / uq); "
+            "'cedant' reports the cedant's retained net position. When no treaty "
+            "is configured the reinsurer view is undefined and is downgraded to "
+            "'cedant'."
+        ),
+    )
+
+
+class UQResponse(BaseModel):
+    """Response body for the Monte-Carlo-UQ workflow (``POST /api/v1/uq``)."""
+
+    n_scenarios: int
+    seed: int
+    base_pv_profit: float
+    base_irr: float | None
+    p5_pv_profit: float
+    p50_pv_profit: float
+    p95_pv_profit: float
+    var_95: float
+    cvar_95: float
+    p5_profit_margin: float
+    p50_profit_margin: float
+    p95_profit_margin: float
+    perspective: Literal["reinsurer", "cedant"] = Field(
+        description="Effective profit-test perspective that produced these results (ADR-078)."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -824,6 +994,22 @@ def _sufficiency_block(result: PremiumSufficiencyResult) -> dict[str, float | bo
     }
 
 
+def _resolve_perspective(
+    perspective: Literal["reinsurer", "cedant"], *, has_treaty: bool
+) -> Literal["reinsurer", "cedant"]:
+    """Resolve the requested profit-test perspective for scenario / uq (ADR-078).
+
+    When the deal carries no real treaty the reinsurer (ceded) view is
+    undefined, so a requested ``"reinsurer"`` perspective is downgraded to
+    ``"cedant"`` — mirroring ``polaris price`` ("reinsurer view not available")
+    and the CLI ``scenario`` / ``uq`` commands (ADR-077). The effective
+    perspective is returned so it can be surfaced in the response.
+    """
+    if perspective == "reinsurer" and not has_treaty:
+        return "cedant"
+    return perspective
+
+
 # ---------------------------------------------------------------------------
 # Public service entry point
 # ---------------------------------------------------------------------------
@@ -1032,4 +1218,157 @@ def run_price(request: PriceRequest) -> PriceResponse:
         gaap_interest_margin=config.gaap_interest_margin,
         improvement_version=request.improvement_version,
         alm_duration_gap=alm_gap,
+    )
+
+
+def run_scenario(request: ScenarioRequest) -> ScenarioResponse:
+    """Run standard stress-scenario analysis for ``request`` and return the response.
+
+    Applies pre-defined stress scenarios (mortality shock, lapse stress, rate
+    shock) to the base assumptions and returns comparative profit metrics. The
+    YRT rate is derived from the base gross projection (ADR-038) so the treaty is
+    correctly calibrated before stress scenarios are applied.
+
+    This is the shared engine-invocation path for the scenario workflow: the
+    FastAPI ``POST /api/v1/scenario`` route delegates to it, and any in-process
+    host (the MCP ``polaris_run_scenario`` tool, a batch script) can call it
+    directly. It performs no HTTP concerns — validation failures propagate as
+    :class:`PolarisValidationError` / ``ValueError`` for the caller to map to its
+    own error surface (the API wraps them into HTTP 422).
+    """
+    inforce, assumptions, config = _build_components(
+        policies_in=request.policies,
+        projection_horizon_years=request.projection_horizon_years,
+        discount_rate=request.discount_rate,
+        flat_qx=request.flat_qx,
+        flat_lapse=request.flat_lapse,
+        product_type_str=request.product_type,
+        acquisition_cost_per_policy=request.acquisition_cost_per_policy,
+        maintenance_cost_per_policy_per_year=request.maintenance_cost_per_policy_per_year,
+    )
+    gross = _run_gross_projection(inforce, assumptions, config)
+    total_face = sum(p.face_amount for p in request.policies)
+    treaty = _build_treaty(
+        treaty_type=request.treaty_type,
+        gross=gross,
+        face_amount=total_face,
+        cession_pct=request.cession_pct,
+        yrt_loading=request.yrt_loading,
+        modco_interest_rate=request.modco_interest_rate,
+        expense_allowance=request.expense_allowance,
+        experience_refund=request.experience_refund,
+    )
+    # Reinsurer view requires a real ceded position (ADR-078); resolve before the
+    # zero-cession passthrough fallback below.
+    effective_perspective = _resolve_perspective(request.perspective, has_treaty=treaty is not None)
+    # ScenarioRunner requires a treaty; use zero-cession YRT as a passthrough
+    # when none is configured so the base + stressed runs still execute.
+    if treaty is None:
+        yrt_rate = _derive_yrt_rate(gross, total_face)
+        treaty = YRTTreaty(
+            cession_pct=0.0,
+            total_face_amount=total_face,
+            flat_yrt_rate_per_1000=yrt_rate,
+        )
+    runner = ScenarioRunner(
+        inforce=inforce,
+        base_assumptions=assumptions,
+        config=config,
+        treaty=treaty,
+        hurdle_rate=request.hurdle_rate,
+        perspective=effective_perspective,
+    )
+    results = runner.run()
+
+    summaries = [
+        ScenarioSummary(
+            scenario_name=name,
+            pv_profits=res.pv_profits,
+            profit_margin=res.profit_margin,
+            irr=res.irr,
+        )
+        for name, res in results.scenarios
+    ]
+    return ScenarioResponse(
+        scenarios=summaries,
+        n_scenarios=len(summaries),
+        perspective=effective_perspective,
+    )
+
+
+def run_uq(request: UQRequest) -> UQResponse:
+    """Run Monte-Carlo uncertainty quantification for ``request`` and return the response.
+
+    Samples assumption multipliers from LogNormal (mortality, lapse) and Normal
+    (interest rate) distributions and returns the distribution of deal
+    profitability metrics. The YRT rate is derived from the base gross projection
+    (ADR-038) so the treaty is calibrated before sampling.
+
+    This is the shared engine-invocation path for the UQ workflow: the FastAPI
+    ``POST /api/v1/uq`` route delegates to it, and any in-process host (the MCP
+    ``polaris_run_uq`` tool, a batch script) can call it directly. It performs no
+    HTTP concerns — validation failures propagate as :class:`PolarisValidationError`
+    / ``ValueError`` for the caller to map to its own error surface (the API wraps
+    them into HTTP 422). The ``seed`` makes the sampled distribution reproducible.
+    """
+    inforce, assumptions, config = _build_components(
+        policies_in=request.policies,
+        projection_horizon_years=request.projection_horizon_years,
+        discount_rate=request.discount_rate,
+        flat_qx=request.flat_qx,
+        flat_lapse=request.flat_lapse,
+        product_type_str=request.product_type,
+        acquisition_cost_per_policy=request.acquisition_cost_per_policy,
+        maintenance_cost_per_policy_per_year=request.maintenance_cost_per_policy_per_year,
+    )
+    gross = _run_gross_projection(inforce, assumptions, config)
+    total_face = sum(p.face_amount for p in request.policies)
+    treaty = _build_treaty(
+        treaty_type=request.treaty_type,
+        gross=gross,
+        face_amount=total_face,
+        cession_pct=request.cession_pct,
+        yrt_loading=request.yrt_loading,
+        modco_interest_rate=request.modco_interest_rate,
+        expense_allowance=request.expense_allowance,
+        experience_refund=request.experience_refund,
+    )
+    # Reinsurer view requires a real ceded position (ADR-078); MonteCarloUQ
+    # accepts treaty=None directly, so resolve against treaty presence.
+    effective_perspective = _resolve_perspective(request.perspective, has_treaty=treaty is not None)
+    uq_runner = MonteCarloUQ(
+        inforce=inforce,
+        base_assumptions=assumptions,
+        base_config=config,
+        treaty=treaty,
+        hurdle_rate=request.hurdle_rate,
+        n_scenarios=request.n_scenarios,
+        seed=request.seed,
+        params=UQParameters(
+            mortality_log_sigma=request.mortality_log_sigma,
+            lapse_log_sigma=request.lapse_log_sigma,
+            interest_rate_sigma=request.interest_rate_sigma,
+        ),
+        perspective=effective_perspective,
+    )
+    result = uq_runner.run()
+
+    p5 = result.percentile(5)
+    p50 = result.percentile(50)
+    p95 = result.percentile(95)
+
+    return UQResponse(
+        n_scenarios=result.n_scenarios,
+        seed=result.seed,
+        base_pv_profit=result.base_pv_profit,
+        base_irr=result.base_irr,
+        p5_pv_profit=p5["pv_profit"],
+        p50_pv_profit=p50["pv_profit"],
+        p95_pv_profit=p95["pv_profit"],
+        var_95=result.var(0.95),
+        cvar_95=result.cvar(0.95),
+        p5_profit_margin=p5["profit_margin"],
+        p50_profit_margin=p50["profit_margin"],
+        p95_profit_margin=p95["profit_margin"],
+        perspective=effective_perspective,
     )
