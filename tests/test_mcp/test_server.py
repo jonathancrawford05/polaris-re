@@ -542,6 +542,21 @@ class TestTransportResolution:
         assert "grpc" in message
         assert "stdio" in message and "http" in message
 
+    @pytest.mark.parametrize("value", ["stdio", "http", "streamable-http", "streamable_http"])
+    def test_flag_accepts_every_env_spelling(self, value: str) -> None:
+        """The ``--transport`` flag accepts exactly what the env var does — a user
+        passing ``--transport streamable-http`` must not hit an argparse error."""
+        from polaris_re.mcp.server import _build_arg_parser
+
+        args = _build_arg_parser().parse_args(["--transport", value])
+        assert resolve_transport(args.transport) in {"stdio", "http"}
+
+    def test_flag_rejects_unknown_transport(self) -> None:
+        from polaris_re.mcp.server import _build_arg_parser
+
+        with pytest.raises(SystemExit):
+            _build_arg_parser().parse_args(["--transport", "grpc"])
+
 
 class TestHttpAppConstruction:
     def test_build_http_app_wraps_api_key_auth(self, _http_env: None) -> None:

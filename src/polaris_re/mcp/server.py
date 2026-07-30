@@ -141,6 +141,10 @@ _DEFAULT_HTTP_PORT = 8000
 # Spellings accepted for each transport (env value or ``--transport`` flag).
 _STDIO_ALIASES: frozenset[str] = frozenset({"", "stdio"})
 _HTTP_ALIASES: frozenset[str] = frozenset({"http", "streamable-http", "streamable_http"})
+# The ``--transport`` flag accepts exactly the spellings the env var does (minus the
+# empty-string stdio default, which is expressed by omitting the flag) — one source of
+# truth so the flag and $POLARIS_MCP_TRANSPORT never diverge.
+_TRANSPORT_CHOICES: tuple[str, ...] = tuple(sorted((_STDIO_ALIASES | _HTTP_ALIASES) - {""}))
 
 
 # ---------------------------------------------------------------------------
@@ -870,7 +874,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--transport",
-        choices=["stdio", "http"],
+        choices=_TRANSPORT_CHOICES,
         default=None,
         help=f"Transport to serve on. Overrides ${_TRANSPORT_ENV} (default: stdio).",
     )
