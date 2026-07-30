@@ -83,9 +83,9 @@ five LOCKED decisions before each slice.
 - **ADR:** ADR-171 (MCP server architecture + tool design).
 
 ### Slice 3: Scenario + UQ service extraction + MCP tools
-- **Status:** DONE (draft PR #175 — awaiting merge)
+- **Status:** DONE (merged)
 - **Branch:** `claude/loving-gauss-mlp5ki` (environment-designated)
-- **PR:** #175 (draft)
+- **PR:** #175 (merged 2026-07-29)
 - **What was done:** Extracted `run_scenario(ScenarioRequest) -> ScenarioResponse`
   and `run_uq(UQRequest) -> UQResponse` into `services/pricing.py` (moving the
   `Scenario*` / `UQ*` contracts and the `_resolve_perspective` helper out of
@@ -114,16 +114,32 @@ five LOCKED decisions before each slice.
 - **ADR:** ADR-172 (scenario/uq service extraction + MCP tools).
 
 ### Slice 3b: Streamable-HTTP transport (split from Slice 3)
-- **Status:** NEXT
-- **Depends on:** Slice 3 merged.
-- **Scope:** add an optional streamable-HTTP (stateless JSON) transport mode to the
-  same in-process FastMCP server, reusing the existing `APIKeyAuthMiddleware` for the
-  shared-deployment case; stdio stays the default. A transport switch (env / CLI flag)
-  selects it. This is a *transport of the same server*, not a proxy to the REST API
-  (LOCKED decision #1).
-- **Tests:** HTTP-mode auth (missing key → rejected when `POLARIS_API_KEYS` set; open
-  when unset); the tools return the same payloads over HTTP as over stdio.
-- **ADR:** HTTP transport + auth reuse.
+- **Status:** DONE (draft PR — awaiting merge)
+- **Branch:** `claude/loving-gauss-gnlw5y` (environment-designated)
+- **PR:** _(this session's draft)_
+- **What was done:** Added an optional streamable-HTTP (stateless JSON) serving mode
+  to the **same** `polaris_re.mcp.server.mcp` instance (a transport, not a proxy —
+  LOCKED decision #1). `main()` gained an argparse front end: `--transport {stdio,http}`
+  (over `$POLARIS_MCP_TRANSPORT`, default stdio) + `--host` / `--port`
+  (over `$POLARIS_MCP_HOST` / `$POLARIS_MCP_PORT`, default `127.0.0.1:8000`);
+  `resolve_transport()` normalises the value. `build_http_app()` returns the FastMCP
+  `streamable_http_app()` configured stateless JSON and wrapped in the REST API's
+  `APIKeyAuthMiddleware` (reusing `POLARIS_API_KEYS`; open when unset). DNS-rebinding
+  protection is configured (not disabled) from `$POLARIS_MCP_ALLOWED_HOSTS` /
+  `$POLARIS_MCP_ALLOWED_ORIGINS`, defaulting to loopback + bind host. The auth import
+  is lazy so the stdio path never pulls in the `[api]` FastAPI stack. ADR-173.
+  Additive — goldens byte-identical.
+- **Key decisions:**
+  - stdio remains the default and dependency-light; HTTP mode requires the `[api]`
+    extra (documented in QUICKSTART §10) because it reuses the API auth middleware.
+  - Stateless JSON (no session affinity) is the shape API-key auth expects, so any
+    replica can answer any request.
+- **Tests:** transport resolution (stdio default / HTTP aliases / flag-over-env /
+  bad-value error); the HTTP app wraps `APIKeyAuthMiddleware` + is stateless JSON;
+  allow-list default + env override; HTTP-mode auth (open when unset, 401 on
+  missing/invalid, 200 on valid); HTTP↔stdio payload parity for price / scenario /
+  uq(seeded) + identical `tools/list`. +23 tests.
+- **ADR:** ADR-173 (HTTP transport + auth reuse).
 
 ### Slice 4: Evaluations, hardening, docs (CLOSES EPIC)
 - **Status:** PLANNED
@@ -137,15 +153,20 @@ five LOCKED decisions before each slice.
 
 ## Context for Next Session
 
+- **Slice 4 is the only remaining slice** (evals + hardening + docs — CLOSES the
+  epic). It is independent of Slice 3b and depends only on Slice 3 (merged). It can
+  start as soon as **this Slice-3b PR is merged** (each slice depends on `main`).
 - **Merge cadence gates the epic.** The routine never merges its own PR, and each
-  slice depends on `main`, so Slice 3b (and Slice 4) cannot start until this Slice-3
-  PR is merged. If the draft sits unmerged, the next routine run legitimately falls
-  back to gated polish (step 5b/6). Merge promptly to keep the epic moving, or
-  authorise stacked branches.
+  slice depends on `main`. If the Slice-3b draft sits unmerged, the next routine run
+  legitimately falls back to gated polish (step 5b/6). Merge promptly to keep the
+  epic moving, or authorise stacked branches.
 - **Byte-identical discipline holds through Slice 3b.** No slice changes a pricing
-  number until (if ever) a deliberately surfacing change; Slices 1–3 leave the
-  goldens byte-identical, and 3b (a transport) and 4 (evals/docs) will too. Each
-  slice adds a NEW surface, not an engine change.
+  number until (if ever) a deliberately surfacing change; Slices 1–3b leave the
+  goldens byte-identical (cedant $3,513,563.42 / reinsurer $45,386.44), and Slice 4
+  (evals/docs) will too. Each slice adds a NEW surface, not an engine change.
+- **HTTP transport needs the `[api]` extra.** `build_http_app()` reuses
+  `api.auth.APIKeyAuthMiddleware`, whose import pulls in FastAPI. stdio does not.
+  The Slice-4 docs pass should note this in the ARCHITECTURE MCP section.
 - **`run_scenario` / `run_uq` now live in `services/pricing.py`** alongside
   `run_price`, reusing the private `_build_components` / `_build_treaty` /
   `_run_gross_projection` helpers. A future host reaches all three the same way.

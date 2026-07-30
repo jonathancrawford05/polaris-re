@@ -17,22 +17,26 @@ from polaris_re.mcp.server import (
     PriceBlockResult,
     ScenarioBlockResult,
     UQBlockResult,
+    build_http_app,
     build_price_request_from_block,
     build_scenario_request_from_block,
     build_uq_request_from_block,
     load_sample_block_ids,
     main,
     mcp,
+    resolve_transport,
 )
 
 __all__ = [
     "PriceBlockResult",
     "ScenarioBlockResult",
     "UQBlockResult",
+    "build_http_app",
     "build_price_request_from_block",
     "build_scenario_request_from_block",
     "build_uq_request_from_block",
     "load_sample_block_ids",
     "main",
     "mcp",
+    "resolve_transport",
 ]

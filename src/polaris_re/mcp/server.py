@@ -44,14 +44,17 @@ project-scope ``.mcp.json`` at the repo root registers it for a cloned checkout
 with no manual ``claude mcp add``.
 """
 
+import argparse
 import os
 from datetime import date
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
+from starlette.applications import Starlette
 
 from polaris_re.analytics.capital_base import (
     SUPPORTED_CAPITAL_MODELS,
@@ -79,12 +82,14 @@ __all__ = [
     "PriceBlockResult",
     "ScenarioBlockResult",
     "UQBlockResult",
+    "build_http_app",
     "build_price_request_from_block",
     "build_scenario_request_from_block",
     "build_uq_request_from_block",
     "load_sample_block_ids",
     "main",
     "mcp",
+    "resolve_transport",
 ]
 
 # Read-only, side-effect-free, idempotent, closed-world: the engine mutates
@@ -115,6 +120,27 @@ _PRICEABLE_PRODUCT_TYPES: tuple[str, ...] = (
     ProductType.WHOLE_LIFE.value,
     ProductType.UNIVERSAL_LIFE.value,
 )
+
+# ---------------------------------------------------------------------------
+# Transport configuration (stdio default; optional streamable-HTTP)
+# ---------------------------------------------------------------------------
+
+# stdio is the default transport — it is what Claude Code / Claude Desktop spawn.
+# The optional streamable-HTTP (stateless JSON) transport is a transport of the
+# *same* in-process server (not a proxy to the REST API) for the remote / shared
+# deployment case; it reuses the REST API's ``APIKeyAuthMiddleware``.
+_TRANSPORT_ENV = "POLARIS_MCP_TRANSPORT"
+_HOST_ENV = "POLARIS_MCP_HOST"
+_PORT_ENV = "POLARIS_MCP_PORT"
+_ALLOWED_HOSTS_ENV = "POLARIS_MCP_ALLOWED_HOSTS"
+_ALLOWED_ORIGINS_ENV = "POLARIS_MCP_ALLOWED_ORIGINS"
+
+_DEFAULT_HTTP_HOST = "127.0.0.1"
+_DEFAULT_HTTP_PORT = 8000
+
+# Spellings accepted for each transport (env value or ``--transport`` flag).
+_STDIO_ALIASES: frozenset[str] = frozenset({"", "stdio"})
+_HTTP_ALIASES: frozenset[str] = frozenset({"http", "streamable-http", "streamable_http"})
 
 
 # ---------------------------------------------------------------------------
@@ -759,9 +785,123 @@ def polaris_capabilities() -> dict[str, object]:
     }
 
 
-def main() -> None:
-    """Console-script entry point: run the stdio MCP server."""
-    mcp.run()
+def resolve_transport(override: str | None = None) -> str:
+    """Resolve the transport to serve on: ``"stdio"`` (default) or ``"http"``.
+
+    ``override`` (the ``--transport`` flag) wins; otherwise ``$POLARIS_MCP_TRANSPORT``
+    is consulted, defaulting to stdio. Accepts ``"http"`` / ``"streamable-http"`` for
+    the HTTP transport. An unrecognised value raises an actionable ``ValueError``.
+    """
+    raw = (override if override is not None else os.environ.get(_TRANSPORT_ENV, "")).strip().lower()
+    if raw in _STDIO_ALIASES:
+        return "stdio"
+    if raw in _HTTP_ALIASES:
+        return "http"
+    raise ValueError(
+        f"Unknown MCP transport {raw!r}. Use 'stdio' (default) or 'http' "
+        f"(via --transport or ${_TRANSPORT_ENV})."
+    )
+
+
+def _csv_env(name: str) -> list[str]:
+    """Parse a comma-separated environment variable into a list (blanks dropped)."""
+    return [entry.strip() for entry in os.environ.get(name, "").split(",") if entry.strip()]
+
+
+def _configured_allowed_hosts(host: str) -> list[str]:
+    """Host-header allowlist for the HTTP transport (DNS-rebinding protection).
+
+    ``$POLARIS_MCP_ALLOWED_HOSTS`` (comma-separated) is honoured verbatim when set.
+    Otherwise the secure default permits only loopback and the configured bind
+    ``host`` — each as both a bare name and a ``name:*`` wildcard-port pattern, since
+    a real ``Host`` header carries the port. An operator binding to a public name
+    must set the env var (matching the REST API's explicit-config posture).
+    """
+    explicit = _csv_env(_ALLOWED_HOSTS_ENV)
+    if explicit:
+        return explicit
+    hosts: list[str] = []
+    for base in ("127.0.0.1", "localhost", host):
+        for form in (base, f"{base}:*"):
+            if form not in hosts:
+                hosts.append(form)
+    return hosts
+
+
+def build_http_app(*, host: str = _DEFAULT_HTTP_HOST) -> Starlette:
+    """Build the streamable-HTTP (stateless JSON) ASGI app for the MCP server.
+
+    This is a *transport of the single in-process* :data:`mcp` server (LOCKED
+    decision #1 in ``docs/PLAN_mcp_server.md`` — not a proxy to the REST API): it
+    serves the same tools over the same engine path as stdio. The app is wrapped in
+    the REST API's :class:`~polaris_re.api.auth.APIKeyAuthMiddleware`, so a shared
+    deployment authenticates with the same ``POLARIS_API_KEYS`` as the API — and,
+    exactly like stdio, the endpoint is open when no keys are configured.
+
+    ``APIKeyAuthMiddleware`` is imported lazily so the default stdio path (what
+    Claude Code / Claude Desktop spawn) never pulls in the ``[api]`` FastAPI stack;
+    the HTTP transport is the shared-deployment case, which installs it.
+    """
+    from polaris_re.api.auth import APIKeyAuthMiddleware
+
+    # Stateless JSON: no per-connection session affinity, so any replica behind a
+    # load balancer can answer any request — the shape API-key auth expects.
+    mcp.settings.stateless_http = True
+    mcp.settings.json_response = True
+    mcp.settings.transport_security = TransportSecuritySettings(
+        allowed_hosts=_configured_allowed_hosts(host),
+        allowed_origins=_csv_env(_ALLOWED_ORIGINS_ENV),
+    )
+    # The session manager is lazily built and cached on first call; drop it so the
+    # HTTP settings above take effect. stdio never touches the session manager.
+    mcp._session_manager = None
+
+    app = mcp.streamable_http_app()
+    # Added last → outermost: an unauthenticated request is rejected before it
+    # reaches the transport-security check or the MCP handler.
+    app.add_middleware(APIKeyAuthMiddleware)
+    return app
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="polaris-mcp",
+        description="Polaris RE MCP server (stdio by default; optional streamable-HTTP).",
+    )
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "http"],
+        default=None,
+        help=f"Transport to serve on. Overrides ${_TRANSPORT_ENV} (default: stdio).",
+    )
+    parser.add_argument(
+        "--host",
+        default=None,
+        help=f"HTTP bind host (http only). Overrides ${_HOST_ENV} (default: {_DEFAULT_HTTP_HOST}).",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help=f"HTTP bind port (http only). Overrides ${_PORT_ENV} (default: {_DEFAULT_HTTP_PORT}).",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Console-script entry point: run the MCP server (stdio default, or HTTP)."""
+    args = _build_arg_parser().parse_args(argv)
+    if resolve_transport(args.transport) == "stdio":
+        mcp.run()
+        return
+
+    host = args.host or os.environ.get(_HOST_ENV) or _DEFAULT_HTTP_HOST
+    port = (
+        args.port if args.port is not None else int(os.environ.get(_PORT_ENV, _DEFAULT_HTTP_PORT))
+    )
+    import uvicorn
+
+    uvicorn.run(build_http_app(host=host), host=host, port=port)
 
 
 if __name__ == "__main__":

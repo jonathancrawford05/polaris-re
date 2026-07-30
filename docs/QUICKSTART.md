@@ -1433,10 +1433,16 @@ sample block YRT 90% cession at 6% discount, valuation 2025-01-01 — what's the
 reinsurer IRR?". The server calls the same `run_price` engine path as the REST API
 (no HTTP proxy, no `uvicorn` at runtime), so tool output matches the API exactly.
 
-It exposes two read-only tools — `polaris_price_block` (a named sample block or an
-inforce CSV path + high-level deal params) and `polaris_price` (a full inline
-`PriceRequest`) — plus a `polaris://capabilities` resource that enumerates the valid
-product types, treaty types, capital models, reserve bases, and sample-block ids.
+It exposes four read-only tools — `polaris_price_block` (a named sample block or an
+inforce CSV path + high-level deal params), `polaris_price` (a full inline
+`PriceRequest`), `polaris_run_scenario` (the standard stress set — mortality/lapse/rate
+shocks and the PV/IRR delta) and `polaris_run_uq` (Monte-Carlo profit bands: P5/P50/P95,
+VaR/CVaR) — plus a `polaris://capabilities` resource that enumerates the valid product
+types, treaty types, capital models, reserve bases, and sample-block ids.
+
+**stdio is the default transport** (what Claude Code / Claude Desktop spawn). An optional
+streamable-HTTP transport for a remote / shared deployment is covered in "Serve over
+HTTP" below.
 
 ### Step 1 — Install the `[mcp]` extra (pre-warm the venv)
 
@@ -1493,6 +1499,40 @@ tools. Then try a prompt:
 Output is compact by default (a headline summary plus the structured response with
 the large per-year profit arrays cleared); ask for `detail` to get the full
 per-year arrays.
+
+### Serve over HTTP (optional — remote / shared deployment)
+
+For a shared, remote deployment (rather than a local stdio spawn), run the **same**
+in-process server over a streamable-HTTP (stateless JSON) transport. This is a
+transport of the same server — the same tools, the same engine path — not a proxy to
+the REST API.
+
+```bash
+# Needs the [api] extra too (the HTTP transport reuses the REST API's auth middleware):
+uv sync --extra mcp --extra api        # or: uv sync --all-extras
+
+# Bind localhost:8000 (default). --transport also reads $POLARIS_MCP_TRANSPORT.
+POLARIS_DATA_DIR=./data uv run polaris-mcp --transport http --host 127.0.0.1 --port 8000
+```
+
+The MCP endpoint is served at `POST /mcp`. Configuration is via flags or environment:
+
+| Setting | Flag | Env var | Default |
+|---|---|---|---|
+| Transport | `--transport {stdio,http}` | `POLARIS_MCP_TRANSPORT` | `stdio` |
+| Bind host | `--host` | `POLARIS_MCP_HOST` | `127.0.0.1` |
+| Bind port | `--port` | `POLARIS_MCP_PORT` | `8000` |
+| Allowed `Host` headers | — | `POLARIS_MCP_ALLOWED_HOSTS` | loopback + bind host |
+| Allowed CORS origins | — | `POLARIS_MCP_ALLOWED_ORIGINS` | none |
+| API keys | — | `POLARIS_API_KEYS` | none (auth off) |
+
+- **Authentication reuses the REST API's key scheme.** Set `POLARIS_API_KEYS`
+  (comma-separated) and every request to `/mcp` must present a valid key via
+  `X-API-Key: <key>` or `Authorization: Bearer <key>` (else `401`). With no keys
+  configured the endpoint is open — exactly like stdio.
+- **DNS-rebinding protection is on.** The default `Host` allow-list permits only
+  loopback and the bind host. Binding to a public name (e.g. behind an ingress)
+  requires `POLARIS_MCP_ALLOWED_HOSTS=mcp.example.com,mcp.example.com:*`.
 
 ### Debug + reload gotchas
 
