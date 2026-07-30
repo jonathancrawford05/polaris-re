@@ -40,7 +40,7 @@ before writing final code.
 | 1 | Service-layer extraction (`run_price`) | ✅ Done | #173 |
 | 2 | MCP server + core `polaris_price_block` tool (stdio) | ✅ Done | #174 |
 | 3 | Scenario + UQ service extraction + MCP tools | ✅ Done | #175 |
-| 3b | Streamable-HTTP transport (this session) | ✅ Done | _draft (this PR)_ |
+| 3b | Streamable-HTTP transport (this session) | ✅ Done | #176 (draft) |
 | 4 | Evals, hardening, docs (closes epic) | ⏳ Next | — |
 
 ## What Was Done

@@ -114,9 +114,9 @@ five LOCKED decisions before each slice.
 - **ADR:** ADR-172 (scenario/uq service extraction + MCP tools).
 
 ### Slice 3b: Streamable-HTTP transport (split from Slice 3)
-- **Status:** DONE (draft PR — awaiting merge)
+- **Status:** DONE (draft PR #176 — awaiting merge)
 - **Branch:** `claude/loving-gauss-gnlw5y` (environment-designated)
-- **PR:** _(this session's draft)_
+- **PR:** #176 (draft)
 - **What was done:** Added an optional streamable-HTTP (stateless JSON) serving mode
   to the **same** `polaris_re.mcp.server.mcp` instance (a transport, not a proxy —
   LOCKED decision #1). `main()` gained an argparse front end: `--transport {stdio,http}`
