@@ -9,7 +9,11 @@
 > is the read-only spec, not the running log; the running log is
 > `docs/CONTINUATION_perf_harness.md`.
 >
-> **Status.** 🔲 IN PROGRESS — Slice 1 shipped this session.
+> **Status.** 🔲 IN PROGRESS — Slices 1 + 2 shipped (Slice 2: the `diff_reports`
+> verdict layer + `scripts/perfbench.py` git-worktree runner, ADR-175). Slice 3
+> (CI perf job) is NEXT: it runs `scripts/perfbench.py` on one runner and gates
+> on its non-zero exit (hard delta), surfacing the wall-time / MiB alerts
+> non-blocking.
 >
 > **Provenance.** IMPORTANT #9 (+ #10) in `docs/PRODUCT_DIRECTION_2026-07-24.md`,
 > the *deterministic companion* to the pass/fail CI smoke gate shipped as

@@ -43,24 +43,44 @@ raw wall-time only informs (maintainer rule, 2026-07-12). Unblocks the per-merge
   exposes exactly the fields a future CI gate (Slice 3) may read.
 
 ### Slice 2: Head-vs-main same-job driver + `perf.json` diff
-- **Status:** NEXT
-- **Depends on:** Slice 1 merged
-- **Files to create/modify:** `scripts/perfbench.py` (git-worktree head/main
-  runner); optionally a `polaris perfbench` CLI subcommand; extend
-  `analytics/perf_harness.py` with a `diff_reports(head, main, *, band)` →
-  verdict model.
-- **Tests to add:** `tests/perf/test_perf_diff.py` — the ratio arithmetic and
-  the gate/alert classification (structural mismatch = hard delta; wall-time
-  ratio outside band = advisory), on two synthesized reports (no real git
-  checkout in the unit test).
-- **Acceptance criteria:**
-  - Given two `PerfReport`s, `diff_reports` computes per-metric head/main ratios.
-  - A structural-metric mismatch is flagged as a hard delta; a wall-time ratio
-    outside the band is an advisory alert (never a hard delta).
-  - `perf.json` payload carries both reports + the verdict, deterministic-first.
+- **Status:** DONE
+- **Branch:** `claude/loving-gauss-rkb3qg` (environment-designated)
+- **PR:** _(this session — draft)_
+- **ADR:** ADR-175
+- **What was done:** Extended `analytics/perf_harness.py` with the diff layer —
+  `ProbeDiff` (one head-vs-main probe comparison) + `PerfDiff` (the verdict
+  container) and `diff_reports(head, main, *, band=1.5, mib_alert_delta=4)`.
+  Probes are matched by name; a probe present on only one branch, or any
+  deterministic-metric mismatch (counts / `output_fingerprint`), is a **hard
+  delta** (`PerfDiff.has_hard_delta` — the single boolean a gate reads). The
+  best-of-k wall-time **ratio** (head/main; `None` if main is 0) and the
+  `peak_mib` **delta** are advisory-only alerts (`has_wall_time_alert` /
+  `has_peak_mib_alert`) that never contribute to the hard delta — enforcing the
+  maintainer rule structurally. `PerfDiff.to_diff_dict()` renders the verdict
+  first, then per-probe detail. Added `scripts/perfbench.py`: a git-worktree
+  runner that probes the current worktree and a `--detach` checkout of `--ref`
+  (default `origin/main`) by executing the **same** self-contained Slice-1-only
+  probe snippet as a subprocess in each tree (`sys.path.insert(0, "src")` +
+  `cwd=worktree` selects that branch's engine, sharing the current
+  interpreter's deps), diffs them, writes a `perf.json` payload
+  (`ref` + verdict-first `diff` + both `to_perf_dict()` reports), and exits
+  non-zero **iff** there is a hard delta (the gate Slice 3 wires into CI).
+- **Key decisions:** (1) `diff_reports` unit-tested synthetically in
+  `tests/test_analytics/test_perf_diff.py` (16 fast, no engine / no git —
+  following Slice 1's `test_perf_harness_units.py` convention); the git-worktree
+  path is exercised by running the script, not a unit test (per the PLAN). (2)
+  `peak_mib` alert is an **absolute** MiB delta (default `> 4`), not a ratio —
+  an extra `N×T` float64 array (~6 MiB on the default block) clears it while the
+  ±1 MiB rounding jitter does not; a ratio band would miss a real leak on a
+  small base. (3) The probe snippet uses the committed
+  `tests/fixtures/synthetic_select_ultimate.csv` (present on both branches; the
+  generated `data/` tables are not, so they can't cross a worktree) and
+  redirects setup stdout so only the report JSON reaches the parent. (4)
+  Symmetric measurement: head is probed via the same subprocess mechanism as
+  main, so startup/GC conditions match.
 
 ### Slice 3: CI perf job (closes IMPORTANT #9)
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 2 merged
 - **Scope:** A CI job (needs `lint`) running the Slice-2 head-vs-main harness on
   one runner, uploading `perf.json`, gating on structural deltas and alerting
@@ -84,6 +104,15 @@ raw wall-time only informs (maintainer rule, 2026-07-12). Unblocks the per-merge
   Slice 3's CI job selects `-m perf` on its own runner (mirroring the smoke job).
 - Slice 2's git-worktree checkout of `origin/main` is the one non-trivial piece;
   keep the *unit* tests synthetic (two hand-built reports) so they need no git.
+  **DONE:** `diff_reports` is unit-tested synthetically; `scripts/perfbench.py`
+  drives the real worktree checkout and exits non-zero on a hard delta.
+- **Slice 3 wiring (NEXT):** the CI job needs only to `git fetch` + run
+  `uv run python scripts/perfbench.py --ref origin/main -o perf.json` on one
+  runner, upload `perf.json`, and let the job's exit status gate (non-zero =
+  structural hard delta). The wall-time / MiB alerts are already advisory in the
+  payload; surface them in the job log / a PR comment without failing the job.
+  Mirror the `smoke` job's `needs: lint` + single-runner shape. `perfbench.py`
+  fetches `origin/*` refs by default (skip with `--no-fetch`).
 
 ## Open Questions (for human)
 

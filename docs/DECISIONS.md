@@ -11566,3 +11566,86 @@ folding the HTTP auth stack into the `[mcp]` extra so HTTP mode drops the `[api]
 dependency; and the post-epic tool surface (ifrs17 / ingest / rate-schedule /
 portfolio tools, store-authoring/write tools, MCP prompt templates, MCPB
 packaging) already logged against `PLAN_mcp_server.md`'s Out-of-Scope section.
+
+---
+
+## ADR-175: Head-vs-main perf diff + git-worktree runner (perf epic Slice 2)
+
+**Date:** 2026-07-31
+**Status:** Accepted
+
+**Context:** Slice 1 (ADR-169) shipped the deterministic perf-probe core
+(`analytics/perf_harness.py` — `PerfProbe` / `PerfReport` / `run_perf_probe`),
+which emits a `perf.json`-shaped report for one branch but does not *compare*
+two. IMPORTANT #9 in `PRODUCT_DIRECTION_2026-07-24.md` (maintainer discussion
+2026-07-12) calls for benchmarking head against `origin/main` **in the same job**
+so the 2–3× GitHub-runner wall-clock noise cancels in the head/main **ratio**.
+This is the epic's Slice 2 (`PLAN_perf_harness.md` §3, `CONTINUATION_perf_harness.md`):
+the diff verdict + the runner that produces both reports. The governing rule is
+unchanged from Slice 1: *deterministic / noise-normalized metrics may gate or
+alert; raw wall-time only informs.*
+
+**Decision:** Two additive pieces, both byte-identical to the pricing path (the
+harness never touches `project()`).
+
+1. **`diff_reports(head, main, *, band=1.5, mib_alert_delta=4)`** in
+   `analytics/perf_harness.py`, returning a `PerfDiff` verdict built from
+   per-probe `ProbeDiff`s. Probes are matched by name. The classification is a
+   deliberate two-category split so a CI gate reads exactly one boolean:
+   - **Hard delta** (`PerfDiff.has_hard_delta`) — a probe present on only one
+     branch (`head_only_probes` / `main_only_probes`), or any mismatch in a
+     probe's deterministic metrics (`n_policies`, `projection_months`, `n_cells`,
+     `output_fingerprint`). A structural/fingerprint mismatch means the two
+     branches did not run the *same* computation, so a timing comparison is not
+     apples-to-apples — the gate must block.
+   - **Advisory alerts** (`has_wall_time_alert`, `has_peak_mib_alert`) — the
+     best-of-k wall-time **ratio** head/main exceeding `band`, or the `peak_mib`
+     **delta** head-over-main exceeding `mib_alert_delta`. These *never* set the
+     hard delta. The wall-time ratio is `None` (and never alerts) when the main
+     timing is zero; the MiB signal is an **absolute** delta, not a ratio, so an
+     extra `N×T` float64 array (~6 MiB on the default block) alerts while the
+     ±1 MiB `tracemalloc` rounding jitter does not — a ratio band would miss a
+     real leak on a small base. `PerfDiff.to_diff_dict()` renders the verdict
+     booleans first, then per-probe detail.
+
+2. **`scripts/perfbench.py`** — a git-worktree head-vs-main runner. It probes the
+   current worktree and a `git worktree add --detach` checkout of `--ref`
+   (default `origin/main`) by running the **same** self-contained probe snippet
+   as a subprocess in each tree. The snippet uses only Slice-1 public APIs (so it
+   executes identically on both branches, since Slice 1 is on `main`) and
+   `sys.path.insert(0, "src")` under `cwd=worktree`, which selects that branch's
+   engine code over any installed editable package while sharing the current
+   interpreter's dependencies (the trick `scripts/scale_benchmark.py` already
+   uses). It writes a `perf.json` payload (`ref` + verdict-first `diff` + both
+   `to_perf_dict()` reports) and exits non-zero **iff** the diff carries a hard
+   delta — the exact gate Slice 3's CI job consumes. The mortality basis is the
+   committed `tests/fixtures/synthetic_select_ultimate.csv` (the generated
+   `data/` tables are not committed, so they cannot cross a worktree).
+
+**Alternatives considered:** (a) *A ratio-based MiB alert* — rejected: rounding
+noise and small bases make it either too loud or too quiet; an absolute MiB delta
+above the ±1 rounding jitter is the honest signal. (b) *Running head in-process
+and only main as a subprocess* — rejected for asymmetry; measuring both through
+the identical subprocess path keeps startup/GC conditions comparable. (c)
+*`PYTHONPATH`-shadowing the installed package instead of a worktree checkout* —
+rejected as fragile against editable-install `.pth` ordering; a real worktree +
+`sys.path.insert` is deterministic.
+
+**Consequences / backward compatibility:** Purely additive — new symbols
+(`PerfDiff`, `ProbeDiff`, `diff_reports`) exported from `analytics/perf_harness.py`
+and the `analytics` package, plus a new script; no `src/` pricing code changed, so
+`polaris price` on all four golden configs is byte-identical (cedant PV
+$3,513,563, reinsurer PV $45,386). New tests: `tests/test_analytics/test_perf_diff.py`
+(16 fast, synthetic — identical reports clean; fingerprint / cell-count / probe-set
+mismatches as hard deltas; wall-time ratio band incl. the exact-boundary and
+zero-main cases as advisory-only; `peak_mib` delta threshold as advisory-only; the
+`to_diff_dict` shape; `band`/`mib_alert_delta` validation). The git-worktree path
+is exercised by running the script (verified head-vs-`origin/main`: identical
+fingerprints, ratio ~1.1×, no hard delta, exit 0), not a unit test, per the PLAN.
+
+**Out of scope (harvested to PRODUCT_DIRECTION):** the CI perf job that runs this
+runner and gates on its exit status (the epic's Slice 3, already tracked as
+IMPORTANT #9's remaining work); an optional `polaris perfbench` CLI subcommand
+(the runner is a `scripts/` tool, mirroring B2's `scripts/scale_benchmark.py`
+script-first precedent); and the per-merge `perf/history.jsonl` creep log
+(IMPORTANT #10, depends on Slice 3).

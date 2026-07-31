@@ -347,10 +347,15 @@ BLOCKER remains.
    `to_perf_dict()`/`to_json()` `perf.json` shape, deterministic counts + output
    fingerprint + MiB-peak + best-of-k timing), reusing B2's `build_homogeneous_block`;
    fast unit + `perf`+`slow` reproducibility tests; `perf` marker; `make perf`.
-   Goldens byte-identical. **Remaining #9 work is tracked as the epic's own Slice 2
-   (head-vs-main same-job driver + `perf.json` diff) and Slice 3 (CI perf job — gates
-   structural deltas, alerts on wall-time ratio), in the CONTINUATION.** Strike through
-   once Slice 3 closes #9.
+   Goldens byte-identical. **Slice 2 shipped** (ADR-175, this PR): the head-vs-main
+   diff layer — `diff_reports(head, main, *, band, mib_alert_delta)` →
+   `PerfDiff`/`ProbeDiff` verdict (structural mismatch = hard delta;
+   wall-time ratio / `peak_mib` delta = advisory-only), and `scripts/perfbench.py`,
+   a git-worktree runner that probes head + `origin/main` via the same subprocess
+   snippet, writes `perf.json` (verdict-first), and exits non-zero on a hard delta.
+   **Remaining #9 work is the epic's Slice 3 (CI perf job — runs `scripts/perfbench.py`
+   on one runner, gates on its exit status, alerts non-blocking on the wall-time
+   ratio), in the CONTINUATION.** Strike through once Slice 3 closes #9.
 10. **Committed per-merge performance log (`perf/history.jsonl`) + creep detection.**
     One append-only deterministic-first row per merge to `main`, to catch slow
     multi-month creep a per-PR comment structurally cannot. Depends on #9. *Source: maintainer discussion 2026-07-12, 1st-order.*
@@ -938,6 +943,32 @@ could not spawn a real Claude Code host in the CI sandbox, so relative-path
 resolution remains **unverified end-to-end**; the absolute-path `claude mcp add`
 fallback is documented in QUICKSTART §10 and is the robust path. The item stays
 open for a human with a real host.
+
+### Harvested 2026-07-31 (perf harness Slice 2 — ADR-175; IMPORTANT #9 IN PROGRESS)
+
+**Slice 2** of the perf epic shipped as ADR-175: the head-vs-main diff layer
+(`diff_reports` → `PerfDiff`/`ProbeDiff`) + `scripts/perfbench.py`, the
+git-worktree runner that produces the `perf.json` comparison and exits non-zero
+on a hard delta. As with Slice 1, the bulk of ADR-175's "Out of scope" is the
+epic's **own tracked later work** — the CI perf job (Slice 3, closes #9) and the
+per-merge `perf/history.jsonl` creep log (IMPORTANT #10) — which live in the
+CONTINUATION and PD #9/#10, so they are **not** re-promoted as loose items. The
+one genuinely-new loose follow-up is promoted below; it is 1st-order (a follow-up
+of the originally-planned perf epic), design polish only → NICE-TO-HAVE.
+
+- **Optional `polaris perfbench` CLI subcommand.** Slice 2 shipped the runner as
+  `scripts/perfbench.py` (script-first, mirroring B2's `scripts/scale_benchmark.py`
+  precedent). Surfacing it as a `polaris perfbench` Typer subcommand is a
+  convenience only — the CI job (Slice 3) and local use both call the script
+  directly. Defer to the maintainer's script-first precedent unless a CLI surface
+  is requested. *Source: ADR-175 Out of scope + CONTINUATION_perf_harness Open
+  Questions (1st-order).* **NICE-TO-HAVE.**
+
+> Two Slice-2 policy choices are **maintainer decisions**, not promoted items:
+> the wall-time alert **band** (default 1.5×) and the **`peak_mib` alert delta**
+> (default 4 MiB) are `diff_reports` defaults surfaced before Slice 3 gates CI on
+> them (as alerts, never hard gates). They are flagged in
+> `CONTINUATION_perf_harness` Open Questions for confirmation when Slice 3 lands.
 
 ---
 
