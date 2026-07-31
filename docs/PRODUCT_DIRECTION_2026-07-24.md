@@ -907,6 +907,38 @@ so all are NICE-TO-HAVE:
   (resumable streams via an `event_store`) is a possible later transport option for
   hosts that prefer it. *Source: ADR-173 Out of scope (1st-order).* **NICE-TO-HAVE.**
 
+### Harvested 2026-07-31 — MCP Server epic, Slice 4 (ADR-174; CONTINUATION CLOSED — epic complete)
+
+Slice 4 shipped the committed 10-question eval set (`polaris_re.mcp.evals`), the
+actionable out-of-range-parameter errors, the ARCHITECTURE MCP section, and the
+finalized README/QUICKSTART — and **closes the MCP-server epic**
+(`CONTINUATION_mcp_server.md` → COMPLETE; byte-identical goldens). Per the
+close-out rule, every surviving refinement item is promoted so the next routine
+run sees it. The CONTINUATION carried **no Refinement Backlog** and its Open
+Questions were resolved (the Slice-3-vs-3b ordering question was settled when 3b
+merged as PR #176). The other ADR-174 out-of-scope items — folding the HTTP auth
+stack into the `[mcp]` extra, the post-epic tool surface (ifrs17 / ingest /
+rate-schedule / portfolio tools), store-authoring/write tools, MCP prompt
+templates, and MCPB packaging — are **already promoted** in the Slice-2 / Slice-3b
+harvests above and are **not** duplicated here. The genuinely-new loose follow-up:
+
+- **MCP eval CLI + CI gate + rendered eval report.** `EVAL_SET` is importable and
+  green in CI via `tests/test_mcp/test_evals.py`, but there is no first-class
+  headless runner. A `polaris mcp-eval` command (or a CI job) that runs the set,
+  emits a Markdown pass/fail report, and exits non-zero on any failure — mirroring
+  the `polaris benchmark` validation-pack pattern (ADR-132) — would let the eval
+  set gate CI and produce a diligence-grade artifact, not only a pytest run.
+  *Source: ADR-174 Out of scope (1st-order — a follow-up of the planned eval-set
+  feature).* **NICE-TO-HAVE.**
+
+**Carried, still open (already promoted — status note only, no re-promotion):**
+the Slice-2 item *"Confirm `.mcp.json` relative-path resolution on a real host"*
+(above) asked for end-to-end verification during Slice-4 hardening. This session
+could not spawn a real Claude Code host in the CI sandbox, so relative-path
+resolution remains **unverified end-to-end**; the absolute-path `claude mcp add`
+fallback is documented in QUICKSTART §10 and is the robust path. The item stays
+open for a human with a real host.
+
 ---
 
 ## Comparison with Previous Assessment

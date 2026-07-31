@@ -9,12 +9,13 @@
 > before writing code. This is the read-only spec, not the running log — the
 > running log is `CONTINUATION_mcp_server.md` (opened when Slice 1 starts).
 
-**Status:** 🚧 IN PROGRESS — Slice 1 (service-layer extraction) shipped
-2026-07-28 (ADR-170; `CONTINUATION_mcp_server.md` opened, status IN PROGRESS).
-Maintainer signed off 2026-07-27 on the Phase-7 framing and all five Open
-Decisions (see "Decisions — LOCKED" below). This is the **active Phase-7 Tier-A
-epic**; the routine has left maintenance mode. Slice 2 (the MCP server + core
-`polaris_price_block` tool) is NEXT once Slice 1 merges.
+**Status:** ✅ COMPLETE — all five slices shipped (Slices 1/2/3/3b merged as PRs
+#173–#176; Slice 4 — evals, hardening, docs — shipped 2026-07-31 as draft PR #177,
+ADR-174, closing `CONTINUATION_mcp_server.md`). Maintainer signed off 2026-07-27 on
+the Phase-7 framing and all five Open Decisions (see "Decisions — LOCKED" below).
+This was the active Phase-7 Tier-A epic; with it complete the routine has no active
+epic and the next run selects one per step 5b. Running log:
+`docs/CONTINUATION_mcp_server.md` (now COMPLETE).
 
 **Source / derivation.** Maintainer-requested 2026-07-27 (this session). The
 routine is in the post-roadmap maintenance inflection (`PRODUCT_DIRECTION_2026-07-24`

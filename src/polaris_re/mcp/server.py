@@ -53,7 +53,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from starlette.applications import Starlette
 
 from polaris_re.analytics.capital_base import (
@@ -259,6 +259,29 @@ def _resolve_inforce_path(inforce: str) -> Path:
     return path
 
 
+def _actionable_param_error(exc: ValidationError) -> ToolError:
+    """Turn a pydantic request-validation failure into an actionable tool error.
+
+    An out-of-range deal parameter (e.g. ``cession_pct=1.5``) otherwise surfaces
+    as a raw ``pydantic_core.ValidationError`` with a docs URL — opaque to an
+    agent. This names each offending field, the constraint that was violated
+    (which states the valid range), and the rejected value, then points at the
+    ``polaris://capabilities`` resource for the valid enums.
+    """
+    problems: list[str] = []
+    for err in exc.errors():
+        loc = ".".join(str(part) for part in err["loc"]) or "(request)"
+        got = repr(err.get("input"))
+        if len(got) > 60:
+            got = got[:57] + "..."
+        problems.append(f"{loc} — {err['msg']} (got {got})")
+    joined = "; ".join(problems)
+    return ToolError(
+        f"Invalid pricing parameter(s): {joined}. See the polaris://capabilities "
+        "resource for valid enums and ranges."
+    )
+
+
 def _load_block_policies(
     *,
     inforce: str,
@@ -357,22 +380,25 @@ def build_price_request_from_block(
     policies = _load_block_policies(
         inforce=inforce, valuation_date=valuation_date, product_type=product_type
     )
-    return PriceRequest(
-        policies=policies,
-        product_type=product_type,
-        treaty_type=treaty_type,
-        cession_pct=cession_pct,
-        discount_rate=discount_rate,
-        hurdle_rate=hurdle_rate,
-        projection_horizon_years=projection_horizon_years,
-        reserve_basis=reserve_basis,
-        capital_model=capital_model,
-        available_capital=available_capital,
-        flat_qx=flat_qx,
-        flat_lapse=flat_lapse,
-        acquisition_cost_per_policy=acquisition_cost_per_policy,
-        maintenance_cost_per_policy_per_year=maintenance_cost_per_policy_per_year,
-    )
+    try:
+        return PriceRequest(
+            policies=policies,
+            product_type=product_type,
+            treaty_type=treaty_type,
+            cession_pct=cession_pct,
+            discount_rate=discount_rate,
+            hurdle_rate=hurdle_rate,
+            projection_horizon_years=projection_horizon_years,
+            reserve_basis=reserve_basis,
+            capital_model=capital_model,
+            available_capital=available_capital,
+            flat_qx=flat_qx,
+            flat_lapse=flat_lapse,
+            acquisition_cost_per_policy=acquisition_cost_per_policy,
+            maintenance_cost_per_policy_per_year=maintenance_cost_per_policy_per_year,
+        )
+    except ValidationError as exc:
+        raise _actionable_param_error(exc) from exc
 
 
 def build_scenario_request_from_block(
@@ -401,20 +427,23 @@ def build_scenario_request_from_block(
     policies = _load_block_policies(
         inforce=inforce, valuation_date=valuation_date, product_type=product_type
     )
-    return ScenarioRequest(
-        policies=policies,
-        product_type=product_type,
-        treaty_type=treaty_type,
-        cession_pct=cession_pct,
-        discount_rate=discount_rate,
-        hurdle_rate=hurdle_rate,
-        projection_horizon_years=projection_horizon_years,
-        perspective=perspective,  # type: ignore[arg-type]
-        flat_qx=flat_qx,
-        flat_lapse=flat_lapse,
-        acquisition_cost_per_policy=acquisition_cost_per_policy,
-        maintenance_cost_per_policy_per_year=maintenance_cost_per_policy_per_year,
-    )
+    try:
+        return ScenarioRequest(
+            policies=policies,
+            product_type=product_type,
+            treaty_type=treaty_type,
+            cession_pct=cession_pct,
+            discount_rate=discount_rate,
+            hurdle_rate=hurdle_rate,
+            projection_horizon_years=projection_horizon_years,
+            perspective=perspective,  # type: ignore[arg-type]
+            flat_qx=flat_qx,
+            flat_lapse=flat_lapse,
+            acquisition_cost_per_policy=acquisition_cost_per_policy,
+            maintenance_cost_per_policy_per_year=maintenance_cost_per_policy_per_year,
+        )
+    except ValidationError as exc:
+        raise _actionable_param_error(exc) from exc
 
 
 def build_uq_request_from_block(
@@ -448,25 +477,28 @@ def build_uq_request_from_block(
     policies = _load_block_policies(
         inforce=inforce, valuation_date=valuation_date, product_type=product_type
     )
-    return UQRequest(
-        policies=policies,
-        product_type=product_type,
-        treaty_type=treaty_type,
-        cession_pct=cession_pct,
-        discount_rate=discount_rate,
-        hurdle_rate=hurdle_rate,
-        projection_horizon_years=projection_horizon_years,
-        perspective=perspective,  # type: ignore[arg-type]
-        n_scenarios=n_scenarios,
-        seed=seed,
-        mortality_log_sigma=mortality_log_sigma,
-        lapse_log_sigma=lapse_log_sigma,
-        interest_rate_sigma=interest_rate_sigma,
-        flat_qx=flat_qx,
-        flat_lapse=flat_lapse,
-        acquisition_cost_per_policy=acquisition_cost_per_policy,
-        maintenance_cost_per_policy_per_year=maintenance_cost_per_policy_per_year,
-    )
+    try:
+        return UQRequest(
+            policies=policies,
+            product_type=product_type,
+            treaty_type=treaty_type,
+            cession_pct=cession_pct,
+            discount_rate=discount_rate,
+            hurdle_rate=hurdle_rate,
+            projection_horizon_years=projection_horizon_years,
+            perspective=perspective,  # type: ignore[arg-type]
+            n_scenarios=n_scenarios,
+            seed=seed,
+            mortality_log_sigma=mortality_log_sigma,
+            lapse_log_sigma=lapse_log_sigma,
+            interest_rate_sigma=interest_rate_sigma,
+            flat_qx=flat_qx,
+            flat_lapse=flat_lapse,
+            acquisition_cost_per_policy=acquisition_cost_per_policy,
+            maintenance_cost_per_policy_per_year=maintenance_cost_per_policy_per_year,
+        )
+    except ValidationError as exc:
+        raise _actionable_param_error(exc) from exc
 
 
 def _fmt_money(value: float | None) -> str:

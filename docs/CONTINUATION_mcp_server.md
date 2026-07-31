@@ -1,8 +1,8 @@
 # Continuation: MCP Server — agent access to the pricing engine
 
-**Source:** `docs/PLAN_mcp_server.md` — active **Phase-7 Tier-A epic**
-(maintainer-constituted 2026-07-27; ends the routine's maintenance mode).
-**Status:** IN PROGRESS
+**Source:** `docs/PLAN_mcp_server.md` — **Phase-7 Tier-A epic**
+(maintainer-constituted 2026-07-27; ended the routine's maintenance mode).
+**Status:** COMPLETE (all slices merged / Slice 4 shipped 2026-07-31 — epic closed)
 **Total slices:** 5 (Slice 3 split into 3 + 3b — see Decomposition)
 **Estimated total scope:** ~6–8 dev-days (5 mergeable slices)
 
@@ -114,9 +114,9 @@ five LOCKED decisions before each slice.
 - **ADR:** ADR-172 (scenario/uq service extraction + MCP tools).
 
 ### Slice 3b: Streamable-HTTP transport (split from Slice 3)
-- **Status:** DONE (draft PR #176 — awaiting merge)
+- **Status:** DONE (merged)
 - **Branch:** `claude/loving-gauss-gnlw5y` (environment-designated)
-- **PR:** #176 (draft)
+- **PR:** #176 (merged 2026-07-31)
 - **What was done:** Added an optional streamable-HTTP (stateless JSON) serving mode
   to the **same** `polaris_re.mcp.server.mcp` instance (a transport, not a proxy —
   LOCKED decision #1). `main()` gained an argparse front end: `--transport {stdio,http}`
@@ -142,14 +142,39 @@ five LOCKED decisions before each slice.
 - **ADR:** ADR-173 (HTTP transport + auth reuse).
 
 ### Slice 4: Evaluations, hardening, docs (CLOSES EPIC)
-- **Status:** PLANNED
-- **Depends on:** Slice 3 merged (independent of Slice 3b).
-- **Scope:** a 10-question MCP eval set (realistic, read-only, verifiable pricing
-  Q&A against the sample block); actionable error messages (bad file path →
-  guidance; out-of-range param → the valid range); ARCHITECTURE.md MCP section;
-  README/QUICKSTART finalized. HARVEST + close this CONTINUATION.
-- **Acceptance:** eval set committed and green; docs complete; CONTINUATION
-  COMPLETE with refinement backlog harvested to PRODUCT_DIRECTION.
+- **Status:** DONE (2026-07-31)
+- **Branch:** `claude/loving-gauss-e0ucmm` (environment-designated)
+- **PR:** #177 (draft)
+- **Depends on:** Slice 3 merged (independent of Slice 3b, now also merged as #176).
+- **What was done:** Shipped `src/polaris_re/mcp/evals.py` — a committed,
+  importable 10-question eval set (`EVAL_SET`), each an immutable `MCPEval`
+  (question, tool/resource, arguments, and the pinned answer as dotted-path
+  expectations checked with a relative tolerance for floats / exact equality
+  otherwise). `run_eval` / `run_eval_set` execute them through the real
+  `mcp.call_tool` / `read_resource` path; `tests/test_mcp/test_evals.py` runs them
+  green (all four tools + the capabilities resource + seeded-UQ reproducibility +
+  the actionable-error path), so the set is a golden regression on the MCP surface.
+  Hardened the three block tools: `build_*_request_from_block` now catches the
+  pydantic `ValidationError` from an out-of-range deal param (e.g. `cession_pct=1.5`)
+  and re-raises via a shared `_actionable_param_error` naming the field, the valid
+  range, and the rejected value — pointing at `polaris://capabilities`, with no
+  `errors.pydantic.dev` URL leaked (previously a raw pydantic dump). Added the
+  ARCHITECTURE.md §8 "Service Layer & MCP Server" section and finalized
+  README/QUICKSTART (MCP example + eval-set run instructions). ADR-174. Additive —
+  goldens byte-identical (cedant $3,513,563 / reinsurer $45,386).
+- **Acceptance:** ✅ eval set committed and green (10 questions, all surfaces);
+  ✅ actionable out-of-range errors on all three block tools; ✅ ARCHITECTURE MCP
+  section; ✅ README/QUICKSTART finalized; ✅ CONTINUATION COMPLETE with the
+  refinement backlog harvested to `PRODUCT_DIRECTION_2026-07-24`.
+- **ADR:** ADR-174 (MCP eval set + actionable out-of-range parameter errors).
+
+**Epic complete.** All five slices (1, 2, 3, 3b, 4) are shipped; Slices 1–3b are
+merged to `main` (PRs #173–#176) and Slice 4 is this session's draft PR #177. The
+MCP-server epic delivered an in-process, read-only agent-access surface —
+`polaris_price_block` / `polaris_price` / `polaris_run_scenario` / `polaris_run_uq`
++ the `polaris://capabilities` resource, stdio + optional streamable-HTTP, a
+committed eval set, and full docs — every slice leaving the pricing engine
+byte-identical.
 
 ## Context for Next Session
 

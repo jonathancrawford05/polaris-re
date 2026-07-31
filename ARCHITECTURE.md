@@ -460,7 +460,31 @@ reviewer sees the uncertainty before freezing a basis.
 
 ---
 
-## 8. Key Design Decisions
+## 8. Service Layer & MCP Server (agent access)
+
+### Service layer (`services/pricing.py`)
+`src/polaris_re/services/pricing.py` is the framework-neutral **composition root** every host calls (ADR-170 / ADR-172, MCP-server epic Slices 1 & 3). It owns `run_price(PriceRequest) -> PriceResponse`, `run_scenario(ScenarioRequest) -> ScenarioResponse`, and `run_uq(UQRequest) -> UQResponse` — the post-`_build_components` logic (project → apply treaty → ProfitTester / ScenarioRunner / UQ → assemble the typed response) lifted verbatim out of the FastAPI route bodies, plus the request/response Pydantic contracts and the shared `_build_components` / `_build_treaty` / `_run_gross_projection` / `_resolve_perspective` helpers. It imports **no** `fastapi` (a test enforces the isolation) and raises domain exceptions (`PolarisValidationError`), which each host maps to its own error surface. The FastAPI `/api/v1/price` / `/scenario` / `/uq` routes are now thin adapters that delegate and map errors to HTTP 422, so one engine-invocation path serves the CLI, the REST API, and the MCP server — no second mapping to drift.
+
+### MCP server (`mcp/server.py`)
+`src/polaris_re/mcp/` exposes the deterministic, read-only engine to agent hosts (Claude Code / Claude Desktop) as an **in-process** MCP server (ADR-171 … ADR-174). It is a `FastMCP` instance whose tools are thin wrappers over the service layer — an MCP tool call, a REST request, and a batch script all invoke the same `run_*` function in the same process; there is no HTTP proxy and no `uvicorn` dependency on the default path, so it works fully offline. The `mcp` SDK is staged into an `[mcp]` extra (mirroring `[api]` / `[ml]`).
+
+**Tools + resource.**
+- `polaris_price_block` (headline) — takes an *inforce reference* (a built-in sample id such as `"golden"`, or a CSV path) plus high-level deal params, mirroring the CLI's `--inforce X.csv --config Y.json` rather than a 25-field `policies[]` array. `valuation_date` is **required** and re-values the block to that date (each policy's attained age / duration in force re-derived from its issue date) so a quote is reproducible (ADR-074 — never `date.today()`).
+- `polaris_price` — the full inline `PriceRequest` for programmatic callers; FastMCP derives its input schema from the contract (no hand-copied schema), so an out-of-range field is a framework validation error before the body runs.
+- `polaris_run_scenario` (standard stress set) / `polaris_run_uq` (Monte-Carlo bands, seeded) — the analytics tools over `run_scenario` / `run_uq`, same inforce-reference ergonomics.
+- `polaris://capabilities` (resource) — enumerates the priceable product types, treaty types, capital models, reserve bases, and sample-block ids so an agent discovers valid enums instead of guessing.
+
+**Design invariants.** Every tool advertises read-only annotations (`readOnlyHint / idempotentHint = True`, `destructiveHint / openWorldHint = False`) — true because the engine mutates nothing. Output is **compact by default**: each pricing tool returns a `*BlockResult` wrapper (a one-line `summary` headline + the full typed response) with the large per-year profit arrays cleared unless `detail=true`, so a call does not flood an agent's context. Errors are **actionable `ToolError`s**, not raw tracebacks: a bad inforce reference names the known sample ids, an unknown product/treaty lists the valid values, and an **out-of-range deal parameter** (e.g. `cession_pct=1.5`) is caught in `build_*_request_from_block` and re-raised via `_actionable_param_error` naming the field, the valid range, and the rejected value — pointing at `polaris://capabilities`, with no `errors.pydantic.dev` URL leaked (ADR-174).
+
+**Transport.** stdio is the default (what agent hosts spawn) and stays dependency-light — it never imports the `[api]` stack. An optional streamable-HTTP (stateless JSON) mode serves the **same** in-process `mcp` instance for the remote/shared case, selected by `--transport http` / `$POLARIS_MCP_TRANSPORT`, wrapped in the REST API's `APIKeyAuthMiddleware` (reusing `POLARIS_API_KEYS`; open when unset) with DNS-rebinding Host allow-listing configured from `$POLARIS_MCP_ALLOWED_HOSTS` (ADR-173). HTTP mode is the one path that needs the `[api]` extra, because that auth middleware pulls in FastAPI; the auth import is lazy so stdio never does.
+
+**Eval set (`mcp/evals.py`).** A committed, importable 10-question eval set (`EVAL_SET`) — realistic, read-only pricing Q&A against the `golden` block, each an immutable `MCPEval` with the tool/resource to call and the pinned answer as dotted-path expectations (relative tolerance for floats, exact equality otherwise). `run_eval` / `run_eval_set` execute them through the real `mcp.call_tool` / `read_resource` path; `tests/test_mcp/test_evals.py` runs them green in CI, so the set doubles as a golden regression on the MCP surface (ADR-174). The pinned numbers are the `golden` block priced with the tools' flat-assumption defaults; the epic's byte-identical discipline keeps them stable. A one-command usable `.mcp.json` at the repo root registers the stdio server for a cloned checkout (`polaris-mcp` console entry point); QUICKSTART §10 covers connecting from Claude Code / Claude Desktop.
+
+The whole MCP layer is additive — it adds a new access surface, never an engine change, so every golden config and `polaris price` output is byte-identical.
+
+---
+
+## 9. Key Design Decisions
 
 See `docs/DECISIONS.md` for full ADRs. Summary:
 
