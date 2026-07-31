@@ -90,15 +90,18 @@ Harvested to `PRODUCT_DIRECTION_2026-07-24` and **closed the CONTINUATION**
 - `docs/PRODUCT_DIRECTION_2026-07-24.md` — Slice-4 harvest subsection.
 
 ## Tests Added
-- `tests/test_mcp/test_evals.py` (new, +18): the set's shape (10 questions, unique
+- `tests/test_mcp/test_evals.py` (new, +20): the set's shape (10 questions, unique
   ids, exactly-one-surface, all four tools + the resource covered, an error
   question, every price eval pins a date); every eval runs green through the live
   engine (parametrized); runner tamper-detection (a wrong pinned value fails; a
-  never-raised error fails).
+  never-raised error fails); the `expected_equals` float guard (a float there fails;
+  the shipped `EVAL_SET` never uses one) — **the +2 added by the PR-review [P2]
+  follow-up**.
 - `tests/test_mcp/test_server.py` (+10): out-of-range param → actionable `ToolError`
   on `polaris_price_block` (cession / discount / horizon — field named, valid range
   shown, no pydantic URL) and on `polaris_run_scenario` / `polaris_run_uq`.
-- MCP suite 81 → 109; MCP + qa together **203 passed**, 0 failures.
+- MCP suite 81 → 111; MCP + qa together **205 passed**, 0 failures (the feature
+  commit was 109 / 203; the [P2] follow-up added +2 eval tests).
 
 ## Acceptance Criteria
 | Criterion | Status | Notes |
@@ -111,7 +114,7 @@ Harvested to `PRODUCT_DIRECTION_2026-07-24` and **closed the CONTINUATION**
 | README/QUICKSTART finalized | ✅ | README MCP example + module row; QUICKSTART §10 Step 5 |
 | CONTINUATION COMPLETE, backlog harvested | ✅ | harvested first (step 17), then IN PROGRESS → COMPLETE |
 | Goldens byte-identical | ✅ | `polaris price` flat: cedant $3,513,563 / reinsurer $45,386; `tests/qa/` 94 passed |
-| Quality gate (ruff format+check, fast suite, qa) | ✅ | ruff clean; MCP 109 + qa 94 = 203 passed |
+| Quality gate (ruff format+check, fast suite, qa) | ✅ | ruff clean; MCP 111 + qa 94 = 205 passed |
 
 ## Open Questions / Follow-ups
 - **MCP eval CLI + CI gate + rendered report.** `EVAL_SET` is importable and green
@@ -148,4 +151,17 @@ CSO tables OK, the 4 CIA-2014 tables MISSING → the 3 skips are the standing
 baseline). The prior log (`DEV_SESSION_LOG_2026-07-30`) recorded 2728 after
 Slice 3b; the +5 delta is PR #176's post-merge review-fix commit (`4819bb5`, "accept
 every transport spelling"), now on `main` — no NEW or CHANGED failure, so the
-session PROCEEDED. This slice adds 28 fast tests (18 eval + 10 hardening).
+session PROCEEDED. This slice adds 30 fast tests (20 eval + 10 hardening; the eval
+count is 18 from the feature commit + 2 from the [P2] follow-up below).
+
+## Post-Review Follow-up (PR #177)
+The automated PR-review routine returned **APPROVE — no blockers** on the feature
+commit (`b4c61e1`; CI run #598 green: 2756 passed, 3 skipped, 0 failures), with one
+non-blocking **[P2]**: guard `run_eval`'s `expected_equals` path against a float
+`==` (CLAUDE.md forbids float `==`). Addressed in `6cfa0ee` — `run_eval` now flags a
+float in `expected_equals` as a failure directing the author to `expected_numeric`
+(`math.isclose`); the `MCPEval.expected_equals` field docstring records the
+constraint; two tests lock it in (a float in `expected_equals` fails; the shipped
+`EVAL_SET` never uses one). Additive, no pricing code touched, goldens byte-identical.
+Replied on the PR thread. The count/quality-gate figures above are updated to the
+post-follow-up totals (eval 20, MCP 111, MCP+qa 205).
