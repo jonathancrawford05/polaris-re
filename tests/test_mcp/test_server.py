@@ -273,6 +273,45 @@ class TestActionableErrors:
             polaris_price_block(valuation_date=_VDATE, treaty_type="NopeCoinsurance")
         assert "FWCoinsurance" in str(excinfo.value)
 
+    @pytest.mark.parametrize(
+        ("kwargs", "field"),
+        [
+            ({"cession_pct": 1.5}, "cession_pct"),
+            ({"discount_rate": -0.2}, "discount_rate"),
+            ({"projection_horizon_years": 99}, "projection_horizon_years"),
+        ],
+    )
+    def test_out_of_range_param_gives_actionable_tool_error(
+        self, kwargs: dict[str, float], field: str
+    ) -> None:
+        """An out-of-range deal parameter surfaces as an actionable tool error —
+        naming the field, the valid range, and the rejected value — not a raw
+        ``pydantic_core.ValidationError`` with a docs URL."""
+        from mcp.server.fastmcp.exceptions import ToolError
+
+        with pytest.raises(ToolError) as excinfo:
+            polaris_price_block(valuation_date=_VDATE, **kwargs)
+        message = str(excinfo.value)
+        assert field in message
+        assert "Invalid pricing parameter" in message
+        assert "polaris://capabilities" in message
+        # The pydantic docs URL must NOT leak through to the agent.
+        assert "errors.pydantic.dev" not in message
+
+    @pytest.mark.parametrize(
+        "tool",
+        [polaris_run_scenario, polaris_run_uq],
+    )
+    def test_out_of_range_param_actionable_on_scenario_and_uq(self, tool: object) -> None:
+        """The scenario and UQ block tools harden out-of-range params the same
+        way the price tool does (shared ``build_*_request_from_block`` guard)."""
+        from mcp.server.fastmcp.exceptions import ToolError
+
+        with pytest.raises(ToolError) as excinfo:
+            tool(valuation_date=_VDATE, cession_pct=2.0)  # type: ignore[operator]
+        assert "cession_pct" in str(excinfo.value)
+        assert "Invalid pricing parameter" in str(excinfo.value)
+
 
 # ---------------------------------------------------------------------------
 # Capabilities resource

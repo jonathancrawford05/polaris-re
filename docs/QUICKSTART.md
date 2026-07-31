@@ -1500,6 +1500,29 @@ Output is compact by default (a headline summary plus the structured response wi
 the large per-year profit arrays cleared); ask for `detail` to get the full
 per-year arrays.
 
+**Actionable errors.** The tools return guidance, not stack traces: a bad `inforce`
+path names the known sample ids, an unknown product/treaty lists the valid values,
+and an out-of-range deal parameter (e.g. `cession_pct=1.5`) names the field, the
+valid range, and the rejected value — pointing you at `polaris://capabilities`.
+
+### Step 5 — Run the committed eval set
+
+A committed 10-question eval set (`polaris_re.mcp.evals`) is realistic, read-only
+pricing Q&A against the `golden` block with pinned answers — a green golden
+regression on the whole tool surface. Run it through the real MCP call path:
+
+```bash
+POLARIS_DATA_DIR=./data uv run pytest tests/test_mcp/test_evals.py -q
+```
+
+Or replay the set programmatically (e.g. after changing a tool):
+
+```python
+from polaris_re.mcp.evals import EVAL_SET, run_eval_set
+for ev, res in zip(EVAL_SET, run_eval_set()):
+    print(f"{'PASS' if res.passed else 'FAIL'}  {ev.id}: {ev.question}")
+```
+
 ### Serve over HTTP (optional — remote / shared deployment)
 
 For a shared, remote deployment (rather than a local stdio spawn), run the **same**

@@ -10,9 +10,12 @@ script all drive one engine path.
 See :mod:`polaris_re.mcp.server` for the tools (``polaris_price_block`` /
 ``polaris_price`` / ``polaris_run_scenario`` / ``polaris_run_uq``), the
 ``polaris://capabilities`` resource, and the ``polaris-mcp`` console entry point.
-Design and slice plan: ``docs/PLAN_mcp_server.md`` (ADR-171 / ADR-172).
+The committed eval set (:mod:`polaris_re.mcp.evals`) is a verifiable, read-only
+golden regression on that surface. Design and slice plan:
+``docs/PLAN_mcp_server.md`` (ADR-171 / ADR-172 / ADR-173 / ADR-174).
 """
 
+from polaris_re.mcp.evals import EVAL_SET, EvalResult, MCPEval, run_eval, run_eval_set
 from polaris_re.mcp.server import (
     PriceBlockResult,
     ScenarioBlockResult,
@@ -28,6 +31,9 @@ from polaris_re.mcp.server import (
 )
 
 __all__ = [
+    "EVAL_SET",
+    "EvalResult",
+    "MCPEval",
     "PriceBlockResult",
     "ScenarioBlockResult",
     "UQBlockResult",
@@ -39,4 +45,6 @@ __all__ = [
     "main",
     "mcp",
     "resolve_transport",
+    "run_eval",
+    "run_eval_set",
 ]

@@ -29,9 +29,10 @@ Polaris RE provides:
 
 ## Status
 
-Phases 1–5 (capital, portfolio & IFRS 17 production) are substantially complete
-and Phase 6 (operationalisation & ecosystem) is underway. 2,700+ tests, coverage
-≥ 90% enforced in CI, ADRs through ADR-170. See [`docs/ROADMAP.md`](docs/ROADMAP.md)
+Phases 1–5 (capital, portfolio & IFRS 17 production) are substantially complete,
+Phase 6 (operationalisation & ecosystem) is largely done, and Phase 7 (agent
+access — an in-process MCP server) is complete. 2,730+ tests, coverage ≥ 90%
+enforced in CI, ADRs through ADR-174. See [`docs/ROADMAP.md`](docs/ROADMAP.md)
 for the milestone-level breakdown.
 
 | Module | Feature | Status |
@@ -69,6 +70,7 @@ for the milestone-level breakdown.
 | `api/` | REST API — FastAPI with full OpenAPI docs (price, scenario, uq, ifrs17 bba/paa/movement, portfolio, ingest, rate-schedule) | ✅ |
 | `cli.py` | CLI — `price / scenario / uq / portfolio / rate-schedule / ingest / validate / benchmark / version`; `price --excel-out` (committee workbook), `--reserve-basis {NET_PREMIUM,CRVM,VM20,GAAP}` (GAAP: Term), `--capital {licat,rbc,solvency2}` (RoC); `benchmark` runs the actuarial validation pack (exit ≠ 0 on any FAIL) | ✅ |
 | `dashboard/` | Streamlit dashboard — pricing, scenarios, Monte Carlo, portfolio | ✅ |
+| `mcp/` | MCP server — in-process, read-only pricing tools (`polaris_price_block` / `polaris_price` / `polaris_run_scenario` / `polaris_run_uq`) + `polaris://capabilities` for Claude Code / Claude Desktop; stdio default, optional streamable-HTTP; committed 10-question eval set | ✅ |
 
 ---
 
@@ -261,6 +263,37 @@ open http://localhost:8000/docs
 
 ---
 
+## Example: Connect an AI agent (MCP)
+
+Polaris RE ships an **in-process [MCP](https://modelcontextprotocol.io) server** so
+an actuary can drive the engine conversationally from Claude Code / Claude Desktop —
+"price the `golden` block YRT 90% at 6% discount, valuation 2025-01-01, then stress
+mortality +10% and show me the reinsurer IRR delta". The tools are **read-only** and
+call the same in-process engine path as the CLI and REST API (no HTTP proxy, works
+offline). A committed `.mcp.json` at the repo root registers it for a cloned checkout
+with no manual `claude mcp add`:
+
+```bash
+uv sync --extra mcp                       # pre-warm the venv
+uv run polaris-mcp                        # run the stdio server directly (Ctrl-C to stop)
+
+# Smoke-test every tool in a browser UI, no Claude needed:
+npx @modelcontextprotocol/inspector -- uv run polaris-mcp
+```
+
+Tools: `polaris_price_block` (price a named sample block or an inforce CSV),
+`polaris_price` (inline policies), `polaris_run_scenario` (standard stress set),
+`polaris_run_uq` (Monte-Carlo profit bands) — plus a `polaris://capabilities` resource
+listing the valid product/treaty/capital/reserve enums. Every tool requires an explicit
+`valuation_date` so quotes are reproducible, and output is compact by default
+(`detail=true` for the full per-year arrays). An optional streamable-HTTP transport
+(`--transport http`) reuses the REST API's `POLARIS_API_KEYS` auth for shared
+deployments. See [QUICKSTART §10](docs/QUICKSTART.md) for the full connect-and-verify
+walkthrough. A committed 10-question eval set (`polaris_re.mcp.evals`) is a green golden
+regression on the tool surface.
+
+---
+
 ## Example: Monte Carlo UQ on a Reinsurance Deal
 
 ```python
@@ -304,7 +337,7 @@ polaris-re/
 ├── docs/
 │   ├── QUICKSTART.md      ← Setup guide: local, Docker, Codespaces, API, tables, Excel export
 │   ├── ROADMAP.md         ← Phased feature plan with milestone checklists
-│   ├── DECISIONS.md       ← Architecture decision records (ADRs 001–170)
+│   ├── DECISIONS.md       ← Architecture decision records (ADRs 001–174)
 │   └── ACTUARIAL_GLOSSARY.md  ← Domain terminology reference
 ├── src/polaris_re/
 │   ├── core/              ← Policy, InforceBlock, ProjectionConfig, CashFlowResult, ReserveBasis
@@ -317,10 +350,11 @@ polaris-re/
 │   │                         YRT rate schedule
 │   ├── services/          ← Engine-invocation composition root (run_price) shared by every host
 │   ├── api/               ← FastAPI application
+│   ├── mcp/               ← In-process MCP server (agent access) + committed eval set
 │   ├── dashboard/         ← Streamlit dashboard
 │   ├── utils/             ← Table loaders, interpolation, date utilities, Excel writer, ingestion
 │   └── cli.py             ← Typer CLI entry point
-├── tests/                 ← 2,700+ tests, coverage ≥ 90% (CI-enforced)
+├── tests/                 ← 2,730+ tests, coverage ≥ 90% (CI-enforced)
 ├── notebooks/
 │   ├── 01_term_life_yrt_pricing.ipynb        ← End-to-end YRT deal-pricing walkthrough
 │   ├── 02_reserve_basis_comparison.ipynb     ← CRVM / VM-20 / GAAP reserve-basis comparison

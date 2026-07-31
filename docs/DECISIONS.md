@@ -11489,3 +11489,80 @@ ARCHITECTURE/README finalisation that closes the epic. HTTP mode requires the
 `[api]` extra for the reused auth middleware (documented in QUICKSTART §10); folding
 the auth stack into the `[mcp]` extra, per-scope MCP auth, and a non-stateless
 (session) HTTP mode are possible later refinements, not v1.
+
+## ADR-174: MCP eval set + actionable out-of-range parameter errors (MCP-server epic Slice 4 — CLOSES EPIC)
+
+**Date:** 2026-07-31
+**Status:** Accepted
+
+**Context:** Slices 1–3b (ADR-170 … ADR-173) built the MCP server — the service
+layer, the four in-process tools (`polaris_price_block` / `polaris_price` /
+`polaris_run_scenario` / `polaris_run_uq`), the `polaris://capabilities` resource,
+and the optional streamable-HTTP transport. Slice 4 is the closing slice: it makes
+the surface *trustworthy to ship* per the `mcp-builder` Phase-4 guidance — a
+committed eval set that proves the tools answer real pricing questions correctly,
+and error messages an agent can act on. Two gaps remained. First, there was no
+golden regression on the MCP surface itself: engine drift would change a tool's
+numbers silently. Second, an **out-of-range deal parameter** on a block tool (e.g.
+`cession_pct=1.5`) leaked a raw `pydantic_core.ValidationError` with an
+`errors.pydantic.dev` URL — because `build_*_request_from_block()` constructs the
+`PriceRequest` / `ScenarioRequest` / `UQRequest` *outside* the tool's
+`try/except`, so the framework surfaced the bare pydantic dump rather than an
+actionable `ToolError`. (Bad file paths and unknown enums were already actionable
+since Slice 2.)
+
+**Decision:** Ship a committed, verifiable eval set and harden request-parameter
+validation, both additive and leaving the engine byte-identical.
+
+- **Declarative eval set (`polaris_re.mcp.evals`).** Ten realistic, read-only
+  pricing questions against the `golden` sample block, each an immutable
+  `MCPEval` (question text, the tool/resource to call, arguments, and the pinned
+  answer). Expectations are dotted paths into the tool's structured result
+  (`price.reinsurer_pv_profits`, `scenario.scenarios.1.pv_profits`,
+  `uq.p50_pv_profit`, …) compared with a relative tolerance (floats) or exact
+  equality (ints / strings / lists / `None`); an error question asserts a
+  `ToolError` whose message carries the expected guidance. `run_eval` /
+  `run_eval_set` execute them through the real `mcp.call_tool` / `read_resource`
+  path. `EVAL_SET` is importable data — inspectable, replayable, and reused by a
+  future eval CLI or docs page — not assertions buried in a test. The ten cover
+  all four tools, the capabilities resource, seeded-UQ reproducibility, and the
+  actionable-error path; every question pins an explicit `valuation_date`
+  (ADR-074 — never `date.today()`).
+- **Actionable out-of-range errors.** `build_*_request_from_block()` now wraps the
+  `*Request(...)` construction in `except ValidationError`, re-raising via a shared
+  `_actionable_param_error()` helper that names each offending field, the
+  constraint that was violated (which states the valid range), and the rejected
+  value, and points at the `polaris://capabilities` resource — with no
+  `errors.pydantic.dev` URL. All three block tools share the one guard.
+
+**Key decisions:**
+
+- **The pinned answers ARE a golden regression.** The eval numbers are the
+  `golden` block priced with the tools' documented flat-assumption defaults
+  (`flat_qx=0.003` / `flat_lapse=0.05`); the epic's byte-identical discipline keeps
+  them stable, so a red eval means real drift, surfaced with a readable path-level
+  diff. A tamper test proves the runner actually fails on a wrong pinned value
+  (it is not vacuously green).
+- **`polaris_price` (inline `PriceRequest`) needs no new guard.** FastMCP derives
+  and validates that tool's input schema from the contract *before* the function
+  body runs, so an out-of-range field is already a structured framework error. The
+  gap was specific to the block tools, which build the request from loose scalar
+  params inside the body.
+- **Eval infra reuses `PolarisBaseModel`.** `MCPEval` / `EvalResult` are frozen,
+  `extra="forbid"` house-style models — the eval set is immutable committed data.
+
+**Consequences / backward compatibility:** Purely additive. No `src/` pricing code
+changed, so `polaris price` on all four golden configs is byte-identical (cedant PV
+$3,513,563.42, reinsurer PV $45,386.44). New tests: the 10 evals run green through
+the live engine, the set's shape (10 questions, all surfaces covered, dates
+pinned), the runner's tamper detection, and the actionable out-of-range errors on
+all three block tools (field named, valid range shown, no pydantic URL leaked).
+This slice **closes the MCP-server epic** (`CONTINUATION_mcp_server.md` → COMPLETE);
+the refinement backlog is harvested to the latest PRODUCT_DIRECTION.
+
+**Out of scope (harvested to PRODUCT_DIRECTION):** an eval **CLI / CI gate** and a
+rendered eval report (the set is importable but only exercised via pytest today);
+folding the HTTP auth stack into the `[mcp]` extra so HTTP mode drops the `[api]`
+dependency; and the post-epic tool surface (ifrs17 / ingest / rate-schedule /
+portfolio tools, store-authoring/write tools, MCP prompt templates, MCPB
+packaging) already logged against `PLAN_mcp_server.md`'s Out-of-Scope section.
