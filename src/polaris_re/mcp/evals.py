@@ -53,9 +53,12 @@ class MCPEval(PolarisBaseModel):
     Exactly one of ``tool`` / ``resource`` is set. Expectations are dotted paths
     into the structured result: ``expected_numeric`` compares floats with
     ``rel_tol``; ``expected_equals`` compares ints / strings / lists / ``None``
-    exactly. ``summary_contains`` asserts substrings of a tool result's one-line
-    ``summary``. An error question sets ``expect_error_contains`` — the tool call
-    must raise a :class:`ToolError` whose message contains that guidance.
+    exactly (**never floats** — a float belongs in ``expected_numeric``, since
+    ``==`` on floats is unreliable; ``run_eval`` flags a float in
+    ``expected_equals`` as a failure). ``summary_contains`` asserts substrings of a
+    tool result's one-line ``summary``. An error question sets
+    ``expect_error_contains`` — the tool call must raise a :class:`ToolError` whose
+    message contains that guidance.
     """
 
     id: str
@@ -144,6 +147,17 @@ def run_eval(ev: MCPEval) -> EvalResult:
             failures.append(f"{path}: expected {expected}, got {got}")
 
     for path, expected in ev.expected_equals.items():
+        # expected_equals is for EXACT matches (ints / strings / lists / None). A
+        # float here would be an `==` comparison, which CLAUDE.md forbids — floats
+        # belong in expected_numeric (checked with math.isclose). Guard so a future
+        # eval author cannot silently introduce a float-equality path. (bool is an
+        # int subclass, not a float, so True/False stay valid here.)
+        if isinstance(expected, float):
+            failures.append(
+                f"{path}: float {expected!r} in expected_equals — put floats in "
+                "expected_numeric (math.isclose), never expected_equals (== on floats)"
+            )
+            continue
         got = _dig(structured, path)
         if got != expected:
             failures.append(f"{path}: expected {expected!r}, got {got!r}")

@@ -90,3 +90,25 @@ class TestRunEvalMechanics:
         tampered = good.model_copy(update={"expect_error_contains": "never happens"})
         result = run_eval(tampered)
         assert not result.passed
+
+    def test_float_in_expected_equals_is_rejected(self) -> None:
+        """A float in ``expected_equals`` is a misuse (== on floats) — the runner
+        flags it so a future eval author routes floats to ``expected_numeric``
+        instead of silently introducing a float-equality path."""
+        good = next(ev for ev in EVAL_SET if ev.id == "price_golden_yrt90")
+        tampered = good.model_copy(
+            update={
+                "expected_numeric": {},
+                "expected_equals": {"price.reinsurer_pv_profits": 51.530862},
+            }
+        )
+        result = run_eval(tampered)
+        assert not result.passed
+        assert "expected_numeric" in result.failures[0]
+
+    def test_no_eval_puts_a_float_in_expected_equals(self) -> None:
+        """The shipped set never uses a float in ``expected_equals`` (floats go to
+        ``expected_numeric``) — enforce the convention the guard protects."""
+        for ev in EVAL_SET:
+            for path, value in ev.expected_equals.items():
+                assert not isinstance(value, float), f"{ev.id}:{path} is a float"
