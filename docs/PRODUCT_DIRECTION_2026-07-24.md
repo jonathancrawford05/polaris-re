@@ -879,6 +879,34 @@ review — the new `Scenario*` / `UQ*` contracts and the `ScenarioBlockResult` /
 `UQBlockResult` wrappers are the same plain-`BaseModel` family that item already
 covers, so that family-wide decision now spans price + scenario + uq DTOs.
 
+### Harvested 2026-07-30 — MCP Server epic, Slice 3b (ADR-173)
+
+Slice 3b added the optional streamable-HTTP (stateless JSON) transport of the same
+in-process MCP server, reusing `APIKeyAuthMiddleware` (byte-identical goldens). The
+Slice-4 eval set + hardening + docs remains an epic slice tracked in
+`CONTINUATION_mcp_server.md` (the only slice left; it CLOSES the epic) — **not
+re-promoted here as a loose item.** The genuinely-new loose follow-ups below are
+1st-order refinements of the (originally-planned) HTTP transport surface; all affect
+only the remote/shared-deployment path, never the default local-stdio quoting path,
+so all are NICE-TO-HAVE:
+
+- **HTTP transport requires the `[api]` extra (auth-stack coupling).** `build_http_app()`
+  reuses `api.auth.APIKeyAuthMiddleware`, whose import pulls in FastAPI via
+  `api/__init__` → `api.main`. A `[mcp]`-only install can serve stdio but not HTTP.
+  Extracting `APIKeyAuthMiddleware` (and its `observability` correlation dep) into a
+  web-framework-light module — or making `api/__init__` lazy — would let HTTP mode run
+  under `[mcp]` alone. Documented as a QUICKSTART §10 prerequisite for now.
+  *Source: ADR-173 Out of scope (1st-order).* **NICE-TO-HAVE.**
+- **Per-scope / per-tool MCP auth.** HTTP auth today is all-or-nothing (a valid
+  `POLARIS_API_KEYS` key grants every read-only tool). Since the engine is read-only
+  there is no privilege to separate yet, but a future write/store surface (ADR-171
+  "store-authoring tools", explicitly out of scope) would want scoped keys.
+  *Source: ADR-173 Out of scope (1st-order).* **NICE-TO-HAVE.**
+- **Non-stateless (session) HTTP transport mode.** v1 HTTP is stateless JSON (no
+  session affinity — the shape API-key auth expects). A stateful/SSE session mode
+  (resumable streams via an `event_store`) is a possible later transport option for
+  hosts that prefer it. *Source: ADR-173 Out of scope (1st-order).* **NICE-TO-HAVE.**
+
 ---
 
 ## Comparison with Previous Assessment

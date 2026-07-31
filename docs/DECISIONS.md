@@ -11422,3 +11422,70 @@ higher-value analytics tools and one reviewable, byte-identical change (stdio re
 the only transport, which is what Claude Code / Claude Desktop spawn). Also deferred:
 the Slice-4 eval set + error-message hardening; ifrs17 / ingest / rate-schedule /
 portfolio tools (post-epic).
+
+## ADR-173: Optional streamable-HTTP transport for the MCP server (MCP-server epic Slice 3b)
+
+**Date:** 2026-07-30
+**Status:** Accepted
+
+**Context:** Slices 2–3 (ADR-171 / ADR-172) shipped the MCP server over **stdio** —
+the transport Claude Code / Claude Desktop spawn, and the right default for a
+local, single-user agent host. The plan (`docs/PLAN_mcp_server.md`, LOCKED
+decision #1) always scoped an **optional** streamable-HTTP transport for the
+"remote, shared" deployment case, split out of Slice 3 into this Slice 3b to keep
+that PR to one reviewable change. LOCKED decision #1 is explicit that this is a
+*transport of the same in-process server*, **not** a proxy to the REST API: the
+HTTP endpoint must serve the identical tools over the identical `run_price` /
+`run_scenario` / `run_uq` engine path as stdio.
+
+**Decision:** Add an HTTP serving mode to the same `polaris_re.mcp.server.mcp`
+FastMCP instance, selected at launch; stdio stays the default.
+
+- **Transport switch (env + CLI flag).** `main()` gains an argparse front end:
+  `--transport {stdio,http}` (overriding `$POLARIS_MCP_TRANSPORT`, default stdio),
+  plus `--host` / `--port` (overriding `$POLARIS_MCP_HOST` / `$POLARIS_MCP_PORT`,
+  default `127.0.0.1:8000`). `resolve_transport()` normalises the value and raises
+  an actionable error on an unknown transport. The stdio path is unchanged
+  (`mcp.run()`).
+- **`build_http_app()` — a transport of the one server.** Returns the FastMCP
+  `streamable_http_app()` for the *same* `mcp` instance, configured **stateless
+  JSON** (`stateless_http=True`, `json_response=True`) so any replica can answer
+  any request without session affinity — the shape API-key auth expects — and
+  wrapped in the REST API's `APIKeyAuthMiddleware`. Not a new server, not a proxy.
+- **Auth reuse (no new surface).** HTTP mode reuses `POLARIS_API_KEYS` via
+  `APIKeyAuthMiddleware`: when keys are configured a request must present a valid
+  `X-API-Key` / `Bearer` key (401 otherwise); when unset the endpoint is open,
+  exactly like stdio. The middleware is added outermost, so an unauthenticated
+  request is rejected before the transport-security check or the MCP handler.
+
+**Key decisions:**
+
+- **DNS-rebinding protection is configured, not disabled.** FastMCP's Host-header
+  allow-list defaults to empty (rejects everything), so HTTP mode sets
+  `TransportSecuritySettings.allowed_hosts` from `$POLARIS_MCP_ALLOWED_HOSTS`;
+  the secure default permits only loopback and the bind host (each as `name` and
+  a `name:*` wildcard-port pattern). `$POLARIS_MCP_ALLOWED_ORIGINS` maps to
+  `allowed_origins`. An operator binding to a public name must allow-list it —
+  matching the REST API's explicit-config posture (ADR-135).
+- **stdio stays dependency-light.** `APIKeyAuthMiddleware` is imported *lazily*
+  inside `build_http_app()`, because importing `polaris_re.api.auth` triggers
+  `api/__init__` → `api.main` → FastAPI. The default stdio path (what agent hosts
+  spawn) therefore never pulls in the `[api]` stack; HTTP mode is the
+  shared-deployment case, which installs `[api]` (or `--all-extras`).
+
+**Consequences / backward compatibility:** Purely additive — a new *optional*
+serving mode plus config helpers; no engine code changed, so `polaris price` on all
+four golden configs is byte-identical (cedant PV $3,513,563.42, reinsurer PV
+$45,386.44, unchanged) and the full suite passes unchanged. New tests assert
+transport resolution (stdio default, HTTP aliases, flag-over-env, bad-value error);
+the HTTP app wraps `APIKeyAuthMiddleware` and is stateless JSON; the allow-list
+defaults / env override; HTTP-mode auth (open when unset, 401 on missing/invalid,
+200 on valid); and **HTTP↔stdio payload parity** for `polaris_price_block`,
+`polaris_run_scenario`, and `polaris_run_uq` (same seed) plus an identical
+`tools/list`.
+
+**Out of scope (this slice):** the Slice-4 eval set + error-message hardening +
+ARCHITECTURE/README finalisation that closes the epic. HTTP mode requires the
+`[api]` extra for the reused auth middleware (documented in QUICKSTART §10); folding
+the auth stack into the `[mcp]` extra, per-scope MCP auth, and a non-stateless
+(session) HTTP mode are possible later refinements, not v1.
