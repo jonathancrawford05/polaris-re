@@ -44,7 +44,7 @@ premise holds: Slice 2 is genuinely unbuilt.
 | Slice | Scope | Status | PR |
 |-------|-------|--------|----|
 | 1 | Deterministic perf-probe core | ✅ Done | #171 (merged) |
-| 2 | Head-vs-main driver + `perf.json` diff | ✅ Done | _this PR (draft)_ |
+| 2 | Head-vs-main driver + `perf.json` diff | ✅ Done | #178 (draft) |
 | 3 | CI perf job (closes IMPORTANT #9) | ⏳ Next | — |
 | 4 | `perf/history.jsonl` creep log (opt / #10) | 🔲 Planned | — |
 

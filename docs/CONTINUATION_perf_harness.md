@@ -45,7 +45,7 @@ raw wall-time only informs (maintainer rule, 2026-07-12). Unblocks the per-merge
 ### Slice 2: Head-vs-main same-job driver + `perf.json` diff
 - **Status:** DONE
 - **Branch:** `claude/loving-gauss-rkb3qg` (environment-designated)
-- **PR:** _(this session — draft)_
+- **PR:** #178 (draft)
 - **ADR:** ADR-175
 - **What was done:** Extended `analytics/perf_harness.py` with the diff layer —
   `ProbeDiff` (one head-vs-main probe comparison) + `PerfDiff` (the verdict
