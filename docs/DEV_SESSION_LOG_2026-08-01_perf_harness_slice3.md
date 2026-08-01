@@ -109,6 +109,20 @@ gate). ADR-176 records the design. This closes the perf epic's mandatory scope
 | Goldens byte-identical | ✅ | `polaris price` flat: cedant $3,513,563.42 / reinsurer $45,386.44; `tests/qa/` 94 passed |
 | Quality gate (ruff format+check `src/ tests/`, fast suite, qa) | ✅ | ruff clean; fast suite green; qa 104 (10 test_ci + 94 qa) |
 
+## Post-Open CI Fix (2026-08-01, commit `ea684d5`)
+The first CI run on PR #179 failed the **Docker build & test** job: the runtime
+image runs the full test suite, and the new `tests/test_ci/` parses
+`.github/workflows/ci.yml`, which the image did **not** contain (`.dockerignore`
+excluded `.github/` and the Dockerfile never COPYed it) → `FileNotFoundError`.
+This is exactly the Docker/data trap the routine encodes (#61/#66). Fixed in the
+same PR: `Dockerfile` now `COPY .github/workflows/ ./.github/workflows/` (mirroring
+the `deploy/` precedent), and `.dockerignore` allowlists `!.github/workflows/` +
+`!.github/workflows/**` (mirroring the `data/qa/` pattern), shipping only the
+workflows dir. Local fast suite + `tests/test_ci/` unaffected (they already read
+the repo copy); the fix is Docker-context-only. Lesson re-confirmed: any test that
+reads a repo file the image doesn't ship must be paired with a Dockerfile COPY +
+`.dockerignore` allowlist in the same PR.
+
 ## Open Questions / Follow-ups
 - **IMPORTANT #10 (`perf/history.jsonl` creep log) is now UNBLOCKED** and is the
   natural continuation of this epic's thread — the runner already emits the
