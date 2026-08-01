@@ -59,9 +59,12 @@ from polaris_re.products.base_product import BaseProduct
 from polaris_re.products.dispatch import get_product_engine
 
 __all__ = [
+    "PerfDiff",
     "PerfProbe",
     "PerfReport",
+    "ProbeDiff",
     "default_hot_paths",
+    "diff_reports",
     "output_fingerprint",
     "run_perf_probe",
 ]
@@ -207,6 +210,215 @@ class PerfReport(PolarisBaseModel):
     def to_json(self) -> str:
         """Render :meth:`to_perf_dict` as an indented JSON string."""
         return json.dumps(self.to_perf_dict(), indent=2)
+
+
+class ProbeDiff(PolarisBaseModel):
+    """Head-vs-main comparison of one hot-path probe.
+
+    A probe present under the same name on both branches is compared field by
+    field. The **deterministic** metrics (counts + output fingerprint) are the
+    hard-gate signal: any mismatch means head and main did not run the *same*
+    computation (a structural regression, or a correctness change that
+    invalidates the timing comparison) and is flagged as a hard delta. The
+    ``peak_mib`` delta and the wall-time ratio are **advisory alerts only** —
+    they never contribute to a hard delta, per the maintainer design rule
+    (2026-07-12): noise-normalized metrics may alert, raw wall-time only informs.
+    """
+
+    probe: str = Field(description="Hot-path name compared across the two branches.")
+    structural_match: bool = Field(
+        description="True iff every deterministic metric is byte-identical head vs main."
+    )
+    structural_mismatches: dict[str, dict[str, int | str]] = Field(
+        default_factory=dict,
+        description="metric -> {'head': ..., 'main': ...} for each differing deterministic metric.",
+    )
+    peak_mib_head: int = Field(ge=0, description="Head tracemalloc peak (MiB-rounded).")
+    peak_mib_main: int = Field(ge=0, description="Main tracemalloc peak (MiB-rounded).")
+    peak_mib_delta: int = Field(
+        description="head - main peak MiB. Positive => head allocates more (advisory alert)."
+    )
+    peak_mib_alert: bool = Field(
+        description="True iff peak_mib_delta exceeds the alert threshold (advisory, never gates)."
+    )
+    wall_time_head_seconds: float = Field(
+        ge=0.0, description="Head best-of-k wall-clock seconds (informational)."
+    )
+    wall_time_main_seconds: float = Field(
+        ge=0.0, description="Main best-of-k wall-clock seconds (informational)."
+    )
+    wall_time_ratio: float | None = Field(
+        description="head / main best-of-k ratio; None if main timing is zero (undivisible)."
+    )
+    wall_time_alert: bool = Field(
+        description="True iff wall_time_ratio exceeds the band (advisory, never a hard delta)."
+    )
+
+
+class PerfDiff(PolarisBaseModel):
+    """The verdict for one head-vs-main harness comparison.
+
+    Splits into exactly two categories, mirroring the CI job a later slice wires
+    up: a **hard delta** (structural — a probe present on only one branch, or any
+    deterministic-metric mismatch) that a gate blocks on, and **advisory alerts**
+    (wall-time ratio outside the band, or a peak-MiB increase beyond the
+    threshold) that inform but never block. :attr:`has_hard_delta` is the single
+    boolean a gate reads.
+    """
+
+    band: float = Field(
+        gt=0.0, description="Wall-time head/main ratio above which an advisory alert fires."
+    )
+    mib_alert_delta: int = Field(
+        ge=0,
+        description="peak_mib head-over-main increase (MiB) above which an advisory alert fires.",
+    )
+    head_only_probes: list[str] = Field(
+        default_factory=list, description="Probe names present in head but not main (hard delta)."
+    )
+    main_only_probes: list[str] = Field(
+        default_factory=list, description="Probe names present in main but not head (hard delta)."
+    )
+    probe_diffs: list[ProbeDiff] = Field(
+        default_factory=list,
+        description="Per-probe comparison for probes present on both branches.",
+    )
+
+    @property
+    def has_hard_delta(self) -> bool:
+        """The gate signal: an unmatched probe or any deterministic-metric mismatch."""
+        return bool(self.head_only_probes or self.main_only_probes) or any(
+            not d.structural_match for d in self.probe_diffs
+        )
+
+    @property
+    def has_wall_time_alert(self) -> bool:
+        """Advisory: any probe's wall-time ratio exceeded the band."""
+        return any(d.wall_time_alert for d in self.probe_diffs)
+
+    @property
+    def has_peak_mib_alert(self) -> bool:
+        """Advisory: any probe's peak MiB grew beyond the alert threshold."""
+        return any(d.peak_mib_alert for d in self.probe_diffs)
+
+    def to_diff_dict(self) -> dict[str, object]:
+        """The verdict payload — hard-gate signal first, then advisories, then detail."""
+        return {
+            "verdict": {
+                "has_hard_delta": self.has_hard_delta,
+                "has_wall_time_alert": self.has_wall_time_alert,
+                "has_peak_mib_alert": self.has_peak_mib_alert,
+            },
+            "band": self.band,
+            "mib_alert_delta": self.mib_alert_delta,
+            "head_only_probes": self.head_only_probes,
+            "main_only_probes": self.main_only_probes,
+            "probes": [
+                {
+                    "probe": d.probe,
+                    "structural_match": d.structural_match,
+                    "structural_mismatches": d.structural_mismatches,
+                    "peak_mib": {
+                        "head": d.peak_mib_head,
+                        "main": d.peak_mib_main,
+                        "delta": d.peak_mib_delta,
+                        "alert": d.peak_mib_alert,
+                    },
+                    "wall_time": {
+                        "head_seconds": d.wall_time_head_seconds,
+                        "main_seconds": d.wall_time_main_seconds,
+                        "ratio": d.wall_time_ratio,
+                        "alert": d.wall_time_alert,
+                    },
+                }
+                for d in self.probe_diffs
+            ],
+        }
+
+
+def diff_reports(
+    head: PerfReport,
+    main: PerfReport,
+    *,
+    band: float = 1.5,
+    mib_alert_delta: int = 4,
+) -> PerfDiff:
+    """Compare a head :class:`PerfReport` against a main one, probe by probe.
+
+    Probes are matched by name. A probe present on only one side is a hard delta
+    (the branches expose different hot paths — the comparison is not
+    apples-to-apples). For each matched probe the deterministic metrics are
+    compared exactly (any difference => hard delta); the ``peak_mib`` delta and
+    the best-of-k wall-time ratio are computed as **advisory** signals only.
+
+    The wall-time ratio is ``head / main`` on the best-of-k minimum — the
+    noise-cancelling estimator the whole harness is built around (run head and
+    main in the same job so machine noise divides out). It is ``None`` when the
+    main timing is zero (not divisible); a ``None`` ratio never alerts.
+
+    Args:
+        head: Report from the current worktree.
+        main: Report from the ``origin/main`` checkout.
+        band: Wall-time ratio above which an advisory alert fires. Positive.
+        mib_alert_delta: head-over-main peak MiB increase above which an advisory
+            memory alert fires. Non-negative (a coarse guard above the ±1 MiB
+            rounding jitter).
+
+    Returns:
+        A :class:`PerfDiff` verdict; read :attr:`PerfDiff.has_hard_delta` to gate.
+
+    Raises:
+        PolarisValidationError: if ``band`` is not positive or ``mib_alert_delta``
+            is negative.
+    """
+    if band <= 0.0:
+        raise PolarisValidationError(f"band must be positive, got {band}.")
+    if mib_alert_delta < 0:
+        raise PolarisValidationError(
+            f"mib_alert_delta must be non-negative, got {mib_alert_delta}."
+        )
+
+    head_probes = {p.probe: p for p in head.probes}
+    main_probes = {p.probe: p for p in main.probes}
+    head_only = sorted(head_probes.keys() - main_probes.keys())
+    main_only = sorted(main_probes.keys() - head_probes.keys())
+
+    probe_diffs: list[ProbeDiff] = []
+    for name in sorted(head_probes.keys() & main_probes.keys()):
+        h = head_probes[name]
+        m = main_probes[name]
+        h_det = h.deterministic_metrics()
+        m_det = m.deterministic_metrics()
+        mismatches: dict[str, dict[str, int | str]] = {
+            key: {"head": h_det[key], "main": m_det[key]}
+            for key in h_det
+            if h_det[key] != m_det[key]
+        }
+        peak_delta = h.peak_mib - m.peak_mib
+        ratio = h.best_of_k_seconds / m.best_of_k_seconds if m.best_of_k_seconds > 0.0 else None
+        probe_diffs.append(
+            ProbeDiff(
+                probe=name,
+                structural_match=not mismatches,
+                structural_mismatches=mismatches,
+                peak_mib_head=h.peak_mib,
+                peak_mib_main=m.peak_mib,
+                peak_mib_delta=peak_delta,
+                peak_mib_alert=peak_delta > mib_alert_delta,
+                wall_time_head_seconds=h.best_of_k_seconds,
+                wall_time_main_seconds=m.best_of_k_seconds,
+                wall_time_ratio=ratio,
+                wall_time_alert=ratio is not None and ratio > band,
+            )
+        )
+
+    return PerfDiff(
+        band=band,
+        mib_alert_delta=mib_alert_delta,
+        head_only_probes=head_only,
+        main_only_probes=main_only,
+        probe_diffs=probe_diffs,
+    )
 
 
 def run_perf_probe(

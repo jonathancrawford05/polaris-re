@@ -61,9 +61,12 @@ from polaris_re.analytics.ifrs17 import (
     build_movement_table,
 )
 from polaris_re.analytics.perf_harness import (
+    PerfDiff,
     PerfProbe,
     PerfReport,
+    ProbeDiff,
     default_hot_paths,
+    diff_reports,
     output_fingerprint,
     run_perf_probe,
 )
@@ -159,6 +162,7 @@ __all__ = [
     "MonteCarloUQ",
     "NetPremiumCalculator",
     "NetPremiumResult",
+    "PerfDiff",
     "PerfProbe",
     "PerfReport",
     "Portfolio",
@@ -169,6 +173,7 @@ __all__ = [
     "PremiumDeficiencyTester",
     "PremiumSufficiencyResult",
     "PremiumSufficiencyTester",
+    "ProbeDiff",
     "ProfitResultWithCapital",
     "ProfitTestResult",
     "ProfitTester",
@@ -203,6 +208,7 @@ __all__ = [
     "capital_model_for",
     "default_experience_cache_dir",
     "default_hot_paths",
+    "diff_reports",
     "dual_duration_gap",
     "duration_gap",
     "duration_measures",

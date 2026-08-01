@@ -68,3 +68,10 @@ logs/
 
 # Docker
 *.tar
+
+# Performance harness (scripts/perfbench.py) artifacts
+# The transient head-vs-main worktree is removed in a finally + pre-cleared on
+# each run, but a hard-kill mid-run could leave it; ignore so it never gets
+# committed. perf.json is the runner's default machine-readable output.
+.perfbench_main_worktree/
+perf.json

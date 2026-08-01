@@ -2,7 +2,10 @@
 
 **Source:** PRODUCT_DIRECTION_2026-06-18.md — IMPORTANT #3 (carried into
 PRODUCT_DIRECTION_2026-07-24 IMPORTANT #3); promoted from ADR-122 Out of scope.
-**Status:** IN PROGRESS
+**Status:** COMPLETE (mandatory Slices 1 + 2 shipped and MERGED — #168 / #169;
+optional 2nd-order Slice 3 deferred to the NICE-TO-HAVE follow-up in
+`PRODUCT_DIRECTION_2026-07-24` #3. Ledger-healed 2026-07-31, step 4b: Slice 2's
+PR #169 was recorded as an unmerged draft but merged to main as commit `f9fc7aa`.)
 **Total slices:** 2
 **Estimated total scope:** ~1.5 dev-days
 
@@ -44,7 +47,7 @@ independent of the cession flag.
 ### Slice 2: Wire the deal-path callers (DONE)
 - **Status:** DONE
 - **Branch:** claude/loving-gauss-aeq051
-- **PR:** #169 (draft — pending review)
+- **PR:** #169 (MERGED to main — commit `f9fc7aa`; ledger-healed 2026-07-31)
 - **ADR:** ADR-167
 - **What was done:** Rewired every deal-path caller to pass `inforce` to
   `treaty.apply` **always** (when a cohort inforce is available) and thread the
