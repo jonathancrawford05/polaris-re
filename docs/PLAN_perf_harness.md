@@ -13,7 +13,9 @@
 > verdict layer + `scripts/perfbench.py` git-worktree runner, ADR-175). Slice 3
 > (CI perf job) is NEXT: it runs `scripts/perfbench.py` on one runner and gates
 > on its non-zero exit (hard delta), surfacing the wall-time / MiB alerts
-> non-blocking.
+> non-blocking. The two advisory thresholds — wall-time `band=1.5×` and
+> `mib_alert_delta=4 MiB` — were **confirmed by the maintainer (2026-07-31,
+> PR #178)**, so Slice 3 wires them in as-is (alert only, never a hard gate).
 >
 > **Provenance.** IMPORTANT #9 (+ #10) in `docs/PRODUCT_DIRECTION_2026-07-24.md`,
 > the *deterministic companion* to the pass/fail CI smoke gate shipped as

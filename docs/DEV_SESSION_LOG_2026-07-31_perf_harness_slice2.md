@@ -114,10 +114,11 @@ records the design; PD #9 and the PLAN/CONTINUATION were advanced to Slice 3 NEX
 | Quality gate (ruff format+check, fast suite, qa) | ✅ | ruff clean (`src/ tests/` + `scripts/perfbench.py`); qa 94; fast suite green |
 
 ## Open Questions / Follow-ups
-- **Wall-time alert band + `peak_mib` alert delta are policy choices.** Defaults
-  `band=1.5×` and `mib_alert_delta=4 MiB` are surfaced now; the maintainer should
-  confirm them before Slice 3 gates CI (as alerts, never hard gates). Flagged in
-  `CONTINUATION_perf_harness` Open Questions.
+- **Wall-time alert band + `peak_mib` alert delta — CONFIRMED (maintainer,
+  2026-07-31, on PR #178).** Defaults `band=1.5×` and `mib_alert_delta=4 MiB` were
+  surfaced as policy choices and approved as-is; Slice 3 wires them into CI as
+  alerts (never hard gates). Resolved in `CONTINUATION_perf_harness` Open
+  Questions — no further human input owed.
 - **Optional `polaris perfbench` CLI subcommand.** Runner shipped script-first
   (B2 precedent). Harvested NICE-TO-HAVE (ADR-175 Out of scope, 1st-order).
 - **Slice 3 (CI perf job) is NEXT** and depends on this Slice 2 merging; it only

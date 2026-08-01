@@ -120,6 +120,10 @@ raw wall-time only informs (maintainer rule, 2026-07-12). Unblocks the per-merge
   subcommand or leave it a `scripts/` tool (as B2 did — `scripts/scale_benchmark.py`,
   deliberately not a `polaris` subcommand). Defer to the maintainer's B2
   precedent (script-first) unless a CLI surface is requested.
-- **Wall-time alert band.** The head/main ratio alert threshold (default
-  proposal 1.5×) is a policy choice; confirm before Slice 3 gates CI on it
-  (as an alert, never a hard gate).
+- **Wall-time alert band + `peak_mib` alert delta — CONFIRMED (maintainer,
+  2026-07-31).** The head/main wall-time ratio alert threshold (`band=1.5×`) and
+  the peak-memory alert threshold (`mib_alert_delta=4 MiB`) were the policy
+  choices surfaced by Slice 2. The maintainer **approved both defaults** on
+  PR #178; Slice 3 wires them into CI as-is (both **alert only**, never a hard
+  gate — only structural deltas gate). No further human input owed on the
+  thresholds; `diff_reports`' defaults stand.

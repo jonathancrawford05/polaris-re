@@ -130,7 +130,9 @@ only — no `src/` pricing path touched, goldens byte-identical by construction.
   to the maintainer's script-first precedent unless a CLI surface is requested.
 - **Wall-time alert band.** The head/main ratio alert threshold (default proposal
   1.5×) is a policy choice; confirm before Slice 3 alerts CI on it (as an alert,
-  never a hard gate).
+  never a hard gate). — **RESOLVED: CONFIRMED by the maintainer 2026-07-31 on
+  PR #178** (Slice 2), together with the `mib_alert_delta=4 MiB` peak-memory
+  threshold. Both stand as-is; Slice 3 wires them in as alerts, never hard gates.
 - **Close `CONTINUATION_expense_allowance_duration` as COMPLETE?** Unchanged from
   the prior two sessions — mandatory scope (Slice 2, PR #169) merged; only the
   optional 2nd-order Slice 3 remains (already promoted NICE-TO-HAVE). Left IN

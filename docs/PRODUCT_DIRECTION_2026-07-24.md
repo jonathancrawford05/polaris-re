@@ -964,11 +964,11 @@ of the originally-planned perf epic), design polish only → NICE-TO-HAVE.
   is requested. *Source: ADR-175 Out of scope + CONTINUATION_perf_harness Open
   Questions (1st-order).* **NICE-TO-HAVE.**
 
-> Two Slice-2 policy choices are **maintainer decisions**, not promoted items:
-> the wall-time alert **band** (default 1.5×) and the **`peak_mib` alert delta**
-> (default 4 MiB) are `diff_reports` defaults surfaced before Slice 3 gates CI on
-> them (as alerts, never hard gates). They are flagged in
-> `CONTINUATION_perf_harness` Open Questions for confirmation when Slice 3 lands.
+> Two Slice-2 policy choices — the wall-time alert **band** (1.5×) and the
+> **`peak_mib` alert delta** (4 MiB) `diff_reports` defaults — were surfaced for
+> the maintainer and **CONFIRMED on PR #178 (2026-07-31)**. Slice 3 wires them
+> into CI as-is (both alert only, never hard gates). Recorded in
+> `CONTINUATION_perf_harness` Open Questions; not a promoted work item.
 
 ---
 
