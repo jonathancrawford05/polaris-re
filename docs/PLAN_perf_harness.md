@@ -9,13 +9,16 @@
 > is the read-only spec, not the running log; the running log is
 > `docs/CONTINUATION_perf_harness.md`.
 >
-> **Status.** 🔲 IN PROGRESS — Slices 1 + 2 shipped (Slice 2: the `diff_reports`
-> verdict layer + `scripts/perfbench.py` git-worktree runner, ADR-175). Slice 3
-> (CI perf job) is NEXT: it runs `scripts/perfbench.py` on one runner and gates
-> on its non-zero exit (hard delta), surfacing the wall-time / MiB alerts
-> non-blocking. The two advisory thresholds — wall-time `band=1.5×` and
+> **Status.** ✅ COMPLETE (mandatory scope) — Slices 1 + 2 + 3 shipped. Slice 3
+> (the CI `perf` job, ADR-176, PR on `claude/loving-gauss-7h7smy`) runs
+> `scripts/perfbench.py --ref origin/main --no-fetch` on one PR-only runner and
+> gates the merge on its non-zero exit (a structural hard delta), uploading
+> `perf.json` and surfacing the wall-time / MiB alerts non-blocking in the job
+> log. The two advisory thresholds — wall-time `band=1.5×` and
 > `mib_alert_delta=4 MiB` — were **confirmed by the maintainer (2026-07-31,
-> PR #178)**, so Slice 3 wires them in as-is (alert only, never a hard gate).
+> PR #178)** and wired in as-is (alert only, never a hard gate). The optional
+> Slice 4 (`perf/history.jsonl` creep log = IMPORTANT #10) may be constituted as
+> its own epic; see `CONTINUATION_perf_harness.md`.
 >
 > **Provenance.** IMPORTANT #9 (+ #10) in `docs/PRODUCT_DIRECTION_2026-07-24.md`,
 > the *deterministic companion* to the pass/fail CI smoke gate shipped as
@@ -97,11 +100,16 @@ fingerprint / MiB-peak) is a **hard delta**; a wall-time ratio outside a
 configurable band (e.g. head > 1.5× main best-of-k) is an **advisory alert**.
 Deterministic-first ordering so the report reads gate-signals before wall-time.
 
-### Slice 3 — CI perf job (closes IMPORTANT #9)
-A CI job (needs `lint`, like the smoke job) that runs the Slice-2 head-vs-main
-harness on one runner, uploads `perf.json` as an artifact, **gates** on
-structural-metric deltas and **alerts** (non-blocking) on the wall-time ratio,
-honoring the group rule. QUICKSTART/README note on reading `perf.json`.
+### Slice 3 — CI perf job (closes IMPORTANT #9) ✅ SHIPPED (ADR-176)
+A CI `perf` job (needs `lint`, like the smoke job) that runs the Slice-2
+head-vs-main harness on one runner, uploads `perf.json` as an artifact, **gates**
+on structural-metric deltas and **alerts** (non-blocking) on the wall-time ratio,
+honoring the group rule. QUICKSTART/README note on reading `perf.json`. Wired
+PR-only (`if: github.event_name == 'pull_request'` — head == origin/main on a
+main push), `fetch-depth: 0` + an explicit `+refs/heads/main:refs/remotes/origin/main`
+fetch so the worktree checkout resolves, then `perfbench.py --no-fetch`. Structural
+wiring pinned by `tests/test_ci/test_workflow_perf_job.py` (10 tests). No
+`convert_soa_tables` step (the probe uses the committed synthetic fixture).
 
 ### Slice 4 (optional / follow-on epic = IMPORTANT #10)
 Per-merge append-only `perf/history.jsonl` (one deterministic-first row per
@@ -144,8 +152,8 @@ merge to main) + creep detection over the series, plus the NICE-TO-HAVE tail
 
 ## 6. Acceptance criteria (epic)
 
-- [ ] `perf.json` machine-readable payload emitted for the engine hot paths (S1 shape; S2 populates head/main).
-- [ ] Deterministic structural metrics reproducible run-to-run and used as the gate (S1 proves reproducibility; S3 gates).
-- [ ] Head-vs-main noise-cancelling ratio computed in a single job (S2).
-- [ ] CI job gates on structural deltas, alerts (non-blocking) on wall-time ratio (S3).
-- [ ] Goldens byte-identical throughout (harness never touches the pricing path).
+- [x] `perf.json` machine-readable payload emitted for the engine hot paths (S1 shape; S2 populates head/main).
+- [x] Deterministic structural metrics reproducible run-to-run and used as the gate (S1 proves reproducibility; S3 gates).
+- [x] Head-vs-main noise-cancelling ratio computed in a single job (S2).
+- [x] CI job gates on structural deltas, alerts (non-blocking) on wall-time ratio (S3, ADR-176).
+- [x] Goldens byte-identical throughout (harness never touches the pricing path).

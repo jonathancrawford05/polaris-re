@@ -11649,3 +11649,81 @@ IMPORTANT #9's remaining work); an optional `polaris perfbench` CLI subcommand
 (the runner is a `scripts/` tool, mirroring B2's `scripts/scale_benchmark.py`
 script-first precedent); and the per-merge `perf/history.jsonl` creep log
 (IMPORTANT #10, depends on Slice 3).
+
+## ADR-176: CI perf job — gate the merge on a head-vs-main structural regression (perf epic Slice 3 — CLOSES #9)
+
+**Date:** 2026-08-01
+**Status:** Accepted
+
+**Context:** Slices 1–2 (ADR-169, ADR-175) shipped the deterministic perf-probe
+core and `scripts/perfbench.py`, a git-worktree runner that probes this branch's
+head and an `origin/main` checkout in one invocation, writes `perf.json`, and
+exits non-zero **iff** the diff carries a *hard delta* (a structural /
+deterministic-metric mismatch). What was missing — IMPORTANT #9 in
+`PRODUCT_DIRECTION_2026-07-24.md`, `PLAN_perf_harness.md` §3 Slice 3 — was the CI
+job that actually runs the runner on every PR and lets its exit status gate the
+merge, so a performance-relevant structural regression cannot land unnoticed.
+This closes #9. The two advisory thresholds the runner exposes (wall-time
+`band=1.5×`, `mib_alert_delta=4 MiB`) were **confirmed by the maintainer
+(2026-07-31, PR #178)** and are wired in as-is.
+
+**Decision:** Add a `perf` job to `.github/workflows/ci.yml`, mirroring the
+`smoke` job's shape (`needs: lint`, one `ubuntu-latest` runner, no build matrix):
+
+1. **PR-only** (`if: github.event_name == 'pull_request'`). Head-vs-main is only
+   meaningful on a PR; on a push to `main` the head and `origin/main` are the
+   same commit — a no-op self-compare that also risks a fetch race against the
+   just-pushed tip. Gating to PR events removes both.
+2. **Full history** (`fetch-depth: 0`) so the `git worktree add --detach ...
+   origin/main` checkout resolves against a real object graph, not a shallow
+   clone.
+3. **Materialize the baseline explicitly** — `git fetch --no-tags origin
+   +refs/heads/main:refs/remotes/origin/main` — so `refs/remotes/origin/main`
+   exists regardless of the checkout action's default fetch refspec; the runner
+   is then invoked with `--no-fetch` (no redundant, possibly-misconfigured
+   fetch).
+4. **Gate on the exit status** — `uv run python scripts/perfbench.py --ref
+   origin/main --no-fetch -o perf.json`. The runner exits non-zero only on a hard
+   delta (mismatched counts / `output_fingerprint`), so the job fails on a
+   *structural* regression and passes on a wall-time or peak-MiB alert. This bakes
+   the maintainer's non-negotiable rule (2026-07-12) into the pipeline: raw
+   wall-time never fails a build; the alerts are printed to the step log for a
+   human to read. No absolute-millisecond SLO anywhere.
+5. **Upload `perf.json`** (`if: always()`, 7-day retention) so a failing gate's
+   evidence — the verdict plus both per-branch reports — is inspectable from the
+   run.
+
+The probe uses the committed `tests/fixtures/synthetic_select_ultimate.csv`, not
+the generated `data/` mortality tables, so the job needs **no**
+`convert_soa_tables` step — it stays fast (a few seconds of engine time plus the
+worktree checkout) and offline-safe. No Dockerfile / `.dockerignore` change: no
+test-referenced data file is added.
+
+**Alternatives considered:** (a) *Run on push-to-main too, like the other jobs* —
+rejected: on a main push head == origin/main, so the comparison is a wasteful
+no-op with a fetch-race edge; the smoke/test jobs run there because they have
+their own reason to (boot / correctness), which perf does not. (b) *Rely on the
+checkout action or the runner's built-in `git fetch origin` to produce
+`origin/main`* — rejected as non-deterministic across checkout refspec defaults;
+one explicit refspec fetch + `--no-fetch` is unambiguous. (c) *Also fail the job
+on the wall-time alert* — rejected outright: it violates the group rule and is
+the alert-fatigue generator the whole design exists to avoid.
+
+**Consequences / backward compatibility:** CI-only + docs; no `src/` change, so
+`polaris price` on the golden configs is byte-identical (cedant PV $3,513,563,
+reinsurer PV $45,386). For this very PR (which touches only `ci.yml`, tests, and
+docs) the engine is identical head-vs-main, so the new gate is green (exit 0),
+verified locally against `origin/main` (identical fingerprints, ratio ~1.05×, no
+hard delta). New tests: `tests/test_ci/test_workflow_perf_job.py` (10 structural
+assertions on the job wiring — exists, `needs: lint`, single runner, PR-only,
+`fetch-depth: 0`, materializes `origin/main`, runs `perfbench.py --ref
+origin/main -o perf.json`, no table generation, uploads `perf.json`), mirroring
+`tests/test_deploy/test_manifests.py`. This closes the perf-harness epic's
+mandatory scope (Slices 1–3); `CONTINUATION_perf_harness.md` → COMPLETE.
+
+**Out of scope (harvested to PRODUCT_DIRECTION):** the per-merge
+`perf/history.jsonl` creep log with slow-drift detection (IMPORTANT #10 / the
+epic's optional Slice 4, may be constituted as its own epic now that #9 closes);
+surfacing the advisory wall-time / peak-MiB alerts as a PR comment rather than
+only in the job log (pr-review perf verdict, #62); and the optional `polaris
+perfbench` CLI subcommand (ADR-175, script-first per the B2 precedent).

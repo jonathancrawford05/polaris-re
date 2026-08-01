@@ -178,6 +178,20 @@ Regenerate the table on your own hardware — see [`docs/PERFORMANCE.md`](docs/P
 uv run python scripts/scale_benchmark.py --sizes 1000 10000 100000 500000
 ```
 
+**Regression guard.** A CI `perf` job runs `scripts/perfbench.py` on every pull
+request: it probes the engine's hot path on the PR head **and** on an
+`origin/main` git-worktree checkout in the same job, so machine noise cancels in
+the head/main ratio. It **gates the merge only on a structural regression**
+(mismatched policy/month counts or a changed output fingerprint — a *hard
+delta*); the wall-time ratio and peak-memory delta are advisory alerts printed to
+the log, never a build failure (deterministic metrics gate, raw wall-time only
+informs). The machine-readable `perf.json` — verdict first, then both per-branch
+reports — is uploaded as a build artifact. Run it locally with:
+
+```bash
+uv run python scripts/perfbench.py --ref origin/main -o perf.json   # exits non-zero on a hard delta
+```
+
 ---
 
 ## Example: Price a YRT Deal on a Term Life Block

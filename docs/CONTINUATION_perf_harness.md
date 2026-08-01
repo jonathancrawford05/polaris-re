@@ -3,7 +3,10 @@
 **Source:** `PRODUCT_DIRECTION_2026-07-24.md` — IMPORTANT #9 (+ #10); the
 deterministic companion to the IMPORTANT #8 smoke gate. *Source: maintainer
 discussion 2026-07-12 (CI perf/smoke thread), 1st-order.*
-**Status:** IN PROGRESS
+**Status:** COMPLETE — mandatory scope (Slices 1–3) shipped; IMPORTANT #9 closed.
+The optional Slice 4 (`perf/history.jsonl` creep log = IMPORTANT #10) is carried
+forward in `PRODUCT_DIRECTION_2026-07-24.md` and may be constituted as its own
+epic; it is not a blocker on this CONTINUATION.
 **Total slices:** 3 (+1 optional follow-on = IMPORTANT #10)
 **Estimated total scope:** ~3 dev-days
 **Plan:** `docs/PLAN_perf_harness.md` (read-only spec)
@@ -45,7 +48,7 @@ raw wall-time only informs (maintainer rule, 2026-07-12). Unblocks the per-merge
 ### Slice 2: Head-vs-main same-job driver + `perf.json` diff
 - **Status:** DONE
 - **Branch:** `claude/loving-gauss-rkb3qg` (environment-designated)
-- **PR:** #178 (draft)
+- **PR:** #178 (**MERGED** 2026-08-01, commit `750a6a7`)
 - **ADR:** ADR-175
 - **What was done:** Extended `analytics/perf_harness.py` with the diff layer —
   `ProbeDiff` (one head-vs-main probe comparison) + `PerfDiff` (the verdict
@@ -80,11 +83,32 @@ raw wall-time only informs (maintainer rule, 2026-07-12). Unblocks the per-merge
   main, so startup/GC conditions match.
 
 ### Slice 3: CI perf job (closes IMPORTANT #9)
-- **Status:** NEXT
-- **Depends on:** Slice 2 merged
-- **Scope:** A CI job (needs `lint`) running the Slice-2 head-vs-main harness on
-  one runner, uploading `perf.json`, gating on structural deltas and alerting
-  (non-blocking) on the wall-time ratio. README/QUICKSTART note.
+- **Status:** DONE
+- **Branch:** `claude/loving-gauss-7h7smy` (environment-designated)
+- **PR:** (this PR — draft)
+- **ADR:** ADR-176
+- **Depends on:** Slice 2 merged ✅ (#178, `750a6a7`)
+- **What was done:** Added the `perf` job to `.github/workflows/ci.yml`,
+  mirroring the `smoke` job (`needs: lint`, one `ubuntu-latest` runner, no
+  matrix). It is **PR-only** (`if: github.event_name == 'pull_request'` — on a
+  push to main, head and `origin/main` are the same commit), checks out with
+  `fetch-depth: 0`, explicitly materializes the baseline
+  (`git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main`), then
+  runs `uv run python scripts/perfbench.py --ref origin/main --no-fetch
+  -o perf.json`. The job's **non-zero exit gates the merge** (a structural hard
+  delta only); the wall-time / peak-MiB alerts are printed but never fail it. It
+  uploads `perf.json` (`if: always()`, 7-day retention). No `convert_soa_tables`
+  step — the probe uses the committed synthetic fixture, so the job is fast and
+  offline-safe; no Dockerfile/`.dockerignore` change (no data file added). Wiring
+  pinned by `tests/test_ci/test_workflow_perf_job.py` (10 structural tests).
+  README + QUICKSTART note added. Verified locally: `perfbench.py --ref
+  origin/main` on this branch → identical fingerprints, ratio ~1.05×, no hard
+  delta, exit 0 (this PR touches only CI + tests + docs, so the engine is
+  identical head-vs-main and the new gate is green).
+- **Key decisions:** (1) PR-only, to avoid a no-op self-compare + fetch race on
+  main pushes. (2) Explicit refspec fetch + `--no-fetch` rather than trusting the
+  checkout action's default refspec to produce `origin/main`. (3) Never fail on
+  the wall-time alert (the group rule) — only the structural exit code gates.
 
 ### Slice 4 (optional / IMPORTANT #10): per-merge `perf/history.jsonl` + creep
 - **Status:** PLANNED (may be constituted as its own epic once #9 closes)
