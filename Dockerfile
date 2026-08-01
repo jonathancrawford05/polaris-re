@@ -53,6 +53,10 @@ COPY scripts/ ./scripts/
 # deploy/ manifests are parsed by tests/test_deploy/ (ROADMAP 6.2 Slice 3); the
 # runtime image runs the test suite, so they must be present in the image.
 COPY deploy/ ./deploy/
+# CI workflow YAML is parsed by tests/test_ci/ (perf-harness Slice 3, ADR-176) —
+# same reason: the runtime image runs the test suite. Only the workflows dir is
+# shipped (the rest of .github/ stays out via .dockerignore).
+COPY .github/workflows/ ./.github/workflows/
 COPY data/qa/ ./data/qa/
 COPY data/validation/ ./data/validation/
 COPY data/inputs/portfolio_sample/ ./data/inputs/portfolio_sample/
