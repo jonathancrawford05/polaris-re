@@ -134,14 +134,23 @@ reads a repo file the image doesn't ship must be paired with a Dockerfile COPY +
   2026-08-01, so the routine's step-6 rule requires **regenerating the viability
   review before the next Epic is chosen** (regen may itself be a session's
   deliverable). Flagged for the next run.
-- **`scripts/` is not in the CI lint scope.** `ruff check scripts/` reports 12
-  pre-existing warnings in `scripts/` (incl. `perfbench.py` from #178); the CI
-  `lint` job and CLAUDE.md's gate both scope to `src/ tests/`, so these are not
-  addressed here. Noted in case a future item chooses to bring `scripts/` under
-  lint.
+- **`scripts/` is not in the CI lint scope** — see "Parked Polish" below (parked,
+  not promoted).
 
 ## Parked Polish
-None. ADR-176's out-of-scope items are all already-tracked epic work (IMPORTANT
+- **Bring `scripts/` under the CI lint scope.** `ruff check scripts/` reports 12
+  **pre-existing** warnings in `scripts/` (incl. `perfbench.py` from #178);
+  CLAUDE.md's quality gate and the CI `lint` job both deliberately scope to
+  `src/ tests/`, so `scripts/` is unlinted by design and these are untouched by
+  this PR. Classified **ambient / not a descendant of the perf feature** (it is an
+  incidental observation about repo-wide lint policy, not a follow-up of the
+  planned work) → treated as **3rd-order-or-deeper for auto-promotion purposes:
+  NOT promoted to PRODUCT_DIRECTION.** Widening the lint scope is a repo-policy
+  decision (would surface inherited noise CLAUDE.md chose to exclude); revival is
+  an explicit human decision, not the routine's. *(Recorded per PR #179 review
+  [P2] — order-tag the observation rather than promote it.)*
+
+ADR-176's out-of-scope items are all already-tracked epic work (IMPORTANT
 #10, the pr-review perf-comment NICE-TO-HAVE, the `polaris perfbench` CLI
 NICE-TO-HAVE harvested in Slice 2) — nothing reached 3rd-order.
 
