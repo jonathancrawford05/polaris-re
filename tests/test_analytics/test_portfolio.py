@@ -1800,3 +1800,320 @@ class TestPortfolioScenarioResultHelpers:
         assert "deals" in first["result"]
         assert "concentration" in first["result"]
         assert "hhi" in first["result"]
+
+
+# ---------------------------------------------------------------------------
+# Deal lifecycle API — inspect / remove / replace / copy (ADR-178)
+# ---------------------------------------------------------------------------
+
+
+def _three_deal_portfolio(name: str = "lifecycle") -> Portfolio:
+    """A three-deal portfolio on a shared valuation date (strict alignment)."""
+    return (
+        Portfolio(name=name)
+        .add_deal(**_deal_spec("A", "CedantA", n_policies=3, face=500_000.0))
+        .add_deal(**_deal_spec("B", "CedantB", n_policies=2, face=750_000.0))
+        .add_deal(**_deal_spec("C", "CedantA", n_policies=4, face=250_000.0))
+    )
+
+
+class TestPortfolioInspection:
+    """Read-only lookup surface: len / in / deal_ids / get_deal."""
+
+    def test_len_agrees_with_n_deals(self):
+        portfolio = _three_deal_portfolio()
+        assert len(portfolio) == 3
+        assert len(portfolio) == portfolio.n_deals
+
+    def test_len_of_empty_portfolio_is_zero(self):
+        assert len(Portfolio()) == 0
+
+    def test_deal_ids_preserve_insertion_order(self):
+        assert _three_deal_portfolio().deal_ids == ("A", "B", "C")
+
+    def test_contains_known_and_unknown_ids(self):
+        portfolio = _three_deal_portfolio()
+        assert "B" in portfolio
+        assert "Z" not in portfolio
+
+    def test_contains_non_string_is_false_not_an_error(self):
+        # Container protocol: a wrong-typed operand is absent, not a failure.
+        assert 42 not in _three_deal_portfolio()
+
+    def test_get_deal_returns_the_validated_deal_with_cached_metadata(self):
+        portfolio = _three_deal_portfolio()
+        deal = portfolio.get_deal("B")
+        assert isinstance(deal, Deal)
+        assert deal.deal_id == "B"
+        assert deal.cedant == "CedantB"
+        assert deal.product_type == ProductType.TERM.value
+        assert deal.treaty_type == "Coinsurance"
+        assert deal.cession_pct == pytest.approx(0.5)
+
+    def test_get_deal_unknown_id_raises_and_names_the_book(self):
+        portfolio = _three_deal_portfolio()
+        with pytest.raises(PolarisValidationError, match="Unknown deal_id 'Z'"):
+            portfolio.get_deal("Z")
+
+    def test_unknown_id_error_truncates_a_large_book(self):
+        portfolio = Portfolio(name="big")
+        for i in range(12):
+            portfolio.add_deal(**_deal_spec(f"D{i:02d}", "CedantA", n_policies=1))
+        with pytest.raises(PolarisValidationError, match=r"\.\.\. \(12 deals\)"):
+            portfolio.get_deal("nope")
+
+
+class TestPortfolioRemoveDeal:
+    def test_remove_deal_is_chainable(self):
+        portfolio = _three_deal_portfolio()
+        assert portfolio.remove_deal("A") is portfolio
+
+    def test_remove_deal_drops_only_that_deal_and_preserves_order(self):
+        portfolio = _three_deal_portfolio().remove_deal("B")
+        assert portfolio.deal_ids == ("A", "C")
+        assert len(portfolio) == 2
+
+    def test_remove_deal_unknown_id_raises(self):
+        portfolio = _three_deal_portfolio()
+        with pytest.raises(PolarisValidationError, match="Unknown deal_id 'Z'"):
+            portfolio.remove_deal("Z")
+        # A failed removal must leave the book untouched.
+        assert portfolio.deal_ids == ("A", "B", "C")
+
+    def test_remove_then_readd_the_same_id_is_allowed(self):
+        portfolio = _three_deal_portfolio().remove_deal("A")
+        portfolio.add_deal(**_deal_spec("A", "CedantZ", n_policies=1))
+        assert portfolio.deal_ids == ("B", "C", "A")
+        assert portfolio.get_deal("A").cedant == "CedantZ"
+
+    def test_remove_all_deals_then_run_raises_empty_portfolio(self):
+        portfolio = _three_deal_portfolio()
+        for deal_id in ("A", "B", "C"):
+            portfolio.remove_deal(deal_id)
+        assert len(portfolio) == 0
+        with pytest.raises(PolarisValidationError, match="empty portfolio"):
+            portfolio.run(HURDLE)
+
+    @pytest.mark.parametrize("dropped", ["A", "B", "C"])
+    def test_pv_after_removal_equals_sum_of_survivors_closed_form(self, dropped):
+        """Closed form: under strict alignment the portfolio PV is additive,
+        so dropping a deal must drop exactly that deal's PV contribution."""
+        full = _three_deal_portfolio().run(HURDLE)
+        by_id = {dr.deal_id: dr.profit_test.pv_profits for dr in full.deal_results}
+        expected = sum(pv for deal_id, pv in by_id.items() if deal_id != dropped)
+
+        reduced = _three_deal_portfolio().remove_deal(dropped).run(HURDLE)
+
+        assert reduced.n_deals == 2
+        np.testing.assert_allclose(reduced.total_pv_profits, expected, rtol=1e-12)
+
+    def test_run_after_removal_matches_a_freshly_built_portfolio(self):
+        """Removal is not a shortcut with different numbers: the aggregate is
+        bit-identical to a portfolio that never held the dropped deal."""
+        removed = _three_deal_portfolio().remove_deal("B").run(HURDLE)
+        fresh = (
+            Portfolio(name="lifecycle")
+            .add_deal(**_deal_spec("A", "CedantA", n_policies=3, face=500_000.0))
+            .add_deal(**_deal_spec("C", "CedantA", n_policies=4, face=250_000.0))
+            .run(HURDLE)
+        )
+
+        np.testing.assert_array_equal(
+            removed.aggregate_net_cash_flow, fresh.aggregate_net_cash_flow
+        )
+        np.testing.assert_array_equal(removed.aggregate_ceded_nar, fresh.aggregate_ceded_nar)
+        assert removed.total_pv_profits == fresh.total_pv_profits
+        assert removed.total_irr == fresh.total_irr
+        assert removed.total_ceded_face == fresh.total_ceded_face
+        assert removed.concentration_by_cedant == fresh.concentration_by_cedant
+        assert removed.hhi == fresh.hhi
+
+    def test_removal_updates_concentration_metrics(self):
+        """Dropping CedantB's only deal leaves a single-cedant book (HHI 1.0)."""
+        reduced = _three_deal_portfolio().remove_deal("B").run(HURDLE)
+        assert set(reduced.concentration_by_cedant) == {"CedantA"}
+        assert reduced.concentration_by_cedant["CedantA"] == pytest.approx(1.0)
+        assert reduced.hhi["cedant"] == pytest.approx(1.0)
+
+
+class TestPortfolioReplaceDeal:
+    def test_replace_deal_is_chainable(self):
+        portfolio = _three_deal_portfolio()
+        assert portfolio.replace_deal(**_deal_spec("B", "CedantB")) is portfolio
+
+    def test_replace_deal_preserves_position(self):
+        portfolio = _three_deal_portfolio()
+        portfolio.replace_deal(**_deal_spec("B", "CedantX", n_policies=5))
+        assert portfolio.deal_ids == ("A", "B", "C")
+        assert portfolio.get_deal("B").cedant == "CedantX"
+
+    def test_replace_deal_updates_cached_treaty_metadata(self):
+        portfolio = _three_deal_portfolio()
+        portfolio.replace_deal(
+            **_deal_spec("B", "CedantB", treaty=_yrt(cession_pct=0.25, total_face=1_500_000.0))
+        )
+        deal = portfolio.get_deal("B")
+        assert deal.treaty_type == "YRT"
+        assert deal.cession_pct == pytest.approx(0.25)
+
+    def test_replace_deal_unknown_id_raises(self):
+        portfolio = _three_deal_portfolio()
+        with pytest.raises(PolarisValidationError, match="Unknown deal_id 'Z'"):
+            portfolio.replace_deal(**_deal_spec("Z", "CedantZ"))
+        assert portfolio.deal_ids == ("A", "B", "C")
+
+    def test_replace_deal_rejects_a_multi_product_block(self):
+        portfolio = _three_deal_portfolio()
+        spec = _deal_spec("B", "CedantB")
+        spec["inforce"] = InforceBlock(
+            policies=[
+                _policy("MIX_T", ProductType.TERM, 500_000.0),
+                _policy("MIX_W", ProductType.WHOLE_LIFE, 500_000.0),
+            ]
+        )
+        with pytest.raises(PolarisValidationError, match="exactly one product type"):
+            portfolio.replace_deal(**spec)
+        # A rejected replacement must leave the original deal untouched.
+        assert portfolio.deal_ids == ("A", "B", "C")
+        assert portfolio.get_deal("B").inforce.n_policies == 2
+
+    def test_replace_deal_rejects_a_non_proportional_treaty(self):
+        portfolio = _three_deal_portfolio()
+        spec = _deal_spec(
+            "B",
+            "CedantB",
+            treaty=StopLossTreaty(
+                attachment_point=100_000.0,
+                exhaustion_point=500_000.0,
+                stop_loss_premium=10_000.0,
+            ),
+        )
+        with pytest.raises(PolarisValidationError, match="proportional treaties only"):
+            portfolio.replace_deal(**spec)
+        assert portfolio.get_deal("B").treaty_type == "Coinsurance"
+
+    def test_run_after_replacement_matches_a_freshly_built_portfolio(self):
+        replacement = _deal_spec("B", "CedantB", n_policies=6, face=100_000.0)
+        replaced = _three_deal_portfolio().replace_deal(**replacement).run(HURDLE)
+
+        fresh = (
+            Portfolio(name="lifecycle")
+            .add_deal(**_deal_spec("A", "CedantA", n_policies=3, face=500_000.0))
+            .add_deal(**replacement)
+            .add_deal(**_deal_spec("C", "CedantA", n_policies=4, face=250_000.0))
+            .run(HURDLE)
+        )
+
+        np.testing.assert_array_equal(
+            replaced.aggregate_net_cash_flow, fresh.aggregate_net_cash_flow
+        )
+        assert replaced.total_pv_profits == fresh.total_pv_profits
+        assert [dr.deal_id for dr in replaced.deal_results] == ["A", "B", "C"]
+
+    def test_replacing_the_cession_changes_the_ceded_face_proportionally(self):
+        """Sensitivity: halving one deal's cession halves its ceded face."""
+        before = _three_deal_portfolio().run(HURDLE)
+        ceded_b_before = next(dr.ceded_face for dr in before.deal_results if dr.deal_id == "B")
+
+        portfolio = _three_deal_portfolio()
+        portfolio.replace_deal(
+            **_deal_spec(
+                "B",
+                "CedantB",
+                n_policies=2,
+                face=750_000.0,
+                treaty=CoinsuranceTreaty(cession_pct=0.25, treaty_name="B-coins-25"),
+            )
+        )
+        after = portfolio.run(HURDLE)
+        ceded_b_after = next(dr.ceded_face for dr in after.deal_results if dr.deal_id == "B")
+
+        np.testing.assert_allclose(ceded_b_after, ceded_b_before * 0.5, rtol=1e-12)
+
+
+class TestPortfolioWithoutDeal:
+    def test_without_deal_does_not_mutate_the_receiver(self):
+        portfolio = _three_deal_portfolio()
+        reduced = portfolio.without_deal("B")
+        assert portfolio.deal_ids == ("A", "B", "C")
+        assert reduced.deal_ids == ("A", "C")
+        assert reduced is not portfolio
+
+    def test_without_deal_accepts_several_ids(self):
+        reduced = _three_deal_portfolio().without_deal("A", "C")
+        assert reduced.deal_ids == ("B",)
+
+    def test_without_deal_shares_the_frozen_deal_objects(self):
+        portfolio = _three_deal_portfolio()
+        reduced = portfolio.without_deal("B")
+        assert reduced.get_deal("A") is portfolio.get_deal("A")
+
+    def test_without_deal_defaults_to_the_receivers_name(self):
+        assert _three_deal_portfolio(name="book").without_deal("A").name == "book"
+
+    def test_without_deal_custom_name_flows_into_the_aggregate_run_id(self):
+        reduced = _three_deal_portfolio(name="book").without_deal("A", name="book-ex-A")
+        result = reduced.run(HURDLE)
+        assert result.aggregate_cash_flow.run_id == "portfolio-book-ex-A"
+        assert result.aggregate_cash_flow.block_id == "book-ex-A"
+
+    def test_without_deal_unknown_id_raises(self):
+        with pytest.raises(PolarisValidationError, match="Unknown deal_id 'Z'"):
+            _three_deal_portfolio().without_deal("Z")
+
+    def test_without_deal_rejects_an_unknown_id_alongside_known_ones(self):
+        """A typo must fail loudly rather than silently returning a partial filter."""
+        with pytest.raises(PolarisValidationError, match="Unknown deal_id 'Z'"):
+            _three_deal_portfolio().without_deal("A", "Z")
+
+    def test_without_deal_requires_at_least_one_id(self):
+        with pytest.raises(PolarisValidationError, match="at least one deal_id"):
+            _three_deal_portfolio().without_deal()
+
+    def test_without_deal_rejects_a_repeated_id(self):
+        """A repeated id is well-defined but means the caller's id list is not
+        what they think it is — rejected on the same principle as a typo."""
+        with pytest.raises(PolarisValidationError, match="repeated deal_id"):
+            _three_deal_portfolio().without_deal("A", "A")
+
+    def test_without_deal_repeated_id_error_names_the_offender(self):
+        with pytest.raises(PolarisValidationError, match="'B'"):
+            _three_deal_portfolio().without_deal("A", "B", "B")
+
+    def test_without_every_deal_yields_an_empty_portfolio(self):
+        reduced = _three_deal_portfolio().without_deal("A", "B", "C")
+        assert len(reduced) == 0
+        with pytest.raises(PolarisValidationError, match="empty portfolio"):
+            reduced.run(HURDLE)
+
+    def test_without_deal_result_matches_the_mutating_removal(self):
+        copied = _three_deal_portfolio().without_deal("B").run(HURDLE)
+        mutated = _three_deal_portfolio().remove_deal("B").run(HURDLE)
+        np.testing.assert_array_equal(
+            copied.aggregate_net_cash_flow, mutated.aggregate_net_cash_flow
+        )
+        assert copied.total_pv_profits == mutated.total_pv_profits
+
+    def test_marginal_contribution_of_a_deal_is_recoverable(self):
+        """The what-if the API exists for: full-book PV minus ex-deal PV is
+        that deal's own PV contribution (exact under strict alignment)."""
+        portfolio = _three_deal_portfolio()
+        full = portfolio.run(HURDLE)
+        ex_b = portfolio.without_deal("B").run(HURDLE)
+        pv_b = next(dr.profit_test.pv_profits for dr in full.deal_results if dr.deal_id == "B")
+
+        np.testing.assert_allclose(full.total_pv_profits - ex_b.total_pv_profits, pv_b, rtol=1e-9)
+
+
+class TestPortfolioClearDeals:
+    def test_clear_deals_is_chainable_and_empties_the_book(self):
+        portfolio = _three_deal_portfolio()
+        assert portfolio.clear_deals() is portfolio
+        assert portfolio.deal_ids == ()
+        assert len(portfolio) == 0
+
+    def test_clear_then_rebuild(self):
+        portfolio = _three_deal_portfolio().clear_deals()
+        portfolio.add_deal(**_deal_spec("NEW", "CedantN", n_policies=1))
+        assert portfolio.deal_ids == ("NEW",)
+        assert portfolio.run(HURDLE).n_deals == 1

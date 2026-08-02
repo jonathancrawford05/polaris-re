@@ -17,6 +17,14 @@ of the per-deal reinsurer cash flows (deals with a shorter horizon contribute
 zero beyond their last month), so ``total_pv_profits`` equals the sum of the
 per-deal PV profits.
 
+The book is editable after construction (ADR-178). ``remove_deal`` /
+``replace_deal`` / ``clear_deals`` mutate in place, ``without_deal`` returns a
+filtered copy, and ``deal_ids`` / ``get_deal`` / ``len()`` / ``in`` inspect it —
+so the natural portfolio what-if ("what does the book look like without
+DEAL_C?", "re-quote DEAL_B at 40% cession") no longer requires rebuilding the
+portfolio from its source objects. Edits are validated by the same rules as
+``add_deal``, and an unknown deal id raises rather than silently no-opping.
+
 Scope: proportional treaties only — YRT, coinsurance, modco — each exposing
 a ``cession_pct``. Stop-loss and other non-proportional structures are out
 of scope. Policy-level cession overrides are not applied; the treaty-level
@@ -89,11 +97,12 @@ __all__ = [
 class Deal:
     """A single reinsurance deal held by a ``Portfolio``.
 
-    Constructed and validated by ``Portfolio.add_deal`` — callers do not
-    instantiate this directly. ``product_type``, ``treaty_type``, and
-    ``cession_pct`` are cached at construction time (the latter validated
-    non-``None`` by ``add_deal``) for the per-deal breakdown and
-    concentration metrics.
+    Built and validated by :func:`_build_deal`, the single choke point behind
+    both ``Portfolio.add_deal`` and ``Portfolio.replace_deal`` (ADR-178) —
+    callers do not instantiate this directly. ``product_type``,
+    ``treaty_type``, and ``cession_pct`` are cached at construction time (the
+    latter validated non-``None`` by ``_build_deal``) for the per-deal
+    breakdown and concentration metrics.
     """
 
     deal_id: str
@@ -435,6 +444,67 @@ def _deal_result_to_dict(dr: DealResult) -> dict[str, object]:
 # ---------------------------------------------------------------------------
 
 
+def _id_summary(deal_ids: tuple[str, ...], *, limit: int = 10) -> str:
+    """Render a deal-id list for an error message, truncated on large books."""
+    if not deal_ids:
+        return "no deals"
+    shown = ", ".join(repr(deal_id) for deal_id in deal_ids[:limit])
+    if len(deal_ids) > limit:
+        return f"{shown}, ... ({len(deal_ids)} deals)"
+    return shown
+
+
+def _build_deal(
+    *,
+    deal_id: str,
+    cedant: str,
+    inforce: InforceBlock,
+    assumptions: AssumptionSet,
+    config: ProjectionConfig,
+    treaty: BaseTreaty,
+) -> Deal:
+    """Validate one deal's inputs and build the frozen :class:`Deal`.
+
+    The single validation choke point shared by ``Portfolio.add_deal`` and
+    ``Portfolio.replace_deal``, so a replacement can never smuggle in a
+    multi-product block or a non-proportional treaty that ``add_deal`` would
+    have rejected. Deal-id **uniqueness** is deliberately not checked here:
+    it is a portfolio-level invariant that means different things to the two
+    callers (``add_deal`` rejects an existing id; ``replace_deal`` requires
+    one).
+
+    Raises:
+        PolarisValidationError: On a multi-product inforce block, or a
+            treaty without a ``cession_pct``.
+    """
+    product_types = inforce.product_types
+    if len(product_types) != 1:
+        present = sorted(pt.value for pt in product_types)
+        raise PolarisValidationError(
+            f"Deal {deal_id!r} inforce block must contain exactly one product type; "
+            f"got {present}. Split mixed blocks into one deal per product."
+        )
+
+    cession = getattr(treaty, "cession_pct", None)
+    if cession is None:
+        raise PolarisValidationError(
+            f"Deal {deal_id!r}: Portfolio supports proportional treaties only "
+            f"(the treaty must expose `cession_pct`); got {type(treaty).__name__}."
+        )
+
+    return Deal(
+        deal_id=deal_id,
+        cedant=cedant,
+        inforce=inforce,
+        assumptions=assumptions,
+        config=config,
+        treaty=treaty,
+        product_type=next(iter(product_types)).value,
+        treaty_type=_treaty_label(treaty),
+        cession_pct=float(cession),
+    )
+
+
 def _treaty_label(treaty: BaseTreaty) -> str:
     """Return a clean treaty-type label, e.g. ``YRTTreaty`` -> ``YRT``."""
     name = type(treaty).__name__
@@ -546,6 +616,14 @@ class Portfolio:
     :meth:`run` projects every deal, applies its treaty, and aggregates the
     reinsurer-side cash flows into a :class:`PortfolioResult`.
 
+    The book is inspectable and editable after construction (ADR-178):
+    :attr:`deal_ids` / :meth:`get_deal` / ``len(portfolio)`` /
+    ``deal_id in portfolio`` read it, while :meth:`remove_deal`,
+    :meth:`replace_deal`, and :meth:`clear_deals` edit it in place and
+    :meth:`without_deal` returns a filtered copy. Every edit is validated by
+    the same rules as :meth:`add_deal`, and an unknown deal id always raises
+    rather than silently no-opping.
+
     Args:
         name: Identifier for the portfolio, used as the aggregate run id.
     """
@@ -563,6 +641,39 @@ class Portfolio:
     def deals(self) -> tuple[Deal, ...]:
         """Immutable view of the deals added so far."""
         return tuple(self._deals)
+
+    def __len__(self) -> int:
+        """Number of deals currently in the portfolio (same as :attr:`n_deals`)."""
+        return len(self._deals)
+
+    def __contains__(self, deal_id: object) -> bool:
+        """``deal_id in portfolio`` — membership by deal id.
+
+        A non-string operand is simply absent (``False``) rather than an
+        error, matching the container protocol's convention.
+        """
+        return any(deal.deal_id == deal_id for deal in self._deals)
+
+    @property
+    def deal_ids(self) -> tuple[str, ...]:
+        """Deal ids in insertion order — the order of the per-deal breakdown."""
+        return tuple(deal.deal_id for deal in self._deals)
+
+    def get_deal(self, deal_id: str) -> Deal:
+        """Return the validated :class:`Deal` registered under ``deal_id``.
+
+        Args:
+            deal_id: Identifier supplied to :meth:`add_deal`.
+
+        Returns:
+            The frozen :class:`Deal`, including the metadata cached at
+            construction time (``product_type``, ``treaty_type``,
+            ``cession_pct``).
+
+        Raises:
+            PolarisValidationError: If no deal carries that id.
+        """
+        return self._deals[self._index_of(deal_id)]
 
     def add_deal(
         self,
@@ -593,40 +704,163 @@ class Portfolio:
                 ``cession_pct`` (non-proportional structures are out of
                 scope for this slice).
         """
-        if any(deal.deal_id == deal_id for deal in self._deals):
+        if deal_id in self:
             raise PolarisValidationError(
                 f"Duplicate deal_id {deal_id!r} — deal ids must be unique within a portfolio."
             )
-
-        product_types = inforce.product_types
-        if len(product_types) != 1:
-            present = sorted(pt.value for pt in product_types)
-            raise PolarisValidationError(
-                f"Deal {deal_id!r} inforce block must contain exactly one product type; "
-                f"got {present}. Split mixed blocks into one deal per product."
-            )
-
-        cession = getattr(treaty, "cession_pct", None)
-        if cession is None:
-            raise PolarisValidationError(
-                f"Deal {deal_id!r}: Portfolio supports proportional treaties only "
-                f"(the treaty must expose `cession_pct`); got {type(treaty).__name__}."
-            )
-
         self._deals.append(
-            Deal(
+            _build_deal(
                 deal_id=deal_id,
                 cedant=cedant,
                 inforce=inforce,
                 assumptions=assumptions,
                 config=config,
                 treaty=treaty,
-                product_type=next(iter(product_types)).value,
-                treaty_type=_treaty_label(treaty),
-                cession_pct=float(cession),
             )
         )
         return self
+
+    def remove_deal(self, deal_id: str) -> "Portfolio":
+        """Remove one deal from the portfolio, in place.
+
+        The surviving deals keep their relative order, so the per-deal
+        breakdown and the calendar grid offsets of the remaining deals are
+        unchanged. An unknown id is an error, never a silent no-op — in a
+        what-if flow a silently ignored removal produces a wrong answer that
+        looks right.
+
+        Args:
+            deal_id: Identifier of the deal to drop.
+
+        Returns:
+            ``self``, to allow chained calls.
+
+        Raises:
+            PolarisValidationError: If no deal carries that id.
+        """
+        del self._deals[self._index_of(deal_id)]
+        return self
+
+    def replace_deal(
+        self,
+        *,
+        deal_id: str,
+        cedant: str,
+        inforce: InforceBlock,
+        assumptions: AssumptionSet,
+        config: ProjectionConfig,
+        treaty: BaseTreaty,
+    ) -> "Portfolio":
+        """Replace the deal registered under ``deal_id``, in place.
+
+        The replacement is validated exactly as :meth:`add_deal` validates a
+        new deal (single-product block, proportional treaty) and keeps the
+        original's **position**, so re-quoting one deal does not reorder the
+        per-deal breakdown. This is the "same deal, different terms" verb:
+        re-price DEAL_B at a different cession, or under a revised inforce
+        extract, without rebuilding the portfolio.
+
+        Args:
+            deal_id: Identifier of the deal being replaced; the replacement
+                keeps this id.
+            cedant: Ceding company name for the replacement.
+            inforce: Single-product inforce block for the replacement.
+            assumptions: Assumption set for the replacement.
+            config: Projection config for the replacement.
+            treaty: Proportional treaty exposing a ``cession_pct``.
+
+        Returns:
+            ``self``, to allow chained calls.
+
+        Raises:
+            PolarisValidationError: If no deal carries that id, or if the
+                replacement fails the :meth:`add_deal` validation rules.
+        """
+        index = self._index_of(deal_id)
+        self._deals[index] = _build_deal(
+            deal_id=deal_id,
+            cedant=cedant,
+            inforce=inforce,
+            assumptions=assumptions,
+            config=config,
+            treaty=treaty,
+        )
+        return self
+
+    def clear_deals(self) -> "Portfolio":
+        """Drop every deal, in place, leaving an empty portfolio.
+
+        Returns:
+            ``self``, to allow chained ``clear_deals().add_deal(...)`` calls.
+        """
+        self._deals.clear()
+        return self
+
+    def without_deal(self, *deal_ids: str, name: str | None = None) -> "Portfolio":
+        """Return a **new** portfolio holding every deal except the named ones.
+
+        The what-if primitive — "what does the book look like without
+        DEAL_C?" The receiver is not mutated; the copy shares the same
+        :class:`Deal` objects (which are frozen), so no projection input is
+        duplicated. Mirrors the copy-don't-mutate pattern
+        :meth:`run_scenarios` already uses internally.
+
+        Args:
+            *deal_ids: One or more ids to exclude. Every id must be present,
+                and each must be named exactly once.
+            name: Name for the returned portfolio. Defaults to the
+                receiver's name; pass a distinct name when both results are
+                reported side by side, since the name drives the aggregate
+                ``run_id``.
+
+        Returns:
+            A new :class:`Portfolio` with the remaining deals in their
+            original order. Excluding every deal yields an empty portfolio
+            (legal to build; :meth:`run` rejects it).
+
+        Raises:
+            PolarisValidationError: If no ids are supplied, if an id is
+                repeated, or if any id is not present in the portfolio.
+        """
+        if not deal_ids:
+            raise PolarisValidationError(
+                "without_deal requires at least one deal_id to exclude; got none."
+            )
+
+        excluded: set[str] = set()
+        repeated: list[str] = []
+        for deal_id in deal_ids:
+            if deal_id in excluded:
+                repeated.append(deal_id)
+            excluded.add(deal_id)
+        # A repeated id is well-defined (the deal is excluded either way) but
+        # it means the caller's id list is not what they think it is — the
+        # same class of mistake as a typo, so it is rejected on the same
+        # principle rather than absorbed silently.
+        if repeated:
+            raise PolarisValidationError(
+                f"without_deal received repeated deal_id(s) {_id_summary(tuple(repeated))} — "
+                f"name each deal to exclude exactly once."
+            )
+
+        # Validate every id up front so a typo fails loudly rather than
+        # silently returning a partially filtered portfolio.
+        for deal_id in deal_ids:
+            self._index_of(deal_id)
+
+        copy = Portfolio(name=self.name if name is None else name)
+        copy._deals.extend(deal for deal in self._deals if deal.deal_id not in excluded)
+        return copy
+
+    def _index_of(self, deal_id: str) -> int:
+        """Return the position of ``deal_id``, or raise if it is not present."""
+        for index, deal in enumerate(self._deals):
+            if deal.deal_id == deal_id:
+                return index
+        raise PolarisValidationError(
+            f"Unknown deal_id {deal_id!r} — portfolio {self.name!r} holds "
+            f"{_id_summary(self.deal_ids)}."
+        )
 
     def run(self, hurdle_rate: float, *, align: AlignMode = "strict") -> PortfolioResult:
         """Project and aggregate every deal in the portfolio.
