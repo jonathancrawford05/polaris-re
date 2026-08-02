@@ -1139,6 +1139,24 @@ path, so both are NICE-TO-HAVE.
   by default. ADR-179 deliberately kept the id-plus-explicit-invalidation contract
   because it is honest about what it can and cannot detect. *Source: ADR-179 Out
   of scope (1st-order).* **NICE-TO-HAVE.**
+- **Mark cached arrays read-only (`arr.flags.writeable = False`).** The symmetric
+  hazard to the item above, from the *output* side: cached results are handed out
+  live, so a caller who writes into an array returned by a previous `run()`
+  corrupts every later run of that portfolio. Measured on PR #182: the aggregate
+  PV moved **27,089.56 → 37,248.14** silently. Latent, not live — nothing in-tree
+  does it (the dashboard reads scalars only), `clear_cache()` recovers, and the
+  direct `result.deal_results[0].net_cash_flow *= 2` form is already blocked by
+  `DealResult` being a frozen dataclass (it takes a local binding first). Setting
+  the writeable flag on cached entries costs **no copy** and converts silent
+  corruption into a loud `ValueError` at the point of the mistake; verified that
+  `run` / `run_with_capital` / `run_scenarios` all still pass with every cached
+  array read-only, PV identical. The cost, and why it is a decision rather than a
+  flag flip: cached and uncached results would then differ in **writeability** —
+  not in value, but an observable divergence from the "bit-identical either way"
+  property ADR-179 leans on. Handing out copies instead was already rejected on
+  cost grounds (ADR-179 alternative (f)). Wants an explicit ADR line either way.
+  *Source: PR #182 review round, follow-up notes thread 1 (1st-order).*
+  **NICE-TO-HAVE.**
 
 > Deliberately **not** promoted as a new item: *surfacing `cache=True` on the CLI
 > / REST / dashboard*. Each of those surfaces builds a fresh `Portfolio` per

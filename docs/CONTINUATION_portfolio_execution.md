@@ -66,19 +66,55 @@ execution / ergonomics epic, not a modelling change.
   goldens untouched.
 - **Key decisions (affect later slices):**
   - The cache is a plain `dict[tuple[str, float], tuple[DealResult,
-    CashFlowResult]]` on the instance with **no locking**. Slice 3 must either
-    pre-populate it before the fan-out or guard it: two threads missing on the
-    same key would both project (harmless to correctness — the values are
-    equal — but it wastes exactly what the cache saves, and it would break the
-    `cache_stats()` miss count as a proxy for work done).
+    CashFlowResult]]` on the instance with **no locking**. Two threads missing
+    on the same key would both project — harmless to correctness (the values are
+    equal) but it wastes exactly what the cache saves and breaks the
+    `cache_stats()` miss count as a proxy for work done.
+
+    **Measured on this branch (PR #182 review round), because the exposure
+    depends entirely on the fan-out shape:**
+
+    | fan-out shape | 4 workers | 8 workers | ideal |
+    |---|---|---|---|
+    | **A** — one task per deal inside one `run()` (*the planned shape*) | 3 misses | 3 misses | 3 |
+    | **B** — concurrent `run()` calls sharing one cold portfolio | 7 misses | 11 misses | 3 |
+
+    Shape **A** — what Slice 3 actually plans — touches each key exactly once,
+    so there is **no duplicate-miss problem to solve** and no need for a
+    resolve-hits-then-fan-out-misses structure; adding one would be complexity
+    without a defect. The duplicate work is real only in shape **B**, which is a
+    *different* scenario: several callers sharing one `Portfolio` concurrently.
+    If Slice 3 (or a service layer) ever enables that, the fix is per-key
+    locking or a single-flight guard, not a change to the intra-run fan-out.
+    The review round reported 14 misses at 8 workers as if it applied to the
+    planned shape; re-running both shapes separately shows it belongs to B.
+    Threaded execution was **bit-identical to serial at 2, 4 and 8 workers** in
+    both shapes.
+  - **The no-locking argument assumes the GIL.** `self._cache_hits += 1` is a
+    read-modify-write across several bytecodes, and the `_deal_cache` write-back
+    is a dict mutation; both are effectively atomic only because CPython's
+    switch interval makes the window vanishing. Attempting to force a lost
+    update failed — **6000 contended all-hit lookups at 128 workers lost zero**
+    — so this is a non-issue today and needs no code. It stops being
+    theoretical on a **free-threaded build (3.13t+)**, where both lose their
+    implicit atomicity. `pyproject.toml` targets 3.12+, so this is written down
+    rather than acted on; whoever evaluates a free-threaded runtime should find
+    the assumption stated instead of rediscovering it. Even then the failure
+    mode is an undercounted hit rate (`cache_stats()` is observability only),
+    not a wrong price.
+  - **Cached results are handed out live and writeable** — the same ndarray
+    objects across runs, and shared between a portfolio and its `without_deal`
+    copy. Safe in-module (`_place` always allocates; nothing writes through),
+    but a *caller* who writes into a returned array corrupts every later run:
+    measured, the aggregate PV moved 27,089.56 → 37,248.14 silently. Nothing
+    in-tree does this (the dashboard reads scalars only) and `clear_cache()`
+    recovers. Slice 3 must not introduce any write-through path, and the
+    `_place` allocation must stay unconditional (a guard comment now says so at
+    the function itself).
   - `align` is *not* part of the key. `_run_deal` returns `grid_offset=0` and
     `run` stamps the real offset onto a `dataclasses.replace` copy, so the
     cached value is never mutated by a run. Slice 3's index-ordered collection
     must keep doing the `replace` on its own copy, not in place.
-  - Cached results are handed out **by reference** — two runs share the same
-    numpy arrays. Nothing in the module writes through them (`_place` /
-    `np.sum` build new arrays); Slice 3 must preserve that, since a threaded
-    path writing into a per-deal array would now corrupt a cached entry.
 - **Acceptance criteria:** all met — see the session log's table.
 
 ### Slice 3: Parallel execution
@@ -93,6 +129,20 @@ execution / ergonomics epic, not a modelling change.
   **Measurement gate:** publish a real speed-up measured through
   `analytics/perf_harness.py` on a multi-deal portfolio, or ship the measurement
   and *not* the parallel claim.
+- **Acceptance criteria:**
+  - `max_workers=4` equals the serial result under `assert_array_equal` (exact,
+    not `allclose`); deal order preserved; invalid `max_workers` rejected.
+  - **The benchmark runs a COLD portfolio** (`cache=False`, or `cache=True` on
+    its first `run`). This is easy to satisfy accidentally in the wrong
+    direction: a warm cache makes a re-run free to parallelise and would show an
+    arbitrarily good speed-up that measures nothing. State in the ADR which was
+    measured.
+  - The fan-out keeps **one task per deal**, so each cache key is touched
+    exactly once — verified at 2/4/8 workers to cost exactly `n_deals`
+    projections on a cold cache (see Slice 2's key decisions). If the shape ever
+    changes to one where several tasks can share a key, add a single-flight
+    guard *and* a duplicate-projection regression test.
+  - Goldens byte-identical; the serial path stays the default.
 
 ## Context for Next Session
 

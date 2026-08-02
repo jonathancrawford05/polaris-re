@@ -544,6 +544,13 @@ def _place(arr: np.ndarray, offset: int, length: int) -> np.ndarray:
     ``_place(arr, 0, length)`` is a plain zero-pad (the strict-mode case);
     a positive ``offset`` shifts the array forward on the common grid for
     calendar-aligned aggregation of deals with different inception dates.
+
+    **The fresh allocation is load-bearing, not an implementation detail**
+    (ADR-179). Short-circuiting to ``return arr`` when
+    ``offset == 0 and len(arr) == length`` is a tempting and otherwise harmless
+    micro-optimisation — but with ``cache=True`` the input may be a *cached*
+    per-deal array, and any caller-side in-place accumulation on the returned
+    value would then write straight into a cache entry. Always allocate.
     """
     out = np.zeros(length, dtype=np.float64)
     out[offset : offset + len(arr)] = arr
@@ -742,10 +749,19 @@ class Portfolio:
     def clear_cache(self) -> "Portfolio":
         """Drop every cached per-deal result, in place.
 
-        The escape hatch for the one staleness the portfolio cannot detect: a
-        caller who mutated a deal's ``InforceBlock`` / ``AssumptionSet`` /
-        ``ProjectionConfig`` / treaty **in place** rather than going through
-        :meth:`replace_deal`. Lifetime ``hits`` / ``misses`` counters are
+        The escape hatch for the two stalenesses the portfolio cannot detect,
+        which are symmetric — mutated **inputs** and mutated **outputs**:
+
+        - a caller who mutated a deal's ``InforceBlock`` / ``AssumptionSet`` /
+          ``ProjectionConfig`` / treaty **in place** rather than going through
+          :meth:`replace_deal`; or
+        - a caller who wrote into an array handed back by a previous
+          :meth:`run` — cached results are live, not copies (see
+          :meth:`_run_deal`). This is the likelier of the two to happen by
+          accident, since post-processing ``deal_results`` needs no private
+          attribute.
+
+        Lifetime ``hits`` / ``misses`` counters are
         deliberately not rewound (see :class:`CacheStats`). A no-op on a
         portfolio built without ``cache=True``.
 
@@ -975,8 +991,15 @@ class Portfolio:
         # same ids, so a cached (deal_id, hurdle_rate) entry describes exactly
         # the projection the copy would perform — and it is what makes the
         # leave-one-out loop over a whole book cost one projection per deal
-        # instead of one per deal per iteration. A fresh dict, never the
-        # parent's by reference: the two books diverge from here.
+        # instead of one per deal per iteration. The dict is fresh — never the
+        # parent's by reference — so membership and eviction diverge from here.
+        # The cached *values* do not: parent and copy hand out the same ndarray
+        # objects for every surviving deal, so a caller writing into an array
+        # obtained from either one changes what the other's next run()
+        # aggregates. See `_run_deal` — this is that same by-reference contract
+        # reached by a second path, and the leave-one-out sweep is exactly where
+        # a caller holds N result objects at once and is most likely to
+        # post-process them.
         if self._cache_enabled:
             survivors = {deal.deal_id for deal in copy._deals}
             copy._deal_cache.update(
@@ -1365,11 +1388,21 @@ class Portfolio:
         ``dataclasses.replace`` copy, so one entry serves both alignment modes
         and the cached value is never mutated by a run.
 
-        Cached results are returned by reference — two runs of a caching
-        portfolio hand out ``DealResult``s sharing the same numpy arrays. They
-        are read-only to every consumer in this module (the aggregation builds
-        new arrays via ``_place`` / ``np.sum``), which is the same contract the
-        uncached path already implies.
+        Cached results are returned **live and writeable**, not copied: two
+        runs of a caching portfolio — and a portfolio and its
+        :meth:`without_deal` copy — hand out ``DealResult``s backed by the
+        *same* numpy arrays. Every consumer inside this module treats them as
+        read-only (the aggregation allocates via ``_place`` / ``np.sum`` and
+        never writes through), but **the caller is outside that guarantee**:
+        writing into an array obtained from a previous ``run()`` corrupts every
+        later run of the portfolio, silently, because the aggregation re-reads
+        the mutated buffer. Uncached, the same mistake damages only the one
+        result object, since the next run re-projects; caching widens the blast
+        radius from one result to all subsequent runs. Treat anything a run
+        hands back as read-only, prefer out-of-place operations
+        (``ncf * 2`` over ``ncf *= 2``), and call :meth:`clear_cache` to
+        recover if it happens. Handing out copies instead was rejected on cost
+        grounds — see ADR-179 alternative (f).
         """
         if not self._cache_enabled:
             return self._project_deal(deal, hurdle_rate)

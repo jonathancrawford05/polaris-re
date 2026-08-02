@@ -249,6 +249,59 @@ stability across all four mutation verbs) from what the caller *asserts* by
 passing `cache=True` (no in-place mutation of a deal's projection inputs), and
 noting that ids need **not** be stable beyond the instance.
 
+### Follow-up review round — cached-array aliasing + Slice 3 constraints
+
+A second, non-blocking review posted five line-anchored threads (approve verdict
+unchanged, no change requested to this PR). Every claim was re-verified on the
+branch rather than accepted; four reproduced exactly, one did not.
+
+**Reproduced.** Cached arrays are handed out live and writeable — `dr.net_cash_flow`
+IS the cached `CashFlowResult`'s array, the same object across runs, and a caller
+mutating it moved the aggregate PV **27,089.56 → 37,248.14** silently, exactly as
+reported. Uncached, the same mutation left the next run untouched, confirming that
+caching widens the blast radius from one result to all subsequent runs. The
+counter race did **not** reproduce (6000 contended all-hit lookups at 128 workers,
+zero lost). Marking every cached array read-only was verified viable: `run` /
+`run_with_capital` / `run_scenarios` all pass with PV identical.
+
+One nuance the review did not mention: the direct
+`result.deal_results[0].net_cash_flow *= 2` form is already blocked by
+`DealResult` being a **frozen dataclass** (augmented assignment ends in a
+`__setattr__`), so the hazard needs a local binding first. Real, but narrower
+than the bare snippet suggests.
+
+**Did not reproduce — thread 2's duplicate-projection count.** The review reported
+14 misses where 3 would do at 8 workers and concluded that "resolve hits serially,
+fan out only the misses" should be Slice 3's *required* shape. Re-running the two
+fan-out shapes separately:
+
+| shape | 4 workers | 8 workers | ideal |
+|---|---|---|---|
+| **A** — one task per deal inside one `run()` (**the planned shape**) | 3 | 3 | 3 |
+| **B** — concurrent `run()` calls sharing one cold portfolio | 7 | 11 | 3 |
+
+Shape A touches each key exactly once, so the planned Slice 3 has **no
+duplicate-miss problem to solve**; the resolve-then-fan-out structure would be
+complexity without a defect. The waste is real only in shape B — several callers
+sharing one `Portfolio` concurrently — which is a different scenario needing
+per-key locking or a single-flight guard. Both shapes were bit-identical to
+serial at 2/4/8 workers. The corrected finding, with both rows, is recorded in
+the CONTINUATION so Slice 3 inherits the distinction rather than the conclusion.
+
+**Dispositions applied** (all documentation; no behaviour change): the
+`_run_deal` by-reference note and the `without_deal` carry-over comment now say
+the caller is outside the in-module guarantee and that the *values* are shared;
+`clear_cache()`'s docstring and ADR-179 decision point 5 now cover mutated
+**outputs** as well as inputs; `_place` carries a guard comment that its
+allocation is load-bearing (a `return arr` short-circuit would write into a cache
+entry); the CONTINUATION gained the two measured tables, the GIL assumption, and
+Slice 3 acceptance criteria requiring a **cold** benchmark and one-task-per-deal;
+and `arr.flags.writeable = False` is filed as NICE-TO-HAVE next to the
+already-harvested "detect in-place mutation" item, since it trades a silent
+corruption for a loud `ValueError` at the cost of an observable
+cached-vs-uncached divergence — a decision deserving an ADR line, not a quiet
+flag flip.
+
 ## DISCOVERY (step 11b) — flaky wall-clock gate in `test_scale_benchmark`
 
 While re-running the suite for the review round,

@@ -12031,8 +12031,16 @@ only sound once every mutation path is a named choke point.
    start empty or every stress would silently report the base numbers. Both
    copies get their own dict; neither shares the parent's by reference.
 5. **`clear_cache()` and `cache_stats()`.** `clear_cache()` is the escape hatch
-   for the one staleness the portfolio cannot detect (an input mutated in place
-   rather than through `replace_deal`); it drops entries and, deliberately, does
+   for the **two** stalenesses the portfolio cannot detect, which are symmetric
+   (PR #182 review): a mutated **input** — a deal's `InforceBlock` /
+   `AssumptionSet` / `ProjectionConfig` / treaty changed in place rather than
+   through `replace_deal`, which is invariant (iii) above — and a mutated
+   **output**, a caller writing into an array handed back by a previous `run()`,
+   since cached results are live rather than copies. The output case is the
+   likelier of the two to happen by accident: post-processing `deal_results`
+   requires no private attribute, whereas mutating an input means reaching into
+   a deal the portfolio owns. Same remedy, opposite direction. It drops entries
+   and, deliberately, does
    not rewind the lifetime `hits` / `misses` counters, so "never used" stays
    distinguishable from "used, then invalidated". `cache_stats()` returns a
    frozen `CacheStats(enabled, hits, misses, size)` — the observability surface
