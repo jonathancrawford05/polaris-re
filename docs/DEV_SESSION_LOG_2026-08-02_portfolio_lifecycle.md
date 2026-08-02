@@ -122,7 +122,7 @@ position stability matters to Slice 3's index-ordered collection).
 ## Files Changed
 - `src/polaris_re/analytics/portfolio.py` — lifecycle API; `_build_deal` /
   `_id_summary` module helpers; module + class docstrings.
-- `tests/test_analytics/test_portfolio.py` — 39 new tests across five classes.
+- `tests/test_analytics/test_portfolio.py` — 41 new tests across five classes.
 - `docs/DECISIONS.md` — **ADR-178**.
 - `ARCHITECTURE.md` — Portfolio Aggregation paragraph.
 - `docs/PLAN_portfolio_execution.md` — **new** (3-slice decomposition of C4).
@@ -134,7 +134,7 @@ position stability matters to Slice 3's index-ordered collection).
 
 ## Tests Added
 
-`tests/test_analytics/test_portfolio.py` (+39):
+`tests/test_analytics/test_portfolio.py` (+41, incl. 2 added in the review round below):
 - `TestPortfolioInspection` (8) — `len` agrees with `n_deals`; empty portfolio;
   `deal_ids` insertion order; `in` for known/unknown; a non-string operand is
   `False`, not an error; `get_deal` returns the frozen deal with its cached
@@ -154,12 +154,12 @@ position stability matters to Slice 3's index-ordered collection).
   and non-proportional treaty both rejected with the original left in place;
   post-replacement run matches a freshly built portfolio; a cession-halving
   sensitivity check on ceded face.
-- `TestPortfolioWithoutDeal` (11) — receiver not mutated; several ids at once;
+- `TestPortfolioWithoutDeal` (13) — receiver not mutated; several ids at once;
   frozen `Deal` objects shared (identity); default and custom names, the latter
   reaching the aggregate `run_id` / `block_id`; unknown id alone and alongside
   valid ids both raise; zero ids rejected; excluding everything yields an empty
   portfolio; the copy matches the mutating removal; marginal-contribution
-  identity.
+  identity; a repeated id rejected, with the error naming the offender.
 - `TestPortfolioClearDeals` (2) — chainable and empties; clear-then-rebuild.
 
 ## Acceptance Criteria
@@ -209,6 +209,33 @@ while the log fills (expected, per ADR-177; the one-off backfill is NICE-TO-HAVE
   strategic decision surfaced in `PRODUCT_DIRECTION_2026-07-24` remains open and
   is the single highest-value thing a human could resolve.
 
+## Review Round — PR #181 (automated review, 2026-08-02)
+
+The PR review routine **approved** (posted as a COMMENT review, since GitHub
+forbids self-approval) with no [P0] and no [P1], and independently reproduced
+every quantitative claim in this log — the suite count, the flat golden PVs, the
+perf-history commit pinning, the 18-day review age, and the maintenance-mode
+premise against `COMMERCIAL_VIABILITY_REVIEW_2026-07-15` §7. Both [P2] findings
+were accepted and fixed on the branch:
+
+1. **`Deal` docstring understated its constructors** (`portfolio.py:97`). It still
+   named `Portfolio.add_deal` as the sole builder, but after this slice `Deal` is
+   built by `_build_deal` on behalf of **both** `add_deal` and `replace_deal`.
+   Rewritten to name the choke point, so ADR-178's central structural change is
+   discoverable from the type it produces.
+2. **`without_deal` accepted a repeated id silently.** `without_deal("A", "A")`
+   succeeded because the exclusion set absorbed the duplicate. The reviewer marked
+   this optional and harmless (the result is well-defined), but it sat against the
+   ADR's own stated strictness, so it is now rejected: a repeated id means the
+   caller's id list is not what they think it is — the same class of mistake as a
+   typo — and is treated the same way. Two tests added (rejection; the error names
+   the offender), and ADR-178's decision point 4 records the reasoning.
+
+Per routine step 14b, **no second `perf/history.jsonl` row was appended** — this
+is a review-feedback update on an already-open PR, and one row per PR is the rule.
+The PR was also marked ready-for-review by the maintainer; the routine's
+never-merge-your-own-PR guardrail still applies.
+
 ## Parked Polish
 
 None reaching 3rd-order. ADR-178's three out-of-scope items are all 1st-order
@@ -233,5 +260,5 @@ CHANGED failure → the session PROCEEDED. The 3 skips are the standing
 absent-CIA-2014-table skips (step 2's pymort conversion produces the 6 SOA/CSO
 tables; the 4 CIA 2014 tables are unreachable from `pymort`).
 
-This slice adds 39 fast tests, so the fast suite is expected at
-**2843 passed, 3 skipped**.
+This slice adds 41 fast tests (39 at first push + 2 from the review round), so
+the fast suite is expected at **2845 passed, 3 skipped**.

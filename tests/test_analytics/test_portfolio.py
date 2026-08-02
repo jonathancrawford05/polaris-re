@@ -2070,6 +2070,16 @@ class TestPortfolioWithoutDeal:
         with pytest.raises(PolarisValidationError, match="at least one deal_id"):
             _three_deal_portfolio().without_deal()
 
+    def test_without_deal_rejects_a_repeated_id(self):
+        """A repeated id is well-defined but means the caller's id list is not
+        what they think it is — rejected on the same principle as a typo."""
+        with pytest.raises(PolarisValidationError, match="repeated deal_id"):
+            _three_deal_portfolio().without_deal("A", "A")
+
+    def test_without_deal_repeated_id_error_names_the_offender(self):
+        with pytest.raises(PolarisValidationError, match="'B'"):
+            _three_deal_portfolio().without_deal("A", "B", "B")
+
     def test_without_every_deal_yields_an_empty_portfolio(self):
         reduced = _three_deal_portfolio().without_deal("A", "B", "C")
         assert len(reduced) == 0

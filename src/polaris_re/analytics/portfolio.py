@@ -97,11 +97,12 @@ __all__ = [
 class Deal:
     """A single reinsurance deal held by a ``Portfolio``.
 
-    Constructed and validated by ``Portfolio.add_deal`` — callers do not
-    instantiate this directly. ``product_type``, ``treaty_type``, and
-    ``cession_pct`` are cached at construction time (the latter validated
-    non-``None`` by ``add_deal``) for the per-deal breakdown and
-    concentration metrics.
+    Built and validated by :func:`_build_deal`, the single choke point behind
+    both ``Portfolio.add_deal`` and ``Portfolio.replace_deal`` (ADR-178) —
+    callers do not instantiate this directly. ``product_type``,
+    ``treaty_type``, and ``cession_pct`` are cached at construction time (the
+    latter validated non-``None`` by ``_build_deal``) for the per-deal
+    breakdown and concentration metrics.
     """
 
     deal_id: str
@@ -805,7 +806,8 @@ class Portfolio:
         :meth:`run_scenarios` already uses internally.
 
         Args:
-            *deal_ids: One or more ids to exclude. Every id must be present.
+            *deal_ids: One or more ids to exclude. Every id must be present,
+                and each must be named exactly once.
             name: Name for the returned portfolio. Defaults to the
                 receiver's name; pass a distinct name when both results are
                 reported side by side, since the name drives the aggregate
@@ -817,16 +819,32 @@ class Portfolio:
             (legal to build; :meth:`run` rejects it).
 
         Raises:
-            PolarisValidationError: If no ids are supplied, or if any id is
-                not present in the portfolio.
+            PolarisValidationError: If no ids are supplied, if an id is
+                repeated, or if any id is not present in the portfolio.
         """
         if not deal_ids:
             raise PolarisValidationError(
                 "without_deal requires at least one deal_id to exclude; got none."
             )
-        excluded = set(deal_ids)
+
+        excluded: set[str] = set()
+        repeated: list[str] = []
+        for deal_id in deal_ids:
+            if deal_id in excluded:
+                repeated.append(deal_id)
+            excluded.add(deal_id)
+        # A repeated id is well-defined (the deal is excluded either way) but
+        # it means the caller's id list is not what they think it is — the
+        # same class of mistake as a typo, so it is rejected on the same
+        # principle rather than absorbed silently.
+        if repeated:
+            raise PolarisValidationError(
+                f"without_deal received repeated deal_id(s) {_id_summary(tuple(repeated))} — "
+                f"name each deal to exclude exactly once."
+            )
+
         # Validate every id up front so a typo fails loudly rather than
-        # silently returning the unfiltered portfolio.
+        # silently returning a partially filtered portfolio.
         for deal_id in deal_ids:
             self._index_of(deal_id)
 

@@ -11875,8 +11875,12 @@ are untouched, so no number moves.
    book's numbers — a wrong answer that looks right, and one an actuary would
    have no way to spot in the output. `without_deal` therefore validates **every**
    id before filtering any, so a typo alongside valid ids fails loudly instead of
-   returning a partial filter. The error names the book's ids, truncated past 10
-   so a 500-deal portfolio does not print a wall of text.
+   returning a partial filter, and it rejects a **repeated** id for the same
+   reason (PR #181 review [P2]): `without_deal("A", "A")` is well-defined — the
+   deal is excluded either way — but it means the caller's id list is not what
+   they think it is, which is the same class of mistake as a typo and is treated
+   the same way rather than absorbed silently. The error names the book's ids,
+   truncated past 10 so a 500-deal portfolio does not print a wall of text.
 5. **One validation choke point.** The single-product-block and
    proportional-treaty checks move out of `add_deal` into a module-level
    `_build_deal`, shared by `add_deal` and `replace_deal`, so a replacement can
@@ -11904,7 +11908,7 @@ signature, or number changes, so `polaris price` and the QA goldens are
 byte-identical (`tests/qa/` green; flat golden cedant PV $3,513,563 / reinsurer PV
 $45,386). `add_deal`'s duplicate check now reads `if deal_id in self`, which is
 the same linear scan it already performed. New tests:
-`tests/test_analytics/test_portfolio.py` gains 39 tests across five classes —
+`tests/test_analytics/test_portfolio.py` gains 41 tests across five classes —
 the lookup surface; removal (order preservation, unknown-id rejection leaving the
 book untouched, remove-then-re-add, remove-all-then-`run` rejection); a
 parametrized closed-form check that dropping any one of three deals leaves a PV

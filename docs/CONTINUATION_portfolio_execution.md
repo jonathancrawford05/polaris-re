@@ -29,7 +29,8 @@ execution / ergonomics epic, not a modelling change.
   what-if copy `without_deal(*deal_ids, name=None)`. The single-product-block and
   proportional-treaty validation moved into a module-level `_build_deal` choke
   point shared by `add_deal` and `replace_deal`. Unknown ids raise
-  `PolarisValidationError` everywhere — never a silent no-op. 39 new tests;
+  `PolarisValidationError` everywhere — never a silent no-op (a repeated id in
+  `without_deal` is rejected on the same principle). 41 new tests;
   `run()` and the aggregation untouched, goldens byte-identical.
 - **Key decisions (affect later slices):**
   - Mutation is now a **named, interceptable operation** on exactly four verbs
