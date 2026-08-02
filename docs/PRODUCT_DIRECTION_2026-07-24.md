@@ -1150,6 +1150,57 @@ path, so both are NICE-TO-HAVE.
 > `CONTINUATION_portfolio_execution.md` under Slice 2's key decisions, where the
 > slice that must act on it will read it.
 
+#### DISCOVERY (routine step 11b) — `test_scaling_is_near_linear` is a wall-clock ratio gate with ~37% headroom
+
+Surfaced while re-running the suite for the PR #182 review round, **not** caused
+by this PR and **not** fixed in it (step 11b: quantify, file, ship only the
+selected scope).
+
+`tests/test_analytics/test_scale_benchmark.py::TestRunScaleBenchmark::test_scaling_is_near_linear`
+failed once in a combined `tests/test_analytics/ tests/qa/` run, then passed 6/6
+in isolation and in a full 1039-test `tests/test_analytics/` run. It is not a
+real regression — it is a **wall-clock ratio assertion** (`t_large < 6.0 *
+t_small`, projecting a 2,000- vs an 8,000-policy block) whose margin is far
+thinner than the comment claims. Measured over six consecutive runs on an idle
+machine:
+
+| run | `t_small` | `t_large` | ratio | bound |
+|---|---|---|---|---|
+| 0 | 0.0302 s | 0.1158 s | 3.83× | 6.00× |
+| 1 | 0.0278 s | 0.1134 s | 4.07× | 6.00× |
+| 2 | 0.0251 s | 0.1101 s | **4.39×** | 6.00× |
+| 3 | 0.0250 s | 0.1093 s | 4.37× | 6.00× |
+| 4 | 0.0258 s | 0.1101 s | 4.27× | 6.00× |
+| 5 | 0.0265 s | 0.1092 s | 4.12× | 6.00× |
+
+Two things make it fragile. The observed ratio already sits at 3.8–4.4× against
+a 6× bound — only **~37% headroom**, not the "generous" margin the docstring
+describes. And the denominator `t_small` is **~25–30 ms**, small enough that one
+GC pause or scheduler preemption during the small run dominates it: `t_small`
+dipping to 0.018 s with `t_large` unchanged is already a failure at 6.1×.
+
+This is the exact shape the group's standing rule warns against — *"deterministic
+metrics may gate; raw wall-time only informs"* (maintainer 2026-07-12) — and the
+same reasoning that led the 2026-08-02 session to reject Tier-C **C6** (the "100
+concurrent requests < 2 s" load test) as a fallback pick. A flaky gate that reds
+the pipeline at random trains reviewers to ignore red, which costs more than the
+O(N²) regression it is guarding against.
+
+The suggested fix is a shape change, not a looser bound: `ScaleBenchmarkRow`
+already carries `peak_rss_mb`, and **MiB is precisely the deterministic-first
+metric ADR-177's perf-history design settled on**. Assert linear *memory*
+scaling (or an allocation/op count) as the gate and demote the timing ratio to
+reported-but-not-asserted. Failing that, the cheap mitigations are to raise the
+block sizes so the denominator is ~100 ms rather than ~25 ms, and/or mark the
+timing assertion `@pytest.mark.slow` so it informs without gating `make test`.
+
+Classified **IMPORTANT** on operational grounds: it touches **no quoted number
+and no actuarial surface** — under a strict commercial-impact reading it would be
+NICE-TO-HAVE — but it can spuriously red the merge gate, which blocks delivery
+and undermines the CI perf gate (ADR-176) landed only days ago. A maintainer may
+reasonably downgrade it. *Source: DISCOVERY during PR #182 review round
+(1st-order).* **IMPORTANT.**
+
 ---
 
 ## Comparison with Previous Assessment

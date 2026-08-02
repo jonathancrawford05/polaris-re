@@ -12065,9 +12065,17 @@ would reintroduce a per-run cost proportional to the data the cache saves.
 (`cli.py:3154`, `api/main.py:863`) pass `name=` by keyword and are unaffected, and
 the QA goldens are byte-identical (`tests/qa/` green; flat golden cedant PV
 $3,513,563 / reinsurer PV $45,386). `CacheStats` is exported from
-`analytics/portfolio.py`. `_run_deal` keeps its name and signature and is now the
-memoisation wrapper; the projection body moved unchanged to `_project_deal`.
-36 new tests in `tests/test_analytics/test_portfolio.py` across five classes:
+`analytics/portfolio.py` and re-exported from `analytics/__init__.py` alongside
+`Deal` / `DealResult` / `Portfolio` / `PortfolioResult` — it is the return type of
+a public method, so a caller who imports `Portfolio` from the package should be
+able to name what `cache_stats()` hands back without reaching into the submodule
+(PR #182 review [P2]; the type aliases `AlignMode` / `ConcentrationBasis` and the
+`CONCENTRATION_BASES` constant remain submodule-only, which is the existing line).
+`_run_deal` keeps its name and signature and is now the memoisation wrapper; the
+projection body moved unchanged to `_project_deal`.
+**34** new tests (28 test functions, expanding to 34 collected via the two
+`parametrize`d sweeps; confirmed by the fast suite moving 2845 → 2879) in
+`tests/test_analytics/test_portfolio.py` across five classes:
 defaults (cache off, the two-run re-projection premise, no stats recorded when
 disabled, `clear_cache` a no-op); correctness (a cached run bit-identical to an
 uncached one on every array and scalar via `assert_array_equal`, parametrized

@@ -209,6 +209,67 @@ exactly **+1 line**. Creep verdict: **`insufficient_data`** — the log now hold
 deliberate no-op while the log fills (expected, per ADR-177; the one-off backfill
 is NICE-TO-HAVE #63). No structural creep to surface.
 
+## Review Round — PR #182 (automated review, 2026-08-02)
+
+The PR review routine **approved** (posted as a COMMENT review, since GitHub
+forbids self-approval) with no [P0] and no [P1], independently reproducing the
+suite counts, the golden PVs, the perf-row commit pinning, and the premise
+reproduction. Both [P2] findings were accepted and fixed on the branch:
+
+1. **Test-count drift, 34 vs 36.** ADR-179's *Consequences* paragraph and the
+   CONTINUATION both said "36 new tests" / "green 36/36". The true delta is
+   **34** — 28 test functions expanding to 34 collected via the two
+   `parametrize`d sweeps, confirmed by the fast suite moving 2845 → 2879. The
+   36 was the `pytest -k Cache` count, which matches case-insensitively and
+   sweeps in two pre-existing lifecycle tests
+   (`test_get_deal_returns_the_validated_deal_with_cached_metadata`,
+   `test_replace_deal_updates_cached_treaty_metadata`). This session log and the
+   PR body already said 34; only the two durable docs were wrong, and ADR text
+   is the record that lasts. Corrected in both, with the cause noted so the
+   discrepancy is not "fixed" back the other way later.
+2. **`CacheStats` not re-exported from `analytics/__init__.py`.** Accepted: it
+   is the return type of a public method, so a caller who imports `Portfolio`
+   from the package should be able to name what `cache_stats()` hands back
+   without reaching into the submodule — the same category as `Deal` /
+   `DealResult` / `PortfolioResult`, which are all re-exported. The reviewer
+   correctly noted mixed precedent; the distinction drawn is that the
+   *unexported* neighbours (`AlignMode`, `ConcentrationBasis`,
+   `CONCENTRATION_BASES`) are type aliases and a constant, not returned values.
+   Recorded in ADR-179's Consequences paragraph.
+
+Per routine step 14b, **no second `perf/history.jsonl` row was appended** — this
+is a review-feedback update on an already-open PR, and one row per PR is the
+rule. The PR was also marked ready-for-review by the maintainer; the
+never-merge-your-own-PR guardrail still applies.
+
+Also addressed this round, before the review: the **cache key invariant** is now
+stated explicitly in the `cache` constructor docstring and ADR-179 decision
+point 2, separating what is *enforced* (id uniqueness at a point in time;
+stability across all four mutation verbs) from what the caller *asserts* by
+passing `cache=True` (no in-place mutation of a deal's projection inputs), and
+noting that ids need **not** be stable beyond the instance.
+
+## DISCOVERY (step 11b) — flaky wall-clock gate in `test_scale_benchmark`
+
+While re-running the suite for the review round,
+`test_scale_benchmark.py::TestRunScaleBenchmark::test_scaling_is_near_linear`
+failed once in a combined `tests/test_analytics/ tests/qa/` run, then passed
+**6/6** in isolation and across a full 1039-test `tests/test_analytics/` run.
+**Not caused by this PR** — it exercises `run_scale_benchmark` on the plain
+projection path, never touches `Portfolio`, and the default `cache=False` path
+delegates straight to `_project_deal` unchanged.
+
+Quantified over six consecutive runs on an idle machine: the measured ratio is
+**3.83×–4.39×** against a **6.00×** bound (~37% headroom, not the "generous"
+margin its docstring claims), with `t_small` at only **~25–30 ms** — small
+enough that one GC pause or preemption tips it. Per the DISCOVERY protocol the
+finding was **quantified, filed to `PRODUCT_DIRECTION_2026-07-24` with the
+evidence table, and NOT fixed here**; this PR ships only C4 Slice 2. The
+suggested fix is a shape change rather than a looser bound: `ScaleBenchmarkRow`
+already carries `peak_rss_mb`, and MiB is exactly the deterministic-first metric
+ADR-177 settled on, so assert linear *memory* scaling and demote the timing
+ratio to reported-but-not-asserted.
+
 ## Open Questions / Follow-ups
 
 - **Slice 3 must not measure a warm cache.** With `cache=True` a re-run costs

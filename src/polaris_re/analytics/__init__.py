@@ -80,6 +80,7 @@ from polaris_re.analytics.perf_history import (
     load_history,
 )
 from polaris_re.analytics.portfolio import (
+    CacheStats,
     Deal,
     DealResult,
     Portfolio,
@@ -139,6 +140,7 @@ __all__ = [
     "BayesianMISurfaceResult",
     "BayesianTensorMIModel",
     "CIRModel",
+    "CacheStats",
     "CapitalModel",
     "CapitalModelId",
     "CapitalResult",

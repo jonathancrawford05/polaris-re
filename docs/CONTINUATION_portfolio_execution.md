@@ -62,7 +62,7 @@ execution / ergonomics epic, not a modelling change.
   projections to `N`; `_with_scenario` deliberately starts **empty**.
   `clear_cache()` is the escape hatch for in-place input mutation and
   `cache_stats() -> CacheStats(enabled, hits, misses, size)` is the timing-free
-  observability surface. 36 new tests; cached and uncached runs bit-identical,
+  observability surface. 34 new tests; cached and uncached runs bit-identical,
   goldens untouched.
 - **Key decisions (affect later slices):**
   - The cache is a plain `dict[tuple[str, float], tuple[DealResult,
@@ -105,8 +105,11 @@ execution / ergonomics epic, not a modelling change.
   `get_product_engine` boundary on a three-deal book: `run` / re-`run` /
   `run_with_capital` / `without_deal(...).run` cost **3 / 3 / 3 / 2** engine
   builds where 3 in total would do. Its tests were confirmed red (collection
-  fails on the missing `CacheStats` export) and green 36/36 with the
-  implementation applied.
+  fails on the missing `CacheStats` export) and green 34/34 with the
+  implementation applied. (28 test functions, expanding to 34 collected via the
+  two `parametrize`d sweeps — confirmed by the suite total moving 2845 → 2879.
+  An earlier "36" here was the `pytest -k Cache` count, which case-insensitively
+  sweeps in two pre-existing lifecycle tests; corrected per PR #182 review [P2].)
 - **Slice 3 starts from a warm cache, and that changes the measurement.** With
   `cache=True` a re-run costs nothing to parallelise, so the honest benchmark is
   a **cold** portfolio (`cache=False`, or `cache=True` on its first `run`) over a
