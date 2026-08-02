@@ -3,7 +3,11 @@
 **Source:** `PRODUCT_DIRECTION_2026-07-24.md` — re-ranked catalogue **Tier C, C4**
 ("Parallel portfolio execution + caching + `remove_deal`", ★★★☆☆, ~2 d)
 **Plan:** `docs/PLAN_portfolio_execution.md`
-**Status:** IN PROGRESS
+**Status:** COMPLETE (all 3 slices shipped — #181 / #182 / Slice 3 this session;
+refinement backlog and the one surviving open question promoted to
+`PRODUCT_DIRECTION_2026-07-24.md` "Harvested 2026-08-02 (portfolio parallel
+execution — ADR-180; C4 Slice 3 — CLOSES C4)" before this transition, per routine
+step 17/18)
 **Total slices:** 3
 **Estimated total scope:** ~2 dev-days
 
@@ -118,9 +122,36 @@ execution / ergonomics epic, not a modelling change.
 - **Acceptance criteria:** all met — see the session log's table.
 
 ### Slice 3: Parallel execution
-- **Status:** NEXT
-- **Depends on:** Slice 2 merged
-- **Scope:** `run(..., max_workers: int | None = None)`; `None` keeps today's
+- **Status:** DONE
+- **Branch:** `claude/quirky-ramanujan-5zhsw3` (environment-designated)
+- **PR:** #TBD
+- **ADR:** 180
+- **What was done:** `run(..., max_workers: int | None = None)`, forwarded by
+  `run_with_capital` and `run_scenarios` (the *scenarios* stay sequential; only
+  the per-deal projections fan out). `None` and `1` — and a book of fewer than
+  two deals — take the serial path, and no `ThreadPoolExecutor` is constructed
+  there at all (a test asserts it by making the constructor raise). The fan-out
+  is one task per deal collected by input position (`Executor.map`), so the
+  order-sensitive aggregation sum is bit-identical at any worker count and each
+  cache key is still touched exactly once, keeping ADR-179's no-single-flight
+  decision valid rather than quietly invalidating it. `max_workers` is validated
+  before any projection (`bool` rejected explicitly). The cache dict and its two
+  counters are now lock-guarded — never a projection — because this slice turns
+  concurrent `_run_deal` from a hypothetical into a shipped path. 34 new tests;
+  goldens byte-identical.
+- **The measurement gate came back below the bar, and the claim was not made.**
+  `scripts/bench_portfolio_parallel.py` (committed) times a **cold** portfolio
+  (fresh `cache=False` per sample) with the harness's best-of-k minimum and
+  proves bit-identical aggregates before reporting any ratio. On the 4-core
+  runner: **1.29x** at 4 workers on 4 deals x 20k policies, but **1.19x / 0.59x /
+  0.48x** at 2 / 4 / 8 workers on 8 deals x 5k — i.e. *slower than serial* where
+  per-deal blocks are small. Reproduced across independent invocations. Cause:
+  the projection is GIL-bound by the engines' `for month in range(t)` recursions,
+  so larger `N` (longer C sections per handoff) scales and smaller `N` regresses.
+  The knob therefore ships **off by default with the negative numbers in its own
+  docstring**, no speed-up is claimed anywhere in the docs, and the disposition
+  is flagged for the maintainer (see Open Questions).
+- **Original scope (for the record):** `run(..., max_workers: int | None = None)`; `None` keeps today's
   serial path as the default; `>1` runs `_run_deal` through a
   `ThreadPoolExecutor`, collecting **by deal index** so the order-sensitive
   aggregation sum stays bit-identical. Threads not processes (NumPy releases the
@@ -188,8 +219,15 @@ execution / ergonomics epic, not a modelling change.
   is a property of how the portfolio is *held*, not of one run, and a per-call
   flag would let two runs of the same portfolio disagree about whether the deals
   are frozen. `run` / `run_with_capital` / `run_scenarios` signatures unchanged.
-- **Slice 3 measurement threshold.** If threaded execution turns out to give only
-  a marginal speed-up on a realistic book, the honest outcome is to ship the
-  measurement and drop the `max_workers` knob. What speed-up is worth the extra
-  API surface — 1.5×? 2×? Absent guidance, Slice 3 will report the measured
-  number and recommend, not decide unilaterally.
+- **Slice 3 measurement threshold.** **STILL OPEN — now a concrete decision, and
+  promoted to `PRODUCT_DIRECTION_2026-07-24.md` as IMPORTANT so it survives this
+  CONTINUATION's close.** The measurement is in (ADR-180): peak **1.29x**, and
+  **slower than serial** (0.48–0.59x) at 4/8 workers on small per-deal blocks, on
+  a 4-core runner. That is below both thresholds this question floated, so on the
+  plan's own terms it is the "ship the measurement, not the claim" branch — and no
+  claim is made. Slice 3 reported and recommended rather than deciding: the knob
+  was **kept**, off by default, for one reason only — a 4-core measurement is a
+  thin basis for deleting a feature that may pay on a 32-core workstation, and
+  `scripts/bench_portfolio_parallel.py` is the instrument for re-measuring there.
+  Removing the parameter is a small self-contained revert if you prefer the
+  stricter reading; the benchmark and the ADR are worth keeping either way.
