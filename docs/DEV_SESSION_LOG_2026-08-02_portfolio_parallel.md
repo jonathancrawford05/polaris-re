@@ -191,9 +191,9 @@ check: no NEW or CHANGED failure → the session PROCEEDED. The 3 skips are the
 standing absent-CIA-2014-table skips (step 2's `pymort` conversion produces the 6
 SOA/CSO tables; the 4 CIA 2014 tables are unreachable from `pymort`).
 
-End state after this slice: **2913 passed, 3 skipped, 125 deselected** (+34), and
-`tests/qa/` **94 passed**. So the next session's expected baseline is
-**2913 passed, 3 skipped**.
+End state after this slice: **2923 passed, 3 skipped, 125 deselected** (+44 — 34
+engine tests plus 10 from the CLI addendum below), and `tests/qa/` **94 passed**.
+So the next session's expected baseline is **2923 passed, 3 skipped**.
 
 ## Perf History
 
@@ -202,6 +202,50 @@ line, committed separately so the row pins the feature commit rather than itself
 Creep verdict: **`insufficient_data`** — the log holds 4 rows and needs ≥ 6
 (2 × window) per probe. Expected while the log is young; no action, and nothing to
 raise under Open Questions.
+
+## Addendum — CLI surfacing (same session, maintainer direction)
+
+After PR #183 was opened, the maintainer directed that `max_workers` be wired
+through the CLI and indicated a **lean toward adopting** the parallel feature,
+with a many-core re-measurement to follow on their own hardware. That reverses
+this session's own recommendation (the ADR argued for deciding the disposition
+*before* surfacing), and the reversal is the maintainer's call — recorded as an
+**amendment** to ADR-180 rather than by editing the decision, so the sequence
+stays auditable: measurement first, surfacing decision second.
+
+Shipped on the same branch:
+
+- `polaris portfolio run --max-workers N` and `polaris portfolio scenarios
+  --max-workers N`, serial by default. The scenarios command keeps scenarios
+  sequential and fans out only the per-deal projections within each, matching
+  `run_scenarios`'s own semantics.
+- A CLI-level validation naming the **flag** (`--max-workers must be >= 1`), so a
+  caller who typed a flag does not get the engine's parameter-named message —
+  the pattern `--align` already uses.
+- `--help` text that leads with the caveat rather than the mechanic, carrying the
+  measured 1.29x / 0.59x / 0.48x figures inline. **A test asserts the word
+  "slower" survives in the rendered help**, so removing the warning requires
+  removing a test. A flag called `--max-workers` otherwise reads as
+  "make it go faster", which the measurement says is often false.
+- `docs/RUNBOOK_portfolio_parallel_measurement.md` — the procedure for generating
+  the many-core half of the evidence: core-count discovery (with the Apple
+  Silicon P/E-core split called out as a hypothesis to test), a quiet-machine
+  checklist, three book shapes chosen to test the ADR's *actual* finding (that the
+  sign of the effect depends on per-deal block size, not that threads are
+  good/bad), a CLI end-to-end check, a fill-in results template destined for
+  `docs/MEASUREMENT_portfolio_parallel_<hardware>.md`, and a troubleshooting
+  table.
+
+REST and the Streamlit page stay out of scope: per-request worker pools multiply
+against a server's own concurrency, which is capacity planning rather than API
+design — the asymmetry that makes the CLI the right first surface.
+
+One cost accepted knowingly: surfacing the flag raises the price of removing the
+knob later from "revert one engine change" to "deprecate a public CLI option".
+
+10 further tests (suite 2913 → **2923**); goldens unchanged (flat golden still
+$3,513,563 / $45,386). No second `perf/history.jsonl` row — step 14b appends one
+row per PR, on the initial open only.
 
 ## Open Questions / Follow-ups
 

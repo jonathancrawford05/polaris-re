@@ -3373,6 +3373,36 @@ def _render_portfolio_summary(
         _render_concentration_tables_for_basis(result_dict, basis)
 
 
+#: Shared ``--max-workers`` help text (ADR-180). It leads with the caveat rather
+#: than the mechanic on purpose: the measured benefit is modest where it exists
+#: and NEGATIVE on books of many small deals, and `--help` is the only place most
+#: callers will ever read about it.
+_MAX_WORKERS_HELP = (
+    "Project the deals in parallel over N threads (ADR-180). Omit for the "
+    "serial default. MEASURE FIRST — the benefit is modest at best and this "
+    "can be SLOWER than serial: on a 4-core runner, 4 deals x 20k policies "
+    "reached 1.29x at 4 workers, but 8 deals x 5k policies fell to 0.59x at 4 "
+    "workers and 0.48x at 8. Big per-deal blocks help; oversubscribing cores "
+    "hurts. Results are bit-identical at every worker count, so this only ever "
+    "trades wall-clock, never numbers. Benchmark your own book and hardware "
+    "with scripts/bench_portfolio_parallel.py."
+)
+
+
+def _validate_max_workers_flag(max_workers: int | None) -> None:
+    """Reject a non-positive ``--max-workers`` with a flag-named CLI error.
+
+    The engine validates too, but its message names the *parameter*
+    (``max_workers``); a CLI caller who typed ``--max-workers 0`` should see the
+    flag they typed. Mirrors the ``--align`` check in the same commands.
+    """
+    if max_workers is not None and max_workers < 1:
+        console.print(
+            f"[red]Error:[/red] --max-workers must be >= 1 when supplied; got {max_workers}."
+        )
+        raise typer.Exit(code=1)
+
+
 @portfolio_app.command("run")
 def portfolio_run_cmd(
     config_path: Annotated[
@@ -3428,6 +3458,10 @@ def portfolio_run_cmd(
             ),
         ),
     ] = "ceded_face",
+    max_workers: Annotated[
+        int | None,
+        typer.Option("--max-workers", help=_MAX_WORKERS_HELP),
+    ] = None,
 ) -> None:
     """
     [bold]Run a multi-deal portfolio and aggregate reinsurer-level metrics.[/bold]
@@ -3444,19 +3478,23 @@ def portfolio_run_cmd(
     if align not in ("strict", "calendar"):
         console.print(f"[red]Error:[/red] --align must be 'strict' or 'calendar'; got {align!r}.")
         raise typer.Exit(code=1)
+    _validate_max_workers_flag(max_workers)
 
     portfolio, configured_hurdle = _build_portfolio_from_config(config_path)
     effective_hurdle = hurdle_rate if hurdle_rate is not None else configured_hurdle
 
+    workers_note = "" if max_workers is None else f", {max_workers} workers"
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
         console=console,
         transient=True,
     ) as progress:
-        progress.add_task(f"Running portfolio ({portfolio.n_deals} deals)...", total=None)
+        progress.add_task(
+            f"Running portfolio ({portfolio.n_deals} deals{workers_note})...", total=None
+        )
         try:
-            result = portfolio.run(effective_hurdle, align=align)
+            result = portfolio.run(effective_hurdle, align=align, max_workers=max_workers)
         except PolarisValidationError as exc:
             console.print(f"[red]Error running portfolio:[/red] {exc}")
             raise typer.Exit(code=1) from exc
@@ -3617,6 +3655,16 @@ def portfolio_scenarios_cmd(
             ),
         ),
     ] = "strict",
+    max_workers: Annotated[
+        int | None,
+        typer.Option(
+            "--max-workers",
+            help=(
+                _MAX_WORKERS_HELP + " The scenarios themselves stay sequential; only the "
+                "per-deal projections within each scenario fan out."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """
     [bold]Run a multi-deal portfolio under a stress-scenario set (ADR-064).[/bold]
@@ -3635,12 +3683,14 @@ def portfolio_scenarios_cmd(
     if align not in ("strict", "calendar"):
         console.print(f"[red]Error:[/red] --align must be 'strict' or 'calendar'; got {align!r}.")
         raise typer.Exit(code=1)
+    _validate_max_workers_flag(max_workers)
 
     scenarios = _resolve_scenarios_argument(scenarios_arg)
 
     portfolio, configured_hurdle = _build_portfolio_from_config(config_path)
     effective_hurdle = hurdle_rate if hurdle_rate is not None else configured_hurdle
 
+    workers_note = "" if max_workers is None else f", {max_workers} workers"
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -3648,7 +3698,8 @@ def portfolio_scenarios_cmd(
         transient=True,
     ) as progress:
         progress.add_task(
-            f"Running {len(scenarios)} scenario(s) on portfolio ({portfolio.n_deals} deals)...",
+            f"Running {len(scenarios)} scenario(s) on portfolio "
+            f"({portfolio.n_deals} deals{workers_note})...",
             total=None,
         )
         try:
@@ -3656,6 +3707,7 @@ def portfolio_scenarios_cmd(
                 effective_hurdle,
                 scenarios=scenarios,
                 align=align,
+                max_workers=max_workers,
             )
         except PolarisValidationError as exc:
             console.print(f"[red]Error running portfolio scenarios:[/red] {exc}")

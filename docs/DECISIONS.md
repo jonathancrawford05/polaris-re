@@ -12252,3 +12252,49 @@ Python recursions**, so vectorising or otherwise shortening those loops would
 raise both the serial and the parallel numbers — a far larger win than the fan-out
 and a change to `products/`, not `analytics/`. It is filed as a promoted follow-up
 rather than expanded into this PR (routine step 11b).
+
+### ADR-180 amendment (2026-08-02, same session): `--max-workers` on the CLI
+
+**Maintainer direction received after the ADR was written:** wire the knob
+through the CLI, and plan to re-measure on many-core hardware before settling the
+disposition question — *"I am leaning into the adoption of the parallel feature."*
+Recorded here rather than by editing the decision above, so the sequence stays
+auditable: the measurement came first, the surfacing decision second.
+
+This narrows — but does not close — the ADR's out-of-scope line on surfacing.
+Shipped:
+
+- `polaris portfolio run --max-workers N` and `polaris portfolio scenarios
+  --max-workers N`, both defaulting to the serial path. On the scenarios command
+  the scenarios stay sequential; only the per-deal projections within each fan
+  out, matching `run_scenarios`'s own semantics.
+- A CLI-level validation that names the **flag** (`--max-workers must be >= 1`)
+  rather than surfacing the engine's parameter-named message to someone who typed
+  a flag — the same pattern `--align` already uses.
+- `--help` text that **leads with the caveat, not the mechanic**: it states that
+  the knob can be *slower* and carries the measured 1.29x / 0.59x / 0.48x figures
+  inline. A test asserts the word "slower" survives in the rendered help, because
+  `--help` is the only place most callers will ever read about this and a flag
+  named `--max-workers` otherwise reads as "make it go faster". Deleting that
+  sentence should require deleting a test.
+
+Still out of scope, unchanged: `POST /api/v1/portfolio` and the Streamlit page. A
+concurrency knob on a shared service multiplies per-request pools against the
+server's own concurrency — a capacity-planning decision, not an API one — whereas
+a CLI invocation is one user who owns the whole machine. That asymmetry is the
+whole reason the CLI is the right first (and possibly only) surface.
+
+**The disposition question stays open**, and the CLI flag does not pre-empt it.
+`docs/RUNBOOK_portfolio_parallel_measurement.md` is the procedure for generating
+the many-core half of the evidence: three book shapes chosen to test the ADR's
+actual finding (that the sign of the effect depends on per-deal block size), a
+template for committing the results as
+`docs/MEASUREMENT_portfolio_parallel_<hardware>.md`, and an explicit note that a
+CLI-level speed-up will be *smaller* than the benchmark's because the command also
+pays config parsing, CSV ingest, table load, and rendering — currently unmeasured,
+flagged as such rather than estimated.
+
+One consequence worth stating plainly: surfacing the flag raises the cost of
+removing it later from "revert one engine change" to "deprecate a public CLI
+option". That was accepted knowingly on the maintainer's direction, with the
+many-core measurement as the thing that resolves it either way.

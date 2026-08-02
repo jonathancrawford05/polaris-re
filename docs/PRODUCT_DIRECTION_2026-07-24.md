@@ -1293,14 +1293,29 @@ are first-class work items rather than commentary.
   the knob or settle its removal on evidence rather than inference. *Source:
   ADR-180 "Recommendation" (2nd-order — a follow-up of the knob-disposition
   item).* **NICE-TO-HAVE.**
-- **Surface `max_workers` on the CLI / REST / dashboard.** Excluded from the whole
-  C4 epic by `PLAN_portfolio_execution.md` §4 and unchanged by this slice: the
-  three `Portfolio` surfaces build a fresh portfolio per request, and exposing a
-  concurrency knob on a shared service is a capacity-planning decision (worker
-  pools per request multiply against the server's own concurrency), not an API
-  one. Blocked behind the disposition decision above in any case — there is no
-  point surfacing a knob that may be removed. *Source: ADR-180 Out of scope
-  (1st-order).* **NICE-TO-HAVE.**
+- ~~**Surface `max_workers` on the CLI / REST / dashboard.**~~ — **PARTIALLY
+  SHIPPED** (PR #183 / ADR-180 amendment): the **CLI half is done** —
+  `polaris portfolio run --max-workers N` and `polaris portfolio scenarios
+  --max-workers N`, serial by default, with `--help` text that leads with the
+  measured *slower-than-serial* caveat (a test pins that wording). Shipped on
+  maintainer direction the same session, ahead of the disposition decision rather
+  than behind it. **REST and the Streamlit page remain out of scope and open**:
+  a concurrency knob on a shared service multiplies per-request pools against the
+  server's own concurrency, which is a capacity-planning decision, not an API one
+  — unlike a CLI invocation, where one user owns the machine. Revisit only after
+  the many-core measurement settles whether the knob survives at all. *Source:
+  ADR-180 Out of scope + ADR-180 amendment (1st-order).* **NICE-TO-HAVE.**
+- **Run the many-core measurement and settle ADR-180's disposition question.**
+  Now the gating item for the two above: `docs/RUNBOOK_portfolio_parallel_measurement.md`
+  is the procedure (three book shapes, a results template, and the caveat that a
+  CLI-level speed-up will be smaller than the benchmark's because the command also
+  pays parsing / ingest / table-load / rendering — unmeasured). Output lands as
+  `docs/MEASUREMENT_portfolio_parallel_<hardware>.md` and either closes the
+  question as *keep* — with the ADR's 4-core table gaining a many-core sibling and
+  the docstring / `--help` rewritten around the real curve — or as *remove*, on
+  evidence. Maintainer has indicated a lean toward adoption; the measurement is
+  what makes that a decision rather than a preference. *Source: ADR-180
+  amendment + maintainer direction 2026-08-02 (1st-order).* **IMPORTANT.**
 - **Incremental portfolio what-if over a session.** The C4 epic built the whole
   machinery — `without_deal` (ADR-178), the per-deal cache (ADR-179), the fan-out
   (ADR-180) — and none of it is reachable from any user-facing surface, because

@@ -1038,3 +1038,115 @@ class TestPortfolioReportConcentrationBasisFlag:
         flat = " ".join(result.output.split()).lower()
         assert "warning" in flat
         assert "pv_premium" in flat
+
+
+# ---------------------------------------------------------------------------
+# --max-workers (ADR-180) — parallel per-deal projection through the CLI
+# ---------------------------------------------------------------------------
+
+
+class TestPortfolioRunMaxWorkersFlag:
+    """``polaris portfolio run --max-workers`` fans the deals out over threads."""
+
+    def _run(self, tmp_path: Path, *extra: str) -> dict:
+        """Run the command with ``extra`` flags and return the JSON payload."""
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        out_path = tmp_path / f"result_{'_'.join(extra) or 'serial'}.json".replace("--", "")
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "run",
+                "--config",
+                str(config_path),
+                "--output",
+                str(out_path),
+                *extra,
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        return json.loads(out_path.read_text())
+
+    @pytest.mark.parametrize("workers", ["2", "4"])
+    def test_parallel_output_is_identical_to_serial(self, tmp_path: Path, workers: str) -> None:
+        """The whole JSON payload must match the serial run exactly.
+
+        A dict comparison, not a tolerance — the parallel path is bit-identical
+        by construction, so anything less would hide a real divergence.
+        """
+        serial = self._run(tmp_path)
+        parallel = self._run(tmp_path, "--max-workers", workers)
+        assert parallel == serial
+
+    def test_deal_order_is_preserved(self, tmp_path: Path) -> None:
+        payload = self._run(tmp_path, "--max-workers", "4")
+        assert [deal["deal_id"] for deal in payload["deals"]] == ["D1", "D2"]
+
+    @pytest.mark.parametrize("bad", ["0", "-1"])
+    def test_non_positive_workers_exits_cleanly(self, tmp_path: Path, bad: str) -> None:
+        """A bad value is a clean error, not a traceback."""
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        result = runner.invoke(
+            app,
+            ["portfolio", "run", "--config", str(config_path), "--max-workers", bad],
+        )
+        assert result.exit_code != 0
+        flat = " ".join(result.output.split())
+        assert "--max-workers must be >= 1" in flat
+
+    def test_flag_is_documented_in_help(self, tmp_path: Path) -> None:
+        result = runner.invoke(app, ["portfolio", "run", "--help"])
+        assert result.exit_code == 0
+        flat = " ".join(result.output.split())
+        assert "--max-workers" in flat
+        # The help text must carry the measured warning, not just the mechanic —
+        # a caller reading only --help should learn it can be SLOWER.
+        assert "slower" in flat.lower()
+
+
+class TestPortfolioScenariosMaxWorkersFlag:
+    """``polaris portfolio scenarios --max-workers`` forwards to each scenario."""
+
+    def _run(self, tmp_path: Path, *extra: str) -> dict:
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        out_path = tmp_path / f"scen_{'_'.join(extra) or 'serial'}.json".replace("--", "")
+        result = runner.invoke(
+            app,
+            [
+                "portfolio",
+                "scenarios",
+                "--config",
+                str(config_path),
+                "--output",
+                str(out_path),
+                "--scenarios",
+                "BASE,MORT_110",
+                *extra,
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        return json.loads(out_path.read_text())
+
+    def test_parallel_output_is_identical_to_serial(self, tmp_path: Path) -> None:
+        serial = self._run(tmp_path)
+        parallel = self._run(tmp_path, "--max-workers", "4")
+        assert parallel == serial
+
+    def test_scenario_order_is_preserved(self, tmp_path: Path) -> None:
+        payload = self._run(tmp_path, "--max-workers", "4")
+        assert [entry["name"] for entry in payload["scenarios"]] == ["BASE", "MORT_110"]
+
+    def test_non_positive_workers_exits_cleanly(self, tmp_path: Path) -> None:
+        config_path = _write_yaml(tmp_path, _two_deal_config())
+        result = runner.invoke(
+            app,
+            ["portfolio", "scenarios", "--config", str(config_path), "--max-workers", "0"],
+        )
+        assert result.exit_code != 0
+        flat = " ".join(result.output.split())
+        assert "--max-workers must be >= 1" in flat
+
+    def test_flag_is_documented_in_help(self, tmp_path: Path) -> None:
+        result = runner.invoke(app, ["portfolio", "scenarios", "--help"])
+        assert result.exit_code == 0
+        assert "--max-workers" in " ".join(result.output.split())
