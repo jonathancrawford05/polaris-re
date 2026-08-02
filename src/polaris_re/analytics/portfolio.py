@@ -657,12 +657,32 @@ class Portfolio:
     Args:
         name: Identifier for the portfolio, used as the aggregate run id.
         cache: Opt into per-deal result caching. ``False`` (default) projects
-            every deal on every run, exactly as before. ``True`` asserts that
-            the deals' projection inputs (``InforceBlock``, ``AssumptionSet``,
-            ``ProjectionConfig``, ``BaseTreaty``) will not be mutated in place
-            behind the portfolio's back — the portfolio can only detect changes
-            made through its own mutation verbs. Results are identical either
-            way.
+            every deal on every run, exactly as before. Results are identical
+            either way — the flag only decides whether a projection is
+            recomputed or reused.
+
+            The cache is keyed ``(deal_id, hurdle_rate)``, so it rests on one
+            invariant: **within this instance, a ``deal_id`` denotes exactly
+            one set of projection inputs for as long as its cached entries
+            live.** Two thirds of that are enforced, one third is the caller's
+            to assert:
+
+            - *Unique at a point in time* — enforced: :meth:`add_deal` rejects
+              a duplicate id, :meth:`replace_deal` requires an existing one.
+            - *Stable across changes the portfolio can see* — enforced: all
+              four mutation verbs evict what they invalidate, so re-using an
+              id for different terms via ``remove_deal`` + ``add_deal``, or
+              via ``replace_deal``, is safe.
+            - *Stable across changes it cannot see* — **asserted by passing
+              ``True``**: mutating a deal's ``InforceBlock`` /
+              ``AssumptionSet`` / ``ProjectionConfig`` / ``BaseTreaty`` **in
+              place** changes what the id means without the portfolio ever
+              hearing about it, and the stale entry survives. Go through
+              :meth:`replace_deal`, or call :meth:`clear_cache` afterwards.
+
+            Nothing here requires an id to be stable *beyond* this instance:
+            the cache is per-``Portfolio``, never shared or persisted, so ids
+            need not agree across objects, processes, or CLI invocations.
     """
 
     def __init__(self, name: str = "portfolio", *, cache: bool = False) -> None:

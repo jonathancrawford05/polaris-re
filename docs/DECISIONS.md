@@ -11984,6 +11984,27 @@ only sound once every mutation path is a named choke point.
    both alignment modes and a run can never mutate the cached value. The hurdle
    rate *is* in the key because the cached `ProfitTestResult` is computed at it —
    two rates coexist side by side rather than evicting each other.
+
+   **The key invariant, stated explicitly** (PR #182 review): *within one
+   `Portfolio` instance, a `deal_id` denotes exactly one set of projection
+   inputs for as long as its cached entries live.* Two thirds of that are
+   enforced by code and one third is the caller's to assert, and it is worth
+   separating them because only the third is a hazard:
+   (i) *unique at a point in time* — **enforced**: `add_deal` rejects a
+   duplicate id and `replace_deal` requires an existing one (ADR-178 (5));
+   (ii) *stable across changes the portfolio can see* — **enforced**: all four
+   mutation verbs evict, so re-using an id for different terms through
+   `remove_deal` + `add_deal` or through `replace_deal` is safe;
+   (iii) *stable across changes it cannot see* — **asserted by passing
+   `cache=True`**: in-place mutation of a deal's `InforceBlock` /
+   `AssumptionSet` / `ProjectionConfig` / `BaseTreaty` changes what the id
+   means with no signal to the portfolio, and the stale entry survives.
+   Conversely, nothing requires an id to be stable *beyond* the instance — the
+   cache is per-`Portfolio`, never shared or persisted, so ids need not agree
+   across objects, processes, or CLI invocations. Closing (iii) automatically
+   is exactly the harvested "detect in-place mutation" follow-up; until then the
+   contract is honest about the boundary rather than implying the key is
+   stronger than it is.
 3. **Per-deal invalidation on all four Slice-1 mutation verbs.**
    `remove_deal` / `replace_deal` / `add_deal` evict that deal's entries (every
    hurdle rate); `clear_deals` empties the cache. Eviction is per deal, **not**
