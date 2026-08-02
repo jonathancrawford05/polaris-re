@@ -25,6 +25,13 @@ DEAL_C?", "re-quote DEAL_B at 40% cession") no longer requires rebuilding the
 portfolio from its source objects. Edits are validated by the same rules as
 ``add_deal``, and an unknown deal id raises rather than silently no-opping.
 
+Repeated runs can reuse per-deal projections via the **opt-in** result cache
+``Portfolio(..., cache=True)`` (ADR-179), keyed ``(deal_id, hurdle_rate)`` and
+invalidated per deal by each of the four mutation verbs. It is opt-in because a
+``Deal`` holds mutable projection inputs: enabling it asserts "these deals are
+frozen for the duration". Numbers are unchanged either way — the cache only
+decides whether a projection is recomputed or reused.
+
 Scope: proportional treaties only — YRT, coinsurance, modco — each exposing
 a ``cession_pct``. Stop-loss and other non-proportional structures are out
 of scope. Policy-level cession overrides are not applied; the treaty-level
@@ -78,6 +85,7 @@ CONCENTRATION_BASES: Final[tuple[ConcentrationBasis, ...]] = (
 __all__ = [
     "CONCENTRATION_BASES",
     "AlignMode",
+    "CacheStats",
     "ConcentrationBasis",
     "Deal",
     "DealResult",
@@ -114,6 +122,24 @@ class Deal:
     product_type: str
     treaty_type: str
     cession_pct: float
+
+
+@dataclass(frozen=True)
+class CacheStats:
+    """Snapshot of a portfolio's per-deal result cache (ADR-179).
+
+    Returned by :meth:`Portfolio.cache_stats`. ``hits`` and ``misses`` are
+    **lifetime** counters for the instance — :meth:`Portfolio.clear_cache` and
+    the mutation verbs drop entries (lowering ``size``) but never rewind the
+    counters, so a caller can tell "the cache was never used" from "the cache
+    was used and then invalidated". On a portfolio built without ``cache=True``
+    every field is zero and ``enabled`` is ``False``.
+    """
+
+    enabled: bool
+    hits: int
+    misses: int
+    size: int
 
 
 # ---------------------------------------------------------------------------
@@ -624,13 +650,28 @@ class Portfolio:
     the same rules as :meth:`add_deal`, and an unknown deal id always raises
     rather than silently no-opping.
 
+    With ``cache=True`` the per-deal projection behind each run is memoised on
+    the instance and reused by later runs at the same hurdle rate (ADR-179) —
+    see :attr:`cache_enabled`, :meth:`cache_stats`, and :meth:`clear_cache`.
+
     Args:
         name: Identifier for the portfolio, used as the aggregate run id.
+        cache: Opt into per-deal result caching. ``False`` (default) projects
+            every deal on every run, exactly as before. ``True`` asserts that
+            the deals' projection inputs (``InforceBlock``, ``AssumptionSet``,
+            ``ProjectionConfig``, ``BaseTreaty``) will not be mutated in place
+            behind the portfolio's back — the portfolio can only detect changes
+            made through its own mutation verbs. Results are identical either
+            way.
     """
 
-    def __init__(self, name: str = "portfolio") -> None:
+    def __init__(self, name: str = "portfolio", *, cache: bool = False) -> None:
         self.name = name
         self._deals: list[Deal] = []
+        self._cache_enabled = cache
+        self._deal_cache: dict[tuple[str, float], tuple[DealResult, CashFlowResult]] = {}
+        self._cache_hits = 0
+        self._cache_misses = 0
 
     @property
     def n_deals(self) -> int:
@@ -658,6 +699,54 @@ class Portfolio:
     def deal_ids(self) -> tuple[str, ...]:
         """Deal ids in insertion order — the order of the per-deal breakdown."""
         return tuple(deal.deal_id for deal in self._deals)
+
+    @property
+    def cache_enabled(self) -> bool:
+        """Whether per-deal result caching is on (set at construction, ADR-179)."""
+        return self._cache_enabled
+
+    def cache_stats(self) -> CacheStats:
+        """Return a :class:`CacheStats` snapshot of the per-deal result cache.
+
+        The observability surface for the cache: a caller confirms it is
+        working by watching ``hits`` rise while ``size`` stays flat, with no
+        recourse to wall-clock timing.
+        """
+        return CacheStats(
+            enabled=self._cache_enabled,
+            hits=self._cache_hits,
+            misses=self._cache_misses,
+            size=len(self._deal_cache),
+        )
+
+    def clear_cache(self) -> "Portfolio":
+        """Drop every cached per-deal result, in place.
+
+        The escape hatch for the one staleness the portfolio cannot detect: a
+        caller who mutated a deal's ``InforceBlock`` / ``AssumptionSet`` /
+        ``ProjectionConfig`` / treaty **in place** rather than going through
+        :meth:`replace_deal`. Lifetime ``hits`` / ``misses`` counters are
+        deliberately not rewound (see :class:`CacheStats`). A no-op on a
+        portfolio built without ``cache=True``.
+
+        Returns:
+            ``self``, to allow chained calls.
+        """
+        self._deal_cache.clear()
+        return self
+
+    def _evict_deal(self, deal_id: str) -> None:
+        """Drop every cached entry belonging to ``deal_id`` (all hurdle rates).
+
+        Eviction is per deal, not portfolio-wide, because ``_run_deal``'s
+        result depends only on the deal itself and the hurdle rate — adding or
+        dropping a *different* deal cannot change it (the aggregation, which
+        does depend on the whole book, is recomputed on every run). That is
+        what keeps an incrementally built book from re-projecting everything
+        on each ``add_deal``.
+        """
+        for key in [key for key in self._deal_cache if key[0] == deal_id]:
+            del self._deal_cache[key]
 
     def get_deal(self, deal_id: str) -> Deal:
         """Return the validated :class:`Deal` registered under ``deal_id``.
@@ -708,16 +797,21 @@ class Portfolio:
             raise PolarisValidationError(
                 f"Duplicate deal_id {deal_id!r} — deal ids must be unique within a portfolio."
             )
-        self._deals.append(
-            _build_deal(
-                deal_id=deal_id,
-                cedant=cedant,
-                inforce=inforce,
-                assumptions=assumptions,
-                config=config,
-                treaty=treaty,
-            )
+        deal = _build_deal(
+            deal_id=deal_id,
+            cedant=cedant,
+            inforce=inforce,
+            assumptions=assumptions,
+            config=config,
+            treaty=treaty,
         )
+        # Built before the mutation, so a validation failure leaves both the
+        # book and the cache untouched. The eviction is belt-and-braces: the
+        # duplicate check above means no live entry can carry this id, but it
+        # holds the invariant "a cached entry always describes a deal the book
+        # currently holds" without depending on that reasoning (ADR-179).
+        self._evict_deal(deal_id)
+        self._deals.append(deal)
         return self
 
     def remove_deal(self, deal_id: str) -> "Portfolio":
@@ -739,6 +833,7 @@ class Portfolio:
             PolarisValidationError: If no deal carries that id.
         """
         del self._deals[self._index_of(deal_id)]
+        self._evict_deal(deal_id)
         return self
 
     def replace_deal(
@@ -777,7 +872,9 @@ class Portfolio:
                 replacement fails the :meth:`add_deal` validation rules.
         """
         index = self._index_of(deal_id)
-        self._deals[index] = _build_deal(
+        # Build (and validate) before mutating anything, so a rejected
+        # replacement leaves both the deal and its cached result in place.
+        deal = _build_deal(
             deal_id=deal_id,
             cedant=cedant,
             inforce=inforce,
@@ -785,6 +882,8 @@ class Portfolio:
             config=config,
             treaty=treaty,
         )
+        self._deals[index] = deal
+        self._evict_deal(deal_id)
         return self
 
     def clear_deals(self) -> "Portfolio":
@@ -794,6 +893,7 @@ class Portfolio:
             ``self``, to allow chained ``clear_deals().add_deal(...)`` calls.
         """
         self._deals.clear()
+        self._deal_cache.clear()
         return self
 
     def without_deal(self, *deal_ids: str, name: str | None = None) -> "Portfolio":
@@ -848,8 +948,20 @@ class Portfolio:
         for deal_id in deal_ids:
             self._index_of(deal_id)
 
-        copy = Portfolio(name=self.name if name is None else name)
+        copy = Portfolio(name=self.name if name is None else name, cache=self._cache_enabled)
         copy._deals.extend(deal for deal in self._deals if deal.deal_id not in excluded)
+        # Carry over the surviving deals' cached results (ADR-179). This is
+        # sound because the copy holds the *same frozen* Deal objects under the
+        # same ids, so a cached (deal_id, hurdle_rate) entry describes exactly
+        # the projection the copy would perform — and it is what makes the
+        # leave-one-out loop over a whole book cost one projection per deal
+        # instead of one per deal per iteration. A fresh dict, never the
+        # parent's by reference: the two books diverge from here.
+        if self._cache_enabled:
+            survivors = {deal.deal_id for deal in copy._deals}
+            copy._deal_cache.update(
+                {key: value for key, value in self._deal_cache.items() if key[0] in survivors}
+            )
         return copy
 
     def _index_of(self, deal_id: str) -> int:
@@ -1159,7 +1271,14 @@ class Portfolio:
         treaties, configs, and ``cession_pct`` but carry a scaled
         :class:`AssumptionSet`. The original portfolio is not mutated.
         """
-        scenario_portfolio = Portfolio(name=f"{self.name}_{scenario.name}")
+        # The cache setting carries over but the entries deliberately do NOT
+        # (ADR-179): a stressed deal keeps its deal_id while carrying scaled
+        # assumptions, so the parent's entries would silently mask the stress
+        # — the one case where the (deal_id, hurdle_rate) key would collide
+        # with a genuinely different projection.
+        scenario_portfolio = Portfolio(
+            name=f"{self.name}_{scenario.name}", cache=self._cache_enabled
+        )
         for deal in self._deals:
             scenario_portfolio._deals.append(
                 dataclasses.replace(
@@ -1217,6 +1336,36 @@ class Portfolio:
     # ------------------------------------------------------------------
 
     def _run_deal(self, deal: Deal, hurdle_rate: float) -> tuple[DealResult, CashFlowResult]:
+        """Return one deal's reinsurer-side result + cash flow, cached if enabled.
+
+        Memoised on ``(deal_id, hurdle_rate)`` when the portfolio was built
+        with ``cache=True`` (ADR-179). ``align`` is deliberately **not** part
+        of the key: the returned ``DealResult`` always carries
+        ``grid_offset=0`` and :meth:`run` stamps the real offset onto a
+        ``dataclasses.replace`` copy, so one entry serves both alignment modes
+        and the cached value is never mutated by a run.
+
+        Cached results are returned by reference — two runs of a caching
+        portfolio hand out ``DealResult``s sharing the same numpy arrays. They
+        are read-only to every consumer in this module (the aggregation builds
+        new arrays via ``_place`` / ``np.sum``), which is the same contract the
+        uncached path already implies.
+        """
+        if not self._cache_enabled:
+            return self._project_deal(deal, hurdle_rate)
+
+        key = (deal.deal_id, hurdle_rate)
+        cached = self._deal_cache.get(key)
+        if cached is not None:
+            self._cache_hits += 1
+            return cached
+
+        self._cache_misses += 1
+        computed = self._project_deal(deal, hurdle_rate)
+        self._deal_cache[key] = computed
+        return computed
+
+    def _project_deal(self, deal: Deal, hurdle_rate: float) -> tuple[DealResult, CashFlowResult]:
         """Project one deal and return its reinsurer-side result + cash flow."""
         engine = get_product_engine(
             inforce=deal.inforce,

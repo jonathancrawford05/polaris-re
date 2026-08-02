@@ -5,7 +5,7 @@
 `COMMERCIAL_VIABILITY_REVIEW_2026-07-15` §4.
 **Classification:** MEDIUM (3 slices) — three distinct capabilities on one module,
 each independently mergeable.
-**Status:** slice 1 shipped; see `docs/CONTINUATION_portfolio_execution.md`.
+**Status:** slices 1–2 shipped; see `docs/CONTINUATION_portfolio_execution.md`.
 
 ---
 
@@ -71,14 +71,14 @@ Acceptance: a portfolio built with 3 deals then `remove_deal("b")` produces an
 aggregate that is *identical* to a portfolio built with only the other two, and
 `total_pv_profits` equals the closed-form sum of the two survivors' PVs.
 
-### Slice 2 — Per-deal result caching
+### Slice 2 — Per-deal result caching ✅
 
 - Memoise `_run_deal(deal, hurdle_rate)` keyed on `(deal_id, hurdle_rate)`, held
   on the `Portfolio` instance.
 - **Every** Slice-1 mutation verb (`add_deal`, `remove_deal`, `replace_deal`,
   `clear_deals`) invalidates — that is the reason Slice 1 comes first.
-- **Opt-in**, not default (`Portfolio(..., cache=True)` or `run(use_cache=True)` —
-  decide in the slice's ADR). Rationale: `Deal` holds *mutable* objects
+- **Opt-in**, not default — resolved in ADR-179 as **`Portfolio(..., cache=True)`**
+  (constructor-level, not per-call). Rationale: `Deal` holds *mutable* objects
   (`InforceBlock`, `AssumptionSet`, `ProjectionConfig`, `BaseTreaty`); a caller
   who mutates an assumption in place behind the portfolio's back would get a
   stale result from an always-on cache. Opt-in makes the caller's "these deals

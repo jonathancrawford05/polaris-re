@@ -45,28 +45,44 @@ execution / ergonomics epic, not a modelling change.
     Slice 3's parallel collection is index-based, so position stability matters.
 
 ### Slice 2: Per-deal result caching
-- **Status:** NEXT
-- **Depends on:** Slice 1 merged
-- **Files to create/modify:** `src/polaris_re/analytics/portfolio.py`,
-  `tests/test_analytics/test_portfolio.py`, `docs/DECISIONS.md` (ADR-179)
-- **Scope:** Memoise `_run_deal(deal, hurdle_rate)` on the instance, keyed
-  `(deal_id, hurdle_rate)`; invalidate from all four mutation verbs; **opt-in**
-  (the ADR decides `Portfolio(cache=True)` vs `run(use_cache=True)`) because
-  `Deal` holds mutable projection inputs a caller could change behind the
-  portfolio's back; `_with_scenario` must start with an empty cache (its deals
-  carry scaled assumptions under the *same* deal ids).
-- **Tests to add:** cached vs uncached byte-identical (`assert_array_equal`);
-  one invalidation regression test per mutation verb; a repeat run performs zero
-  extra `project()` calls (assert with a call counter, never a timing);
-  `run_scenarios` unaffected; `run` then `run_with_capital` reuses the cache.
-- **Acceptance criteria:**
-  - A cached run and an uncached run produce identical `PortfolioResult` numbers.
-  - Mutating between two runs yields the post-mutation answer, per verb.
-  - A second `run(h)` at the same hurdle rate calls `project()` zero times.
-  - Goldens byte-identical; caching off by default.
+- **Status:** DONE
+- **Branch:** `claude/quirky-ramanujan-xa6fr5` (environment-designated)
+- **PR:** #182
+- **ADR:** 179
+- **What was done:** Memoised `_run_deal(deal, hurdle_rate)` on the instance,
+  **opt-in** via `Portfolio(name=..., cache=True)` (the open question below is
+  now resolved in favour of the constructor). The projection body moved
+  unchanged to `_project_deal`; `_run_deal` is the memoisation wrapper, so the
+  cache is one choke point. All four Slice-1 mutation verbs invalidate — **per
+  deal**, not book-wide — and both `add_deal` and `replace_deal` now build and
+  validate the `Deal` *before* mutating, so a rejected edit leaves the cache
+  intact. `without_deal` carries the surviving entries over **by value** (same
+  frozen `Deal`s, same ids → the entry describes exactly the projection the copy
+  would perform), which collapses a leave-one-out sweep from `N x (N-1)`
+  projections to `N`; `_with_scenario` deliberately starts **empty**.
+  `clear_cache()` is the escape hatch for in-place input mutation and
+  `cache_stats() -> CacheStats(enabled, hits, misses, size)` is the timing-free
+  observability surface. 36 new tests; cached and uncached runs bit-identical,
+  goldens untouched.
+- **Key decisions (affect later slices):**
+  - The cache is a plain `dict[tuple[str, float], tuple[DealResult,
+    CashFlowResult]]` on the instance with **no locking**. Slice 3 must either
+    pre-populate it before the fan-out or guard it: two threads missing on the
+    same key would both project (harmless to correctness — the values are
+    equal — but it wastes exactly what the cache saves, and it would break the
+    `cache_stats()` miss count as a proxy for work done).
+  - `align` is *not* part of the key. `_run_deal` returns `grid_offset=0` and
+    `run` stamps the real offset onto a `dataclasses.replace` copy, so the
+    cached value is never mutated by a run. Slice 3's index-ordered collection
+    must keep doing the `replace` on its own copy, not in place.
+  - Cached results are handed out **by reference** — two runs share the same
+    numpy arrays. Nothing in the module writes through them (`_place` /
+    `np.sum` build new arrays); Slice 3 must preserve that, since a threaded
+    path writing into a per-deal array would now corrupt a cached entry.
+- **Acceptance criteria:** all met — see the session log's table.
 
 ### Slice 3: Parallel execution
-- **Status:** PLANNED
+- **Status:** NEXT
 - **Depends on:** Slice 2 merged
 - **Scope:** `run(..., max_workers: int | None = None)`; `None` keeps today's
   serial path as the default; `>1` runs `_run_deal` through a
@@ -85,6 +101,20 @@ execution / ergonomics epic, not a modelling change.
   run_with_capital` — no removal, replacement, or lookup verb existed.
 - Slice 1's tests were confirmed **red** (39 failed) with the implementation
   stashed and **green** (39 passed) with it applied.
+- Slice 2's premise was reproduced the same way, with a counter at the
+  `get_product_engine` boundary on a three-deal book: `run` / re-`run` /
+  `run_with_capital` / `without_deal(...).run` cost **3 / 3 / 3 / 2** engine
+  builds where 3 in total would do. Its tests were confirmed red (collection
+  fails on the missing `CacheStats` export) and green 36/36 with the
+  implementation applied.
+- **Slice 3 starts from a warm cache, and that changes the measurement.** With
+  `cache=True` a re-run costs nothing to parallelise, so the honest benchmark is
+  a **cold** portfolio (`cache=False`, or `cache=True` on its first `run`) over a
+  book big enough that per-deal projection dominates. Do not measure a second
+  run of a caching portfolio and report the speed-up as parallelism.
+- Slice 3 must decide how the two features compose: the simplest correct shape is
+  to resolve cache hits serially first, fan out only the misses, and write the
+  results back under the existing per-deal eviction contract.
 - The three `Portfolio` surfaces (CLI `polaris portfolio run`,
   `POST /api/v1/portfolio`, the Streamlit portfolio page) all construct a fresh
   `Portfolio` per request. None of them is touched by this epic, and none needs
@@ -99,11 +129,12 @@ execution / ergonomics epic, not a modelling change.
 
 ## Open Questions (for human)
 
-- **Slice 2 cache opt-in shape.** `Portfolio(name=..., cache=True)` (portfolio-wide
-  policy, set once) vs `run(..., use_cache=True)` (per-call). Leaning
-  constructor-level: the "these deals are frozen for the duration" assertion is a
-  property of how the caller holds the portfolio, not of one run. Will be decided
-  in ADR-179 unless the maintainer prefers otherwise.
+- ~~**Slice 2 cache opt-in shape.**~~ **RESOLVED** in ADR-179 decision point 1:
+  constructor-level `Portfolio(name=..., cache=True)`. The assertion the caller
+  makes ("these deals' inputs are frozen for as long as I hold this portfolio")
+  is a property of how the portfolio is *held*, not of one run, and a per-call
+  flag would let two runs of the same portfolio disagree about whether the deals
+  are frozen. `run` / `run_with_capital` / `run_scenarios` signatures unchanged.
 - **Slice 3 measurement threshold.** If threaded execution turns out to give only
   a marginal speed-up on a realistic book, the honest outcome is to ship the
   measurement and drop the `max_workers` knob. What speed-up is worth the extra

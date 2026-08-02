@@ -148,7 +148,7 @@ B1 and B2 are the cleanest between-epic fallback picks and the **S3** sequence
 | # | Feature | Value | Effort |
 |---|---------|-------|--------|
 | ~~C3~~ | ~~Funds-withheld coinsurance (`FWCoinsuranceTreaty`)~~ — **SHIPPED** (PR #166): Slice 1 (PR #165, ADR-163: treaty module + funds-withheld interest) + Slice 2 (PR #166, ADR-164: surfaced on CLI/API/dashboard + `golden_fw_coins`); both merged to main 2026-07-27. `docs/CONTINUATION_fw_coinsurance.md` [COMPLETE]. (Ledger-healed this session, step 4b.) | ★★★☆☆ | ~2 d |
-| C4 | Parallel portfolio execution + caching + `remove_deal` — **IN PROGRESS** (constituted 2026-08-02 as a 3-slice MEDIUM epic: `docs/PLAN_portfolio_execution.md` + `docs/CONTINUATION_portfolio_execution.md`). **Slice 1 SHIPPED** (PR #181 / ADR-178): the deal-lifecycle API (`remove_deal` / `replace_deal` / `clear_deals` / `without_deal` / `deal_ids` / `get_deal` / `len` / `in`). Slice 2 = per-deal result caching, Slice 3 = parallel execution. | ★★★☆☆ | ~2 d |
+| C4 | Parallel portfolio execution + caching + `remove_deal` — **IN PROGRESS** (constituted 2026-08-02 as a 3-slice MEDIUM epic: `docs/PLAN_portfolio_execution.md` + `docs/CONTINUATION_portfolio_execution.md`). **Slice 1 SHIPPED** (PR #181 / ADR-178, **MERGED** to main `a160246` — ledger-healed 2026-08-02 step 4b): the deal-lifecycle API (`remove_deal` / `replace_deal` / `clear_deals` / `without_deal` / `deal_ids` / `get_deal` / `len` / `in`). **Slice 2 SHIPPED** (PR #182 / ADR-179): opt-in per-deal result cache `Portfolio(cache=True)` keyed `(deal_id, hurdle_rate)`, per-deal invalidation on all four mutation verbs, `without_deal` copies inherit surviving entries (leave-one-out sweep drops from `N x (N-1)` projections to `N`), `_with_scenario` starts empty, plus `clear_cache()` / `cache_stats()`. Slice 3 = parallel execution (behind a measurement gate). | ★★★☆☆ | ~2 d |
 | C5 | Per-deal hurdle rates on `Portfolio` | ★★★☆☆ | ~5 d |
 | C6 | Phase-6.3 load test (100 concurrent `/api/v1/price` < 2s) + QUICKSTART K8s guide | ★★★☆☆ | ~1–2 d |
 
@@ -1107,6 +1107,48 @@ path, so all three are NICE-TO-HAVE.
 > `CONTINUATION_portfolio_execution.md` "Open Questions (for human)" while the
 > epic is IN PROGRESS, per the harvest convention — they are decisions, not work
 > items, and will be promoted only if they survive the epic's close-out.
+
+### Harvested 2026-08-02 (portfolio per-deal result cache — ADR-179; C4 Slice 2)
+
+**Slice 2** of the C4 epic shipped as ADR-179 — the opt-in per-deal result cache
+`Portfolio(cache=True)`. Slice 3 (parallel execution) remains the epic's own
+tracked slice and is **not** re-promoted here, per the same convention. One of
+the two Slice-2/3 design questions above is now closed: the **cache opt-in shape**
+is resolved as constructor-level (`Portfolio(..., cache=True)`) in ADR-179
+decision point 1, struck through in the CONTINUATION's Open Questions; the Slice-3
+measurement-threshold question stands. ADR-179's out-of-scope items are
+**1st-order** (C4 is a planned catalogue item and Slice 2 was planned scope) and
+promoted normally; neither is a production-correctness gap on the common quoting
+path, so both are NICE-TO-HAVE.
+
+- **Bound the cache (LRU / max entries).** The cache is an unbounded dict keyed
+  `(deal_id, hurdle_rate)`. That is right for a book held for the duration of one
+  pricing exercise — the intended use — but a long-lived service sweeping many
+  hurdle rates over a large book would grow it without limit, since nothing
+  evicts on size and every entry holds a `DealResult` + `CashFlowResult` with
+  their per-month arrays. An LRU bound (or a `max_entries` constructor arg) would
+  cap it. Not needed while the CLI / REST / dashboard build a fresh `Portfolio`
+  per request and never enable the cache at all. *Source: ADR-179 Out of scope
+  (1st-order).* **NICE-TO-HAVE.**
+- **Detect in-place mutation of a deal's projection inputs.** The cache can only
+  see changes made through the portfolio's own four mutation verbs; a caller who
+  mutates an `InforceBlock` / `AssumptionSet` / `ProjectionConfig` / treaty in
+  place gets a stale result, and `clear_cache()` is the manual answer. A content
+  hash or a monotonic version stamp on `InforceBlock` / `AssumptionSet` would make
+  it automatic — and would also be the prerequisite for ever turning the cache on
+  by default. ADR-179 deliberately kept the id-plus-explicit-invalidation contract
+  because it is honest about what it can and cannot detect. *Source: ADR-179 Out
+  of scope (1st-order).* **NICE-TO-HAVE.**
+
+> Deliberately **not** promoted as a new item: *surfacing `cache=True` on the CLI
+> / REST / dashboard*. Each of those surfaces builds a fresh `Portfolio` per
+> request, so a cache would never be hit — this is the same session-state design
+> question already carried above as "Surface the lifecycle API on the CLI / REST /
+> dashboard", not a second item. Also not promoted: the **cache's lack of
+> locking**, which is a constraint on Slice 3 (two threads can both miss on one
+> key and duplicate a projection — wasteful, not incorrect) and is recorded in
+> `CONTINUATION_portfolio_execution.md` under Slice 2's key decisions, where the
+> slice that must act on it will read it.
 
 ---
 

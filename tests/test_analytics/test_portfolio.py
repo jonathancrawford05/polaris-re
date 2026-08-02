@@ -19,9 +19,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from polaris_re.analytics import portfolio as portfolio_mod
 from polaris_re.analytics.capital import LICATCapital, LICATFactors
 from polaris_re.analytics.capital_base import CapitalModel
 from polaris_re.analytics.portfolio import (
+    CacheStats,
     Deal,
     DealResult,
     Portfolio,
@@ -1807,10 +1809,10 @@ class TestPortfolioScenarioResultHelpers:
 # ---------------------------------------------------------------------------
 
 
-def _three_deal_portfolio(name: str = "lifecycle") -> Portfolio:
+def _three_deal_portfolio(name: str = "lifecycle", *, cache: bool = False) -> Portfolio:
     """A three-deal portfolio on a shared valuation date (strict alignment)."""
     return (
-        Portfolio(name=name)
+        Portfolio(name=name, cache=cache)
         .add_deal(**_deal_spec("A", "CedantA", n_policies=3, face=500_000.0))
         .add_deal(**_deal_spec("B", "CedantB", n_policies=2, face=750_000.0))
         .add_deal(**_deal_spec("C", "CedantA", n_policies=4, face=250_000.0))
@@ -2117,3 +2119,433 @@ class TestPortfolioClearDeals:
         portfolio.add_deal(**_deal_spec("NEW", "CedantN", n_policies=1))
         assert portfolio.deal_ids == ("NEW",)
         assert portfolio.run(HURDLE).n_deals == 1
+
+
+# ---------------------------------------------------------------------------
+# Per-deal result caching (ADR-179)
+# ---------------------------------------------------------------------------
+
+
+def _count_engine_builds(monkeypatch) -> list[str]:
+    """Patch the module's engine factory to record one entry per projection.
+
+    Counting at the ``get_product_engine`` boundary proves the real claim —
+    no product engine is *built* on a cache hit — rather than trusting the
+    portfolio's own hit counter. Returns the (initially empty) list; every
+    projection appends the deal's block id.
+    """
+    builds: list[str] = []
+    real = portfolio_mod.get_product_engine
+
+    def counting(*, inforce, assumptions, config):
+        builds.append(str(inforce.n_policies))
+        return real(inforce=inforce, assumptions=assumptions, config=config)
+
+    monkeypatch.setattr(portfolio_mod, "get_product_engine", counting)
+    return builds
+
+
+def _assert_portfolio_results_identical(left: PortfolioResult, right: PortfolioResult) -> None:
+    """Assert two ``PortfolioResult``s are bit-identical on every number.
+
+    Exact equality (``assert_array_equal`` / ``==``), never ``allclose``:
+    caching must not perturb a single float.
+    """
+    np.testing.assert_array_equal(left.aggregate_net_cash_flow, right.aggregate_net_cash_flow)
+    np.testing.assert_array_equal(left.aggregate_ceded_nar, right.aggregate_ceded_nar)
+    for field_name in (
+        "gross_premiums",
+        "death_claims",
+        "lapse_surrenders",
+        "expenses",
+        "reserve_balance",
+        "reserve_increase",
+        "net_cash_flow",
+    ):
+        np.testing.assert_array_equal(
+            getattr(left.aggregate_cash_flow, field_name),
+            getattr(right.aggregate_cash_flow, field_name),
+        )
+    assert left.total_pv_profits == right.total_pv_profits
+    assert left.total_irr == right.total_irr
+    assert left.breakeven_year == right.breakeven_year
+    assert left.profit_margin == right.profit_margin
+    assert left.total_ceded_face == right.total_ceded_face
+    assert left.peak_ceded_nar == right.peak_ceded_nar
+    assert left.concentration_by_basis == right.concentration_by_basis
+    assert left.hhi_by_basis == right.hhi_by_basis
+    assert [dr.deal_id for dr in left.deal_results] == [dr.deal_id for dr in right.deal_results]
+    for left_deal, right_deal in zip(left.deal_results, right.deal_results, strict=True):
+        assert left_deal.profit_test.pv_profits == right_deal.profit_test.pv_profits
+        assert left_deal.grid_offset == right_deal.grid_offset
+        np.testing.assert_array_equal(left_deal.net_cash_flow, right_deal.net_cash_flow)
+        np.testing.assert_array_equal(left_deal.ceded_nar, right_deal.ceded_nar)
+
+
+class TestPortfolioCacheDefaults:
+    """Caching is opt-in: the default portfolio behaves exactly as before."""
+
+    def test_cache_is_off_by_default(self):
+        assert Portfolio().cache_enabled is False
+        assert _three_deal_portfolio().cache_stats() == CacheStats(
+            enabled=False, hits=0, misses=0, size=0
+        )
+
+    def test_default_portfolio_reprojects_every_run(self, monkeypatch):
+        builds = _count_engine_builds(monkeypatch)
+        portfolio = _three_deal_portfolio()
+        portfolio.run(HURDLE)
+        portfolio.run(HURDLE)
+        assert len(builds) == 6  # 3 deals x 2 runs — the premise this slice fixes
+
+    def test_disabled_portfolio_records_no_stats(self):
+        portfolio = _three_deal_portfolio()
+        portfolio.run(HURDLE)
+        portfolio.run(HURDLE)
+        assert portfolio.cache_stats() == CacheStats(enabled=False, hits=0, misses=0, size=0)
+
+    def test_clear_cache_on_a_disabled_portfolio_is_a_chainable_no_op(self):
+        portfolio = _three_deal_portfolio()
+        portfolio.run(HURDLE)
+        assert portfolio.clear_cache() is portfolio
+        assert portfolio.cache_stats().size == 0
+
+
+class TestPortfolioCacheCorrectness:
+    """A cached run reproduces the uncached run bit-for-bit."""
+
+    def test_cached_run_is_bit_identical_to_uncached(self):
+        uncached_result = _three_deal_portfolio(name="p").run(HURDLE)
+        caching = _three_deal_portfolio(name="p", cache=True)
+        first = caching.run(HURDLE)
+        second = caching.run(HURDLE)
+
+        _assert_portfolio_results_identical(first, uncached_result)
+        _assert_portfolio_results_identical(second, uncached_result)
+
+    def test_second_run_builds_zero_engines(self, monkeypatch):
+        builds = _count_engine_builds(monkeypatch)
+        portfolio = _three_deal_portfolio(cache=True)
+        portfolio.run(HURDLE)
+        assert len(builds) == 3
+        builds.clear()
+        portfolio.run(HURDLE)
+        assert builds == []
+
+    @pytest.mark.parametrize("hurdle", [0.04, 0.08, 0.10, 0.15])
+    def test_cached_and_uncached_agree_across_hurdle_rates(self, hurdle):
+        uncached = _three_deal_portfolio().run(hurdle)
+        caching = _three_deal_portfolio(cache=True)
+        caching.run(hurdle)
+        _assert_portfolio_results_identical(caching.run(hurdle), uncached)
+
+    def test_a_new_hurdle_rate_is_a_miss_and_reprojects(self, monkeypatch):
+        builds = _count_engine_builds(monkeypatch)
+        portfolio = _three_deal_portfolio(cache=True)
+        portfolio.run(0.10)
+        builds.clear()
+        portfolio.run(0.12)
+        assert len(builds) == 3  # hurdle rate is part of the key
+        builds.clear()
+        portfolio.run(0.10)
+        portfolio.run(0.12)
+        assert builds == []  # both rates now cached side by side
+
+    def test_hurdle_rates_do_not_cross_contaminate(self):
+        caching = _three_deal_portfolio(cache=True)
+        cached_low = caching.run(0.04)
+        caching.run(0.15)
+        cached_low_again = caching.run(0.04)
+
+        _assert_portfolio_results_identical(cached_low, _three_deal_portfolio().run(0.04))
+        _assert_portfolio_results_identical(cached_low_again, cached_low)
+        assert (
+            caching.run(0.15).total_pv_profits == _three_deal_portfolio().run(0.15).total_pv_profits
+        )
+
+    def test_run_with_capital_reuses_the_cache_from_a_prior_run(self, monkeypatch):
+        builds = _count_engine_builds(monkeypatch)
+        portfolio = _three_deal_portfolio(cache=True)
+        portfolio.run(HURDLE)
+        builds.clear()
+        with_capital = portfolio.run_with_capital(HURDLE, LICATCapital.for_product("TERM"))
+        assert builds == []
+
+        expected = _three_deal_portfolio().run_with_capital(
+            HURDLE, LICATCapital.for_product("TERM")
+        )
+        _assert_portfolio_results_identical(with_capital, expected)
+        assert with_capital.pv_capital == expected.pv_capital
+        assert with_capital.return_on_capital == expected.return_on_capital
+        np.testing.assert_array_equal(with_capital.capital_by_period, expected.capital_by_period)
+
+    def test_calendar_alignment_is_not_cached_into_the_deal_result(self, monkeypatch):
+        """``grid_offset`` is applied outside the cached value, so one cache
+        entry serves both alignment modes."""
+        builds = _count_engine_builds(monkeypatch)
+        portfolio = Portfolio(name="cal", cache=True)
+        portfolio.add_deal(**_deal_spec("A", "CedantA", start=date(2025, 1, 1)))
+        portfolio.add_deal(**_deal_spec("B", "CedantB", start=date(2026, 1, 1)))
+
+        calendar = portfolio.run(HURDLE, align="calendar")
+        assert len(builds) == 2
+        builds.clear()
+        calendar_again = portfolio.run(HURDLE, align="calendar")
+        assert builds == []
+
+        reference = Portfolio(name="cal")
+        reference.add_deal(**_deal_spec("A", "CedantA", start=date(2025, 1, 1)))
+        reference.add_deal(**_deal_spec("B", "CedantB", start=date(2026, 1, 1)))
+        _assert_portfolio_results_identical(calendar, reference.run(HURDLE, align="calendar"))
+        _assert_portfolio_results_identical(calendar_again, calendar)
+        assert [dr.grid_offset for dr in calendar.deal_results] == [0, 12]
+
+    def test_clear_cache_forces_reprojection_with_identical_numbers(self, monkeypatch):
+        builds = _count_engine_builds(monkeypatch)
+        portfolio = _three_deal_portfolio(cache=True)
+        before = portfolio.run(HURDLE)
+        assert portfolio.clear_cache() is portfolio
+        assert portfolio.cache_stats().size == 0
+        builds.clear()
+        after = portfolio.run(HURDLE)
+        assert len(builds) == 3
+        _assert_portfolio_results_identical(after, before)
+
+
+class TestPortfolioCacheInvalidation:
+    """Every Slice-1 mutation verb must evict what it invalidates."""
+
+    def test_remove_deal_invalidates_and_matches_a_fresh_book(self):
+        portfolio = _three_deal_portfolio(cache=True)
+        portfolio.run(HURDLE)
+        after_removal = portfolio.remove_deal("B").run(HURDLE)
+
+        expected = _three_deal_portfolio().remove_deal("B").run(HURDLE)
+        _assert_portfolio_results_identical(after_removal, expected)
+        assert portfolio.cache_stats().size == 2
+
+    def test_remove_then_readd_the_same_id_with_different_terms_is_not_stale(self):
+        """The staleness trap the key ``(deal_id, hurdle_rate)`` invites."""
+        portfolio = _three_deal_portfolio(cache=True)
+        portfolio.run(HURDLE)
+        portfolio.remove_deal("B")
+        portfolio.add_deal(
+            **_deal_spec(
+                "B",
+                "CedantB",
+                treaty=CoinsuranceTreaty(cession_pct=0.25, treaty_name="B-requote"),
+                n_policies=2,
+                face=750_000.0,
+            )
+        )
+        result = portfolio.run(HURDLE)
+
+        expected_portfolio = _three_deal_portfolio()
+        expected_portfolio.remove_deal("B")
+        expected_portfolio.add_deal(
+            **_deal_spec(
+                "B",
+                "CedantB",
+                treaty=CoinsuranceTreaty(cession_pct=0.25, treaty_name="B-requote"),
+                n_policies=2,
+                face=750_000.0,
+            )
+        )
+        _assert_portfolio_results_identical(result, expected_portfolio.run(HURDLE))
+
+    def test_replace_deal_invalidates_only_the_replaced_deal(self, monkeypatch):
+        builds = _count_engine_builds(monkeypatch)
+        portfolio = _three_deal_portfolio(cache=True)
+        portfolio.run(HURDLE)
+        builds.clear()
+        portfolio.replace_deal(
+            **_deal_spec(
+                "B",
+                "CedantB",
+                treaty=CoinsuranceTreaty(cession_pct=0.25, treaty_name="B-requote"),
+                n_policies=2,
+                face=750_000.0,
+            )
+        )
+        result = portfolio.run(HURDLE)
+        assert len(builds) == 1  # only the replaced deal is re-projected
+
+        expected = _three_deal_portfolio()
+        expected.replace_deal(
+            **_deal_spec(
+                "B",
+                "CedantB",
+                treaty=CoinsuranceTreaty(cession_pct=0.25, treaty_name="B-requote"),
+                n_policies=2,
+                face=750_000.0,
+            )
+        )
+        _assert_portfolio_results_identical(result, expected.run(HURDLE))
+
+    def test_add_deal_keeps_the_existing_entries_and_projects_only_the_new_deal(self, monkeypatch):
+        builds = _count_engine_builds(monkeypatch)
+        portfolio = _three_deal_portfolio(cache=True)
+        portfolio.run(HURDLE)
+        builds.clear()
+        portfolio.add_deal(**_deal_spec("D", "CedantD", n_policies=1, face=100_000.0))
+        result = portfolio.run(HURDLE)
+        assert len(builds) == 1
+
+        expected = _three_deal_portfolio()
+        expected.add_deal(**_deal_spec("D", "CedantD", n_policies=1, face=100_000.0))
+        _assert_portfolio_results_identical(result, expected.run(HURDLE))
+
+    def test_clear_deals_empties_the_cache(self):
+        portfolio = _three_deal_portfolio(cache=True)
+        portfolio.run(HURDLE)
+        assert portfolio.cache_stats().size == 3
+        portfolio.clear_deals()
+        assert portfolio.cache_stats().size == 0
+
+    def test_failed_replacement_leaves_the_cache_intact(self):
+        portfolio = _three_deal_portfolio(cache=True)
+        before = portfolio.run(HURDLE)
+        with pytest.raises(PolarisValidationError):
+            portfolio.replace_deal(
+                **_deal_spec(
+                    "B",
+                    "CedantB",
+                    treaty=StopLossTreaty(
+                        attachment_point=100_000.0,
+                        exhaustion_point=500_000.0,
+                        stop_loss_premium=10_000.0,
+                    ),
+                )
+            )
+        assert portfolio.cache_stats().size == 3
+        _assert_portfolio_results_identical(portfolio.run(HURDLE), before)
+
+    @pytest.mark.parametrize("verb", ["remove", "replace", "add", "clear"])
+    def test_every_mutation_verb_yields_the_post_mutation_answer(self, verb):
+        """One invalidation regression test per mutation verb."""
+        cached = _three_deal_portfolio(cache=True)
+        plain = _three_deal_portfolio()
+        cached.run(HURDLE)  # prime the cache with the pre-mutation book
+        plain.run(HURDLE)
+
+        requote = dict(
+            deal_id="B",
+            cedant="CedantB",
+            treaty=CoinsuranceTreaty(cession_pct=0.25, treaty_name="B-requote"),
+            n_policies=2,
+            face=750_000.0,
+        )
+        for portfolio in (cached, plain):
+            if verb == "remove":
+                portfolio.remove_deal("B")
+            elif verb == "replace":
+                portfolio.replace_deal(**_deal_spec(**requote))
+            elif verb == "add":
+                portfolio.add_deal(**_deal_spec("D", "CedantD", n_policies=1, face=100_000.0))
+            else:
+                portfolio.clear_deals()
+                portfolio.add_deal(**_deal_spec("ONLY", "CedantZ", n_policies=1))
+
+        _assert_portfolio_results_identical(cached.run(HURDLE), plain.run(HURDLE))
+
+
+class TestPortfolioCacheCopies:
+    """``without_deal`` and ``_with_scenario`` copies must not go stale."""
+
+    def test_without_deal_copy_inherits_the_cache_setting(self):
+        assert _three_deal_portfolio(cache=True).without_deal("C").cache_enabled is True
+        assert _three_deal_portfolio().without_deal("C").cache_enabled is False
+
+    def test_without_deal_copy_reuses_the_surviving_entries(self, monkeypatch):
+        builds = _count_engine_builds(monkeypatch)
+        portfolio = _three_deal_portfolio(cache=True)
+        portfolio.run(HURDLE)
+        builds.clear()
+        ex_c = portfolio.without_deal("C")
+        result = ex_c.run(HURDLE)
+        assert builds == []  # A and B were already projected by the parent
+        assert ex_c.cache_stats().size == 2  # C's entry is not carried over
+
+        _assert_portfolio_results_identical(
+            result, _three_deal_portfolio().without_deal("C").run(HURDLE)
+        )
+
+    def test_without_deal_copy_does_not_share_the_parents_cache_object(self):
+        portfolio = _three_deal_portfolio(cache=True)
+        portfolio.run(HURDLE)
+        copy = portfolio.without_deal("C")
+        copy.clear_cache()
+        assert copy.cache_stats().size == 0
+        assert portfolio.cache_stats().size == 3
+
+    def test_without_deal_copy_from_an_uncached_parent_carries_nothing(self):
+        portfolio = _three_deal_portfolio()
+        portfolio.run(HURDLE)
+        assert portfolio.without_deal("C").cache_stats().size == 0
+
+    def test_leave_one_out_loop_projects_each_deal_once(self, monkeypatch):
+        """The motivating use case: marginal contribution over the whole book."""
+        builds = _count_engine_builds(monkeypatch)
+        portfolio = _three_deal_portfolio(cache=True)
+        full = portfolio.run(HURDLE)
+        assert len(builds) == 3
+        builds.clear()
+
+        marginal = {
+            deal_id: full.total_pv_profits
+            - portfolio.without_deal(deal_id).run(HURDLE).total_pv_profits
+            for deal_id in portfolio.deal_ids
+        }
+        assert builds == []  # zero re-projections across the whole loop
+        for deal_result in full.deal_results:
+            np.testing.assert_allclose(
+                marginal[deal_result.deal_id], deal_result.profit_test.pv_profits, rtol=1e-9
+            )
+
+    def test_scenario_copies_start_empty_so_stresses_are_not_masked(self):
+        """The sharpest staleness trap: a stressed deal keeps its deal id."""
+        cached = _three_deal_portfolio(cache=True)
+        cached.run(HURDLE)  # prime with BASE-equivalent projections
+        stressed = cached.run_scenarios(HURDLE)
+        expected = _three_deal_portfolio().run_scenarios(HURDLE)
+
+        assert [name for name, _ in stressed.scenarios] == [name for name, _ in expected.scenarios]
+        for (_, got), (_, want) in zip(stressed.scenarios, expected.scenarios, strict=True):
+            _assert_portfolio_results_identical(got, want)
+
+        # The masking failure mode this guards against would return the BASE
+        # numbers for every stress, so assert the stresses actually moved.
+        base = stressed.base_case()
+        assert base is not None
+        by_name = dict(stressed.scenarios)
+        assert by_name["MORT_110"].total_pv_profits < base.total_pv_profits
+        assert by_name["MORT_90"].total_pv_profits > base.total_pv_profits
+
+    def test_run_scenarios_leaves_the_parent_cache_untouched(self):
+        portfolio = _three_deal_portfolio(cache=True)
+        portfolio.run(HURDLE)
+        portfolio.run_scenarios(HURDLE)
+        assert portfolio.cache_stats().size == 3
+        assert portfolio.deal_ids == ("A", "B", "C")
+
+
+class TestPortfolioCacheStats:
+    def test_stats_track_hits_misses_and_size(self):
+        portfolio = _three_deal_portfolio(cache=True)
+        assert portfolio.cache_stats() == CacheStats(enabled=True, hits=0, misses=0, size=0)
+
+        portfolio.run(HURDLE)
+        assert portfolio.cache_stats() == CacheStats(enabled=True, hits=0, misses=3, size=3)
+
+        portfolio.run(HURDLE)
+        assert portfolio.cache_stats() == CacheStats(enabled=True, hits=3, misses=3, size=3)
+
+        portfolio.run(0.12)
+        assert portfolio.cache_stats() == CacheStats(enabled=True, hits=3, misses=6, size=6)
+
+    def test_clear_cache_drops_entries_but_keeps_lifetime_counters(self):
+        portfolio = _three_deal_portfolio(cache=True)
+        portfolio.run(HURDLE)
+        portfolio.run(HURDLE)
+        portfolio.clear_cache()
+        assert portfolio.cache_stats() == CacheStats(enabled=True, hits=3, misses=3, size=0)
