@@ -148,7 +148,7 @@ B1 and B2 are the cleanest between-epic fallback picks and the **S3** sequence
 | # | Feature | Value | Effort |
 |---|---------|-------|--------|
 | ~~C3~~ | ~~Funds-withheld coinsurance (`FWCoinsuranceTreaty`)~~ — **SHIPPED** (PR #166): Slice 1 (PR #165, ADR-163: treaty module + funds-withheld interest) + Slice 2 (PR #166, ADR-164: surfaced on CLI/API/dashboard + `golden_fw_coins`); both merged to main 2026-07-27. `docs/CONTINUATION_fw_coinsurance.md` [COMPLETE]. (Ledger-healed this session, step 4b.) | ★★★☆☆ | ~2 d |
-| C4 | Parallel portfolio execution + caching + `remove_deal` — **IN PROGRESS** (constituted 2026-08-02 as a 3-slice MEDIUM epic: `docs/PLAN_portfolio_execution.md` + `docs/CONTINUATION_portfolio_execution.md`). **Slice 1 SHIPPED** (PR #181 / ADR-178): the deal-lifecycle API (`remove_deal` / `replace_deal` / `clear_deals` / `without_deal` / `deal_ids` / `get_deal` / `len` / `in`). Slice 2 = per-deal result caching, Slice 3 = parallel execution. | ★★★☆☆ | ~2 d |
+| C4 | Parallel portfolio execution + caching + `remove_deal` — **IN PROGRESS** (constituted 2026-08-02 as a 3-slice MEDIUM epic: `docs/PLAN_portfolio_execution.md` + `docs/CONTINUATION_portfolio_execution.md`). **Slice 1 SHIPPED** (PR #181 / ADR-178, **MERGED** to main `a160246` — ledger-healed 2026-08-02 step 4b): the deal-lifecycle API (`remove_deal` / `replace_deal` / `clear_deals` / `without_deal` / `deal_ids` / `get_deal` / `len` / `in`). **Slice 2 SHIPPED** (PR #182 / ADR-179): opt-in per-deal result cache `Portfolio(cache=True)` keyed `(deal_id, hurdle_rate)`, per-deal invalidation on all four mutation verbs, `without_deal` copies inherit surviving entries (leave-one-out sweep drops from `N x (N-1)` projections to `N`), `_with_scenario` starts empty, plus `clear_cache()` / `cache_stats()`. Slice 3 = parallel execution (behind a measurement gate). | ★★★☆☆ | ~2 d |
 | C5 | Per-deal hurdle rates on `Portfolio` | ★★★☆☆ | ~5 d |
 | C6 | Phase-6.3 load test (100 concurrent `/api/v1/price` < 2s) + QUICKSTART K8s guide | ★★★☆☆ | ~1–2 d |
 
@@ -1107,6 +1107,117 @@ path, so all three are NICE-TO-HAVE.
 > `CONTINUATION_portfolio_execution.md` "Open Questions (for human)" while the
 > epic is IN PROGRESS, per the harvest convention — they are decisions, not work
 > items, and will be promoted only if they survive the epic's close-out.
+
+### Harvested 2026-08-02 (portfolio per-deal result cache — ADR-179; C4 Slice 2)
+
+**Slice 2** of the C4 epic shipped as ADR-179 — the opt-in per-deal result cache
+`Portfolio(cache=True)`. Slice 3 (parallel execution) remains the epic's own
+tracked slice and is **not** re-promoted here, per the same convention. One of
+the two Slice-2/3 design questions above is now closed: the **cache opt-in shape**
+is resolved as constructor-level (`Portfolio(..., cache=True)`) in ADR-179
+decision point 1, struck through in the CONTINUATION's Open Questions; the Slice-3
+measurement-threshold question stands. ADR-179's out-of-scope items are
+**1st-order** (C4 is a planned catalogue item and Slice 2 was planned scope) and
+promoted normally; neither is a production-correctness gap on the common quoting
+path, so both are NICE-TO-HAVE.
+
+- **Bound the cache (LRU / max entries).** The cache is an unbounded dict keyed
+  `(deal_id, hurdle_rate)`. That is right for a book held for the duration of one
+  pricing exercise — the intended use — but a long-lived service sweeping many
+  hurdle rates over a large book would grow it without limit, since nothing
+  evicts on size and every entry holds a `DealResult` + `CashFlowResult` with
+  their per-month arrays. An LRU bound (or a `max_entries` constructor arg) would
+  cap it. Not needed while the CLI / REST / dashboard build a fresh `Portfolio`
+  per request and never enable the cache at all. *Source: ADR-179 Out of scope
+  (1st-order).* **NICE-TO-HAVE.**
+- **Detect in-place mutation of a deal's projection inputs.** The cache can only
+  see changes made through the portfolio's own four mutation verbs; a caller who
+  mutates an `InforceBlock` / `AssumptionSet` / `ProjectionConfig` / treaty in
+  place gets a stale result, and `clear_cache()` is the manual answer. A content
+  hash or a monotonic version stamp on `InforceBlock` / `AssumptionSet` would make
+  it automatic — and would also be the prerequisite for ever turning the cache on
+  by default. ADR-179 deliberately kept the id-plus-explicit-invalidation contract
+  because it is honest about what it can and cannot detect. *Source: ADR-179 Out
+  of scope (1st-order).* **NICE-TO-HAVE.**
+- **Mark cached arrays read-only (`arr.flags.writeable = False`).** The symmetric
+  hazard to the item above, from the *output* side: cached results are handed out
+  live, so a caller who writes into an array returned by a previous `run()`
+  corrupts every later run of that portfolio. Measured on PR #182: the aggregate
+  PV moved **27,089.56 → 37,248.14** silently. Latent, not live — nothing in-tree
+  does it (the dashboard reads scalars only), `clear_cache()` recovers, and the
+  direct `result.deal_results[0].net_cash_flow *= 2` form is already blocked by
+  `DealResult` being a frozen dataclass (it takes a local binding first). Setting
+  the writeable flag on cached entries costs **no copy** and converts silent
+  corruption into a loud `ValueError` at the point of the mistake; verified that
+  `run` / `run_with_capital` / `run_scenarios` all still pass with every cached
+  array read-only, PV identical. The cost, and why it is a decision rather than a
+  flag flip: cached and uncached results would then differ in **writeability** —
+  not in value, but an observable divergence from the "bit-identical either way"
+  property ADR-179 leans on. Handing out copies instead was already rejected on
+  cost grounds (ADR-179 alternative (f)). Wants an explicit ADR line either way.
+  *Source: PR #182 review round, follow-up notes thread 1 (1st-order).*
+  **NICE-TO-HAVE.**
+
+> Deliberately **not** promoted as a new item: *surfacing `cache=True` on the CLI
+> / REST / dashboard*. Each of those surfaces builds a fresh `Portfolio` per
+> request, so a cache would never be hit — this is the same session-state design
+> question already carried above as "Surface the lifecycle API on the CLI / REST /
+> dashboard", not a second item. Also not promoted: the **cache's lack of
+> locking**, which is a constraint on Slice 3 (two threads can both miss on one
+> key and duplicate a projection — wasteful, not incorrect) and is recorded in
+> `CONTINUATION_portfolio_execution.md` under Slice 2's key decisions, where the
+> slice that must act on it will read it.
+
+#### DISCOVERY (routine step 11b) — `test_scaling_is_near_linear` is a wall-clock ratio gate with ~37% headroom
+
+Surfaced while re-running the suite for the PR #182 review round, **not** caused
+by this PR and **not** fixed in it (step 11b: quantify, file, ship only the
+selected scope).
+
+`tests/test_analytics/test_scale_benchmark.py::TestRunScaleBenchmark::test_scaling_is_near_linear`
+failed once in a combined `tests/test_analytics/ tests/qa/` run, then passed 6/6
+in isolation and in a full 1039-test `tests/test_analytics/` run. It is not a
+real regression — it is a **wall-clock ratio assertion** (`t_large < 6.0 *
+t_small`, projecting a 2,000- vs an 8,000-policy block) whose margin is far
+thinner than the comment claims. Measured over six consecutive runs on an idle
+machine:
+
+| run | `t_small` | `t_large` | ratio | bound |
+|---|---|---|---|---|
+| 0 | 0.0302 s | 0.1158 s | 3.83× | 6.00× |
+| 1 | 0.0278 s | 0.1134 s | 4.07× | 6.00× |
+| 2 | 0.0251 s | 0.1101 s | **4.39×** | 6.00× |
+| 3 | 0.0250 s | 0.1093 s | 4.37× | 6.00× |
+| 4 | 0.0258 s | 0.1101 s | 4.27× | 6.00× |
+| 5 | 0.0265 s | 0.1092 s | 4.12× | 6.00× |
+
+Two things make it fragile. The observed ratio already sits at 3.8–4.4× against
+a 6× bound — only **~37% headroom**, not the "generous" margin the docstring
+describes. And the denominator `t_small` is **~25–30 ms**, small enough that one
+GC pause or scheduler preemption during the small run dominates it: `t_small`
+dipping to 0.018 s with `t_large` unchanged is already a failure at 6.1×.
+
+This is the exact shape the group's standing rule warns against — *"deterministic
+metrics may gate; raw wall-time only informs"* (maintainer 2026-07-12) — and the
+same reasoning that led the 2026-08-02 session to reject Tier-C **C6** (the "100
+concurrent requests < 2 s" load test) as a fallback pick. A flaky gate that reds
+the pipeline at random trains reviewers to ignore red, which costs more than the
+O(N²) regression it is guarding against.
+
+The suggested fix is a shape change, not a looser bound: `ScaleBenchmarkRow`
+already carries `peak_rss_mb`, and **MiB is precisely the deterministic-first
+metric ADR-177's perf-history design settled on**. Assert linear *memory*
+scaling (or an allocation/op count) as the gate and demote the timing ratio to
+reported-but-not-asserted. Failing that, the cheap mitigations are to raise the
+block sizes so the denominator is ~100 ms rather than ~25 ms, and/or mark the
+timing assertion `@pytest.mark.slow` so it informs without gating `make test`.
+
+Classified **IMPORTANT** on operational grounds: it touches **no quoted number
+and no actuarial surface** — under a strict commercial-impact reading it would be
+NICE-TO-HAVE — but it can spuriously red the merge gate, which blocks delivery
+and undermines the CI perf gate (ADR-176) landed only days ago. A maintainer may
+reasonably downgrade it. *Source: DISCOVERY during PR #182 review round
+(1st-order).* **IMPORTANT.**
 
 ---
 

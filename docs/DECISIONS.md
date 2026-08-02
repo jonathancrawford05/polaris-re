@@ -11934,3 +11934,182 @@ attribution surface — per-deal marginal PV, marginal capital, marginal
 concentration — deserves its own design); and `Deal`-level partial edits
 (`replace_deal` replaces the whole deal, so re-quoting one term means restating
 the other five arguments).
+
+---
+
+## ADR-179: Portfolio per-deal result cache — opt-in, keyed `(deal_id, hurdle_rate)`, per-deal invalidation (portfolio-execution epic Slice 2)
+
+**Date:** 2026-08-02
+**Status:** Accepted
+
+**Context:** `Portfolio.run()` loops the book and calls `_run_deal(deal,
+hurdle_rate)` for each deal, which builds a product engine, projects, applies the
+treaty, and profit-tests the reinsurer view. Nothing is remembered between calls,
+so **every** re-run pays the full projection cost again even when not one input
+changed. Reproduced before writing any code (routine step 7b) with a counter at
+the `get_product_engine` boundary on a three-deal book:
+
+```
+run(0.10) #1                          -> 3 engine builds
+run(0.10) #2, identical inputs        -> 3 engine builds
+run_with_capital(0.10) after run(0.10)-> 3 engine builds   (run_with_capital wraps run)
+without_deal('C').run(0.10)           -> 2 engine builds   (both already projected)
+```
+
+11 projections where 3 would do. The premise held exactly as the plan states; no
+correction was needed. The waste is worst in precisely the flows Slice 1 built
+`without_deal` for: a leave-one-out marginal-contribution sweep over an `N`-deal
+book costs `N x (N-1)` projections, and a hurdle-rate sweep re-projects the whole
+book per rate even though the projection does not depend on the hurdle rate at
+all beyond the profit test. Slice 1 (ADR-178) is the prerequisite: a cache is
+only sound once every mutation path is a named choke point.
+
+**Decision:** Memoise `_run_deal` on the `Portfolio` instance, opt-in.
+
+1. **Opt-in at construction: `Portfolio(name=..., cache=True)`**, defaulting to
+   `False`. Chosen over a per-call `run(use_cache=True)` (the open question
+   carried in `CONTINUATION_portfolio_execution.md`). The assertion the caller is
+   making — *"these deals' projection inputs are frozen for as long as I hold
+   this portfolio"* — is a property of how the portfolio is **held**, not of one
+   run, and a per-call flag would let two runs of the same portfolio disagree
+   about whether the deals are frozen, which is not a coherent thing to say.
+   Constructor-level also keeps `run` / `run_with_capital` / `run_scenarios`
+   signatures untouched. Opt-in rather than always-on because a `Deal` holds
+   *mutable* objects (`InforceBlock`, `AssumptionSet`, `ProjectionConfig`,
+   `BaseTreaty`): a caller who mutates an assumption **in place**, behind the
+   portfolio's back, would silently get a stale result from an always-on cache.
+2. **Key `(deal_id, hurdle_rate)`.** `align` is deliberately *not* in the key:
+   `_run_deal` returns a `DealResult` carrying `grid_offset=0` and `run` stamps
+   the real offset onto a `dataclasses.replace` **copy**, so one entry serves
+   both alignment modes and a run can never mutate the cached value. The hurdle
+   rate *is* in the key because the cached `ProfitTestResult` is computed at it —
+   two rates coexist side by side rather than evicting each other.
+
+   **The key invariant, stated explicitly** (PR #182 review): *within one
+   `Portfolio` instance, a `deal_id` denotes exactly one set of projection
+   inputs for as long as its cached entries live.* Two thirds of that are
+   enforced by code and one third is the caller's to assert, and it is worth
+   separating them because only the third is a hazard:
+   (i) *unique at a point in time* — **enforced**: `add_deal` rejects a
+   duplicate id and `replace_deal` requires an existing one (ADR-178 (5));
+   (ii) *stable across changes the portfolio can see* — **enforced**: all four
+   mutation verbs evict, so re-using an id for different terms through
+   `remove_deal` + `add_deal` or through `replace_deal` is safe;
+   (iii) *stable across changes it cannot see* — **asserted by passing
+   `cache=True`**: in-place mutation of a deal's `InforceBlock` /
+   `AssumptionSet` / `ProjectionConfig` / `BaseTreaty` changes what the id
+   means with no signal to the portfolio, and the stale entry survives.
+   Conversely, nothing requires an id to be stable *beyond* the instance — the
+   cache is per-`Portfolio`, never shared or persisted, so ids need not agree
+   across objects, processes, or CLI invocations. Closing (iii) automatically
+   is exactly the harvested "detect in-place mutation" follow-up; until then the
+   contract is honest about the boundary rather than implying the key is
+   stronger than it is.
+3. **Per-deal invalidation on all four Slice-1 mutation verbs.**
+   `remove_deal` / `replace_deal` / `add_deal` evict that deal's entries (every
+   hurdle rate); `clear_deals` empties the cache. Eviction is per deal, **not**
+   book-wide, because `_run_deal`'s result depends only on the deal and the
+   hurdle rate — adding or dropping a *different* deal cannot change it, and the
+   aggregation (which does depend on the whole book) is recomputed on every run
+   regardless. Book-wide invalidation would make an incrementally built book
+   re-project everything on each `add_deal`, which is the flow the CLI and API
+   use. `add_deal`'s eviction is belt-and-braces — the duplicate check means no
+   live entry can carry that id — but it holds the invariant *"a cached entry
+   always describes a deal the book currently holds"* without depending on that
+   reasoning, and it closes the remove-then-re-add-with-different-terms trap by
+   construction rather than by argument. Both `add_deal` and `replace_deal` now
+   build (and validate) the `Deal` **before** mutating anything, so a rejected
+   edit leaves the book *and* the cache untouched.
+4. **`without_deal` inherits the surviving entries by value; `_with_scenario`
+   starts empty.** The two copy helpers differ because their deals do. A
+   `without_deal` copy holds the *same frozen `Deal` objects* under the same ids,
+   so a `(deal_id, hurdle_rate)` entry describes exactly the projection the copy
+   would perform — carrying it over is sound, and it is what collapses the
+   leave-one-out sweep from `N x (N-1)` projections to `N`. A `_with_scenario`
+   copy holds deals with the same ids but **scaled assumptions** — the one case
+   where the key would collide with a genuinely different projection — so it must
+   start empty or every stress would silently report the base numbers. Both
+   copies get their own dict; neither shares the parent's by reference.
+5. **`clear_cache()` and `cache_stats()`.** `clear_cache()` is the escape hatch
+   for the **two** stalenesses the portfolio cannot detect, which are symmetric
+   (PR #182 review): a mutated **input** — a deal's `InforceBlock` /
+   `AssumptionSet` / `ProjectionConfig` / treaty changed in place rather than
+   through `replace_deal`, which is invariant (iii) above — and a mutated
+   **output**, a caller writing into an array handed back by a previous `run()`,
+   since cached results are live rather than copies. The output case is the
+   likelier of the two to happen by accident: post-processing `deal_results`
+   requires no private attribute, whereas mutating an input means reaching into
+   a deal the portfolio owns. Same remedy, opposite direction. It drops entries
+   and, deliberately, does
+   not rewind the lifetime `hits` / `misses` counters, so "never used" stays
+   distinguishable from "used, then invalidated". `cache_stats()` returns a
+   frozen `CacheStats(enabled, hits, misses, size)` — the observability surface
+   that lets a caller (and the test suite) confirm the cache is working **without
+   a wall-clock timing**, consistent with the group's standing rule that
+   deterministic metrics may gate while raw wall-time only informs.
+
+**Alternatives considered:** (a) *Per-call `run(use_cache=True)`* — rejected per
+(1). (b) *Always-on caching* — rejected: it silently converts in-place mutation
+of a deal's inputs from "unusual but correct" into "wrong answer that looks
+right", the same hazard class ADR-178 rejected silent no-ops for. (c)
+*`functools.lru_cache` on a module-level function* — rejected: it would key on the
+`Deal` object, which is unhashable (it holds numpy-backed models), and a
+process-global cache would outlive the portfolio and leak across unrelated books.
+(d) *Book-wide invalidation on any mutation* — rejected per (3): correct but
+defeats the incremental-build flow both user-facing surfaces use. (e) *Key on the
+deal's content hash instead of its id* — rejected: hashing an `InforceBlock` +
+`AssumptionSet` + treaty per run costs a full traversal of the very arrays the
+cache exists to avoid touching, and it would still not see a mutated numpy buffer
+unless it hashed the buffer contents. The id-plus-explicit-invalidation contract
+is honest about what it can and cannot detect; a content key would look stronger
+than it is. (f) *Deep-copying cached results on the way out* — rejected: two runs
+of a caching portfolio hand out `DealResult`s sharing the same numpy arrays,
+which is the same contract the uncached path already implies (the aggregation
+builds new arrays via `_place` / `np.sum` and never writes through), and copying
+would reintroduce a per-run cost proportional to the data the cache saves.
+
+**Consequences / backward compatibility:** Purely additive and off by default —
+`Portfolio()` behaves exactly as before, both user-facing call sites
+(`cli.py:3154`, `api/main.py:863`) pass `name=` by keyword and are unaffected, and
+the QA goldens are byte-identical (`tests/qa/` green; flat golden cedant PV
+$3,513,563 / reinsurer PV $45,386). `CacheStats` is exported from
+`analytics/portfolio.py` and re-exported from `analytics/__init__.py` alongside
+`Deal` / `DealResult` / `Portfolio` / `PortfolioResult` — it is the return type of
+a public method, so a caller who imports `Portfolio` from the package should be
+able to name what `cache_stats()` hands back without reaching into the submodule
+(PR #182 review [P2]; the type aliases `AlignMode` / `ConcentrationBasis` and the
+`CONCENTRATION_BASES` constant remain submodule-only, which is the existing line).
+`_run_deal` keeps its name and signature and is now the memoisation wrapper; the
+projection body moved unchanged to `_project_deal`.
+**34** new tests (28 test functions, expanding to 34 collected via the two
+`parametrize`d sweeps; confirmed by the fast suite moving 2845 → 2879) in
+`tests/test_analytics/test_portfolio.py` across five classes:
+defaults (cache off, the two-run re-projection premise, no stats recorded when
+disabled, `clear_cache` a no-op); correctness (a cached run bit-identical to an
+uncached one on every array and scalar via `assert_array_equal`, parametrized
+across four hurdle rates; a second run building **zero** engines; a new hurdle
+rate being a miss with no cross-contamination; `run_with_capital` reusing what
+`run` cached, capital metrics included; calendar alignment served from the same
+entry with offsets `[0, 12]`; `clear_cache` forcing re-projection to identical
+numbers); invalidation (one regression test per mutation verb plus a parametrized
+sweep over all four, remove-then-re-add-with-different-terms, replacement
+re-projecting exactly one deal, `add_deal` keeping the other entries, a rejected
+replacement leaving the cache intact); copies (flag inheritance, the leave-one-out
+sweep at zero re-projections, no shared dict object, scenario copies starting
+empty so stresses are not masked); and the stats surface.
+
+**Out of scope (harvested to PRODUCT_DIRECTION / tracked in the CONTINUATION):**
+Slice 3 (parallel per-deal execution behind a measurement gate) is tracked in
+`docs/CONTINUATION_portfolio_execution.md`, not re-promoted as a loose item — note
+that it will need the cache dict to be either pre-populated or guarded, since two
+threads could otherwise both miss on the same key and duplicate a projection
+(harmless to correctness, wasteful). Genuinely out of scope here: surfacing
+`cache=True` on the CLI / REST / dashboard (each builds a fresh `Portfolio` per
+request, so a cache would never be hit — incremental what-if *across a session* is
+the separate design question ADR-178 already flagged); any cross-process or
+persisted cache; a bound / eviction policy on cache size (an unbounded dict is
+right for a book held for the duration of a pricing exercise, but a long-lived
+service sweeping many hurdle rates would want an LRU bound); and detecting
+in-place mutation of a deal's inputs (`clear_cache()` is the manual answer; a
+content-hash or version-stamp on `InforceBlock` / `AssumptionSet` would be the
+automatic one).
