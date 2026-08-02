@@ -344,7 +344,7 @@ BLOCKER remains.
    Slice 1 (PR #171, MERGED) the deterministic perf-probe core
    (`analytics/perf_harness.py`); Slice 2 (PR #178, MERGED `750a6a7`) the
    head-vs-main `diff_reports` verdict + `scripts/perfbench.py` git-worktree
-   runner; **Slice 3 (ADR-176, this PR)** the CI `perf` job that runs
+   runner; **Slice 3 (ADR-176, PR #179)** the CI `perf` job that runs
    `scripts/perfbench.py --ref origin/main --no-fetch` on one PR-only runner,
    **gates the merge on a structural hard delta** (never on the advisory
    wall-time / peak-MiB alerts), and uploads `perf.json`. `CONTINUATION_perf_harness`

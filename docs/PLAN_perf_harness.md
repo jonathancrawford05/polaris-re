@@ -10,7 +10,7 @@
 > `docs/CONTINUATION_perf_harness.md`.
 >
 > **Status.** ✅ COMPLETE (mandatory scope) — Slices 1 + 2 + 3 shipped. Slice 3
-> (the CI `perf` job, ADR-176, PR on `claude/loving-gauss-7h7smy`) runs
+> (the CI `perf` job, ADR-176, PR #179 on `claude/loving-gauss-7h7smy`) runs
 > `scripts/perfbench.py --ref origin/main --no-fetch` on one PR-only runner and
 > gates the merge on its non-zero exit (a structural hard delta), uploading
 > `perf.json` and surfacing the wall-time / MiB alerts non-blocking in the job

@@ -41,7 +41,7 @@ green head-vs-main on an engine-unchanged branch.
 |-------|-------|--------|----|
 | 1 | Deterministic perf-probe core | ✅ Done | #171 (merged) |
 | 2 | Head-vs-main driver + `perf.json` diff | ✅ Done | #178 (merged `750a6a7`) |
-| 3 | CI perf job (closes IMPORTANT #9) | ✅ Done | this PR (draft) |
+| 3 | CI perf job (closes IMPORTANT #9) | ✅ Done | #179 |
 | 4 | `perf/history.jsonl` creep log (opt / #10) | 🔲 Planned (own epic) | — |
 
 ## What Was Done
@@ -142,7 +142,7 @@ reads a repo file the image doesn't ship must be paired with a Dockerfile COPY +
   **pre-existing** warnings in `scripts/` (incl. `perfbench.py` from #178);
   CLAUDE.md's quality gate and the CI `lint` job both deliberately scope to
   `src/ tests/`, so `scripts/` is unlinted by design and these are untouched by
-  this PR. Classified **ambient / not a descendant of the perf feature** (it is an
+  PR #179. Classified **ambient / not a descendant of the perf feature** (it is an
   incidental observation about repo-wide lint policy, not a follow-up of the
   planned work) → treated as **3rd-order-or-deeper for auto-promotion purposes:
   NOT promoted to PRODUCT_DIRECTION.** Widening the lint scope is a repo-policy

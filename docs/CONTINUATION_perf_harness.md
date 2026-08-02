@@ -85,7 +85,7 @@ raw wall-time only informs (maintainer rule, 2026-07-12). Unblocks the per-merge
 ### Slice 3: CI perf job (closes IMPORTANT #9)
 - **Status:** DONE
 - **Branch:** `claude/loving-gauss-7h7smy` (environment-designated)
-- **PR:** (this PR — draft)
+- **PR:** #179
 - **ADR:** ADR-176
 - **Depends on:** Slice 2 merged ✅ (#178, `750a6a7`)
 - **What was done:** Added the `perf` job to `.github/workflows/ci.yml`,
@@ -103,7 +103,7 @@ raw wall-time only informs (maintainer rule, 2026-07-12). Unblocks the per-merge
   pinned by `tests/test_ci/test_workflow_perf_job.py` (10 structural tests).
   README + QUICKSTART note added. Verified locally: `perfbench.py --ref
   origin/main` on this branch → identical fingerprints, ratio ~1.05×, no hard
-  delta, exit 0 (this PR touches only CI + tests + docs, so the engine is
+  delta, exit 0 (PR #179 touches only CI + tests + docs, so the engine is
   identical head-vs-main and the new gate is green).
 - **Key decisions:** (1) PR-only, to avoid a no-op self-compare + fetch race on
   main pushes. (2) Explicit refspec fetch + `--no-fetch` rather than trusting the
