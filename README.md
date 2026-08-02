@@ -192,6 +192,21 @@ reports — is uploaded as a build artifact. Run it locally with:
 uv run python scripts/perfbench.py --ref origin/main -o perf.json   # exits non-zero on a hard delta
 ```
 
+**Long-baseline creep log.** The head-vs-main gate above cannot see *slow
+multi-month drift* — its baseline is always the moving `main` tip, so a run of
+merges that each add a fraction of a percent never trips a single comparison.
+`perf/history.jsonl` is a committed append-only log with **one deterministic-first
+row per merged commit**; `scripts/perf_history.py` appends the current commit's
+row and checks the whole series for creep — comparing the median of the earliest
+window against the median of the most recent. Only the machine-portable MiB-peak
+gates (a sustained rise beyond the threshold); the wall-time ratio is advisory,
+since history rows are recorded on different machines. Run it with:
+
+```bash
+uv run python scripts/perf_history.py                 # append HEAD's row + check the series
+uv run python scripts/perf_history.py --check-only    # analyse the log without appending
+```
+
 ---
 
 ## Example: Price a YRT Deal on a Term Life Block

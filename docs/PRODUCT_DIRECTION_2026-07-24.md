@@ -350,14 +350,21 @@ BLOCKER remains.
    wall-time / peak-MiB alerts), and uploads `perf.json`. `CONTINUATION_perf_harness`
    → COMPLETE (mandatory scope). The optional Slice 4 (`perf/history.jsonl` creep
    log) is the standing IMPORTANT #10 below.
-10. **Committed per-merge performance log (`perf/history.jsonl`) + creep detection.**
+10. ~~**Committed per-merge performance log (`perf/history.jsonl`) + creep detection.**
     One append-only deterministic-first row per merge to `main`, to catch slow
-    multi-month creep a per-PR comment structurally cannot. Depends on #9. *Source: maintainer discussion 2026-07-12, 1st-order.*
-    — **UNBLOCKED** 2026-08-01: #9 closed (perf epic Slices 1–3 shipped, ADR-176).
-    This is the perf epic's optional Slice 4 (`PLAN_perf_harness.md` §Slice 4) and
-    is now the top candidate to constitute as its own follow-on epic. The runner
-    (`scripts/perfbench.py`) already emits the deterministic-first row shape this
-    would append.
+    multi-month creep a per-PR comment structurally cannot. Depends on #9.~~ *Source: maintainer discussion 2026-07-12, 1st-order.*
+    — **SHIPPED** (ADR-177, this session 2026-08-02): `analytics/perf_history.py`
+    (`PerfHistoryRow` + `append_history_row`/`load_history` + `detect_creep` →
+    `CreepVerdict`) and the runner `scripts/perf_history.py` record one
+    deterministic-first row per commit into the committed append-only
+    `perf/history.jsonl` and check the whole series for creep — earliest-window vs
+    recent-window **median**, gating only on the machine-portable MiB-peak
+    (wall-time / config drift advisory only, per the 2026-07-12 rule). Commit dates
+    come from `git show -s --format=%cI` (ADR-074, never the clock); the runner is
+    idempotent per commit. Additive-only — goldens byte-identical. The **automatic
+    per-merge CI append + commit-back-to-`main`** is deliberately deferred (needs
+    `contents: write` / maintainer authorization for a bot commit to `main`) and is
+    harvested below; the one-off backfill (NICE-TO-HAVE #63) is now unblocked.
 11. **Confirm the ADR-141 backend deviation for the Bayesian MI surface.** Slice 2b
     shipped a pure-NumPy/SciPy reduced-rank GP instead of the PLAN-locked
     `bambi`/`pymc` HSGP (defective in installed versions); maintainer should confirm
@@ -997,6 +1004,54 @@ check guards against):
 > `COMMERCIAL_VIABILITY_REVIEW_2026-07-15` is >30 days old as of 2026-08-01, so a
 > regen is due before the next Epic is chosen). IMPORTANT #10 (perf history log)
 > is the natural continuation of this epic's thread.
+
+### Harvested 2026-08-02 (perf history log — ADR-177; IMPORTANT #10 SHIPPED)
+
+**IMPORTANT #10** shipped as ADR-177 (struck through above): `analytics/perf_history.py`
++ `scripts/perf_history.py` + the committed `perf/history.jsonl` record one
+deterministic-first row per commit and run earliest-vs-recent-window median creep
+detection, gating only on the machine-portable MiB-peak. Additive-only, goldens
+byte-identical.
+
+> **Correction (routine-hygiene).** The 2026-08-01 note above (and that session
+> log) states `COMMERCIAL_VIABILITY_REVIEW_2026-07-15` is ">30 days old as of
+> 2026-08-01". That is an arithmetic error — 2026-07-15 → 2026-08-02 is **18
+> days**, inside the ~30-day trigger. **No viability-review regeneration is due.**
+> This session therefore did not regenerate the review; the 18-day-old review
+> remains authoritative and already prescribes the post-A4′ maintenance-mode
+> fallback (§7), under which #10 was selected. The routine stays in **maintenance
+> mode** (no Phase-7 frontier chosen; AXIS/Prophet reconciliation
+> reference-blocked) — no startable Tier-A epic remains.
+
+New follow-up from ADR-177's "Out of scope" (1st-order — a follow-up of the
+originally-planned #10 capability; promoted normally):
+
+- **Automatic per-merge CI append of `perf/history.jsonl` + commit-back-to-`main`.**
+  ADR-177 ships the record + creep-detection *capability* and its runner, but
+  nothing yet *runs* it on each merge and commits the appended row back to `main`
+  (the perf CI job is PR-only and cannot write to `main`). A CI job on push-to-`main`
+  that runs `scripts/perf_history.py`, commits the new row, and fails on structural
+  creep would make the log self-maintaining. **Blocked on maintainer authorization:**
+  it needs `contents: write` and a bot commit to `main` — an infra/permissions
+  decision the autonomous routine will not take unprompted. *Source: ADR-177 Out of
+  scope (1st-order).* **IMPORTANT.**
+
+Two ADR-177 out-of-scope items are **already tracked** — no duplicates created:
+- **One-off backfill of ~10–15 historical merges** = the existing NICE-TO-HAVE
+  "Seed `perf/history.jsonl` by backfilling meaningful commits" (#63), now
+  **unblocked** (its target format + mechanism exist; creep detection is a no-op
+  until the log holds `2*window` rows).
+- **Fold the creep verdict into the pr-review comment** = the existing NICE-TO-HAVE
+  "pr-review routine posts the perf judgment comment" (#62), now extendable to the
+  long-baseline verdict as well.
+
+> With IMPORTANT #10 shipped, the perf CI-perf/smoke group (#8/#9/#10) is complete
+> bar the deferred auto-append CI job (above) and its two tracked NICE-TO-HAVE
+> tails (#62/#63). No Tier-A epic and no in-progress CONTINUATION remain; the
+> routine is in **maintenance mode** pending a maintainer Phase-7 frontier
+> decision. Next fallback picks (value-per-day): the deferred auto-append job (if
+> authorized), then Tier-C (C4 parallel portfolio / C6 load test) per the
+> re-ranked catalogue.
 
 ---
 
