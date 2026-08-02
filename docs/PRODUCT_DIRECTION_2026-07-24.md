@@ -148,7 +148,7 @@ B1 and B2 are the cleanest between-epic fallback picks and the **S3** sequence
 | # | Feature | Value | Effort |
 |---|---------|-------|--------|
 | ~~C3~~ | ~~Funds-withheld coinsurance (`FWCoinsuranceTreaty`)~~ — **SHIPPED** (PR #166): Slice 1 (PR #165, ADR-163: treaty module + funds-withheld interest) + Slice 2 (PR #166, ADR-164: surfaced on CLI/API/dashboard + `golden_fw_coins`); both merged to main 2026-07-27. `docs/CONTINUATION_fw_coinsurance.md` [COMPLETE]. (Ledger-healed this session, step 4b.) | ★★★☆☆ | ~2 d |
-| C4 | Parallel portfolio execution + caching + `remove_deal` | ★★★☆☆ | ~2 d |
+| C4 | Parallel portfolio execution + caching + `remove_deal` — **IN PROGRESS** (constituted 2026-08-02 as a 3-slice MEDIUM epic: `docs/PLAN_portfolio_execution.md` + `docs/CONTINUATION_portfolio_execution.md`). **Slice 1 SHIPPED** (PR #181 / ADR-178): the deal-lifecycle API (`remove_deal` / `replace_deal` / `clear_deals` / `without_deal` / `deal_ids` / `get_deal` / `len` / `in`). Slice 2 = per-deal result caching, Slice 3 = parallel execution. | ★★★☆☆ | ~2 d |
 | C5 | Per-deal hurdle rates on `Portfolio` | ★★★☆☆ | ~5 d |
 | C6 | Phase-6.3 load test (100 concurrent `/api/v1/price` < 2s) + QUICKSTART K8s guide | ★★★☆☆ | ~1–2 d |
 
@@ -353,7 +353,8 @@ BLOCKER remains.
 10. ~~**Committed per-merge performance log (`perf/history.jsonl`) + creep detection.**
     One append-only deterministic-first row per merge to `main`, to catch slow
     multi-month creep a per-PR comment structurally cannot. Depends on #9.~~ *Source: maintainer discussion 2026-07-12, 1st-order.*
-    — **SHIPPED** (ADR-177, this session 2026-08-02): `analytics/perf_history.py`
+    — **SHIPPED** (PR #180 / ADR-177, 2026-08-02; **MERGED** to main `51701b1` —
+    ledger-healed 2026-08-02 step 4b): `analytics/perf_history.py`
     (`PerfHistoryRow` + `append_history_row`/`load_history` + `detect_creep` →
     `CreepVerdict`) and the runner `scripts/perf_history.py` record one
     deterministic-first row per commit into the committed append-only
@@ -1035,6 +1036,17 @@ originally-planned #10 capability; promoted normally):
   it needs `contents: write` and a bot commit to `main` — an infra/permissions
   decision the autonomous routine will not take unprompted. *Source: ADR-177 Out of
   scope (1st-order).* **IMPORTANT.**
+  > **Status update (maintainer decision 2026-08-02, daily-dev routine revision).**
+  > The maintainer chose the **unprivileged** answer instead: the routine now
+  > appends exactly one row per routine PR (new step 14b), so the row reaches
+  > `main` through the normal review/merge path — no `contents: write`, no bot
+  > commit to `main`, no branch-protection bypass. This item therefore stays
+  > **open but narrowed**: what remains uncovered is a **human hotfix merged
+  > outside the routine**, which gets no row. Two operational notes recorded with
+  > the decision: every routine PR now touches the same append-only file, so two
+  > concurrently-open PRs will conflict on it (fine at the serial 1-run/day
+  > cadence); and the append is initial-open-only, so a PR reworked across
+  > sessions does not get a duplicate row.
 
 Two ADR-177 out-of-scope items are **already tracked** — no duplicates created:
 - **One-off backfill of ~10–15 historical merges** = the existing NICE-TO-HAVE
@@ -1052,6 +1064,49 @@ Two ADR-177 out-of-scope items are **already tracked** — no duplicates created
 > decision. Next fallback picks (value-per-day): the deferred auto-append job (if
 > authorized), then Tier-C (C4 parallel portfolio / C6 load test) per the
 > re-ranked catalogue.
+
+### Harvested 2026-08-02 (portfolio deal-lifecycle API — ADR-178; C4 Slice 1)
+
+Tier-C item **C4** was constituted this session as a 3-slice MEDIUM epic
+(`docs/PLAN_portfolio_execution.md` + `docs/CONTINUATION_portfolio_execution.md`,
+IN PROGRESS) and **Slice 1** shipped as ADR-178 — the `Portfolio` deal-lifecycle
+API. The other two thirds of C4 — **per-deal result caching** (Slice 2) and
+**parallel execution** (Slice 3) — are the epic's own tracked slices, visible to
+the next routine run via step 5/5b, so they are **not** re-promoted here as loose
+items (same convention as the perf/MCP epic harvests above). C4 is a catalogue
+(planned) Tier-C item, so ADR-178's out-of-scope items are **1st-order** and
+promoted normally; none is a production-correctness gap on the common quoting
+path, so all three are NICE-TO-HAVE.
+
+- **Per-deal marginal-contribution / risk-attribution analytic.** `without_deal`
+  makes the leave-one-out loop a two-liner (a shipped test asserts the exact
+  identity: full-book PV minus ex-deal PV equals that deal's PV contribution
+  under strict alignment), but a real attribution surface — per-deal **marginal
+  PV, marginal required capital, and marginal concentration/HHI**, reported as a
+  first-class result object — is its own feature with its own ADR. Marginal
+  *capital* in particular is the interesting one and is genuinely non-additive
+  (the capital call is made once on the aggregate, so a deal's marginal capital
+  is not its standalone capital). **The highest-value of the three items here.**
+  *Source: ADR-178 Out of scope (1st-order).* **NICE-TO-HAVE.**
+- **Surface the lifecycle API on the CLI / REST / dashboard.** All three portfolio
+  surfaces (`polaris portfolio run`, `POST /api/v1/portfolio`, the Streamlit
+  portfolio page) construct a fresh `Portfolio` per request, so incremental
+  what-if *across a session* needs a state design first — a stateful portfolio
+  session on the dashboard, or a diff-style REST payload. Deliberately not
+  attempted inside the epic. *Source: ADR-178 Out of scope (1st-order).*
+  **NICE-TO-HAVE.**
+- **`Deal`-level partial edits.** `replace_deal` replaces the whole deal, so
+  re-quoting a single term (a new `cession_pct`, say) means restating the other
+  five arguments. A `Portfolio.amend_deal(deal_id, *, treaty=...)` keeping every
+  unspecified field would make the commonest what-if a one-liner. *Source:
+  ADR-178 Out of scope (1st-order).* **NICE-TO-HAVE.**
+
+> The two Slice-2 / Slice-3 design questions raised this session (the cache
+> opt-in shape — constructor-level vs per-call; and what measured speed-up would
+> justify keeping a `max_workers` knob) live in
+> `CONTINUATION_portfolio_execution.md` "Open Questions (for human)" while the
+> epic is IN PROGRESS, per the harvest convention — they are decisions, not work
+> items, and will be promoted only if they survive the epic's close-out.
 
 ---
 

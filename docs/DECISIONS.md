@@ -11825,3 +11825,108 @@ one-off backfill of ~10–15 historical engine-touching merges on one machine so
 creep detection is useful day one (the existing NICE-TO-HAVE #63, which this
 capability unblocks); and folding the creep verdict into the pr-review comment
 (overlaps the existing perf-verdict-comment NICE-TO-HAVE #62).
+
+---
+
+## ADR-178: Portfolio deal-lifecycle API — `remove_deal` / `replace_deal` / `without_deal` (portfolio-execution epic Slice 1)
+
+**Date:** 2026-08-02
+**Status:** Accepted
+
+**Context:** `analytics/portfolio.py::Portfolio` has been a **write-once builder**
+since Milestone 5.2: `add_deal` is the only verb, `_deals` is private, and the
+`deals` property is an immutable tuple view. A caller therefore cannot drop,
+re-quote, or even look up a deal by id — the only way to change the book is to
+rebuild the whole `Portfolio` from its source objects (re-parsing the deal file
+on the CLI path, re-uploading on the dashboard path). That blocks the most
+natural portfolio question a reinsurer asks — *"what does the book look like
+without DEAL_C?"*, *"re-quote DEAL_B at 40% cession"* — and it is the reason the
+Tier-C catalogue item C4 bundles `remove_deal` with caching and parallel
+execution: a per-deal result cache is only safe once **every** mutation path is a
+known choke point, so the lifecycle API must exist first. This slice ships that
+foundation; caching (Slice 2) and parallel execution (Slice 3) follow
+(`docs/PLAN_portfolio_execution.md`).
+
+**Decision:** Add a deal-lifecycle surface to `Portfolio`. It is purely
+builder-level — `run` / `run_with_capital` / `run_scenarios` and the aggregation
+are untouched, so no number moves.
+
+1. **Read surface:** `__len__`, `__contains__` (by deal id), the `deal_ids`
+   property (insertion order — the order of the per-deal breakdown), and
+   `get_deal(deal_id) -> Deal` returning the frozen, validated deal including the
+   metadata cached at construction (`product_type`, `treaty_type`,
+   `cession_pct`). `__contains__` follows the container convention and returns
+   `False` for a non-string operand rather than raising.
+2. **Mutating verbs, chainable like `add_deal`:** `remove_deal(deal_id)`,
+   `replace_deal(...)`, `clear_deals()`. `replace_deal` is
+   **position-preserving** — re-quoting one deal must not reorder the per-deal
+   breakdown or the concentration tables.
+3. **`without_deal(*deal_ids, name=None)` is non-mutating** — it returns a new
+   `Portfolio` over the same frozen `Deal` objects (no projection input is
+   copied), mirroring the copy-don't-mutate pattern `_with_scenario` already uses
+   for `run_scenarios`. This is the what-if primitive: `full.total_pv_profits -
+   portfolio.without_deal("B").run(h).total_pv_profits` is exactly deal B's PV
+   contribution under strict alignment. `name` defaults to the receiver's name
+   and is exposed because the portfolio name drives the aggregate `run_id` —
+   a side-by-side what-if wants two distinguishable run ids.
+4. **An unknown deal id always raises `PolarisValidationError`; nothing silently
+   no-ops.** This is the load-bearing choice. In a what-if flow a silently
+   ignored `remove_deal("DEAL_C ")` (trailing space) returns the *unmodified*
+   book's numbers — a wrong answer that looks right, and one an actuary would
+   have no way to spot in the output. `without_deal` therefore validates **every**
+   id before filtering any, so a typo alongside valid ids fails loudly instead of
+   returning a partial filter. The error names the book's ids, truncated past 10
+   so a 500-deal portfolio does not print a wall of text.
+5. **One validation choke point.** The single-product-block and
+   proportional-treaty checks move out of `add_deal` into a module-level
+   `_build_deal`, shared by `add_deal` and `replace_deal`, so a replacement can
+   never smuggle in a multi-product block or a stop-loss treaty that `add_deal`
+   would have rejected, and the two paths cannot drift. Deal-id **uniqueness**
+   stays with the callers deliberately — it means the opposite thing to each
+   (`add_deal` rejects an existing id; `replace_deal` requires one).
+
+**Alternatives considered:** (a) *Make `remove_deal` a no-op on an unknown id*
+(dict-`pop`-like) — rejected per (4): silence in a pricing what-if is a
+correctness hazard, not convenience. (b) *Only ship the non-mutating
+`without_deal`* — rejected: the CLI/dashboard build a portfolio incrementally and
+Slice 2's cache invalidation needs mutation to be a named, interceptable
+operation; a copy-only API would push both callers back to rebuilding. (c) *Only
+ship the mutating verbs* — rejected symmetrically: an in-place `remove_deal` is
+destructive, and the marginal-contribution question wants the original book intact
+for comparison. (d) *`replace_deal` as remove-then-add sugar* — rejected: that
+moves the deal to the end of the list, silently reordering the per-deal breakdown
+and (under `align="calendar"`) the grid-offset list, for what the caller thinks is
+an in-place edit. (e) *Expose `_deals` as a mutable list* — rejected: it bypasses
+validation entirely and would make Slice 2's cache unsound.
+
+**Consequences / backward compatibility:** Purely additive — no existing method,
+signature, or number changes, so `polaris price` and the QA goldens are
+byte-identical (`tests/qa/` green; flat golden cedant PV $3,513,563 / reinsurer PV
+$45,386). `add_deal`'s duplicate check now reads `if deal_id in self`, which is
+the same linear scan it already performed. New tests:
+`tests/test_analytics/test_portfolio.py` gains 39 tests across five classes —
+the lookup surface; removal (order preservation, unknown-id rejection leaving the
+book untouched, remove-then-re-add, remove-all-then-`run` rejection); a
+parametrized closed-form check that dropping any one of three deals leaves a PV
+equal to the sum of the survivors' PVs; a bit-identical comparison of
+remove-then-run against a portfolio freshly built without that deal
+(`assert_array_equal` on the aggregate NCF and ceded NAR); replacement
+(position preservation, cached-metadata refresh, both validation rejections
+leaving the original in place, a cession-halving sensitivity check); and the
+non-mutating copy (receiver untouched, shared frozen deals, custom name reaching
+the aggregate `run_id`, marginal-contribution recovery).
+
+**Out of scope (harvested to PRODUCT_DIRECTION / tracked in the CONTINUATION):**
+the other two thirds of C4 — per-deal result caching (Slice 2) and parallel
+execution (Slice 3) — are tracked in
+`docs/CONTINUATION_portfolio_execution.md`, not re-promoted as loose items.
+Genuinely out of this epic: surfacing the lifecycle API on the CLI / REST /
+dashboard (each of those surfaces builds a fresh `Portfolio` per request, so
+incremental what-if *across a session* is a separate design question — a stateful
+portfolio session on the dashboard, or a diff-style REST payload); a
+first-class marginal-contribution / risk-attribution analytic built on
+`without_deal` (the leave-one-out loop is now a two-liner, but a proper
+attribution surface — per-deal marginal PV, marginal capital, marginal
+concentration — deserves its own design); and `Deal`-level partial edits
+(`replace_deal` replaces the whole deal, so re-quoting one term means restating
+the other five arguments).
