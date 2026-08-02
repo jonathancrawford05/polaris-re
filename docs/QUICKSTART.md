@@ -57,9 +57,22 @@ make test          # fast suite — excludes @slow marks (~30 seconds)
 make test-all      # full suite including slow tests
 make coverage      # full suite + HTML report → htmlcov/index.html
 make lint          # ruff check + mypy strict
+make perf          # engine perf probe (tests/perf, @perf+@slow)
 ```
 
 Expected outcome: **533 tests pass, 90%+ coverage**.
+
+**Performance-regression gate.** CI runs a `perf` job on every pull request that
+compares this branch against `origin/main` in one job (`scripts/perfbench.py`),
+failing the merge **only on a structural regression** (changed policy/month
+counts or output fingerprint) — the wall-time ratio and peak-memory delta are
+advisory alerts, never a build failure. Reproduce it locally:
+
+```bash
+uv run python scripts/perfbench.py --ref origin/main -o perf.json
+# stderr prints a per-probe verdict; perf.json carries verdict + both reports;
+# exit status is non-zero iff there is a hard (structural) delta.
+```
 
 ### CLI quick smoke test
 

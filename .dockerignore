@@ -59,8 +59,12 @@ data/inputs/*
 *.parquet
 *.csv
 
-# CI/CD — not needed inside the container
+# CI/CD — not needed inside the container, EXCEPT the workflows dir, which
+# tests/test_ci/ parses (perf-harness Slice 3, ADR-176) and the runtime image
+# runs the test suite. Mirrors the data/qa/ allowlist pattern above.
 .github/
+!.github/workflows/
+!.github/workflows/**
 
 # Documentation source (not needed at runtime)
 docs/

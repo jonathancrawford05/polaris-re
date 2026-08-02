@@ -335,30 +335,29 @@ BLOCKER remains.
    (`price` on the golden deal + `benchmark --pack closed-form`), gating merges alongside
    lint/test/docker; whole pack ~4.6 s, all `-m smoke`/`slow`-tagged. **MERGED** to main
    2026-07-27 (ledger-healed this session, step 4b).
-9. **Performance harness with same-run head-vs-main baseline.** A `polaris perfbench`
+9. ~~**Performance harness with same-run head-vs-main baseline.** A `polaris perfbench`
    / `tests/perf/` harness timing engine hot paths on a fixed synthetic block +
    deterministic structural metrics, benchmarking head and main **in the same job**
    (noise-cancelling ratio → `perf.json`). Prerequisite for #10 and NICE-TO-HAVE
-   #62/#63. *Source: maintainer discussion 2026-07-12, 1st-order.*
-   — **IN PROGRESS** (this session): constituted as a MEDIUM epic and decomposed —
-   `docs/PLAN_perf_harness.md` + `docs/CONTINUATION_perf_harness.md` (IN PROGRESS).
-   **Slice 1 shipped** (ADR-169, this PR): the deterministic perf-probe core
-   (`analytics/perf_harness.py` — `PerfProbe`/`PerfReport`/`run_perf_probe`,
-   `to_perf_dict()`/`to_json()` `perf.json` shape, deterministic counts + output
-   fingerprint + MiB-peak + best-of-k timing), reusing B2's `build_homogeneous_block`;
-   fast unit + `perf`+`slow` reproducibility tests; `perf` marker; `make perf`.
-   Goldens byte-identical. **Slice 2 shipped** (ADR-175, this PR): the head-vs-main
-   diff layer — `diff_reports(head, main, *, band, mib_alert_delta)` →
-   `PerfDiff`/`ProbeDiff` verdict (structural mismatch = hard delta;
-   wall-time ratio / `peak_mib` delta = advisory-only), and `scripts/perfbench.py`,
-   a git-worktree runner that probes head + `origin/main` via the same subprocess
-   snippet, writes `perf.json` (verdict-first), and exits non-zero on a hard delta.
-   **Remaining #9 work is the epic's Slice 3 (CI perf job — runs `scripts/perfbench.py`
-   on one runner, gates on its exit status, alerts non-blocking on the wall-time
-   ratio), in the CONTINUATION.** Strike through once Slice 3 closes #9.
+   #62/#63. *Source: maintainer discussion 2026-07-12, 1st-order.*~~
+   — **SHIPPED** (perf-harness epic, Slices 1–3; ADR-169 / ADR-175 / ADR-176):
+   Slice 1 (PR #171, MERGED) the deterministic perf-probe core
+   (`analytics/perf_harness.py`); Slice 2 (PR #178, MERGED `750a6a7`) the
+   head-vs-main `diff_reports` verdict + `scripts/perfbench.py` git-worktree
+   runner; **Slice 3 (ADR-176, PR #179)** the CI `perf` job that runs
+   `scripts/perfbench.py --ref origin/main --no-fetch` on one PR-only runner,
+   **gates the merge on a structural hard delta** (never on the advisory
+   wall-time / peak-MiB alerts), and uploads `perf.json`. `CONTINUATION_perf_harness`
+   → COMPLETE (mandatory scope). The optional Slice 4 (`perf/history.jsonl` creep
+   log) is the standing IMPORTANT #10 below.
 10. **Committed per-merge performance log (`perf/history.jsonl`) + creep detection.**
     One append-only deterministic-first row per merge to `main`, to catch slow
     multi-month creep a per-PR comment structurally cannot. Depends on #9. *Source: maintainer discussion 2026-07-12, 1st-order.*
+    — **UNBLOCKED** 2026-08-01: #9 closed (perf epic Slices 1–3 shipped, ADR-176).
+    This is the perf epic's optional Slice 4 (`PLAN_perf_harness.md` §Slice 4) and
+    is now the top candidate to constitute as its own follow-on epic. The runner
+    (`scripts/perfbench.py`) already emits the deterministic-first row shape this
+    would append.
 11. **Confirm the ADR-141 backend deviation for the Bayesian MI surface.** Slice 2b
     shipped a pure-NumPy/SciPy reduced-rank GP instead of the PLAN-locked
     `bambi`/`pymc` HSGP (defective in installed versions); maintainer should confirm
@@ -969,6 +968,35 @@ of the originally-planned perf epic), design polish only → NICE-TO-HAVE.
 > the maintainer and **CONFIRMED on PR #178 (2026-07-31)**. Slice 3 wires them
 > into CI as-is (both alert only, never hard gates). Recorded in
 > `CONTINUATION_perf_harness` Open Questions; not a promoted work item.
+
+### Harvested 2026-08-01 (perf harness Slice 3 — ADR-176; IMPORTANT #9 CLOSED — epic complete)
+
+**Slice 3** of the perf epic shipped as ADR-176, **closing IMPORTANT #9**: the CI
+`perf` job in `.github/workflows/ci.yml` runs `scripts/perfbench.py --ref
+origin/main --no-fetch` on one PR-only runner, gates the merge on a structural
+hard delta (never on the advisory wall-time / peak-MiB alerts), and uploads
+`perf.json`. IMPORTANT #9 is struck through above; `CONTINUATION_perf_harness` is
+COMPLETE (mandatory scope, Slices 1–3).
+
+Every item in ADR-176's "Out of scope" is **already tracked** — no new loose
+items are promoted (avoiding the duplication the routine's "already addressed"
+check guards against):
+- **Per-merge `perf/history.jsonl` creep log** = the standing **IMPORTANT #10**
+  (annotated **UNBLOCKED** above — now the top candidate for a follow-on epic;
+  the perf epic's optional Slice 4).
+- **Fold a head-vs-main perf verdict into the pr-review comment** = the existing
+  NICE-TO-HAVE "pr-review routine posts the perf judgment comment" (depends on #9,
+  now satisfied). No duplicate created.
+- **Optional `polaris perfbench` CLI subcommand** = the NICE-TO-HAVE already
+  promoted in the Slice-2 harvest above. No duplicate created.
+
+> With IMPORTANT #9 closed and `CONTINUATION_perf_harness` COMPLETE, no Tier-A
+> epic and no in-progress CONTINUATION remain active. The next routine run
+> selects a new Epic per step 5b (re-rank against the latest
+> COMMERCIAL_VIABILITY_REVIEW; regenerate it if older than ~30 days —
+> `COMMERCIAL_VIABILITY_REVIEW_2026-07-15` is >30 days old as of 2026-08-01, so a
+> regen is due before the next Epic is chosen). IMPORTANT #10 (perf history log)
+> is the natural continuation of this epic's thread.
 
 ---
 

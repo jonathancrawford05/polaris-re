@@ -187,7 +187,67 @@ jobs:
         run: uv run pytest tests/smoke -v --tb=short -m smoke
 
   # ---------------------------------------------------------------------------
-  # Job 5: Coverage report — upload to Codecov (main branch push only)
+  # Job 5: Perf — head-vs-main performance-regression harness
+  # ---------------------------------------------------------------------------
+  # Runs scripts/perfbench.py on ONE runner: it probes the engine hot path on
+  # this PR's head and on a git-worktree checkout of origin/main in the same
+  # job, so the 2-3x run-to-run machine noise cancels in the head/main ratio.
+  # The job GATES (non-zero exit) only on a structural/deterministic regression
+  # (mismatched counts or output fingerprint = a hard delta); the wall-time
+  # ratio and the peak-MiB delta are advisory alerts printed to the log that
+  # never fail the job — the maintainer's rule (2026-07-12): deterministic
+  # metrics gate, raw wall-time only informs (ADR-176; PLAN_perf_harness §2).
+  # PR-only: on a push to main, head and origin/main are the same commit, so
+  # there is nothing to compare. The probe uses the committed synthetic fixture
+  # (no mortality-table generation), so the job stays fast and offline-safe.
+  perf:
+    name: Perf (head-vs-main regression)
+    runs-on: ubuntu-latest
+    needs: lint
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Full history so the git-worktree checkout of origin/main resolves.
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras
+
+      - name: Materialize origin/main baseline
+        # Guarantee refs/remotes/origin/main exists for the worktree checkout,
+        # independent of the checkout action's default fetch refspec.
+        run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+
+      - name: Run head-vs-main perf harness (gate on structural delta)
+        # Exits non-zero ONLY on a hard delta; wall-time / peak-MiB alerts are
+        # advisory (printed to stderr, never fail the job). --no-fetch: the
+        # baseline is already materialized above.
+        run: uv run python scripts/perfbench.py --ref origin/main --no-fetch -o perf.json
+
+      - name: Upload perf.json
+        # Upload even on failure so a regression's evidence is inspectable.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-report
+          path: perf.json
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Job 6: Coverage report — upload to Codecov (main branch push only)
   # ---------------------------------------------------------------------------
   coverage:
     name: Upload coverage
