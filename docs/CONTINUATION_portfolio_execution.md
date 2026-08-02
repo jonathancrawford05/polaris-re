@@ -124,7 +124,7 @@ execution / ergonomics epic, not a modelling change.
 ### Slice 3: Parallel execution
 - **Status:** DONE
 - **Branch:** `claude/quirky-ramanujan-5zhsw3` (environment-designated)
-- **PR:** #TBD
+- **PR:** #183
 - **ADR:** 180
 - **What was done:** `run(..., max_workers: int | None = None)`, forwarded by
   `run_with_capital` and `run_scenarios` (the *scenarios* stay sequential; only
