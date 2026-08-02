@@ -11727,3 +11727,101 @@ epic's optional Slice 4, may be constituted as its own epic now that #9 closes);
 surfacing the advisory wall-time / peak-MiB alerts as a PR comment rather than
 only in the job log (pr-review perf verdict, #62); and the optional `polaris
 perfbench` CLI subcommand (ADR-175, script-first per the B2 precedent).
+
+---
+
+## ADR-177: Per-merge `perf/history.jsonl` creep log — long-baseline drift detection (IMPORTANT #10)
+
+**Date:** 2026-08-02
+**Status:** Accepted
+
+**Context:** The head-vs-main perf gate (ADR-176, `scripts/perfbench.py`) compares
+this branch's head against `origin/main` **in one CI job**, so it catches a single
+PR that makes the engine structurally slower or start allocating more. It has one
+structural blind spot: because its baseline is always the *moving* `main` tip, a
+long series of merges that each add a fraction of a percent — every one
+individually under the per-PR alert band — walks the engine steadily slower
+without any single comparison ever firing. IMPORTANT #10 in
+`PRODUCT_DIRECTION_2026-07-24.md` (`PLAN_perf_harness.md` §3 Slice 4, the epic's
+optional follow-on, UNBLOCKED when #9 closed via ADR-176) is the deterministic
+answer: append **one deterministic-first row per merged commit** to a committed
+append-only log and run creep detection over the *whole series*, not just the
+adjacent pair.
+
+**Decision:** Add `analytics/perf_history.py` — a sibling diagnostic to
+`analytics/perf_harness.py`, off the pricing/import hot path — plus the runner
+`scripts/perf_history.py` and the committed log `perf/history.jsonl`.
+
+1. **The row is a compact, deterministic-first projection of a `PerfReport`.**
+   `PerfHistoryRow` (via `from_report`) carries the commit sha + commit date and,
+   per probe (`ProbeHistoryEntry`), the deterministic block (counts +
+   `output_fingerprint`), the coarse `peak_mib`, and the informational
+   `best_of_k_seconds`. Field order is deterministic-first, mirroring
+   `PerfReport.to_perf_dict`. It is serialized one row per line
+   (`append_history_row` → `model_dump_json`) and round-trips exactly via
+   `load_history`.
+2. **The commit *date* comes from the commit, never the wall clock.** The runner
+   reads `git show -s --format=%cI HEAD`; a per-merge log is pinned to commits, so
+   `date.today()` would both violate ADR-074 and be semantically wrong (a backfill
+   of an old commit must carry *that* commit's date).
+3. **Creep = earliest window vs recent window, by median.** `detect_creep` groups
+   the series by probe and compares the median of the earliest `window` rows
+   (the historical baseline) against the median of the latest `window` rows. The
+   **median** damps a single machine-noise spike at either end; a probe needs
+   `2*window` rows so the windows do not overlap (fewer → `insufficient_data`, no
+   alert — correct for a young log pending the #63 backfill).
+4. **Only `peak_mib` gates; wall-time and config drift inform.** The same
+   maintainer rule that governs ADR-176 (2026-07-12: deterministic /
+   noise-normalized metrics may gate, raw wall-time only informs) is *stronger*
+   here — every row may come from a different CI machine, so absolute wall-time
+   drifts with the hardware. The MiB-rounded `tracemalloc` peak is deterministic
+   and machine-portable (an extra `N×T` float64 array is ~6 MiB, well above the
+   ±1 MiB rounding jitter), so a sustained median MiB rise beyond `mib_creep_delta`
+   (default 4) is the sole gate signal (`has_structural_creep`). The wall-time
+   recent/baseline ratio (`band`, default 1.25) and any input `config_drift` are
+   surfaced as advisory-only flags and never change the exit status.
+5. **The runner is idempotent and offline-safe.** `scripts/perf_history.py`
+   records HEAD's probe on the committed `tests/fixtures/synthetic_select_ultimate.csv`
+   (the same fixture `perfbench.py` uses, so both harnesses measure the same hot
+   path), appends a row, then re-analyses the whole series — exiting non-zero
+   **iff** structural creep. Re-running on an already-recorded commit skips the
+   append (per-commit, append-once) so a CI re-run cannot double-count a commit in
+   a window.
+
+`perf/history.jsonl` is seeded with one row for the current `main` tip at the
+default probe config (`n_policies=3000`, `k=5`) so future default per-merge runs
+are apples-to-apples with the baseline (no spurious config drift). It is **not**
+gitignored (unlike the transient `perf.json` / `perf_history.json` verdict
+outputs, which are). No test references the committed log — every test uses
+`tmp_path` — so the runtime Docker image needs no COPY / `.dockerignore` change
+(the #61/#66 trap does not apply).
+
+**Alternatives considered:** (a) *Gate on wall-time creep across the series* —
+rejected: cross-machine hardware variance makes absolute wall-time uninterpretable
+across rows; it is advisory only. (b) *Compare only the last two rows* — rejected:
+that is exactly the adjacent-pair comparison the head-vs-main gate already does;
+the whole point of #10 is the long baseline, so it must span windows, not
+neighbours. (c) *Mean instead of median* — rejected: one first-call/GC/machine
+outlier in a window would swing the verdict; the median is the robust estimator
+the harness is built around. (d) *An automatic per-merge CI job that commits the
+row back to `main`* — deferred (see out of scope): a bot writing to `main` needs
+`contents: write` and is an infra/authorization decision for the maintainer, not
+an autonomous change; the capability ships first (as B2's scale benchmark shipped
+the harness before any CI gate — ADR-161).
+
+**Consequences / backward compatibility:** Additive only — a new analytics module,
+a new script, and a new committed data file; no `src/` pricing code changed, so
+`polaris price` on the golden configs is byte-identical (cedant PV $3,513,563,
+reinsurer PV $45,386; `tests/qa/` green). New tests:
+`tests/perf/test_perf_history.py` (20 fast closed-form tests on synthetic series —
+append/load round-trip, the creep gate firing on a sustained MiB rise, wall-time
+creep staying advisory, median-ignores-outlier, config drift, input validation —
+plus 1 slow end-to-end that runs the real probe → record → load → analyse).
+
+**Out of scope (harvested to PRODUCT_DIRECTION):** the automatic per-merge CI job
+that appends a row on each push to `main` and commits it back (needs
+`contents: write` + maintainer authorization for a bot commit to `main`); the
+one-off backfill of ~10–15 historical engine-touching merges on one machine so
+creep detection is useful day one (the existing NICE-TO-HAVE #63, which this
+capability unblocks); and folding the creep verdict into the pr-review comment
+(overlaps the existing perf-verdict-comment NICE-TO-HAVE #62).

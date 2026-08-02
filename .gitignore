@@ -73,5 +73,9 @@ logs/
 # The transient head-vs-main worktree is removed in a finally + pre-cleared on
 # each run, but a hard-kill mid-run could leave it; ignore so it never gets
 # committed. perf.json is the runner's default machine-readable output.
+# perf/history.jsonl (the committed per-merge log) is NOT ignored — it is the
+# durable series scripts/perf_history.py appends to; perf_history.json is its
+# transient creep-verdict output, ignored like perf.json.
 .perfbench_main_worktree/
 perf.json
+perf_history.json

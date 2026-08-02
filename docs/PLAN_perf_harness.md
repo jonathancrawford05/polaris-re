@@ -111,11 +111,19 @@ fetch so the worktree checkout resolves, then `perfbench.py --no-fetch`. Structu
 wiring pinned by `tests/test_ci/test_workflow_perf_job.py` (10 tests). No
 `convert_soa_tables` step (the probe uses the committed synthetic fixture).
 
-### Slice 4 (optional / follow-on epic = IMPORTANT #10)
+### Slice 4 (optional follow-on = IMPORTANT #10) ✅ SHIPPED (ADR-177)
 Per-merge append-only `perf/history.jsonl` (one deterministic-first row per
-merge to main) + creep detection over the series, plus the NICE-TO-HAVE tail
-(pr-review perf verdict comment #62; one-off backfill #63). Depends on Slices
-1–3 on main. May be constituted as its own epic when #9 closes.
+merge to main) + creep detection over the series. Shipped 2026-08-02 as the
+record + creep-detection **capability**: `analytics/perf_history.py`
+(`PerfHistoryRow` / `append_history_row` / `load_history` / `detect_creep`) + the
+runner `scripts/perf_history.py` + the seeded committed `perf/history.jsonl`.
+Creep = earliest-window vs recent-window **median**, gating only on the
+machine-portable MiB-peak (wall-time / config drift advisory, per the group rule).
+The **automatic per-merge CI append + commit-back-to-`main`** is deferred (needs
+`contents: write` / maintainer authorization for a bot commit to `main`) and
+harvested to `PRODUCT_DIRECTION_2026-07-24` as IMPORTANT; the NICE-TO-HAVE tail
+(pr-review perf verdict comment #62; one-off backfill #63) is unblocked and
+tracked. Depended on Slices 1–3 on main (satisfied).
 
 ## 4. Design anchors (carry across slices)
 

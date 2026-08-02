@@ -74,6 +74,20 @@ uv run python scripts/perfbench.py --ref origin/main -o perf.json
 # exit status is non-zero iff there is a hard (structural) delta.
 ```
 
+**Long-baseline creep log.** The gate above compares only against the moving
+`main` tip, so it cannot see slow multi-month drift. `perf/history.jsonl` is a
+committed append-only log with one deterministic-first row per merged commit;
+`scripts/perf_history.py` appends the current commit's row and checks the whole
+series for creep (earliest-window vs recent-window median). Only the
+machine-portable MiB-peak gates; the wall-time ratio is advisory (rows are
+recorded on different machines).
+
+```bash
+uv run python scripts/perf_history.py               # append HEAD's row + check for creep
+uv run python scripts/perf_history.py --check-only  # analyse the log without appending
+# exit status is non-zero iff the series shows structural (MiB-peak) creep.
+```
+
 ### CLI quick smoke test
 
 ```bash
