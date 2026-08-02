@@ -32,6 +32,14 @@ invalidated per deal by each of the four mutation verbs. It is opt-in because a
 frozen for the duration". Numbers are unchanged either way — the cache only
 decides whether a projection is recomputed or reused.
 
+Deals are independent until the aggregation sum, so a run can also fan the
+per-deal projections out across threads: ``run(..., max_workers=N)`` (ADR-180),
+forwarded by ``run_with_capital`` and ``run_scenarios``. ``None`` (the default)
+keeps the serial path exactly as it was. The fan-out is one task per deal and
+the results are collected in deal order, so the order-sensitive aggregation sum
+— and therefore every number a run produces — is bit-identical to the serial
+path at any worker count.
+
 Scope: proportional treaties only — YRT, coinsurance, modco — each exposing
 a ``cession_pct``. Stop-loss and other non-proportional structures are out
 of scope. Policy-level cession overrides are not applied; the treaty-level
@@ -54,6 +62,8 @@ Time alignment (ADR-061). ``run`` takes an ``align`` mode:
 """
 
 import dataclasses
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Final, Literal
@@ -531,6 +541,25 @@ def _build_deal(
     )
 
 
+def _validate_max_workers(max_workers: int | None) -> None:
+    """Reject anything that is not ``None`` or a positive plain ``int``.
+
+    Validated up front, before any deal is projected, so a typo costs nothing.
+    ``bool`` is rejected explicitly even though it is an ``int`` subclass:
+    ``max_workers=True`` would silently mean "one worker", which is never what
+    a caller passing a flag intended.
+    """
+    if max_workers is None:
+        return
+    if isinstance(max_workers, bool) or not isinstance(max_workers, int):
+        raise PolarisValidationError(
+            f"max_workers must be None or a positive int, got {max_workers!r} "
+            f"({type(max_workers).__name__})."
+        )
+    if max_workers < 1:
+        raise PolarisValidationError(f"max_workers must be >= 1 when supplied, got {max_workers}.")
+
+
 def _treaty_label(treaty: BaseTreaty) -> str:
     """Return a clean treaty-type label, e.g. ``YRTTreaty`` -> ``YRT``."""
     name = type(treaty).__name__
@@ -661,6 +690,13 @@ class Portfolio:
     the instance and reused by later runs at the same hurdle rate (ADR-179) —
     see :attr:`cache_enabled`, :meth:`cache_stats`, and :meth:`clear_cache`.
 
+    A single run can also spread its per-deal projections across threads via
+    ``run(..., max_workers=N)`` (ADR-180), forwarded by :meth:`run_with_capital`
+    and :meth:`run_scenarios`. The default (``None``) is the serial path, and
+    every worker count produces bit-identical numbers. The two features compose:
+    the fan-out is one task per deal, so on a cold cache each key is computed
+    exactly once and the miss count still equals the number of projections.
+
     Args:
         name: Identifier for the portfolio, used as the aggregate run id.
         cache: Opt into per-deal result caching. ``False`` (default) projects
@@ -699,6 +735,10 @@ class Portfolio:
         self._deal_cache: dict[tuple[str, float], tuple[DealResult, CashFlowResult]] = {}
         self._cache_hits = 0
         self._cache_misses = 0
+        # Guards the cache dict and its two counters, never a projection
+        # (ADR-180). Per instance — a ``without_deal`` / ``_with_scenario``
+        # copy builds its own, so the two portfolios never contend.
+        self._cache_lock = threading.Lock()
 
     @property
     def n_deals(self) -> int:
@@ -739,12 +779,13 @@ class Portfolio:
         working by watching ``hits`` rise while ``size`` stays flat, with no
         recourse to wall-clock timing.
         """
-        return CacheStats(
-            enabled=self._cache_enabled,
-            hits=self._cache_hits,
-            misses=self._cache_misses,
-            size=len(self._deal_cache),
-        )
+        with self._cache_lock:
+            return CacheStats(
+                enabled=self._cache_enabled,
+                hits=self._cache_hits,
+                misses=self._cache_misses,
+                size=len(self._deal_cache),
+            )
 
     def clear_cache(self) -> "Portfolio":
         """Drop every cached per-deal result, in place.
@@ -768,7 +809,8 @@ class Portfolio:
         Returns:
             ``self``, to allow chained calls.
         """
-        self._deal_cache.clear()
+        with self._cache_lock:
+            self._deal_cache.clear()
         return self
 
     def _evict_deal(self, deal_id: str) -> None:
@@ -781,8 +823,9 @@ class Portfolio:
         what keeps an incrementally built book from re-projecting everything
         on each ``add_deal``.
         """
-        for key in [key for key in self._deal_cache if key[0] == deal_id]:
-            del self._deal_cache[key]
+        with self._cache_lock:
+            for key in [key for key in self._deal_cache if key[0] == deal_id]:
+                del self._deal_cache[key]
 
     def get_deal(self, deal_id: str) -> Deal:
         """Return the validated :class:`Deal` registered under ``deal_id``.
@@ -929,7 +972,8 @@ class Portfolio:
             ``self``, to allow chained ``clear_deals().add_deal(...)`` calls.
         """
         self._deals.clear()
-        self._deal_cache.clear()
+        with self._cache_lock:
+            self._deal_cache.clear()
         return self
 
     def without_deal(self, *deal_ids: str, name: str | None = None) -> "Portfolio":
@@ -1002,9 +1046,11 @@ class Portfolio:
         # post-process them.
         if self._cache_enabled:
             survivors = {deal.deal_id for deal in copy._deals}
-            copy._deal_cache.update(
-                {key: value for key, value in self._deal_cache.items() if key[0] in survivors}
-            )
+            with self._cache_lock:
+                carried = {
+                    key: value for key, value in self._deal_cache.items() if key[0] in survivors
+                }
+            copy._deal_cache.update(carried)
         return copy
 
     def _index_of(self, deal_id: str) -> int:
@@ -1017,7 +1063,13 @@ class Portfolio:
             f"{_id_summary(self.deal_ids)}."
         )
 
-    def run(self, hurdle_rate: float, *, align: AlignMode = "strict") -> PortfolioResult:
+    def run(
+        self,
+        hurdle_rate: float,
+        *,
+        align: AlignMode = "strict",
+        max_workers: int | None = None,
+    ) -> PortfolioResult:
         """Project and aggregate every deal in the portfolio.
 
         Args:
@@ -1030,6 +1082,26 @@ class Portfolio:
                 with different inception dates aggregate correctly — at the
                 cost that ``total_pv_profits`` (the portfolio NPV as of the
                 common origin) no longer equals the naive sum of per-deal PVs.
+            max_workers: Thread-pool width for the per-deal projections
+                (ADR-180). ``None`` (default) and ``1`` run the deals serially
+                on the calling thread, exactly as before; ``N > 1`` fans them
+                out over at most ``min(N, n_deals)`` threads. **Results are
+                bit-identical at any worker count** — the deals are independent
+                until the aggregation, which is fed in deal order regardless.
+
+                **Measure before you enable it.** The per-deal projection is
+                only partly GIL-free: the engines' month-by-month reserve and
+                in-force recursions are Python loops around comparatively small
+                per-step NumPy calls, so threads overlap the array work but
+                contend on everything around it. Measured on a 4-core runner by
+                ``scripts/bench_portfolio_parallel.py``, the benefit is modest
+                where it exists and **negative** where it does not: 4 deals x
+                20k policies reached 1.29x at 4 workers, while 8 deals x 5k
+                policies gave 1.19x at 2 workers but **0.59x at 4 and 0.48x at
+                8** — slower than serial. Bigger per-deal blocks help (longer C
+                sections per GIL handoff); oversubscribing cores hurts. The
+                default is serial precisely because no worker count is
+                universally right.
 
         Returns:
             A :class:`PortfolioResult` with aggregate cash flows, total
@@ -1039,7 +1111,8 @@ class Portfolio:
 
         Raises:
             PolarisValidationError: If the portfolio is empty, ``hurdle_rate``
-                is not greater than -1, ``align`` is not a recognised mode,
+                is not greater than -1, ``max_workers`` is neither ``None`` nor
+                a positive plain ``int``, ``align`` is not a recognised mode,
                 the deals do not share a valuation date under ``"strict"``, or
                 their valuation dates fall on different days-of-month under
                 ``"calendar"``.
@@ -1048,13 +1121,17 @@ class Portfolio:
             raise PolarisValidationError("Cannot run an empty portfolio — add at least one deal.")
         if hurdle_rate <= -1.0:
             raise PolarisValidationError(f"hurdle_rate must be > -1, got {hurdle_rate}.")
+        _validate_max_workers(max_workers)
 
         origin, offsets = self._grid_offsets(align)
 
+        projected = self._project_all(hurdle_rate, max_workers)
+
         deal_results: list[DealResult] = []
         reinsurer_views: list[CashFlowResult] = []
-        for deal, offset in zip(self._deals, offsets, strict=True):
-            deal_result, reinsurer_view = self._run_deal(deal, hurdle_rate)
+        for (deal_result, reinsurer_view), offset in zip(projected, offsets, strict=True):
+            # ``replace`` stamps the grid offset onto a *copy*, so a cached
+            # result is never mutated by the run that reads it (ADR-179).
             deal_results.append(dataclasses.replace(deal_result, grid_offset=offset))
             reinsurer_views.append(reinsurer_view)
 
@@ -1147,6 +1224,7 @@ class Portfolio:
         capital_model: CapitalModel,
         *,
         align: AlignMode = "strict",
+        max_workers: int | None = None,
     ) -> PortfolioResultWithCapital:
         """Project, aggregate, and roll a single capital call onto the
         portfolio.
@@ -1169,6 +1247,9 @@ class Portfolio:
                 book, supply a model whose factors reflect the blended
                 exposure.
             align: Time-alignment mode forwarded to :meth:`run` (ADR-061).
+            max_workers: Per-deal projection thread-pool width, forwarded to
+                :meth:`run` (ADR-180). The single capital call is portfolio-level
+                and unaffected; results are bit-identical at any worker count.
 
         Returns:
             A :class:`PortfolioResultWithCapital` with aggregate cash flows,
@@ -1178,9 +1259,9 @@ class Portfolio:
         Raises:
             PolarisValidationError: Conditions identical to :meth:`run`
                 (empty portfolio, invalid hurdle rate, invalid ``align`` mode,
-                mismatched valuation dates).
+                invalid ``max_workers``, mismatched valuation dates).
         """
-        base = self.run(hurdle_rate, align=align)
+        base = self.run(hurdle_rate, align=align, max_workers=max_workers)
 
         # Single LICAT call at the portfolio level. The aggregate
         # CashFlowResult carries reserve_balance (C-1 / C-3 inputs); the
@@ -1246,6 +1327,7 @@ class Portfolio:
         scenarios: list[ScenarioAdjustment] | None = None,
         *,
         align: AlignMode = "strict",
+        max_workers: int | None = None,
     ) -> PortfolioScenarioResult:
         """Project the portfolio under each scenario and return the
         aggregate result per scenario (ADR-064).
@@ -1272,6 +1354,13 @@ class Portfolio:
                 scenario (ADR-061). ``"strict"`` (default) requires a shared
                 valuation date across deals; ``"calendar"`` aligns deals on
                 a common monthly grid.
+            max_workers: Per-deal projection thread-pool width, forwarded to
+                each scenario's :meth:`run` (ADR-180). The **scenarios**
+                themselves stay sequential: parallelising them too would
+                multiply peak memory by the scenario count and nest pools, and
+                each scenario portfolio holds its own deals, so the fan-out
+                stays one task per deal. Results are bit-identical at any
+                worker count.
 
         Returns:
             A :class:`PortfolioScenarioResult` with one entry per scenario
@@ -1281,13 +1370,14 @@ class Portfolio:
         Raises:
             PolarisValidationError: If the portfolio is empty,
                 ``hurdle_rate`` is not greater than -1, ``align`` is not a
-                recognised mode (every :meth:`run` failure mode applies),
-                or ``scenarios`` is an empty list (the empty case is
-                rejected up front rather than silently returning an empty
-                result).
+                recognised mode, ``max_workers`` is invalid (every :meth:`run`
+                failure mode applies), or ``scenarios`` is an empty list (the
+                empty case is rejected up front rather than silently returning
+                an empty result).
         """
         from polaris_re.analytics.scenario import ScenarioRunner
 
+        _validate_max_workers(max_workers)
         if scenarios is None:
             scenarios = ScenarioRunner.standard_stress_scenarios()
         if not scenarios:
@@ -1300,7 +1390,9 @@ class Portfolio:
         results: list[tuple[str, PortfolioResult]] = []
         for scenario in scenarios:
             scenario_portfolio = self._with_scenario(scenario)
-            scenario_result = scenario_portfolio.run(hurdle_rate, align=align)
+            scenario_result = scenario_portfolio.run(
+                hurdle_rate, align=align, max_workers=max_workers
+            )
             results.append((scenario.name, scenario_result))
 
         return PortfolioScenarioResult(scenarios=results)
@@ -1408,15 +1500,61 @@ class Portfolio:
             return self._project_deal(deal, hurdle_rate)
 
         key = (deal.deal_id, hurdle_rate)
-        cached = self._deal_cache.get(key)
-        if cached is not None:
-            self._cache_hits += 1
-            return cached
+        # The lock covers the lookup, the counters, and the write-back — never
+        # the projection (ADR-180). ``+=`` on an int attribute is a
+        # read-modify-write across several bytecodes, so once :meth:`run` can
+        # call this from a thread pool the counters need real mutual exclusion
+        # to stay exact; a lock held across ``_project_deal`` would instead
+        # serialise the very work the fan-out exists to overlap. The cost of
+        # not holding it there is that two threads missing on the *same* key
+        # would both project — unreachable under the one-task-per-deal fan-out
+        # this class performs, and harmless if some future caller creates it
+        # (the values are equal; only the miss count overstates the work).
+        with self._cache_lock:
+            cached = self._deal_cache.get(key)
+            if cached is not None:
+                self._cache_hits += 1
+                return cached
+            self._cache_misses += 1
 
-        self._cache_misses += 1
         computed = self._project_deal(deal, hurdle_rate)
-        self._deal_cache[key] = computed
+        with self._cache_lock:
+            self._deal_cache[key] = computed
         return computed
+
+    def _project_all(
+        self, hurdle_rate: float, max_workers: int | None
+    ) -> list[tuple[DealResult, CashFlowResult]]:
+        """Project every deal, serially or across a thread pool, in deal order.
+
+        Returns one ``(DealResult, CashFlowResult)`` pair per deal, positionally
+        aligned with ``self._deals``. The parallel path fans out **one task per
+        deal** and collects by input position (``Executor.map``), never by
+        completion order, so the order-sensitive aggregation sum downstream is
+        bit-identical to the serial path. One task per deal is also what keeps
+        each cache key touched exactly once, so no single-flight guard is
+        needed (ADR-179 / ADR-180).
+
+        Threads rather than processes: the payload is NumPy-heavy and the large
+        ``(N x T)`` ufuncs release the GIL, whereas a process pool would have to
+        pickle every ``InforceBlock`` / ``MortalityTable`` per deal.
+
+        The serial path is taken whenever it is the equivalent-or-better choice
+        — ``max_workers is None`` (the default), one requested worker, or fewer
+        than two deals — so those callers never pay for a pool.
+        """
+        if max_workers is None or max_workers == 1 or len(self._deals) < 2:
+            return [self._run_deal(deal, hurdle_rate) for deal in self._deals]
+
+        workers = min(max_workers, len(self._deals))
+        with ThreadPoolExecutor(
+            max_workers=workers, thread_name_prefix=f"polaris-portfolio-{self.name}"
+        ) as pool:
+            # ``map`` yields in input order and re-raises the first task's
+            # exception on iteration; ``list`` forces both inside the pool's
+            # context so a failing deal surfaces rather than yielding a
+            # silently partial book.
+            return list(pool.map(lambda deal: self._run_deal(deal, hurdle_rate), self._deals))
 
     def _project_deal(self, deal: Deal, hurdle_rate: float) -> tuple[DealResult, CashFlowResult]:
         """Project one deal and return its reinsurer-side result + cash flow."""

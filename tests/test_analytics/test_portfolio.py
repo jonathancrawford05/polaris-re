@@ -13,6 +13,7 @@ Verifies the `Portfolio` multi-deal runner:
      cedant, product type, and treaty type.
 """
 
+import threading
 from datetime import date
 from pathlib import Path
 
@@ -2549,3 +2550,221 @@ class TestPortfolioCacheStats:
         portfolio.run(HURDLE)
         portfolio.clear_cache()
         assert portfolio.cache_stats() == CacheStats(enabled=True, hits=3, misses=3, size=0)
+
+
+# ---------------------------------------------------------------------------
+# Parallel execution — run(..., max_workers=N) (ADR-180)
+# ---------------------------------------------------------------------------
+
+
+def _record_projection_threads(monkeypatch) -> list[int]:
+    """Patch the engine factory to record the thread ident of every projection.
+
+    Returns the (initially empty) list; one entry per ``_project_deal`` call.
+    """
+    idents: list[int] = []
+    real = portfolio_mod.get_product_engine
+
+    def recording(*, inforce, assumptions, config):
+        idents.append(threading.get_ident())
+        return real(inforce=inforce, assumptions=assumptions, config=config)
+
+    monkeypatch.setattr(portfolio_mod, "get_product_engine", recording)
+    return idents
+
+
+def _barrier_on_projection(monkeypatch, parties: int, timeout: float = 30.0) -> None:
+    """Make every projection rendezvous at a ``parties``-way barrier.
+
+    Deterministic proof of *actual* concurrency: if the fan-out ran the deals
+    one at a time the first task would wait alone and the barrier would time
+    out (``BrokenBarrierError``) instead of the run completing. No wall-clock
+    assertion is involved, so nothing here is timing-flaky in the usual sense —
+    the only failure mode is the one being tested for.
+    """
+    barrier = threading.Barrier(parties)
+    real = portfolio_mod.get_product_engine
+
+    def rendezvous(*, inforce, assumptions, config):
+        barrier.wait(timeout=timeout)
+        return real(inforce=inforce, assumptions=assumptions, config=config)
+
+    monkeypatch.setattr(portfolio_mod, "get_product_engine", rendezvous)
+
+
+def _forbid_thread_pool(monkeypatch) -> None:
+    """Make constructing a ``ThreadPoolExecutor`` in the module an error.
+
+    Proves the serial path is genuinely serial — not merely producing the same
+    numbers through a one-worker pool.
+    """
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("ThreadPoolExecutor was constructed on the serial path")
+
+    monkeypatch.setattr(portfolio_mod, "ThreadPoolExecutor", forbidden)
+
+
+class TestPortfolioParallelValidation:
+    """``max_workers`` is validated before any deal is projected."""
+
+    @pytest.mark.parametrize("bad", [0, -1, -4])
+    def test_non_positive_max_workers_is_rejected(self, bad):
+        with pytest.raises(PolarisValidationError, match="max_workers"):
+            _three_deal_portfolio().run(HURDLE, max_workers=bad)
+
+    @pytest.mark.parametrize("bad", [2.0, "4", [4]])
+    def test_non_integer_max_workers_is_rejected(self, bad):
+        with pytest.raises(PolarisValidationError, match="max_workers"):
+            _three_deal_portfolio().run(HURDLE, max_workers=bad)
+
+    def test_boolean_max_workers_is_rejected(self):
+        # ``bool`` is an ``int`` subclass, so ``max_workers=True`` would
+        # silently mean "1 worker" — almost certainly a mistaken flag.
+        with pytest.raises(PolarisValidationError, match="max_workers"):
+            _three_deal_portfolio().run(HURDLE, max_workers=True)
+
+    def test_invalid_max_workers_projects_nothing(self, monkeypatch):
+        builds = _count_engine_builds(monkeypatch)
+        with pytest.raises(PolarisValidationError):
+            _three_deal_portfolio().run(HURDLE, max_workers=0)
+        assert builds == []
+
+    def test_empty_portfolio_still_reports_the_empty_error(self):
+        with pytest.raises(PolarisValidationError, match="empty portfolio"):
+            Portfolio().run(HURDLE, max_workers=4)
+
+
+class TestPortfolioParallelDefault:
+    """The serial path is the default and stays serial."""
+
+    def test_default_run_builds_no_thread_pool(self, monkeypatch):
+        _forbid_thread_pool(monkeypatch)
+        _three_deal_portfolio().run(HURDLE)
+
+    def test_max_workers_one_builds_no_thread_pool(self, monkeypatch):
+        _forbid_thread_pool(monkeypatch)
+        _three_deal_portfolio().run(HURDLE, max_workers=1)
+
+    def test_single_deal_portfolio_builds_no_thread_pool(self, monkeypatch):
+        _forbid_thread_pool(monkeypatch)
+        portfolio = Portfolio(name="solo").add_deal(**_deal_spec("A", "CedantA"))
+        portfolio.run(HURDLE, max_workers=8)
+
+    def test_serial_run_uses_the_calling_thread(self, monkeypatch):
+        idents = _record_projection_threads(monkeypatch)
+        _three_deal_portfolio().run(HURDLE)
+        assert set(idents) == {threading.get_ident()}
+
+
+class TestPortfolioParallelCorrectness:
+    """A parallel run reproduces the serial run bit-for-bit."""
+
+    @pytest.mark.parametrize("workers", [2, 4, 8])
+    def test_parallel_run_is_bit_identical_to_serial(self, workers):
+        serial = _three_deal_portfolio(name="p").run(HURDLE)
+        parallel = _three_deal_portfolio(name="p").run(HURDLE, max_workers=workers)
+        _assert_portfolio_results_identical(parallel, serial)
+
+    @pytest.mark.parametrize("workers", [2, 4, 8])
+    def test_deal_order_is_preserved(self, workers):
+        result = _three_deal_portfolio().run(HURDLE, max_workers=workers)
+        assert [dr.deal_id for dr in result.deal_results] == ["A", "B", "C"]
+
+    def test_parallel_run_actually_runs_concurrently(self, monkeypatch):
+        # 3 deals, 3-way barrier, 4 workers: every projection must be in
+        # flight simultaneously or the barrier times out.
+        _barrier_on_projection(monkeypatch, parties=3)
+        _three_deal_portfolio().run(HURDLE, max_workers=4)
+
+    def test_workers_are_capped_at_the_deal_count(self, monkeypatch):
+        idents = _record_projection_threads(monkeypatch)
+        _three_deal_portfolio().run(HURDLE, max_workers=64)
+        assert len(idents) == 3
+        assert len(set(idents)) <= 3
+
+    def test_calendar_alignment_is_bit_identical_in_parallel(self):
+        def build() -> Portfolio:
+            return (
+                Portfolio(name="cal")
+                .add_deal(**_deal_spec("A", "CedantA", start=date(2025, 1, 1)))
+                .add_deal(**_deal_spec("B", "CedantB", start=date(2025, 7, 1)))
+                .add_deal(**_deal_spec("C", "CedantA", start=date(2026, 1, 1)))
+            )
+
+        serial = build().run(HURDLE, align="calendar")
+        parallel = build().run(HURDLE, align="calendar", max_workers=4)
+        _assert_portfolio_results_identical(parallel, serial)
+        assert [dr.grid_offset for dr in parallel.deal_results] == [0, 6, 12]
+
+    def test_a_failing_deal_propagates_rather_than_returning_a_partial_book(self, monkeypatch):
+        real = portfolio_mod.get_product_engine
+
+        def exploding(*, inforce, assumptions, config):
+            if inforce.n_policies == 2:  # deal "B"
+                raise RuntimeError("projection blew up")
+            return real(inforce=inforce, assumptions=assumptions, config=config)
+
+        monkeypatch.setattr(portfolio_mod, "get_product_engine", exploding)
+        with pytest.raises(RuntimeError, match="projection blew up"):
+            _three_deal_portfolio().run(HURDLE, max_workers=4)
+
+
+class TestPortfolioParallelWithCache:
+    """Parallel + cache compose: one task per deal, one projection per key."""
+
+    @pytest.mark.parametrize("workers", [2, 4, 8])
+    def test_cold_parallel_run_projects_each_deal_exactly_once(self, monkeypatch, workers):
+        builds = _count_engine_builds(monkeypatch)
+        portfolio = _three_deal_portfolio(cache=True)
+        portfolio.run(HURDLE, max_workers=workers)
+        assert len(builds) == 3
+        assert portfolio.cache_stats() == CacheStats(enabled=True, hits=0, misses=3, size=3)
+
+    @pytest.mark.parametrize("workers", [2, 4, 8])
+    def test_warm_parallel_run_projects_nothing_and_counts_every_hit(self, monkeypatch, workers):
+        builds = _count_engine_builds(monkeypatch)
+        portfolio = _three_deal_portfolio(cache=True)
+        portfolio.run(HURDLE)
+        builds.clear()
+        portfolio.run(HURDLE, max_workers=workers)
+        assert builds == []
+        assert portfolio.cache_stats() == CacheStats(enabled=True, hits=3, misses=3, size=3)
+
+    def test_cached_parallel_result_is_bit_identical_to_uncached_serial(self):
+        serial = _three_deal_portfolio(name="p").run(HURDLE)
+        caching = _three_deal_portfolio(name="p", cache=True)
+        first = caching.run(HURDLE, max_workers=4)
+        second = caching.run(HURDLE, max_workers=4)
+        _assert_portfolio_results_identical(first, serial)
+        _assert_portfolio_results_identical(second, serial)
+
+
+class TestPortfolioParallelWrappers:
+    """``run_with_capital`` / ``run_scenarios`` forward the knob unchanged."""
+
+    def test_run_with_capital_parallel_matches_serial(self):
+        model = LICATCapital.for_product(ProductType.TERM)
+        serial = _three_deal_portfolio(name="p").run_with_capital(HURDLE, model)
+        parallel = _three_deal_portfolio(name="p").run_with_capital(HURDLE, model, max_workers=4)
+        _assert_portfolio_results_identical(parallel, serial)
+        assert parallel.pv_capital == serial.pv_capital
+        assert parallel.return_on_capital == serial.return_on_capital
+        assert parallel.capital_adjusted_irr == serial.capital_adjusted_irr
+
+    def test_run_scenarios_parallel_matches_serial(self):
+        scenarios = ScenarioRunner.standard_stress_scenarios()[:3]
+        serial = _three_deal_portfolio(name="p").run_scenarios(HURDLE, scenarios)
+        parallel = _three_deal_portfolio(name="p").run_scenarios(HURDLE, scenarios, max_workers=4)
+        assert [name for name, _ in parallel.scenarios] == [name for name, _ in serial.scenarios]
+        for (_, left), (_, right) in zip(parallel.scenarios, serial.scenarios, strict=True):
+            _assert_portfolio_results_identical(left, right)
+
+    def test_run_with_capital_validates_max_workers(self):
+        model = LICATCapital.for_product(ProductType.TERM)
+        with pytest.raises(PolarisValidationError, match="max_workers"):
+            _three_deal_portfolio().run_with_capital(HURDLE, model, max_workers=0)
+
+    def test_run_scenarios_validates_max_workers(self):
+        with pytest.raises(PolarisValidationError, match="max_workers"):
+            _three_deal_portfolio().run_scenarios(HURDLE, max_workers=0)

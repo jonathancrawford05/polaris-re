@@ -12113,3 +12113,142 @@ service sweeping many hurdle rates would want an LRU bound); and detecting
 in-place mutation of a deal's inputs (`clear_cache()` is the manual answer; a
 content-hash or version-stamp on `InforceBlock` / `AssumptionSet` would be the
 automatic one).
+
+---
+
+## ADR-180: Portfolio parallel execution — `run(max_workers=N)`, threads, measured and *not* claimed fast (portfolio-execution epic Slice 3)
+
+**Date:** 2026-08-02
+**Status:** Accepted — with an open disposition question for the maintainer (see
+"Recommendation" below).
+
+**Context:** `Portfolio.run()` projected the book one deal at a time. Deals are
+completely independent until the aggregation sum — an embarrassingly parallel
+shape the loop did not exploit — and this was the third and last third of
+catalogue item C4, after the deal-lifecycle API (ADR-178) and the per-deal result
+cache (ADR-179).
+
+Reproduced before writing any code (routine step 7b):
+
+```
+run signature:              (self, hurdle_rate, *, align='strict')
+run_with_capital signature: (self, hurdle_rate, capital_model, *, align='strict')
+run_scenarios signature:    (self, hurdle_rate, scenarios=None, *, align='strict')
+ThreadPoolExecutor imported in module: False
+```
+
+No worker knob existed and every projection ran on the calling thread. The
+premise held exactly as `docs/PLAN_portfolio_execution.md` states; no correction
+was needed.
+
+The plan attached a **measurement gate** to this slice: *"publish a real speed-up
+measured through the perf harness on a multi-deal portfolio, or ship the
+measurement and not the parallel claim."* The measurement is the interesting part
+of this ADR, so it is recorded before the decision.
+
+**The measurement.** `scripts/bench_portfolio_parallel.py` (new, committed) times
+a **cold** portfolio — every sample builds a fresh `Portfolio(cache=False)`, so no
+projection is ever reused — at a series of worker counts, using the harness's
+best-of-k *minimum* estimator, and proves every worker count produced a
+bit-identical aggregate (`assert_array_equal`, never `allclose`) before reporting
+a single number. Measured on the 4-core CI-class runner this session ran on,
+20-year monthly horizon, k=3:
+
+| book | serial | 2 workers | 4 workers | 8 workers |
+|---|---|---|---|---|
+| 8 deals x 5,000 policies | 3.80 s | **1.19x** | **0.59x** | **0.48x** |
+| 4 deals x 20,000 policies | 7.85 s | 1.07x | **1.29x** | — |
+
+Both rows reproduced across independent invocations (the 8x5k row twice, within
+2%). Every row was bit-identical to serial.
+
+So: the speed-up is real but **modest where it exists and negative where it does
+not**. The shape is explained by where the time actually goes. A per-deal
+projection is *not* one big GIL-releasing ufunc — `products/term_life.py` carries
+several `for month in range(t)` recursions (in-force factor `lx`, net-premium
+reserve, CRVM reserve), i.e. Python loops around per-step NumPy calls on `(N,)`
+arrays. Larger `N` lengthens each C section relative to the Python overhead
+between them, which is exactly why 20k-policy deals scale (1.29x) and 5k-policy
+deals do not (0.59x at 4 workers, where oversubscribing 4 cores costs more than
+the overlap gains).
+
+**Decision:**
+
+1. **`run(..., max_workers: int | None = None)`**, forwarded by
+   `run_with_capital` and `run_scenarios`. `None` (default) and `1` take the
+   *serial* path — not a one-worker pool — as does a portfolio with fewer than
+   two deals, so no existing caller pays anything, and a `ThreadPoolExecutor` is
+   never even constructed on the default path (there is a test that asserts
+   exactly that by making the constructor raise).
+2. **Threads, not processes.** The payload is NumPy-heavy and its large `(N x T)`
+   ufuncs do release the GIL; a process pool would have to pickle every
+   `InforceBlock` / `MortalityTable` per deal, which on these block sizes costs
+   more than the projection it parallelises.
+3. **One task per deal, collected by input position** (`Executor.map`), never by
+   completion order. This is what keeps the order-sensitive aggregation sum — and
+   therefore every number in the result, PV included — bit-identical to serial at
+   any worker count. It is also what makes the fan-out touch each cache key
+   exactly once, so ADR-179's no-single-flight decision continues to hold rather
+   than being quietly invalidated by this slice.
+4. **Worker count capped at `min(max_workers, n_deals)`** — spare threads have
+   nothing to do, and the cap keeps `cache_stats().misses` equal to the number of
+   projections.
+5. **`max_workers` validated up front**, before any deal is projected: `None` or
+   a positive plain `int`. `bool` is rejected explicitly despite being an `int`
+   subclass, because `max_workers=True` would silently mean "one worker" and is
+   never what a caller passing a flag intended.
+6. **A lock now guards the cache dict and its two counters** (never a projection).
+   ADR-179 recorded the no-locking decision as resting on CPython's GIL making
+   `self._cache_hits += 1` and the dict write-back *effectively* atomic, and noted
+   it would stop being theoretical on a free-threaded build. This slice is what
+   makes concurrent `_run_deal` a **shipped, supported** path rather than a
+   hypothetical one, so the counters get real mutual exclusion instead of an
+   implicit guarantee. The lock is held only for the lookup, the counter
+   arithmetic, and the write-back; holding it across `_project_deal` would
+   serialise precisely the work the fan-out exists to overlap. The residual — two
+   threads missing on the same key would both project — remains unreachable under
+   the one-task-per-deal shape, and harmless (equal values; only the miss count
+   would overstate work) if a future caller creates it.
+7. **Scenarios stay sequential** in `run_scenarios`; `max_workers` is forwarded to
+   each scenario's `run`. Parallelising the scenarios *as well* would nest pools
+   and multiply peak memory by the scenario count for a workload that is already
+   not core-bound.
+
+**Recommendation (maintainer decision, deliberately not taken here).** The
+`CONTINUATION`'s open question asked what speed-up justifies the API surface —
+1.5x? 2x? — and instructed this slice to *report and recommend, not decide
+unilaterally*. The measured peak is **1.29x**, below both thresholds, and one
+common configuration is **~2x slower** than serial. On the plan's own terms this
+is the "ship the measurement, not the claim" branch, and no claim is made: nothing
+in the README or the public docs advertises portfolio parallelism, and the
+`run` docstring leads with *measure before you enable it* plus the negative
+numbers.
+
+The knob is nonetheless shipped rather than deleted, for one reason: **this is a
+4-core measurement**, and the oversubscription cliff at 4 and 8 workers is partly
+an artifact of that box. Deleting a feature on 4 cores that might pay on a
+reinsurer's 32-core workstation would be over-fitting to the CI runner — and the
+committed benchmark is exactly the instrument for someone to re-measure there
+before enabling it. If the maintainer prefers the stricter reading of the gate,
+removing the parameter is a small, self-contained revert of this PR's engine
+change; the benchmark and this ADR are the part worth keeping either way.
+
+**Consequences:** Existing callers are untouched — the default path is the
+previous code path, and `tests/qa/` goldens are byte-identical. Callers who opt in
+get bit-identical numbers by construction (verified at 2/4/8 workers, under both
+alignment modes, with and without the cache). `cache_stats()` is now exact under
+concurrency rather than probabilistically-correct. A failing deal propagates out
+of `run` rather than yielding a silently partial book (tested). The three
+`Portfolio` surfaces — CLI `polaris portfolio run`, `POST /api/v1/portfolio`, the
+Streamlit page — are untouched and continue to run serially.
+
+**Out of scope:** Surfacing `max_workers` on the CLI / REST / dashboard (the epic
+excludes it: those build a fresh `Portfolio` per request, and exposing a
+concurrency knob on a shared service is a capacity-planning decision, not an API
+one). Process-based or distributed execution. Any single-flight / per-key locking
+(unreachable under this fan-out). And the finding that actually matters for
+throughput: **the per-deal projection is GIL-bound by the engines' month-by-month
+Python recursions**, so vectorising or otherwise shortening those loops would
+raise both the serial and the parallel numbers — a far larger win than the fan-out
+and a change to `products/`, not `analytics/`. It is filed as a promoted follow-up
+rather than expanded into this PR (routine step 11b).
