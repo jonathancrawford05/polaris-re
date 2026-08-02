@@ -158,11 +158,12 @@ def main() -> int:
         existing = load_history(args.history)
         # Idempotency: a per-merge CI job re-run on the same commit must not
         # double-append (which would sit two identical rows in a window and skew
-        # the median). The log is per-commit, append-once.
-        if existing and existing[-1].commit == commit:
+        # the median). The log is per-commit, append-once — so guard on membership
+        # anywhere in the series, not just the tail, which stays correct once the
+        # one-off backfill (#63) inserts rows for non-tip commits.
+        if any(r.commit == commit for r in existing):
             print(
-                f"perf_history: {commit[:12]} already the latest recorded row — "
-                f"skipping append (idempotent).",
+                f"perf_history: {commit[:12]} already recorded — skipping append (idempotent).",
                 file=sys.stderr,
             )
         else:
