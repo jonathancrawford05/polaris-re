@@ -21,13 +21,41 @@ tree by default.
 # Where the loaders look, in precedence order:
 #   1. $POLARIS_EXPERIENCE_CACHE_DIR
 #   2. $POLARIS_DATA_DIR/experience_cache
-#   3. ./data/experience_cache          <-- default; add to .gitignore if not already
-export POLARIS_EXPERIENCE_CACHE_DIR="$HOME/polaris-experience-cache"
+#   3. ./data/experience_cache          <-- in-repo fallback (gitignored)
+
+# Make it PERSISTENT, not just this shell — you will download data in one
+# session and run the harness in another. A bare `export` dies with the window
+# and the loaders then silently fall back to the in-repo path.
+echo 'export POLARIS_EXPERIENCE_CACHE_DIR="$HOME/polaris-experience-cache"' >> ~/.zshrc
+source ~/.zshrc
 mkdir -p "$POLARIS_EXPERIENCE_CACHE_DIR"
 ```
 
-I'd use the `$HOME` override rather than the in-repo default — it makes an
-accidental `git add -A` structurally impossible rather than merely forbidden.
+Use the `$HOME` override rather than the in-repo fallback: it makes an accidental
+`git add -A` structurally impossible rather than merely forbidden. (The fallback
+`data/experience_cache/` *is* gitignored, so neither path leaks — but licensed
+files are better off outside the repo tree entirely.)
+
+### Verify it took
+
+Do **not** check by typing the variable name, with or without a `$` — a bare name
+is a command to zsh (`command not found`), and `$NAME` expands and then tries to
+*execute* the path (`no such file or directory: /Users/you/...`). Confusingly,
+that second error is what success looks like: only a correctly-set variable could
+have expanded to that path.
+
+```bash
+echo "$POLARIS_EXPERIENCE_CACHE_DIR"    # the $ and the quotes both matter
+```
+
+The check that actually decides things is what **the loaders** resolve, since
+that is the value the code uses:
+
+```bash
+uv run python -c "from polaris_re.analytics.experience_loaders import default_experience_cache_dir; print(default_experience_cache_dir())"
+```
+
+If that prints your `$HOME` path, everything below will land in the right place.
 
 ---
 
