@@ -171,12 +171,44 @@ a population proxy.
 2. Accept the SOA terms of use. **There is no fetch helper for ILEC on purpose** —
    it is a manual, terms-accepting download, and `experience_loaders` documents it
    as such.
-3. Unzip somewhere under the cache:
+3. Unzip **with `-d`**, or the files land in your current directory:
 
 ```bash
 mkdir -p "$POLARIS_EXPERIENCE_CACHE_DIR/ilec"
-# unzip the SOA release into that directory
+unzip -d "$POLARIS_EXPERIENCE_CACHE_DIR/ilec" ~/Downloads/ilec-mort-text-*.zip
 ```
+
+`unzip` extracts to the **current working directory**, not to the archive's
+directory. Running it from inside the repo drops a multi-GB licensed file into
+your working tree, where `.gitignore` does not cover it (the ignore rule is for
+`data/experience_cache/`, not the repo root). If that has already happened, move
+the files and confirm:
+
+```bash
+mv "ILEC_2012_19 - "*.txt "ILEC 2012_19 - Data Dictionary.xlsx" \
+   "$POLARIS_EXPERIENCE_CACHE_DIR/ilec/"
+git status --short          # must print nothing
+```
+
+### Known facts about the 2012-2019 release
+
+Verified against a real download on 2026-08-03
+(`ILEC_2012_19 - 20240429.txt`, ~12 GB, 30 columns):
+
+- **Tab-delimited**, despite the `.txt` name. Pass `separator="\t"` — the
+  extension carries no format information, the separator does.
+- **Underscored headers** (`Observation_Year`, not `Observation Year`), and
+  **`Sex` rather than `Gender`** — a genuine rename, so mechanically replacing
+  spaces with underscores in the default map still misses it.
+- **No distribution-channel column.** `channel` is optional; the loader carries
+  only the keys present.
+- Use the shipped map: `load_ilec(path, separator="\t",
+  column_map=ILEC_2012_19_COLUMN_MAP)`.
+- The release also carries `ExpDth_VBT2015_Cnt` / `_Amt` (SOA's own expected
+  deaths on the VBT 2015 basis) and `ExpDth_VBT2015wMI_*` (with mortality
+  improvement). The loader ignores them today, but they are an **independent A/E
+  denominator** — a ready-made external check on the GAM's improvement surface,
+  and worth wiring in later.
 
 ### 2b. Check the column headers before anything else
 
@@ -214,17 +246,31 @@ print('unmapped in your file :', sorted(set(cols) - set(ILEC_COLUMN_MAP))[:20])
 ```
 
 Anything in "missing" needs an override — `load_ilec(..., column_map={...})`
-takes a per-vintage map. Send me the diff and I'll write the override map.
+takes a per-vintage map. For the 2012-2019 release that map already ships as
+`ILEC_2012_19_COLUMN_MAP`; for any other vintage, send me the diff and I'll write
+it.
+
+If `n_cols` comes back as **1**, the separator is wrong — `load_ilec` now rejects
+that up front with a message naming the likely fix, rather than letting it
+surface later as a baffling "missing measure column" against a one-item list.
 
 ### 2c. Verify it parses
 
 ```bash
 uv run python -c "
-from polaris_re.analytics.experience_loaders import load_ilec
-cells = load_ilec('PATH/TO/ilec.csv')
+from polaris_re.analytics.experience_loaders import load_ilec, ILEC_2012_19_COLUMN_MAP
+F = '$POLARIS_EXPERIENCE_CACHE_DIR/ilec/ILEC_2012_19 - 20240429.txt'
+cells = load_ilec(F, separator='\t', column_map=ILEC_2012_19_COLUMN_MAP)
 print(cells.shape); print(cells.head())
+print('years', cells['calendar_year'].min(), '-', cells['calendar_year'].max())
+print('total deaths', cells['death_count'].sum())
+print('total exposure', cells['central_exposure'].sum())
 "
 ```
+
+This reads the file **lazily** and aggregates as it streams, so peak memory
+tracks the number of output cells rather than the 12 GB of input. It will still
+take a few minutes — that is disk throughput, not a hang.
 
 ---
 

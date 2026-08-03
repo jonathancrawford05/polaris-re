@@ -32,6 +32,8 @@ from polaris_re.analytics.experience_gam import (
 )
 from polaris_re.analytics.experience_loaders import (
     HMD_BASE_URL,
+    ILEC_2012_19_COLUMN_MAP,
+    ILEC_COLUMN_MAP,
     default_experience_cache_dir,
     fetch_hmd,
     hmd_1x1_url,
@@ -506,3 +508,94 @@ def test_loaded_ilec_feeds_tensor_mi_surface(tmp_path: Path) -> None:
     assert surface.mi_grid.shape[0] == 15
     assert surface.mi_grid.shape[1] == 5
     assert np.all(np.isfinite(surface.mi_grid))
+
+
+# ---------------------------------------------------------------------------
+# Tab-delimited + 2012-19 vintage (real SOA release, 2026-08-03)
+# ---------------------------------------------------------------------------
+
+
+def _write_ilec_2012_19(tmp_path: Path) -> Path:
+    """A TAB-delimited extract in the real 2012-19 release's header spelling.
+
+    Mirrors the header of `ILEC_2012_19 - 20240429.txt`: underscored names,
+    ``Sex`` rather than ``Gender``, and no ``Distribution Channel`` column at
+    all. Written with ``.txt`` because that is what SOA ships — the extension
+    carries no format information, the separator does.
+    """
+    df = pl.DataFrame(
+        {
+            "Observation_Year": [2015, 2015, 2015, 2016],
+            "Attained_Age": [45, 45, 46, 45],
+            "Issue_Age": [40, 40, 41, 40],
+            "Duration": [6, 6, 6, 7],
+            "Sex": ["Male", "Male", "Female", "Male"],
+            "Smoker_Status": ["Nonsmoker", "Nonsmoker", "Smoker", "Nonsmoker"],
+            "Insurance_Plan": ["Term", "Term", "Term", "Term"],
+            "Face_Amount_Band": ["A", "A", "A", "A"],
+            "Preferred_Class": ["1", "1", "1", "1"],
+            "Policies_Exposed": [1000.0, 500.0, 800.0, 900.0],
+            "Death_Count": [2.0, 1.0, 3.0, 2.0],
+            "Amount_Exposed": [1e8, 5e7, 8e7, 9e7],
+            "Death_Claim_Amount": [2e5, 1e5, 3e5, 2e5],
+            # Columns the loader ignores but the real file carries.
+            "ExpDth_VBT2015_Cnt": [1.8, 0.9, 2.7, 1.8],
+            "Slct_Ult_Ind": ["S", "S", "S", "S"],
+        }
+    )
+    path = tmp_path / "ILEC_2012_19 - sample.txt"
+    df.write_csv(path, separator="\t")
+    return path
+
+
+def test_load_ilec_reads_tab_delimited(tmp_path: Path) -> None:
+    """A tab-delimited file loads when the separator is declared."""
+    path = _write_ilec_2012_19(tmp_path)
+    cells = load_ilec(path, separator="\t", column_map=ILEC_2012_19_COLUMN_MAP)
+    m45 = cells.filter(
+        (pl.col("attained_age") == 45) & (pl.col("calendar_year") == 2015) & (pl.col("sex") == "M")
+    )
+    assert m45.height == 1
+    assert m45["central_exposure"][0] == pytest.approx(1500.0)
+    assert m45["death_count"][0] == pytest.approx(3.0)
+
+
+def test_tab_file_read_as_comma_raises_rather_than_silently_misparsing(
+    tmp_path: Path,
+) -> None:
+    """The default comma separator must fail loudly on a tab file.
+
+    A single-column misparse would otherwise surface much later as a confusing
+    'missing measure column' error against a column list of one.
+    """
+    path = _write_ilec_2012_19(tmp_path)
+    with pytest.raises((PolarisValidationError, PolarisComputationError)):
+        load_ilec(path, column_map=ILEC_2012_19_COLUMN_MAP)
+
+
+def test_ilec_2012_19_map_covers_every_canonical_target(tmp_path: Path) -> None:
+    """The vintage map must reach every canonical column the default map does,
+    minus the ones this release genuinely does not publish."""
+    default_targets = set(ILEC_COLUMN_MAP.values())
+    vintage_targets = set(ILEC_2012_19_COLUMN_MAP.values())
+    # 2012-19 has no distribution-channel column; everything else is covered.
+    assert default_targets - vintage_targets == {"channel"}
+
+
+def test_ilec_2012_19_map_uses_sex_not_gender() -> None:
+    """The 2012-19 release renamed Gender -> Sex; that is not just underscoring."""
+    assert "Sex" in ILEC_2012_19_COLUMN_MAP
+    assert ILEC_2012_19_COLUMN_MAP["Sex"] == "sex"
+    assert "Gender" not in ILEC_2012_19_COLUMN_MAP
+
+
+def test_load_ilec_selects_only_mapped_columns(tmp_path: Path) -> None:
+    """Unmapped source columns must not be materialised.
+
+    The real 2012-19 file is 12 GB with 30 columns; reading the ~17 that are
+    never used would be most of the memory cost for none of the value.
+    """
+    path = _write_ilec_2012_19(tmp_path)
+    cells = load_ilec(path, separator="\t", column_map=ILEC_2012_19_COLUMN_MAP)
+    assert "ExpDth_VBT2015_Cnt" not in cells.columns
+    assert "Slct_Ult_Ind" not in cells.columns
