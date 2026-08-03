@@ -1258,7 +1258,17 @@ its docstring and no speed-up claim anywhere in the docs. Two consequences below
 are first-class work items rather than commentary.
 
 - **Vectorise the engines' month-by-month recursions (the real throughput
-  bottleneck).** ADR-180's measurement diagnosed *why* the fan-out barely helps:
+  bottleneck).** **→ CONSTITUTED 2026-08-03 as the active Epic** on maintainer
+  direction: `docs/PLAN_engine_recursion_vectorisation.md` +
+  `docs/CONTINUATION_engine_recursion_vectorisation.md` (IN PROGRESS, 4 slices,
+  slice 1 = NEXT). Slice 1 is a **measurement** slice — the claim below is an
+  inference from ADR-180's parallel curve, not a profile, and slice 1 is allowed
+  to falsify the epic. Slices 2–3 are bit-identical rewrites; slice 4 (the
+  reserve recurrences) is **gated** on a maintainer goldens decision because it
+  cannot be made bit-identical. Note this fills a genuine gap rather than
+  jumping a queue: A4′ shipped, so the `COMMERCIAL_VIABILITY_REVIEW_2026-07-15`
+  Tier-A ladder is **exhausted** and step 5b had no unstarted Tier-A item left.
+  Original framing: ADR-180's measurement diagnosed *why* the fan-out barely helps:
   a per-deal projection is not one big GIL-releasing ufunc. `products/term_life.py`
   runs several `for month in range(t)` recursions (in-force factor `lx`,
   net-premium reserve, CRVM reserve) — Python loops around comparatively small

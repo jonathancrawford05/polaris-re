@@ -5,7 +5,21 @@
 + "Prescribed statutory valuation-interest helper" [penny-exact CRVM]). Epic
 constituted per step 5b with the COMMERCIAL_VIABILITY_REVIEW Tier-A ladder
 exhausted and Phases 1–3 complete — see `docs/PLAN_reserve_basis_correctness.md`.
-**Status:** IN PROGRESS — but **DEPRIORITISED / parked** (not the active epic).
+**Status:** **PARKED** — deprioritised since 2026-07-05, not the active epic.
+Resume by an explicit maintainer decision only.
+
+> **Status wording changed 2026-08-03 (no change in intent).** This line read
+> "IN PROGRESS — but DEPRIORITISED / parked" for four weeks, and four consecutive
+> sessions correctly treated it as parked *by convention*. That was a latent trap:
+> the daily-dev routine's step 5b looks for "the most recent `PLAN_*.md` whose
+> backing CONTINUATION is **IN PROGRESS**", and this file matched that test on the
+> literal string. With `CONTINUATION_portfolio_execution` closing (PR #183), this
+> would have become the only match and an autonomous session would have resumed it
+> — contradicting four sessions of deliberate deprioritisation, and on a fresh
+> clone, where git does not preserve mtimes, `ls -t` offers no protection.
+> Reworded so the machine-readable status agrees with the human-readable one.
+> Slices 2–3 are **not** cancelled and nothing was harvested or closed; the
+> content below is unchanged.
 **Total slices:** 3 (+ a viability-review checkpoint after Slice 1)
 **Estimated total scope:** ~4–6 dev-days
 
