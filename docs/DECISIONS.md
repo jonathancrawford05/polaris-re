@@ -12324,11 +12324,17 @@ Three findings, and the first two are the reason the knob survives in a
    finding reproduced on independent hardware and a different OS — less
    violently than the container's 0.59x / 0.48x, but the same shape. "Set it to
    4" is therefore the wrong instruction; on a small-deal book 4 is a slowdown.
-2. **The curve bends at the *performance*-core count, not the total.** 8 and 16
-   workers are worse than 4 even on shape C, where there is ample work.
-   Efficiency cores do not contribute usefully to this workload. The runbook
-   raised this as a hypothesis to test; the data supports it, and it is now the
-   documented rule in both the `run` docstring and the CLI `--help`.
+2. **The curve bends at the *performance*-core count, not the total — confirmed
+   against the machine spec, not merely consistent with it.** The Air reports
+   `hw.ncpu = 10`, split **4 performance + 6 efficiency**, and the peak sits at
+   exactly 4 on every shape. The 6 E-cores contribute nothing: 8 workers scores
+   1.35x against 4 workers' 1.77x on shape C, and 16 falls to 1.23x, with ample
+   work available in both cases. They cost throughput rather than merely failing
+   to add any — plausibly because a thread on a slow core holds its share of the
+   GIL-contended critical path for longer. The runbook raised this as a
+   hypothesis; it is now the documented rule in both the `run` docstring and the
+   CLI `--help`, and it matters practically: a caller who read "use your cores"
+   and passed 10 on this machine would give back roughly a third of the gain.
 3. **Oversubscription degrades gracefully with more cores.** Shape C at 8/16
    workers still beats serial (1.35x / 1.23x) where the 4-core box collapsed to
    0.48x. More cores makes the mistake cheaper, not free.
@@ -12346,8 +12352,8 @@ blocks — instead of a bare "measure first" warning with a single negative tabl
 The default is still serial, still bit-identical at every worker count, and still
 absent from REST and the dashboard.
 
-**What did not change:** the ceiling. ~1.8x on 4 performance cores is what a
-GIL-bound workload looks like. The month-by-month Python recursions in
+**What did not change:** the ceiling. ~1.8x on 4 performance cores — with 6
+further cores idle and unable to help — is what a GIL-bound workload looks like. The month-by-month Python recursions in
 `products/term_life.py` remain the binding constraint, and shortening them raises
 the *serial* number for every surface at once — still the larger win, still filed
 as IMPORTANT.

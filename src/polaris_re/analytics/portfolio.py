@@ -1094,10 +1094,13 @@ class Portfolio:
                 own hardware with ``scripts/bench_portfolio_parallel.py``):
 
                 1. **Match the worker count to *performance* cores, not total
-                   cores.** The curve peaks there and falls away past it. On the
-                   Air, a 16-deal x 20k-policy book ran 1.77x at 4 workers but
-                   only 1.35x at 8 and 1.23x at 16 — efficiency cores did not
-                   help.
+                   cores.** Measured on a 10-core Air (4 performance + 6
+                   efficiency), a 16-deal x 20k-policy book ran **1.77x at 4
+                   workers** — the P-core count — but only 1.35x at 8 and 1.23x
+                   at 16, with ample work available. The 6 efficiency cores
+                   contributed nothing; passing ``hw.ncpu`` (10) there would
+                   give back roughly a third of the gain. Find yours with
+                   ``sysctl -n hw.perflevel0.logicalcpu`` on macOS.
                 2. **Only on books whose per-deal blocks are large.** With small
                    deals the fan-out goes *negative*: 8 deals x 5k policies
                    peaked at 2 workers (1.30x) and dropped to 0.94x at 4 and

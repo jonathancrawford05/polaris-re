@@ -321,10 +321,16 @@ absent from REST and the dashboard. The ~1.8x ceiling is unchanged and is what a
 GIL-bound workload looks like on 4 P-cores; the month-by-month recursions in
 `products/term_life.py` remain the binding constraint and the larger win.
 
-One residual: the Air's exact chip / core split / RAM was not captured in the
-transcript. The measurement doc marks it **TO BE CONFIRMED** and records that the
-4-core bend point is *consistent with* 4 performance cores rather than asserting
-the spec — a one-line edit for the maintainer.
+**Spec since captured, and it turns the hypothesis into a confirmation.**
+`sysctl -n hw.ncpu hw.perflevel0.logicalcpu hw.perflevel1.logicalcpu` → **10 / 4 /
+6**: ten logical cores, four performance, six efficiency. The peak sits at exactly
+the P-core count on all three shapes while six cores sit idle, and the E-cores do
+not merely fail to help — 8 workers scores 1.35x against 4 workers' 1.77x on shape
+C with ample work available, so recruiting them *costs* throughput. That is the
+concrete form of the rule now in the docstring and `--help`: a caller who read
+"use your cores" and passed `hw.ncpu` (10) on this machine would give back roughly
+a third of the gain. RAM was not recorded; no run showed memory pressure and shape
+C's timings were internally consistent, so nothing suggests it mattered.
 
 ## Open Questions / Follow-ups
 

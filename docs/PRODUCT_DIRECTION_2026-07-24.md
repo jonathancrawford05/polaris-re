@@ -1317,9 +1317,10 @@ are first-class work items rather than commentary.
   — **SHIPPED 2026-08-03**: run on an Apple Silicon MacBook Air, all three shapes,
   committed as `docs/MEASUREMENT_portfolio_parallel_macbook_air.md` and folded into
   ADR-180 as amendment 2. Verdict KEEP; the `run` docstring and CLI `--help` were
-  rewritten around the real curve. One residual: the machine's exact chip / core
-  split / RAM was not captured and is marked TO BE CONFIRMED in the measurement
-  doc — a one-line edit. Original framing retained for the audit trail:
+  rewritten around the real curve. Machine spec since captured — **10 cores, 4
+  performance + 6 efficiency** — which confirms the peak sits exactly at the
+  P-core count while 6 cores sit idle. No residual (RAM was not recorded; nothing
+  in the runs suggests it mattered). Original framing retained for the audit trail:
   Now the gating item for the two above: `docs/RUNBOOK_portfolio_parallel_measurement.md`
   is the procedure (three book shapes, a results template, and the caveat that a
   CLI-level speed-up will be smaller than the benchmark's because the command also

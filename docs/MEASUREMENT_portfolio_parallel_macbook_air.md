@@ -1,12 +1,13 @@
 # Measurement: portfolio parallel execution — MacBook Air (Apple Silicon)
 
 **Date:** 2026-08-03
-**Hardware:** MacBook Air, Apple Silicon. **Exact chip / core split / RAM: TO BE
-CONFIRMED by the maintainer** — the numbers below are the maintainer's, but the
-machine spec was not captured in the transcript and is *inferred*, not observed.
-The curve's bend point (see "Reading") is consistent with **4 performance
-cores**, which every M-series Air has; fill in the precise model with
-`sysctl -n hw.ncpu hw.perflevel0.logicalcpu hw.perflevel1.logicalcpu`.
+**Hardware:** MacBook Air, Apple Silicon — **10 logical cores: 4 performance +
+6 efficiency**, measured via
+`sysctl -n hw.ncpu hw.perflevel0.logicalcpu hw.perflevel1.logicalcpu` → `10 / 4 / 6`.
+That core split corresponds to an M4-class chip (the 10-core M4 Air); the chip
+name is *inferred* from the split, the split itself is observed. RAM was not
+captured — no run reported memory pressure, and shape C's timings were
+internally consistent, so nothing here suggests swapping.
 **Mortality basis:** SOA VBT 2015 Male NS (`Loaded soa_vbt_2015_male_ns.csv:
 ages 18-95` — the real table, not the synthetic fallback)
 **Command set:** `docs/RUNBOOK_portfolio_parallel_measurement.md` §3, k=3,
@@ -60,15 +61,24 @@ size.** Shape A peaks at **2** workers and goes *below serial* at 4 (0.94x) and 
 independent hardware, and it is why "just set it to 4" is the wrong instruction:
 on shape A, 4 workers is a slowdown.
 
-**The curve bends at 4 on every shape, which is the performance-core count, not
-the total core count.** The runbook flagged this as a hypothesis to test, and the
-data supports it: 8 and 16 workers are consistently worse than 4 even on shape C,
-where there is plenty of work to go round. Efficiency cores do not appear to
-contribute usefully to this workload. The practical rule that falls out is
-**match `max_workers` to performance cores**, not to `hw.ncpu`.
+**The curve bends at 4 on every shape — exactly the performance-core count, on a
+machine with 10 cores.** The runbook flagged this as a hypothesis; the spec
+confirms it rather than merely being consistent with it. The peak sits at 4 = the
+P-core count, while `hw.ncpu` reports 10, and the 6 efficiency cores contribute
+**nothing**: 8 workers (which must recruit E-cores) scores 1.35x against 4
+workers' 1.77x on shape C, and 16 workers falls further to 1.23x — with ample
+work available in both cases. E-cores do not merely fail to help here, they cost
+throughput, presumably because a thread scheduled onto a slow core holds its share
+of the GIL-contended critical path for longer.
 
-**Oversubscription degrades gracefully here, unlike on 4 cores.** On shape C, 8
-and 16 workers still beat serial (1.35x, 1.23x) — they merely give back most of
+The practical rule that falls out, and now the documented one: **set
+`max_workers` to your performance-core count**, not to `hw.ncpu`. On this machine
+that is 4, not 10 — a caller who reasonably read "use your cores" and passed 10
+would land between the 8- and 16-worker rows and give back roughly a third of the
+available gain.
+
+**Oversubscription degrades gracefully here, unlike on the 4-core box.** On
+shape C, 8 and 16 workers still beat serial (1.35x, 1.23x) — they merely give back most of
 the gain. On the 4-core container the equivalent overshoot went to 0.48x. More
 cores makes the mistake cheaper, not free.
 
@@ -106,16 +116,16 @@ narrow and worth stating precisely rather than rounding up to "parallel works":
   That is a real, reproducible, bit-identical win on the shape a reinsurer
   actually prices.
 - It is **not** a general-purpose accelerator. It is negative on small-deal books
-  past 2 workers, and it caps out near the performance-core count regardless of
-  how many cores are nominally available.
+  past 2 workers, and it caps out at the performance-core count regardless of how
+  many cores are nominally available — 4 useful workers on a 10-core machine.
 - So the knob stays **off by default**, and its documentation continues to lead
   with "measure first" — now with a concrete rule (match performance cores; large
   per-deal blocks only) instead of a bare warning.
 
 The larger throughput win is unchanged by this result and is not about threads:
 per-deal projection is GIL-bound by the month-by-month Python recursions in
-`products/term_life.py`. A 1.77x ceiling on 4 P-cores is what a GIL-bound
-workload looks like; shortening those loops raises the serial number for every
+`products/term_life.py`. A 1.77x ceiling on 4 P-cores — with 6 further cores sitting
+idle and unable to help — is what a GIL-bound workload looks like; shortening those loops raises the serial number for every
 surface at once. Filed as IMPORTANT in `docs/PRODUCT_DIRECTION_2026-07-24.md`.
 
 ## Raw data
