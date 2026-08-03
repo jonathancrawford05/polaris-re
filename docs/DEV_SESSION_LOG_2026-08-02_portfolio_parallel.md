@@ -279,6 +279,53 @@ the help-rendering path was exposed. They are latent, not broken, and fixing
 them is outside this PR's scope; promoted as NICE-TO-HAVE with the reproduction
 command.
 
+## Addendum 2 — the many-core measurement landed; knob KEPT
+
+The maintainer ran `docs/RUNBOOK_portfolio_parallel_measurement.md` §3 on an Apple
+Silicon MacBook Air. Full tables: `docs/MEASUREMENT_portfolio_parallel_macbook_air.md`;
+folded into ADR-180 as amendment 2.
+
+| shape | serial | 2w | 4w | 8w | 16w |
+|---|---|---|---|---|---|
+| A — 8 deals × 5k policies | 0.659 s | **1.30x** | 0.94x | 0.70x | — |
+| B — 4 deals × 20k | 1.254 s | 1.56x | **1.57x** | — | — |
+| C — 16 deals × 20k | 5.184 s | 1.63x | **1.77x** | 1.35x | 1.23x |
+
+**Peak 1.77x**, every row bit-identical. That clears the 1.5x bar the CONTINUATION
+floated (not 2x), so the disposition question closes as **KEEP** — the
+maintainer's decision, on evidence rather than the inference this session
+declined to make off a 4-core box.
+
+Three things the data settled, and the first is a correction worth making
+explicitly: **"sweet spot at 4" is only true for the large-block shapes.** Shape A
+peaks at **2** workers and is *below serial* at 4 (0.94x). ADR-180's central
+finding — that the sign flips with per-deal block size — reproduced on
+independent hardware and a different OS, less violently than the container's
+0.59x/0.48x but the same shape. Second, the curve bends at the **performance**-core
+count rather than the total: 8 and 16 workers lose ground even on shape C, so
+efficiency cores do not contribute to this workload. That was raised as a
+hypothesis in the runbook and is now a documented rule. Third, oversubscription
+degrades *gracefully* with more cores (1.35x/1.23x on shape C where the 4-core box
+collapsed to 0.48x) — the mistake gets cheaper, not free.
+
+Stated rather than buried: a MacBook Air is fanless, so part of the 8/16-worker
+tail may be thermal rather than GIL/oversubscription. Best-of-k takes the minimum,
+which mitigates but does not eliminate it. The 4-worker peak is faster *and* cooler
+than the 8/16 runs, so the decision does not rest on the soft part.
+
+**Code change: documentation only.** The `run` docstring and the `--max-workers`
+help text now carry two measured rules — match performance cores, large per-deal
+blocks only — replacing a bare "measure first" warning backed by a single negative
+table. Default still serial, still bit-identical at every worker count, still
+absent from REST and the dashboard. The ~1.8x ceiling is unchanged and is what a
+GIL-bound workload looks like on 4 P-cores; the month-by-month recursions in
+`products/term_life.py` remain the binding constraint and the larger win.
+
+One residual: the Air's exact chip / core split / RAM was not captured in the
+transcript. The measurement doc marks it **TO BE CONFIRMED** and records that the
+4-core bend point is *consistent with* 4 performance cores rather than asserting
+the spec — a one-line edit for the maintainer.
+
 ## Open Questions / Follow-ups
 
 1. **The `max_workers` knob's disposition is a maintainer decision, deliberately

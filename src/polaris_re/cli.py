@@ -3379,13 +3379,16 @@ def _render_portfolio_summary(
 #: callers will ever read about it.
 _MAX_WORKERS_HELP = (
     "Project the deals in parallel over N threads (ADR-180). Omit for the "
-    "serial default. MEASURE FIRST — the benefit is modest at best and this "
-    "can be SLOWER than serial: on a 4-core runner, 4 deals x 20k policies "
-    "reached 1.29x at 4 workers, but 8 deals x 5k policies fell to 0.59x at 4 "
-    "workers and 0.48x at 8. Big per-deal blocks help; oversubscribing cores "
-    "hurts. Results are bit-identical at every worker count, so this only ever "
-    "trades wall-clock, never numbers. Benchmark your own book and hardware "
-    "with scripts/bench_portfolio_parallel.py."
+    "serial default. Two measured rules: (1) set N to your PERFORMANCE-core "
+    "count, not your total core count — the curve peaks there and falls away "
+    "past it; (2) only worth it on books with LARGE per-deal blocks. On small "
+    "deals it goes NEGATIVE: 8 deals x 5k policies peaked at 2 workers and ran "
+    "SLOWER THAN SERIAL at 4. Best measured gain is ~1.8x (16 deals x 20k "
+    "policies, 4 workers, Apple Silicon); the ceiling is the GIL-bound "
+    "month-by-month recursions in the engines. Results are bit-identical at "
+    "every worker count, so this only ever trades wall-clock, never numbers. "
+    "Benchmark your own book and hardware with "
+    "scripts/bench_portfolio_parallel.py."
 )
 
 

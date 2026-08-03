@@ -219,7 +219,14 @@ execution / ergonomics epic, not a modelling change.
   is a property of how the portfolio is *held*, not of one run, and a per-call
   flag would let two runs of the same portfolio disagree about whether the deals
   are frozen. `run` / `run_with_capital` / `run_scenarios` signatures unchanged.
-- **Slice 3 measurement threshold.** **STILL OPEN — now a concrete decision, and
+- **Slice 3 measurement threshold.** **RESOLVED 2026-08-03 — KEEP the knob**
+  (ADR-180 amendment 2). The many-core measurement came in at **1.77x** peak
+  (16 deals x 20k policies, 4 workers, Apple Silicon), clearing the 1.5x bar this
+  question floated. The small-deal regression reproduced, so the knob is kept in a
+  narrower form: off by default, documented with two measured rules (match
+  *performance* cores; large per-deal blocks only). Full tables in
+  `docs/MEASUREMENT_portfolio_parallel_macbook_air.md`. The original framing is
+  kept below for the audit trail — it was **STILL OPEN — now a concrete decision, and
   promoted to `PRODUCT_DIRECTION_2026-07-24.md` as IMPORTANT so it survives this
   CONTINUATION's close.** The measurement is in (ADR-180): peak **1.29x**, and
   **slower than serial** (0.48–0.59x) at 4/8 workers on small per-deal blocks, on

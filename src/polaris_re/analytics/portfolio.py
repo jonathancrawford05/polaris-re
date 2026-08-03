@@ -1089,19 +1089,29 @@ class Portfolio:
                 bit-identical at any worker count** — the deals are independent
                 until the aggregation, which is fed in deal order regardless.
 
-                **Measure before you enable it.** The per-deal projection is
-                only partly GIL-free: the engines' month-by-month reserve and
+                **Two rules, both measured** (ADR-180, on a 4-core Linux
+                container and an Apple Silicon MacBook Air; regenerate for your
+                own hardware with ``scripts/bench_portfolio_parallel.py``):
+
+                1. **Match the worker count to *performance* cores, not total
+                   cores.** The curve peaks there and falls away past it. On the
+                   Air, a 16-deal x 20k-policy book ran 1.77x at 4 workers but
+                   only 1.35x at 8 and 1.23x at 16 — efficiency cores did not
+                   help.
+                2. **Only on books whose per-deal blocks are large.** With small
+                   deals the fan-out goes *negative*: 8 deals x 5k policies
+                   peaked at 2 workers (1.30x) and dropped to 0.94x at 4 and
+                   0.70x at 8 on the Air — and to 0.59x / 0.48x on the 4-core
+                   container.
+
+                The ceiling is ~1.8x because a per-deal projection is only
+                partly GIL-free: the engines' month-by-month reserve and
                 in-force recursions are Python loops around comparatively small
                 per-step NumPy calls, so threads overlap the array work but
-                contend on everything around it. Measured on a 4-core runner by
-                ``scripts/bench_portfolio_parallel.py``, the benefit is modest
-                where it exists and **negative** where it does not: 4 deals x
-                20k policies reached 1.29x at 4 workers, while 8 deals x 5k
-                policies gave 1.19x at 2 workers but **0.59x at 4 and 0.48x at
-                8** — slower than serial. Bigger per-deal blocks help (longer C
-                sections per GIL handoff); oversubscribing cores hurts. The
-                default is serial precisely because no worker count is
-                universally right.
+                contend on everything between the steps. Larger blocks lengthen
+                each C section per GIL handoff, which is exactly why block size
+                decides the sign. The default is serial because no worker count
+                is right for every book.
 
         Returns:
             A :class:`PortfolioResult` with aggregate cash flows, total

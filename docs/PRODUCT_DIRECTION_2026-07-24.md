@@ -1273,7 +1273,15 @@ are first-class work items rather than commentary.
   projection time across the recursions before committing to a rewrite.
   *Source: ADR-180 Out of scope + DISCOVERY protocol finding, routine step 11b
   (1st-order).* **IMPORTANT.**
-- **Decide the `max_workers` knob's fate.** ADR-180 deliberately did not decide
+- ~~**Decide the `max_workers` knob's fate.**~~ — **RESOLVED 2026-08-03: KEEP**
+  (ADR-180 amendment 2). The maintainer's Apple Silicon measurement peaked at
+  **1.77x** (16 deals x 20k policies, 4 workers), clearing the 1.5x bar though not
+  2x, with every row bit-identical — see
+  `docs/MEASUREMENT_portfolio_parallel_macbook_air.md`. Kept in a *narrower* form
+  than "parallel works": still off by default, now documented with two measured
+  rules (match performance cores, not total cores; large per-deal blocks only),
+  because the small-deal regression reproduced on independent hardware. Original
+  context retained below for the audit trail. ADR-180 deliberately did not decide
   it: the `CONTINUATION`'s open question asked what speed-up justifies the API
   surface (1.5x? 2x?), the measured peak is below both, and on the plan's own
   terms this is the "ship the measurement, not the claim" branch. The knob was
@@ -1305,7 +1313,13 @@ are first-class work items rather than commentary.
   — unlike a CLI invocation, where one user owns the machine. Revisit only after
   the many-core measurement settles whether the knob survives at all. *Source:
   ADR-180 Out of scope + ADR-180 amendment (1st-order).* **NICE-TO-HAVE.**
-- **Run the many-core measurement and settle ADR-180's disposition question.**
+- ~~**Run the many-core measurement and settle ADR-180's disposition question.**~~
+  — **SHIPPED 2026-08-03**: run on an Apple Silicon MacBook Air, all three shapes,
+  committed as `docs/MEASUREMENT_portfolio_parallel_macbook_air.md` and folded into
+  ADR-180 as amendment 2. Verdict KEEP; the `run` docstring and CLI `--help` were
+  rewritten around the real curve. One residual: the machine's exact chip / core
+  split / RAM was not captured and is marked TO BE CONFIRMED in the measurement
+  doc — a one-line edit. Original framing retained for the audit trail:
   Now the gating item for the two above: `docs/RUNBOOK_portfolio_parallel_measurement.md`
   is the procedure (three book shapes, a results template, and the caveat that a
   CLI-level speed-up will be smaller than the benchmark's because the command also

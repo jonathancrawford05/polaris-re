@@ -12298,3 +12298,56 @@ One consequence worth stating plainly: surfacing the flag raises the cost of
 removing it later from "revert one engine change" to "deprecate a public CLI
 option". That was accepted knowingly on the maintainer's direction, with the
 many-core measurement as the thing that resolves it either way.
+
+### ADR-180 amendment 2 (2026-08-03): many-core measurement — the knob is KEPT
+
+The disposition question left open above is now **closed as KEEP**, on the
+maintainer's Apple Silicon MacBook Air measurement (full tables:
+`docs/MEASUREMENT_portfolio_parallel_macbook_air.md`). Recorded as the
+maintainer's decision, taken on evidence rather than inference — which is what
+the original ADR asked for and explicitly declined to do off a 4-core container.
+
+| shape | serial | 2w | 4w | 8w | 16w |
+|---|---|---|---|---|---|
+| A — 8 deals x 5k policies | 0.659 s | **1.30x** | 0.94x | 0.70x | — |
+| B — 4 deals x 20k | 1.254 s | 1.56x | **1.57x** | — | — |
+| C — 16 deals x 20k | 5.184 s | 1.63x | **1.77x** | 1.35x | 1.23x |
+
+Every row bit-identical to serial. **Peak 1.77x** — clears the 1.5x bar the
+CONTINUATION floated, does not reach 2x.
+
+Three findings, and the first two are the reason the knob survives in a
+*narrower* form rather than being promoted to a general accelerator:
+
+1. **The sign still flips with per-deal block size.** Shape A peaks at **2**
+   workers and goes below serial at 4 (0.94x) and 8 (0.70x). ADR-180's central
+   finding reproduced on independent hardware and a different OS — less
+   violently than the container's 0.59x / 0.48x, but the same shape. "Set it to
+   4" is therefore the wrong instruction; on a small-deal book 4 is a slowdown.
+2. **The curve bends at the *performance*-core count, not the total.** 8 and 16
+   workers are worse than 4 even on shape C, where there is ample work.
+   Efficiency cores do not contribute usefully to this workload. The runbook
+   raised this as a hypothesis to test; the data supports it, and it is now the
+   documented rule in both the `run` docstring and the CLI `--help`.
+3. **Oversubscription degrades gracefully with more cores.** Shape C at 8/16
+   workers still beats serial (1.35x / 1.23x) where the 4-core box collapsed to
+   0.48x. More cores makes the mistake cheaper, not free.
+
+**Confound, stated rather than buried:** a MacBook Air is fanless, so part of the
+8/16-worker tail on shape C may be thermal throttling rather than
+GIL/oversubscription. Best-of-k takes the minimum, which mitigates but does not
+eliminate it. The 4-worker peak is unaffected (faster *and* cooler than the 8/16
+runs), so the decision does not rest on the soft part; re-running shape C on an
+actively-cooled Mac would settle the tail.
+
+**What changed in the code:** only documentation. The `run` docstring and the
+`--max-workers` help text now carry the two rules — performance cores, large
+blocks — instead of a bare "measure first" warning with a single negative table.
+The default is still serial, still bit-identical at every worker count, and still
+absent from REST and the dashboard.
+
+**What did not change:** the ceiling. ~1.8x on 4 performance cores is what a
+GIL-bound workload looks like. The month-by-month Python recursions in
+`products/term_life.py` remain the binding constraint, and shortening them raises
+the *serial* number for every surface at once — still the larger win, still filed
+as IMPORTANT.
