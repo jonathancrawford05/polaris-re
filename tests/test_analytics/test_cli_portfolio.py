@@ -8,6 +8,7 @@ JSON output against the in-process ``Portfolio.run().to_dict()`` numbers.
 """
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -1045,6 +1046,31 @@ class TestPortfolioReportConcentrationBasisFlag:
 # ---------------------------------------------------------------------------
 
 
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _plain(output: str) -> str:
+    """Strip ANSI colour codes and collapse whitespace from CLI output.
+
+    Both steps are load-bearing for asserting on ``--help``, and the first one
+    is easy to miss because it is environment-dependent:
+
+    - **Colour.** Rich colourises an option name in *fragments*, emitting
+      ``-``, ``-max``, ``-workers`` as three separately-styled runs with escape
+      codes between them, so the literal ``--max-workers`` never appears in the
+      raw output. Whether that happens depends on whether Rich thinks it is
+      writing to a terminal — these assertions passed locally and failed on CI
+      for exactly that reason. Stripping the codes makes the assertion
+      independent of the environment rather than dependent on it.
+    - **Wrapping.** Rich hard-wraps help text into a box at the terminal width,
+      so any phrase long enough to wrap is split by newlines and border
+      characters. Collapsing whitespace lets a short phrase be matched; a long
+      one still should not be asserted on, since Rich ellipsises tokens too wide
+      for their column.
+    """
+    return " ".join(_ANSI_RE.sub("", output).split())
+
+
 class TestPortfolioRunMaxWorkersFlag:
     """``polaris portfolio run --max-workers`` fans the deals out over threads."""
 
@@ -1091,13 +1117,12 @@ class TestPortfolioRunMaxWorkersFlag:
             ["portfolio", "run", "--config", str(config_path), "--max-workers", bad],
         )
         assert result.exit_code != 0
-        flat = " ".join(result.output.split())
-        assert "--max-workers must be >= 1" in flat
+        assert "--max-workers must be >= 1" in _plain(result.output)
 
     def test_flag_is_documented_in_help(self, tmp_path: Path) -> None:
         result = runner.invoke(app, ["portfolio", "run", "--help"])
         assert result.exit_code == 0
-        flat = " ".join(result.output.split())
+        flat = _plain(result.output)
         assert "--max-workers" in flat
         # The help text must carry the measured warning, not just the mechanic —
         # a caller reading only --help should learn it can be SLOWER.
@@ -1143,10 +1168,9 @@ class TestPortfolioScenariosMaxWorkersFlag:
             ["portfolio", "scenarios", "--config", str(config_path), "--max-workers", "0"],
         )
         assert result.exit_code != 0
-        flat = " ".join(result.output.split())
-        assert "--max-workers must be >= 1" in flat
+        assert "--max-workers must be >= 1" in _plain(result.output)
 
     def test_flag_is_documented_in_help(self, tmp_path: Path) -> None:
         result = runner.invoke(app, ["portfolio", "scenarios", "--help"])
         assert result.exit_code == 0
-        assert "--max-workers" in " ".join(result.output.split())
+        assert "--max-workers" in _plain(result.output)
