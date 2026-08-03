@@ -1333,3 +1333,17 @@ are first-class work items rather than commentary.
   feature with its own ADR. The cheap half of it now exists. *Source:
   CONTINUATION_portfolio_execution "Context for Next Session" — considered and
   rejected for Slice 1 (1st-order).* **NICE-TO-HAVE.**
+- **Make the CLI-output test assertions colour-proof.** Three pre-existing tests
+  assert on rendered Rich output without stripping ANSI escape codes
+  (`TestPortfolioRunConcentrationBasisFlag::test_nar_peak_basis_renders_nar_section_only`,
+  `::test_all_basis_renders_three_sections`,
+  `TestPortfolioReportConcentrationBasisFlag::test_report_supports_all_basis` —
+  all matching `'weighted by Peak Ceded NAR'`). They are **green on CI today**
+  only because the module-level Rich `Console` disables colour off a TTY; reproduce
+  the latent failure with
+  `FORCE_COLOR=1 uv run pytest tests/test_analytics/test_cli_portfolio.py`. PR #183
+  hit the same hazard on the *help*-rendering path — where Typer's formatter
+  colours regardless of TTY — and added a `_plain()` helper in that file that these
+  three could reuse. Low severity (a latent CI fragility, not a production defect),
+  but it is a trap that has now cost one red CI round. *Source: PR #183 CI round 1,
+  DISCOVERY protocol step 11b (1st-order).* **NICE-TO-HAVE.**

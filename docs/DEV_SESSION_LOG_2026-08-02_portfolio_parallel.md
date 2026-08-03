@@ -247,6 +247,38 @@ knob later from "revert one engine change" to "deprecate a public CLI option".
 $3,513,563 / $45,386). No second `perf/history.jsonl` row — step 14b appends one
 row per PR, on the initial open only.
 
+## CI round 1 — two self-inflicted failures, fixed
+
+`Test (Python 3.12)` and `Test (Python 3.13)` came back red on PR #183: both
+`--max-workers` `--help` tests, green locally. Not a code defect — a test bug,
+and an instructive one.
+
+Rich colourises an option name in **fragments**, emitting `-`, `-max`,
+`-workers` as three separately-styled runs with escape codes between them, so
+the literal `--max-workers` never appears contiguously in the raw output.
+Whether that happens depends on whether Rich believes it is writing to a
+terminal, which is exactly why the assertions passed in this container and
+failed on the runner. Reproduced locally with `FORCE_COLOR=1`, then fixed by
+routing the assertions through a new `_plain()` helper that strips escape codes
+and collapses whitespace. These are the repo's first `--help` *content*
+assertions, so the helper documents both hazards — colour fragmentation and
+Rich's box wrapping/ellipsis — for whoever writes the next one.
+
+Everything else was green on that run: Lint (Ruff + mypy), Smoke, Docker build &
+test, and the head-vs-main Perf gate.
+
+**DISCOVERY (step 11b) — filed, not fixed.** Running the file under
+`FORCE_COLOR=1` also turns **three pre-existing tests** red for the identical
+reason: `TestPortfolioRunConcentrationBasisFlag::test_nar_peak_basis_renders_nar_section_only`,
+`::test_all_basis_renders_three_sections`, and
+`TestPortfolioReportConcentrationBasisFlag::test_report_supports_all_basis`, all
+asserting `'weighted by Peak Ceded NAR' in result.output`. They are **green on
+CI today** because the repo's module-level Rich `Console` disables colour when
+stdout is not a TTY, while Typer's help formatter colours regardless — so only
+the help-rendering path was exposed. They are latent, not broken, and fixing
+them is outside this PR's scope; promoted as NICE-TO-HAVE with the reproduction
+command.
+
 ## Open Questions / Follow-ups
 
 1. **The `max_workers` knob's disposition is a maintainer decision, deliberately
