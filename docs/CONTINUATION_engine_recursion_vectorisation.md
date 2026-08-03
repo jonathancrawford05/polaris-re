@@ -4,8 +4,29 @@
 month-by-month recursions (the real throughput bottleneck)", **IMPORTANT**
 (harvested from ADR-180 + routine step 11b DISCOVERY)
 **Plan:** `docs/PLAN_engine_recursion_vectorisation.md`
-**Status:** IN PROGRESS
-**Total slices:** 4 (slice 4 gated on a maintainer decision)
+**Status:** **PARKED** — constituted 2026-08-03, parked the same day on the
+maintainer's decision after pre-work measurement undercut the premise. Revive by
+an explicit maintainer decision only. See
+`docs/MEASUREMENT_engine_recursion_prework.md`.
+
+> **Why this was parked before slice 1 ran.** The epic was built from an
+> *inference* — ADR-180's parallel curve looked GIL-bound, so the month-loops were
+> assumed to be the bottleneck. Answering a maintainer question about FP
+> tolerances produced the measurement instead: the `lx` loop vectorises
+> **bit-identically** (interleaved cumprod) for **zero speed-up** (165.2 ms vs
+> 167.1 ms at N=20,000) because it is array-work-bound, not interpreter-bound.
+> And the premise underneath was never tested: a 320,000-policy book already
+> prices in **5.2 s**. Even a perfect result across all four loops saves ~2.6 s on
+> a book nobody is waiting for. One of four loops was measured, so this is a
+> partial falsification — but the burden of proof has flipped, and the honest
+> disposition is to stop.
+>
+> **What would revive it:** a profile showing `_build_rate_arrays` or the reserve
+> recursions own a large share of runtime, **and** a workload where projection
+> latency actually blocks someone (Monte-Carlo UQ over thousands of scenarios is
+> the plausible candidate). Absent both, this stays parked.
+
+**Total slices:** 4 (never started; slice 4 was additionally gated on a goldens decision)
 **Estimated total scope:** ~4–6 dev-days
 
 ## Overall Goal
@@ -18,30 +39,24 @@ NumPy calls. Shortening those loops helps **every** caller — CLI, REST,
 dashboard, notebooks, the test suite, CI — not only the ones that opt into
 `max_workers`, and it is the only route past the current parallel ceiling.
 
-## Why this is the active Epic (read this before re-ranking it)
+## Why this was constituted, and why that reasoning did not survive
 
-**This is a maintainer re-rank, made on 2026-08-03, and it deserves to be stated
-plainly rather than discovered later.**
+Constituted 2026-08-03 on maintainer direction. `COMMERCIAL_VIABILITY_REVIEW_2026-07-15`
+nominated A4′ (experience GAM) as the next Tier-A epic; A4′ has since shipped
+(`CONTINUATION_experience_gam.md` COMPLETE), so the review's Tier-A ladder is
+**exhausted** and step 5b had no unstarted Tier-A item. This epic was written to
+fill that gap.
 
-`COMMERCIAL_VIABILITY_REVIEW_2026-07-15` nominated A4′ (Data-Driven Experience
-Analysis / GAM) as the next Tier-A epic and observed that "after 6.1, the roadmap
-as written is complete". A4′ has since **shipped** —
-`CONTINUATION_experience_gam.md` is COMPLETE — so the review's Tier-A ladder is
-**exhausted**, and step 5b has no unstarted Tier-A item to draw from. That is the
-gap this epic fills, on the maintainer's direction, backed by a measurement taken
-after that review was written.
+The gap was real. **This was the wrong thing to fill it with**, and the failure
+was one of process rather than estimate: the epic was built from an inference
+about where runtime goes, and the routine's own step-11b discipline —
+quantify before acting — was applied to the *implementation* plan but never to
+the epic's **premise**. Had it been, the 5.2 s figure for a 320k-policy book
+would have ended the discussion before the plan was written.
 
-Two consequences the next session should know:
-
-1. **The review is stale on 2026-08-14** (~30 days). This CONTINUATION being IN
-   PROGRESS means step 5 short-circuits before step 6's regeneration check, so
-   the epic will keep advancing across that date. When it closes, regenerating
-   the review is likely the right next move — the catalogue it ranks no longer
-   has a Tier-A row.
-2. **This epic is `products/`-internal.** It is not a commercial feature and will
-   not appear in any Tier-A table as a customer-visible capability. It earns epic
-   status on being the binding constraint under everything else, which is a
-   different argument from the review's value×effort ranking. Judge it on that.
+The successor epic is the real-data experience-GAM diligence run
+(`docs/PLAN_experience_gam_realdata.md`), which addresses the same "no Tier-A row
+left" gap against the product thesis rather than against an inferred bottleneck.
 
 ## Decomposition
 
@@ -49,7 +64,7 @@ See the PLAN for the full reasoning, particularly §2 — the four loops look al
 and are **not** equally tractable, which is what drives this ordering.
 
 ### Slice 1: Attribute the runtime (measure, change nothing)
-- **Status:** NEXT
+- **Status:** NOT STARTED (epic parked)
 - **Depends on:** nothing (PR #183 merged)
 - **Files to create/modify:** a hot-path map extension for
   `analytics/perf_harness.py` consumers (the module's `default_hot_paths()`

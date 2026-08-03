@@ -79,3 +79,10 @@ logs/
 .perfbench_main_worktree/
 perf.json
 perf_history.json
+
+# Experience-data cache (loaders-not-data, PLAN_experience_gam Design Anchor 6).
+# HMD and SOA-ILEC downloads are licensed and MUST NOT be committed. This is the
+# default location `default_experience_cache_dir()` resolves to when neither
+# $POLARIS_EXPERIENCE_CACHE_DIR nor $POLARIS_DATA_DIR is set — see
+# docs/RUNBOOK_experience_data_acquisition.md.
+data/experience_cache/

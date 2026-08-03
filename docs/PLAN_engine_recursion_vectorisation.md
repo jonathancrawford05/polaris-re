@@ -6,7 +6,14 @@ harvested from ADR-180 + the DISCOVERY-protocol finding in routine step 11b.
 **Constituted:** 2026-08-03, on maintainer direction, as the next active Epic.
 **Classification:** LARGE (4 slices) — cross-cutting, and the last slice touches
 reserve arithmetic.
-**Status:** slice 1 NEXT — see `docs/CONTINUATION_engine_recursion_vectorisation.md`.
+**Status:** **PARKED 2026-08-03** — never started. Pre-work measurement
+falsified enough of the premise to stop; see
+`docs/MEASUREMENT_engine_recursion_prework.md` and the CONTINUATION banner. The
+analysis below is retained because it is correct and reusable (the four loops
+really do differ in tractability, and the FP-association trap is real) — but the
+`lx` loop was subsequently measured to vectorise bit-identically for **zero**
+speed-up, and a 320k-policy book already prices in 5.2 s. Do not implement from
+this plan without reviving the epic first.
 
 ---
 

@@ -1257,8 +1257,18 @@ policies, on a 4-core runner. The knob ships off by default with those numbers i
 its docstring and no speed-up claim anywhere in the docs. Two consequences below
 are first-class work items rather than commentary.
 
-- **Vectorise the engines' month-by-month recursions (the real throughput
-  bottleneck).** **→ CONSTITUTED 2026-08-03 as the active Epic** on maintainer
+- ~~**Vectorise the engines' month-by-month recursions (the real throughput
+  bottleneck).**~~ — **PARKED 2026-08-03, downgraded to NICE-TO-HAVE.** Constituted
+  as an epic and parked the same day: pre-work measurement
+  (`docs/MEASUREMENT_engine_recursion_prework.md`) showed the `lx` loop vectorises
+  **bit-identically for zero speed-up** (165.2 → 167.1 ms at N=20,000; it is
+  array-work-bound, not interpreter-bound), and the unexamined premise underneath
+  — that projection speed is a problem — does not hold: a 320k-policy book prices
+  in **5.2 s**. One of four loops was measured, so the falsification is partial;
+  revival needs a profile *and* a workload where latency blocks someone (UQ over
+  thousands of scenarios). The measurement's incidental finding is the durable
+  part and is promoted separately below. Original framing:
+  **→ was CONSTITUTED 2026-08-03 as the active Epic** on maintainer
   direction: `docs/PLAN_engine_recursion_vectorisation.md` +
   `docs/CONTINUATION_engine_recursion_vectorisation.md` (IN PROGRESS, 4 slices,
   slice 1 = NEXT). Slice 1 is a **measurement** slice — the claim below is an
@@ -1372,3 +1382,30 @@ are first-class work items rather than commentary.
   three could reuse. Low severity (a latent CI fragility, not a production defect),
   but it is a trap that has now cost one red CI round. *Source: PR #183 CI round 1,
   DISCOVERY protocol step 11b (1st-order).* **NICE-TO-HAVE.**
+- **Numerical-rewrite PRs must assert array-level equality, not just goldens.**
+  Discovered while measuring the recursion rewrites: patching a genuinely
+  perturbing change into the engine (naive `lx` cumprod, verified to execute and
+  to move the array by 1.9e-15) left **all five committed golden digests
+  bit-identical**. The golden block is **6 policies per cohort** — too small to
+  detect a last-ulp engine perturbation, and the digest is full-precision, so this
+  is not a rounding artefact. "Goldens byte-identical" is therefore a *necessary
+  but insufficient* acceptance criterion for any numerical change, and a future
+  rewrite of this class would pass CI while altering the engine. Fix is cheap: add
+  an array-level `assert_array_equal` on a ≥5,000-policy block to the QA suite, or
+  enlarge a golden cohort. *Source: MEASUREMENT_engine_recursion_prework §4,
+  DISCOVERY protocol step 11b (1st-order).* **IMPORTANT.**
+- **Real-data diligence run for the experience GAM (HMD + SOA-ILEC).** The A4′
+  epic shipped 15 slices, and every GAM fit in it is against **synthetic data with
+  an injected known surface** — which proves the implementation recovers a surface
+  it was handed, not that it recovers real mortality improvement from real
+  experience. The loaders already exist (`experience_loaders.py`: HMD + ILEC
+  parsers, canonical cell contract, injectable fetch, unit-tested on synthetic
+  fixtures); what has never been done is run them. Given CLAUDE.md §1 names "no
+  native ML integration" as the incumbents' defining weakness, a GAM validated
+  only on synthetic data does not discharge the product thesis. Data acquisition
+  is `docs/RUNBOOK_experience_data_acquisition.md` (maintainer-run: HMD needs an
+  account, ILEC needs SOA terms acceptance, and neither may be committed).
+  Previously filed as NICE-TO-HAVE (ADR-150) — **reclassified IMPORTANT on
+  2026-08-03 maintainer direction**, and the strongest candidate for the next
+  epic. *Source: ADR-150 + maintainer direction 2026-08-03 (1st-order).*
+  **IMPORTANT.**
