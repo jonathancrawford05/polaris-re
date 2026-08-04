@@ -41,6 +41,11 @@ thesis; this is what discharges it.
   grouping level as a parameter and states it in the report. Conservative default:
   do **not** silently collapse across `smoker` or `uw_class`, which pool
   genuinely different populations.
+- **`uw_class` handling, settled by the 2026-08-04 distribution:** pool `"NA"` as
+  its own stratum (it is *not applicable*, not missing), and hold `"U"` out of any
+  class-conditioned inference (it is unknown). Numbered classes arrive already
+  composed with their structure size (`"1of2"` vs `"1of4"`) so the harness does
+  not need to re-derive it.
 - **Acceptance criteria:**
   - Runs green on synthetic fixtures in CI; `--source hmd|ilec` contract documented.
   - **No plots** — numbers and tables commit and diff, images do not.
@@ -97,12 +102,29 @@ thesis; this is what discharges it.
   9,714,592 cells, 2012–2019, 4,552,009 deaths over 464,513,252 policy-years
   (9.8 per 1,000 crude — as expected for insured business skewed to older
   permanent).
-- **`uw_class = "NA"` — pool or drop?** The load returns the literal string
-  `"NA"`, not null. If it means *not applicable* (the policy has no preferred-class
-  structure) it is a legitimate category and must be pooled as one; if it means
-  *not disclosed* it is missing data and pooling it would blend distinct
-  underwriting populations. The file's own `Preferred_Indicator` and
-  `Number_of_Pfd_Classes` columns should settle it empirically — see the runbook.
+- ~~**`uw_class = "NA"` — pool or drop?**~~ **RESOLVED 2026-08-04**, empirically,
+  from the maintainer's own file rather than the data dictionary:
+
+  | Preferred_Class | Indicator | N classes | rows |
+  |---|---|---|---|
+  | `NA` | 0 | `NA` | 14,615,884 |
+  | numbered 1–4 | 1 | 2 / 3 / 4 | ~26.9M |
+  | `U` | `U` | `U` | 798,461 |
+
+  **`NA` means *not applicable*** — perfectly aligned with `Preferred_Indicator = 0`
+  and no class count, i.e. the policy has no preferred-class structure. A
+  legitimate stratum, and the largest single group. **Pool it.**
+  **`U` is the missing-data category**, distinct in all three columns and ~2% of
+  rows — exclude it from any inference that conditions on underwriting class,
+  rather than pooling it with underwritten business.
+
+  **The query also exposed a defect this epic introduced.** `Preferred_Class`
+  alone is **not a valid stratification key**: class "2" of a 2-class structure is
+  the *worst* class while class "2" of a 4-class structure is *second-best*, and
+  the mapping conflated them. `load_ilec` now composes `uw_class` with the class
+  count (`"2of2"`, `"2of4"`), leaving the `NA`/`U` sentinels uncomposed.
+  Backwards compatible: composition happens only where the column map supplies a
+  count, so vintages loaded through the default map are unaffected.
 - **`mgcv` oracle (ADR-151), still unexecuted.** Needs an R-equipped machine and
   is the maintainer's to run. Real-data fitting is exactly when an independent
   cross-check earns its keep — worth running alongside slice 2 if convenient, but

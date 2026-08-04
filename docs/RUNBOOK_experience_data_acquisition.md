@@ -315,8 +315,19 @@ appears alongside rows whose indicator says a preferred structure *does* exist,
 it is **not disclosed** for those, and those cells should be dropped from any fit
 that conditions on underwriting class.
 
-A mixed answer is also possible and is worth knowing: the honest handling is then
-to split on the indicator rather than on the class label.
+**The 2012-2019 answer (run 2026-08-04, so you need not re-run it):**
+
+| Preferred_Class | Indicator | N classes | rows |
+|---|---|---|---|
+| `NA` | 0 | `NA` | 14,615,884 |
+| numbered 1–4 | 1 | 2 / 3 / 4 | ~26.9M |
+| `U` | `U` | `U` | 798,461 |
+
+`NA` is **not applicable** — pool it. `U` is **unknown** — hold it out of
+class-conditioned inference. And the query turned up a third thing neither label
+would have suggested: `Preferred_Class` alone is **ambiguous**, because class "2"
+of 2 is the worst class while class "2" of 4 is second-best. `load_ilec` now
+composes the two into `"2of2"` / `"2of4"` automatically for this vintage.
 
 ## 3. What to send back
 

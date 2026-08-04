@@ -679,3 +679,103 @@ def test_include_expected_raises_when_the_vintage_lacks_the_columns(tmp_path: Pa
     path = _write_ilec(tmp_path)  # the plain fixture has no ExpDth columns
     with pytest.raises(PolarisValidationError, match="expected-death"):
         load_ilec(path, include_expected=True)
+
+
+# ---------------------------------------------------------------------------
+# uw_class composition — Preferred_Class alone is NOT a valid key
+# ---------------------------------------------------------------------------
+
+
+def _write_ilec_pfd(tmp_path: Path) -> Path:
+    """Rows whose ``Preferred_Class`` label collides across class structures.
+
+    Mirrors the real 2012-2019 distribution (maintainer-measured 2026-08-04):
+    ``NA`` pairs with ``Preferred_Indicator = 0`` and no class count, ``U`` is
+    the unknown sentinel, and numbered classes appear under 2-, 3- and 4-class
+    structures. Class "2" of 2 is the *worst* class; class "2" of 4 is
+    *second-best* — different populations wearing the same label.
+    """
+    df = pl.DataFrame(
+        {
+            "Observation_Year": [2015] * 6,
+            "Attained_Age": [45] * 6,
+            "Issue_Age": [40] * 6,
+            "Duration": [6] * 6,
+            "Sex": ["Male"] * 6,
+            "Smoker_Status": ["Nonsmoker"] * 6,
+            "Insurance_Plan": ["Term"] * 6,
+            "Face_Amount_Band": ["A"] * 6,
+            "Preferred_Class": ["2", "2", "1", "NA", "U", "1"],
+            "Number_of_Pfd_Classes": ["2", "4", "2", "NA", "U", "4"],
+            "Policies_Exposed": [100.0, 200.0, 300.0, 400.0, 500.0, 600.0],
+            "Death_Count": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            "Amount_Exposed": [1e7] * 6,
+            "Death_Claim_Amount": [1e5] * 6,
+        }
+    )
+    path = tmp_path / "ILEC_pfd.txt"
+    df.write_csv(path, separator="\t")
+    return path
+
+
+def test_uw_class_composes_with_the_class_count(tmp_path: Path) -> None:
+    """``2`` of a 2-class structure must not merge with ``2`` of a 4-class one."""
+    path = _write_ilec_pfd(tmp_path)
+    cells = load_ilec(path, separator="\t", column_map=ILEC_2012_19_COLUMN_MAP)
+    classes = set(cells["uw_class"].to_list())
+    assert "2of2" in classes
+    assert "2of4" in classes
+    assert "1of2" in classes
+    assert "1of4" in classes
+    # The bare label must not survive — it is the ambiguous form.
+    assert "2" not in classes
+    assert "1" not in classes
+
+
+def test_uw_class_keeps_the_na_and_u_sentinels_uncomposed(tmp_path: Path) -> None:
+    """``NA`` (not applicable) and ``U`` (unknown) are categories, not classes.
+
+    The maintainer's distribution settles what they mean: every ``NA`` row
+    carries ``Preferred_Indicator = 0`` and no class count — the policy has no
+    preferred structure at all — while ``U`` is unknown across all three
+    columns. Composing either into "NAofNA" would be nonsense.
+    """
+    path = _write_ilec_pfd(tmp_path)
+    cells = load_ilec(path, separator="\t", column_map=ILEC_2012_19_COLUMN_MAP)
+    classes = set(cells["uw_class"].to_list())
+    assert "NA" in classes
+    assert "U" in classes
+    assert "NAofNA" not in classes
+    assert "UofU" not in classes
+
+
+def test_colliding_classes_stay_separate_cells(tmp_path: Path) -> None:
+    """The point of the fix: exposure must not be pooled across structures."""
+    path = _write_ilec_pfd(tmp_path)
+    cells = load_ilec(path, separator="\t", column_map=ILEC_2012_19_COLUMN_MAP)
+    of2 = cells.filter(pl.col("uw_class") == "2of2")
+    of4 = cells.filter(pl.col("uw_class") == "2of4")
+    assert of2.height == 1 and of4.height == 1
+    assert of2["central_exposure"][0] == pytest.approx(100.0)
+    assert of4["central_exposure"][0] == pytest.approx(200.0)
+    # Had they merged, this single cell would carry 300.0 and 3 deaths.
+
+
+def test_class_count_helper_column_is_not_emitted(tmp_path: Path) -> None:
+    """The class count is an input to the key, not an output column."""
+    path = _write_ilec_pfd(tmp_path)
+    cells = load_ilec(path, separator="\t", column_map=ILEC_2012_19_COLUMN_MAP)
+    assert not [c for c in cells.columns if "n_uw_class" in c or "Pfd" in c]
+
+
+def test_uw_class_unchanged_when_the_map_supplies_no_class_count(
+    tmp_path: Path,
+) -> None:
+    """Backward compatible: composition happens only if the map provides it.
+
+    The default ``ILEC_COLUMN_MAP`` has no class-count column, so a vintage
+    loaded through it keeps the bare label and behaves exactly as before.
+    """
+    path = _write_ilec(tmp_path)
+    cells = load_ilec(path)
+    assert "uw_class" not in cells.columns or set(cells["uw_class"].to_list()) != set()

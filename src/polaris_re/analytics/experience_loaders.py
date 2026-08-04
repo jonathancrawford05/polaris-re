@@ -57,6 +57,7 @@ __all__ = [
     "ILEC_EXPECTED_COUNT_MEASURES",
     "ILEC_SEX_LABELS",
     "ILEC_SMOKER_LABELS",
+    "ILEC_UW_CLASS_SENTINELS",
     "default_experience_cache_dir",
     "fetch_hmd",
     "hmd_1x1_url",
@@ -340,6 +341,22 @@ _ILEC_BASIS_EXPECTED: dict[str, tuple[str, ...]] = {
 }
 
 
+ILEC_UW_CLASS_SENTINELS: tuple[str, ...] = ("NA", "U")
+"""``Preferred_Class`` values that are *categories*, not ordinal classes.
+
+Verified against the real 2012-2019 release (maintainer, 2026-08-04): every
+``NA`` row carries ``Preferred_Indicator = 0`` and no class count — the policy
+has **no preferred-class structure at all**, which is a legitimate stratum and
+the file's largest group. ``U`` is unknown across all three preferred columns
+and is the genuinely-missing category. Neither is composed with a class count
+(``"NAofNA"`` would be nonsense); both pass through unchanged."""
+
+#: Internal landing column for the class count. Deliberately not a canonical key
+#: — it is an *input* to ``uw_class``, not an output column, and is dropped by
+#: the canonical-key projection after the composition.
+_ILEC_UW_CLASS_COUNT = "_n_uw_classes"
+
+
 ILEC_2012_19_COLUMN_MAP: dict[str, str] = {
     "Observation_Year": "calendar_year",
     "Attained_Age": "attained_age",
@@ -350,6 +367,9 @@ ILEC_2012_19_COLUMN_MAP: dict[str, str] = {
     "Insurance_Plan": "product",
     "Face_Amount_Band": "band",
     "Preferred_Class": "uw_class",
+    # Needed to DISAMBIGUATE uw_class, not to be emitted — see
+    # ILEC_UW_CLASS_SENTINELS and the composition in load_ilec.
+    "Number_of_Pfd_Classes": _ILEC_UW_CLASS_COUNT,
     "Policies_Exposed": COUNT_MEASURES[0],
     "Death_Count": COUNT_MEASURES[1],
     "Amount_Exposed": AMOUNT_MEASURES[0],
@@ -553,6 +573,23 @@ def load_ilec(
             lazy = lazy.with_columns(
                 pl.col(label_col).cast(pl.Utf8).str.strip_chars().str.to_uppercase()
             )
+
+    # Compose uw_class with the class count BEFORE grouping — this is a
+    # correctness fix, not cosmetics. `Preferred_Class` alone is ambiguous:
+    # class "2" of a 2-class structure is the *worst* class, while class "2" of
+    # a 4-class structure is *second-best*. Grouping on the bare label pools two
+    # genuinely different underwriting populations into one cell, silently.
+    # Composition is conditional on the column map supplying the count, so a
+    # vintage loaded through the default map is unaffected.
+    if "uw_class" in frame_columns and _ILEC_UW_CLASS_COUNT in frame_columns:
+        label = pl.col("uw_class").cast(pl.Utf8).str.strip_chars()
+        count = pl.col(_ILEC_UW_CLASS_COUNT).cast(pl.Utf8).str.strip_chars()
+        lazy = lazy.with_columns(
+            pl.when(label.is_null() | label.is_in(ILEC_UW_CLASS_SENTINELS))
+            .then(label)
+            .otherwise(label + "of" + count)
+            .alias("uw_class")
+        )
 
     # 1-based policy-year duration → select duration in months.
     if "duration" in frame_columns:
