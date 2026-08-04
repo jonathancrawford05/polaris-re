@@ -148,7 +148,7 @@ B1 and B2 are the cleanest between-epic fallback picks and the **S3** sequence
 | # | Feature | Value | Effort |
 |---|---------|-------|--------|
 | ~~C3~~ | ~~Funds-withheld coinsurance (`FWCoinsuranceTreaty`)~~ — **SHIPPED** (PR #166): Slice 1 (PR #165, ADR-163: treaty module + funds-withheld interest) + Slice 2 (PR #166, ADR-164: surfaced on CLI/API/dashboard + `golden_fw_coins`); both merged to main 2026-07-27. `docs/CONTINUATION_fw_coinsurance.md` [COMPLETE]. (Ledger-healed this session, step 4b.) | ★★★☆☆ | ~2 d |
-| C4 | Parallel portfolio execution + caching + `remove_deal` — **IN PROGRESS** (constituted 2026-08-02 as a 3-slice MEDIUM epic: `docs/PLAN_portfolio_execution.md` + `docs/CONTINUATION_portfolio_execution.md`). **Slice 1 SHIPPED** (PR #181 / ADR-178, **MERGED** to main `a160246` — ledger-healed 2026-08-02 step 4b): the deal-lifecycle API (`remove_deal` / `replace_deal` / `clear_deals` / `without_deal` / `deal_ids` / `get_deal` / `len` / `in`). **Slice 2 SHIPPED** (PR #182 / ADR-179): opt-in per-deal result cache `Portfolio(cache=True)` keyed `(deal_id, hurdle_rate)`, per-deal invalidation on all four mutation verbs, `without_deal` copies inherit surviving entries (leave-one-out sweep drops from `N x (N-1)` projections to `N`), `_with_scenario` starts empty, plus `clear_cache()` / `cache_stats()`. Slice 3 = parallel execution (behind a measurement gate). | ★★★☆☆ | ~2 d |
+| C4 | Parallel portfolio execution + caching + `remove_deal` — **IN PROGRESS** (constituted 2026-08-02 as a 3-slice MEDIUM epic: `docs/PLAN_portfolio_execution.md` + `docs/CONTINUATION_portfolio_execution.md`). **Slice 1 SHIPPED** (PR #181 / ADR-178, **MERGED** to main `a160246` — ledger-healed 2026-08-02 step 4b): the deal-lifecycle API (`remove_deal` / `replace_deal` / `clear_deals` / `without_deal` / `deal_ids` / `get_deal` / `len` / `in`). **Slice 2 SHIPPED** (PR #182 / ADR-179, **MERGED** to main `39729fb` — ledger-healed 2026-08-02 step 4b): opt-in per-deal result cache `Portfolio(cache=True)` keyed `(deal_id, hurdle_rate)`, per-deal invalidation on all four mutation verbs, `without_deal` copies inherit surviving entries (leave-one-out sweep drops from `N x (N-1)` projections to `N`), `_with_scenario` starts empty, plus `clear_cache()` / `cache_stats()`. ~~Slice 3 = parallel execution (behind a measurement gate).~~ — **SHIPPED** (PR #183 / ADR-180): `run(max_workers=N)` + `run_with_capital` / `run_scenarios` forwarding, one task per deal collected by index, bit-identical at every worker count, plus the committed measurement `scripts/bench_portfolio_parallel.py`. The measurement gate came back **below the bar** (peak 1.29x; 0.48-0.59x — slower than serial — at 4/8 workers on small deals, 4-core runner), so the speed-up is **published, not claimed**, and the knob's disposition is flagged for the maintainer in ADR-180. **This closes epic C4** (all 3 slices shipped). | ★★★☆☆ | ~2 d |
 | C5 | Per-deal hurdle rates on `Portfolio` | ★★★☆☆ | ~5 d |
 | C6 | Phase-6.3 load test (100 concurrent `/api/v1/price` < 2s) + QUICKSTART K8s guide | ★★★☆☆ | ~1–2 d |
 
@@ -1242,3 +1242,123 @@ a chosen frontier the routine is in maintenance mode**, drawing this queue down
 one quick win at a time (B1 → B2 → B4 → C…). The reasonability profile is
 **unchanged** — no new flag emerged. The single strategic item for the
 maintainer is the **Phase-7 go/no-go** surfaced above.
+
+### Harvested 2026-08-02 (portfolio parallel execution — ADR-180; C4 Slice 3 — CLOSES C4)
+
+**Slice 3** of the C4 epic shipped as ADR-180 and **closes the epic**
+(`CONTINUATION_portfolio_execution.md` → COMPLETE), so this harvest promotes the
+epic's surviving refinement items as well as ADR-180's own out-of-scope
+paragraph, per the step-17 close-out rule.
+
+The slice's headline outcome is a **negative measurement, honestly published**:
+threaded per-deal fan-out peaked at **1.29x** (4 deals x 20k policies, 4 workers)
+and was **slower than serial** — 0.59x at 4 workers, 0.48x at 8 — on 8 deals x 5k
+policies, on a 4-core runner. The knob ships off by default with those numbers in
+its docstring and no speed-up claim anywhere in the docs. Two consequences below
+are first-class work items rather than commentary.
+
+- **Vectorise the engines' month-by-month recursions (the real throughput
+  bottleneck).** ADR-180's measurement diagnosed *why* the fan-out barely helps:
+  a per-deal projection is not one big GIL-releasing ufunc. `products/term_life.py`
+  runs several `for month in range(t)` recursions (in-force factor `lx`,
+  net-premium reserve, CRVM reserve) — Python loops around comparatively small
+  per-step NumPy calls on `(N,)` arrays — so threads overlap the array work but
+  contend on everything between the steps. That is directly visible in the
+  measurement: 20k-policy deals scale (1.29x) where 5k-policy deals regress
+  (0.59x), because larger `N` lengthens each C section relative to the Python
+  overhead around it. Shortening or vectorising those loops would raise the
+  **serial** number too, which is a strictly larger win than any fan-out, and it
+  is a change to `products/`, not `analytics/`. Genuinely reserve-recursive steps
+  may resist full vectorisation; the honest first step is a profile attributing
+  projection time across the recursions before committing to a rewrite.
+  *Source: ADR-180 Out of scope + DISCOVERY protocol finding, routine step 11b
+  (1st-order).* **IMPORTANT.**
+- ~~**Decide the `max_workers` knob's fate.**~~ — **RESOLVED 2026-08-03: KEEP**
+  (ADR-180 amendment 2). The maintainer's Apple Silicon measurement peaked at
+  **1.77x** (16 deals x 20k policies, 4 workers), clearing the 1.5x bar though not
+  2x, with every row bit-identical — see
+  `docs/MEASUREMENT_portfolio_parallel_macbook_air.md`. Kept in a *narrower* form
+  than "parallel works": still off by default, now documented with two measured
+  rules (match performance cores, not total cores; large per-deal blocks only),
+  because the small-deal regression reproduced on independent hardware. Original
+  context retained below for the audit trail. ADR-180 deliberately did not decide
+  it: the `CONTINUATION`'s open question asked what speed-up justifies the API
+  surface (1.5x? 2x?), the measured peak is below both, and on the plan's own
+  terms this is the "ship the measurement, not the claim" branch. The knob was
+  kept rather than deleted only because a **4-core** measurement is a thin basis
+  for removing a feature that may pay on a 32-core workstation, and
+  `scripts/bench_portfolio_parallel.py` is the instrument for re-measuring there.
+  If the maintainer prefers the stricter reading, removing the parameter is a
+  small self-contained revert; the benchmark and the ADR are worth keeping either
+  way. *Source: CONTINUATION_portfolio_execution "Open Questions (for human)" —
+  the one that survived the epic's close (1st-order).* **IMPORTANT** (an API
+  surface decision, not a correctness gap).
+- **Re-measure the parallel curve on many-core hardware.** The whole ADR-180
+  table is one 4-core box. The oversubscription cliff at 4 and 8 workers is partly
+  an artifact of that box, and nothing in the repo records what the curve looks
+  like with real headroom. One run of `scripts/bench_portfolio_parallel.py` on a
+  16- or 32-core machine, committed alongside the ADR table, would either justify
+  the knob or settle its removal on evidence rather than inference. *Source:
+  ADR-180 "Recommendation" (2nd-order — a follow-up of the knob-disposition
+  item).* **NICE-TO-HAVE.**
+- ~~**Surface `max_workers` on the CLI / REST / dashboard.**~~ — **PARTIALLY
+  SHIPPED** (PR #183 / ADR-180 amendment): the **CLI half is done** —
+  `polaris portfolio run --max-workers N` and `polaris portfolio scenarios
+  --max-workers N`, serial by default, with `--help` text that leads with the
+  measured *slower-than-serial* caveat (a test pins that wording). Shipped on
+  maintainer direction the same session, ahead of the disposition decision rather
+  than behind it. **REST and the Streamlit page remain out of scope and open**:
+  a concurrency knob on a shared service multiplies per-request pools against the
+  server's own concurrency, which is a capacity-planning decision, not an API one
+  — unlike a CLI invocation, where one user owns the machine. Revisit only after
+  the many-core measurement settles whether the knob survives at all. *Source:
+  ADR-180 Out of scope + ADR-180 amendment (1st-order).* **NICE-TO-HAVE.**
+- ~~**Run the many-core measurement and settle ADR-180's disposition question.**~~
+  — **SHIPPED 2026-08-03**: run on an Apple Silicon MacBook Air, all three shapes,
+  committed as `docs/MEASUREMENT_portfolio_parallel_macbook_air.md` and folded into
+  ADR-180 as amendment 2. Verdict KEEP; the `run` docstring and CLI `--help` were
+  rewritten around the real curve. Machine spec since captured — **10 cores, 4
+  performance + 6 efficiency** — which confirms the peak sits exactly at the
+  P-core count while 6 cores sit idle. No residual (RAM was not recorded; nothing
+  in the runs suggests it mattered). Original framing retained for the audit trail:
+  Now the gating item for the two above: `docs/RUNBOOK_portfolio_parallel_measurement.md`
+  is the procedure (three book shapes, a results template, and the caveat that a
+  CLI-level speed-up will be smaller than the benchmark's because the command also
+  pays parsing / ingest / table-load / rendering — unmeasured). Output lands as
+  `docs/MEASUREMENT_portfolio_parallel_<hardware>.md` and either closes the
+  question as *keep* — with the ADR's 4-core table gaining a many-core sibling and
+  the docstring / `--help` rewritten around the real curve — or as *remove*, on
+  evidence. Maintainer has indicated a lean toward adoption; the measurement is
+  what makes that a decision rather than a preference. *Source: ADR-180
+  amendment + maintainer direction 2026-08-02 (1st-order).* **IMPORTANT.**
+- **Incremental portfolio what-if over a session.** The C4 epic built the whole
+  machinery — `without_deal` (ADR-178), the per-deal cache (ADR-179), the fan-out
+  (ADR-180) — and none of it is reachable from any user-facing surface, because
+  all three construct a fresh `Portfolio` per request. Making "drop DEAL_C and
+  re-price" a one-click dashboard action needs a session/state design first (where
+  the portfolio lives between requests, how it is invalidated, what happens on
+  concurrent edits). This is the item that would convert the epic's ergonomics
+  work into user-visible value. *Source: CONTINUATION_portfolio_execution
+  "Context for Next Session" + PLAN §4 (1st-order).* **IMPORTANT.**
+- **Portfolio-level marginal contribution analytic.** Considered and rejected in
+  Slice 1 as out-of-character for an ergonomics epic: `without_deal` makes the
+  leave-one-out loop a two-liner (and ADR-179's cache carry-over drops it from
+  `N x (N-1)` projections to `N`), but a real attribution surface — marginal PV,
+  marginal capital, marginal concentration, presented per deal — is its own
+  feature with its own ADR. The cheap half of it now exists. *Source:
+  CONTINUATION_portfolio_execution "Context for Next Session" — considered and
+  rejected for Slice 1 (1st-order).* **NICE-TO-HAVE.**
+- **Make the CLI-output test assertions colour-proof.** Three pre-existing tests
+  assert on rendered Rich output without stripping ANSI escape codes
+  (`TestPortfolioRunConcentrationBasisFlag::test_nar_peak_basis_renders_nar_section_only`,
+  `::test_all_basis_renders_three_sections`,
+  `TestPortfolioReportConcentrationBasisFlag::test_report_supports_all_basis` —
+  all matching `'weighted by Peak Ceded NAR'`). They are **green on CI today**
+  only because the module-level Rich `Console` disables colour off a TTY; reproduce
+  the latent failure with
+  `FORCE_COLOR=1 uv run pytest tests/test_analytics/test_cli_portfolio.py`. PR #183
+  hit the same hazard on the *help*-rendering path — where Typer's formatter
+  colours regardless of TTY — and added a `_plain()` helper in that file that these
+  three could reuse. Low severity (a latent CI fragility, not a production defect),
+  but it is a trap that has now cost one red CI round. *Source: PR #183 CI round 1,
+  DISCOVERY protocol step 11b (1st-order).* **NICE-TO-HAVE.**

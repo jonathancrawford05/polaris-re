@@ -12113,3 +12113,247 @@ service sweeping many hurdle rates would want an LRU bound); and detecting
 in-place mutation of a deal's inputs (`clear_cache()` is the manual answer; a
 content-hash or version-stamp on `InforceBlock` / `AssumptionSet` would be the
 automatic one).
+
+---
+
+## ADR-180: Portfolio parallel execution — `run(max_workers=N)`, threads, measured and *not* claimed fast (portfolio-execution epic Slice 3)
+
+**Date:** 2026-08-02
+**Status:** Accepted — with an open disposition question for the maintainer (see
+"Recommendation" below).
+
+**Context:** `Portfolio.run()` projected the book one deal at a time. Deals are
+completely independent until the aggregation sum — an embarrassingly parallel
+shape the loop did not exploit — and this was the third and last third of
+catalogue item C4, after the deal-lifecycle API (ADR-178) and the per-deal result
+cache (ADR-179).
+
+Reproduced before writing any code (routine step 7b):
+
+```
+run signature:              (self, hurdle_rate, *, align='strict')
+run_with_capital signature: (self, hurdle_rate, capital_model, *, align='strict')
+run_scenarios signature:    (self, hurdle_rate, scenarios=None, *, align='strict')
+ThreadPoolExecutor imported in module: False
+```
+
+No worker knob existed and every projection ran on the calling thread. The
+premise held exactly as `docs/PLAN_portfolio_execution.md` states; no correction
+was needed.
+
+The plan attached a **measurement gate** to this slice: *"publish a real speed-up
+measured through the perf harness on a multi-deal portfolio, or ship the
+measurement and not the parallel claim."* The measurement is the interesting part
+of this ADR, so it is recorded before the decision.
+
+**The measurement.** `scripts/bench_portfolio_parallel.py` (new, committed) times
+a **cold** portfolio — every sample builds a fresh `Portfolio(cache=False)`, so no
+projection is ever reused — at a series of worker counts, using the harness's
+best-of-k *minimum* estimator, and proves every worker count produced a
+bit-identical aggregate (`assert_array_equal`, never `allclose`) before reporting
+a single number. Measured on the 4-core CI-class runner this session ran on,
+20-year monthly horizon, k=3:
+
+| book | serial | 2 workers | 4 workers | 8 workers |
+|---|---|---|---|---|
+| 8 deals x 5,000 policies | 3.80 s | **1.19x** | **0.59x** | **0.48x** |
+| 4 deals x 20,000 policies | 7.85 s | 1.07x | **1.29x** | — |
+
+Both rows reproduced across independent invocations (the 8x5k row twice, within
+2%). Every row was bit-identical to serial.
+
+So: the speed-up is real but **modest where it exists and negative where it does
+not**. The shape is explained by where the time actually goes. A per-deal
+projection is *not* one big GIL-releasing ufunc — `products/term_life.py` carries
+several `for month in range(t)` recursions (in-force factor `lx`, net-premium
+reserve, CRVM reserve), i.e. Python loops around per-step NumPy calls on `(N,)`
+arrays. Larger `N` lengthens each C section relative to the Python overhead
+between them, which is exactly why 20k-policy deals scale (1.29x) and 5k-policy
+deals do not (0.59x at 4 workers, where oversubscribing 4 cores costs more than
+the overlap gains).
+
+**Decision:**
+
+1. **`run(..., max_workers: int | None = None)`**, forwarded by
+   `run_with_capital` and `run_scenarios`. `None` (default) and `1` take the
+   *serial* path — not a one-worker pool — as does a portfolio with fewer than
+   two deals, so no existing caller pays anything, and a `ThreadPoolExecutor` is
+   never even constructed on the default path (there is a test that asserts
+   exactly that by making the constructor raise).
+2. **Threads, not processes.** The payload is NumPy-heavy and its large `(N x T)`
+   ufuncs do release the GIL; a process pool would have to pickle every
+   `InforceBlock` / `MortalityTable` per deal, which on these block sizes costs
+   more than the projection it parallelises.
+3. **One task per deal, collected by input position** (`Executor.map`), never by
+   completion order. This is what keeps the order-sensitive aggregation sum — and
+   therefore every number in the result, PV included — bit-identical to serial at
+   any worker count. It is also what makes the fan-out touch each cache key
+   exactly once, so ADR-179's no-single-flight decision continues to hold rather
+   than being quietly invalidated by this slice.
+4. **Worker count capped at `min(max_workers, n_deals)`** — spare threads have
+   nothing to do, and the cap keeps `cache_stats().misses` equal to the number of
+   projections.
+5. **`max_workers` validated up front**, before any deal is projected: `None` or
+   a positive plain `int`. `bool` is rejected explicitly despite being an `int`
+   subclass, because `max_workers=True` would silently mean "one worker" and is
+   never what a caller passing a flag intended.
+6. **A lock now guards the cache dict and its two counters** (never a projection).
+   ADR-179 recorded the no-locking decision as resting on CPython's GIL making
+   `self._cache_hits += 1` and the dict write-back *effectively* atomic, and noted
+   it would stop being theoretical on a free-threaded build. This slice is what
+   makes concurrent `_run_deal` a **shipped, supported** path rather than a
+   hypothetical one, so the counters get real mutual exclusion instead of an
+   implicit guarantee. The lock is held only for the lookup, the counter
+   arithmetic, and the write-back; holding it across `_project_deal` would
+   serialise precisely the work the fan-out exists to overlap. The residual — two
+   threads missing on the same key would both project — remains unreachable under
+   the one-task-per-deal shape, and harmless (equal values; only the miss count
+   would overstate work) if a future caller creates it.
+7. **Scenarios stay sequential** in `run_scenarios`; `max_workers` is forwarded to
+   each scenario's `run`. Parallelising the scenarios *as well* would nest pools
+   and multiply peak memory by the scenario count for a workload that is already
+   not core-bound.
+
+**Recommendation (maintainer decision, deliberately not taken here).** The
+`CONTINUATION`'s open question asked what speed-up justifies the API surface —
+1.5x? 2x? — and instructed this slice to *report and recommend, not decide
+unilaterally*. The measured peak is **1.29x**, below both thresholds, and one
+common configuration is **~2x slower** than serial. On the plan's own terms this
+is the "ship the measurement, not the claim" branch, and no claim is made: nothing
+in the README or the public docs advertises portfolio parallelism, and the
+`run` docstring leads with *measure before you enable it* plus the negative
+numbers.
+
+The knob is nonetheless shipped rather than deleted, for one reason: **this is a
+4-core measurement**, and the oversubscription cliff at 4 and 8 workers is partly
+an artifact of that box. Deleting a feature on 4 cores that might pay on a
+reinsurer's 32-core workstation would be over-fitting to the CI runner — and the
+committed benchmark is exactly the instrument for someone to re-measure there
+before enabling it. If the maintainer prefers the stricter reading of the gate,
+removing the parameter is a small, self-contained revert of this PR's engine
+change; the benchmark and this ADR are the part worth keeping either way.
+
+**Consequences:** Existing callers are untouched — the default path is the
+previous code path, and `tests/qa/` goldens are byte-identical. Callers who opt in
+get bit-identical numbers by construction (verified at 2/4/8 workers, under both
+alignment modes, with and without the cache). `cache_stats()` is now exact under
+concurrency rather than probabilistically-correct. A failing deal propagates out
+of `run` rather than yielding a silently partial book (tested). The three
+`Portfolio` surfaces — CLI `polaris portfolio run`, `POST /api/v1/portfolio`, the
+Streamlit page — are untouched and continue to run serially.
+
+**Out of scope:** Surfacing `max_workers` on the CLI / REST / dashboard (the epic
+excludes it: those build a fresh `Portfolio` per request, and exposing a
+concurrency knob on a shared service is a capacity-planning decision, not an API
+one). Process-based or distributed execution. Any single-flight / per-key locking
+(unreachable under this fan-out). And the finding that actually matters for
+throughput: **the per-deal projection is GIL-bound by the engines' month-by-month
+Python recursions**, so vectorising or otherwise shortening those loops would
+raise both the serial and the parallel numbers — a far larger win than the fan-out
+and a change to `products/`, not `analytics/`. It is filed as a promoted follow-up
+rather than expanded into this PR (routine step 11b).
+
+### ADR-180 amendment (2026-08-02, same session): `--max-workers` on the CLI
+
+**Maintainer direction received after the ADR was written:** wire the knob
+through the CLI, and plan to re-measure on many-core hardware before settling the
+disposition question — *"I am leaning into the adoption of the parallel feature."*
+Recorded here rather than by editing the decision above, so the sequence stays
+auditable: the measurement came first, the surfacing decision second.
+
+This narrows — but does not close — the ADR's out-of-scope line on surfacing.
+Shipped:
+
+- `polaris portfolio run --max-workers N` and `polaris portfolio scenarios
+  --max-workers N`, both defaulting to the serial path. On the scenarios command
+  the scenarios stay sequential; only the per-deal projections within each fan
+  out, matching `run_scenarios`'s own semantics.
+- A CLI-level validation that names the **flag** (`--max-workers must be >= 1`)
+  rather than surfacing the engine's parameter-named message to someone who typed
+  a flag — the same pattern `--align` already uses.
+- `--help` text that **leads with the caveat, not the mechanic**: it states that
+  the knob can be *slower* and carries the measured 1.29x / 0.59x / 0.48x figures
+  inline. A test asserts the word "slower" survives in the rendered help, because
+  `--help` is the only place most callers will ever read about this and a flag
+  named `--max-workers` otherwise reads as "make it go faster". Deleting that
+  sentence should require deleting a test.
+
+Still out of scope, unchanged: `POST /api/v1/portfolio` and the Streamlit page. A
+concurrency knob on a shared service multiplies per-request pools against the
+server's own concurrency — a capacity-planning decision, not an API one — whereas
+a CLI invocation is one user who owns the whole machine. That asymmetry is the
+whole reason the CLI is the right first (and possibly only) surface.
+
+**The disposition question stays open**, and the CLI flag does not pre-empt it.
+`docs/RUNBOOK_portfolio_parallel_measurement.md` is the procedure for generating
+the many-core half of the evidence: three book shapes chosen to test the ADR's
+actual finding (that the sign of the effect depends on per-deal block size), a
+template for committing the results as
+`docs/MEASUREMENT_portfolio_parallel_<hardware>.md`, and an explicit note that a
+CLI-level speed-up will be *smaller* than the benchmark's because the command also
+pays config parsing, CSV ingest, table load, and rendering — currently unmeasured,
+flagged as such rather than estimated.
+
+One consequence worth stating plainly: surfacing the flag raises the cost of
+removing it later from "revert one engine change" to "deprecate a public CLI
+option". That was accepted knowingly on the maintainer's direction, with the
+many-core measurement as the thing that resolves it either way.
+
+### ADR-180 amendment 2 (2026-08-03): many-core measurement — the knob is KEPT
+
+The disposition question left open above is now **closed as KEEP**, on the
+maintainer's Apple Silicon MacBook Air measurement (full tables:
+`docs/MEASUREMENT_portfolio_parallel_macbook_air.md`). Recorded as the
+maintainer's decision, taken on evidence rather than inference — which is what
+the original ADR asked for and explicitly declined to do off a 4-core container.
+
+| shape | serial | 2w | 4w | 8w | 16w |
+|---|---|---|---|---|---|
+| A — 8 deals x 5k policies | 0.659 s | **1.30x** | 0.94x | 0.70x | — |
+| B — 4 deals x 20k | 1.254 s | 1.56x | **1.57x** | — | — |
+| C — 16 deals x 20k | 5.184 s | 1.63x | **1.77x** | 1.35x | 1.23x |
+
+Every row bit-identical to serial. **Peak 1.77x** — clears the 1.5x bar the
+CONTINUATION floated, does not reach 2x.
+
+Three findings, and the first two are the reason the knob survives in a
+*narrower* form rather than being promoted to a general accelerator:
+
+1. **The sign still flips with per-deal block size.** Shape A peaks at **2**
+   workers and goes below serial at 4 (0.94x) and 8 (0.70x). ADR-180's central
+   finding reproduced on independent hardware and a different OS — less
+   violently than the container's 0.59x / 0.48x, but the same shape. "Set it to
+   4" is therefore the wrong instruction; on a small-deal book 4 is a slowdown.
+2. **The curve bends at the *performance*-core count, not the total — confirmed
+   against the machine spec, not merely consistent with it.** The Air reports
+   `hw.ncpu = 10`, split **4 performance + 6 efficiency**, and the peak sits at
+   exactly 4 on every shape. The 6 E-cores contribute nothing: 8 workers scores
+   1.35x against 4 workers' 1.77x on shape C, and 16 falls to 1.23x, with ample
+   work available in both cases. They cost throughput rather than merely failing
+   to add any — plausibly because a thread on a slow core holds its share of the
+   GIL-contended critical path for longer. The runbook raised this as a
+   hypothesis; it is now the documented rule in both the `run` docstring and the
+   CLI `--help`, and it matters practically: a caller who read "use your cores"
+   and passed 10 on this machine would give back roughly a third of the gain.
+3. **Oversubscription degrades gracefully with more cores.** Shape C at 8/16
+   workers still beats serial (1.35x / 1.23x) where the 4-core box collapsed to
+   0.48x. More cores makes the mistake cheaper, not free.
+
+**Confound, stated rather than buried:** a MacBook Air is fanless, so part of the
+8/16-worker tail on shape C may be thermal throttling rather than
+GIL/oversubscription. Best-of-k takes the minimum, which mitigates but does not
+eliminate it. The 4-worker peak is unaffected (faster *and* cooler than the 8/16
+runs), so the decision does not rest on the soft part; re-running shape C on an
+actively-cooled Mac would settle the tail.
+
+**What changed in the code:** only documentation. The `run` docstring and the
+`--max-workers` help text now carry the two rules — performance cores, large
+blocks — instead of a bare "measure first" warning with a single negative table.
+The default is still serial, still bit-identical at every worker count, and still
+absent from REST and the dashboard.
+
+**What did not change:** the ceiling. ~1.8x on 4 performance cores — with 6
+further cores idle and unable to help — is what a GIL-bound workload looks like. The month-by-month Python recursions in
+`products/term_life.py` remain the binding constraint, and shortening them raises
+the *serial* number for every surface at once — still the larger win, still filed
+as IMPORTANT.
