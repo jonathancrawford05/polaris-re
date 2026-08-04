@@ -12357,3 +12357,103 @@ further cores idle and unable to help — is what a GIL-bound workload looks lik
 `products/term_life.py` remain the binding constraint, and shortening them raises
 the *serial* number for every surface at once — still the larger win, still filed
 as IMPORTANT.
+
+---
+
+## ADR-181: SOA-ILEC loader contract — separator, streaming read, expected-death denominator, and a disambiguated `uw_class`
+
+**Date:** 2026-08-04
+**Status:** Accepted
+
+**Context:** `load_ilec` was written and unit-tested against small synthetic
+fixtures during the A4′ epic. Its first contact with a **real** SOA release —
+`ILEC_2012_19 - 20240429.txt`, ~12 GB, 30 columns, downloaded by the maintainer
+on 2026-08-04 — surfaced four things, three of which were defects. Recording them
+because CLAUDE.md §10 asks for the choices to be pinned, and because each was
+found by *running the thing* rather than by reading it.
+
+**Decision:**
+
+1. **`separator` parameter, with a loud single-column guard.** The release is
+   **tab**-delimited despite its `.txt` name, and the loader hardcoded
+   `pl.read_csv(path)` — default comma — so the vintage was unreadable. The
+   parameter is the obvious half; the guard is the important half. A wrong
+   delimiter does **not** raise in a CSV reader, it yields one very wide column,
+   which surfaces much later as "missing measure column" against a one-item
+   list. The loader now rejects a single-column parse up front and names the
+   likely fix.
+2. **Lazy scan with projection and group pushdown, collected on the streaming
+   engine.** An eager 12 GB read needs more RAM than most machines have, for
+   data that is immediately aggregated away. Only the mapped columns are
+   materialised (13 of 30), and the group-and-sum is pushed into the plan, so
+   peak memory tracks the **output** cell count rather than the input row count.
+   Label normalisation moves *ahead* of the `group_by` (so `Male` and `MALE` land
+   in the same group) while the unmapped-label guard stays *after* collection,
+   where taking distinct values is cheap.
+
+   Engine support is probed **once on a trivial plan** rather than inferred from
+   a `TypeError` around the real `collect`. A genuine `TypeError` raised during
+   query execution is indistinguishable from an unsupported `engine=` kwarg, so
+   catching it at the call site would silently retry a failed query on the
+   default engine — and anything the retry raised would escape unwrapped, since
+   a sibling `except` does not cover a handler body (PR #184 review [P2-1]).
+3. **`include_expected` — SOA's published expected deaths, opt-in.** The release
+   carries `ExpDth_VBT2015_{Cnt,Amt}` and `ExpDth_VBT2015wMI_*`: expected deaths
+   on the VBT 2015 basis, **without and with** mortality improvement, computed by
+   SOA on the same cells from the same exposure.
+
+   This is the substantive one. It converts validating our tensor MI surface from
+   a **narrative** comparison — does the fitted surface *look like* the documented
+   post-2010 slowdown? — into a **numeric** one. A/E on identical cells against
+   `expected_deaths_vbt2015_mi` is arithmetic: a flat A/E-by-year profile is
+   agreement, a sloped one is a finding, either way. And the `_mi` / non-`_mi`
+   pair isolates the improvement component on its own — **their ratio *is* SOA's
+   MI assumption**, comparable to our surface with no model of ours in between.
+
+   Opt-in rather than default because it is a different *kind* of column (a
+   third-party model output, not observed experience) and most callers do not
+   want it in their cells. It **raises** rather than silently omitting when a
+   vintage does not publish it: asking for the denominator and receiving a frame
+   without it would make the check unavailable at exactly the moment it is relied
+   on.
+4. **`uw_class` composed with the class count.** `Preferred_Class` alone is
+   **not a valid stratification key**: class "2" of a 2-class structure is the
+   *worst* class, while class "2" of a 4-class structure is *second-best*. The
+   map sent both to `uw_class = "2"` and dropped `Number_of_Pfd_Classes`, pooling
+   two genuinely different underwriting populations — silently, with ~26.9M rows
+   of exposure behind the numbered classes. Now composed (`"2of2"`, `"2of4"`).
+
+   Two refinements the first cut got wrong, both caught in review:
+   - A **null or blank count must not flow into the concatenation.** Polars
+     string concat with a null operand yields null, so `"1" + "of" + null` is
+     null and *every* numbered class with a missing count groups under one null
+     key — pooling classes 1 and 2 outright, which is strictly worse than the
+     ambiguity being fixed, and equally silent. A missing count now degrades to
+     `"1ofNA"` / `"2ofNA"`: classes stay distinct and the missing qualifier is
+     visible (PR #184 review [P1-1]).
+   - The `NA` / `U` **sentinels are never composed**. `"NAofNA"` is nonsense.
+     The maintainer's distribution settles what they mean: `NA` (14,615,884 rows)
+     pairs perfectly with `Preferred_Indicator = 0` and no class count — *not
+     applicable*, a legitimate stratum, and the largest single group. `U`
+     (798,461 rows) is unknown across all three preferred columns — the genuinely
+     missing category, to be held out of class-conditioned inference rather than
+     pooled with underwritten business.
+
+   Composition is conditional on the column map supplying a count via
+   `ILEC_UW_CLASS_COUNT_TARGET`, so vintages loaded through the default
+   `ILEC_COLUMN_MAP` are unaffected. That target is **exported**: a caller writing
+   a map for another vintage otherwise has no supported way to request the
+   disambiguation (PR #184 review [P2-2]).
+
+**Consequences:** The 2012-2019 release is loadable, in bounded memory, with an
+independent A/E denominator and a non-conflating underwriting key. `uw_class`
+values change shape under the new vintage map (`"1"` → `"1of2"`) — an output
+contract change for `load_ilec`, not a core data contract, with no current
+consumer. Nothing on the pricing path moves; `tests/qa/` goldens are untouched.
+
+**Out of scope:** `uw_class` **dtype** is still inherited from the reader on the
+uncomposed path (Int64 for an all-numeric class column) while the composed path
+always yields Utf8. Pre-existing, cosmetic today, and a join-key hazard if a
+future consumer keys on it across vintages — filed rather than fixed here.
+Automatic delimiter sniffing (the caller declares it), and any handling of the
+`Cen*Mom*` central-moment columns the release also carries.

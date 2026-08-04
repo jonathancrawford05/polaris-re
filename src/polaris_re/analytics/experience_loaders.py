@@ -51,9 +51,14 @@ __all__ = [
     "HMD_1X1_KINDS",
     "HMD_BASE_URL",
     "HMD_SEX_LABELS",
+    "ILEC_2012_19_COLUMN_MAP",
     "ILEC_COLUMN_MAP",
+    "ILEC_EXPECTED_AMOUNT_MEASURES",
+    "ILEC_EXPECTED_COUNT_MEASURES",
     "ILEC_SEX_LABELS",
     "ILEC_SMOKER_LABELS",
+    "ILEC_UW_CLASS_COUNT_TARGET",
+    "ILEC_UW_CLASS_SENTINELS",
     "default_experience_cache_dir",
     "fetch_hmd",
     "hmd_1x1_url",
@@ -308,6 +313,100 @@ ILEC_COLUMN_MAP: dict[str, str] = {
 """Default SOA-ILEC source-column → canonical-column map. Override per-vintage via
 ``load_ilec(column_map=...)`` — ILEC header spellings differ between releases."""
 
+ILEC_EXPECTED_COUNT_MEASURES: tuple[str, str] = (
+    "expected_deaths_vbt2015",
+    "expected_deaths_vbt2015_mi",
+)
+"""SOA-published expected deaths by count, on the VBT 2015 basis — without and
+with mortality improvement.
+
+**Why these matter more than they look.** They are an *independent* A/E
+denominator: SOA computed them, on the same cells, from the same exposure. That
+turns validating our tensor MI surface from a **narrative** comparison ("does the
+fitted surface look like the documented post-2010 slowdown?") into a **numeric**
+one — if our A/E ratios drift systematically with calendar year against
+``expected_deaths_vbt2015_mi``, our improvement assumption disagrees with SOA's
+by a measurable amount, in a specific direction. Opt in via
+``load_ilec(include_expected=True)``."""
+
+ILEC_EXPECTED_AMOUNT_MEASURES: tuple[str, str] = (
+    "expected_amount_vbt2015",
+    "expected_amount_vbt2015_mi",
+)
+"""Face-amount-weighted counterpart of :data:`ILEC_EXPECTED_COUNT_MEASURES`."""
+
+_ILEC_BASIS_EXPECTED: dict[str, tuple[str, ...]] = {
+    "count": ILEC_EXPECTED_COUNT_MEASURES,
+    "amount": ILEC_EXPECTED_AMOUNT_MEASURES,
+    "both": (*ILEC_EXPECTED_COUNT_MEASURES, *ILEC_EXPECTED_AMOUNT_MEASURES),
+}
+
+
+ILEC_UW_CLASS_SENTINELS: tuple[str, ...] = ("NA", "U")
+"""``Preferred_Class`` values that are *categories*, not ordinal classes.
+
+Verified against the real 2012-2019 release (maintainer, 2026-08-04): every
+``NA`` row carries ``Preferred_Indicator = 0`` and no class count — the policy
+has **no preferred-class structure at all**, which is a legitimate stratum and
+the file's largest group. ``U`` is unknown across all three preferred columns
+and is the genuinely-missing category. Neither is composed with a class count
+(``"NAofNA"`` would be nonsense); both pass through unchanged."""
+
+ILEC_UW_CLASS_COUNT_TARGET = "_n_uw_classes"
+"""Map a vintage's class-count column to **this** target to opt into ``uw_class``
+composition (``"1"`` + 2-class structure → ``"1of2"``).
+
+Deliberately not a canonical key: it is an *input* to ``uw_class``, not an output
+column, and the canonical-key projection drops it after the composition. Exported
+because a caller writing a ``column_map`` for another vintage otherwise has no
+supported way to request the disambiguation — see :func:`load_ilec`."""
+
+_ILEC_UW_CLASS_COUNT = ILEC_UW_CLASS_COUNT_TARGET
+
+#: Substituted for a null/blank class count so a numbered class stays distinct
+#: ("1ofNA" vs "2ofNA") instead of collapsing to a single null key.
+_ILEC_UW_CLASS_UNQUALIFIED = "NA"
+
+
+ILEC_2012_19_COLUMN_MAP: dict[str, str] = {
+    "Observation_Year": "calendar_year",
+    "Attained_Age": "attained_age",
+    "Issue_Age": "issue_age",
+    "Duration": "duration",
+    "Sex": "sex",
+    "Smoker_Status": "smoker",
+    "Insurance_Plan": "product",
+    "Face_Amount_Band": "band",
+    "Preferred_Class": "uw_class",
+    # Needed to DISAMBIGUATE uw_class, not to be emitted — see
+    # ILEC_UW_CLASS_SENTINELS and the composition in load_ilec.
+    "Number_of_Pfd_Classes": _ILEC_UW_CLASS_COUNT,
+    "Policies_Exposed": COUNT_MEASURES[0],
+    "Death_Count": COUNT_MEASURES[1],
+    "Amount_Exposed": AMOUNT_MEASURES[0],
+    "Death_Claim_Amount": AMOUNT_MEASURES[1],
+    # SOA-published expected deaths (VBT 2015 basis, without / with MI) — the
+    # independent A/E denominator. Carried only when include_expected=True.
+    "ExpDth_VBT2015_Cnt": ILEC_EXPECTED_COUNT_MEASURES[0],
+    "ExpDth_VBT2015wMI_Cnt": ILEC_EXPECTED_COUNT_MEASURES[1],
+    "ExpDth_VBT2015_Amt": ILEC_EXPECTED_AMOUNT_MEASURES[0],
+    "ExpDth_VBT2015wMI_Amt": ILEC_EXPECTED_AMOUNT_MEASURES[1],
+}
+"""Column map for the **2012-2019 release** (``ILEC_2012_19 - 20240429.txt``),
+verified against a real download on 2026-08-03.
+
+Two differences from :data:`ILEC_COLUMN_MAP` that a caller will not guess:
+
+- **Underscored names throughout** (``Observation_Year``, not ``Observation Year``).
+- **``Sex``, not ``Gender``** — a genuine rename, not just the underscoring, so a
+  mechanical space-to-underscore transform of the default map still misses it.
+
+This release also publishes **no distribution-channel column**, so ``channel`` is
+absent from the map; it is an optional key and the loader carries only what is
+present. And it is **tab-delimited** despite the ``.txt`` name — pass
+``separator="\\t"`` (see :func:`load_ilec`).
+"""
+
 ILEC_SEX_LABELS: dict[str, str] = {
     "MALE": Sex.MALE.value,
     "M": Sex.MALE.value,
@@ -369,6 +468,8 @@ def load_ilec(
     basis: str = "count",
     column_map: dict[str, str] | None = None,
     aggregate: bool = True,
+    separator: str = ",",
+    include_expected: bool = False,
 ) -> pl.DataFrame:
     """Load a SOA-ILEC grouped flat file into the canonical grouped-cell contract.
 
@@ -387,6 +488,24 @@ def load_ilec(
                     Only mapped columns present in the file are used.
         aggregate:  Group-and-sum over the present canonical key columns (default
                     True). Set False to keep the file's native row grain.
+        separator:  Field delimiter. ``","`` by default; the **2012-2019 release
+                    is tab-delimited** (``"\\t"``) despite its ``.txt`` name — the
+                    extension carries no format information, the separator does.
+                    A wrong separator is rejected up front rather than silently
+                    parsed as one wide column.
+        include_expected: Also carry SOA's **published expected deaths** on the
+                    VBT 2015 basis (without and with mortality improvement),
+                    summed over the same cells as the actual measures — see
+                    :data:`ILEC_EXPECTED_COUNT_MEASURES`. Default ``False``.
+                    Raises if the vintage does not publish them, rather than
+                    returning a frame quietly missing the denominator the
+                    caller asked for.
+
+    Memory: the file is read **lazily** and only the mapped columns are
+    materialised, with the group-and-sum pushed into a streaming collect. The real
+    2012-2019 release is ~12 GB across 30 columns of which ~13 are mapped, so an
+    eager whole-file read would need more RAM than most machines have for data
+    that is then immediately aggregated away.
 
     Returns:
         Canonical cells: the present key columns (``attained_age``,
@@ -406,57 +525,153 @@ def load_ilec(
         )
 
     cmap = column_map if column_map is not None else ILEC_COLUMN_MAP
-    try:
-        frame = pl.read_csv(path)
-    except Exception as exc:
-        raise PolarisComputationError(f"Failed to read ILEC CSV {path}: {exc}") from exc
-
-    # Rename only the mapped columns that are present.
-    rename = {src: dst for src, dst in cmap.items() if src in frame.columns}
-    frame = frame.rename(rename)
-
     measures = _ILEC_BASIS_MEASURES[basis]
-    missing_measures = [m for m in measures if m not in frame.columns]
+    if include_expected:
+        measures = (*measures, *_ILEC_BASIS_EXPECTED[basis])
+
+    # Lazy scan: the real releases are far too large to read eagerly (the
+    # 2012-2019 file is ~12 GB), and most of their columns are never used.
+    try:
+        lazy = pl.scan_csv(path, separator=separator, infer_schema_length=10_000)
+        source_columns = lazy.collect_schema().names()
+    except Exception as exc:
+        raise PolarisComputationError(f"Failed to read ILEC file {path}: {exc}") from exc
+
+    # A wrong separator does not error in a CSV reader — it yields ONE wide
+    # column. Caught here, loudly, rather than surfacing later as a baffling
+    # "missing measure column" against a one-item column list.
+    if len(source_columns) == 1:
+        raise PolarisValidationError(
+            f"ILEC file {path} parsed as a single column with separator "
+            f"{separator!r} — the delimiter is almost certainly wrong. The "
+            f"2012-2019 release is TAB-delimited despite its .txt name: pass "
+            f'separator="\\t". Parsed header: {source_columns[0][:120]!r}'
+        )
+
+    # Rename only the mapped columns that are present, then keep ONLY those —
+    # projection pushdown means the unmapped columns are never materialised.
+    rename = {src: dst for src, dst in cmap.items() if src in source_columns}
+    lazy = lazy.rename(rename).select(sorted(set(rename.values())))
+    frame_columns = sorted(set(rename.values()))
+    missing_measures = [m for m in measures if m not in frame_columns]
     if missing_measures:
+        expected_names = set(_ILEC_BASIS_EXPECTED[basis])
+        if include_expected and expected_names.intersection(missing_measures):
+            raise PolarisValidationError(
+                f"include_expected=True but this ILEC file publishes no "
+                f"expected-death column(s) {sorted(expected_names.intersection(missing_measures))} "
+                f"after mapping. The 2012-2019 release carries them as "
+                f"ExpDth_VBT2015[wMI]_{{Cnt,Amt}} (see ILEC_2012_19_COLUMN_MAP); "
+                f"other vintages may not. Present columns: {frame_columns}."
+            )
         raise PolarisValidationError(
             f"ILEC file is missing measure column(s) {missing_measures} for basis "
-            f"{basis!r} after mapping. Present columns: {frame.columns}."
+            f"{basis!r} after mapping. Present columns: {frame_columns}."
         )
-    if "attained_age" not in frame.columns:
+    if "attained_age" not in frame_columns:
         raise PolarisValidationError(
             "ILEC file has no 'attained_age' column after mapping — supply a "
             "column_map that maps the source attained-age column."
         )
 
+    # Normalise the label columns *lazily and before grouping*: "Male" and "MALE"
+    # must land in the same group, so this cannot wait until after the aggregate.
+    # The unmapped-label guard runs after collection (see below) — it needs the
+    # distinct values, and taking them from the aggregated frame is cheap where
+    # taking them from 12 GB of raw rows is not.
+    for label_col in ("sex", "smoker"):
+        if label_col in frame_columns:
+            lazy = lazy.with_columns(
+                pl.col(label_col).cast(pl.Utf8).str.strip_chars().str.to_uppercase()
+            )
+
+    # Compose uw_class with the class count BEFORE grouping — this is a
+    # correctness fix, not cosmetics. `Preferred_Class` alone is ambiguous:
+    # class "2" of a 2-class structure is the *worst* class, while class "2" of
+    # a 4-class structure is *second-best*. Grouping on the bare label pools two
+    # genuinely different underwriting populations into one cell, silently.
+    # Composition is conditional on the column map supplying the count, so a
+    # vintage loaded through the default map is unaffected.
+    if "uw_class" in frame_columns and _ILEC_UW_CLASS_COUNT in frame_columns:
+        label = pl.col("uw_class").cast(pl.Utf8).str.strip_chars()
+        # A NULL or blank count must NOT flow into the concatenation. Polars
+        # string concat with a null operand yields null, so `"1" + "of" + null`
+        # is null — and every numbered class with a missing count would then
+        # group together under a single null key. That is a *worse* pooling than
+        # the bare label this composition exists to fix (classes 1 and 2 merged,
+        # not merely 2-of-2 with 2-of-4), and it is silent. Degrading to
+        # "1ofNA" / "2ofNA" keeps the classes apart and makes the missing
+        # qualifier visible to whoever reads the cells.
+        count = (
+            pl.col(_ILEC_UW_CLASS_COUNT)
+            .cast(pl.Utf8)
+            .str.strip_chars()
+            .replace("", None)
+            .fill_null(_ILEC_UW_CLASS_UNQUALIFIED)
+        )
+        lazy = lazy.with_columns(
+            pl.when(label.is_null() | label.is_in(ILEC_UW_CLASS_SENTINELS))
+            .then(label)
+            .otherwise(label + "of" + count)
+            .alias("uw_class")
+        )
+
+    # 1-based policy-year duration → select duration in months.
+    if "duration" in frame_columns:
+        lazy = lazy.with_columns(
+            (((pl.col("duration").cast(pl.Int32) - 1) * 12).clip(lower_bound=0))
+            .cast(pl.Int32)
+            .alias("duration_months")
+        ).drop("duration")
+        frame_columns = [c for c in frame_columns if c != "duration"] + ["duration_months"]
+
+    # Integer-cast the age/year keys.
+    for int_col in ("attained_age", "issue_age", "calendar_year"):
+        if int_col in frame_columns:
+            lazy = lazy.with_columns(pl.col(int_col).cast(pl.Int32).alias(int_col))
+    # Float64-cast the measures.
+    lazy = lazy.with_columns([pl.col(m).cast(pl.Float64).alias(m) for m in measures])
+
+    key_cols = [c for c in CANONICAL_KEY_COLUMNS if c in frame_columns]
+
+    if aggregate:
+        # Pushed into the lazy plan so the streaming engine aggregates as it
+        # reads — this is what keeps peak memory proportional to the *output*
+        # cell count rather than the input row count.
+        lazy = lazy.group_by(key_cols).agg([pl.col(m).sum().alias(m) for m in measures])
+
+    lazy = lazy.select(*key_cols, *measures)
+    # Probe engine support ONCE on a trivial plan rather than inferring it from a
+    # TypeError raised by the real collect. A genuine TypeError during query
+    # *execution* is indistinguishable from an unsupported `engine=` kwarg, so
+    # catching it around the real call would silently retry a failed query on the
+    # default engine — and anything the retry raised would escape unwrapped,
+    # since a sibling `except` does not cover a handler body (PR #184 review
+    # [P2-1]).
+    collect_kwargs: dict[str, str] = {}
+    try:
+        pl.LazyFrame().collect(engine="streaming")
+        collect_kwargs = {"engine": "streaming"}
+    except TypeError:  # pragma: no cover - polars too old for engine=
+        collect_kwargs = {}
+
+    try:
+        frame = lazy.collect(**collect_kwargs)
+    except Exception as exc:
+        raise PolarisComputationError(f"Failed to read ILEC file {path}: {exc}") from exc
+
     # Canonicalise gender/smoker labels — fail loud on an unmapped label (mirrors
     # load_hmd's explicit sex-code guard) so a real vintage with an unrecognised
     # spelling surfaces here, not later as an opaque base-rate-lookup failure.
+    # Idempotent with the lazy normalisation above (strip/upper of an already
+    # stripped, upper-cased value is a no-op); this call adds the guard and the
+    # map to canonical codes.
     if "sex" in frame.columns:
         frame = _canonicalise_label(frame, "sex", ILEC_SEX_LABELS, "gender")
     if "smoker" in frame.columns:
         frame = _canonicalise_label(frame, "smoker", ILEC_SMOKER_LABELS, "smoker")
 
-    # 1-based policy-year duration → select duration in months.
-    if "duration" in frame.columns:
-        frame = frame.with_columns(
-            (((pl.col("duration").cast(pl.Int32) - 1) * 12).clip(lower_bound=0))
-            .cast(pl.Int32)
-            .alias("duration_months")
-        ).drop("duration")
-
-    # Integer-cast the age/year keys.
-    for int_col in ("attained_age", "issue_age", "calendar_year"):
-        if int_col in frame.columns:
-            frame = frame.with_columns(pl.col(int_col).cast(pl.Int32).alias(int_col))
-    # Float64-cast the measures.
-    frame = frame.with_columns([pl.col(m).cast(pl.Float64).alias(m) for m in measures])
-
-    key_cols = [c for c in CANONICAL_KEY_COLUMNS if c in frame.columns]
-
-    if aggregate:
-        frame = frame.group_by(key_cols).agg([pl.col(m).sum().alias(m) for m in measures])
-
-    return frame.select(*key_cols, *measures).sort(key_cols)
+    return frame.sort(key_cols)
 
 
 # --- Network fetch (dependency-injected; never exercised in CI) -----------------

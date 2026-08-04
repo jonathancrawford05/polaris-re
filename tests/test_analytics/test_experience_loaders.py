@@ -32,6 +32,10 @@ from polaris_re.analytics.experience_gam import (
 )
 from polaris_re.analytics.experience_loaders import (
     HMD_BASE_URL,
+    ILEC_2012_19_COLUMN_MAP,
+    ILEC_COLUMN_MAP,
+    ILEC_EXPECTED_AMOUNT_MEASURES,
+    ILEC_EXPECTED_COUNT_MEASURES,
     default_experience_cache_dir,
     fetch_hmd,
     hmd_1x1_url,
@@ -227,6 +231,9 @@ def _write_ilec(tmp_path: Path) -> Path:
             "Gender": ["Male", "Male", "Female", "Male"],
             "Smoker Status": ["Nonsmoker", "Nonsmoker", "Smoker", "Nonsmoker"],
             "Insurance Plan": ["Term", "Term", "Term", "Term"],
+            # Rows 0/1 must share a class or they stop collapsing in the
+            # aggregation tests above.
+            "Preferred Class": ["1", "1", "2", "1"],
             "Policies Exposed": [1000.0, 500.0, 800.0, 900.0],
             "Death Count": [2.0, 1.0, 3.0, 2.0],
             "Amount Exposed": [1e8, 5e7, 8e7, 9e7],
@@ -506,3 +513,323 @@ def test_loaded_ilec_feeds_tensor_mi_surface(tmp_path: Path) -> None:
     assert surface.mi_grid.shape[0] == 15
     assert surface.mi_grid.shape[1] == 5
     assert np.all(np.isfinite(surface.mi_grid))
+
+
+# ---------------------------------------------------------------------------
+# Tab-delimited + 2012-19 vintage (real SOA release, 2026-08-03)
+# ---------------------------------------------------------------------------
+
+
+def _write_ilec_2012_19(tmp_path: Path) -> Path:
+    """A TAB-delimited extract in the real 2012-19 release's header spelling.
+
+    Mirrors the header of `ILEC_2012_19 - 20240429.txt`: underscored names,
+    ``Sex`` rather than ``Gender``, and no ``Distribution Channel`` column at
+    all. Written with ``.txt`` because that is what SOA ships — the extension
+    carries no format information, the separator does.
+    """
+    df = pl.DataFrame(
+        {
+            "Observation_Year": [2015, 2015, 2015, 2016],
+            "Attained_Age": [45, 45, 46, 45],
+            "Issue_Age": [40, 40, 41, 40],
+            "Duration": [6, 6, 6, 7],
+            "Sex": ["Male", "Male", "Female", "Male"],
+            "Smoker_Status": ["Nonsmoker", "Nonsmoker", "Smoker", "Nonsmoker"],
+            "Insurance_Plan": ["Term", "Term", "Term", "Term"],
+            "Face_Amount_Band": ["A", "A", "A", "A"],
+            "Preferred_Class": ["1", "1", "1", "1"],
+            "Policies_Exposed": [1000.0, 500.0, 800.0, 900.0],
+            "Death_Count": [2.0, 1.0, 3.0, 2.0],
+            "Amount_Exposed": [1e8, 5e7, 8e7, 9e7],
+            "Death_Claim_Amount": [2e5, 1e5, 3e5, 2e5],
+            # SOA's published expected deaths — the independent A/E denominator.
+            "ExpDth_VBT2015_Cnt": [1.8, 0.9, 2.7, 1.8],
+            "ExpDth_VBT2015wMI_Cnt": [1.7, 0.85, 2.6, 1.7],
+            "ExpDth_VBT2015_Amt": [1.8e5, 0.9e5, 2.7e5, 1.8e5],
+            "ExpDth_VBT2015wMI_Amt": [1.7e5, 0.85e5, 2.6e5, 1.7e5],
+            # A column the loader ignores, as the real file has many.
+            "Slct_Ult_Ind": ["S", "S", "S", "S"],
+        }
+    )
+    path = tmp_path / "ILEC_2012_19 - sample.txt"
+    df.write_csv(path, separator="\t")
+    return path
+
+
+def test_load_ilec_reads_tab_delimited(tmp_path: Path) -> None:
+    """A tab-delimited file loads when the separator is declared."""
+    path = _write_ilec_2012_19(tmp_path)
+    cells = load_ilec(path, separator="\t", column_map=ILEC_2012_19_COLUMN_MAP)
+    m45 = cells.filter(
+        (pl.col("attained_age") == 45) & (pl.col("calendar_year") == 2015) & (pl.col("sex") == "M")
+    )
+    assert m45.height == 1
+    assert m45["central_exposure"][0] == pytest.approx(1500.0)
+    assert m45["death_count"][0] == pytest.approx(3.0)
+
+
+def test_tab_file_read_as_comma_raises_rather_than_silently_misparsing(
+    tmp_path: Path,
+) -> None:
+    """The default comma separator must fail loudly on a tab file.
+
+    A single-column misparse would otherwise surface much later as a confusing
+    'missing measure column' error against a column list of one.
+    """
+    path = _write_ilec_2012_19(tmp_path)
+    with pytest.raises((PolarisValidationError, PolarisComputationError)):
+        load_ilec(path, column_map=ILEC_2012_19_COLUMN_MAP)
+
+
+def test_ilec_2012_19_map_covers_every_canonical_target(tmp_path: Path) -> None:
+    """The vintage map must reach every canonical column the default map does,
+    minus the ones this release genuinely does not publish."""
+    default_targets = set(ILEC_COLUMN_MAP.values())
+    vintage_targets = set(ILEC_2012_19_COLUMN_MAP.values())
+    # 2012-19 has no distribution-channel column; everything else is covered.
+    assert default_targets - vintage_targets == {"channel"}
+
+
+def test_ilec_2012_19_map_uses_sex_not_gender() -> None:
+    """The 2012-19 release renamed Gender -> Sex; that is not just underscoring."""
+    assert "Sex" in ILEC_2012_19_COLUMN_MAP
+    assert ILEC_2012_19_COLUMN_MAP["Sex"] == "sex"
+    assert "Gender" not in ILEC_2012_19_COLUMN_MAP
+
+
+def test_load_ilec_selects_only_mapped_columns(tmp_path: Path) -> None:
+    """Unmapped source columns must not be materialised.
+
+    The real 2012-19 file is 12 GB with 30 columns; reading the ~17 that are
+    never used would be most of the memory cost for none of the value.
+    """
+    path = _write_ilec_2012_19(tmp_path)
+    cells = load_ilec(path, separator="\t", column_map=ILEC_2012_19_COLUMN_MAP)
+    assert "ExpDth_VBT2015_Cnt" not in cells.columns
+    assert "Slct_Ult_Ind" not in cells.columns
+
+
+# ---------------------------------------------------------------------------
+# SOA-published expected deaths — the independent A/E denominator
+# ---------------------------------------------------------------------------
+
+
+def test_expected_measures_are_off_by_default(tmp_path: Path) -> None:
+    """The default carry-through is unchanged — expected columns are opt-in."""
+    path = _write_ilec_2012_19(tmp_path)
+    cells = load_ilec(path, separator="\t", column_map=ILEC_2012_19_COLUMN_MAP)
+    for col in (*ILEC_EXPECTED_COUNT_MEASURES, *ILEC_EXPECTED_AMOUNT_MEASURES):
+        assert col not in cells.columns
+
+
+def test_include_expected_carries_and_sums_the_count_pair(tmp_path: Path) -> None:
+    """``include_expected`` sums SOA's expected deaths over the same cells."""
+    path = _write_ilec_2012_19(tmp_path)
+    cells = load_ilec(
+        path, separator="\t", column_map=ILEC_2012_19_COLUMN_MAP, include_expected=True
+    )
+    for col in ILEC_EXPECTED_COUNT_MEASURES:
+        assert col in cells.columns
+    # The two Male/NS/2015/age-45 source rows collapse; expected deaths sum
+    # exactly as the actual deaths do, so the A/E ratio is well-defined per cell.
+    m45 = cells.filter(
+        (pl.col("attained_age") == 45) & (pl.col("calendar_year") == 2015) & (pl.col("sex") == "M")
+    )
+    assert m45.height == 1
+    assert m45["expected_deaths_vbt2015"][0] == pytest.approx(1.8 + 0.9)
+    assert m45["death_count"][0] == pytest.approx(3.0)
+
+
+def test_expected_deaths_give_a_computable_ae_ratio(tmp_path: Path) -> None:
+    """The point of the whole thing: actual/expected on identical cells.
+
+    SOA publishes expected deaths on the VBT 2015 basis with and without
+    mortality improvement, so the A/E ratio is an *independent* check on our own
+    improvement surface rather than a comparison against a narrative.
+    """
+    path = _write_ilec_2012_19(tmp_path)
+    cells = load_ilec(
+        path, separator="\t", column_map=ILEC_2012_19_COLUMN_MAP, include_expected=True
+    )
+    ae = cells.select(
+        (pl.col("death_count").sum() / pl.col("expected_deaths_vbt2015").sum()).alias("ae")
+    )["ae"][0]
+    assert ae == pytest.approx(8.0 / 7.2)
+
+
+def test_amount_basis_carries_the_amount_expected_pair(tmp_path: Path) -> None:
+    path = _write_ilec_2012_19(tmp_path)
+    cells = load_ilec(
+        path,
+        separator="\t",
+        column_map=ILEC_2012_19_COLUMN_MAP,
+        basis="amount",
+        include_expected=True,
+    )
+    for col in ILEC_EXPECTED_AMOUNT_MEASURES:
+        assert col in cells.columns
+    for col in ILEC_EXPECTED_COUNT_MEASURES:
+        assert col not in cells.columns
+
+
+def test_include_expected_raises_when_the_vintage_lacks_the_columns(tmp_path: Path) -> None:
+    """A vintage without SOA expected deaths must fail loudly, not silently drop.
+
+    Asking for the A/E denominator and getting a frame without it would make the
+    check quietly unavailable at exactly the moment it is being relied on.
+    """
+    path = _write_ilec(tmp_path)  # the plain fixture has no ExpDth columns
+    with pytest.raises(PolarisValidationError, match="expected-death"):
+        load_ilec(path, include_expected=True)
+
+
+# ---------------------------------------------------------------------------
+# uw_class composition — Preferred_Class alone is NOT a valid key
+# ---------------------------------------------------------------------------
+
+
+def _write_ilec_pfd(tmp_path: Path) -> Path:
+    """Rows whose ``Preferred_Class`` label collides across class structures.
+
+    Mirrors the real 2012-2019 distribution (maintainer-measured 2026-08-04):
+    ``NA`` pairs with ``Preferred_Indicator = 0`` and no class count, ``U`` is
+    the unknown sentinel, and numbered classes appear under 2-, 3- and 4-class
+    structures. Class "2" of 2 is the *worst* class; class "2" of 4 is
+    *second-best* — different populations wearing the same label.
+    """
+    df = pl.DataFrame(
+        {
+            "Observation_Year": [2015] * 6,
+            "Attained_Age": [45] * 6,
+            "Issue_Age": [40] * 6,
+            "Duration": [6] * 6,
+            "Sex": ["Male"] * 6,
+            "Smoker_Status": ["Nonsmoker"] * 6,
+            "Insurance_Plan": ["Term"] * 6,
+            "Face_Amount_Band": ["A"] * 6,
+            "Preferred_Class": ["2", "2", "1", "NA", "U", "1"],
+            "Number_of_Pfd_Classes": ["2", "4", "2", "NA", "U", "4"],
+            "Policies_Exposed": [100.0, 200.0, 300.0, 400.0, 500.0, 600.0],
+            "Death_Count": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            "Amount_Exposed": [1e7] * 6,
+            "Death_Claim_Amount": [1e5] * 6,
+        }
+    )
+    path = tmp_path / "ILEC_pfd.txt"
+    df.write_csv(path, separator="\t")
+    return path
+
+
+def test_uw_class_composes_with_the_class_count(tmp_path: Path) -> None:
+    """``2`` of a 2-class structure must not merge with ``2`` of a 4-class one."""
+    path = _write_ilec_pfd(tmp_path)
+    cells = load_ilec(path, separator="\t", column_map=ILEC_2012_19_COLUMN_MAP)
+    classes = set(cells["uw_class"].to_list())
+    assert "2of2" in classes
+    assert "2of4" in classes
+    assert "1of2" in classes
+    assert "1of4" in classes
+    # The bare label must not survive — it is the ambiguous form.
+    assert "2" not in classes
+    assert "1" not in classes
+
+
+def test_uw_class_keeps_the_na_and_u_sentinels_uncomposed(tmp_path: Path) -> None:
+    """``NA`` (not applicable) and ``U`` (unknown) are categories, not classes.
+
+    The maintainer's distribution settles what they mean: every ``NA`` row
+    carries ``Preferred_Indicator = 0`` and no class count — the policy has no
+    preferred structure at all — while ``U`` is unknown across all three
+    columns. Composing either into "NAofNA" would be nonsense.
+    """
+    path = _write_ilec_pfd(tmp_path)
+    cells = load_ilec(path, separator="\t", column_map=ILEC_2012_19_COLUMN_MAP)
+    classes = set(cells["uw_class"].to_list())
+    assert "NA" in classes
+    assert "U" in classes
+    assert "NAofNA" not in classes
+    assert "UofU" not in classes
+
+
+def test_colliding_classes_stay_separate_cells(tmp_path: Path) -> None:
+    """The point of the fix: exposure must not be pooled across structures."""
+    path = _write_ilec_pfd(tmp_path)
+    cells = load_ilec(path, separator="\t", column_map=ILEC_2012_19_COLUMN_MAP)
+    of2 = cells.filter(pl.col("uw_class") == "2of2")
+    of4 = cells.filter(pl.col("uw_class") == "2of4")
+    assert of2.height == 1 and of4.height == 1
+    assert of2["central_exposure"][0] == pytest.approx(100.0)
+    assert of4["central_exposure"][0] == pytest.approx(200.0)
+    # Had they merged, this single cell would carry 300.0 and 3 deaths.
+
+
+def test_class_count_helper_column_is_not_emitted(tmp_path: Path) -> None:
+    """The class count is an input to the key, not an output column."""
+    path = _write_ilec_pfd(tmp_path)
+    cells = load_ilec(path, separator="\t", column_map=ILEC_2012_19_COLUMN_MAP)
+    assert not [c for c in cells.columns if "n_uw_class" in c or "Pfd" in c]
+
+
+def test_uw_class_unchanged_when_the_map_supplies_no_class_count(
+    tmp_path: Path,
+) -> None:
+    """Backward compatible: composition happens only if the map provides it.
+
+    The default ``ILEC_COLUMN_MAP`` maps ``Preferred Class`` but no class-count
+    column, so a vintage loaded through it keeps the **bare** label. Asserted on
+    the actual values — an earlier version of this test was vacuous, because the
+    fixture had no ``Preferred Class`` column at all and both disjuncts were
+    trivially true (PR #184 review [P1-2]).
+    """
+    path = _write_ilec(tmp_path)
+    cells = load_ilec(path)
+    assert "uw_class" in cells.columns
+    # Compared as strings deliberately: the uncomposed path passes the column
+    # through with whatever dtype the reader inferred (Int64 for an all-numeric
+    # class column), while the composed path always yields Utf8. That dtype
+    # inconsistency is real but pre-existing and out of scope here — the
+    # assertion under test is that the label is *bare*, not its storage type.
+    assert {str(v) for v in cells["uw_class"].to_list()} == {"1", "2"}
+
+
+def test_null_class_count_degrades_visibly_rather_than_pooling(tmp_path: Path) -> None:
+    """A missing class count must not collapse distinct classes to one null key.
+
+    Polars string concat with a null operand yields null, so a naive
+    ``label + "of" + count`` sends every numbered class with a missing count to
+    ``uw_class = null`` — pooling classes 1 and 2 outright, which is *worse* than
+    the bare-label ambiguity the composition exists to fix, and silent.
+    """
+    df = pl.DataFrame(
+        {
+            "Observation_Year": [2015, 2015],
+            "Attained_Age": [45, 45],
+            "Issue_Age": [40, 40],
+            "Duration": [6, 6],
+            "Sex": ["Male", "Male"],
+            "Smoker_Status": ["Nonsmoker", "Nonsmoker"],
+            "Insurance_Plan": ["Term", "Term"],
+            "Face_Amount_Band": ["A", "A"],
+            "Preferred_Class": ["1", "2"],
+            "Number_of_Pfd_Classes": [None, None],
+            "Policies_Exposed": [100.0, 200.0],
+            "Death_Count": [1.0, 2.0],
+            "Amount_Exposed": [1e7, 1e7],
+            "Death_Claim_Amount": [1e5, 1e5],
+        }
+    )
+    path = tmp_path / "ILEC_nullcount.txt"
+    df.write_csv(path, separator="\t")
+
+    cells = load_ilec(path, separator="\t", column_map=ILEC_2012_19_COLUMN_MAP)
+    classes = set(cells["uw_class"].to_list())
+    assert classes == {"1ofNA", "2ofNA"}
+    assert None not in classes
+    # The two classes keep their own exposure — the whole point.
+    assert cells.filter(pl.col("uw_class") == "1ofNA")["central_exposure"][0] == pytest.approx(
+        100.0
+    )
+    assert cells.filter(pl.col("uw_class") == "2ofNA")["central_exposure"][0] == pytest.approx(
+        200.0
+    )
