@@ -231,6 +231,9 @@ def _write_ilec(tmp_path: Path) -> Path:
             "Gender": ["Male", "Male", "Female", "Male"],
             "Smoker Status": ["Nonsmoker", "Nonsmoker", "Smoker", "Nonsmoker"],
             "Insurance Plan": ["Term", "Term", "Term", "Term"],
+            # Rows 0/1 must share a class or they stop collapsing in the
+            # aggregation tests above.
+            "Preferred Class": ["1", "1", "2", "1"],
             "Policies Exposed": [1000.0, 500.0, 800.0, 900.0],
             "Death Count": [2.0, 1.0, 3.0, 2.0],
             "Amount Exposed": [1e8, 5e7, 8e7, 9e7],
@@ -773,9 +776,60 @@ def test_uw_class_unchanged_when_the_map_supplies_no_class_count(
 ) -> None:
     """Backward compatible: composition happens only if the map provides it.
 
-    The default ``ILEC_COLUMN_MAP`` has no class-count column, so a vintage
-    loaded through it keeps the bare label and behaves exactly as before.
+    The default ``ILEC_COLUMN_MAP`` maps ``Preferred Class`` but no class-count
+    column, so a vintage loaded through it keeps the **bare** label. Asserted on
+    the actual values — an earlier version of this test was vacuous, because the
+    fixture had no ``Preferred Class`` column at all and both disjuncts were
+    trivially true (PR #184 review [P1-2]).
     """
     path = _write_ilec(tmp_path)
     cells = load_ilec(path)
-    assert "uw_class" not in cells.columns or set(cells["uw_class"].to_list()) != set()
+    assert "uw_class" in cells.columns
+    # Compared as strings deliberately: the uncomposed path passes the column
+    # through with whatever dtype the reader inferred (Int64 for an all-numeric
+    # class column), while the composed path always yields Utf8. That dtype
+    # inconsistency is real but pre-existing and out of scope here — the
+    # assertion under test is that the label is *bare*, not its storage type.
+    assert {str(v) for v in cells["uw_class"].to_list()} == {"1", "2"}
+
+
+def test_null_class_count_degrades_visibly_rather_than_pooling(tmp_path: Path) -> None:
+    """A missing class count must not collapse distinct classes to one null key.
+
+    Polars string concat with a null operand yields null, so a naive
+    ``label + "of" + count`` sends every numbered class with a missing count to
+    ``uw_class = null`` — pooling classes 1 and 2 outright, which is *worse* than
+    the bare-label ambiguity the composition exists to fix, and silent.
+    """
+    df = pl.DataFrame(
+        {
+            "Observation_Year": [2015, 2015],
+            "Attained_Age": [45, 45],
+            "Issue_Age": [40, 40],
+            "Duration": [6, 6],
+            "Sex": ["Male", "Male"],
+            "Smoker_Status": ["Nonsmoker", "Nonsmoker"],
+            "Insurance_Plan": ["Term", "Term"],
+            "Face_Amount_Band": ["A", "A"],
+            "Preferred_Class": ["1", "2"],
+            "Number_of_Pfd_Classes": [None, None],
+            "Policies_Exposed": [100.0, 200.0],
+            "Death_Count": [1.0, 2.0],
+            "Amount_Exposed": [1e7, 1e7],
+            "Death_Claim_Amount": [1e5, 1e5],
+        }
+    )
+    path = tmp_path / "ILEC_nullcount.txt"
+    df.write_csv(path, separator="\t")
+
+    cells = load_ilec(path, separator="\t", column_map=ILEC_2012_19_COLUMN_MAP)
+    classes = set(cells["uw_class"].to_list())
+    assert classes == {"1ofNA", "2ofNA"}
+    assert None not in classes
+    # The two classes keep their own exposure — the whole point.
+    assert cells.filter(pl.col("uw_class") == "1ofNA")["central_exposure"][0] == pytest.approx(
+        100.0
+    )
+    assert cells.filter(pl.col("uw_class") == "2ofNA")["central_exposure"][0] == pytest.approx(
+        200.0
+    )

@@ -57,6 +57,7 @@ __all__ = [
     "ILEC_EXPECTED_COUNT_MEASURES",
     "ILEC_SEX_LABELS",
     "ILEC_SMOKER_LABELS",
+    "ILEC_UW_CLASS_COUNT_TARGET",
     "ILEC_UW_CLASS_SENTINELS",
     "default_experience_cache_dir",
     "fetch_hmd",
@@ -351,10 +352,20 @@ the file's largest group. ``U`` is unknown across all three preferred columns
 and is the genuinely-missing category. Neither is composed with a class count
 (``"NAofNA"`` would be nonsense); both pass through unchanged."""
 
-#: Internal landing column for the class count. Deliberately not a canonical key
-#: — it is an *input* to ``uw_class``, not an output column, and is dropped by
-#: the canonical-key projection after the composition.
-_ILEC_UW_CLASS_COUNT = "_n_uw_classes"
+ILEC_UW_CLASS_COUNT_TARGET = "_n_uw_classes"
+"""Map a vintage's class-count column to **this** target to opt into ``uw_class``
+composition (``"1"`` + 2-class structure → ``"1of2"``).
+
+Deliberately not a canonical key: it is an *input* to ``uw_class``, not an output
+column, and the canonical-key projection drops it after the composition. Exported
+because a caller writing a ``column_map`` for another vintage otherwise has no
+supported way to request the disambiguation — see :func:`load_ilec`."""
+
+_ILEC_UW_CLASS_COUNT = ILEC_UW_CLASS_COUNT_TARGET
+
+#: Substituted for a null/blank class count so a numbered class stays distinct
+#: ("1ofNA" vs "2ofNA") instead of collapsing to a single null key.
+_ILEC_UW_CLASS_UNQUALIFIED = "NA"
 
 
 ILEC_2012_19_COLUMN_MAP: dict[str, str] = {
@@ -583,7 +594,21 @@ def load_ilec(
     # vintage loaded through the default map is unaffected.
     if "uw_class" in frame_columns and _ILEC_UW_CLASS_COUNT in frame_columns:
         label = pl.col("uw_class").cast(pl.Utf8).str.strip_chars()
-        count = pl.col(_ILEC_UW_CLASS_COUNT).cast(pl.Utf8).str.strip_chars()
+        # A NULL or blank count must NOT flow into the concatenation. Polars
+        # string concat with a null operand yields null, so `"1" + "of" + null`
+        # is null — and every numbered class with a missing count would then
+        # group together under a single null key. That is a *worse* pooling than
+        # the bare label this composition exists to fix (classes 1 and 2 merged,
+        # not merely 2-of-2 with 2-of-4), and it is silent. Degrading to
+        # "1ofNA" / "2ofNA" keeps the classes apart and makes the missing
+        # qualifier visible to whoever reads the cells.
+        count = (
+            pl.col(_ILEC_UW_CLASS_COUNT)
+            .cast(pl.Utf8)
+            .str.strip_chars()
+            .replace("", None)
+            .fill_null(_ILEC_UW_CLASS_UNQUALIFIED)
+        )
         lazy = lazy.with_columns(
             pl.when(label.is_null() | label.is_in(ILEC_UW_CLASS_SENTINELS))
             .then(label)
@@ -616,10 +641,22 @@ def load_ilec(
         lazy = lazy.group_by(key_cols).agg([pl.col(m).sum().alias(m) for m in measures])
 
     lazy = lazy.select(*key_cols, *measures)
+    # Probe engine support ONCE on a trivial plan rather than inferring it from a
+    # TypeError raised by the real collect. A genuine TypeError during query
+    # *execution* is indistinguishable from an unsupported `engine=` kwarg, so
+    # catching it around the real call would silently retry a failed query on the
+    # default engine — and anything the retry raised would escape unwrapped,
+    # since a sibling `except` does not cover a handler body (PR #184 review
+    # [P2-1]).
+    collect_kwargs: dict[str, str] = {}
     try:
-        frame = lazy.collect(engine="streaming")
-    except TypeError:  # pragma: no cover - older polars without engine=
-        frame = lazy.collect()
+        pl.LazyFrame().collect(engine="streaming")
+        collect_kwargs = {"engine": "streaming"}
+    except TypeError:  # pragma: no cover - polars too old for engine=
+        collect_kwargs = {}
+
+    try:
+        frame = lazy.collect(**collect_kwargs)
     except Exception as exc:
         raise PolarisComputationError(f"Failed to read ILEC file {path}: {exc}") from exc
 
