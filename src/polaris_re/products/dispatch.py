@@ -19,7 +19,18 @@ _PRODUCT_ENGINES: dict[ProductType, type[BaseProduct]] = {}
 
 
 def _ensure_registry() -> None:
-    """Populate the registry on first call (avoids circular imports)."""
+    """Populate the registry on first call (avoids circular imports).
+
+    **Thread-safety (PR #183 review [P2]).** Since ``Portfolio.run(max_workers=N)``
+    fans per-deal projections out over a thread pool, this can now first populate
+    from a *worker* thread rather than the main one, and two threads can race the
+    ``if _PRODUCT_ENGINES`` guard. That is harmless and deliberately left
+    unlocked: the body is idempotent — three assignments of constant class
+    objects — so a concurrent double-populate writes identical values, and each
+    individual dict store is atomic under the GIL. The imports themselves are
+    serialised by Python's own import lock. The only observable effect is that
+    the work is occasionally done twice, once, at process start.
+    """
     if _PRODUCT_ENGINES:
         return
 

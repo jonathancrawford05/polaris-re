@@ -107,7 +107,25 @@ aggregate that is *identical* to a portfolio built with only the other two, and
   nothing.
 - Acceptance: `max_workers=4` result equals the serial result under
   `assert_array_equal` (exact, not `allclose`); order preserved; invalid
-  `max_workers` rejected; a `@pytest.mark.slow` timing test.
+  `max_workers` rejected; ~~a `@pytest.mark.slow` timing test~~.
+
+**Amended 2026-08-04 (PR #183 review [P2] x2) — two places this plan's literal
+wording and the delivered artefact differ. Both divergences were deliberate and
+are recorded here so the plan and the shipped state agree on paper:**
+
+1. **No `@pytest.mark.slow` timing test was delivered**, and none should be. A
+   wall-clock assertion would contradict the standing rule that raw timing never
+   gates (maintainer, 2026-07-12) — the same rule this plan's own measurement
+   gate invokes two lines above. The intent is carried by a deterministic
+   `threading.Barrier` test proving the fan-out is *actually* concurrent, and the
+   real speed-up ships through the committed benchmark and two measurement docs.
+2. **The measurement did not go through `run_perf_probe`.** That entry point's
+   hot-path contract is engine-level (`Callable[[BaseProduct], CashFlowResult]`)
+   and a *portfolio* run does not fit it. `scripts/bench_portfolio_parallel.py`
+   reuses the harness's estimator discipline (best-of-k minimum, `gc.collect()`
+   before the clock, block build excluded from the window) and its shared
+   `build_homogeneous_block` builder instead — stated plainly in the script
+   docstring rather than papered over.
 
 ## 4. Out of scope for the whole epic
 

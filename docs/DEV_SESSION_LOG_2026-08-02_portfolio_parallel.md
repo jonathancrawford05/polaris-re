@@ -332,6 +332,41 @@ concrete form of the rule now in the docstring and `--help`: a caller who read
 a third of the gain. RAM was not recorded; no run showed memory pressure and shape
 C's timings were internally consistent, so nothing suggests it mattered.
 
+## PR #183 review round (2026-08-04)
+
+Automated review **approved**: zero [P0], zero [P1], zero test failures. Three
+[P2]s, all addressed in-PR:
+
+- **PLAN/delivery divergence x2** — the un-delivered `@pytest.mark.slow` timing
+  test and the non-use of `run_perf_probe`. Both were deliberate and already
+  reasoned in ADR-180, but the PLAN's acceptance list still read as unmet.
+  `PLAN_portfolio_execution.md` Slice 3 now carries a dated amendment recording
+  both, so plan and shipped state agree on paper.
+- **Undocumented benign race in `products/dispatch._ensure_registry()`** — a good
+  catch, and verified rather than taken on trust. The fan-out means the registry
+  can now first populate from a *worker* thread and two threads can race the
+  guard. The body is three assignments of constant class objects, so a concurrent
+  double-populate writes identical values; the imports are serialised by Python's
+  import lock. Harmless, but it was the one piece of shared module state the new
+  concurrent path touches and it carried no comment. Now documented at the
+  function.
+
+**On the raised perf row (`best_of_k_seconds` 0.1489 against ~0.06 for the prior
+three).** The review flagged it as probable runner noise, gating nothing. That is
+right, and the case is stronger than "probably noise":
+
+- **This PR cannot have caused it.** The probe measures
+  `get_product_engine(...).project()` — entirely inside `products/`. The diff
+  touches `analytics/portfolio.py` and `cli.py` and nothing else in `src/`. There
+  is no code path by which it could slow that probe.
+- **The deterministic metrics are byte-identical across all four rows**:
+  `output_fingerprint` `8331a13f7ce7...` and `peak_mib` 33, unchanged. Same
+  computation, same allocation — only wall-clock moved, which is exactly the
+  signature of a shared-runner artefact rather than a regression.
+
+Recorded so that if the series stays elevated past 6 rows, the next reader knows
+this row was examined and cleared on mechanism, not waved through.
+
 ## Open Questions / Follow-ups
 
 1. **The `max_workers` knob's disposition is a maintainer decision, deliberately
