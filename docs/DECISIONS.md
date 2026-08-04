@@ -12457,3 +12457,114 @@ always yields Utf8. Pre-existing, cosmetic today, and a join-key hazard if a
 future consumer keys on it across vintages — filed rather than fixed here.
 Automatic delimiter sniffing (the caller declares it), and any handling of the
 `Cen*Mom*` central-moment columns the release also carries.
+
+---
+
+## ADR-182: The experience-GAM diligence harness — a findings generator, not a fitting script (real-data GAM epic Slice 1)
+
+**Date:** 2026-08-04
+**Status:** Accepted
+**Context:** `docs/PLAN_experience_gam_realdata.md` §4 Slice 1; ADR-181 (loader
+contract); ADR-150/151 (the A4′ tensor MI surface and its `mgcv` oracle).
+
+The A4′ epic shipped fifteen slices of tensor-GAM machinery and validated every
+one of them against synthetic data with an **injected** surface. That proves the
+implementation recovers a surface it was handed. It says nothing about whether it
+recovers real improvement from real experience — which is the only question a
+reinsurer asks, and the one CLAUDE.md §1's product thesis rests on.
+
+The structural obstacle is that the routine cannot close that gap by itself:
+HMD needs a personal account, SOA-ILEC needs terms acceptance, neither may be
+committed (Design Anchor 6 and the licences), and autonomous sessions run in
+ephemeral containers that could not retain the data anyway. So the deliverable
+is not a fit; it is a **harness the maintainer runs**, whose output is a findings
+artefact the routine commits. Same round trip as
+`scripts/bench_portfolio_parallel.py` (2026-08-03), which worked twice in one
+session.
+
+**Decision:** ship `polaris_re.analytics.experience_diligence` (the logic, so it
+is linted, mypy-checked, covered and unit-tested like everything else in `src/`)
+behind a thin `scripts/experience_diligence.py` argparse wrapper (the documented
+entry point the PLAN names). Six choices in it are load-bearing.
+
+1. **A falsifiable headline, computed both ways.** The report leads with an
+   early-vs-late annualised-improvement comparison — the post-2010 slowdown test
+   PLAN §2 named *in advance*. The tests inject a slowdown and require the verdict
+   `slowdown`, then inject an **acceleration** and require `acceleration`. A
+   harness that returned "slowdown" either way would confirm the epic's hypothesis
+   by construction, and only the two-sided test can tell the difference.
+
+2. **The window band is an exact contrast, not a rescaled per-year one.** Asking
+   `MISurfaceResult.improvement_surface` for the two-year grid `[start, end]`
+   makes its single annual "step" the contrast `η(x, end) − η(x, start)` — which
+   *is* the window contrast, because the per-year steps telescope. The
+   delta-method interval it returns therefore belongs to the window. Verified in
+   the suite against the geometric mean of the annual grid to 1e-12.
+
+   What the harness deliberately does **not** claim: the overlap of the two
+   windows' bands is not a significance test for their *difference*. Both
+   contrasts come from the same fitted coefficients and are correlated, and
+   computing the difference's variance would need the cross-covariance the public
+   API does not expose. The column ships labelled indicative, in the report, the
+   Markdown, and the JSON (`bands_overlap_is_not_a_significance_test`).
+
+3. **An empirical base offset, not a mortality table.** `q_base` is the pooled
+   crude rate over the whole calendar window within each stratum of
+   `EMPIRICAL_BASE_KEYS`. Legitimate because the fitted MI is a *calendar
+   contrast*: every calendar-invariant term — the offset included — cancels in
+   `η(x, y) − η(x, y−1)`. The suite verifies exactly that, by halving `q_base` and
+   asserting the surface is unchanged to 1e-10 while `overall_ae` doubles.
+
+   It buys three things a standard table does not: no table files (so this runs
+   in CI, and on **population** data, for which no insured table is the right
+   base); no possibility of importing a spurious trend from a projected table;
+   and an `overall_ae` of ~1 by construction — which the report states as a
+   *caveat*, because an A/E against a base fitted to the same data is not an
+   independent check. On the ILEC path the independent check is SOA's own
+   published expected deaths, which is the point of carrying them (ADR-181).
+
+   The base strata are deliberately the same determinant set the Anchor-1 static
+   guard groups on. A base varying with a covariate *outside* that set —
+   `uw_class`, say — shows a within-group spread and the guard reads it as
+   generational. Covariates outside the set belong in the model as factors, which
+   is where the GAM already puts them.
+
+4. **SOA's own MI, extracted and compared surface to surface.** Their
+   expected-with-MI over expected-without is their cumulative improvement factor
+   on identical cells; its year-over-year change **within a fixed attained age**
+   is their annual MI at that age. Taken within-age rather than in aggregate, so
+   a drifting exposure mix cannot masquerade as improvement. That makes the check
+   a comparison in the same units with no model of ours in between — the strongest
+   thing in the report, and the one that most deserves to disagree.
+
+5. **The aggregation level is a stated parameter with a conservative default.**
+   The real release is 9,714,592 cells and the surface needs ~10³–10⁴, so
+   collapsing is not optional. The ILEC default keeps `smoker` and `uw_class` —
+   pooling those merges populations with genuinely different mortality — and drops
+   duration, which is a **real limitation** (a duration mix drifting with calendar
+   year leaks into the trend), so every report says so rather than leaving it
+   implicit. `uw_class == "U"` is held out by default and `"NA"` retained, per
+   ADR-181's reading of the maintainer's own distribution.
+
+6. **A committable artefact: no plots, no timestamps, no absolute paths.** Numbers
+   and tables diff; images do not. The report carries no clock reading, so two
+   runs over the same cache produce byte-identical JSON (verified across
+   processes) and a committed finding diffs meaningfully against a re-run. Input
+   files are recorded by **basename and size** — a finding must not carry a
+   maintainer's home directory into the repo.
+
+**Consequences:** slice 1 is complete and mergeable with **no data present**, as
+the plan requires. Slices 2–3 are now purely a maintainer run plus a findings
+commit. A missing or ambiguous cache exits 2 with a sentence naming every
+location searched and pointing at
+`docs/RUNBOOK_experience_data_acquisition.md` — including the `STATS/`
+subdirectory the zipped HMD bundle extracts into, which the fetch-shaped layout
+alone would have missed. Nothing in `products/` moves and `tests/qa/` is
+untouched.
+
+**Out of scope:** wiring any real-data fit into the pricing path or an assumption
+default (this epic validates the model, it does not change an assumption); a
+`polaris experience diligence` CLI subcommand (the script is the documented entry
+point, and a Typer command would need the same arguments again for no gain until
+someone asks); the `mgcv` oracle (ADR-151), which needs an R-equipped machine and
+is the maintainer's to run — real-data fitting is exactly when it earns its keep.

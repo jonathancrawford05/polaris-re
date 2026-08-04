@@ -22,7 +22,8 @@ thesis; this is what discharges it.
 ## Slices
 
 ### Slice 1: The diligence harness (autonomous — no data required)
-- **Status:** NEXT
+- **Status:** DONE (2026-08-04) — `src/polaris_re/analytics/experience_diligence.py`
+  + `scripts/experience_diligence.py`, **ADR-182**, runbook §3. 54 tests.
 - **Depends on:** nothing
 - **Scope:** `scripts/experience_diligence.py` — load (HMD or ILEC from a local
   cache) → fit the tensor MI surface → emit a structured findings report (JSON +
@@ -50,12 +51,33 @@ thesis; this is what discharges it.
   - Runs green on synthetic fixtures in CI; `--source hmd|ilec` contract documented.
   - **No plots** — numbers and tables commit and diff, images do not.
   - `tests/qa/` goldens untouched (nothing in `products/` moves).
+- **How it came out.** All acceptance criteria met. Four things are worth carrying
+  into slice 2 because they change how the output should be read:
+  - The slowdown test is proven **two-sided**: the suite injects a slowdown and
+    requires the verdict `slowdown`, then injects an acceleration and requires
+    `acceleration`. A harness that said "slowdown" either way would confirm PLAN §2
+    by construction.
+  - The early/late bands are **exact** window contrasts (the two-year grid's single
+    step telescopes to `η(end) − η(start)`), but their *overlap* is **not** a
+    significance test for the difference — the two contrasts share coefficients.
+    The report says so in three places; do not upgrade that language when writing
+    the findings.
+  - `q_base` is the pooled crude rate from the data itself, so `overall_ae` is ~1
+    **by construction** and is not a check on the level. The fitted improvement is
+    unaffected (verified: halving `q_base` leaves the surface identical to 1e-10).
+    On ILEC the level check is SOA's own expected deaths.
+  - The ILEC default pools across **duration**. A duration mix drifting with
+    calendar year leaks into the trend; every report states it. If slice 3's
+    numbers look surprising, re-run with `--group-by ... duration_months` before
+    believing them.
 
 ### Slice 2: HMD findings (maintainer runs; session records)
-- **Status:** BLOCKED on maintainer data acquisition + slice 1 merged
+- **Status:** NEXT — unblocked by slice 1; needs the maintainer's data + run
 - **Scope:** maintainer runs slice 1's harness against HMD (USA 1990–2019
   primary; GBRTENW secondary) and returns the report; the session commits
-  `docs/MEASUREMENT_experience_gam_hmd.md`.
+  `docs/MEASUREMENT_experience_gam_hmd.md`. The exact commands are in
+  `RUNBOOK_experience_data_acquisition.md` §3; the `--markdown` output is already
+  scrubbed for committing (basenames only, no cells, no plots).
 - **Acceptance:** the **post-2010 US improvement-slowdown question answered
   either way**, compared against the published reference (SOA MIM-2021 / CMI
   literature); cross-population agreement characterised; no data files added.
@@ -87,8 +109,14 @@ thesis; this is what discharges it.
   session.
 - The loaders already exist and are unit-tested — `experience_loaders.py`:
   `load_hmd`, `parse_hmd_1x1`, `load_ilec`, `fetch_hmd`, `ILEC_COLUMN_MAP`,
-  `default_experience_cache_dir`. Slice 1 consumes them; it should not need to
-  modify them.
+  `default_experience_cache_dir`. Slice 1 consumed them without modifying them,
+  as intended.
+- **Slice 2 is a recording job, not a coding one.** The harness exists; what is
+  missing is the maintainer's run. The session's work is to read the returned
+  report honestly against the published reference (SOA MIM-2021 / CMI) and write
+  `MEASUREMENT_experience_gam_hmd.md` — including any way the fit disappoints.
+  Resist the urge to add harness features while waiting; the epic's value is in
+  the finding, and a slice reporting "no slowdown" is a successful slice.
 
 ## Open Questions (for human)
 

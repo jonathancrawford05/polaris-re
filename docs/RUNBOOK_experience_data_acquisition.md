@@ -206,9 +206,10 @@ Verified against a real download on 2026-08-03
   column_map=ILEC_2012_19_COLUMN_MAP)`.
 - The release also carries `ExpDth_VBT2015_Cnt` / `_Amt` (SOA's own expected
   deaths on the VBT 2015 basis) and `ExpDth_VBT2015wMI_*` (with mortality
-  improvement). The loader ignores them today, but they are an **independent A/E
-  denominator** — a ready-made external check on the GAM's improvement surface,
-  and worth wiring in later.
+  improvement). These are the **independent A/E denominator** — an external check
+  on the GAM's improvement surface computed by SOA on the same cells from the same
+  exposure. Carried by `load_ilec(..., include_expected=True)` and used
+  automatically by the diligence harness in §3.
 
 ### 2b. Check the column headers before anything else
 
@@ -329,18 +330,64 @@ would have suggested: `Preferred_Class` alone is **ambiguous**, because class "2
 of 2 is the worst class while class "2" of 4 is second-best. `load_ilec` now
 composes the two into `"2of2"` / `"2of4"` automatically for this vintage.
 
-## 3. What to send back
+## 3. Run the diligence harness
+
+`scripts/experience_diligence.py` (slice 1, ADR-182) is the fitting harness. It
+loads from the cache, fits the tensor MI surface, and writes a findings report as
+JSON plus Markdown. It reads and writes nothing inside the repo tree, emits no
+plots, and carries no timestamp — so re-running over the same cache reproduces the
+same bytes.
+
+```bash
+# HMD population — the primary fixture.
+uv run python scripts/experience_diligence.py --source hmd \
+    --country USA --min-year 1990 --max-year 2019 \
+    -o ~/hmd_usa.json --markdown ~/hmd_usa.md
+
+# Second population, for the cross-population claim.
+uv run python scripts/experience_diligence.py --source hmd \
+    --country GBRTENW --min-year 1990 --max-year 2019 \
+    -o ~/hmd_gbrtenw.json --markdown ~/hmd_gbrtenw.md
+
+# SOA-ILEC insured experience. Picks up SOA's own expected deaths automatically
+# and adds the A/E-by-year and fitted-vs-SOA sections.
+uv run python scripts/experience_diligence.py --source ilec \
+    -o ~/ilec.json --markdown ~/ilec.md
+```
+
+Three things worth knowing before you read the output:
+
+- **`--max-year 2019` on HMD is not a detail.** A smooth tensor surface fitted
+  through the COVID shock attributes it to improvement. Pull 2020+ as a separate
+  window if you want it. Leave the window open and the report says so in its
+  caveats, but it still fits.
+- **The verdict can disappoint, and that is the point.** The harness prints
+  `slowdown`, `acceleration` or `mixed` for the early-vs-late comparison. A run
+  that reports *no* slowdown is a **successful** run — PLAN §2 named the slowdown
+  in advance precisely so the fit could fail to reproduce it. Nothing gets tuned
+  until it agrees.
+- **The ILEC run takes a while.** The 12 GB read streams; the fit itself is
+  seconds. If the `ilec/` directory holds more than one file the harness refuses
+  to guess — pass `--ilec-file "ILEC_2012_19 - 20240429.txt"`.
+
+Exit status: 0 on a completed run whatever its verdict, **2** if the cache is
+missing or ambiguous (with a sentence naming every location it looked in), 1 on
+anything else.
+
+## 4. What to send back
 
 The data stays on your machine. What comes back into the repo is **findings**,
-the same pattern that worked for the parallel measurement earlier today — I wrote
-the harness, you ran it, the numbers got committed and the raw JSON did not:
+the same pattern that worked for the parallel measurement on 2026-08-03 — I wrote
+the harness, you ran it, the numbers got committed and the raw data did not:
 
 - The `load_hmd` / `load_ilec` verification output from §1d and §2c (shapes, year
   ranges, totals).
 - For ILEC, the header diff from §2b if anything is missing.
-- Later, once the fitting harness exists: the fitted surface's summary
-  statistics, the comparison against the published reference, and the verdict —
-  not the cells.
+- **The `--markdown` report from §3**, whole. It is already scrubbed of anything
+  that should not be committed: file **basenames** only, no absolute paths, no
+  cells, no plots. Paste it and it becomes
+  `docs/MEASUREMENT_experience_gam_hmd.md` / `..._ilec.md` more or less as-is.
+- The JSON too if you like — it carries the same content in a diffable form.
 
 ## Why you and not the routine
 
