@@ -18,9 +18,10 @@ reproduce — the post-2010 US improvement slowdown, and (on ILEC) agreement wit
 SOA's own published expected deaths. **A run that reports "no slowdown" is a
 successful run.** Nothing here tunes anything until it agrees.
 
-No plots: numbers and tables commit and diff, images do not. No timestamps: two
-runs over the same cache produce byte-identical JSON, so a committed finding
-diffs cleanly against a re-run.
+No plots: numbers and tables commit and diff, images do not. And two runs over
+the same cache produce byte-identical JSON — no timestamps, and floats rounded
+below the run-to-run jitter that multithreaded BLAS puts into the delta-method
+band — so a committed finding diffs cleanly against a re-run.
 
 Usage:
     # HMD population — the primary fixture. Stop at 2019: a smooth surface
@@ -56,6 +57,7 @@ from polaris_re.analytics.experience_diligence import (  # noqa: E402
     ILEC_GROUP_KEYS,
     ILEC_VINTAGES,
     RUNBOOK_PATH,
+    ExperienceCacheMissingError,
     render_markdown,
     run_diligence,
 )
@@ -245,13 +247,17 @@ def main(argv: list[str] | None = None) -> int:
             confidence_level=args.confidence_level,
             keep_unknown_uw_class=args.keep_unknown_uw_class,
         )
-    except PolarisValidationError as exc:
+    except ExperienceCacheMissingError as exc:
         # A missing cache is the expected first-run outcome, and it deserves a
-        # sentence rather than a traceback.
+        # sentence rather than a traceback. Classified by exception TYPE — the
+        # first cut matched on message wording and silently missed the ILEC
+        # missing-directory case, which is the one a maintainer meets first
+        # (PR #185 review [P1]).
         print(f"error: {exc}", file=sys.stderr)
-        text = str(exc)
-        no_data = "not found" in text or "no .txt/.csv" in text or "candidate files" in text
-        return EXIT_NO_DATA if no_data else EXIT_ERROR
+        return EXIT_NO_DATA
+    except PolarisValidationError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_ERROR
     except PolarisComputationError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_ERROR

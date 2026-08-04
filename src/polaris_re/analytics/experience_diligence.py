@@ -29,9 +29,12 @@ direction:
 
 **No plots.** Numbers and tables commit and diff; images do not.
 
-**No wall clock** (ADR-074). The report has no timestamp: two runs over the same
-inputs produce byte-identical JSON, so a re-run diffs cleanly against a committed
-finding.
+**No wall clock** (ADR-074), and floats rounded to
+:data:`REPORT_SIGNIFICANT_DIGITS`: two runs over the same inputs produce
+byte-identical JSON, so a re-run diffs cleanly against a committed finding.
+Removing the clock alone is *not* enough — the delta-method band runs through
+multithreaded BLAS, which reassociates its sums run to run; see
+:data:`REPORT_SIGNIFICANT_DIGITS` for the measurement.
 
 Entry point: :func:`run_diligence`. The command-line wrapper is
 ``scripts/experience_diligence.py``.
@@ -70,11 +73,13 @@ __all__ = [
     "HMD_GROUP_KEYS",
     "ILEC_GROUP_KEYS",
     "ILEC_VINTAGES",
+    "REPORT_SIGNIFICANT_DIGITS",
     "RUNBOOK_PATH",
     "UNKNOWN_UW_CLASS",
     "AEByYear",
     "DiligenceReport",
     "EmpiricalBase",
+    "ExperienceCacheMissingError",
     "IlecVintage",
     "SoaSurfaceComparison",
     "WindowComparison",
@@ -100,6 +105,27 @@ stack trace."""
 SCHEMA_VERSION = 1
 """Report schema version. Bump on any breaking change to :meth:`DiligenceReport.to_dict`
 so a committed finding stays interpretable against a later harness."""
+
+REPORT_SIGNIFICANT_DIGITS = 12
+"""Significant digits every float in the JSON report is rounded to.
+
+**Not cosmetic — this is what makes the artefact diffable.** Removing the wall
+clock is necessary for byte-stability but not sufficient: the delta-method band
+goes through ``cov_params`` and an ``einsum``, both of which run on multithreaded
+BLAS, and BLAS reassociates its sums differently depending on how the threads
+happen to carve up the work. Measured on this harness, two runs of the *same*
+script over the *same* cache differ by up to **1.2e-14 relative** in
+``mi_lower`` / ``mi_upper`` — invisible actuarially, and enough to make a
+committed finding show a spurious diff on every re-run. (Pinning
+``OMP_NUM_THREADS=1`` removes it entirely, which confirms the cause; a library
+has no business setting that for the whole process.)
+
+Rounding at 12 significant digits sits ~80x above the observed jitter and ~9
+orders of magnitude below anything an actuary would read. It makes a spurious
+diff vanishingly unlikely rather than impossible — a value landing within 1e-14
+relative of a 12th-digit boundary could still tip — which is the honest claim.
+Point estimates were already stable; only the covariance path moves.
+(PR #185 review, on the determinism over-claim.)"""
 
 DEFAULT_REFERENCE_AGES: tuple[int, ...] = (45, 55, 65, 75, 85)
 """Attained ages the surface is reported at. Interior to a typical 25-95 fit, so
@@ -186,6 +212,20 @@ despite shipping as ``.txt``."""
 # --- Cache discovery ------------------------------------------------------------
 
 
+class ExperienceCacheMissingError(PolarisValidationError):
+    """The local experience cache holds no usable input for the requested source.
+
+    A distinct **type** rather than a distinguishable message, because the CLI
+    wrapper maps this to its documented ``exit 2`` and every other validation
+    failure to ``exit 1``. Classifying on wording instead drifts silently the
+    first time one of these messages is reworded — which is exactly how the ILEC
+    path came to exit 1 against a documented 2 (PR #185 review [P1]).
+
+    Subclasses :class:`PolarisValidationError`, so callers that catch the base
+    class are unaffected.
+    """
+
+
 def _cache_root(cache_dir: str | Path | None) -> Path:
     return Path(cache_dir) if cache_dir is not None else default_experience_cache_dir()
 
@@ -226,7 +266,7 @@ def resolve_hmd_paths(country: str, *, cache_dir: str | Path | None = None) -> t
     missing = [s for s in ("Deaths", "Exposures") if s not in found]
     if missing:
         searched = "\n  ".join(str(d / f"{s}_1x1.txt") for s in missing for d in candidates)
-        raise PolarisValidationError(
+        raise ExperienceCacheMissingError(
             f"HMD 1x1 file(s) not found for country {country!r}: "
             f"{', '.join(f'{s}_1x1.txt' for s in missing)}.\nSearched:\n  {searched}\n"
             f"Download them (DATA -> Zipped Data Files -> Statistics) and place them "
@@ -258,14 +298,14 @@ def resolve_ilec_path(*, cache_dir: str | Path | None = None, filename: str | No
     if filename is not None:
         path = ilec_dir / filename if not Path(filename).is_absolute() else Path(filename)
         if not path.exists():
-            raise PolarisValidationError(
+            raise ExperienceCacheMissingError(
                 f"ILEC file not found: {path}. See {RUNBOOK_PATH} §2 for the download "
                 f"and the `unzip -d` that keeps it out of the repo tree."
             )
         return path
 
     if not ilec_dir.is_dir():
-        raise PolarisValidationError(
+        raise ExperienceCacheMissingError(
             f"No ILEC cache directory at {ilec_dir}. The release is a manual, "
             f"terms-accepting download (there is no fetch helper on purpose) — see "
             f"{RUNBOOK_PATH} §2. Unzip it with `unzip -d`, or it lands in your "
@@ -274,12 +314,12 @@ def resolve_ilec_path(*, cache_dir: str | Path | None = None, filename: str | No
 
     candidates = sorted(p for p in ilec_dir.iterdir() if p.suffix.lower() in {".txt", ".csv"})
     if not candidates:
-        raise PolarisValidationError(
+        raise ExperienceCacheMissingError(
             f"ILEC cache directory {ilec_dir} holds no .txt/.csv file. See {RUNBOOK_PATH} §2."
         )
     if len(candidates) > 1:
         names = ", ".join(p.name for p in candidates)
-        raise PolarisValidationError(
+        raise ExperienceCacheMissingError(
             f"ILEC cache directory {ilec_dir} holds {len(candidates)} candidate files "
             f"({names}). Pass an explicit filename — picking one would silently "
             f"produce findings about a release you did not choose."
@@ -433,11 +473,32 @@ class WindowComparison:
     equality."""
 
     verdict: str
-    """``'slowdown'`` (late < early at every reference age), ``'acceleration'``
-    (late > early at every age), or ``'mixed'``."""
+    """``'slowdown'`` (late < early at **every** reference age), ``'acceleration'``
+    (late > early at every age), or ``'mixed'`` — which includes the degenerate
+    case of an exactly zero delta somewhere, since a zero is neither slower nor
+    faster and calling it acceleration would overstate the finding."""
 
     n_ages_slower: int
     n_ages: int
+
+
+def _verdict(delta: tuple[float, ...]) -> tuple[str, int]:
+    """Classify a set of per-age ``late - early`` deltas, and count the slower ones.
+
+    Both directions are tested strictly rather than one being the negation of the
+    other: ``n_slower == 0`` would report ``acceleration`` for a delta of exactly
+    zero, which is neither slower nor faster and would overstate the finding
+    (PR #185 review [P2]). A pure function so the rule is testable on exact
+    inputs, including the zeros a real fit will never produce.
+    """
+    n_slower = sum(1 for d in delta if d < 0.0)
+    n_faster = sum(1 for d in delta if d > 0.0)
+    n_ages = len(delta)
+    if n_ages and n_slower == n_ages:
+        return "slowdown", n_slower
+    if n_ages and n_faster == n_ages:
+        return "acceleration", n_slower
+    return "mixed", n_slower
 
 
 def _window_mi(
@@ -519,14 +580,8 @@ def _compare_windows(
             early_mi.lower, early_mi.upper, late_mi.lower, late_mi.upper, strict=True
         )
     )
-    n_slower = sum(1 for d in delta if d < 0.0)
+    verdict, n_slower = _verdict(delta)
     n_ages = len(delta)
-    if n_slower == n_ages:
-        verdict = "slowdown"
-    elif n_slower == 0:
-        verdict = "acceleration"
-    else:
-        verdict = "mixed"
 
     return WindowComparison(
         early=early_mi,
@@ -800,11 +855,37 @@ class DiligenceReport:
                 "weight_column": sc.weight_column,
                 "rows": _frame_records(sc.frame),
             }
-        return out
+        return {key: _round_json(value) for key, value in out.items()}
 
     def to_json(self, *, indent: int = 2) -> str:
-        """Deterministic JSON — same inputs, same bytes."""
+        """Reproducible JSON — same inputs, same bytes.
+
+        See :data:`REPORT_SIGNIFICANT_DIGITS` for why "same bytes" needs a
+        rounding step rather than following from the absence of a clock.
+        """
         return json.dumps(self.to_dict(), indent=indent, sort_keys=False, allow_nan=True)
+
+
+def _round_significant(value: float) -> float:
+    """Round to :data:`REPORT_SIGNIFICANT_DIGITS` significant digits."""
+    if not math.isfinite(value) or value == 0.0:
+        return value
+    exponent = math.floor(math.log10(abs(value)))
+    return round(value, REPORT_SIGNIFICANT_DIGITS - 1 - exponent)
+
+
+def _round_json(value: JsonValue) -> JsonValue:
+    """Recursively round every float in a report payload. Ints and bools pass
+    through untouched (``bool`` is checked first — it is an ``int`` subclass)."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, float):
+        return _round_significant(value)
+    if isinstance(value, dict):
+        return {k: _round_json(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_round_json(v) for v in value]
+    return value
 
 
 def _frame_records(frame: pl.DataFrame) -> list[JsonValue]:
@@ -1312,6 +1393,21 @@ def run_diligence(
                 f"have positive exposure but null or zero SOA expected deaths. They "
                 f"add to the numerator and nothing to the denominator, so the A/E "
                 f"ratios below are biased upward by that much."
+            )
+        # A/E deliberately runs over the whole loaded book, not over the fitted
+        # cells: SOA's published denominator covers every cell they priced, and
+        # narrowing it to ours would make the ratio answer a different question.
+        # Whenever the two populations actually differ, say so — a reader of a
+        # committed finding should not have to derive it from `n_cells_grouped`
+        # vs `n_cells_fitted` (PR #185 review [P2]).
+        if base.n_strata_dropped:
+            caveats.append(
+                f"The A/E section covers the full loaded book "
+                f"({grouped.height:,} cells), while the fitted surface covers "
+                f"{fit_cells.height:,} — the zero-death strata above are excluded "
+                f"from the fit but retained in A/E, because SOA's denominator "
+                f"covers every cell they priced. The two populations differ by "
+                f"{base.dropped_exposure_share * 100:.3f}% of exposure."
             )
         ae = _ae_by_year(cells, deaths_col=deaths_col, expected=expected_cols)
         soa = _soa_surface_comparison(

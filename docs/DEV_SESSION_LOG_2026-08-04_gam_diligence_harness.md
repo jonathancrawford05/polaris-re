@@ -21,8 +21,8 @@
 #184 recorded. No NEW or CHANGED failures → PROCEEDED. The 3 skips are the
 standing absent-CIA-2014-table skips.
 
-End state: **2993 passed, 3 skipped**. Next session's expected baseline is
-**2993 passed, 3 skipped**.
+End state: **3004 passed, 3 skipped**. Next session's expected baseline is
+**3004 passed, 3 skipped**.
 
 ## What Was Done
 
@@ -80,15 +80,16 @@ candidate is a **refusal**, not a guess: silently picking a vintage would produc
 findings about a release nobody chose.
 
 **Verified as a committable artefact, not just as code.** Two runs of the script
-over the same synthetic cache in separate processes produce byte-identical JSON
-(`cmp`, not "looks the same"), which is the property that makes a committed
-finding diff meaningfully against a re-run.
+in separate processes produce byte-identical JSON, which is the property that
+makes a committed finding diff meaningfully against a re-run. **This claim did
+not survive being tested properly** — see the review round below; it is true now,
+for a reason that was not understood when it was first written.
 
 ## Files Changed
 
 - `src/polaris_re/analytics/experience_diligence.py` — **new**, the harness.
 - `scripts/experience_diligence.py` — **new**, the CLI wrapper.
-- `tests/test_analytics/test_experience_diligence.py` — **new**, 54 tests.
+- `tests/test_analytics/test_experience_diligence.py` — **new**, 65 tests.
 - `src/polaris_re/analytics/__init__.py` — public exports.
 - `docs/DECISIONS.md` — **ADR-182**.
 - `docs/PLAN_experience_gam_realdata.md`, `docs/CONTINUATION_experience_gam_realdata.md`
@@ -96,13 +97,14 @@ finding diff meaningfully against a re-run.
 - `docs/RUNBOOK_experience_data_acquisition.md` — new §3 (how to run the harness,
   what the verdict means, exit codes); §4 renumbered; the stale "the loader
   ignores them today" line about SOA's expected deaths corrected.
+- `docs/PRODUCT_DIRECTION_2026-07-24.md` — two follow-ups promoted with provenance.
 - `perf/history.jsonl` — one row for the branch HEAD.
 
 ## Acceptance Criteria
 
 | Criterion (CONTINUATION slice 1) | Status | Notes |
 |---|---|---|
-| Runs green on synthetic fixtures in CI | ✅ | 54 tests, ~5 s |
+| Runs green on synthetic fixtures in CI | ✅ | 65 tests, ~9 s |
 | `--source hmd\|ilec` contract documented | ✅ | `--help`, module docstring, runbook §3 |
 | Empty/missing cache → actionable message, not a stack trace | ✅ | Exit 2, names every location searched + the runbook |
 | **No plots** | ✅ | Asserted in a test (`.png`/`.svg` absent from the rendering) |
@@ -131,6 +133,50 @@ informs and never gates, and the run that produced this row is among the fastest
 in the series. Worth re-reading, not acting on, when the window rolls past the
 spike.
 
+## PR #185 review round
+
+Automated review **approved** — zero P0, zero test failures, goldens green. One
+[P1], three [P2]s, plus a caution on the session log itself. All addressed
+in-PR; two changed the design rather than the wording.
+
+**[P1] was a real contract defect, on the path a maintainer meets first.** The
+ILEC missing-cache case exited **1** against a documented **2**, because `main()`
+classified "no data" by matching message *wording* and the missing-directory
+message matched none of the three substrings. Fixed by classifying on **type**
+(`ExperienceCacheMissingError`), so rewording can never move an exit code again.
+The test had covered only `hmd` — the path that happened to work — which is
+exactly why it shipped; it is now parametrised over both.
+
+**The determinism claim in this log was over-stated, and testing it properly
+falsified it.** The committed test compared two renderings of one *in-process*
+report, which cannot see a per-process difference; the cross-process `cmp` was
+run by hand and passed by luck. Writing the real test found two runs of the same
+script over the same cache differing by up to **1.2e-14 relative** in the band
+endpoints. The cause is not a clock: it is multithreaded BLAS inside
+`cov_params` and the delta-method `einsum`, reassociating its sums differently
+depending on how threads carve up the work — `OMP_NUM_THREADS=1` removes it
+entirely. Point estimates were always stable; only the covariance path moved.
+
+Fixed in the artefact rather than the prose, since being committed and diffed is
+the artefact's whole purpose: floats round to 12 significant digits on
+serialisation, and the suite now runs the script in two interpreters and compares
+bytes. Byte-stable across six independent processes. The honest claim is
+*vanishingly unlikely to diff spuriously*, not *provably identical*.
+
+**[P2] verdict semantics** — `acceleration` when no age was slower includes an
+exactly-zero delta, which is neither. Rule extracted into a pure `_verdict()` and
+tested on exact inputs. My first attempt at that test re-implemented the rule
+instead of calling it — vacuous in precisely the way PR #184's [P1-2] was, caught
+before commit this time.
+
+**[P2] A/E vs fit populations** — kept as-is (SOA's denominator should cover
+every cell they priced), but the divergence is now a stated caveat naming both
+counts and the exposure share.
+
+**[P2, process]** — the `uw_class` dtype item and the new artefact-rounding
+finding are promoted into PRODUCT_DIRECTION with provenance rather than listed in
+a third consecutive session log.
+
 ## Open Questions / Follow-ups
 
 1. **Slice 2 is a maintainer run, not a coding task.** The harness is done; what
@@ -144,8 +190,9 @@ spike.
    in slice 3 before believing a surprising number.
 3. **Goldens cannot detect a last-ulp engine perturbation** (carried from
    2026-08-04's earlier session). Still IMPORTANT, still unaddressed.
-4. **`uw_class` dtype inconsistency across composed/uncomposed paths** (ADR-181
-   out-of-scope). Unchanged.
+4. **`uw_class` dtype inconsistency across composed/uncomposed paths** — no
+   longer carried here: **promoted** to PRODUCT_DIRECTION as NICE-TO-HAVE with
+   provenance (PR #185 review [P2]).
 5. **`mgcv` oracle (ADR-151) still unexecuted** — maintainer's to run, and real-data
    fitting is when it earns its keep.
 

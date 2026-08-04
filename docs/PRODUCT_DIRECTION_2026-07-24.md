@@ -1409,3 +1409,35 @@ are first-class work items rather than commentary.
   2026-08-03 maintainer direction**, and the strongest candidate for the next
   epic. *Source: ADR-150 + maintainer direction 2026-08-03 (1st-order).*
   **IMPORTANT.**
+
+### Harvested 2026-08-04 (experience-GAM diligence harness — ADR-182; real-data epic Slice 1)
+
+- **`uw_class` dtype is inconsistent across the composed and uncomposed loader
+  paths.** `load_ilec` returns `uw_class` as `Int64` on the uncomposed path (the
+  reader infers it from an all-numeric class column) but always `Utf8` on the
+  composed one (`"1of2"`). Cosmetic today — nothing keys on it across vintages —
+  but a join-key hazard the moment something does, and the kind of defect that
+  surfaces as a silent empty join rather than an error. Fix is a cast at the
+  loader boundary. **Promoted here rather than re-listed again:** it was filed in
+  ADR-181's *Out of scope* and then carried as an open follow-up in two
+  consecutive session logs without ever entering the catalogue, which is how an
+  item accumulates instead of getting decided. It is 2nd-order (a follow-up of
+  ADR-181, itself a slice of the real-data epic), so the order cap makes it
+  NICE-TO-HAVE. *Source: ADR-181 out-of-scope → PR #185 review [P2], DISCOVERY
+  protocol step 11b (2nd-order).* **NICE-TO-HAVE.**
+- **Report artefacts need a rounding step, not just a missing clock, to be
+  diffable.** Removing the wall clock from a generated artefact is necessary for
+  byte-stability but not sufficient: the diligence report's delta-method band runs
+  through `cov_params` and an `einsum`, both on multithreaded BLAS, which
+  reassociates its sums depending on how threads carve up the work. Two runs of
+  the same script over the same cache differed by up to **1.2e-14 relative** in
+  the band endpoints — invisible actuarially, and enough to make every re-run of a
+  committed finding show a spurious diff. Pinning `OMP_NUM_THREADS=1` removes it,
+  confirming the cause. `experience_diligence` now rounds emitted floats to 12
+  significant digits (`REPORT_SIGNIFICANT_DIGITS`) and verifies byte-equality
+  across *separate processes*, not two renderings of one in-process object. **Any
+  future generated artefact intended to be committed and diffed inherits this
+  problem** — the perf history log and the QA golden digests are the two existing
+  candidates worth auditing against it. *Source: PR #185 review (determinism
+  over-claim) → measurement, DISCOVERY protocol step 11b (1st-order).*
+  **NICE-TO-HAVE.**

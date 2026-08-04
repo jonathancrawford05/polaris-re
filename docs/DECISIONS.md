@@ -12568,3 +12568,58 @@ default (this epic validates the model, it does not change an assumption); a
 point, and a Typer command would need the same arguments again for no gain until
 someone asks); the `mgcv` oracle (ADR-151), which needs an R-equipped machine and
 is the maintainer's to run — real-data fitting is exactly when it earns its keep.
+
+### ADR-182 amendment (PR #185 review round, 2026-08-04)
+
+Approved with zero P0. Four findings; all addressed in-PR, and two of them
+changed the design rather than the wording.
+
+**[P1] The ILEC missing-cache path exited 1 against a documented 2.** `main()`
+classified "no data" by matching the message text — `"not found"`,
+`"no .txt/.csv"`, `"candidate files"` — and `resolve_ilec_path`'s
+missing-*directory* wording ("No ILEC cache directory at …") matched none of
+them. That is the first thing a maintainer meets on the ILEC path, before the
+12 GB download. Fixed by classifying on **type**: `ExperienceCacheMissingError`,
+a `PolarisValidationError` subclass raised by every cache-absence site, so
+rewording a message can never change an exit code again. The test was
+parametrised over `hmd` **and** `ilec` — it had covered only the path that
+happened to work, which is why the defect shipped.
+
+**The determinism claim was over-stated, and the reviewer was right to flag it.**
+The committed test compared two renderings of one *in-process* report, which
+cannot see a per-process difference; the cross-process `cmp` was run by hand.
+Writing the real test found the claim to be **false**: two runs of the same
+script over the same cache differ by up to **1.2e-14 relative** in `mi_lower` /
+`mi_upper`. The cause is not a clock — it is multithreaded BLAS in `cov_params`
+and the `einsum` of the delta-method band, reassociating its sums differently
+depending on how threads carve up the work (pinning `OMP_NUM_THREADS=1` removes
+it entirely). Point estimates were always stable; only the covariance path moves.
+
+Fixed in the artefact rather than in the prose, because the artefact's whole
+purpose is to be committed and diffed: floats are rounded to
+`REPORT_SIGNIFICANT_DIGITS = 12` on serialisation — ~80x above the observed
+jitter, ~9 orders below anything an actuary reads — and the suite now runs the
+script in two separate interpreters and compares bytes. Verified byte-stable
+across six independent processes. The honest form of the claim is *vanishingly
+unlikely to diff spuriously*, not *provably identical*: a value landing within
+1e-14 relative of a 12th-digit boundary could still tip. A library has no
+business setting `OMP_NUM_THREADS` for the whole process, which is why the fix
+is rounding rather than thread pinning.
+
+**[P2] `verdict` read `acceleration` when no age was slower**, which includes an
+exactly-zero delta — neither slower nor faster. Both directions are now tested
+strictly, and the rule was extracted into a pure `_verdict()` so it can be
+exercised on the exact inputs (zeros, empty) that a real fit never produces. The
+first version of that test re-implemented the rule instead of calling it, which
+would have been vacuous in exactly the way PR #184's [P1-2] was.
+
+**[P2] A/E and the fit run over different populations** — A/E over the whole
+loaded book, the fit over cells surviving the zero-death-strata drop. Kept, and
+deliberately: SOA's published denominator covers every cell they priced, and
+narrowing it to ours would answer a different question. But the divergence is now
+a stated caveat naming both cell counts and the exposure share, rather than
+something a reader must derive from `n_cells_grouped` vs `n_cells_fitted`.
+
+**[P2, process]** The `uw_class` dtype inconsistency and the artefact-rounding
+finding are both promoted into `PRODUCT_DIRECTION_2026-07-24.md` with provenance,
+rather than re-listed in a third consecutive session log.

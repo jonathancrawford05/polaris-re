@@ -28,6 +28,7 @@ verification, no seeds, no wall clock (ADR-074).
 
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -440,6 +441,26 @@ def test_default_windows_short_range_splits_in_half() -> None:
 
 def test_default_windows_too_short_returns_none() -> None:
     assert default_windows(2015, 2017) is None
+
+
+@pytest.mark.parametrize(
+    ("delta", "expected", "n_slower"),
+    [
+        ((-0.002, -0.001), "slowdown", 2),
+        ((0.002, 0.001), "acceleration", 0),
+        ((0.002, -0.001), "mixed", 1),
+        # The degenerate cases: a delta of exactly zero is neither slower nor
+        # faster, so `n_slower == 0` must NOT read as acceleration.
+        ((0.002, 0.0), "mixed", 0),
+        ((0.0, 0.0), "mixed", 0),
+        ((), "mixed", 0),
+    ],
+)
+def test_verdict_tests_both_directions_strictly(delta, expected, n_slower) -> None:
+    """The real classification rule, on exact inputs a fit will never produce."""
+    from polaris_re.analytics.experience_diligence import _verdict
+
+    assert _verdict(delta) == (expected, n_slower)
 
 
 def test_window_contrast_telescopes_to_the_annual_grid(tmp_path: Path) -> None:
@@ -905,6 +926,35 @@ def test_ilec_null_expected_deaths_are_reported_not_absorbed(tmp_path: Path) -> 
     assert 60 not in report.soa_comparison.frame["attained_age"].to_list()
 
 
+def test_ilec_ae_and_fit_populations_differ_visibly(tmp_path: Path) -> None:
+    """A/E runs over the whole loaded book while the fit drops zero-death strata.
+    That is the right call — SOA's denominator covers every cell they priced — but
+    a reader of a committed finding should not have to derive the difference from
+    two cell counts (PR #185 review [P2])."""
+    path = _write_ilec_cache(tmp_path, actual_mi=0.010, soa_mi=0.010)
+    frame = pl.read_csv(path, separator="\t")
+    # Zero out deaths for one whole stratum so its base rate is not estimable.
+    holed = frame.with_columns(
+        pl.when((pl.col("Attained_Age") == 58) & (pl.col("Sex") == "Female"))
+        .then(0.0)
+        .otherwise(pl.col("Death_Count"))
+        .alias("Death_Count")
+    )
+    holed.write_csv(path, separator="\t")
+
+    report = run_diligence(
+        source="ilec",
+        cache_dir=tmp_path,
+        min_age=55,
+        max_age=65,
+        reference_ages=(60,),
+    )
+    assert report.base["n_strata_dropped"] > 0
+    assert report.aggregation["n_cells_fitted"] < report.aggregation["n_cells_grouped"]
+    assert report.ae_by_year is not None
+    assert any("A/E section covers the full loaded book" in c for c in report.caveats)
+
+
 def test_ilec_empty_after_filters_raises(tmp_path: Path) -> None:
     _write_ilec_cache(tmp_path, actual_mi=0.010, soa_mi=0.010)
     with pytest.raises(PolarisValidationError, match="No cells survived"):
@@ -975,10 +1025,82 @@ def test_script_writes_json_and_markdown(tmp_path: Path) -> None:
     assert "**Verdict: `slowdown`**" in out_md.read_text()
 
 
-def test_script_exits_2_on_a_missing_cache(tmp_path: Path) -> None:
-    """A first run against an empty cache should hit a sentence, not a traceback."""
+@pytest.mark.parametrize("source", ["hmd", "ilec"])
+def test_script_exits_2_on_a_missing_cache(tmp_path: Path, source: str) -> None:
+    """A first run against an empty cache should hit a sentence, not a traceback.
+
+    Parametrised over **both** sources: the first cut classified "no data" by
+    matching the message text, which the ILEC missing-directory wording did not
+    hit, so that path exited 1 against a documented 2 — and the single-source
+    test covered only the path that happened to work (PR #185 review [P1]).
+    """
     script = _load_script()
-    assert script.main(["--source", "hmd", "--cache-dir", str(tmp_path)]) == 2
+    assert script.main(["--source", source, "--cache-dir", str(tmp_path)]) == 2
+
+
+def test_cache_absence_is_classified_by_type_not_by_wording(tmp_path: Path) -> None:
+    """Reworking any of these messages must not change the exit code."""
+    from polaris_re.analytics.experience_diligence import ExperienceCacheMissingError
+
+    with pytest.raises(ExperienceCacheMissingError):
+        resolve_hmd_paths("USA", cache_dir=tmp_path)
+    with pytest.raises(ExperienceCacheMissingError):
+        resolve_ilec_path(cache_dir=tmp_path)
+    (tmp_path / "ilec").mkdir()
+    with pytest.raises(ExperienceCacheMissingError):
+        resolve_ilec_path(cache_dir=tmp_path)  # directory exists but is empty
+    with pytest.raises(ExperienceCacheMissingError):
+        resolve_ilec_path(cache_dir=tmp_path, filename="nope.txt")
+    # Still a PolarisValidationError, so existing callers are unaffected.
+    assert issubclass(ExperienceCacheMissingError, PolarisValidationError)
+
+
+def test_script_exits_1_on_a_non_cache_validation_error(tmp_path: Path) -> None:
+    """Only *absent data* is exit 2 — an ordinary bad argument stays exit 1."""
+    script = _load_script()
+    _write_hmd_cache(tmp_path, "USA", _constant_mi(0.01))
+    assert script.main(["--source", "hmd", "--cache-dir", str(tmp_path), "--basis", "amount"]) == 1
+
+
+def test_script_json_is_byte_identical_across_processes(tmp_path: Path) -> None:
+    """The determinism claim, verified where it actually lives.
+
+    Two renderings of one in-process report cannot see a per-process difference —
+    hash seeds, set iteration order, environment. This runs the real script twice
+    in separate interpreters and compares the bytes, which is the property a
+    committed finding depends on when someone re-runs it months later.
+    """
+    _write_hmd_cache(tmp_path, "USA", _constant_mi(0.012))
+    outputs = []
+    for name in ("first.json", "second.json"):
+        out = tmp_path / name
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "--source",
+                "hmd",
+                "--cache-dir",
+                str(tmp_path),
+                "--min-year",
+                "2000",
+                "--max-year",
+                "2019",
+                "--min-age",
+                "55",
+                "--max-age",
+                "70",
+                "--reference-ages",
+                "60",
+                "-o",
+                str(out),
+            ],
+            capture_output=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr.decode()
+        outputs.append(out.read_bytes())
+    assert outputs[0] == outputs[1]
 
 
 def test_script_window_argument_parses_both_separators() -> None:

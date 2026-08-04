@@ -137,7 +137,7 @@ Acceptance: the harness runs green on synthetic fixtures in CI; a documented
 `--source hmd|ilec` contract; goldens untouched (nothing in `products/` moves).
 
 **Delivered 2026-08-04** — `polaris_re.analytics.experience_diligence` behind
-`scripts/experience_diligence.py`, 54 tests, **ADR-182**, runbook §3. Two design
+`scripts/experience_diligence.py`, 65 tests, **ADR-182**, runbook §3. Two design
 notes that bear on how slices 2–3 read the output: the slowdown verdict is proven
 **two-sided** (an injected acceleration must report `acceleration`, so the harness
 cannot confirm §2's hypothesis by construction), and the base offset is estimated
