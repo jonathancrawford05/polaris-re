@@ -115,12 +115,21 @@ finding diff meaningfully against a re-run.
 
 Row appended for the branch HEAD, per ADR-177 and the position settled in #184:
 a row on **unchanged engine code is a control observation**, and this diff touches
-no engine code at all. The series has run 0.0594 / 0.0703 / 0.0619 / 0.1489 /
-0.0870 with `peak_mib=33` and an identical output fingerprint throughout, which
-reads as runner noise rather than drift — and control points are what will
-distinguish the two once the log reaches the 6 rows the detector needs.
+no engine code at all.
 
-Creep verdict: `insufficient_data` (log below `2 * window`).
+Measured: `peak_mib=33`, `best_of_k_seconds=0.0602`, output fingerprint
+`8331a13f…` — identical to every prior row. The series now reads 0.0594 / 0.0703
+/ 0.0619 / 0.1489 / 0.0870 / **0.0602**, which settles the open question from
+#184: the 0.1489 outlier was runner noise, not the start of drift. That is
+exactly what a control point is for.
+
+Creep verdict: **no structural (MiB) creep** — `peak_mib` flat at 33 with Δ+0, so
+the gating signal is clean. The detector does raise its *advisory* wall-time flag
+(recent/baseline 1.406x), which is the arithmetic of a 6-row window still
+straddling the 0.1489 spike; per the maintainer rule (2026-07-12) wall time
+informs and never gates, and the run that produced this row is among the fastest
+in the series. Worth re-reading, not acting on, when the window rolls past the
+spike.
 
 ## Open Questions / Follow-ups
 
