@@ -31,6 +31,16 @@ thesis; this is what discharges it.
 - **Tests:** end-to-end on the **existing synthetic fixtures**, so the harness is
   proven before it meets real data; a missing/empty cache must produce an
   actionable message pointing at the acquisition runbook, not a stack trace.
+- **A/E against SOA's published expected deaths** (maintainer-approved
+  2026-08-04). On the ILEC path the report must include A/E by calendar year
+  against `expected_deaths_vbt2015_mi`, loaded via
+  `load_ilec(include_expected=True)`. This is the numeric check that replaces
+  eyeballing a surface against the MIM-2021 narrative — see PLAN §2.
+- **An explicit aggregation level.** The real file is **9,714,592 cells** at full
+  canonical-key resolution; the MI surface needs ~10³. The harness takes the
+  grouping level as a parameter and states it in the report. Conservative default:
+  do **not** silently collapse across `smoker` or `uw_class`, which pool
+  genuinely different populations.
 - **Acceptance criteria:**
   - Runs green on synthetic fixtures in CI; `--source hmd|ilec` contract documented.
   - **No plots** — numbers and tables commit and diff, images do not.
@@ -81,9 +91,18 @@ thesis; this is what discharges it.
   secondary. Ends at 2019 deliberately: a tensor surface fitted through the COVID
   shock will attribute it to smooth improvement, which is wrong and would
   discredit the output. Pull 2020–2022 as a separate window if wanted.
-- **ILEC vintage.** The 2009–2018 release is the common one; header spellings
-  differ between vintages, so the maintainer's header diff (runbook §2b) decides
-  whether a column-map override is needed.
+- ~~**ILEC vintage.**~~ **RESOLVED 2026-08-04:** the maintainer pulled the
+  **2012-2019** release (`ILEC_2012_19 - 20240429.txt`, ~12 GB, 30 columns,
+  tab-delimited). `ILEC_2012_19_COLUMN_MAP` ships for it. Verified load:
+  9,714,592 cells, 2012–2019, 4,552,009 deaths over 464,513,252 policy-years
+  (9.8 per 1,000 crude — as expected for insured business skewed to older
+  permanent).
+- **`uw_class = "NA"` — pool or drop?** The load returns the literal string
+  `"NA"`, not null. If it means *not applicable* (the policy has no preferred-class
+  structure) it is a legitimate category and must be pooled as one; if it means
+  *not disclosed* it is missing data and pooling it would blend distinct
+  underwriting populations. The file's own `Preferred_Indicator` and
+  `Number_of_Pfd_Classes` columns should settle it empirically — see the runbook.
 - **`mgcv` oracle (ADR-151), still unexecuted.** Needs an R-equipped machine and
   is the maintainer's to run. Real-data fitting is exactly when an independent
   cross-check earns its keep — worth running alongside slice 2 if convenient, but

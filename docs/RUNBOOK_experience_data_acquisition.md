@@ -274,6 +274,50 @@ take a few minutes — that is disk throughput, not a hang.
 
 ---
 
+### 2d. Settle `uw_class = "NA"` — pool or drop?
+
+The load returns `uw_class` as the literal string `"NA"`, not null. That is
+ambiguous in a way that changes the fit:
+
+- **Not applicable** — the policy has no preferred-class structure at all (common
+  for older permanent and simplified-issue business). Then `"NA"` is a legitimate
+  category and must be **pooled as its own level**.
+- **Not disclosed** — the contributor did not report a class that exists. Then it
+  is missing data, and pooling it blends distinct underwriting populations into
+  one cell.
+
+The data dictionary `.xlsx` may say outright. **Faster and more reliable: let the
+file answer.** The release carries `Preferred_Indicator` and
+`Number_of_Pfd_Classes`, which the loader drops but which decide this:
+
+```bash
+F="$POLARIS_EXPERIENCE_CACHE_DIR/ilec/ILEC_2012_19 - 20240429.txt"
+uv run python - "$F" <<'PY'
+import sys
+import polars as pl
+lf = pl.scan_csv(sys.argv[1], separator="\t", infer_schema_length=0)
+out = (
+    lf.select("Preferred_Class", "Preferred_Indicator", "Number_of_Pfd_Classes")
+      .group_by("Preferred_Class", "Preferred_Indicator", "Number_of_Pfd_Classes")
+      .len()
+      .sort("len", descending=True)
+      .head(25)
+      .collect(engine="streaming")
+)
+print(out)
+PY
+```
+
+**Reading it.** If every `Preferred_Class == "NA"` row also has
+`Preferred_Indicator` meaning *no* (0 / "N" / "No") and `Number_of_Pfd_Classes`
+of 0 or 1, then `"NA"` is **not applicable** — a real category, pool it. If `"NA"`
+appears alongside rows whose indicator says a preferred structure *does* exist,
+it is **not disclosed** for those, and those cells should be dropped from any fit
+that conditions on underwriting class.
+
+A mixed answer is also possible and is worth knowing: the honest handling is then
+to split on the indicator rather than on the class label.
+
 ## 3. What to send back
 
 The data stays on your machine. What comes back into the repo is **findings**,

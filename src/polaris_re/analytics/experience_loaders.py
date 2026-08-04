@@ -53,6 +53,8 @@ __all__ = [
     "HMD_SEX_LABELS",
     "ILEC_2012_19_COLUMN_MAP",
     "ILEC_COLUMN_MAP",
+    "ILEC_EXPECTED_AMOUNT_MEASURES",
+    "ILEC_EXPECTED_COUNT_MEASURES",
     "ILEC_SEX_LABELS",
     "ILEC_SMOKER_LABELS",
     "default_experience_cache_dir",
@@ -309,6 +311,35 @@ ILEC_COLUMN_MAP: dict[str, str] = {
 """Default SOA-ILEC source-column → canonical-column map. Override per-vintage via
 ``load_ilec(column_map=...)`` — ILEC header spellings differ between releases."""
 
+ILEC_EXPECTED_COUNT_MEASURES: tuple[str, str] = (
+    "expected_deaths_vbt2015",
+    "expected_deaths_vbt2015_mi",
+)
+"""SOA-published expected deaths by count, on the VBT 2015 basis — without and
+with mortality improvement.
+
+**Why these matter more than they look.** They are an *independent* A/E
+denominator: SOA computed them, on the same cells, from the same exposure. That
+turns validating our tensor MI surface from a **narrative** comparison ("does the
+fitted surface look like the documented post-2010 slowdown?") into a **numeric**
+one — if our A/E ratios drift systematically with calendar year against
+``expected_deaths_vbt2015_mi``, our improvement assumption disagrees with SOA's
+by a measurable amount, in a specific direction. Opt in via
+``load_ilec(include_expected=True)``."""
+
+ILEC_EXPECTED_AMOUNT_MEASURES: tuple[str, str] = (
+    "expected_amount_vbt2015",
+    "expected_amount_vbt2015_mi",
+)
+"""Face-amount-weighted counterpart of :data:`ILEC_EXPECTED_COUNT_MEASURES`."""
+
+_ILEC_BASIS_EXPECTED: dict[str, tuple[str, ...]] = {
+    "count": ILEC_EXPECTED_COUNT_MEASURES,
+    "amount": ILEC_EXPECTED_AMOUNT_MEASURES,
+    "both": (*ILEC_EXPECTED_COUNT_MEASURES, *ILEC_EXPECTED_AMOUNT_MEASURES),
+}
+
+
 ILEC_2012_19_COLUMN_MAP: dict[str, str] = {
     "Observation_Year": "calendar_year",
     "Attained_Age": "attained_age",
@@ -323,6 +354,12 @@ ILEC_2012_19_COLUMN_MAP: dict[str, str] = {
     "Death_Count": COUNT_MEASURES[1],
     "Amount_Exposed": AMOUNT_MEASURES[0],
     "Death_Claim_Amount": AMOUNT_MEASURES[1],
+    # SOA-published expected deaths (VBT 2015 basis, without / with MI) — the
+    # independent A/E denominator. Carried only when include_expected=True.
+    "ExpDth_VBT2015_Cnt": ILEC_EXPECTED_COUNT_MEASURES[0],
+    "ExpDth_VBT2015wMI_Cnt": ILEC_EXPECTED_COUNT_MEASURES[1],
+    "ExpDth_VBT2015_Amt": ILEC_EXPECTED_AMOUNT_MEASURES[0],
+    "ExpDth_VBT2015wMI_Amt": ILEC_EXPECTED_AMOUNT_MEASURES[1],
 }
 """Column map for the **2012-2019 release** (``ILEC_2012_19 - 20240429.txt``),
 verified against a real download on 2026-08-03.
@@ -401,6 +438,7 @@ def load_ilec(
     column_map: dict[str, str] | None = None,
     aggregate: bool = True,
     separator: str = ",",
+    include_expected: bool = False,
 ) -> pl.DataFrame:
     """Load a SOA-ILEC grouped flat file into the canonical grouped-cell contract.
 
@@ -424,6 +462,13 @@ def load_ilec(
                     extension carries no format information, the separator does.
                     A wrong separator is rejected up front rather than silently
                     parsed as one wide column.
+        include_expected: Also carry SOA's **published expected deaths** on the
+                    VBT 2015 basis (without and with mortality improvement),
+                    summed over the same cells as the actual measures — see
+                    :data:`ILEC_EXPECTED_COUNT_MEASURES`. Default ``False``.
+                    Raises if the vintage does not publish them, rather than
+                    returning a frame quietly missing the denominator the
+                    caller asked for.
 
     Memory: the file is read **lazily** and only the mapped columns are
     materialised, with the group-and-sum pushed into a streaming collect. The real
@@ -450,6 +495,8 @@ def load_ilec(
 
     cmap = column_map if column_map is not None else ILEC_COLUMN_MAP
     measures = _ILEC_BASIS_MEASURES[basis]
+    if include_expected:
+        measures = (*measures, *_ILEC_BASIS_EXPECTED[basis])
 
     # Lazy scan: the real releases are far too large to read eagerly (the
     # 2012-2019 file is ~12 GB), and most of their columns are never used.
@@ -477,6 +524,15 @@ def load_ilec(
     frame_columns = sorted(set(rename.values()))
     missing_measures = [m for m in measures if m not in frame_columns]
     if missing_measures:
+        expected_names = set(_ILEC_BASIS_EXPECTED[basis])
+        if include_expected and expected_names.intersection(missing_measures):
+            raise PolarisValidationError(
+                f"include_expected=True but this ILEC file publishes no "
+                f"expected-death column(s) {sorted(expected_names.intersection(missing_measures))} "
+                f"after mapping. The 2012-2019 release carries them as "
+                f"ExpDth_VBT2015[wMI]_{{Cnt,Amt}} (see ILEC_2012_19_COLUMN_MAP); "
+                f"other vintages may not. Present columns: {frame_columns}."
+            )
         raise PolarisValidationError(
             f"ILEC file is missing measure column(s) {missing_measures} for basis "
             f"{basis!r} after mapping. Present columns: {frame_columns}."

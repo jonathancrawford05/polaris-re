@@ -34,6 +34,8 @@ from polaris_re.analytics.experience_loaders import (
     HMD_BASE_URL,
     ILEC_2012_19_COLUMN_MAP,
     ILEC_COLUMN_MAP,
+    ILEC_EXPECTED_AMOUNT_MEASURES,
+    ILEC_EXPECTED_COUNT_MEASURES,
     default_experience_cache_dir,
     fetch_hmd,
     hmd_1x1_url,
@@ -538,8 +540,12 @@ def _write_ilec_2012_19(tmp_path: Path) -> Path:
             "Death_Count": [2.0, 1.0, 3.0, 2.0],
             "Amount_Exposed": [1e8, 5e7, 8e7, 9e7],
             "Death_Claim_Amount": [2e5, 1e5, 3e5, 2e5],
-            # Columns the loader ignores but the real file carries.
+            # SOA's published expected deaths — the independent A/E denominator.
             "ExpDth_VBT2015_Cnt": [1.8, 0.9, 2.7, 1.8],
+            "ExpDth_VBT2015wMI_Cnt": [1.7, 0.85, 2.6, 1.7],
+            "ExpDth_VBT2015_Amt": [1.8e5, 0.9e5, 2.7e5, 1.8e5],
+            "ExpDth_VBT2015wMI_Amt": [1.7e5, 0.85e5, 2.6e5, 1.7e5],
+            # A column the loader ignores, as the real file has many.
             "Slct_Ult_Ind": ["S", "S", "S", "S"],
         }
     )
@@ -599,3 +605,77 @@ def test_load_ilec_selects_only_mapped_columns(tmp_path: Path) -> None:
     cells = load_ilec(path, separator="\t", column_map=ILEC_2012_19_COLUMN_MAP)
     assert "ExpDth_VBT2015_Cnt" not in cells.columns
     assert "Slct_Ult_Ind" not in cells.columns
+
+
+# ---------------------------------------------------------------------------
+# SOA-published expected deaths — the independent A/E denominator
+# ---------------------------------------------------------------------------
+
+
+def test_expected_measures_are_off_by_default(tmp_path: Path) -> None:
+    """The default carry-through is unchanged — expected columns are opt-in."""
+    path = _write_ilec_2012_19(tmp_path)
+    cells = load_ilec(path, separator="\t", column_map=ILEC_2012_19_COLUMN_MAP)
+    for col in (*ILEC_EXPECTED_COUNT_MEASURES, *ILEC_EXPECTED_AMOUNT_MEASURES):
+        assert col not in cells.columns
+
+
+def test_include_expected_carries_and_sums_the_count_pair(tmp_path: Path) -> None:
+    """``include_expected`` sums SOA's expected deaths over the same cells."""
+    path = _write_ilec_2012_19(tmp_path)
+    cells = load_ilec(
+        path, separator="\t", column_map=ILEC_2012_19_COLUMN_MAP, include_expected=True
+    )
+    for col in ILEC_EXPECTED_COUNT_MEASURES:
+        assert col in cells.columns
+    # The two Male/NS/2015/age-45 source rows collapse; expected deaths sum
+    # exactly as the actual deaths do, so the A/E ratio is well-defined per cell.
+    m45 = cells.filter(
+        (pl.col("attained_age") == 45) & (pl.col("calendar_year") == 2015) & (pl.col("sex") == "M")
+    )
+    assert m45.height == 1
+    assert m45["expected_deaths_vbt2015"][0] == pytest.approx(1.8 + 0.9)
+    assert m45["death_count"][0] == pytest.approx(3.0)
+
+
+def test_expected_deaths_give_a_computable_ae_ratio(tmp_path: Path) -> None:
+    """The point of the whole thing: actual/expected on identical cells.
+
+    SOA publishes expected deaths on the VBT 2015 basis with and without
+    mortality improvement, so the A/E ratio is an *independent* check on our own
+    improvement surface rather than a comparison against a narrative.
+    """
+    path = _write_ilec_2012_19(tmp_path)
+    cells = load_ilec(
+        path, separator="\t", column_map=ILEC_2012_19_COLUMN_MAP, include_expected=True
+    )
+    ae = cells.select(
+        (pl.col("death_count").sum() / pl.col("expected_deaths_vbt2015").sum()).alias("ae")
+    )["ae"][0]
+    assert ae == pytest.approx(8.0 / 7.2)
+
+
+def test_amount_basis_carries_the_amount_expected_pair(tmp_path: Path) -> None:
+    path = _write_ilec_2012_19(tmp_path)
+    cells = load_ilec(
+        path,
+        separator="\t",
+        column_map=ILEC_2012_19_COLUMN_MAP,
+        basis="amount",
+        include_expected=True,
+    )
+    for col in ILEC_EXPECTED_AMOUNT_MEASURES:
+        assert col in cells.columns
+    for col in ILEC_EXPECTED_COUNT_MEASURES:
+        assert col not in cells.columns
+
+
+def test_include_expected_raises_when_the_vintage_lacks_the_columns(tmp_path: Path) -> None:
+    """A vintage without SOA expected deaths must fail loudly, not silently drop.
+
+    Asking for the A/E denominator and getting a frame without it would make the
+    check quietly unavailable at exactly the moment it is being relied on.
+    """
+    path = _write_ilec(tmp_path)  # the plain fixture has no ExpDth columns
+    with pytest.raises(PolarisValidationError, match="expected-death"):
+        load_ilec(path, include_expected=True)

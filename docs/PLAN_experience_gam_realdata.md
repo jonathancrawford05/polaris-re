@@ -51,6 +51,22 @@ something the fit could **fail** to reproduce:
   to HMD (population) — insured lives are underwritten and selection effects are
   real. A model that shows them identical has a bug; the interesting output is the
   *shape* of the difference.
+- **Agreement with SOA's own expected deaths (the strongest check).** The
+  2012-2019 ILEC release publishes `ExpDth_VBT2015_Cnt` / `_Amt` and
+  `ExpDth_VBT2015wMI_*` — expected deaths on the VBT 2015 basis, **without and
+  with** mortality improvement, computed by SOA on the same cells from the same
+  exposure. Loaded via `load_ilec(include_expected=True)`.
+
+  This converts the validation from **narrative** to **numeric**. Comparing a
+  fitted surface against the MIM-2021 write-up means eyeballing whether it "looks
+  like" a documented slowdown — soft, and easy to talk ourselves into. Comparing
+  A/E on identical cells against `expected_deaths_vbt2015_mi` is arithmetic: if
+  our A/E ratios **drift systematically with calendar year**, our improvement
+  assumption disagrees with SOA's by a measurable amount, in a specific direction.
+  A flat A/E-by-year profile is agreement; a sloped one is a finding either way.
+  The `_mi` and non-`_mi` pair also isolates the improvement component itself —
+  the ratio between them *is* SOA's own MI assumption, directly comparable to our
+  surface without any model of ours in between.
 
 A slice that reports "the surface did not reproduce the slowdown" is a **successful
 slice**. Recording that would be more valuable than a plausible-looking plot.
@@ -93,8 +109,22 @@ findings report — the analogue of `scripts/bench_portfolio_parallel.py`.
 
 - `scripts/experience_diligence.py`: load (HMD or ILEC) → fit the tensor MI
   surface → emit a structured report (JSON + a Markdown table) covering fit
-  diagnostics, the improvement-rate surface sampled at reference ages, and the
-  decade-over-decade comparison that the slowdown test needs.
+  diagnostics, the improvement-rate surface sampled at reference ages, the
+  decade-over-decade comparison that the slowdown test needs, and — on ILEC —
+  **A/E by calendar year against SOA's published expected deaths**.
+
+**Aggregation level is a first-class parameter, not a detail.** The real ILEC
+2012-2019 file aggregates to **9,714,592 canonical cells** (maintainer-measured,
+2026-08-04) because the canonical key set spans `issue_age`, `duration_months`,
+`attained_age`, `calendar_year`, `sex`, `smoker`, `product`, `band`, `uw_class`.
+A tensor MI surface over `te(attained_age, calendar_year)` does **not** need that
+resolution — collapsed to `(attained_age, calendar_year, sex)` the same data is
+on the order of a thousand cells. The harness must therefore take an explicit
+grouping level and state it in the report: fitting 9.7M cells when 10³ carry the
+signal would be slow, memory-hungry, and no more informative. Getting this wrong
+in the *other* direction is the real hazard — collapsing across `smoker` or
+`uw_class` pools populations with genuinely different mortality, so the default
+must be conservative and the choice must be visible in the output.
 - Exercised end-to-end in tests on the **existing synthetic fixtures**, so the
   harness is proven before it ever sees real data.
 - Refuses to run on an empty/missing cache with an actionable message pointing at
