@@ -12,7 +12,7 @@
 - **Branch:** `claude/quirky-ramanujan-5zhsw3` (environment-designated). The branch
   carried only already-merged history after #183, so it was restarted from the new
   `main` per the environment's git rules rather than stacked on merged commits.
-- **PR:** draft, this branch.
+- **PR:** #185 (draft).
 
 ## Baseline
 

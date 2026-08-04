@@ -23,7 +23,7 @@ thesis; this is what discharges it.
 
 ### Slice 1: The diligence harness (autonomous — no data required)
 - **Status:** DONE (2026-08-04) — `src/polaris_re/analytics/experience_diligence.py`
-  + `scripts/experience_diligence.py`, **ADR-182**, runbook §3. 54 tests.
+  + `scripts/experience_diligence.py`, **ADR-182**, runbook §3. 54 tests. PR #185.
 - **Depends on:** nothing
 - **Scope:** `scripts/experience_diligence.py` — load (HMD or ILEC from a local
   cache) → fit the tensor MI surface → emit a structured findings report (JSON +
