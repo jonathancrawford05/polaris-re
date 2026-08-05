@@ -193,8 +193,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Late comparison window. Default: last 10 observed years (or second half).",
     )
     parser.add_argument("--age-df", type=int, default=6)
-    parser.add_argument("--year-df", type=int, default=4)
+    parser.add_argument(
+        "--year-df",
+        type=int,
+        default=4,
+        help=(
+            "Spline df for the calendar margin. A SHORT window cannot support a "
+            "large value: the ILEC 2012-2019 release is 8 years, and 4 there bends "
+            "at the boundary and spikes the terminal year. Use 2 on an 8-year "
+            "window. The report warns when this is large for the data."
+        ),
+    )
     parser.add_argument("--confidence-level", type=float, default=0.95)
+    parser.add_argument(
+        "--overdispersion",
+        choices=("auto", "on", "off"),
+        default="auto",
+        help=(
+            "auto (default) applies the quasi-Poisson covariance scaling whenever "
+            "the Pearson dispersion exceeds 1. Real experience is never Poisson — "
+            "HMD 1990-2019 comes back at phi=21.8, which would understate every "
+            "band by 4.7x. Scaling changes the covariance, never the surface."
+        ),
+    )
     parser.add_argument(
         "--keep-unknown-uw-class",
         action="store_true",
@@ -245,6 +266,7 @@ def main(argv: list[str] | None = None) -> int:
             age_df=args.age_df,
             year_df=args.year_df,
             confidence_level=args.confidence_level,
+            overdispersion=args.overdispersion,
             keep_unknown_uw_class=args.keep_unknown_uw_class,
         )
     except ExperienceCacheMissingError as exc:

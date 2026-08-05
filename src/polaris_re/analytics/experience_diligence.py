@@ -1168,6 +1168,7 @@ def run_diligence(
     age_df: int = 6,
     year_df: int = 4,
     confidence_level: float = 0.95,
+    overdispersion: str = "auto",
     keep_unknown_uw_class: bool = False,
 ) -> DiligenceReport:
     """Load a real experience cache, fit the tensor MI surface, and report findings.
@@ -1196,8 +1197,22 @@ def run_diligence(
         early_window:      ``(start, end)`` for the early comparison window;
                            defaults via :func:`default_windows`.
         late_window:       ``(start, end)`` for the late window.
-        age_df/year_df:    Spline degrees of freedom for the tensor margins.
+        age_df/year_df:    Spline degrees of freedom for the tensor margins. A
+                           **short calendar window cannot support a large
+                           ``year_df``** — the ILEC 2012-2019 release is 8 years,
+                           and ``year_df=4`` there produced a visible boundary
+                           spike in the terminal year. The report warns when
+                           ``year_df`` is large relative to the observed years.
         confidence_level:  Two-sided level for the delta-method bands.
+        overdispersion:    ``"auto"`` (default), ``"on"`` or ``"off"``. ``"auto"``
+                           applies the quasi-Poisson covariance scaling whenever
+                           the Pearson dispersion φ exceeds 1. Real grouped
+                           experience is essentially never Poisson — HMD 1990-2019
+                           came back at φ = 21.8, which understates every standard
+                           error by √φ = 4.7x — and the bands are the part of the
+                           report a reader quotes. Scaling changes the covariance,
+                           never the coefficients, so the surface is identical
+                           either way.
         keep_unknown_uw_class: Keep ILEC ``uw_class == "U"`` rows (the missing-data
                            sentinel). Off by default — unknown underwriting is not
                            a stratum, and pooling it with underwritten business
@@ -1359,14 +1374,27 @@ def run_diligence(
         )
 
     # --- Fit --------------------------------------------------------------------
-    model = TensorMIModel(
-        fit_cells,
-        basis=basis,
-        age_df=age_df,
-        year_df=year_df,
-        age_varying=True,
-    )
-    result = model.fit()
+    def _fit(overdispersed: bool | None) -> MISurfaceResult:
+        return TensorMIModel(
+            fit_cells,
+            basis=basis,
+            age_df=age_df,
+            year_df=year_df,
+            age_varying=True,
+            overdispersion=overdispersed,
+        ).fit()
+
+    result = _fit(None if overdispersion == "auto" else overdispersion == "on")
+    band_inflation = 1.0
+    if overdispersion == "auto" and not result.overdispersion_applied and result.dispersion > 1.0:
+        # Real grouped experience is essentially never Poisson: HMD 1990-2019 came
+        # back at phi = 21.8, which understates every standard error by sqrt(phi)
+        # = 4.7x. Bands are the part of this report a reader will quote, so the
+        # quasi-Poisson scaling is applied rather than left to a default that is
+        # right only for the synthetic fixtures. Refitting changes the covariance,
+        # not the coefficients — the surface itself is untouched.
+        band_inflation = math.sqrt(result.dispersion)
+        result = _fit(True)
 
     observed_min, observed_max = result.observed_years
     ref_ages = tuple(
@@ -1485,6 +1513,25 @@ def run_diligence(
             "group_keys including 'duration_months' to separate them, at ~60x the "
             "cell count."
         )
+    n_years_observed = observed_max - observed_min + 1
+    if year_df >= n_years_observed / 2:
+        caveats.append(
+            f"`year_df={year_df}` is large for the {n_years_observed} calendar years "
+            f"observed. A flexible year spline over a short window bends at the "
+            f"boundary, and the terminal-year improvement estimates are the first "
+            f"thing to go — read them as artefacts, not experience, and re-run with "
+            f"a lower `--year-df` before quoting them."
+        )
+    if band_inflation > 1.0:
+        caveats.append(
+            f"Pearson dispersion φ = {result.dispersion:.2f}, so the quasi-Poisson "
+            f"covariance scaling was applied: every band below is "
+            f"{band_inflation:.2f}x wider than a plain-Poisson fit would have "
+            f"reported. The point estimates are unchanged — scaling touches the "
+            f"covariance only. A φ this far above 1 means unmodelled heterogeneity, "
+            f"which is expected on real grouped data and is why the scaling is not "
+            f"optional here."
+        )
     caveats.append(
         "The base offset is estimated from these same cells, so `overall_ae` is ~1 "
         "by construction and is not an independent check on the level. The fitted "
@@ -1530,6 +1577,8 @@ def run_diligence(
         "observed_years": list(result.observed_years),
         "age_df": age_df,
         "year_df": year_df,
+        "n_years_observed": n_years_observed,
+        "band_inflation_from_overdispersion": band_inflation,
         "confidence_level": confidence_level,
         "reference_ages": list(ref_ages),
     }

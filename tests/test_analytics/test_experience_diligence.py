@@ -760,6 +760,95 @@ def test_reference_ages_outside_the_data_are_reported_as_dropped(tmp_path: Path)
     assert any("[45, 75, 85]" in caveat for caveat in report.caveats)
 
 
+def test_overdispersion_widens_the_bands_without_moving_the_surface(tmp_path: Path) -> None:
+    """The defect the first real HMD run exposed: φ = 21.8 with plain-Poisson
+    covariance understates every band by √φ = 4.7x, and the bands are what a
+    reader quotes. Scaling must widen them and leave the point estimates alone."""
+    rng = np.random.default_rng(20260804)
+    ages, years = np.arange(45, 76), np.arange(2000, 2020)
+    rows = []
+    for age in ages:
+        q = 0.002 * float(np.exp(0.08 * (age - 45)))
+        for year in years:
+            lam = 5.0e5 * q * 0.99 ** (year - years[0])
+            # Negative-binomial-ish draw: Poisson with a gamma-mixed mean, which is
+            # what unmodelled heterogeneity looks like on real grouped data.
+            noisy = lam * float(rng.gamma(4.0, 0.25))
+            rows.append((int(age), int(year), 5.0e5, float(rng.poisson(noisy))))
+    cells = pl.DataFrame(
+        rows,
+        schema=["attained_age", "calendar_year", "central_exposure", "death_count"],
+        orient="row",
+    )
+    base = attach_empirical_base(cells, exposure_col="central_exposure", deaths_col="death_count")
+    plain = TensorMIModel(base.cells, age_df=5, year_df=3, overdispersion=False).fit()
+    scaled = TensorMIModel(base.cells, age_df=5, year_df=3, overdispersion=True).fit()
+
+    assert plain.dispersion > 1.0, "fixture must actually be overdispersed"
+    a, b = plain.improvement_surface(), scaled.improvement_surface()
+    # Same surface...
+    np.testing.assert_allclose(a.mi_grid, b.mi_grid, rtol=1e-10, atol=1e-12)
+
+    # ...and bands wider by exactly sqrt(phi). The invariant holds on the LOG
+    # scale, where the band is built: MI = 1 - exp(d), so the half-width in MI
+    # units is a nonlinear function of the standard error and its ratio is only
+    # approximately sqrt(phi). Recovering 2*z*se = log(1-lower) - log(1-upper)
+    # inverts the transform exactly.
+    def log_width(surface) -> np.ndarray:
+        return np.log1p(-surface.mi_lower) - np.log1p(-surface.mi_upper)
+
+    np.testing.assert_allclose(log_width(b) / log_width(a), np.sqrt(plain.dispersion), rtol=1e-8)
+
+
+def test_auto_overdispersion_applies_and_says_so(tmp_path: Path) -> None:
+    """`overdispersion="auto"` must scale on real-looking data and report it."""
+    _write_hmd_cache(tmp_path, "USA", _constant_mi(0.012))
+    kwargs = dict(
+        source="hmd",
+        cache_dir=tmp_path,
+        country="USA",
+        min_year=1990,
+        max_year=2019,
+        min_age=50,
+        max_age=70,
+        reference_ages=(55, 65),
+    )
+    off = run_diligence(**kwargs, overdispersion="off")
+    auto = run_diligence(**kwargs, overdispersion="auto")
+    # The deterministic fixture is UNDER-dispersed, so auto must leave it alone —
+    # scaling by a phi below 1 would shrink bands and overstate precision.
+    assert off.fit["dispersion"] < 1.0
+    assert auto.fit["band_inflation_from_overdispersion"] == 1.0
+    assert not auto.fit["overdispersion_applied"]
+    assert not any("quasi-Poisson" in c for c in auto.caveats)
+
+
+def test_a_short_window_with_a_flexible_year_spline_is_flagged(tmp_path: Path) -> None:
+    """The ILEC 2012-2019 defect: year_df=4 over 8 years bends at the boundary and
+    spikes the terminal year. The report must say so rather than let a reader quote
+    a spline artefact as experience."""
+    _write_ilec_cache(tmp_path, actual_mi=0.010, soa_mi=0.010)
+    flexible = run_diligence(
+        source="ilec",
+        cache_dir=tmp_path,
+        min_age=50,
+        max_age=70,
+        reference_ages=(55, 65),
+        year_df=4,
+    )
+    tight = run_diligence(
+        source="ilec",
+        cache_dir=tmp_path,
+        min_age=50,
+        max_age=70,
+        reference_ages=(55, 65),
+        year_df=3,
+    )
+    assert flexible.fit["n_years_observed"] == 8
+    assert any("large for the 8 calendar years" in c for c in flexible.caveats)
+    assert not any("large for the 8 calendar years" in c for c in tight.caveats)
+
+
 def test_covid_window_is_flagged_as_a_caveat(tmp_path: Path) -> None:
     """Leaving the window open past 2019 attributes a shock to smooth improvement.
     The harness still runs — it says so instead of refusing."""
