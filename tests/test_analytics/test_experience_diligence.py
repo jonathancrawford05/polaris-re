@@ -355,6 +355,94 @@ def test_empirical_base_drops_zero_death_strata_and_reports_the_share() -> None:
     assert base.dropped_exposure_share == pytest.approx(1000.0 / 3000.0)
 
 
+def test_empirical_base_drops_zero_exposure_cells_inside_healthy_strata() -> None:
+    """The shape real ILEC data has and no synthetic fixture did.
+
+    A stratum can be perfectly healthy in aggregate and still contain a
+    (year, class) combination nobody was exposed in. Such a cell has
+    ``exposure * q_base == 0``, which cannot carry a Poisson offset — the model
+    rejects the whole frame with "Every cell must have positive exposure * q_base",
+    which is what a maintainer's first real ILEC run hit (2026-08-04).
+    """
+    rows = []
+    for age in range(50, 58):
+        q = 0.002 * float(np.exp(0.08 * (age - 50)))
+        for year in range(2012, 2020):
+            # Age 54 is a healthy stratum overall — but nobody was exposed in 2016.
+            exposure = 0.0 if (age == 54 and year == 2016) else 1.0e6
+            rows.append((age, year, exposure, exposure * q * 0.99 ** (year - 2012)))
+    cells = pl.DataFrame(
+        rows,
+        schema=["attained_age", "calendar_year", "central_exposure", "death_count"],
+        orient="row",
+    )
+    # Unguarded, this frame is exactly what the model rejects.
+    naive = cells.with_columns(pl.lit(0.002).alias("q_base"))
+    with pytest.raises(PolarisValidationError, match="positive exposure"):
+        TensorMIModel(naive, age_df=4, year_df=3).fit()
+
+    base = attach_empirical_base(cells, exposure_col="central_exposure", deaths_col="death_count")
+    assert base.n_cells_no_exposure == 1
+    assert base.deaths_in_no_exposure_cells == 0.0
+    assert base.n_strata_dropped == 0  # the stratum itself is fine
+    assert base.cells.height == len(rows) - 1
+    assert float(base.cells["central_exposure"].min()) > 0.0
+    # And the same frame now fits.
+    assert TensorMIModel(base.cells, age_df=4, year_df=3).fit().n_cells == len(rows) - 1
+
+
+def test_deaths_recorded_against_zero_exposure_are_surfaced_not_absorbed() -> None:
+    """Claims with no exposure to have produced them are a source-data defect.
+    Dropping the cell loses those claims, so the count must be visible."""
+    cells = pl.DataFrame(
+        {
+            "attained_age": [50, 50, 50],
+            "calendar_year": [2015, 2016, 2017],
+            "central_exposure": [1000.0, 1000.0, 0.0],
+            "death_count": [6.0, 4.0, 3.0],
+        }
+    )
+    base = attach_empirical_base(cells, exposure_col="central_exposure", deaths_col="death_count")
+    assert base.n_cells_no_exposure == 1
+    assert base.deaths_in_no_exposure_cells == pytest.approx(3.0)
+
+
+def test_empirical_base_all_cells_without_exposure_raises() -> None:
+    cells = pl.DataFrame(
+        {
+            "attained_age": [50, 50],
+            "calendar_year": [2015, 2016],
+            "central_exposure": [0.0, 0.0],
+            "death_count": [1.0, 1.0],
+        }
+    )
+    with pytest.raises(PolarisValidationError, match=r"not estimable|nothing to fit"):
+        attach_empirical_base(cells, exposure_col="central_exposure", deaths_col="death_count")
+
+
+def test_zero_exposure_cells_reach_the_report_as_a_caveat(tmp_path: Path) -> None:
+    """End to end: the harness must complete, not raise, and say what it dropped."""
+    path = _write_ilec_cache(tmp_path, actual_mi=0.010, soa_mi=0.010)
+    frame = pl.read_csv(path, separator="\t")
+    holed = frame.with_columns(
+        pl.when((pl.col("Attained_Age") == 58) & (pl.col("Observation_Year") == 2016))
+        .then(0.0)
+        .otherwise(pl.col("Policies_Exposed"))
+        .alias("Policies_Exposed")
+    )
+    holed.write_csv(path, separator="\t")
+
+    report = run_diligence(
+        source="ilec",
+        cache_dir=tmp_path,
+        min_age=55,
+        max_age=65,
+        reference_ages=(60,),
+    )
+    assert report.base["n_cells_no_exposure"] > 0
+    assert any("zero exposure and were dropped" in c for c in report.caveats)
+
+
 def test_empirical_base_clips_a_crude_rate_above_one() -> None:
     cells = pl.DataFrame(
         {

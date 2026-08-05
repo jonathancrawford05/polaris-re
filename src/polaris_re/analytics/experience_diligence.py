@@ -356,6 +356,21 @@ class EmpiricalBase:
     """Cells whose crude rate exceeded 1.0 and were clipped. Non-zero is expected
     only at extreme ages, where a central rate can exceed one."""
 
+    n_cells_no_exposure: int
+    """Individual cells dropped for non-positive exposure.
+
+    Distinct from ``n_strata_dropped``: a stratum can be perfectly healthy in
+    aggregate and still contain a (year, class) combination nobody was exposed in.
+    Those cells have ``exposure * q_base == 0`` and cannot carry the Poisson
+    offset, so the model rejects them — real ILEC data has them and no synthetic
+    fixture did, which is how this reached a maintainer's run (2026-08-04)."""
+
+    deaths_in_no_exposure_cells: float
+    """Deaths recorded in those zero-exposure cells. **Should be zero.** A positive
+    value is a defect in the source data — claims with no exposure to have
+    produced them — and means the drop is losing real claims, so it is surfaced
+    rather than absorbed."""
+
 
 def attach_empirical_base(
     cells: pl.DataFrame,
@@ -382,8 +397,16 @@ def attach_empirical_base(
     against a base fitted to the same data is not an independent check. On the ILEC
     path the *independent* check is SOA's own published expected deaths.
 
-    Strata with zero total deaths are dropped (their rate is not estimable and they
-    carry no trend information); crude rates above 1.0 are clipped.
+    Two kinds of cell come out, both counted on the result:
+
+    - **Strata** with zero total deaths are dropped — their rate is not estimable
+      and they carry no trend information. Crude rates above 1.0 are clipped.
+    - **Individual cells** with non-positive exposure are dropped, even inside a
+      healthy stratum. ``exposure * q_base == 0`` cannot carry a Poisson offset,
+      and a cell nobody was exposed in carries no information anyway. If the source
+      recorded *deaths* against such a cell, that is a data defect and the count is
+      surfaced (:attr:`EmpiricalBase.deaths_in_no_exposure_cells`) rather than
+      quietly absorbed.
 
     Args:
         cells:        Grouped cells carrying ``attained_age`` and the measure pair.
@@ -426,6 +449,25 @@ def attach_empirical_base(
     live = live.with_columns(pl.col(column).clip(upper_bound=1.0))
 
     out = cells.join(live.select(*keys, column), on=list(keys), how="inner")
+
+    # Cell-level, not stratum-level: a healthy stratum can still contain a
+    # (year, class) combination nobody was exposed in, and such a cell has
+    # exposure * q_base == 0, which cannot carry a Poisson offset. It also carries
+    # no information — zero exposure means zero expected deaths — so dropping it
+    # loses nothing UNLESS the source recorded deaths against it, which is a data
+    # defect worth naming rather than absorbing.
+    no_exposure = out.filter(pl.col(exposure_col) <= 0.0)
+    n_cells_no_exposure = no_exposure.height
+    deaths_lost = float(no_exposure[deaths_col].sum()) if n_cells_no_exposure else 0.0
+    if n_cells_no_exposure:
+        out = out.filter(pl.col(exposure_col) > 0.0)
+    if out.height == 0:
+        raise PolarisValidationError(
+            "No cell has positive exposure after dropping the zero-exposure ones — "
+            "there is nothing to fit. Check the exposure column mapping for this "
+            "vintage."
+        )
+
     return EmpiricalBase(
         cells=out,
         keys=keys,
@@ -433,6 +475,8 @@ def attach_empirical_base(
         n_strata_dropped=n_strata_all - live.height,
         dropped_exposure_share=(dropped_exposure / total_exposure) if total_exposure > 0 else 0.0,
         n_clipped=n_clipped,
+        n_cells_no_exposure=n_cells_no_exposure,
+        deaths_in_no_exposure_cells=deaths_lost,
     )
 
 
@@ -1300,6 +1344,19 @@ def run_diligence(
             f"across the whole window and were dropped — their base rate is not "
             f"estimable and they carry no trend information."
         )
+    if base.n_cells_no_exposure:
+        caveats.append(
+            f"{base.n_cells_no_exposure:,} cells had zero exposure and were dropped "
+            f"— a Poisson offset needs exposure * q_base > 0, and a cell nobody was "
+            f"exposed in carries no information. They held "
+            f"{base.deaths_in_no_exposure_cells:,.1f} deaths"
+            + (
+                ", which should be zero: deaths recorded against no exposure is a "
+                "defect in the source data, and those claims are NOT in the fit."
+                if base.deaths_in_no_exposure_cells > 0
+                else ", as expected."
+            )
+        )
 
     # --- Fit --------------------------------------------------------------------
     model = TensorMIModel(
@@ -1458,6 +1515,8 @@ def run_diligence(
         "n_strata_dropped": base.n_strata_dropped,
         "dropped_exposure_share": base.dropped_exposure_share,
         "n_clipped_above_one": base.n_clipped,
+        "n_cells_no_exposure": base.n_cells_no_exposure,
+        "deaths_in_no_exposure_cells": base.deaths_in_no_exposure_cells,
     }
     fit_info: dict[str, JsonValue] = {
         "basis": result.basis,
