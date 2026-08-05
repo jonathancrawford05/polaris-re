@@ -171,6 +171,11 @@ _MIN_YEARS_FOR_WINDOWS = 4
 """Fewer observed years than this and the early/late comparison cannot be formed
 from two disjoint windows each spanning at least one annual step."""
 
+_MIN_SPLINE_DF = 3
+"""Cubic B-spline floor. ``patsy.bs`` rejects ``df < degree`` for a basis without
+an intercept, several frames deep and as a bare ``ValueError``; at 3 the margin is
+a plain cubic with no interior knots."""
+
 _LONG_WINDOW = 10
 """Window length used when the observed range is long enough for two of them
 (e.g. HMD 1990-2019 -> 1990-1999 vs 2010-2019)."""
@@ -1232,6 +1237,24 @@ def run_diligence(
         raise PolarisValidationError(f"Unknown source {source!r}; expected 'hmd' or 'ilec'.")
     if basis not in {"count", "amount"}:
         raise PolarisValidationError(f"basis must be 'count' or 'amount', got {basis!r}.")
+    if overdispersion not in {"auto", "on", "off"}:
+        raise PolarisValidationError(
+            f"overdispersion must be 'auto', 'on' or 'off', got {overdispersion!r}."
+        )
+    # patsy's bs() needs df >= degree for a cubic basis without an intercept, and
+    # surfaces it several frames deep as a bare ValueError. Caught here so a df
+    # that is too SMALL reads like the df that is too LARGE warning does — the two
+    # are opposite ends of the same decision, and a maintainer tuning one down off
+    # a boundary artefact will walk straight into the other (2026-08-04).
+    for name, value in (("age_df", age_df), ("year_df", year_df)):
+        if value < _MIN_SPLINE_DF:
+            raise PolarisValidationError(
+                f"{name}={value} is below the cubic B-spline minimum of "
+                f"{_MIN_SPLINE_DF}. At {_MIN_SPLINE_DF} the margin is a plain cubic "
+                f"with no interior knots, which is already the least flexible "
+                f"spline available — if that is still too flexible for the window, "
+                f"the window is too short to fit a surface on."
+            )
 
     exposure_col, deaths_col = COUNT_MEASURES if basis == "count" else AMOUNT_MEASURES
     expected_cols = (

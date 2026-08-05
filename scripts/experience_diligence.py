@@ -200,8 +200,9 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Spline df for the calendar margin. A SHORT window cannot support a "
             "large value: the ILEC 2012-2019 release is 8 years, and 4 there bends "
-            "at the boundary and spikes the terminal year. Use 2 on an 8-year "
-            "window. The report warns when this is large for the data."
+            "at the boundary and spikes the terminal year. Minimum is 3 (a plain "
+            "cubic); use 3 on an 8-year window. The report warns when this is "
+            "large for the data."
         ),
     )
     parser.add_argument("--confidence-level", type=float, default=0.95)

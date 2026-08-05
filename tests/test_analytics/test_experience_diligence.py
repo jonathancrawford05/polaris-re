@@ -849,6 +849,32 @@ def test_a_short_window_with_a_flexible_year_spline_is_flagged(tmp_path: Path) -
     assert not any("large for the 8 calendar years" in c for c in tight.caveats)
 
 
+@pytest.mark.parametrize("kwargs", [{"year_df": 2}, {"age_df": 1}, {"year_df": 0}])
+def test_a_spline_df_below_the_cubic_floor_is_a_sentence_not_a_traceback(
+    tmp_path: Path, kwargs
+) -> None:
+    """Tuning year_df DOWN off a boundary artefact walks straight into patsy's
+    df >= degree floor, which it raises several frames deep as a bare ValueError.
+    A maintainer met that on 2026-08-04; it must read like the too-large warning."""
+    _write_hmd_cache(tmp_path, "USA", _constant_mi(0.012))
+    with pytest.raises(PolarisValidationError, match="below the cubic B-spline minimum"):
+        run_diligence(
+            source="hmd",
+            cache_dir=tmp_path,
+            country="USA",
+            min_age=50,
+            max_age=70,
+            max_year=2019,
+            reference_ages=(55, 65),
+            **kwargs,
+        )
+
+
+def test_unknown_overdispersion_mode_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(PolarisValidationError, match="overdispersion must be"):
+        run_diligence(source="hmd", cache_dir=tmp_path, overdispersion="yes")
+
+
 def test_covid_window_is_flagged_as_a_caveat(tmp_path: Path) -> None:
     """Leaving the window open past 2019 attributes a shock to smooth improvement.
     The harness still runs — it says so instead of refusing."""
