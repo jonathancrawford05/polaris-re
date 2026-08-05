@@ -12623,3 +12623,40 @@ something a reader must derive from `n_cells_grouped` vs `n_cells_fitted`.
 **[P2, process]** The `uw_class` dtype inconsistency and the artefact-rounding
 finding are both promoted into `PRODUCT_DIRECTION_2026-07-24.md` with provenance,
 rather than re-listed in a third consecutive session log.
+
+### ADR-182 amendment 2 (first real ILEC run, 2026-08-04)
+
+**The harness could not fit the real 2012-2019 file at all.** It aborted in
+`TensorMIModel` with *"Every cell must have positive exposure * q_base to form
+the offset"*. `attach_empirical_base` dropped **strata** with no deaths but never
+individual **cells** with no exposure — and a stratum can be perfectly healthy in
+aggregate while still containing a (year, sex, smoker, class) combination nobody
+was exposed in. Such a cell has `exposure * q_base == 0`, cannot carry a Poisson
+offset, and carries no information anyway.
+
+Measured on the maintainer's file, at the default grouping level, ages 25-95,
+`uw_class == "U"` held out:
+
+| | |
+|---|---|
+| grouped cells | **15,882** (from 9,714,592 canonical) |
+| zero-exposure cells | **2** (0.013%) |
+| deaths inside them | **0.0** |
+| negative-exposure cells | 0 |
+| total deaths | 4,354,590 |
+
+**Two cells in sixteen thousand stopped the whole run**, which is the argument for
+putting the guard in the harness rather than leaving it to the model: the model is
+right to refuse an unusable offset, but the harness is what knows those cells are
+information-free and can say so. Dropped now, with `n_cells_no_exposure` and
+`deaths_in_no_exposure_cells` on the result and in the report. The second is the
+one that matters — it *should* be zero, and here it is; a positive value would
+mean the source recorded claims against exposure that does not exist, and the drop
+would be losing real claims, so the caveat says exactly that when it happens.
+
+Two things this confirms beyond the defect. The aggregation design works as PLAN §4
+argued: 9.7M canonical cells collapse to 15,882 at the conservative default, which
+is a comfortable fit rather than a heroic one. And the failure mode itself is the
+epic's own thesis in miniature — the harness was exercised end-to-end on synthetic
+fixtures that all had exposure in every cell, so no test could have found this. It
+took real data, which is what the epic exists to obtain.

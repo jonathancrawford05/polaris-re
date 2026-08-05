@@ -177,6 +177,19 @@ counts and the exposure share.
 finding are promoted into PRODUCT_DIRECTION with provenance rather than listed in
 a third consecutive session log.
 
+## First real-data run (maintainer, 2026-08-04)
+
+**HMD USA 1990-2019 ran clean and returned `mixed (3/5 reference ages slower)`** —
+not the clean slowdown PLAN §2 named. Recorded as-is pending the report; per the
+plan that is a *successful* slice, and nothing gets tuned until it agrees.
+
+**ILEC aborted on the first attempt** — see ADR-182 amendment 2. Two zero-exposure
+cells out of 15,882 stopped the whole run; the fix drops them and reports both the
+count and the deaths they held (0.0 here, so nothing lost). The defect was
+invisible to the suite because every synthetic fixture had exposure in every cell.
+That is the epic's thesis in miniature: exercising a harness on data you generated
+proves it recovers what you injected, not that it survives what exists.
+
 ## Open Questions / Follow-ups
 
 1. **Slice 2 is a maintainer run, not a coding task.** The harness is done; what
