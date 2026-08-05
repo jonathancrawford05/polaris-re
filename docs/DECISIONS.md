@@ -12660,3 +12660,54 @@ is a comfortable fit rather than a heroic one. And the failure mode itself is th
 epic's own thesis in miniature — the harness was exercised end-to-end on synthetic
 fixtures that all had exposure in every cell, so no test could have found this. It
 took real data, which is what the epic exists to obtain.
+
+### ADR-182 amendment 3 (first real HMD + ILEC fits, 2026-08-05)
+
+Reading the first real reports found two defects that changed numbers we were
+about to publish. Both were invisible to a suite of synthetic fixtures, for the
+same reason in each case: the fixtures were generated, so they had the properties
+the generator gave them.
+
+**1. Bands were 4.67x too narrow on HMD.** The count basis defaulted to plain
+Poisson. Real HMD 1990-2019 came back at Pearson dispersion **phi = 21.84** —
+population cells aggregate enormously heterogeneous sub-populations, so Poisson is
+simply the wrong variance — and every standard error was understated by sqrt(phi).
+Bands are the part of a findings report a reader quotes.
+
+`overdispersion="auto"` is now the default: the quasi-Poisson covariance scaling is
+applied whenever phi > 1, with the inflation factor and a caveat in the report.
+Only *above* 1, deliberately — scaling by a phi below 1 would shrink bands and
+overstate precision, which is exactly what the deterministic fixtures would have
+triggered. Scaling changes the covariance and never the coefficients, asserted to
+1e-10; the band-width invariant is checked on the **log** scale, since MI = 1 -
+exp(d) makes the MI-space half-width a nonlinear function of the standard error.
+
+**Consequence for the published finding:** on corrected bands the HMD slowdowns at
+45/55/65 and the acceleration at 85 all survive, and **age 75's +0.13% does not** —
+its windows overlap. The uncorrected report claimed "no overlap" there. One of five
+reported signs was an artefact of an understated band.
+
+**2. The ILEC year spline was over-flexible for an 8-year window.** `year_df=4`
+over 2012-2019 bent at the boundary and spiked every reference age in the terminal
+year. Dropping to `year_df=3` cut the mean absolute difference against SOA's own MI
+from **0.92% to 0.368%** while the weighted mean stayed at -0.04% — unbiased before
+and after, far less noisy after, which is the signature of over-flexibility rather
+than of a wrong model. The report now warns when `year_df` is at least half the
+observed years.
+
+**3. A guard for the opposite error.** Tuning `year_df` *down* off that artefact
+walks into patsy's `df >= degree` floor, raised several frames deep as a bare
+`ValueError` — which is what happened when the maintainer followed advice to try
+`--year-df 2`, not a legal value. Both `age_df` and `year_df` are now checked at
+the harness boundary against `_MIN_SPLINE_DF = 3`, with a message saying what the
+floor means: at 3 the margin is a plain cubic with no interior knots, so if that is
+still too flexible, the window is too short to fit a surface on. The too-small and
+too-large cases are opposite ends of one decision and now read alike.
+
+**What this says about the epic's premise.** Three defects reached a maintainer's
+run — zero-exposure cells (amendment 2), an understated band, and an over-flexible
+spline — and no synthetic fixture could have caught any of them. Fixtures have
+exposure everywhere because a generator puts it there; they are Poisson because a
+generator drew them that way; they have thirty years because the generator was
+asked for thirty. That is the A4' epic's limitation restated one level down, and it
+is the concrete answer to "why bother running this on real data".

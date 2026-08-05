@@ -5,7 +5,8 @@ experience GAM", **IMPORTANT** (reclassified from ADR-150 NICE-TO-HAVE on
 2026-08-03 maintainer direction)
 **Plan:** `docs/PLAN_experience_gam_realdata.md`
 **Data runbook:** `docs/RUNBOOK_experience_data_acquisition.md`
-**Status:** IN PROGRESS
+**Status:** IN PROGRESS — slices 1 and 3 complete; slice 2 complete for USA,
+GBRTENW cross-population run outstanding
 **Total slices:** 3 (slices 2–3 depend on maintainer-run data acquisition)
 **Estimated total scope:** ~4–6 dev-days of autonomous work + 2 maintainer runs
 
@@ -72,7 +73,11 @@ thesis; this is what discharges it.
     believing them.
 
 ### Slice 2: HMD findings (maintainer runs; session records)
-- **Status:** NEXT — unblocked by slice 1; needs the maintainer's data + run
+- **Status:** DONE for USA (2026-08-05) — `docs/MEASUREMENT_experience_gam_hmd.md`.
+  **The slowdown reproduced, localised to ages 45-65** (-0.90 / -0.99 / -1.26
+  points), with ages 75-85 accelerating. Age 75's +0.13% is NOT resolvable on
+  corrected bands and is not claimed. **GBRTENW cross-population run still
+  outstanding** — the one acceptance criterion not met.
 - **Scope:** maintainer runs slice 1's harness against HMD (USA 1990–2019
   primary; GBRTENW secondary) and returns the report; the session commits
   `docs/MEASUREMENT_experience_gam_hmd.md`. The exact commands are in
@@ -83,7 +88,12 @@ thesis; this is what discharges it.
   literature); cross-population agreement characterised; no data files added.
 
 ### Slice 3: ILEC insured validation (maintainer runs; session records)
-- **Status:** PLANNED
+- **Status:** DONE (2026-08-05) — `docs/MEASUREMENT_experience_gam_ilec.md`.
+  Our fitted improvement agrees with SOA's published assumption to **0.11%/yr**
+  (A/E-with-MI drift), mean absolute age-level difference 0.368%. The slowdown
+  test returns nothing resolvable, correctly: the 8-year window lies entirely
+  after the ~2010 break. Insured-vs-population divergence is real and
+  directional — insured improve ~4x faster at 55, slower at 85.
 - **Depends on:** Slice 2
 - **Scope:** same shape against insured experience. The interesting output is
   insured-vs-population **divergence**, not agreement — insured lives are
