@@ -67,6 +67,12 @@ COPY .env.example ./
 # Committed project-scope MCP config (ADR-171); tests/test_mcp/ asserts it names
 # the polaris-mcp command, and the runtime image runs the test suite.
 COPY .mcp.json ./
+# Committed diligence findings (ADR-182). The experience-GAM notebook re-derives
+# every quantitative claim in docs/MEASUREMENT_experience_gam_*.md from these
+# reports and asserts it, so tests/test_notebooks/ needs them present. Findings
+# only — aggregate statistics, never the licensed HMD/SOA source files. The rest
+# of docs/ stays out via .dockerignore.
+COPY docs/measurements/ ./docs/measurements/
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

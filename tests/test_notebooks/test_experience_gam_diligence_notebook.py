@@ -85,6 +85,26 @@ def test_notebook_executes_end_to_end() -> None:
             ) from exc
 
 
+def test_measurements_ship_into_the_docker_image() -> None:
+    """The runtime image runs the test suite, so whatever the suite reads must be
+    in the image.
+
+    ``docs/`` is excluded wholesale by ``.dockerignore``, which meant the reports
+    this module reads were absent and the Docker job went red while every other
+    check passed (2026-08-05). Asserted structurally because the failure is
+    invisible without a Docker daemon — the same coupling `data/qa/`, `deploy/`,
+    `.github/workflows/` and `.mcp.json` each needed.
+    """
+    ignore = (REPO_ROOT / ".dockerignore").read_text().splitlines()
+    ignore = [line.strip() for line in ignore if line.strip() and not line.startswith("#")]
+    assert "!docs/measurements/**" in ignore, ".dockerignore must re-include the reports"
+    # ...and the blanket exclusion must be the /* form, or the negation cannot win.
+    assert "docs/*" in ignore and "docs/" not in ignore
+
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text()
+    assert "COPY docs/measurements/" in dockerfile, "Dockerfile must copy the reports"
+
+
 def test_notebook_reaches_the_headline_findings() -> None:
     """Guard against the notebook quietly losing a section it is meant to carry."""
     text = NOTEBOOK.read_text()
