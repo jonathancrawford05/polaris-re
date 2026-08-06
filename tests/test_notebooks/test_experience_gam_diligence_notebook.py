@@ -85,15 +85,28 @@ def test_notebook_executes_end_to_end() -> None:
             ) from exc
 
 
+@pytest.mark.skipif(
+    not (REPO_ROOT / ".dockerignore").is_file(),
+    reason=(
+        "build-time inputs; absent inside the image by design. This guard is about "
+        "the REPO's build configuration, so it has nothing to assert from within a "
+        "container built from it."
+    ),
+)
 def test_measurements_ship_into_the_docker_image() -> None:
     """The runtime image runs the test suite, so whatever the suite reads must be
     in the image.
 
-    ``docs/`` is excluded wholesale by ``.dockerignore``, which meant the reports
+    ``docs/`` was excluded wholesale by ``.dockerignore``, which meant the reports
     this module reads were absent and the Docker job went red while every other
     check passed (2026-08-05). Asserted structurally because the failure is
     invisible without a Docker daemon — the same coupling `data/qa/`, `deploy/`,
     `.github/workflows/` and `.mcp.json` each needed.
+
+    Skipped inside the image, and the skip is the point rather than an evasion:
+    ``Dockerfile`` and ``.dockerignore`` are build-time inputs that correctly do
+    not ship. Asserting on them from within a container is the very mistake this
+    test exists to catch — which is how it caught itself (2026-08-06).
     """
     ignore = (REPO_ROOT / ".dockerignore").read_text().splitlines()
     ignore = [line.strip() for line in ignore if line.strip() and not line.startswith("#")]
