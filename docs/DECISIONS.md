@@ -12767,3 +12767,52 @@ harness twice with one parameter changed and differencing. That is only possible
 because ADR-182 made the aggregation level an explicit, reported parameter rather
 than a buried default — a design choice made for auditability that turned out to
 buy the epic its best result.
+
+### ADR-182 amendment 5 (mix quantified; the diligence notebook, 2026-08-05)
+
+**The offsetting-effects reading is now measured, not inferred.** Amendment 4
+argued that ILEC's flat aggregate A/E was real improvement outrunning VBT 2015
+cancelled by duration-mix drift, and recorded it honestly as a hypothesis because
+the harness computed no standardised A/E. It does now.
+
+`StandardisedAE` is direct standardisation over the fit's own covariate keys minus
+calendar year. Each cell's own A/E is re-weighted by that cell's **whole-window**
+expected deaths — a weight that cannot depend on calendar year — and the result
+decomposes additively:
+
+    crude slope  =  standardised (experience) slope  +  mix slope
+
+Restricted to the **complete panel**: cells with positive expected deaths in every
+observed year. A cell appearing midway through would move the weight denominator
+and reintroduce precisely the mix movement being measured, so the restriction is
+what makes the weights genuinely fixed. `coverage_share` reports how much of the
+book the panel speaks for, because a decomposition over half the exposure is a
+different claim from one over all of it.
+
+Verified in closed form both ways: two strata with **constant** cell-level A/E and
+exposure migrating between them must produce ~0 experience slope with the entire
+crude drift in the mix term; a **fixed** mix with drifting cell-level A/E must
+produce the reverse. A third test pins the complete-panel exclusion. The harness
+also raises a caveat when the mix component exceeds the experience component —
+the case where reading the crude column would be actively misleading.
+
+**`notebooks/06_experience_gam_diligence.ipynb`.** The visual and quantitative
+companion to the two measurement documents, and the answer to a real gap: prose
+does not fail CI. Every quantitative claim in those documents is re-derived in the
+notebook from the committed JSON and asserted, so executing it end to end is a
+check on the prose — if a number drifts, or a re-run changes a finding, a cell
+raises and `tests/test_notebooks/` fails.
+
+Two properties make it an artefact rather than a maintainer-only script:
+
+- **It reads only committed aggregates**, never licensed data, so it runs for
+  anyone who clones the repo — no HMD account, no SOA terms acceptance. That is a
+  direct dividend of the reports being *findings* (Design Anchor 6) rather than
+  extracts.
+- **It degrades gracefully.** A report predating a section reports what to re-run
+  rather than raising, which is what lets the notebook and the harness evolve at
+  different rates.
+
+No plots, consistent with ADR-182: numbers and tables diff in git, images do not.
+The notebook is magic-free and a test asserts it stays that way, since the
+execution guard `exec`s the cells rather than starting a kernel.

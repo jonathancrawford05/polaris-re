@@ -1241,6 +1241,114 @@ def test_ilec_ae_and_fit_populations_differ_visibly(tmp_path: Path) -> None:
     assert any("A/E section covers the full loaded book" in c for c in report.caveats)
 
 
+def test_standardisation_separates_a_pure_mix_drift_from_flat_experience() -> None:
+    """Closed form for the claim the ILEC finding rests on.
+
+    Two strata whose own A/E is **constant** over time, with exposure shifting from
+    the low-A/E one to the high-A/E one. Crude A/E therefore drifts upward while
+    nothing about the experience changed. Standardisation must report an experience
+    slope of ~0 and put the whole drift in the mix component.
+    """
+    from polaris_re.analytics.experience_diligence import _standardised_ae
+
+    years = list(range(2012, 2020))
+    rows = []
+    for i, year in enumerate(years):
+        # Exposure migrates from stratum A to stratum B over the window.
+        share_b = 0.1 + 0.08 * i
+        for name, ae_level, share in (("A", 0.90, 1.0 - share_b), ("B", 1.30, share_b)):
+            expected = 1.0e6 * share
+            rows.append((name, year, expected * ae_level, expected))
+    grouped = pl.DataFrame(
+        rows,
+        schema=["uw_class", "calendar_year", "death_count", "expected_deaths_vbt2015_mi"],
+        orient="row",
+    )
+    result = _standardised_ae(
+        grouped,
+        keys=("uw_class", "calendar_year"),
+        deaths_col="death_count",
+        expected_with_mi="expected_deaths_vbt2015_mi",
+    )
+    assert result is not None
+    assert result.n_cells_used == 2
+    assert result.coverage_share == pytest.approx(1.0)
+    # Experience never moved: every cell's own A/E is constant by construction.
+    assert abs(result.standardised_slope_per_year) < 1e-12
+    # ...so the entire crude drift is mix, and it is upward.
+    assert result.crude_slope_per_year > 0.01
+    assert result.mix_slope_per_year == pytest.approx(result.crude_slope_per_year, rel=1e-9)
+
+
+def test_standardisation_leaves_a_pure_experience_drift_alone() -> None:
+    """The complement: a constant mix with drifting cell-level A/E must land
+    entirely in the experience component, with ~zero mix effect."""
+    from polaris_re.analytics.experience_diligence import _standardised_ae
+
+    rows = []
+    for i, year in enumerate(range(2012, 2020)):
+        for name, base in (("A", 0.90), ("B", 1.30)):
+            expected = 5.0e5  # fixed mix
+            rows.append((name, year, expected * (base + 0.02 * i), expected))
+    grouped = pl.DataFrame(
+        rows,
+        schema=["uw_class", "calendar_year", "death_count", "expected_deaths_vbt2015_mi"],
+        orient="row",
+    )
+    result = _standardised_ae(
+        grouped,
+        keys=("uw_class", "calendar_year"),
+        deaths_col="death_count",
+        expected_with_mi="expected_deaths_vbt2015_mi",
+    )
+    assert result is not None
+    assert result.standardised_slope_per_year == pytest.approx(0.02, rel=1e-9)
+    assert abs(result.mix_slope_per_year) < 1e-12
+
+
+def test_standardisation_excludes_cells_absent_in_some_year() -> None:
+    """Fixed weights require a complete panel — a cell appearing midway would move
+    the denominator and reintroduce the mix movement being measured."""
+    from polaris_re.analytics.experience_diligence import _standardised_ae
+
+    rows = []
+    for year in range(2012, 2020):
+        rows.append(("A", year, 900.0, 1000.0))
+        if year >= 2016:  # B only exists in the back half
+            rows.append(("B", year, 1300.0, 1000.0))
+    grouped = pl.DataFrame(
+        rows,
+        schema=["uw_class", "calendar_year", "death_count", "expected_deaths_vbt2015_mi"],
+        orient="row",
+    )
+    result = _standardised_ae(
+        grouped,
+        keys=("uw_class", "calendar_year"),
+        deaths_col="death_count",
+        expected_with_mi="expected_deaths_vbt2015_mi",
+    )
+    assert result is not None
+    assert result.n_cells_used == 1  # only A spans every year
+    assert result.coverage_share < 1.0  # and the report says how much was left out
+    assert abs(result.standardised_slope_per_year) < 1e-12
+
+
+def test_ilec_report_carries_the_ae_decomposition(tmp_path: Path) -> None:
+    _write_ilec_cache(tmp_path, actual_mi=0.010, soa_mi=0.010)
+    report = run_diligence(
+        source="ilec",
+        cache_dir=tmp_path,
+        min_age=50,
+        max_age=70,
+        reference_ages=(55, 65),
+        year_df=3,
+    )
+    assert report.standardised_ae is not None
+    payload = report.to_dict()["standardised_ae"]
+    assert "mix_slope_per_year" in payload
+    assert "## A/E decomposed: experience versus mix" in render_markdown(report)
+
+
 def test_ilec_empty_after_filters_raises(tmp_path: Path) -> None:
     _write_ilec_cache(tmp_path, actual_mi=0.010, soa_mi=0.010)
     with pytest.raises(PolarisValidationError, match="No cells survived"):

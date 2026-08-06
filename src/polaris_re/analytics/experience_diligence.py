@@ -84,6 +84,7 @@ __all__ = [
     "ExperienceCacheMissingError",
     "IlecVintage",
     "SoaSurfaceComparison",
+    "StandardisedAE",
     "WindowComparison",
     "WindowMI",
     "attach_empirical_base",
@@ -758,6 +759,44 @@ class AEByYear:
 
 
 @dataclass(frozen=True)
+class StandardisedAE:
+    """Crude A/E decomposed into a fixed-mix component and a mix component.
+
+    A flat crude A/E is routinely read as "our assumptions are holding". It can
+    equally be two effects of opposite sign cancelling: real experience moving away
+    from the assumed basis, offset by the book's covariate mix drifting. Direct
+    standardisation separates them.
+
+    Holding the mix fixed at the whole-window average, ``standardised_ae`` is what
+    A/E would have done had the book's composition never changed, so its slope is
+    the **experience** signal. ``mix_effect = crude minus standardised`` is what
+    composition alone contributed, and its slope is the **mix** signal. The two
+    slopes sum to the crude slope by construction.
+    """
+
+    frame: pl.DataFrame
+    """``calendar_year, crude_ae, standardised_ae, mix_effect``."""
+
+    crude_slope_per_year: float
+    standardised_slope_per_year: float
+    mix_slope_per_year: float
+    """Weighted OLS slopes. ``crude ≈ standardised + mix``, up to weighting."""
+
+    standard_keys: tuple[str, ...]
+    """Covariates the mix is held fixed over."""
+
+    n_cells_used: int
+    """Cells in the complete panel — those with positive expected deaths in **every**
+    observed year. Restricting to them is what makes the weights genuinely fixed;
+    a cell appearing midway through would otherwise move the denominator."""
+
+    coverage_share: float
+    """Share of total expected deaths inside the complete panel. Low coverage means
+    the standardisation speaks for only part of the book and its slope should not be
+    read as the whole story."""
+
+
+@dataclass(frozen=True)
 class SoaSurfaceComparison:
     """Our fitted ``MI_x(y)`` against SOA's own, age by age and year by year.
 
@@ -822,6 +861,87 @@ def _weighted_slope(x: np.ndarray, y: np.ndarray, w: np.ndarray) -> float:
     if var <= 0.0:
         return float("nan")
     return float(np.sum(w * (x - x_bar) * (y - y_bar)) / var)
+
+
+def _standardised_ae(
+    grouped: pl.DataFrame,
+    *,
+    keys: tuple[str, ...],
+    deaths_col: str,
+    expected_with_mi: str,
+) -> StandardisedAE | None:
+    """Decompose crude A/E into a fixed-mix component and a mix component.
+
+    Direct standardisation: each cell's own A/E is re-weighted by that cell's
+    **whole-window** expected deaths, a weight that does not depend on calendar
+    year. Restricted to the complete panel — cells with positive expected deaths in
+    every observed year — because a cell that appears midway through would change
+    the weight denominator and reintroduce exactly the mix movement being measured.
+
+    Returns ``None`` when no cell spans every year, or when fewer than two years
+    are observed.
+    """
+    mix_keys = tuple(k for k in keys if k != "calendar_year")
+    if not mix_keys or "calendar_year" not in grouped.columns:
+        return None
+    years = grouped["calendar_year"].n_unique()
+    if years < 2:
+        return None
+
+    usable = grouped.filter(pl.col(expected_with_mi) > 0.0)
+    total_expected = float(grouped[expected_with_mi].sum())
+    if usable.height == 0 or total_expected <= 0.0:
+        return None
+
+    # Complete panel + fixed weights, in one pass over the cell keys.
+    panel = usable.group_by(list(mix_keys)).agg(
+        pl.col("calendar_year").n_unique().alias("_n_years"),
+        pl.col(expected_with_mi).sum().alias("_weight"),
+    )
+    panel = panel.filter(pl.col("_n_years") == years)
+    if panel.height == 0:
+        return None
+
+    joined = usable.join(panel.select(*mix_keys, "_weight"), on=list(mix_keys), how="inner")
+    standardised = (
+        joined.with_columns((pl.col(deaths_col) / pl.col(expected_with_mi)).alias("_cell_ae"))
+        .group_by("calendar_year")
+        .agg(
+            (pl.col("_cell_ae") * pl.col("_weight")).sum().alias("_num"),
+            pl.col("_weight").sum().alias("_den"),
+        )
+        .with_columns((pl.col("_num") / pl.col("_den")).alias("standardised_ae"))
+        .select("calendar_year", "standardised_ae")
+    )
+
+    crude = (
+        grouped.group_by("calendar_year")
+        .agg(
+            pl.col(deaths_col).sum().alias("_actual"),
+            pl.col(expected_with_mi).sum().alias("_expected"),
+        )
+        .with_columns((pl.col("_actual") / pl.col("_expected")).alias("crude_ae"))
+    )
+
+    frame = (
+        crude.join(standardised, on="calendar_year", how="inner")
+        .with_columns((pl.col("crude_ae") - pl.col("standardised_ae")).alias("mix_effect"))
+        .sort("calendar_year")
+    )
+    if frame.height < 2:
+        return None
+
+    x = frame["calendar_year"].to_numpy().astype(np.float64)
+    w = frame["_expected"].to_numpy().astype(np.float64)
+    return StandardisedAE(
+        frame=frame.select("calendar_year", "crude_ae", "standardised_ae", "mix_effect"),
+        crude_slope_per_year=_weighted_slope(x, frame["crude_ae"].to_numpy(), w),
+        standardised_slope_per_year=_weighted_slope(x, frame["standardised_ae"].to_numpy(), w),
+        mix_slope_per_year=_weighted_slope(x, frame["mix_effect"].to_numpy(), w),
+        standard_keys=mix_keys,
+        n_cells_used=panel.height,
+        coverage_share=float(joined[expected_with_mi].sum()) / total_expected,
+    )
 
 
 def _soa_surface_comparison(
@@ -925,6 +1045,7 @@ class DiligenceReport:
 
     window_comparison: WindowComparison | None
     ae_by_year: AEByYear | None
+    standardised_ae: StandardisedAE | None
     soa_comparison: SoaSurfaceComparison | None
     caveats: tuple[str, ...]
     polaris_version: str = __version__
@@ -986,6 +1107,17 @@ class DiligenceReport:
                 "ae_mi_slope_per_year": ae.ae_mi_slope_per_year,
                 "ae_mi_relative_drift_per_year": ae.ae_mi_relative_drift_per_year,
                 "rows": _frame_records(ae.frame),
+            }
+        if self.standardised_ae is not None:
+            st = self.standardised_ae
+            out["standardised_ae"] = {
+                "standard_keys": list(st.standard_keys),
+                "n_cells_used": st.n_cells_used,
+                "coverage_share": st.coverage_share,
+                "crude_slope_per_year": st.crude_slope_per_year,
+                "standardised_slope_per_year": st.standardised_slope_per_year,
+                "mix_slope_per_year": st.mix_slope_per_year,
+                "rows": _frame_records(st.frame),
             }
         if self.soa_comparison is not None:
             sc = self.soa_comparison
@@ -1156,6 +1288,35 @@ def render_markdown(report: DiligenceReport) -> str:
                 f"| {row['calendar_year']} | {row['actual']:,.1f} | "
                 f"{row['expected']:,.1f} | {row['expected_mi']:,.1f} | "
                 f"{row['ae']:.4f} | {row['ae_mi']:.4f} |"
+            )
+        add("")
+
+    if report.standardised_ae is not None:
+        st = report.standardised_ae
+        add("## A/E decomposed: experience versus mix")
+        add("")
+        add(
+            f"Holding the covariate mix fixed at the whole-window average over "
+            f"`{', '.join(st.standard_keys)}`, the **experience** slope is "
+            f"**{st.standardised_slope_per_year:+.5f}/yr** and the **mix** slope is "
+            f"**{st.mix_slope_per_year:+.5f}/yr**, against a crude slope of "
+            f"**{st.crude_slope_per_year:+.5f}/yr**. A flat crude A/E with slopes of "
+            f"opposite sign means two effects are cancelling, and either can move on "
+            f"its own."
+        )
+        add("")
+        add(
+            f"Standardised over {st.n_cells_used:,} complete-panel cells covering "
+            f"{st.coverage_share * 100:.1f}% of expected deaths — cells absent in any "
+            f"year are excluded so the weights are genuinely fixed."
+        )
+        add("")
+        add("| Year | Crude A/E | Standardised A/E | Mix effect |")
+        add("|---:|---:|---:|---:|")
+        for row in st.frame.iter_rows(named=True):
+            add(
+                f"| {row['calendar_year']} | {row['crude_ae']:.4f} | "
+                f"{row['standardised_ae']:.4f} | {row['mix_effect']:+.4f} |"
             )
         add("")
 
@@ -1601,6 +1762,7 @@ def run_diligence(
     # --- SOA's independent denominator (ILEC only) ------------------------------
     ae: AEByYear | None = None
     soa: SoaSurfaceComparison | None = None
+    standardised: StandardisedAE | None = None
     if carry_expected and all(c in cells.columns for c in expected_cols):
         # The loader's group-and-sum turns a null expected-death value into a
         # zero, so by here a partially-populated vintage looks like a cell that
@@ -1636,6 +1798,23 @@ def run_diligence(
                 f"{base.dropped_exposure_share * 100:.3f}% of exposure."
             )
         ae = _ae_by_year(cells, deaths_col=deaths_col, expected=expected_cols)
+        standardised = _standardised_ae(
+            grouped,
+            keys=used_keys,
+            deaths_col=deaths_col,
+            expected_with_mi=expected_cols[1],
+        )
+        if standardised is not None and abs(standardised.mix_slope_per_year) > abs(
+            standardised.standardised_slope_per_year
+        ):
+            caveats.append(
+                f"The mix component of the A/E drift "
+                f"({standardised.mix_slope_per_year:+.5f}/yr) is LARGER than the "
+                f"experience component "
+                f"({standardised.standardised_slope_per_year:+.5f}/yr). Most of what "
+                f"the crude A/E is doing is composition, not experience — read the "
+                f"standardised column, not the crude one."
+            )
         soa = _soa_surface_comparison(
             cells, surface, expected=expected_cols, reference_ages=ref_ages
         )
@@ -1744,6 +1923,7 @@ def run_diligence(
         surface=surface.to_frame(),
         window_comparison=comparison,
         ae_by_year=ae,
+        standardised_ae=standardised,
         soa_comparison=soa,
         caveats=tuple(caveats),
     )
