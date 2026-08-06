@@ -1441,3 +1441,38 @@ are first-class work items rather than commentary.
   candidates worth auditing against it. *Source: PR #185 review (determinism
   over-claim) → measurement, DISCOVERY protocol step 11b (1st-order).*
   **NICE-TO-HAVE.**
+
+### Harvested 2026-08-05 (real-data GAM epic slices 2-3 — ADR-182 amendments 2-5)
+
+Four items the slice 2 and 3 measurement documents named and that were not
+promoted when the epic closed. Each is a 1st-order follow-up of planned slice
+scope, so the order cap does not bar them. With the epic marked COMPLETE and its
+CONTINUATION stating that follow-ups live here, the omission was load-bearing
+rather than cosmetic (PR #185 round-2 review [P1]).
+
+- **Re-run ILEC with `--duration-bands` to populate `standardised_ae`.** The
+  estimator shipped in ADR-182 amendment 5; both committed ILEC reports predate
+  it, so `MEASUREMENT_experience_gam_ilec.md` §4 — the "a flat A/E is not evidence
+  assumptions are sound" reading, which the CONTINUATION elevates to slice 3's
+  headline — is still an **inference from the pooled-versus-banded contrast**, not
+  a measurement. One maintainer run converts it. Until then the estimator is
+  verified only against synthetic strata, which is precisely the kind of evidence
+  this epic exists to say is not a finding about real experience. *Source: ADR-182
+  amendment 5 + PR #185 round-2 review (1st-order).* **IMPORTANT.**
+- **Age 45 stays boundary-contaminated on the ILEC fit.** Fitted MI ramps 0.05%
+  (2013) to 3.59% (2019) at `year_df=3`, which is the cubic floor — so this cannot
+  be tuned away. `MEASUREMENT_experience_gam_ilec.md` §7: "needs a longer vintage,
+  not a different setting." Blocks any age-45 insured improvement claim; ages 55-85
+  are unaffected. Resolution is a longer ILEC release, i.e. maintainer-gated.
+  *Source: MEASUREMENT_experience_gam_ilec §3/§7 (1st-order).* **NICE-TO-HAVE.**
+- **The ILEC A/E *level* of 1.079 is not interpreted.** Actual deaths run ~8% above
+  VBT 2015 expected on this book. Only the *drift* is claimed anywhere; decomposing
+  the level into basis, mix and selection effects was never in slice 3's scope and
+  is a genuine open question for anyone pricing off this basis. *Source:
+  MEASUREMENT_experience_gam_ilec §7 (1st-order).* **NICE-TO-HAVE.**
+- **No quantitative comparison against MIM-2021's own scale.** HMD §3 claims
+  *qualitative* structural agreement with the published record and explicitly
+  scopes out matching rates, which would need MIM-2021 loaded as a comparison
+  basis. That comparison is what would turn "the shape agrees" into "the rates
+  agree to X", and it is the natural companion to the `mgcv` oracle (ADR-151).
+  *Source: MEASUREMENT_experience_gam_hmd §3/§6 (1st-order).* **NICE-TO-HAVE.**

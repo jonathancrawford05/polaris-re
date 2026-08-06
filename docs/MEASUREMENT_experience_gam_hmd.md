@@ -15,6 +15,12 @@ Wales), 1990–2019, ages 25–95, both sexes.
 **The fit reproduces the documented post-2010 US improvement slowdown, and
 localises it to ages 45–65.**
 
+The harness's one-word verdict is **`mixed` (3 of 5 reference ages slower)**, and
+that string is stated here rather than only in §2 so the headline cannot be quoted
+without it. The two are not in conflict — §2 explains why an age-localised result
+is sharper than the uniform hypothesis — but anyone citing the headline should
+carry the verdict with it.
+
 | Age | MI 1990–1999 | 95% band | MI 2010–2019 | 95% band | Δ | bands overlap |
 |---:|---:|---|---:|---|---:|:---:|
 | 45 | 0.92% | 0.67 – 1.16% | 0.02% | −0.21 – 0.25% | **−0.90** | no |

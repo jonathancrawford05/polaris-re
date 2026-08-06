@@ -73,8 +73,20 @@ def test_committed_report_is_present_and_parses(name: str) -> None:
     assert "/" not in json.dumps(payload["inputs"])
 
 
-def test_notebook_executes_end_to_end() -> None:
-    """The real check: every embedded assertion holds against the committed reports."""
+EXPECTED_DEGRADED = ["standardised_ae"]
+"""Sections the notebook cannot verify because a committed report predates the
+feature they read.
+
+Pinned, not merely tolerated. The notebook's contract is that executing it checks
+the prose, so a section that prints a message instead of asserting carries no
+coverage — and left unpinned, that silence is indistinguishable from a section
+that ran. This list fails in **both** directions: a new gap fails, and a gap that
+closes fails too, forcing the expectation to be updated when the maintainer's
+re-run lands (PR #185 round-2 review [P2]).
+"""
+
+
+def _execute_notebook() -> dict[str, object]:
     namespace: dict[str, object] = {}
     for index, source in enumerate(_code_sources(NOTEBOOK)):
         try:
@@ -83,6 +95,22 @@ def test_notebook_executes_end_to_end() -> None:
             raise AssertionError(
                 f"notebook cell {index} raised {type(exc).__name__}: {exc}"
             ) from exc
+    return namespace
+
+
+def test_notebook_executes_end_to_end() -> None:
+    """The real check: every embedded assertion holds against the committed reports."""
+    _execute_notebook()
+
+
+def test_degraded_sections_are_exactly_the_expected_ones() -> None:
+    """Coverage cannot quietly shrink — or quietly grow — without this failing."""
+    namespace = _execute_notebook()
+    assert namespace["DEGRADED"] == EXPECTED_DEGRADED, (
+        "the notebook's unverified sections changed. If a maintainer re-run "
+        "populated a section, remove it from EXPECTED_DEGRADED; if a new gap "
+        "appeared, the notebook is asserting less than it claims."
+    )
 
 
 @pytest.mark.skipif(

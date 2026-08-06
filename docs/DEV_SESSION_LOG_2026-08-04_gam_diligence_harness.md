@@ -1,4 +1,4 @@
-# Dev Session Log — 2026-08-04 (slice 1: the experience-GAM diligence harness)
+# Dev Session Log — 2026-08-04/05 (the real-data GAM epic, all three slices)
 
 ## Item Selected
 
@@ -21,8 +21,13 @@
 #184 recorded. No NEW or CHANGED failures → PROCEEDED. The 3 skips are the
 standing absent-CIA-2014-table skips.
 
-End state: **3004 passed, 3 skipped**. Next session's expected baseline is
-**3004 passed, 3 skipped**.
+End state: **3035 passed, 3 skipped** under `make test` (125 deselected). Next
+session's expected baseline is **3035 passed, 3 skipped**.
+
+**The session did not stop at slice 1.** It was scoped to the harness alone, but
+the maintainer's HMD and ILEC data arrived mid-session — the handoff PLAN §3 was
+designed around — so slices 2 and 3 completed too and the epic closed. Everything
+below covers all three.
 
 ## What Was Done
 
@@ -85,11 +90,59 @@ makes a committed finding diff meaningfully against a re-run. **This claim did
 not survive being tested properly** — see the review round below; it is true now,
 for a reason that was not understood when it was first written.
 
+## What Was Done After Slice 1 (the real-data rounds)
+
+**Three defects reached the maintainer's runs, and no synthetic fixture could
+have caught any of them** — fixtures have exposure in every cell because a
+generator puts it there, are Poisson because a generator drew them that way, and
+have thirty years because the generator was asked for thirty. That is the A4′
+limitation restated one level down, and the concrete answer to "why run this on
+real data" (ADR-182 amendments 2-4):
+
+- **Zero-exposure cells** aborted the first ILEC run outright. Two cells in 15,882.
+- **Bands were 4.67x too narrow** on HMD — φ = 21.84 against a plain-Poisson
+  default. Correcting it cost a finding: age 75's +0.13% stopped being resolvable.
+- **The ILEC year spline was over-flexible** for an 8-year window; `year_df=3` cut
+  the mean absolute difference against SOA from 0.92% to 0.368%.
+- **Tuning that down walked into patsy's cubic floor**, raised several frames deep
+  as a bare `ValueError` — now a sentence.
+
+**Findings delivered.** `MEASUREMENT_experience_gam_hmd.md` (slice 2): the
+slowdown reproduced and localised to ages 45-65, replicated independently in
+GBRTENW, with the old-age divergence traced to the fit's own 1990s baselines.
+`MEASUREMENT_experience_gam_ilec.md` (slice 3): agreement with SOA's published
+improvement to ~0.11%/yr, duration mix confounding the trend (φ 2.25 → 1.163 for
+0.009% of exposure), and insured lives improving ~6-7x faster than the population
+at 55-65.
+
+**Duration banding and the mix estimator**, both on maintainer direction:
+`band_duration_months` controls for select-period mix at ~9x the cell count rather
+than ~60x, and `StandardisedAE` decomposes crude A/E into experience and mix
+components. **The estimator shipped; the measurement did not** — both committed
+ILEC reports predate it, so ILEC §4 remains an inference. Filed in
+PRODUCT_DIRECTION as IMPORTANT.
+
+**The notebook** (`notebooks/06_experience_gam_diligence.ipynb`) re-derives every
+quantitative claim in both measurement documents from the committed JSON and
+asserts it, closing a real gap: prose does not fail CI. It reads only committed
+aggregates, so it runs for anyone who clones the repo.
+
 ## Files Changed
 
-- `src/polaris_re/analytics/experience_diligence.py` — **new**, the harness.
+- `src/polaris_re/analytics/experience_diligence.py` — **new**, the harness:
+  discovery, empirical base, duration banding, overdispersion scaling, the
+  window comparison, SOA A/E and the mix decomposition.
 - `scripts/experience_diligence.py` — **new**, the CLI wrapper.
-- `tests/test_analytics/test_experience_diligence.py` — **new**, 65 tests.
+- `tests/test_analytics/test_experience_diligence.py` — **new**, 85 tests.
+- `notebooks/06_experience_gam_diligence.ipynb` +
+  `tests/test_notebooks/test_experience_gam_diligence_notebook.py` — **new**.
+- `docs/MEASUREMENT_experience_gam_hmd.md`, `docs/MEASUREMENT_experience_gam_ilec.md`
+  — **new**, slices 2 and 3.
+- `docs/measurements/` — **new**: four raw reports (HMD USA, GBRTENW, ILEC pooled,
+  ILEC duration-banded) plus a README on why committing findings is not a licence
+  problem and why the grouped cell table is not committable.
+- `Dockerfile`, `.dockerignore` — ship `docs/measurements/` so the suite can read
+  it inside the image.
 - `src/polaris_re/analytics/__init__.py` — public exports.
 - `docs/DECISIONS.md` — **ADR-182**.
 - `docs/PLAN_experience_gam_realdata.md`, `docs/CONTINUATION_experience_gam_realdata.md`
@@ -104,7 +157,7 @@ for a reason that was not understood when it was first written.
 
 | Criterion (CONTINUATION slice 1) | Status | Notes |
 |---|---|---|
-| Runs green on synthetic fixtures in CI | ✅ | 65 tests, ~9 s |
+| Runs green on synthetic fixtures in CI | ✅ | 85 tests |
 | `--source hmd\|ilec` contract documented | ✅ | `--help`, module docstring, runbook §3 |
 | Empty/missing cache → actionable message, not a stack trace | ✅ | Exit 2, names every location searched + the runbook |
 | **No plots** | ✅ | Asserted in a test (`.png`/`.svg` absent from the rendering) |
@@ -112,6 +165,14 @@ for a reason that was not understood when it was first written.
 | `"NA"` pooled as its own stratum, `"U"` held out | ✅ | Per ADR-181's empirical reading |
 | A/E by calendar year vs `expected_deaths_vbt2015_mi` | ✅ | Plus the within-age fitted-vs-SOA surface comparison |
 | `tests/qa/` goldens untouched | ✅ | Nothing in `products/` moves |
+
+**Slice 2** (`MEASUREMENT_experience_gam_hmd.md` §7): slowdown answered either way ✅;
+compared against the published reference ✅; cross-population agreement
+characterised ✅ (GBRTENW); no data files added ✅.
+
+**Slice 3** (`MEASUREMENT_experience_gam_ilec.md` §8): insured surface fitted and
+compared ✅; divergence characterised ✅; column-map override ✅ (ADR-181); no data
+files added ✅.
 
 ## Perf History
 
@@ -192,14 +253,16 @@ proves it recovers what you injected, not that it survives what exists.
 
 ## Open Questions / Follow-ups
 
-1. **Slice 2 is a maintainer run, not a coding task.** The harness is done; what
-   is missing is the data. The next session's job is to read the returned report
-   honestly against SOA MIM-2021 / the CMI literature and write
-   `MEASUREMENT_experience_gam_hmd.md` — including any way the fit disappoints.
-2. **The ILEC default pools across duration.** A duration mix drifting with
-   calendar year leaks into the fitted trend. Every report states it, and
-   `--group-by` can separate it at ~60x the cell count — but nobody has yet
-   measured how large the leak is on the real file. Worth one run at both levels
+1. **The mix decomposition is implemented but not measured on the book.** Both
+   committed ILEC reports predate `StandardisedAE`, so ILEC §4 is still an
+   inference. **Promoted to PRODUCT_DIRECTION as IMPORTANT** — one maintainer run
+   with `--duration-bands` converts it.
+2. ~~**The ILEC default pools across duration**, leak unmeasured.~~ **RESOLVED
+   2026-08-05:** measured by running the harness twice and differencing. The leak
+   was large — φ 2.25 → 1.163, every reference age moved, age 65 by 1.15pp/yr.
+   Duration banding shipped; ADR-182 amendment 4. Superseded follow-ups (age 45
+   boundary contamination, the uninterpreted A/E level, MIM-2021 rate comparison)
+   are now in PRODUCT_DIRECTION. Original text kept for the record: worth one run
    in slice 3 before believing a surprising number.
 3. **Goldens cannot detect a last-ulp engine perturbation** (carried from
    2026-08-04's earlier session). Still IMPORTANT, still unaddressed.
@@ -208,6 +271,12 @@ proves it recovers what you injected, not that it survives what exists.
    provenance (PR #185 review [P2]).
 5. **`mgcv` oracle (ADR-151) still unexecuted** — maintainer's to run, and real-data
    fitting is when it earns its keep.
+
+## Epic Status
+
+**COMPLETE.** All three slices delivered, every acceptance criterion met. Nothing
+replaced it, so the next routine run lands on step 5b — start a new Tier-A epic or
+document maintenance mode. Flagged for the maintainer in the PR review.
 
 ## Parked Polish
 

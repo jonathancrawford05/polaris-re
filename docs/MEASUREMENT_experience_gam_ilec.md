@@ -172,7 +172,10 @@ pooled by `Preferred_Class` alone, merging class-2-of-2 (worst) with class-2-of-
   2015 expected on this book; decomposing that into basis, mix and selection
   effects is not attempted here. Only the *drift* is claimed.
 - **§4's decomposition is inferred, not measured.** Quantifying the mix effect
-  directly would need a standardised-mix A/E, which the harness does not compute.
+  directly needs a standardised-mix A/E. The harness computes one as of ADR-182
+  amendment 5 (`StandardisedAE`), but **this report predates it** — see the
+  `Harness:` pin above. Converting §4 from inference to measurement needs one more
+  maintainer run with `--duration-bands`; it is filed in PRODUCT_DIRECTION.
 
 ## 8. Verdict against slice 3's acceptance criteria
 

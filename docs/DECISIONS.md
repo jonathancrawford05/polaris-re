@@ -12770,10 +12770,19 @@ buy the epic its best result.
 
 ### ADR-182 amendment 5 (mix quantified; the diligence notebook, 2026-08-05)
 
-**The offsetting-effects reading is now measured, not inferred.** Amendment 4
-argued that ILEC's flat aggregate A/E was real improvement outrunning VBT 2015
-cancelled by duration-mix drift, and recorded it honestly as a hypothesis because
-the harness computed no standardised A/E. It does now.
+**The harness can now measure the offsetting-effects reading; the measurement
+itself has not been taken.** Amendment 4 argued that ILEC's flat aggregate A/E was
+real improvement outrunning VBT 2015 cancelled by duration-mix drift, and recorded
+it honestly as a hypothesis because the harness computed no standardised A/E. The
+estimator exists as of this amendment. **Both committed ILEC reports predate it**,
+so §4 of `MEASUREMENT_experience_gam_ilec.md` remains the inference it says it is
+until a maintainer re-runs with `--duration-bands` (filed in PRODUCT_DIRECTION).
+
+The first draft of this amendment was headed "mix quantified" and opened "the
+offsetting-effects reading is now measured, not inferred" — which was false, and
+false in the epic's own characteristic way. Three closed-form verifications on
+synthetic strata are exactly the evidence this epic exists to say is *not* a
+finding about real experience. Caught in review (PR #185 round 2, [P1]).
 
 `StandardisedAE` is direct standardisation over the fit's own covariate keys minus
 calendar year. Each cell's own A/E is re-weighted by that cell's **whole-window**
