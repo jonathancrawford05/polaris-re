@@ -5,8 +5,8 @@ experience GAM", **IMPORTANT** (reclassified from ADR-150 NICE-TO-HAVE on
 2026-08-03 maintainer direction)
 **Plan:** `docs/PLAN_experience_gam_realdata.md`
 **Data runbook:** `docs/RUNBOOK_experience_data_acquisition.md`
-**Status:** IN PROGRESS — slices 1 and 3 complete; slice 2 complete for USA,
-GBRTENW cross-population run outstanding
+**Status:** COMPLETE (2026-08-05) — all three slices delivered, every acceptance
+criterion met. Follow-ups live in PRODUCT_DIRECTION, not here.
 **Total slices:** 3 (slices 2–3 depend on maintainer-run data acquisition)
 **Estimated total scope:** ~4–6 dev-days of autonomous work + 2 maintainer runs
 
@@ -73,11 +73,12 @@ thesis; this is what discharges it.
     believing them.
 
 ### Slice 2: HMD findings (maintainer runs; session records)
-- **Status:** DONE for USA (2026-08-05) — `docs/MEASUREMENT_experience_gam_hmd.md`.
+- **Status:** DONE (2026-08-05) — `docs/MEASUREMENT_experience_gam_hmd.md`.
   **The slowdown reproduced, localised to ages 45-65** (-0.90 / -0.99 / -1.26
   points), with ages 75-85 accelerating. Age 75's +0.13% is NOT resolvable on
-  corrected bands and is not claimed. **GBRTENW cross-population run still
-  outstanding** — the one acceptance criterion not met.
+  corrected bands and is not claimed. **GBRTENW confirms it independently** —
+  4/5 ages slower, agreeing at 45-65 and diverging at 85 for a reason the fit's
+  own 1990s baselines explain.
 - **Scope:** maintainer runs slice 1's harness against HMD (USA 1990–2019
   primary; GBRTENW secondary) and returns the report; the session commits
   `docs/MEASUREMENT_experience_gam_hmd.md`. The exact commands are in
@@ -89,11 +90,12 @@ thesis; this is what discharges it.
 
 ### Slice 3: ILEC insured validation (maintainer runs; session records)
 - **Status:** DONE (2026-08-05) — `docs/MEASUREMENT_experience_gam_ilec.md`.
-  Our fitted improvement agrees with SOA's published assumption to **0.11%/yr**
-  (A/E-with-MI drift), mean absolute age-level difference 0.368%. The slowdown
-  test returns nothing resolvable, correctly: the 8-year window lies entirely
-  after the ~2010 break. Insured-vs-population divergence is real and
-  directional — insured improve ~4x faster at 55, slower at 85.
+  **Duration mix was confounding the trend**: banding took dispersion 2.25 -> 1.16
+  at a cost of 0.009% of exposure and moved every reference age. The headline is
+  the tension between a flat aggregate A/E (-0.11%/yr, model-free) and a
+  duration-controlled surface improving ~0.27%/yr faster than VBT 2015 assumes —
+  two offsetting effects, so **a flat A/E is not evidence assumptions are sound**.
+  Insured improve ~6-7x faster than population at 55-65.
 - **Depends on:** Slice 2
 - **Scope:** same shape against insured experience. The interesting output is
   insured-vs-population **divergence**, not agreement — insured lives are

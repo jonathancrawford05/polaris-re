@@ -12,8 +12,15 @@ mechanical diff without disturbing prose that a human wrote.
 
 | File | Produced by |
 |---|---|
-| `experience_gam_hmd_usa.{json,md}` | `scripts/experience_diligence.py --source hmd --country USA --min-year 1990 --max-year 2019` |
-| `experience_gam_ilec.{json,md}` | `scripts/experience_diligence.py --source ilec --year-df 3` |
+| `experience_gam_hmd_usa.{json,md}` | `--source hmd --country USA --min-year 1990 --max-year 2019` |
+| `experience_gam_hmd_gbrtenw.{json,md}` | `--source hmd --country GBRTENW --min-year 1990 --max-year 2019` |
+| `experience_gam_ilec.{json,md}` | `--source ilec --year-df 3` |
+| `experience_gam_ilec_duration_banded.{json,md}` | `--source ilec --year-df 3 --duration-bands` |
+
+The two ILEC runs are both kept **on purpose**: the difference between them is
+itself a finding (duration mix was confounding the trend — ADR-182 amendment 4).
+The banded one is the better-specified fit; the pooled one is the control that
+shows how much the confound was worth.
 
 Read them alongside `docs/MEASUREMENT_experience_gam_hmd.md` and
 `docs/MEASUREMENT_experience_gam_ilec.md`, which say what the numbers mean and

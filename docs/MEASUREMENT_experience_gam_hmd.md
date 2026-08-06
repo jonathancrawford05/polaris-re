@@ -1,10 +1,12 @@
 # Measurement: the tensor MI surface against real HMD population experience
 
 **Slice 2 of** `docs/PLAN_experience_gam_realdata.md`.
-**Run by** the maintainer, 2026-08-05, on HMD USA 1990–2019, ages 25–95, both sexes.
-**Raw output:** `docs/measurements/experience_gam_hmd_usa.{json,md}` — generated
-verbatim by `scripts/experience_diligence.py`, never hand-edited.
-**Harness:** ADR-182, at `e0a0ebb`.
+**Run by** the maintainer, 2026-08-05, on HMD **USA** and **GBRTENW** (England &
+Wales), 1990–2019, ages 25–95, both sexes.
+**Raw output:** `docs/measurements/experience_gam_hmd_usa.{json,md}` and
+`experience_gam_hmd_gbrtenw.{json,md}` — generated verbatim by
+`scripts/experience_diligence.py`, never hand-edited.
+**Harness:** ADR-182, at `0787187`.
 
 ---
 
@@ -47,6 +49,38 @@ reproduce the slowdown' is a successful slice"*. The surface reproduced somethin
 sharper than the hypothesis. Nothing was tuned to get here — the only parameter
 change between the first and final run was applying the overdispersion scaling
 described in §4, which does not move point estimates at all.
+
+## 2b. England & Wales reproduces it independently
+
+GBRTENW, same window, same settings. **4 of 5 reference ages slower**, and the
+fifth is not resolvable.
+
+| Age | MI 1990–1999 | 95% band | MI 2010–2019 | 95% band | Δ | bands overlap |
+|---:|---:|---|---:|---|---:|:---:|
+| 45 | 0.90% | 0.58 – 1.21% | 0.24% | −0.08 – 0.57% | **−0.65** | no |
+| 55 | 2.47% | 2.29 – 2.65% | 0.59% | 0.39 – 0.78% | **−1.88** | no |
+| 65 | 2.82% | 2.69 – 2.95% | 1.06% | 0.90 – 1.22% | **−1.76** | no |
+| 75 | 1.71% | 1.60 – 1.81% | 1.30% | 1.18 – 1.42% | **−0.41** | no |
+| 85 | 0.83% | 0.72 – 0.95% | 1.01% | 0.90 – 1.12% | +0.18 | **yes** |
+
+φ = 5.42, bands ×2.33; 15,153,718 deaths over 4,260 cells.
+
+**Where the two populations agree** — and this is the claim worth making — is the
+midlife collapse. Both show improvement at 45–65 falling by roughly one to two
+percentage points a year between the decades, resolvably, in the same direction.
+Two independent national populations, two independent data sources, same
+structure. That is a far stronger statement than one country.
+
+**Where they differ is at the oldest ages, and the difference is explicable from
+the fit's own numbers.** The USA accelerated sharply at 85 (−0.23% → +1.27%);
+England & Wales did not move resolvably (0.83% → 1.01%). The 1990s baselines say
+why: US old-age mortality was *worsening* in the 1990s while E&W was already
+improving at 0.83%/yr. The US had room to catch up and did; E&W had less to
+recover. The divergence is a difference in starting point, not a contradiction —
+and the surface recovered both without being told about either.
+
+E&W also slowed resolvably at 75 where the USA did not (§4). So the E&W slowdown
+is the *broader* of the two, covering 45–75.
 
 ## 3. Agreement with the published record
 
@@ -115,9 +149,12 @@ where SOA publishes its own expected deaths (see
 - **`year_df=4` over 30 years is comfortable**, but the same setting over the
   8-year ILEC window was not — see the ILEC measurement. The terminal-year
   estimates of any spline fit deserve suspicion.
-- **Cross-population confirmation is not yet run.** GBRTENW has its own documented
-  post-2011 slowdown and would materially strengthen the claim; the command is in
-  `RUNBOOK_experience_data_acquisition.md` §3. Until then this is one population.
+- **Two populations, not many.** USA and GBRTENW agree on the midlife collapse
+  (§2b). That is replication, not universality — both are wealthy Anglophone
+  countries with correlated public-health histories, so this is weaker evidence
+  than two arbitrary populations would be.
+- **No quantitative comparison to MIM-2021's own rates.** That needs the published
+  scale loaded as a comparison basis, which is out of scope for this slice.
 
 ## 7. Verdict against slice 2's acceptance criteria
 
@@ -125,5 +162,5 @@ where SOA publishes its own expected deaths (see
 |---|---|
 | Post-2010 US slowdown answered **either way** | ✅ Reproduced, and localised to ages 45–65 |
 | Compared against the published reference | ✅ Qualitative structure agrees (§3) |
-| Cross-population agreement characterised | ⚠️ **Not run** — GBRTENW outstanding |
+| Cross-population agreement characterised | ✅ GBRTENW slows at 4/5 ages; agrees at 45–65, diverges at 85 for a reason the fit itself explains (§2b) |
 | No data files added | ✅ Findings only; the 1x1 files never left the maintainer's machine |

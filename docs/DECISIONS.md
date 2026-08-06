@@ -12711,3 +12711,59 @@ exposure everywhere because a generator puts it there; they are Poisson because 
 generator drew them that way; they have thirty years because the generator was
 asked for thirty. That is the A4' epic's limitation restated one level down, and it
 is the concrete answer to "why bother running this on real data".
+
+### ADR-182 amendment 4 (duration banding; cross-population confirmation, 2026-08-05)
+
+**Duration mix was confounding the ILEC trend, and the confound was large.** The
+first ILEC fit pooled across duration and said so in a caveat, unmeasured. Measured
+now, by running the harness twice and differencing:
+
+| | pooled | duration-banded |
+|---|---|---|
+| Pearson dispersion phi | 2.25 | **1.163** |
+| cells fitted | 15,880 | 125,676 |
+| base strata (dropped) | 426 (0) | 3,767 (61) |
+| dropped exposure share | 0.000% | **0.009%** |
+| slowdown verdict | `mixed`, 1/5 slower | `acceleration`, 0/5 slower |
+
+Banding took dispersion to within 16% of nominal Poisson at a cost of 0.009% of
+exposure. That is the removal of a real omitted variable, not a marginal fit
+improvement, and it moved every reference age — 65's 2016-19 estimate went from
+0.40% to 1.55%.
+
+**Why the surface legitimately moves even though duration cancels in the
+contrast.** The banded representative is calendar-invariant by construction, so the
+duration term cancels exactly in `eta(x,y) - eta(x,y-1)` and cannot itself shift MI.
+What changes is the **cell set**: conditioning on duration stops the
+`te(age, calendar_year)` tensor absorbing duration-mix drift that correlates with
+calendar year. The pooled fit was attributing an ageing book's rising mortality to
+"less improvement". This is the mechanism the banding design was built to permit
+testing, and the test came back positive.
+
+**A finding that outranks the slowdown test.** Aggregate A/E-with-MI against SOA's
+published expected deaths is flat (-0.11%/yr, model-free, identical in both runs),
+while the duration-controlled surface says the business improved ~0.27%/yr *faster*
+than VBT 2015's scale assumes. Both hold because they offset: genuine improvement
+running ahead of the assumed scale, cancelled by a book drifting toward
+higher-mortality durations. **A flat A/E is therefore not evidence that assumptions
+are sound** — it can be two effects of opposite sign, either of which moves
+independently. That is precisely what a pooled A/E study hides and a fitted,
+duration-controlled surface exposes, and it is the clearest commercial argument the
+epic has produced for the model existing. Recorded as a well-evidenced hypothesis,
+not a quantified attribution: the harness does not compute a standardised-mix A/E,
+so the decomposition is inferred from the pooled-versus-banded contrast.
+
+**Cross-population confirmation.** GBRTENW 1990-2019 slows at **4 of 5** reference
+ages (45 -0.65, 55 -1.88, 65 -1.76, 75 -0.41, all resolvable; 85 +0.18 not
+resolvable). The midlife collapse at 45-65 replicates the USA independently — two
+national populations, two data sources, same structure. The old-age divergence
+(USA accelerates at 85, E&W does not) is explained by the fit's own 1990s
+baselines: US old-age mortality was *worsening* then while E&W was already
+improving, so the US had catch-up available. The surface recovered both without
+being told about either.
+
+**Process note.** Every one of this amendment's findings came from running the same
+harness twice with one parameter changed and differencing. That is only possible
+because ADR-182 made the aggregation level an explicit, reported parameter rather
+than a buried default — a design choice made for auditability that turned out to
+buy the epic its best result.
