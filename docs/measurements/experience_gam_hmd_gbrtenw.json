@@ -1,0 +1,1164 @@
+{
+  "schema_version": 1,
+  "polaris_version": "0.1.0",
+  "source": "hmd",
+  "inputs": {
+    "source": "hmd",
+    "basis": "count",
+    "country": "GBRTENW",
+    "deaths_file": "Deaths_1x1.txt",
+    "exposures_file": "Exposures_1x1.txt",
+    "deaths_file_bytes": 1454732,
+    "exposures_file_bytes": 1454742
+  },
+  "aggregation": {
+    "group_keys": [
+      "attained_age",
+      "calendar_year",
+      "sex"
+    ],
+    "dropped_keys": [],
+    "n_cells_loaded": 4260,
+    "n_cells_grouped": 4260,
+    "n_cells_fitted": 4260,
+    "n_cells_unknown_uw_class_excluded": 0,
+    "total_exposure": 1117115545.92,
+    "total_deaths": 15153718.0
+  },
+  "base": {
+    "kind": "empirical (pooled crude rate over the calendar window)",
+    "keys": [
+      "attained_age",
+      "sex"
+    ],
+    "n_strata": 142,
+    "n_strata_dropped": 0,
+    "dropped_exposure_share": 0.0,
+    "n_clipped_above_one": 0,
+    "n_cells_no_exposure": 0,
+    "deaths_in_no_exposure_cells": 0.0
+  },
+  "fit": {
+    "basis": "count",
+    "factors": [
+      "sex"
+    ],
+    "age_varying": true,
+    "n_cells": 4260,
+    "overall_ae": 1.0,
+    "dispersion": 5.42141380836,
+    "overdispersion_applied": true,
+    "observed_ages": [
+      25,
+      95
+    ],
+    "observed_years": [
+      1990,
+      2019
+    ],
+    "age_df": 6,
+    "year_df": 4,
+    "n_years_observed": 30,
+    "band_inflation_from_overdispersion": 2.32839296691,
+    "confidence_level": 0.95,
+    "reference_ages": [
+      45,
+      55,
+      65,
+      75,
+      85
+    ]
+  },
+  "improvement_surface": [
+    {
+      "attained_age": 45,
+      "calendar_year": 1991,
+      "mi": 0.0184766928245,
+      "mi_lower": 0.0094591579417,
+      "mi_upper": 0.0274121352464
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 1992,
+      "mi": 0.0149879021983,
+      "mi_lower": 0.00797942370286,
+      "mi_upper": 0.0219468668308
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 1993,
+      "mi": 0.0119683742512,
+      "mi_lower": 0.00671347714747,
+      "mi_upper": 0.0171954707728
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 1994,
+      "mi": 0.00942249459884,
+      "mi_lower": 0.00562800730158,
+      "mi_upper": 0.0132025022708
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 1995,
+      "mi": 0.00735396790922,
+      "mi_lower": 0.00465047353189,
+      "mi_upper": 0.0100501192561
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 1996,
+      "mi": 0.00576580891948,
+      "mi_lower": 0.00365719683595,
+      "mi_upper": 0.00786995843762
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 1997,
+      "mi": 0.00466033511414,
+      "mi_lower": 0.0026130507897,
+      "mi_upper": 0.0067034170845
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 1998,
+      "mi": 0.0040391610898,
+      "mi_lower": 0.00175439163031,
+      "mi_upper": 0.00631870120349
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 1999,
+      "mi": 0.00390319462547,
+      "mi_lower": 0.00135118613322,
+      "mi_upper": 0.00644868155854
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2000,
+      "mi": 0.00425263447188,
+      "mi_lower": 0.00153920563211,
+      "mi_upper": 0.00695868926541
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2001,
+      "mi": 0.00508696986733,
+      "mi_lower": 0.00236943422607,
+      "mi_upper": 0.00779710296879
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2002,
+      "mi": 0.00640498178178,
+      "mi_lower": 0.00385163990091,
+      "mi_upper": 0.00895177889983
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2003,
+      "mi": 0.00820474588488,
+      "mi_lower": 0.00596215128836,
+      "mi_upper": 0.010442281086
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2004,
+      "mi": 0.0104836372278,
+      "mi_lower": 0.0086148506256,
+      "mi_upper": 0.0123489011189
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2005,
+      "mi": 0.0132124588378,
+      "mi_lower": 0.0115422656379,
+      "mi_upper": 0.0148798299188
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2006,
+      "mi": 0.0157939963909,
+      "mi_lower": 0.0138989237566,
+      "mi_upper": 0.0176854271062
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2007,
+      "mi": 0.0176370180506,
+      "mi_lower": 0.015365923909,
+      "mi_upper": 0.0199028738313
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2008,
+      "mi": 0.0187199186121,
+      "mi_lower": 0.0161476567683,
+      "mi_upper": 0.0212854553299
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2009,
+      "mi": 0.0190452064168,
+      "mi_lower": 0.0163208549379,
+      "mi_upper": 0.0217620126601
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2010,
+      "mi": 0.0186136345742,
+      "mi_lower": 0.0159033562102,
+      "mi_upper": 0.0213164486217
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2011,
+      "mi": 0.0174242038688,
+      "mi_lower": 0.014880484711,
+      "mi_upper": 0.0199613547807
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2012,
+      "mi": 0.0154741589033,
+      "mi_lower": 0.0131948904077,
+      "mi_upper": 0.0177481628692
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2013,
+      "mi": 0.0127589774577,
+      "mi_lower": 0.0106994732005,
+      "mi_upper": 0.0148141942838
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2014,
+      "mi": 0.00927235300559,
+      "mi_lower": 0.00711053969305,
+      "mi_upper": 0.0114294594127
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2015,
+      "mi": 0.00500617029499,
+      "mi_lower": 0.00219120214665,
+      "mi_upper": 0.00781319699635
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2016,
+      "mi": -4.95261406235e-05,
+      "mi_lower": -0.00402929343082,
+      "mi_upper": 0.00391446616393
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2017,
+      "mi": -0.00590657071111,
+      "mi_lower": -0.0114496604648,
+      "mi_upper": -0.000393858983383
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2018,
+      "mi": -0.0125787229495,
+      "mi_lower": -0.0200232640337,
+      "mi_upper": -0.00518851512803
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2019,
+      "mi": -0.0200817213954,
+      "mi_lower": -0.0297441611646,
+      "mi_upper": -0.0105099475856
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 1991,
+      "mi": 0.0286765110948,
+      "mi_lower": 0.0234415008814,
+      "mi_upper": 0.0338834581333
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 1992,
+      "mi": 0.0274244709676,
+      "mi_lower": 0.0233696863089,
+      "mi_upper": 0.031462420926
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 1993,
+      "mi": 0.0262800950315,
+      "mi_lower": 0.023250439505,
+      "mi_upper": 0.029300353254
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 1994,
+      "mi": 0.0252437669521,
+      "mi_lower": 0.0230631087165,
+      "mi_upper": 0.0274195576569
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 1995,
+      "mi": 0.0243158344308,
+      "mi_lower": 0.0227633999617,
+      "mi_upper": 0.0258658027084
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 1996,
+      "mi": 0.0234966090112,
+      "mi_lower": 0.0222776115211,
+      "mi_upper": 0.0247140866886
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 1997,
+      "mi": 0.0227863659039,
+      "mi_lower": 0.0215903967222,
+      "mi_upper": 0.0239808731802
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 1998,
+      "mi": 0.0221853438329,
+      "mi_lower": 0.0208452583262,
+      "mi_upper": 0.023523595279
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 1999,
+      "mi": 0.0216937449018,
+      "mi_lower": 0.020196857052,
+      "mi_upper": 0.0231883458909
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2000,
+      "mi": 0.0213117344805,
+      "mi_lower": 0.0197212263029,
+      "mi_upper": 0.022899662049
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2001,
+      "mi": 0.0210394411125,
+      "mi_lower": 0.0194470878299,
+      "mi_upper": 0.0226292085183
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2002,
+      "mi": 0.0208769564427,
+      "mi_lower": 0.0193804269815,
+      "mi_upper": 0.0223712020413
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2003,
+      "mi": 0.0208243351664,
+      "mi_lower": 0.0195082402361,
+      "mi_upper": 0.0221386635282
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2004,
+      "mi": 0.0208815949979,
+      "mi_lower": 0.0197805395662,
+      "mi_upper": 0.0219814136422
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2005,
+      "mi": 0.0210396813605,
+      "mi_lower": 0.0200460880546,
+      "mi_upper": 0.0220322672439
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2006,
+      "mi": 0.0210907654392,
+      "mi_lower": 0.0199545802352,
+      "mi_upper": 0.0222256334423
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2007,
+      "mi": 0.0208270280265,
+      "mi_lower": 0.0194623379925,
+      "mi_upper": 0.0221898187159
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2008,
+      "mi": 0.0202391719458,
+      "mi_lower": 0.0186923245696,
+      "mi_upper": 0.0217835810073
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2009,
+      "mi": 0.0193266135069,
+      "mi_lower": 0.0176876673069,
+      "mi_upper": 0.0209628251951
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2010,
+      "mi": 0.0180884461562,
+      "mi_lower": 0.0164577883282,
+      "mi_upper": 0.019716400445
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2011,
+      "mi": 0.0165234389751,
+      "mi_lower": 0.0149934614202,
+      "mi_upper": 0.0180510400673
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2012,
+      "mi": 0.0146300346407,
+      "mi_lower": 0.0132605659519,
+      "mi_upper": 0.0159976026812
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2013,
+      "mi": 0.0124063468421,
+      "mi_lower": 0.011171857764,
+      "mi_upper": 0.0136392947392
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2014,
+      "mi": 0.00985015714886,
+      "mi_lower": 0.00855846280515,
+      "mi_upper": 0.0111401686155
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2015,
+      "mi": 0.00695891132121,
+      "mi_lower": 0.00528024073847,
+      "mi_upper": 0.00863474901067
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2016,
+      "mi": 0.00372971505627,
+      "mi_lower": 0.00135983984781,
+      "mi_upper": 0.00609396630854
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2017,
+      "mi": 0.000159329158558,
+      "mi_lower": -0.00313492895012,
+      "mi_upper": 0.0034427690451
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2018,
+      "mi": -0.0037558358757,
+      "mi_lower": -0.00816826540228,
+      "mi_upper": 0.000637281860374
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2019,
+      "mi": -0.00801972587343,
+      "mi_lower": -0.0137277115439,
+      "mi_upper": -0.00234388009614
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 1991,
+      "mi": 0.0189236430802,
+      "mi_lower": 0.0149106182989,
+      "mi_upper": 0.022920319733
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 1992,
+      "mi": 0.0220488127968,
+      "mi_lower": 0.0189671956217,
+      "mi_upper": 0.0251207500056
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 1993,
+      "mi": 0.024822576699,
+      "mi_lower": 0.022541027891,
+      "mi_upper": 0.0270987999996
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 1994,
+      "mi": 0.0272478718277,
+      "mi_lower": 0.0256196157049,
+      "mi_upper": 0.0288734070233
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 1995,
+      "mi": 0.0293272617134,
+      "mi_lower": 0.0281697528304,
+      "mi_upper": 0.0304833919329
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 1996,
+      "mi": 0.0310629408929,
+      "mi_lower": 0.0301365597453,
+      "mi_upper": 0.0319884371921
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 1997,
+      "mi": 0.0324567387697,
+      "mi_lower": 0.0315246208997,
+      "mi_upper": 0.0333879595145
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 1998,
+      "mi": 0.0335101228282,
+      "mi_lower": 0.0324585777351,
+      "mi_upper": 0.0345605250793
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 1999,
+      "mi": 0.0342242012089,
+      "mi_lower": 0.0330534093347,
+      "mi_upper": 0.0353935754727
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2000,
+      "mi": 0.0345997246517,
+      "mi_lower": 0.0333622389187,
+      "mi_upper": 0.0358356261604
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2001,
+      "mi": 0.0346370878111,
+      "mi_lower": 0.0334044393148,
+      "mi_upper": 0.0358681643757
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2002,
+      "mi": 0.0343363299484,
+      "mi_lower": 0.0331829014368,
+      "mi_upper": 0.0354883824011
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2003,
+      "mi": 0.0336971349997,
+      "mi_lower": 0.0326855033225,
+      "mi_upper": 0.0347077086976
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2004,
+      "mi": 0.0327188310224,
+      "mi_lower": 0.0318693154902,
+      "mi_upper": 0.0335676011215
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2005,
+      "mi": 0.0314052218829,
+      "mi_lower": 0.0306221660403,
+      "mi_upper": 0.0321876451791
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2006,
+      "mi": 0.0298662831072,
+      "mi_lower": 0.0289532528696,
+      "mi_upper": 0.0307784548648
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2007,
+      "mi": 0.0282124751392,
+      "mi_lower": 0.0271113816037,
+      "mi_upper": 0.0293123224817
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2008,
+      "mi": 0.0264480767358,
+      "mi_lower": 0.0252006664231,
+      "mi_upper": 0.0276938907893
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2009,
+      "mi": 0.0245724960749,
+      "mi_lower": 0.0232526565574,
+      "mi_upper": 0.0258905521461
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2010,
+      "mi": 0.0225851032644,
+      "mi_lower": 0.02127389504,
+      "mi_upper": 0.0238945548513
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2011,
+      "mi": 0.0204852299903,
+      "mi_lower": 0.0192564700087,
+      "mi_upper": 0.0217124504756
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2012,
+      "mi": 0.0182721691418,
+      "mi_lower": 0.0171721175485,
+      "mi_upper": 0.0193709894784
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2013,
+      "mi": 0.0159451744145,
+      "mi_lower": 0.014948889884,
+      "mi_upper": 0.0169404512989
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2014,
+      "mi": 0.0135034598909,
+      "mi_lower": 0.0124508582895,
+      "mi_upper": 0.0145549395531
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2015,
+      "mi": 0.0109461995983,
+      "mi_lower": 0.00957218976605,
+      "mi_upper": 0.0123183032815
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2016,
+      "mi": 0.00827252704292,
+      "mi_lower": 0.00633643568213,
+      "mi_upper": 0.0102048460507
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2017,
+      "mi": 0.00548153472071,
+      "mi_lower": 0.00279937772391,
+      "mi_upper": 0.0081564775562
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2018,
+      "mi": 0.00257227360405,
+      "mi_lower": -0.00100840282608,
+      "mi_upper": 0.00614014170644
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2019,
+      "mi": -0.000456247395991,
+      "mi_lower": -0.00507405658856,
+      "mi_upper": 0.0041403452886
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 1991,
+      "mi": 0.00220334128315,
+      "mi_lower": -0.000983860246585,
+      "mi_upper": 0.00538039454376
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 1992,
+      "mi": 0.00669694652712,
+      "mi_lower": 0.0042477199937,
+      "mi_upper": 0.00914014876039
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 1993,
+      "mi": 0.0108460334499,
+      "mi_lower": 0.00903048838894,
+      "mi_upper": 0.0126582522695
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 1994,
+      "mi": 0.0146547567822,
+      "mi_lower": 0.0133574576538,
+      "mi_upper": 0.0159503501407
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 1995,
+      "mi": 0.0181269203793,
+      "mi_lower": 0.0172062566137,
+      "mi_upper": 0.0190467216833
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 1996,
+      "mi": 0.0212659835531,
+      "mi_lower": 0.0205373882234,
+      "mi_upper": 0.0219940369007
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 1997,
+      "mi": 0.0240750668165,
+      "mi_lower": 0.0233525538615,
+      "mi_upper": 0.0247970452645
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 1998,
+      "mi": 0.0265569570541,
+      "mi_lower": 0.0257470001589,
+      "mi_upper": 0.0273662405819
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 1999,
+      "mi": 0.0287141121299,
+      "mi_lower": 0.0278137143524,
+      "mi_upper": 0.0296136759972
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2000,
+      "mi": 0.0305486649457,
+      "mi_lower": 0.0295973656901,
+      "mi_upper": 0.0314990316292
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2001,
+      "mi": 0.032062426955,
+      "mi_lower": 0.0311151481351,
+      "mi_upper": 0.0330087796203
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2002,
+      "mi": 0.0332568911454,
+      "mi_lower": 0.0323708645171,
+      "mi_upper": 0.0341421064679
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2003,
+      "mi": 0.0341332344927,
+      "mi_lower": 0.0333564623048,
+      "mi_upper": 0.0349093824845
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2004,
+      "mi": 0.0346923198935,
+      "mi_lower": 0.0340400924983,
+      "mi_upper": 0.0353441068973
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2005,
+      "mi": 0.0349324772781,
+      "mi_lower": 0.034331087979,
+      "mi_upper": 0.0355334920501
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2006,
+      "mi": 0.0348028720258,
+      "mi_lower": 0.0341023151535,
+      "mi_upper": 0.0355029207904
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2007,
+      "mi": 0.0342522534439,
+      "mi_lower": 0.0334087545385,
+      "mi_upper": 0.0350950162674
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2008,
+      "mi": 0.0332776768385,
+      "mi_lower": 0.0323233590302,
+      "mi_upper": 0.0342310535034
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2009,
+      "mi": 0.0318778593983,
+      "mi_lower": 0.0308690972332,
+      "mi_upper": 0.0328855715493
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2010,
+      "mi": 0.0300509570706,
+      "mi_lower": 0.0290494765649,
+      "mi_upper": 0.0310514046059
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2011,
+      "mi": 0.027794560512,
+      "mi_lower": 0.02685660976,
+      "mi_upper": 0.0287316072331
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2012,
+      "mi": 0.0251056897917,
+      "mi_lower": 0.0242666860909,
+      "mi_upper": 0.0259439720584
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2013,
+      "mi": 0.0219807878315,
+      "mi_lower": 0.0212218902398,
+      "mi_upper": 0.0227390970105
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2014,
+      "mi": 0.0184157125623,
+      "mi_lower": 0.0176139996704,
+      "mi_upper": 0.0192167711865
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2015,
+      "mi": 0.0144057277721,
+      "mi_lower": 0.0133565146468,
+      "mi_upper": 0.0154538251466
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2016,
+      "mi": 0.00994549261795,
+      "mi_lower": 0.00846225650807,
+      "mi_upper": 0.0114265099627
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2017,
+      "mi": 0.00502904976986,
+      "mi_lower": 0.00296804192526,
+      "mi_upper": 0.00708579721608
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2018,
+      "mi": -0.000350187851991,
+      "mi_lower": -0.0031096994064,
+      "mi_upper": 0.00240173240505
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2019,
+      "mi": -0.00619945178628,
+      "mi_lower": -0.00976899991107,
+      "mi_upper": -0.0026425220661
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 1991,
+      "mi": 0.00128055563421,
+      "mi_lower": -0.0020390250072,
+      "mi_upper": 0.00458913908354
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 1992,
+      "mi": 0.00322376384108,
+      "mi_lower": 0.000646690153923,
+      "mi_upper": 0.00579419192179
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 1993,
+      "mi": 0.00508711076685,
+      "mi_lower": 0.00315410949672,
+      "mi_upper": 0.00701636372048
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 1994,
+      "mi": 0.00687103043551,
+      "mi_lower": 0.00547327018261,
+      "mi_upper": 0.00826682620251
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 1995,
+      "mi": 0.00857593787011,
+      "mi_lower": 0.0075815964176,
+      "mi_upper": 0.0095692830544
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 1996,
+      "mi": 0.0102022292538,
+      "mi_lower": 0.00943890921845,
+      "mi_upper": 0.0109649610796
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 1997,
+      "mi": 0.0117502820831,
+      "mi_lower": 0.0110285534984,
+      "mi_upper": 0.0124714839669
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 1998,
+      "mi": 0.0132204553141,
+      "mi_lower": 0.0124257635658,
+      "mi_upper": 0.0140145075813
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 1999,
+      "mi": 0.0146130895011,
+      "mi_lower": 0.013727498337,
+      "mi_upper": 0.0154978854776
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2000,
+      "mi": 0.0159285069281,
+      "mi_lower": 0.0149854129344,
+      "mi_upper": 0.0168706979645
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2001,
+      "mi": 0.0171670117332,
+      "mi_lower": 0.0162197630747,
+      "mi_upper": 0.018113348318
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2002,
+      "mi": 0.0183288900254,
+      "mi_lower": 0.0174358566818,
+      "mi_upper": 0.0192211117085
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2003,
+      "mi": 0.0194144099954,
+      "mi_lower": 0.0186278466558,
+      "mi_upper": 0.0202003429097
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2004,
+      "mi": 0.0204238220183,
+      "mi_lower": 0.0197697445364,
+      "mi_upper": 0.0210774630544
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2005,
+      "mi": 0.0213510539209,
+      "mi_lower": 0.0207765238597,
+      "mi_upper": 0.0219252468938
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2006,
+      "mi": 0.0220514401675,
+      "mi_lower": 0.0214093437665,
+      "mi_upper": 0.0226931152607
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2007,
+      "mi": 0.0223806184819,
+      "mi_lower": 0.0216106625263,
+      "mi_upper": 0.023149968511
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2008,
+      "mi": 0.0223326650052,
+      "mi_lower": 0.0214564990694,
+      "mi_upper": 0.0232080464416
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2009,
+      "mi": 0.0219075242382,
+      "mi_lower": 0.0209749136124,
+      "mi_upper": 0.0228392464674
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2010,
+      "mi": 0.0211047040658,
+      "mi_lower": 0.0201726264941,
+      "mi_upper": 0.0220358949827
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2011,
+      "mi": 0.0199232748066,
+      "mi_lower": 0.0190452259119,
+      "mi_upper": 0.020800537763
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2012,
+      "mi": 0.0183618674188,
+      "mi_lower": 0.0175746975848,
+      "mi_upper": 0.0191484065317
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2013,
+      "mi": 0.0164186708556,
+      "mi_lower": 0.0157145592818,
+      "mi_upper": 0.0171222787411
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2014,
+      "mi": 0.014091428564,
+      "mi_lower": 0.01337078828,
+      "mi_upper": 0.0148115424877
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2015,
+      "mi": 0.0113774341164,
+      "mi_lower": 0.0104549634165,
+      "mi_upper": 0.0122990448735
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2016,
+      "mi": 0.00827352596491,
+      "mi_lower": 0.00697179123902,
+      "mi_upper": 0.00957355428077
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2017,
+      "mi": 0.00477608130184,
+      "mi_lower": 0.00295948335815,
+      "mi_upper": 0.00658936942207
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2018,
+      "mi": 0.00088100901209,
+      "mi_lower": -0.00156177685886,
+      "mi_upper": 0.00331783698514
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2019,
+      "mi": -0.00341625830373,
+      "mi_lower": -0.00658636524201,
+      "mi_upper": -0.000256135186353
+    }
+  ],
+  "caveats": [
+    "Pearson dispersion \u03c6 = 5.42, so the quasi-Poisson covariance scaling was applied: every band below is 2.33x wider than a plain-Poisson fit would have reported. The point estimates are unchanged \u2014 scaling touches the covariance only. A \u03c6 this far above 1 means unmodelled heterogeneity, which is expected on real grouped data and is why the scaling is not optional here.",
+    "The base offset is estimated from these same cells, so `overall_ae` is ~1 by construction and is not an independent check on the level. The fitted improvement is unaffected: it is a calendar contrast, and every calendar-invariant term \u2014 the offset included \u2014 cancels in the difference."
+  ],
+  "window_comparison": {
+    "verdict": "mixed",
+    "n_ages_slower": 4,
+    "n_ages": 5,
+    "early_window": [
+      1990,
+      1999
+    ],
+    "late_window": [
+      2010,
+      2019
+    ],
+    "rows": [
+      {
+        "attained_age": 45,
+        "early_annualised_mi": 0.00896530887686,
+        "early_lower": 0.00584948972719,
+        "early_upper": 0.0120713625747,
+        "late_annualised_mi": 0.00244440957982,
+        "late_lower": -0.000816296248191,
+        "late_upper": 0.00569449187728,
+        "delta": -0.00652089929704,
+        "bands_overlap": false
+      },
+      {
+        "attained_age": 55,
+        "early_annualised_mi": 0.0246807407635,
+        "early_lower": 0.0228908845264,
+        "early_upper": 0.0264673183643,
+        "late_annualised_mi": 0.0058633264991,
+        "late_lower": 0.00392184474057,
+        "late_upper": 0.00780102406519,
+        "delta": -0.0188174142644,
+        "bands_overlap": false
+      },
+      {
+        "attained_age": 65,
+        "early_annualised_mi": 0.0281934901639,
+        "early_lower": 0.0268614351326,
+        "early_upper": 0.0295237218469,
+        "late_annualised_mi": 0.010581154733,
+        "late_lower": 0.00899389406443,
+        "late_upper": 0.0121658731404,
+        "delta": -0.0176123354309,
+        "bands_overlap": false
+      },
+      {
+        "attained_age": 75,
+        "early_annualised_mi": 0.0170531767822,
+        "early_lower": 0.0159918764037,
+        "early_upper": 0.0181133324968,
+        "late_annualised_mi": 0.0129646460095,
+        "late_lower": 0.0117504130414,
+        "late_upper": 0.0141773870856,
+        "delta": -0.00408853077265,
+        "bands_overlap": false
+      },
+      {
+        "attained_age": 85,
+        "early_annualised_mi": 0.0083231840181,
+        "early_lower": 0.00717503330684,
+        "early_upper": 0.00947000695247,
+        "late_annualised_mi": 0.0101055526017,
+        "late_lower": 0.00903974406192,
+        "late_upper": 0.0111702148314,
+        "delta": 0.00178236858364,
+        "bands_overlap": true
+      }
+    ],
+    "bands_overlap_is_not_a_significance_test": true
+  }
+}
