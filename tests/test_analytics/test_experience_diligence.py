@@ -875,6 +875,89 @@ def test_unknown_overdispersion_mode_is_refused(tmp_path: Path) -> None:
         run_diligence(source="hmd", cache_dir=tmp_path, overdispersion="yes")
 
 
+def test_duration_bands_collapse_to_fixed_representatives() -> None:
+    """Closed form: policy year -> band midpoint, on the loader's
+    ``duration_months = (policy_year - 1) * 12`` convention."""
+    from polaris_re.analytics.experience_diligence import band_duration_months
+
+    policy_years = [1, 2, 3, 4, 5, 6, 10, 11, 15, 16, 20, 21, 25, 26, 40]
+    cells = pl.DataFrame({"duration_months": [(y - 1) * 12 for y in policy_years]})
+    banded = band_duration_months(cells)
+    got = [m // 12 + 1 for m in banded["duration_months"].to_list()]
+    # 1, 2, 3 singly; then midpoints of 4-5, 6-10, 11-15, 16-20, 21-25; 26+ -> 31.
+    assert got == [1, 2, 3, 4, 4, 8, 8, 13, 13, 18, 18, 23, 23, 31, 31]
+
+
+def test_duration_band_representative_is_calendar_invariant() -> None:
+    """The property that lets banding control for mix without reintroducing it:
+    the representative must not depend on which calendar year a cell sits in."""
+    from polaris_re.analytics.experience_diligence import band_duration_months
+
+    cells = pl.DataFrame(
+        {
+            "calendar_year": [2012, 2019, 2012, 2019],
+            # Same band (6-10), different positions within it, different years.
+            "duration_months": [(6 - 1) * 12, (9 - 1) * 12, (10 - 1) * 12, (7 - 1) * 12],
+        }
+    )
+    banded = band_duration_months(cells)
+    assert banded["duration_months"].n_unique() == 1
+
+
+def test_duration_bands_survive_the_static_base_guard(tmp_path: Path) -> None:
+    """End to end: banding must fit, control duration, and not trip Anchor 1."""
+    _write_ilec_cache(tmp_path, actual_mi=0.010, soa_mi=0.010)
+    from polaris_re.analytics.experience_diligence import DEFAULT_DURATION_BAND_EDGES
+
+    pooled = run_diligence(
+        source="ilec",
+        cache_dir=tmp_path,
+        min_age=50,
+        max_age=70,
+        reference_ages=(55, 65),
+        year_df=3,
+    )
+    banded = run_diligence(
+        source="ilec",
+        cache_dir=tmp_path,
+        min_age=50,
+        max_age=70,
+        reference_ages=(55, 65),
+        year_df=3,
+        duration_band_edges=DEFAULT_DURATION_BAND_EDGES,
+    )
+    assert "duration_months" not in pooled.aggregation["group_keys"]
+    assert "duration_months" in banded.aggregation["group_keys"]
+    assert any("pooled across duration" in c for c in pooled.caveats)
+    assert any("Duration is controlled for via" in c for c in banded.caveats)
+
+
+def test_duration_band_edges_must_be_ascending_from_one() -> None:
+    from polaris_re.analytics.experience_diligence import band_duration_months
+
+    cells = pl.DataFrame({"duration_months": [0, 12]})
+    for bad in [(2, 5), (1, 1), (1, 5, 3)]:
+        with pytest.raises(PolarisValidationError, match="ascending"):
+            band_duration_months(cells, bad)
+
+
+def test_duration_banding_on_hmd_is_refused(tmp_path: Path) -> None:
+    """Population data has no duration axis; asking for it is a mistake, not a
+    silent no-op."""
+    _write_hmd_cache(tmp_path, "USA", _constant_mi(0.012))
+    with pytest.raises(PolarisValidationError, match="no duration axis"):
+        run_diligence(
+            source="hmd",
+            cache_dir=tmp_path,
+            country="USA",
+            min_age=50,
+            max_age=70,
+            max_year=2019,
+            reference_ages=(55, 65),
+            duration_band_edges=(1, 5),
+        )
+
+
 def test_covid_window_is_flagged_as_a_caveat(tmp_path: Path) -> None:
     """Leaving the window open past 2019 attributes a shock to smooth improvement.
     The harness still runs — it says so instead of refusing."""

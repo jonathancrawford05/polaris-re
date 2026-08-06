@@ -40,6 +40,7 @@ Entry point: :func:`run_diligence`. The command-line wrapper is
 ``scripts/experience_diligence.py``.
 """
 
+import itertools
 import json
 import math
 from dataclasses import dataclass
@@ -68,6 +69,7 @@ from polaris_re.analytics.experience_loaders import (
 from polaris_re.core.exceptions import PolarisValidationError
 
 __all__ = [
+    "DEFAULT_DURATION_BAND_EDGES",
     "DEFAULT_REFERENCE_AGES",
     "EMPIRICAL_BASE_KEYS",
     "HMD_GROUP_KEYS",
@@ -85,6 +87,7 @@ __all__ = [
     "WindowComparison",
     "WindowMI",
     "attach_empirical_base",
+    "band_duration_months",
     "default_windows",
     "render_markdown",
     "resolve_hmd_paths",
@@ -170,6 +173,27 @@ held out of class-conditioned inference by default — see ``keep_unknown_uw_cla
 _MIN_YEARS_FOR_WINDOWS = 4
 """Fewer observed years than this and the early/late comparison cannot be formed
 from two disjoint windows each spanning at least one annual step."""
+
+DEFAULT_DURATION_BAND_EDGES: tuple[int, ...] = (1, 2, 3, 4, 6, 11, 16, 21, 26)
+"""Start policy year of each duration band; the last is open-ended.
+
+Bands 1/2/3 individually, then 4-5, 6-10, 11-15, 16-20, 21-25, 26+ — aligned to
+VBT 2015's 25-year select period, and finest exactly where selection wears off
+fastest, which is where coarsening costs the most.
+
+**Why band at all.** Keeping raw ``duration_months`` multiplies the cell count by
+~60 to resolve a dimension whose signal is a smooth selection curve. Nine bands
+cost ~9x and still give the ``bs(duration_years, df=4)`` smooth nine distinct
+knots to work with.
+
+**Why the representative value is a fixed constant** (see
+:func:`band_duration_months`) rather than an exposure-weighted mean: a
+data-derived representative would drift with calendar year, which is precisely the
+confound duration is being added to control — and it would break the Anchor-1
+static-base guard, since ``q_base`` is keyed on ``duration_months``."""
+
+_OPEN_BAND_OFFSET = 5
+"""Policy years past its start used to represent the open-ended final band."""
 
 _MIN_SPLINE_DF = 3
 """Cubic B-spline floor. ``patsy.bs`` rejects ``df < degree`` for a basis without
@@ -330,6 +354,73 @@ def resolve_ilec_path(*, cache_dir: str | Path | None = None, filename: str | No
             f"produce findings about a release you did not choose."
         )
     return candidates[0]
+
+
+# --- Duration banding -----------------------------------------------------------
+
+
+def band_duration_months(
+    cells: pl.DataFrame, edges: tuple[int, ...] = DEFAULT_DURATION_BAND_EDGES
+) -> pl.DataFrame:
+    """Collapse ``duration_months`` onto one fixed representative value per band.
+
+    The loader emits ``duration_months = (policy_year - 1) * 12``, so policy year
+    is recovered as ``duration_months // 12 + 1``. Each band is represented by the
+    **midpoint** of its closed policy-year span (the start plus
+    :data:`_OPEN_BAND_OFFSET` for the open final band), converted back to months on
+    the same convention.
+
+    The result is a ``duration_months`` column taking one value per band, which:
+
+    - lets the existing ``bs(duration_years, df)`` smooth in ``TensorMIModel`` pick
+      duration up with **no change to the model** — a new ``duration_band`` column
+      would not, because the model's factor list is fixed and does not include one,
+      so it would fragment the cells and then be ignored;
+    - is **calendar-invariant by construction**, so it neither reintroduces the
+      duration-mix-versus-calendar-year confound nor trips the Anchor-1 static-base
+      guard, which keys on ``(attained_age, duration_months, sex, smoker)``.
+
+    Args:
+        cells: Cells carrying ``duration_months``.
+        edges: Ascending start policy years; the final band is open-ended.
+
+    Returns:
+        The cells with ``duration_months`` replaced by the banded representative.
+
+    Raises:
+        PolarisValidationError: If ``duration_months`` is absent, or ``edges`` is
+            not strictly ascending and starting at policy year 1.
+    """
+    if "duration_months" not in cells.columns:
+        raise PolarisValidationError(
+            "Duration banding requires a 'duration_months' column. The ILEC loader "
+            "supplies it; HMD population data has no duration axis at all."
+        )
+    if len(edges) < 2 or edges[0] != 1 or any(b <= a for a, b in itertools.pairwise(edges)):
+        raise PolarisValidationError(
+            f"Duration band edges must be strictly ascending and start at policy "
+            f"year 1; got {list(edges)}."
+        )
+
+    midpoints = [
+        (start + _OPEN_BAND_OFFSET)
+        if index == len(edges) - 1
+        else (start + edges[index + 1] - 1) // 2
+        for index, start in enumerate(edges)
+    ]
+    policy_year = pl.col("duration_months") // 12 + 1
+
+    # Ascending chain: each higher band wraps the accumulated lower ones, so the
+    # outermost (highest) `when` wins and anything below the first edge falls
+    # through to the lowest band's representative.
+    representative = pl.lit((midpoints[0] - 1) * 12, dtype=pl.Int32)
+    for start, mid in zip(edges[1:], midpoints[1:], strict=True):
+        representative = (
+            pl.when(policy_year >= start)
+            .then(pl.lit((mid - 1) * 12, dtype=pl.Int32))
+            .otherwise(representative)
+        )
+    return cells.with_columns(representative.alias("duration_months"))
 
 
 # --- Empirical base rate --------------------------------------------------------
@@ -1174,6 +1265,8 @@ def run_diligence(
     year_df: int = 4,
     confidence_level: float = 0.95,
     overdispersion: str = "auto",
+    duration_band_edges: tuple[int, ...] | None = None,
+    duration_df: int = 4,
     keep_unknown_uw_class: bool = False,
 ) -> DiligenceReport:
     """Load a real experience cache, fit the tensor MI surface, and report findings.
@@ -1209,6 +1302,15 @@ def run_diligence(
                            spike in the terminal year. The report warns when
                            ``year_df`` is large relative to the observed years.
         confidence_level:  Two-sided level for the delta-method bands.
+        duration_band_edges: Ascending start policy years for duration bands (e.g.
+                           :data:`DEFAULT_DURATION_BAND_EDGES`). ``None`` (default)
+                           pools across duration entirely. Banding controls for
+                           duration mix at ~9x the cell count, where raw
+                           ``duration_months`` would cost ~60x — see
+                           :func:`band_duration_months` for why the representative
+                           value must be a fixed constant.
+        duration_df:       Spline df for the duration smooth, used only when
+                           duration varies.
         overdispersion:    ``"auto"`` (default), ``"on"`` or ``"off"``. ``"auto"``
                            applies the quasi-Poisson covariance scaling whenever
                            the Pearson dispersion φ exceeds 1. Real grouped
@@ -1352,6 +1454,21 @@ def run_diligence(
                 "'uw_class' from the grouping keys."
             )
 
+    # --- Duration banding -------------------------------------------------------
+    # Done BEFORE the group-by, so the banded representative is what the cells are
+    # aggregated on. Adds duration to the keys implicitly: the caller asks for
+    # banding, not for a grouping key, because raw duration_months would multiply
+    # the cell count ~60x for a dimension whose signal is a smooth curve.
+    if duration_band_edges is not None:
+        if "duration_months" not in cells.columns:
+            raise PolarisValidationError(
+                f"Duration banding was requested but source {source!r} carries no "
+                f"'duration_months' column. Population data has no duration axis."
+            )
+        cells = band_duration_months(cells, duration_band_edges)
+        if "duration_months" not in keys:
+            keys = (*keys, "duration_months")
+
     # --- Aggregate to the stated level -----------------------------------------
     sum_columns: tuple[str, ...] = (exposure_col, deaths_col)
     if carry_expected:
@@ -1403,6 +1520,7 @@ def run_diligence(
             basis=basis,
             age_df=age_df,
             year_df=year_df,
+            duration_df=duration_df,
             age_varying=True,
             overdispersion=overdispersed,
         ).fit()
@@ -1533,8 +1651,19 @@ def run_diligence(
             "Cells are pooled across duration, so select-period mortality is "
             "absorbed into the attained-age effect. If the duration mix drifts with "
             "calendar year, part of that drift lands in the fitted improvement. Pass "
-            "group_keys including 'duration_months' to separate them, at ~60x the "
-            "cell count."
+            "`--duration-bands` to control for it at ~9x the cell count (raw "
+            "`duration_months` in `--group-by` would cost ~60x for a dimension whose "
+            "signal is a smooth selection curve)."
+        )
+    elif duration_band_edges is not None:
+        n_bands = fit_cells["duration_months"].n_unique()
+        caveats.append(
+            f"Duration is controlled for via {n_bands} bands "
+            f"(start policy years {list(duration_band_edges)}), each collapsed onto a "
+            f"fixed representative duration so the value is calendar-invariant and "
+            f"cannot reintroduce the mix confound it exists to remove. Selection "
+            f"*within* a band is still pooled — the first three years are banded "
+            f"singly for that reason."
         )
     n_years_observed = observed_max - observed_min + 1
     if year_df >= n_years_observed / 2:

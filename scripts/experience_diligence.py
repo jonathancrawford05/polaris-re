@@ -52,6 +52,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from polaris_re.analytics.experience_diligence import (  # noqa: E402
+    DEFAULT_DURATION_BAND_EDGES,
     DEFAULT_REFERENCE_AGES,
     HMD_GROUP_KEYS,
     ILEC_GROUP_KEYS,
@@ -218,6 +219,30 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--duration-bands",
+        action="store_true",
+        help=(
+            "Control for duration mix using banded policy years "
+            f"{list(DEFAULT_DURATION_BAND_EDGES)} — 1/2/3 singly, then 4-5, 6-10, "
+            "11-15, 16-20, 21-25, 26+, aligned to VBT 2015's 25-year select period. "
+            "Costs ~9x the cells; raw duration_months in --group-by would cost ~60x "
+            "for a dimension whose signal is a smooth selection curve. Watch "
+            "n_strata_dropped in the report: banding multiplies base strata too."
+        ),
+    )
+    parser.add_argument(
+        "--duration-band-edges",
+        nargs="+",
+        type=int,
+        default=None,
+        metavar="YEAR",
+        help=(
+            "Custom band start policy years, ascending, starting at 1. Implies "
+            "--duration-bands. Use fewer bands if n_strata_dropped is material."
+        ),
+    )
+    parser.add_argument("--duration-df", type=int, default=4)
+    parser.add_argument(
         "--keep-unknown-uw-class",
         action="store_true",
         help=(
@@ -246,6 +271,13 @@ def main(argv: list[str] | None = None) -> int:
     """Run the harness. Returns the process exit status."""
     args = build_parser().parse_args(argv)
 
+    if args.duration_band_edges:
+        duration_band_edges = tuple(args.duration_band_edges)
+    elif args.duration_bands:
+        duration_band_edges = DEFAULT_DURATION_BAND_EDGES
+    else:
+        duration_band_edges = None
+
     try:
         report = run_diligence(
             source=args.source,
@@ -268,6 +300,8 @@ def main(argv: list[str] | None = None) -> int:
             year_df=args.year_df,
             confidence_level=args.confidence_level,
             overdispersion=args.overdispersion,
+            duration_band_edges=duration_band_edges,
+            duration_df=args.duration_df,
             keep_unknown_uw_class=args.keep_unknown_uw_class,
         )
     except ExperienceCacheMissingError as exc:
