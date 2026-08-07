@@ -3,11 +3,12 @@
 **Slice 3 of** `docs/PLAN_experience_gam_realdata.md`.
 **Run by** the maintainer, 2026-08-05, on `ILEC_2012_19 - 20240429.txt` (~12.5 GB),
 ages 25–95, `--year-df 3`, twice: once pooled across duration and once with
-`--duration-bands`.
+`--duration-bands`; the banded run re-run 2026-08-06 to add the mix
+decomposition.
 **Raw output:** `docs/measurements/experience_gam_ilec.{json,md}` (pooled) and
 `experience_gam_ilec_duration_banded.{json,md}` — generated verbatim by
 `scripts/experience_diligence.py`, never hand-edited.
-**Harness:** ADR-182, at `0787187`.
+**Harness:** ADR-182 through amendment 5.
 
 > **Read the duration-banded run.** The pooled run is retained because the
 > comparison between them *is* one of this slice's findings, but its fitted
@@ -31,8 +32,11 @@ expected, on identical cells, so it is identical in both runs.
 assumed** — by **+0.27%/yr** on an exposure-weighted basis at the reference ages
 (mean absolute difference 0.61%), against SOA's flat ~0.58%/yr scale.
 
-Both are correct, and the tension between them is the most commercially useful
-thing in this slice. See §4.
+**(c) With the covariate mix held fixed, the A/E drift is −0.150%/yr, not the
+−0.119%/yr the crude series shows.** The crude figure understates the experience
+signal by 27%, because a modest mix effect pushes the other way. See §4 — the
+measurement confirmed the direction of the reading that preceded it and cut its
+claimed magnitude.
 
 ## 2. Duration mix was confounding the trend — measurably
 
@@ -92,27 +96,56 @@ slowdown**, and reading it that way would be the main error available here:
   3.59% (2019); the terminal ramp did not fully clear at `year_df=3`, which is
   the floor. Ages 55–85 no longer show it and are the defensible ones.
 
-## 4. The tension in §1 is the finding a reinsurer should care about
+## 4. Experience versus mix — measured, and it corrects §4's earlier claim
 
-Aggregate A/E-with-MI is flat, which reads as *"our improvement assumption is
-fine."* The duration-controlled surface says the underlying business improved
-**faster** than VBT 2015's scale assumes.
+Direct standardisation over `attained_age, sex, smoker, uw_class, duration_months`,
+holding the mix fixed at the whole-window average. 14,757 complete-panel cells
+covering **99.96%** of expected deaths, so this speaks for essentially the whole
+book.
 
-Both are true because they are offsetting. A flat aggregate A/E is the product of
-genuine improvement running ahead of the assumed scale, **cancelled by a book
-whose duration mix is drifting toward higher-mortality cells** as it ages and new
-business slows.
+| component | slope |
+|---|---|
+| crude A/E-with-MI | **−0.001185 / yr** |
+| **experience** (mix held fixed) | **−0.001505 / yr** |
+| **mix** | **+0.000320 / yr** |
 
-The practical consequence: **a flat A/E is not evidence that assumptions are
-sound.** It can be two effects of opposite sign, either of which can change
-independently — and one of them is a mix effect that will keep moving as the block
-matures. This is exactly the sort of thing a pooled A/E study hides and a fitted,
-duration-controlled surface exposes, which is the case for the model existing.
+Additive by construction, and it holds to 2e-15.
 
-Stated conservatively: this is one book over eight years, and the decomposition
-above is inferred from the pooled-versus-banded contrast rather than measured
-directly. It is a hypothesis with strong supporting evidence (§2), not a
-quantified attribution.
+**The direction of the earlier inference is confirmed.** Experience drifts down —
+the business improved faster than SOA's scale assumed — and mix pushes the other
+way, exactly as an ageing book drifting toward higher-mortality durations would.
+
+**The magnitude is not.** An earlier version of this section said a flat crude A/E
+was "the product of genuine improvement running ahead of the assumed scale,
+**cancelled by** a book whose duration mix is drifting" — language implying two
+comparable effects roughly annihilating each other. They are not comparable:
+
+- mix offsets only **21.2%** of the experience signal;
+- the crude slope is already **78.8%** of the experience slope.
+
+So the crude number is not a coincidence of cancellation. It is a mostly-honest
+reading of the experience signal, **understated by 27%** because a modest mix
+effect works against it. That is a real and material correction to a quoted
+figure — the A/E-with-MI drift is −0.150%/yr on experience, not the −0.119%/yr
+the crude series shows — but it is not the dramatic story the earlier wording told.
+
+**And the mix slope itself is weak evidence.** The year-by-year mix effect runs
+−0.0017, +0.0014, −0.0016, −0.0019, −0.0048, −0.0059, +0.0045, +0.0017: **three
+sign changes across eight points**, with the positive slope driven substantially
+by the last two years. A trend fitted through that is fragile. The *existence* and
+*direction* of a mix effect are established; its **rate** is not, and should not
+be extrapolated.
+
+**What survives, stated exactly.** A crude A/E understates this book's experience
+drift against SOA's basis by about a quarter, because duration mix works in the
+opposite direction. That is enough to matter when the drift is the number being
+quoted, and it is the kind of thing a pooled A/E study cannot show and a fitted,
+duration-controlled surface can. It is *not* evidence that a flat A/E is generally
+a coincidence of two large cancelling forces — on this book, over these eight
+years, it was not.
+
+This section is now a measurement rather than an inference, and the measurement
+was worth taking precisely because it moved the claim.
 
 ## 5. Insured-versus-population divergence
 
@@ -171,11 +204,10 @@ pooled by `Preferred_Class` alone, merging class-2-of-2 (worst) with class-2-of-
 - **The A/E *level* of 1.079 is not interpreted.** Actual deaths run ~8% above VBT
   2015 expected on this book; decomposing that into basis, mix and selection
   effects is not attempted here. Only the *drift* is claimed.
-- **§4's decomposition is inferred, not measured.** Quantifying the mix effect
-  directly needs a standardised-mix A/E. The harness computes one as of ADR-182
-  amendment 5 (`StandardisedAE`), but **this report predates it** — see the
-  `Harness:` pin above. Converting §4 from inference to measurement needs one more
-  maintainer run with `--duration-bands`; it is filed in PRODUCT_DIRECTION.
+- ~~**§4's decomposition is inferred, not measured.**~~ **Measured 2026-08-06.**
+  It confirmed the direction and **cut the claimed magnitude by a factor of ~5** —
+  see §4. The mix slope itself rests on a sign-flipping 8-point series and should
+  not be extrapolated.
 
 ## 8. Verdict against slice 3's acceptance criteria
 

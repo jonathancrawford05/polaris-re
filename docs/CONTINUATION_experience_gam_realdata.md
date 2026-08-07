@@ -92,9 +92,11 @@ thesis; this is what discharges it.
 - **Status:** DONE (2026-08-05) — `docs/MEASUREMENT_experience_gam_ilec.md`.
   **Duration mix was confounding the trend**: banding took dispersion 2.25 -> 1.16
   at a cost of 0.009% of exposure and moved every reference age. The headline is
-  the tension between a flat aggregate A/E (-0.11%/yr, model-free) and a
-  duration-controlled surface improving ~0.27%/yr faster than VBT 2015 assumes —
-  two offsetting effects, so **a flat A/E is not evidence assumptions are sound**.
+  the mix decomposition, **measured 2026-08-06** (ADR-182 amendment 6): experience
+  -0.150%/yr against mix +0.032%/yr, so a crude A/E **understates this book's
+  experience drift by 27%**. The measurement confirmed the direction of the
+  earlier inference and cut its magnitude by ~5x — "two offsetting effects"
+  overstated it.
   Insured improve ~6-7x faster than population at 55-65.
 - **Depends on:** Slice 2
 - **Scope:** same shape against insured experience. The interesting output is

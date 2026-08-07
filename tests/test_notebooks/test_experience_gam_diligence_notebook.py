@@ -73,7 +73,7 @@ def test_committed_report_is_present_and_parses(name: str) -> None:
     assert "/" not in json.dumps(payload["inputs"])
 
 
-EXPECTED_DEGRADED = ["standardised_ae"]
+EXPECTED_DEGRADED: list[str] = []
 """Sections the notebook cannot verify because a committed report predates the
 feature they read.
 
@@ -83,6 +83,10 @@ coverage — and left unpinned, that silence is indistinguishable from a section
 that ran. This list fails in **both** directions: a new gap fails, and a gap that
 closes fails too, forcing the expectation to be updated when the maintainer's
 re-run lands (PR #185 round-2 review [P2]).
+
+Empty as of 2026-08-06: the maintainer's re-run populated ``standardised_ae``,
+and clearing this list is the change that test forced — which is the mechanism
+working exactly as intended.
 """
 
 

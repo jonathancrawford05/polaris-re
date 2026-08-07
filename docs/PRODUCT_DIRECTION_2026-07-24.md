@@ -1450,7 +1450,9 @@ scope, so the order cap does not bar them. With the epic marked COMPLETE and its
 CONTINUATION stating that follow-ups live here, the omission was load-bearing
 rather than cosmetic (PR #185 round-2 review [P1]).
 
-- **Re-run ILEC with `--duration-bands` to populate `standardised_ae`.** The
+- ~~**Re-run ILEC with `--duration-bands` to populate `standardised_ae`.**~~
+  **DONE 2026-08-06** — measured, and it partially falsified the inference:
+  direction confirmed, magnitude cut ~5x (ADR-182 amendment 6). Original text: The
   estimator shipped in ADR-182 amendment 5; both committed ILEC reports predate
   it, so `MEASUREMENT_experience_gam_ilec.md` §4 — the "a flat A/E is not evidence
   assumptions are sound" reading, which the CONTINUATION elevates to slice 3's

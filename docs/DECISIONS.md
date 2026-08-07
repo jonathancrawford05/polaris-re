@@ -12825,3 +12825,45 @@ Two properties make it an artefact rather than a maintainer-only script:
 No plots, consistent with ADR-182: numbers and tables diff in git, images do not.
 The notebook is magic-free and a test asserts it stays that way, since the
 execution guard `exec`s the cells rather than starting a kernel.
+
+### ADR-182 amendment 6 (the mix decomposition, measured — 2026-08-06)
+
+The maintainer re-ran the duration-banded ILEC harness and `standardised_ae`
+landed. **The measurement partially falsified the inference it replaced**, which
+is the outcome that justifies having taken it.
+
+| component | slope |
+|---|---|
+| crude A/E-with-MI | -0.001185 / yr |
+| **experience** (mix held fixed) | **-0.001505 / yr** |
+| **mix** | **+0.000320 / yr** |
+
+Additive to 2e-15, over 14,757 complete-panel cells covering 99.96% of expected
+deaths.
+
+**Direction: confirmed.** Experience drifts down (the book improved faster than
+SOA's scale assumed) and mix pushes the other way, exactly as amendment 4 argued
+an ageing book drifting toward higher-mortality durations would.
+
+**Magnitude: refuted.** Amendment 4 and MEASUREMENT §4 both used "cancelled by",
+implying two comparable forces roughly annihilating. Mix offsets only **21.2%** of
+the experience signal, and the crude slope is already **78.8%** of it. The crude
+number is therefore a mostly-honest reading understated by 27% — a real correction
+to a quoted figure (-0.150%/yr rather than -0.119%/yr), but not the dramatic
+cancellation the prose described.
+
+**And the mix slope is weak evidence in its own right.** Three sign changes across
+eight points, with the positive slope driven substantially by the last two years.
+The existence and direction of a mix effect are established; its *rate* is not.
+
+**Why this matters beyond the number.** The inference was written carefully, was
+labelled an inference, and had strong supporting evidence — the pooled-versus-
+banded contrast really did move every reference age. It was still wrong about
+magnitude by roughly a factor of five. Confident, well-hedged, well-evidenced
+reasoning about a quantity is not a substitute for computing it, and the gap
+between the two was invisible until the estimator existed. That is the same
+lesson the epic learned about synthetic fixtures, one level up.
+
+The notebook now asserts the corrected reading — direction on both components,
+mix below 35% of experience, and the sign-flip count that makes the slope weak —
+so the prose cannot drift back toward the stronger claim without CI failing.
