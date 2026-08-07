@@ -1507,3 +1507,32 @@ findings documents and pinned by `tests/test_docs/test_data_attribution.py`
   without losing a single finding. **Maintainer-gated: it needs a browser this
   container does not have.** *Source: 2026-08-07 attribution pass (1st-order).*
   **IMPORTANT.**
+
+### Appended 2026-08-07b (SOA terms read — the licensing item narrowed and re-aimed)
+
+The item appended earlier the same day is **half-closed**: the maintainer read the
+SOA Website Terms of Use, and ADR-183 amendment 1 plus `DATA_LICENSING.md` §3
+record the clause text. What replaces it:
+
+- **SOA permission request outstanding.** No dataset-specific licence exists; the
+  site-wide Terms permit only non-commercial educational use, prohibit public
+  **or** commercial distribution, bar derivative works, and offer prior written
+  permission as the only route. The request is drafted at `DATA_LICENSING.md` §6
+  and is the maintainer's to send. Revisit on any of the four triggers in §5b — a
+  second contributor, any commercial engagement, a reply either way, or 90 days of
+  silence. **Maintainer-gated.** *Source: SOA Terms of Use, read 2026-08-07
+  (1st-order).* **IMPORTANT.**
+- **Strip the absolute death counts from the two ILEC reports.** One re-run of
+  `scripts/experience_diligence.py`; every finding in the measurement document
+  survives because they are all ratios. Per ADR-183 amendment 1 this reduces
+  exposure rather than eliminating it — the derivative-work clause is not about
+  substitutability — but it removes the only committed content that could be
+  characterised as republishing SOA figures rather than describing them.
+  Maintainer-gated (needs the 12.5 GB cache). *Source: DATA_LICENSING §5c
+  (1st-order).* **IMPORTANT.**
+- **HMD User Agreement still unread.** The SOA answer does not transfer — different
+  body, different kind of publisher. Likely cheap to close: if the widely-reported
+  CC BY 4.0 licensing is accurate, derivative works and commercial use are both
+  permitted and only attribution is owed, which §2a already provides. Needs a
+  browser this container does not have. *Source: DATA_LICENSING §4 (1st-order).*
+  **NICE-TO-HAVE.**

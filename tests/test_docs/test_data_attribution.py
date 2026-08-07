@@ -58,20 +58,58 @@ def test_document_disclaims_endorsement(path: Path) -> None:
     assert "endorse" in text, f"{path.name} must disclaim endorsement by the data provider"
 
 
-def test_licensing_record_does_not_claim_the_terms_were_read() -> None:
-    """The whole point of the document is that this remains an open question.
+def test_hmd_terms_are_still_recorded_as_unread() -> None:
+    """The SOA terms were read on 2026-08-07; the HMD User Agreement was not.
 
-    Fails if the "not verified" status is edited away while the section that
-    explains the blocker is still standing — i.e. it catches an upgrade of the
-    claim, not an honest update. Genuinely reading the terms means rewriting §4,
-    which necessarily changes these anchors and is meant to.
+    The risk is that the SOA answer gets treated as covering both — they are
+    unrelated bodies, and HMD is a research data provider rather than a
+    professional society publishing website material. This fails if HMD's status
+    is quietly upgraded, and it will need deleting when someone actually reads
+    the agreement, which is the point: closing it should be deliberate.
     """
     text = LICENSING.read_text()
-    assert "NOT read" in text
-    assert "have not read them" in text
-    # And the three questions a reader has to answer must still be stated.
-    for question in ("derived aggregates", "prescribed attribution wording", "non-commercial"):
+    assert "**NOT read** (§4)" in text, "HMD status must stay explicit while it is open"
+    assert "has not been read by anyone on this" in text
+    # The three questions HMD still owes an answer to must remain posed.
+    for question in ("derived aggregates", "citation wording", "non-commercial"):
         assert question in text, f"licensing record no longer poses: {question!r}"
+
+
+def test_soa_terms_are_recorded_with_their_actual_clause_text() -> None:
+    """Paraphrase is what this document exists to replace, so quote or fail.
+
+    Each string below is clause text from the SOA Website Terms of Use. If a
+    future edit softens the record into a summary, the quotes go and this fails —
+    which is the same guard the notebook applies to the measurement prose.
+    """
+    text = LICENSING.read_text()
+    for clause in (
+        "personal or other non-commercial, educational purposes",
+        "for any public or commercial purpose",
+        "any derivative work",
+        "customerservice@soa.org",
+    ):
+        assert clause in text, f"SOA clause text no longer recorded: {clause!r}"
+
+
+def test_the_public_hook_is_not_reframed_as_a_future_commercial_risk() -> None:
+    """The restriction binds a public repository today, not on some later trigger.
+
+    The comfortable reading — "we are educational and non-commercial, so this
+    becomes an issue only if the project commercialises" — misreads a clause that
+    says public *or* commercial. It is also the reading a caveat naturally drifts
+    toward, so it is pinned against.
+    """
+    text = LICENSING.read_text()
+    assert 'binding hook is "public", not "commercial"' in text
+    assert "CLAUDE.md" in text, "the stated commercial vision must be reconciled, not ignored"
+
+
+def test_the_position_taken_carries_its_change_triggers() -> None:
+    """A risk position without triggers is a shrug with a date on it."""
+    text = LICENSING.read_text()
+    for trigger in ("A second contributor", "90 days"):
+        assert trigger in text, f"position no longer names the trigger: {trigger!r}"
 
 
 @pytest.mark.skipif(

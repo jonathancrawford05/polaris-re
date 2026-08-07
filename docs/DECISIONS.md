@@ -12935,3 +12935,55 @@ implicated is the ILEC `ae_by_year.rows` absolute death counts and the
 ratios and differences without losing a single finding in
 `MEASUREMENT_experience_gam_ilec.md` — no analysis depends on publishing 518,386
 as a number. The reports are regenerable, so this is a re-run, not a rewrite.
+
+### ADR-183 amendment 1 — the SOA terms were read, and they were worse than assumed (2026-08-07)
+
+The maintainer read the governing document the same day. Three findings, each of
+which moves a claim this repository had made.
+
+**There is no dataset-specific licence.** The ILEC report page, the data-file link
+and the SOA Legal Center index carry none, so the site-wide **Website Terms of
+Use** govern — a document written for a website, not for a research dataset, which
+is why it reads more restrictively than a data licence would. Permission is limited
+to "personal or other non-commercial, educational purposes"; public **or**
+commercial reproduction and distribution is prohibited; "any derivative work" is
+barred; and there is **no attribution formula anywhere**. The route offered for
+anything beyond the grant is prior written permission.
+
+**The base decision was right for the wrong reason.** Decision 2 withdrew the
+licensing claim on the grounds that it was unsourced, while noting the claims were
+"probably correct" and conservative under any plausible reading. The first half
+holds. The second half does not: on the plain text, aggregate findings are not
+carved out, and the assumption that they obviously escape the restriction had no
+textual basis. Withdrawing an unsourced claim turned out to be worth more than the
+argument offered for withdrawing it.
+
+**The binding hook is "public", not "commercial", and that inverts the natural
+remediation trigger.** A single-contributor, non-commercial, educational project is
+squarely inside the grant *for the local analysis*. Publishing derived values in a
+public repository engages the prohibition **today**, independent of contributor
+count or revenue. Any caveat framed as "we will remediate if this ever
+commercialises" would aim at the wrong event — and `CLAUDE.md` §1 already states
+the commercial vision in any case, so there is nothing prospective to wait for.
+
+**And it falsifies this ADR's own consequence analysis.** The "Consequence if an
+answer comes back unfavourable" section argued the exposure was narrow because the
+implicated content reduces to ratios without losing a finding. That reasoning was
+about **substitutability** and is answered by the wrong clause: if derivative works
+are barred, ratios are derivative too. Stripping the absolute counts
+(`DATA_LICENSING.md` §5c) lowers exposure rather than removing it, and is worth
+doing on that basis rather than the one originally given.
+
+**Position taken**, recorded in `DATA_LICENSING.md` §5 with the maintainer's name
+and date on it: seek written permission (§6, drafted, discloses the AXIS/Prophet
+positioning explicitly rather than soft-pedalling it), carry the caveat meanwhile,
+and revisit on any of four named triggers — a second contributor, any commercial
+engagement, a reply in either direction, or 90 days of silence. Four new guard
+tests pin the clause quotations, the public-versus-commercial reading, the change
+triggers, and HMD's still-unread status, so none of it can soften into summary.
+
+**HMD remains unread and the SOA answer does not transfer.** The two bodies are
+unrelated; HMD is a research data provider, and the widely-repeated CC BY 4.0
+report — which if accurate would resolve its side almost entirely — is still not
+asserted anywhere in this repository, for the same reason it was not asserted
+before.

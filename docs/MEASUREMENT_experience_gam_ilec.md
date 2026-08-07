@@ -24,8 +24,20 @@ deaths on SOA's 2015 VBT basis, which is what makes that A/E independent of our
 model rather than an identity. The SOA has not reviewed or endorsed this analysis;
 where §1(b) reports that the fitted surface improves faster than SOA's scale
 assumed, that is a statement about **our fit**, not a correction to SOA. No ILEC
-data file is committed to this repository; what is, and the open question of what
-the terms actually permit, are in [`DATA_LICENSING.md`](DATA_LICENSING.md).
+data file is committed to this repository; what is, is inventoried in
+[`DATA_LICENSING.md`](DATA_LICENSING.md) §1.
+
+> **Licensing caveat — read before reusing anything below.** The SOA Website Terms
+> of Use (read 2026-08-07, quoted in `DATA_LICENSING.md` §3) are the only document
+> governing this dataset, and they are restrictive: use is permitted for "personal
+> or other non-commercial, educational purposes", public **or** commercial
+> reproduction and distribution is prohibited, derivative works are barred, and the
+> mechanism offered for anything else is **prior written permission**, which has
+> been drafted (§6) but **not yet granted**. This measurement is published by a
+> single contributor developing these models for their own education, with the
+> position and its change-triggers recorded in `DATA_LICENSING.md` §5. Treat the
+> numbers here as findings under an unresolved permission question, not as SOA
+> material cleared for redistribution.
 
 > **Read the duration-banded run.** The pooled run is retained because the
 > comparison between them *is* one of this slice's findings, but its fitted

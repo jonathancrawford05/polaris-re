@@ -16,11 +16,12 @@ Nothing you download here goes into the repo, the Docker image, or CI. That is
 `PLAN_experience_gam.md` Design Anchor 6. Everything lands in a cache directory
 that is outside the repo tree by default.
 
-Design Anchor 6 is a *conduct* rule and it is ours; it is deliberately stricter
-than any licence would need to be. What the HMD and SOA terms themselves require
-is a separate question, and one nobody on this project has yet answered from the
-terms — see `DATA_LICENSING.md` §4, which states the open items rather than
-asserting a conclusion. Attribution for both sources is in `DATA_LICENSING.md` §2.
+Design Anchor 6 is a *conduct* rule and it is ours. It was assumed to be stricter
+than the licences require; on the SOA side that assumption turned out to be
+**wrong** — the terms are restrictive enough that committing even aggregate
+findings is an open question, not a comfortable margin. See `DATA_LICENSING.md`
+§3 for the clause text and §5 for the position taken. The HMD agreement is still
+unread (§4). Attribution for both sources is §2.
 
 ```bash
 # Where the loaders look, in precedence order:
@@ -178,10 +179,14 @@ a population proxy.
    (the 2009–2018 release is the commonly used one).
 2. Accept the SOA terms of use. **There is no fetch helper for ILEC on purpose** —
    it is a manual, terms-accepting download, and `experience_loaders` documents it
-   as such. **Read what you are accepting and record it in `DATA_LICENSING.md`
-   §4** — specifically whether the terms speak to *derived aggregates* as well as
-   to the dataset, which is the question that decides whether the committed A/E
-   tables stay as they are. The attribution block is in `DATA_LICENSING.md` §2b.
+   as such. **Know what you are accepting** — there is no dataset-specific licence,
+   so the site-wide Website Terms of Use govern, and they permit only
+   non-commercial educational use, prohibit public or commercial distribution, and
+   bar derivative works. `DATA_LICENSING.md` §3 quotes the clauses; §5 records the
+   position this project has taken and §6 the permission request that follows from
+   it. The attribution block is §2b. **Downloading and analysing the file locally
+   is the part that is clearly inside the grant** — publishing anything derived
+   from it is the part with an open question over it.
 3. Unzip **with `-d`**, or the files land in your current directory:
 
 ```bash

@@ -74,10 +74,19 @@ of source data. `../DATA_LICENSING.md` §1 is the exhaustive inventory.
   it would let someone reproduce most analyses without obtaining the original.
   Row count is not the test; substitutability is.
 
-That is the conduct. Whether it is *sufficient* under the HMD and SOA terms is a
-separate question, and one nobody on this project has yet checked against the
-terms themselves — see `../DATA_LICENSING.md` §4, which says so plainly rather
-than asserting a conclusion this repository has not earned.
+That is the conduct. Whether it is *sufficient* under the two sets of terms is a
+separate question, and the answers are not symmetric:
+
+- **SOA** — read 2026-08-07, and **restrictive**. No dataset-specific licence
+  exists; the site-wide Terms of Use permit only "personal or other
+  non-commercial, educational purposes", prohibit public **or** commercial
+  reproduction and distribution, bar derivative works, and offer **prior written
+  permission** as the route to anything else. That permission has been drafted and
+  not yet sought a reply. Publishing findings in a public repository engages the
+  *public* hook today — this is not a risk that begins if the project ever
+  commercialises. `../DATA_LICENSING.md` §3 quotes the clauses and §5 records the
+  maintainer's position and what would change it.
+- **HMD** — **still unread.** The SOA answer does not transfer.
 
 If a derived artefact is ever wanted for distribution, the right one is a **model
 output** — a fitted `MortalityImprovement` scale via
