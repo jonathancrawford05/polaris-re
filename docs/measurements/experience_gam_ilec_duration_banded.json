@@ -42,7 +42,7 @@
     ],
     "n_strata": 3767,
     "n_strata_dropped": 61,
-    "dropped_exposure_share": 9.17073903862e-05,
+    "dropped_exposure_share": 9.17073903863e-05,
     "n_clipped_above_one": 1,
     "n_cells_no_exposure": 152,
     "deaths_in_no_exposure_cells": 0.0
@@ -476,6 +476,70 @@
         "expected_mi": 530406.928628,
         "ae": 1.0397537557,
         "ae_mi": 1.06130400946
+      }
+    ]
+  },
+  "standardised_ae": {
+    "standard_keys": [
+      "attained_age",
+      "sex",
+      "smoker",
+      "uw_class",
+      "duration_months"
+    ],
+    "n_cells_used": 14757,
+    "coverage_share": 0.999559955825,
+    "crude_slope_per_year": -0.00118521347759,
+    "standardised_slope_per_year": -0.00150481259299,
+    "mix_slope_per_year": 0.000319599115398,
+    "rows": [
+      {
+        "calendar_year": 2012,
+        "crude_ae": 1.07536523624,
+        "standardised_ae": 1.07704966756,
+        "mix_effect": -0.00168443132246
+      },
+      {
+        "calendar_year": 2013,
+        "crude_ae": 1.08965667478,
+        "standardised_ae": 1.08824806821,
+        "mix_effect": 0.0014086065695
+      },
+      {
+        "calendar_year": 2014,
+        "crude_ae": 1.08466165637,
+        "standardised_ae": 1.08630302899,
+        "mix_effect": -0.00164137261083
+      },
+      {
+        "calendar_year": 2015,
+        "crude_ae": 1.09523301914,
+        "standardised_ae": 1.09715742232,
+        "mix_effect": -0.00192440317941
+      },
+      {
+        "calendar_year": 2016,
+        "crude_ae": 1.07082951755,
+        "standardised_ae": 1.0756192459,
+        "mix_effect": -0.00478972835182
+      },
+      {
+        "calendar_year": 2017,
+        "crude_ae": 1.08831225336,
+        "standardised_ae": 1.09425470847,
+        "mix_effect": -0.00594245510345
+      },
+      {
+        "calendar_year": 2018,
+        "crude_ae": 1.09308598971,
+        "standardised_ae": 1.0885599138,
+        "mix_effect": 0.00452607591808
+      },
+      {
+        "calendar_year": 2019,
+        "crude_ae": 1.06130400946,
+        "standardised_ae": 1.05956618311,
+        "mix_effect": 0.00173782635425
       }
     ]
   },
