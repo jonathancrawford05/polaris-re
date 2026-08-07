@@ -13,9 +13,14 @@ design and by necessity. See "Why you and not the routine" below.
 ## 0. The one rule: loaders, not data
 
 Nothing you download here goes into the repo, the Docker image, or CI. That is
-`PLAN_experience_gam.md` Design Anchor 6, and it is also what keeps you inside
-both licences. Everything lands in a cache directory that is outside the repo
-tree by default.
+`PLAN_experience_gam.md` Design Anchor 6. Everything lands in a cache directory
+that is outside the repo tree by default.
+
+Design Anchor 6 is a *conduct* rule and it is ours; it is deliberately stricter
+than any licence would need to be. What the HMD and SOA terms themselves require
+is a separate question, and one nobody on this project has yet answered from the
+terms — see `DATA_LICENSING.md` §4, which states the open items rather than
+asserting a conclusion. Attribution for both sources is in `DATA_LICENSING.md` §2.
 
 ```bash
 # Where the loaders look, in precedence order:
@@ -71,9 +76,12 @@ real-data regression fixture** for the MI surface.
 
 1. Go to <https://www.mortality.org> → **DATA** → **User Agreement**, read it,
    then create an account (free).
-2. Note the licence terms. HMD is open-data-principled but attribution-bearing —
-   redistribution of the raw files is not ours to do, which is why only *findings*
-   get committed.
+2. **Read the User Agreement while you are there** — and if you do, record what it
+   says in `DATA_LICENSING.md` §4, which is currently an open item. HMD is widely
+   described as open-data-principled and attribution-bearing, but this project has
+   only ever repeated that second-hand. We commit *findings* only, which is
+   conservative under any reading; the attribution block is in
+   `DATA_LICENSING.md` §2a.
 
 ### 1b. Download — the simple path
 
@@ -170,7 +178,10 @@ a population proxy.
    (the 2009–2018 release is the commonly used one).
 2. Accept the SOA terms of use. **There is no fetch helper for ILEC on purpose** —
    it is a manual, terms-accepting download, and `experience_loaders` documents it
-   as such.
+   as such. **Read what you are accepting and record it in `DATA_LICENSING.md`
+   §4** — specifically whether the terms speak to *derived aggregates* as well as
+   to the dataset, which is the question that decides whether the committed A/E
+   tables stay as they are. The attribution block is in `DATA_LICENSING.md` §2b.
 3. Unzip **with `-d`**, or the files land in your current directory:
 
 ```bash
@@ -397,7 +408,8 @@ Two independent reasons, and both are structural rather than fixable:
    An autonomous session has neither and should not have either.
 2. **Ephemeral containers.** Remote sessions clone the repo fresh and are
    reclaimed afterwards. Even if a session could download the data, it could not
-   keep it, and committing it is forbidden by the licences and by Design Anchor 6.
+   keep it, and committing it is ruled out by Design Anchor 6 regardless of what
+   the licences permit.
 
 So the division of labour is fixed: autonomous sessions build the loaders, the
 fitting harness and the report generator, and exercise them on synthetic

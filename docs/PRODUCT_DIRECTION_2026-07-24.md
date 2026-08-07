@@ -1478,3 +1478,32 @@ rather than cosmetic (PR #185 round-2 review [P1]).
   basis. That comparison is what would turn "the shape agrees" into "the rates
   agree to X", and it is the natural companion to the `mgcv` oracle (ADR-151).
   *Source: MEASUREMENT_experience_gam_hmd §3/§6 (1st-order).* **NICE-TO-HAVE.**
+
+### Appended 2026-08-07 (data attribution + licensing audit)
+
+Attribution for the HMD and SOA-ILEC sources was added to the three committed
+findings documents and pinned by `tests/test_docs/test_data_attribution.py`
+(`docs/DATA_LICENSING.md`). The audit that produced it surfaced one item that is
+**not** closed.
+
+- **Nobody has read the HMD or SOA terms of use.** Every licensing statement this
+  repository has ever made is second-hand paraphrase — `RUNBOOK...` §0 "keeps you
+  inside both licences", §6 "forbidden by the licences", and a
+  `docs/measurements/README.md` heading that asserted the flat legal conclusion
+  "Why committing these is not a licence problem". A grep confirms **no section
+  number, quotation or URL to a terms document appears anywhere in the tree.** The
+  attempt to read the primaries in-session was denied at the network gateway (403
+  on `www.mortality.org` and `www.soa.org`; egress is a GitHub/PyPI allowlist), and
+  search-engine summaries were deliberately **not** substituted — swapping one
+  layer of paraphrase for another reproduces the defect rather than fixing it.
+  `DATA_LICENSING.md` §4 poses the three questions that need answering: whether
+  the terms reach *derived aggregates* or only the dataset; whether a prescribed
+  attribution wording exists that §2 does not meet; and whether a non-commercial
+  condition applies to a public repository whose stated purpose (CLAUDE.md §1) is
+  a commercial alternative to AXIS/Prophet. §1 shows the committed artefacts are
+  conservative by any reading, and §4c names the narrow remedy if an answer comes
+  back unfavourable — the ILEC `ae_by_year` absolute counts and
+  `soa_surface_comparison` rows are the only exposure, and both reduce to ratios
+  without losing a single finding. **Maintainer-gated: it needs a browser this
+  container does not have.** *Source: 2026-08-07 attribution pass (1st-order).*
+  **IMPORTANT.**

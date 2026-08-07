@@ -26,25 +26,58 @@ Read them alongside `docs/MEASUREMENT_experience_gam_hmd.md` and
 `docs/MEASUREMENT_experience_gam_ilec.md`, which say what the numbers mean and
 where they should not be trusted.
 
-## Why committing these is not a licence problem
+## Attribution
 
-**Findings, not data** — Design Anchor 6, and the HMD and SOA-ILEC terms.
+The experience behind every number in this directory is somebody else's, obtained
+by the maintainer under their own account and terms acceptance, and it is credited
+here.
 
-These reports carry aggregate summary statistics: A/E by calendar year (8 rows),
-an improvement surface at five reference ages, fit diagnostics, and cell counts.
-They carry input file **basenames and byte sizes**, never paths, never cells, and
-never a row of source data. That is the same class of aggregate SOA publishes in
-its own ILEC reports.
+> **HMD.** Human Mortality Database. Max Planck Institute for Demographic Research
+> (Germany), University of California, Berkeley (USA), and French Institute for
+> Demographic Studies (France). Available at <https://www.mortality.org>.
+> Series used: `Deaths_1x1.txt` / `Exposures_1x1.txt` for USA and GBRTENW,
+> 1990–2019, ages 25–95, both sexes.
+
+> **Society of Actuaries Research Institute**, Individual Life Experience
+> Committee (ILEC). Individual life insurance mortality experience study, study
+> years 2012–2019; dataset file `ILEC_2012_19 - 20240429.txt`. Available at
+> <https://www.soa.org>. SOA's own `ExpDth_VBT2015*` expected deaths — on SOA's
+> 2015 VBT basis — are what make the A/E level check independent rather than an
+> identity.
+
+Neither body has reviewed, approved or endorsed this analysis. The modelling
+choices and any errors are ours.
+
+Full provenance, the verified inventory of what these files do and do not contain,
+and the **open** question of what the licences actually say are in
+[`../DATA_LICENSING.md`](../DATA_LICENSING.md).
+
+## What is committed here, and what never is
+
+**Findings, not data** — Design Anchor 6.
+
+These reports carry aggregate summary statistics: a fitted improvement surface at
+five reference ages, fit diagnostics, and book-level totals. The two ILEC reports
+additionally carry **A/E by calendar year — 8 rows, with absolute actual and
+expected death counts** — which is the most data-derived thing committed anywhere
+here and is called out as such rather than folded into "aggregates". They carry
+input file **basenames and byte sizes**, never paths, never cells, and never a row
+of source data. `../DATA_LICENSING.md` §1 is the exhaustive inventory.
 
 **What must never be committed**, and never has been:
 
 - the HMD `Deaths_1x1.txt` / `Exposures_1x1.txt` files;
 - the ILEC flat file, at any resolution;
-- **the grouped cell table** — 15,882 rows keyed by
-  `(attained_age, calendar_year, sex, smoker, uw_class)` with exposure and deaths
-  is not a finding, it is the dataset at a coarser grain, and it would let someone
-  reproduce most analyses without accepting the terms the original was released
-  under. Row count is not the test; substitutability is.
+- **the grouped cell table** — 126,223 rows keyed by
+  `(attained_age, calendar_year, sex, smoker, uw_class, duration_months)` with
+  exposure and deaths is not a finding, it is the dataset at a coarser grain, and
+  it would let someone reproduce most analyses without obtaining the original.
+  Row count is not the test; substitutability is.
+
+That is the conduct. Whether it is *sufficient* under the HMD and SOA terms is a
+separate question, and one nobody on this project has yet checked against the
+terms themselves — see `../DATA_LICENSING.md` §4, which says so plainly rather
+than asserting a conclusion this repository has not earned.
 
 If a derived artefact is ever wanted for distribution, the right one is a **model
 output** — a fitted `MortalityImprovement` scale via

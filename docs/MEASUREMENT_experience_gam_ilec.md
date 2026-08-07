@@ -10,6 +10,23 @@ decomposition.
 `scripts/experience_diligence.py`, never hand-edited.
 **Harness:** ADR-182 through amendment 5.
 
+**Data source and attribution:**
+
+> Society of Actuaries Research Institute, Individual Life Experience Committee
+> (ILEC). Individual life insurance mortality experience study, study years
+> **2012–2019**; dataset file `ILEC_2012_19 - 20240429.txt`. Available at
+> <https://www.soa.org>.
+
+Obtained by the maintainer in August 2026 through SOA's own download, accepting
+the terms presented there. **SOA supplies both sides of the level check in §1(a):**
+the experience *and* the `ExpDth_VBT2015_Cnt` / `ExpDth_VBT2015_MI_Cnt` expected
+deaths on SOA's 2015 VBT basis, which is what makes that A/E independent of our
+model rather than an identity. The SOA has not reviewed or endorsed this analysis;
+where §1(b) reports that the fitted surface improves faster than SOA's scale
+assumed, that is a statement about **our fit**, not a correction to SOA. No ILEC
+data file is committed to this repository; what is, and the open question of what
+the terms actually permit, are in [`DATA_LICENSING.md`](DATA_LICENSING.md).
+
 > **Read the duration-banded run.** The pooled run is retained because the
 > comparison between them *is* one of this slice's findings, but its fitted
 > surface is confounded — see §2.

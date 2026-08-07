@@ -8,6 +8,19 @@ Wales), 1990–2019, ages 25–95, both sexes.
 `scripts/experience_diligence.py`, never hand-edited.
 **Harness:** ADR-182, at `0787187`.
 
+**Data source and attribution:**
+
+> HMD. Human Mortality Database. Max Planck Institute for Demographic Research
+> (Germany), University of California, Berkeley (USA), and French Institute for
+> Demographic Studies (France). Available at <https://www.mortality.org>.
+
+Series used: `Deaths_1x1.txt` and `Exposures_1x1.txt` for **USA** and **GBRTENW**
+(England & Wales, total population), calendar years 1990–2019, ages 25–95, both
+sexes; downloaded by the maintainer in August 2026 under their own HMD account.
+The HMD has not reviewed or endorsed this analysis — the fit, its settings and any
+errors are ours. No HMD file is committed to this repository; see
+[`DATA_LICENSING.md`](DATA_LICENSING.md).
+
 ---
 
 ## 1. The headline

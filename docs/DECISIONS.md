@@ -12867,3 +12867,71 @@ lesson the epic learned about synthetic fixtures, one level up.
 The notebook now asserts the corrected reading — direction on both components,
 mix below 35% of experience, and the sign-flip count that makes the slope weak —
 so the prose cannot drift back toward the stronger claim without CI failing.
+
+---
+
+## ADR-183: Data attribution as a committed, tested artefact — and a licensing claim withdrawn rather than defended
+
+**Date:** 2026-08-07
+**Status:** Accepted, with an open item deliberately left open
+**Context:** the real-data GAM epic (ADR-182) committed four findings reports
+derived from the Human Mortality Database and the SOA Individual Life Experience
+Committee 2012–2019 release. Neither source was credited anywhere, and the
+repository carried several licensing assertions.
+
+### Decision 1 — attribute, and pin it
+
+`docs/DATA_LICENSING.md` holds the canonical provenance record: a verified
+inventory of what the committed reports do and do not contain (§1), the two
+attribution blocks and an endorsement disclaimer (§2), and the acquisition
+details. The attribution blocks are reproduced in `docs/measurements/README.md`
+and both `MEASUREMENT_experience_gam_*.md`, and
+`tests/test_docs/test_data_attribution.py` fails if any of the three loses its
+credit, its disclaimer, or its pointer to the record.
+
+Attribution is prose, and prose does not fail CI on its own — the same reasoning
+that put the notebook's assertions under test in ADR-182.
+
+### Decision 2 — withdraw the licensing claim instead of restating it
+
+The repository asserted, in five places, that committing these findings is inside
+the HMD and SOA terms: *"keeps you inside both licences"*, *"forbidden by the
+licences"*, and a section headed *"Why committing these is not a licence
+problem"*. A grep for a section number, a quotation, or a URL to either terms
+document returns **nothing anywhere in the tree.** Every one of those statements
+is paraphrase with no source behind it.
+
+The claims are probably correct — §1 of the record shows the committed artefacts
+are conservative under any plausible reading, and Design Anchor 6 is stricter than
+a licence would need to be. **That is not the point.** A project that requires a
+closed-form verification test for every actuarial calculation, and that spent
+amendment 6 refuting its own well-evidenced inference because nobody had computed
+it, does not get to publish a legal conclusion on vibes.
+
+So the language now states the **conduct** ("findings, not data — this is what is
+committed and what never is") and stops short of the **conclusion** ("therefore
+this is permitted"). `DATA_LICENSING.md` §4 records the three unanswered
+questions, and the guard test fails if the "not read" status is edited away while
+the section explaining it still stands.
+
+### Why the terms were not read here
+
+The in-session attempt was denied at the network gateway: HTTP 403 on
+`www.mortality.org` and `www.soa.org` before either host was reached, this
+container's egress being a GitHub/PyPI allowlist. Search-engine summaries were
+available and were **not** used. Substituting one layer of paraphrase for another
+would have produced text that reads as verified while carrying exactly the defect
+this ADR exists to remove — including the widely-repeated CC BY 4.0 claim about
+HMD, which is plausible and is still not asserted here.
+
+The remaining work is a browser and fifteen minutes, and it is filed as
+IMPORTANT in `PRODUCT_DIRECTION_2026-07-24.md`.
+
+### Consequence if an answer comes back unfavourable
+
+Narrow and already scoped (§4c). The only committed content that could be
+implicated is the ILEC `ae_by_year.rows` absolute death counts and the
+`soa_surface_comparison.rows` recovery of SOA's own implied scale. Both reduce to
+ratios and differences without losing a single finding in
+`MEASUREMENT_experience_gam_ilec.md` — no analysis depends on publishing 518,386
+as a number. The reports are regenerable, so this is a re-run, not a rewrite.

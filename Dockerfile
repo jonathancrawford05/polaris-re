@@ -73,6 +73,11 @@ COPY .mcp.json ./
 # only — aggregate statistics, never the licensed HMD/SOA source files. The rest
 # of docs/ stays out via .dockerignore.
 COPY docs/measurements/ ./docs/measurements/
+# Attribution for the data behind those findings (ADR-183), asserted by
+# tests/test_docs/test_data_attribution.py — and independently the right thing to
+# ship alongside another party's experience data.
+COPY docs/DATA_LICENSING.md ./docs/
+COPY docs/MEASUREMENT_experience_gam_hmd.md docs/MEASUREMENT_experience_gam_ilec.md ./docs/
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
