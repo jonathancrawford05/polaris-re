@@ -17,22 +17,37 @@ better-principled flexibility control is not its remedy. PLAN §1 rules the fram
 out; this docstring repeats it because module docstrings are where such things get
 quietly re-invented.
 
-## The parameterisation, and why Anchor 1 can hold exactly
+## Two bases, and why there have to be two
 
-``TensorMIModel`` builds ``1 + bs(age, df=ka) + bs(year, df=ky) + interaction`` —
-patsy's main-effects form. A difference penalty is not natural in that basis: it
-penalises *marginal* coefficients, which live in the full Kronecker form
-``B_age ⊗ B_year``.
+``TensorMIModel`` builds ``1 + bs(age) + bs(year) + interaction`` — patsy's
+main-effects form. A difference penalty is not natural there: it penalises
+*marginal* coefficients, which live in the full Kronecker form ``B_age ⊗ B_year``.
+So this module builds the Kronecker design. That much the plan anticipated.
 
-So this module builds the clean Kronecker design instead, from **full** marginal
-bases (``df + 1`` with an intercept, which carries the same interior knots). The two
-designs are different bases for the **same column space** — verified: rank of the
-concatenation equals the rank of either, and fitted values agree to ~4e-15 on a
-random response. Since least-squares projection is basis-independent, **at λ=0 the
-two models fit identical values** (Anchor 1) even though their coefficients differ
-and are not comparable.
+What it did not anticipate is that **patsy cannot build a P-spline basis at all**.
+A difference penalty's null space is "coefficients linear in index", and that is a
+linear *function* only when the Greville abscissae are equally spaced — which needs
+uniform knots **and** no boundary clamping. ``patsy.bs`` always clamps, repeating
+boundary knots ``degree + 1`` times, and uniform interior knots do not rescue it.
+Measured step spread for index-linear coefficients: **5.6e-01** on a patsy basis
+against **8.9e-16** on an extended uniform sequence from ``scipy``.
 
-That is why Anchor 1 is asserted on the fitted surface and never on coefficients.
+Hence two schemes, and the distinction is load-bearing rather than cosmetic:
+
+- ``knots="uniform"`` (**default**) — the real P-spline. The penalty behaves: at
+  large λ_year the calendar margin collapses to a straight line and fitted MI
+  becomes constant in time.
+- ``knots="clamped"`` — patsy-compatible, and **oracle testing only**. Its column
+  space matches ``TensorMIModel``'s exactly, so λ=0 reproduces that model's fitted
+  surface, dispersion and ``edf``. The penalty misbehaves in this scheme; never fit
+  production surfaces with it.
+
+**Anchor 1 as amended (ADR-185):** λ=0 reproduces ``TensorMIModel`` exactly *in the
+clamped scheme*, which is what verifies the fitting machinery — IRLS, dispersion,
+``edf``, covariance — against an already-tested oracle. It cannot also hold in the
+production scheme, because using a different basis is the entire point of the
+rebuild. Asserted on the fitted surface and never on coefficients: the two
+parameterisations are not comparable coefficient-wise even when their spans agree.
 """
 
 from dataclasses import dataclass, field
