@@ -1536,3 +1536,22 @@ record the clause text. What replaces it:
   permitted and only attribution is owed, which §2a already provides. Needs a
   browser this container does not have. *Source: DATA_LICENSING §4 (1st-order).*
   **NICE-TO-HAVE.**
+
+### Appended 2026-08-08 (HMD terms read — the licensing item narrows to one line)
+
+- **Supply the HMD version DOI.** The HMD User Agreement was read 2026-08-08 and is
+  **permissive** — CC BY 4.0 on its own estimates, derivatives and commercial use
+  both permitted, and the `STATS` bundle this project used is confirmed to be that
+  tier (ADR-183 amendment 2). The single remaining gap is that CC BY 4.0's condition
+  *is* attribution and HMD prescribes a **version DOI** as part of it, which
+  `DATA_LICENSING.md` §2a does not yet carry. Only the maintainer knows which
+  release was downloaded. Paste it into §2a and both measurement docs, then update
+  `test_the_hmd_attribution_gap_is_not_rounded_to_compliant`. **Maintainer-gated,
+  ~5 minutes.** *Source: HMD User Agreement, read 2026-08-08 (1st-order).*
+  **IMPORTANT.**
+- **If HMD Input Database series are ever used, this analysis does not carry over.**
+  Only the `STATS` output tier is CC BY 4.0; input data carries a no-commercial-gain
+  and no-republication restriction. Anything drawn from the Input Database needs its
+  own provenance determination first. Nothing does today; this is a tripwire for
+  future work rather than an open item. *Source: DATA_LICENSING §4b (1st-order).*
+  **NICE-TO-HAVE.**

@@ -12,15 +12,21 @@ under `docs/measurements/`.
 | Attribution | **Added** (§2), pinned by `tests/test_docs/test_data_attribution.py` |
 | Inventory of what is committed | **Verified by inspection** (§1) |
 | **SOA** Terms of Use | **Read** (§3) — and they are **restrictive**. Permission **requested 2026-08-08**, auto-acknowledged only; 90-day trigger **2026-11-06** (§6) |
-| **HMD** User Agreement | **NOT read** (§4) — open, and the SOA answers do not transfer |
+| **HMD** User Agreement | **Read 2026-08-08** (§4) — **permissive**: CC BY 4.0 on HMD's own estimates, commercial use allowed. One real gap: our attribution is incomplete |
 | Position taken | §5 — the maintainer's, dated, with the triggers that would change it |
 
-**The short version.** The SOA Terms contain no dataset-specific licence, permit
-use only for "personal or other non-commercial, educational purposes", prohibit
-public **or** commercial reproduction and distribution, bar derivative works, and
-provide **no attribution formula** — the mechanism they offer instead is prior
-written permission. That is a materially worse answer than this repository
-previously assumed, and §3e records what it assumed. HMD remains unread.
+**The short version, and the two sources are opposites.** The SOA Terms contain no
+dataset-specific licence, permit use only for "personal or other non-commercial,
+educational purposes", prohibit public **or** commercial reproduction and
+distribution, bar derivative works, and provide **no attribution formula** — the
+mechanism they offer instead is prior written permission. **HMD is the mirror
+image**: its own estimates are CC BY 4.0, which explicitly permits derivatives and
+commercial use, and the only condition is attribution — but the attribution *is*
+prescribed, in detail, and ours does not currently meet it.
+
+So the two halves of this repository's licensing exposure are not alike. The HMD
+half is close to clear and fixable by editing a citation. The SOA half is the open
+question.
 
 Nothing here is legal advice, and nobody involved is a lawyer. It is a faithful
 record of clause text, of what is actually published, and of a decision taken
@@ -98,11 +104,19 @@ dropped.
 > **HMD.** Human Mortality Database. Max Planck Institute for Demographic Research
 > (Germany), University of California, Berkeley (USA), and French Institute for
 > Demographic Studies (France). Available at <https://www.mortality.org>.
+> Data downloaded **August 2026**. Version DOI: **[TO SUPPLY — see §4d]**.
 
 **Series used:** `Deaths_1x1.txt` and `Exposures_1x1.txt` for **USA** and
 **GBRTENW** (England & Wales, total population), calendar years 1990–2019, ages
 25–95, both sexes. Downloaded by the maintainer in **August 2026** under their own
-HMD account.
+HMD account, from the **"Statistics" / `STATS` bundle** — which is what makes these
+HMD's *own output series* rather than its Input Database (§4c).
+
+**This attribution is not yet complete.** CC BY 4.0 makes attribution the licence
+condition, and HMD prescribes its elements: database name, all three sponsoring
+institutions, the URL, the **date accessed**, and the **DOI of the version used**.
+The first four are above; the DOI is outstanding and is the one thing standing
+between this repository and a clean HMD position (§4d).
 
 ### 2b. SOA Individual Life Experience Committee
 
@@ -214,39 +228,97 @@ That is the concrete cost of asserting a conclusion nobody had checked.
 
 ---
 
-## 4. HMD — still unread, and still open
+## 4. What the HMD User Agreement actually says
 
-The research above covers **SOA only**. The HMD User Agreement at
-<https://www.mortality.org/Data/UserAgreement> has not been read by anyone on this
-project, and nothing in this document should be taken as a statement about it.
+**Read 2026-08-08** by the maintainer, from <https://www.mortality.org>. As with
+§3, the findings below are the maintainer's reading; this session could not fetch
+the page (§4a) and does not claim to have verified the transcription.
 
-### 4a. Why not from here
+**The answer is favourable**, which is worth stating plainly given how §3 came out.
 
-An in-session attempt on 2026-08-07 to read `www.mortality.org` and `www.soa.org`
-returned **HTTP 403 at the network gateway, before reaching either host** — this
-container's egress is a GitHub/PyPI allowlist, and archive and text-extraction
-mirrors are denied too. The denials are recorded in the proxy's own
-`recentRelayFailures`. Search-engine summaries were available and were **not**
-used: substituting one layer of paraphrase for another produces text that reads as
-verified while carrying the defect §3e describes.
+### 4a. Why this session still could not read it directly
 
-### 4b. The open HMD questions
+An in-session attempt on 2026-08-07 returned **HTTP 403 at the network gateway,
+before reaching the host** — this container's egress is a GitHub/PyPI allowlist,
+and archive and text-extraction mirrors are denied too. Search-engine summaries
+were available and were **not** used, for the reason §3e describes. That is also
+why the widely-repeated CC BY 4.0 claim went unasserted here until someone
+actually read the agreement; it turns out to be right, but it was right by luck
+rather than by evidence, and the distinction is the point.
 
-The same three that were asked of SOA, and the SOA answers do **not** transfer —
-the two bodies are unrelated and HMD is a research data provider rather than a
-professional society publishing website material:
+### 4b. The two-tier structure — this is the whole thing
 
-1. Do the terms reach derived aggregates, or only the dataset?
-2. Is there a prescribed citation wording that §2a does not meet? HMD is widely
-   described as requiring acknowledgement, so this one is more likely to have a
-   real answer than it was for SOA.
-3. Is there a non-commercial or research-only condition?
+HMD splits its holdings, and the halves are governed completely differently.
 
-The commonly repeated claim that HMD data are released under **CC BY 4.0** is
-plausible and widely echoed. It is deliberately not asserted here. If it is true,
-the HMD side of this is close to resolved — CC BY permits derivative works and
-commercial use and asks only for attribution — which is precisely why it should be
-confirmed rather than assumed.
+| Tier | What it is | Licence |
+|---|---|---|
+| **HMD estimates** | What the HMD team *produces*: exposure-to-risk, death rates, life tables, life expectancy | **CC BY 4.0** |
+| **Input data** | Birth counts, unaltered death counts, externally-sourced population figures | Each original provider's licence, **plus** an HMD restriction: not to be "used for commercial gain or re-published in any form without the explicit permission of the data owners" |
+
+Answering the three questions §4 previously posed:
+
+1. **Do the terms reach derived aggregates?** For HMD estimates, yes — and
+   favourably. CC BY 4.0 explicitly covers adaptations and derivatives, so derived
+   values are squarely licensed, with the attribution condition following the
+   derivative.
+2. **Is there a prescribed attribution wording?** **Yes**, and unlike SOA this is
+   a real condition rather than a courtesy. It must carry the database name, all
+   three sponsoring institutions, the URL, the **date accessed**, and the **DOI of
+   the version used**. §2a met the first three and now carries the fourth; the DOI
+   is outstanding (§4d).
+3. **Is there a non-commercial condition?** **Not on the estimates.** CC BY 4.0
+   permits commercial use. This directly answers the concern §3c raised about
+   `CLAUDE.md` §1's AXIS/Prophet positioning — *for the HMD half of this
+   repository, that positioning is simply not a problem.* The non-commercial-style
+   restriction exists only on the **input data**, where commercial use or
+   re-publication needs the original owner's explicit permission.
+
+### 4c. Which tier our numbers come from — determined, not assumed
+
+Everything turns on this, so it was checked rather than asserted.
+
+**Structural evidence, and it is the strong one.** `RUNBOOK_experience_data_acquisition.md`
+§1b directs the download to **DATA → Zipped Data Files → the "Statistics" bundle
+(or the individual `STATS` files)**. Those are HMD's *output* series. HMD's raw
+input material lives in a separate Input Database, which this project has never
+touched and has never been instructed to touch. Both `Deaths_1x1.txt` and
+`Exposures_1x1.txt` as used here are therefore HMD estimates.
+
+**Corroborating evidence, weaker and stated as such.** HMD's citation guidance
+notes that fractional values generally indicate HMD-original estimates while whole
+numbers generally indicate raw external data. Against the committed reports:
+
+| | total deaths | total exposure |
+|---|---|---|
+| USA | **68,998,510.09** — fractional | 5,750,237,304.28 — fractional |
+| GBRTENW | 15,153,718.0 — **integral** | 1,117,115,545.92 — fractional |
+
+USA is positively indicated on both. **GBRTENW's death total is not**, and that is
+recorded rather than glossed: the heuristic is being applied to a *sum over 4,260
+cells* rather than to cell values, which weakens it a great deal — a sum of
+fractional parts can land on a whole number — and it does not distinguish the two
+tiers here. The structural argument does not depend on it, and `Exposures_1x1` is
+named in the agreement's own list of HMD-produced estimates either way.
+
+### 4d. The one outstanding item — the version DOI
+
+CC BY 4.0's condition is attribution, and HMD prescribes the DOI as part of it, so
+an attribution missing the DOI does not meet the licence's own stated form. This is
+the **only** identified HMD gap, and it is the maintainer's to close because only
+they know which release was downloaded: mortality.org publishes a DOI per version,
+and it should be pasted into §2a in place of the marker.
+
+Everything else about the HMD position is clean: derivatives permitted, commercial
+use permitted, no data redistributed, the estimates tier confirmed.
+
+### 4e. What is deliberately not claimed
+
+That this repository is *compliant*. §2a is knowingly incomplete until §4d closes,
+so as of today the HMD attribution falls short of the prescribed form — a small,
+fixable shortfall, but a real one, and it is recorded as such rather than rounded
+to "fine". HMD also *asks* (as a request, not a condition) that users link back
+rather than redistribute copies, which this repository already satisfies by
+committing findings only.
 
 ---
 

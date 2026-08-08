@@ -90,7 +90,13 @@ separate question, and the answers are not symmetric:
   *public* hook today — this is not a risk that begins if the project ever
   commercialises. `../DATA_LICENSING.md` §3 quotes the clauses and §5 records the
   maintainer's position and what would change it.
-- **HMD** — **still unread.** The SOA answer does not transfer.
+- **HMD** — read 2026-08-08, and **permissive**. HMD's own estimates are
+  **CC BY 4.0**: derivatives and commercial use are both permitted, and the only
+  condition is attribution. The series used here are from the `STATS` output
+  bundle, so they are estimates rather than Input Database material — which is the
+  tier that *does* carry a no-commercial-gain restriction. One gap remains: the
+  prescribed attribution includes a **version DOI** that §2a does not yet carry
+  (`../DATA_LICENSING.md` §4d).
 
 If a derived artefact is ever wanted for distribution, the right one is a **model
 output** — a fitted `MortalityImprovement` scale via

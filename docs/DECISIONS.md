@@ -13166,3 +13166,50 @@ data, which is a better outcome for slice 3 than slice 4's own headline.
 **The real interior knots, published for the first time:** `attained_age`
 43.0 / 60.0 / 76.0, `calendar_year` **`[]`** — confirming on the real fit that the
 shipped margin is a global cubic — and `duration_years` 7.0.
+
+### ADR-183 amendment 2 — the HMD agreement, read: permissive, and the mirror image of SOA (2026-08-08)
+
+The maintainer read the HMD User Agreement, closing the last open item from
+amendment 1. **The answer is favourable**, and the two sources turn out to be
+opposites — which is more useful than either finding alone.
+
+**HMD splits its holdings into two tiers.** Its own estimates — exposure-to-risk,
+death rates, life tables, life expectancy — are **CC BY 4.0**, which explicitly
+covers adaptations and derivatives and **permits commercial use**. The input data
+(birth counts, unaltered death counts, externally-sourced population figures) is
+not: it carries each original provider's licence plus HMD's own restriction that it
+"should not be used for commercial gain or re-published in any form without the
+explicit permission of the data owners".
+
+**Which tier applies to us was determined, not assumed.** The runbook directs the
+download to the **"Statistics" / `STATS`** bundle, which is HMD output; the raw
+material lives in a separate Input Database this project has never touched. That
+structural argument is the load-bearing one. HMD's decimal heuristic corroborates
+it for USA (68,998,510.09 deaths, 5,750,237,304.28 exposure — both fractional) but
+**not** for GBRTENW, whose death total is integral; that is recorded rather than
+glossed, since the heuristic is being applied to a sum over 4,260 cells where a
+whole-number total proves nothing either way.
+
+**Three consequences.**
+
+*The commercial concern evaporates on this half.* §3c flagged `CLAUDE.md` §1's
+AXIS/Prophet positioning as the sharpest SOA exposure. CC BY 4.0 permits commercial
+use, so for HMD that positioning is simply not a problem. The two halves of this
+repository's licensing exposure are genuinely unalike, and treating them as one
+question — which the original §4 did by carrying the same three questions across —
+would have been wrong in both directions.
+
+*Attribution stops being a courtesy and becomes the condition.* Under CC BY 4.0 the
+attribution **is** the licence term, and HMD prescribes its elements: name, all
+three sponsoring institutions, URL, **date accessed**, and **version DOI**. §2a
+carried the first three, now carries the fourth, and is missing the DOI — so as of
+today the HMD attribution does not meet the prescribed form. Small and fixable, but
+real, and recorded as a gap rather than rounded to compliant. A guard test fails
+while the marker is present *and* fails if the marker is removed without a DOI.
+
+*A prediction was right for the wrong reason.* §4's earlier text noted the
+widely-repeated CC BY 4.0 claim and deliberately refused to assert it without a
+source. It turns out to be correct. That is not a vindication of the guess — it is
+the case where refusing to assert an unsourced claim cost nothing and would have
+been the right call regardless of how it resolved, which is the only defensible
+reason to have a rule about it.
