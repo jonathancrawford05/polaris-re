@@ -1,8 +1,11 @@
-"""Penalized tensor mortality-improvement surface — P-splines at fixed λ.
+"""Penalized tensor mortality-improvement surface — P-splines with REML-selected λ.
 
-Slice 1 of ``docs/PLAN_penalized_mi_surface.md``. **Fixed, caller-supplied λ only**;
-REML selection is slice 2, and separating the two is deliberate — an optimiser
-wrapped around an unverified fitter is two hard things at once.
+Slices 1-2 of ``docs/PLAN_penalized_mi_surface.md``. :class:`PenalizedTensorMIModel`
+fits at a **caller-supplied λ**; :func:`select_lambdas_reml` chooses one by REML over
+a deterministic grid. They are separate entry points because they were built as
+separate slices — an optimiser wrapped around an unverified fitter is two hard
+things at once — and keeping them separate is what lets the fixed-λ limits stay
+testable in isolation (ADR-185, ADR-186).
 
 **What this is for.** ``TensorMIModel`` spends the same number of calendar
 parameters everywhere regardless of how much information a region carries, which
@@ -130,7 +133,11 @@ def tensor_penalties(
 
 @dataclass(frozen=True)
 class PenalizedMIFit:
-    """A fitted penalized surface at fixed λ."""
+    """A fitted penalized surface.
+
+    ``reml_score`` and ``lambda_grid_step`` are populated only when λ came from
+    :func:`select_lambdas_reml`; a fixed-λ fit leaves both ``None``, which is how a
+    reader tells a selected surface from a hand-set one."""
 
     coef: np.ndarray
     cov: np.ndarray
