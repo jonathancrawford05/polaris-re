@@ -286,9 +286,11 @@ visible for the first time.
 
 ---
 
-## Follow-on epic (not in this plan): the penalized rebuild
+## Follow-on epic — **now scoped**: `docs/PLAN_penalized_mi_surface.md`
 
-Gated on slice 3's trade-off table. The destination is Eilers–Marx P-splines:
+Gated on slice 3's trade-off table, which is now measured — and on slice 4, which
+narrowed what the rebuild may claim: **it does not fix age 45**, whose climb
+survives removing a polynomial order. The destination is Eilers–Marx P-splines:
 marginal bases with a generous `k`, Kronecker-structured difference penalties
 `S_age = DᵀD ⊗ I` and `S_year = I ⊗ DᵀD`, penalized IRLS, and REML-selected λ
 (REML over GCV — GCV undersmooths and has multiple minima).

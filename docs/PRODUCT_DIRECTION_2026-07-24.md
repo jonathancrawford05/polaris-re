@@ -1568,3 +1568,36 @@ record the clause text. What replaces it:
   own provenance determination first. Nothing does today; this is a tripwire for
   future work rather than an open item. *Source: DATA_LICENSING §4b (1st-order).*
   **NICE-TO-HAVE.**
+
+### Appended 2026-08-08c (next epic scoped — the penalized MI surface)
+
+- **P-splines with REML-selected λ for the tensor MI surface.**
+  `docs/PLAN_penalized_mi_surface.md`, 5 slices, ~4–6 dev-days autonomous plus one
+  maintainer run. Promoted from the spline-diagnostics epic, which established both
+  the case for it and the limits of that case.
+
+  **What it fixes:** `df` currently sets basis dimension *and* wiggliness with one
+  integer, which makes complexity a researcher degree of freedom — `year_df` 4→3
+  and then `df==degree` 3→2 each moved a published ILEC finding, by hand, with
+  nothing in the fit selecting them. A penalty makes effective complexity
+  data-driven and lets it fall where information is thin, which is the mechanism
+  ADR-184 measured (3.13-point swing at age 45 against 0.46 at 85, on a flat truth).
+
+  **What it explicitly does not fix: age 45.** ADR-184 amendment 2 showed that
+  climb survives removing a whole polynomial order. Framing this epic as fixing it
+  would be a promise the previous epic already falsified, and the plan says so in
+  §1 so nobody makes it later.
+
+  **Why it should work:** the quadratic already beat the shipped cubic on the one
+  independent check (SOA's own expected deaths — 10% and 35% closer) at equal
+  dispersion and one fewer parameter. Something near "less than cubic" was right,
+  and it took two epics and a maintainer run to find by hand. REML should find it
+  in one fit. §6 registers that as a falsifiable prediction along with three others,
+  each with its failure branch written out before slice 1 exists.
+
+  **Known hard parts:** statsmodels penalizes but its smooths are additive-only, so
+  the Kronecker design and penalty are hand-built; λ selection introduces an
+  optimizer that threatens determinism harder than the BLAS jitter which already
+  falsified the byte-for-byte claim; and eight distinct ILEC calendar years may
+  simply not identify λ — which would be a finding rather than a failure.
+  *Source: PLAN_penalized_mi_surface (1st-order).* **IMPORTANT.**
