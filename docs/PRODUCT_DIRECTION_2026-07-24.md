@@ -1557,8 +1557,26 @@ record the clause text. What replaces it:
 
 ### Appended 2026-08-08 (HMD terms read — the licensing item narrows to one line)
 
-- **Supply the HMD version DOI.** (Access date **resolved 2026-08-08: 3 August
-  2026**, from `kMDItemDateAdded`. The DOI remains open.) The HMD User Agreement was read 2026-08-08 and is
+- ~~**Supply the HMD version DOI.**~~ — **SHIPPED** (PR #188, ADR-183 amendment 3):
+  access date **3 August 2026** (`kMDItemDateAdded`), DOI
+  **`10.4054/HMD.Countries.20260615`** — the 06/15/2026 release of the *By country*
+  product, which was current on the access date, so no *Previous Versions* row
+  applies. **The HMD licensing position is closed entirely**: permissive terms,
+  estimates tier confirmed, attribution complete in the prescribed form and pinned
+  by a guard test. SOA is the only open licensing item.
+
+  **Two things about how this closed, both flagged by the PR #188 review.** The DOI
+  and the versions-table reading were **supplied by the maintainer in-session on
+  2026-08-08**, which is what discharges the `Maintainer-gated` flag below — the
+  container has no browser and performed no lookup. And the instruction below to use
+  the **Statistics** column is **WITHDRAWN**: the series on disk are per-country
+  `STATS` files, so the *By country* product is the right family. That reversal is
+  ours, is the part still open to challenge, and is argued in `DATA_LICENSING.md`
+  §2a rather than left implicit here.
+
+  ~~Original text follows, unedited — including the withdrawn instruction and the
+  gate it carried, because deleting them would erase what was reversed.~~ The HMD
+  User Agreement was read 2026-08-08 and is
   **permissive** — CC BY 4.0 on its own estimates, derivatives and commercial use
   both permitted, and the `STATS` bundle this project used is confirmed to be that
   tier (ADR-183 amendment 2). The single remaining gap is that CC BY 4.0's condition
@@ -1619,6 +1637,19 @@ record the clause text. What replaces it:
   falsified the byte-for-byte claim; and eight distinct ILEC calendar years may
   simply not identify λ — which would be a finding rather than a failure.
   *Source: PLAN_penalized_mi_surface (1st-order).* **IMPORTANT.**
+
+  **Progress — slices 1–2 done (2026-08-08), ADR-185, ADR-186 + amendments 1–2.**
+  Two of the three "known hard parts" have resolved, in opposite directions.
+  *statsmodels:* confirmed additive-only on 0.14.6, so the Kronecker design and
+  penalty are hand-built as anticipated — and worse than anticipated, **patsy cannot
+  build a P-spline basis at all** (it always clamps boundary knots, which destroys
+  the difference penalty's null space), so the basis comes from
+  `scipy.interpolate.BSpline.design_matrix` on an extended uniform sequence.
+  *Determinism:* the threat **did not materialise**, because there is no optimizer —
+  selection is a deterministic grid, so λ is a grid point and reproducible by
+  construction. The hard part named here was real; the answer was to remove it
+  rather than manage it. *Identifiability on eight ILEC years remains open and is
+  slice 5's question.*
 
 ### Appended 2026-08-08d (harvest gap — the surviving age-45 explanations)
 

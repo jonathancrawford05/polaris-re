@@ -1,4 +1,4 @@
-"""Slice 1 of ``docs/PLAN_penalized_mi_surface.md`` — the penalized fitter at fixed λ.
+"""Slices 1-2 of ``docs/PLAN_penalized_mi_surface.md`` — the penalized fitter.
 
 The two limits are where correctness is decidable without trusting anything new:
 
@@ -13,11 +13,25 @@ The two limits are where correctness is decidable without trusting anything new:
   amendment 1 measured at ``df == degree == 1``. Two independent implementations,
   one closed form.
 
-Between the limits, ``edf`` must move monotonically. That is the whole behavioural
-contract of slice 1; λ *selection* is slice 2 and is deliberately absent here.
+Between the limits, ``edf`` must move monotonically — the whole behavioural
+contract of slice 1.
+
+Slice 2 adds λ **selection** and the Anchor-4 reporting fix. Its tests are grouped
+below and turn on two things: the selection is a *grid*, so reproducibility is
+exact rather than tolerance-bounded, and the graded-smoothness ladder must be
+**representable in the basis** or the test measures the basis instead of the
+selector (ADR-186).
+
+(This docstring said "selection is slice 2 and is deliberately absent here" for one
+commit after six selection tests landed beside it — the same staleness `3d4a7e2`
+fixed in the source module and missed here.)
 """
 
 import itertools
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
 
 import numpy as np
 import polars as pl
@@ -25,8 +39,14 @@ import pytest
 
 from polaris_re.analytics.experience_gam import TensorMIModel
 from polaris_re.analytics.experience_gam_penalized import (
+    COARSE_STEP,
+    LAMBDA_LOG10_BOUNDS,
+    REFINE_STEP,
     PenalizedTensorMIModel,
     difference_penalty,
+    fit_reml,
+    lambda_is_at_bound,
+    select_lambdas_reml,
     tensor_penalties,
 )
 from polaris_re.core.exceptions import PolarisValidationError
@@ -64,6 +84,24 @@ def _cells(*, noisy: bool, seed: int = 7, mi: float = _MI_TRUE) -> pl.DataFrame:
                     float(rng.poisson(expected)) if noisy else expected,
                 )
             )
+    return pl.DataFrame(
+        rows,
+        schema=["attained_age", "calendar_year", "q_base", "central_exposure", "death_count"],
+        orient="row",
+    )
+
+
+def _cells_from(mi_fn, *, seed: int = 7) -> pl.DataFrame:
+    """`_cells` with a year-varying truth — the graded ladder needs a callable."""
+    rng = np.random.default_rng(seed)
+    rows: list[tuple[int, int, float, float, float]] = []
+    for age in _AGES:
+        q0 = _q_base(float(age))
+        actual = q0
+        for year in _YEARS:
+            if int(year) > int(_YEARS.min()):
+                actual *= 1.0 - float(mi_fn(float(age), int(year)))
+            rows.append((int(age), int(year), q0, 6.0e4, float(rng.poisson(6.0e4 * actual))))
     return pl.DataFrame(
         rows,
         schema=["attained_age", "calendar_year", "q_base", "central_exposure", "death_count"],
@@ -237,40 +275,27 @@ def test_a_basis_too_small_for_the_degree_is_refused() -> None:
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize(
-    ("saturated", "spared"),
-    [("lambda_year", "lambda_age"), ("lambda_age", "lambda_year")],
-)
-def test_saturating_one_margin_drives_only_its_own_edf_to_zero(saturated: str, spared: str) -> None:
-    """The analogue of the penalty transposition guard, for the reported complexity.
+# NOTE: slice 1's `test_saturating_one_margin_drives_only_its_own_edf_to_zero` and
+# `test_per_margin_edf_is_not_the_same_number_twice` were removed here, not dropped.
+# The fields they guarded (`edf_age` / `edf_year`) were replaced in slice 2 by
+# `shrinkage_age` / `shrinkage_year` under the amended Anchor 4, and both guards are
+# carried onto the new names below —
+# `test_shrinkage_reports_only_the_margin_that_was_penalised` (both directions) and
+# `test_the_two_shrinkages_are_not_the_same_number_twice`. Recorded because a
+# vanishing test is exactly what the PLAN/CONTINUATION contract exists to catch.
 
-    The first implementation of the split summed the hat diagonal over one tensor
-    axis and then summed again, which collapses to the grand total whichever axis
-    went first — so ``edf_age`` and ``edf_year`` were *the same number*, and at a
-    saturating calendar penalty ``edf_year`` still read 14.0 while the margin had
-    provably collapsed to its 2-dimensional null space. Eleven tests passed over it
-    because all of them asserted on ``edf_total`` (PR #187 review [P0]).
 
-    Parametrised both ways round for the same reason the penalty guard is: a
-    quantity that responds to *one* margin correctly can still be reading the wrong
-    one, and only the mirrored case says otherwise.
+def test_the_two_shrinkages_are_not_the_same_number_twice() -> None:
+    """The slice-1 defect, pinned against on the renamed quantity.
+
+    The original per-margin split was inert — both fields returned the same number
+    whichever axis was summed first — and eleven tests passed over it because all
+    asserted on the total. Cheap insurance that the replacement has not collapsed
+    the same way.
     """
-    cells = _cells(noisy=True)
-    fit = PenalizedTensorMIModel(cells, k_age=7, k_year=6, **{saturated: 1e12, spared: 0.0}).fit()
-    edf = {"lambda_age": fit.edf_age, "lambda_year": fit.edf_year}
-    assert edf[saturated] < 1e-2, (
-        f"a saturated {saturated} must buy back nothing, got {edf[saturated]:.4f}"
-    )
-    assert edf[spared] > 1.0, (
-        f"{spared} was not saturated and must retain real complexity, got {edf[spared]:.4f}"
-    )
-
-
-def test_per_margin_edf_is_not_the_same_number_twice() -> None:
-    """The specific defect, pinned directly rather than only via its consequences."""
     fit = PenalizedTensorMIModel(_cells(noisy=True), k_age=7, k_year=6, lambda_year=1e3).fit()
-    assert abs(fit.edf_age - fit.edf_year) > 1.0, (
-        "edf_age and edf_year are indistinguishable — the split has collapsed again"
+    assert abs(fit.shrinkage_age - fit.shrinkage_year) > 1.0, (
+        "the two shrinkages are indistinguishable — the split has collapsed again"
     )
 
 
@@ -307,3 +332,361 @@ def test_the_fit_is_invariant_to_the_calendar_origin() -> None:
             shifted_model.design_on_grid(moved._design_builder, _AGES, _YEARS - 2012) @ moved.coef
         )
         np.testing.assert_allclose(eta_moved, eta_base, atol=1e-9)
+
+
+# --------------------------------------------------------------------------- #
+# Slice 2 — the Anchor-4 reporting fix
+# --------------------------------------------------------------------------- #
+
+
+def _cells_with_factors(*, seed: int = 7) -> pl.DataFrame:
+    """The fixture with a `sex` factor, so the additivity identity is non-trivial.
+
+    Without factor columns `edf_factors` is 0 and `edf_tensor == edf_total`
+    holds for free — the test would pass while asserting nothing.
+    """
+    rng = np.random.default_rng(seed)
+    rows: list[tuple[int, int, str, float, float, float]] = []
+    for age in _AGES:
+        q0 = _q_base(float(age))
+        for sex, multiplier in (("M", 1.15), ("F", 0.85)):
+            actual = q0 * multiplier
+            for year in _YEARS:
+                if int(year) > int(_YEARS.min()):
+                    actual *= 1.0 - _MI_TRUE
+                rows.append(
+                    (int(age), int(year), sex, q0, 6.0e4, float(rng.poisson(6.0e4 * actual)))
+                )
+    return pl.DataFrame(
+        rows,
+        schema=[
+            "attained_age",
+            "calendar_year",
+            "sex",
+            "q_base",
+            "central_exposure",
+            "death_count",
+        ],
+        orient="row",
+    )
+
+
+def test_the_per_term_edf_closes_against_the_factor_block() -> None:
+    """The identity slice 1's split could not satisfy, on a fixture where it bites.
+
+    `tr(F)` over the tensor block plus `tr(F)` over the factor block is `tr(F)` over
+    everything, exactly. That is the whole reason this replaced the overlapping
+    per-margin quantities: a reader can add the published numbers and get the right
+    answer (amended Anchor 4).
+    """
+    fit = PenalizedTensorMIModel(_cells_with_factors(), k_age=7, k_year=6, lambda_year=1e3).fit()
+    assert fit.factors == ("sex",), "the fixture must actually carry a factor"
+    assert fit.edf_factors > 0.5, "a real factor must consume real degrees of freedom"
+    assert fit.edf_tensor + fit.edf_factors == pytest.approx(fit.edf_total, abs=1e-9)
+
+
+@pytest.mark.parametrize(
+    ("penalised", "spared"),
+    [("lambda_year", "lambda_age"), ("lambda_age", "lambda_year")],
+)
+def test_shrinkage_reports_only_the_margin_that_was_penalised(penalised: str, spared: str) -> None:
+    """Slice 1's two-sided guard, carried onto the renamed quantity.
+
+    A shrinkage is "dimensions this penalty removed", so the unpenalised margin must
+    report ~0 and the penalised one must report real removal. Parametrised both ways
+    because a quantity that responds correctly to one margin can still be reading
+    the other.
+    """
+    cells = _cells(noisy=True)
+    fit = PenalizedTensorMIModel(cells, k_age=7, k_year=6, **{penalised: 1e8, spared: 0.0}).fit()
+    shrinkage = {"lambda_age": fit.shrinkage_age, "lambda_year": fit.shrinkage_year}
+    assert shrinkage[spared] < 1e-6, (
+        f"{spared} carries no penalty and must remove nothing, got {shrinkage[spared]:.4f}"
+    )
+    assert shrinkage[penalised] > 1.0, (
+        f"a saturated {penalised} must remove real dimensions, got {shrinkage[penalised]:.4f}"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Slice 2 — REML selection
+# --------------------------------------------------------------------------- #
+
+
+def _graded(kind: str):
+    """Truths of increasing calendar complexity, all *representable in the basis*.
+
+    The wiggle is scaled to the window rather than given a fixed period. A fixed
+    period the basis cannot resolve makes REML correctly smooth it away, and the
+    test would then be measuring the basis rather than the selector — which is what
+    a 5.7-year sine over a 30-year window did during development.
+    """
+    span = float(_YEARS.max() - _YEARS.min())
+    base = float(_YEARS.min())
+    return {
+        "const": lambda age, year: _MI_TRUE,
+        "linear": lambda age, year: _MI_TRUE + 0.03 * (year - base) / span,
+        "curved": lambda age, year: (
+            _MI_TRUE + 0.020 * float(np.sin(2.0 * np.pi * (year - base) / span))
+        ),
+    }[kind]
+
+
+def test_reml_selects_less_smoothing_as_the_truth_gets_wigglier() -> None:
+    """The selector's whole job, and it is two-sided by construction.
+
+    A selector that always chose maximum smoothing would satisfy the constant case
+    and fail here; one that always chose minimum would do the reverse. Requiring the
+    ladder to be **monotone** rules out both, which is the ADR-182 discipline this
+    project applies to every verdict.
+
+    Asserted on `edf_tensor` and `shrinkage_year` rather than `edf_total`: the total
+    is dominated by the age margin and is a poor probe of calendar structure —
+    measured during development, where a 30-year constant and a 30-year curved truth
+    both landed at edf_total 36.4 while their calendar behaviour differed.
+    """
+    fits = {}
+    for kind in ("const", "linear", "curved"):
+        cells = _cells_from(_graded(kind))
+        lam_age, lam_year, _ = select_lambdas_reml(cells, k_age=10, k_year=6)
+        fits[kind] = PenalizedTensorMIModel(
+            cells, k_age=10, k_year=6, lambda_age=lam_age, lambda_year=lam_year
+        ).fit()
+
+    edf = [fits[k].edf_tensor for k in ("const", "linear", "curved")]
+    assert edf[0] < edf[1] < edf[2], f"edf_tensor must rise with wiggliness, got {edf}"
+
+    shrink = [fits[k].shrinkage_year for k in ("const", "linear", "curved")]
+    assert shrink[0] > shrink[1] > shrink[2], (
+        f"the calendar penalty must remove LESS as the truth gets wigglier, got {shrink}"
+    )
+
+
+def test_a_constant_truth_pins_lambda_to_the_search_bound_and_says_so() -> None:
+    """A legitimate boundary hit, reported rather than hidden.
+
+    Constant MI means η is linear in year, which lives in the penalty's null space
+    and wants a λ larger than any grid expresses. The selector returns the bound and
+    `lambda_is_at_bound` is how a caller learns the number means "at least this".
+    """
+    cells = _cells_from(_graded("const"))
+    _, lam_year, _ = select_lambdas_reml(cells, k_age=10, k_year=6)
+    assert lambda_is_at_bound(lam_year), (
+        f"a null-space truth should saturate the search range, got {lam_year:.3g}"
+    )
+    assert not lambda_is_at_bound(10.0**3.5)
+
+
+def test_selection_is_reproducible_within_the_process() -> None:
+    """A grid has no optimiser state, so repeated selection is bit-identical.
+
+    This is the cheap half of Anchor 3; the cross-process half is
+    ``test_selection_is_reproducible_across_processes``, which is the one that
+    matters — comparing two calls in one interpreter is exactly the weak check that
+    let a false determinism claim ship in ADR-182.
+    """
+    cells = _cells(noisy=True)
+    first = select_lambdas_reml(cells, k_age=7, k_year=6)
+    second = select_lambdas_reml(cells, k_age=7, k_year=6)
+    assert first == second
+
+
+def test_selection_is_reproducible_across_processes() -> None:
+    """Anchor 3, checked the only way that counts.
+
+    ADR-182 shipped a determinism claim verified by comparing two renderings inside
+    one interpreter; writing the real cross-process test falsified it. So this
+    spawns fresh interpreters, which is also where BLAS threading decisions and
+    library import order can differ.
+
+    A grid search has no optimiser state to drift, so the expectation is *exact*
+    equality of the repr — not a tolerance. If this ever needs a tolerance, the
+    selection stopped being a grid and Anchor 3 needs revisiting rather than the
+    test loosening.
+    """
+    script = textwrap.dedent(
+        """
+        import warnings
+        warnings.filterwarnings("ignore")
+        import numpy as np, polars as pl
+        from polaris_re.analytics.experience_gam_penalized import select_lambdas_reml
+
+        ages = np.arange(25, 96)
+        years = np.arange(2012, 2020)
+        rng = np.random.default_rng(7)
+        rows = []
+        for age in ages:
+            q0 = 0.004 * float(np.exp(0.08 * (age - 45.0)))
+            actual = q0
+            for year in years:
+                if int(year) > 2012:
+                    actual *= 1.0 - 0.015
+                rows.append((int(age), int(year), q0, 6.0e4, float(rng.poisson(6.0e4 * actual))))
+        cells = pl.DataFrame(
+            rows,
+            schema=["attained_age", "calendar_year", "q_base",
+                    "central_exposure", "death_count"],
+            orient="row",
+        )
+        print(repr(select_lambdas_reml(cells, k_age=7, k_year=6)))
+        """
+    )
+    outputs = {
+        subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=Path(__file__).resolve().parents[2],
+        ).stdout.strip()
+        for _ in range(3)
+    }
+    assert len(outputs) == 1, f"selection differed across processes: {outputs}"
+
+
+def test_the_grid_resolution_is_recorded_rather_than_implicit() -> None:
+    """A grid buys determinism by giving up resolution; the price must be visible.
+
+    `COARSE_STEP` / `REFINE_STEP` are module constants a caller can read, and the
+    refinement is finer than the sweep — if that ever inverts, the refine pass is
+    doing nothing and the selector silently has decade-level resolution.
+    """
+    assert REFINE_STEP < COARSE_STEP
+    lo, hi = LAMBDA_LOG10_BOUNDS
+    assert hi - lo >= 8.0, "the search range must span enough decades to find a null-space λ"
+
+
+@pytest.mark.parametrize("kind", ["const", "curved"])
+def test_reml_selection_beats_the_hand_tuned_configurations(kind: str) -> None:
+    """The epic's thesis, at fixture scale — and it is allowed to fail here.
+
+    PLAN §1: two hand adjustments (`year_df` 4->3, then `df == degree` 3->2) each
+    moved a published ILEC finding, with nothing in the fit selecting them. The claim
+    is that REML finds in one fit what took two epics and a maintainer run to find by
+    hand.
+
+    On real data the arbiter is SOA's own expected deaths; on a fixture it is the
+    injected truth, which is a *stronger* arbiter because it carries no error of its
+    own.
+
+    **Parametrised over both regimes, and that is not decoration.** A constant truth
+    lies *inside* the second-difference penalty's null space, so heavy smoothing is
+    exactly right and the penalized fit gets a nearly free win — measured at 40x,
+    which would be a dishonest number to quote as a general gain. The curved truth
+    sits *outside* the null space and is the representative case, at ~2.3x. Testing
+    only the first would let a selector that always smooths hard pass.
+
+    If REML loses, that is data about the selector and belongs in the record — PLAN
+    §6 row 1 already names the failure branch and says the independent check wins.
+    """
+    mi_fn = _graded(kind)
+    cells = _cells_from(mi_fn)
+    truth = np.array(
+        [[float(mi_fn(float(age), int(year))) for year in _YEARS[1:]] for age in _AGES]
+    )
+
+    def rmse(grid: np.ndarray) -> float:
+        return float(np.sqrt(np.mean((grid - truth) ** 2)))
+
+    lam_age, lam_year, _ = select_lambdas_reml(cells, k_age=10, k_year=6)
+    model = PenalizedTensorMIModel(
+        cells, k_age=10, k_year=6, lambda_age=lam_age, lambda_year=lam_year
+    )
+    fit = model.fit()
+    design = model.design_on_grid(fit._design_builder, _AGES, _YEARS)
+    eta = (design @ fit.coef).reshape(len(_AGES), len(_YEARS))
+    penalized = rmse(1.0 - np.exp(np.diff(eta, axis=1)))
+
+    shipped = rmse(TensorMIModel(cells, age_df=6, year_df=3).fit().improvement_surface().mi_grid)
+    hand_tuned = rmse(
+        TensorMIModel(cells, age_df=6, year_df=2, year_degree=2).fit().improvement_surface().mi_grid
+    )
+
+    assert penalized < shipped, (
+        f"[{kind}] REML ({penalized:.5f}) must beat the shipped cubic ({shipped:.5f})"
+    )
+    assert penalized < hand_tuned, (
+        f"[{kind}] REML ({penalized:.5f}) must beat the hand-tuned quadratic ({hand_tuned:.5f})"
+    )
+
+
+def test_a_selected_fit_records_its_provenance_and_a_hand_set_one_does_not() -> None:
+    """The distinction five docstrings claimed and no code provided.
+
+    `reml_score` and `lambda_grid_step` were never written: `select_lambdas_reml`
+    returns a bare tuple, and a caller rebuilding the model got the field defaults —
+    so both were always `None` and a selected surface was indistinguishable from a
+    hand-set one, which is precisely what the docstrings said they were for
+    (PR #188 review [P1]). Same class as #187's inert `edf` split: a field whose
+    docstring describes behaviour the code does not have.
+    """
+    cells = _cells(noisy=True)
+    selected = fit_reml(cells, k_age=7, k_year=6)
+    hand_set = PenalizedTensorMIModel(cells, k_age=7, k_year=6, lambda_year=1.0).fit()
+
+    assert selected.reml_score is not None
+    assert selected.lambda_grid_step == REFINE_STEP
+    assert hand_set.reml_score is None
+    assert hand_set.lambda_grid_step is None
+
+
+def test_the_recorded_grid_step_is_the_step_actually_swept() -> None:
+    """Asserting against the module default cannot catch a hardcoded report.
+
+    `fit_reml` previously passed `lambda_grid_step=REFINE_STEP` — the constant, not
+    the resolution used — and forwarded `**model_kwargs` to the model constructor as
+    well as the selector, so `refine_step=0.5` raised `TypeError` before reaching the
+    grid. That made the report unfalsifiable rather than correct: the only input that
+    could expose it crashed first, and the test above passes either way because it
+    compares against the same constant the code hardcoded (PR #188 review round 2).
+
+    So this sweeps a **non-default** resolution. It is the assertion that would have
+    failed on the old code, which is the only kind worth adding here.
+    """
+    coarser = 0.5
+    assert coarser != REFINE_STEP, "the override must differ from the default to test anything"
+
+    fit = fit_reml(_cells(noisy=True), k_age=7, k_year=6, refine_step=coarser)
+
+    assert fit.lambda_grid_step == coarser
+    # λ is a grid point of the sweep that produced it, so a coarser step must leave
+    # log10 λ on the coarser lattice. This is what makes the recorded step meaningful
+    # rather than a label: it describes the lattice the answer actually came from.
+    for lam in (fit.lambda_age, fit.lambda_year):
+        residual = np.log10(lam) / coarser
+        np.testing.assert_allclose(residual, np.round(residual), atol=1e-9)
+
+
+def test_the_grid_resolution_is_fine_enough_that_edf_does_not_visibly_step() -> None:
+    """PLAN slice 2's fourth test, restored — and it measures rather than asserts.
+
+    The grid retired the *jitter-absorption* half of the plan's quantisation test
+    (there is no optimiser to jitter), and ADR-186 explains that. It did **not**
+    retire the other half: is 0.25 decade fine enough that `edf` moves smoothly
+    rather than in visible steps? That question applies to a grid exactly as much,
+    and it is the price ADR-186 says the grid paid. The test was dropped without a
+    line recording it — the same silent-omission failure #187's review caught with
+    the isotropy test (PR #188 review [P1]).
+
+    Measured: the largest `edf_tensor` step between adjacent grid points, as a
+    fraction of the total range swept. A coarse grid would show one or two large
+    jumps; a fine one shows many small ones.
+    """
+    cells = _cells(noisy=True)
+    log_lambdas = np.arange(0.0, 6.0 + REFINE_STEP / 2.0, REFINE_STEP)
+    edfs = np.array(
+        [
+            PenalizedTensorMIModel(cells, k_age=7, k_year=6, lambda_year=float(10.0**log_lambda))
+            .fit()
+            .edf_tensor
+            for log_lambda in log_lambdas
+        ]
+    )
+    total_range = float(edfs.max() - edfs.min())
+    largest_step = float(np.abs(np.diff(edfs)).max())
+    assert total_range > 1.0, "the sweep must actually move edf, or it measures nothing"
+    assert largest_step / total_range < 0.15, (
+        f"edf steps visibly at {REFINE_STEP} decade resolution: largest single step "
+        f"{largest_step:.3f} is {largest_step / total_range:.1%} of the {total_range:.3f} "
+        f"range swept. The grid is too coarse and ADR-186's resolution trade needs revisiting."
+    )

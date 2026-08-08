@@ -13,7 +13,7 @@ Wales), 1990–2019, ages 25–95, both sexes.
 > HMD. Human Mortality Database. Max Planck Institute for Demographic Research
 > (Germany), University of California, Berkeley (USA), and French Institute for
 > Demographic Studies (France). Available at <https://www.mortality.org>.
-> Data downloaded 3 August 2026. Version DOI: [TO SUPPLY — `DATA_LICENSING.md` §4d].
+> Data downloaded 3 August 2026, DOI: 10.4054/HMD.Countries.20260615.
 
 Series used: `Deaths_1x1.txt` and `Exposures_1x1.txt` for **USA** and **GBRTENW**
 (England & Wales, total population), calendar years 1990–2019, ages 25–95, both
@@ -25,8 +25,8 @@ errors are ours. No HMD file is committed to this repository.
 
 The series used are from the **`STATS` output bundle**, so they are HMD's own
 estimates and fall under **CC BY 4.0** — derivatives and commercial use permitted,
-attribution required. The attribution above is **incomplete** until the version DOI
-is supplied; see [`DATA_LICENSING.md`](DATA_LICENSING.md) §4.
+attribution required. The attribution above is **complete** in HMD's prescribed
+form; see [`DATA_LICENSING.md`](DATA_LICENSING.md) §4.
 
 ---
 

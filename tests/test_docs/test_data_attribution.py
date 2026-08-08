@@ -84,25 +84,41 @@ def test_hmd_findings_are_recorded_with_their_two_tier_structure() -> None:
     assert "Statistics" in text and "Input Database" in text
 
 
-def test_the_hmd_attribution_gap_is_not_rounded_to_compliant() -> None:
-    """CC BY 4.0's condition IS the attribution, so an incomplete one is the breach.
+def test_the_hmd_attribution_carries_every_prescribed_element() -> None:
+    """CC BY 4.0's condition IS the attribution, so a missing element is the breach.
 
-    The DOI is missing and only the maintainer can supply it. Until then §2a does
-    not meet HMD's prescribed form, and this test exists so that shortfall cannot
-    quietly become "HMD: fine" — the same failure mode §3e caught on the SOA side.
-    Closing it means pasting the DOI in, which removes the marker and fails here.
+    Closed 2026-08-08. The predecessor of this test required a `[TO SUPPLY]` marker
+    and failed the moment the DOI landed — deliberately, so that closing the gap had
+    to be a decision rather than a drive-by edit. This is the other side of that
+    contract: all five prescribed elements pinned, so none can quietly fall out.
+
+    The DOI is the **Countries** product, not the all-countries Statistics archive.
+    An earlier revision pointed at the wrong one, reasoning from the runbook's
+    wording rather than the per-country file layout on disk, so the distinction is
+    asserted rather than left to prose.
     """
-    text = LICENSING.read_text()
-    assert "[TO SUPPLY — see §4d]" in text, (
-        "the DOI marker is gone: either it was supplied (update this test) or it "
-        "was dropped without being supplied (put it back)"
-    )
-    # The access date IS a prescribed element, so it is pinned now that it is known.
-    assert "3 August 2026" in text, "the established access date must stay recorded"
-    assert "does not meet the licence's own stated form" in text
-    # The negative result matters as much as the positive ones — it is what stops
-    # the 06/15/2026 row being adopted because it is the one we happen to have seen.
+    # Normalised: the citation block is wrapped and quote-prefixed, so an
+    # institution name can straddle a line break. Matching raw text would make this
+    # test a reflow detector rather than a content one.
+    text = " ".join(LICENSING.read_text().replace(">", " ").split())
+    for element in (
+        "Human Mortality Database",
+        "Max Planck Institute for Demographic Research",
+        "University of California, Berkeley",
+        "French Institute for Demographic Studies",
+        "mortality.org",
+        "3 August 2026",
+        "10.4054/HMD.Countries.20260615",
+    ):
+        assert element in text, f"HMD attribution is missing a prescribed element: {element!r}"
+    assert "[TO SUPPLY" not in text, "an unfilled marker survived alongside a real DOI"
+    # The negative results matter as much as the positive ones: they are what stopped
+    # the visible-in-a-screenshot DOI being adopted because it was the one to hand.
     assert "identical to the second" in text, "the stat non-result must stay recorded"
+    assert "Previous Versions" in text, (
+        "the record must keep why THIS release applies — a newer one landing before "
+        "the access date would have made a different DOI correct"
+    )
 
 
 def test_soa_terms_are_recorded_with_their_actual_clause_text() -> None:

@@ -13408,3 +13408,208 @@ justification for `tr(F)` is that it matches what `mgcv` reports; that is a clai
 about another implementation and nothing here can test it. PLAN §7 now carries it as
 the oracle's second job. Adopted, not validated — stated that way in the plan, the
 continuation and here.
+
+---
+
+## ADR-186: REML λ selection by deterministic grid, and the Anchor-4 reporting fix (penalized MI surface, Slice 2)
+
+**Date:** 2026-08-08
+**Status:** Accepted
+**Context:** `PLAN_penalized_mi_surface.md` slice 2. 23 tests (was 15).
+
+### Decision 1 — a grid, not an optimiser
+
+Anchor 3 made determinism a requirement rather than something to discover, and PLAN
+§5 risk 1 anticipated that a converged λ could drift in its last digits across runs
+or platforms — the same class of failure that already falsified this project's
+byte-for-byte reproducibility claim (ADR-184 amendment 2).
+
+**A grid removes the failure mode instead of managing it.** The selected λ *is* a
+grid point, so it is reproducible by construction: no optimiser state, no
+convergence path, nothing to quantise. The plan's fallback became the design.
+
+Coarse sweep at 1.0 decade over `log10 λ ∈ [-2, 8]`, then one refinement pass at
+0.25 around the winner — about 150 penalized fits, ~1 s on the ILEC-shaped fixture
+at 4-13 ms each. The price is resolution, and it is **recorded on every fit** as
+`lambda_grid_step` rather than left implicit.
+
+`test_selection_is_reproducible_across_processes` spawns three fresh interpreters
+and requires **exact** repr equality — not a tolerance. If it ever needs one, the
+selection has stopped being a grid and Anchor 3 needs revisiting rather than the
+test loosening. Comparing two calls inside one interpreter is precisely the weak
+check that let a false determinism claim ship in ADR-182.
+
+### Decision 2 — the EDF split, replaced per the amended Anchor 4
+
+`edf_age` / `edf_year` are gone. In their place:
+
+- **`edf_tensor`** — `tr(F)` over the tensor block, the per-term EDF `mgcv` reports.
+  It **closes**: `edf_tensor + edf_factors == edf_total` exactly, asserted on a
+  fixture that *has* a factor, since without one the identity holds for free and the
+  test would say nothing.
+- **`shrinkage_age` / `shrinkage_year`** — `tr(F | λⱼ=0) − tr(F)`, dimensions each
+  penalty **removed**. The wording is the load-bearing half: "edf_year" reads as
+  degrees of freedom being *used* and invites addition; a shrinkage is unaddable on
+  its face.
+
+Both slice-1 guards were carried onto the renamed fields rather than deleted, with a
+note in the test file recording the move — a vanishing test is what the
+PLAN/CONTINUATION contract exists to catch.
+
+**Still adopted, not verified.** The whole justification for `tr(F)` is that it
+matches what `mgcv` reports, and nothing in this container can check that. PLAN §7
+carries it as the oracle's second job.
+
+### Two findings from building it
+
+**`edf_total` is the wrong statistic to test calendar smoothness on.** On a 30-year
+window a constant truth and a curved truth both landed at `edf_total` 36.4 — the
+total is dominated by the age margin. The graded-smoothness test therefore asserts
+on `edf_tensor` and `shrinkage_year`. This is a second, independent argument for the
+amended Anchor 4: the per-margin diagnostic is not a nicety, it is the only thing
+that can see what the calendar penalty is doing.
+
+**A smoothness ladder must be representable in the basis.** An early fixture used a
+fixed 5.7-year sine; over 30 years with `k_year=6` the basis cannot resolve it, so
+REML correctly smoothed it away and the test measured the *basis* rather than the
+*selector*. Scaling the wiggle to the window fixed it. Recorded because the failure
+looked like a broken selector and was not.
+
+### The thesis, measured — with the flattering number rejected
+
+REML beats both hand settings on RMSE against the injected truth. The magnitude
+depends entirely on whether the truth sits in the penalty's null space:
+
+| truth | shipped cubic | hand-tuned quadratic | REML | gain vs hand |
+|---|---:|---:|---:|---|
+| constant — **inside** the null space | 0.01752 | 0.00876 | 0.00022 | 40x |
+| curved — **outside** it | 0.01208 | 0.01174 | 0.00503 | **2.3x** |
+
+**2.3x is the number to quote.** A constant truth lies in the second-difference
+penalty's null space, so heavy smoothing is exactly right and the penalized fit
+gets a nearly free win; quoting 40x as a general gain would be dishonest. The test
+is parametrised over both regimes so a selector that simply always smooths hard
+cannot pass on the favourable case alone.
+
+This is fixture evidence for the epic's thesis, not confirmation of it. The arbiter
+on real data is SOA's own expected deaths, and that is slice 5.
+
+### ADR-183 amendment 3 — the HMD attribution is complete, and the order of operations was the point (2026-08-08)
+
+The version DOI is `10.4054/HMD.Countries.20260615` — the 06/15/2026 release of the
+*By country / All HMD countries* product — paired with the access date **3 August
+2026** in the form HMD's Citation Guidelines specify. All five prescribed elements
+are in `DATA_LICENSING.md` §2a, and a guard test pins each. **The HMD half of this
+repository's licensing exposure is closed**; the SOA half is the only open one.
+
+**One correction.** An earlier revision told the maintainer to take the DOI from the
+*Statistics* column, reasoning from the runbook's phrase "you want the Statistics
+bundle". Wrong: the series on disk are per-country `STATS` files
+(`USA/Deaths_1x1.txt`), which come from the **By country** product. The runbook's
+wording was ambiguous and the file layout was not — and the file layout was
+available the whole time. Recorded because a wrong DOI asserts something checkable
+and false, which is worse than the `[TO SUPPLY]` marker it would have replaced.
+
+Two distinctions that are easy to collapse and are now separated in §2a: the
+**tier** (`STATS` output, hence CC BY 4.0, not Input Database) and the **product**
+(By country, hence this DOI, not the all-countries Statistics archive). Same files;
+different citation.
+
+**The order of operations is the transferable part.** The DOI could not be chosen
+until the access date was known, because the correct release is whichever was
+current on the day — and a release landing between 15 June and 3 August would have
+made a *Previous Versions* row the right answer instead. Two of the three checks
+that got there were **negative results**: the country headers differ by sixteen
+months within one download (so `Last modified` is a per-series stamp, not a release
+version), and `stat` returned birth time equal to mtime to the second (so the
+filesystem held no download date). Recording those is what stopped the DOI that
+happened to be visible in a screenshot being adopted because it was to hand.
+
+The guard test flipped rather than being deleted: it previously required the
+`[TO SUPPLY]` marker and failed the moment a real DOI landed — deliberately, so
+closing the gap had to be a decision. It now pins all five elements, normalised for
+line wrapping so it tests content rather than reflow.
+
+### ADR-186 amendment 1 — two fields that described behaviour the code did not have (2026-08-08)
+
+`reml_score` and `lambda_grid_step` shipped on `PenalizedMIFit` with docstrings in
+five places — the dataclass, `select_lambdas_reml`, this ADR, the PLAN slice-2
+footer and the session log — saying they distinguish a REML-selected surface from a
+hand-set one. **Nothing wrote them.** `select_lambdas_reml` returns a bare
+`(λ_age, λ_year, score)` tuple; a caller rebuilding the model got the field
+defaults, so both were always `None` and the two cases were indistinguishable
+(PR #188 review [P1]).
+
+This is the same class as ADR-185 amendment 1's inert `edf` split, in the same
+module, one slice later — and the module's own docstring calls it "the defect class
+this epic keeps finding in its own work" twenty lines above the fields. **The
+recurring shape is a claim written from intent while the wiring is still a
+two-step dance the claim does not survive.**
+
+`fit_reml()` now does selection and fitting together and populates both. A test
+asserts the distinction the docstrings promised: a selected fit carries a score and
+a grid step, a hand-set fit carries neither.
+
+**And the plan's fourth test is restored.** `test_edf_does_not_step_visibly_under_quantisation`
+was dropped when the grid removed the jitter-absorption half of its purpose — but
+the other half survives the design change intact: *is 0.25 decade fine enough that
+`edf` moves smoothly rather than in visible steps?* That is precisely the price this
+ADR says the grid paid, and PLAN slice 2's acceptance criterion asks for the
+measurement rather than the assertion. Now measured: the largest single `edf_tensor`
+step across a 0-to-6-decade sweep must be under 15% of the total range swept.
+Dropping it silently was the same failure the isotropy test hit one PR earlier.
+
+**Two corrections of fact.** The fit count is **202** for an interior winner
+(coarse 11×11 = 121, refine 9×9 = 81), or 166 when the winner clips at a bound —
+not the ~150 claimed in four places, which was 11–35% low. And
+`select_lambdas_reml` reached into four private attributes of which three were never
+initialised, so touching them on an unfitted model raised `AttributeError`; the
+`assert design is not None` guarding it also vanishes under `python -O`. Replaced
+with a public `DesignContext` returned by the fit.
+
+### ADR-186 amendment 2 — the fix landed; two of the five claim sites did not (2026-08-08)
+
+Amendment 1 wired `fit_reml()` and named the recurring shape as *a claim written
+from intent while the wiring is still a two-step dance the claim does not survive*.
+The round-2 review then found the shape **inside the fix itself**: two of the five
+claim sites were never brought along (PR #188 review round 2 [P1]).
+
+- The `PenalizedMIFit` docstring still credited `select_lambdas_reml` as the source
+  of the two fields. That is the two-step dance — a reader following it lands
+  exactly on the `None` the amendment existed to remove. Once a correct entry point
+  exists, **naming the wrong one is worse than the original vagueness**, because
+  vagueness sends nobody anywhere in particular.
+- `REFINE_STEP`'s docstring still said "recorded on every fit". Still false, and
+  false in the direction that erases the distinction: a hand-set `fit()` leaves it
+  `None` *by design*. "Every selected fit" is the true claim.
+
+This ADR's own body (above) also says "recorded on every fit" and is **left
+standing** — amendments are how this repository corrects an ADR without rewriting
+the record, per ADR-183 am. 3 and ADR-185 am. 1. The docstrings are different: they
+are read as current API documentation, not as a dated decision.
+
+**The generalisation amendment 1 offered was right but scoped too narrowly.** It
+treated the defect as *claims outrunning wiring*. The recurrence shows the unit of
+work is not the claim but the **claim set**: five sites asserted one fact, the fix
+updated three, and nothing in the process counted. Grepping the claim before
+declaring the fix done is the cheap check that would have caught it, and it is now
+what slice 3 owes itself before `Vb`'s documented properties multiply the same way.
+
+**A second finding, on a report that could not be wrong.** `fit_reml()` passed
+`lambda_grid_step=REFINE_STEP` — the module constant rather than the resolution
+swept — while forwarding `**model_kwargs` to the model constructor *and* the
+selector, so `refine_step=0.5` raised `TypeError` before reaching the grid. The
+report was therefore **unfalsifiable rather than correct**: the only input that
+could expose the hardcoding crashed first, and the test asserting `== REFINE_STEP`
+compared against the same constant the code hardcoded, so it passed either way.
+That pairing — an untestable claim and a test that cannot fail — is a sharper
+version of the same defect class than either half alone.
+
+Grid parameters are now named on `fit_reml()` and threaded to the selector, the
+recorded step is the step swept, and a test sweeps a **non-default** 0.5 and checks
+that log10 λ lands on the coarser lattice. Slice 4 needs the override anyway: a
+coarser sweep is the obvious lever when 202 fits meet the 125k-cell book.
+
+**Final counts**, superseding the "23 tests (was 15)" in this ADR's Context line:
+**26 module tests**, and a suite of 3094 (baseline 3083, **+11**) — 23/+8 as first
+pushed, +2 in round 1, +1 in round 2.
