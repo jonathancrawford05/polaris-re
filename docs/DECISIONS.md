@@ -13241,3 +13241,170 @@ unrelated to spline degrees. It now uses `year_df=3`. That edit is not a weakene
 assertion (the test's subject is the base guard, not the df values), but it *was* a
 silent behavioural signal buried in an unrelated test, which is how the narrowing
 went unrecorded in the first place.
+
+---
+
+## ADR-185: The penalized MI surface, slice 1 — and two things the plan had wrong
+
+**Date:** 2026-08-08
+**Status:** Accepted
+**Context:** `PLAN_penalized_mi_surface.md` slice 1 — the penalized fitter at fixed
+λ. `src/polaris_re/analytics/experience_gam_penalized.py`, 11 tests.
+
+### What shipped
+
+Marginal B-spline bases, a row-wise Kronecker tensor design, Eilers-Marx
+second-difference penalties lifted to the tensor coefficient vector as
+`DᵀD ⊗ I` and `I ⊗ DᵀD`, and penalized IRLS solving `(XᵀWX + S)β = XᵀWz` at a
+fixed caller-supplied λ. Bayesian covariance `(XᵀWX + S)⁻¹φ` and `edf = tr(H)` come
+out of the same factorisation. **λ selection is not here** — slice 2 — because an
+optimiser wrapped around an unverified fitter is two hard things at once.
+
+### Finding 1 — patsy cannot build a P-spline basis, and the plan assumed it could
+
+The plan's Anchor 1 said λ=0 must reproduce `TensorMIModel` exactly, and the route
+to that was to build a Kronecker design spanning patsy's column space. That works:
+full marginal bases at `df + 1` with an intercept span exactly the patsy
+main-effects design, verified by rank of the concatenation and by fitted values
+agreeing to **6.4e-15** on the ILEC-shaped fixture.
+
+**But a difference penalty over that basis does not penalise what it claims to.**
+The penalty's null space is "coefficients linear in index", which corresponds to a
+linear *function* only when the Greville abscissae are equally spaced — and
+`patsy.bs` always **clamps** the boundary knots, repeating them `degree + 1` times.
+Measured: with index-linear coefficients the resulting function's step spread is
+**5.6e-01** on a patsy basis (quantile *or* uniform interior knots — clamping alone
+breaks it) against **8.9e-16** on a properly extended uniform sequence built with
+`scipy.interpolate.BSpline.design_matrix`.
+
+The visible symptom was the λ→∞ limit failing: fitted MI should collapse to constant
+in time and instead retained a **3.0-point** span, largest at the young ages.
+
+**So the module carries two knot schemes**, and the distinction is not cosmetic:
+
+| `knots` | Basis | Use |
+|---|---|---|
+| `"uniform"` *(default)* | extended uniform, scipy — a true P-spline | production; the penalty behaves |
+| `"clamped"` | quantile + clamped, patsy | **oracle testing only** — matches `TensorMIModel`'s span so Anchor 1 is decidable |
+
+**Anchor 1 is therefore amended**: λ=0 reproduces `TensorMIModel` exactly *in the
+clamped scheme*, which verifies the fitting machinery — IRLS, dispersion, `edf`,
+covariance — against a trusted oracle. It cannot also hold in the production scheme,
+because a different basis is the entire point. Recording this rather than quietly
+loosening the anchor: the plan asserted something that turned out to be true only
+under a condition the plan did not know it needed.
+
+### Finding 2 — IRLS must converge on deviance, not on coefficients
+
+At λ=1e12 the normal equations are penalty-dominated and badly conditioned, so the
+coefficients rattle at round-off level in the penalised directions indefinitely
+while the fit itself has settled. A `max|Δβ| < tol` criterion **never trips**:
+measured, no convergence in 100 iterations where the deviance had stabilised within
+8. Convergence is now on relative change in deviance, which is also the quantity
+being optimised, so this is the correct criterion rather than a workaround. The
+solve is Cholesky with a least-squares fallback.
+
+### What the two limits now verify
+
+- **λ = 0** — fitted surface, dispersion and `edf == n_coef` all match
+  `TensorMIModel` (clamped scheme).
+- **λ → ∞** — fitted MI is constant in time to <1e-6 **and** agrees with
+  `TensorMIModel(year_df=1, year_degree=1)` to 2e-4. Two independent
+  implementations meeting at one closed form, which is what says the penalty acts
+  on the margin it names.
+- **Between** — `edf` falls monotonically, bounded above by the parameter count and
+  below by the penalty null space.
+
+The transposition guard is worth naming separately: a coefficient surface flat down
+the age axis carries no age roughness, so `S_age` must annihilate it while `S_year`
+must not. Swapping the Kronecker factors is otherwise silent and produces a model
+that runs, fits, and penalises the wrong margin.
+
+### Reported complexity carries an honest caveat
+
+`edf_age` and `edf_year` come from the tensor block's hat diagonal reshaped and
+summed over the other axis. That is a **descriptive split, not an orthogonal
+decomposition** — the margins are not independent and the two do not sum to
+`edf_total`. Anchor 4 requires complexity to be visible; it does not license
+presenting a convenient number as more than it is, so the caveat ships in the
+docstring rather than being discovered at slice 5.
+
+### ADR-185 amendment 1 — the per-margin edf was undefined, and the caveat concealed it (2026-08-08)
+
+`_margin_edf` summed the hat diagonal over one tensor axis and then summed again.
+The trailing sum collapses to the grand total whichever axis went first, so the
+`axis` argument was **inert** and `edf_age == edf_year` always. At a saturating
+calendar penalty `edf_year` read **14.0** while the margin had provably collapsed
+to its 2-dimensional null space — the one number a reader would consult to see the
+penalty working reported the opposite (PR #187 review [P0]).
+
+**Eleven tests passed over it** because every one asserted on `edf_total`. The
+λ→∞ test and the monotonicity test both had the fitted object in hand.
+
+**The caveat made it worse, not better.** The base ADR and the docstring both said
+the split was "descriptive, not orthogonal — the two do not sum to `edf_total`".
+That is true and it *understates* the defect: each field was equal to the tensor
+block's edf, and with no factor columns equal to `edf_total`. A reader would have
+concluded the numbers were imprecise rather than identical. The caveat was written
+from the code's intent rather than its behaviour, and **writing it substituted for
+testing it** — which is the general lesson worth keeping: a shipped limitation is
+not evidence the limitation is the one the code actually has.
+
+**The replacement is a definition rather than a description.** `edf_j = tr(H) −
+tr(H | λⱼ = ∞)` — dimensions the data buys back against penalty *j*. Raise λⱼ and
+`edf_j` falls to zero, because a fully-penalised margin buys nothing beyond its null
+space. Verified at `k_age=7, k_year=6`: at λ=0 it gives 30.0 / 28.0, matching the
+closed forms 42 − 2×6 and 42 − 7×2 exactly; at λ_year=1e12 it gives 10.0 / 0.003;
+at λ_age=1e12, 0.0 / 8.0. The saturating λ is scaled by `tr(XᵀWX) / tr(S)` rather
+than hard-coded, so "effectively infinite" means the same thing on a fixture and on
+a real book. Still not an orthogonal decomposition — but that caveat now describes
+a real property instead of excusing an undefined one.
+
+Two guards ship with it, both parametrised in **both directions** for the same
+reason the penalty transposition guard is: a quantity that responds correctly to one
+margin can still be reading the wrong one.
+
+**Three further review findings, all fixed:** the clamped path let patsy recompute
+quantile knots from whatever vector it was handed, so `design_on_grid` silently
+built a *different* basis than the fit — invisible on a complete rectangle, wrong by
+3.2e-2 in η on ragged coverage, and slices 2–3 keep using that path as the oracle;
+`_penalized_irls` returned pre-update weights, so `cov`, `edf` and `dispersion` were
+formed one IRLS step stale; and the plan-specified isotropy test had been dropped
+without a line recording it, which is exactly the silent-omission failure the
+PLAN/CONTINUATION contract exists to catch. The property holds — it is now asserted,
+at a penalised λ as well as at zero, since at λ=0 the test would say nothing about
+the thing it is named for.
+
+### ADR-185 amendment 2 — the EDF definition is provisional, and the fix is scoped to slice 2 (2026-08-08)
+
+Amendment 1 replaced an inert per-margin split with `edf_j = tr(H) − tr(H|λⱼ=∞)`
+and presented it as settled. It is well-defined and two-sidedly tested, and it is
+still **not the right thing to publish**, for a reason amendment 1 named and then
+under-weighted: the two margins overlap and **do not sum to `edf_total`**, while
+being called `edf_age` and `edf_year` invites precisely that sum.
+
+**What replaces it** (maintainer direction, PR #187 review):
+
+- **Headline: `tr(F)` over the tensor block**, `F = (XᵀWX + S)⁻¹XᵀWX`. This is what
+  `mgcv` reports per smooth term, and unlike the per-penalty quantity it **closes** —
+  tensor-term EDF plus factor-block EDF equals `edf_total` exactly.
+- **Diagnostic: the per-penalty shrinkages**, relabelled as **dimensions removed,
+  not dimensions spent.**
+
+The relabelling is not cosmetic and is the half worth defending. `edf_year` reads as
+"degrees of freedom this margin is using", which invites addition and is wrong on
+both counts; *shrinkage* reads as what the number is — how much that penalty took
+away — and nobody adds those. The first defect in this area was a number that lied
+about its value; this one is a number that lies about its *kind*, and the second is
+harder to notice because the arithmetic looks like it should work.
+
+**Deferred to slice 2, deliberately.** Not patched into PR #187: that PR is approved
+and out of draft, and an mgcv-consistent definition cannot be validated against mgcv
+in this container regardless — so patching it would have shipped the same
+"adopted, presented as checked" move a second time.
+
+**And it stays provisional until ADR-151's `mgcv` oracle runs.** The entire
+justification for `tr(F)` is that it matches what `mgcv` reports; that is a claim
+about another implementation and nothing here can test it. PLAN §7 now carries it as
+the oracle's second job. Adopted, not validated — stated that way in the plan, the
+continuation and here.

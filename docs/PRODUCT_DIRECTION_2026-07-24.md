@@ -1176,7 +1176,17 @@ selected scope).
 
 `tests/test_analytics/test_scale_benchmark.py::TestRunScaleBenchmark::test_scaling_is_near_linear`
 failed once in a combined `tests/test_analytics/ tests/qa/` run, then passed 6/6
-in isolation and in a full 1039-test `tests/test_analytics/` run. It is not a
+in isolation and in a full 1039-test `tests/test_analytics/` run.
+
+**Trigger identified 2026-08-08 — CPU contention, not randomness.** It fired
+**three times** in one session, and every firing was a `tests/test_analytics/` run
+launched while another full suite or a perf probe was executing in the same
+container; it passed in isolation immediately afterwards each time (0.7-1.0 s).
+That reclassifies it from "intermittent" to **deterministic given a loaded host**,
+which matters two ways: a reader hitting it should check what else is running
+before investigating, and the fix is a real one — assert on the *work* ratio
+(cells, allocations) rather than on wall clock — rather than widening the
+tolerance until it stops. Still filed, still not fixed here. It is not a
 real regression — it is a **wall-clock ratio assertion** (`t_large < 6.0 *
 t_small`, projecting a 2,000- vs an 8,000-policy block) whose margin is far
 thinner than the comment claims. Measured over six consecutive runs on an idle
