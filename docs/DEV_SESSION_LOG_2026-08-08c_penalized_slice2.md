@@ -4,6 +4,20 @@
 **Epic:** `PLAN_penalized_mi_surface.md` — slice 2 of 5
 **ADR:** ADR-186
 
+## Baseline and end state
+
+| | |
+|---|---|
+| Baseline (`main` @ `fdd96ba`) | 3083 passed, 3 skipped, 125 deselected |
+| End state (`make test`) | **3091 passed, 3 skipped, 125 deselected** (+8) |
+| Module tests | 25 (was 15) after the PR #188 review round |
+| Standing failures | none new or changed |
+| `tests/qa/` goldens | untouched |
+| perf row | `peak_mib` 33 (Δ+0), fingerprint `8331a13f7ce7` unchanged |
+
+Known flake: `test_scaling_is_near_linear`, the wall-clock ratio gate logged in
+PRODUCT_DIRECTION. Fires under container contention, passes in isolation.
+
 ## What shipped
 
 REML λ selection over a **deterministic grid**, the amended-Anchor-4 EDF reporting
@@ -44,6 +58,37 @@ right and the penalized fit wins almost for free.
 selector that always smooths hard cannot pass on the flattering case alone. Fixture
 evidence for the thesis, not confirmation — the arbiter on real data is SOA's own
 expected deaths, which is slice 5.
+
+## The other half of this session: the HMD DOI closure
+
+**Not slice-2 work, and the first version of this log omitted it entirely** — which
+the PR #188 review flagged as the larger of two gaps, correctly: roughly half the
+diff by file count was invisible to a reader trusting this document.
+
+The maintainer supplied the HMD version DOI (`10.4054/HMD.Countries.20260615`) and
+the versions-table reading in-session on 2026-08-08. That discharged the
+`Maintainer-gated` flag on the ledger item — the container has no browser and
+performed no lookup — and closed the HMD licensing position entirely. SOA is now
+the only open licensing item.
+
+Two things about it needed correcting after review, both mine:
+
+- **It reverses a recorded instruction.** PRODUCT_DIRECTION said to take the DOI
+  from the *Statistics* column, "not Countries". The series on disk are per-country
+  `STATS` files, so *By country* is the right family — but doing the opposite of a
+  recorded instruction without naming it as a reversal is how a ledger stops being
+  trustworthy. Now stated as a withdrawal, with the reasoning marked as **ours** and
+  still open to challenge.
+- **A sentence claimed a safeguard that had not worked.** §4d said the negative
+  results "stopped the visible-in-a-screenshot DOI being adopted because it was the
+  one to hand" — while the DOI adopted *is* that one. What the negatives actually
+  bought was adopting it **for a reason** rather than by proximity. Corrected rather
+  than deleted, because the wrong version is the more instructive half.
+
+**The process lesson is the scope one.** This rode along inside an epic-slice PR
+because the maintainer supplied the DOI mid-slice and landing it felt like tidying.
+Out-of-scope work belongs in its own change; a reviewer should not have to discover
+a licensing closure in a PR titled "REML selection".
 
 ## Carried forward
 

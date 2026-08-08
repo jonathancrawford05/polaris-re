@@ -70,9 +70,11 @@ __all__ = [
     "COARSE_STEP",
     "LAMBDA_LOG10_BOUNDS",
     "REFINE_STEP",
+    "DesignContext",
     "PenalizedMIFit",
     "PenalizedTensorMIModel",
     "difference_penalty",
+    "fit_reml",
     "lambda_is_at_bound",
     "reml_score",
     "select_lambdas_reml",
@@ -129,6 +131,23 @@ def tensor_penalties(
     s_age = np.kron(difference_penalty(n_age, order), np.eye(n_year, dtype=np.float64))
     s_year = np.kron(np.eye(n_age, dtype=np.float64), difference_penalty(n_year, order))
     return s_age, s_year
+
+
+@dataclass(frozen=True)
+class DesignContext:
+    """The assembled pieces of a fit, so λ selection need not rebuild them.
+
+    Public because :func:`select_lambdas_reml` consumes it across a module boundary;
+    an earlier revision reached into four private attributes instead, three of which
+    were never initialised.
+    """
+
+    design: np.ndarray
+    offset: np.ndarray
+    deaths: np.ndarray
+    n_tensor: int
+    s_age: np.ndarray
+    s_year: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -276,7 +295,7 @@ class PenalizedTensorMIModel:
         self.degree = degree
         self.penalty_order = penalty_order
         self.knots = knots
-        self._last_design: np.ndarray | None = None
+        self.design_context: DesignContext | None = None
         self.lambda_age = float(lambda_age)
         self.lambda_year = float(lambda_year)
 
@@ -369,7 +388,12 @@ class PenalizedTensorMIModel:
 
     # -- fit ---------------------------------------------------------------------
 
-    def fit(self) -> PenalizedMIFit:
+    def fit(
+        self,
+        *,
+        reml_score_value: float | None = None,
+        lambda_grid_step: float | None = None,
+    ) -> PenalizedMIFit:
         """Penalized IRLS at the fixed λ supplied to the constructor."""
         frame = self.cells
         factors = tuple(
@@ -406,10 +430,15 @@ class PenalizedTensorMIModel:
         offset = np.log(expected)
 
         coef, n_iter = _penalized_irls(x, deaths, offset, penalty)
-        self._last_design = x
-        self._last_offset = offset
-        self._last_deaths = deaths
-        self._last_penalty_blocks = (n_tensor, s_age, s_year)
+        # Design context, exposed deliberately rather than as a private back
+        # channel: select_lambdas_reml needs the assembled design, offset, response
+        # and penalty blocks to score REML without rebuilding them. Three of the
+        # four were previously uninitialised attributes, so touching them on an
+        # unfitted model raised AttributeError instead of anything readable
+        # (PR #188 review [P2]).
+        self.design_context = DesignContext(
+            design=x, offset=offset, deaths=deaths, n_tensor=n_tensor, s_age=s_age, s_year=s_year
+        )
         # W at the FINAL coefficient, not the previous iterate. At tolerance the
         # difference is negligible, but cov / edf / dispersion should be the
         # quantities their docstrings claim rather than one step stale.
@@ -461,6 +490,8 @@ class PenalizedTensorMIModel:
             observed_years=(int(years.min()), int(years.max())),
             factors=factors,
             n_iter=n_iter,
+            reml_score=reml_score_value,
+            lambda_grid_step=lambda_grid_step,
             _design_builder=info,
         )
 
@@ -600,8 +631,10 @@ def select_lambdas_reml(
     of the inputs alone — no optimiser state, no convergence path, no last-digit
     drift across platforms (Anchor 3).
 
-    Cost is ~150 penalized fits, which on the ILEC-shaped fixture is a few seconds
-    at ~4-13 ms each. On the real 125k-cell book the fit is the expensive part and
+    Cost is **202 penalized fits** for an interior winner (coarse 11x11 = 121, then
+    refine 9x9 = 81), or 166 when the winner clips at a bound — about 1.0-1.5 s on
+    the ILEC-shaped fixture. An earlier revision said ~150, which was 11-35% low.
+    On the real 125k-cell book the fit is the expensive part and
     slice 4 carries the budget.
     """
     lo, hi = bounds
@@ -614,12 +647,15 @@ def select_lambdas_reml(
             **model_kwargs,  # type: ignore[arg-type]
         )
         fit = model.fit()
-        n_tensor, s_age, s_year = model._last_penalty_blocks
-        design = model._last_design
-        assert design is not None
+        context = model.design_context
+        if context is None:  # pragma: no cover - fit() always sets it
+            raise PolarisComputationError("fit() did not record its design context.")
+        design = context.design
         penalty = np.zeros((design.shape[1], design.shape[1]), dtype=np.float64)
-        penalty[:n_tensor, :n_tensor] = 10.0**log_age * s_age + 10.0**log_year * s_year
-        return reml_score(model._last_deaths, design, model._last_offset, fit.coef, penalty)
+        penalty[: context.n_tensor, : context.n_tensor] = (
+            10.0**log_age * context.s_age + 10.0**log_year * context.s_year
+        )
+        return reml_score(context.deaths, design, context.offset, fit.coef, penalty)
 
     def sweep(centre: tuple[float, float], step: float, span: float) -> tuple[float, float, float]:
         axis = np.arange(max(lo, centre[0] - span), min(hi, centre[0] + span) + step / 2.0, step)
@@ -656,3 +692,26 @@ def lambda_is_at_bound(
     """
     log_value = float(np.log10(lambda_value)) if lambda_value > 0.0 else bounds[0]
     return abs(log_value - bounds[0]) < tol or abs(log_value - bounds[1]) < tol
+
+
+def fit_reml(cells: pl.DataFrame, **model_kwargs: object) -> PenalizedMIFit:
+    """Select λ by REML, then fit at it — with the selection metadata recorded.
+
+    **This function exists because the fields it populates were inert.** Slice 2
+    shipped `reml_score` and `lambda_grid_step` on :class:`PenalizedMIFit`, with
+    docstrings in five places saying they distinguish a selected surface from a
+    hand-set one. Nothing wrote them: `select_lambdas_reml` returns a bare tuple and
+    a caller rebuilding the model got the defaults, so both were always ``None`` and
+    the two cases were indistinguishable (PR #188 review [P1]).
+
+    Callers who want a selected surface should use this rather than the two-step
+    dance, because the two-step dance is exactly what dropped the metadata.
+    """
+    lambda_age, lambda_year, score = select_lambdas_reml(cells, **model_kwargs)
+    model = PenalizedTensorMIModel(
+        cells,
+        lambda_age=lambda_age,
+        lambda_year=lambda_year,
+        **model_kwargs,  # type: ignore[arg-type]
+    )
+    return model.fit(reml_score_value=score, lambda_grid_step=REFINE_STEP)

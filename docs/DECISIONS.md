@@ -13529,3 +13529,40 @@ The guard test flipped rather than being deleted: it previously required the
 `[TO SUPPLY]` marker and failed the moment a real DOI landed — deliberately, so
 closing the gap had to be a decision. It now pins all five elements, normalised for
 line wrapping so it tests content rather than reflow.
+
+### ADR-186 amendment 1 — two fields that described behaviour the code did not have (2026-08-08)
+
+`reml_score` and `lambda_grid_step` shipped on `PenalizedMIFit` with docstrings in
+five places — the dataclass, `select_lambdas_reml`, this ADR, the PLAN slice-2
+footer and the session log — saying they distinguish a REML-selected surface from a
+hand-set one. **Nothing wrote them.** `select_lambdas_reml` returns a bare
+`(λ_age, λ_year, score)` tuple; a caller rebuilding the model got the field
+defaults, so both were always `None` and the two cases were indistinguishable
+(PR #188 review [P1]).
+
+This is the same class as ADR-185 amendment 1's inert `edf` split, in the same
+module, one slice later — and the module's own docstring calls it "the defect class
+this epic keeps finding in its own work" twenty lines above the fields. **The
+recurring shape is a claim written from intent while the wiring is still a
+two-step dance the claim does not survive.**
+
+`fit_reml()` now does selection and fitting together and populates both. A test
+asserts the distinction the docstrings promised: a selected fit carries a score and
+a grid step, a hand-set fit carries neither.
+
+**And the plan's fourth test is restored.** `test_edf_does_not_step_visibly_under_quantisation`
+was dropped when the grid removed the jitter-absorption half of its purpose — but
+the other half survives the design change intact: *is 0.25 decade fine enough that
+`edf` moves smoothly rather than in visible steps?* That is precisely the price this
+ADR says the grid paid, and PLAN slice 2's acceptance criterion asks for the
+measurement rather than the assertion. Now measured: the largest single `edf_tensor`
+step across a 0-to-6-decade sweep must be under 15% of the total range swept.
+Dropping it silently was the same failure the isotropy test hit one PR earlier.
+
+**Two corrections of fact.** The fit count is **202** for an interior winner
+(coarse 11×11 = 121, refine 9×9 = 81), or 166 when the winner clips at a bound —
+not the ~150 claimed in four places, which was 11–35% low. And
+`select_lambdas_reml` reached into four private attributes of which three were never
+initialised, so touching them on an unfitted model raised `AttributeError`; the
+`assert design is not None` guarding it also vanishes under `python -O`. Replaced
+with a public `DesignContext` returned by the fit.

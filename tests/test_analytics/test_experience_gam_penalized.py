@@ -1,4 +1,4 @@
-"""Slice 1 of ``docs/PLAN_penalized_mi_surface.md`` — the penalized fitter at fixed λ.
+"""Slices 1-2 of ``docs/PLAN_penalized_mi_surface.md`` — the penalized fitter.
 
 The two limits are where correctness is decidable without trusting anything new:
 
@@ -13,8 +13,18 @@ The two limits are where correctness is decidable without trusting anything new:
   amendment 1 measured at ``df == degree == 1``. Two independent implementations,
   one closed form.
 
-Between the limits, ``edf`` must move monotonically. That is the whole behavioural
-contract of slice 1; λ *selection* is slice 2 and is deliberately absent here.
+Between the limits, ``edf`` must move monotonically — the whole behavioural
+contract of slice 1.
+
+Slice 2 adds λ **selection** and the Anchor-4 reporting fix. Its tests are grouped
+below and turn on two things: the selection is a *grid*, so reproducibility is
+exact rather than tolerance-bounded, and the graded-smoothness ladder must be
+**representable in the basis** or the test measures the basis instead of the
+selector (ADR-186).
+
+(This docstring said "selection is slice 2 and is deliberately absent here" for one
+commit after six selection tests landed beside it — the same staleness `3d4a7e2`
+fixed in the source module and missed here.)
 """
 
 import itertools
@@ -34,6 +44,7 @@ from polaris_re.analytics.experience_gam_penalized import (
     REFINE_STEP,
     PenalizedTensorMIModel,
     difference_penalty,
+    fit_reml,
     lambda_is_at_bound,
     select_lambdas_reml,
     tensor_penalties,
@@ -596,4 +607,59 @@ def test_reml_selection_beats_the_hand_tuned_configurations(kind: str) -> None:
     )
     assert penalized < hand_tuned, (
         f"[{kind}] REML ({penalized:.5f}) must beat the hand-tuned quadratic ({hand_tuned:.5f})"
+    )
+
+
+def test_a_selected_fit_records_its_provenance_and_a_hand_set_one_does_not() -> None:
+    """The distinction five docstrings claimed and no code provided.
+
+    `reml_score` and `lambda_grid_step` were never written: `select_lambdas_reml`
+    returns a bare tuple, and a caller rebuilding the model got the field defaults —
+    so both were always `None` and a selected surface was indistinguishable from a
+    hand-set one, which is precisely what the docstrings said they were for
+    (PR #188 review [P1]). Same class as #187's inert `edf` split: a field whose
+    docstring describes behaviour the code does not have.
+    """
+    cells = _cells(noisy=True)
+    selected = fit_reml(cells, k_age=7, k_year=6)
+    hand_set = PenalizedTensorMIModel(cells, k_age=7, k_year=6, lambda_year=1.0).fit()
+
+    assert selected.reml_score is not None
+    assert selected.lambda_grid_step == REFINE_STEP
+    assert hand_set.reml_score is None
+    assert hand_set.lambda_grid_step is None
+
+
+def test_the_grid_resolution_is_fine_enough_that_edf_does_not_visibly_step() -> None:
+    """PLAN slice 2's fourth test, restored — and it measures rather than asserts.
+
+    The grid retired the *jitter-absorption* half of the plan's quantisation test
+    (there is no optimiser to jitter), and ADR-186 explains that. It did **not**
+    retire the other half: is 0.25 decade fine enough that `edf` moves smoothly
+    rather than in visible steps? That question applies to a grid exactly as much,
+    and it is the price ADR-186 says the grid paid. The test was dropped without a
+    line recording it — the same silent-omission failure #187's review caught with
+    the isotropy test (PR #188 review [P1]).
+
+    Measured: the largest `edf_tensor` step between adjacent grid points, as a
+    fraction of the total range swept. A coarse grid would show one or two large
+    jumps; a fine one shows many small ones.
+    """
+    cells = _cells(noisy=True)
+    log_lambdas = np.arange(0.0, 6.0 + REFINE_STEP / 2.0, REFINE_STEP)
+    edfs = np.array(
+        [
+            PenalizedTensorMIModel(cells, k_age=7, k_year=6, lambda_year=float(10.0**log_lambda))
+            .fit()
+            .edf_tensor
+            for log_lambda in log_lambdas
+        ]
+    )
+    total_range = float(edfs.max() - edfs.min())
+    largest_step = float(np.abs(np.diff(edfs)).max())
+    assert total_range > 1.0, "the sweep must actually move edf, or it measures nothing"
+    assert largest_step / total_range < 0.15, (
+        f"edf steps visibly at {REFINE_STEP} decade resolution: largest single step "
+        f"{largest_step:.3f} is {largest_step / total_range:.1%} of the {total_range:.3f} "
+        f"range swept. The grid is too coarse and ADR-186's resolution trade needs revisiting."
     )

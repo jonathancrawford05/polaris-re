@@ -126,14 +126,25 @@ sponsoring institutions, the URL, the **date accessed**, and the **DOI of the
 version used**. All five are above, in the form HMD's Citation Guidelines specify —
 the DOI paired with the download date rather than either alone.
 
-**Which DOI, and why this one.** `10.4054/HMD.Countries.20260615` identifies the
-**06/15/2026** release of the *By country / All HMD countries* product. That is the
-right family: the series used here are per-country `STATS` files
-(`USA/Deaths_1x1.txt`), not the separate all-countries *Statistics* bundle. An
-earlier revision of this document pointed at the Statistics column, reasoning from
-the runbook's wording rather than from the file layout actually on disk — recorded
-because a wrong DOI asserts something checkable and false, which is exactly the
-failure §4d was written to avoid.
+**Which DOI, and why this one — this REVERSES a prior recorded instruction.**
+`PRODUCT_DIRECTION_2026-07-24.md` previously instructed: *"Take the DOI from that
+row's **Statistics** column (not Countries — the one visible in the screenshot is a
+different artifact)."* That instruction is **withdrawn**, and naming it as a
+reversal rather than quietly doing the opposite is the point of this paragraph.
+
+`10.4054/HMD.Countries.20260615` identifies the **06/15/2026** release of the
+*By country / All HMD countries* product, and that is the right family because the
+series on disk are per-country `STATS` files (`USA/Deaths_1x1.txt`) rather than the
+separate all-countries *Statistics* archive. The earlier instruction reasoned from
+the runbook's ambiguous phrase "you want the Statistics bundle"; the file layout was
+available the whole time and was not consulted.
+
+**Provenance.** The DOI and the versions-table reading were **supplied by the
+maintainer on 2026-08-08**, who read the Zipped Data Files page directly. This
+container has no browser (§4a) and performed no lookup. The Statistics-vs-Countries
+reasoning above is *ours* and is the part still open to challenge — it is a claim
+about which product these files came from, checkable by anyone with the page in
+front of them.
 
 **And the release was current on the download date.** 06/15/2026 remains the
 current version, and the access date is 3 August 2026, so no *Previous Versions*
@@ -334,7 +345,7 @@ took three checks and two of them were **negative results** that mattered.
 | `head -1` on GBRTENW `Deaths_1x1.txt` | `Last modified: 31 Jan 2025` |
 | `stat` birth vs mtime on the USA file | **identical to the second** — no information |
 | `mdls -name kMDItemDateAdded` | **2026-08-03 22:31:14 UTC** — the access date |
-| mortality.org versions table | 06/15/2026 is **current**, so it applies to a 3 August download |
+| mortality.org versions table | 06/15/2026 is **current**, so it applies to a 3 August download — **read by the maintainer and supplied in-session on 2026-08-08**; this container has no browser (§4a) and performed no lookup |
 
 The two country headers differ by sixteen months **within one download**, which
 proves `Last modified` is a per-country series revision stamp and not a release
@@ -346,9 +357,17 @@ either. Only Spotlight's `kMDItemDateAdded` did.
 **The order mattered.** The DOI could not be chosen before the access date was
 known, because the correct release is whichever was current on the day — and a
 release newer than 06/15/2026 landing before 3 August would have made a
-*Previous Versions* row the right answer instead. Recording the negatives is what
-stopped the visible-in-a-screenshot DOI being adopted because it was the one to
-hand.
+*Previous Versions* row the right answer instead.
+
+**And the DOI adopted is the one that was visible in the screenshot all along.**
+An earlier revision of this section claimed the negative results "stopped the
+visible-in-a-screenshot DOI being adopted because it was the one to hand" — which
+is false, since `HMD.Countries.20260615` *is* that DOI. What the negatives actually
+bought was the right to adopt it **for a reason** rather than by proximity: without
+the access date it could not be known whether that release applied. The sentence as
+written claimed a safeguard worked while the thing it guarded against had happened
+(PR #188 review [P0]). Corrected rather than deleted, because the earlier wording is
+the more instructive half.
 
 Everything else about the HMD position is clean: derivatives permitted, commercial
 use permitted, no data redistributed, the estimates tier confirmed.

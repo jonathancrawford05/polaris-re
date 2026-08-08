@@ -1557,13 +1557,26 @@ record the clause text. What replaces it:
 
 ### Appended 2026-08-08 (HMD terms read — the licensing item narrows to one line)
 
-- ~~**Supply the HMD version DOI.**~~ **CLOSED 2026-08-08.** Access date **3 August
-  2026** (`kMDItemDateAdded`); DOI **`10.4054/HMD.Countries.20260615`** — the
-  06/15/2026 release of the *By country* product, which was current on the access
-  date, so no *Previous Versions* row applies. **The HMD licensing position is now
-  closed entirely**: permissive terms, provenance determined as the estimates tier,
-  attribution complete in the prescribed form and pinned by a guard test (ADR-183
-  amendment 3). SOA is the only open licensing item. Original text follows. The HMD User Agreement was read 2026-08-08 and is
+- ~~**Supply the HMD version DOI.**~~ — **SHIPPED** (PR #188, ADR-183 amendment 3):
+  access date **3 August 2026** (`kMDItemDateAdded`), DOI
+  **`10.4054/HMD.Countries.20260615`** — the 06/15/2026 release of the *By country*
+  product, which was current on the access date, so no *Previous Versions* row
+  applies. **The HMD licensing position is closed entirely**: permissive terms,
+  estimates tier confirmed, attribution complete in the prescribed form and pinned
+  by a guard test. SOA is the only open licensing item.
+
+  **Two things about how this closed, both flagged by the PR #188 review.** The DOI
+  and the versions-table reading were **supplied by the maintainer in-session on
+  2026-08-08**, which is what discharges the `Maintainer-gated` flag below — the
+  container has no browser and performed no lookup. And the instruction below to use
+  the **Statistics** column is **WITHDRAWN**: the series on disk are per-country
+  `STATS` files, so the *By country* product is the right family. That reversal is
+  ours, is the part still open to challenge, and is argued in `DATA_LICENSING.md`
+  §2a rather than left implicit here.
+
+  ~~Original text follows, unedited — including the withdrawn instruction and the
+  gate it carried, because deleting them would erase what was reversed.~~ The HMD
+  User Agreement was read 2026-08-08 and is
   **permissive** — CC BY 4.0 on its own estimates, derivatives and commercial use
   both permitted, and the `STATS` bundle this project used is confirmed to be that
   tier (ADR-183 amendment 2). The single remaining gap is that CC BY 4.0's condition
