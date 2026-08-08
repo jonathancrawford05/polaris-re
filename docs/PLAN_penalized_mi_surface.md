@@ -72,8 +72,28 @@ rather than discovered in slice 5.
 **Anchor 4 — effective degrees of freedom are reported or the fit is worse than
 what it replaces.** An unpenalized fit at least tells you its complexity in the
 arguments. A penalized fit that hides `edf` behind an opaque λ is *less*
-auditable, not more. `edf` per margin goes in the report, and a fitted `edf`
-sitting at its `k` ceiling is a caveat the report must raise itself.
+auditable, not more. A fitted `edf` sitting at its `k` ceiling is a caveat the
+report must raise itself.
+
+**Amended 2026-08-08 (PR #187 review) — what gets reported, exactly.** Slice 1
+shipped a per-margin split that was first inert and then, once fixed, well-defined
+but **non-additive**: `edf_age` and `edf_year` overlap and do not sum to
+`edf_total`, so a reader doing the obvious arithmetic gets a wrong answer. Two
+numbers now, with different jobs:
+
+| Quantity | Definition | Role |
+|---|---|---|
+| **Per-term EDF** | `tr(F)` over the tensor block, `F = (XᵀWX + S)⁻¹ XᵀWX` | **Headline.** This is what `mgcv` reports per smooth, and it **closes**: tensor-term EDF + factor-block EDF = `edf_total` |
+| **Per-penalty shrinkage** | one per marginal penalty | **Margin diagnostic**, and it must be labelled **dimensions *removed*, not dimensions *spent*** |
+
+The labelling is the load-bearing half. A number called "edf_year" reads as
+"degrees of freedom the calendar margin is using", invites addition, and is wrong
+on both counts. Called a *shrinkage* it reads as what it is — how much that penalty
+took away — and nobody sums it.
+
+This keeps Anchor 4's requirement that complexity is visible per margin while every
+published number is exactly defined and the arithmetic closes. **Not settled until
+validated against real `mgcv`** — see §7.
 
 **Anchor 5 — `k` is an upper bound checked against `edf`, never a tuning knob.**
 The rule is Wood's: choose `k` generously, fit, confirm `edf` sits well below it,
@@ -142,6 +162,20 @@ ours to build; the IRLS loop can still lean on statsmodels for the family and li
 **Scope.** Outer optimisation of the (Laplace-approximate) REML criterion over
 `log λ`. **REML rather than GCV**, deliberately: GCV undersmooths and is prone to
 multiple minima, which on an eight-year window is not a theoretical concern.
+
+**Also in this slice: the Anchor-4 reporting fix.** Slice 1's per-margin `edf` is
+non-additive and its field names invite addition. Replace with the two quantities
+the amended Anchor 4 specifies — `tr(F)` over the tensor block as the headline
+per-term EDF, and the per-penalty shrinkages renamed to say *removed* rather than
+implying *spent*. Deferred here rather than patched into slice 1 on maintainer
+direction (PR #187 was approved and out of draft, and an mgcv-consistent definition
+cannot be validated against mgcv in this container anyway).
+
+**Tests for it.** The additivity that the current split lacks is the whole point, so
+assert it: tensor-term EDF plus factor-block EDF equals `edf_total` to floating
+point, on a fixture that *has* factors — without them the identity is trivial and
+the test says nothing. And the shrinkages keep slice 1's two-sided guard: saturate
+one margin and only its own shrinkage saturates.
 
 **Anchor 3 is the hard part of this slice, not the optimiser.** The plan is:
 quantise `log λ` to a fixed number of significant digits **before** it is used to
@@ -296,10 +330,16 @@ the A4′ epic used, which has now paid off twice.
   and `tests/test_analytics/test_experience_gam_ramp_diagnostic.py` already has
   ILEC-shaped and HMD-shaped fixtures with injected known surfaces. Reuse them
   rather than building new ones.
-- **ADR-151's `mgcv` oracle finally earns its keep here.** An independent
-  implementation of exactly this estimator, on an R-equipped machine, is the
-  strongest external check available and is the maintainer's to run. Formally out
-  of scope; worth running alongside slice 5 if convenient.
+- **ADR-151's `mgcv` oracle finally earns its keep here, and now has a second job.**
+  An independent implementation of exactly this estimator, on an R-equipped machine,
+  is the strongest external check available and is the maintainer's to run.
+  Beyond checking the fitted surface, it is what **settles the Anchor-4 EDF
+  definition**: `tr(F)` over the tensor block is chosen precisely because it is what
+  `mgcv` reports per smooth term, and that claim is unverified until a `te(age,
+  year)` fit in `mgcv` returns the same number on the same data. Until then the
+  definition is **adopted, not validated**, and the plan says so rather than
+  presenting a borrowed convention as a checked one. Still formally out of scope;
+  worth running alongside slice 5.
 - **Do not tune until it agrees.** If REML selects something that disagrees with
   the hand-tuned quadratic, that is data about the selector.
 

@@ -51,10 +51,17 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
   coefficients rattle at round-off in the penalised directions indefinitely while
   the deviance settles within 8 iterations. This matters for slice 2 because the
   optimiser will sit on top of exactly those directions.
-- **`edf_age` / `edf_year` are "dimensions bought back against penalty j"** —
-  `tr(H) - tr(H|λⱼ=∞)`. The first implementation was inert (both fields returned the
-  same number) and eleven tests passed over it because all asserted on `edf_total`.
-  Slice 2 consumes these; they are now defined and two-sidedly tested.
+- **The EDF reporting changes in slice 2 — do not build on slice 1's fields.**
+  Slice 1's `edf_age` / `edf_year` are `tr(H) - tr(H|λⱼ=∞)`, which is well-defined
+  (the first implementation was inert, and eleven tests passed over it because all
+  asserted on `edf_total`) but **non-additive**: the two overlap and do not sum to
+  `edf_total`, while their names invite exactly that addition. Per the amended
+  Anchor 4, slice 2 replaces them with **`tr(F)` over the tensor block** as the
+  headline per-term EDF — the quantity `mgcv` reports, and one that *closes*
+  against the factor block — plus per-penalty **shrinkages**, renamed to say
+  *dimensions removed* rather than implying *spent*.
+  **The `mgcv`-consistency claim is adopted, not verified** (PLAN §7); nothing in
+  this container can check it.
 - **The oracle already exists.** `TensorMIModel` at λ=0 is the correctness spec and
   it is already tested. Do not build a new one.
 - **statsmodels cannot supply the tensor.** `GLMGam` + `BSplines` penalize but the

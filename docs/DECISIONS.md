@@ -13374,3 +13374,37 @@ without a line recording it, which is exactly the silent-omission failure the
 PLAN/CONTINUATION contract exists to catch. The property holds — it is now asserted,
 at a penalised λ as well as at zero, since at λ=0 the test would say nothing about
 the thing it is named for.
+
+### ADR-185 amendment 2 — the EDF definition is provisional, and the fix is scoped to slice 2 (2026-08-08)
+
+Amendment 1 replaced an inert per-margin split with `edf_j = tr(H) − tr(H|λⱼ=∞)`
+and presented it as settled. It is well-defined and two-sidedly tested, and it is
+still **not the right thing to publish**, for a reason amendment 1 named and then
+under-weighted: the two margins overlap and **do not sum to `edf_total`**, while
+being called `edf_age` and `edf_year` invites precisely that sum.
+
+**What replaces it** (maintainer direction, PR #187 review):
+
+- **Headline: `tr(F)` over the tensor block**, `F = (XᵀWX + S)⁻¹XᵀWX`. This is what
+  `mgcv` reports per smooth term, and unlike the per-penalty quantity it **closes** —
+  tensor-term EDF plus factor-block EDF equals `edf_total` exactly.
+- **Diagnostic: the per-penalty shrinkages**, relabelled as **dimensions removed,
+  not dimensions spent.**
+
+The relabelling is not cosmetic and is the half worth defending. `edf_year` reads as
+"degrees of freedom this margin is using", which invites addition and is wrong on
+both counts; *shrinkage* reads as what the number is — how much that penalty took
+away — and nobody adds those. The first defect in this area was a number that lied
+about its value; this one is a number that lies about its *kind*, and the second is
+harder to notice because the arithmetic looks like it should work.
+
+**Deferred to slice 2, deliberately.** Not patched into PR #187: that PR is approved
+and out of draft, and an mgcv-consistent definition cannot be validated against mgcv
+in this container regardless — so patching it would have shipped the same
+"adopted, presented as checked" move a second time.
+
+**And it stays provisional until ADR-151's `mgcv` oracle runs.** The entire
+justification for `tr(F)` is that it matches what `mgcv` reports; that is a claim
+about another implementation and nothing here can test it. PLAN §7 now carries it as
+the oracle's second job. Adopted, not validated — stated that way in the plan, the
+continuation and here.
