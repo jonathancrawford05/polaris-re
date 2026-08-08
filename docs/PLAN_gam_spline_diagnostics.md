@@ -2,7 +2,9 @@
 
 **Source:** `PRODUCT_DIRECTION_2026-07-24.md` — "Age 45 stays boundary-contaminated
 on the ILEC fit", NICE-TO-HAVE, promoted to the front of the queue by the
-2026-08-07 specification review.
+2026-08-07 GAM specification review — the maintainer's question about the basis
+dimension and what it turned up, recorded in
+`DEV_SESSION_LOG_2026-08-08_spline_diagnostics.md`.
 **Predecessor:** `CONTINUATION_experience_gam_realdata.md` (COMPLETE) — this plan
 consumes its harness and its committed findings.
 **Total slices:** 4 (slices 1–3 autonomous, slice 4 one maintainer run)

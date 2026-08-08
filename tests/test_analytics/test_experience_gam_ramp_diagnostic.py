@@ -258,7 +258,7 @@ def test_degree_defaults_leave_the_shipped_design_untouched() -> None:
     fitted = TensorMIModel(cells, **_SHIPPED_FIT).fit()  # type: ignore[arg-type]
     assert "degree" not in "".join(fitted.knots), "cubic default must emit the legacy term name"
     # ...and the knots really are where slice 1 said, not at even fractions of the range.
-    assert fitted.knots["bs(attained_age, df=6)"] == [42.0, 60.0, 78.0]
+    np.testing.assert_allclose(fitted.knots["bs(attained_age, df=6)"], [42.0, 60.0, 78.0])
     assert fitted.knots["bs(calendar_year, df=3)"] == [], "df == degree carries no interior knots"
 
 

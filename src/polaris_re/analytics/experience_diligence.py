@@ -1904,6 +1904,7 @@ def run_diligence(
         "year_df": year_df,
         "age_degree": age_degree,
         "year_degree": year_degree,
+        "duration_degree": duration_degree,
         "interior_knots": result.knots,
         "n_years_observed": n_years_observed,
         "band_inflation_from_overdispersion": band_inflation,

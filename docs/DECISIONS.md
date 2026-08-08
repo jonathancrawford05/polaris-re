@@ -13213,3 +13213,31 @@ source. It turns out to be correct. That is not a vindication of the guess — i
 the case where refusing to assert an unsourced claim cost nothing and would have
 been the right call regardless of how it resolved, which is the only defensible
 reason to have a rule about it.
+
+### ADR-184 amendment 3 — `TensorMIModel` accepts strictly fewer inputs than before (2026-08-08)
+
+Recorded because it was not, and its only trace was a one-character test edit.
+
+`validate_spline_margin` now runs inside `TensorMIModel.__init__`. Previously the
+`df >= degree` rule was enforced by `patsy` at `fit()` time, several frames deep and
+as a bare `ValueError`, so `TensorMIModel(cells, year_df=2)` **constructed
+successfully** and failed later. It now raises on construction.
+
+**This is an improvement and it is still a narrowing of the public contract.** Two
+reasons it needed disclosing rather than absorbing:
+
+1. A caller that constructs models speculatively — to inspect `.factors` or
+   `.basis` without fitting — now gets an exception where it previously got an
+   object. Nothing in this repository does that, but the class is public API.
+2. On the harness path the same check runs at the CLI boundary, so an invalid
+   `--year-df` now fails **before** a 12.5 GB file is read rather than after. That
+   is the actual motivation and it is worth a line in the record, because the
+   benefit is measured in maintainer minutes and is invisible from the diff.
+
+The only in-repo caller affected was
+`test_empirical_base_is_constant_across_calendar_years`, which constructed with
+`age_df=3, year_df=2` purely as a cheap "the static-base guard passed" signal —
+unrelated to spline degrees. It now uses `year_df=3`. That edit is not a weakened
+assertion (the test's subject is the base guard, not the df values), but it *was* a
+silent behavioural signal buried in an unrelated test, which is how the narrowing
+went unrecorded in the first place.

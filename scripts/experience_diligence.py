@@ -207,7 +207,17 @@ def build_parser() -> argparse.ArgumentParser:
             "--year-degree, not this. The report warns when this is large."
         ),
     )
-    parser.add_argument("--age-degree", type=int, default=3)
+    parser.add_argument(
+        "--age-degree",
+        type=int,
+        default=3,
+        help=(
+            "Polynomial degree of the attained-age margin. Rarely worth changing: "
+            "the age range is long (25-95) so the margin carries real interior "
+            "knots and is a spline rather than a global polynomial. See "
+            "--year-degree for the knob that matters on a short window."
+        ),
+    )
     parser.add_argument(
         "--year-degree",
         type=int,
@@ -223,7 +233,17 @@ def build_parser() -> argparse.ArgumentParser:
             "docs/MEASUREMENT_gam_ramp_mechanism.md before using it."
         ),
     )
-    parser.add_argument("--duration-degree", type=int, default=3)
+    parser.add_argument(
+        "--duration-degree",
+        type=int,
+        default=3,
+        help=(
+            "Polynomial degree of the duration smooth (ILEC only, and only when "
+            "duration varies). Calendar-invariant by construction, so it cancels in "
+            "the year-over-year contrast and cannot move fitted MI -- it changes "
+            "which cells the tensor has to explain, not the improvement itself."
+        ),
+    )
     parser.add_argument("--confidence-level", type=float, default=0.95)
     parser.add_argument(
         "--overdispersion",

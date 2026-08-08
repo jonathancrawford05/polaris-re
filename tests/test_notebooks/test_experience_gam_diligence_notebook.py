@@ -159,5 +159,6 @@ def test_notebook_reaches_the_headline_findings() -> None:
         "insured outpace the population at midlife",
         "largest single-age duration effect",
         "not evidence that assumptions are sound",
+        "invariant",
     ):
         assert claim in text, f"notebook no longer states: {claim!r}"

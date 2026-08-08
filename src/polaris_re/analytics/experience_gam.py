@@ -159,6 +159,13 @@ def spline_knots(design_info: object) -> dict[str, list[float]]:
     Boundary knots (the repeated ``degree + 1`` copies of the range ends) are
     dropped: they carry no information beyond ``observed_ages`` / ``observed_years``
     and would make every report noisier to diff.
+
+    **Version dependency, stated because this is a private-API read.** ``patsy`` does
+    not expose knot positions publicly, so this reaches into ``BS._all_knots`` and
+    ``BS._degree``. Every access is defensive and the function returns ``{}`` rather
+    than raising if they move — which would make reports silently lose the field, so
+    the exact-knot assertion in ``test_experience_gam_ramp_diagnostic.py`` is what
+    actually catches a patsy upgrade breaking this, not this function.
     """
     knots: dict[str, list[float]] = {}
     factor_infos = getattr(design_info, "factor_infos", {})
