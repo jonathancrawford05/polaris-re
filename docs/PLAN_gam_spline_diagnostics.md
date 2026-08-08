@@ -57,7 +57,24 @@ worst. The crossed design in slice 2 separates the contributions.
 
 ## Slice 1: reproduce the ramp against a known truth (autonomous — no data)
 
-- **Status:** NOT STARTED
+- **Status:** **DONE (2026-08-07)** — `docs/MEASUREMENT_gam_ramp_mechanism.md`,
+  `tests/test_analytics/test_experience_gam_ramp_diagnostic.py` (8 tests).
+  **Both hypotheses this plan proposed were falsified**, and the real mechanism is
+  a third thing: sampling noise at the death-poor young end, converted into a
+  smooth multi-point swing by three free year parameters.
+  - **A falsified.** Noiseless recovery at the shipped ILEC configuration is
+    *exact* (1e-6). A cubic represents a straight line perfectly, so a constant
+    truth has no bias to find. "An unpenalized cubic must place its curvature
+    somewhere" is true of interpolation through noise, not of least squares on a
+    representable truth — the distinction the plan missed.
+  - **C supported.** Poisson noise alone, on a truth that is exactly 1.5% at every
+    age and year, produces a **3.13-point** swing at age 45 against **0.46** at
+    85 — because deaths at 45 are ~24x scarcer. Span scales inversely with total
+    deaths (0.56 → 27.18 as deaths fall 12.9M → 12.9k) and varies 0.17–3.83
+    across seeds, which is what a variance artifact looks like.
+  - **B falsified.** Shifting the fitted age range moves the first interior knot
+    across 42 / 47 / 37, and in every case the swing peaks at the **youngest
+    fitted age**, 2.7–3.5x its value at the knot. The knots are innocent.
 - **Depends on:** nothing
 
 **Why synthetic is the stronger evidence here, not the weaker.** On real ILEC the
@@ -97,7 +114,12 @@ across 2013–2019.
 
 ## Slice 2: separate the two mechanisms (autonomous — no data)
 
-- **Status:** NOT STARTED
+- **Status:** **SUBSUMED by slice 1 (2026-08-07)** — the escape clause fired.
+  Slice 1 falsified **both** A and B, so there are no contributions left to
+  attribute. Its age-range sweep already ran the knot axis, and the
+  deaths-scaling table already answers the window-length axis: a longer window
+  adds calendar cells and therefore deaths at every age, and span falls
+  monotonically with deaths. Nothing here would be learned twice.
 - **Depends on:** Slice 1 (skip entirely if slice 1 falsifies A **and** B)
 
 **Scope.** A crossed design over the slice 1 fixture, parametrised with
@@ -117,7 +139,14 @@ fix age 45 on its own and only a penalty (or knot placement control) will.
 
 ## Slice 3: expose spline degree, and measure what it costs (autonomous — no data)
 
-- **Status:** NOT STARTED
+- **Status:** NOT STARTED — **re-aimed by slice 1.** The *benefit* side is already
+  measured: a global linear year margin removes the swing completely (span 0.00,
+  exact to 9.7e-17) **and** de-biases the level, returning age 45's mean fitted MI
+  to 1.50% against the shipped cubic's 1.19% on a 1.50% truth. So this slice is no
+  longer "does lowering the degree help" — it does. It is now **only** about
+  measuring the price: how much genuine calendar curvature a lower order makes
+  invisible, at each age. That price is what decides whether degree-lowering is a
+  usable setting or merely an argument for the penalized rebuild.
 - **Depends on:** Slice 1
 
 **Scope.**

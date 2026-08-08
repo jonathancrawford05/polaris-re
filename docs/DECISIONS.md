@@ -12987,3 +12987,81 @@ unrelated; HMD is a research data provider, and the widely-repeated CC BY 4.0
 report — which if accurate would resolve its side almost entirely — is still not
 asserted anywhere in this repository, for the same reason it was not asserted
 before.
+
+---
+
+## ADR-184: The age-45 ramp is a variance artifact, not a basis defect (spline diagnostics Slice 1)
+
+**Date:** 2026-08-07
+**Status:** Accepted
+**Context:** `MEASUREMENT_experience_gam_ilec.md` §3/§7 called age 45's 0.05% →
+3.59% fitted MI "boundary-contaminated" and concluded it "needs a longer vintage,
+not a different setting". That sentence blocked every age-45 insured-improvement
+claim and justified waiting on a longer ILEC release. It had never been tested.
+
+### Decision — diagnose on synthetic ground truth before rebuilding the smoother
+
+`PLAN_gam_spline_diagnostics.md` proposed two mechanisms. **Slice 1 falsified both
+of them**, which is the main content of this ADR.
+
+**Hypothesis A — an unpenalized cubic must place its curvature somewhere.**
+Falsified. At the exact shipped ILEC configuration, with no sampling noise, a
+constant 1.5%/yr truth is recovered to 1e-6 at every reference age. A cubic
+represents a straight line exactly, so a constant surface has no bias to find. The
+plausible-sounding claim confused *interpolation through noise* with *least squares
+on a representable truth*.
+
+**Hypothesis B — age 45 sits beside an interior age knot at ~42.5.** Falsified.
+Shifting the fitted age range moves the first knot across 42 / 47 / 37; in every
+range the swing peaks at the **youngest fitted age** and is 2.7–3.5x its value at
+the knot. The anomaly does not travel with the knots.
+
+**What it actually is.** Sampling noise at the death-poor young end. Under a
+realistic mortality curve, deaths at 45 are ~24x scarcer than at 85 for equal
+exposure, and the age-varying year slope is estimated with correspondingly less
+information. Three free year parameters convert that variance into a smooth
+multi-point swing: **3.13 points at age 45 against 0.46 at 85** on a truth that is
+exactly flat. Span scales inversely with total deaths (0.56 → 27.18 as deaths fall
+12.9M → 12.9k) and ranges 0.17–3.83 across ten seeds — so the committed test
+asserts on a mean over eight seeds, because one draw of a variance artifact is a
+coin flip.
+
+### Consequences
+
+**The ILEC measurement's prescription was wrong.** Pinning `df == degree == 1` — a
+global linear year margin — removes the swing entirely (span 0.00, verified to
+9.7e-17) *and* de-biases the level: age 45's mean fitted MI returns to **1.50%**
+against the shipped cubic's **1.19%** on a 1.50% truth. The cubic does not merely
+wander at 45, it degrades the point estimate there, and a setting change fixes
+both. A longer vintage would also work — it adds deaths — but it is not necessary,
+and §5 of the measurement records the correction.
+
+**The case for penalization is strengthened and sharpened.** The problem is not a
+coarse or badly-placed basis; it is that three year parameters are estimated with
+wildly different precision across the age range while an unpenalized fit spends all
+three everywhere regardless. That is precisely what a penalty addresses — effective
+df falling where data are thin without a single global `degree` having to suit both
+ends. Degree-lowering is the crude version: it buys the young end at the old end's
+expense, uniformly.
+
+**Slice 2 is subsumed** — with both hypotheses dead there is nothing left to
+attribute, and slice 1's own sweeps covered both of its axes. **Slice 3 is
+re-aimed**: the benefit of a lower order is now measured, so it exists only to
+price the cost (blindness to genuine curvature).
+
+**What is deliberately not claimed.** This shows a ramp of the observed size is
+*reproducible* by noise alone at comparable scale. It does **not** show the real
+ILEC ramp *is* noise — that needs slice 4 and the maintainer's cache. The fixture
+also runs one stratum per (age, year) against ILEC's 125,676 cells and uses a true
+rather than empirical `q_base`, both of which plausibly make the real artifact
+larger rather than smaller.
+
+### Two-sided by construction
+
+Tests 4 and 5 inject a surface whose MI genuinely climbs 0% → 3.5% and require the
+fit to recover it — exactly (1e-6) without noise, and resolvably at ages 55–85 with
+it. Without them, a smoother that reported constant MI for everything would satisfy
+the artifact tests and be applauded. That is the ADR-182 slowdown-verdict
+discipline applied one level down; age 45 is excluded from the recovery assertion
+because tests 2–3 establish it as the one place noise wins, and asserting it there
+would contradict them.
