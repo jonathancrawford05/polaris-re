@@ -104,22 +104,21 @@ dropped.
 > **HMD.** Human Mortality Database. Max Planck Institute for Demographic Research
 > (Germany), University of California, Berkeley (USA), and French Institute for
 > Demographic Studies (France). Available at <https://www.mortality.org>.
-> Data downloaded **[DATE TO CONFIRM — see §4d]**. Version DOI: **[TO SUPPLY — see §4d]**.
+> Data downloaded **3 August 2026**. Version DOI: **[TO SUPPLY — see §4d]**.
 
 **Series used:** `Deaths_1x1.txt` and `Exposures_1x1.txt` for **USA** and
 **GBRTENW** (England & Wales, total population), calendar years 1990–2019, ages
 25–95, both sexes. Downloaded by the maintainer under their own HMD account, from
 the **"Statistics" / `STATS` bundle** — which is what makes these HMD's *own output
-series* rather than its Input Database (§4c). **The download date is not yet
-established** (§4d); an earlier revision of this document said "August 2026", which
-was inferred from the run dates rather than stated by anyone, and is withdrawn.
+series* rather than its Input Database (§4c). The access date is **3 August 2026**,
+established from Spotlight metadata (§4d) rather than assumed.
 
 **This attribution is not yet complete.** CC BY 4.0 makes attribution the licence
 condition, and HMD prescribes its elements: database name, all three sponsoring
 institutions, the URL, the **date accessed**, and the **DOI of the version used**.
-The first three are above. **Two are outstanding** — the access date and the DOI —
-and they are one problem rather than two, because the version is identified by
-which release was current on the day (§4d).
+Four are above. **One is outstanding** — the version DOI — and the access date is
+what makes it findable, since the version is whichever release was current on
+3 August 2026 (§4d).
 
 ### 2b. SOA Individual Life Experience Committee
 
@@ -317,6 +316,8 @@ depends on the first.
 | `head -1` on USA `Deaths_1x1.txt` | `Last modified: 09 June 2026` |
 | `head -1` on GBRTENW `Deaths_1x1.txt` | `Last modified: 31 Jan 2025` |
 | `stat` birth vs mtime on the USA file | **identical to the second**, and equal to the header date |
+| `mdls -name kMDItemDateAdded` | **2026-08-03 22:31:14 UTC** — the access date |
+| `mdls -name kMDItemWhereFroms` | `(null)` — no source URL recorded |
 
 The two country headers differ by sixteen months **within the same download**, which
 establishes that `Last modified` is a *per-country series revision stamp* and not a
@@ -326,20 +327,37 @@ The `stat` result is a **negative**: a birth time equal to mtime to the second i
 `unzip` writing the archive's stored date, not an independent record of extraction.
 So the filesystem carries no download date either.
 
-**What this rules out.** The versions-table row dated 06/15/2026 cannot be assumed.
-If the download predates 15 June — and the only concrete date in evidence is 9 June
-— that release did not yet exist. The correct row is the newest one **on or before
-the actual download date**, and the DOI must come from its **Statistics** column,
-not **Countries**.
+**The access date is settled: 3 August 2026.** Spotlight's `kMDItemDateAdded`
+records when the file arrived at that path, which is the `mv` into the cache rather
+than the HTTP fetch itself — the two happened in the same sitting, so the citation
+is accurate to the day, which is the precision a citation needs.
+`kMDItemWhereFroms` is `(null)`, consistent with files extracted from an archive
+rather than saved directly.
 
-**How to close it.** Establish the download date from browser history for
-mortality.org, or `mdls -name kMDItemDateAdded` on a surviving file, then read the
-matching row's Statistics DOI and paste both into §2a and the two measurement docs.
+**The version is now a single lookup, and it is not automatically 06/15/2026.**
+That row appears under *Previous Versions*, so a newer release exists. Which one we
+hold depends on one fact:
 
-**If it cannot be established**, the honest citation carries the access date as
-unknown and says so. A wrong DOI asserts something checkable and false; an absent
-one only says we do not know — and on a licence whose sole condition is
-attribution, guessing is the one failure mode worth avoiding outright.
+| Current version's release date | Version held |
+|---|---|
+| **after** 2026-08-03 | the **06/15/2026** release |
+| **on or before** 2026-08-03 | the **current** release, not 06/15 |
+
+Corroborating but not decisive: the USA series stamp is 09 June 2026, so whichever
+release this is, USA had not been revised again by the time it was packaged. That
+is consistent with 06/15/2026 and mildly favours it, and is *not* a substitute for
+checking.
+
+**How to close it.** Read the current version's date off mortality.org, apply the
+table above, and take the DOI from that row's **Statistics** column — not
+**Countries**, which is the one visible in the screenshot and is a different
+artifact.
+
+**If it cannot be established**, the honest citation names the access date and
+records the version as undetermined. A wrong DOI asserts something checkable and
+false; an absent one only says we do not know — and on a licence whose sole
+condition is attribution, guessing is the one failure mode worth avoiding
+outright.
 
 Everything else about the HMD position is clean: derivatives permitted, commercial
 use permitted, no data redistributed, the estimates tier confirmed.

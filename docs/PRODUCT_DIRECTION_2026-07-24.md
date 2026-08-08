@@ -1539,23 +1539,27 @@ record the clause text. What replaces it:
 
 ### Appended 2026-08-08 (HMD terms read — the licensing item narrows to one line)
 
-- **Supply the HMD access date *and* version DOI.** (Revised 2026-08-08: the access
-  date was thought known and is not — see below.) The HMD User Agreement was read 2026-08-08 and is
+- **Supply the HMD version DOI.** (Access date **resolved 2026-08-08: 3 August
+  2026**, from `kMDItemDateAdded`. The DOI remains open.) The HMD User Agreement was read 2026-08-08 and is
   **permissive** — CC BY 4.0 on its own estimates, derivatives and commercial use
   both permitted, and the `STATS` bundle this project used is confirmed to be that
   tier (ADR-183 amendment 2). The single remaining gap is that CC BY 4.0's condition
   *is* attribution and HMD prescribes a **version DOI** as part of it, which
   `DATA_LICENSING.md` §2a does not yet carry. Only the maintainer knows which
-  release was downloaded — and the download date turned out not to be established
-  either. Three checks on 2026-08-08 settled what the files can and cannot tell us:
+  release was downloaded. Four checks on 2026-08-08 settled what the files can and
+  cannot tell us:
   the USA and GBRTENW headers differ by sixteen months (09 Jun 2026 vs 31 Jan 2025),
   proving `Last modified` is a per-country series stamp and not a release version;
   and `stat` returns birth time equal to mtime **to the second**, so the filesystem
   is echoing the archive's stored date rather than recording an extraction. Neither
-  identifies the bundle. Resolve from browser history for mortality.org or
-  `mdls -name kMDItemDateAdded`, take the DOI from the matching row's **Statistics**
-  column (not Countries), paste both into §2a and both measurement docs, then update
-  `test_the_hmd_attribution_gap_is_not_rounded_to_compliant`. **Maintainer-gated.**
+  identifies the bundle. `kMDItemDateAdded` did resolve the access date —
+  **2026-08-03 22:31 UTC** — which turns the version into one lookup: read the
+  *current* release date off mortality.org, and if it postdates 2026-08-03 the
+  version held is 06/15/2026, otherwise it is the current one. Take the DOI from
+  that row's **Statistics** column (not Countries — the one visible in the
+  screenshot is a different artifact), paste it into §2a and both measurement docs,
+  then update `test_the_hmd_attribution_gap_is_not_rounded_to_compliant`.
+  **Maintainer-gated.**
   *Source: HMD User Agreement + provenance checks 2026-08-08 (1st-order).*
   **IMPORTANT.**
 - **If HMD Input Database series are ever used, this analysis does not carry over.**

@@ -93,11 +93,12 @@ def test_the_hmd_attribution_gap_is_not_rounded_to_compliant() -> None:
     Closing it means pasting the DOI in, which removes the marker and fails here.
     """
     text = LICENSING.read_text()
-    for marker in ("[TO SUPPLY — see §4d]", "[DATE TO CONFIRM — see §4d]"):
-        assert marker in text, (
-            f"{marker} is gone: either it was supplied (update this test) or it was "
-            f"dropped without being supplied (put it back)"
-        )
+    assert "[TO SUPPLY — see §4d]" in text, (
+        "the DOI marker is gone: either it was supplied (update this test) or it "
+        "was dropped without being supplied (put it back)"
+    )
+    # The access date IS a prescribed element, so it is pinned now that it is known.
+    assert "3 August 2026" in text, "the established access date must stay recorded"
     assert "does not meet the licence's own stated form" in text
     # The negative result matters as much as the positive ones — it is what stops
     # the 06/15/2026 row being adopted because it is the one we happen to have seen.
