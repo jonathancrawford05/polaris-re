@@ -31,10 +31,11 @@ imply different fixes.
 **Hypothesis A — the year margin is a cubic polynomial, not a spline.** At
 `year_df=3` with `patsy.bs` (degree 3, no intercept) the calendar margin has
 **zero interior knots** — verified 2026-08-07 by building the design directly. It
-is therefore a global cubic over eight years. An unpenalized cubic must place its
-curvature somewhere, and end-of-range ramping is its characteristic failure mode.
-*Predicts:* the ramp shrinks as the calendar window lengthens at fixed `df`, and
-vanishes entirely at `year_degree=1`.
+is therefore a global cubic over eight years, which permits MI itself to vary
+quadratically. An unpenalized cubic must place its curvature somewhere, and
+end-of-range ramping is its characteristic failure mode. *Predicts:* the ramp
+shrinks as the calendar window lengthens at fixed `df`, and vanishes entirely at
+`df=1, degree=1` (see the ladder in slice 3 — `degree` alone is not sufficient).
 
 **Hypothesis B — age 45 sits next to an interior age knot.** On a uniform age grid
 25–95, `bs(age, df=6)` places interior knots at **42.5, 60, 77.5**. Age 45 is ~2.5
@@ -123,22 +124,48 @@ fix age 45 on its own and only a penalty (or knot placement control) will.
 - Add `age_degree` / `year_degree` / `duration_degree` (default **3**, preserving
   every committed number) to `TensorMIModel`, threaded through
   `experience_diligence.py` and the CLI as `--year-degree` etc.
-- Validation: `degree >= 1`, and `df >= degree` with a message as clear as the
-  existing `_MIN_SPLINE_DF` one. The current floor is a *basis* floor, not a
-  flexibility floor, and the new message should say so — at `df == degree` the
-  margin has no interior knots and has silently left the spline regime.
+- Validation: `degree >= 1`, and `df >= degree`. `_MIN_SPLINE_DF = 3` must be
+  **replaced, not kept** — it is a floor on `df` conditional on `degree` being
+  hardcoded at 3, and it reads as though 3 were a floor on flexibility. It is not:
+  `df=1, degree=1` is perfectly legal and is *less* flexible. The new message
+  should state the real rule — `df >= degree`, interior knots = `df - degree`.
 - **Report the fitted knot vectors** in the JSON `fit` block, per margin. Additive
   field; the notebook's `DEGRADED` machinery already handles a committed report
   that predates a field, so the four existing reports degrade rather than break.
-- Re-run slice 1's fixtures at `year_degree` ∈ {1, 2, 3}.
+
+**The flexibility ladder — `df == degree`, verified 2026-08-07.**
+
+Degree alone does **not** control this, and an earlier revision of this plan was
+wrong to imply it did. `degree=1` with `df=3` carries two interior knots, making MI
+a *step function* in year — which ramps perfectly well. Pinning `df == degree` sets
+interior knots to zero and leaves polynomial order as the only axis:
+
+| `df` = `degree` | year margin | MI in time | free params (year) |
+|---:|---|---|---:|
+| 1 | global linear | **constant** | 1 |
+| 2 | global quadratic | linear | 2 |
+| 3 | global cubic | **quadratic** | 3 ← as shipped |
+
+This reframes the finding the diagnostic is chasing. The committed ILEC reports
+permit MI to vary **quadratically** across eight calendar years. Age 45's ramp is
+not residual spline wiggle that a smaller `df` would have removed — it is the least
+flexible *cubic*, and the window may only support a linear trend.
+
+Proof that the bottom rung is exact, not approximate: differencing adjacent-year
+design rows gives `max |contrast(step_k) - contrast(step_1)|` of **4.5e-01** at
+`df=3, degree=3` against **9.7e-17** at `df=1, degree=1`. MI *is* that contrast, so
+a linear year margin cannot ramp at machine precision.
 
 **Tests.**
-- `test_linear_year_margin_cannot_ramp` — at `year_degree=1` the fitted MI is
-  constant in year by construction; assert it recovers the injected constant.
+- `test_linear_year_margin_cannot_ramp` — at `df=1, degree=1` fitted MI is constant
+  in year by construction; assert it recovers the injected constant.
 - `test_linear_year_margin_cannot_see_a_real_ramp` — **the honest cost.** On the
-  genuinely-ramping fixture, `year_degree=1` must *fail* to recover it. Asserting
+  genuinely-ramping fixture, `df=1, degree=1` must *fail* to recover it. Asserting
   the limitation rather than describing it is what stops "lower the degree" being
   quietly adopted as a general fix.
+- `test_degree_without_df_still_permits_a_ramp` — the trap this plan already fell
+  into once: `degree=1, df=3` must be shown to ramp, so the two knobs cannot be
+  confused again in code the way they were in prose.
 - Defaults unchanged: an existing fixture fitted without the new arguments
   reproduces its current numbers exactly.
 
