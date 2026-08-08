@@ -230,3 +230,80 @@ def test_a_basis_too_small_for_the_degree_is_refused() -> None:
     one higher than ``TensorMIModel``'s, and the message must say which it means."""
     with pytest.raises(PolarisValidationError, match="k_year=3 is below the full-basis minimum"):
         PenalizedTensorMIModel(_cells(noisy=False), k_year=3)
+
+
+# --------------------------------------------------------------------------- #
+# Per-margin edf — the two-sided guard the first implementation failed
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("saturated", "spared"),
+    [("lambda_year", "lambda_age"), ("lambda_age", "lambda_year")],
+)
+def test_saturating_one_margin_drives_only_its_own_edf_to_zero(saturated: str, spared: str) -> None:
+    """The analogue of the penalty transposition guard, for the reported complexity.
+
+    The first implementation of the split summed the hat diagonal over one tensor
+    axis and then summed again, which collapses to the grand total whichever axis
+    went first — so ``edf_age`` and ``edf_year`` were *the same number*, and at a
+    saturating calendar penalty ``edf_year`` still read 14.0 while the margin had
+    provably collapsed to its 2-dimensional null space. Eleven tests passed over it
+    because all of them asserted on ``edf_total`` (PR #187 review [P0]).
+
+    Parametrised both ways round for the same reason the penalty guard is: a
+    quantity that responds to *one* margin correctly can still be reading the wrong
+    one, and only the mirrored case says otherwise.
+    """
+    cells = _cells(noisy=True)
+    fit = PenalizedTensorMIModel(cells, k_age=7, k_year=6, **{saturated: 1e12, spared: 0.0}).fit()
+    edf = {"lambda_age": fit.edf_age, "lambda_year": fit.edf_year}
+    assert edf[saturated] < 1e-2, (
+        f"a saturated {saturated} must buy back nothing, got {edf[saturated]:.4f}"
+    )
+    assert edf[spared] > 1.0, (
+        f"{spared} was not saturated and must retain real complexity, got {edf[spared]:.4f}"
+    )
+
+
+def test_per_margin_edf_is_not_the_same_number_twice() -> None:
+    """The specific defect, pinned directly rather than only via its consequences."""
+    fit = PenalizedTensorMIModel(_cells(noisy=True), k_age=7, k_year=6, lambda_year=1e3).fit()
+    assert abs(fit.edf_age - fit.edf_year) > 1.0, (
+        "edf_age and edf_year are indistinguishable — the split has collapsed again"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Isotropy — specified by PLAN slice 1 and missing from the first submission
+# --------------------------------------------------------------------------- #
+
+
+def test_the_fit_is_invariant_to_the_calendar_origin() -> None:
+    """Difference penalties are scale-dependent, so this is where that would bite.
+
+    Shifting `calendar_year` by a constant must not move the fitted surface: the
+    knot sequence is built from the observed bounds, so it shifts with the data and
+    the penalty sees the same coefficient geometry. The plan named this test and the
+    first submission shipped without it or a line explaining its absence — which is
+    the failure mode the PLAN/CONTINUATION contract exists to catch (PR #187 review
+    [P1]).
+
+    Asserted at a *penalised* λ as well as at zero, because at λ=0 the penalty is
+    absent and the test would say nothing about the thing it is named for.
+    """
+    cells = _cells(noisy=True)
+    shifted = cells.with_columns(pl.col("calendar_year") - 2012)
+
+    for lam in (0.0, 1e3):
+        base = PenalizedTensorMIModel(cells, k_age=7, k_year=6, lambda_year=lam).fit()
+        moved = PenalizedTensorMIModel(shifted, k_age=7, k_year=6, lambda_year=lam).fit()
+        np.testing.assert_allclose(moved.edf_total, base.edf_total, rtol=1e-8)
+
+        model = PenalizedTensorMIModel(cells, k_age=7, k_year=6, lambda_year=lam)
+        eta_base = model.design_on_grid(base._design_builder, _AGES, _YEARS) @ base.coef
+        shifted_model = PenalizedTensorMIModel(shifted, k_age=7, k_year=6, lambda_year=lam)
+        eta_moved = (
+            shifted_model.design_on_grid(moved._design_builder, _AGES, _YEARS - 2012) @ moved.coef
+        )
+        np.testing.assert_allclose(eta_moved, eta_base, atol=1e-9)

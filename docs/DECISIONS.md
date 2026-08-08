@@ -13328,3 +13328,49 @@ decomposition** — the margins are not independent and the two do not sum to
 `edf_total`. Anchor 4 requires complexity to be visible; it does not license
 presenting a convenient number as more than it is, so the caveat ships in the
 docstring rather than being discovered at slice 5.
+
+### ADR-185 amendment 1 — the per-margin edf was undefined, and the caveat concealed it (2026-08-08)
+
+`_margin_edf` summed the hat diagonal over one tensor axis and then summed again.
+The trailing sum collapses to the grand total whichever axis went first, so the
+`axis` argument was **inert** and `edf_age == edf_year` always. At a saturating
+calendar penalty `edf_year` read **14.0** while the margin had provably collapsed
+to its 2-dimensional null space — the one number a reader would consult to see the
+penalty working reported the opposite (PR #187 review [P0]).
+
+**Eleven tests passed over it** because every one asserted on `edf_total`. The
+λ→∞ test and the monotonicity test both had the fitted object in hand.
+
+**The caveat made it worse, not better.** The base ADR and the docstring both said
+the split was "descriptive, not orthogonal — the two do not sum to `edf_total`".
+That is true and it *understates* the defect: each field was equal to the tensor
+block's edf, and with no factor columns equal to `edf_total`. A reader would have
+concluded the numbers were imprecise rather than identical. The caveat was written
+from the code's intent rather than its behaviour, and **writing it substituted for
+testing it** — which is the general lesson worth keeping: a shipped limitation is
+not evidence the limitation is the one the code actually has.
+
+**The replacement is a definition rather than a description.** `edf_j = tr(H) −
+tr(H | λⱼ = ∞)` — dimensions the data buys back against penalty *j*. Raise λⱼ and
+`edf_j` falls to zero, because a fully-penalised margin buys nothing beyond its null
+space. Verified at `k_age=7, k_year=6`: at λ=0 it gives 30.0 / 28.0, matching the
+closed forms 42 − 2×6 and 42 − 7×2 exactly; at λ_year=1e12 it gives 10.0 / 0.003;
+at λ_age=1e12, 0.0 / 8.0. The saturating λ is scaled by `tr(XᵀWX) / tr(S)` rather
+than hard-coded, so "effectively infinite" means the same thing on a fixture and on
+a real book. Still not an orthogonal decomposition — but that caveat now describes
+a real property instead of excusing an undefined one.
+
+Two guards ship with it, both parametrised in **both directions** for the same
+reason the penalty transposition guard is: a quantity that responds correctly to one
+margin can still be reading the wrong one.
+
+**Three further review findings, all fixed:** the clamped path let patsy recompute
+quantile knots from whatever vector it was handed, so `design_on_grid` silently
+built a *different* basis than the fit — invisible on a complete rectangle, wrong by
+3.2e-2 in η on ragged coverage, and slices 2–3 keep using that path as the oracle;
+`_penalized_irls` returned pre-update weights, so `cov`, `edf` and `dispersion` were
+formed one IRLS step stale; and the plan-specified isotropy test had been dropped
+without a line recording it, which is exactly the silent-omission failure the
+PLAN/CONTINUATION contract exists to catch. The property holds — it is now asserted,
+at a penalised λ as well as at zero, since at λ=0 the test would say nothing about
+the thing it is named for.

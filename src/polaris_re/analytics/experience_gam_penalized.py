@@ -147,7 +147,7 @@ class PenalizedMIFit:
     observed_years: tuple[int, int]
     factors: tuple[str, ...]
     n_iter: int
-    _design_builder: object = field(default=None, repr=False)
+    _design_builder: object | None = field(default=None, repr=False)
 
 
 class PenalizedTensorMIModel:
@@ -237,8 +237,12 @@ class PenalizedTensorMIModel:
     # -- design ------------------------------------------------------------------
 
     def _basis(
-        self, x: np.ndarray, k: int, bounds: tuple[float, float]
-    ) -> tuple[np.ndarray, np.ndarray]:
+        self,
+        x: np.ndarray,
+        k: int,
+        bounds: tuple[float, float],
+        fitted_info: object = None,
+    ) -> tuple[np.ndarray, object]:
         """Marginal B-spline basis, in one of two knot schemes.
 
         ``"uniform"`` — the **P-spline** basis (Eilers-Marx): B-splines on a knot
@@ -260,11 +264,22 @@ class PenalizedTensorMIModel:
 
         lo, hi = bounds
         if self.knots == "clamped":
-            from patsy import dmatrix
+            from patsy import build_design_matrices, dmatrix
 
+            if fitted_info is not None:
+                # Reuse the FITTED knots. Without this, patsy recomputes quantile
+                # knots from whatever vector it is handed — so a prediction grid
+                # would silently get a DIFFERENT basis than the fit. Invisible on a
+                # complete rectangle (grid quantiles == data quantiles) and wrong by
+                # 3.2e-2 in eta the moment coverage is ragged, which is what real
+                # ILEC is (PR #187 review [P1]).
+                (design,) = build_design_matrices(
+                    [fitted_info], {"v": np.asarray(x, dtype=np.float64)}
+                )
+                return np.asarray(design, dtype=np.float64), fitted_info
             spec = f"bs(v, df={k}, degree={self.degree}, include_intercept=True) - 1"
             design = dmatrix(spec, {"v": np.asarray(x, dtype=np.float64)}, return_type="dataframe")
-            return np.asarray(design, dtype=np.float64), np.asarray([], dtype=np.float64)
+            return np.asarray(design, dtype=np.float64), design.design_info
 
         n_interval = k - self.degree
         step = (hi - lo) / n_interval
@@ -299,11 +314,11 @@ class PenalizedTensorMIModel:
 
     def design_on_grid(self, info: object, ages: np.ndarray, years: np.ndarray) -> np.ndarray:
         """Rebuild the tensor design on an (age x year) grid using the fitted knots."""
-        age_bounds, year_bounds, _, _ = info  # type: ignore[misc]
+        age_bounds, year_bounds, fitted_age, fitted_year = info  # type: ignore[misc]
         grid_age = np.repeat(np.asarray(ages, dtype=np.float64), len(years))
         grid_year = np.tile(np.asarray(years, dtype=np.float64), len(ages))
-        b_age, _ = self._basis(grid_age, self.k_age, age_bounds)
-        b_year, _ = self._basis(grid_year, self.k_year, year_bounds)
+        b_age, _ = self._basis(grid_age, self.k_age, age_bounds, fitted_age)
+        b_year, _ = self._basis(grid_year, self.k_year, year_bounds, fitted_year)
         return self._tensor_block(b_age, b_year)
 
     # -- fit ---------------------------------------------------------------------
@@ -344,8 +359,11 @@ class PenalizedTensorMIModel:
             )
         offset = np.log(expected)
 
-        coef, n_iter, weights = _penalized_irls(x, deaths, offset, penalty)
-
+        coef, n_iter = _penalized_irls(x, deaths, offset, penalty)
+        # W at the FINAL coefficient, not the previous iterate. At tolerance the
+        # difference is negligible, but cov / edf / dispersion should be the
+        # quantities their docstrings claim rather than one step stale.
+        weights = np.clip(np.exp(np.clip(offset + x @ coef, -700.0, 700.0)), 1e-300, None)
         xtwx = x.T @ (weights[:, None] * x)
         try:
             inv = np.linalg.inv(xtwx + penalty)
@@ -356,6 +374,16 @@ class PenalizedTensorMIModel:
         resid_p = (deaths - mu) / np.sqrt(np.clip(mu, 1e-300, None))
         hat = inv @ xtwx
         edf_total = float(np.trace(hat))
+
+        # Per-margin edf, defined as dimensions bought back against each penalty.
+        big_age = _saturating_lambda(xtwx[:n_tensor, :n_tensor], s_age)
+        big_year = _saturating_lambda(xtwx[:n_tensor, :n_tensor], s_year)
+        sat_age = penalty.copy()
+        sat_age[:n_tensor, :n_tensor] = big_age * s_age + self.lambda_year * s_year
+        sat_year = penalty.copy()
+        sat_year[:n_tensor, :n_tensor] = self.lambda_age * s_age + big_year * s_year
+        edf_age = _edf_bought_back(xtwx, penalty, sat_age)
+        edf_year = _edf_bought_back(xtwx, penalty, sat_year)
         dof_resid = max(len(deaths) - edf_total, 1.0)
         dispersion = float((resid_p**2).sum() / dof_resid)
 
@@ -365,8 +393,8 @@ class PenalizedTensorMIModel:
             coef=coef,
             cov=inv * dispersion,
             edf_total=edf_total,
-            edf_age=_margin_edf(hat, self.k_age, self.k_year, axis=0),
-            edf_year=_margin_edf(hat, self.k_age, self.k_year, axis=1),
+            edf_age=edf_age,
+            edf_year=edf_year,
             dispersion=dispersion,
             lambda_age=self.lambda_age,
             lambda_year=self.lambda_year,
@@ -380,23 +408,48 @@ class PenalizedTensorMIModel:
         )
 
 
-def _margin_edf(hat: np.ndarray, k_age: int, k_year: int, *, axis: int) -> float:
-    """Effective df attributable to one margin.
+def _saturating_lambda(xtwx: np.ndarray, s: np.ndarray) -> float:
+    """A λ large enough to be numerically infinite for this problem, scale-free.
 
-    The tensor block's diagonal reshaped to (k_age, k_year) and summed over the
-    other axis. This is a **descriptive split, not an orthogonal decomposition** —
-    the margins are not independent and the two do not sum to ``edf_total``. It is
-    reported because Anchor 4 requires complexity to be visible, and the honest
-    caveat travels with it rather than being discovered later.
+    Hard-coding 1e12 is wrong: whether a penalty dominates depends on the size of
+    ``XᵀWX``, which on a real book runs many orders of magnitude larger than on a
+    fixture. Scaling by the trace ratio makes "effectively infinite" mean the same
+    thing on both.
     """
-    n_tensor = k_age * k_year
-    diag = np.diag(hat)[:n_tensor].reshape(k_age, k_year)
-    return float(diag.sum(axis=1 - axis).sum())
+    scale = float(np.trace(s))
+    if scale <= 0.0:
+        return 0.0
+    return 1e10 * float(np.trace(xtwx)) / scale
+
+
+def _edf_bought_back(xtwx: np.ndarray, penalty: np.ndarray, saturated: np.ndarray) -> float:
+    """Dimensions the data buys back against one penalty: ``tr(H) - tr(H|λⱼ=∞)``.
+
+    **This is a definition, and the previous revision did not have one.** The first
+    attempt summed the hat diagonal over one tensor axis and then summed again,
+    which collapses to the grand total whichever axis goes first — so ``edf_age``
+    and ``edf_year`` were the same number, and at a saturating calendar penalty
+    ``edf_year`` still read 14.0 while the margin had provably collapsed to its
+    2-dimensional null space (PR #187 review [P0]).
+
+    The quantity here is well-posed and behaves: raise λⱼ and ``edf_j`` falls to
+    zero, because a fully-penalised margin buys nothing back beyond its null space.
+
+    **It is still not an orthogonal decomposition** — the two overlap and do not sum
+    to ``edf_total`` — but that caveat is now describing a real property rather than
+    excusing an undefined one.
+    """
+    with_penalty = float(np.trace(np.linalg.solve(xtwx + penalty, xtwx)))
+    with_saturated = float(np.trace(np.linalg.solve(xtwx + saturated, xtwx)))
+    # Clipped at zero: at saturation the difference is two large traces that
+    # cancel, so it lands at ~-6e-4 rather than exactly 0. A negative effective
+    # dimension is meaningless and would read as a defect in a report.
+    return max(with_penalty - with_saturated, 0.0)
 
 
 def _penalized_irls(
     x: np.ndarray, y: np.ndarray, offset: np.ndarray, penalty: np.ndarray
-) -> tuple[np.ndarray, int, np.ndarray]:
+) -> tuple[np.ndarray, int]:
     """Poisson log-link penalized IRLS: solve ``(XᵀWX + S)β = XᵀWz`` to convergence.
 
     **Convergence is on the deviance, not on the coefficient shift.** At a large λ
@@ -414,7 +467,6 @@ def _penalized_irls(
     from scipy.linalg import cho_factor, cho_solve
 
     coef = np.zeros(x.shape[1], dtype=np.float64)
-    weights = np.ones_like(y)
     previous_deviance = np.inf
     for iteration in range(1, _MAX_IRLS_ITER + 1):
         eta = offset + x @ coef
@@ -433,7 +485,7 @@ def _penalized_irls(
             terms = np.where(y > 0.0, y * np.log(np.where(y > 0.0, y / mu, 1.0)), 0.0)
         deviance = float(2.0 * np.sum(terms - (y - mu)))
         if abs(deviance - previous_deviance) < _IRLS_TOL * (abs(deviance) + 0.1):
-            return coef, iteration, weights
+            return coef, iteration
         previous_deviance = deviance
     raise PolarisComputationError(
         f"Penalized IRLS did not converge in {_MAX_IRLS_ITER} iterations "
