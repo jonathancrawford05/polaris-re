@@ -181,3 +181,107 @@ quantify the cost.
 - **No claim about ages 55–85 on real ILEC.** Those had 5–10× narrower spans in
   every fixture tried, consistent with the measurement document's position that
   they are the defensible ones.
+
+---
+
+## 8. Slice 4 on real ILEC: the diagnosis does **not** transfer
+
+**Run by** the maintainer, 2026-08-08, against the 12.5 GB cache — control
+(`--year-df 3 --duration-bands`) and treatment (`--year-df 2 --year-degree 2
+--duration-bands`). Raw output:
+`docs/measurements/experience_gam_ilec_duration_banded{,_quadratic}.{json,md}`.
+
+This is interpretation-table **row 2**, written before the run: *"age 45 still
+climbs steeply under (2) → the real ramp is not the artifact this diagnostic
+reproduced."*
+
+### 8a. The control reproduced, and the determinism claim did not
+
+Every fit output is bit-identical to the committed report — `dispersion`
+1.16326330754, `overall_ae` 1.00000000063, `n_cells` 125676, and the whole fitted
+surface. One value moved: `dropped_exposure_share`, from `9.17073903863e-05` to
+`9.17073903864e-05`.
+
+That is a ratio of Polars sums over 126,223 cells, sitting within 1 ulp of a
+12-significant-digit rounding boundary, so a reassociated parallel sum flips which
+way it rounds. **The estimator is deterministic; a data aggregation is not** — and
+the repository's claim that a re-run "reproduces these files byte for byte" is
+therefore too strong. No rounding cutoff can be tie-free; every cutoff has values
+that straddle it. `docs/measurements/README.md` now says what is actually true.
+
+### 8b. The real interior knots, seen for the first time
+
+| margin | interior knots |
+|---|---|
+| `bs(attained_age, df=6)` | **43.0, 60.0, 76.0** |
+| `bs(calendar_year, df=3)` | **`[]`** |
+| `bs(duration_years, df=4)` | 7.0 |
+
+Close to the uniform-grid 42/60/78 but not equal, so the cell distribution is
+near-uniform in age. And the empty calendar list **confirms on the real fit** what
+slice 1 derived from the design: the shipped year margin has zero interior knots
+and is a global cubic.
+
+### 8c. The climb is invariant to the setting — which is the finding
+
+| Age | span (cubic → quad) | climb 2013→2019 (cubic → quad) | early-vs-late Δ (cubic → quad) |
+|---:|---|---|---|
+| 45 | 3.99 → 3.58 | **3.54 → 3.58** | **2.38 → 2.39** |
+| 55 | 1.94 → 1.63 | 1.65 → 1.63 | 1.11 → 1.09 |
+| 65 | 0.82 → 0.55 | 0.53 → 0.55 | 0.35 → 0.36 |
+| 75 | 1.38 → 1.38 | 1.38 → 1.38 | 0.92 → 0.92 |
+| 85 | 1.93 → 1.42 | 1.40 → 1.42 | 0.94 → 0.94 |
+
+Removing a polynomial order from the calendar margin changes the early-vs-late
+contrast by **at most 0.02 points at any age**, and leaves the verdict
+(`acceleration`, 0/5 slower) untouched. Age 45's climb is *unchanged*: 3.54 → 3.58.
+
+What the quadratic **does** remove is curvature — the cubic's mid-window dip (age
+45 runs 0.05 → −0.40 → 3.59; the quadratic runs a straight −1.20 → 2.38). Span
+falls 0.3–0.5 points at three of five ages. So the slice-1 mechanism **is present
+and is measurable**; it is simply not what age 45 is made of.
+
+### 8d. Consequences, including for slices 1–3
+
+**The ILEC measurement's stated reason for distrusting age 45 is not supported.**
+§3 attributed the ramp to a terminal artifact of an over-flexible spline. Lowering
+the flexibility leaves it intact, so that explanation is out. The acceleration is
+also *resolvable* under the quadratic — age 45's 2013 band is [−1.98, −0.42]
+against 2019's [1.63, 3.12].
+
+**That is not the same as the climb being real improvement**, and this document
+does not claim it is. It rules out one explanation. Duration mix *within* a band,
+`uw_class` composition drifting at young ages, the empirical `q_base` at sparse
+ages, and genuine underwriting-era effects all remain live, and none of them is
+addressed by anything measured here.
+
+**Slices 1–3 stand as a finding about the estimator, not about this book.** The
+artifact is real, reproducible, and worth the guard tests; it is not the
+explanation for the thing that motivated looking for it. That distinction is the
+whole reason slice 4 existed rather than shipping the synthetic result as a
+conclusion.
+
+**And §7's hedge was wrong in direction.** It said the fixture's simplifications
+"plausibly make the real artifact larger rather than smaller". Relative to the
+signal on this book, it is smaller. A guess about which way a limitation cuts is
+still a guess.
+
+### 8e. The quadratic is the better fit, on the one check that is independent
+
+Against SOA's own published expected deaths — the only comparison here that does
+not use our model on both sides:
+
+| | cubic | quadratic |
+|---|---:|---:|
+| mean absolute difference vs SOA MI | 0.006100 | **0.005488** (−10%) |
+| mean difference vs SOA MI | 0.002682 | **0.001732** (−35%) |
+| Pearson dispersion φ | 1.16326 | 1.16388 |
+
+Closer to SOA on both, at the same dispersion and one fewer parameter. That is a
+reason to prefer `--year-df 2 --year-degree 2` on an eight-year window — arrived at
+from the fixtures and independently corroborated here.
+
+`ae_by_year` and `standardised_ae` are **byte-identical** between the two runs, as
+they must be: A/E is actual against SOA's expected and does not involve our fit.
+The quadratic report therefore duplicates already-committed figures rather than
+disclosing anything new (`DATA_LICENSING.md` §5c).

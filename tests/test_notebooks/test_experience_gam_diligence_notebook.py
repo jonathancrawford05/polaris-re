@@ -35,6 +35,7 @@ EXPECTED_REPORTS = (
     "experience_gam_hmd_gbrtenw",
     "experience_gam_ilec",
     "experience_gam_ilec_duration_banded",
+    "experience_gam_ilec_duration_banded_quadratic",
 )
 
 

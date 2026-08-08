@@ -121,9 +121,16 @@ slowdown**, and reading it that way would be the main error available here:
   It cannot speak to a post-2010 change; it describes what happened within the
   2010s.
 - **Different population.** Insured lives are underwritten — see §5.
-- **Age 45 is still boundary-contaminated.** Its fitted MI runs 0.05% (2013) →
-  3.59% (2019); the terminal ramp did not fully clear at `year_df=3`, which is
-  the floor. Ages 55–85 no longer show it and are the defensible ones.
+- ~~**Age 45 is still boundary-contaminated.**~~ **This explanation was tested on
+  2026-08-08 and is not supported.** Age 45's fitted MI runs 0.05% (2013) → 3.59%
+  (2019), and the reading here was that an over-flexible spline was ramping at the
+  terminal year. Refitting with a *less* flexible calendar margin
+  (`--year-df 2 --year-degree 2`) leaves the climb intact — 3.54 → 3.58 points —
+  and moves the early-vs-late contrast by 0.01. Whatever age 45 is, it is not this.
+  `year_df=3` was also never "the floor": that was a floor on `df` with `degree`
+  hardcoded at 3, and `df=1, degree=1` is both legal and less flexible (ADR-184).
+  See `MEASUREMENT_gam_ramp_mechanism.md` §8. **Ages 55–85 remain the defensible
+  ones**, but now because their bands are narrow, not because 45 is discredited.
 
 ## 4. Experience versus mix — measured, and it corrects §4's earlier claim
 
@@ -224,8 +231,16 @@ pooled by `Preferred_Class` alone, merging class-2-of-2 (worst) with class-2-of-
 ## 7. Honest limitations
 
 - **Eight years is short** for any trend-change question (§3).
-- **Age 45 remains boundary-contaminated** and `year_df=3` is the floor. If that
-  age matters commercially, it needs a longer vintage, not a different setting.
+- ~~**Age 45 remains boundary-contaminated** and `year_df=3` is the floor. If that
+  age matters commercially, it needs a longer vintage, not a different setting.~~
+  **Both halves retracted 2026-08-08.** `year_df=3` is not a floor on flexibility,
+  and a different setting does not remove age 45's climb — so the sentence was
+  wrong about the mechanism *and* about the remedy. What survives is narrower and
+  weaker: age 45's acceleration is robust to the calendar margin's flexibility and
+  is resolvable on its own bands, which rules out one explanation without
+  establishing that it is genuine improvement. Duration mix *within* a band,
+  `uw_class` composition drift at young ages, and the empirical `q_base` at sparse
+  ages are all still untested. `MEASUREMENT_gam_ramp_mechanism.md` §8d.
 - **Selection within a band is still pooled.** Bands 1/2/3 are singly resolved
   because that is where selection moves fastest, but 26+ is one open band.
 - **Band overlap is not a significance test for the difference** — the two window

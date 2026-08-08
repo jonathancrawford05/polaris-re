@@ -218,7 +218,17 @@ penalty removes.
 
 ## Slice 4: confirm on real ILEC (one maintainer run)
 
-- **Status:** **READY** — slices 1–3 are done; this needs the maintainer's cache.
+- **Status:** **DONE (2026-08-08)** — both runs completed against the maintainer's
+  cache; findings in `MEASUREMENT_gam_ramp_mechanism.md` §8. **Outcome: row 2 of
+  the interpretation table below — the real ramp is NOT the artifact this
+  diagnostic reproduced.** The early-vs-late contrast moves by at most 0.02 points
+  at any age between the cubic and the quadratic, age 45's climb is unchanged
+  (3.54 → 3.58), and the verdict stays `acceleration`, 0/5. Slices 1–3 stand as a
+  finding about the *estimator*; they do not explain this book. Two by-products:
+  the control run falsified the byte-for-byte determinism claim (one aggregation
+  ratio moved in its 12th digit while every fitted quantity was bit-identical), and
+  the quadratic is the better fit on the one independent check — 10% and 35% closer
+  to SOA's own scale, at equal dispersion and one fewer parameter.
 - **Depends on:** Slices 1–3
 
 **The two commands.** Run both from the repo root with

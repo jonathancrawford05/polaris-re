@@ -13110,3 +13110,59 @@ places them at quantiles of the supplied vector — one row per grouped cell —
 real experience they sit wherever the book has many strata rather than at even
 fractions of the age range. Nobody had looked at where they actually fell for the
 whole of the A4' epic; on real ILEC they are still unknown until slice 4 runs.
+
+### ADR-184 amendment 2 — slice 4: the diagnosis does not transfer to real ILEC (2026-08-08)
+
+Both runs completed against the maintainer's cache. The outcome is **row 2 of the
+interpretation table written before the run**: the real ramp is not the artifact
+slices 1–3 reproduced.
+
+**The climb is invariant to the setting.** Refitting with one fewer polynomial
+order in the calendar margin (`--year-df 2 --year-degree 2`) moves the early-vs-late
+contrast by **at most 0.02 points at any reference age** — 2.38→2.39, 1.11→1.09,
+0.35→0.36, 0.92→0.92, 0.94→0.94 — and leaves the verdict `acceleration`, 0/5 slower.
+Age 45's 2013→2019 climb is unchanged at 3.54 → 3.58. What the quadratic removes is
+curvature: the cubic's mid-window dip, worth 0.3–0.5 points of span at three of five
+ages. The slice-1 mechanism is present and measurable; it is not what age 45 is
+made of.
+
+**Consequences.**
+
+`MEASUREMENT_experience_gam_ilec.md` §3 and §7 are retracted where they attributed
+age 45 to terminal spline overshoot and prescribed "a longer vintage, not a
+different setting". Both halves were wrong — the mechanism and the remedy. What
+replaces them is narrower and weaker on purpose: age 45's acceleration is robust to
+the calendar margin's flexibility and resolvable on its own bands, which **rules out
+one explanation without establishing that it is genuine improvement.** Duration mix
+within a band, `uw_class` composition drift at young ages and the empirical `q_base`
+at sparse ages are all untested.
+
+**Slices 1–3 remain valid as a finding about the estimator**, and the guard tests
+stay. What slice 4 establishes is that a reproducible artifact is not automatically
+the explanation for the observation that motivated looking for it — which is exactly
+why the slice existed rather than shipping the synthetic result as a conclusion.
+ADR-184's §7 hedge is also falsified: it guessed the fixture's simplifications made
+the real artifact *larger*; relative to this book's signal it is smaller.
+
+**Two by-products worth more than the slice's own question.**
+
+*The byte-for-byte determinism claim is withdrawn.* The control reproduced every
+fitted quantity bit-identically but moved `dropped_exposure_share` from
+`9.17073903863e-05` to `...64e-05` — a ratio of Polars sums over 126,223 cells
+sitting within 1 ulp of the 12-significant-digit rounding boundary, so a
+reassociated parallel sum flips the rounding. **No rounding cutoff can be tie-free.**
+`REPORT_SIGNIFICANT_DIGITS` makes ties rare, not impossible, and ADR-182's claim
+that re-runs reproduce "byte for byte" was over-strong. The estimator is
+deterministic; aggregation ratios are not. Compare re-runs numerically, not with
+`cmp`.
+
+*The quadratic wins the independent check.* Against SOA's own published expected
+deaths — the only comparison in this epic that does not use our model on both sides
+— mean absolute difference falls 0.006100 → 0.005488 (−10%) and mean difference
+0.002682 → 0.001732 (−35%), at equal dispersion (1.16326 vs 1.16388) and one fewer
+parameter. The fixture-derived recommendation is independently corroborated on real
+data, which is a better outcome for slice 3 than slice 4's own headline.
+
+**The real interior knots, published for the first time:** `attained_age`
+43.0 / 60.0 / 76.0, `calendar_year` **`[]`** — confirming on the real fit that the
+shipped margin is a global cubic — and `duration_years` 7.0.
