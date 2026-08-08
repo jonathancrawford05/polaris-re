@@ -1557,8 +1557,13 @@ record the clause text. What replaces it:
 
 ### Appended 2026-08-08 (HMD terms read — the licensing item narrows to one line)
 
-- **Supply the HMD version DOI.** (Access date **resolved 2026-08-08: 3 August
-  2026**, from `kMDItemDateAdded`. The DOI remains open.) The HMD User Agreement was read 2026-08-08 and is
+- ~~**Supply the HMD version DOI.**~~ **CLOSED 2026-08-08.** Access date **3 August
+  2026** (`kMDItemDateAdded`); DOI **`10.4054/HMD.Countries.20260615`** — the
+  06/15/2026 release of the *By country* product, which was current on the access
+  date, so no *Previous Versions* row applies. **The HMD licensing position is now
+  closed entirely**: permissive terms, provenance determined as the estimates tier,
+  attribution complete in the prescribed form and pinned by a guard test (ADR-183
+  amendment 3). SOA is the only open licensing item. Original text follows. The HMD User Agreement was read 2026-08-08 and is
   **permissive** — CC BY 4.0 on its own estimates, derivatives and commercial use
   both permitted, and the `STATS` bundle this project used is confirmed to be that
   tier (ADR-183 amendment 2). The single remaining gap is that CC BY 4.0's condition
