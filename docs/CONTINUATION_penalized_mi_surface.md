@@ -4,7 +4,7 @@
 spline-diagnostics epic.
 **Plan:** `docs/PLAN_penalized_mi_surface.md`
 **Predecessors:** ADR-182, **ADR-184 + amendments 1-3**
-**Status:** **SLICE 1 DONE (2026-08-08)** — ADR-185, PR #187. Slice 2 is NEXT.
+**Status:** **SLICES 1-2 DONE (2026-08-08)** — ADR-185, ADR-186. Slice 3 is NEXT.
 **Total slices:** 5 (1-4 autonomous, 5 one maintainer run)
 **Estimated scope:** ~4-6 dev-days autonomous + one maintainer run
 
@@ -23,13 +23,15 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
 1. ~~**Penalized fitter core at fixed λ**~~ **DONE** — `experience_gam_penalized.py`,
    15 tests, ADR-185. Both limits verified. **Two plan premises were falsified**,
    and slice 2 must start from the corrected ones (see below).
-2. **REML λ selection** — **NEXT** — and the determinism it threatens (Anchor 3).
+2. ~~**REML λ selection**~~ **DONE** — ADR-186. Deterministic grid, so Anchor 3 is
+   resolved by construction. Anchor 4's EDF fix landed with it.
    Slice 1 sharpened that risk rather than reducing it: the penalised directions are
    exactly where the numerical noise lives, which is why the coefficient convergence
    criterion failed there.
-3. **Bayesian bands** — `Vb = (XᵀWX + S)⁻¹φ` through the *unchanged* extractor
-   (Anchor 2), plus the first coverage test this project has run on either
-   estimator.
+3. **Bayesian bands** — **NEXT** — `Vb = (XᵀWX + S)⁻¹φ` through the *unchanged*
+   extractor (Anchor 2), plus the first coverage test this project has run on either
+   estimator. Note slice 2's lesson before writing its fixtures: a graded ladder must
+   be **representable in the basis**, or the test measures the basis instead.
 4. **Harness integration** — `--penalized` off by default (Anchor 6), `edf` and λ
    reported (Anchor 4).
 5. **Real data** — against the four predictions PLAN §6 registers in advance.

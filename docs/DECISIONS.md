@@ -13408,3 +13408,88 @@ justification for `tr(F)` is that it matches what `mgcv` reports; that is a clai
 about another implementation and nothing here can test it. PLAN §7 now carries it as
 the oracle's second job. Adopted, not validated — stated that way in the plan, the
 continuation and here.
+
+---
+
+## ADR-186: REML λ selection by deterministic grid, and the Anchor-4 reporting fix (penalized MI surface, Slice 2)
+
+**Date:** 2026-08-08
+**Status:** Accepted
+**Context:** `PLAN_penalized_mi_surface.md` slice 2. 23 tests (was 15).
+
+### Decision 1 — a grid, not an optimiser
+
+Anchor 3 made determinism a requirement rather than something to discover, and PLAN
+§5 risk 1 anticipated that a converged λ could drift in its last digits across runs
+or platforms — the same class of failure that already falsified this project's
+byte-for-byte reproducibility claim (ADR-184 amendment 2).
+
+**A grid removes the failure mode instead of managing it.** The selected λ *is* a
+grid point, so it is reproducible by construction: no optimiser state, no
+convergence path, nothing to quantise. The plan's fallback became the design.
+
+Coarse sweep at 1.0 decade over `log10 λ ∈ [-2, 8]`, then one refinement pass at
+0.25 around the winner — about 150 penalized fits, ~1 s on the ILEC-shaped fixture
+at 4-13 ms each. The price is resolution, and it is **recorded on every fit** as
+`lambda_grid_step` rather than left implicit.
+
+`test_selection_is_reproducible_across_processes` spawns three fresh interpreters
+and requires **exact** repr equality — not a tolerance. If it ever needs one, the
+selection has stopped being a grid and Anchor 3 needs revisiting rather than the
+test loosening. Comparing two calls inside one interpreter is precisely the weak
+check that let a false determinism claim ship in ADR-182.
+
+### Decision 2 — the EDF split, replaced per the amended Anchor 4
+
+`edf_age` / `edf_year` are gone. In their place:
+
+- **`edf_tensor`** — `tr(F)` over the tensor block, the per-term EDF `mgcv` reports.
+  It **closes**: `edf_tensor + edf_factors == edf_total` exactly, asserted on a
+  fixture that *has* a factor, since without one the identity holds for free and the
+  test would say nothing.
+- **`shrinkage_age` / `shrinkage_year`** — `tr(F | λⱼ=0) − tr(F)`, dimensions each
+  penalty **removed**. The wording is the load-bearing half: "edf_year" reads as
+  degrees of freedom being *used* and invites addition; a shrinkage is unaddable on
+  its face.
+
+Both slice-1 guards were carried onto the renamed fields rather than deleted, with a
+note in the test file recording the move — a vanishing test is what the
+PLAN/CONTINUATION contract exists to catch.
+
+**Still adopted, not verified.** The whole justification for `tr(F)` is that it
+matches what `mgcv` reports, and nothing in this container can check that. PLAN §7
+carries it as the oracle's second job.
+
+### Two findings from building it
+
+**`edf_total` is the wrong statistic to test calendar smoothness on.** On a 30-year
+window a constant truth and a curved truth both landed at `edf_total` 36.4 — the
+total is dominated by the age margin. The graded-smoothness test therefore asserts
+on `edf_tensor` and `shrinkage_year`. This is a second, independent argument for the
+amended Anchor 4: the per-margin diagnostic is not a nicety, it is the only thing
+that can see what the calendar penalty is doing.
+
+**A smoothness ladder must be representable in the basis.** An early fixture used a
+fixed 5.7-year sine; over 30 years with `k_year=6` the basis cannot resolve it, so
+REML correctly smoothed it away and the test measured the *basis* rather than the
+*selector*. Scaling the wiggle to the window fixed it. Recorded because the failure
+looked like a broken selector and was not.
+
+### The thesis, measured — with the flattering number rejected
+
+REML beats both hand settings on RMSE against the injected truth. The magnitude
+depends entirely on whether the truth sits in the penalty's null space:
+
+| truth | shipped cubic | hand-tuned quadratic | REML | gain vs hand |
+|---|---:|---:|---:|---|
+| constant — **inside** the null space | 0.01752 | 0.00876 | 0.00022 | 40x |
+| curved — **outside** it | 0.01208 | 0.01174 | 0.00503 | **2.3x** |
+
+**2.3x is the number to quote.** A constant truth lies in the second-difference
+penalty's null space, so heavy smoothing is exactly right and the penalized fit
+gets a nearly free win; quoting 40x as a general gain would be dishonest. The test
+is parametrised over both regimes so a selector that simply always smooths hard
+cannot pass on the favourable case alone.
+
+This is fixture evidence for the epic's thesis, not confirmation of it. The arbiter
+on real data is SOA's own expected deaths, and that is slice 5.

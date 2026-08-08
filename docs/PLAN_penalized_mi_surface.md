@@ -156,7 +156,16 @@ ours to build; the IRLS loop can still lean on statsmodels for the family and li
 
 ### Slice 2: λ selection by REML, and the determinism it threatens (autonomous)
 
-- **Status:** NOT STARTED
+- **Status:** **DONE (2026-08-08)** — **ADR-186**, 23 tests (was 15).
+  **Anchor 3 resolved by design rather than by management:** selection is a
+  deterministic grid, so λ is a grid point and reproducible by construction — no
+  optimiser state, nothing to quantise. The plan's fallback became the design, and
+  `lambda_grid_step` records the resolution that bought it.
+  **Anchor 4's reporting fix landed:** `edf_tensor` (additive, closes against
+  `edf_factors`) plus shrinkages labelled *removed*.
+  **Thesis supported at fixture scale**, 2.3x RMSE improvement over the hand-tuned
+  quadratic on a truth outside the penalty null space — and the 40x figure from a
+  truth *inside* it is rejected as unrepresentative rather than quoted.
 - **Depends on:** Slice 1
 
 **Scope.** Outer optimisation of the (Laplace-approximate) REML criterion over

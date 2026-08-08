@@ -64,9 +64,15 @@ from polaris_re.analytics.experience_gam import (
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 
 __all__ = [
+    "COARSE_STEP",
+    "LAMBDA_LOG10_BOUNDS",
+    "REFINE_STEP",
     "PenalizedMIFit",
     "PenalizedTensorMIModel",
     "difference_penalty",
+    "lambda_is_at_bound",
+    "reml_score",
+    "select_lambdas_reml",
     "tensor_penalties",
 ]
 
@@ -133,11 +139,31 @@ class PenalizedMIFit:
     only has to produce it."""
 
     edf_total: float
-    """``tr(H)`` for ``H = X (XᵀWX + S)⁻¹ XᵀW``. Bounded above by the column count
-    and below by the penalty null-space dimension."""
+    """``tr(F)`` for ``F = (XᵀWX + S)⁻¹ XᵀWX``, over every column."""
 
-    edf_age: float
-    edf_year: float
+    edf_tensor: float
+    """**The headline.** ``tr(F)`` restricted to the tensor block — the per-term EDF
+    ``mgcv`` reports for a smooth. Unlike the shrinkages it **closes**:
+    ``edf_tensor + edf_factors == edf_total`` exactly.
+
+    The mgcv-consistency is *adopted, not verified* — nothing in this container can
+    compare against mgcv, and PLAN §7 carries that as the oracle's second job."""
+
+    edf_factors: float
+    """``tr(F)`` over the unpenalized factor columns. Present so the addition above
+    is checkable rather than asserted."""
+
+    shrinkage_age: float
+    """Dimensions the age penalty **removed**: ``tr(F | λ_age = 0) - tr(F)``.
+
+    **Removed, not spent** — and the wording is the point. Slice 1 called the
+    per-margin quantities ``edf_age`` / ``edf_year``, which reads as "degrees of
+    freedom this margin is using" and invites adding them together. They overlap and
+    do not sum to anything (PR #187 review). A shrinkage is unaddable on its face."""
+
+    shrinkage_year: float
+    """Dimensions the calendar penalty removed. See :attr:`shrinkage_age`."""
+
     dispersion: float
     lambda_age: float
     lambda_year: float
@@ -147,6 +173,18 @@ class PenalizedMIFit:
     observed_years: tuple[int, int]
     factors: tuple[str, ...]
     n_iter: int
+
+    reml_score: float | None = None
+    """Laplace-approximate REML at the fitted λ, or ``None`` for a fixed-λ fit."""
+
+    lambda_grid_step: float | None = None
+    """log10 resolution of the grid the λ came from, or ``None`` if λ was supplied.
+
+    Recorded because it is the exact size of the determinism/accuracy trade Anchor 3
+    forced: a grid is reproducible **by construction** — there is no optimiser whose
+    last digits can drift — and the price is that λ is known only to this
+    resolution."""
+
     _design_builder: object | None = field(default=None, repr=False)
 
 
@@ -231,6 +269,7 @@ class PenalizedTensorMIModel:
         self.degree = degree
         self.penalty_order = penalty_order
         self.knots = knots
+        self._last_design: np.ndarray | None = None
         self.lambda_age = float(lambda_age)
         self.lambda_year = float(lambda_year)
 
@@ -360,6 +399,10 @@ class PenalizedTensorMIModel:
         offset = np.log(expected)
 
         coef, n_iter = _penalized_irls(x, deaths, offset, penalty)
+        self._last_design = x
+        self._last_offset = offset
+        self._last_deaths = deaths
+        self._last_penalty_blocks = (n_tensor, s_age, s_year)
         # W at the FINAL coefficient, not the previous iterate. At tolerance the
         # difference is negligible, but cov / edf / dispersion should be the
         # quantities their docstrings claim rather than one step stale.
@@ -375,15 +418,20 @@ class PenalizedTensorMIModel:
         hat = inv @ xtwx
         edf_total = float(np.trace(hat))
 
-        # Per-margin edf, defined as dimensions bought back against each penalty.
-        big_age = _saturating_lambda(xtwx[:n_tensor, :n_tensor], s_age)
-        big_year = _saturating_lambda(xtwx[:n_tensor, :n_tensor], s_year)
-        sat_age = penalty.copy()
-        sat_age[:n_tensor, :n_tensor] = big_age * s_age + self.lambda_year * s_year
-        sat_year = penalty.copy()
-        sat_year[:n_tensor, :n_tensor] = self.lambda_age * s_age + big_year * s_year
-        edf_age = _edf_bought_back(xtwx, penalty, sat_age)
-        edf_year = _edf_bought_back(xtwx, penalty, sat_year)
+        # Headline per-term EDF: tr(F) split by block. This CLOSES — the two sum to
+        # edf_total exactly — which is why it replaced slice 1's overlapping split.
+        f_diag = np.diag(hat)
+        edf_tensor = float(f_diag[:n_tensor].sum())
+        edf_factors = float(f_diag[n_tensor:].sum())
+
+        # Margin diagnostic: dimensions each penalty REMOVED, relative to leaving
+        # that margin unpenalized. Zero at lambda_j = 0 by construction.
+        free_age = penalty.copy()
+        free_age[:n_tensor, :n_tensor] = self.lambda_year * s_year
+        free_year = penalty.copy()
+        free_year[:n_tensor, :n_tensor] = self.lambda_age * s_age
+        shrinkage_age = _edf_removed(xtwx, free_age, penalty)
+        shrinkage_year = _edf_removed(xtwx, free_year, penalty)
         dof_resid = max(len(deaths) - edf_total, 1.0)
         dispersion = float((resid_p**2).sum() / dof_resid)
 
@@ -393,8 +441,10 @@ class PenalizedTensorMIModel:
             coef=coef,
             cov=inv * dispersion,
             edf_total=edf_total,
-            edf_age=edf_age,
-            edf_year=edf_year,
+            edf_tensor=edf_tensor,
+            edf_factors=edf_factors,
+            shrinkage_age=shrinkage_age,
+            shrinkage_year=shrinkage_year,
             dispersion=dispersion,
             lambda_age=self.lambda_age,
             lambda_year=self.lambda_year,
@@ -408,43 +458,18 @@ class PenalizedTensorMIModel:
         )
 
 
-def _saturating_lambda(xtwx: np.ndarray, s: np.ndarray) -> float:
-    """A λ large enough to be numerically infinite for this problem, scale-free.
+def _edf_removed(xtwx: np.ndarray, unpenalized: np.ndarray, penalized: np.ndarray) -> float:
+    """Dimensions a penalty removed: ``tr(F | λⱼ = 0) - tr(F)``.
 
-    Hard-coding 1e12 is wrong: whether a penalty dominates depends on the size of
-    ``XᵀWX``, which on a real book runs many orders of magnitude larger than on a
-    fixture. Scaling by the trace ratio makes "effectively infinite" mean the same
-    thing on both.
+    Zero when that margin carries no penalty, growing as the penalty bites. Reported
+    as a **shrinkage** rather than an edf because the two margins overlap and cannot
+    be added — a point slice 1 made in a docstring while naming the fields in a way
+    that invited adding them anyway (PR #187 review).
     """
-    scale = float(np.trace(s))
-    if scale <= 0.0:
-        return 0.0
-    return 1e10 * float(np.trace(xtwx)) / scale
-
-
-def _edf_bought_back(xtwx: np.ndarray, penalty: np.ndarray, saturated: np.ndarray) -> float:
-    """Dimensions the data buys back against one penalty: ``tr(H) - tr(H|λⱼ=∞)``.
-
-    **This is a definition, and the previous revision did not have one.** The first
-    attempt summed the hat diagonal over one tensor axis and then summed again,
-    which collapses to the grand total whichever axis goes first — so ``edf_age``
-    and ``edf_year`` were the same number, and at a saturating calendar penalty
-    ``edf_year`` still read 14.0 while the margin had provably collapsed to its
-    2-dimensional null space (PR #187 review [P0]).
-
-    The quantity here is well-posed and behaves: raise λⱼ and ``edf_j`` falls to
-    zero, because a fully-penalised margin buys nothing back beyond its null space.
-
-    **It is still not an orthogonal decomposition** — the two overlap and do not sum
-    to ``edf_total`` — but that caveat is now describing a real property rather than
-    excusing an undefined one.
-    """
-    with_penalty = float(np.trace(np.linalg.solve(xtwx + penalty, xtwx)))
-    with_saturated = float(np.trace(np.linalg.solve(xtwx + saturated, xtwx)))
-    # Clipped at zero: at saturation the difference is two large traces that
-    # cancel, so it lands at ~-6e-4 rather than exactly 0. A negative effective
-    # dimension is meaningless and would read as a defect in a report.
-    return max(with_penalty - with_saturated, 0.0)
+    free = float(np.trace(np.linalg.solve(xtwx + unpenalized, xtwx)))
+    bound = float(np.trace(np.linalg.solve(xtwx + penalized, xtwx)))
+    # Clipped: at equality these are two large traces cancelling, landing at ~-1e-9.
+    return max(free - bound, 0.0)
 
 
 def _penalized_irls(
@@ -491,3 +516,136 @@ def _penalized_irls(
         f"Penalized IRLS did not converge in {_MAX_IRLS_ITER} iterations "
         f"(deviance {previous_deviance:.6g})."
     )
+
+
+# --------------------------------------------------------------------------- #
+# Slice 2 — REML selection
+# --------------------------------------------------------------------------- #
+
+LAMBDA_LOG10_BOUNDS = (-2.0, 8.0)
+"""Search range for log10 λ. Wide on purpose: the bounds are a statement about
+what is *representable*, not a prior about what is likely, and a selected λ sitting
+on a bound is a caveat the caller must be told about rather than a silent clamp."""
+
+COARSE_STEP = 1.0
+REFINE_STEP = 0.25
+"""Grid resolutions. **A grid rather than a continuous optimiser, deliberately.**
+Anchor 3 makes determinism a requirement, and PLAN §5 risk 1 anticipated that a
+converged λ could drift in its last digits across runs or platforms — the same class
+of problem that already falsified this project's byte-for-byte reproducibility claim
+(ADR-184 amendment 2). A grid removes the failure mode outright: the selected λ is a
+grid point, so it is reproducible **by construction** with nothing to quantise. The
+price is resolution, which is recorded on every fit as ``lambda_grid_step`` rather
+than left implicit."""
+
+
+def reml_score(
+    deaths: np.ndarray,
+    design: np.ndarray,
+    offset: np.ndarray,
+    coef: np.ndarray,
+    penalty: np.ndarray,
+) -> float:
+    """Laplace-approximate REML for a penalized Poisson GLM (lower is better).
+
+    ``V = D/2 + log|XᵀWX + S|/2 - log|S|₊/2``, where ``|S|₊`` is the generalized
+    determinant — the product of the *positive* eigenvalues, since a difference
+    penalty is rank-deficient by design and its null space is what makes a linear
+    trend unpenalisable.
+
+    **REML rather than GCV**, per the plan: GCV undersmooths and admits multiple
+    minima, which on an eight-year calendar window is a practical concern rather
+    than a textbook one.
+    """
+    eta = offset + design @ coef
+    mu = np.exp(np.clip(eta, -700.0, 700.0))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        terms = np.where(
+            deaths > 0.0, deaths * np.log(np.where(deaths > 0.0, deaths / mu, 1.0)), 0.0
+        )
+    deviance = float(2.0 * np.sum(terms - (deaths - mu)))
+
+    weights = np.clip(mu, 1e-300, None)
+    _, logdet_h = np.linalg.slogdet(design.T @ (weights[:, None] * design) + penalty)
+
+    eigenvalues = np.linalg.eigvalsh(penalty)
+    largest = float(eigenvalues.max()) if eigenvalues.size else 0.0
+    positive = eigenvalues[eigenvalues > max(largest, 1e-300) * 1e-10]
+    logdet_s = float(np.sum(np.log(positive))) if positive.size else 0.0
+
+    return 0.5 * deviance + 0.5 * float(logdet_h) - 0.5 * logdet_s
+
+
+def select_lambdas_reml(
+    cells: pl.DataFrame,
+    *,
+    coarse_step: float = COARSE_STEP,
+    refine_step: float = REFINE_STEP,
+    bounds: tuple[float, float] = LAMBDA_LOG10_BOUNDS,
+    **model_kwargs: object,
+) -> tuple[float, float, float]:
+    """Choose (λ_age, λ_year) by REML over a deterministic grid.
+
+    Returns ``(lambda_age, lambda_year, reml_score)``.
+
+    Coarse sweep over the full range, then one refinement pass at ``refine_step``
+    around the coarse winner. Both passes are **grids**, so the result is a function
+    of the inputs alone — no optimiser state, no convergence path, no last-digit
+    drift across platforms (Anchor 3).
+
+    Cost is ~150 penalized fits, which on the ILEC-shaped fixture is a few seconds
+    at ~4-13 ms each. On the real 125k-cell book the fit is the expensive part and
+    slice 4 carries the budget.
+    """
+    lo, hi = bounds
+
+    def score_at(log_age: float, log_year: float) -> float:
+        model = PenalizedTensorMIModel(
+            cells,
+            lambda_age=10.0**log_age,
+            lambda_year=10.0**log_year,
+            **model_kwargs,  # type: ignore[arg-type]
+        )
+        fit = model.fit()
+        n_tensor, s_age, s_year = model._last_penalty_blocks
+        design = model._last_design
+        assert design is not None
+        penalty = np.zeros((design.shape[1], design.shape[1]), dtype=np.float64)
+        penalty[:n_tensor, :n_tensor] = 10.0**log_age * s_age + 10.0**log_year * s_year
+        return reml_score(model._last_deaths, design, model._last_offset, fit.coef, penalty)
+
+    def sweep(centre: tuple[float, float], step: float, span: float) -> tuple[float, float, float]:
+        axis = np.arange(max(lo, centre[0] - span), min(hi, centre[0] + span) + step / 2.0, step)
+        years = np.arange(max(lo, centre[1] - span), min(hi, centre[1] + span) + step / 2.0, step)
+        best = (np.inf, centre[0], centre[1])
+        for la in axis:
+            for ly in years:
+                value = score_at(float(la), float(ly))
+                if value < best[0]:
+                    best = (value, float(la), float(ly))
+        return best
+
+    coarse = sweep(((lo + hi) / 2.0, (lo + hi) / 2.0), coarse_step, (hi - lo) / 2.0)
+    fine = sweep((coarse[1], coarse[2]), refine_step, coarse_step)
+    return 10.0 ** fine[1], 10.0 ** fine[2], fine[0]
+
+
+def lambda_is_at_bound(
+    lambda_value: float,
+    bounds: tuple[float, float] = LAMBDA_LOG10_BOUNDS,
+    tol: float = 1e-9,
+) -> bool:
+    """Is a selected λ pinned to the edge of the search range?
+
+    It happens routinely and legitimately — a genuinely linear calendar trend wants
+    a λ the grid cannot express, and the constant-MI fixture selects exactly
+    ``1e8``, the upper bound. But it means the reported number is *"at least this"*
+    rather than *"this"*, and Anchor 5's discipline of checking a fitted quantity
+    against its ceiling applies to λ as much as to ``k``.
+
+    Flagged rather than silently clamped, because :func:`select_lambdas_reml`'s
+    docstring promises the caller is told and an unkept promise in a docstring is
+    the defect class this epic keeps finding in its own work.
+    """
+    log_value = float(np.log10(lambda_value)) if lambda_value > 0.0 else bounds[0]
+    return abs(log_value - bounds[0]) < tol or abs(log_value - bounds[1]) < tol
