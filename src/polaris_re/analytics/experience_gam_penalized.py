@@ -154,9 +154,16 @@ class DesignContext:
 class PenalizedMIFit:
     """A fitted penalized surface.
 
-    ``reml_score`` and ``lambda_grid_step`` are populated only when λ came from
-    :func:`select_lambdas_reml`; a fixed-λ fit leaves both ``None``, which is how a
-    reader tells a selected surface from a hand-set one."""
+    ``reml_score`` and ``lambda_grid_step`` are populated by :func:`fit_reml`; a
+    fixed-λ fit leaves both ``None``, which is how a reader tells a selected surface
+    from a hand-set one.
+
+    **Not** :func:`select_lambdas_reml` — it returns a bare tuple, so a caller who
+    follows it with a hand-built model gets the defaults and both fields come back
+    ``None``. That two-step dance *is* the defect PR #188 found, and an earlier
+    revision of this docstring named it as the source of the metadata (PR #188
+    review round 2 [P1]). Naming the wrong entry point once a right one exists is
+    worse than the original vagueness was."""
 
     coef: np.ndarray
     cov: np.ndarray
@@ -573,8 +580,9 @@ converged λ could drift in its last digits across runs or platforms — the sam
 of problem that already falsified this project's byte-for-byte reproducibility claim
 (ADR-184 amendment 2). A grid removes the failure mode outright: the selected λ is a
 grid point, so it is reproducible **by construction** with nothing to quantise. The
-price is resolution, which is recorded on every fit as ``lambda_grid_step`` rather
-than left implicit."""
+price is resolution, which is recorded on every **selected** fit as
+``lambda_grid_step`` rather than left implicit — a plain ``fit()`` at hand-set λ
+leaves it ``None`` by design, since there was no grid to have a resolution."""
 
 
 def reml_score(
@@ -694,7 +702,14 @@ def lambda_is_at_bound(
     return abs(log_value - bounds[0]) < tol or abs(log_value - bounds[1]) < tol
 
 
-def fit_reml(cells: pl.DataFrame, **model_kwargs: object) -> PenalizedMIFit:
+def fit_reml(
+    cells: pl.DataFrame,
+    *,
+    coarse_step: float = COARSE_STEP,
+    refine_step: float = REFINE_STEP,
+    bounds: tuple[float, float] = LAMBDA_LOG10_BOUNDS,
+    **model_kwargs: object,
+) -> PenalizedMIFit:
     """Select λ by REML, then fit at it — with the selection metadata recorded.
 
     **This function exists because the fields it populates were inert.** Slice 2
@@ -706,12 +721,28 @@ def fit_reml(cells: pl.DataFrame, **model_kwargs: object) -> PenalizedMIFit:
 
     Callers who want a selected surface should use this rather than the two-step
     dance, because the two-step dance is exactly what dropped the metadata.
+
+    The grid parameters are **named here rather than swept up in** ``model_kwargs``,
+    which is forwarded to the model constructor as well as the selector. An earlier
+    revision took them only implicitly, so ``refine_step=0.5`` raised ``TypeError``
+    from ``PenalizedTensorMIModel.__init__`` before it could reach the selector, and
+    the reported ``lambda_grid_step`` was the module constant rather than the
+    resolution actually used. The two halves were the same gap and are closed
+    together: the step reported is the step swept (PR #188 review round 2 [P2]).
+    Slice 4 needs the override — a coarser sweep is the obvious lever when 202 fits
+    meet the 125k-cell book.
     """
-    lambda_age, lambda_year, score = select_lambdas_reml(cells, **model_kwargs)
+    lambda_age, lambda_year, score = select_lambdas_reml(
+        cells,
+        coarse_step=coarse_step,
+        refine_step=refine_step,
+        bounds=bounds,
+        **model_kwargs,
+    )
     model = PenalizedTensorMIModel(
         cells,
         lambda_age=lambda_age,
         lambda_year=lambda_year,
         **model_kwargs,  # type: ignore[arg-type]
     )
-    return model.fit(reml_score_value=score, lambda_grid_step=REFINE_STEP)
+    return model.fit(reml_score_value=score, lambda_grid_step=refine_step)

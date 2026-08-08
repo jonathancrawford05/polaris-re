@@ -156,11 +156,16 @@ ours to build; the IRLS loop can still lean on statsmodels for the family and li
 
 ### Slice 2: λ selection by REML, and the determinism it threatens (autonomous)
 
-- **Status:** **DONE (2026-08-08)** — **ADR-186**, 23 tests (was 15).
+- **Status:** **DONE (2026-08-08)** — **ADR-186 + amendments 1-2**, 26 tests
+  (was 15), across two review rounds.
   **Anchor 3 resolved by design rather than by management:** selection is a
   deterministic grid, so λ is a grid point and reproducible by construction — no
   optimiser state, nothing to quantise. The plan's fallback became the design, and
-  `lambda_grid_step` records the resolution that bought it.
+  `lambda_grid_step` records the resolution that bought it — **on fits from
+  `fit_reml()`**, which is the entry point that does selection and fitting together.
+  It shipped inert and was wired in amendment 1; amendment 2 then had to correct two
+  docstrings that still pointed at the two-step dance, and thread the grid step so
+  the value reported is the value swept.
   **Anchor 4's reporting fix landed:** `edf_tensor` (additive, closes against
   `edf_factors`) plus shrinkages labelled *removed*.
   **Thesis supported at fixture scale**, 2.3x RMSE improvement over the hand-tuned
@@ -212,6 +217,16 @@ must **measure** both, not assert them.
 
 **Acceptance criteria.** A stated λ quantisation with the measurements that
 justify it. Reproducibility across processes. `edf` recovering graded smoothness.
+
+> **Discharged 2026-08-08, but only on the second attempt for the first criterion.**
+> The quantisation was *stated* (`REFINE_STEP`, 0.25 decade) while
+> `test_edf_does_not_step_visibly_under_quantisation` — the thing that **measures**
+> it — was dropped without record, so the criterion read as met when half of it was
+> (PR #188 review [P1]). Restored and now measured; a second test sweeps a
+> non-default step so the recorded resolution is checked against the one actually
+> used rather than against the module constant. The lesson is about the criterion's
+> wording, not the slice: "stated **with the measurements**" was doing real work in
+> that sentence and a status line claiming it was satisfied did not check it.
 
 ---
 

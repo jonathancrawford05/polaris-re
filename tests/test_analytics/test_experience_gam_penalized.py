@@ -630,6 +630,33 @@ def test_a_selected_fit_records_its_provenance_and_a_hand_set_one_does_not() -> 
     assert hand_set.lambda_grid_step is None
 
 
+def test_the_recorded_grid_step_is_the_step_actually_swept() -> None:
+    """Asserting against the module default cannot catch a hardcoded report.
+
+    `fit_reml` previously passed `lambda_grid_step=REFINE_STEP` — the constant, not
+    the resolution used — and forwarded `**model_kwargs` to the model constructor as
+    well as the selector, so `refine_step=0.5` raised `TypeError` before reaching the
+    grid. That made the report unfalsifiable rather than correct: the only input that
+    could expose it crashed first, and the test above passes either way because it
+    compares against the same constant the code hardcoded (PR #188 review round 2).
+
+    So this sweeps a **non-default** resolution. It is the assertion that would have
+    failed on the old code, which is the only kind worth adding here.
+    """
+    coarser = 0.5
+    assert coarser != REFINE_STEP, "the override must differ from the default to test anything"
+
+    fit = fit_reml(_cells(noisy=True), k_age=7, k_year=6, refine_step=coarser)
+
+    assert fit.lambda_grid_step == coarser
+    # λ is a grid point of the sweep that produced it, so a coarser step must leave
+    # log10 λ on the coarser lattice. This is what makes the recorded step meaningful
+    # rather than a label: it describes the lattice the answer actually came from.
+    for lam in (fit.lambda_age, fit.lambda_year):
+        residual = np.log10(lam) / coarser
+        np.testing.assert_allclose(residual, np.round(residual), atol=1e-9)
+
+
 def test_the_grid_resolution_is_fine_enough_that_edf_does_not_visibly_step() -> None:
     """PLAN slice 2's fourth test, restored — and it measures rather than asserts.
 

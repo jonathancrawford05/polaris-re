@@ -70,7 +70,20 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
   `reml_score` and `lambda_grid_step` left `None` — which was the shipped defect.
   `fit_reml()` does both and populates them, and it is the fit slice 3 should take
   `Vb` from. Use `select_lambdas_reml()` only when the search is wanted without the
-  fit.
+  fit. Grid parameters (`coarse_step`, `refine_step`, `bounds`) are named on
+  `fit_reml()` and reach the selector only — `**model_kwargs` goes to the model.
+- **Grep the claim set before calling a fix done** (ADR-186 amendment 2). Slice 2's
+  inert-fields defect was asserted in **five** places; the fix updated three, and
+  round 2 found the other two still naming the wrong entry point. Slice 3 is where
+  this bites next: `Vb` arrives with documented properties (Wood's, not the
+  delta-method sandwich; φ-scaled; consumed unchanged by the extractor) and those
+  sentences will land in the dataclass, the ADR, the PLAN and the extractor's own
+  docstring. One `grep` for the claim costs seconds; two review rounds did not.
+- **A test that compares against the constant the code hardcoded cannot fail.**
+  `lambda_grid_step` was reported as `REFINE_STEP` regardless of the step swept, and
+  the test asserted `== REFINE_STEP`. Both halves passed, together, wrongly. For
+  slice 3: a coverage test that draws its nominal rate from the same constant the
+  band construction used has this exact shape.
 - **The oracle already exists.** `TensorMIModel` at λ=0 is the correctness spec and
   it is already tested. Do not build a new one.
 - **statsmodels cannot supply the tensor.** `GLMGam` + `BSplines` penalize but the

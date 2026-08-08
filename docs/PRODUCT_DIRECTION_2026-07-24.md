@@ -1638,6 +1638,19 @@ record the clause text. What replaces it:
   simply not identify λ — which would be a finding rather than a failure.
   *Source: PLAN_penalized_mi_surface (1st-order).* **IMPORTANT.**
 
+  **Progress — slices 1–2 done (2026-08-08), ADR-185, ADR-186 + amendments 1–2.**
+  Two of the three "known hard parts" have resolved, in opposite directions.
+  *statsmodels:* confirmed additive-only on 0.14.6, so the Kronecker design and
+  penalty are hand-built as anticipated — and worse than anticipated, **patsy cannot
+  build a P-spline basis at all** (it always clamps boundary knots, which destroys
+  the difference penalty's null space), so the basis comes from
+  `scipy.interpolate.BSpline.design_matrix` on an extended uniform sequence.
+  *Determinism:* the threat **did not materialise**, because there is no optimizer —
+  selection is a deterministic grid, so λ is a grid point and reproducible by
+  construction. The hard part named here was real; the answer was to remove it
+  rather than manage it. *Identifiability on eight ILEC years remains open and is
+  slice 5's question.*
+
 ### Appended 2026-08-08d (harvest gap — the surviving age-45 explanations)
 
 ADR-184 amendment 2 and `MEASUREMENT_experience_gam_ilec.md` §7 both name three

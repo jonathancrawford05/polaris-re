@@ -9,8 +9,9 @@
 | | |
 |---|---|
 | Baseline (`main` @ `fdd96ba`) | 3083 passed, 3 skipped, 125 deselected |
-| End state (`make test`) | **3091 passed, 3 skipped, 125 deselected** (+8) |
-| Module tests | 25 (was 15) after the PR #188 review round |
+| End state (`make test`) | **3094 passed, 3 skipped, 125 deselected** (+11) |
+| — by round | 3091 as first pushed (+8), 3093 after round 1 (+2), 3094 after round 2 (+1) |
+| Module tests | 26 (was 15) — 23 pushed, +2 round 1, +1 round 2 |
 | Standing failures | none new or changed |
 | `tests/qa/` goldens | untouched |
 | perf row | `peak_mib` 33 (Δ+0), fingerprint `8331a13f7ce7` unchanged |
@@ -21,7 +22,8 @@ PRODUCT_DIRECTION. Fires under container contention, passes in isolation.
 ## What shipped
 
 REML λ selection over a **deterministic grid**, the amended-Anchor-4 EDF reporting
-fix, and an at-bound flag. 23 tests, up from 15.
+fix, and an at-bound flag. 26 tests, up from 15 — 23 as first pushed, then +2 in
+review round 1 and +1 in round 2.
 
 ## Anchor 3 was resolved by design, not managed
 
@@ -97,10 +99,44 @@ are fixed. Recorded because the reviewer's scope finding is legitimate and remai
 so — it was **accepted and overridden on cost**, not refuted, and a future reader
 should see that distinction rather than assume the finding was wrong.
 
+## Review round 2: the fix had the shape of the defect it fixed
+
+Round 1's headline finding was two inert fields whose docstrings, in five places,
+described behaviour the code did not have. Round 1's fix wired them, and ADR-186
+amendment 1 generalised the shape: *a claim written from intent while the wiring is
+still a two-step dance the claim does not survive.*
+
+Round 2 found that shape **in the fix**. Two of the five claim sites were never
+updated: `PenalizedMIFit`'s docstring still credited `select_lambdas_reml` with
+populating the fields, and `REFINE_STEP`'s still said "recorded on every fit". The
+first is the worse one, and the reviewer's reason is the right one — once a correct
+entry point exists, naming the wrong one is worse than the original vagueness,
+because vagueness sends nobody anywhere in particular while a wrong name sends them
+precisely to the `None`.
+
+**The generalisation was right and scoped too narrowly.** The unit of work is not
+the claim, it is the **claim set**. Five sites asserted one fact; the fix updated
+three; nothing counted. A `grep` for the claim before declaring the fix done costs
+seconds and would have closed it. Two review rounds did not.
+
+**The second finding is sharper than it looks.** `fit_reml()` reported
+`lambda_grid_step=REFINE_STEP` — the constant, not the step swept — and forwarded
+`**model_kwargs` to the model constructor as well as the selector, so the one input
+that could expose the hardcoding (`refine_step=0.5`) raised `TypeError` first. The
+test asserted `== REFINE_STEP`, comparing against the same constant the code
+hardcoded, so it passed either way. **An unfalsifiable claim paired with a test that
+cannot fail** is worse than either alone: the test's greenness was evidence for
+nothing while reading as evidence for the claim. The new test sweeps a non-default
+0.5 and checks log10 λ lands on the coarser lattice — it is the assertion that would
+have failed on the old code, which is the only kind worth adding.
+
 ## Carried forward
 
 `tr(F)` is chosen because it is what `mgcv` reports per smooth term, and nothing
 here can verify that. Adopted, not validated — PLAN §7, the oracle's second job.
+Round 2 raised its priority rather than restating it: slice 4 puts the number in
+front of a reader, so the `mgcv` cross-check stops being optional before slice 5
+reports it on real data. It needs R on a machine that has it — maintainer-side.
 
 ## Next
 

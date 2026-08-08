@@ -13566,3 +13566,50 @@ not the ~150 claimed in four places, which was 11–35% low. And
 initialised, so touching them on an unfitted model raised `AttributeError`; the
 `assert design is not None` guarding it also vanishes under `python -O`. Replaced
 with a public `DesignContext` returned by the fit.
+
+### ADR-186 amendment 2 — the fix landed; two of the five claim sites did not (2026-08-08)
+
+Amendment 1 wired `fit_reml()` and named the recurring shape as *a claim written
+from intent while the wiring is still a two-step dance the claim does not survive*.
+The round-2 review then found the shape **inside the fix itself**: two of the five
+claim sites were never brought along (PR #188 review round 2 [P1]).
+
+- The `PenalizedMIFit` docstring still credited `select_lambdas_reml` as the source
+  of the two fields. That is the two-step dance — a reader following it lands
+  exactly on the `None` the amendment existed to remove. Once a correct entry point
+  exists, **naming the wrong one is worse than the original vagueness**, because
+  vagueness sends nobody anywhere in particular.
+- `REFINE_STEP`'s docstring still said "recorded on every fit". Still false, and
+  false in the direction that erases the distinction: a hand-set `fit()` leaves it
+  `None` *by design*. "Every selected fit" is the true claim.
+
+This ADR's own body (above) also says "recorded on every fit" and is **left
+standing** — amendments are how this repository corrects an ADR without rewriting
+the record, per ADR-183 am. 3 and ADR-185 am. 1. The docstrings are different: they
+are read as current API documentation, not as a dated decision.
+
+**The generalisation amendment 1 offered was right but scoped too narrowly.** It
+treated the defect as *claims outrunning wiring*. The recurrence shows the unit of
+work is not the claim but the **claim set**: five sites asserted one fact, the fix
+updated three, and nothing in the process counted. Grepping the claim before
+declaring the fix done is the cheap check that would have caught it, and it is now
+what slice 3 owes itself before `Vb`'s documented properties multiply the same way.
+
+**A second finding, on a report that could not be wrong.** `fit_reml()` passed
+`lambda_grid_step=REFINE_STEP` — the module constant rather than the resolution
+swept — while forwarding `**model_kwargs` to the model constructor *and* the
+selector, so `refine_step=0.5` raised `TypeError` before reaching the grid. The
+report was therefore **unfalsifiable rather than correct**: the only input that
+could expose the hardcoding crashed first, and the test asserting `== REFINE_STEP`
+compared against the same constant the code hardcoded, so it passed either way.
+That pairing — an untestable claim and a test that cannot fail — is a sharper
+version of the same defect class than either half alone.
+
+Grid parameters are now named on `fit_reml()` and threaded to the selector, the
+recorded step is the step swept, and a test sweeps a **non-default** 0.5 and checks
+that log10 λ lands on the coarser lattice. Slice 4 needs the override anyway: a
+coarser sweep is the obvious lever when 202 fits meet the 125k-cell book.
+
+**Final counts**, superseding the "23 tests (was 15)" in this ADR's Context line:
+**26 module tests**, and a suite of 3094 (baseline 3083, **+11**) — 23/+8 as first
+pushed, +2 in round 1, +1 in round 2.
