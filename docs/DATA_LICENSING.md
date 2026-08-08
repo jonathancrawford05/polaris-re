@@ -104,19 +104,22 @@ dropped.
 > **HMD.** Human Mortality Database. Max Planck Institute for Demographic Research
 > (Germany), University of California, Berkeley (USA), and French Institute for
 > Demographic Studies (France). Available at <https://www.mortality.org>.
-> Data downloaded **August 2026**. Version DOI: **[TO SUPPLY — see §4d]**.
+> Data downloaded **[DATE TO CONFIRM — see §4d]**. Version DOI: **[TO SUPPLY — see §4d]**.
 
 **Series used:** `Deaths_1x1.txt` and `Exposures_1x1.txt` for **USA** and
 **GBRTENW** (England & Wales, total population), calendar years 1990–2019, ages
-25–95, both sexes. Downloaded by the maintainer in **August 2026** under their own
-HMD account, from the **"Statistics" / `STATS` bundle** — which is what makes these
-HMD's *own output series* rather than its Input Database (§4c).
+25–95, both sexes. Downloaded by the maintainer under their own HMD account, from
+the **"Statistics" / `STATS` bundle** — which is what makes these HMD's *own output
+series* rather than its Input Database (§4c). **The download date is not yet
+established** (§4d); an earlier revision of this document said "August 2026", which
+was inferred from the run dates rather than stated by anyone, and is withdrawn.
 
 **This attribution is not yet complete.** CC BY 4.0 makes attribution the licence
 condition, and HMD prescribes its elements: database name, all three sponsoring
 institutions, the URL, the **date accessed**, and the **DOI of the version used**.
-The first four are above; the DOI is outstanding and is the one thing standing
-between this repository and a clean HMD position (§4d).
+The first three are above. **Two are outstanding** — the access date and the DOI —
+and they are one problem rather than two, because the version is identified by
+which release was current on the day (§4d).
 
 ### 2b. SOA Individual Life Experience Committee
 
@@ -300,13 +303,43 @@ fractional parts can land on a whole number — and it does not distinguish the 
 tiers here. The structural argument does not depend on it, and `Exposures_1x1` is
 named in the agreement's own list of HMD-produced estimates either way.
 
-### 4d. The one outstanding item — the version DOI
+### 4d. The outstanding items — access date and version DOI
 
-CC BY 4.0's condition is attribution, and HMD prescribes the DOI as part of it, so
-an attribution missing the DOI does not meet the licence's own stated form. This is
-the **only** identified HMD gap, and it is the maintainer's to close because only
-they know which release was downloaded: mortality.org publishes a DOI per version,
-and it should be pasted into §2a in place of the marker.
+CC BY 4.0's condition is attribution, and HMD prescribes both the **date accessed**
+and the **DOI of the version used** among its elements, so an attribution missing
+either does not meet the licence's own stated form. Both are open, and the second
+depends on the first.
+
+**What was checked, 2026-08-08, and what it settled.**
+
+| Evidence | Result |
+|---|---|
+| `head -1` on USA `Deaths_1x1.txt` | `Last modified: 09 June 2026` |
+| `head -1` on GBRTENW `Deaths_1x1.txt` | `Last modified: 31 Jan 2025` |
+| `stat` birth vs mtime on the USA file | **identical to the second**, and equal to the header date |
+
+The two country headers differ by sixteen months **within the same download**, which
+establishes that `Last modified` is a *per-country series revision stamp* and not a
+release version. Neither header identifies the bundle.
+
+The `stat` result is a **negative**: a birth time equal to mtime to the second is
+`unzip` writing the archive's stored date, not an independent record of extraction.
+So the filesystem carries no download date either.
+
+**What this rules out.** The versions-table row dated 06/15/2026 cannot be assumed.
+If the download predates 15 June — and the only concrete date in evidence is 9 June
+— that release did not yet exist. The correct row is the newest one **on or before
+the actual download date**, and the DOI must come from its **Statistics** column,
+not **Countries**.
+
+**How to close it.** Establish the download date from browser history for
+mortality.org, or `mdls -name kMDItemDateAdded` on a surviving file, then read the
+matching row's Statistics DOI and paste both into §2a and the two measurement docs.
+
+**If it cannot be established**, the honest citation carries the access date as
+unknown and says so. A wrong DOI asserts something checkable and false; an absent
+one only says we do not know — and on a licence whose sole condition is
+attribution, guessing is the one failure mode worth avoiding outright.
 
 Everything else about the HMD position is clean: derivatives permitted, commercial
 use permitted, no data redistributed, the estimates tier confirmed.

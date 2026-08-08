@@ -1539,15 +1539,24 @@ record the clause text. What replaces it:
 
 ### Appended 2026-08-08 (HMD terms read — the licensing item narrows to one line)
 
-- **Supply the HMD version DOI.** The HMD User Agreement was read 2026-08-08 and is
+- **Supply the HMD access date *and* version DOI.** (Revised 2026-08-08: the access
+  date was thought known and is not — see below.) The HMD User Agreement was read 2026-08-08 and is
   **permissive** — CC BY 4.0 on its own estimates, derivatives and commercial use
   both permitted, and the `STATS` bundle this project used is confirmed to be that
   tier (ADR-183 amendment 2). The single remaining gap is that CC BY 4.0's condition
   *is* attribution and HMD prescribes a **version DOI** as part of it, which
   `DATA_LICENSING.md` §2a does not yet carry. Only the maintainer knows which
-  release was downloaded. Paste it into §2a and both measurement docs, then update
-  `test_the_hmd_attribution_gap_is_not_rounded_to_compliant`. **Maintainer-gated,
-  ~5 minutes.** *Source: HMD User Agreement, read 2026-08-08 (1st-order).*
+  release was downloaded — and the download date turned out not to be established
+  either. Three checks on 2026-08-08 settled what the files can and cannot tell us:
+  the USA and GBRTENW headers differ by sixteen months (09 Jun 2026 vs 31 Jan 2025),
+  proving `Last modified` is a per-country series stamp and not a release version;
+  and `stat` returns birth time equal to mtime **to the second**, so the filesystem
+  is echoing the archive's stored date rather than recording an extraction. Neither
+  identifies the bundle. Resolve from browser history for mortality.org or
+  `mdls -name kMDItemDateAdded`, take the DOI from the matching row's **Statistics**
+  column (not Countries), paste both into §2a and both measurement docs, then update
+  `test_the_hmd_attribution_gap_is_not_rounded_to_compliant`. **Maintainer-gated.**
+  *Source: HMD User Agreement + provenance checks 2026-08-08 (1st-order).*
   **IMPORTANT.**
 - **If HMD Input Database series are ever used, this analysis does not carry over.**
   Only the `STATS` output tier is CC BY 4.0; input data carries a no-commercial-gain

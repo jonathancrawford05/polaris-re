@@ -93,11 +93,15 @@ def test_the_hmd_attribution_gap_is_not_rounded_to_compliant() -> None:
     Closing it means pasting the DOI in, which removes the marker and fails here.
     """
     text = LICENSING.read_text()
-    assert "[TO SUPPLY — see §4d]" in text, (
-        "either the DOI has been supplied (update this test) or the marker was "
-        "dropped without supplying it (put it back)"
-    )
+    for marker in ("[TO SUPPLY — see §4d]", "[DATE TO CONFIRM — see §4d]"):
+        assert marker in text, (
+            f"{marker} is gone: either it was supplied (update this test) or it was "
+            f"dropped without being supplied (put it back)"
+        )
     assert "does not meet the licence's own stated form" in text
+    # The negative result matters as much as the positive ones — it is what stops
+    # the 06/15/2026 row being adopted because it is the one we happen to have seen.
+    assert "identical to the second" in text, "the stat non-result must stay recorded"
 
 
 def test_soa_terms_are_recorded_with_their_actual_clause_text() -> None:
