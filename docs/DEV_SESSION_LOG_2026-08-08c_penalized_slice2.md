@@ -90,6 +90,13 @@ because the maintainer supplied the DOI mid-slice and landing it felt like tidyi
 Out-of-scope work belongs in its own change; a reviewer should not have to discover
 a licensing closure in a PR titled "REML selection".
 
+**Decision (maintainer, 2026-08-08): do not split it out.** The review recommended
+separating the two licensing commits into their own PR. The maintainer judged the
+separation not worth the history surgery on a live PR now that the record defects
+are fixed. Recorded because the reviewer's scope finding is legitimate and remains
+so — it was **accepted and overridden on cost**, not refuted, and a future reader
+should see that distinction rather than assume the finding was wrong.
+
 ## Carried forward
 
 `tr(F)` is chosen because it is what `mgcv` reports per smooth term, and nothing
