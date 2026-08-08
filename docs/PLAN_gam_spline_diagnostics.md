@@ -218,8 +218,42 @@ penalty removes.
 
 ## Slice 4: confirm on real ILEC (one maintainer run)
 
-- **Status:** BLOCKED on slices 1–3
+- **Status:** **READY** — slices 1–3 are done; this needs the maintainer's cache.
 - **Depends on:** Slices 1–3
+
+**The two commands.** Run both from the repo root with
+`$POLARIS_EXPERIENCE_CACHE_DIR` set (see `RUNBOOK_experience_data_acquisition.md`
+§0). Roughly 10–20 minutes each — the 12.5 GB file is streamed twice.
+
+```bash
+# 1. CONTROL — reproduces docs/measurements/experience_gam_ilec_duration_banded.json
+#    byte-for-byte. If it does not, that is a determinism finding and slice 4 stops
+#    here until it is understood: compare with `diff`, not by eye.
+uv run python scripts/experience_diligence.py --source ilec \
+    --year-df 3 --duration-bands \
+    -o ~/ilec_banded_cubic.json --markdown ~/ilec_banded_cubic.md
+
+# 2. TREATMENT — the setting slice 3 recommends for an 8-year window.
+uv run python scripts/experience_diligence.py --source ilec \
+    --year-df 2 --year-degree 2 --duration-bands \
+    -o ~/ilec_banded_quadratic.json --markdown ~/ilec_banded_quadratic.md
+```
+
+Then, whatever the outcome:
+
+```bash
+# The real interior knots — never looked at, on either margin.
+python3 -c "import json;print(json.load(open('$HOME/ilec_banded_quadratic.json'))['fit']['interior_knots'])"
+```
+
+**What to look for**, decided in advance so the reading is not chosen after seeing
+the numbers:
+
+| Observation | Reading |
+|---|---|
+| Age 45's 2013→2019 climb collapses under (2) while 55–85 barely move | The synthetic mechanism is confirmed on real data; §3/§7 get corrected and age 45 becomes usable |
+| Age 45 still climbs steeply under (2) | The real ramp is **not** the artifact this diagnostic reproduced. Slices 1–3 stand as a finding about the estimator; the ILEC caveat stays, now evidenced |
+| Ages 55–85 also flatten sharply | The quadratic is suppressing real structure on this book — the fixture's "no trade against cubic" result does not transfer, and that is itself worth recording |
 
 **Scope.** One command against the maintainer's cache, re-running the
 duration-banded ILEC configuration at `--year-degree 3` (reproducing the committed
