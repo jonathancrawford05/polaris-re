@@ -90,7 +90,17 @@ depend on nothing moving, and Anchor 1 needs it alive as the oracle.
 
 ### Slice 1: the penalized fitter core, at fixed λ (autonomous — no data)
 
-- **Status:** NOT STARTED
+- **Status:** **DONE (2026-08-08)** — `experience_gam_penalized.py`, 11 tests,
+  **ADR-185**. Both limits verified. **Two plan assumptions were wrong:**
+  - **patsy cannot build a P-spline basis.** It always clamps boundary knots, so a
+    difference penalty over it does not annihilate linear trends (step spread
+    5.6e-01 against 8.9e-16 on a properly extended uniform sequence). The module now
+    carries two knot schemes and **Anchor 1 is amended**: λ=0 reproduces
+    `TensorMIModel` exactly in the *clamped* scheme, which verifies the fitting
+    machinery against the oracle; it cannot also hold in the production scheme
+    because a different basis is the point.
+  - **IRLS must converge on deviance.** At λ=1e12 the coefficients never settle to
+    a `max|Δβ|` tolerance while the deviance has stabilised within 8 iterations.
 - **Depends on:** nothing
 
 **Scope.** Marginal B-spline bases `B_age (n×k₁)` and `B_year (n×k₂)`; the tensor

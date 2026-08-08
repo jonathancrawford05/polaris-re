@@ -13241,3 +13241,90 @@ unrelated to spline degrees. It now uses `year_df=3`. That edit is not a weakene
 assertion (the test's subject is the base guard, not the df values), but it *was* a
 silent behavioural signal buried in an unrelated test, which is how the narrowing
 went unrecorded in the first place.
+
+---
+
+## ADR-185: The penalized MI surface, slice 1 — and two things the plan had wrong
+
+**Date:** 2026-08-08
+**Status:** Accepted
+**Context:** `PLAN_penalized_mi_surface.md` slice 1 — the penalized fitter at fixed
+λ. `src/polaris_re/analytics/experience_gam_penalized.py`, 11 tests.
+
+### What shipped
+
+Marginal B-spline bases, a row-wise Kronecker tensor design, Eilers-Marx
+second-difference penalties lifted to the tensor coefficient vector as
+`DᵀD ⊗ I` and `I ⊗ DᵀD`, and penalized IRLS solving `(XᵀWX + S)β = XᵀWz` at a
+fixed caller-supplied λ. Bayesian covariance `(XᵀWX + S)⁻¹φ` and `edf = tr(H)` come
+out of the same factorisation. **λ selection is not here** — slice 2 — because an
+optimiser wrapped around an unverified fitter is two hard things at once.
+
+### Finding 1 — patsy cannot build a P-spline basis, and the plan assumed it could
+
+The plan's Anchor 1 said λ=0 must reproduce `TensorMIModel` exactly, and the route
+to that was to build a Kronecker design spanning patsy's column space. That works:
+full marginal bases at `df + 1` with an intercept span exactly the patsy
+main-effects design, verified by rank of the concatenation and by fitted values
+agreeing to **6.4e-15** on the ILEC-shaped fixture.
+
+**But a difference penalty over that basis does not penalise what it claims to.**
+The penalty's null space is "coefficients linear in index", which corresponds to a
+linear *function* only when the Greville abscissae are equally spaced — and
+`patsy.bs` always **clamps** the boundary knots, repeating them `degree + 1` times.
+Measured: with index-linear coefficients the resulting function's step spread is
+**5.6e-01** on a patsy basis (quantile *or* uniform interior knots — clamping alone
+breaks it) against **8.9e-16** on a properly extended uniform sequence built with
+`scipy.interpolate.BSpline.design_matrix`.
+
+The visible symptom was the λ→∞ limit failing: fitted MI should collapse to constant
+in time and instead retained a **3.0-point** span, largest at the young ages.
+
+**So the module carries two knot schemes**, and the distinction is not cosmetic:
+
+| `knots` | Basis | Use |
+|---|---|---|
+| `"uniform"` *(default)* | extended uniform, scipy — a true P-spline | production; the penalty behaves |
+| `"clamped"` | quantile + clamped, patsy | **oracle testing only** — matches `TensorMIModel`'s span so Anchor 1 is decidable |
+
+**Anchor 1 is therefore amended**: λ=0 reproduces `TensorMIModel` exactly *in the
+clamped scheme*, which verifies the fitting machinery — IRLS, dispersion, `edf`,
+covariance — against a trusted oracle. It cannot also hold in the production scheme,
+because a different basis is the entire point. Recording this rather than quietly
+loosening the anchor: the plan asserted something that turned out to be true only
+under a condition the plan did not know it needed.
+
+### Finding 2 — IRLS must converge on deviance, not on coefficients
+
+At λ=1e12 the normal equations are penalty-dominated and badly conditioned, so the
+coefficients rattle at round-off level in the penalised directions indefinitely
+while the fit itself has settled. A `max|Δβ| < tol` criterion **never trips**:
+measured, no convergence in 100 iterations where the deviance had stabilised within
+8. Convergence is now on relative change in deviance, which is also the quantity
+being optimised, so this is the correct criterion rather than a workaround. The
+solve is Cholesky with a least-squares fallback.
+
+### What the two limits now verify
+
+- **λ = 0** — fitted surface, dispersion and `edf == n_coef` all match
+  `TensorMIModel` (clamped scheme).
+- **λ → ∞** — fitted MI is constant in time to <1e-6 **and** agrees with
+  `TensorMIModel(year_df=1, year_degree=1)` to 2e-4. Two independent
+  implementations meeting at one closed form, which is what says the penalty acts
+  on the margin it names.
+- **Between** — `edf` falls monotonically, bounded above by the parameter count and
+  below by the penalty null space.
+
+The transposition guard is worth naming separately: a coefficient surface flat down
+the age axis carries no age roughness, so `S_age` must annihilate it while `S_year`
+must not. Swapping the Kronecker factors is otherwise silent and produces a model
+that runs, fits, and penalises the wrong margin.
+
+### Reported complexity carries an honest caveat
+
+`edf_age` and `edf_year` come from the tensor block's hat diagonal reshaped and
+summed over the other axis. That is a **descriptive split, not an orthogonal
+decomposition** — the margins are not independent and the two do not sum to
+`edf_total`. Anchor 4 requires complexity to be visible; it does not license
+presenting a convenient number as more than it is, so the caveat ships in the
+docstring rather than being discovered at slice 5.
