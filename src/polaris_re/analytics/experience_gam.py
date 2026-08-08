@@ -82,6 +82,8 @@ __all__ = [
     "TensorMIModel",
     "aggregate_seriatim",
     "attach_base_rate",
+    "spline_knots",
+    "validate_spline_margin",
 ]
 
 
@@ -126,6 +128,73 @@ _CANDIDATE_FACTORS: tuple[str, ...] = (
     "segment",
     "underwriting_era",
 )
+
+_DEFAULT_SPLINE_DEGREE = 3
+"""Cubic — every committed report predates the degree parameter and used this."""
+
+
+def _margin(column: str, df: int, degree: int) -> str:
+    """A single ``patsy.bs`` margin.
+
+    Emits the legacy string when ``degree`` is the cubic default so the design
+    *and its term names* are byte-identical to every fit taken before this
+    parameter existed. ``bs(x, df=6)`` and ``bs(x, df=6, degree=3)`` build the same
+    columns, but they are different term names in ``design_info``, and reports are
+    committed and diffed.
+    """
+    if degree == _DEFAULT_SPLINE_DEGREE:
+        return f"bs({column}, df={df})"
+    return f"bs({column}, df={df}, degree={degree})"
+
+
+def spline_knots(design_info: object) -> dict[str, list[float]]:
+    """Interior knot positions per spline margin, keyed by the patsy term string.
+
+    Reported alongside every fit because the knots are **not** where a reader
+    assumes. ``patsy.bs`` places them at quantiles of the *supplied vector*, and
+    that vector is one row per grouped cell — so on real experience they sit
+    wherever the book has many strata, not at even fractions of the age range.
+    Nobody looked at where they actually fell for the whole of the A4' epic.
+
+    Boundary knots (the repeated ``degree + 1`` copies of the range ends) are
+    dropped: they carry no information beyond ``observed_ages`` / ``observed_years``
+    and would make every report noisier to diff.
+    """
+    knots: dict[str, list[float]] = {}
+    factor_infos = getattr(design_info, "factor_infos", {})
+    for factor, info in factor_infos.items():
+        for transform in getattr(info, "state", {}).get("transforms", {}).values():
+            all_knots = getattr(transform, "_all_knots", None)
+            if all_knots is None:
+                continue
+            degree = int(getattr(transform, "_degree", _DEFAULT_SPLINE_DEGREE))
+            interior = np.asarray(all_knots, dtype=np.float64)[degree + 1 : -(degree + 1)]
+            knots[str(factor.code)] = [float(k) for k in interior]
+    return knots
+
+
+def validate_spline_margin(name: str, df: int, degree: int) -> None:
+    """Guard the ``df >= degree`` rule ``patsy`` enforces several frames deep.
+
+    Replaces the old ``_MIN_SPLINE_DF = 3`` floor in ``experience_diligence``, which
+    was a floor on ``df`` *conditional on ``degree`` being hardcoded at 3* and read
+    as though 3 were a floor on flexibility. It is not: ``df=1, degree=1`` is both
+    legal and strictly less flexible — a global straight line — and on a short
+    calendar window it is often the right answer (ADR-184).
+    """
+    if degree < 1:
+        raise PolarisValidationError(
+            f"{name}_degree={degree} is invalid; a B-spline needs degree >= 1 "
+            f"(1 = piecewise linear, 3 = cubic, the default)."
+        )
+    if df < degree:
+        raise PolarisValidationError(
+            f"{name}_df={df} is below {name}_degree={degree}. patsy requires "
+            f"df >= degree for a basis without an intercept, and the margin carries "
+            f"df - degree interior knots — so df={degree} is a global polynomial of "
+            f"degree {degree}, not a spline. To make this margin *less* flexible, "
+            f"lower {name}_degree rather than {name}_df."
+        )
 
 
 def aggregate_seriatim(
@@ -1121,6 +1190,16 @@ class MISurfaceResult:
     _result: object = field(default=None, repr=False)
     _design_info: object = field(default=None, repr=False)
 
+    @property
+    def knots(self) -> dict[str, list[float]]:
+        """Interior knot positions per spline margin — see :func:`spline_knots`.
+
+        Exposed on the result rather than left to callers reaching into
+        ``_design_info``, because the diligence harness reports them and a report
+        field should not depend on another module's private attribute.
+        """
+        return spline_knots(self._design_info)
+
     def _reference_frame(self, n: int) -> dict[str, np.ndarray]:
         """Length-n covariate frame with every field at its reference (excluding
         the ``__levels__`` bookkeeping entries)."""
@@ -1253,6 +1332,18 @@ class TensorMIModel:
         age_df:           Spline df for the attained-age margin.
         year_df:          Spline df for the calendar-year margin (the trend).
         duration_df:      Spline df for the residual duration smooth (when it varies).
+        age_degree:       Polynomial degree of the attained-age B-spline pieces.
+        year_degree:      Polynomial degree of the calendar-year pieces. **This, not
+                          ``year_df``, is the knob that makes the trend less
+                          flexible.** A margin carries ``df - degree`` interior
+                          knots, so ``df == degree`` is a global polynomial: at
+                          ``(1, 1)`` the trend is a straight line and fitted MI is
+                          constant in time by construction, at ``(3, 3)`` — the
+                          default and what every committed report used — MI may
+                          vary quadratically. On a short calendar window the cubic
+                          converts sampling noise into a large smooth swing
+                          wherever deaths are scarce (ADR-184).
+        duration_degree:  Polynomial degree of the duration-smooth pieces.
         age_varying:      Include the age x calendar tensor interaction (age-varying
                           improvement). ``False`` fits a separable age + calendar
                           model (improvement constant across age).
@@ -1279,9 +1370,15 @@ class TensorMIModel:
         age_varying: bool = True,
         overdispersion: bool | None = None,
         allow_generational_base: bool = False,
+        age_degree: int = _DEFAULT_SPLINE_DEGREE,
+        year_degree: int = _DEFAULT_SPLINE_DEGREE,
+        duration_degree: int = _DEFAULT_SPLINE_DEGREE,
     ) -> None:
         if basis not in {"count", "amount"}:
             raise PolarisValidationError(f"basis must be 'count' or 'amount', got {basis!r}.")
+        validate_spline_margin("age", age_df, age_degree)
+        validate_spline_margin("year", year_df, year_degree)
+        validate_spline_margin("duration", duration_df, duration_degree)
         exposure_col, deaths_col = COUNT_MEASURES if basis == "count" else AMOUNT_MEASURES
         required = self.REQUIRED_ALWAYS | {exposure_col, deaths_col}
         missing = required - set(cells.columns)
@@ -1310,6 +1407,9 @@ class TensorMIModel:
         self.age_df = age_df
         self.year_df = year_df
         self.duration_df = duration_df
+        self.age_degree = age_degree
+        self.year_degree = year_degree
+        self.duration_degree = duration_degree
         self.age_varying = age_varying
         self.overdispersion = (basis == "amount") if overdispersion is None else overdispersion
         self.allow_generational_base = allow_generational_base
@@ -1324,14 +1424,14 @@ class TensorMIModel:
 
     def _formula(self, frame: pl.DataFrame, factors: list[str]) -> str:
         """Right-hand-side patsy formula for the tensor-MI model."""
-        age_term = f"bs(attained_age, df={self.age_df})"
-        year_term = f"bs(calendar_year, df={self.year_df})"
+        age_term = _margin("attained_age", self.age_df, self.age_degree)
+        year_term = _margin("calendar_year", self.year_df, self.year_degree)
         terms = [age_term, year_term]
         if self.age_varying:
             # Tensor-product interaction => age-varying improvement surface.
             terms.append(f"{age_term}:{year_term}")
         if "duration_years" in frame.columns and frame["duration_years"].n_unique() > 1:
-            terms.append(f"bs(duration_years, df={self.duration_df})")
+            terms.append(_margin("duration_years", self.duration_df, self.duration_degree))
         terms.extend(f"C({f})" for f in factors)
         return " + ".join(terms)
 

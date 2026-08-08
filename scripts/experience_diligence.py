@@ -201,11 +201,29 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Spline df for the calendar margin. A SHORT window cannot support a "
             "large value: the ILEC 2012-2019 release is 8 years, and 4 there bends "
-            "at the boundary and spikes the terminal year. Minimum is 3 (a plain "
-            "cubic); use 3 on an 8-year window. The report warns when this is "
-            "large for the data."
+            "at the boundary and spikes the terminal year. A margin carries "
+            "df - degree interior knots, so df == degree is a global polynomial "
+            "rather than a spline. To make the trend LESS flexible, lower "
+            "--year-degree, not this. The report warns when this is large."
         ),
     )
+    parser.add_argument("--age-degree", type=int, default=3)
+    parser.add_argument(
+        "--year-degree",
+        type=int,
+        default=3,
+        help=(
+            "Polynomial degree of the calendar margin: 1 piecewise-linear, 3 cubic "
+            "(default, and what every committed report used). THIS is the knob for "
+            "a short window. With --year-df 1 --year-degree 1 the trend is a global "
+            "straight line and fitted MI is constant in time by construction, which "
+            "cannot manufacture the swing an unpenalized cubic produces wherever "
+            "deaths are scarce (ADR-184). The cost is that a genuine change in the "
+            "improvement rate becomes invisible too -- see "
+            "docs/MEASUREMENT_gam_ramp_mechanism.md before using it."
+        ),
+    )
+    parser.add_argument("--duration-degree", type=int, default=3)
     parser.add_argument("--confidence-level", type=float, default=0.95)
     parser.add_argument(
         "--overdispersion",
@@ -298,6 +316,9 @@ def main(argv: list[str] | None = None) -> int:
             late_window=args.late_window,
             age_df=args.age_df,
             year_df=args.year_df,
+            age_degree=args.age_degree,
+            year_degree=args.year_degree,
+            duration_degree=args.duration_degree,
             confidence_level=args.confidence_level,
             overdispersion=args.overdispersion,
             duration_band_edges=duration_band_edges,

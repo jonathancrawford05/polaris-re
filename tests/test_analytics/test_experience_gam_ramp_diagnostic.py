@@ -236,3 +236,92 @@ def test_a_genuine_ramp_survives_sampling_noise() -> None:
         row = _row(surface, age)
         climb = float(row[-1] - row[0]) * 100.0
         assert climb > 2.0, f"age {age}: genuine ramp not recovered, climb {climb:.2f}pp"
+
+
+# --------------------------------------------------------------------------- #
+# 6-9. Slice 3 — the degree knob, and what it costs
+# --------------------------------------------------------------------------- #
+
+
+def test_degree_defaults_leave_the_shipped_design_untouched() -> None:
+    """Every committed report predates this parameter and must stay reproducible.
+
+    The formula string is emitted in its legacy form at the cubic default, so both
+    the design columns *and* the ``design_info`` term names are identical to a fit
+    taken before ``*_degree`` existed.
+    """
+    cells = _cells(_CONSTANT, noisy=True, seed=7)
+    default = _surface(cells)
+    explicit = _surface(cells, age_degree=3, year_degree=3, duration_degree=3)
+    np.testing.assert_array_equal(default.mi_grid, explicit.mi_grid)
+
+    fitted = TensorMIModel(cells, **_SHIPPED_FIT).fit()  # type: ignore[arg-type]
+    assert "degree" not in "".join(fitted.knots), "cubic default must emit the legacy term name"
+    # ...and the knots really are where slice 1 said, not at even fractions of the range.
+    assert fitted.knots["bs(attained_age, df=6)"] == [42.0, 60.0, 78.0]
+    assert fitted.knots["bs(calendar_year, df=3)"] == [], "df == degree carries no interior knots"
+
+
+def test_a_linear_year_margin_cannot_ramp_and_is_unbiased() -> None:
+    """The fix, measured: the swing goes to zero *and* the level comes back.
+
+    At ``df == degree == 1`` the year margin is a global straight line, so the
+    year-to-year contrast is identical at every step and fitted MI is constant by
+    construction. The level matters as much as the flatness — the shipped cubic
+    pulls age 45's mean fitted MI to ~1.19% on a 1.50% truth, and this restores it.
+    """
+    cells = _cells(_CONSTANT, noisy=True, seed=7)
+    linear = _surface(cells, year_df=1, year_degree=1)
+    for age in _REFERENCE_AGES:
+        row = _row(linear, age)
+        assert _span_pp(linear, age) < 1e-9, f"age {age} is not flat"
+        np.testing.assert_allclose(row.mean(), _MI_TRUE, atol=2e-3)
+
+    cubic_bias = abs(float(_row(_surface(cells), 45).mean()) - _MI_TRUE)
+    linear_bias = abs(float(_row(linear, 45).mean()) - _MI_TRUE)
+    assert linear_bias < cubic_bias / 2.0, (
+        f"expected the linear margin to de-bias age 45: cubic off by "
+        f"{cubic_bias * 100:.2f}pp, linear by {linear_bias * 100:.2f}pp"
+    )
+
+
+def test_lowering_degree_without_df_still_permits_a_ramp() -> None:
+    """The trap the plan itself fell into, pinned in code.
+
+    ``year_degree=1`` with ``year_df=3`` keeps two interior knots, so MI becomes a
+    *step function* in year and swings as freely as the cubic. Degree alone is not
+    the knob; ``df == degree`` is.
+    """
+    cells = _cells(_CONSTANT, noisy=True, seed=7)
+    kinked = _surface(cells, year_df=3, year_degree=1)
+    assert _span_pp(kinked, 45) > 0.5, (
+        "degree=1 with df=3 should still swing — if this ever passes at ~0, the "
+        "two knobs have been conflated somewhere and the ladder is wrong"
+    )
+
+
+@pytest.mark.parametrize(
+    ("year_df", "year_degree", "sees_the_ramp"),
+    [(1, 1, False), (2, 2, True), (3, 3, True)],
+)
+def test_the_price_of_a_lower_order_is_blindness_to_real_curvature(
+    year_df: int, year_degree: int, sees_the_ramp: bool
+) -> None:
+    """Slice 3's whole point: what a lower order costs, not what it buys.
+
+    The truth here genuinely accelerates — MI climbs 0% to 3.5% across the window
+    at every age. A global linear margin **cannot represent that**: it is forced to
+    report one constant rate, and the climb vanishes. Quadratic and cubic both see
+    it.
+
+    So degree-lowering is not a free fix. It trades the ability to manufacture a
+    false trend for the ability to detect a true one, uniformly across age, which
+    is exactly the trade a *penalty* avoids having to make — the argument for the
+    P-spline rebuild rather than a substitute for it.
+    """
+    surface = _surface(_cells(_BROAD_RAMP, noisy=False), year_df=year_df, year_degree=year_degree)
+    climb = float(_row(surface, 65)[-1] - _row(surface, 65)[0]) * 100.0
+    if sees_the_ramp:
+        assert climb > 3.0, f"a genuine 3.5pp climb should be visible, got {climb:.2f}pp"
+    else:
+        assert abs(climb) < 1e-9, f"a linear margin cannot see a climb, yet reported {climb:.2f}pp"

@@ -139,7 +139,17 @@ fix age 45 on its own and only a penalty (or knot placement control) will.
 
 ## Slice 3: expose spline degree, and measure what it costs (autonomous — no data)
 
-- **Status:** NOT STARTED — **re-aimed by slice 1.** The *benefit* side is already
+- **Status:** **DONE (2026-08-07)** — `age_degree` / `year_degree` /
+  `duration_degree` on `TensorMIModel`, threaded through the harness and CLI;
+  `fit.interior_knots` in every report; `_MIN_SPLINE_DF` removed and replaced by
+  `validate_spline_margin`. **The result was not the expected one: quadratic
+  dominates the shipped cubic outright** — 4.5x less swing at age 45, level
+  restored to 1.50% from 1.19%, and a genuine 3.5pp climb still recovered exactly.
+  Linear is the rung that pays: it reports that same genuine climb as **zero**.
+  So the revised recommendation for a short window is `--year-df 2 --year-degree 2`,
+  not the linear margin this plan first reached for. Price list in
+  `MEASUREMENT_gam_ramp_mechanism.md` §5b.
+- **Superseded status:** ~~NOT STARTED — **re-aimed by slice 1.**~~ The *benefit* side is already
   measured: a global linear year margin removes the swing completely (span 0.00,
   exact to 9.7e-17) **and** de-biases the level, returning age 45's mean fitted MI
   to 1.50% against the shipped cubic's 1.19% on a 1.50% truth. So this slice is no
@@ -213,7 +223,10 @@ penalty removes.
 
 **Scope.** One command against the maintainer's cache, re-running the
 duration-banded ILEC configuration at `--year-degree 3` (reproducing the committed
-report byte-for-byte, which is also a determinism check) and at `--year-degree 1`.
+report byte-for-byte, which is also a determinism check) and at
+**`--year-df 2 --year-degree 2`** — slice 3 revised this from `--year-degree 1`,
+which is blind to genuine curvature and would have made age 45 look fixed by
+making everything look flat.
 The report now states its own knot positions, so the real age-knot geometry becomes
 visible for the first time.
 

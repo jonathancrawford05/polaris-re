@@ -13065,3 +13065,48 @@ the artifact tests and be applauded. That is the ADR-182 slowdown-verdict
 discipline applied one level down; age 45 is excluded from the recovery assertion
 because tests 2–3 establish it as the one place noise wins, and asserting it there
 would contradict them.
+
+### ADR-184 amendment 1 — the degree knob, and the surprise that quadratic dominates (Slice 3, 2026-08-07)
+
+`age_degree` / `year_degree` / `duration_degree` are now parameters on
+`TensorMIModel`, threaded through `experience_diligence` and the CLI, defaulting to
+the cubic every committed report used. The formula emits its **legacy string** at
+the default so the design *and* the `design_info` term names are byte-identical to
+any earlier fit — committed reports stay reproducible, which they would not be if
+`bs(x, df=6)` silently became `bs(x, df=6, degree=3)`.
+
+**The measured price list, and it did not come out as predicted.**
+
+| `df` = `degree` | span @45 | mean MI @45 (truth 1.50) | recovers a genuine 3.5pp climb |
+|---|---:|---:|---:|
+| 1 — linear | 0.00 | 1.50 | **0.00 — blind** |
+| 2 — quadratic | 0.69 | 1.50 | 3.50 — exact |
+| 3 — cubic *(shipped)* | 3.13 | **1.19** | 3.50 — exact |
+
+**Quadratic dominates the shipped cubic outright.** Less swing, unbiased level, and
+no loss of the ability to see real curvature — there is no trade against cubic on
+this fixture at all. That was not the expected shape of the answer: the plan framed
+slice 3 as "measure what lowering the order costs", assuming a monotone
+flexibility/robustness trade. The cost only appears at the **linear** rung, which
+reports a genuine 3.5-point climb as zero.
+
+So the recommendation that follows is `--year-df 2 --year-degree 2` on a short
+window, and the linear margin ships behind a flag with its blindness documented
+rather than as a default. ADR-184's own §5 wording — "a global linear year margin
+removes the swing" — was true and incomplete; §5b of the measurement now carries
+the other half.
+
+**Two guards worth naming.** `test_lowering_degree_without_df_still_permits_a_ramp`
+pins the trap the plan itself fell into — `degree=1` with `df=3` keeps two interior
+knots and swings as freely as the cubic, so a diagnostic varying degree alone would
+have tested nothing. And
+`test_a_linear_year_margin_is_accepted_where_the_old_floor_refused_it` guards the
+regression the removed `_MIN_SPLINE_DF` would have caused: its message told the
+maintainer that `df=3` was "already the least flexible spline available", which is
+false, and it rejected the very setting this ADR recommends investigating.
+
+**Reports now state their own interior knots** (`fit.interior_knots`). `patsy`
+places them at quantiles of the supplied vector — one row per grouped cell — so on
+real experience they sit wherever the book has many strata rather than at even
+fractions of the age range. Nobody had looked at where they actually fell for the
+whole of the A4' epic; on real ILEC they are still unknown until slice 4 runs.

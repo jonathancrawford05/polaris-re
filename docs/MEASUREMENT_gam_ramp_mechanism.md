@@ -121,6 +121,31 @@ and that it "needs a longer vintage, not a different setting."
 A longer vintage would also help, by adding years and therefore deaths at age 45 —
 the doc is not wrong that it would work. It is wrong that it is *necessary*.
 
+## 5b. Slice 3: the price list
+
+Slice 1 measured what a lower polynomial order *buys*. Slice 3 measures what it
+**costs** — by injecting a truth whose MI genuinely climbs 0% → 3.5% across the
+window at every age and asking whether each setting can still see it.
+
+| `df` = `degree` | year margin | span @45 | mean MI @45 (truth 1.50) | recovers a genuine 3.5pp climb |
+|---|---|---:|---:|---:|
+| 1 | global linear | **0.00** | **1.50** | **0.00 — blind** |
+| 2 | global quadratic | **0.69** | **1.50** | **3.50 — exact** |
+| 3 | global cubic *(shipped)* | 3.13 | **1.19** | 3.50 — exact |
+
+**The middle rung dominates the shipped setting**, which was not the expected
+result. Quadratic gives 4.5x less swing than cubic, restores the level at age 45,
+**and** still recovers real curvature exactly. There is no trade being made against
+cubic at all on this fixture — it is simply better.
+
+Linear is the rung that pays. It cannot represent a changing improvement rate, so
+a genuine 3.5-point climb reports as **zero**. That is why it ships behind a flag
+with the cost documented rather than as a new default, and why §1's framing —
+"a linear year margin removes the swing" — is only half the sentence.
+
+**Revised recommendation for an eight-year window: `--year-df 2 --year-degree 2`,**
+not the linear margin this plan first reached for.
+
 ## 6. What this means for the penalized rebuild
 
 It strengthens the case rather than weakening it, and sharpens what the penalty is

@@ -336,7 +336,7 @@ def test_empirical_base_is_constant_across_calendar_years() -> None:
     base = attach_empirical_base(
         _simple_cells(), exposure_col="central_exposure", deaths_col="death_count"
     )
-    TensorMIModel(base.cells, age_df=3, year_df=2)  # constructs => guard passed
+    TensorMIModel(base.cells, age_df=3, year_df=3)  # constructs => guard passed
 
 
 def test_empirical_base_drops_zero_death_strata_and_reports_the_share() -> None:
@@ -849,15 +849,31 @@ def test_a_short_window_with_a_flexible_year_spline_is_flagged(tmp_path: Path) -
     assert not any("large for the 8 calendar years" in c for c in tight.caveats)
 
 
-@pytest.mark.parametrize("kwargs", [{"year_df": 2}, {"age_df": 1}, {"year_df": 0}])
-def test_a_spline_df_below_the_cubic_floor_is_a_sentence_not_a_traceback(
-    tmp_path: Path, kwargs
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"year_df": 2}, "year_df=2 is below year_degree=3"),
+        ({"age_df": 1}, "age_df=1 is below age_degree=3"),
+        ({"year_df": 0}, "year_df=0 is below year_degree=3"),
+        ({"year_degree": 0}, "year_degree=0 is invalid"),
+        ({"year_df": 1, "year_degree": 2}, "year_df=1 is below year_degree=2"),
+    ],
+)
+def test_an_invalid_spline_margin_is_a_sentence_not_a_traceback(
+    tmp_path: Path, kwargs, match: str
 ) -> None:
-    """Tuning year_df DOWN off a boundary artefact walks straight into patsy's
-    df >= degree floor, which it raises several frames deep as a bare ValueError.
-    A maintainer met that on 2026-08-04; it must read like the too-large warning."""
+    """patsy enforces df >= degree several frames deep as a bare ValueError, and a
+    maintainer met that on 2026-08-04 while tuning year_df DOWN off a boundary
+    artefact.
+
+    The message no longer calls 3 a "cubic B-spline minimum". That framing was
+    wrong: 3 is a floor on *df* conditional on degree being hardcoded at 3, and it
+    read as though 3 were a floor on flexibility. ``df=1, degree=1`` is both legal
+    and strictly less flexible (ADR-184), so the message now states the real rule
+    and points at ``--year-degree`` as the way to make a margin less flexible.
+    """
     _write_hmd_cache(tmp_path, "USA", _constant_mi(0.012))
-    with pytest.raises(PolarisValidationError, match="below the cubic B-spline minimum"):
+    with pytest.raises(PolarisValidationError, match=match):
         run_diligence(
             source="hmd",
             cache_dir=tmp_path,
@@ -868,6 +884,39 @@ def test_a_spline_df_below_the_cubic_floor_is_a_sentence_not_a_traceback(
             reference_ages=(55, 65),
             **kwargs,
         )
+
+
+def test_a_linear_year_margin_is_accepted_where_the_old_floor_refused_it(
+    tmp_path: Path,
+) -> None:
+    """The regression the old message would have caused: ``--year-df 1
+    --year-degree 1`` is the recommended setting for a short window, and the
+    previous guard rejected it outright as "below the cubic B-spline minimum"."""
+    _write_hmd_cache(tmp_path, "USA", _constant_mi(0.012))
+    report = run_diligence(
+        source="hmd",
+        cache_dir=tmp_path,
+        country="USA",
+        min_age=50,
+        max_age=70,
+        max_year=2019,
+        reference_ages=(55, 65),
+        year_df=1,
+        year_degree=1,
+    )
+    assert report.fit["year_degree"] == 1
+    assert report.fit["interior_knots"]["bs(calendar_year, df=1, degree=1)"] == []
+    # A straight-line trend means every reference age reports one constant rate.
+    spread = (
+        report.surface.group_by("attained_age")
+        .agg((pl.col("mi").max() - pl.col("mi").min()).alias("span"))
+        .get_column("span")
+        .to_list()
+    )
+    assert max(abs(float(s)) for s in spread) < 1e-9, (
+        "a linear year margin cannot vary in time — MI is the year-to-year contrast "
+        "of a straight line, so it is the same at every step by construction"
+    )
 
 
 def test_unknown_overdispersion_mode_is_refused(tmp_path: Path) -> None:
