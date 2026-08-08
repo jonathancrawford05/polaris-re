@@ -39,6 +39,7 @@ here.
 > **HMD.** Human Mortality Database. Max Planck Institute for Demographic Research
 > (Germany), University of California, Berkeley (USA), and French Institute for
 > Demographic Studies (France). Available at <https://www.mortality.org>.
+> Data downloaded 3 August 2026, DOI: 10.4054/HMD.Countries.20260615.
 > Series used: `Deaths_1x1.txt` / `Exposures_1x1.txt` for USA and GBRTENW,
 > 1990–2019, ages 25–95, both sexes.
 
@@ -94,9 +95,9 @@ separate question, and the answers are not symmetric:
   **CC BY 4.0**: derivatives and commercial use are both permitted, and the only
   condition is attribution. The series used here are from the `STATS` output
   bundle, so they are estimates rather than Input Database material — which is the
-  tier that *does* carry a no-commercial-gain restriction. One gap remains: the
-  prescribed attribution includes a **version DOI** that §2a does not yet carry
-  (`../DATA_LICENSING.md` §4d).
+  tier that *does* carry a no-commercial-gain restriction. **The attribution is
+  complete** in HMD's prescribed form — name, all three institutions, URL, access
+  date and version DOI (`../DATA_LICENSING.md` §2a).
 
 If a derived artefact is ever wanted for distribution, the right one is a **model
 output** — a fitted `MortalityImprovement` scale via

@@ -12,7 +12,7 @@ under `docs/measurements/`.
 | Attribution | **Added** (§2), pinned by `tests/test_docs/test_data_attribution.py` |
 | Inventory of what is committed | **Verified by inspection** (§1) |
 | **SOA** Terms of Use | **Read** (§3) — and they are **restrictive**. Permission **requested 2026-08-08**, auto-acknowledged only; 90-day trigger **2026-11-06** (§6) |
-| **HMD** User Agreement | **Read 2026-08-08** (§4) — **permissive**: CC BY 4.0 on HMD's own estimates, commercial use allowed. One real gap: our attribution is incomplete |
+| **HMD** User Agreement | **Read 2026-08-08** (§4) — **permissive**: CC BY 4.0 on HMD's own estimates, commercial use allowed. Attribution **complete** 2026-08-08 (§2a) |
 | Position taken | §5 — the maintainer's, dated, with the triggers that would change it |
 
 **The short version, and the two sources are opposites.** The SOA Terms contain no
@@ -22,11 +22,12 @@ distribution, bar derivative works, and provide **no attribution formula** — t
 mechanism they offer instead is prior written permission. **HMD is the mirror
 image**: its own estimates are CC BY 4.0, which explicitly permits derivatives and
 commercial use, and the only condition is attribution — but the attribution *is*
-prescribed, in detail, and ours does not currently meet it.
+prescribed, in detail, and meeting it took establishing both an access date and a
+version DOI (§2a).
 
-So the two halves of this repository's licensing exposure are not alike. The HMD
-half is close to clear and fixable by editing a citation. The SOA half is the open
-question.
+So the two halves of this repository's licensing exposure are not alike. **The HMD
+half is now closed** — permissive terms, provenance determined, attribution complete
+in the prescribed form. The SOA half is the open question, and the only one.
 
 Nothing here is legal advice, and nobody involved is a lawyer. It is a faithful
 record of clause text, of what is actually published, and of a decision taken
@@ -104,21 +105,41 @@ dropped.
 > **HMD.** Human Mortality Database. Max Planck Institute for Demographic Research
 > (Germany), University of California, Berkeley (USA), and French Institute for
 > Demographic Studies (France). Available at <https://www.mortality.org>.
-> Data downloaded **3 August 2026**. Version DOI: **[TO SUPPLY — see §4d]**.
+> Data downloaded **3 August 2026**, DOI: **10.4054/HMD.Countries.20260615**.
 
 **Series used:** `Deaths_1x1.txt` and `Exposures_1x1.txt` for **USA** and
 **GBRTENW** (England & Wales, total population), calendar years 1990–2019, ages
-25–95, both sexes. Downloaded by the maintainer under their own HMD account, from
-the **"Statistics" / `STATS` bundle** — which is what makes these HMD's *own output
-series* rather than its Input Database (§4c). The access date is **3 August 2026**,
-established from Spotlight metadata (§4d) rather than assumed.
+25–95, both sexes. Downloaded by the maintainer under their own HMD account. The
+access date is **3 August 2026**, established from Spotlight metadata (§4d) rather
+than assumed.
 
-**This attribution is not yet complete.** CC BY 4.0 makes attribution the licence
-condition, and HMD prescribes its elements: database name, all three sponsoring
-institutions, the URL, the **date accessed**, and the **DOI of the version used**.
-Four are above. **One is outstanding** — the version DOI — and the access date is
-what makes it findable, since the version is whichever release was current on
-3 August 2026 (§4d).
+**Two distinctions that are easy to conflate, and both matter.** *Tier*: these are
+`STATS` files — HMD's own **output** series — not Input Database material, which is
+what puts them in the CC BY 4.0 tier (§4b, §4c). *Product*: they were obtained
+per-country, from the **By country** download rather than the separate
+all-countries **Statistics** archive, which is what fixes the DOI (below). The
+files are the same either way; the citation is not.
+
+**This attribution is complete as of 2026-08-08.** CC BY 4.0 makes attribution the
+licence condition, and HMD prescribes its elements: database name, all three
+sponsoring institutions, the URL, the **date accessed**, and the **DOI of the
+version used**. All five are above, in the form HMD's Citation Guidelines specify —
+the DOI paired with the download date rather than either alone.
+
+**Which DOI, and why this one.** `10.4054/HMD.Countries.20260615` identifies the
+**06/15/2026** release of the *By country / All HMD countries* product. That is the
+right family: the series used here are per-country `STATS` files
+(`USA/Deaths_1x1.txt`), not the separate all-countries *Statistics* bundle. An
+earlier revision of this document pointed at the Statistics column, reasoning from
+the runbook's wording rather than from the file layout actually on disk — recorded
+because a wrong DOI asserts something checkable and false, which is exactly the
+failure §4d was written to avoid.
+
+**And the release was current on the download date.** 06/15/2026 remains the
+current version, and the access date is 3 August 2026, so no *Previous Versions*
+row applies. Had a newer release landed between those dates the correct DOI would
+have been a different one, which is why the access date had to be established
+(§4d) before the DOI could be chosen at all.
 
 ### 2b. SOA Individual Life Experience Committee
 
@@ -302,62 +323,32 @@ fractional parts can land on a whole number — and it does not distinguish the 
 tiers here. The structural argument does not depend on it, and `Exposures_1x1` is
 named in the agreement's own list of HMD-produced estimates either way.
 
-### 4d. The outstanding items — access date and version DOI
+### 4d. CLOSED 2026-08-08 — how the access date and DOI were established
 
-CC BY 4.0's condition is attribution, and HMD prescribes both the **date accessed**
-and the **DOI of the version used** among its elements, so an attribution missing
-either does not meet the licence's own stated form. Both are open, and the second
-depends on the first.
-
-**What was checked, 2026-08-08, and what it settled.**
+Both prescribed elements are now in §2a. Recorded in full because getting there
+took three checks and two of them were **negative results** that mattered.
 
 | Evidence | Result |
 |---|---|
 | `head -1` on USA `Deaths_1x1.txt` | `Last modified: 09 June 2026` |
 | `head -1` on GBRTENW `Deaths_1x1.txt` | `Last modified: 31 Jan 2025` |
-| `stat` birth vs mtime on the USA file | **identical to the second**, and equal to the header date |
+| `stat` birth vs mtime on the USA file | **identical to the second** — no information |
 | `mdls -name kMDItemDateAdded` | **2026-08-03 22:31:14 UTC** — the access date |
-| `mdls -name kMDItemWhereFroms` | `(null)` — no source URL recorded |
+| mortality.org versions table | 06/15/2026 is **current**, so it applies to a 3 August download |
 
-The two country headers differ by sixteen months **within the same download**, which
-establishes that `Last modified` is a *per-country series revision stamp* and not a
-release version. Neither header identifies the bundle.
+The two country headers differ by sixteen months **within one download**, which
+proves `Last modified` is a per-country series revision stamp and not a release
+version — so neither header could identify the bundle. And `stat` returning birth
+time equal to mtime to the second is `unzip` echoing the archive's stored date
+rather than recording an extraction, so the filesystem carried no download date
+either. Only Spotlight's `kMDItemDateAdded` did.
 
-The `stat` result is a **negative**: a birth time equal to mtime to the second is
-`unzip` writing the archive's stored date, not an independent record of extraction.
-So the filesystem carries no download date either.
-
-**The access date is settled: 3 August 2026.** Spotlight's `kMDItemDateAdded`
-records when the file arrived at that path, which is the `mv` into the cache rather
-than the HTTP fetch itself — the two happened in the same sitting, so the citation
-is accurate to the day, which is the precision a citation needs.
-`kMDItemWhereFroms` is `(null)`, consistent with files extracted from an archive
-rather than saved directly.
-
-**The version is now a single lookup, and it is not automatically 06/15/2026.**
-That row appears under *Previous Versions*, so a newer release exists. Which one we
-hold depends on one fact:
-
-| Current version's release date | Version held |
-|---|---|
-| **after** 2026-08-03 | the **06/15/2026** release |
-| **on or before** 2026-08-03 | the **current** release, not 06/15 |
-
-Corroborating but not decisive: the USA series stamp is 09 June 2026, so whichever
-release this is, USA had not been revised again by the time it was packaged. That
-is consistent with 06/15/2026 and mildly favours it, and is *not* a substitute for
-checking.
-
-**How to close it.** Read the current version's date off mortality.org, apply the
-table above, and take the DOI from that row's **Statistics** column — not
-**Countries**, which is the one visible in the screenshot and is a different
-artifact.
-
-**If it cannot be established**, the honest citation names the access date and
-records the version as undetermined. A wrong DOI asserts something checkable and
-false; an absent one only says we do not know — and on a licence whose sole
-condition is attribution, guessing is the one failure mode worth avoiding
-outright.
+**The order mattered.** The DOI could not be chosen before the access date was
+known, because the correct release is whichever was current on the day — and a
+release newer than 06/15/2026 landing before 3 August would have made a
+*Previous Versions* row the right answer instead. Recording the negatives is what
+stopped the visible-in-a-screenshot DOI being adopted because it was the one to
+hand.
 
 Everything else about the HMD position is clean: derivatives permitted, commercial
 use permitted, no data redistributed, the estimates tier confirmed.

@@ -13493,3 +13493,39 @@ cannot pass on the favourable case alone.
 
 This is fixture evidence for the epic's thesis, not confirmation of it. The arbiter
 on real data is SOA's own expected deaths, and that is slice 5.
+
+### ADR-183 amendment 3 — the HMD attribution is complete, and the order of operations was the point (2026-08-08)
+
+The version DOI is `10.4054/HMD.Countries.20260615` — the 06/15/2026 release of the
+*By country / All HMD countries* product — paired with the access date **3 August
+2026** in the form HMD's Citation Guidelines specify. All five prescribed elements
+are in `DATA_LICENSING.md` §2a, and a guard test pins each. **The HMD half of this
+repository's licensing exposure is closed**; the SOA half is the only open one.
+
+**One correction.** An earlier revision told the maintainer to take the DOI from the
+*Statistics* column, reasoning from the runbook's phrase "you want the Statistics
+bundle". Wrong: the series on disk are per-country `STATS` files
+(`USA/Deaths_1x1.txt`), which come from the **By country** product. The runbook's
+wording was ambiguous and the file layout was not — and the file layout was
+available the whole time. Recorded because a wrong DOI asserts something checkable
+and false, which is worse than the `[TO SUPPLY]` marker it would have replaced.
+
+Two distinctions that are easy to collapse and are now separated in §2a: the
+**tier** (`STATS` output, hence CC BY 4.0, not Input Database) and the **product**
+(By country, hence this DOI, not the all-countries Statistics archive). Same files;
+different citation.
+
+**The order of operations is the transferable part.** The DOI could not be chosen
+until the access date was known, because the correct release is whichever was
+current on the day — and a release landing between 15 June and 3 August would have
+made a *Previous Versions* row the right answer instead. Two of the three checks
+that got there were **negative results**: the country headers differ by sixteen
+months within one download (so `Last modified` is a per-series stamp, not a release
+version), and `stat` returned birth time equal to mtime to the second (so the
+filesystem held no download date). Recording those is what stopped the DOI that
+happened to be visible in a screenshot being adopted because it was to hand.
+
+The guard test flipped rather than being deleted: it previously required the
+`[TO SUPPLY]` marker and failed the moment a real DOI landed — deliberately, so
+closing the gap had to be a decision. It now pins all five elements, normalised for
+line wrapping so it tests content rather than reflow.
