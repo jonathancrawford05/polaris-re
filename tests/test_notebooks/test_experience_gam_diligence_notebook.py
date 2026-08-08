@@ -35,6 +35,7 @@ EXPECTED_REPORTS = (
     "experience_gam_hmd_gbrtenw",
     "experience_gam_ilec",
     "experience_gam_ilec_duration_banded",
+    "experience_gam_ilec_duration_banded_quadratic",
 )
 
 
@@ -158,5 +159,6 @@ def test_notebook_reaches_the_headline_findings() -> None:
         "insured outpace the population at midlife",
         "largest single-age duration effect",
         "not evidence that assumptions are sound",
+        "invariant",
     ):
         assert claim in text, f"notebook no longer states: {claim!r}"

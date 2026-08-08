@@ -12987,3 +12987,257 @@ unrelated; HMD is a research data provider, and the widely-repeated CC BY 4.0
 report — which if accurate would resolve its side almost entirely — is still not
 asserted anywhere in this repository, for the same reason it was not asserted
 before.
+
+---
+
+## ADR-184: The age-45 ramp is a variance artifact, not a basis defect (spline diagnostics Slice 1)
+
+**Date:** 2026-08-07
+**Status:** Accepted
+**Context:** `MEASUREMENT_experience_gam_ilec.md` §3/§7 called age 45's 0.05% →
+3.59% fitted MI "boundary-contaminated" and concluded it "needs a longer vintage,
+not a different setting". That sentence blocked every age-45 insured-improvement
+claim and justified waiting on a longer ILEC release. It had never been tested.
+
+### Decision — diagnose on synthetic ground truth before rebuilding the smoother
+
+`PLAN_gam_spline_diagnostics.md` proposed two mechanisms. **Slice 1 falsified both
+of them**, which is the main content of this ADR.
+
+**Hypothesis A — an unpenalized cubic must place its curvature somewhere.**
+Falsified. At the exact shipped ILEC configuration, with no sampling noise, a
+constant 1.5%/yr truth is recovered to 1e-6 at every reference age. A cubic
+represents a straight line exactly, so a constant surface has no bias to find. The
+plausible-sounding claim confused *interpolation through noise* with *least squares
+on a representable truth*.
+
+**Hypothesis B — age 45 sits beside an interior age knot at ~42.5.** Falsified.
+Shifting the fitted age range moves the first knot across 42 / 47 / 37; in every
+range the swing peaks at the **youngest fitted age** and is 2.7–3.5x its value at
+the knot. The anomaly does not travel with the knots.
+
+**What it actually is.** Sampling noise at the death-poor young end. Under a
+realistic mortality curve, deaths at 45 are ~24x scarcer than at 85 for equal
+exposure, and the age-varying year slope is estimated with correspondingly less
+information. Three free year parameters convert that variance into a smooth
+multi-point swing: **3.13 points at age 45 against 0.46 at 85** on a truth that is
+exactly flat. Span scales inversely with total deaths (0.56 → 27.18 as deaths fall
+12.9M → 12.9k) and ranges 0.17–3.83 across ten seeds — so the committed test
+asserts on a mean over eight seeds, because one draw of a variance artifact is a
+coin flip.
+
+### Consequences
+
+**The ILEC measurement's prescription was wrong.** Pinning `df == degree == 1` — a
+global linear year margin — removes the swing entirely (span 0.00, verified to
+9.7e-17) *and* de-biases the level: age 45's mean fitted MI returns to **1.50%**
+against the shipped cubic's **1.19%** on a 1.50% truth. The cubic does not merely
+wander at 45, it degrades the point estimate there, and a setting change fixes
+both. A longer vintage would also work — it adds deaths — but it is not necessary,
+and §5 of the measurement records the correction.
+
+**The case for penalization is strengthened and sharpened.** The problem is not a
+coarse or badly-placed basis; it is that three year parameters are estimated with
+wildly different precision across the age range while an unpenalized fit spends all
+three everywhere regardless. That is precisely what a penalty addresses — effective
+df falling where data are thin without a single global `degree` having to suit both
+ends. Degree-lowering is the crude version: it buys the young end at the old end's
+expense, uniformly.
+
+**Slice 2 is subsumed** — with both hypotheses dead there is nothing left to
+attribute, and slice 1's own sweeps covered both of its axes. **Slice 3 is
+re-aimed**: the benefit of a lower order is now measured, so it exists only to
+price the cost (blindness to genuine curvature).
+
+**What is deliberately not claimed.** This shows a ramp of the observed size is
+*reproducible* by noise alone at comparable scale. It does **not** show the real
+ILEC ramp *is* noise — that needs slice 4 and the maintainer's cache. The fixture
+also runs one stratum per (age, year) against ILEC's 125,676 cells and uses a true
+rather than empirical `q_base`, both of which plausibly make the real artifact
+larger rather than smaller.
+
+### Two-sided by construction
+
+Tests 4 and 5 inject a surface whose MI genuinely climbs 0% → 3.5% and require the
+fit to recover it — exactly (1e-6) without noise, and resolvably at ages 55–85 with
+it. Without them, a smoother that reported constant MI for everything would satisfy
+the artifact tests and be applauded. That is the ADR-182 slowdown-verdict
+discipline applied one level down; age 45 is excluded from the recovery assertion
+because tests 2–3 establish it as the one place noise wins, and asserting it there
+would contradict them.
+
+### ADR-184 amendment 1 — the degree knob, and the surprise that quadratic dominates (Slice 3, 2026-08-07)
+
+`age_degree` / `year_degree` / `duration_degree` are now parameters on
+`TensorMIModel`, threaded through `experience_diligence` and the CLI, defaulting to
+the cubic every committed report used. The formula emits its **legacy string** at
+the default so the design *and* the `design_info` term names are byte-identical to
+any earlier fit — committed reports stay reproducible, which they would not be if
+`bs(x, df=6)` silently became `bs(x, df=6, degree=3)`.
+
+**The measured price list, and it did not come out as predicted.**
+
+| `df` = `degree` | span @45 | mean MI @45 (truth 1.50) | recovers a genuine 3.5pp climb |
+|---|---:|---:|---:|
+| 1 — linear | 0.00 | 1.50 | **0.00 — blind** |
+| 2 — quadratic | 0.69 | 1.50 | 3.50 — exact |
+| 3 — cubic *(shipped)* | 3.13 | **1.19** | 3.50 — exact |
+
+**Quadratic dominates the shipped cubic outright.** Less swing, unbiased level, and
+no loss of the ability to see real curvature — there is no trade against cubic on
+this fixture at all. That was not the expected shape of the answer: the plan framed
+slice 3 as "measure what lowering the order costs", assuming a monotone
+flexibility/robustness trade. The cost only appears at the **linear** rung, which
+reports a genuine 3.5-point climb as zero.
+
+So the recommendation that follows is `--year-df 2 --year-degree 2` on a short
+window, and the linear margin ships behind a flag with its blindness documented
+rather than as a default. ADR-184's own §5 wording — "a global linear year margin
+removes the swing" — was true and incomplete; §5b of the measurement now carries
+the other half.
+
+**Two guards worth naming.** `test_lowering_degree_without_df_still_permits_a_ramp`
+pins the trap the plan itself fell into — `degree=1` with `df=3` keeps two interior
+knots and swings as freely as the cubic, so a diagnostic varying degree alone would
+have tested nothing. And
+`test_a_linear_year_margin_is_accepted_where_the_old_floor_refused_it` guards the
+regression the removed `_MIN_SPLINE_DF` would have caused: its message told the
+maintainer that `df=3` was "already the least flexible spline available", which is
+false, and it rejected the very setting this ADR recommends investigating.
+
+**Reports now state their own interior knots** (`fit.interior_knots`). `patsy`
+places them at quantiles of the supplied vector — one row per grouped cell — so on
+real experience they sit wherever the book has many strata rather than at even
+fractions of the age range. Nobody had looked at where they actually fell for the
+whole of the A4' epic; on real ILEC they are still unknown until slice 4 runs.
+
+### ADR-184 amendment 2 — slice 4: the diagnosis does not transfer to real ILEC (2026-08-08)
+
+Both runs completed against the maintainer's cache. The outcome is **row 2 of the
+interpretation table written before the run**: the real ramp is not the artifact
+slices 1–3 reproduced.
+
+**The climb is invariant to the setting.** Refitting with one fewer polynomial
+order in the calendar margin (`--year-df 2 --year-degree 2`) moves the early-vs-late
+contrast by **at most 0.02 points at any reference age** — 2.38→2.39, 1.11→1.09,
+0.35→0.36, 0.92→0.92, 0.94→0.94 — and leaves the verdict `acceleration`, 0/5 slower.
+Age 45's 2013→2019 climb is unchanged at 3.54 → 3.58. What the quadratic removes is
+curvature: the cubic's mid-window dip, worth 0.3–0.5 points of span at three of five
+ages. The slice-1 mechanism is present and measurable; it is not what age 45 is
+made of.
+
+**Consequences.**
+
+`MEASUREMENT_experience_gam_ilec.md` §3 and §7 are retracted where they attributed
+age 45 to terminal spline overshoot and prescribed "a longer vintage, not a
+different setting". Both halves were wrong — the mechanism and the remedy. What
+replaces them is narrower and weaker on purpose: age 45's acceleration is robust to
+the calendar margin's flexibility and resolvable on its own bands, which **rules out
+one explanation without establishing that it is genuine improvement.** Duration mix
+within a band, `uw_class` composition drift at young ages and the empirical `q_base`
+at sparse ages are all untested.
+
+**Slices 1–3 remain valid as a finding about the estimator**, and the guard tests
+stay. What slice 4 establishes is that a reproducible artifact is not automatically
+the explanation for the observation that motivated looking for it — which is exactly
+why the slice existed rather than shipping the synthetic result as a conclusion.
+ADR-184's §7 hedge is also falsified: it guessed the fixture's simplifications made
+the real artifact *larger*; relative to this book's signal it is smaller.
+
+**Two by-products worth more than the slice's own question.**
+
+*The byte-for-byte determinism claim is withdrawn.* The control reproduced every
+fitted quantity bit-identically but moved `dropped_exposure_share` from
+`9.17073903863e-05` to `...64e-05` — a ratio of Polars sums over 126,223 cells
+sitting within 1 ulp of the 12-significant-digit rounding boundary, so a
+reassociated parallel sum flips the rounding. **No rounding cutoff can be tie-free.**
+`REPORT_SIGNIFICANT_DIGITS` makes ties rare, not impossible, and ADR-182's claim
+that re-runs reproduce "byte for byte" was over-strong. The estimator is
+deterministic; aggregation ratios are not. Compare re-runs numerically, not with
+`cmp`.
+
+*The quadratic wins the independent check.* Against SOA's own published expected
+deaths — the only comparison in this epic that does not use our model on both sides
+— mean absolute difference falls 0.006100 → 0.005488 (−10%) and mean difference
+0.002682 → 0.001732 (−35%), at equal dispersion (1.16326 vs 1.16388) and one fewer
+parameter. The fixture-derived recommendation is independently corroborated on real
+data, which is a better outcome for slice 3 than slice 4's own headline.
+
+**The real interior knots, published for the first time:** `attained_age`
+43.0 / 60.0 / 76.0, `calendar_year` **`[]`** — confirming on the real fit that the
+shipped margin is a global cubic — and `duration_years` 7.0.
+
+### ADR-183 amendment 2 — the HMD agreement, read: permissive, and the mirror image of SOA (2026-08-08)
+
+The maintainer read the HMD User Agreement, closing the last open item from
+amendment 1. **The answer is favourable**, and the two sources turn out to be
+opposites — which is more useful than either finding alone.
+
+**HMD splits its holdings into two tiers.** Its own estimates — exposure-to-risk,
+death rates, life tables, life expectancy — are **CC BY 4.0**, which explicitly
+covers adaptations and derivatives and **permits commercial use**. The input data
+(birth counts, unaltered death counts, externally-sourced population figures) is
+not: it carries each original provider's licence plus HMD's own restriction that it
+"should not be used for commercial gain or re-published in any form without the
+explicit permission of the data owners".
+
+**Which tier applies to us was determined, not assumed.** The runbook directs the
+download to the **"Statistics" / `STATS`** bundle, which is HMD output; the raw
+material lives in a separate Input Database this project has never touched. That
+structural argument is the load-bearing one. HMD's decimal heuristic corroborates
+it for USA (68,998,510.09 deaths, 5,750,237,304.28 exposure — both fractional) but
+**not** for GBRTENW, whose death total is integral; that is recorded rather than
+glossed, since the heuristic is being applied to a sum over 4,260 cells where a
+whole-number total proves nothing either way.
+
+**Three consequences.**
+
+*The commercial concern evaporates on this half.* §3c flagged `CLAUDE.md` §1's
+AXIS/Prophet positioning as the sharpest SOA exposure. CC BY 4.0 permits commercial
+use, so for HMD that positioning is simply not a problem. The two halves of this
+repository's licensing exposure are genuinely unalike, and treating them as one
+question — which the original §4 did by carrying the same three questions across —
+would have been wrong in both directions.
+
+*Attribution stops being a courtesy and becomes the condition.* Under CC BY 4.0 the
+attribution **is** the licence term, and HMD prescribes its elements: name, all
+three sponsoring institutions, URL, **date accessed**, and **version DOI**. §2a
+carried the first three, now carries the fourth, and is missing the DOI — so as of
+today the HMD attribution does not meet the prescribed form. Small and fixable, but
+real, and recorded as a gap rather than rounded to compliant. A guard test fails
+while the marker is present *and* fails if the marker is removed without a DOI.
+
+*A prediction was right for the wrong reason.* §4's earlier text noted the
+widely-repeated CC BY 4.0 claim and deliberately refused to assert it without a
+source. It turns out to be correct. That is not a vindication of the guess — it is
+the case where refusing to assert an unsourced claim cost nothing and would have
+been the right call regardless of how it resolved, which is the only defensible
+reason to have a rule about it.
+
+### ADR-184 amendment 3 — `TensorMIModel` accepts strictly fewer inputs than before (2026-08-08)
+
+Recorded because it was not, and its only trace was a one-character test edit.
+
+`validate_spline_margin` now runs inside `TensorMIModel.__init__`. Previously the
+`df >= degree` rule was enforced by `patsy` at `fit()` time, several frames deep and
+as a bare `ValueError`, so `TensorMIModel(cells, year_df=2)` **constructed
+successfully** and failed later. It now raises on construction.
+
+**This is an improvement and it is still a narrowing of the public contract.** Two
+reasons it needed disclosing rather than absorbing:
+
+1. A caller that constructs models speculatively — to inspect `.factors` or
+   `.basis` without fitting — now gets an exception where it previously got an
+   object. Nothing in this repository does that, but the class is public API.
+2. On the harness path the same check runs at the CLI boundary, so an invalid
+   `--year-df` now fails **before** a 12.5 GB file is read rather than after. That
+   is the actual motivation and it is worth a line in the record, because the
+   benefit is measured in maintainer minutes and is invisible from the diff.
+
+The only in-repo caller affected was
+`test_empirical_base_is_constant_across_calendar_years`, which constructed with
+`age_df=3, year_df=2` purely as a cheap "the static-base guard passed" signal —
+unrelated to spline degrees. It now uses `year_df=3`. That edit is not a weakened
+assertion (the test's subject is the base guard, not the df values), but it *was* a
+silent behavioural signal buried in an unrelated test, which is how the narrowing
+went unrecorded in the first place.

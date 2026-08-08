@@ -1461,11 +1461,19 @@ rather than cosmetic (PR #185 round-2 review [P1]).
   verified only against synthetic strata, which is precisely the kind of evidence
   this epic exists to say is not a finding about real experience. *Source: ADR-182
   amendment 5 + PR #185 round-2 review (1st-order).* **IMPORTANT.**
-- **Age 45 stays boundary-contaminated on the ILEC fit.** Fitted MI ramps 0.05%
-  (2013) to 3.59% (2019) at `year_df=3`, which is the cubic floor — so this cannot
-  be tuned away. `MEASUREMENT_experience_gam_ilec.md` §7: "needs a longer vintage,
-  not a different setting." Blocks any age-45 insured improvement claim; ages 55-85
-  are unaffected. Resolution is a longer ILEC release, i.e. maintainer-gated.
+- **Age 45 is not usable on the ILEC fit — but its stated rationale is RETRACTED
+  (2026-08-08).** ~~Fitted MI ramps 0.05% (2013) to 3.59% (2019) at `year_df=3`,
+  which is the cubic floor — so this cannot be tuned away.
+  `MEASUREMENT_experience_gam_ilec.md` §7: "needs a longer vintage, not a different
+  setting." Resolution is a longer ILEC release, i.e. maintainer-gated.~~ **Both
+  claims are false and this entry sourced them.** `year_df=3` was never a floor on
+  flexibility — it was a floor on `df` with `degree` hardcoded at 3, and
+  `df=1, degree=1` is legal and strictly less flexible (ADR-184, which is why
+  `_MIN_SPLINE_DF` was removed). And a different setting does *not* remove the
+  climb: refitting at `--year-df 2 --year-degree 2` leaves it at 3.54 → 3.58 points
+  and moves the early-vs-late contrast by 0.01 (ADR-184 amendment 2). **The entry
+  stays open** — age 45 is still not usable and still blocks any age-45 claim — but
+  for reasons now listed separately below, none of which is spline flexibility.
   *Source: MEASUREMENT_experience_gam_ilec §3/§7 (1st-order).* **NICE-TO-HAVE.**
 - **The ILEC A/E *level* of 1.079 is not interpreted.** Actual deaths run ~8% above
   VBT 2015 expected on this book. Only the *drift* is claimed anywhere; decomposing
@@ -1536,3 +1544,109 @@ record the clause text. What replaces it:
   permitted and only attribution is owed, which §2a already provides. Needs a
   browser this container does not have. *Source: DATA_LICENSING §4 (1st-order).*
   **NICE-TO-HAVE.**
+
+### Appended 2026-08-08 (HMD terms read — the licensing item narrows to one line)
+
+- **Supply the HMD version DOI.** (Access date **resolved 2026-08-08: 3 August
+  2026**, from `kMDItemDateAdded`. The DOI remains open.) The HMD User Agreement was read 2026-08-08 and is
+  **permissive** — CC BY 4.0 on its own estimates, derivatives and commercial use
+  both permitted, and the `STATS` bundle this project used is confirmed to be that
+  tier (ADR-183 amendment 2). The single remaining gap is that CC BY 4.0's condition
+  *is* attribution and HMD prescribes a **version DOI** as part of it, which
+  `DATA_LICENSING.md` §2a does not yet carry. Only the maintainer knows which
+  release was downloaded. Four checks on 2026-08-08 settled what the files can and
+  cannot tell us:
+  the USA and GBRTENW headers differ by sixteen months (09 Jun 2026 vs 31 Jan 2025),
+  proving `Last modified` is a per-country series stamp and not a release version;
+  and `stat` returns birth time equal to mtime **to the second**, so the filesystem
+  is echoing the archive's stored date rather than recording an extraction. Neither
+  identifies the bundle. `kMDItemDateAdded` did resolve the access date —
+  **2026-08-03 22:31 UTC** — which turns the version into one lookup: read the
+  *current* release date off mortality.org, and if it postdates 2026-08-03 the
+  version held is 06/15/2026, otherwise it is the current one. Take the DOI from
+  that row's **Statistics** column (not Countries — the one visible in the
+  screenshot is a different artifact), paste it into §2a and both measurement docs,
+  then update `test_the_hmd_attribution_gap_is_not_rounded_to_compliant`.
+  **Maintainer-gated.**
+  *Source: HMD User Agreement + provenance checks 2026-08-08 (1st-order).*
+  **IMPORTANT.**
+- **If HMD Input Database series are ever used, this analysis does not carry over.**
+  Only the `STATS` output tier is CC BY 4.0; input data carries a no-commercial-gain
+  and no-republication restriction. Anything drawn from the Input Database needs its
+  own provenance determination first. Nothing does today; this is a tripwire for
+  future work rather than an open item. *Source: DATA_LICENSING §4b (1st-order).*
+  **NICE-TO-HAVE.**
+
+### Appended 2026-08-08c (next epic scoped — the penalized MI surface)
+
+- **P-splines with REML-selected λ for the tensor MI surface.**
+  `docs/PLAN_penalized_mi_surface.md`, 5 slices, ~4–6 dev-days autonomous plus one
+  maintainer run. Promoted from the spline-diagnostics epic, which established both
+  the case for it and the limits of that case.
+
+  **What it fixes:** `df` currently sets basis dimension *and* wiggliness with one
+  integer, which makes complexity a researcher degree of freedom — `year_df` 4→3
+  and then `df==degree` 3→2 each moved a published ILEC finding, by hand, with
+  nothing in the fit selecting them. A penalty makes effective complexity
+  data-driven and lets it fall where information is thin, which is the mechanism
+  ADR-184 measured (3.13-point swing at age 45 against 0.46 at 85, on a flat truth).
+
+  **What it explicitly does not fix: age 45.** ADR-184 amendment 2 showed that
+  climb survives removing a whole polynomial order. Framing this epic as fixing it
+  would be a promise the previous epic already falsified, and the plan says so in
+  §1 so nobody makes it later.
+
+  **Why it should work:** the quadratic already beat the shipped cubic on the one
+  independent check (SOA's own expected deaths — 10% and 35% closer) at equal
+  dispersion and one fewer parameter. Something near "less than cubic" was right,
+  and it took two epics and a maintainer run to find by hand. REML should find it
+  in one fit. §6 registers that as a falsifiable prediction along with three others,
+  each with its failure branch written out before slice 1 exists.
+
+  **Known hard parts:** statsmodels penalizes but its smooths are additive-only, so
+  the Kronecker design and penalty are hand-built; λ selection introduces an
+  optimizer that threatens determinism harder than the BLAS jitter which already
+  falsified the byte-for-byte claim; and eight distinct ILEC calendar years may
+  simply not identify λ — which would be a finding rather than a failure.
+  *Source: PLAN_penalized_mi_surface (1st-order).* **IMPORTANT.**
+
+### Appended 2026-08-08d (harvest gap — the surviving age-45 explanations)
+
+ADR-184 amendment 2 and `MEASUREMENT_experience_gam_ilec.md` §7 both name three
+explanations that survive the diagnostic, and neither promoted them. They are the
+direct 1st-order follow-ups of that PR's own headline finding, and without them the
+retracted ledger entry above has no successor — "age 45 is not usable, for reasons
+we did not write down" is exactly the state this ledger exists to prevent.
+
+Slice 4 ruled out spline flexibility. **It ruled out nothing else.** Each of the
+following is untested, live, and could individually account for the climb:
+
+- **Duration mix *within* a band.** The banded fit conditions on nine duration
+  bands with a fixed representative, but selection moves fastest in the first few
+  policy years and band 1 still pools whatever sits inside it. A mix drifting with
+  calendar year inside a band leaks into the trend exactly as the pooled-versus-
+  banded contrast showed at the coarser level (ADR-182 amendment 4) — the same
+  mechanism one level down. Testable by re-banding more finely at young ages and
+  seeing whether age 45's climb moves. *Source: ADR-184 amendment 2 (1st-order).*
+  **IMPORTANT.**
+- **`uw_class` composition drift at young ages.** Preferred-class structures are
+  not stable across an eight-year issue window, and the young end of an insured
+  book is where new business concentrates — so the *mix* of classes at age 45 in
+  2019 need not resemble 2012. `uw_class` enters as an additive factor, which
+  handles a level difference but not a drifting composition. Testable by fitting
+  age 45 within a single `uw_class` stratum. *Source: ADR-184 amendment 2
+  (1st-order).* **IMPORTANT.**
+- **The empirical `q_base` at sparse ages.** The offset is the pooled crude rate
+  from the data itself, so at young ages it is estimated from few deaths and
+  carries its own noise. It is calendar-invariant by construction and therefore
+  *cannot* create a trend — but a badly-estimated base changes which cells the
+  tensor must explain, which is how duration banding moved the surface without the
+  duration term itself contributing. Testable by substituting a published table
+  (VBT 2015) as the base and refitting. *Source: ADR-184 amendment 2 (1st-order).*
+  **NICE-TO-HAVE** — the weakest of the three mechanistically, and the one with a
+  ready-made alternative already loaded on the ILEC path.
+
+All three are cheap on the maintainer's cache and none needs new data. Any one of
+them landing would replace the retracted rationale with a real one; all three
+coming back null would make "genuine underwriting-era effect" the leading
+explanation, which is a publishable finding in its own right.

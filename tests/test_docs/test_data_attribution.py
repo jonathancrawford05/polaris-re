@@ -10,11 +10,16 @@ The second guard is sharper and is the reason this module exists at all. Until
 2026-08-07 the repository asserted things about the HMD and SOA licences —
 "keeps you inside both licences", "Why committing these is not a licence
 problem" — with **nothing behind them**: no section number, no quotation, no URL
-to a terms document anywhere in the tree. ``docs/DATA_LICENSING.md`` §4 now
-records that the terms have not been read and why. These tests exist so that
-status cannot be upgraded to a settled one by editing a heading; if someone wants
-to claim the terms permit this, the claim has to survive deleting the file that
-says otherwise, which is a deliberate act rather than a drive-by reword.
+to a terms document anywhere in the tree. Both sets have since been read — SOA on
+2026-08-07 (§3) and HMD on 2026-08-08 (§4) — and they came out **opposite**: SOA
+restrictive with permission as the only route, HMD permissive under CC BY 4.0 with
+attribution as the condition.
+
+That asymmetry is what these tests protect. The pressure now runs in two
+directions: softening the SOA record into something more comfortable, and rounding
+the favourable HMD answer up to "fine" when its attribution condition is not yet
+met. Both would be a single-word edit, so the clause text, the two-tier split and
+the outstanding DOI are each pinned to a failing assertion.
 """
 
 from pathlib import Path
@@ -58,21 +63,46 @@ def test_document_disclaims_endorsement(path: Path) -> None:
     assert "endorse" in text, f"{path.name} must disclaim endorsement by the data provider"
 
 
-def test_hmd_terms_are_still_recorded_as_unread() -> None:
-    """The SOA terms were read on 2026-08-07; the HMD User Agreement was not.
+def test_hmd_findings_are_recorded_with_their_two_tier_structure() -> None:
+    """HMD was read 2026-08-08 and the answer was favourable — which is exactly when
+    a record gets sloppy.
 
-    The risk is that the SOA answer gets treated as covering both — they are
-    unrelated bodies, and HMD is a research data provider rather than a
-    professional society publishing website material. This fails if HMD's status
-    is quietly upgraded, and it will need deleting when someone actually reads
-    the agreement, which is the point: closing it should be deliberate.
+    The load-bearing fact is the **two-tier split**: CC BY 4.0 covers HMD's own
+    estimates (derivatives and commercial use permitted), while the input data
+    carries the original provider's licence plus a no-commercial-gain restriction.
+    Collapsing that into "HMD is CC BY 4.0" would be the natural simplification and
+    would be wrong for any future series drawn from the Input Database, so both
+    halves are pinned.
     """
     text = LICENSING.read_text()
-    assert "**NOT read** (§4)" in text, "HMD status must stay explicit while it is open"
-    assert "has not been read by anyone on this" in text
-    # The three questions HMD still owes an answer to must remain posed.
-    for question in ("derived aggregates", "citation wording", "non-commercial"):
-        assert question in text, f"licensing record no longer poses: {question!r}"
+    assert "CC BY 4.0" in text
+    assert "Input data" in text, "the non-CC-BY tier must stay visible"
+    assert "used for commercial gain or re-published in any form" in text, (
+        "the input-data restriction is quoted, not paraphrased"
+    )
+    # The provenance determination is what makes the favourable answer apply to us.
+    assert "Statistics" in text and "Input Database" in text
+
+
+def test_the_hmd_attribution_gap_is_not_rounded_to_compliant() -> None:
+    """CC BY 4.0's condition IS the attribution, so an incomplete one is the breach.
+
+    The DOI is missing and only the maintainer can supply it. Until then §2a does
+    not meet HMD's prescribed form, and this test exists so that shortfall cannot
+    quietly become "HMD: fine" — the same failure mode §3e caught on the SOA side.
+    Closing it means pasting the DOI in, which removes the marker and fails here.
+    """
+    text = LICENSING.read_text()
+    assert "[TO SUPPLY — see §4d]" in text, (
+        "the DOI marker is gone: either it was supplied (update this test) or it "
+        "was dropped without being supplied (put it back)"
+    )
+    # The access date IS a prescribed element, so it is pinned now that it is known.
+    assert "3 August 2026" in text, "the established access date must stay recorded"
+    assert "does not meet the licence's own stated form" in text
+    # The negative result matters as much as the positive ones — it is what stops
+    # the 06/15/2026 row being adopted because it is the one we happen to have seen.
+    assert "identical to the second" in text, "the stat non-result must stay recorded"
 
 
 def test_soa_terms_are_recorded_with_their_actual_clause_text() -> None:
@@ -110,6 +140,23 @@ def test_the_position_taken_carries_its_change_triggers() -> None:
     text = LICENSING.read_text()
     for trigger in ("A second contributor", "90 days"):
         assert trigger in text, f"position no longer names the trigger: {trigger!r}"
+
+
+def test_the_permission_request_carries_real_dates() -> None:
+    """The 90-day trigger is only actionable if it resolves to a calendar date.
+
+    "90 days from sending" is a sentiment; a date is a deadline. The request was
+    sent 2026-08-08 and drew an automated high-volume acknowledgement, which is
+    the outcome most likely to quietly become a permanent state — so the dates it
+    keys are pinned here rather than left in prose.
+    """
+    text = LICENSING.read_text()
+    for anchor in ("2026-08-08", "2026-11-06"):
+        assert anchor in text, f"licensing record no longer carries the date {anchor!r}"
+    assert "Not a substantive response" in text, (
+        "an auto-acknowledgement must stay marked as granting nothing — it is the "
+        "easiest thing in this file to misread as progress"
+    )
 
 
 @pytest.mark.skipif(

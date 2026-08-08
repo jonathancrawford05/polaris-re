@@ -56,6 +56,7 @@ from polaris_re.analytics.experience_gam import (
     MISurface,
     MISurfaceResult,
     TensorMIModel,
+    validate_spline_margin,
 )
 from polaris_re.analytics.experience_loaders import (
     ILEC_2012_19_COLUMN_MAP,
@@ -195,11 +196,6 @@ static-base guard, since ``q_base`` is keyed on ``duration_months``."""
 
 _OPEN_BAND_OFFSET = 5
 """Policy years past its start used to represent the open-ended final band."""
-
-_MIN_SPLINE_DF = 3
-"""Cubic B-spline floor. ``patsy.bs`` rejects ``df < degree`` for a basis without
-an intercept, several frames deep and as a bare ``ValueError``; at 3 the margin is
-a plain cubic with no interior knots."""
 
 _LONG_WINDOW = 10
 """Window length used when the observed range is long enough for two of them
@@ -1424,6 +1420,9 @@ def run_diligence(
     late_window: tuple[int, int] | None = None,
     age_df: int = 6,
     year_df: int = 4,
+    age_degree: int = 3,
+    year_degree: int = 3,
+    duration_degree: int = 3,
     confidence_level: float = 0.95,
     overdispersion: str = "auto",
     duration_band_edges: tuple[int, ...] | None = None,
@@ -1504,20 +1503,12 @@ def run_diligence(
         raise PolarisValidationError(
             f"overdispersion must be 'auto', 'on' or 'off', got {overdispersion!r}."
         )
-    # patsy's bs() needs df >= degree for a cubic basis without an intercept, and
-    # surfaces it several frames deep as a bare ValueError. Caught here so a df
-    # that is too SMALL reads like the df that is too LARGE warning does — the two
-    # are opposite ends of the same decision, and a maintainer tuning one down off
-    # a boundary artefact will walk straight into the other (2026-08-04).
-    for name, value in (("age_df", age_df), ("year_df", year_df)):
-        if value < _MIN_SPLINE_DF:
-            raise PolarisValidationError(
-                f"{name}={value} is below the cubic B-spline minimum of "
-                f"{_MIN_SPLINE_DF}. At {_MIN_SPLINE_DF} the margin is a plain cubic "
-                f"with no interior knots, which is already the least flexible "
-                f"spline available — if that is still too flexible for the window, "
-                f"the window is too short to fit a surface on."
-            )
+    # df >= degree, enforced here rather than several frames deep inside patsy as a
+    # bare ValueError. TensorMIModel raises the same message; this call keeps it at
+    # the CLI boundary so a bad flag fails before a 12 GB file is read.
+    validate_spline_margin("age", age_df, age_degree)
+    validate_spline_margin("year", year_df, year_degree)
+    validate_spline_margin("duration", duration_df, duration_degree)
 
     exposure_col, deaths_col = COUNT_MEASURES if basis == "count" else AMOUNT_MEASURES
     expected_cols = (
@@ -1682,6 +1673,9 @@ def run_diligence(
             age_df=age_df,
             year_df=year_df,
             duration_df=duration_df,
+            age_degree=age_degree,
+            year_degree=year_degree,
+            duration_degree=duration_degree,
             age_varying=True,
             overdispersion=overdispersed,
         ).fit()
@@ -1908,6 +1902,10 @@ def run_diligence(
         "observed_years": list(result.observed_years),
         "age_df": age_df,
         "year_df": year_df,
+        "age_degree": age_degree,
+        "year_degree": year_degree,
+        "duration_degree": duration_degree,
+        "interior_knots": result.knots,
         "n_years_observed": n_years_observed,
         "band_inflation_from_overdispersion": band_inflation,
         "confidence_level": confidence_level,

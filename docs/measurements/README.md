@@ -16,11 +16,15 @@ mechanical diff without disturbing prose that a human wrote.
 | `experience_gam_hmd_gbrtenw.{json,md}` | `--source hmd --country GBRTENW --min-year 1990 --max-year 2019` |
 | `experience_gam_ilec.{json,md}` | `--source ilec --year-df 3` |
 | `experience_gam_ilec_duration_banded.{json,md}` | `--source ilec --year-df 3 --duration-bands` |
+| `experience_gam_ilec_duration_banded_quadratic.{json,md}` | `--source ilec --year-df 2 --year-degree 2 --duration-bands` |
 
-The two ILEC runs are both kept **on purpose**: the difference between them is
-itself a finding (duration mix was confounding the trend — ADR-182 amendment 4).
-The banded one is the better-specified fit; the pooled one is the control that
-shows how much the confound was worth.
+The three ILEC runs are all kept **on purpose**; each pair's difference is itself a
+finding. Pooled versus banded shows duration mix confounding the trend (ADR-182
+amendment 4). Banded-cubic versus banded-quadratic shows that age 45's climb is
+**invariant** to the calendar margin's flexibility, which retracted the stated
+reason for distrusting it (ADR-184 amendment 2). The quadratic is the
+better-specified fit — closer to SOA's own scale on both metrics, at equal
+dispersion and one fewer parameter.
 
 Read them alongside `docs/MEASUREMENT_experience_gam_hmd.md` and
 `docs/MEASUREMENT_experience_gam_ilec.md`, which say what the numbers mean and
@@ -86,7 +90,13 @@ separate question, and the answers are not symmetric:
   *public* hook today — this is not a risk that begins if the project ever
   commercialises. `../DATA_LICENSING.md` §3 quotes the clauses and §5 records the
   maintainer's position and what would change it.
-- **HMD** — **still unread.** The SOA answer does not transfer.
+- **HMD** — read 2026-08-08, and **permissive**. HMD's own estimates are
+  **CC BY 4.0**: derivatives and commercial use are both permitted, and the only
+  condition is attribution. The series used here are from the `STATS` output
+  bundle, so they are estimates rather than Input Database material — which is the
+  tier that *does* carry a no-commercial-gain restriction. One gap remains: the
+  prescribed attribution includes a **version DOI** that §2a does not yet carry
+  (`../DATA_LICENSING.md` §4d).
 
 If a derived artefact is ever wanted for distribution, the right one is a **model
 output** — a fitted `MortalityImprovement` scale via
@@ -95,10 +105,20 @@ somebody's data.
 
 ## Reproducing them
 
-The reports are deterministic: no timestamps, and floats rounded to 12 significant
-digits so multithreaded-BLAS jitter in the delta-method band cannot produce a
-spurious diff (see `REPORT_SIGNIFICANT_DIGITS`). Given the same cache and the same
-arguments, a re-run reproduces these files byte for byte.
+The reports carry no timestamps and no paths, and floats are rounded to 12
+significant digits so multithreaded-BLAS jitter in the delta-method band cannot
+produce a spurious diff (see `REPORT_SIGNIFICANT_DIGITS`).
+
+**They are not byte-for-byte reproducible, and the earlier claim that they were is
+withdrawn.** Rounding cannot be tie-free: every cutoff has values sitting within
+1 ulp of it, and a parallel sum reassociated across runs flips which way those
+round. Observed 2026-08-08 on a control re-run — `dropped_exposure_share` moved
+`9.17073903863e-05` → `...64e-05` while every fitted quantity was bit-identical.
+
+What holds is the useful part: **the estimator is deterministic**, so the surface,
+the bands, the dispersion and the verdict reproduce exactly. Aggregation ratios
+over ~10^5 cells can move in their last reported digit. Compare a re-run with a
+numeric diff, not `cmp`.
 
 Acquisition and the exact commands are in
 `docs/RUNBOOK_experience_data_acquisition.md` §3.
