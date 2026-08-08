@@ -112,6 +112,23 @@ def test_the_position_taken_carries_its_change_triggers() -> None:
         assert trigger in text, f"position no longer names the trigger: {trigger!r}"
 
 
+def test_the_permission_request_carries_real_dates() -> None:
+    """The 90-day trigger is only actionable if it resolves to a calendar date.
+
+    "90 days from sending" is a sentiment; a date is a deadline. The request was
+    sent 2026-08-08 and drew an automated high-volume acknowledgement, which is
+    the outcome most likely to quietly become a permanent state — so the dates it
+    keys are pinned here rather than left in prose.
+    """
+    text = LICENSING.read_text()
+    for anchor in ("2026-08-08", "2026-11-06"):
+        assert anchor in text, f"licensing record no longer carries the date {anchor!r}"
+    assert "Not a substantive response" in text, (
+        "an auto-acknowledgement must stay marked as granting nothing — it is the "
+        "easiest thing in this file to misread as progress"
+    )
+
+
 @pytest.mark.skipif(
     not (REPO_ROOT / ".dockerignore").is_file(),
     reason=(

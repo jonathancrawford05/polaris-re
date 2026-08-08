@@ -11,7 +11,7 @@ under `docs/measurements/`.
 |---|---|
 | Attribution | **Added** (§2), pinned by `tests/test_docs/test_data_attribution.py` |
 | Inventory of what is committed | **Verified by inspection** (§1) |
-| **SOA** Terms of Use | **Read** (§3) — and they are **restrictive**. Permission not yet sought; request drafted at §6 |
+| **SOA** Terms of Use | **Read** (§3) — and they are **restrictive**. Permission **requested 2026-08-08**, auto-acknowledged only; 90-day trigger **2026-11-06** (§6) |
 | **HMD** User Agreement | **NOT read** (§4) — open, and the SOA answers do not transfer |
 | Position taken | §5 — the maintainer's, dated, with the triggers that would change it |
 
@@ -295,9 +295,22 @@ exposure rather than eliminating it, and it is not a substitute for §6.
 
 ## 6. Permission request to the SOA
 
-Status: **drafted 2026-08-07, to be sent by the maintainer** from their own
-address, so any permission granted attaches to them personally. Record the reply
-here when it arrives — including a non-reply at the 90-day mark (§5b).
+| | |
+|---|---|
+| Drafted | 2026-08-07 |
+| **Sent** | **2026-08-08**, by the maintainer from their own address, so any permission granted attaches to them personally |
+| Acknowledged | Automated reply only — the SOA noted it is handling a high volume of queries. **Not a substantive response**, and it grants nothing |
+| Follow-up due | **2026-09-07** (~30 days) — a short, polite chase |
+| **90-day trigger** (§5b) | **2026-11-06.** Silence at that date is not permission and is not a steady state |
+
+The auto-acknowledgement is worth recording precisely because it is easy to
+misread as progress. It confirms delivery and nothing else: the request is queued
+behind a stated backlog, which *raises* the probability of the slow-or-no-reply
+path rather than lowering it. That path is exactly what §5b's trigger exists for,
+and the dates above are what make it actionable rather than a sentiment.
+
+Record the substantive reply here when it arrives — **in either direction**. A
+grant narrows this document to its terms; a refusal triggers §5c.
 
 Two things this draft does deliberately. It **discloses the commercial-alternative
 positioning up front**, quoting CLAUDE.md §1, because a permission obtained by
