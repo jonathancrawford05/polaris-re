@@ -1,0 +1,731 @@
+{
+  "schema_version": 1,
+  "polaris_version": "0.1.0",
+  "source": "ilec",
+  "inputs": {
+    "source": "ilec",
+    "basis": "count",
+    "ilec_file": "ILEC_2012_19 - 20240429.txt",
+    "ilec_file_bytes": 12477136749,
+    "vintage": "2012-19",
+    "separator": "'\\t'",
+    "include_expected": true
+  },
+  "aggregation": {
+    "group_keys": [
+      "attained_age",
+      "calendar_year",
+      "sex",
+      "smoker",
+      "uw_class"
+    ],
+    "dropped_keys": [
+      "issue_age",
+      "duration_months",
+      "band",
+      "product"
+    ],
+    "n_cells_loaded": 11059501,
+    "n_cells_grouped": 15882,
+    "n_cells_fitted": 15880,
+    "n_cells_unknown_uw_class_excluded": 277173,
+    "total_exposure": 420404126.703,
+    "total_deaths": 4354590.0
+  },
+  "base": {
+    "kind": "empirical (pooled crude rate over the calendar window)",
+    "keys": [
+      "attained_age",
+      "sex",
+      "smoker"
+    ],
+    "n_strata": 426,
+    "n_strata_dropped": 0,
+    "dropped_exposure_share": 0.0,
+    "n_clipped_above_one": 0,
+    "n_cells_no_exposure": 2,
+    "deaths_in_no_exposure_cells": 0.0
+  },
+  "fit": {
+    "basis": "count",
+    "factors": [
+      "sex",
+      "smoker",
+      "uw_class"
+    ],
+    "age_varying": true,
+    "n_cells": 15880,
+    "overall_ae": 1.0,
+    "dispersion": 2.25378889066,
+    "overdispersion_applied": true,
+    "observed_ages": [
+      25,
+      95
+    ],
+    "observed_years": [
+      2012,
+      2019
+    ],
+    "age_df": 6,
+    "year_df": 3,
+    "n_years_observed": 8,
+    "band_inflation_from_overdispersion": 1.50126243231,
+    "confidence_level": 0.95,
+    "reference_ages": [
+      45,
+      55,
+      65,
+      75,
+      85
+    ]
+  },
+  "improvement_surface": [
+    {
+      "attained_age": 45,
+      "calendar_year": 2013,
+      "mi": -0.00351911337453,
+      "mi_lower": -0.0229819500041,
+      "mi_upper": 0.0155734312771
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2014,
+      "mi": -0.00812402167799,
+      "mi_lower": -0.0162093696985,
+      "mi_upper": -0.000103003759637
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2015,
+      "mi": -0.00803169107267,
+      "mi_lower": -0.0152203733887,
+      "mi_upper": -0.000893911156525
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2016,
+      "mi": -0.00324341205372,
+      "mi_lower": -0.011908185934,
+      "mi_upper": 0.00534716704539
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2017,
+      "mi": 0.00617399811958,
+      "mi_lower": -0.000859480354916,
+      "mi_upper": 0.0131580492564
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2018,
+      "mi": 0.020089746997,
+      "mi_lower": 0.012217924124,
+      "mi_upper": 0.0278988378192
+    },
+    {
+      "attained_age": 45,
+      "calendar_year": 2019,
+      "mi": 0.0383120897057,
+      "mi_lower": 0.019542563807,
+      "mi_upper": 0.0567222985251
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2013,
+      "mi": 0.00770807620908,
+      "mi_lower": -0.0030772607819,
+      "mi_upper": 0.0183774465656
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2014,
+      "mi": 0.0039958234873,
+      "mi_lower": -0.000489525236199,
+      "mi_upper": 0.00846106370126
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2015,
+      "mi": 0.00262243916301,
+      "mi_lower": -0.00139092957806,
+      "mi_upper": 0.0066197231482
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2016,
+      "mi": 0.00359761696531,
+      "mi_lower": -0.00125392235084,
+      "mi_upper": 0.00842564832487
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2017,
+      "mi": 0.00691447290135,
+      "mi_lower": 0.0029538645313,
+      "mi_upper": 0.0108593483799
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2018,
+      "mi": 0.0125496261855,
+      "mi_lower": 0.00807135438306,
+      "mi_upper": 0.0170076798821
+    },
+    {
+      "attained_age": 55,
+      "calendar_year": 2019,
+      "mi": 0.0204634737124,
+      "mi_lower": 0.0096998654846,
+      "mi_upper": 0.0311100918903
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2013,
+      "mi": 0.0128855946637,
+      "mi_lower": 0.00430939368622,
+      "mi_upper": 0.0213879260849
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2014,
+      "mi": 0.00842984137532,
+      "mi_lower": 0.00484895845,
+      "mi_upper": 0.0119978390983
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2015,
+      "mi": 0.00525730986609,
+      "mi_lower": 0.0021043754519,
+      "mi_upper": 0.00840028232116
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2016,
+      "mi": 0.00338042165859,
+      "mi_lower": -0.000456825544963,
+      "mi_upper": 0.00720295111948
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2017,
+      "mi": 0.0028065378648,
+      "mi_lower": -0.000348843307004,
+      "mi_upper": 0.00595196607829
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2018,
+      "mi": 0.00353791109025,
+      "mi_lower": 4.64595477252e-05,
+      "mi_upper": 0.00701717183252
+    },
+    {
+      "attained_age": 65,
+      "calendar_year": 2019,
+      "mi": 0.0055716707039,
+      "mi_lower": -0.00289980617579,
+      "mi_upper": 0.0139715891686
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2013,
+      "mi": 0.00819898431495,
+      "mi_lower": 0.00127486942874,
+      "mi_upper": 0.0150750946347
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2014,
+      "mi": 0.00610862965613,
+      "mi_lower": 0.00322498194525,
+      "mi_upper": 0.00898393503904
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2015,
+      "mi": 0.00488633759985,
+      "mi_lower": 0.00235407026004,
+      "mi_upper": 0.00741217743098
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2016,
+      "mi": 0.00453531842769,
+      "mi_lower": 0.00144901938919,
+      "mi_upper": 0.00761207840214
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2017,
+      "mi": 0.00505649455796,
+      "mi_lower": 0.00251796613269,
+      "mi_upper": 0.00758856258961
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2018,
+      "mi": 0.006448496507,
+      "mi_lower": 0.00369399103223,
+      "mi_upper": 0.00919538655003
+    },
+    {
+      "attained_age": 75,
+      "calendar_year": 2019,
+      "mi": 0.00870766888502,
+      "mi_lower": 0.00201209908153,
+      "mi_upper": 0.0153583176479
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2013,
+      "mi": 0.0062616038401,
+      "mi_lower": 0.000442046610199,
+      "mi_upper": 0.0120472788461
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2014,
+      "mi": 0.00110596282966,
+      "mi_lower": -0.00131717050383,
+      "mi_upper": 0.0035232323117
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2015,
+      "mi": -0.0014214664922,
+      "mi_lower": -0.00359596971607,
+      "mi_upper": 0.000748325209876
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2016,
+      "mi": -0.00130065128095,
+      "mi_lower": -0.00394098043004,
+      "mi_upper": 0.00133273389619
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2017,
+      "mi": 0.00146745009334,
+      "mi_lower": -0.000692277189396,
+      "mi_upper": 0.00362251618097
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2018,
+      "mi": 0.00686090070521,
+      "mi_lower": 0.00446974406529,
+      "mi_upper": 0.00924631404397
+    },
+    {
+      "attained_age": 85,
+      "calendar_year": 2019,
+      "mi": 0.0148370745652,
+      "mi_lower": 0.00908179907654,
+      "mi_upper": 0.0205589232827
+    }
+  ],
+  "caveats": [
+    "277,173 cells with uw_class == 'U' (underwriting class *unknown*, not *not applicable*) were held out of this class-conditioned fit. 'NA' rows are retained as their own stratum. Pass keep_unknown_uw_class=True to include them.",
+    "2 cells had zero exposure and were dropped \u2014 a Poisson offset needs exposure * q_base > 0, and a cell nobody was exposed in carries no information. They held 0.0 deaths, as expected.",
+    "Cells are pooled across duration, so select-period mortality is absorbed into the attained-age effect. If the duration mix drifts with calendar year, part of that drift lands in the fitted improvement. Pass group_keys including 'duration_months' to separate them, at ~60x the cell count.",
+    "Pearson dispersion \u03c6 = 2.25, so the quasi-Poisson covariance scaling was applied: every band below is 1.50x wider than a plain-Poisson fit would have reported. The point estimates are unchanged \u2014 scaling touches the covariance only. A \u03c6 this far above 1 means unmodelled heterogeneity, which is expected on real grouped data and is why the scaling is not optional here.",
+    "The base offset is estimated from these same cells, so `overall_ae` is ~1 by construction and is not an independent check on the level. The fitted improvement is unaffected: it is a calendar contrast, and every calendar-invariant term \u2014 the offset included \u2014 cancels in the difference."
+  ],
+  "window_comparison": {
+    "verdict": "mixed",
+    "n_ages_slower": 1,
+    "n_ages": 5,
+    "early_window": [
+      2012,
+      2015
+    ],
+    "late_window": [
+      2016,
+      2019
+    ],
+    "rows": [
+      {
+        "attained_age": 45,
+        "early_annualised_mi": -0.00655597827608,
+        "early_lower": -0.0153999906686,
+        "early_upper": 0.00221100382698,
+        "late_annualised_mi": 0.0216139064988,
+        "late_lower": 0.0129841194179,
+        "late_upper": 0.0301682406651,
+        "delta": 0.0281698847749,
+        "bands_overlap": false
+      },
+      {
+        "attained_age": 55,
+        "early_annualised_mi": 0.00477776628118,
+        "early_lower": -0.000129848723373,
+        "early_upper": 0.00966129972765,
+        "late_annualised_mi": 0.0133248535614,
+        "late_lower": 0.00841165418952,
+        "late_upper": 0.0182137086293,
+        "delta": 0.00854708728021,
+        "bands_overlap": true
+      },
+      {
+        "attained_age": 65,
+        "early_annualised_mi": 0.00886252281078,
+        "early_lower": 0.00493864238049,
+        "early_upper": 0.0127709299866,
+        "late_annualised_mi": 0.00397272716782,
+        "late_lower": 0.000146982018221,
+        "late_upper": 0.00778383383988,
+        "delta": -0.00488979564295,
+        "bands_overlap": true
+      },
+      {
+        "attained_age": 75,
+        "early_annualised_mi": 0.00639892554755,
+        "early_lower": 0.00323781137202,
+        "early_upper": 0.00955001462086,
+        "late_annualised_mi": 0.00673869313008,
+        "late_lower": 0.00372407190813,
+        "late_upper": 0.00974419244026,
+        "delta": 0.000339767582526,
+        "bands_overlap": true
+      },
+      {
+        "attained_age": 85,
+        "early_annualised_mi": 0.00198715884525,
+        "early_lower": -0.000664780624615,
+        "early_upper": 0.00463207020431,
+        "late_annualised_mi": 0.00773701987767,
+        "late_lower": 0.00511736533583,
+        "late_upper": 0.0103497765306,
+        "delta": 0.00574986103242,
+        "bands_overlap": false
+      }
+    ],
+    "bands_overlap_is_not_a_significance_test": true
+  },
+  "ae_by_year": {
+    "overall_ae": 1.07908066466,
+    "overall_ae_with_mi": 1.08225371812,
+    "ae_mi_slope_per_year": -0.00118521347759,
+    "ae_mi_relative_drift_per_year": -0.00109513458604,
+    "rows": [
+      {
+        "calendar_year": 2012,
+        "actual": 518386.0,
+        "expected": 474583.765297,
+        "expected_mi": 482055.754205,
+        "ae": 1.09229610852,
+        "ae_mi": 1.07536523624
+      },
+      {
+        "calendar_year": 2013,
+        "actual": 536433.0,
+        "expected": 487195.419435,
+        "expected_mi": 492295.428841,
+        "ae": 1.10106330766,
+        "ae_mi": 1.08965667478
+      },
+      {
+        "calendar_year": 2014,
+        "actual": 540042.0,
+        "expected": 495313.749622,
+        "expected_mi": 497889.822901,
+        "ae": 1.09030286442,
+        "ae_mi": 1.08466165637
+      },
+      {
+        "calendar_year": 2015,
+        "actual": 544829.0,
+        "expected": 497454.870769,
+        "expected_mi": 497454.870769,
+        "ae": 1.09523301914,
+        "ae_mi": 1.09523301914
+      },
+      {
+        "calendar_year": 2016,
+        "actual": 530461.0,
+        "expected": 497937.035,
+        "expected_mi": 495373.905281,
+        "ae": 1.06531742512,
+        "ae_mi": 1.07082951755
+      },
+      {
+        "calendar_year": 2017,
+        "actual": 534712.0,
+        "expected": 496409.414388,
+        "expected_mi": 491322.227006,
+        "ae": 1.07715926512,
+        "ae_mi": 1.08831225336
+      },
+      {
+        "calendar_year": 2018,
+        "actual": 586804.0,
+        "expected": 545168.351738,
+        "expected_mi": 536832.422629,
+        "ae": 1.07637209337,
+        "ae_mi": 1.09308598971
+      },
+      {
+        "calendar_year": 2019,
+        "actual": 562923.0,
+        "expected": 541400.304558,
+        "expected_mi": 530406.928628,
+        "ae": 1.0397537557,
+        "ae_mi": 1.06130400946
+      }
+    ]
+  },
+  "soa_surface_comparison": {
+    "mean_difference": -0.00040649012929,
+    "mean_absolute_difference": 0.00368288423822,
+    "weight_column": "expected_deaths_with_mi",
+    "rows": [
+      {
+        "attained_age": 45,
+        "calendar_year": 2013,
+        "soa_mi": 0.00583513456936,
+        "fitted_mi": -0.00351911337453,
+        "difference": -0.00935424794389
+      },
+      {
+        "attained_age": 45,
+        "calendar_year": 2014,
+        "soa_mi": 0.00580762647942,
+        "fitted_mi": -0.00812402167799,
+        "difference": -0.0139316481574
+      },
+      {
+        "attained_age": 45,
+        "calendar_year": 2015,
+        "soa_mi": 0.00579755823162,
+        "fitted_mi": -0.00803169107267,
+        "difference": -0.0138292493043
+      },
+      {
+        "attained_age": 45,
+        "calendar_year": 2016,
+        "soa_mi": 0.00578843206167,
+        "fitted_mi": -0.00324341205372,
+        "difference": -0.00903184411539
+      },
+      {
+        "attained_age": 45,
+        "calendar_year": 2017,
+        "soa_mi": 0.00577690065696,
+        "fitted_mi": 0.00617399811958,
+        "difference": 0.00039709746262
+      },
+      {
+        "attained_age": 45,
+        "calendar_year": 2018,
+        "soa_mi": 0.00579094680499,
+        "fitted_mi": 0.020089746997,
+        "difference": 0.014298800192
+      },
+      {
+        "attained_age": 45,
+        "calendar_year": 2019,
+        "soa_mi": 0.00576812304076,
+        "fitted_mi": 0.0383120897057,
+        "difference": 0.032543966665
+      },
+      {
+        "attained_age": 55,
+        "calendar_year": 2013,
+        "soa_mi": 0.00585004848614,
+        "fitted_mi": 0.00770807620908,
+        "difference": 0.00185802772293
+      },
+      {
+        "attained_age": 55,
+        "calendar_year": 2014,
+        "soa_mi": 0.00581597590602,
+        "fitted_mi": 0.0039958234873,
+        "difference": -0.00182015241871
+      },
+      {
+        "attained_age": 55,
+        "calendar_year": 2015,
+        "soa_mi": 0.00580523099812,
+        "fitted_mi": 0.00262243916301,
+        "difference": -0.00318279183511
+      },
+      {
+        "attained_age": 55,
+        "calendar_year": 2016,
+        "soa_mi": 0.00579723286506,
+        "fitted_mi": 0.00359761696531,
+        "difference": -0.00219961589976
+      },
+      {
+        "attained_age": 55,
+        "calendar_year": 2017,
+        "soa_mi": 0.00578594314355,
+        "fitted_mi": 0.00691447290135,
+        "difference": 0.0011285297578
+      },
+      {
+        "attained_age": 55,
+        "calendar_year": 2018,
+        "soa_mi": 0.00576819906206,
+        "fitted_mi": 0.0125496261855,
+        "difference": 0.00678142712346
+      },
+      {
+        "attained_age": 55,
+        "calendar_year": 2019,
+        "soa_mi": 0.00576220717006,
+        "fitted_mi": 0.0204634737124,
+        "difference": 0.0147012665423
+      },
+      {
+        "attained_age": 65,
+        "calendar_year": 2013,
+        "soa_mi": 0.00588205633874,
+        "fitted_mi": 0.0128855946637,
+        "difference": 0.00700353832494
+      },
+      {
+        "attained_age": 65,
+        "calendar_year": 2014,
+        "soa_mi": 0.00585928824976,
+        "fitted_mi": 0.00842984137532,
+        "difference": 0.00257055312556
+      },
+      {
+        "attained_age": 65,
+        "calendar_year": 2015,
+        "soa_mi": 0.00583630434774,
+        "fitted_mi": 0.00525730986609,
+        "difference": -0.000578994481646
+      },
+      {
+        "attained_age": 65,
+        "calendar_year": 2016,
+        "soa_mi": 0.00581929386764,
+        "fitted_mi": 0.00338042165859,
+        "difference": -0.00243887220905
+      },
+      {
+        "attained_age": 65,
+        "calendar_year": 2017,
+        "soa_mi": 0.00580906089104,
+        "fitted_mi": 0.0028065378648,
+        "difference": -0.00300252302624
+      },
+      {
+        "attained_age": 65,
+        "calendar_year": 2018,
+        "soa_mi": 0.00577910601868,
+        "fitted_mi": 0.00353791109025,
+        "difference": -0.00224119492843
+      },
+      {
+        "attained_age": 65,
+        "calendar_year": 2019,
+        "soa_mi": 0.00579983825234,
+        "fitted_mi": 0.0055716707039,
+        "difference": -0.000228167548439
+      },
+      {
+        "attained_age": 75,
+        "calendar_year": 2013,
+        "soa_mi": 0.00589442373155,
+        "fitted_mi": 0.00819898431495,
+        "difference": 0.00230456058341
+      },
+      {
+        "attained_age": 75,
+        "calendar_year": 2014,
+        "soa_mi": 0.0058758307435,
+        "fitted_mi": 0.00610862965613,
+        "difference": 0.000232798912632
+      },
+      {
+        "attained_age": 75,
+        "calendar_year": 2015,
+        "soa_mi": 0.00586994757999,
+        "fitted_mi": 0.00488633759985,
+        "difference": -0.000983609980139
+      },
+      {
+        "attained_age": 75,
+        "calendar_year": 2016,
+        "soa_mi": 0.00586378662446,
+        "fitted_mi": 0.00453531842769,
+        "difference": -0.00132846819678
+      },
+      {
+        "attained_age": 75,
+        "calendar_year": 2017,
+        "soa_mi": 0.0058570497221,
+        "fitted_mi": 0.00505649455796,
+        "difference": -0.000800555164141
+      },
+      {
+        "attained_age": 75,
+        "calendar_year": 2018,
+        "soa_mi": 0.00580659831038,
+        "fitted_mi": 0.006448496507,
+        "difference": 0.000641898196627
+      },
+      {
+        "attained_age": 75,
+        "calendar_year": 2019,
+        "soa_mi": 0.0058006624144,
+        "fitted_mi": 0.00870766888502,
+        "difference": 0.00290700647063
+      },
+      {
+        "attained_age": 85,
+        "calendar_year": 2013,
+        "soa_mi": 0.00553278136649,
+        "fitted_mi": 0.0062616038401,
+        "difference": 0.00072882247361
+      },
+      {
+        "attained_age": 85,
+        "calendar_year": 2014,
+        "soa_mi": 0.00549824799707,
+        "fitted_mi": 0.00110596282966,
+        "difference": -0.0043922851674
+      },
+      {
+        "attained_age": 85,
+        "calendar_year": 2015,
+        "soa_mi": 0.00548558793554,
+        "fitted_mi": -0.0014214664922,
+        "difference": -0.00690705442774
+      },
+      {
+        "attained_age": 85,
+        "calendar_year": 2016,
+        "soa_mi": 0.0054803469681,
+        "fitted_mi": -0.00130065128095,
+        "difference": -0.00678099824905
+      },
+      {
+        "attained_age": 85,
+        "calendar_year": 2017,
+        "soa_mi": 0.00547624457506,
+        "fitted_mi": 0.00146745009334,
+        "difference": -0.00400879448172
+      },
+      {
+        "attained_age": 85,
+        "calendar_year": 2018,
+        "soa_mi": 0.00542880289373,
+        "fitted_mi": 0.00686090070521,
+        "difference": 0.00143209781148
+      },
+      {
+        "attained_age": 85,
+        "calendar_year": 2019,
+        "soa_mi": 0.00547274876971,
+        "fitted_mi": 0.0148370745652,
+        "difference": 0.0093643257955
+      }
+    ]
+  }
+}

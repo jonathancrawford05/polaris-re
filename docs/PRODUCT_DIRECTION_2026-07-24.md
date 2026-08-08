@@ -1409,3 +1409,130 @@ are first-class work items rather than commentary.
   2026-08-03 maintainer direction**, and the strongest candidate for the next
   epic. *Source: ADR-150 + maintainer direction 2026-08-03 (1st-order).*
   **IMPORTANT.**
+
+### Harvested 2026-08-04 (experience-GAM diligence harness — ADR-182; real-data epic Slice 1)
+
+- **`uw_class` dtype is inconsistent across the composed and uncomposed loader
+  paths.** `load_ilec` returns `uw_class` as `Int64` on the uncomposed path (the
+  reader infers it from an all-numeric class column) but always `Utf8` on the
+  composed one (`"1of2"`). Cosmetic today — nothing keys on it across vintages —
+  but a join-key hazard the moment something does, and the kind of defect that
+  surfaces as a silent empty join rather than an error. Fix is a cast at the
+  loader boundary. **Promoted here rather than re-listed again:** it was filed in
+  ADR-181's *Out of scope* and then carried as an open follow-up in two
+  consecutive session logs without ever entering the catalogue, which is how an
+  item accumulates instead of getting decided. It is 2nd-order (a follow-up of
+  ADR-181, itself a slice of the real-data epic), so the order cap makes it
+  NICE-TO-HAVE. *Source: ADR-181 out-of-scope → PR #185 review [P2], DISCOVERY
+  protocol step 11b (2nd-order).* **NICE-TO-HAVE.**
+- **Report artefacts need a rounding step, not just a missing clock, to be
+  diffable.** Removing the wall clock from a generated artefact is necessary for
+  byte-stability but not sufficient: the diligence report's delta-method band runs
+  through `cov_params` and an `einsum`, both on multithreaded BLAS, which
+  reassociates its sums depending on how threads carve up the work. Two runs of
+  the same script over the same cache differed by up to **1.2e-14 relative** in
+  the band endpoints — invisible actuarially, and enough to make every re-run of a
+  committed finding show a spurious diff. Pinning `OMP_NUM_THREADS=1` removes it,
+  confirming the cause. `experience_diligence` now rounds emitted floats to 12
+  significant digits (`REPORT_SIGNIFICANT_DIGITS`) and verifies byte-equality
+  across *separate processes*, not two renderings of one in-process object. **Any
+  future generated artefact intended to be committed and diffed inherits this
+  problem** — the perf history log and the QA golden digests are the two existing
+  candidates worth auditing against it. *Source: PR #185 review (determinism
+  over-claim) → measurement, DISCOVERY protocol step 11b (1st-order).*
+  **NICE-TO-HAVE.**
+
+### Harvested 2026-08-05 (real-data GAM epic slices 2-3 — ADR-182 amendments 2-5)
+
+Four items the slice 2 and 3 measurement documents named and that were not
+promoted when the epic closed. Each is a 1st-order follow-up of planned slice
+scope, so the order cap does not bar them. With the epic marked COMPLETE and its
+CONTINUATION stating that follow-ups live here, the omission was load-bearing
+rather than cosmetic (PR #185 round-2 review [P1]).
+
+- ~~**Re-run ILEC with `--duration-bands` to populate `standardised_ae`.**~~
+  **DONE 2026-08-06** — measured, and it partially falsified the inference:
+  direction confirmed, magnitude cut ~5x (ADR-182 amendment 6). Original text: The
+  estimator shipped in ADR-182 amendment 5; both committed ILEC reports predate
+  it, so `MEASUREMENT_experience_gam_ilec.md` §4 — the "a flat A/E is not evidence
+  assumptions are sound" reading, which the CONTINUATION elevates to slice 3's
+  headline — is still an **inference from the pooled-versus-banded contrast**, not
+  a measurement. One maintainer run converts it. Until then the estimator is
+  verified only against synthetic strata, which is precisely the kind of evidence
+  this epic exists to say is not a finding about real experience. *Source: ADR-182
+  amendment 5 + PR #185 round-2 review (1st-order).* **IMPORTANT.**
+- **Age 45 stays boundary-contaminated on the ILEC fit.** Fitted MI ramps 0.05%
+  (2013) to 3.59% (2019) at `year_df=3`, which is the cubic floor — so this cannot
+  be tuned away. `MEASUREMENT_experience_gam_ilec.md` §7: "needs a longer vintage,
+  not a different setting." Blocks any age-45 insured improvement claim; ages 55-85
+  are unaffected. Resolution is a longer ILEC release, i.e. maintainer-gated.
+  *Source: MEASUREMENT_experience_gam_ilec §3/§7 (1st-order).* **NICE-TO-HAVE.**
+- **The ILEC A/E *level* of 1.079 is not interpreted.** Actual deaths run ~8% above
+  VBT 2015 expected on this book. Only the *drift* is claimed anywhere; decomposing
+  the level into basis, mix and selection effects was never in slice 3's scope and
+  is a genuine open question for anyone pricing off this basis. *Source:
+  MEASUREMENT_experience_gam_ilec §7 (1st-order).* **NICE-TO-HAVE.**
+- **No quantitative comparison against MIM-2021's own scale.** HMD §3 claims
+  *qualitative* structural agreement with the published record and explicitly
+  scopes out matching rates, which would need MIM-2021 loaded as a comparison
+  basis. That comparison is what would turn "the shape agrees" into "the rates
+  agree to X", and it is the natural companion to the `mgcv` oracle (ADR-151).
+  *Source: MEASUREMENT_experience_gam_hmd §3/§6 (1st-order).* **NICE-TO-HAVE.**
+
+### Appended 2026-08-07 (data attribution + licensing audit)
+
+Attribution for the HMD and SOA-ILEC sources was added to the three committed
+findings documents and pinned by `tests/test_docs/test_data_attribution.py`
+(`docs/DATA_LICENSING.md`). The audit that produced it surfaced one item that is
+**not** closed.
+
+- **Nobody has read the HMD or SOA terms of use.** Every licensing statement this
+  repository has ever made is second-hand paraphrase — `RUNBOOK...` §0 "keeps you
+  inside both licences", §6 "forbidden by the licences", and a
+  `docs/measurements/README.md` heading that asserted the flat legal conclusion
+  "Why committing these is not a licence problem". A grep confirms **no section
+  number, quotation or URL to a terms document appears anywhere in the tree.** The
+  attempt to read the primaries in-session was denied at the network gateway (403
+  on `www.mortality.org` and `www.soa.org`; egress is a GitHub/PyPI allowlist), and
+  search-engine summaries were deliberately **not** substituted — swapping one
+  layer of paraphrase for another reproduces the defect rather than fixing it.
+  `DATA_LICENSING.md` §4 poses the three questions that need answering: whether
+  the terms reach *derived aggregates* or only the dataset; whether a prescribed
+  attribution wording exists that §2 does not meet; and whether a non-commercial
+  condition applies to a public repository whose stated purpose (CLAUDE.md §1) is
+  a commercial alternative to AXIS/Prophet. §1 shows the committed artefacts are
+  conservative by any reading, and §4c names the narrow remedy if an answer comes
+  back unfavourable — the ILEC `ae_by_year` absolute counts and
+  `soa_surface_comparison` rows are the only exposure, and both reduce to ratios
+  without losing a single finding. **Maintainer-gated: it needs a browser this
+  container does not have.** *Source: 2026-08-07 attribution pass (1st-order).*
+  **IMPORTANT.**
+
+### Appended 2026-08-07b (SOA terms read — the licensing item narrowed and re-aimed)
+
+The item appended earlier the same day is **half-closed**: the maintainer read the
+SOA Website Terms of Use, and ADR-183 amendment 1 plus `DATA_LICENSING.md` §3
+record the clause text. What replaces it:
+
+- **SOA permission request outstanding.** No dataset-specific licence exists; the
+  site-wide Terms permit only non-commercial educational use, prohibit public
+  **or** commercial distribution, bar derivative works, and offer prior written
+  permission as the only route. The request is drafted at `DATA_LICENSING.md` §6
+  and is the maintainer's to send. Revisit on any of the four triggers in §5b — a
+  second contributor, any commercial engagement, a reply either way, or 90 days of
+  silence. **Maintainer-gated.** *Source: SOA Terms of Use, read 2026-08-07
+  (1st-order).* **IMPORTANT.**
+- **Strip the absolute death counts from the two ILEC reports.** One re-run of
+  `scripts/experience_diligence.py`; every finding in the measurement document
+  survives because they are all ratios. Per ADR-183 amendment 1 this reduces
+  exposure rather than eliminating it — the derivative-work clause is not about
+  substitutability — but it removes the only committed content that could be
+  characterised as republishing SOA figures rather than describing them.
+  Maintainer-gated (needs the 12.5 GB cache). *Source: DATA_LICENSING §5c
+  (1st-order).* **IMPORTANT.**
+- **HMD User Agreement still unread.** The SOA answer does not transfer — different
+  body, different kind of publisher. Likely cheap to close: if the widely-reported
+  CC BY 4.0 licensing is accurate, derivative works and commercial use are both
+  permitted and only attribution is owed, which §2a already provides. Needs a
+  browser this container does not have. *Source: DATA_LICENSING §4 (1st-order).*
+  **NICE-TO-HAVE.**

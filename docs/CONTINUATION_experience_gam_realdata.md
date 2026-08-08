@@ -5,7 +5,8 @@ experience GAM", **IMPORTANT** (reclassified from ADR-150 NICE-TO-HAVE on
 2026-08-03 maintainer direction)
 **Plan:** `docs/PLAN_experience_gam_realdata.md`
 **Data runbook:** `docs/RUNBOOK_experience_data_acquisition.md`
-**Status:** IN PROGRESS
+**Status:** COMPLETE (2026-08-05) — all three slices delivered, every acceptance
+criterion met. Follow-ups live in PRODUCT_DIRECTION, not here.
 **Total slices:** 3 (slices 2–3 depend on maintainer-run data acquisition)
 **Estimated total scope:** ~4–6 dev-days of autonomous work + 2 maintainer runs
 
@@ -22,7 +23,8 @@ thesis; this is what discharges it.
 ## Slices
 
 ### Slice 1: The diligence harness (autonomous — no data required)
-- **Status:** NEXT
+- **Status:** DONE (2026-08-04) — `src/polaris_re/analytics/experience_diligence.py`
+  + `scripts/experience_diligence.py`, **ADR-182**, runbook §3. 65 tests. PR #185.
 - **Depends on:** nothing
 - **Scope:** `scripts/experience_diligence.py` — load (HMD or ILEC from a local
   cache) → fit the tensor MI surface → emit a structured findings report (JSON +
@@ -50,18 +52,52 @@ thesis; this is what discharges it.
   - Runs green on synthetic fixtures in CI; `--source hmd|ilec` contract documented.
   - **No plots** — numbers and tables commit and diff, images do not.
   - `tests/qa/` goldens untouched (nothing in `products/` moves).
+- **How it came out.** All acceptance criteria met. Four things are worth carrying
+  into slice 2 because they change how the output should be read:
+  - The slowdown test is proven **two-sided**: the suite injects a slowdown and
+    requires the verdict `slowdown`, then injects an acceleration and requires
+    `acceleration`. A harness that said "slowdown" either way would confirm PLAN §2
+    by construction.
+  - The early/late bands are **exact** window contrasts (the two-year grid's single
+    step telescopes to `η(end) − η(start)`), but their *overlap* is **not** a
+    significance test for the difference — the two contrasts share coefficients.
+    The report says so in three places; do not upgrade that language when writing
+    the findings.
+  - `q_base` is the pooled crude rate from the data itself, so `overall_ae` is ~1
+    **by construction** and is not a check on the level. The fitted improvement is
+    unaffected (verified: halving `q_base` leaves the surface identical to 1e-10).
+    On ILEC the level check is SOA's own expected deaths.
+  - The ILEC default pools across **duration**. A duration mix drifting with
+    calendar year leaks into the trend; every report states it. If slice 3's
+    numbers look surprising, re-run with `--group-by ... duration_months` before
+    believing them.
 
 ### Slice 2: HMD findings (maintainer runs; session records)
-- **Status:** BLOCKED on maintainer data acquisition + slice 1 merged
+- **Status:** DONE (2026-08-05) — `docs/MEASUREMENT_experience_gam_hmd.md`.
+  **The slowdown reproduced, localised to ages 45-65** (-0.90 / -0.99 / -1.26
+  points), with ages 75-85 accelerating. Age 75's +0.13% is NOT resolvable on
+  corrected bands and is not claimed. **GBRTENW confirms it independently** —
+  4/5 ages slower, agreeing at 45-65 and diverging at 85 for a reason the fit's
+  own 1990s baselines explain.
 - **Scope:** maintainer runs slice 1's harness against HMD (USA 1990–2019
   primary; GBRTENW secondary) and returns the report; the session commits
-  `docs/MEASUREMENT_experience_gam_hmd.md`.
+  `docs/MEASUREMENT_experience_gam_hmd.md`. The exact commands are in
+  `RUNBOOK_experience_data_acquisition.md` §3; the `--markdown` output is already
+  scrubbed for committing (basenames only, no cells, no plots).
 - **Acceptance:** the **post-2010 US improvement-slowdown question answered
   either way**, compared against the published reference (SOA MIM-2021 / CMI
   literature); cross-population agreement characterised; no data files added.
 
 ### Slice 3: ILEC insured validation (maintainer runs; session records)
-- **Status:** PLANNED
+- **Status:** DONE (2026-08-05) — `docs/MEASUREMENT_experience_gam_ilec.md`.
+  **Duration mix was confounding the trend**: banding took dispersion 2.25 -> 1.16
+  at a cost of 0.009% of exposure and moved every reference age. The headline is
+  the mix decomposition, **measured 2026-08-06** (ADR-182 amendment 6): experience
+  -0.150%/yr against mix +0.032%/yr, so a crude A/E **understates this book's
+  experience drift by 27%**. The measurement confirmed the direction of the
+  earlier inference and cut its magnitude by ~5x — "two offsetting effects"
+  overstated it.
+  Insured improve ~6-7x faster than population at 55-65.
 - **Depends on:** Slice 2
 - **Scope:** same shape against insured experience. The interesting output is
   insured-vs-population **divergence**, not agreement — insured lives are
@@ -87,8 +123,14 @@ thesis; this is what discharges it.
   session.
 - The loaders already exist and are unit-tested — `experience_loaders.py`:
   `load_hmd`, `parse_hmd_1x1`, `load_ilec`, `fetch_hmd`, `ILEC_COLUMN_MAP`,
-  `default_experience_cache_dir`. Slice 1 consumes them; it should not need to
-  modify them.
+  `default_experience_cache_dir`. Slice 1 consumed them without modifying them,
+  as intended.
+- **Slice 2 is a recording job, not a coding one.** The harness exists; what is
+  missing is the maintainer's run. The session's work is to read the returned
+  report honestly against the published reference (SOA MIM-2021 / CMI) and write
+  `MEASUREMENT_experience_gam_hmd.md` — including any way the fit disappoints.
+  Resist the urge to add harness features while waiting; the epic's value is in
+  the finding, and a slice reporting "no slowdown" is a successful slice.
 
 ## Open Questions (for human)
 

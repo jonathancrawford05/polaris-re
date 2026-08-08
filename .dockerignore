@@ -66,5 +66,19 @@ data/inputs/*
 !.github/workflows/
 !.github/workflows/**
 
-# Documentation source (not needed at runtime)
-docs/
+# Documentation source (not needed at runtime) — EXCEPT docs/measurements/,
+# which tests/test_notebooks/test_experience_gam_diligence_notebook.py reads
+# (the notebook re-derives every claim in the MEASUREMENT docs from those
+# committed reports, so executing it is the check on the prose). The runtime
+# image runs the test suite, so they must be present. Mirrors the data/qa/ and
+# .github/workflows/ allowlists above.
+#
+# The attribution documents ride along for the same reason and one more: an image
+# that carries somebody else's findings should carry the credit for them.
+# tests/test_docs/test_data_attribution.py asserts they do.
+docs/*
+!docs/measurements/
+!docs/measurements/**
+!docs/DATA_LICENSING.md
+!docs/MEASUREMENT_experience_gam_hmd.md
+!docs/MEASUREMENT_experience_gam_ilec.md

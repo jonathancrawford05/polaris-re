@@ -12457,3 +12457,533 @@ always yields Utf8. Pre-existing, cosmetic today, and a join-key hazard if a
 future consumer keys on it across vintages — filed rather than fixed here.
 Automatic delimiter sniffing (the caller declares it), and any handling of the
 `Cen*Mom*` central-moment columns the release also carries.
+
+---
+
+## ADR-182: The experience-GAM diligence harness — a findings generator, not a fitting script (real-data GAM epic Slice 1)
+
+**Date:** 2026-08-04
+**Status:** Accepted
+**Context:** `docs/PLAN_experience_gam_realdata.md` §4 Slice 1; ADR-181 (loader
+contract); ADR-150/151 (the A4′ tensor MI surface and its `mgcv` oracle).
+
+The A4′ epic shipped fifteen slices of tensor-GAM machinery and validated every
+one of them against synthetic data with an **injected** surface. That proves the
+implementation recovers a surface it was handed. It says nothing about whether it
+recovers real improvement from real experience — which is the only question a
+reinsurer asks, and the one CLAUDE.md §1's product thesis rests on.
+
+The structural obstacle is that the routine cannot close that gap by itself:
+HMD needs a personal account, SOA-ILEC needs terms acceptance, neither may be
+committed (Design Anchor 6 and the licences), and autonomous sessions run in
+ephemeral containers that could not retain the data anyway. So the deliverable
+is not a fit; it is a **harness the maintainer runs**, whose output is a findings
+artefact the routine commits. Same round trip as
+`scripts/bench_portfolio_parallel.py` (2026-08-03), which worked twice in one
+session.
+
+**Decision:** ship `polaris_re.analytics.experience_diligence` (the logic, so it
+is linted, mypy-checked, covered and unit-tested like everything else in `src/`)
+behind a thin `scripts/experience_diligence.py` argparse wrapper (the documented
+entry point the PLAN names). Six choices in it are load-bearing.
+
+1. **A falsifiable headline, computed both ways.** The report leads with an
+   early-vs-late annualised-improvement comparison — the post-2010 slowdown test
+   PLAN §2 named *in advance*. The tests inject a slowdown and require the verdict
+   `slowdown`, then inject an **acceleration** and require `acceleration`. A
+   harness that returned "slowdown" either way would confirm the epic's hypothesis
+   by construction, and only the two-sided test can tell the difference.
+
+2. **The window band is an exact contrast, not a rescaled per-year one.** Asking
+   `MISurfaceResult.improvement_surface` for the two-year grid `[start, end]`
+   makes its single annual "step" the contrast `η(x, end) − η(x, start)` — which
+   *is* the window contrast, because the per-year steps telescope. The
+   delta-method interval it returns therefore belongs to the window. Verified in
+   the suite against the geometric mean of the annual grid to 1e-12.
+
+   What the harness deliberately does **not** claim: the overlap of the two
+   windows' bands is not a significance test for their *difference*. Both
+   contrasts come from the same fitted coefficients and are correlated, and
+   computing the difference's variance would need the cross-covariance the public
+   API does not expose. The column ships labelled indicative, in the report, the
+   Markdown, and the JSON (`bands_overlap_is_not_a_significance_test`).
+
+3. **An empirical base offset, not a mortality table.** `q_base` is the pooled
+   crude rate over the whole calendar window within each stratum of
+   `EMPIRICAL_BASE_KEYS`. Legitimate because the fitted MI is a *calendar
+   contrast*: every calendar-invariant term — the offset included — cancels in
+   `η(x, y) − η(x, y−1)`. The suite verifies exactly that, by halving `q_base` and
+   asserting the surface is unchanged to 1e-10 while `overall_ae` doubles.
+
+   It buys three things a standard table does not: no table files (so this runs
+   in CI, and on **population** data, for which no insured table is the right
+   base); no possibility of importing a spurious trend from a projected table;
+   and an `overall_ae` of ~1 by construction — which the report states as a
+   *caveat*, because an A/E against a base fitted to the same data is not an
+   independent check. On the ILEC path the independent check is SOA's own
+   published expected deaths, which is the point of carrying them (ADR-181).
+
+   The base strata are deliberately the same determinant set the Anchor-1 static
+   guard groups on. A base varying with a covariate *outside* that set —
+   `uw_class`, say — shows a within-group spread and the guard reads it as
+   generational. Covariates outside the set belong in the model as factors, which
+   is where the GAM already puts them.
+
+4. **SOA's own MI, extracted and compared surface to surface.** Their
+   expected-with-MI over expected-without is their cumulative improvement factor
+   on identical cells; its year-over-year change **within a fixed attained age**
+   is their annual MI at that age. Taken within-age rather than in aggregate, so
+   a drifting exposure mix cannot masquerade as improvement. That makes the check
+   a comparison in the same units with no model of ours in between — the strongest
+   thing in the report, and the one that most deserves to disagree.
+
+5. **The aggregation level is a stated parameter with a conservative default.**
+   The real release is 9,714,592 cells and the surface needs ~10³–10⁴, so
+   collapsing is not optional. The ILEC default keeps `smoker` and `uw_class` —
+   pooling those merges populations with genuinely different mortality — and drops
+   duration, which is a **real limitation** (a duration mix drifting with calendar
+   year leaks into the trend), so every report says so rather than leaving it
+   implicit. `uw_class == "U"` is held out by default and `"NA"` retained, per
+   ADR-181's reading of the maintainer's own distribution.
+
+6. **A committable artefact: no plots, no timestamps, no absolute paths.** Numbers
+   and tables diff; images do not. The report carries no clock reading, so two
+   runs over the same cache produce byte-identical JSON (verified across
+   processes) and a committed finding diffs meaningfully against a re-run. Input
+   files are recorded by **basename and size** — a finding must not carry a
+   maintainer's home directory into the repo.
+
+**Consequences:** slice 1 is complete and mergeable with **no data present**, as
+the plan requires. Slices 2–3 are now purely a maintainer run plus a findings
+commit. A missing or ambiguous cache exits 2 with a sentence naming every
+location searched and pointing at
+`docs/RUNBOOK_experience_data_acquisition.md` — including the `STATS/`
+subdirectory the zipped HMD bundle extracts into, which the fetch-shaped layout
+alone would have missed. Nothing in `products/` moves and `tests/qa/` is
+untouched.
+
+**Out of scope:** wiring any real-data fit into the pricing path or an assumption
+default (this epic validates the model, it does not change an assumption); a
+`polaris experience diligence` CLI subcommand (the script is the documented entry
+point, and a Typer command would need the same arguments again for no gain until
+someone asks); the `mgcv` oracle (ADR-151), which needs an R-equipped machine and
+is the maintainer's to run — real-data fitting is exactly when it earns its keep.
+
+### ADR-182 amendment (PR #185 review round, 2026-08-04)
+
+Approved with zero P0. Four findings; all addressed in-PR, and two of them
+changed the design rather than the wording.
+
+**[P1] The ILEC missing-cache path exited 1 against a documented 2.** `main()`
+classified "no data" by matching the message text — `"not found"`,
+`"no .txt/.csv"`, `"candidate files"` — and `resolve_ilec_path`'s
+missing-*directory* wording ("No ILEC cache directory at …") matched none of
+them. That is the first thing a maintainer meets on the ILEC path, before the
+12 GB download. Fixed by classifying on **type**: `ExperienceCacheMissingError`,
+a `PolarisValidationError` subclass raised by every cache-absence site, so
+rewording a message can never change an exit code again. The test was
+parametrised over `hmd` **and** `ilec` — it had covered only the path that
+happened to work, which is why the defect shipped.
+
+**The determinism claim was over-stated, and the reviewer was right to flag it.**
+The committed test compared two renderings of one *in-process* report, which
+cannot see a per-process difference; the cross-process `cmp` was run by hand.
+Writing the real test found the claim to be **false**: two runs of the same
+script over the same cache differ by up to **1.2e-14 relative** in `mi_lower` /
+`mi_upper`. The cause is not a clock — it is multithreaded BLAS in `cov_params`
+and the `einsum` of the delta-method band, reassociating its sums differently
+depending on how threads carve up the work (pinning `OMP_NUM_THREADS=1` removes
+it entirely). Point estimates were always stable; only the covariance path moves.
+
+Fixed in the artefact rather than in the prose, because the artefact's whole
+purpose is to be committed and diffed: floats are rounded to
+`REPORT_SIGNIFICANT_DIGITS = 12` on serialisation — ~80x above the observed
+jitter, ~9 orders below anything an actuary reads — and the suite now runs the
+script in two separate interpreters and compares bytes. Verified byte-stable
+across six independent processes. The honest form of the claim is *vanishingly
+unlikely to diff spuriously*, not *provably identical*: a value landing within
+1e-14 relative of a 12th-digit boundary could still tip. A library has no
+business setting `OMP_NUM_THREADS` for the whole process, which is why the fix
+is rounding rather than thread pinning.
+
+**[P2] `verdict` read `acceleration` when no age was slower**, which includes an
+exactly-zero delta — neither slower nor faster. Both directions are now tested
+strictly, and the rule was extracted into a pure `_verdict()` so it can be
+exercised on the exact inputs (zeros, empty) that a real fit never produces. The
+first version of that test re-implemented the rule instead of calling it, which
+would have been vacuous in exactly the way PR #184's [P1-2] was.
+
+**[P2] A/E and the fit run over different populations** — A/E over the whole
+loaded book, the fit over cells surviving the zero-death-strata drop. Kept, and
+deliberately: SOA's published denominator covers every cell they priced, and
+narrowing it to ours would answer a different question. But the divergence is now
+a stated caveat naming both cell counts and the exposure share, rather than
+something a reader must derive from `n_cells_grouped` vs `n_cells_fitted`.
+
+**[P2, process]** The `uw_class` dtype inconsistency and the artefact-rounding
+finding are both promoted into `PRODUCT_DIRECTION_2026-07-24.md` with provenance,
+rather than re-listed in a third consecutive session log.
+
+### ADR-182 amendment 2 (first real ILEC run, 2026-08-04)
+
+**The harness could not fit the real 2012-2019 file at all.** It aborted in
+`TensorMIModel` with *"Every cell must have positive exposure * q_base to form
+the offset"*. `attach_empirical_base` dropped **strata** with no deaths but never
+individual **cells** with no exposure — and a stratum can be perfectly healthy in
+aggregate while still containing a (year, sex, smoker, class) combination nobody
+was exposed in. Such a cell has `exposure * q_base == 0`, cannot carry a Poisson
+offset, and carries no information anyway.
+
+Measured on the maintainer's file, at the default grouping level, ages 25-95,
+`uw_class == "U"` held out:
+
+| | |
+|---|---|
+| grouped cells | **15,882** (from 9,714,592 canonical) |
+| zero-exposure cells | **2** (0.013%) |
+| deaths inside them | **0.0** |
+| negative-exposure cells | 0 |
+| total deaths | 4,354,590 |
+
+**Two cells in sixteen thousand stopped the whole run**, which is the argument for
+putting the guard in the harness rather than leaving it to the model: the model is
+right to refuse an unusable offset, but the harness is what knows those cells are
+information-free and can say so. Dropped now, with `n_cells_no_exposure` and
+`deaths_in_no_exposure_cells` on the result and in the report. The second is the
+one that matters — it *should* be zero, and here it is; a positive value would
+mean the source recorded claims against exposure that does not exist, and the drop
+would be losing real claims, so the caveat says exactly that when it happens.
+
+Two things this confirms beyond the defect. The aggregation design works as PLAN §4
+argued: 9.7M canonical cells collapse to 15,882 at the conservative default, which
+is a comfortable fit rather than a heroic one. And the failure mode itself is the
+epic's own thesis in miniature — the harness was exercised end-to-end on synthetic
+fixtures that all had exposure in every cell, so no test could have found this. It
+took real data, which is what the epic exists to obtain.
+
+### ADR-182 amendment 3 (first real HMD + ILEC fits, 2026-08-05)
+
+Reading the first real reports found two defects that changed numbers we were
+about to publish. Both were invisible to a suite of synthetic fixtures, for the
+same reason in each case: the fixtures were generated, so they had the properties
+the generator gave them.
+
+**1. Bands were 4.67x too narrow on HMD.** The count basis defaulted to plain
+Poisson. Real HMD 1990-2019 came back at Pearson dispersion **phi = 21.84** —
+population cells aggregate enormously heterogeneous sub-populations, so Poisson is
+simply the wrong variance — and every standard error was understated by sqrt(phi).
+Bands are the part of a findings report a reader quotes.
+
+`overdispersion="auto"` is now the default: the quasi-Poisson covariance scaling is
+applied whenever phi > 1, with the inflation factor and a caveat in the report.
+Only *above* 1, deliberately — scaling by a phi below 1 would shrink bands and
+overstate precision, which is exactly what the deterministic fixtures would have
+triggered. Scaling changes the covariance and never the coefficients, asserted to
+1e-10; the band-width invariant is checked on the **log** scale, since MI = 1 -
+exp(d) makes the MI-space half-width a nonlinear function of the standard error.
+
+**Consequence for the published finding:** on corrected bands the HMD slowdowns at
+45/55/65 and the acceleration at 85 all survive, and **age 75's +0.13% does not** —
+its windows overlap. The uncorrected report claimed "no overlap" there. One of five
+reported signs was an artefact of an understated band.
+
+**2. The ILEC year spline was over-flexible for an 8-year window.** `year_df=4`
+over 2012-2019 bent at the boundary and spiked every reference age in the terminal
+year. Dropping to `year_df=3` cut the mean absolute difference against SOA's own MI
+from **0.92% to 0.368%** while the weighted mean stayed at -0.04% — unbiased before
+and after, far less noisy after, which is the signature of over-flexibility rather
+than of a wrong model. The report now warns when `year_df` is at least half the
+observed years.
+
+**3. A guard for the opposite error.** Tuning `year_df` *down* off that artefact
+walks into patsy's `df >= degree` floor, raised several frames deep as a bare
+`ValueError` — which is what happened when the maintainer followed advice to try
+`--year-df 2`, not a legal value. Both `age_df` and `year_df` are now checked at
+the harness boundary against `_MIN_SPLINE_DF = 3`, with a message saying what the
+floor means: at 3 the margin is a plain cubic with no interior knots, so if that is
+still too flexible, the window is too short to fit a surface on. The too-small and
+too-large cases are opposite ends of one decision and now read alike.
+
+**What this says about the epic's premise.** Three defects reached a maintainer's
+run — zero-exposure cells (amendment 2), an understated band, and an over-flexible
+spline — and no synthetic fixture could have caught any of them. Fixtures have
+exposure everywhere because a generator puts it there; they are Poisson because a
+generator drew them that way; they have thirty years because the generator was
+asked for thirty. That is the A4' epic's limitation restated one level down, and it
+is the concrete answer to "why bother running this on real data".
+
+### ADR-182 amendment 4 (duration banding; cross-population confirmation, 2026-08-05)
+
+**Duration mix was confounding the ILEC trend, and the confound was large.** The
+first ILEC fit pooled across duration and said so in a caveat, unmeasured. Measured
+now, by running the harness twice and differencing:
+
+| | pooled | duration-banded |
+|---|---|---|
+| Pearson dispersion phi | 2.25 | **1.163** |
+| cells fitted | 15,880 | 125,676 |
+| base strata (dropped) | 426 (0) | 3,767 (61) |
+| dropped exposure share | 0.000% | **0.009%** |
+| slowdown verdict | `mixed`, 1/5 slower | `acceleration`, 0/5 slower |
+
+Banding took dispersion to within 16% of nominal Poisson at a cost of 0.009% of
+exposure. That is the removal of a real omitted variable, not a marginal fit
+improvement, and it moved every reference age — 65's 2016-19 estimate went from
+0.40% to 1.55%.
+
+**Why the surface legitimately moves even though duration cancels in the
+contrast.** The banded representative is calendar-invariant by construction, so the
+duration term cancels exactly in `eta(x,y) - eta(x,y-1)` and cannot itself shift MI.
+What changes is the **cell set**: conditioning on duration stops the
+`te(age, calendar_year)` tensor absorbing duration-mix drift that correlates with
+calendar year. The pooled fit was attributing an ageing book's rising mortality to
+"less improvement". This is the mechanism the banding design was built to permit
+testing, and the test came back positive.
+
+**A finding that outranks the slowdown test.** Aggregate A/E-with-MI against SOA's
+published expected deaths is flat (-0.11%/yr, model-free, identical in both runs),
+while the duration-controlled surface says the business improved ~0.27%/yr *faster*
+than VBT 2015's scale assumes. Both hold because they offset: genuine improvement
+running ahead of the assumed scale, cancelled by a book drifting toward
+higher-mortality durations. **A flat A/E is therefore not evidence that assumptions
+are sound** — it can be two effects of opposite sign, either of which moves
+independently. That is precisely what a pooled A/E study hides and a fitted,
+duration-controlled surface exposes, and it is the clearest commercial argument the
+epic has produced for the model existing. Recorded as a well-evidenced hypothesis,
+not a quantified attribution: the harness does not compute a standardised-mix A/E,
+so the decomposition is inferred from the pooled-versus-banded contrast.
+
+**Cross-population confirmation.** GBRTENW 1990-2019 slows at **4 of 5** reference
+ages (45 -0.65, 55 -1.88, 65 -1.76, 75 -0.41, all resolvable; 85 +0.18 not
+resolvable). The midlife collapse at 45-65 replicates the USA independently — two
+national populations, two data sources, same structure. The old-age divergence
+(USA accelerates at 85, E&W does not) is explained by the fit's own 1990s
+baselines: US old-age mortality was *worsening* then while E&W was already
+improving, so the US had catch-up available. The surface recovered both without
+being told about either.
+
+**Process note.** Every one of this amendment's findings came from running the same
+harness twice with one parameter changed and differencing. That is only possible
+because ADR-182 made the aggregation level an explicit, reported parameter rather
+than a buried default — a design choice made for auditability that turned out to
+buy the epic its best result.
+
+### ADR-182 amendment 5 (mix quantified; the diligence notebook, 2026-08-05)
+
+**The harness can now measure the offsetting-effects reading; the measurement
+itself has not been taken.** Amendment 4 argued that ILEC's flat aggregate A/E was
+real improvement outrunning VBT 2015 cancelled by duration-mix drift, and recorded
+it honestly as a hypothesis because the harness computed no standardised A/E. The
+estimator exists as of this amendment. **Both committed ILEC reports predate it**,
+so §4 of `MEASUREMENT_experience_gam_ilec.md` remains the inference it says it is
+until a maintainer re-runs with `--duration-bands` (filed in PRODUCT_DIRECTION).
+
+The first draft of this amendment was headed "mix quantified" and opened "the
+offsetting-effects reading is now measured, not inferred" — which was false, and
+false in the epic's own characteristic way. Three closed-form verifications on
+synthetic strata are exactly the evidence this epic exists to say is *not* a
+finding about real experience. Caught in review (PR #185 round 2, [P1]).
+
+`StandardisedAE` is direct standardisation over the fit's own covariate keys minus
+calendar year. Each cell's own A/E is re-weighted by that cell's **whole-window**
+expected deaths — a weight that cannot depend on calendar year — and the result
+decomposes additively:
+
+    crude slope  =  standardised (experience) slope  +  mix slope
+
+Restricted to the **complete panel**: cells with positive expected deaths in every
+observed year. A cell appearing midway through would move the weight denominator
+and reintroduce precisely the mix movement being measured, so the restriction is
+what makes the weights genuinely fixed. `coverage_share` reports how much of the
+book the panel speaks for, because a decomposition over half the exposure is a
+different claim from one over all of it.
+
+Verified in closed form both ways: two strata with **constant** cell-level A/E and
+exposure migrating between them must produce ~0 experience slope with the entire
+crude drift in the mix term; a **fixed** mix with drifting cell-level A/E must
+produce the reverse. A third test pins the complete-panel exclusion. The harness
+also raises a caveat when the mix component exceeds the experience component —
+the case where reading the crude column would be actively misleading.
+
+**`notebooks/06_experience_gam_diligence.ipynb`.** The visual and quantitative
+companion to the two measurement documents, and the answer to a real gap: prose
+does not fail CI. Every quantitative claim in those documents is re-derived in the
+notebook from the committed JSON and asserted, so executing it end to end is a
+check on the prose — if a number drifts, or a re-run changes a finding, a cell
+raises and `tests/test_notebooks/` fails.
+
+Two properties make it an artefact rather than a maintainer-only script:
+
+- **It reads only committed aggregates**, never licensed data, so it runs for
+  anyone who clones the repo — no HMD account, no SOA terms acceptance. That is a
+  direct dividend of the reports being *findings* (Design Anchor 6) rather than
+  extracts.
+- **It degrades gracefully.** A report predating a section reports what to re-run
+  rather than raising, which is what lets the notebook and the harness evolve at
+  different rates.
+
+No plots, consistent with ADR-182: numbers and tables diff in git, images do not.
+The notebook is magic-free and a test asserts it stays that way, since the
+execution guard `exec`s the cells rather than starting a kernel.
+
+### ADR-182 amendment 6 (the mix decomposition, measured — 2026-08-06)
+
+The maintainer re-ran the duration-banded ILEC harness and `standardised_ae`
+landed. **The measurement partially falsified the inference it replaced**, which
+is the outcome that justifies having taken it.
+
+| component | slope |
+|---|---|
+| crude A/E-with-MI | -0.001185 / yr |
+| **experience** (mix held fixed) | **-0.001505 / yr** |
+| **mix** | **+0.000320 / yr** |
+
+Additive to 2e-15, over 14,757 complete-panel cells covering 99.96% of expected
+deaths.
+
+**Direction: confirmed.** Experience drifts down (the book improved faster than
+SOA's scale assumed) and mix pushes the other way, exactly as amendment 4 argued
+an ageing book drifting toward higher-mortality durations would.
+
+**Magnitude: refuted.** Amendment 4 and MEASUREMENT §4 both used "cancelled by",
+implying two comparable forces roughly annihilating. Mix offsets only **21.2%** of
+the experience signal, and the crude slope is already **78.8%** of it. The crude
+number is therefore a mostly-honest reading understated by 27% — a real correction
+to a quoted figure (-0.150%/yr rather than -0.119%/yr), but not the dramatic
+cancellation the prose described.
+
+**And the mix slope is weak evidence in its own right.** Three sign changes across
+eight points, with the positive slope driven substantially by the last two years.
+The existence and direction of a mix effect are established; its *rate* is not.
+
+**Why this matters beyond the number.** The inference was written carefully, was
+labelled an inference, and had strong supporting evidence — the pooled-versus-
+banded contrast really did move every reference age. It was still wrong about
+magnitude by roughly a factor of five. Confident, well-hedged, well-evidenced
+reasoning about a quantity is not a substitute for computing it, and the gap
+between the two was invisible until the estimator existed. That is the same
+lesson the epic learned about synthetic fixtures, one level up.
+
+The notebook now asserts the corrected reading — direction on both components,
+mix below 35% of experience, and the sign-flip count that makes the slope weak —
+so the prose cannot drift back toward the stronger claim without CI failing.
+
+---
+
+## ADR-183: Data attribution as a committed, tested artefact — and a licensing claim withdrawn rather than defended
+
+**Date:** 2026-08-07
+**Status:** Accepted, with an open item deliberately left open
+**Context:** the real-data GAM epic (ADR-182) committed four findings reports
+derived from the Human Mortality Database and the SOA Individual Life Experience
+Committee 2012–2019 release. Neither source was credited anywhere, and the
+repository carried several licensing assertions.
+
+### Decision 1 — attribute, and pin it
+
+`docs/DATA_LICENSING.md` holds the canonical provenance record: a verified
+inventory of what the committed reports do and do not contain (§1), the two
+attribution blocks and an endorsement disclaimer (§2), and the acquisition
+details. The attribution blocks are reproduced in `docs/measurements/README.md`
+and both `MEASUREMENT_experience_gam_*.md`, and
+`tests/test_docs/test_data_attribution.py` fails if any of the three loses its
+credit, its disclaimer, or its pointer to the record.
+
+Attribution is prose, and prose does not fail CI on its own — the same reasoning
+that put the notebook's assertions under test in ADR-182.
+
+### Decision 2 — withdraw the licensing claim instead of restating it
+
+The repository asserted, in five places, that committing these findings is inside
+the HMD and SOA terms: *"keeps you inside both licences"*, *"forbidden by the
+licences"*, and a section headed *"Why committing these is not a licence
+problem"*. A grep for a section number, a quotation, or a URL to either terms
+document returns **nothing anywhere in the tree.** Every one of those statements
+is paraphrase with no source behind it.
+
+The claims are probably correct — §1 of the record shows the committed artefacts
+are conservative under any plausible reading, and Design Anchor 6 is stricter than
+a licence would need to be. **That is not the point.** A project that requires a
+closed-form verification test for every actuarial calculation, and that spent
+amendment 6 refuting its own well-evidenced inference because nobody had computed
+it, does not get to publish a legal conclusion on vibes.
+
+So the language now states the **conduct** ("findings, not data — this is what is
+committed and what never is") and stops short of the **conclusion** ("therefore
+this is permitted"). `DATA_LICENSING.md` §4 records the three unanswered
+questions, and the guard test fails if the "not read" status is edited away while
+the section explaining it still stands.
+
+### Why the terms were not read here
+
+The in-session attempt was denied at the network gateway: HTTP 403 on
+`www.mortality.org` and `www.soa.org` before either host was reached, this
+container's egress being a GitHub/PyPI allowlist. Search-engine summaries were
+available and were **not** used. Substituting one layer of paraphrase for another
+would have produced text that reads as verified while carrying exactly the defect
+this ADR exists to remove — including the widely-repeated CC BY 4.0 claim about
+HMD, which is plausible and is still not asserted here.
+
+The remaining work is a browser and fifteen minutes, and it is filed as
+IMPORTANT in `PRODUCT_DIRECTION_2026-07-24.md`.
+
+### Consequence if an answer comes back unfavourable
+
+Narrow and already scoped (§4c). The only committed content that could be
+implicated is the ILEC `ae_by_year.rows` absolute death counts and the
+`soa_surface_comparison.rows` recovery of SOA's own implied scale. Both reduce to
+ratios and differences without losing a single finding in
+`MEASUREMENT_experience_gam_ilec.md` — no analysis depends on publishing 518,386
+as a number. The reports are regenerable, so this is a re-run, not a rewrite.
+
+### ADR-183 amendment 1 — the SOA terms were read, and they were worse than assumed (2026-08-07)
+
+The maintainer read the governing document the same day. Three findings, each of
+which moves a claim this repository had made.
+
+**There is no dataset-specific licence.** The ILEC report page, the data-file link
+and the SOA Legal Center index carry none, so the site-wide **Website Terms of
+Use** govern — a document written for a website, not for a research dataset, which
+is why it reads more restrictively than a data licence would. Permission is limited
+to "personal or other non-commercial, educational purposes"; public **or**
+commercial reproduction and distribution is prohibited; "any derivative work" is
+barred; and there is **no attribution formula anywhere**. The route offered for
+anything beyond the grant is prior written permission.
+
+**The base decision was right for the wrong reason.** Decision 2 withdrew the
+licensing claim on the grounds that it was unsourced, while noting the claims were
+"probably correct" and conservative under any plausible reading. The first half
+holds. The second half does not: on the plain text, aggregate findings are not
+carved out, and the assumption that they obviously escape the restriction had no
+textual basis. Withdrawing an unsourced claim turned out to be worth more than the
+argument offered for withdrawing it.
+
+**The binding hook is "public", not "commercial", and that inverts the natural
+remediation trigger.** A single-contributor, non-commercial, educational project is
+squarely inside the grant *for the local analysis*. Publishing derived values in a
+public repository engages the prohibition **today**, independent of contributor
+count or revenue. Any caveat framed as "we will remediate if this ever
+commercialises" would aim at the wrong event — and `CLAUDE.md` §1 already states
+the commercial vision in any case, so there is nothing prospective to wait for.
+
+**And it falsifies this ADR's own consequence analysis.** The "Consequence if an
+answer comes back unfavourable" section argued the exposure was narrow because the
+implicated content reduces to ratios without losing a finding. That reasoning was
+about **substitutability** and is answered by the wrong clause: if derivative works
+are barred, ratios are derivative too. Stripping the absolute counts
+(`DATA_LICENSING.md` §5c) lowers exposure rather than removing it, and is worth
+doing on that basis rather than the one originally given.
+
+**Position taken**, recorded in `DATA_LICENSING.md` §5 with the maintainer's name
+and date on it: seek written permission (§6, drafted, discloses the AXIS/Prophet
+positioning explicitly rather than soft-pedalling it), carry the caveat meanwhile,
+and revisit on any of four named triggers — a second contributor, any commercial
+engagement, a reply in either direction, or 90 days of silence. Four new guard
+tests pin the clause quotations, the public-versus-commercial reading, the change
+triggers, and HMD's still-unread status, so none of it can soften into summary.
+
+**HMD remains unread and the SOA answer does not transfer.** The two bodies are
+unrelated; HMD is a research data provider, and the widely-repeated CC BY 4.0
+report — which if accurate would resolve its side almost entirely — is still not
+asserted anywhere in this repository, for the same reason it was not asserted
+before.

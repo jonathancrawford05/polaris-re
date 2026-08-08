@@ -13,9 +13,15 @@ design and by necessity. See "Why you and not the routine" below.
 ## 0. The one rule: loaders, not data
 
 Nothing you download here goes into the repo, the Docker image, or CI. That is
-`PLAN_experience_gam.md` Design Anchor 6, and it is also what keeps you inside
-both licences. Everything lands in a cache directory that is outside the repo
-tree by default.
+`PLAN_experience_gam.md` Design Anchor 6. Everything lands in a cache directory
+that is outside the repo tree by default.
+
+Design Anchor 6 is a *conduct* rule and it is ours. It was assumed to be stricter
+than the licences require; on the SOA side that assumption turned out to be
+**wrong** — the terms are restrictive enough that committing even aggregate
+findings is an open question, not a comfortable margin. See `DATA_LICENSING.md`
+§3 for the clause text and §5 for the position taken. The HMD agreement is still
+unread (§4). Attribution for both sources is §2.
 
 ```bash
 # Where the loaders look, in precedence order:
@@ -71,9 +77,12 @@ real-data regression fixture** for the MI surface.
 
 1. Go to <https://www.mortality.org> → **DATA** → **User Agreement**, read it,
    then create an account (free).
-2. Note the licence terms. HMD is open-data-principled but attribution-bearing —
-   redistribution of the raw files is not ours to do, which is why only *findings*
-   get committed.
+2. **Read the User Agreement while you are there** — and if you do, record what it
+   says in `DATA_LICENSING.md` §4, which is currently an open item. HMD is widely
+   described as open-data-principled and attribution-bearing, but this project has
+   only ever repeated that second-hand. We commit *findings* only, which is
+   conservative under any reading; the attribution block is in
+   `DATA_LICENSING.md` §2a.
 
 ### 1b. Download — the simple path
 
@@ -170,7 +179,14 @@ a population proxy.
    (the 2009–2018 release is the commonly used one).
 2. Accept the SOA terms of use. **There is no fetch helper for ILEC on purpose** —
    it is a manual, terms-accepting download, and `experience_loaders` documents it
-   as such.
+   as such. **Know what you are accepting** — there is no dataset-specific licence,
+   so the site-wide Website Terms of Use govern, and they permit only
+   non-commercial educational use, prohibit public or commercial distribution, and
+   bar derivative works. `DATA_LICENSING.md` §3 quotes the clauses; §5 records the
+   position this project has taken and §6 the permission request that follows from
+   it. The attribution block is §2b. **Downloading and analysing the file locally
+   is the part that is clearly inside the grant** — publishing anything derived
+   from it is the part with an open question over it.
 3. Unzip **with `-d`**, or the files land in your current directory:
 
 ```bash
@@ -206,9 +222,10 @@ Verified against a real download on 2026-08-03
   column_map=ILEC_2012_19_COLUMN_MAP)`.
 - The release also carries `ExpDth_VBT2015_Cnt` / `_Amt` (SOA's own expected
   deaths on the VBT 2015 basis) and `ExpDth_VBT2015wMI_*` (with mortality
-  improvement). The loader ignores them today, but they are an **independent A/E
-  denominator** — a ready-made external check on the GAM's improvement surface,
-  and worth wiring in later.
+  improvement). These are the **independent A/E denominator** — an external check
+  on the GAM's improvement surface computed by SOA on the same cells from the same
+  exposure. Carried by `load_ilec(..., include_expected=True)` and used
+  automatically by the diligence harness in §3.
 
 ### 2b. Check the column headers before anything else
 
@@ -329,18 +346,64 @@ would have suggested: `Preferred_Class` alone is **ambiguous**, because class "2
 of 2 is the worst class while class "2" of 4 is second-best. `load_ilec` now
 composes the two into `"2of2"` / `"2of4"` automatically for this vintage.
 
-## 3. What to send back
+## 3. Run the diligence harness
+
+`scripts/experience_diligence.py` (slice 1, ADR-182) is the fitting harness. It
+loads from the cache, fits the tensor MI surface, and writes a findings report as
+JSON plus Markdown. It reads and writes nothing inside the repo tree, emits no
+plots, and carries no timestamp — so re-running over the same cache reproduces the
+same bytes.
+
+```bash
+# HMD population — the primary fixture.
+uv run python scripts/experience_diligence.py --source hmd \
+    --country USA --min-year 1990 --max-year 2019 \
+    -o ~/hmd_usa.json --markdown ~/hmd_usa.md
+
+# Second population, for the cross-population claim.
+uv run python scripts/experience_diligence.py --source hmd \
+    --country GBRTENW --min-year 1990 --max-year 2019 \
+    -o ~/hmd_gbrtenw.json --markdown ~/hmd_gbrtenw.md
+
+# SOA-ILEC insured experience. Picks up SOA's own expected deaths automatically
+# and adds the A/E-by-year and fitted-vs-SOA sections.
+uv run python scripts/experience_diligence.py --source ilec \
+    -o ~/ilec.json --markdown ~/ilec.md
+```
+
+Three things worth knowing before you read the output:
+
+- **`--max-year 2019` on HMD is not a detail.** A smooth tensor surface fitted
+  through the COVID shock attributes it to improvement. Pull 2020+ as a separate
+  window if you want it. Leave the window open and the report says so in its
+  caveats, but it still fits.
+- **The verdict can disappoint, and that is the point.** The harness prints
+  `slowdown`, `acceleration` or `mixed` for the early-vs-late comparison. A run
+  that reports *no* slowdown is a **successful** run — PLAN §2 named the slowdown
+  in advance precisely so the fit could fail to reproduce it. Nothing gets tuned
+  until it agrees.
+- **The ILEC run takes a while.** The 12 GB read streams; the fit itself is
+  seconds. If the `ilec/` directory holds more than one file the harness refuses
+  to guess — pass `--ilec-file "ILEC_2012_19 - 20240429.txt"`.
+
+Exit status: 0 on a completed run whatever its verdict, **2** if the cache is
+missing or ambiguous (with a sentence naming every location it looked in), 1 on
+anything else.
+
+## 4. What to send back
 
 The data stays on your machine. What comes back into the repo is **findings**,
-the same pattern that worked for the parallel measurement earlier today — I wrote
-the harness, you ran it, the numbers got committed and the raw JSON did not:
+the same pattern that worked for the parallel measurement on 2026-08-03 — I wrote
+the harness, you ran it, the numbers got committed and the raw data did not:
 
 - The `load_hmd` / `load_ilec` verification output from §1d and §2c (shapes, year
   ranges, totals).
 - For ILEC, the header diff from §2b if anything is missing.
-- Later, once the fitting harness exists: the fitted surface's summary
-  statistics, the comparison against the published reference, and the verdict —
-  not the cells.
+- **The `--markdown` report from §3**, whole. It is already scrubbed of anything
+  that should not be committed: file **basenames** only, no absolute paths, no
+  cells, no plots. Paste it and it becomes
+  `docs/MEASUREMENT_experience_gam_hmd.md` / `..._ilec.md` more or less as-is.
+- The JSON too if you like — it carries the same content in a diffable form.
 
 ## Why you and not the routine
 
@@ -350,7 +413,8 @@ Two independent reasons, and both are structural rather than fixable:
    An autonomous session has neither and should not have either.
 2. **Ephemeral containers.** Remote sessions clone the repo fresh and are
    reclaimed afterwards. Even if a session could download the data, it could not
-   keep it, and committing it is forbidden by the licences and by Design Anchor 6.
+   keep it, and committing it is ruled out by Design Anchor 6 regardless of what
+   the licences permit.
 
 So the division of labour is fixed: autonomous sessions build the loaders, the
 fitting harness and the report generator, and exercise them on synthetic

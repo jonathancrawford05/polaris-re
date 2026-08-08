@@ -6,7 +6,8 @@ experience GAM", **IMPORTANT** (reclassified from ADR-150 NICE-TO-HAVE on
 **Constituted:** 2026-08-03, replacing the parked recursion-vectorisation epic.
 **Classification:** LARGE — 3 slices, with a hard split between autonomous and
 maintainer-run work (see §3).
-**Status:** slice 1 NEXT — see `docs/CONTINUATION_experience_gam_realdata.md`.
+**Status:** slice 1 DONE (2026-08-04, ADR-182); slice 2 NEXT and blocked only on
+the maintainer's data run — see `docs/CONTINUATION_experience_gam_realdata.md`.
 
 ---
 
@@ -134,6 +135,15 @@ must be conservative and the choice must be visible in the output.
 
 Acceptance: the harness runs green on synthetic fixtures in CI; a documented
 `--source hmd|ilec` contract; goldens untouched (nothing in `products/` moves).
+
+**Delivered 2026-08-04** — `polaris_re.analytics.experience_diligence` behind
+`scripts/experience_diligence.py`, 65 tests, **ADR-182**, runbook §3. Two design
+notes that bear on how slices 2–3 read the output: the slowdown verdict is proven
+**two-sided** (an injected acceleration must report `acceleration`, so the harness
+cannot confirm §2's hypothesis by construction), and the base offset is estimated
+from the data itself, which makes `overall_ae` ~1 by construction and leaves the
+improvement surface unchanged — so the level check on the ILEC path is SOA's
+published expected deaths, not A/E against our own base.
 
 ### Slice 2 — HMD findings (maintainer runs; session records)
 
