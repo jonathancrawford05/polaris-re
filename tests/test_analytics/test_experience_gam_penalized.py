@@ -642,7 +642,8 @@ def test_a_selected_fit_records_its_provenance_and_a_hand_set_one_does_not() -> 
     """The distinction five docstrings claimed and no code provided.
 
     `reml_score` and `lambda_grid_step` were never written: `select_lambdas_reml`
-    returns a bare tuple, and a caller rebuilding the model got the field defaults —
+    returned a bare tuple (slice 4 widened it to `LambdaSelection`, which does not
+    change this), and a caller rebuilding the model got the field defaults —
     so both were always `None` and a selected surface was indistinguishable from a
     hand-set one, which is precisely what the docstrings said they were for
     (PR #188 review [P1]). Same class as #187's inert `edf` split: a field whose

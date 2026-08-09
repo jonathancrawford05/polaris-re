@@ -168,12 +168,16 @@ class PenalizedMIFit:
     fixed-λ fit leaves both ``None``, which is how a reader tells a selected surface
     from a hand-set one.
 
-    **Not** :func:`select_lambdas_reml` — it returns a bare tuple, so a caller who
-    follows it with a hand-built model gets the defaults and both fields come back
-    ``None``. That two-step dance *is* the defect PR #188 found, and an earlier
-    revision of this docstring named it as the source of the metadata (PR #188
-    review round 2 [P1]). Naming the wrong entry point once a right one exists is
-    worse than the original vagueness was."""
+    **Not** :func:`select_lambdas_reml` — it returns a :class:`LambdaSelection` and
+    nothing else, so a caller who follows it with a hand-built model gets the field
+    defaults and both come back ``None``. That two-step dance *is* the defect PR #188
+    found, and an earlier revision of this docstring named it as the source of the
+    metadata (PR #188 review round 2 [P1]). Naming the wrong entry point once a right
+    one exists is worse than the original vagueness was.
+
+    (Slice 4 widened that return from a bare 3-tuple to :class:`LambdaSelection`, which
+    changes nothing about the point above: the selection object still has to be *given*
+    to a fit, and :func:`fit_reml` is still the only thing that does it.)"""
 
     coef: np.ndarray
     cov: np.ndarray
@@ -1094,9 +1098,11 @@ def fit_reml(
     **This function exists because the fields it populates were inert.** Slice 2
     shipped `reml_score` and `lambda_grid_step` on :class:`PenalizedMIFit`, with
     docstrings in five places saying they distinguish a selected surface from a
-    hand-set one. Nothing wrote them: `select_lambdas_reml` returns a bare tuple and
-    a caller rebuilding the model got the defaults, so both were always ``None`` and
-    the two cases were indistinguishable (PR #188 review [P1]).
+    hand-set one. Nothing wrote them: `select_lambdas_reml` returned a bare tuple that
+    a caller had to re-assemble into a model by hand, so both were always ``None`` and
+    the two cases were indistinguishable (PR #188 review [P1]). Slice 4 replaced that
+    tuple with :class:`LambdaSelection` and added two more fields to carry — which
+    makes this function's job larger, not smaller.
 
     Callers who want a selected surface should use this rather than the two-step
     dance, because the two-step dance is exactly what dropped the metadata.

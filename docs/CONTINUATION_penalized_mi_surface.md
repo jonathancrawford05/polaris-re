@@ -83,8 +83,9 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
   **The `mgcv`-consistency claim is adopted, not verified** (PLAN §7); nothing in
   this container can check it.
 - **`fit_reml()` is the entry point, not `select_lambdas_reml()`.** Added in the
-  #188 review round. Selection returns a bare `(λ_age, λ_year, score)` tuple and
-  fitting is a separate call, so a caller that wires the two by hand gets a fit with
+  #188 review round. Selection returns a `LambdaSelection` and fitting is a separate
+  call (it was a bare `(λ_age, λ_year, score)` tuple until slice 4 widened it — the
+  point is unchanged), so a caller that wires the two by hand gets a fit with
   `reml_score` and `lambda_grid_step` left `None` — which was the shipped defect.
   `fit_reml()` does both and populates them, and it is the fit slice 3 took `Vb`
   from. Use `select_lambdas_reml()` only when the search is wanted without the
