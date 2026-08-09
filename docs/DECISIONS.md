@@ -13888,3 +13888,148 @@ rough draws are dominated — worse RMSE *and* wider bands — on the age-flat f
 the age-varying fixture the RMSE ordering does not reproduce (the lowest-λ_age draw is
 mid-range, and RMSE varies by only 1.13×). `gamma` remains worth having as an
 mgcv-parity feature; it is **not** justified here as a fix for a demonstrated bias.
+
+---
+
+## ADR-189: the WL net-premium to-omega fix is blocked on the issue-age valuation premium
+
+**Date:** 2026-08-09
+**Status:** **Investigated — change built, measured, and NOT shipped.** The fix as scoped
+in the backlog is a regression for inforce blocks. Superseded by
+`docs/PLAN_wl_valuation_premium.md`, which re-sequences it behind a prerequisite.
+**Context:** `PRODUCT_DIRECTION_2026-07-24.md` IMPORTANT #2 — *"Close the WL
+terminal-reserve artefact on the NET_PREMIUM basis"*. Source: ADR-089 Out of scope +
+`DEV_SESSION_LOG_2026-06-19_reserve_basis_slice2b` Open Questions (1st-order).
+
+This ADR records a **negative result**. The change the backlog asked for was implemented
+in full, passed its own closed-form tests, and was then withdrawn because measurement
+showed it made the engine worse on the use case this project exists to serve. The code is
+not on the branch; the measurements are, and they re-scope the item.
+
+### The premise held, and was sharper than the entry stated
+
+Reproduced before writing code (routine step 7b). The entry says the NET_PREMIUM
+whole-life reserve "uses a one-period terminal estimate that collapses at the horizon".
+It does. But there is a sharper falsification that needs no reference to the horizon:
+**a net level premium reserve is zero at issue by definition** — the premium is set so
+that APV(benefits) = APV(premiums) — and it was not.
+
+| projection horizon | `V_0` (must be 0) | shape |
+|---|---:|---|
+| 5 years | $198.45 | peaks month 36, falls to the horizon |
+| 10 years | $613.79 | peaks month 60 |
+| 20 years | **$5,067.67** | peaks month 144, ends 96% below peak |
+| 40 years | **$47,556.78** | — |
+
+Three causes, of which the entry named one:
+
+1. the premium was solved over the **truncated** grid — benefits truncated while the
+   premium annuity stayed nearly whole, so the premium came out too low and the error
+   *grew* with the horizon;
+2. the premium was solved over **`lx`**, which carries lapse, so the lapse assumption
+   moved a mortality-only quantity;
+3. the terminal reserve was the one-period stand-in `face · q_T · v` for `A_{x+T}`.
+
+A fourth consequence, previously unrecorded: the **limited-pay case was incoherent** —
+the premium annuity was capped at `min(pay_years · 12, projection_months)`, so a 20-pay
+policy on a 10-year projection had its premium solved over a window shorter than its own
+pay period, and on a 20-year projection got exactly the whole-life-pay premium.
+
+### What was built
+
+`_compute_reserves_net_premium` rewritten to value prospectively to omega through a
+routine extracted from `_compute_reserves_gaap` (correct since ADR-128) and shared by
+both bases. It worked: `V_0 == 0` to 1e-6 at every horizon, the reserve became
+independent of the projection horizon (10y vs 30y agreeing to 1e-8 on the overlap),
+lapse stopped moving it, and it matched an independently-coded backward recursion. It
+also restored the identity `NET_PREMIUM == GAAP(neutral PADs)` that TermLife has always
+had. Eleven new tests passed; four existing *contrast* tests that pinned the artefact
+were inverted into stronger statements of its closure; all five QA goldens were
+regenerated (TERM byte-identical, only WHOLE_LIFE moving, with the YRT reinsurer moving
+−0.3% on NAR and the coinsurance reinsurer −10.5% proportionally — the divergence that
+shows it flowing through treaty mechanics correctly).
+
+### Why it was withdrawn — the measurement that decides it
+
+The full suite surfaced three failures in the same place: the REST ALM duration-gap
+block, the MCP whole-life eval, and **the Asset/ALM epic's own validation notebook**
+(`notebooks/04_alm_duration_gap.ipynb`), which failed constructing a bond portfolio
+sized as a fraction of the opening ceded reserve — because that reserve had become `$0`.
+
+`analytics.alm.reserve_liability_cash_flows` is built so its present value equals the
+**opening held reserve** `reserve_balance[0]`. So the opening reserve is exactly the
+quantity the whole ALM surface rests on. Measured on that notebook's block — ten $1M
+whole-life policies **issued 20 years ago**, attained age 60, Gompertz mortality:
+
+| | opening net reserve `R_0` | peak reserve |
+|---|---:|---:|
+| shipped code (`main`) | **$497,698.59** | $800,300.30 |
+| the to-omega change | **$0.00** | $1,245,464 |
+
+**That is the whole argument.** For a policy twenty years in force the true reserve at
+the valuation date is large and positive. `main` produces a plausible $497.7k by a
+formula that is wrong in the ways catalogued above; the "fixed" version produces exactly
+zero. It is right at issue and wrong whenever the policy is seasoned.
+
+**The cause is a defect neither the entry nor this project had recorded.** The valuation
+grid is built from the **valuation date** forward (`_build_valuation_mortality` walks
+from attained age and `duration_inforce`), so the equivalence-principle premium is
+re-solved as though the policy were issued *today at its attained age*. Under that
+convention `V_0 == 0` follows by construction for a policy of any duration — and the
+to-omega valuation is simply the first formulation honest enough to return it.
+
+That the pre-existing bases already do this is confirmed: on the shipped, untouched code,
+a 10-years-in-force policy returns `V_0 = 0.00` on **both CRVM and GAAP**. NET_PREMIUM's
+truncated recursion was the only basis returning something non-zero for a seasoned
+policy, and it did so accidentally.
+
+### Decision
+
+**Do not ship the to-omega change on its own.** Sequence it behind the prerequisite:
+
+1. **Slice 1 — the issue-age valuation premium.** Solve the equivalence-principle
+   premium on a grid starting at **issue**, then value prospectively from the valuation
+   date. This is what makes a seasoned reserve non-zero and correct, and it applies to
+   every basis (NET_PREMIUM, CRVM, VM-20 NPR, GAAP).
+2. **Slice 2 — the to-omega net-premium valuation.** The change built and measured here,
+   which is safe once slice 1 exists and is a regression before it.
+
+`docs/PLAN_wl_valuation_premium.md` decomposes this; `docs/CONTINUATION_wl_valuation_premium.md`
+carries it. The ordering is the finding: **the backlog item was sequenced wrong**, and
+building it was the only way to discover that.
+
+**Why not ship it anyway behind the draft-PR flag.** CLAUDE.md §1 states the target use
+case in the first paragraph: *inforce block evaluation at a reinsurer*. A change that is
+correct for new issues and returns a zero reserve for seasoned blocks is a regression on
+exactly that use case, and shipping it would also have silently converted the ALM epic's
+validation notebook into one that reconciles `$0 = $0`. The routine's DISCOVERY protocol
+says to ship only the selected scope and file what is found; here the selected scope
+*is* the thing the finding invalidates, so filing it and stopping is the protocol's
+outcome, not an exception to it.
+
+### What is now known that was not this morning
+
+- The WL net-premium reserve has **four** defects, not one, and `V_0 ≠ 0` is a cleaner
+  falsification than the horizon collapse.
+- **Every** whole-life reserve basis re-solves its valuation premium at the valuation
+  date, so no seasoned whole-life block has a correct opening reserve on any basis.
+- The **ALM duration-gap capability for whole life rests entirely on that defect.** Its
+  liability present value *is* the opening reserve; on the REST `SEASONED_POLICY`
+  fixture that liability is already **$20.34 against $1,000,000 of face** on `main`.
+  The notebook's larger block hides this behind a plausible-looking number.
+- The QA goldens **do** price whole life, contrary to what the config files suggest:
+  `deal.product_type` reads `"TERM"` in all five, but the runner prices every cohort in
+  the shared `golden_inforce.csv`, which carries a WHOLE_LIFE cohort. Any future WL
+  engine change moves all five baselines.
+
+### Out of scope
+
+TermLife, which has no analogous horizon defect (its `V_T = 0` is correct — term
+coverage expires) and whose seasoned re-solve produces a small but non-degenerate
+reserve. The prescribed statutory valuation-interest helper (IMPORTANT #4). Any change
+to `assumptions.valuation_mortality` handling.
+
+### ADR numbering note
+
+ADR-188 is claimed by the concurrently-open PR #190 (penalized MI surface, slice 4),
+approved but unmerged. This ADR takes 189 to avoid a collision on merge.
