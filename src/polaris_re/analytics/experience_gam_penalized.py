@@ -1,11 +1,15 @@
 """Penalized tensor mortality-improvement surface — P-splines with REML-selected λ.
 
-Slices 1-2 of ``docs/PLAN_penalized_mi_surface.md``. :class:`PenalizedTensorMIModel`
+Slices 1-4 of ``docs/PLAN_penalized_mi_surface.md``. :class:`PenalizedTensorMIModel`
 fits at a **caller-supplied λ**; :func:`select_lambdas_reml` chooses one by REML over
 a deterministic grid. They are separate entry points because they were built as
 separate slices — an optimiser wrapped around an unverified fitter is two hard
 things at once — and keeping them separate is what lets the fixed-λ limits stay
 testable in isolation (ADR-185, ADR-186).
+
+**Use** :func:`fit_reml` **to get a selected surface.** It is the only entry point
+that records where λ came from, and ``unconditional=True`` there is the only way to
+get an interval that does not condition on it (ADR-188).
 
 **What this is for.** ``TensorMIModel`` spends the same number of calendar
 parameters everywhere regardless of how much information a region carries, which
@@ -53,7 +57,8 @@ rebuild. Asserted on the fitted surface and never on coefficients: the two
 parameterisations are not comparable coefficient-wise even when their spans agree.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from typing import NamedTuple
 
 import numpy as np
 import polars as pl
@@ -69,16 +74,20 @@ from polaris_re.core.exceptions import PolarisComputationError, PolarisValidatio
 
 __all__ = [
     "COARSE_STEP",
+    "KS_LOG_STEP",
     "LAMBDA_LOG10_BOUNDS",
     "REFINE_STEP",
     "DesignContext",
+    "LambdaSelection",
     "PenalizedMIFit",
     "PenalizedTensorMIModel",
+    "SmoothingUncertainty",
     "difference_penalty",
     "fit_reml",
     "lambda_is_at_bound",
     "reml_score",
     "select_lambdas_reml",
+    "smoothing_uncertainty",
     "tensor_penalties",
 ]
 
@@ -159,18 +168,26 @@ class PenalizedMIFit:
     fixed-λ fit leaves both ``None``, which is how a reader tells a selected surface
     from a hand-set one.
 
-    **Not** :func:`select_lambdas_reml` — it returns a bare tuple, so a caller who
-    follows it with a hand-built model gets the defaults and both fields come back
-    ``None``. That two-step dance *is* the defect PR #188 found, and an earlier
-    revision of this docstring named it as the source of the metadata (PR #188
-    review round 2 [P1]). Naming the wrong entry point once a right one exists is
-    worse than the original vagueness was."""
+    **Not** :func:`select_lambdas_reml` — it returns a :class:`LambdaSelection` and
+    nothing else, so a caller who follows it with a hand-built model gets the field
+    defaults and both come back ``None``. That two-step dance *is* the defect PR #188
+    found, and an earlier revision of this docstring named it as the source of the
+    metadata (PR #188 review round 2 [P1]). Naming the wrong entry point once a right
+    one exists is worse than the original vagueness was.
+
+    (Slice 4 widened that return from a bare 3-tuple to :class:`LambdaSelection`, which
+    changes nothing about the point above: the selection object still has to be *given*
+    to a fit, and :func:`fit_reml` is still the only thing that does it.)"""
 
     coef: np.ndarray
     cov: np.ndarray
-    """Bayesian covariance ``(XᵀWX + S)⁻¹ φ`` — Wood's, not the delta-method
-    sandwich. Slice 3 measures whether its bands cover at nominal rate; slice 1
-    only has to produce it."""
+    """The covariance the bands are formed from.
+
+    Wood's Bayesian ``Vb = (XᵀWX + S)⁻¹ φ`` when :attr:`band_is_unconditional` is
+    ``False``, and ``Vb + J V_rho Jᵀ`` — the Kass-Steffey correction — when it is
+    ``True``. **Read that flag before quoting a coverage rate**: the two are
+    different intervals and slice 3 measured the first at 87.1% against a nominal
+    95% on a truth the basis represents exactly."""
 
     edf_total: float
     """``tr(F)`` for ``F = (XᵀWX + S)⁻¹ XᵀWX``, over every column."""
@@ -220,6 +237,37 @@ class PenalizedMIFit:
 
     reml_score: float | None = None
     """Laplace-approximate REML at the fitted λ, or ``None`` for a fixed-λ fit."""
+
+    band_is_unconditional: bool = False
+    """Does :attr:`cov` carry λ's own sampling variance?
+
+    ``False`` is Wood's ``Vb``, which is **conditional on λ** — it claims a coverage
+    rate *given* the smoothing parameters, and ADR-187 finding 2 established that the
+    λ it is given is one draw from a wide distribution. ``True`` adds the
+    Kass-Steffey term (see :func:`smoothing_uncertainty`).
+
+    Reported rather than inferred because slice 6 must print which interval it drew
+    and PLAN Anchor 7 forbids calling either one a 95% band until select-per-replicate
+    coverage says so."""
+
+    gamma: float = 1.0
+    """Wood's EDF-cost multiplier used during selection; 1.0 for a fixed-λ fit.
+
+    Carried on the fit because a λ selected under gamma != 1 is not comparable with one
+    selected under gamma=1, and a report that shows the λ without the gamma invites exactly
+    that comparison."""
+
+    n_rejected_points: int | None = None
+    """Grid points :func:`select_lambdas_reml` scored ``+inf`` because their own
+    penalized IRLS did not converge, or ``None`` for a fixed-λ fit.
+
+    **Present because a search that silently discarded half its grid is a different
+    object from one that discarded nothing.** ADR-187 finding 5 is the reason the
+    rejection exists at all; this field is the reason the rejection cannot hide."""
+
+    n_evaluated_points: int | None = None
+    """Grid points scored in total, rejections included. The denominator for
+    :attr:`n_rejected_points` — without it the count is unreadable."""
 
     lambda_grid_step: float | None = None
     """log10 resolution of the grid the λ came from, or ``None`` if λ was supplied.
@@ -453,10 +501,17 @@ class PenalizedTensorMIModel:
     def fit(
         self,
         *,
-        reml_score_value: float | None = None,
+        selection: "LambdaSelection | None" = None,
         lambda_grid_step: float | None = None,
+        gamma: float = 1.0,
     ) -> PenalizedMIFit:
-        """Penalized IRLS at the fixed λ supplied to the constructor."""
+        """Penalized IRLS at the fixed λ supplied to the constructor.
+
+        ``selection`` carries the provenance of a λ that came from
+        :func:`select_lambdas_reml` — its REML score and how much of the grid it had
+        to reject. Left ``None`` by a hand-set fit, which is how a reader tells the
+        two apart (see :class:`PenalizedMIFit`).
+        """
         frame = self.cells
         factors = tuple(
             f for f in _CANDIDATE_FACTORS if f in frame.columns and frame[f].n_unique() > 1
@@ -553,7 +608,10 @@ class PenalizedTensorMIModel:
             observed_years=(int(years.min()), int(years.max())),
             factors=factors,
             n_iter=n_iter,
-            reml_score=reml_score_value,
+            reml_score=None if selection is None else selection.reml_score,
+            gamma=gamma,
+            n_rejected_points=None if selection is None else selection.n_rejected,
+            n_evaluated_points=None if selection is None else selection.n_evaluated,
             lambda_grid_step=lambda_grid_step,
             _grid_design=lambda a, y: self.design_on_grid(info, a, y),
         )
@@ -647,18 +705,42 @@ def reml_score(
     offset: np.ndarray,
     coef: np.ndarray,
     penalty: np.ndarray,
+    gamma: float = 1.0,
 ) -> float:
     """Laplace-approximate REML for a penalized Poisson GLM (lower is better).
 
-    ``V = D/2 + log|XᵀWX + S|/2 - log|S|₊/2``, where ``|S|₊`` is the generalized
-    determinant — the product of the *positive* eigenvalues, since a difference
-    penalty is rank-deficient by design and its null space is what makes a linear
-    trend unpenalisable.
+    ``V = D/(2gamma) + log|XᵀWX + S|/2 - log|S|₊/2 - (p - r)·log(gamma)/2``, where ``|S|₊``
+    is the generalized determinant — the product of the *positive* eigenvalues, since
+    a difference penalty is rank-deficient by design and its null space is what makes
+    a linear trend unpenalisable — ``p`` is the column count and ``r = rank(S)``.
 
     **REML rather than GCV**, per the plan: GCV undersmooths and admits multiple
     minima, which on an eight-year calendar window is a practical concern rather
     than a textbook one.
+
+    ## ``gamma``, and exactly what it is doing here
+
+    Wood's smoothness multiplier. ``mgcv`` documents it as multiplying "the effective
+    degrees of freedom in the GCV or UBRE/AIC score (**or the scale parameter in the
+    RE/ML criteria**)", and this is a RE/ML criterion, so gamma enters as the scale: set
+    ``φ = gamma`` in the known-scale REML criterion and every gamma-dependent term above
+    follows. The fit itself does **not** move — the scale cancels out of
+    ``(XᵀWX/φ + S/φ)β = XᵀWz/φ`` — so gamma changes only which λ gets selected, by
+    down-weighting the deviance against the complexity terms. Larger gamma, smoother fit.
+
+    The ``-(p - r)·log(gamma)/2`` term is **constant in λ** and therefore cannot change a
+    selection. It is carried anyway so that scores are comparable *across* gamma rather
+    than only within one, since a criterion whose values silently shift by a constant
+    is the kind of thing a later slice compares by accident.
+
+    **gamma is adopted from mgcv and unverified** (PLAN Anchor 8). It is here for parity,
+    **not** as a remedy for a bias this project has demonstrated: ADR-187 amendment 2
+    measured the "REML undersmooths" direction on an age-flat fixture and found it
+    does *not* reproduce on an age-varying one. It defaults to 1.0, where every term
+    above collapses to the pre-gamma criterion exactly.
     """
+    if gamma <= 0.0:
+        raise PolarisValidationError(f"gamma must be positive, got {gamma}.")
     eta = offset + design @ coef
     mu = np.exp(np.clip(eta, -700.0, 700.0))
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -675,7 +757,64 @@ def reml_score(
     positive = eigenvalues[eigenvalues > max(largest, 1e-300) * 1e-10]
     logdet_s = float(np.sum(np.log(positive))) if positive.size else 0.0
 
-    return 0.5 * deviance + 0.5 * float(logdet_h) - 0.5 * logdet_s
+    # No `gamma == 1.0` short-circuit: np.log(1.0) is exactly 0.0 and `deviance / 1.0`
+    # is exact, so the criterion is bit-identical at the default without a float
+    # equality test guarding it (PR #190 review [P2]). The bit-identity is asserted by
+    # test_gamma_of_one_leaves_the_criterion_bit_identical, not by this line's shape.
+    scale = (design.shape[1] - positive.size) * float(np.log(gamma))
+    return 0.5 * deviance / gamma + 0.5 * float(logdet_h) - 0.5 * logdet_s - 0.5 * scale
+
+
+def _fit_and_score(
+    cells: pl.DataFrame,
+    log_age: float,
+    log_year: float,
+    gamma: float,
+    model_kwargs: dict[str, object],
+) -> tuple[np.ndarray, float]:
+    """Penalized fit at ``log10 λ = (log_age, log_year)``, with its REML score.
+
+    The one place that assembles a penalty block to match a fitted design, so the
+    selector and the Kass-Steffey Hessian cannot drift apart in how they score a λ —
+    which they would, since they differ only in *where* they evaluate. Propagates
+    :class:`PolarisComputationError` from a non-converging IRLS; the selector catches
+    it and scores the point ``+inf``, :func:`smoothing_uncertainty` does not.
+    """
+    model = PenalizedTensorMIModel(
+        cells,
+        lambda_age=10.0**log_age,
+        lambda_year=10.0**log_year,
+        **model_kwargs,  # type: ignore[arg-type]
+    )
+    fit = model.fit()
+    context = model.design_context
+    if context is None:  # pragma: no cover - fit() always sets it
+        raise PolarisComputationError("fit() did not record its design context.")
+    design = context.design
+    penalty = np.zeros((design.shape[1], design.shape[1]), dtype=np.float64)
+    penalty[: context.n_tensor, : context.n_tensor] = (
+        10.0**log_age * context.s_age + 10.0**log_year * context.s_year
+    )
+    return fit.coef, reml_score(context.deaths, design, context.offset, fit.coef, penalty, gamma)
+
+
+class LambdaSelection(NamedTuple):
+    """What the grid search returns, including what it had to throw away.
+
+    Replaces the bare ``(λ_age, λ_year, score)`` tuple slice 2 returned. The two new
+    fields are not decoration: ADR-187 finding 5 is a grid point that *fails*, and a
+    search that quietly drops failures while returning the same three numbers as
+    before would make the failure invisible at exactly the scale it starts to matter
+    (slice 6 runs this on a 125k-cell book).
+    """
+
+    lambda_age: float
+    lambda_year: float
+    reml_score: float
+    n_rejected: int
+    """Grid points whose own penalized IRLS did not converge, scored ``+inf``."""
+    n_evaluated: int
+    """Grid points visited in total, across both sweeps, rejections included."""
 
 
 def select_lambdas_reml(
@@ -684,11 +823,10 @@ def select_lambdas_reml(
     coarse_step: float = COARSE_STEP,
     refine_step: float = REFINE_STEP,
     bounds: tuple[float, float] = LAMBDA_LOG10_BOUNDS,
+    gamma: float = 1.0,
     **model_kwargs: object,
-) -> tuple[float, float, float]:
+) -> LambdaSelection:
     """Choose (λ_age, λ_year) by REML over a deterministic grid.
-
-    Returns ``(lambda_age, lambda_year, reml_score)``.
 
     Coarse sweep over the full range, then one refinement pass at ``refine_step``
     around the coarse winner. Both passes are **grids**, so the result is a function
@@ -696,30 +834,45 @@ def select_lambdas_reml(
     drift across platforms (Anchor 3).
 
     Cost is **202 penalized fits** for an interior winner (coarse 11x11 = 121, then
-    refine 9x9 = 81), or 166 when the winner clips at a bound — about 1.0-1.5 s on
+    refine 9x9 = 81), or 166 when the winner clips at a bound — about 0.6-1.5 s on
     the ILEC-shaped fixture. An earlier revision said ~150, which was 11-35% low.
-    On the real 125k-cell book the fit is the expensive part and
-    slice 4 carries the budget.
+    On the real 125k-cell book the fit is the expensive part and slice 6 carries the
+    budget.
+
+    ## A grid point that does not converge is rejected, not raised
+
+    Slice 2 let :class:`PolarisComputationError` out of ``score_at``, so a single
+    non-converging corner took the whole search down: measured at ``log10 λ = (-1, 8)``
+    — essentially unpenalized in age, saturated in year — on roughly one replicate in
+    a hundred, and the coarse sweep visits that corner on *every* call (ADR-187
+    finding 5). On a 125k-cell book that is a failed production run.
+
+    **A λ whose own fit does not converge is not a λ to select**, so scoring it
+    ``+inf`` is the answer rather than a workaround. The alternatives considered —
+    damping the IRLS step, or raising the iteration cap — both make the search slower
+    in order to keep evaluating a point it should be rejecting. Non-finite scores are
+    rejected on the same grounds and by the same branch.
+
+    The count comes back on :attr:`LambdaSelection.n_rejected` because a search that
+    discarded half its grid is a different object from one that discarded nothing, and
+    :func:`fit_reml` forwards it onto the fit. If *every* point is rejected there is no
+    selection to report and that raises — returning the untouched grid centre would be
+    a fabricated answer wearing the same type as a real one.
     """
     lo, hi = bounds
+    tally = {"rejected": 0, "evaluated": 0}
 
     def score_at(log_age: float, log_year: float) -> float:
-        model = PenalizedTensorMIModel(
-            cells,
-            lambda_age=10.0**log_age,
-            lambda_year=10.0**log_year,
-            **model_kwargs,  # type: ignore[arg-type]
-        )
-        fit = model.fit()
-        context = model.design_context
-        if context is None:  # pragma: no cover - fit() always sets it
-            raise PolarisComputationError("fit() did not record its design context.")
-        design = context.design
-        penalty = np.zeros((design.shape[1], design.shape[1]), dtype=np.float64)
-        penalty[: context.n_tensor, : context.n_tensor] = (
-            10.0**log_age * context.s_age + 10.0**log_year * context.s_year
-        )
-        return reml_score(context.deaths, design, context.offset, fit.coef, penalty)
+        tally["evaluated"] += 1
+        try:
+            _, value = _fit_and_score(cells, log_age, log_year, gamma, model_kwargs)
+        except PolarisComputationError:
+            tally["rejected"] += 1
+            return np.inf
+        if not np.isfinite(value):
+            tally["rejected"] += 1
+            return np.inf
+        return value
 
     def sweep(centre: tuple[float, float], step: float, span: float) -> tuple[float, float, float]:
         axis = np.arange(max(lo, centre[0] - span), min(hi, centre[0] + span) + step / 2.0, step)
@@ -734,7 +887,179 @@ def select_lambdas_reml(
 
     coarse = sweep(((lo + hi) / 2.0, (lo + hi) / 2.0), coarse_step, (hi - lo) / 2.0)
     fine = sweep((coarse[1], coarse[2]), refine_step, coarse_step)
-    return 10.0 ** fine[1], 10.0 ** fine[2], fine[0]
+    if not np.isfinite(fine[0]):
+        raise PolarisComputationError(
+            f"REML selection rejected every one of {tally['evaluated']} grid points — "
+            f"no penalized fit converged anywhere in log10 lambda {bounds}. The grid "
+            f"centre is not an answer, so this raises rather than returning one. Check "
+            f"the cells for zero-exposure or zero-death rows before widening the grid."
+        )
+    return LambdaSelection(
+        10.0 ** fine[1], 10.0 ** fine[2], fine[0], tally["rejected"], tally["evaluated"]
+    )
+
+
+KS_LOG_STEP = float(np.log(10.0) * REFINE_STEP)
+"""Finite-difference step for the Kass-Steffey Hessian, in **natural** log λ.
+
+One refinement-grid step (0.25 decade), and the choice is not arbitrary. λ is known
+only to the grid's resolution, so differencing on a finer scale would be measuring
+structure the selector cannot resolve; and ADR-187 amendment 2 measured the REML
+profile as **very shallow** — 3.85 REML units across 5.5 decades — where a small step
+differences round-off rather than curvature. A grid step is the natural scale at both
+ends of that trade."""
+
+
+@dataclass(frozen=True)
+class SmoothingUncertainty:
+    """λ's own sampling variance, propagated into the coefficient covariance."""
+
+    correction: np.ndarray
+    """``J V_rho Jᵀ``, positive semi-definite by construction, to be **added** to
+    ``Vb``. PSD is what makes the unconditional band provably no narrower than the
+    conditional one, which is the direction check a sign error would break."""
+
+    v_rho: np.ndarray
+    """2x2 covariance of ``(log λ_age, log λ_year)``, i.e. the floored inverse of
+    :attr:`hessian`. In natural log units, so a diagonal entry of 1.0 is one e-fold."""
+
+    hessian: np.ndarray
+    """2x2 second derivative of the REML criterion in natural log λ, by central
+    differences. Not necessarily positive definite: λ came from a *grid*, so it is
+    near a minimum rather than at a stationary point."""
+
+    jacobian: np.ndarray
+    """``∂β̂/∂log λ``, ``n_coef x 2``, by central differences."""
+
+    n_floored: int
+    """Hessian eigenvalues raised to the variance cap — see :func:`smoothing_uncertainty`.
+    Non-zero means the criterion is flat (or locally non-convex) in that many
+    directions and λ's variance there is capped rather than believed."""
+
+    log_step: float
+
+
+def smoothing_uncertainty(
+    cells: pl.DataFrame,
+    *,
+    lambda_age: float,
+    lambda_year: float,
+    gamma: float = 1.0,
+    log_step: float = KS_LOG_STEP,
+    bounds: tuple[float, float] = LAMBDA_LOG10_BOUNDS,
+    **model_kwargs: object,
+) -> SmoothingUncertainty:
+    """The Kass-Steffey correction: what ``Vb`` leaves out because it conditions on λ.
+
+    ``Vb = (XᵀWX + S)⁻¹φ`` is a covariance **given** the smoothing parameters, and
+    ADR-187 finding 2 established that the λ it is given is one draw from a wide
+    distribution. Slice 3 measured the consequence: **87.1% coverage against a
+    nominal 95%** on a truth the basis represents exactly. This function computes the
+    missing term.
+
+    Kass-Steffey (1989), as ``mgcv`` exposes it through
+    ``vcov(..., unconditional = TRUE)``:
+
+        ``Vβ' = Vβ + J V_rho Jᵀ``, with ``rho = log lambda``,
+        ``J = d(beta-hat)/d(rho)`` and ``V_rho = H⁻¹``
+
+    where ``H`` is the Hessian of the REML criterion in ``rho``. Both derivatives are
+    taken by **central differences** — nine penalized fits, against the selector's 202
+    — because the criterion and the fit are already available as functions of rho and an
+    analytic derivative would be a second implementation of the fit to keep in step.
+
+    ## The variance cap, and why a cap rather than a pseudo-inverse
+
+    ``H`` is evaluated at a **grid point**, not at a stationary point, so it can carry
+    a near-zero or negative eigenvalue — and ADR-187 amendment 2 says to expect
+    near-zero, because the profile is shallow. Inverting that directly sends λ's
+    variance to infinity (or negative), and neither is an interval.
+
+    The cap comes from the selector's own contract: :func:`select_lambdas_reml`
+    **cannot** return a λ outside ``bounds``, so ``log lambda``'s standard deviation cannot
+    exceed half the bound width. Eigenvalues below ``1/(half-width)²`` are raised to
+    it, which caps the variance a flat direction contributes at exactly the range the
+    search could have produced. That is a statement about the search rather than a
+    numerical fudge factor, and :attr:`SmoothingUncertainty.n_floored` reports how
+    often it bound.
+
+    **Adopted from mgcv and unverified** (PLAN Anchor 8) — slice 5's conformance run
+    compares this against ``vcov(m, unconditional = TRUE)`` and may refute it.
+
+    Raises:
+        PolarisComputationError: if a perturbed λ fails to converge. Unlike the
+            selector this does **not** reject and continue: a missing corner is a
+            missing derivative, and a Hessian assembled from whatever converged would
+            be a different quantity reported under the same name.
+    """
+    if log_step <= 0.0:
+        raise PolarisValidationError(f"log_step must be positive, got {log_step}.")
+    if lambda_age <= 0.0 or lambda_year <= 0.0:
+        raise PolarisValidationError(
+            "The Kass-Steffey correction differentiates in log lambda, so both "
+            f"smoothing parameters must be strictly positive; got ({lambda_age}, "
+            f"{lambda_year})."
+        )
+    centre = np.array([np.log10(lambda_age), np.log10(lambda_year)], dtype=np.float64)
+    # Derivatives are in NATURAL log lambda per Kass-Steffey; the fitter is addressed
+    # in decades, so the step is converted once here and the two are never mixed.
+    step10 = log_step / float(np.log(10.0))
+
+    def at(d_age: float, d_year: float) -> tuple[np.ndarray, float]:
+        try:
+            return _fit_and_score(cells, centre[0] + d_age, centre[1] + d_year, gamma, model_kwargs)
+        except PolarisComputationError as exc:
+            raise PolarisComputationError(
+                f"The unconditional covariance needs the REML criterion at "
+                f"log10 lambda offset ({d_age:+.3f}, {d_year:+.3f}) from the selected "
+                f"({centre[0]:.3f}, {centre[1]:.3f}), and the penalized fit there did "
+                f"not converge. A Hessian built from the corners that happened to "
+                f"converge is not the Hessian, so this raises rather than degrading "
+                f"silently. Try a smaller log_step."
+            ) from exc
+
+    _, v0 = at(0.0, 0.0)
+    beta_ap, v_ap = at(+step10, 0.0)
+    beta_am, v_am = at(-step10, 0.0)
+    beta_yp, v_yp = at(0.0, +step10)
+    beta_ym, v_ym = at(0.0, -step10)
+    _, v_pp = at(+step10, +step10)
+    _, v_pm = at(+step10, -step10)
+    _, v_mp = at(-step10, +step10)
+    _, v_mm = at(-step10, -step10)
+
+    h_sq = log_step * log_step
+    hessian = np.array(
+        [
+            [(v_ap - 2.0 * v0 + v_am) / h_sq, (v_pp - v_pm - v_mp + v_mm) / (4.0 * h_sq)],
+            [(v_pp - v_pm - v_mp + v_mm) / (4.0 * h_sq), (v_yp - 2.0 * v0 + v_ym) / h_sq],
+        ],
+        dtype=np.float64,
+    )
+    jacobian = np.column_stack(
+        [(beta_ap - beta_am) / (2.0 * log_step), (beta_yp - beta_ym) / (2.0 * log_step)]
+    ).astype(np.float64)
+
+    half_width = float(np.log(10.0) * (bounds[1] - bounds[0])) / 2.0
+    variance_cap = half_width * half_width
+    eigenvalue_floor = 1.0 / variance_cap
+    eigenvalues, vectors = np.linalg.eigh(0.5 * (hessian + hessian.T))
+    # Reciprocal of the CLIPPED eigenvalue, not a select between two branches: an
+    # exactly-zero (or negative) eigenvalue is the case this floor exists for, and
+    # computing 1/eigenvalue first would emit a divide-by-zero warning for a value
+    # that is then discarded (PR #190 review [P2]).
+    variances = 1.0 / np.maximum(eigenvalues, eigenvalue_floor)
+    n_floored = int(np.sum(eigenvalues <= eigenvalue_floor))
+    v_rho = (vectors * variances) @ vectors.T
+
+    return SmoothingUncertainty(
+        correction=jacobian @ v_rho @ jacobian.T,
+        v_rho=v_rho,
+        hessian=hessian,
+        jacobian=jacobian,
+        n_floored=n_floored,
+        log_step=log_step,
+    )
 
 
 def lambda_is_at_bound(
@@ -764,16 +1089,29 @@ def fit_reml(
     coarse_step: float = COARSE_STEP,
     refine_step: float = REFINE_STEP,
     bounds: tuple[float, float] = LAMBDA_LOG10_BOUNDS,
+    gamma: float = 1.0,
+    unconditional: bool = False,
+    log_step: float = KS_LOG_STEP,
     **model_kwargs: object,
 ) -> PenalizedMIFit:
     """Select λ by REML, then fit at it — with the selection metadata recorded.
 
+    ``unconditional=True`` adds the Kass-Steffey term to the covariance, so the bands
+    stop conditioning on a λ that ADR-187 finding 2 showed is one draw from a wide
+    distribution. It costs nine extra penalized fits on top of the selector's 202 and
+    it is **off by default**, because PLAN Anchor 7 forbids anyone calling either
+    interval a 95% band until select-per-replicate coverage has been measured — the
+    default should not quietly pick a side of a question the project has open.
+    Whichever is used is recorded on :attr:`PenalizedMIFit.band_is_unconditional`.
+
     **This function exists because the fields it populates were inert.** Slice 2
     shipped `reml_score` and `lambda_grid_step` on :class:`PenalizedMIFit`, with
     docstrings in five places saying they distinguish a selected surface from a
-    hand-set one. Nothing wrote them: `select_lambdas_reml` returns a bare tuple and
-    a caller rebuilding the model got the defaults, so both were always ``None`` and
-    the two cases were indistinguishable (PR #188 review [P1]).
+    hand-set one. Nothing wrote them: `select_lambdas_reml` returned a bare tuple that
+    a caller had to re-assemble into a model by hand, so both were always ``None`` and
+    the two cases were indistinguishable (PR #188 review [P1]). Slice 4 replaced that
+    tuple with :class:`LambdaSelection` and added two more fields to carry — which
+    makes this function's job larger, not smaller.
 
     Callers who want a selected surface should use this rather than the two-step
     dance, because the two-step dance is exactly what dropped the metadata.
@@ -788,17 +1126,30 @@ def fit_reml(
     Slice 4 needs the override — a coarser sweep is the obvious lever when 202 fits
     meet the 125k-cell book.
     """
-    lambda_age, lambda_year, score = select_lambdas_reml(
+    selection = select_lambdas_reml(
         cells,
         coarse_step=coarse_step,
         refine_step=refine_step,
         bounds=bounds,
+        gamma=gamma,
         **model_kwargs,
     )
     model = PenalizedTensorMIModel(
         cells,
-        lambda_age=lambda_age,
-        lambda_year=lambda_year,
+        lambda_age=selection.lambda_age,
+        lambda_year=selection.lambda_year,
         **model_kwargs,  # type: ignore[arg-type]
     )
-    return model.fit(reml_score_value=score, lambda_grid_step=refine_step)
+    fit = model.fit(selection=selection, lambda_grid_step=refine_step, gamma=gamma)
+    if not unconditional:
+        return fit
+    extra = smoothing_uncertainty(
+        cells,
+        lambda_age=selection.lambda_age,
+        lambda_year=selection.lambda_year,
+        gamma=gamma,
+        log_step=log_step,
+        bounds=bounds,
+        **model_kwargs,
+    )
+    return replace(fit, cov=fit.cov + extra.correction, band_is_unconditional=True)

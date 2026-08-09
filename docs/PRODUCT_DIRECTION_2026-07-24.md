@@ -1638,7 +1638,14 @@ record the clause text. What replaces it:
   simply not identify λ — which would be a finding rather than a failure.
   *Source: PLAN_penalized_mi_surface (1st-order).* **IMPORTANT.**
 
-  **Progress — slices 1–2 done (2026-08-08), ADR-185, ADR-186 + amendments 1–2.**
+  **Progress — slices 1–3 done, ADR-185, ADR-186 + amendments 1–2, ADR-187 +
+  amendments 1–2** (slice 3 merged as **PR #189**, 2026-08-09; ledger-healed
+  2026-08-09 per routine step 4b). Slice 3 also **revised the plan**: 5 slices became
+  7, and `mgcv` moved from an optional oracle for one quantity to a load-bearing
+  conformance slice for three (PLAN Revision 1). Slice 3's own registered hypothesis
+  came back **false** — the committed delta-method bands are calibrated (95.7%/95.9%),
+  so ADR-184's age-45 artifact is a statement about the point estimate's spread and
+  not about the interval.
   Two of the three "known hard parts" have resolved, in opposite directions.
   *statsmodels:* confirmed additive-only on 0.14.6, so the Kronecker design and
   penalty are hand-built as anticipated — and worse than anticipated, **patsy cannot
@@ -1694,7 +1701,19 @@ explanation, which is a publishable finding in its own right.
 
 ### Appended 2026-08-09 (slice-3 harvest — two items the coverage study surfaced)
 
-- **`select_lambdas_reml` aborts when a grid corner fails to converge.**
+- ~~**`select_lambdas_reml` aborts when a grid corner fails to converge.**~~
+  — **SHIPPED** (PR #190 / ADR-188 decision 1, slice 4): the point is scored `+inf` and the
+  search continues, with `n_rejected` / `n_evaluated` carried onto the fit so a
+  truncated grid cannot hide; rejecting *every* point raises rather than returning the
+  grid centre as a fabricated selection. Reproduced at seed 1098 before the fix (routine
+  step 7b) and measured at **2 replicates in 400** during the coverage study — either
+  one would previously have aborted it. **Caveat found in CI (ADR-188 amendment 1):**
+  the corner's non-convergence is **platform-dependent** — it converges on CI's Python
+  3.13 runner — so the "one replicate in a hundred" rate below is a property of a
+  machine, not of the estimator. The fix is unaffected; three tests that pinned the
+  accident were rewritten to force it. Original entry preserved below.
+
+  **`select_lambdas_reml` aborts when a grid corner fails to converge.**
   **BLOCKER for slice 4** and already recorded as such in
   `CONTINUATION_penalized_mi_surface.md`; promoted here because it outlives the epic
   if the epic stalls. The coarse sweep visits `log10 λ = (-1, 8)` — essentially
@@ -1724,3 +1743,71 @@ explanation, which is a publishable finding in its own right.
   instability. **The unconditional (select-per-replicate) coverage study that would
   quantify what a user actually gets is not delivered** — it is blocked by the item
   above. *Source: ADR-187 finding 2 (1st-order).* **IMPORTANT.**
+
+  **PARTLY ADDRESSED (slice 4 / ADR-188).** The study is **delivered** —
+  `docs/MEASUREMENT_unconditional_coverage.md` — and it quantifies the cost: selecting
+  λ per replicate takes the *same* band from ADR-187's conditional 0.8710 down to
+  **0.8201**. The "not jointly calibrated" consequence has a remedy shipped behind
+  `fit_reml(unconditional=True)`, which recovers +3.2/+3.8 points of a ~13-point
+  shortfall. **The item does not close**: nothing yet reports the instability to a
+  *user* (that is slice 6), and the remaining shortfall is unexplained pending slice 5.
+
+### Harvested 2026-08-09b (penalized MI slice 4 — ADR-188; the Anchor-7 gate FAILED)
+
+**Headline for the maintainer:** the select-per-replicate coverage study is delivered
+and **the gate does not pass**. Unconditional coverage is **0.8516 / 0.8581** against a
+floor of 0.9192, so **nothing in this project may be labelled a 95% band** until slice
+5 explains the shortfall. On the identical truth and seeds, the **unpenalized**
+delta-method band covers **0.9586** at 4.4x the width — the estimator this epic set out
+to improve on currently has the better interval. That is a statement about the
+*interval* and does not retract ADR-186's RMSE result for the point estimate.
+
+- **Run `mgcv` conformance levels 1 and 4 before anything else in slice 5.**
+  The failing gate has two candidate causes with different remedies — our Kass–Steffey
+  arithmetic is wrong, or the residual is shrinkage bias that no covariance correction
+  can reach — and `vcov(m)` vs `vcov(m, unconditional = TRUE)` is what separates them.
+  Slice 5 was already planned; what changed is that it is now **decisive rather than a
+  completeness item**, and its level ordering matters if the maintainer's R time is
+  limited. *Source: ADR-188 finding 1 (1st-order).* **BLOCKER** for any slice that puts
+  a penalized band in front of a reader.
+
+- **Decide whether the penalized band may be shown to a user at all.**
+  Slice 6 is where these numbers reach a human. On current evidence the penalized
+  interval covers 10 points worse than the one it would sit beside. Anchor 6 keeps the
+  unpenalized path alive so the option exists in both directions, but "show it with a
+  caveat" and "do not show it yet" are different products and the plan does not decide
+  between them. *Source: ADR-188 finding 3 + DEV_SESSION_LOG_2026-08-09 Open Questions
+  (1st-order).* **IMPORTANT — needs a maintainer decision, not a routine one.**
+
+- **Replace the finite-difference Jacobian/Hessian with analytic derivatives.**
+  `smoothing_uncertainty` costs **nine penalized fits per surface**. That is negligible
+  against the selector's ~200 on a fixture and is not obviously negligible on the
+  125,676-cell ILEC book, where each fit is the expensive object. Wood gives the
+  analytic forms. *Source: ADR-188 Out of scope (1st-order).* **NICE-TO-HAVE** — a cost
+  item, not a correctness one, and it should wait until slice 5 has confirmed the
+  quantity is right before it is made faster.
+
+- **Measure coverage on real experience, not only on injected truths.**
+  Every coverage figure this project has — ADR-187's and ADR-188's alike — comes from a
+  simulation whose truth is known because we wrote it. Whether these rates survive real
+  ILEC overdispersion, sparsity and misspecification is unmeasured, and ADR-187 finding
+  4 already showed both estimators collapse to ~67-76% at old ages once the basis cannot
+  represent the truth. *Source: ADR-188 Out of scope (1st-order).* **IMPORTANT.**
+
+- **A fixture must be checked against the penalty null space, not eyeballed for
+  variation.** Slice 4's first age-varying truth used a *linear* age gradient, which
+  sits **inside** the second-difference penalty's null space, so it reproduced the
+  age-flat degeneracy under a different name — λ_age spread 5.50 decades against 1.25
+  for the corrected quadratic and 5.00 for age-flat. This is the third epic in a row to
+  hit the same shape (ADR-186: a truth the basis could not resolve; ADR-187: designed
+  around it explicitly; ADR-188: built one wrong anyway). It is now a test on the
+  *second* difference rather than a habit, and the generalisation is worth applying to
+  any future estimator study: **assert the fixture exercises the mechanism, because
+  "the values differ" passes on a fixture that does not.** *Source: ADR-188 finding 4
+  (1st-order).* **NICE-TO-HAVE** — a practice note; no code is owed.
+
+**Also corroborated rather than newly found:** ADR-187 amendment 1's mechanism holds at
+**200 replicates rather than 8**. λ_age's spread still falls four-fold once the truth
+carries age structure the penalty can see, and a max-minus-min range over 200 draws is a
+much harder statistic than over 8. No action; recorded because the amendment's headline
+number was previously supported by eight seeds.

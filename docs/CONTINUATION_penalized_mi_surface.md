@@ -4,8 +4,9 @@
 spline-diagnostics epic.
 **Plan:** `docs/PLAN_penalized_mi_surface.md`
 **Predecessors:** ADR-182, **ADR-184 + amendments 1-3**
-**Status:** **SLICES 1-3 DONE (2026-08-09)** — ADR-185, ADR-186, ADR-187 + amendments
-1-2. Slice 4 is NEXT.
+**Status:** **SLICES 1-4 DONE (2026-08-09)** — ADR-185, ADR-186, ADR-187 + amendments
+1-2, **ADR-188**. Slice 5 (the `mgcv` conformance suite) is NEXT, and slice 4 made it
+load-bearing rather than optional.
 **Total slices:** **7** (1-6 autonomous, 7 one maintainer run) — **plan revised
 2026-08-09**, see `PLAN_penalized_mi_surface.md` Revision 1.
 **Estimated scope:** ~7-9 dev-days autonomous + one `mgcv` conformance run and one
@@ -35,12 +36,15 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
    nor violated**; the band layer was extracted from three byte-identical copies
    rather than copied a fourth time. Coverage measured, and **the registered
    hypothesis was falsified** — the committed delta-method bands are calibrated.
-4. **Selector robustness + an unconditional interval** — **NEXT** — fix the abort
-   (score a non-converging grid point `+inf`), add the Kass-Steffey unconditional
-   covariance, add Wood's `gamma` for parity. **Gated on Anchor 7**: the
-   select-per-replicate coverage study must pass before anything is labelled a 95%
-   band.
-5. **`mgcv` conformance suite** — ship our design AND our penalties via `paraPen` so
+4. ~~**Selector robustness + an unconditional interval**~~ **DONE** — ADR-188, **PR #190**. All
+   three pieces shipped. **The Anchor-7 gate was measured and does NOT pass**:
+   unconditional coverage 0.8516 / 0.8581 against a floor of 0.9192, so **nothing in
+   this project may be labelled a 95% band**. Kass-Steffey buys +3.2/+3.8 points of a
+   ~13-point shortfall — right direction, quarter of the gap. Two further numbers a
+   later slice must not repeat wrongly: selecting λ per replicate costs a *further* ~5
+   points against ADR-187's conditional 0.8710, and the **unpenalized** delta band
+   covers 10 points better (0.9586) at 4.4x the width on the identical truth and seeds.
+5. **`mgcv` conformance suite** — **NEXT** — ship our design AND our penalties via `paraPen` so
    the model is identical and disagreement localises to our arithmetic. Five levels:
    fixed-λ coefficients, REML selection, `tr(F)`, unconditional `vcov`, `gamma`.
    Synthetic exchange file committed; HMD/ILEC exchange local-only, report committed.
@@ -79,8 +83,9 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
   **The `mgcv`-consistency claim is adopted, not verified** (PLAN §7); nothing in
   this container can check it.
 - **`fit_reml()` is the entry point, not `select_lambdas_reml()`.** Added in the
-  #188 review round. Selection returns a bare `(λ_age, λ_year, score)` tuple and
-  fitting is a separate call, so a caller that wires the two by hand gets a fit with
+  #188 review round. Selection returns a `LambdaSelection` and fitting is a separate
+  call (it was a bare `(λ_age, λ_year, score)` tuple until slice 4 widened it — the
+  point is unchanged), so a caller that wires the two by hand gets a fit with
   `reml_score` and `lambda_grid_step` left `None` — which was the shipped defect.
   `fit_reml()` does both and populates them, and it is the fit slice 3 took `Vb`
   from. Use `select_lambdas_reml()` only when the search is wanted without the
@@ -142,10 +147,77 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
   import the age-45 framing into band interpretation. **Which of the two degrades
   worse is not resolved** — an earlier claim that the penalized fit degrades further
   was withdrawn when the selection seed changed it from 76.0% to 85.1%.
-- **The unconditional coverage study is NOT delivered.** Select-per-replicate coverage
-  — what a user of the shipped procedure actually gets — is the natural companion to
-  ADR-187's conditional numbers and was blocked by the abort above. It is the obvious
-  first thing to run once that is fixed.
+- ~~**The unconditional coverage study is NOT delivered.**~~ **DELIVERED** (slice 4,
+  `docs/MEASUREMENT_unconditional_coverage.md`) — and it failed the gate. See the
+  slice-4 entry above for the three numbers, and ADR-188 for the reasoning.
+
+## Maintainer decisions — 2026-08-09 (PR #190)
+
+Two questions slice 4 raised were answered by the maintainer. Both are recorded in
+`PLAN_penalized_mi_surface.md` (Anchor 7 amendment; slice 5 workflow) and repeated here
+because this file is what the next session reads first.
+
+1. **The band keeps being shown.** The failing gate does **not** pull it. What it
+   forbids is the unqualified nominal label. While it is displayed, slice 6 owes three
+   things: the **measured** coverage rather than the nominal, a **stated reason for the
+   deviation** beside it, and the target kept live. The obligation ends when we either
+   reach nominal or record a decision that it is not achievable or not worth pursuing —
+   either of which is a result. Note this is a *narrowing*, not a relaxation: the
+   pre-gate status quo displayed a band whose coverage nobody had measured.
+
+2. **The R run happens after slice 5 is built**, as a batch. So slice 5's job is to make
+   one run serve many iterations — **the mgcv reference for the synthetic case is
+   COMMITTED**, turning it from a live oracle into a golden file the implementer can
+   iterate against offline. Expected round trips: **two to three**, not one and not ten.
+   Four build requirements and one guard are spelled out in PLAN slice 5; the two that
+   would otherwise be discovered painfully are: **the exchange file must be TSV + JSON,
+   not `.npz`** (R cannot read `.npz` without `reticulate`/`RcppCNPy`), and **the
+   comparator must hash the exchange file** so nobody can iterate against a stale
+   reference and declare parity with a file R never saw.
+
+   The earlier "run levels 1 and 4 first if R time is short" recommendation is
+   **superseded** — batching every level into one invocation removes the question.
+
+### New in slice 4 — read before slice 5
+
+- **Nothing may be called a 95% band.** Anchor 7's gate is measured and failed. Slice 6
+  in particular must quote the measured rate and the direction, never the nominal
+  level, and must print which covariance produced the interval
+  (`PenalizedMIFit.band_is_unconditional` exists for exactly that).
+- **Pin the lambda-vs-scale convention at slice 5 level 1.** The `gamma`-as-scale
+  derivation is algebraically sound, but `log|XᵀWX + S|` is evaluated at the
+  **unscaled** penalty, which fixes a particular convention for λ relative to φ. Inert
+  at `gamma=1.0` and used nowhere today, so it has no consequence yet — and it is
+  exactly the kind of convention an `mgcv` conformance run should nail down rather than
+  leave implicit, since `sp` there multiplies the supplied `S` directly. Raised in the
+  PR #190 review.
+- **Slice 5's level 4 is now the decisive check, not a completeness item.** The gate
+  fails for one of two reasons with different remedies: our Kass-Steffey arithmetic is
+  wrong, or the residual shortfall is shrinkage bias that no covariance can reach.
+  `vcov(m)` vs `vcov(m, unconditional = TRUE)` separates them. If R time is short, run
+  levels 1 and 4 first.
+- **Do not tune to pass the gate.** `gamma`, a larger `k`, or moved bounds would each
+  be choosing a number to make a measurement come out. The plan's own sequencing is the
+  answer.
+- **`select_lambdas_reml` returns `LambdaSelection`, not a 3-tuple.** Five call sites
+  moved. `fit_reml` is still the entry point and now forwards `n_rejected_points` and
+  `n_evaluated_points` onto the fit.
+- **`gamma` is exactly inert at 1.0**, by construction — both `gamma`-dependent terms
+  collapse to the pre-`gamma` expression. That is what lets slice 2's selection tests
+  stand unchanged as a regression guard, and it is worth preserving.
+- **`smoothing_uncertainty` refuses to degrade where the selector rejects.** A central
+  difference needs both of its points; a Hessian built from whichever corners converged
+  is a different quantity under the same name.
+- **The fixture trap bit a third time.** Slice 4's first age-varying truth had a
+  *linear* age gradient, which lies inside the age penalty's null space, so it
+  reproduced the age-flat degeneracy under a different name (λ_age spread 5.50 decades
+  vs 1.25 for the corrected quadratic). ADR-186 hit this with an unrepresentable truth,
+  ADR-187 designed around it, slice 4 still built one wrong. It is now a **test** on the
+  second difference rather than a habit. Check any new fixture against **both** the
+  penalty null space and the basis.
+- **ADR-187 amendment 1 is confirmed at 200 replicates**, not merely restated: λ_age's
+  spread still falls four-fold once the truth has age structure, and a max-minus-min
+  range over 200 draws is a much harder statistic than over 8.
 
 ## Open questions (for human)
 

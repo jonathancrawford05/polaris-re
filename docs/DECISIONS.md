@@ -13888,3 +13888,248 @@ rough draws are dominated — worse RMSE *and* wider bands — on the age-flat f
 the age-varying fixture the RMSE ordering does not reproduce (the lowest-λ_age draw is
 mid-range, and RMSE varies by only 1.13×). `gamma` remains worth having as an
 mgcv-parity feature; it is **not** justified here as a fix for a demonstrated bias.
+
+---
+
+## ADR-188: the selector stops aborting, the band stops conditioning on λ — and the gate does not pass (penalized MI surface, Slice 4)
+
+**Date:** 2026-08-09
+**Status:** Accepted
+**Context:** `PLAN_penalized_mi_surface.md` slice 4, whose three pieces were
+sequenced by dependency: fix the abort (ADR-187 finding 5) so the study can run,
+add the unconditional covariance so the interval stops conditioning on λ, add Wood's
+`gamma` for `mgcv` parity. PLAN Anchor 7 makes the resulting coverage study a **gate**
+rather than a report.
+
+**The gate does not pass, and that is this slice's headline.** Everything below is
+subordinate to it.
+
+### Decision 1 — a non-converging grid point is rejected, not raised
+
+`select_lambdas_reml` let `PolarisComputationError` out of its inner scoring call, so
+the corner `log10 λ = (-1, 8)` — essentially unpenalized in age, saturated in year,
+visited by the coarse sweep on **every** call — took the whole search down with it on
+roughly one replicate in a hundred.
+
+**Reproduced before anything was written** (routine step 7b): on the quadratic
+fixture at seed 1098 the corner raises `Penalized IRLS did not converge in 100
+iterations (deviance 467.015)`, and `fit_reml` dies with it in 0.1 s. The premise
+held exactly as ADR-187 recorded it.
+
+**Decision: score it `+inf` and continue**, as the plan proposed. A λ whose own fit
+does not converge is not a λ to select, so infinite badness is the right answer
+rather than a workaround; the alternatives — damping the IRLS step, raising the
+iteration cap — both spend time keeping a point evaluable that the search should be
+rejecting. Non-finite scores are rejected through the same branch.
+
+**The count is carried, not just the behaviour.** `select_lambdas_reml` now returns a
+`LambdaSelection` NamedTuple with `n_rejected` and `n_evaluated`, and `fit_reml`
+forwards both onto the fit. A search that silently discarded half its grid is a
+different object from one that discarded nothing, and slice 6 runs this on a
+125k-cell book where nobody will be watching the corner.
+
+**And rejecting everything raises.** The running best is seeded at the grid centre, so
+a fix that only added the `+inf` branch would return that centre — a fabricated λ with
+`reml_score = inf`, indistinguishable *by type* from a real selection. That is the
+failure mode this fix could have introduced while removing the one it targeted, and it
+has its own test with the scoring call monkeypatched to fail everywhere.
+
+Measured over the 400 study replicates on this container: **2 replicates in 400 hit
+it**, each rejecting exactly one point. Before this change, either one would have
+aborted the study.
+
+### Decision 2 — the unconditional covariance, and the cap that keeps it finite
+
+`Vb + J V_rho Jᵀ` — Kass–Steffey (1989), as `mgcv` exposes it through
+`vcov(..., unconditional = TRUE)`. `J = ∂β̂/∂(log λ)` and `V_rho = H⁻¹` for `H` the
+Hessian of the REML criterion in `log λ`, both by **central differences**: nine
+penalized fits against the selector's ~200, and the criterion and the fit are already
+available as functions of `log λ`, so an analytic derivative would be a second
+implementation of the fit to keep in step.
+
+**The cap is the part that needed deciding.** `H` is evaluated at a *grid point*, not
+a stationary point, so it can carry a near-zero or negative eigenvalue — and ADR-187
+amendment 2 says to expect near-zero, because the profile is shallow (3.85 REML units
+across 5.5 decades). Inverting that directly sends λ's variance to infinity.
+
+Rather than a numerical `rcond`, the cap comes from the selector's own contract:
+`select_lambdas_reml` **cannot** return a λ outside `LAMBDA_LOG10_BOUNDS`, so `log λ`'s
+standard deviation cannot exceed half the bound width. Eigenvalues below
+`1/(half-width)²` are raised to it. That is a statement about the search rather than a
+tolerance, and `SmoothingUncertainty.n_floored` reports how often it bound — measured
+at **0.46 directions per fit on the age-flat truth against 0.15 on the age-varying
+one**, which is the identifiability difference showing up in the curvature exactly
+where it should.
+
+**Unlike the selector, this refuses to degrade.** A perturbed corner that fails to
+converge raises. The selector is choosing among points and can afford to discard one;
+a central difference needs *both* of its points, and a Hessian assembled from whichever
+corners happened to converge would be a different quantity reported under the same
+name.
+
+**An independent check on `V_rho` came out right.** Its diagonal implies a standard
+deviation of ~1.3 decades in `log10 λ_age` on the standard fixture. That is a
+single-dataset curvature calculation; ADR-187 amendment 1's 0.75–5.50 decades is an
+across-replicate empirical range. The two share no implementation, and they agree to
+an order of magnitude.
+
+### Decision 3 — `gamma` enters as the scale parameter, and is carried on the fit
+
+`mgcv` documents `gamma` as multiplying "the effective degrees of freedom in the GCV or
+UBRE/AIC score (**or the scale parameter in the RE/ML criteria**)". This is a RE/ML
+criterion, so `gamma` enters as the scale: setting `φ = gamma` in the known-scale REML
+criterion gives `D/(2·gamma) + log|XᵀWX+S|/2 - log|S|₊/2 - (p-r)·log(gamma)/2`. The fit
+does not move — the scale cancels out of the penalized normal equations — so `gamma`
+changes only *which* λ is selected.
+
+Two details worth recording. The `-(p-r)·log(gamma)/2` term is **constant in λ** and
+cannot change a selection; it is carried anyway so scores are comparable across
+`gamma` rather than only within one. And at `gamma = 1.0` every `gamma`-dependent term
+collapses to the pre-`gamma` expression **exactly**, which is what lets slice 2's
+eleven selection tests stand as a regression guard rather than be re-baselined.
+
+Measured: `edf_tensor` 5.836 → 4.908 → 4.286 → 4.000 across `gamma` 1.0, 1.4, 2.0, 5.0.
+Monotone, and the floor is the penalty null-space dimension, as it must be.
+
+**It is carried on the fit** because a λ selected under `gamma ≠ 1` is not comparable
+with one selected under `gamma = 1`, and a report showing the λ without the `gamma`
+invites exactly that comparison.
+
+**`gamma` remains parity, not remedy** (PLAN Anchor 8). ADR-187 amendment 2 measured
+the "REML undersmooths" direction on an age-flat fixture and found it does not
+reproduce on an age-varying one. It defaults to 1.0 and nothing in this slice uses it.
+
+### The gate — measured, and NOT passed
+
+`scripts/unconditional_coverage_study.py`, 200 replicates per truth, λ selected on
+**every** replicate. Both bands come from the same fits and differ only in the
+covariance, so the comparison is paired. Full report:
+`docs/MEASUREMENT_unconditional_coverage.md`.
+
+| truth | band | overall | young ≤50 | old ≥80 | mean width |
+|---|---|---:|---:|---:|---:|
+| age-flat | conditional | 0.8201 | 0.8928 | 0.7479 | 0.00619 |
+| age-flat | **unconditional** | **0.8516** | 0.9115 | 0.7930 | 0.00694 |
+| age-varying | conditional | 0.8200 | 0.8517 | 0.7456 | 0.00764 |
+| age-varying | **unconditional** | **0.8581** | 0.8843 | 0.7948 | 0.00856 |
+| age-flat | *unpenalized delta (ADR-187)* | *0.9586* | *0.9574* | *0.9533* | *0.03044* |
+
+**GATE NOT PASSED.** The floor is nominal minus two Monte-Carlo SEs, 0.9192. Neither
+truth clears it. Nothing in this project may be labelled a 95% band.
+
+### Finding 1 — the correction is directionally right and quantitatively insufficient
+
+It widens by ~12% and buys **+3.2 and +3.8 points** of coverage. Against a shortfall of
+roughly 13 points that is about a quarter of the gap. The sign is right, the mechanism
+is real, and it is **not enough**.
+
+This matters for what slice 5 is for. Kass–Steffey was the plan's "piece most likely to
+move coverage back toward nominal", and it moved it a quarter of the way. Either the
+implementation is wrong — which is precisely what slice 5's level 4 settles against
+`vcov(m, unconditional = TRUE)` — or the remaining shortfall is **shrinkage bias**,
+which no covariance correction can reach. The two are distinguishable and the ordering
+is now clear: run the conformance before building anything else on top.
+
+### Finding 2 — selecting λ per replicate costs another 5 points, and that is the number a user gets
+
+ADR-187 measured the conditional band at **0.8710** with λ fixed at one draw. Under
+select-per-replicate the *same band* covers at **0.8201**. The 5-point difference is
+the cost of the selection step, and it was invisible to every measurement this project
+had taken before this slice.
+
+This is what Anchor 7 was written to expose, and it justifies the anchor: 87.1% was not
+a pessimistic number to be improved on, it was an **optimistic** one conditioned on
+knowing something the user does not know.
+
+### Finding 3 — the penalized band is 4.4x narrower and covers 10 points worse
+
+Beside the unpenalized delta-method row, at equal replicates on the identical truth:
+**0.9586 at width 0.03044** against **0.8516 at width 0.00694**. The unpenalized
+estimator this epic set out to improve on has, on this evidence, the better interval —
+by a margin no width advantage compensates for.
+
+That is a finding about the *interval*, not about the point estimate, and it does not
+retract ADR-186's thesis result (REML beat the hand-tuned quadratic on RMSE). The two
+can both be true and jointly they say: the penalized surface may be a better estimate
+inside an interval that is not yet honest about it.
+
+### Finding 4 — a fixture defect found by measuring it, and the mechanism is the epic's own
+
+**The first version of the age-varying truth was wrong, and the study measured it as
+wrong before anything was published.** It used a *linear* age gradient — which lies
+**inside** the second-difference penalty's null space along the age margin, so λ_age → ∞
+costs nothing and the age penalty is exactly as unidentifiable as on the flat truth.
+The two rows of the study were one row measured twice.
+
+The evidence is the λ spread, which is the diagnostic amendment 1 established:
+
+| age-varying fixture | log10 λ_age spread over 200 replicates |
+|---|---:|
+| linear age gradient (**withdrawn**) | 5.50 decades |
+| quadratic age profile (**shipped**) | **1.25** decades |
+| age-flat, for reference | 5.00 decades |
+
+**This also confirms ADR-187 amendment 1 at 200 replicates rather than 8**, and more
+strongly than the amendment could: a max-minus-min range over 200 draws is a far harder
+statistic than over 8, and λ_age's spread still falls four-fold once the truth has age
+structure the penalty can see. The amendment's mechanism — *an unidentifiable smoothing
+parameter is unidentifiable because the data contain nothing for it to fit* — is
+corroborated rather than merely restated.
+
+The generalisation is the one ADR-186 and ADR-187 each arrived at from a different
+direction: **a fixture must be checked against the null space and the basis, not
+eyeballed for variation.** ADR-186 lost time to a truth its basis could not resolve;
+ADR-187 designed its three truths around exactly this distinction; slice 4 still built
+one wrong. So the check is now a test rather than a habit —
+`test_the_age_varying_truth_leaves_the_age_penalty_null_space` asserts a non-zero
+*second* difference in age, which the broken fixture fails and a "values differ across
+ages" assertion would have passed.
+
+### What this slice does not do
+
+The gate failing does **not** license tuning until it passes. `gamma` is available and
+would widen nothing; raising `k` or moving the bounds would be choosing a number to make
+a measurement come out. The plan's sequencing already names the next step, and it is
+slice 5: three quantities here are adopted from `mgcv` and unverified, and one R run
+settles whether the shortfall is our arithmetic or the estimator's bias.
+
+Also out of scope, and promoted to `PRODUCT_DIRECTION`: an unconditional covariance
+computed analytically rather than by finite differences (nine fits is cheap on a fixture
+and is nine fits per surface on a 125k-cell book); a coverage study on **real** ILEC
+rather than injected truths; and the question of whether the penalized band should ever
+be shown to a user while it measures 10 points below the estimator it replaces.
+
+### ADR-188 amendment 1 — the non-convergence is not portable, and three tests were pinning a platform (2026-08-09)
+
+PR #190's first CI run failed three slice-4 tests on **Python 3.13 while passing on
+3.12**. All three shared one cause: at seed 1098 the corner `log10 λ = (-1, 8)`
+**converges** on the 3.13 runner. The tests asserted that it does not.
+
+**Everything else about that selection was bit-for-bit portable.** Same selected λ
+(`1e8`, `1778.2794100389228`), same 166 grid points evaluated, REML score agreeing to
+the 11th digit (`255.53358722050018` locally against `255.53358722038456` on CI). The
+only thing that moved was whether one badly-conditioned IRLS crosses a deviance
+tolerance within 100 iterations — which is BLAS accumulation order, the same mechanism
+ADR-184 amendment 2 recorded when it falsified this project's byte-for-byte
+reproducibility claim.
+
+**That is a finding about the defect, not only about the tests.** ADR-187 finding 5
+characterised the abort as firing on "roughly one replicate in a hundred". That rate is
+a property of *a platform*, not of the estimator: the same replicate can converge on one
+machine and not on another. The fix is unaffected — a rejection branch is right whether
+the corner fails on 1% or 0% of platforms — but any future statement of the *frequency*
+must name the machine, and the study's `replicates with a rejected grid point` column is
+read accordingly.
+
+**The tests now force the failure at that exact corner** rather than fishing for a seed
+that produces it. This is strictly stronger, and the reasoning is the one this epic keeps
+arriving at from new directions: a test that depends on a numerical accident asserts the
+contract on the platform where the accident happens and asserts **nothing** everywhere
+else, while reading as a guard in both places. Forcing it makes "a non-converging point
+is rejected and the search survives" checkable everywhere, and lets the assertion tighten
+from `n_rejected >= 1` to `n_rejected == 1` with the winner and the grid size asserted
+unchanged — so a change that swallowed failures wholesale, or stopped visiting the corner,
+now fails where before it would have passed.
+
+The premise reproduction itself is not lost; it is recorded above, with the platform it
+was observed on named.

@@ -140,8 +140,23 @@ answer and this anchor exists because it was nearly adopted as one.
 silently re-pointed. Every committed report was produced by it, the QA goldens
 depend on nothing moving, and Anchor 1 needs it alive as the oracle.
 
-**Anchor 7 — added 2026-08-09 — an interval is not published until its coverage is
-measured under the procedure that produced it.** Slice 3 measured coverage
+**Anchor 7 — added 2026-08-09, AMENDED 2026-08-09 (maintainer) — an interval is not
+published *without its measured coverage* until its coverage is measured under the
+procedure that produced it.**
+
+> **Amendment (maintainer decision, 2026-08-09).** The original anchor read as a bar on
+> *display*. It is not. **The band may keep being shown.** What the failing gate forbids
+> is the unqualified **nominal label** — calling it a 95% band when it measures 85%.
+>
+> The standing obligation while it is shown is threefold, and slice 6 owns all of it:
+> quote the **measured** rate rather than the nominal one; state a **reason for the
+> deviation** beside it; and keep the target live. The anchor closes when we either
+> reach nominal coverage or record a decision that it is not achievable or not worth
+> pursuing — and either of those is a result, not a failure.
+>
+> This is a narrowing, not a relaxation: "show it with the number it actually achieves
+> and why" is a stronger requirement than the pre-gate status quo, which showed a band
+> whose coverage nobody had measured at all. Slice 3 measured coverage
 *conditional* on λ and found 87.1% against a nominal 95%. Conditional coverage is a
 statement about the formula; **unconditional coverage — select λ per replicate, fit,
 count — is a statement about what a user gets**, and it is the only one that licenses
@@ -360,7 +375,14 @@ held without editing the extractor.
 
 ### Slice 4: selector robustness and an interval that does not condition on λ (autonomous)
 
-- **Status:** **NEXT**
+- **Status:** **DONE (2026-08-09)** — **ADR-188**, 51 module tests (was 34) plus 10 on
+  the study harness, and **the gate does NOT pass**.
+  All three pieces shipped: the abort became a scored rejection with the count carried
+  onto the fit, the Kass–Steffey unconditional covariance landed with a variance cap
+  derived from the selector's own bounds, and `gamma` entered as the scale parameter
+  (exactly inert at 1.0, so slice 2's tests stand unchanged as a regression guard).
+  **Anchor 7 is discharged as measured-and-failed**, which is the outcome the anchor
+  was written to make visible rather than a failure of the slice — see below.
 - **Depends on:** Slice 3
 
 **Why this slice exists, and why it was not in the original plan.** Slice 3 measured
@@ -418,6 +440,10 @@ of a fix. This slice is the fix.
 > registered as blocked by the abort in slice 3 and is the first thing the abort fix
 > unblocks. Measure it for the conditional band *and* the unconditional band, on both
 > the age-flat and age-varying truths, and publish both whichever way they come out.
+>
+> **This bars the LABEL, not the display** — see the Anchor 7 amendment in §2
+> (maintainer, 2026-08-09). The band keeps being shown; what it may not be called is a
+> 95% band while it measures 85%.
 
 **Cost note.** Per-replicate selection is ~200 penalized fits per replicate, so a
 200-replicate study is ~40,000 fits. Budget it as a `@slow`-marked test or a
@@ -425,12 +451,58 @@ measurement script with a committed report; do not silently reduce the replicate
 to make it fit, and if it is reduced say so in the report (ADR-187's Monte-Carlo SE at
 200 replicates is ~1.5pp and grows as `1/√R`).
 
+> **Discharged 2026-08-09 — the gate was measured at the full 200 replicates and it
+> does NOT pass.** `scripts/unconditional_coverage_study.py`;
+> `docs/MEASUREMENT_unconditional_coverage.md` carries the report.
+>
+> | truth | conditional | **unconditional** | floor |
+> |---|---:|---:|---:|
+> | age-flat | 0.8201 | **0.8516** | 0.9192 |
+> | age-varying | 0.8200 | **0.8581** | 0.9192 |
+>
+> Three results, all of which change what later slices may say:
+>
+> 1. **Kass–Steffey is directionally right and quantitatively insufficient** — +3.2 and
+>    +3.8 points against a ~13-point shortfall, about a quarter of the gap, at ~12%
+>    extra width. It was the plan's "piece most likely to move coverage back toward
+>    nominal"; it moved it a quarter of the way.
+> 2. **Selecting λ per replicate costs another ~5 points.** ADR-187's conditional
+>    0.8710 becomes 0.8201 for the *same band* once λ is re-selected. That gap is
+>    exactly what Anchor 7 exists to expose, and it means 87.1% was an optimistic
+>    figure conditioned on knowledge the user does not have.
+> 3. **The unpenalized delta-method band covers 10 points better** (0.9586 at 4.4x the
+>    width, same truth, same seeds). This is a statement about the *interval* and does
+>    not retract ADR-186's RMSE result for the point estimate — both can hold, and
+>    jointly they say the penalized surface may be the better estimate inside an
+>    interval that is not yet honest about it.
+>
+> **The failing gate does not license tuning.** `gamma`, a wider `k`, or moved bounds
+> would each be choosing a number to make a measurement come out. The next step is the
+> one the plan already sequenced: slice 5 settles whether the shortfall is *our
+> arithmetic* (three quantities here are adopted from `mgcv` and unverified) or the
+> estimator's shrinkage bias, which no covariance correction can reach.
+>
+> **A fourth result is about the study rather than the estimator.** The first
+> age-varying fixture used a *linear* age gradient, which sits inside the age penalty's
+> null space — so it reproduced the age-flat degeneracy under a different name (λ_age
+> spread 5.50 decades, against 1.25 for the corrected quadratic and 5.00 for age-flat).
+> Caught by measuring it, fixed before publication, and now asserted by a test on the
+> *second* difference. Correcting it also **confirms ADR-187 amendment 1 at 200
+> replicates rather than 8**, which is the stronger claim.
+
 ---
 
 ### Slice 5: the `mgcv` conformance suite (autonomous build, maintainer runs R)
 
-- **Status:** BLOCKED on slice 4
+- **Status:** **NEXT** (unblocked 2026-08-09 by slice 4)
 - **Depends on:** Slice 4
+
+> **Slice 4 raised this slice's stakes rather than merely unblocking it.** Level 4 —
+> `vcov(m)` against `vcov(m, unconditional = TRUE)` — is now the check that decides
+> whether the failing gate is *our arithmetic* or the estimator's shrinkage bias. Those
+> two have different remedies and the project cannot choose between them without an
+> independent implementation. Run levels 1 and 4 first if the maintainer's R time is
+> limited.
 
 **This is the slice that turns "adopted, not verified" into "verified", and it is now
 load-bearing rather than optional.** Three separate claims currently rest on "this is
@@ -491,14 +563,64 @@ directly — but that is an assumption to *verify* at level 1, not to assume.
   coefficient difference, `edf` difference, λ ratio, max surface difference. Those are
   derived scalars, not experience.
 
+**The R run happens AFTER slice 5 is built** (maintainer decision, 2026-08-09), and
+the workflow below is designed around one fact: **the expensive resource is the
+round trip, not the R compute.** Each round trip costs a session boundary, so the
+build must make one run sufficient for many iterations.
+
+**The governing decision: the mgcv output is a COMMITTED GOLDEN, not a live oracle.**
+The R side is a pure function of the exchange file, so once the maintainer runs it, the
+reference is committed and the implementer iterates entirely **offline** against it —
+zero further R runs while fixing our arithmetic. A second run is needed only if the
+design or penalties change (which changes the exchange file), or to add cases. This
+differs from the original plan, which committed only the *comparison report*: for the
+**synthetic** case there is no licensing reason to withhold the reference, since it is
+generated from a pinned seed. (HMD/ILEC are unchanged — exchange local-only, report
+committed, `DATA_LICENSING.md` §1.)
+
+**Four build requirements that make the one run count.**
+
+1. **The exchange file must be R-readable with no extra R packages.** Plain TSV plus a
+   JSON manifest — `read.table` and `jsonlite::fromJSON` — **not** `.npz`, which an
+   earlier revision of this plan specified and which R cannot read without `reticulate`
+   or `RcppCNPy`. Floats at `%.17g` so the round-trip is exact.
+2. **Export a matrix, not a case.** Extra cells cost seconds inside one R invocation and
+   days as a second round trip. ~8-12 cells: three fixed-λ pairs (interior,
+   age-saturated, year-saturated), free-`sp` REML, with and without a factor block, two
+   `(k_age, k_year)` pairs. A single case can agree by accident — especially for the
+   λ-relative-to-φ convention flagged in the PR #190 review, which a well-chosen cell
+   exposes and an unlucky one hides.
+3. **Dump intermediates, not just answers.** Per cell: coefficients, `sum(m$edf)`,
+   `m$edf` per block, `m$sp`, both `vcov` variants, deviance, scale, iteration count,
+   rank. "Coefficients differ by 0.03" is not actionable offline; the intermediates are
+   what let the implementer bisect without asking for another run.
+4. **Pin the environment in the output** — `sessionInfo()` and
+   `packageVersion("mgcv")` — so a later disagreement cannot be quietly attributed to a
+   version bump.
+
+**The guard that matters: the comparator hashes the exchange file** and refuses to
+compare a reference produced from a different hash. The worst failure mode available
+here is iterating against a stale reference and declaring parity with a file R never
+saw — a silent, confident wrong answer of exactly the class this epic keeps catching.
+
+**Expected round trips: two to three.** Run 1 establishes the deltas; the implementer
+fixes offline; run 2 confirms. A third only if reaching parity requires changing the
+design or the penalty.
+
 **Deliverables — the artifacts the maintainer needs.**
-- `scripts/export_mgcv_case.py` — writes the exchange file (`.npz` + a JSON manifest)
-  for a named case: `synthetic`, `hmd-usa`, `ilec-banded`.
-- `scripts/mgcv_conformance.R` — reads it, runs all five levels, writes results JSON.
-  Self-contained; `Rscript scripts/mgcv_conformance.R <exchange> <out.json>`.
-- `scripts/compare_mgcv_conformance.py` — reads both sides, emits the committed
-  report with per-level pass/fail and the tolerance each was judged against.
-- `docs/RUNBOOK_mgcv_conformance.md` — the three commands, and what each level means.
+- `scripts/export_mgcv_case.py` — writes the exchange file (**TSV + JSON manifest**)
+  for a named case: `synthetic`, `hmd-usa`, `ilec-banded`. Committed for `synthetic`.
+- `scripts/mgcv_conformance.R` — reads it, runs all five levels over the case matrix,
+  writes one reference JSON. **No arguments needed**; paths default. Exits non-zero on
+  any R-side error. Requires only `mgcv` (base R recommended package) and `jsonlite`.
+- `scripts/compare_mgcv_conformance.py` — reads both sides, verifies the exchange hash,
+  prints a pass/fail table immediately and emits the committed report with the
+  tolerance each level was judged against.
+- `docs/RUNBOOK_mgcv_conformance.md` — the **two** commands and what each level means.
+
+**Level ordering is now moot** and deliberately so. An earlier note recommended running
+levels 1 and 4 first if R time was short; batching every level into a single invocation
+removes the question, which is better than answering it.
 
 **Tests.** The Python side is testable without R, and must be: the exporter round-trips,
 the comparator's tolerances are asserted against a synthetic "known agreement" and a
@@ -527,6 +649,12 @@ precisely the "less auditable, not more" failure Anchor 4 exists to prevent.)*
 (Anchor 6). The report gains `edf` per margin, the selected λ, the selection
 criterion, the `k` ceilings, and — new since the original plan — **the count of
 rejected grid points** and **whether the band is conditional or unconditional**.
+
+**This slice owes the Anchor-7 amendment's three duties** (maintainer decision,
+2026-08-09). The band is shown, so the report must carry: the **measured** coverage
+rather than the nominal level; a **stated reason for the deviation** beside it; and the
+target kept live rather than quietly dropped. A displayed band with a nominal label and
+no reason is the exact thing the amendment forbids.
 
 **Reporting obligations carried from slices 3–4**, all of which are ways the report
 could mislead while being technically correct:
