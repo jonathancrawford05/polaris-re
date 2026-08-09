@@ -30,6 +30,23 @@ Read them alongside `docs/MEASUREMENT_experience_gam_hmd.md` and
 `docs/MEASUREMENT_experience_gam_ilec.md`, which say what the numbers mean and
 where they should not be trusted.
 
+## The 95% bands in these files were checked on 2026-08-09, and they hold
+
+Every `mi_lower` / `mi_upper` here is a delta-method interval, and until ADR-187 no
+one had measured whether it covers at its nominal rate — it was 95% because that is
+what the formula says. A 200-replicate simulation against a known truth puts it at
+**95.7%–95.9%**, and the region that had been *expected* to fail — the death-poor
+young end, where ADR-184 measured a 3.13-point swing in the point estimate — turns
+out to be the best covered.
+
+Two limits on that reassurance, both measured rather than assumed:
+
+- It holds on truths the fitted basis can represent. On one it cannot, coverage falls
+  to ~85% overall and **~67% at age 80+**. The bands protect against sampling noise,
+  not against a mis-specified basis.
+- It is a statement about the *interval*, not the point estimate. ADR-184's age-45
+  finding is untouched.
+
 ## Attribution
 
 The experience behind every number in this directory is somebody else's, obtained

@@ -1691,3 +1691,36 @@ All three are cheap on the maintainer's cache and none needs new data. Any one o
 them landing would replace the retracted rationale with a real one; all three
 coming back null would make "genuine underwriting-era effect" the leading
 explanation, which is a publishable finding in its own right.
+
+### Appended 2026-08-09 (slice-3 harvest — two items the coverage study surfaced)
+
+- **`select_lambdas_reml` aborts when a grid corner fails to converge.**
+  **BLOCKER for slice 4** and already recorded as such in
+  `CONTINUATION_penalized_mi_surface.md`; promoted here because it outlives the epic
+  if the epic stalls. The coarse sweep visits `log10 λ = (-1, 8)` — essentially
+  unpenalized in age, saturated in year — on every call, and on roughly **one
+  replicate in a hundred** that point fails penalized IRLS in 100 iterations. The
+  exception propagates and the entire selection dies, rather than the point being
+  scored as unusable and skipped. Reproduced on the quadratic fixture at seed 1098.
+  Slice 4 runs this selector on the 125,676-cell ILEC book, where a one-in-a-hundred
+  abort is a failed production run rather than a flaky test. The fix is a **design
+  choice**, which is why it was not patched inside a review round: score a
+  non-converging point `+inf` and continue (cheap, and arguably correct — a λ whose
+  fit does not converge is not a λ to select), damp the IRLS step, or raise the
+  iteration cap. *Source: ADR-187 finding 5 (1st-order).* **IMPORTANT.**
+
+- **REML λ selection is unstable across replicates, and nothing currently says so to
+  a user.** On realisations of the *same* truth, log10 λ_age ranges over roughly five
+  decades (2.50 to 8.00 across eight consecutive seeds on an eight-year window). The
+  selected λ is one draw from a wide distribution, not a property of the data. Three
+  consequences that are not yet anywhere a reader would see them: a reported λ is not
+  reproducible-in-meaning across resamples even though it is reproducible-in-value by
+  construction (Anchor 3 is about the *algorithm*, and this is about the
+  *estimator*); a band displayed beside a selected λ is **not jointly calibrated**
+  with it, because `Vb` carries no smoothing-parameter uncertainty; and any single
+  penalized coverage figure is provisional — slice 3 saw its own headline move 5.5
+  points on a selection-seed change. The candidate remedies are a proper marginal
+  treatment of λ, averaging the selection over resamples, or simply reporting the
+  instability. **The unconditional (select-per-replicate) coverage study that would
+  quantify what a user actually gets is not delivered** — it is blocked by the item
+  above. *Source: ADR-187 finding 2 (1st-order).* **IMPORTANT.**

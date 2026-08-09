@@ -62,6 +62,7 @@ from polaris_re.analytics.experience_gam import (
     _CANDIDATE_FACTORS,
     AMOUNT_MEASURES,
     COUNT_MEASURES,
+    MISurface,
     _assert_static_base,
 )
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
@@ -202,6 +203,16 @@ class PenalizedMIFit:
     lambda_year: float
     n_cells: int
     n_coef: int
+    n_tensor: int
+    """Columns in the Kronecker tensor block, i.e. where the factor block starts.
+
+    Public because :meth:`improvement_surface` needs it to pad the grid design out
+    to ``n_coef``: the MI contrast differences out every calendar-invariant term, so
+    the factor columns are supplied as zeros rather than at their reference level.
+    Zeros are not a shortcut here — they are what makes the factor block contribute
+    nothing to the *variance* either, which is the same cancellation the level
+    argument relies on."""
+
     observed_ages: tuple[int, int]
     observed_years: tuple[int, int]
     factors: tuple[str, ...]
@@ -218,7 +229,51 @@ class PenalizedMIFit:
     last digits can drift — and the price is that λ is known only to this
     resolution."""
 
-    _design_builder: object | None = field(default=None, repr=False)
+    _grid_design: object | None = field(default=None, repr=False)
+    """Callable ``(ages, years) -> tensor design``, bound to the fitted knots.
+
+    A closure rather than the raw knot info, because rebuilding the basis needs the
+    model's ``k`` and boundary handling as well. Held privately: callers want
+    :meth:`improvement_surface`, not a design matrix."""
+
+    def improvement_surface(
+        self,
+        ages: np.ndarray | None = None,
+        years: np.ndarray | None = None,
+        confidence_level: float = 0.95,
+    ) -> "MISurface":
+        """Extract ``MI_x(y)`` with a Bayesian band, **through the shared band layer**.
+
+        The band is :func:`~polaris_re.analytics.experience_gam.mi_surface_from_design`
+        — the same function the frequentist tensor surface and the RRGP posterior
+        surface call, with ``cov`` here being Wood's ``Vb = (XᵀWX + S)⁻¹φ``. That
+        reuse is Design Anchor 2, and it is the anchor's *point*: a band is
+        ``√(cᵀVc)`` on a contrast row and does not care how ``V`` was formed.
+
+        **Anchor 2 held for the covariance and could not hold for the design.**
+        The extractor's design *rebuild* goes through ``patsy.build_design_matrices``,
+        and slice 1 established that patsy cannot express this basis at all — it
+        always clamps boundary knots, which destroys the difference penalty's null
+        space. So the grid design is rebuilt here from the fitted uniform knots and
+        handed to the shared layer. That is a **basis** incompatibility, not a
+        covariance one; the anchor's stop-signal ("if this layer needs modifying, the
+        covariance swap is wrong") is aimed at the covariance and is not triggered.
+        ADR-187 records the distinction rather than letting the anchor read as
+        satisfied or as violated, since it is neither.
+        """
+        from polaris_re.analytics.experience_gam import mi_grid_axes, mi_surface_from_design
+
+        if self._grid_design is None:  # pragma: no cover - fit() always binds it
+            raise PolarisComputationError("This fit carries no design builder.")
+        ages, years = mi_grid_axes(ages, years, self.observed_ages, self.observed_years)
+        tensor = np.asarray(self._grid_design(ages, years), dtype=np.float64)  # type: ignore[operator]
+        pad = self.n_coef - self.n_tensor
+        design = (
+            np.hstack([tensor, np.zeros((tensor.shape[0], pad), dtype=np.float64)])
+            if pad
+            else tensor
+        )
+        return mi_surface_from_design(design, self.coef, self.cov, ages, years, confidence_level)
 
 
 class PenalizedTensorMIModel:
@@ -493,13 +548,14 @@ class PenalizedTensorMIModel:
             lambda_year=self.lambda_year,
             n_cells=int(frame.height),
             n_coef=int(x.shape[1]),
+            n_tensor=n_tensor,
             observed_ages=(int(ages.min()), int(ages.max())),
             observed_years=(int(years.min()), int(years.max())),
             factors=factors,
             n_iter=n_iter,
             reml_score=reml_score_value,
             lambda_grid_step=lambda_grid_step,
-            _design_builder=info,
+            _grid_design=lambda a, y: self.design_on_grid(info, a, y),
         )
 
 
