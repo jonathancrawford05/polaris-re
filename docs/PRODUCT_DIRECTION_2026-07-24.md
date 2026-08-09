@@ -1638,7 +1638,14 @@ record the clause text. What replaces it:
   simply not identify λ — which would be a finding rather than a failure.
   *Source: PLAN_penalized_mi_surface (1st-order).* **IMPORTANT.**
 
-  **Progress — slices 1–2 done (2026-08-08), ADR-185, ADR-186 + amendments 1–2.**
+  **Progress — slices 1–3 done, ADR-185, ADR-186 + amendments 1–2, ADR-187 +
+  amendments 1–2** (slice 3 merged as **PR #189**, 2026-08-09; ledger-healed
+  2026-08-09 per routine step 4b). Slice 3 also **revised the plan**: 5 slices became
+  7, and `mgcv` moved from an optional oracle for one quantity to a load-bearing
+  conformance slice for three (PLAN Revision 1). Slice 3's own registered hypothesis
+  came back **false** — the committed delta-method bands are calibrated (95.7%/95.9%),
+  so ADR-184's age-45 artifact is a statement about the point estimate's spread and
+  not about the interval.
   Two of the three "known hard parts" have resolved, in opposite directions.
   *statsmodels:* confirmed additive-only on 0.14.6, so the Kronecker design and
   penalty are hand-built as anticipated — and worse than anticipated, **patsy cannot

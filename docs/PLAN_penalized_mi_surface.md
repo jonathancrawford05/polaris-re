@@ -360,7 +360,14 @@ held without editing the extractor.
 
 ### Slice 4: selector robustness and an interval that does not condition on λ (autonomous)
 
-- **Status:** **NEXT**
+- **Status:** **DONE (2026-08-09)** — **ADR-188**, 51 module tests (was 34) plus 10 on
+  the study harness, and **the gate does NOT pass**.
+  All three pieces shipped: the abort became a scored rejection with the count carried
+  onto the fit, the Kass–Steffey unconditional covariance landed with a variance cap
+  derived from the selector's own bounds, and `gamma` entered as the scale parameter
+  (exactly inert at 1.0, so slice 2's tests stand unchanged as a regression guard).
+  **Anchor 7 is discharged as measured-and-failed**, which is the outcome the anchor
+  was written to make visible rather than a failure of the slice — see below.
 - **Depends on:** Slice 3
 
 **Why this slice exists, and why it was not in the original plan.** Slice 3 measured
@@ -425,12 +432,58 @@ measurement script with a committed report; do not silently reduce the replicate
 to make it fit, and if it is reduced say so in the report (ADR-187's Monte-Carlo SE at
 200 replicates is ~1.5pp and grows as `1/√R`).
 
+> **Discharged 2026-08-09 — the gate was measured at the full 200 replicates and it
+> does NOT pass.** `scripts/unconditional_coverage_study.py`;
+> `docs/MEASUREMENT_unconditional_coverage.md` carries the report.
+>
+> | truth | conditional | **unconditional** | floor |
+> |---|---:|---:|---:|
+> | age-flat | 0.8201 | **0.8516** | 0.9192 |
+> | age-varying | 0.8200 | **0.8581** | 0.9192 |
+>
+> Three results, all of which change what later slices may say:
+>
+> 1. **Kass–Steffey is directionally right and quantitatively insufficient** — +3.2 and
+>    +3.8 points against a ~13-point shortfall, about a quarter of the gap, at ~12%
+>    extra width. It was the plan's "piece most likely to move coverage back toward
+>    nominal"; it moved it a quarter of the way.
+> 2. **Selecting λ per replicate costs another ~5 points.** ADR-187's conditional
+>    0.8710 becomes 0.8201 for the *same band* once λ is re-selected. That gap is
+>    exactly what Anchor 7 exists to expose, and it means 87.1% was an optimistic
+>    figure conditioned on knowledge the user does not have.
+> 3. **The unpenalized delta-method band covers 10 points better** (0.9586 at 4.4x the
+>    width, same truth, same seeds). This is a statement about the *interval* and does
+>    not retract ADR-186's RMSE result for the point estimate — both can hold, and
+>    jointly they say the penalized surface may be the better estimate inside an
+>    interval that is not yet honest about it.
+>
+> **The failing gate does not license tuning.** `gamma`, a wider `k`, or moved bounds
+> would each be choosing a number to make a measurement come out. The next step is the
+> one the plan already sequenced: slice 5 settles whether the shortfall is *our
+> arithmetic* (three quantities here are adopted from `mgcv` and unverified) or the
+> estimator's shrinkage bias, which no covariance correction can reach.
+>
+> **A fourth result is about the study rather than the estimator.** The first
+> age-varying fixture used a *linear* age gradient, which sits inside the age penalty's
+> null space — so it reproduced the age-flat degeneracy under a different name (λ_age
+> spread 5.50 decades, against 1.25 for the corrected quadratic and 5.00 for age-flat).
+> Caught by measuring it, fixed before publication, and now asserted by a test on the
+> *second* difference. Correcting it also **confirms ADR-187 amendment 1 at 200
+> replicates rather than 8**, which is the stronger claim.
+
 ---
 
 ### Slice 5: the `mgcv` conformance suite (autonomous build, maintainer runs R)
 
-- **Status:** BLOCKED on slice 4
+- **Status:** **NEXT** (unblocked 2026-08-09 by slice 4)
 - **Depends on:** Slice 4
+
+> **Slice 4 raised this slice's stakes rather than merely unblocking it.** Level 4 —
+> `vcov(m)` against `vcov(m, unconditional = TRUE)` — is now the check that decides
+> whether the failing gate is *our arithmetic* or the estimator's shrinkage bias. Those
+> two have different remedies and the project cannot choose between them without an
+> independent implementation. Run levels 1 and 4 first if the maintainer's R time is
+> limited.
 
 **This is the slice that turns "adopted, not verified" into "verified", and it is now
 load-bearing rather than optional.** Three separate claims currently rest on "this is

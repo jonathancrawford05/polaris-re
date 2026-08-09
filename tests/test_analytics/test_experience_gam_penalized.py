@@ -1,4 +1,4 @@
-"""Slices 1-3 of ``docs/PLAN_penalized_mi_surface.md`` — the penalized fitter.
+"""Slices 1-4 of ``docs/PLAN_penalized_mi_surface.md`` — the penalized fitter.
 
 The two limits are where correctness is decidable without trusting anything new:
 
@@ -29,6 +29,11 @@ representable** (quadratic — where coverage measures the *band*), or
 **unrepresentable** (a sine cycle — where coverage measures *bias*). Conflating the
 three is what made a first probe read as a calibration disaster.
 
+Slice 4 makes the selector survive a grid point that will not converge, and adds an
+interval that stops conditioning on λ. Its tests turn on a distinction slice 3 could
+not make: a band's coverage *given* λ and its coverage *under the procedure that
+chose λ* are different quantities, and only the second is what a user gets.
+
 (This docstring has now been stale twice: it said "selection is slice 2 and is
 deliberately absent here" for one commit after six selection tests landed beside it,
 and said "Slices 1-2" through all of slice 3. A docstring written for slice N is
@@ -49,16 +54,19 @@ import pytest
 from polaris_re.analytics.experience_gam import TensorMIModel, mi_surface_from_design
 from polaris_re.analytics.experience_gam_penalized import (
     COARSE_STEP,
+    KS_LOG_STEP,
     LAMBDA_LOG10_BOUNDS,
     REFINE_STEP,
     PenalizedTensorMIModel,
     difference_penalty,
     fit_reml,
     lambda_is_at_bound,
+    reml_score,
     select_lambdas_reml,
+    smoothing_uncertainty,
     tensor_penalties,
 )
-from polaris_re.core.exceptions import PolarisValidationError
+from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 
 pytestmark = pytest.mark.filterwarnings(
     "ignore::statsmodels.tools.sm_exceptions.PerfectSeparationWarning"
@@ -468,7 +476,8 @@ def test_reml_selects_less_smoothing_as_the_truth_gets_wigglier() -> None:
     fits = {}
     for kind in ("const", "linear", "curved"):
         cells = _cells_from(_graded(kind))
-        lam_age, lam_year, _ = select_lambdas_reml(cells, k_age=10, k_year=6)
+        selected = select_lambdas_reml(cells, k_age=10, k_year=6)
+        lam_age, lam_year = selected.lambda_age, selected.lambda_year
         fits[kind] = PenalizedTensorMIModel(
             cells, k_age=10, k_year=6, lambda_age=lam_age, lambda_year=lam_year
         ).fit()
@@ -490,7 +499,7 @@ def test_a_constant_truth_pins_lambda_to_the_search_bound_and_says_so() -> None:
     `lambda_is_at_bound` is how a caller learns the number means "at least this".
     """
     cells = _cells_from(_graded("const"))
-    _, lam_year, _ = select_lambdas_reml(cells, k_age=10, k_year=6)
+    lam_year = select_lambdas_reml(cells, k_age=10, k_year=6).lambda_year
     assert lambda_is_at_bound(lam_year), (
         f"a null-space truth should saturate the search range, got {lam_year:.3g}"
     )
@@ -608,7 +617,8 @@ def test_reml_selection_beats_the_hand_tuned_configurations(kind: str) -> None:
     def rmse(grid: np.ndarray) -> float:
         return float(np.sqrt(np.mean((grid - truth) ** 2)))
 
-    lam_age, lam_year, _ = select_lambdas_reml(cells, k_age=10, k_year=6)
+    chosen = select_lambdas_reml(cells, k_age=10, k_year=6)
+    lam_age, lam_year = chosen.lambda_age, chosen.lambda_year
     model = PenalizedTensorMIModel(
         cells, k_age=10, k_year=6, lambda_age=lam_age, lambda_year=lam_year
     )
@@ -841,7 +851,8 @@ def _coverage(kind: str, estimator: str) -> tuple[float, float, float, float]:
     # selected on 1000 while the loop started at 1000, so replicate 0 shared the
     # selection data and "held-out" was false in a published ADR — one replicate in
     # 200, immaterial to the number and material to the claim (PR #189 review [P1]).
-    lam_age, lam_year, _ = select_lambdas_reml(cells_at(999), k_age=7, k_year=6)
+    chosen = select_lambdas_reml(cells_at(999), k_age=7, k_year=6)
+    lam_age, lam_year = chosen.lambda_age, chosen.lambda_year
     hits = np.zeros_like(truth)
     widths = []
     for r in range(_COVERAGE_REPLICATES):
@@ -929,9 +940,9 @@ def test_reml_lambda_selection_is_unstable_across_replicates() -> None:
     # the claim-set defect this module keeps catching in itself (PR #189 review [P2]).
     spread = []
     for seed in (995, 996, 997, 998, 999, 1000, 1001, 1002):
-        lam_age, _, _ = select_lambdas_reml(
+        lam_age = select_lambdas_reml(
             _cells_from(_quadratic_mi, seed=seed), k_age=7, k_year=6
-        )
+        ).lambda_age
         spread.append(float(np.log10(lam_age)))
 
     assert max(spread) - min(spread) > 1.0, (
@@ -1046,3 +1057,307 @@ def test_the_factor_block_is_padded_with_zeros_and_the_fill_does_not_matter() ->
     )
     for attr in ("mi_grid", "mi_lower", "mi_upper"):
         np.testing.assert_allclose(getattr(ones_filled, attr), getattr(surface, attr), atol=1e-14)
+
+
+# --------------------------------------------------------------------------- #
+# Slice 4 — selector robustness, and an interval that does not condition on λ
+# --------------------------------------------------------------------------- #
+
+_ABORT_SEED = 1098
+"""The replicate ADR-187 finding 5 names. Pinned rather than searched for: the
+failure is roughly one replicate in a hundred, so a test that hunted for one would
+be slow *and* would stop testing the thing if the hunt ever came up empty."""
+
+
+def test_a_non_converging_grid_point_is_rejected_not_raised() -> None:
+    """ADR-187 finding 5, reconstructed exactly — and it must now complete.
+
+    `select_lambdas_reml` used to let `PolarisComputationError` out of its inner
+    scoring call, so the corner `log10 λ = (-1, 8)` — essentially unpenalized in age,
+    saturated in year — took the entire search down with it. The coarse sweep visits
+    that corner on **every** call, so on the ~1-in-100 replicates where it fails, the
+    whole selection failed. Slice 4 runs this on a 125k-cell book, where that is a
+    failed production run rather than a failed test.
+
+    Two-sided by construction: the pinned seed must still *produce* a rejection, so a
+    future change that quietly made every corner converge would fail here and be
+    noticed rather than silently retiring the guard.
+    """
+    cells = _cells_from(_quadratic_mi, seed=_ABORT_SEED)
+
+    # The corner itself still does not converge — the premise, not an assumption.
+    with pytest.raises(PolarisComputationError, match="did not converge"):
+        PenalizedTensorMIModel(cells, k_age=7, k_year=6, lambda_age=1e-1, lambda_year=1e8).fit()
+
+    selection = select_lambdas_reml(cells, k_age=7, k_year=6)
+
+    assert selection.n_rejected >= 1, (
+        "the pinned seed no longer produces a non-converging grid point, so this test "
+        "is no longer exercising the rejection path — find a new seed rather than "
+        "deleting the assertion"
+    )
+    assert selection.n_rejected < selection.n_evaluated
+    assert np.isfinite(selection.reml_score)
+
+
+def test_the_rejected_count_reaches_the_fit_and_a_hand_set_fit_has_none() -> None:
+    """A search that discarded points must say so where a reader will look.
+
+    The count is useless on the selection object alone: `fit_reml` is the entry point
+    (ADR-186 amendment 2), so a caller who never touches `LambdaSelection` would get a
+    surface with a silently-truncated grid behind it. Both the count and its
+    denominator are carried onto the fit, and both are `None` for a hand-set λ, which
+    is the same provenance distinction `reml_score` and `lambda_grid_step` draw.
+    """
+    fit = fit_reml(_cells_from(_quadratic_mi, seed=_ABORT_SEED), k_age=7, k_year=6)
+    hand_set = PenalizedTensorMIModel(_cells(noisy=True), k_age=7, k_year=6, lambda_year=1.0).fit()
+
+    assert fit.n_rejected_points is not None and fit.n_rejected_points >= 1
+    assert fit.n_evaluated_points is not None
+    assert fit.n_evaluated_points > fit.n_rejected_points
+    assert hand_set.n_rejected_points is None
+    assert hand_set.n_evaluated_points is None
+
+
+def test_a_grid_with_no_converging_point_raises_rather_than_inventing_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Rejecting every point must not return the grid centre wearing the right type.
+
+    The rejection branch scores a failure `+inf` and keeps the running best, and the
+    running best is seeded at the grid centre. If nothing ever beats `+inf` that
+    centre is returned as though it had been selected — a fabricated λ, with a
+    `reml_score` of `inf`, indistinguishable by type from a real selection. This is
+    the failure mode the fix could have introduced while removing the one it targeted.
+    """
+    import polaris_re.analytics.experience_gam_penalized as module
+
+    def never_converges(*_args: object, **_kwargs: object) -> object:
+        raise PolarisComputationError("Penalized IRLS did not converge (forced).")
+
+    monkeypatch.setattr(module.PenalizedTensorMIModel, "fit", never_converges)
+
+    with pytest.raises(PolarisComputationError, match="rejected every one of"):
+        select_lambdas_reml(_cells(noisy=True), k_age=7, k_year=6)
+
+
+@pytest.mark.parametrize("gamma", [1.0, 1.4, 2.0])
+def test_gamma_is_recorded_on_the_fit_it_selected(gamma: float) -> None:
+    """A λ chosen under gamma != 1 is not comparable with one chosen under gamma=1.
+
+    So the fit carries the gamma that produced it. A report showing the λ without the gamma
+    invites exactly the comparison the two numbers do not support.
+    """
+    fit = fit_reml(_cells_from(_quadratic_mi), k_age=7, k_year=6, gamma=gamma)
+    assert fit.gamma == gamma
+
+
+def test_gamma_of_one_leaves_the_criterion_bit_identical() -> None:
+    """gamma enters as the scale parameter, and at gamma=1 every gamma term must vanish exactly.
+
+    Not approximately: `0.5·D/gamma` and the `-(p-r)·log(gamma)/2` offset both collapse to the
+    pre-gamma expression at gamma=1, so slice 2's selected λ and REML scores are unmoved. This
+    is what lets the eleven slice-2 selection tests stand as a regression guard on
+    slice 4 rather than being re-baselined.
+    """
+    cells = _cells(noisy=True)
+    model = PenalizedTensorMIModel(cells, k_age=7, k_year=6, lambda_age=1e2, lambda_year=1e3)
+    fit = model.fit()
+    context = model.design_context
+    assert context is not None
+
+    penalty = np.zeros((context.design.shape[1],) * 2, dtype=np.float64)
+    penalty[: context.n_tensor, : context.n_tensor] = 1e2 * context.s_age + 1e3 * context.s_year
+
+    default = reml_score(context.deaths, context.design, context.offset, fit.coef, penalty)
+    explicit = reml_score(
+        context.deaths, context.design, context.offset, fit.coef, penalty, gamma=1.0
+    )
+    assert default == explicit
+
+
+def test_gamma_above_one_selects_a_smoother_fit() -> None:
+    """Wood's gamma inflates the cost of complexity, so `edf` must fall monotonically.
+
+    Two-sided by construction: an implementation that ignored gamma, or applied it to the
+    wrong term, would leave `edf` flat or move it the other way. The ladder runs well
+    past mgcv's recommended 1.4 so the direction is legible against grid resolution —
+    at 0.25 decades a small gamma change can leave λ on the same grid point, which is a
+    property of the grid rather than a failure of gamma.
+
+    **Direction only, and deliberately.** ADR-187 amendment 2 measured the "REML
+    undersmooths" claim on an age-flat fixture and found it does *not* reproduce on an
+    age-varying one, so gamma is carried here for mgcv parity (PLAN Anchor 8), **not** as
+    a remedy for a bias this project has demonstrated.
+    """
+    cells = _cells_from(_quadratic_mi)
+    edfs = [fit_reml(cells, k_age=7, k_year=6, gamma=g).edf_tensor for g in (1.0, 1.4, 2.0, 5.0)]
+
+    assert all(later <= earlier + 1e-9 for earlier, later in itertools.pairwise(edfs)), (
+        f"edf must not rise with gamma: {edfs}"
+    )
+    assert edfs[-1] < edfs[0] - 0.5, (
+        f"gamma has essentially no effect on complexity: {edfs[0]:.3f} -> {edfs[-1]:.3f}. "
+        "Either it is not reaching the criterion or it is applied to a term that does "
+        "not trade off against the deviance."
+    )
+
+
+def test_a_non_positive_gamma_is_refused() -> None:
+    """gamma is a scale parameter; zero divides and negative inverts the criterion."""
+    cells = _cells(noisy=True)
+    model = PenalizedTensorMIModel(cells, k_age=7, k_year=6, lambda_year=1.0)
+    fit = model.fit()
+    context = model.design_context
+    assert context is not None
+    penalty = np.zeros((context.design.shape[1],) * 2, dtype=np.float64)
+
+    for bad in (0.0, -1.0):
+        with pytest.raises(PolarisValidationError, match="gamma must be positive"):
+            reml_score(context.deaths, context.design, context.offset, fit.coef, penalty, gamma=bad)
+
+
+def test_the_unconditional_correction_is_positive_semidefinite() -> None:
+    """`J V_rho Jᵀ` cannot have a negative eigenvalue, and that is what makes it safe.
+
+    PSD is not a stylistic preference — it is the property that guarantees the
+    unconditional band is never *narrower* than the conditional one along any
+    contrast, including contrasts no test enumerates. `V_rho` is built by eigen-flooring
+    a symmetrised Hessian precisely so this holds even when the Hessian itself is
+    indefinite, which it can be: λ comes from a grid point, not a stationary point.
+    """
+    cells = _cells_from(_quadratic_mi)
+    selection = select_lambdas_reml(cells, k_age=7, k_year=6)
+    extra = smoothing_uncertainty(
+        cells,
+        lambda_age=selection.lambda_age,
+        lambda_year=selection.lambda_year,
+        k_age=7,
+        k_year=6,
+    )
+
+    correction = extra.correction
+    np.testing.assert_allclose(correction, correction.T, atol=1e-18)
+    smallest = float(np.linalg.eigvalsh(correction).min())
+    scale = float(np.abs(correction).max())
+    assert smallest > -1e-10 * max(scale, 1.0), f"correction has eigenvalue {smallest:.3e}"
+
+    np.testing.assert_allclose(extra.v_rho, extra.v_rho.T, atol=1e-12)
+    assert float(np.linalg.eigvalsh(extra.v_rho).min()) > 0.0
+    assert extra.log_step == KS_LOG_STEP
+    assert extra.jacobian.shape[1] == 2
+
+
+def test_the_unconditional_band_is_wider_than_the_conditional_one() -> None:
+    """The one-line direction check that a sign error breaks.
+
+    The Kass-Steffey term is **added** to `Vb`, so every band half-width must grow —
+    at every age, at every transition, not merely on average. A subtraction, or a
+    Jacobian with a flipped finite difference, would still produce a plausible-looking
+    surface and a plausible-looking mean width; it would not survive a cell-wise
+    comparison.
+
+    The point estimate must not move at all: the correction touches only the
+    covariance, so `mi_grid` is the same surface either way.
+    """
+    cells = _cells_from(_quadratic_mi)
+    conditional = fit_reml(cells, k_age=7, k_year=6)
+    unconditional = fit_reml(cells, k_age=7, k_year=6, unconditional=True)
+
+    assert conditional.band_is_unconditional is False
+    assert unconditional.band_is_unconditional is True
+    assert unconditional.lambda_age == conditional.lambda_age
+    assert unconditional.lambda_year == conditional.lambda_year
+
+    band_c = conditional.improvement_surface(ages=_AGES, years=_YEARS)
+    band_u = unconditional.improvement_surface(ages=_AGES, years=_YEARS)
+
+    np.testing.assert_allclose(band_u.mi_grid, band_c.mi_grid, rtol=1e-12)
+    width_c = band_c.mi_upper - band_c.mi_lower
+    width_u = band_u.mi_upper - band_u.mi_lower
+    assert np.all(width_u >= width_c - 1e-15), (
+        f"the correction narrowed {int(np.sum(width_u < width_c - 1e-15))} cells — "
+        "an additive PSD term cannot do that, so the sign or the Jacobian is wrong"
+    )
+    assert float(np.mean(width_u) / np.mean(width_c)) > 1.0
+
+
+def test_the_smoothing_variance_matches_the_measured_lambda_spread() -> None:
+    """An independent check on `V_rho`, against a number measured a different way.
+
+    ADR-187 amendment 1 measured λ's across-replicate spread empirically — 0.75
+    decades in log10 λ_age on the age-varying truth, 5.50 on the age-flat one. `V_rho`
+    claims the same quantity from a *single* dataset, via the curvature of the REML
+    criterion. The two have no implementation in common, so agreement to an order of
+    magnitude is real evidence and disagreement by orders would mean one of them is
+    not measuring λ's sampling variance at all.
+
+    Banded loosely on purpose: a Hessian-based standard error and an eight-seed
+    empirical range are different estimators of a wide distribution, and pinning them
+    together tightly would be asserting a coincidence.
+    """
+    cells = _cells_from(_quadratic_mi)
+    selection = select_lambdas_reml(cells, k_age=7, k_year=6)
+    extra = smoothing_uncertainty(
+        cells,
+        lambda_age=selection.lambda_age,
+        lambda_year=selection.lambda_year,
+        k_age=7,
+        k_year=6,
+    )
+
+    decades = np.sqrt(np.diag(extra.v_rho)) / np.log(10.0)
+    assert extra.n_floored == 0, (
+        "the REML Hessian went flat or indefinite on the standard fixture, so Vrho is "
+        "capped rather than measured and this comparison is meaningless"
+    )
+    for axis, sd in zip(("age", "year"), decades, strict=True):
+        assert 0.1 <= sd <= 10.0, (
+            f"log10 lambda_{axis} standard deviation is {sd:.3f} decades, outside the "
+            "0.1-10 range ADR-187's empirical spreads (0.75-5.50 decades) make "
+            "plausible. Vrho is in NATURAL log units; a missing ln(10) lands here."
+        )
+
+
+def test_the_unconditional_covariance_refuses_a_corner_it_cannot_reach() -> None:
+    """A missing derivative is not a smaller Hessian — it is no Hessian.
+
+    Unlike the selector, `smoothing_uncertainty` does **not** reject and continue. The
+    selector is choosing among points and can afford to discard one; a central
+    difference needs both of its points, and assembling the matrix from whichever
+    corners happened to converge would report a different quantity under the same
+    name. Forced here with a step so large it drives λ_year far past the search
+    bound.
+    """
+    cells = _cells_from(_quadratic_mi, seed=_ABORT_SEED)
+    with pytest.raises(PolarisComputationError, match="did not converge"):
+        smoothing_uncertainty(
+            cells,
+            lambda_age=1e-1,
+            lambda_year=1e8,
+            log_step=np.log(10.0) * 0.0001,
+            k_age=7,
+            k_year=6,
+        )
+
+
+@pytest.mark.parametrize(("lambda_age", "lambda_year"), [(0.0, 1.0), (1.0, 0.0), (-1.0, 1.0)])
+def test_the_unconditional_covariance_refuses_a_non_positive_lambda(
+    lambda_age: float, lambda_year: float
+) -> None:
+    """It differentiates in `log λ`, so λ=0 has no neighbourhood to difference over."""
+    with pytest.raises(PolarisValidationError, match="strictly positive"):
+        smoothing_uncertainty(
+            _cells(noisy=True),
+            lambda_age=lambda_age,
+            lambda_year=lambda_year,
+            k_age=7,
+            k_year=6,
+        )
+
+
+def test_a_non_positive_log_step_is_refused() -> None:
+    with pytest.raises(PolarisValidationError, match="log_step must be positive"):
+        smoothing_uncertainty(
+            _cells(noisy=True), lambda_age=1e2, lambda_year=1e2, log_step=0.0, k_age=7, k_year=6
+        )
