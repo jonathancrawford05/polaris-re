@@ -97,19 +97,34 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
 - **A slice-5 run that contradicts the thesis is a successful run.** Slice 3 is the
   standing proof: its registered hypothesis came back false and that was the result,
   not a setback.
-- **Slice 4 reports `edf` and λ to a user — quote the 2.4-point coverage cost, not
-  the width ratio alone.** ADR-187 measured the penalized band at **92.6% against a
-  nominal 95%** on a truth the basis represents exactly, at 4.6x narrower than the
-  delta band. A report that shows the narrower interval without the coverage line
-  overstates it, and the 98.2%/8x null-space row is the flattering regime that must
-  not be the one quoted (same refusal ADR-186 made of its 40x).
-- **`Vb` carries no smoothing-parameter uncertainty.** Coverage was measured
-  *conditional on λ* because that is what the interval claims. If slice 4's report
-  presents a band beside a selected λ, those two numbers are not jointly calibrated
-  and the report should say so.
+- **BLOCKER for slice 4: `select_lambdas_reml` aborts on a non-converging grid
+  corner.** ADR-187 finding 5. `log10 λ = (-1, 8)` fails IRLS on roughly one
+  replicate in a hundred and takes the whole selection down with it, because a
+  non-converging grid point raises rather than scoring as unusable. Slice 4 runs this
+  selector on the 125k-cell book, where that is a failed production run. The fix is a
+  design choice — score the point `+inf` and continue, damp the IRLS step, or raise
+  the cap — and it belongs at the top of slice 4, not bolted into a review round.
+- **REML λ selection is unstable across replicates, and this bounds every penalized
+  number.** ADR-187 finding 2: log10 λ_age spans ~5 decades across realisations of
+  the same truth. Practical consequences for slice 4 — a reported λ is one draw, not
+  a property of the book; a band shown beside a selected λ is **not** jointly
+  calibrated with it, because `Vb` carries no smoothing-parameter uncertainty; and
+  any single coverage figure quoted in a report is provisional.
+- **Quote the direction of the coverage trade, not a point figure.** The penalized
+  band is narrower (4.4x on a representable curve) and under-covers (87.1% against a
+  nominal 95%) — but that 87.1% moved 5.5 points on a selection-seed change, so the
+  decimals are not a stable quantity to publish. The 97.3%/8.3x null-space row is the
+  flattering regime and must not be the one quoted (same refusal ADR-186 made of its
+  40x). An earlier revision of this file said "2.4 points"; that number is withdrawn.
 - **The weak end is OLD ages, not young.** Under misspecification both estimators
-  fall to ~67% at age 80+, while young ages hold up. Slice 5's ILEC read should not
-  import the age-45 framing into band interpretation.
+  fall to 76%/67% at age 80+, while young ages hold up. Slice 5's ILEC read should not
+  import the age-45 framing into band interpretation. **Which of the two degrades
+  worse is not resolved** — an earlier claim that the penalized fit degrades further
+  was withdrawn when the selection seed changed it from 76.0% to 85.1%.
+- **The unconditional coverage study is NOT delivered.** Select-per-replicate coverage
+  — what a user of the shipped procedure actually gets — is the natural companion to
+  ADR-187's conditional numbers and was blocked by the abort above. It is the obvious
+  first thing to run once that is fixed.
 
 ## Open questions (for human)
 

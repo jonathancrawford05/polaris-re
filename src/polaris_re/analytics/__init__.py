@@ -49,6 +49,8 @@ from polaris_re.analytics.experience_gam import (
     TensorMIModel,
     aggregate_seriatim,
     attach_base_rate,
+    mi_grid_axes,
+    mi_surface_from_design,
 )
 from polaris_re.analytics.experience_loaders import (
     default_experience_cache_dir,
@@ -255,6 +257,8 @@ __all__ = [
     "load_history",
     "load_hmd",
     "load_ilec",
+    "mi_grid_axes",
+    "mi_surface_from_design",
     "output_fingerprint",
     "parse_hmd_1x1",
     "render_markdown",

@@ -13620,8 +13620,8 @@ pushed, +2 in round 1, +1 in round 2.
 
 **Date:** 2026-08-09
 **Status:** Accepted
-**Context:** `PLAN_penalized_mi_surface.md` slice 3. 32 module tests (was 26); suite
-3094 -> 3100 (+6).
+**Context:** `PLAN_penalized_mi_surface.md` slice 3. 34 module tests (was 26); suite
+3094 -> 3102 (+8), across two review rounds.
 
 ### Decision 1 — Anchor 2 held for the covariance and could not hold for the design
 
@@ -13661,9 +13661,25 @@ copy in the penalized module — would have satisfied the anchor's letter while
 destroying its intent, since the failure mode Anchor 2 exists to prevent is two band
 implementations drifting apart.
 
-Verified behaviour-preserving by the existing suite rather than by inspection: the
-frequentist path's arithmetic is unchanged operation-for-operation (the same flat
-`design @ coef` then reshape), and 1227 analytics tests passed unmodified.
+Verified behaviour-preserving by the existing suite rather than by inspection: 1227
+analytics tests passed unmodified. The PR #189 review then measured it directly,
+which sharpened the claim:
+
+| path | result |
+|---|---|
+| frequentist tensor | **bit-identical** |
+| RRGP Bayesian, default grid | **bit-identical** |
+| RRGP Bayesian, explicit grid + 0.80 level | differs, max abs **1.11e-16** |
+| segmented hierarchical | differs, max abs **2.22e-16** |
+
+So the honest statement is **bit-identical on the frequentist path, preserving to one
+ULP on the two Bayesian paths** — not bit-identical everywhere, which is what an
+unqualified "behaviour-preserving" would imply. The cause is benign and worth
+recording: the Bayesian paths previously computed η from the **reshaped 3-D** design,
+while the shared helper computes it from the **flat 2-D** design before reshaping.
+Same arithmetic, different BLAS accumulation order. The frequentist path is
+bit-identical precisely because `_predict_eta_se` already worked on the flat design.
+No committed report or golden moves at 1e-16.
 
 The eleven slice-1/2 limit tests were also re-pointed at `improvement_surface`. They
 had been rebuilding the grid design and differencing η *inside the test file*, which
@@ -13693,13 +13709,19 @@ applied here by design rather than rediscovered.
 
 ### The measurements — 200 replicates, nominal 95%
 
+λ is selected once on **seed 999**, held out of the 1000-1199 evaluation range. An
+earlier revision selected on seed 1000 while the loop began at 1000, so one replicate
+in 200 shared the selection data and the "held-out" wording was false (PR #189 review
+[P1]). Correcting it moved the selection λ, which moved the penalized rows — see the
+instability finding below, which is why.
+
 | truth | estimator | overall | young ≤50 | old ≥80 | mean width |
 |---|---|---:|---:|---:|---:|
-| constant (null space) | penalized | 0.9821 | 0.9856 | 0.9761 | 0.00384 |
+| constant (null space) | penalized | 0.9733 | 0.9831 | 0.9525 | 0.00369 |
 | constant | delta | 0.9567 | 0.9589 | 0.9475 | 0.03045 |
-| quadratic (representable) | penalized | **0.9260** | 0.9526 | 0.9213 | 0.00667 |
+| quadratic (representable) | penalized | **0.8710** | 0.9260 | 0.8051 | 0.00688 |
 | quadratic | delta | **0.9586** | 0.9574 | 0.9533 | 0.03044 |
-| sine (unrepresentable) | penalized | 0.7597 | 0.8641 | 0.6750 | 0.00856 |
+| sine (unrepresentable) | penalized | 0.8505 | 0.9073 | 0.7598 | 0.01046 |
 | sine | delta | 0.8461 | 0.9436 | 0.6687 | 0.03060 |
 
 ### Finding 1 — the pre-registered hypothesis is falsified: the committed bands are calibrated
@@ -13717,21 +13739,83 @@ It also sharpens ADR-184: the age-45 variance artifact is a statement about the
 **point estimate's** sampling spread, and the interval was honest about that spread
 all along. **The bands in the committed reports stand.**
 
-### Finding 2 — the penalized band trades 2.4 points of coverage for 4.6× the precision
+These are also the study's most durable numbers, because the unpenalized fit has no λ
+and therefore cannot inherit the instability in the next finding.
 
-On the representable curve: **92.6% against 95.9%, at 4.6× narrower**. In the null
-space it *over*-covers (98.2%) at 8× narrower, which is the flattering regime and is
+### Finding 2 — REML λ selection is unstable across replicates, and it reframes everything penalized
+
+**The most consequential result of the slice, and it was found by fixing a
+one-character defect.** Across replicates of the *same* truth, the REML-selected λ
+moves over roughly five decades — on the quadratic fixture, log10 λ_age takes
+2.50, 3.00, 3.25, 3.50, 4.25, 4.50 and 8.00 across eight consecutive seeds. The
+selected λ is **one draw from a wide distribution**, not a property of the truth.
+
+The evidence is a correction rather than an argument. Slice 3 first reported penalized
+coverage of **0.9260** on the quadratic truth. Moving the selection seed from 1000 to
+999 — to make "held-out" true, an unrelated fix — moved the same measurement to
+**0.8710**. A 5.5-point swing caused by nothing but which replicate λ was read off.
+
+Consequences, stated plainly because they are easy to under-report:
+
+- **Coverage conditional on λ is conditional on a lottery.** `Vb` claims a coverage
+  rate given λ; the λ it is given has this variance. The two do not compose into a
+  statement a user can rely on without the unconditional study below.
+- **Any single quoted penalized coverage number is provisional**, including the ones
+  in the table above. The *direction* — narrower, under-covering on a representable
+  curve — survives a seed change; the decimals do not.
+- **Slice 5's real-data λ is one draw too.** An eight-year ILEC window is exactly the
+  regime measured here.
+
+`test_reml_lambda_selection_is_unstable_across_replicates` pins this as a
+characterisation test: if a future slice stabilises selection, that test is *supposed*
+to fail, and its failure is the signal this caveat can be lifted.
+
+### Finding 3 — the penalized band trades coverage for precision, in a direction but not a magnitude
+
+On the representable curve: **87.1% against 95.9%, at 4.4× narrower**. In the null
+space it *over*-covers (97.3%) at 8.3× narrower, which is the flattering regime and is
 not the headline — the same refusal ADR-186 made of its 40×.
 
-The 2.4-point shortfall has two known sources, and neither is a defect to fix here:
-shrinkage bias toward a null space the truth is not in, and `Vb` conditioning on λ so
-that selection uncertainty appears nowhere in the interval.
+An earlier revision headed this finding "trades 2.4 points of coverage" and paired
+that with "92.6% against 95.9%" — two different comparisons (2.4 is against the
+nominal 95%, 3.3 against the delta figure) on top of a number that a seed change then
+invalidated (PR #189 review [P2]). No point figure is quoted here now, deliberately.
+The trade is real and its size is not yet established.
 
-### Finding 3 — both collapse under misspecification, and the penalized one collapses harder
+Two known sources for the shortfall: shrinkage bias toward a null space the truth is
+not in, and `Vb` conditioning on λ.
 
-76.0% against 84.6%, with old ages at ~67% for **both**. Shrinkage adds bias on top of
-approximation error, which is the honest counterweight to the width advantage.
+### Finding 4 — both collapse under misspecification, and the ordering claim is withdrawn
 
-This bounds what findings 1 and 2 mean: they say the arithmetic is right when the
+On a truth neither basis can resolve: 85.1% penalized against 84.6% delta, with old
+ages at 76.0% and 66.9%. **Both collapse**, and that is what is robust.
+
+An earlier revision reported 76.0% against 84.6% and concluded that the penalized
+estimator "degrades further — shrinkage adds bias on top of approximation error". At
+the corrected selection seed the two are level, inside the ~1.5pp Monte-Carlo SE. The
+ordering was an artifact of finding 2 and **is withdrawn rather than re-argued in the
+opposite direction** — the honest position is that this study does not resolve which
+estimator degrades worse under misspecification.
+
+This bounds what findings 1 and 3 mean: they say the arithmetic is right when the
 model is. They do not say a real book is inside either basis — and the weak end under
 misspecification is **old** ages, the opposite end from where slice 3 was sent to look.
+
+### Finding 5 — `select_lambdas_reml` aborts when a grid corner fails to converge
+
+Discovered while attempting the unconditional (select-per-replicate) coverage study,
+which is **not delivered in this slice as a result**.
+
+`fit_reml` on the quadratic fixture at seed 1098 raises
+`PolarisComputationError: Penalized IRLS did not converge in 100 iterations`. The
+failure is not in the final fit — it is at the grid corner `log10 λ = (-1, 8)`,
+essentially unpenalized in age and saturated in year, which the coarse sweep visits on
+every call. One replicate in roughly a hundred hits it, and the whole selection dies
+with it rather than the corner being scored as unusable.
+
+This is a **slice-2 robustness defect surfaced by slice-3 work**, and it is left
+unfixed here on purpose: the fix is a design choice (score a non-converging point as
+`+inf` and continue, damp the IRLS step, or raise the iteration cap) that belongs with
+whoever owns the selector, not bolted on inside a review round. It is registered as a
+**slice-4 blocker** — slice 4 runs this selector on a 125k-cell book, where a
+one-in-a-hundred abort is a failed production run, not a failed test.

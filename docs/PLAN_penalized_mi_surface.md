@@ -232,7 +232,8 @@ justify it. Reproducibility across processes. `edf` recovering graded smoothness
 
 ### Slice 3: Bayesian bands, and proving Anchor 2 (autonomous)
 
-- **Status:** **DONE (2026-08-09)** — **ADR-187**, 32 module tests (was 26).
+- **Status:** **DONE (2026-08-09)** — **ADR-187**, 34 module tests (was 26), across
+  one review round that changed two of the three original findings.
   **Anchor 2 came out neither satisfied nor violated**, and the distinction is the
   slice's main structural result: the covariance swap needed *nothing* (Wood's `Vb`
   drops straight into `√(cᵀVc)`), while the design *rebuild* could not be reused
@@ -243,7 +244,14 @@ justify it. Reproducibility across processes. `edf` recovering graded smoothness
   them (RRGP) already fed by a non-patsy design. Extracted to
   `mi_surface_from_design()` rather than copied a fourth time.
   **Coverage measured for both estimators**, and the pre-registered hypothesis
-  below is **falsified**.
+  below is **falsified** — the committed delta-method bands are calibrated.
+  **Two results were withdrawn in review** once a corrected selection seed showed
+  REML λ selection is unstable across replicates (~5 decades of log10 λ_age on the
+  same truth): the "2.4 points" coverage cost and the claim that the penalized
+  estimator degrades further under misspecification. **One blocker was found and
+  left unfixed on purpose** — `select_lambdas_reml` aborts when a grid corner fails
+  to converge (ADR-187 finding 5), which slice 4 must fix before it can run the
+  selector on the real book.
 - **Depends on:** Slice 2
 
 **Scope.** `Vb = (XᵀWX + S)⁻¹ φ` — Wood's Bayesian covariance — handed to the
@@ -277,7 +285,11 @@ held without editing the extractor.
 > three truths chosen to separate the flattering regime (constant MI, inside the
 > penalty null space) from **band calibration** (quadratic MI: outside the null
 > space, exactly representable by both bases) from **bias** (a sine cycle neither
-> basis resolves). ADR-187 carries the table.
+> basis resolves). ADR-187 carries the table. **Stated with a caveat the criterion
+> did not anticipate:** the penalized rows are conditional on a λ that is itself a
+> wide-variance draw, so their decimals are provisional and only their direction is
+> published. The unconditional (select-per-replicate) study that would settle it is
+> **not delivered** — it is blocked by ADR-187 finding 5.
 >
 > *The registered hypothesis is **falsified**.* The delta-method bands do **not**
 > under-cover at the death-poor young end: 95.7% / 95.9% overall, and young ages are

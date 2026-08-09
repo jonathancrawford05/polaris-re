@@ -330,8 +330,17 @@ def test_the_fit_is_invariant_to_the_calendar_origin() -> None:
         moved = PenalizedTensorMIModel(shifted, k_age=7, k_year=6, lambda_year=lam).fit()
         np.testing.assert_allclose(moved.edf_total, base.edf_total, rtol=1e-8)
 
-        # Compared on MI rather than on η: the origin shift moves η by a constant
-        # the annual contrast differences out, which is the invariance being tested.
+        # η itself, which is the strong form. Slice 3 briefly replaced this with the
+        # MI comparison below on the stated grounds that "the origin shift moves η by
+        # a constant the annual contrast differences out" — and that was **measured
+        # false**: η is invariant to ~3e-15 and the difference has no constant
+        # component at all, it is rounding noise. MI differences out any constant, so
+        # the MI form cannot detect an η offset this one would (PR #189 review [P0]).
+        eta_base = base._grid_design(_AGES, _YEARS) @ base.coef
+        eta_moved = moved._grid_design(_AGES, _YEARS - 2012) @ moved.coef
+        np.testing.assert_allclose(eta_moved, eta_base, atol=1e-9)
+
+        # Kept alongside, not instead of: this is the caller-level statement.
         mi_base = base.improvement_surface(ages=_AGES, years=_YEARS).mi_grid
         mi_moved = moved.improvement_surface(ages=_AGES, years=_YEARS - 2012).mi_grid
         np.testing.assert_allclose(mi_moved, mi_base, atol=1e-9)
@@ -713,7 +722,9 @@ def test_the_penalized_surface_is_built_by_the_shared_band_layer() -> None:
 
     tensor = fit._grid_design(_AGES, _YEARS)
     pad = fit.n_coef - fit.n_tensor
-    design = np.hstack([tensor, np.zeros((tensor.shape[0], pad))]) if pad else tensor
+    design = (
+        np.hstack([tensor, np.zeros((tensor.shape[0], pad), dtype=np.float64)]) if pad else tensor
+    )
     expected = mi_surface_from_design(design, fit.coef, fit.cov, _AGES, _YEARS, 0.95)
 
     for attr in ("mi_grid", "mi_lower", "mi_upper"):
@@ -734,7 +745,7 @@ def test_the_window_contrast_telescopes_through_the_penalized_bands() -> None:
     fit = PenalizedTensorMIModel(_cells(noisy=True), k_age=7, k_year=6, lambda_year=1e3).fit()
     annual = fit.improvement_surface(ages=_AGES, years=_YEARS).mi_grid
     window = fit.improvement_surface(
-        ages=_AGES, years=np.array([_YEARS.min(), _YEARS.max()])
+        ages=_AGES, years=np.array([_YEARS.min(), _YEARS.max()], dtype=np.int64)
     ).mi_grid
 
     np.testing.assert_allclose(1.0 - window[:, 0], np.prod(1.0 - annual, axis=1), rtol=1e-10)
@@ -750,7 +761,9 @@ def test_the_band_scales_with_the_square_root_of_the_dispersion() -> None:
     fit = PenalizedTensorMIModel(_cells(noisy=True), k_age=7, k_year=6, lambda_year=1e3).fit()
     tensor = fit._grid_design(_AGES, _YEARS)
     pad = fit.n_coef - fit.n_tensor
-    design = np.hstack([tensor, np.zeros((tensor.shape[0], pad))]) if pad else tensor
+    design = (
+        np.hstack([tensor, np.zeros((tensor.shape[0], pad), dtype=np.float64)]) if pad else tensor
+    )
 
     base = mi_surface_from_design(design, fit.coef, fit.cov, _AGES, _YEARS, 0.95)
     quadrupled = mi_surface_from_design(design, fit.coef, 4.0 * fit.cov, _AGES, _YEARS, 0.95)
@@ -810,11 +823,17 @@ def _coverage(kind: str, estimator: str) -> tuple[float, float, float, float]:
         return _cells(noisy=True, seed=seed) if fn is None else _cells_from(fn, seed=seed)
 
     if fn is None:
-        truth = np.full((len(_AGES), len(_YEARS) - 1), _MI_TRUE)
+        truth = np.full((len(_AGES), len(_YEARS) - 1), _MI_TRUE, dtype=np.float64)
     else:
-        truth = np.array([[fn(float(a), int(y)) for y in _YEARS[1:]] for a in _AGES])
+        truth = np.array(
+            [[fn(float(a), int(y)) for y in _YEARS[1:]] for a in _AGES], dtype=np.float64
+        )
 
-    lam_age, lam_year, _ = select_lambdas_reml(cells_at(1000), k_age=7, k_year=6)
+    # Seed 999 is OUTSIDE the 1000..1199 evaluation range. An earlier revision
+    # selected on 1000 while the loop started at 1000, so replicate 0 shared the
+    # selection data and "held-out" was false in a published ADR — one replicate in
+    # 200, immaterial to the number and material to the claim (PR #189 review [P1]).
+    lam_age, lam_year, _ = select_lambdas_reml(cells_at(999), k_age=7, k_year=6)
     hits = np.zeros_like(truth)
     widths = []
     for r in range(_COVERAGE_REPLICATES):
@@ -861,6 +880,10 @@ def test_the_delta_method_bands_are_calibrated_after_all() -> None:
     variance artifact at age 45 is a story about the **point estimate's** sampling
     spread, and the band was honest about it all along. The committed reports'
     bands stand.
+
+    These two rows are the most trustworthy numbers in the study, because the
+    unpenalized fit has no λ and so cannot inherit the selection instability that
+    `test_reml_lambda_selection_is_unstable_across_replicates` measures.
     """
     for kind in ("nullspace", "curved"):
         overall, young, old, _ = _coverage(kind, "delta")
@@ -872,14 +895,48 @@ def test_the_delta_method_bands_are_calibrated_after_all() -> None:
         assert old >= 0.93, f"[{kind}] old-age coverage {old:.4f}"
 
 
-def test_the_penalized_bands_buy_width_and_pay_a_little_coverage() -> None:
-    """The trade, measured and stated rather than assumed either way.
+def test_reml_lambda_selection_is_unstable_across_replicates() -> None:
+    """**The finding that reframes every penalized number below.**
+
+    λ is chosen by REML from one realisation of an eight-year window, and across
+    replicates of the *same truth* the choice moves enormously — measured on the
+    quadratic fixture, log10 λ_age ranges over roughly five decades (2.50 to 8.00 on
+    seeds 995-1002). The selected λ is one draw from a wide distribution, not a
+    property of the truth.
+
+    This is asserted rather than merely noted because it is the mechanism behind a
+    correction: slice 3 first reported penalized coverage of 0.9260 on the quadratic
+    truth, measured at a λ selected on seed 1000. Fixing an unrelated defect (the
+    selection replicate was not actually held out, PR #189 review [P1]) moved the
+    selection seed to 999 and the same measurement to **0.8710** — a 5.5-point swing
+    caused by nothing but which replicate λ was read off.
+
+    A characterisation test: if a future slice stabilises selection (averaging over
+    replicates, or a proper marginal-likelihood treatment), this assertion is
+    *supposed* to fail, and that failure is the signal the caveat can be lifted.
+    """
+    spread = []
+    for seed in (995, 996, 997, 998, 999, 1000):
+        lam_age, _, _ = select_lambdas_reml(
+            _cells_from(_quadratic_mi, seed=seed), k_age=7, k_year=6
+        )
+        spread.append(float(np.log10(lam_age)))
+
+    assert max(spread) - min(spread) > 1.0, (
+        f"log10 lambda_age spread across replicates is only {max(spread) - min(spread):.2f} "
+        "decades. If selection has been stabilised, ADR-187's instability caveat and "
+        "the conditional-coverage framing both need revisiting rather than deleting."
+    )
+
+
+def test_the_penalized_bands_buy_width_and_pay_coverage() -> None:
+    """The trade, measured — and quoted with the instability that bounds it.
 
     | truth | estimator | coverage | mean width |
     |---|---|---|---|
-    | constant MI (null space) | penalized | 0.9821 | 0.00384 |
+    | constant MI (null space) | penalized | 0.9733 | 0.00369 |
     | constant MI | delta | 0.9567 | 0.03045 |
-    | quadratic MI | penalized | **0.9260** | 0.00667 |
+    | quadratic MI | penalized | **0.8710** | 0.00688 |
     | quadratic MI | delta | 0.9586 | 0.03044 |
 
     In the null space the penalized band **over**-covers at an eighth of the width:
@@ -887,11 +944,11 @@ def test_the_penalized_bands_buy_width_and_pay_a_little_coverage() -> None:
     That is the flattering regime and it is not the headline, for the same reason
     slice 2 refused to quote its 40x.
 
-    **The headline is the quadratic row: 92.6% against a nominal 95%, at 4.6x
-    narrower.** Two-and-a-half points of coverage for a fifth of the width. The
-    shortfall is real and has two known sources — shrinkage bias toward a null space
-    the truth is not in, and ``Vb`` conditioning on λ so that selection uncertainty
-    is nowhere in the interval.
+    **The headline is the quadratic row: 87.1% against a nominal 95%, at 4.4x
+    narrower.** An earlier revision reported 92.6% here and framed the cost as "2.4
+    points"; that number came from a different selection seed and does not survive
+    one. What survives is the *direction* — narrower, and under-covering — so the
+    assertions below pin the direction and a generous band, not the decimals.
     """
     p_null, _, _, w_null = _coverage("nullspace", "penalized")
     d_null, _, _, wd_null = _coverage("nullspace", "delta")
@@ -903,9 +960,11 @@ def test_the_penalized_bands_buy_width_and_pay_a_little_coverage() -> None:
         f"curved: the trade only exists if the penalized band ({p_curve:.4f}) covers "
         f"LESS than the delta band ({d_curve:.4f}) while being narrower"
     )
-    assert 0.90 <= p_curve <= 0.95, (
-        f"curved: penalized coverage {p_curve:.4f} — under 0.90 the band is not "
-        "usable as a 95% interval; over 0.95 the trade this test describes is gone"
+    assert 0.82 <= p_curve <= 0.95, (
+        f"curved: penalized coverage {p_curve:.4f} is outside the range this study "
+        "reports. Below 0.82 the band is not usable as a 95% interval at all; above "
+        "0.95 the trade described here is gone. The band is wide because the selected "
+        "lambda is itself a wide-variance draw."
     )
     assert wd_null / w_null > 5.0, f"null-space width ratio {wd_null / w_null:.1f}x"
     assert wd_curve / w_curve > 3.5, f"curved width ratio {wd_curve / w_curve:.1f}x"
@@ -916,16 +975,21 @@ def test_both_bands_collapse_when_the_basis_cannot_represent_the_truth() -> None
 
     | estimator | overall | young <= 50 | old >= 80 |
     |---|---|---|---|
-    | penalized | 0.7597 | 0.8641 | **0.6750** |
+    | penalized | 0.8505 | 0.9073 | **0.7598** |
     | delta | 0.8461 | 0.9436 | **0.6687** |
 
     Reported because it bounds what the two calibration results above mean. They say
     the arithmetic is right when the model is; they do not say a real book is inside
-    either basis. The penalized estimator degrades **further** (76.0% vs 84.6%) —
-    shrinkage adds bias on top of approximation error — which is the honest
-    counterweight to the width advantage in the test above.
+    either basis.
 
-    Old ages are the shared failure (~67% for both), and that is the opposite end
+    **A withdrawn claim lives here.** An earlier revision reported 0.7597 vs 0.8461
+    and concluded that the penalized estimator "degrades further — shrinkage adds
+    bias on top of approximation error". At the corrected selection seed the two are
+    level (0.8505 vs 0.8461, inside the ~1.5pp Monte-Carlo SE). The ordering was an
+    artifact of which replicate λ was read off, and it is withdrawn rather than
+    re-argued in the other direction: what is robust is that **both** collapse.
+
+    Old ages are the shared failure (~67-76% for both), and that is the opposite end
     from where slice 3 was told to look.
     """
     p_overall, _, p_old, _ = _coverage("unrepresentable", "penalized")
@@ -935,8 +999,38 @@ def test_both_bands_collapse_when_the_basis_cannot_represent_the_truth() -> None
         f"misspecification no longer costs coverage (penalized {p_overall:.4f}, "
         f"delta {d_overall:.4f}) — the fixture may have become representable"
     )
-    assert p_overall < d_overall, (
-        f"penalized {p_overall:.4f} should degrade further than delta {d_overall:.4f}: "
-        "shrinkage adds bias on top of approximation error"
-    )
     assert p_old < 0.80 and d_old < 0.80, f"old-age collapse: {p_old:.4f}, {d_old:.4f}"
+
+
+def test_the_factor_block_is_padded_with_zeros_and_the_fill_does_not_matter() -> None:
+    """The `pad > 0` branch of `improvement_surface`, which no other test reaches.
+
+    Every other fixture that reaches the extractor is factor-free, so `n_coef ==
+    n_tensor` and the branch is dead in the suite — while the `n_tensor` docstring
+    argues at length for exactly its correctness (PR #189 review [P1]). A docstring
+    defending an untested branch is the shape this epic has now hit three times.
+
+    The claim under test is **fill-invariance**: factor columns are calendar-invariant
+    at the reference, so they cancel in the annual contrast and the surface must not
+    move if they are filled with ones instead of zeros. That is what makes zeros a
+    correct choice rather than a convenient one — and it holds for the variance too,
+    since the contrast rows are zero in those positions either way.
+    """
+    fit = PenalizedTensorMIModel(_cells_with_factors(), k_age=7, k_year=6, lambda_year=1e3).fit()
+    assert fit.n_coef > fit.n_tensor, "the fixture must actually exercise the padding branch"
+
+    surface = fit.improvement_surface(ages=_AGES, years=_YEARS)
+    np.testing.assert_allclose(surface.mi_grid.mean(), _MI_TRUE, atol=2e-3)
+
+    tensor = fit._grid_design(_AGES, _YEARS)
+    pad = fit.n_coef - fit.n_tensor
+    ones_filled = mi_surface_from_design(
+        np.hstack([tensor, np.ones((tensor.shape[0], pad), dtype=np.float64)]),
+        fit.coef,
+        fit.cov,
+        _AGES,
+        _YEARS,
+        0.95,
+    )
+    for attr in ("mi_grid", "mi_lower", "mi_upper"):
+        np.testing.assert_allclose(getattr(ones_filled, attr), getattr(surface, attr), atol=1e-14)
