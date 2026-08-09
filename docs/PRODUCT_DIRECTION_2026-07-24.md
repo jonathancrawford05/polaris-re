@@ -293,6 +293,28 @@ BLOCKER remains.
    NET_PREMIUM WL reserve still uses a one-period terminal estimate that collapses
    at the horizon; prospective-to-omega valuation moves goldens → needs its own ADR
    + rebaseline. *Source: ADR-089 Out of scope + DEV_SESSION_LOG_2026-06-19_reserve_basis_slice2b Open Questions (1st-order).*
+   — **RE-SCOPED, NOT SHIPPED** (PR #191 / **ADR-189** / `PLAN_wl_valuation_premium.md`).
+   **This item was built exactly as written, measured, and withdrawn.** It is a
+   regression on its own, and finding that out required building it.
+   - **The premise held and was sharper than stated.** The reserve **at issue** was
+     non-zero ($5,067.67 per $500k at a 20-year horizon, $47,556.78 at 40), violating
+     the equivalence principle that *defines* a net level premium. There are **four**
+     defects, not one: a premium solved over the truncated grid, a premium solved over
+     `lx` (so **lapse moved a mortality-only reserve**), the one-period terminal
+     estimate, and an incoherent limited-pay window.
+   - **Why it is a regression alone.** Every WL basis re-solves its premium on a grid
+     starting at the *valuation date*, so a seasoned policy is valued as though issued
+     today and `V_0 == 0` follows by construction. On the ALM notebook's block (ten $1M
+     policies issued 20 years ago) the opening reserve goes **$497,698.59 → $0.00**.
+     CLAUDE.md §1 names inforce-block evaluation as the target use case; a zero seasoned
+     reserve is a regression on exactly that.
+   - **Re-sequenced into two slices**, prerequisite first: (1) the **issue-age valuation
+     premium**, all four bases; (2) the to-omega valuation, rebuilt from ADR-189.
+     `CONTINUATION_wl_valuation_premium.md` is IN PROGRESS with slice 1 NEXT.
+   - **Correction to this entry's own prediction:** it says "moves goldens", which is
+     right, but not for the reason the configs suggest — `deal.product_type` reads
+     `"TERM"` in all five, and the runner nonetheless prices a WHOLE_LIFE cohort from the
+     shared `golden_inforce.csv`. Any WL engine change moves all five baselines.
 3. ~~**Engage block-aware first-year duration mapping when an `expense_allowance` is
    supplied via config.** With an allowance set but `use_policy_cession` unset, the
    allowance falls back to the new-business projection-month basis, wrongly charging
@@ -1811,3 +1833,58 @@ to improve on currently has the better interval. That is a statement about the
 carries age structure the penalty can see, and a max-minus-min range over 200 draws is a
 much harder statistic than over 8. No action; recorded because the amendment's headline
 number was previously supported by eight seeds.
+
+---
+
+### Appended 2026-08-09b (WL reserve investigation — PR #191 / ADR-189; IMPORTANT #2 re-scoped)
+
+> **On the order tags below.** All three carry `(1st-order)` and two are promoted
+> IMPORTANT, which reads oddly against a source ADR that itself descends from a
+> 1st-order item. The classification is deliberate: these are defects in **other,
+> already-shipped features** — the ALM duration-gap surface, and three statutory reserve
+> bases — surfaced *by* this investigation rather than derivative follow-ups of the
+> feature it selected. The step-17 order cap exists to stop polish spirals, not to cap
+> live correctness defects at NICE-TO-HAVE. Stated here so a future session does not
+> re-litigate it (PR #191 [P2-7]).
+
+- **Whole-life ALM has never worked, and nothing says so.** The duration-gap surface's
+  liability *is* the opening held reserve — `analytics.alm.reserve_liability_cash_flows`
+  is constructed so its present value equals `reserve_balance[0]`. On shipped, untouched
+  code the REST `SEASONED_POLICY` fixture ($1,000,000 face, 5 years in force,
+  `discount_rate=0.06`) reports a liability present value of **$25.48 under YRT 90% at
+  the default measurement yield, $20.34 at `alm_valuation_yield=0.08`, and $12.74 under
+  Coinsurance 50%** — every one of them ~$10–25 against $1,000,000 of face, carrying a
+  liability duration of 11.8 years. *Quote these with their parameterisation:* the figure
+  moves with treaty and yield, and an earlier revision of this entry stated one bare
+  number plus a ~1e15 duration blow-up that belongs to the **post-change** code, not to
+  `main` (PR #191 [P1-2]). `notebooks/04_alm_duration_gap.ipynb`'s larger block reports a
+  plausible $497,698.59 and so conceals it. Root cause is the valuation-date premium
+  re-solve (slice 1 of
+  `PLAN_wl_valuation_premium.md`); this entry exists because the ALM *symptom* is what a
+  user sees, and no ALM document or docstring currently carries the caveat.
+  *Source: ADR-189 (1st-order).* **IMPORTANT** — a shipped, documented, notebook-validated
+  capability that does not work on the common path.
+
+- **Every whole-life basis that solves a valuation premium solves it at the valuation
+  date.** So no seasoned whole-life block has a correct opening reserve: measured on
+  untouched code, a 10-years-in-force policy returns `V_0 = 0.00` on **both CRVM and
+  GAAP**, and NET_PREMIUM's horizon-truncated recursion returns something non-zero only
+  accidentally — which is why fixing that recursion in isolation makes things worse.
+  **VM-20 is a half-exception** (PR #191 [P1-1]): its NPR leg has the same defect, but
+  `max(NPR, DR)`'s deterministic-reserve leg uses no valuation premium at all and so
+  already returns a large non-zero seasoned reserve ($497,901.99 at 20 years in force on
+  the ADR-189 fixture). That matters for how the fix is *tested*, not for whether it is
+  needed: a `V_0 > 0` assertion on VM-20 passes on unfixed code. Tracked as slice 1 of
+  `PLAN_wl_valuation_premium.md`; recorded here too because it outlives that plan if the
+  plan stalls, and because it is a statement about **three already-shipped statutory
+  bases**, not only about the item that found it.
+  *Source: ADR-189 (1st-order).* **IMPORTANT.**
+
+- **`deal.product_type` in the golden configs does not tell you what the goldens price.**
+  All five `data/qa/golden_config_*.json` read `"TERM"`, and all five nonetheless price a
+  WHOLE_LIFE cohort, because the runner prices every product cohort present in the shared
+  `golden_inforce.csv`. A session concluded "no rebaseline needed" from reading the
+  configs and was corrected only by the quality gate. Cheap to fix: a sentence in
+  `tests/qa/generate_golden.py`'s or `golden_runner.py`'s module docstring saying the
+  configs' `product_type` selects the *deal*, not the cohorts priced.
+  *Source: ADR-189 (1st-order).* **NICE-TO-HAVE** — documentation of a trap, not a defect.
