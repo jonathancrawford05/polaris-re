@@ -12,8 +12,8 @@ run on either estimator. **ADR-187.**
 |---|---|
 | Baseline (`main` @ `8fa5638`, PR #188 merged) | 3094 passed, 3 skipped, 125 deselected |
 | End state (`make test`) | **3102 passed, 3 skipped, 125 deselected** (+8) |
-| — by round | 3100 as first pushed (+6), 3102 after review round 1 (+2) |
-| Module tests | 34 (was 26) — 32 pushed, +2 in round 1 |
+| — by round | 3100 as first pushed (+6), 3102 after review round 1 (+2), 3102 after round 2 |
+| Module tests | 34 (was 26) — 32 pushed, +2 in round 1, +0 in round 2 |
 | Standing failures | none new or changed |
 | `tests/qa/` goldens | untouched |
 | mypy | 5 pre-existing errors in this module, unchanged (verified against `main`) |
@@ -158,6 +158,27 @@ null space, which is the flattering regime and not the headline.
 **3. Both collapse under misspecification**, ~85% for each, with old ages 76.0% and
 66.9%. **The weak end is old ages, not young** — the opposite of where the slice was
 sent to look.
+
+## Review round 2
+
+Approved, with one finding that was **already fixed before the review landed** (the
+PR body still published the withdrawn numbers — rewritten when the plan revision went
+up) and one real one: `test_reml_lambda_selection_is_unstable_across_replicates`
+cited "seeds 995-1002" while looping over six of them. The assertion held on the six
+and the claim is true over all eight, so nothing was *wrong* — but a docstring
+describing seeds the test does not visit is the same claim-set defect ADR-186
+amendment 2 exists to catch, in the test that exists to characterise the finding it
+describes. Extended to all eight.
+
+The module docstring was stale for the **second** time in three slices — "Slices 1-2"
+through the whole of slice 3, after having said "selection is slice 2 and is
+deliberately absent here" one commit after six selection tests landed. Recorded in
+the docstring itself rather than quietly fixed: a docstring written for slice N is
+stale by slice N+1 by default, and nothing in the process currently catches it.
+
+The reviewer independently reproduced all six corrected coverage rows, the seven
+distinct λ values across eight seeds, and the selector abort at seed 1098 — so the
+round-1 corrections are externally verified rather than self-reported.
 
 ## Carried forward
 

@@ -1,4 +1,4 @@
-"""Slices 1-2 of ``docs/PLAN_penalized_mi_surface.md`` — the penalized fitter.
+"""Slices 1-3 of ``docs/PLAN_penalized_mi_surface.md`` — the penalized fitter.
 
 The two limits are where correctness is decidable without trusting anything new:
 
@@ -22,9 +22,17 @@ exact rather than tolerance-bounded, and the graded-smoothness ladder must be
 **representable in the basis** or the test measures the basis instead of the
 selector (ADR-186).
 
-(This docstring said "selection is slice 2 and is deliberately absent here" for one
-commit after six selection tests landed beside it — the same staleness `3d4a7e2`
-fixed in the source module and missed here.)
+Slice 3 adds the Bayesian band and the coverage study. Its fixtures encode the
+distinction the study turns on: a truth can be **inside the penalty null space**
+(constant MI — where shrinkage is free and coverage flatters), **outside it but
+representable** (quadratic — where coverage measures the *band*), or
+**unrepresentable** (a sine cycle — where coverage measures *bias*). Conflating the
+three is what made a first probe read as a calibration disaster.
+
+(This docstring has now been stale twice: it said "selection is slice 2 and is
+deliberately absent here" for one commit after six selection tests landed beside it,
+and said "Slices 1-2" through all of slice 3. A docstring written for slice N is
+stale by slice N+1 by default — see ADR-186 amendment 2 on claim sets.)
 """
 
 import functools
@@ -915,8 +923,12 @@ def test_reml_lambda_selection_is_unstable_across_replicates() -> None:
     replicates, or a proper marginal-likelihood treatment), this assertion is
     *supposed* to fail, and that failure is the signal the caveat can be lifted.
     """
+    # All eight seeds the docstring and ADR-187 finding 2 cite. An earlier revision
+    # swept only 995-1000 while claiming 995-1002 — the assertion held on the six, so
+    # nothing was wrong, but a docstring describing seeds the test does not visit is
+    # the claim-set defect this module keeps catching in itself (PR #189 review [P2]).
     spread = []
-    for seed in (995, 996, 997, 998, 999, 1000):
+    for seed in (995, 996, 997, 998, 999, 1000, 1001, 1002):
         lam_age, _, _ = select_lambdas_reml(
             _cells_from(_quadratic_mi, seed=seed), k_age=7, k_year=6
         )
