@@ -13819,3 +13819,72 @@ unfixed here on purpose: the fix is a design choice (score a non-converging poin
 whoever owns the selector, not bolted on inside a review round. It is registered as a
 **slice-4 blocker** — slice 4 runs this selector on a 125k-cell book, where a
 one-in-a-hundred abort is a failed production run, not a failed test.
+
+### ADR-187 amendment 1 — the λ instability is mostly a fixture artifact, and a global λ is the wrong remedy (2026-08-09)
+
+Finding 2 reported REML λ selection spanning ~5 decades of log10 λ_age across
+replicates and called it the slice's most consequential result. A follow-up review
+proposed four remedies, one of which was to **drop to a single global λ** on the
+grounds that λ_age looked unidentifiable — and flagged its own caveat: the quadratic
+fixture is **age-flat**, so λ_age → ∞ may be optimal only because that truth sits in
+the age margin's null space.
+
+**The caveat was right, and it is decisive.** Re-running selection across the same
+eight seeds against a truth quadratic in *both* margins:
+
+| fixture | log10 λ_age spread | log10 λ_year spread | RMSE spread across selected λ |
+|---|---:|---:|---:|
+| age-**flat** quadratic (finding 2's) | **5.50 decades** | 2.25 | 2.1× |
+| age-**varying** quadratic | **0.75 decades** | 1.75 | 1.13× |
+
+λ_age's instability very largely disappears once there is age structure to identify it
+from. That is not a defect being fixed — it is the estimator behaving correctly:
+**an unidentifiable smoothing parameter is unidentifiable because the data contain
+nothing for it to fit**, and on the age-flat fixture the age penalty genuinely has no
+work to do. Finding 2's headline number is therefore **fixture-specific and is
+qualified here rather than left standing as a property of the estimator.** The
+instability is real but its magnitude on a structured truth is under one decade in
+age and under two in year, and the materiality of it collapses with it.
+
+**Consequence: a single global λ is rejected**, on two independent grounds.
+
+1. The measurement above removes the evidence for it. The case rested on λ_age being
+   unidentifiable; it is unidentifiable only where there is nothing to identify.
+2. It moves *away* from the stated goal. `mgcv`'s `te()` is defined by carrying **one
+   smoothing parameter per marginal penalty** — that anisotropy is precisely what
+   separates `te()` from the isotropic `s(x, z)`, and it is why `te()` is the right
+   construction for an age × year surface where the two axes have different units and
+   different smoothness. Adopting a global λ would make this implementation
+   *less* like the reference it is meant to replace.
+
+### ADR-187 amendment 2 — the REML profile is shallow, not flat: this is weak identifiability (2026-08-09)
+
+The review framed two worlds — a **flat** REML profile where only the reported λ is a
+lottery, or a **multimodal** one where the estimator itself is unstable — and measured
+only the second half (the surfaces do differ materially). Scoring the eight selected λ
+on a single dataset answers the first:
+
+| fixture | REML spread across the selected λ | edf range | RMSE range |
+|---|---:|---:|---:|
+| age-flat | 3.85 | 4.18 – 10.95 | 0.00126 – 0.00212 |
+| age-varying | 3.34 | 7.90 – 12.27 | 0.00205 – 0.00231 |
+
+**Neither world exactly.** The profile is not flat — 3.85 REML units is a real
+difference, so on any *given* dataset the optimum is locatable. But 3.85 units across
+a 5.5-decade range of λ_age, for a 2.6× change in `edf`, is a **very shallow**
+objective, and a shallow optimum is one whose *location* has high sampling variance
+even when each individual dataset determines it adequately.
+
+That diagnosis selects the remedy. A better optimiser does not help — the grid is
+already finding the right point on each dataset. What is needed is either **less
+variance in the criterion** (Wood's `gamma`, which inflates the `edf` cost and is the
+standard counter to REML undersmoothing) or **an interval that stops conditioning on
+the point estimate of λ** (the Kass–Steffey unconditional covariance,
+`vcov(..., unconditional=TRUE)`). The second is the load-bearing one: it converts λ's
+sampling variance from an unreported hazard into part of the interval.
+
+**The undersmoothing direction is NOT yet established.** The review measured that the
+rough draws are dominated — worse RMSE *and* wider bands — on the age-flat fixture. On
+the age-varying fixture the RMSE ordering does not reproduce (the lowest-λ_age draw is
+mid-range, and RMSE varies by only 1.13×). `gamma` remains worth having as an
+mgcv-parity feature; it is **not** justified here as a fix for a demonstrated bias.

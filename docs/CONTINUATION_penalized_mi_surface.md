@@ -104,9 +104,14 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
   selector on the 125k-cell book, where that is a failed production run. The fix is a
   design choice — score the point `+inf` and continue, damp the IRLS step, or raise
   the cap — and it belongs at the top of slice 4, not bolted into a review round.
-- **REML λ selection is unstable across replicates, and this bounds every penalized
-  number.** ADR-187 finding 2: log10 λ_age spans ~5 decades across realisations of
-  the same truth. Practical consequences for slice 4 — a reported λ is one draw, not
+- **REML λ selection is unstable across replicates — but the 5-decade figure is a
+  fixture artifact (ADR-187 amendment 1).** On a truth that varies with age, λ_age's
+  spread falls from **5.50 decades to 0.75**, and the RMSE spread from 2.1x to 1.13x.
+  The age-flat fixture had nothing for the age penalty to identify. The instability is
+  real at **~1 decade in age, ~2 in year**; the estimator is not as unstable as
+  finding 2 first read. **A single global λ is rejected** — the evidence for it
+  evaporated with the artifact, and `te()` in mgcv is *defined* by one λ per marginal,
+  so a global λ moves away from the parity goal. Practical consequences for slice 4 — a reported λ is one draw, not
   a property of the book; a band shown beside a selected λ is **not** jointly
   calibrated with it, because `Vb` carries no smoothing-parameter uncertainty; and
   any single coverage figure quoted in a report is provisional.
