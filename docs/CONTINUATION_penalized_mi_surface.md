@@ -157,6 +157,13 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
   in particular must quote the measured rate and the direction, never the nominal
   level, and must print which covariance produced the interval
   (`PenalizedMIFit.band_is_unconditional` exists for exactly that).
+- **Pin the lambda-vs-scale convention at slice 5 level 1.** The `gamma`-as-scale
+  derivation is algebraically sound, but `log|XᵀWX + S|` is evaluated at the
+  **unscaled** penalty, which fixes a particular convention for λ relative to φ. Inert
+  at `gamma=1.0` and used nowhere today, so it has no consequence yet — and it is
+  exactly the kind of convention an `mgcv` conformance run should nail down rather than
+  leave implicit, since `sp` there multiplies the supplied `S` directly. Raised in the
+  PR #190 review.
 - **Slice 5's level 4 is now the decisive check, not a completeness item.** The gate
   fails for one of two reasons with different remedies: our Kass-Steffey arithmetic is
   wrong, or the residual shortfall is shrinkage bias that no covariance can reach.

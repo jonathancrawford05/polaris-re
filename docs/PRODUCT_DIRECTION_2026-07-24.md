@@ -1702,7 +1702,7 @@ explanation, which is a publishable finding in its own right.
 ### Appended 2026-08-09 (slice-3 harvest — two items the coverage study surfaced)
 
 - ~~**`select_lambdas_reml` aborts when a grid corner fails to converge.**~~
-  — **SHIPPED** (slice 4 / ADR-188 decision 1): the point is scored `+inf` and the
+  — **SHIPPED** (PR #190 / ADR-188 decision 1, slice 4): the point is scored `+inf` and the
   search continues, with `n_rejected` / `n_evaluated` carried onto the fit so a
   truncated grid cannot hide; rejecting *every* point raises rather than returning the
   grid centre as a fabricated selection. Reproduced at seed 1098 before the fix (routine

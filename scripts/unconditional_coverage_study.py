@@ -40,6 +40,7 @@ Exit status: 0 on a completed run whatever its verdict, 1 on failure.
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -49,10 +50,17 @@ import polars as pl
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
+from polaris_re.analytics.experience_gam import MISurface  # noqa: E402
 from polaris_re.analytics.experience_gam_penalized import (  # noqa: E402
+    PenalizedMIFit,
     fit_reml,
     smoothing_uncertainty,
 )
+
+type MIFunction = Callable[[float, int], float]
+"""MI as a function of (attained age, calendar year) — the shape every truth here
+takes. Named because it is this script's own contract with its fixtures, and an
+unannotated one was the review's [P2]."""
 
 AGES = np.arange(25, 96)
 YEARS = np.arange(2012, 2020)
@@ -118,7 +126,7 @@ def age_varying_quadratic_mi(age: float, year: int) -> float:
 TRUTHS = {"age-flat": year_quadratic_mi, "age-varying": age_varying_quadratic_mi}
 
 
-def build_cells(mi_fn, *, seed: int) -> pl.DataFrame:
+def build_cells(mi_fn: MIFunction, *, seed: int) -> pl.DataFrame:
     """The ILEC-shaped fixture from the diagnostics epic, at a pinned seed."""
     rng = np.random.default_rng(seed)
     rows: list[tuple[int, int, float, float, float]] = []
@@ -136,7 +144,7 @@ def build_cells(mi_fn, *, seed: int) -> pl.DataFrame:
     )
 
 
-def truth_grid(mi_fn) -> np.ndarray:
+def truth_grid(mi_fn: MIFunction) -> np.ndarray:
     """MI on the (age x year-transition) grid the extractor reports."""
     return np.array([[mi_fn(float(a), int(y)) for y in YEARS[1:]] for a in AGES], dtype=np.float64)
 
@@ -236,7 +244,7 @@ def run_truth(name: str, *, replicates: int, gamma: float = 1.0) -> TruthResult:
     )
 
 
-def _surface_with(fit, cov: np.ndarray):
+def _surface_with(fit: PenalizedMIFit, cov: np.ndarray) -> MISurface:
     """The fit's surface under a substituted covariance, through the shared band layer.
 
     Rebuilding the design here rather than re-fitting is what makes the two bands a
@@ -308,7 +316,7 @@ def to_markdown(results: list[TruthResult], *, gamma: float) -> str:
         "| band | covariance |",
         "|---|---|",
         "| conditional | `Vb = (XᵀWX + S)⁻¹φ` |",
-        "| unconditional | `Vb + J V_rho Jᵀ` (Kass–Steffey) |",
+        "| unconditional | `Vb + J V_rho J\u1d40` (Kass-Steffey) |",
         "",
         f"**Replicates:** {replicates}"
         + (

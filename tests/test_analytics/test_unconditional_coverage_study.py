@@ -112,6 +112,51 @@ def test_the_age_varying_truth_leaves_the_age_penalty_null_space() -> None:
     np.testing.assert_allclose(year_shape_varying, year_shape_flat, atol=1e-12)
 
 
+def test_the_study_fixture_is_the_same_object_as_the_test_modules() -> None:
+    """The one assertion that licenses quoting ADR-187's delta-method row beside these.
+
+    `docs/MEASUREMENT_unconditional_coverage.md` prints the unpenalized band's 0.9586
+    next to this study's 0.8516 and calls it "the identical truth and the identical
+    replicate seeds". That claim rests entirely on the study's `build_cells` /
+    `year_quadratic_mi` generating the same frames as the test module's `_cells_from` /
+    `_quadratic_mi` — and they are **duplicated source**, agreeing today because they
+    were copied, with nothing holding them together (PR #190 review [P2]).
+
+    So this pins it. If either copy is edited, the 10-point interval gap stops being a
+    paired comparison and becomes two studies stapled together — and this fails first,
+    which is the point. Frames are compared exactly: identical arithmetic and identical
+    RNG draw order must give identical Poisson draws, not merely close ones.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "_sibling_penalized_tests",
+        Path(__file__).with_name("test_experience_gam_penalized.py"),
+    )
+    assert spec is not None and spec.loader is not None
+    sibling = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sibling)
+
+    for seed in (1000, 1199):
+        np.testing.assert_array_equal(
+            build_cells(year_quadratic_mi, seed=seed).to_numpy(),
+            sibling._cells_from(sibling._quadratic_mi, seed=seed).to_numpy(),
+            err_msg=f"the two fixture copies diverged at seed {seed}",
+        )
+
+    # And the truths themselves, before any sampling — a difference here would be
+    # masked by the frames matching only because both copies changed together.
+    np.testing.assert_allclose(
+        truth_grid(year_quadratic_mi),
+        np.array(
+            [[sibling._quadratic_mi(float(a), int(y)) for y in YEARS[1:]] for a in AGES],
+            dtype=np.float64,
+        ),
+        rtol=0.0,
+        atol=0.0,
+    )
+
+
 def test_the_fixture_is_seeded_and_not_clock_dependent() -> None:
     """Two builds at one seed agree exactly; two seeds do not (ADR-074)."""
     first = build_cells(year_quadratic_mi, seed=4242)

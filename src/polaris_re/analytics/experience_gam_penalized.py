@@ -757,7 +757,11 @@ def reml_score(
     positive = eigenvalues[eigenvalues > max(largest, 1e-300) * 1e-10]
     logdet_s = float(np.sum(np.log(positive))) if positive.size else 0.0
 
-    scale = 0.0 if gamma == 1.0 else (design.shape[1] - positive.size) * np.log(gamma)
+    # No `gamma == 1.0` short-circuit: np.log(1.0) is exactly 0.0 and `deviance / 1.0`
+    # is exact, so the criterion is bit-identical at the default without a float
+    # equality test guarding it (PR #190 review [P2]). The bit-identity is asserted by
+    # test_gamma_of_one_leaves_the_criterion_bit_identical, not by this line's shape.
+    scale = (design.shape[1] - positive.size) * float(np.log(gamma))
     return 0.5 * deviance / gamma + 0.5 * float(logdet_h) - 0.5 * logdet_s - 0.5 * scale
 
 
@@ -1038,9 +1042,14 @@ def smoothing_uncertainty(
 
     half_width = float(np.log(10.0) * (bounds[1] - bounds[0])) / 2.0
     variance_cap = half_width * half_width
+    eigenvalue_floor = 1.0 / variance_cap
     eigenvalues, vectors = np.linalg.eigh(0.5 * (hessian + hessian.T))
-    variances = np.where(eigenvalues > 1.0 / variance_cap, 1.0 / eigenvalues, variance_cap)
-    n_floored = int(np.sum(eigenvalues <= 1.0 / variance_cap))
+    # Reciprocal of the CLIPPED eigenvalue, not a select between two branches: an
+    # exactly-zero (or negative) eigenvalue is the case this floor exists for, and
+    # computing 1/eigenvalue first would emit a divide-by-zero warning for a value
+    # that is then discarded (PR #190 review [P2]).
+    variances = 1.0 / np.maximum(eigenvalues, eigenvalue_floor)
+    n_floored = int(np.sum(eigenvalues <= eigenvalue_floor))
     v_rho = (vectors * variances) @ vectors.T
 
     return SmoothingUncertainty(
