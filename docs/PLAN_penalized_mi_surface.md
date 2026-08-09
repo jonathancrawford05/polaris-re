@@ -440,6 +440,10 @@ of a fix. This slice is the fix.
 > registered as blocked by the abort in slice 3 and is the first thing the abort fix
 > unblocks. Measure it for the conditional band *and* the unconditional band, on both
 > the age-flat and age-varying truths, and publish both whichever way they come out.
+>
+> **This bars the LABEL, not the display** — see the Anchor 7 amendment in §2
+> (maintainer, 2026-08-09). The band keeps being shown; what it may not be called is a
+> 95% band while it measures 85%.
 
 **Cost note.** Per-replicate selection is ~200 penalized fits per replicate, so a
 200-replicate study is ~40,000 fits. Budget it as a `@slow`-marked test or a
@@ -645,6 +649,12 @@ precisely the "less auditable, not more" failure Anchor 4 exists to prevent.)*
 (Anchor 6). The report gains `edf` per margin, the selected λ, the selection
 criterion, the `k` ceilings, and — new since the original plan — **the count of
 rejected grid points** and **whether the band is conditional or unconditional**.
+
+**This slice owes the Anchor-7 amendment's three duties** (maintainer decision,
+2026-08-09). The band is shown, so the report must carry: the **measured** coverage
+rather than the nominal level; a **stated reason for the deviation** beside it; and the
+target kept live rather than quietly dropped. A displayed band with a nominal label and
+no reason is the exact thing the amendment forbids.
 
 **Reporting obligations carried from slices 3–4**, all of which are ways the report
 could mislead while being technically correct:
