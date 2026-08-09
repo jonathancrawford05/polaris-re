@@ -51,9 +51,20 @@ opening reserve. That makes the ALM duration gap the most sensitive available pr
 whether the opening reserve is right, and it is already wired to whole life. A fix that
 leaves `notebooks/04_alm_duration_gap.ipynb` reconciling `$0 = $0` has not worked.
 
-**Anchor 4 — all four bases move together.** NET_PREMIUM, CRVM, VM-20 NPR and GAAP all
-solve a valuation premium on the same grid. Fixing one and not the others would leave the
-bases mutually inconsistent, which is the failure mode ADR-189 was written about.
+**Anchor 4 — every basis that solves a valuation premium moves together, and VM-20 is
+half an exception.** NET_PREMIUM, CRVM, GAAP and **VM-20's NPR leg** all solve an
+equivalence-principle premium on the valuation-date grid and all inherit the fix.
+**VM-20's DR leg does not** — a deterministic gross-premium reserve uses no valuation
+premium at all, so it already returns a non-zero seasoned reserve wherever it dominates
+`max(NPR, DR)`.
+
+*Amended after PR #191 [P1-1], which caught the original "all four bases" wording.* The
+distinction is not pedantry: it means **VM-20 cannot be tested the way the other three
+are**. A `V_0 > 0` assertion on VM-20 passes via DR dominance whether or not the fix
+reaches its NPR leg, so on VM-20 the test must target the NPR component directly, or a
+case constructed so `NPR > DR`. Measured on the ADR-189 fixture, VM-20 returns
+$88,720.73 at issue and $497,901.99 at 20 years in force — non-zero throughout, on
+entirely unfixed code.
 
 **Anchor 5 — the goldens move, and that is expected.** All five `data/qa/` configs price
 a WHOLE_LIFE cohort out of the shared `golden_inforce.csv`, despite every config's
@@ -90,11 +101,14 @@ VM-20's NPR floor both sit on top of the same premium and inherit the fix.
   duration 0, 60 and 120 months and require the reserve to trace the same accumulation
   curve a single projection produces. This is the strongest available statement that the
   premium no longer depends on when you look.
-- One test per basis that the fix reaches it (Anchor 4).
+- One test per basis that the fix reaches it (Anchor 4) — **and on VM-20 that test must
+  assert on the NPR leg, or on a case where `NPR > DR`.** A plain `V_0 > 0` on VM-20
+  passes today, unfixed, via DR dominance, so it would certify nothing.
 
-**Acceptance criteria.** Anchor 2 holds on all four bases. The ALM notebook's block
-reports a seasoned opening reserve within a stated tolerance of a hand calculation. QA
-goldens regenerated with TERM byte-identical.
+**Acceptance criteria.** Anchor 2 holds on NET_PREMIUM, CRVM and GAAP, and on **VM-20's
+NPR leg specifically** (not on `max(NPR, DR)`, which already satisfies it for the wrong
+reason). The ALM notebook's block reports a seasoned opening reserve within a stated
+tolerance of a hand calculation. QA goldens regenerated with TERM byte-identical.
 
 ### Slice 2: the to-omega net-premium valuation
 
@@ -125,8 +139,14 @@ slice 2 could not meet on its own — the seasoned opening reserve **unchanged f
 ## 4. What is explicitly out of scope
 
 - **TermLife.** Its `V_T = 0` terminal condition is correct because term coverage
-  expires, and its seasoned re-solve produces a small but non-degenerate reserve
-  ($21.71 of ALM liability on the REST fixture, against $0.00 for whole life).
+  expires, and its seasoned re-solve produces a small but non-degenerate reserve. On the
+  REST `SEASONED_POLICY` fixture (YRT 90%, `discount_rate=0.06`, default measurement
+  yield) TERM reports $21.71 of ALM liability present value against whole life's $25.48
+  — *both* negligible against $1,000,000 of face, which is the point: whole life's
+  problem is a duration of 11.8 years attached to a liability of $25, not a smaller
+  number than TERM's. (An earlier revision wrote "against $0.00 for whole life", which
+  was the *post-change* figure quoted as though it were shipped behaviour — PR #191
+  [P1-2].)
 - **The prescribed statutory valuation-interest helper** (IMPORTANT #4).
 - **Rebuilding the ALM epic's conclusions.** Slice 1 makes its notebook meaningful again;
   it does not re-derive `MEASUREMENT_*` documents.

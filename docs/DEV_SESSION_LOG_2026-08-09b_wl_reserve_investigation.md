@@ -198,10 +198,11 @@ without adding information. Recorded here rather than skipped silently. Creep ve
 ## DISCOVERY (step 11b) — three items filed
 
 1. **Whole-life ALM has never worked** — the duration-gap liability *is* the opening
-   reserve, and it is $20.34 against $1M of face on shipped code. **IMPORTANT.**
-2. **Every WL basis re-solves its valuation premium at the valuation date** — so no
-   seasoned block has a correct opening reserve on any basis, including three shipped
-   statutory ones. **IMPORTANT.**
+   reserve, and on shipped code it is $10–25 against $1M of face (parameterised table in
+   ADR-189). **IMPORTANT.**
+2. **Every WL basis that solves a valuation premium solves it at the valuation date** —
+   so no seasoned block has a correct opening reserve, across three shipped statutory
+   bases plus VM-20's NPR leg. **IMPORTANT.**
 3. **`deal.product_type` in the golden configs does not describe what the goldens
    price** — all five read `"TERM"` and all five price a WHOLE_LIFE cohort from the
    shared inforce CSV. **NICE-TO-HAVE** (documentation of a trap).
@@ -209,9 +210,43 @@ without adding information. Recorded here rather than skipped silently. Creep ve
 Item 3 is a correction to this session's own work: a mid-session conclusion that "no
 rebaseline is needed" came from reading the configs, and only the quality gate caught it.
 
+## Review round 1 (PR #191) — approved, with two real corrections to the measurement set
+
+Both findings were over-generalisations of correct narrower measurements, and both were
+reproduced independently before being accepted.
+
+- **[P1-1] VM-20 was wrongly swept into "all four bases".** The ADR claimed NET_PREMIUM
+  was *the only* basis returning a non-zero seasoned reserve. It is not: VM-20 is
+  `max(NPR, DR)` and the DR leg carries no equivalence-principle premium, so it returns
+  $88,720.73 at issue and $497,901.99 at 20 years in force on this fixture — on entirely
+  unfixed code. Re-measured here and found **stronger than the review stated** (it saw
+  0.00 at durations 0 and 10 on its own fixture; the crossover is fixture-dependent, the
+  mechanism is not). The consequence is real for slice 1: its `V_0 > 0` criterion would
+  have passed on VM-20 via DR dominance without the fix reaching its NPR leg. ADR-189,
+  PLAN Anchor 4, the slice-1 test spec and the ledger entry are all amended.
+- **[P1-2] The ALM figure was quoted bare and one attribute was wrong.** $20.34 is
+  correct *for* WHOLE_LIFE / YRT 90% / `discount_rate=0.06` / `alm_valuation_yield=0.08`;
+  the review reproduced $12.74 from Coinsurance 50% at the default yield. Both are right.
+  A parameterised table now replaces the bare number everywhere. Separately, the ~1e15
+  modified-duration blow-up was attributed to shipped code and belongs to the
+  **post-change** code — shipped is an ordinary 11.824. Withdrawn.
+- **[P2-4]** `$497,698.59` clarified as the ceded half of a $995,397.19 gross opening
+  reserve (equal to the retained half at 50% cession), since "net" also names a reserve
+  basis here. **[P2-6]** The CONTINUATION now states that the penalized-MI epic takes
+  precedence — PR #190 merged, so its slice 5 is unblocked. **[P2-7]** The order-tag
+  rationale is written into the harvest section. **[P2-8]** PR reference added.
+- **[P1-3]** Merge conflict with `main` (both `DECISIONS.md` and
+  `PRODUCT_DIRECTION_2026-07-24.md`, after #190 merged) resolved both-sides-keep, ADR-188
+  before ADR-189. **[P2-5]** The missing perf row is flagged for a maintainer ruling on
+  whether docs-only PRs are carved out of step 14b; no change made.
+
 ## Parked Polish
 
-None. All three harvested items are 1st-order, so the step-17 order cap did not bind.
+None. All three harvested items are 1st-order **in the sense the cap cares about**: they
+are defects in *other* shipped features (the ALM surface; three statutory bases) surfaced
+by this investigation, not derivative follow-ups of the feature it selected. Capping a
+live correctness defect at NICE-TO-HAVE is the failure the order cap's own counter-rule
+guards against. Recorded so a future session need not re-litigate it (PR #191 [P2-7]).
 
 ## Impact on Golden Baselines
 

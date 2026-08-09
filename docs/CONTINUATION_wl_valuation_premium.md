@@ -7,6 +7,14 @@
 **Total slices:** 2
 **Estimated total scope:** ~2–3 dev-days.
 
+> **Which epic does the next session advance?** (PR #191 [P2-6] — two CONTINUATIONs are
+> now IN PROGRESS.) **`CONTINUATION_penalized_mi_surface.md` takes precedence.** It is
+> the routine's designated ACTIVE EPIC, it was blocked only because slice 4's PR was
+> unmerged, and **PR #190 has since merged** — so its slice 5 (`mgcv` conformance) is
+> unblocked and is the step-5b pick. This continuation is **gated fallback work**, and
+> its slice 1 additionally wants the maintainer answer under "Open questions" before it
+> starts.
+
 ## Overall goal
 
 Make the whole-life valuation premium a property of the policy **at issue**, so that a
@@ -51,13 +59,18 @@ a twenty-year-seasoned block from $497,698.59 to **$0.00**. ADR-189 has the evid
 - **The opening reserve is the ALM surface's liability.**
   `analytics.alm.reserve_liability_cash_flows` is constructed so its present value equals
   `reserve_balance[0]`. That is why the ALM duration gap is the sharpest probe here — and
-  why it is currently reporting **$20.34 of liability against $1,000,000 of face** on the
-  REST `SEASONED_POLICY` fixture, on shipped code. Whole-life ALM has never worked; the
-  notebook's larger block hides it behind a plausible-looking number.
+  why on shipped code it reports **$10–25 of liability present value against $1,000,000
+  of face** on the REST `SEASONED_POLICY` fixture, depending on treaty and measurement
+  yield (ADR-189 has the parameterised table; quote it *with* its settings, per PR #191
+  [P1-2]). Whole-life ALM has never worked; the notebook's larger block hides it behind
+  a plausible-looking $497,698.59.
 - **`V_0 == 0` for a seasoned policy already holds on CRVM and GAAP on `main`** — measured,
-  untouched code. NET_PREMIUM's truncated recursion was the only basis returning something
-  non-zero, and accidentally. So slice 1 is not a regression risk for CRVM/GAAP; it is a
-  fix they need too.
+  untouched code. So slice 1 is not a regression risk for those two; it is a fix they need.
+- **VM-20 is the exception, and it is a trap for slice 1's test design** (PR #191 [P1-1]).
+  `max(NPR, DR)`'s deterministic-reserve leg uses no equivalence-principle premium, so
+  VM-20 already returns a large non-zero seasoned reserve — $497,901.99 at 20 years in
+  force on the ADR-189 fixture, entirely unfixed. **A `V_0 > 0` assertion on VM-20 passes
+  today and certifies nothing.** Test its NPR leg directly, or construct `NPR > DR`.
 - **The QA goldens price whole life.** All five `data/qa/golden_config_*.json` have
   `deal.product_type: "TERM"`, which is misleading: the runner prices every product cohort
   in the shared `golden_inforce.csv`, and that block carries a WHOLE_LIFE cohort. Reading
