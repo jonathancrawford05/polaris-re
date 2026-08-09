@@ -13934,8 +13934,9 @@ a fix that only added the `+inf` branch would return that centre — a fabricate
 failure mode this fix could have introduced while removing the one it targeted, and it
 has its own test with the scoring call monkeypatched to fail everywhere.
 
-Measured over the 400 study replicates: **2 replicates in 400 hit it**, each rejecting
-exactly one point. Before this change, either one would have aborted the study.
+Measured over the 400 study replicates on this container: **2 replicates in 400 hit
+it**, each rejecting exactly one point. Before this change, either one would have
+aborted the study.
 
 ### Decision 2 — the unconditional covariance, and the cap that keeps it finite
 
@@ -14097,3 +14098,38 @@ computed analytically rather than by finite differences (nine fits is cheap on a
 and is nine fits per surface on a 125k-cell book); a coverage study on **real** ILEC
 rather than injected truths; and the question of whether the penalized band should ever
 be shown to a user while it measures 10 points below the estimator it replaces.
+
+### ADR-188 amendment 1 — the non-convergence is not portable, and three tests were pinning a platform (2026-08-09)
+
+PR #190's first CI run failed three slice-4 tests on **Python 3.13 while passing on
+3.12**. All three shared one cause: at seed 1098 the corner `log10 λ = (-1, 8)`
+**converges** on the 3.13 runner. The tests asserted that it does not.
+
+**Everything else about that selection was bit-for-bit portable.** Same selected λ
+(`1e8`, `1778.2794100389228`), same 166 grid points evaluated, REML score agreeing to
+the 11th digit (`255.53358722050018` locally against `255.53358722038456` on CI). The
+only thing that moved was whether one badly-conditioned IRLS crosses a deviance
+tolerance within 100 iterations — which is BLAS accumulation order, the same mechanism
+ADR-184 amendment 2 recorded when it falsified this project's byte-for-byte
+reproducibility claim.
+
+**That is a finding about the defect, not only about the tests.** ADR-187 finding 5
+characterised the abort as firing on "roughly one replicate in a hundred". That rate is
+a property of *a platform*, not of the estimator: the same replicate can converge on one
+machine and not on another. The fix is unaffected — a rejection branch is right whether
+the corner fails on 1% or 0% of platforms — but any future statement of the *frequency*
+must name the machine, and the study's `replicates with a rejected grid point` column is
+read accordingly.
+
+**The tests now force the failure at that exact corner** rather than fishing for a seed
+that produces it. This is strictly stronger, and the reasoning is the one this epic keeps
+arriving at from new directions: a test that depends on a numerical accident asserts the
+contract on the platform where the accident happens and asserts **nothing** everywhere
+else, while reading as a guard in both places. Forcing it makes "a non-converging point
+is rejected and the search survives" checkable everywhere, and lets the assertion tighten
+from `n_rejected >= 1` to `n_rejected == 1` with the winner and the grid size asserted
+unchanged — so a change that swallowed failures wholesale, or stopped visiting the corner,
+now fails where before it would have passed.
+
+The premise reproduction itself is not lost; it is recorded above, with the platform it
+was observed on named.

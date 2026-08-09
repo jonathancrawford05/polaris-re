@@ -1065,43 +1065,100 @@ def test_the_factor_block_is_padded_with_zeros_and_the_fill_does_not_matter() ->
 # --------------------------------------------------------------------------- #
 
 _ABORT_SEED = 1098
-"""The replicate ADR-187 finding 5 names. Pinned rather than searched for: the
-failure is roughly one replicate in a hundred, so a test that hunted for one would
-be slow *and* would stop testing the thing if the hunt ever came up empty."""
+"""The replicate ADR-187 finding 5 names, and the fixture these tests still use.
+
+**The non-convergence at this seed is NOT portable, and the tests below no longer
+depend on it.** The first version of them asserted that
+`log10 λ = (-1, 8)` genuinely fails to converge here, which it does on the container
+the study ran in — and does *not* on CI's Python 3.13 runner, where the same corner
+converges and three tests failed on a premise rather than on a contract (PR #190 CI
+round 1). Everything else about that selection was bit-for-bit portable: same λ, same
+166 grid points evaluated, REML score agreeing to the 11th digit. Only whether one
+badly-conditioned IRLS crosses a deviance tolerance in 100 iterations moved, which is
+BLAS accumulation order — the same mechanism ADR-184 amendment 2 recorded when it
+falsified this project's byte-for-byte reproducibility claim.
+
+So the failure is **forced** at exactly the corner ADR-187 names (see
+`_raise_at_corner`) instead of being fished for. That is strictly stronger: the
+contract under test is "a non-converging point is rejected and the search survives",
+and forcing the failure asserts it on every platform, where the seed asserted it on
+one and silently asserted nothing on the others."""
+
+_ABORT_CORNER = (-1.0, 8.0)
+"""`log10 (λ_age, λ_year)` — essentially unpenalized in age, saturated in year. The
+coarse sweep visits it on every call, which is what made ADR-187 finding 5 fatal
+rather than rare."""
 
 
-def test_a_non_converging_grid_point_is_rejected_not_raised() -> None:
-    """ADR-187 finding 5, reconstructed exactly — and it must now complete.
+def _raise_at_corner(
+    monkeypatch: pytest.MonkeyPatch, corner: tuple[float, float] = _ABORT_CORNER
+) -> None:
+    """Make the penalized fit fail at one grid point, exactly as the real one did.
+
+    Patched at `PenalizedTensorMIModel.fit`, so the exception travels the identical
+    path a real IRLS failure takes — out of the fit, through `_fit_and_score`, into the
+    selector's `except`. Targeted by λ rather than by call count so it is independent of
+    sweep order, and it fires in the refinement pass too if the corner is revisited.
+    """
+    real_fit = PenalizedTensorMIModel.fit
+
+    def fit_or_fail(self: PenalizedTensorMIModel, **kwargs: object) -> object:
+        at = (
+            round(float(np.log10(self.lambda_age)), 6),
+            round(float(np.log10(self.lambda_year)), 6),
+        )
+        if at == corner:
+            raise PolarisComputationError(
+                "Penalized IRLS did not converge in 100 iterations (forced by test)."
+            )
+        return real_fit(self, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(PenalizedTensorMIModel, "fit", fit_or_fail)
+
+
+def test_a_non_converging_grid_point_is_rejected_not_raised(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ADR-187 finding 5 — and the search must now complete over it.
 
     `select_lambdas_reml` used to let `PolarisComputationError` out of its inner
-    scoring call, so the corner `log10 λ = (-1, 8)` — essentially unpenalized in age,
-    saturated in year — took the entire search down with it. The coarse sweep visits
-    that corner on **every** call, so on the ~1-in-100 replicates where it fails, the
-    whole selection failed. Slice 4 runs this on a 125k-cell book, where that is a
-    failed production run rather than a failed test.
+    scoring call, so the corner `log10 λ = (-1, 8)` took the entire search down with
+    it. The coarse sweep visits that corner on **every** call, so on the ~1-in-100
+    replicates where it failed, the whole selection failed. Slice 6 runs this on a
+    125k-cell book, where that is a failed production run rather than a failed test.
 
-    Two-sided by construction: the pinned seed must still *produce* a rejection, so a
-    future change that quietly made every corner converge would fail here and be
-    noticed rather than silently retiring the guard.
+    Two-sided by construction: **exactly one** point must be rejected, so a change that
+    swallowed failures wholesale, or that stopped visiting the corner at all, fails here
+    rather than quietly retiring the guard. See `_ABORT_SEED` on why the failure is
+    forced rather than fished for.
     """
     cells = _cells_from(_quadratic_mi, seed=_ABORT_SEED)
+    # Not necessarily rejection-free — on some platforms the corner genuinely fails
+    # here too. It is the reference for the winner and the grid size, not for the count.
+    unforced = select_lambdas_reml(cells, k_age=7, k_year=6)
 
-    # The corner itself still does not converge — the premise, not an assumption.
-    with pytest.raises(PolarisComputationError, match="did not converge"):
-        PenalizedTensorMIModel(cells, k_age=7, k_year=6, lambda_age=1e-1, lambda_year=1e8).fit()
-
+    _raise_at_corner(monkeypatch)
     selection = select_lambdas_reml(cells, k_age=7, k_year=6)
 
-    assert selection.n_rejected >= 1, (
-        "the pinned seed no longer produces a non-converging grid point, so this test "
-        "is no longer exercising the rejection path — find a new seed rather than "
-        "deleting the assertion"
+    assert selection.n_rejected == 1, (
+        f"expected exactly the one forced corner to be rejected, got "
+        f"{selection.n_rejected} of {selection.n_evaluated}"
     )
-    assert selection.n_rejected < selection.n_evaluated
+    assert selection.n_evaluated == unforced.n_evaluated, (
+        "rejecting a point must not change how much of the grid is searched"
+    )
     assert np.isfinite(selection.reml_score)
+    # The corner is a bad λ, so discarding it must not move the winner. This is the
+    # assertion that says the rejection is *harmless*, not merely survivable.
+    assert (selection.lambda_age, selection.lambda_year) == (
+        unforced.lambda_age,
+        unforced.lambda_year,
+    )
 
 
-def test_the_rejected_count_reaches_the_fit_and_a_hand_set_fit_has_none() -> None:
+def test_the_rejected_count_reaches_the_fit_and_a_hand_set_fit_has_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A search that discarded points must say so where a reader will look.
 
     The count is useless on the selection object alone: `fit_reml` is the entry point
@@ -1110,10 +1167,12 @@ def test_the_rejected_count_reaches_the_fit_and_a_hand_set_fit_has_none() -> Non
     denominator are carried onto the fit, and both are `None` for a hand-set λ, which
     is the same provenance distinction `reml_score` and `lambda_grid_step` draw.
     """
-    fit = fit_reml(_cells_from(_quadratic_mi, seed=_ABORT_SEED), k_age=7, k_year=6)
     hand_set = PenalizedTensorMIModel(_cells(noisy=True), k_age=7, k_year=6, lambda_year=1.0).fit()
 
-    assert fit.n_rejected_points is not None and fit.n_rejected_points >= 1
+    _raise_at_corner(monkeypatch)
+    fit = fit_reml(_cells_from(_quadratic_mi, seed=_ABORT_SEED), k_age=7, k_year=6)
+
+    assert fit.n_rejected_points == 1
     assert fit.n_evaluated_points is not None
     assert fit.n_evaluated_points > fit.n_rejected_points
     assert hand_set.n_rejected_points is None
@@ -1320,26 +1379,31 @@ def test_the_smoothing_variance_matches_the_measured_lambda_spread() -> None:
         )
 
 
-def test_the_unconditional_covariance_refuses_a_corner_it_cannot_reach() -> None:
+def test_the_unconditional_covariance_refuses_a_corner_it_cannot_reach(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A missing derivative is not a smaller Hessian — it is no Hessian.
 
     Unlike the selector, `smoothing_uncertainty` does **not** reject and continue. The
     selector is choosing among points and can afford to discard one; a central
-    difference needs both of its points, and assembling the matrix from whichever
-    corners happened to converge would report a different quantity under the same
-    name. Forced here with a step so large it drives λ_year far past the search
-    bound.
+    difference needs *both* of its points, and assembling the matrix from whichever
+    corners happened to converge would report a different quantity under the same name.
+
+    Centred on the corner ADR-187 names, with that corner forced to fail — so the very
+    first evaluation is the one that cannot be had. The message must name the offset,
+    because "a fit did not converge" is not actionable when nine of them were attempted.
     """
-    cells = _cells_from(_quadratic_mi, seed=_ABORT_SEED)
-    with pytest.raises(PolarisComputationError, match="did not converge"):
+    _raise_at_corner(monkeypatch)
+    with pytest.raises(PolarisComputationError, match="did not converge") as excinfo:
         smoothing_uncertainty(
-            cells,
-            lambda_age=1e-1,
-            lambda_year=1e8,
-            log_step=np.log(10.0) * 0.0001,
+            _cells_from(_quadratic_mi, seed=_ABORT_SEED),
+            lambda_age=10.0 ** _ABORT_CORNER[0],
+            lambda_year=10.0 ** _ABORT_CORNER[1],
             k_age=7,
             k_year=6,
         )
+    assert "offset" in str(excinfo.value)
+    assert isinstance(excinfo.value.__cause__, PolarisComputationError)
 
 
 @pytest.mark.parametrize(("lambda_age", "lambda_year"), [(0.0, 1.0), (1.0, 0.0), (-1.0, 1.0)])

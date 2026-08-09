@@ -1707,7 +1707,11 @@ explanation, which is a publishable finding in its own right.
   truncated grid cannot hide; rejecting *every* point raises rather than returning the
   grid centre as a fabricated selection. Reproduced at seed 1098 before the fix (routine
   step 7b) and measured at **2 replicates in 400** during the coverage study — either
-  one would previously have aborted it. Original entry preserved below.
+  one would previously have aborted it. **Caveat found in CI (ADR-188 amendment 1):**
+  the corner's non-convergence is **platform-dependent** — it converges on CI's Python
+  3.13 runner — so the "one replicate in a hundred" rate below is a property of a
+  machine, not of the estimator. The fix is unaffected; three tests that pinned the
+  accident were rewritten to force it. Original entry preserved below.
 
   **`select_lambdas_reml` aborts when a grid corner fails to converge.**
   **BLOCKER for slice 4** and already recorded as such in

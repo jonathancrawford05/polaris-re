@@ -181,6 +181,28 @@ committed separately as `bceab3a`. Exactly +1 line. Creep verdict:
 `has_structural_creep: false`, `has_wall_time_creep: false` — `peak_mib` 33 → 33 (Δ+0),
 wall-time recent/baseline 1.007×. **No structural creep to raise.**
 
+## CI round 1 — three tests were pinning a platform, not a contract
+
+The first CI run failed **three slice-4 tests on Python 3.13 while passing on 3.12**.
+One cause: at seed 1098 the corner `log10 λ = (-1, 8)` **converges** on the 3.13
+runner, and the tests asserted it does not.
+
+Everything else was bit-for-bit portable — same selected λ, same 166 grid points, REML
+score agreeing to the 11th digit. Only whether one badly-conditioned IRLS crosses a
+deviance tolerance in 100 iterations moved, which is BLAS accumulation order.
+
+Two consequences, both recorded in **ADR-188 amendment 1**:
+
+- **ADR-187's "roughly one replicate in a hundred" is a property of a platform**, not
+  of the estimator. The fix is unaffected — a rejection branch is right whether the
+  corner fails on 1% of replicates or 0% — but any statement of the *frequency* must
+  name the machine, and the ADR's "2 in 400" now does.
+- **The tests force the failure at that exact corner** instead of fishing for a seed.
+  Strictly stronger: the seed asserted the contract on one platform and asserted
+  nothing on the others while reading as a guard in both. Forcing it also let the
+  assertion tighten from `n_rejected >= 1` to `n_rejected == 1`, with the winner and
+  the grid size asserted unchanged.
+
 ## Open Questions / Follow-ups
 
 1. **The gate fails and the remedy is not yet decidable.** Two candidate causes with
