@@ -151,6 +151,33 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
   `docs/MEASUREMENT_unconditional_coverage.md`) — and it failed the gate. See the
   slice-4 entry above for the three numbers, and ADR-188 for the reasoning.
 
+## Maintainer decisions — 2026-08-09 (PR #190)
+
+Two questions slice 4 raised were answered by the maintainer. Both are recorded in
+`PLAN_penalized_mi_surface.md` (Anchor 7 amendment; slice 5 workflow) and repeated here
+because this file is what the next session reads first.
+
+1. **The band keeps being shown.** The failing gate does **not** pull it. What it
+   forbids is the unqualified nominal label. While it is displayed, slice 6 owes three
+   things: the **measured** coverage rather than the nominal, a **stated reason for the
+   deviation** beside it, and the target kept live. The obligation ends when we either
+   reach nominal or record a decision that it is not achievable or not worth pursuing —
+   either of which is a result. Note this is a *narrowing*, not a relaxation: the
+   pre-gate status quo displayed a band whose coverage nobody had measured.
+
+2. **The R run happens after slice 5 is built**, as a batch. So slice 5's job is to make
+   one run serve many iterations — **the mgcv reference for the synthetic case is
+   COMMITTED**, turning it from a live oracle into a golden file the implementer can
+   iterate against offline. Expected round trips: **two to three**, not one and not ten.
+   Four build requirements and one guard are spelled out in PLAN slice 5; the two that
+   would otherwise be discovered painfully are: **the exchange file must be TSV + JSON,
+   not `.npz`** (R cannot read `.npz` without `reticulate`/`RcppCNPy`), and **the
+   comparator must hash the exchange file** so nobody can iterate against a stale
+   reference and declare parity with a file R never saw.
+
+   The earlier "run levels 1 and 4 first if R time is short" recommendation is
+   **superseded** — batching every level into one invocation removes the question.
+
 ### New in slice 4 — read before slice 5
 
 - **Nothing may be called a 95% band.** Anchor 7's gate is measured and failed. Slice 6

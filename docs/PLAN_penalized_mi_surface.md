@@ -140,8 +140,23 @@ answer and this anchor exists because it was nearly adopted as one.
 silently re-pointed. Every committed report was produced by it, the QA goldens
 depend on nothing moving, and Anchor 1 needs it alive as the oracle.
 
-**Anchor 7 — added 2026-08-09 — an interval is not published until its coverage is
-measured under the procedure that produced it.** Slice 3 measured coverage
+**Anchor 7 — added 2026-08-09, AMENDED 2026-08-09 (maintainer) — an interval is not
+published *without its measured coverage* until its coverage is measured under the
+procedure that produced it.**
+
+> **Amendment (maintainer decision, 2026-08-09).** The original anchor read as a bar on
+> *display*. It is not. **The band may keep being shown.** What the failing gate forbids
+> is the unqualified **nominal label** — calling it a 95% band when it measures 85%.
+>
+> The standing obligation while it is shown is threefold, and slice 6 owns all of it:
+> quote the **measured** rate rather than the nominal one; state a **reason for the
+> deviation** beside it; and keep the target live. The anchor closes when we either
+> reach nominal coverage or record a decision that it is not achievable or not worth
+> pursuing — and either of those is a result, not a failure.
+>
+> This is a narrowing, not a relaxation: "show it with the number it actually achieves
+> and why" is a stronger requirement than the pre-gate status quo, which showed a band
+> whose coverage nobody had measured at all. Slice 3 measured coverage
 *conditional* on λ and found 87.1% against a nominal 95%. Conditional coverage is a
 statement about the formula; **unconditional coverage — select λ per replicate, fit,
 count — is a statement about what a user gets**, and it is the only one that licenses
@@ -544,14 +559,64 @@ directly — but that is an assumption to *verify* at level 1, not to assume.
   coefficient difference, `edf` difference, λ ratio, max surface difference. Those are
   derived scalars, not experience.
 
+**The R run happens AFTER slice 5 is built** (maintainer decision, 2026-08-09), and
+the workflow below is designed around one fact: **the expensive resource is the
+round trip, not the R compute.** Each round trip costs a session boundary, so the
+build must make one run sufficient for many iterations.
+
+**The governing decision: the mgcv output is a COMMITTED GOLDEN, not a live oracle.**
+The R side is a pure function of the exchange file, so once the maintainer runs it, the
+reference is committed and the implementer iterates entirely **offline** against it —
+zero further R runs while fixing our arithmetic. A second run is needed only if the
+design or penalties change (which changes the exchange file), or to add cases. This
+differs from the original plan, which committed only the *comparison report*: for the
+**synthetic** case there is no licensing reason to withhold the reference, since it is
+generated from a pinned seed. (HMD/ILEC are unchanged — exchange local-only, report
+committed, `DATA_LICENSING.md` §1.)
+
+**Four build requirements that make the one run count.**
+
+1. **The exchange file must be R-readable with no extra R packages.** Plain TSV plus a
+   JSON manifest — `read.table` and `jsonlite::fromJSON` — **not** `.npz`, which an
+   earlier revision of this plan specified and which R cannot read without `reticulate`
+   or `RcppCNPy`. Floats at `%.17g` so the round-trip is exact.
+2. **Export a matrix, not a case.** Extra cells cost seconds inside one R invocation and
+   days as a second round trip. ~8-12 cells: three fixed-λ pairs (interior,
+   age-saturated, year-saturated), free-`sp` REML, with and without a factor block, two
+   `(k_age, k_year)` pairs. A single case can agree by accident — especially for the
+   λ-relative-to-φ convention flagged in the PR #190 review, which a well-chosen cell
+   exposes and an unlucky one hides.
+3. **Dump intermediates, not just answers.** Per cell: coefficients, `sum(m$edf)`,
+   `m$edf` per block, `m$sp`, both `vcov` variants, deviance, scale, iteration count,
+   rank. "Coefficients differ by 0.03" is not actionable offline; the intermediates are
+   what let the implementer bisect without asking for another run.
+4. **Pin the environment in the output** — `sessionInfo()` and
+   `packageVersion("mgcv")` — so a later disagreement cannot be quietly attributed to a
+   version bump.
+
+**The guard that matters: the comparator hashes the exchange file** and refuses to
+compare a reference produced from a different hash. The worst failure mode available
+here is iterating against a stale reference and declaring parity with a file R never
+saw — a silent, confident wrong answer of exactly the class this epic keeps catching.
+
+**Expected round trips: two to three.** Run 1 establishes the deltas; the implementer
+fixes offline; run 2 confirms. A third only if reaching parity requires changing the
+design or the penalty.
+
 **Deliverables — the artifacts the maintainer needs.**
-- `scripts/export_mgcv_case.py` — writes the exchange file (`.npz` + a JSON manifest)
-  for a named case: `synthetic`, `hmd-usa`, `ilec-banded`.
-- `scripts/mgcv_conformance.R` — reads it, runs all five levels, writes results JSON.
-  Self-contained; `Rscript scripts/mgcv_conformance.R <exchange> <out.json>`.
-- `scripts/compare_mgcv_conformance.py` — reads both sides, emits the committed
-  report with per-level pass/fail and the tolerance each was judged against.
-- `docs/RUNBOOK_mgcv_conformance.md` — the three commands, and what each level means.
+- `scripts/export_mgcv_case.py` — writes the exchange file (**TSV + JSON manifest**)
+  for a named case: `synthetic`, `hmd-usa`, `ilec-banded`. Committed for `synthetic`.
+- `scripts/mgcv_conformance.R` — reads it, runs all five levels over the case matrix,
+  writes one reference JSON. **No arguments needed**; paths default. Exits non-zero on
+  any R-side error. Requires only `mgcv` (base R recommended package) and `jsonlite`.
+- `scripts/compare_mgcv_conformance.py` — reads both sides, verifies the exchange hash,
+  prints a pass/fail table immediately and emits the committed report with the
+  tolerance each level was judged against.
+- `docs/RUNBOOK_mgcv_conformance.md` — the **two** commands and what each level means.
+
+**Level ordering is now moot** and deliberately so. An earlier note recommended running
+levels 1 and 4 first if R time was short; batching every level into a single invocation
+removes the question, which is better than answering it.
 
 **Tests.** The Python side is testable without R, and must be: the exporter round-trips,
 the comparator's tolerances are asserted against a synthetic "known agreement" and a
