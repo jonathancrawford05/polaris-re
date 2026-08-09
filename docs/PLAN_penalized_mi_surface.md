@@ -4,9 +4,43 @@
 epic (`PLAN_gam_spline_diagnostics.md`, COMPLETE 2026-08-08).
 **Predecessors:** ADR-182 (the diligence harness), **ADR-184 + amendments 1–2**
 (the diagnostic that produced the case for this).
-**Total slices:** 5 (slices 1–4 autonomous, slice 5 one maintainer run)
-**Estimated scope:** ~4–6 dev-days autonomous + a single ILEC/HMD re-run.
-The largest single piece of numerical work in the project to date.
+**Total slices:** **7** (1–6 autonomous, 7 one maintainer run) — **revised
+2026-08-09**, see below.
+**Estimated scope:** ~7–9 dev-days autonomous + one `mgcv` conformance run and one
+ILEC/HMD re-run, both maintainer-side. The largest single piece of numerical work in
+the project to date.
+
+> ## Revision 1 — 2026-08-09, after slice 3
+>
+> **The goal is now explicit: a Python estimator that can stand in for R's `mgcv`
+> for this workflow.** The original plan treated `mgcv` as an optional oracle for one
+> quantity. Slice 3 turned three separate claims into things that *must* be checked
+> against it, and produced a measured reason the interval is not yet fit to publish.
+>
+> **What changed and why:**
+>
+> 1. **Slice 3 measured the penalized band at 87.1% against a nominal 95%** on a truth
+>    the basis represents exactly, and localised the cause: `Vb` conditions on λ while
+>    λ is itself a sampling quantity with real variance. The original slice 4 would
+>    have shipped that to a reader with a caveat. **New slice 4 fixes it** — the
+>    Kass–Steffey unconditional covariance — and a new **gate** forbids labelling
+>    anything a 95% band until select-per-replicate coverage passes.
+> 2. **A robustness defect blocks the study that would prove it.**
+>    `select_lambdas_reml` aborts when a grid corner fails to converge (ADR-187
+>    finding 5), which is why the unconditional coverage study is not yet delivered.
+>    It is the first item of slice 4.
+> 3. **The `mgcv` cross-check is promoted from a footnote to its own slice (5).**
+>    `tr(F)`, the unconditional covariance and `gamma` are all *adopted from mgcv and
+>    unverified*. One R run settles all three, and slice 5 builds the artifacts for it.
+> 4. **A single global λ was considered and rejected** (ADR-187 amendment 1). The
+>    evidence for it — λ_age looking unidentifiable — was an artifact of an age-flat
+>    fixture: on a truth with age structure, λ_age's spread across replicates falls
+>    from 5.50 decades to 0.75. And `te()` in mgcv is *defined* by one smoothing
+>    parameter per marginal, so a global λ would move away from the parity goal.
+> 5. **Old slices 4 and 5 become 6 and 7**, unchanged in scope but re-ordered behind
+>    robustness and conformance — because slice 6 is where these numbers first reach a
+>    human, and shipping an unverified `edf` beside an unverified band is the
+>    "less auditable, not more" failure Anchor 4 exists to prevent.
 
 ---
 
@@ -105,6 +139,23 @@ answer and this anchor exists because it was nearly adopted as one.
 **Anchor 6 — the unpenalized path stays.** `TensorMIModel` is not deleted or
 silently re-pointed. Every committed report was produced by it, the QA goldens
 depend on nothing moving, and Anchor 1 needs it alive as the oracle.
+
+**Anchor 7 — added 2026-08-09 — an interval is not published until its coverage is
+measured under the procedure that produced it.** Slice 3 measured coverage
+*conditional* on λ and found 87.1% against a nominal 95%. Conditional coverage is a
+statement about the formula; **unconditional coverage — select λ per replicate, fit,
+count — is a statement about what a user gets**, and it is the only one that licenses
+the label "95%". This anchor is why slice 4 exists and why slice 6 sits behind it.
+It applies to the delta-method bands too, which is what makes slice 3's finding 1 a
+release-grade result rather than a reassurance.
+
+**Anchor 8 — added 2026-08-09 — anything adopted from `mgcv` is marked adopted until
+`mgcv` has been run.** Three quantities now carry this: `tr(F)` as the per-term EDF,
+the Kass–Steffey unconditional covariance, and Wood's `gamma`. Each is a defensible
+choice *because* a mature reference implementation makes it, and none of that is
+evidence about **our** implementation of it. Slice 5 converts them; until it does,
+every document that quotes them says "adopted, not verified" — and a conformance run
+that **refutes** one is a successful run that changes the anchor, not a failed slice.
 
 ## 3. Slices
 
@@ -307,39 +358,205 @@ held without editing the extractor.
 
 ---
 
-### Slice 4: harness integration and reporting (autonomous)
+### Slice 4: selector robustness and an interval that does not condition on λ (autonomous)
 
-- **Status:** NOT STARTED
+- **Status:** **NEXT**
 - **Depends on:** Slice 3
 
-**Scope.** `--penalized` on `scripts/experience_diligence.py`, defaulting **off**
-(Anchor 6). The report gains `edf` per margin, the selected λ, the selection
-criterion, and the `k` ceilings — and raises its own caveat when any `edf` sits
-near its `k`, per Anchor 4.
+**Why this slice exists, and why it was not in the original plan.** Slice 3 measured
+the penalized band at **87.1% against a nominal 95%** on a truth the basis represents
+exactly, and traced the shortfall to `Vb = (XᵀWX + S)⁻¹φ` **conditioning on λ** while λ
+itself is a sampling quantity. The original plan went straight from bands to harness
+integration, which would have shipped that interval to a reader with a caveat instead
+of a fix. This slice is the fix.
 
-**Performance budget, stated in advance.** `k=12` per margin gives 144 interaction
-columns against today's 24, so the ILEC design becomes ~125,676 × ~160 floats
-(~160 MB) and each IRLS solve is a 160×160 system — cheap. The cost is the **outer
-λ loop**: ~20–50 penalized IRLS fits where there is currently one. Budget: the
-fitting stage may grow by up to 10× wall-clock without being considered a
-regression, on the grounds that the 12.5 GB read dominates the run either way. If
-it exceeds that, say so in the report rather than absorbing it.
+**Three pieces, in dependency order.**
 
-**Tests.** Defaults byte-identical to the current harness; report schema additive
-so the notebook's `DEGRADED` machinery handles the older committed reports; the
-CLI refuses `k` below the penalty null-space dimension with a sentence, not a
-traceback.
+1. **The abort must go first** (ADR-187 finding 5). `select_lambdas_reml` raises when a
+   grid point fails penalized IRLS — `log10 λ = (-1, 8)`, essentially unpenalized in
+   age and saturated in year, on roughly one replicate in a hundred — and the whole
+   search dies with it. **Decision: score a non-converging point as `+inf` and
+   continue.** A λ whose own fit does not converge is not a λ to select, so treating
+   it as infinitely bad is the right answer rather than a workaround; the alternatives
+   (damping the IRLS step, raising the cap) make the search slower to hide a point it
+   should be rejecting. The count of rejected points is recorded on the fit, because a
+   search that silently discarded half its grid is a different object from one that
+   discarded nothing.
+
+2. **The unconditional covariance** — Wood's `Vb'`, the Kass–Steffey correction that
+   `mgcv` exposes as `vcov(..., unconditional = TRUE)`. This adds the curvature of the
+   REML criterion with respect to `log λ` back into the parameter covariance, so the
+   interval widens by roughly the amount λ's own uncertainty warrants. It is the
+   direct answer to the 87%, and it is the piece most likely to move coverage back
+   toward nominal.
+
+3. **Wood's `gamma`** — the multiplier on the effective-degrees-of-freedom cost in the
+   selection criterion (his recommended 1.4), included **for parity, not as a fix**.
+   ADR-187 amendment 2 is explicit that the "REML undersmooths" direction was measured
+   on the age-flat fixture and **does not reproduce** on an age-varying one. Shipping
+   `gamma` as a remedy for a bias this project has not demonstrated would be adopting
+   a number because a reference implementation uses it — the exact move `tr(F)` is
+   already carrying as a caveat. It defaults to 1.0 and its effect is measured.
+
+**Tests.**
+- `test_a_non_converging_grid_point_is_rejected_not_raised` — reconstruct the known
+  failure (quadratic fixture, seed 1098) and require selection to complete, with the
+  rejected-point count exposed.
+- `test_the_unconditional_band_is_wider_than_the_conditional_one` — the correction is
+  additive in the covariance and must widen, never narrow. A one-line direction check
+  that would catch a sign error.
+- `test_gamma_above_one_selects_a_smoother_fit` — higher `gamma`, lower `edf`,
+  monotonically. Two-sided by construction.
+- **`test_unconditional_coverage_of_the_shipped_procedure`** — see the gate below.
+
+**Acceptance criterion, and it is a gate rather than a checklist item.**
+
+> **Nothing in this project may be labelled a 95% band until select-per-replicate
+> coverage has been measured and is acceptable.** Slice 3 measured coverage
+> *conditional* on λ. The number a user needs is the **unconditional** one — select λ
+> on each replicate, fit, and count — because that is the procedure they run. It was
+> registered as blocked by the abort in slice 3 and is the first thing the abort fix
+> unblocks. Measure it for the conditional band *and* the unconditional band, on both
+> the age-flat and age-varying truths, and publish both whichever way they come out.
+
+**Cost note.** Per-replicate selection is ~200 penalized fits per replicate, so a
+200-replicate study is ~40,000 fits. Budget it as a `@slow`-marked test or a
+measurement script with a committed report; do not silently reduce the replicate count
+to make it fit, and if it is reduced say so in the report (ADR-187's Monte-Carlo SE at
+200 replicates is ~1.5pp and grows as `1/√R`).
 
 ---
 
-### Slice 5: real data, against predictions registered in advance (maintainer run)
+### Slice 5: the `mgcv` conformance suite (autonomous build, maintainer runs R)
 
-- **Status:** BLOCKED on slices 1–4
-- **Depends on:** Slices 1–4
+- **Status:** BLOCKED on slice 4
+- **Depends on:** Slice 4
 
-Two runs — HMD USA and ILEC duration-banded — with the same pre-registration
-discipline the diagnostics epic used, and for the same reason: it worked. §6 is
-the interpretation table, written now.
+**This is the slice that turns "adopted, not verified" into "verified", and it is now
+load-bearing rather than optional.** Three separate claims currently rest on "this is
+what `mgcv` does" with nothing checking it: `tr(F)` as the per-term EDF (Anchor 4),
+the Kass–Steffey unconditional covariance, and `gamma`. All three are settled by the
+same R run.
+
+**The construction, and why it is exact.** ADR-151's oracle works because the
+unpenalized Poisson log-likelihood over a *shared* design is strictly concave, so its
+maximiser is unique and any conformant solver must return it. **That argument extends
+to the penalized case**: adding a positive-semidefinite penalty keeps the objective
+strictly concave, so at fixed λ over a shared `(X, S_age, S_year)` the penalized MLE
+is unique too.
+
+`mgcv` accepts exactly that model through **`paraPen`** — a parametric term with
+caller-supplied penalty matrices:
+
+```r
+m <- mgcv::gam(y ~ 0 + X, paraPen = list(X = list(S_age, S_year)),
+               sp = c(lambda_age, lambda_year),      # level 1: fixed
+               family = poisson(), offset = off, method = "REML")
+```
+
+**This is the whole design.** Because the design *and* the penalties are ours, every
+disagreement is **our arithmetic** rather than a basis convention. Trying instead to
+match `te(attained_age, calendar_year)` would compare two different bases, two
+different knot placements and two different identifiability constraints, and
+disagreement would be uninterpretable — the same reason Anchor 1 is asserted on the
+fitted surface and never on coefficients.
+
+**Five levels, each settling one claim.**
+
+| level | R side | settles |
+|---|---|---|
+| 1 | `sp` fixed to ours | the penalized IRLS itself — **coefficients** must match element-wise |
+| 2 | `sp` free, `method = "REML"` | our REML criterion and search — compare selected `sp` and `edf` |
+| 3 | `sum(m$edf)`, `m$edf` | **`tr(F)`** — Anchor 4's definition, finally checked |
+| 4 | `vcov(m)` vs `vcov(m, unconditional = TRUE)` | the Kass–Steffey correction slice 4 implements |
+| 5 | `gamma = 1.4` | `gamma`'s reference behaviour |
+
+Level 1 is the foundation: if coefficients agree at fixed λ, every later disagreement
+is localised to selection, EDF or covariance rather than to the fit. **λ is comparable
+here in a way it would not be under `te()`** — `sp` multiplies the supplied `S`
+directly — but that is an assumption to *verify* at level 1, not to assume.
+
+**Two datasets, and the licensing line runs between them.**
+
+- **Synthetic (primary).** The exchange file is generated from a pinned seed and is
+  **committed**, so the maintainer runs one R script against a file already in the
+  repo and needs no data of their own. This case must be sufficient on its own to
+  settle all five levels.
+- **HMD USA and ILEC (scale check).** Real data exercises 125k cells, real
+  overdispersion and real sparsity, which the synthetic case does not. The exchange
+  file for these contains `deaths` and `log(exposure · q_base)` per cell — **that is
+  the dataset at cell grain and is never committed** (Design Anchor 6,
+  `DATA_LICENSING.md` §1). It is written to the maintainer's local working directory,
+  consumed by R there, and **only the comparison report is committed** — max absolute
+  coefficient difference, `edf` difference, λ ratio, max surface difference. Those are
+  derived scalars, not experience.
+
+**Deliverables — the artifacts the maintainer needs.**
+- `scripts/export_mgcv_case.py` — writes the exchange file (`.npz` + a JSON manifest)
+  for a named case: `synthetic`, `hmd-usa`, `ilec-banded`.
+- `scripts/mgcv_conformance.R` — reads it, runs all five levels, writes results JSON.
+  Self-contained; `Rscript scripts/mgcv_conformance.R <exchange> <out.json>`.
+- `scripts/compare_mgcv_conformance.py` — reads both sides, emits the committed
+  report with per-level pass/fail and the tolerance each was judged against.
+- `docs/RUNBOOK_mgcv_conformance.md` — the three commands, and what each level means.
+
+**Tests.** The Python side is testable without R, and must be: the exporter round-trips,
+the comparator's tolerances are asserted against a synthetic "known agreement" and a
+seeded "known disagreement" so it can actually fail, and `mgcv_available()` gates the
+R path exactly as ADR-151 established. **CI never grows an R dependency** — that
+constraint is unchanged and is why the comparator is a separate script rather than a test.
+
+**Acceptance criteria.** Levels 1–3 agree within stated tolerances on the synthetic
+case, or the disagreement is recorded as a finding with the tolerance that failed.
+`tr(F)` moves from *adopted* to *verified or refuted* — and refuted is an acceptable
+outcome that changes Anchor 4 rather than a failure of the slice.
+
+---
+
+### Slice 6: harness integration and reporting (autonomous)
+
+- **Status:** BLOCKED on slices 4–5
+- **Depends on:** Slices 4, 5
+
+*(Was slice 4 in the original plan. Moved behind robustness and conformance for a
+reason worth stating: this slice is where the numbers reach a human, and shipping a
+selected λ, an `edf` and a band to a reader before any of the three were verified is
+precisely the "less auditable, not more" failure Anchor 4 exists to prevent.)*
+
+**Scope.** `--penalized` on `scripts/experience_diligence.py`, defaulting **off**
+(Anchor 6). The report gains `edf` per margin, the selected λ, the selection
+criterion, the `k` ceilings, and — new since the original plan — **the count of
+rejected grid points** and **whether the band is conditional or unconditional**.
+
+**Reporting obligations carried from slices 3–4**, all of which are ways the report
+could mislead while being technically correct:
+- Quote the coverage **direction**, not a point figure, unless slice 4's unconditional
+  study produced a stable one.
+- A band displayed beside a selected λ is **not jointly calibrated with it** unless
+  the unconditional covariance is in use — so the report must say which it used.
+- λ is one draw. ADR-187 amendment 1 bounds the instability at ~1 decade in age and
+  ~2 in year on a structured truth; that is the number to caveat with, **not** the
+  5-decade figure, which was fixture-specific.
+
+**Performance budget, unchanged from the original plan** — the fitting stage may grow
+by up to 10× wall-clock without being considered a regression, on the grounds that the
+12.5 GB read dominates. If it exceeds that, say so in the report rather than absorbing
+it.
+
+**Tests.** Defaults byte-identical to the current harness; report schema additive so
+the notebook's `DEGRADED` machinery handles older committed reports; the CLI refuses
+`k` below the penalty null-space dimension with a sentence, not a traceback.
+
+---
+
+### Slice 7: real data, against predictions registered in advance (maintainer run)
+
+- **Status:** BLOCKED on slices 4–6
+- **Depends on:** Slices 4, 5, 6
+
+*(Was slice 5.)* Two runs — HMD USA and ILEC duration-banded — with the same
+pre-registration discipline the diagnostics epic used, and for the same reason: it
+worked. §6 is the interpretation table, written before slice 1 existed and unchanged.
 
 **Acceptance criteria.** The predictions in §6 are checked and recorded either way.
 `MEASUREMENT_penalized_mi_surface.md` written. No data files added; Design Anchor 6
@@ -400,18 +617,30 @@ the A4′ epic used, which has now paid off twice.
   and `tests/test_analytics/test_experience_gam_ramp_diagnostic.py` already has
   ILEC-shaped and HMD-shaped fixtures with injected known surfaces. Reuse them
   rather than building new ones.
-- **ADR-151's `mgcv` oracle finally earns its keep here, and now has a second job.**
-  An independent implementation of exactly this estimator, on an R-equipped machine,
-  is the strongest external check available and is the maintainer's to run.
-  Beyond checking the fitted surface, it is what **settles the Anchor-4 EDF
-  definition**: `tr(F)` over the tensor block is chosen precisely because it is what
-  `mgcv` reports per smooth term, and that claim is unverified until a `te(age,
-  year)` fit in `mgcv` returns the same number on the same data. Until then the
-  definition is **adopted, not validated**, and the plan says so rather than
-  presenting a borrowed convention as a checked one. Still formally out of scope;
-  worth running alongside slice 5.
+- **ADR-151's `mgcv` oracle is now slice 5, not a footnote** (revised 2026-08-09).
+  It has three jobs, not one: `tr(F)` (Anchor 4), the Kass–Steffey unconditional
+  covariance, and `gamma`. **And its construction changes.** The original note
+  imagined comparing against a `te(attained_age, calendar_year)` fit; that would
+  compare two different bases, two knot placements and two identifiability
+  constraints, and any disagreement would be uninterpretable. Slice 5 instead ships
+  **our** design and **our** penalties to `mgcv` via `paraPen`, so the model is
+  identical and every disagreement localises to our arithmetic — the same
+  correct-by-construction argument ADR-151 already makes for the unpenalized case,
+  which extends because a PSD penalty keeps the objective strictly concave.
+- **The maintainer can run R** (confirmed 2026-08-09). Slice 5's job is to make that
+  run cheap: a committed synthetic exchange file so the primary conformance needs no
+  data at all, and a local-only exporter for HMD/ILEC where only the *comparison
+  report* comes back into the repo.
 - **Do not tune until it agrees.** If REML selects something that disagrees with
   the hand-tuned quadratic, that is data about the selector.
+- **The λ-instability headline is fixture-specific — quote ~1 decade, not 5**
+  (ADR-187 amendment 1). The 5.50-decade figure came from an age-flat truth where the
+  age penalty had nothing to identify. On a structured truth it is 0.75 decades in age
+  and 1.75 in year, with RMSE across selected λ varying by only 1.13×.
+- **The REML profile is shallow, not flat** (ADR-187 amendment 2): 3.85 REML units
+  across 5.5 decades for a 2.6× change in `edf`. A better optimiser does not help,
+  because the grid already locates each dataset's optimum. What helps is an interval
+  that stops conditioning on λ. Do not respond to instability by rebuilding the search.
 
 ## 8. Open questions (for human)
 

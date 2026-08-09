@@ -4,9 +4,12 @@
 spline-diagnostics epic.
 **Plan:** `docs/PLAN_penalized_mi_surface.md`
 **Predecessors:** ADR-182, **ADR-184 + amendments 1-3**
-**Status:** **SLICES 1-3 DONE (2026-08-09)** — ADR-185, ADR-186, ADR-187. Slice 4 is NEXT.
-**Total slices:** 5 (1-4 autonomous, 5 one maintainer run)
-**Estimated scope:** ~4-6 dev-days autonomous + one maintainer run
+**Status:** **SLICES 1-3 DONE (2026-08-09)** — ADR-185, ADR-186, ADR-187 + amendments
+1-2. Slice 4 is NEXT.
+**Total slices:** **7** (1-6 autonomous, 7 one maintainer run) — **plan revised
+2026-08-09**, see `PLAN_penalized_mi_surface.md` Revision 1.
+**Estimated scope:** ~7-9 dev-days autonomous + one `mgcv` conformance run and one
+ILEC/HMD re-run, both maintainer-side.
 
 ## Overall goal
 
@@ -32,12 +35,23 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
    nor violated**; the band layer was extracted from three byte-identical copies
    rather than copied a fourth time. Coverage measured, and **the registered
    hypothesis was falsified** — the committed delta-method bands are calibrated.
-4. **Harness integration** — **NEXT** — `--penalized` off by default (Anchor 6),
-   `edf` and λ reported (Anchor 4).
-5. **Real data** — against the four predictions PLAN §6 registers in advance.
+4. **Selector robustness + an unconditional interval** — **NEXT** — fix the abort
+   (score a non-converging grid point `+inf`), add the Kass-Steffey unconditional
+   covariance, add Wood's `gamma` for parity. **Gated on Anchor 7**: the
+   select-per-replicate coverage study must pass before anything is labelled a 95%
+   band.
+5. **`mgcv` conformance suite** — ship our design AND our penalties via `paraPen` so
+   the model is identical and disagreement localises to our arithmetic. Five levels:
+   fixed-λ coefficients, REML selection, `tr(F)`, unconditional `vcov`, `gamma`.
+   Synthetic exchange file committed; HMD/ILEC exchange local-only, report committed.
+6. **Harness integration** — `--penalized` off by default (Anchor 6), `edf` and λ
+   reported (Anchor 4). Moved behind 4-5 deliberately.
+7. **Real data** — against the four predictions PLAN §6 registers in advance.
 
 ## Context for the next session
 
+- **Read PLAN Revision 1 first**, then §2 (now **eight** anchors — 7 and 8 are new
+  and both gate slice 4) and §6 (the predictions).
 - **Read PLAN §2 (the six anchors) and §6 (the predictions) before writing code.**
   §6 exists because the diagnostics epic's pre-registered table came back against
   its own hypothesis and was trustworthy for exactly that reason.
@@ -94,7 +108,9 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
   are hand-built; the family and link can still come from statsmodels.
 - **`k` is an upper bound, not a knob** (Anchor 5). ILEC's eight calendar years
   cannot support `k=10`; HMD's thirty years support 10-15.
-- **A slice-5 run that contradicts the thesis is a successful run.** Slice 3 is the
+- **A slice-7 run that contradicts the thesis is a successful run** (renumbered from
+  slice 5 in Revision 1). The same applies to slice 5's conformance: an `mgcv` run
+  that **refutes** `tr(F)` changes Anchor 4 and is a successful slice. Slice 3 is the
   standing proof: its registered hypothesis came back false and that was the result,
   not a setback.
 - **BLOCKER for slice 4: `select_lambdas_reml` aborts on a non-converging grid
