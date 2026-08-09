@@ -36,7 +36,7 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
    nor violated**; the band layer was extracted from three byte-identical copies
    rather than copied a fourth time. Coverage measured, and **the registered
    hypothesis was falsified** — the committed delta-method bands are calibrated.
-4. ~~**Selector robustness + an unconditional interval**~~ **DONE** — ADR-188. All
+4. ~~**Selector robustness + an unconditional interval**~~ **DONE** — ADR-188, **PR #190**. All
    three pieces shipped. **The Anchor-7 gate was measured and does NOT pass**:
    unconditional coverage 0.8516 / 0.8581 against a floor of 0.9192, so **nothing in
    this project may be labelled a 95% band**. Kass-Steffey buys +3.2/+3.8 points of a

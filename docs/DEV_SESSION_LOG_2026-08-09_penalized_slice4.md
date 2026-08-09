@@ -9,6 +9,7 @@
 - **Branch:** `claude/quirky-ramanujan-mgvwcy` (environment-designated; the routine's
   `feat/auto-*` default is overridden per step 8)
 - **ADR:** ADR-188
+- **PR:** #190 (draft)
 
 ## Baseline and end state
 
