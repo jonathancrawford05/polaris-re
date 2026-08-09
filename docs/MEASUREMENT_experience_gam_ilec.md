@@ -117,6 +117,19 @@ Every reference age moved, and all in the same direction:
 Four of five are resolvable accelerations. **This does not contradict the HMD
 slowdown**, and reading it that way would be the main error available here:
 
+> **The bands this table rests on were measured on 2026-08-09, and they hold**
+> (ADR-187). Every "resolvable / overlaps" verdict above is an inference from a
+> delta-method interval that had never been checked against its nominal rate — it
+> was 95% because the formula said so. A 200-replicate simulation puts it at
+> **95.7%–95.9%** against nominal 95%, and *young ages are the best-covered region*,
+> not the worst. The pre-registered hypothesis was that these bands under-cover at
+> the death-poor young end, which would have undermined the age-45 row specifically;
+> it is falsified. **Two caveats travel with that.** Coverage was measured on truths
+> the basis can represent — where it cannot, coverage falls to ~85% overall and ~67%
+> at age 80+, so the table's protection is against sampling noise, not against
+> misspecification. And it is a statement about the *interval*, not about the point
+> estimates, which ADR-184 showed swing far more at 45 than at 85.
+
 - **Different question.** ILEC 2012–2019 lies *entirely after* the ~2010 break.
   It cannot speak to a post-2010 change; it describes what happened within the
   2010s.

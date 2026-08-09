@@ -232,7 +232,18 @@ justify it. Reproducibility across processes. `edf` recovering graded smoothness
 
 ### Slice 3: Bayesian bands, and proving Anchor 2 (autonomous)
 
-- **Status:** NOT STARTED
+- **Status:** **DONE (2026-08-09)** — **ADR-187**, 32 module tests (was 26).
+  **Anchor 2 came out neither satisfied nor violated**, and the distinction is the
+  slice's main structural result: the covariance swap needed *nothing* (Wood's `Vb`
+  drops straight into `√(cᵀVc)`), while the design *rebuild* could not be reused
+  because it goes through patsy and slice 1 established patsy cannot express this
+  basis. Basis incompatibility, not covariance incompatibility.
+  **The anchor also assumed a shared layer that did not exist** — three
+  byte-identical copies of the band arithmetic lived in `experience_gam.py`, one of
+  them (RRGP) already fed by a non-patsy design. Extracted to
+  `mi_surface_from_design()` rather than copied a fourth time.
+  **Coverage measured for both estimators**, and the pre-registered hypothesis
+  below is **falsified**.
 - **Depends on:** Slice 2
 
 **Scope.** `Vb = (XᵀWX + S)⁻¹ φ` — Wood's Bayesian covariance — handed to the
@@ -258,6 +269,29 @@ the nominal 95% band contains the truth.
 
 **Acceptance criteria.** Coverage measured and stated for both estimators. Anchor 2
 held without editing the extractor.
+
+> **Discharged 2026-08-09, with the registered hypothesis falsified and one
+> criterion met only in spirit.**
+>
+> *Coverage measured and stated* — yes, at 200 replicates against nominal 95%, over
+> three truths chosen to separate the flattering regime (constant MI, inside the
+> penalty null space) from **band calibration** (quadratic MI: outside the null
+> space, exactly representable by both bases) from **bias** (a sine cycle neither
+> basis resolves). ADR-187 carries the table.
+>
+> *The registered hypothesis is **falsified**.* The delta-method bands do **not**
+> under-cover at the death-poor young end: 95.7% / 95.9% overall, and young ages are
+> the best-covered region. The bands in the committed reports stand, and ADR-184's
+> age-45 artifact is a statement about the point estimate's spread rather than about
+> the interval. Published as it came out, per the criterion.
+>
+> *Anchor 2 held **without editing the extractor**, but not without touching the
+> module.* The band arithmetic was extracted from three byte-identical copies into
+> one shared function that all four paths now call. No behaviour changed and 1227
+> analytics tests passed unmodified — but the criterion as written ("without editing
+> the extractor") reads as satisfied only if "the extractor" means its behaviour. It
+> is recorded as met-in-spirit rather than quietly ticked, because a fourth copy
+> would have satisfied the letter and destroyed the intent.
 
 ---
 

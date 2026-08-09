@@ -13613,3 +13613,125 @@ coarser sweep is the obvious lever when 202 fits meet the 125k-cell book.
 **Final counts**, superseding the "23 tests (was 15)" in this ADR's Context line:
 **26 module tests**, and a suite of 3094 (baseline 3083, **+11**) — 23/+8 as first
 pushed, +2 in round 1, +1 in round 2.
+
+---
+
+## ADR-187: the band layer becomes shared, and the first coverage study (penalized MI surface, Slice 3)
+
+**Date:** 2026-08-09
+**Status:** Accepted
+**Context:** `PLAN_penalized_mi_surface.md` slice 3. 32 module tests (was 26); suite
+3094 -> 3100 (+6).
+
+### Decision 1 — Anchor 2 held for the covariance and could not hold for the design
+
+Anchor 2 says the surface and band extraction layer does not change, on the grounds
+that a band is `√(cᵀVc)` on a contrast row and is agnostic to how `V` was formed.
+It adds a stop-signal: *"if this layer needs modifying, the covariance swap is
+wrong."*
+
+**The covariance swap needed nothing.** Wood's `Vb = (XᵀWX + S)⁻¹φ` enters the band
+arithmetic exactly where the frequentist sandwich did, and the anchor is vindicated
+on the point it was written to protect.
+
+**The design rebuild could not be reused, for a reason unrelated to `V`.** The
+extractor rebuilds its grid design through `patsy.build_design_matrices`, and slice 1
+established that **patsy cannot express this basis at all** — it always clamps
+boundary knots, which destroys the difference penalty's null space. Duck-typing
+patsy's `DesignInfo` protocol was considered and rejected: it requires `factor_infos`,
+`terms` and `term_slices`, so a shim would be a reimplementation of patsy internals
+inside this project, more fragile than the thing it was protecting.
+
+So the anchor is **neither satisfied nor violated**, and recording it as either would
+be false. Basis incompatibility is not covariance incompatibility, and the
+stop-signal is aimed at the latter.
+
+### Decision 2 — the band layer is extracted rather than copied a fourth time
+
+Anchor 2 assumed a shared layer. **There wasn't one.** `experience_gam.py` carried
+**three byte-identical copies** of the contrast/band/`MISurface` arithmetic — the
+frequentist tensor surface, the RRGP Bayesian surface, and the segmented Bayesian
+surface. The RRGP copy is the sharpest detail: it already builds its design *without
+patsy*, so it was simultaneously the standing proof that the layer is basis-agnostic
+and the standing proof that nobody had arranged the code to exploit that.
+
+`mi_surface_from_design()` and `mi_grid_axes()` are now module-level functions; all
+three existing sites and the penalized path call them. The alternative — a fourth
+copy in the penalized module — would have satisfied the anchor's letter while
+destroying its intent, since the failure mode Anchor 2 exists to prevent is two band
+implementations drifting apart.
+
+Verified behaviour-preserving by the existing suite rather than by inspection: the
+frequentist path's arithmetic is unchanged operation-for-operation (the same flat
+`design @ coef` then reshape), and 1227 analytics tests passed unmodified.
+
+The eleven slice-1/2 limit tests were also re-pointed at `improvement_surface`. They
+had been rebuilding the grid design and differencing η *inside the test file*, which
+meant they asserted on arithmetic the tests owned rather than on what a caller gets.
+
+### Decision 3 — coverage is measured conditional on λ, and the fixture design is the finding
+
+λ is selected **once** on a held-out replicate; every replicate is fit at that λ.
+That is what `Vb` actually claims — it carries **no smoothing-parameter uncertainty**.
+Re-selecting per replicate would report a different quantity while the interval under
+test stayed the same one.
+
+The truths are chosen to separate three things that a naive coverage study conflates:
+
+| truth | in penalty null space? | representable by both bases? | what it measures |
+|---|---|---|---|
+| constant MI | **yes** | yes | the flattering regime |
+| quadratic MI | no | **yes** | **band calibration** |
+| sine, one cycle / 8 years | no | **no** | bias under misspecification |
+
+The quadratic is the load-bearing one: MI quadratic in year accumulates to a cubic η,
+which a cubic P-spline at `k_year=6` and patsy's `bs(df=3)` (a global cubic) each
+represent *exactly*. Any shortfall there is the band's, not the basis's. Slice 2 lost
+time to precisely this confusion — a fixture whose truth the basis could not resolve
+looked like a broken selector — and ADR-186 carried the lesson forward, so it was
+applied here by design rather than rediscovered.
+
+### The measurements — 200 replicates, nominal 95%
+
+| truth | estimator | overall | young ≤50 | old ≥80 | mean width |
+|---|---|---:|---:|---:|---:|
+| constant (null space) | penalized | 0.9821 | 0.9856 | 0.9761 | 0.00384 |
+| constant | delta | 0.9567 | 0.9589 | 0.9475 | 0.03045 |
+| quadratic (representable) | penalized | **0.9260** | 0.9526 | 0.9213 | 0.00667 |
+| quadratic | delta | **0.9586** | 0.9574 | 0.9533 | 0.03044 |
+| sine (unrepresentable) | penalized | 0.7597 | 0.8641 | 0.6750 | 0.00856 |
+| sine | delta | 0.8461 | 0.9436 | 0.6687 | 0.03060 |
+
+### Finding 1 — the pre-registered hypothesis is falsified: the committed bands are calibrated
+
+PLAN slice 3 registered: *"If the existing bands under-cover at the death-poor young
+end, that is a finding about every committed report, and it should be published
+whichever way it comes out."*
+
+**They do not under-cover.** 95.7% and 95.9% against nominal 95%, and young ages are
+the *best*-covered region (95.9%, 95.7%), not the worst. This is the third time this
+project's pre-registration has come back against the hypothesis that motivated it,
+and it is the reason the practice is kept.
+
+It also sharpens ADR-184: the age-45 variance artifact is a statement about the
+**point estimate's** sampling spread, and the interval was honest about that spread
+all along. **The bands in the committed reports stand.**
+
+### Finding 2 — the penalized band trades 2.4 points of coverage for 4.6× the precision
+
+On the representable curve: **92.6% against 95.9%, at 4.6× narrower**. In the null
+space it *over*-covers (98.2%) at 8× narrower, which is the flattering regime and is
+not the headline — the same refusal ADR-186 made of its 40×.
+
+The 2.4-point shortfall has two known sources, and neither is a defect to fix here:
+shrinkage bias toward a null space the truth is not in, and `Vb` conditioning on λ so
+that selection uncertainty appears nowhere in the interval.
+
+### Finding 3 — both collapse under misspecification, and the penalized one collapses harder
+
+76.0% against 84.6%, with old ages at ~67% for **both**. Shrinkage adds bias on top of
+approximation error, which is the honest counterweight to the width advantage.
+
+This bounds what findings 1 and 2 mean: they say the arithmetic is right when the
+model is. They do not say a real book is inside either basis — and the weak end under
+misspecification is **old** ages, the opposite end from where slice 3 was sent to look.

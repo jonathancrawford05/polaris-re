@@ -4,7 +4,7 @@
 spline-diagnostics epic.
 **Plan:** `docs/PLAN_penalized_mi_surface.md`
 **Predecessors:** ADR-182, **ADR-184 + amendments 1-3**
-**Status:** **SLICES 1-2 DONE (2026-08-08)** — ADR-185, ADR-186. Slice 3 is NEXT.
+**Status:** **SLICES 1-3 DONE (2026-08-09)** — ADR-185, ADR-186, ADR-187. Slice 4 is NEXT.
 **Total slices:** 5 (1-4 autonomous, 5 one maintainer run)
 **Estimated scope:** ~4-6 dev-days autonomous + one maintainer run
 
@@ -28,12 +28,12 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
    Slice 1 sharpened that risk rather than reducing it: the penalised directions are
    exactly where the numerical noise lives, which is why the coefficient convergence
    criterion failed there.
-3. **Bayesian bands** — **NEXT** — `Vb = (XᵀWX + S)⁻¹φ` through the *unchanged*
-   extractor (Anchor 2), plus the first coverage test this project has run on either
-   estimator. Note slice 2's lesson before writing its fixtures: a graded ladder must
-   be **representable in the basis**, or the test measures the basis instead.
-4. **Harness integration** — `--penalized` off by default (Anchor 6), `edf` and λ
-   reported (Anchor 4).
+3. ~~**Bayesian bands**~~ **DONE** — ADR-187. Anchor 2 came out **neither satisfied
+   nor violated**; the band layer was extracted from three byte-identical copies
+   rather than copied a fourth time. Coverage measured, and **the registered
+   hypothesis was falsified** — the committed delta-method bands are calibrated.
+4. **Harness integration** — **NEXT** — `--penalized` off by default (Anchor 6),
+   `edf` and λ reported (Anchor 4).
 5. **Real data** — against the four predictions PLAN §6 registers in advance.
 
 ## Context for the next session
@@ -68,22 +68,25 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
   #188 review round. Selection returns a bare `(λ_age, λ_year, score)` tuple and
   fitting is a separate call, so a caller that wires the two by hand gets a fit with
   `reml_score` and `lambda_grid_step` left `None` — which was the shipped defect.
-  `fit_reml()` does both and populates them, and it is the fit slice 3 should take
-  `Vb` from. Use `select_lambdas_reml()` only when the search is wanted without the
+  `fit_reml()` does both and populates them, and it is the fit slice 3 took `Vb`
+  from. Use `select_lambdas_reml()` only when the search is wanted without the
   fit. Grid parameters (`coarse_step`, `refine_step`, `bounds`) are named on
   `fit_reml()` and reach the selector only — `**model_kwargs` goes to the model.
 - **Grep the claim set before calling a fix done** (ADR-186 amendment 2). Slice 2's
   inert-fields defect was asserted in **five** places; the fix updated three, and
-  round 2 found the other two still naming the wrong entry point. Slice 3 is where
-  this bites next: `Vb` arrives with documented properties (Wood's, not the
-  delta-method sandwich; φ-scaled; consumed unchanged by the extractor) and those
-  sentences will land in the dataclass, the ADR, the PLAN and the extractor's own
-  docstring. One `grep` for the claim costs seconds; two review rounds did not.
+  round 2 found the other two still naming the wrong entry point. One `grep` for the
+  claim costs seconds; two review rounds did not. **Slice 3 applied it** — and it
+  caught a real one: the "consumed unchanged by the extractor" phrasing was already
+  false for the *design* half before it could propagate (ADR-187 decision 1).
+  Slice 4 inherits the same exposure: `--penalized`, the `edf` fields and the λ
+  report will each be described in the CLI help, the report schema, the notebook and
+  the ADR.
 - **A test that compares against the constant the code hardcoded cannot fail.**
   `lambda_grid_step` was reported as `REFINE_STEP` regardless of the step swept, and
-  the test asserted `== REFINE_STEP`. Both halves passed, together, wrongly. For
-  slice 3: a coverage test that draws its nominal rate from the same constant the
-  band construction used has this exact shape.
+  the test asserted `== REFINE_STEP`. Both halves passed, together, wrongly. Slice 3
+  avoided the analogue by comparing coverage against the *nominal* 0.95 rather than
+  against whatever the band construction used. Slice 4's version of the trap: a
+  report field asserted against the same constant that populated it.
 - **The oracle already exists.** `TensorMIModel` at λ=0 is the correctness spec and
   it is already tested. Do not build a new one.
 - **statsmodels cannot supply the tensor.** `GLMGam` + `BSplines` penalize but the
@@ -91,7 +94,22 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
   are hand-built; the family and link can still come from statsmodels.
 - **`k` is an upper bound, not a knob** (Anchor 5). ILEC's eight calendar years
   cannot support `k=10`; HMD's thirty years support 10-15.
-- **A slice-5 run that contradicts the thesis is a successful run.**
+- **A slice-5 run that contradicts the thesis is a successful run.** Slice 3 is the
+  standing proof: its registered hypothesis came back false and that was the result,
+  not a setback.
+- **Slice 4 reports `edf` and λ to a user — quote the 2.4-point coverage cost, not
+  the width ratio alone.** ADR-187 measured the penalized band at **92.6% against a
+  nominal 95%** on a truth the basis represents exactly, at 4.6x narrower than the
+  delta band. A report that shows the narrower interval without the coverage line
+  overstates it, and the 98.2%/8x null-space row is the flattering regime that must
+  not be the one quoted (same refusal ADR-186 made of its 40x).
+- **`Vb` carries no smoothing-parameter uncertainty.** Coverage was measured
+  *conditional on λ* because that is what the interval claims. If slice 4's report
+  presents a band beside a selected λ, those two numbers are not jointly calibrated
+  and the report should say so.
+- **The weak end is OLD ages, not young.** Under misspecification both estimators
+  fall to ~67% at age 80+, while young ages hold up. Slice 5's ILEC read should not
+  import the age-45 framing into band interpretation.
 
 ## Open questions (for human)
 

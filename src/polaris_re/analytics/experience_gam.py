@@ -1153,6 +1153,91 @@ class FittedGLMArrays:
     """Fitted coefficients ``β``, shape (n_params,)."""
 
 
+def mi_grid_axes(
+    ages: np.ndarray | None,
+    years: np.ndarray | None,
+    observed_ages: tuple[int, int],
+    observed_years: tuple[int, int],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Resolve and validate the ``(ages, years)`` grid an MI surface is read on.
+
+    Defaults to the observed ranges. Two calendar years is the hard minimum: the
+    surface reports *annual steps*, so a single year yields no step at all.
+    """
+    if ages is None:
+        ages = np.arange(observed_ages[0], observed_ages[1] + 1)
+    if years is None:
+        years = np.arange(observed_years[0], observed_years[1] + 1)
+    ages = np.asarray(ages).astype(np.int64)
+    years = np.asarray(years).astype(np.int64)
+    if len(years) < 2:
+        raise PolarisValidationError(
+            "improvement_surface needs at least two calendar years to form an "
+            "annual improvement step."
+        )
+    return ages, years
+
+
+def mi_surface_from_design(
+    design: np.ndarray,
+    coef: np.ndarray,
+    cov: np.ndarray,
+    ages: np.ndarray,
+    years: np.ndarray,
+    confidence_level: float,
+) -> MISurface:
+    """Build ``MI_x(y)`` with a pointwise band from a grid design and a covariance.
+
+    **This is the band layer, and it is agnostic to how ``cov`` was formed** — the
+    frequentist sandwich, an RRGP posterior, or Wood's penalized
+    ``Vb = (XᵀWX + S)⁻¹φ`` all enter identically. That agnosticism is Design
+    Anchor 2 of ``docs/PLAN_penalized_mi_surface.md``, which required the penalized
+    surface to reuse this layer *unchanged* rather than grow a parallel one.
+
+    It was not a shared layer when that anchor was written. Three call sites in this
+    module carried **byte-identical copies** of the arithmetic below, and the RRGP
+    Bayesian surface — which already builds its design without patsy — was the
+    standing proof that the layer is basis-agnostic *and* the standing proof that
+    the codebase had not been arranged to exploit it. Slice 3 extracted it rather
+    than adding a fourth copy (ADR-187).
+
+    Args:
+        design:           Grid design, shape ``(len(ages) * len(years), p)``, rows
+                          in age-major order.
+        coef:             Fitted coefficients, shape ``(p,)``.
+        cov:              Parameter covariance, shape ``(p, p)``.
+        ages:             Integer ages, as returned by :func:`mi_grid_axes`.
+        years:            Integer calendar years; the surface spans ``years[1:]``.
+        confidence_level: Two-sided level for the band.
+    """
+    from scipy.stats import norm
+
+    n_age, n_year = len(ages), len(years)
+    p = design.shape[1]
+    eta = (design @ coef).reshape(n_age, n_year)
+    design = design.reshape(n_age, n_year, p)
+
+    # Annual step contrasts: d[a, j] = η(a, year_j) - η(a, year_{j-1}).
+    d = eta[:, 1:] - eta[:, :-1]  # (A, Y-1)
+    contrast = design[:, 1:, :] - design[:, :-1, :]  # (A, Y-1, p)
+    var = np.einsum("ayp,pq,ayq->ay", contrast, cov, contrast)
+    se = np.sqrt(np.clip(var, 0.0, None))
+
+    z = float(norm.ppf(0.5 + confidence_level / 2.0))
+    mi = 1.0 - np.exp(d)
+    # d larger => smaller MI, so the +z*se side is the lower MI bound.
+    mi_lower = 1.0 - np.exp(d + z * se)
+    mi_upper = 1.0 - np.exp(d - z * se)
+    return MISurface(
+        ages=ages,
+        years=years[1:],
+        mi_grid=mi.astype(np.float64),
+        mi_lower=mi_lower.astype(np.float64),
+        mi_upper=mi_upper.astype(np.float64),
+        confidence_level=confidence_level,
+    )
+
+
 @dataclass
 class MISurfaceResult:
     """
@@ -1265,20 +1350,7 @@ class MISurfaceResult:
         Raises:
             PolarisValidationError: If fewer than two calendar years are supplied.
         """
-        from scipy.stats import norm
-
-        if ages is None:
-            ages = np.arange(self.observed_ages[0], self.observed_ages[1] + 1)
-        if years is None:
-            years = np.arange(self.observed_years[0], self.observed_years[1] + 1)
-        ages = np.asarray(ages).astype(np.int64)
-        years = np.asarray(years).astype(np.int64)
-        if len(years) < 2:
-            raise PolarisValidationError(
-                "improvement_surface needs at least two calendar years to form an "
-                "annual improvement step."
-            )
-
+        ages, years = mi_grid_axes(ages, years, self.observed_ages, self.observed_years)
         n_age, n_year = len(ages), len(years)
         grid_age = np.repeat(ages, n_year).astype(np.float64)
         grid_year = np.tile(years, n_age).astype(np.float64)
@@ -1287,31 +1359,10 @@ class MISurfaceResult:
         ref["calendar_year"] = grid_year
         frame = pl.DataFrame(ref)
 
-        design, eta, _ = _predict_eta_se(self._result, self._design_info, frame)
-        p = design.shape[1]
-        design = design.reshape(n_age, n_year, p)
-        eta = eta.reshape(n_age, n_year)
-
-        # Annual step contrasts: d[a, j] = η(a, year_j) - η(a, year_{j-1}).
-        d = eta[:, 1:] - eta[:, :-1]  # (A, Y-1)
-        contrast = design[:, 1:, :] - design[:, :-1, :]  # (A, Y-1, p)
+        design, _, _ = _predict_eta_se(self._result, self._design_info, frame)
+        coef = np.asarray(self._result.params, dtype=np.float64)  # type: ignore[attr-defined]
         cov = np.asarray(self._result.cov_params(), dtype=np.float64)  # type: ignore[attr-defined]
-        var = np.einsum("ayp,pq,ayq->ay", contrast, cov, contrast)
-        se = np.sqrt(np.clip(var, 0.0, None))
-
-        z = float(norm.ppf(0.5 + confidence_level / 2.0))
-        mi = 1.0 - np.exp(d)
-        # d larger => smaller MI, so the +z*se side is the lower MI bound.
-        mi_lower = 1.0 - np.exp(d + z * se)
-        mi_upper = 1.0 - np.exp(d - z * se)
-        return MISurface(
-            ages=ages,
-            years=years[1:],
-            mi_grid=mi.astype(np.float64),
-            mi_lower=mi_lower.astype(np.float64),
-            mi_upper=mi_upper.astype(np.float64),
-            confidence_level=confidence_level,
-        )
+        return mi_surface_from_design(design, coef, cov, ages, years, confidence_level)
 
 
 class TensorMIModel:
@@ -1794,43 +1845,11 @@ class BayesianMISurfaceResult:
         Raises:
             PolarisValidationError: If fewer than two calendar years are supplied.
         """
-        from scipy.stats import norm
 
-        if ages is None:
-            ages = np.arange(self.observed_ages[0], self.observed_ages[1] + 1)
-        if years is None:
-            years = np.arange(self.observed_years[0], self.observed_years[1] + 1)
-        ages = np.asarray(ages).astype(np.int64)
-        years = np.asarray(years).astype(np.int64)
-        if len(years) < 2:
-            raise PolarisValidationError(
-                "improvement_surface needs at least two calendar years to form an "
-                "annual improvement step."
-            )
+        ages, years = mi_grid_axes(ages, years, self.observed_ages, self.observed_years)
 
-        n_age, n_year = len(ages), len(years)
         design = self._spec.design(self._grid_cols(ages, years))
-        p = design.shape[1]
-        design = design.reshape(n_age, n_year, p)
-        eta = (design @ self._theta).reshape(n_age, n_year)
-
-        d = eta[:, 1:] - eta[:, :-1]
-        contrast = design[:, 1:, :] - design[:, :-1, :]
-        var = np.einsum("ayp,pq,ayq->ay", contrast, self._cov, contrast)
-        se = np.sqrt(np.clip(var, 0.0, None))
-
-        z = float(norm.ppf(0.5 + credible_level / 2.0))
-        mi = 1.0 - np.exp(d)
-        mi_lower = 1.0 - np.exp(d + z * se)
-        mi_upper = 1.0 - np.exp(d - z * se)
-        return MISurface(
-            ages=ages,
-            years=years[1:],
-            mi_grid=mi.astype(np.float64),
-            mi_lower=mi_lower.astype(np.float64),
-            mi_upper=mi_upper.astype(np.float64),
-            confidence_level=credible_level,
-        )
+        return mi_surface_from_design(design, self._theta, self._cov, ages, years, credible_level)
 
     _CONVERGENCE_METHODS: ClassVar[frozenset[str]] = frozenset({"cosine", "linear", "immediate"})
 
@@ -2525,43 +2544,11 @@ class HierarchicalMISurfaceResult:
         Raises:
             PolarisValidationError: On fewer than two years or an unknown segment.
         """
-        from scipy.stats import norm
 
-        if ages is None:
-            ages = np.arange(self.observed_ages[0], self.observed_ages[1] + 1)
-        if years is None:
-            years = np.arange(self.observed_years[0], self.observed_years[1] + 1)
-        ages = np.asarray(ages).astype(np.int64)
-        years = np.asarray(years).astype(np.int64)
-        if len(years) < 2:
-            raise PolarisValidationError(
-                "improvement_surface needs at least two calendar years to form an "
-                "annual improvement step."
-            )
+        ages, years = mi_grid_axes(ages, years, self.observed_ages, self.observed_years)
 
-        n_age, n_year = len(ages), len(years)
         design = self._combined_design(ages, years, segment)
-        p = design.shape[1]
-        design = design.reshape(n_age, n_year, p)
-        eta = (design @ self._theta).reshape(n_age, n_year)
-
-        d = eta[:, 1:] - eta[:, :-1]
-        contrast = design[:, 1:, :] - design[:, :-1, :]
-        var = np.einsum("ayp,pq,ayq->ay", contrast, self._cov, contrast)
-        se = np.sqrt(np.clip(var, 0.0, None))
-
-        z = float(norm.ppf(0.5 + credible_level / 2.0))
-        mi = 1.0 - np.exp(d)
-        mi_lower = 1.0 - np.exp(d + z * se)
-        mi_upper = 1.0 - np.exp(d - z * se)
-        return MISurface(
-            ages=ages,
-            years=years[1:],
-            mi_grid=mi.astype(np.float64),
-            mi_lower=mi_lower.astype(np.float64),
-            mi_upper=mi_upper.astype(np.float64),
-            confidence_level=credible_level,
-        )
+        return mi_surface_from_design(design, self._theta, self._cov, ages, years, credible_level)
 
     def segment_effects(self, credible_level: float = 0.95) -> pl.DataFrame:
         """
