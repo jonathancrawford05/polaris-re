@@ -1000,6 +1000,30 @@ def _check(metric: str, value: float) -> MetricCheck:
     )
 
 
+def _number(payload: dict[str, JsonValue], field: str, cell: str) -> float:
+    """Read one numeric field out of a reference cell, or say which one was missing.
+
+    A typed reader rather than a bare ``float(payload[field])``: the references are JSON,
+    so every field arrives as a union, and a `KeyError` or a `TypeError` several frames
+    deep names the *type* rather than the cell and the field a maintainer would look for.
+    """
+    value = payload.get(field)
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        raise PolarisValidationError(
+            f"Cell {cell!r} has no numeric {field!r} (got {value!r}). Both references must "
+            f"be produced by the committed exporter and R script."
+        )
+    return float(value)
+
+
+def _sequence(payload: dict[str, JsonValue], field: str, cell: str) -> list[float]:
+    """Read one numeric vector out of a reference cell, with the same failure contract."""
+    value = payload.get(field)
+    if not isinstance(value, list):
+        raise PolarisValidationError(f"Cell {cell!r} has no {field!r} vector (got {value!r}).")
+    return [float(v) for v in value if isinstance(v, int | float)]
+
+
 def _matrix(payload: object, name: str, cell: str) -> np.ndarray:
     if payload is None:
         raise PolarisValidationError(f"Cell {cell!r} carries no {name}.")
@@ -1041,7 +1065,8 @@ def compare_reference(
                 f"comparing across a changed exchange would declare parity with a file "
                 f"the other side never saw."
             )
-        if int(ref.get("schema_version", -1)) != SCHEMA_VERSION:
+        version = ref.get("schema_version")
+        if not isinstance(version, int) or version != SCHEMA_VERSION:
             raise PolarisValidationError(
                 f"The {side} reference is schema version "
                 f"{ref.get('schema_version')}; this build reads {SCHEMA_VERSION}."
@@ -1113,17 +1138,17 @@ def _compare_cell(
             f"are not all ~1, `sp` did not multiply the supplied S directly and THAT is "
             f"the finding, before any arithmetic is re-derived."
         )
-    supplied = theirs.get("sp_supplied")
-    if supplied is not None and not cell.free_sp:
-        asked = np.array([cell.lambda_age, cell.lambda_year], dtype=np.float64)
-        if not np.allclose(np.asarray(supplied, dtype=np.float64), asked, rtol=1e-12, atol=0.0):
+    if theirs.get("sp_supplied") is not None and not cell.free_sp:
+        supplied = _sequence(theirs, "sp_supplied", cell.name)
+        asked = [float(cell.lambda_age or 0.0), float(cell.lambda_year or 0.0)]
+        if not np.allclose(supplied, asked, rtol=1e-12, atol=0.0):
             raise PolarisValidationError(
-                f"Cell {cell.name!r}: mgcv was given sp={list(supplied)} but the manifest "
-                f"specifies {list(asked)}. A fixed-lambda comparison at a different lambda "
+                f"Cell {cell.name!r}: mgcv was given sp={supplied} but the manifest "
+                f"specifies {asked}. A fixed-lambda comparison at a different lambda "
                 f"is not a comparison."
             )
-    our_coef = np.asarray(ours["coef"], dtype=np.float64)
-    their_coef = np.asarray(theirs["coef"], dtype=np.float64)
+    our_coef = np.asarray(_sequence(ours, "coef", cell.name), dtype=np.float64)
+    their_coef = np.asarray(_sequence(theirs, "coef", cell.name), dtype=np.float64)
     if our_coef.shape != their_coef.shape:
         raise PolarisValidationError(
             f"Cell {cell.name!r}: coefficient vectors differ in length "
@@ -1139,27 +1164,34 @@ def _compare_cell(
 
     if 3 in cell.levels:
         checks.append(
-            _check("abs_edf_total_diff", float(ours["edf_total"]) - float(theirs["edf_total"]))
-        )
-        checks.append(
-            _check("abs_edf_tensor_diff", float(ours["edf_tensor"]) - float(theirs["edf_tensor"]))
+            _check(
+                "abs_edf_total_diff",
+                _number(ours, "edf_total", cell.name) - _number(theirs, "edf_total", cell.name),
+            )
         )
         checks.append(
             _check(
-                "abs_edf_factors_diff", float(ours["edf_factors"]) - float(theirs["edf_factors"])
+                "abs_edf_tensor_diff",
+                _number(ours, "edf_tensor", cell.name) - _number(theirs, "edf_tensor", cell.name),
+            )
+        )
+        checks.append(
+            _check(
+                "abs_edf_factors_diff",
+                _number(ours, "edf_factors", cell.name) - _number(theirs, "edf_factors", cell.name),
             )
         )
 
     if 2 in cell.levels or 5 in cell.levels:
         suffix = "_gamma" if 5 in cell.levels else "_free_sp"
         sp_metric = "max_abs_log10_sp_diff" + ("_gamma" if 5 in cell.levels else "")
-        our_sp = np.asarray(ours["sp"], dtype=np.float64)
-        their_sp = np.asarray(theirs["sp"], dtype=np.float64)
+        our_sp = np.asarray(_sequence(ours, "sp", cell.name), dtype=np.float64)
+        their_sp = np.asarray(_sequence(theirs, "sp", cell.name), dtype=np.float64)
         checks.append(_check(sp_metric, np.max(np.abs(np.log10(our_sp) - np.log10(their_sp)))))
         checks.append(
             _check(
                 "abs_edf_total_diff" + suffix,
-                float(ours["edf_total"]) - float(theirs["edf_total"]),
+                _number(ours, "edf_total", cell.name) - _number(theirs, "edf_total", cell.name),
             )
         )
         if bool(ours.get("lambda_at_bound")):
@@ -1224,14 +1256,21 @@ def _structural_checks(
     which needs the ``gamma = 1.0`` and ``gamma = 1.4`` cells read together — so it
     cannot live inside either one.
     """
-    base, tuned = ours.get("l2-free-sp"), ours.get("l5-gamma")
-    r_base, r_tuned = theirs.get("l2-free-sp"), theirs.get("l5-gamma")
-    if not (base and tuned and r_base and r_tuned):
+    pair = [
+        ours.get("l2-free-sp"),
+        ours.get("l5-gamma"),
+        theirs.get("l2-free-sp"),
+        theirs.get("l5-gamma"),
+    ]
+    if not all(isinstance(cell, dict) for cell in pair):
         # A reduced matrix (the tests' two-cell bundle, or a hand-trimmed one) has no
         # gamma pair to read, and a cross-cell check cannot be faked from one cell.
         return ()
-    our_delta = float(dict(tuned)["edf_total"]) - float(dict(base)["edf_total"])  # type: ignore[arg-type]
-    their_delta = float(dict(r_tuned)["edf_total"]) - float(dict(r_base)["edf_total"])  # type: ignore[arg-type]
+    base, tuned, r_base, r_tuned = (cell for cell in pair if isinstance(cell, dict))
+    our_delta = _number(tuned, "edf_total", "l5-gamma") - _number(base, "edf_total", "l2-free-sp")
+    their_delta = _number(r_tuned, "edf_total", "l5-gamma") - _number(
+        r_base, "edf_total", "l2-free-sp"
+    )
     return (
         MetricCheck(
             metric="gamma_edf_delta_agrees_in_sign",
