@@ -13,10 +13,29 @@
 # path-filtered trigger — so an ordinary PR that touches none of the conformance
 # files never pulls an image and never grows an R dependency.
 #
-# A DISAGREEMENT IS A RESULT, NOT A BROKEN BUILD. The comparator exits 2 when a
-# level disagrees, which fails this workflow on purpose: the table is the finding.
-# Per PLAN Anchor 8 a run that refutes `tr(F)` changes Anchor 4 rather than
-# failing the slice — read the job summary before treating red as a defect.
+# A DISAGREEMENT IS A RESULT, NOT A BROKEN BUILD — and the gate is built around
+# that sentence rather than in tension with it.
+#
+# The comparator exits 2 whenever ANY level disagrees, so gating on its exit
+# status alone would make this workflow permanently red the moment a level is
+# refuted. It already is: the 2026-08-10 run verified `tr(F)` (levels 1-3 agree)
+# and REFUTED the Kass-Steffey covariance (level 4). Both are results. Only one of
+# them should stop a merge.
+#
+# So the gate is: FAIL on levels 1-3, ANNOTATE on levels 4-5.
+#
+#   * levels 1-3 are slice 5's acceptance criteria (PLAN slice 5) and they AGREE
+#     today. A regression there means our penalized IRLS, our REML search or
+#     `tr(F)` stopped matching mgcv — a defect, and it must block.
+#   * levels 4-5 are findings under active work (the level-4 under-inflation is a
+#     BLOCKER against slice 4's arithmetic, tracked in PRODUCT_DIRECTION). They are
+#     surfaced as warnings and in the job summary, and they do not block.
+#   * exit 1 — "could not compare at all": a hash mismatch, a missing reference, a
+#     partial R run — always blocks. That is not a finding, it is an absent answer.
+#
+# A LEVEL THAT WAS NOT MEASURED IS TREATED AS A FAILURE, not a pass. Silence is the
+# one outcome that must never read as success here: an R run that fitted no fixed-λ
+# cells would otherwise report "level 1: not present" and sail through.
 # =============================================================================
 
 name: mgcv conformance
@@ -40,6 +59,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # The levels that BLOCK a merge, as a visible policy rather than a shell condition
+  # buried in a step. These are slice 5's acceptance criteria; 4 and 5 are findings
+  # under active work. Widening this list is a deliberate, reviewable edit — and
+  # NARROWING it to go green is the move the epic has refused twice already.
+  REQUIRED_LEVELS: "1,2,3"
   # Digest-pinned, never a tag: the whole suite rests on the reference not moving
   # between runs, and `:latest` would let an mgcv update rewrite the oracle
   # silently. Bumping this is a reviewable commit with a re-run attached.
@@ -119,14 +143,88 @@ jobs:
 
       # The comparator re-hashes the exchange before it reads either reference, so
       # a mismatch between what R fitted and what is committed stops here.
+      #
+      # Its exit status is captured rather than gated on: 0 = every level agrees,
+      # 2 = some level disagrees, 1 = could not compare. Only 1 is a defect on its
+      # own; 2 needs the per-level verdicts to decide, which is the next step.
       - name: Compare the two references
         id: compare
         run: |
+          set -uo pipefail
+          rc=0
           uv run python scripts/compare_mgcv_conformance.py \
             --exchange data/mgcv_exchange/synthetic \
             --mgcv-reference mgcv_reference.json \
             --markdown mgcv_conformance_report.md \
-            --output mgcv_conformance.json
+            --output mgcv_conformance.json || rc=$?
+          echo "comparator exit status: $rc"
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then
+            echo "::error title=Conformance could not be compared::The comparator" \
+                 "exited $rc — it did not produce a verdict. Expected 0 (all levels" \
+                 "agree) or 2 (some level disagrees). Exit 1 means the comparison was" \
+                 "refused: a hash mismatch, a missing reference, or a partial R run." \
+                 "See the step log; an absent answer is not a finding."
+            exit 1
+          fi
+
+      # THE GATE. Fails on REQUIRED_LEVELS, annotates on the rest — see the header.
+      # Separate from the step above so the failure message names the level rather
+      # than an exit code, and so the report is published either way.
+      - name: Gate on levels 1-3, annotate levels 4-5
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+
+          required = {int(x) for x in os.environ["REQUIRED_LEVELS"].split(",") if x.strip()}
+          try:
+              data = json.load(open("mgcv_conformance.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"::error title=No comparison JSON::{exc}")
+              sys.exit(1)
+
+          settled = {int(k): bool(v) for k, v in data.get("levels_settled", {}).items()}
+          lines = ["", "## Gate", "", "| level | verdict | blocking |", "|---|---|---|"]
+          failed = []
+
+          # Absence is a failure, not a pass: a run that fitted no fixed-lambda cells
+          # would report level 1 as simply missing.
+          for level in sorted(required):
+              if level not in settled:
+                  failed.append(f"level {level} was NOT MEASURED")
+                  lines.append(f"| {level} | **NOT MEASURED** | yes |")
+              elif not settled[level]:
+                  failed.append(f"level {level} DISAGREES")
+                  lines.append(f"| {level} | **DISAGREES** | yes |")
+              else:
+                  lines.append(f"| {level} | agrees | yes |")
+
+          for level in sorted(set(settled) - required):
+              verdict = "agrees" if settled[level] else "**DISAGREES** (finding)"
+              lines.append(f"| {level} | {verdict} | no |")
+              if not settled[level]:
+                  print(
+                      f"::warning title=Level {level} disagrees::A finding, not a defect. "
+                      f"Levels 4-5 are not slice-5 acceptance criteria and do not block. "
+                      f"Level 4's under-inflation is tracked as a BLOCKER against slice 4's "
+                      f"Kass-Steffey arithmetic in PRODUCT_DIRECTION."
+                  )
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+              fh.write("\n".join(lines) + "\n")
+
+          if failed:
+              print(
+                  "::error title=Conformance regression on a required level::"
+                  + "; ".join(failed)
+                  + f". Levels {sorted(required)} are slice 5's acceptance criteria and "
+                  "agreed as of 2026-08-10 — a change here means our penalized IRLS, our "
+                  "REML search or tr(F) stopped matching mgcv. Do NOT widen a tolerance "
+                  "to clear this."
+              )
+              sys.exit(1)
+          print(f"Required levels {sorted(required)} all agree.")
+          PY
 
       # Runs even when the comparison fails: on a disagreement the table IS the
       # deliverable, and burying it in a red step defeats the purpose of the run.
