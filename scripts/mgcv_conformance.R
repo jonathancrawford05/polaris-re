@@ -16,28 +16,38 @@
 # log-likelihood is strictly concave over a SHARED problem, its maximiser is unique, and
 # every disagreement localises to arithmetic.
 #
-# THE ONE SETTING THAT IS LOAD-BEARING: scalePenalty = FALSE
-# ---------------------------------------------------------
-# mgcv rescales caller-supplied penalties by default (gam.control's scalePenalty,
-# documented default TRUE) so that penalties of very different magnitudes are comparable.
-# That redefines what `sp` multiplies — and this whole suite rests on `sp` multiplying the
-# supplied S directly. With the default left in place, every fixed-lambda cell could
-# disagree for a reason that is not our arithmetic, which is the most expensive kind of
-# false finding available here. It is turned off, and the value used is recorded.
+# scalePenalty = FALSE — a VERSION TRIPWIRE, not the thing that makes this valid
+# ------------------------------------------------------------------------------
+# An earlier revision of this header called it "THE ONE SETTING THAT IS LOAD-BEARING",
+# on the documented grounds that mgcv rescales caller-supplied penalties by default
+# (gam.control's scalePenalty, default TRUE) and that this would redefine what `sp`
+# multiplies. THE FIRST REAL RUN REFUTED THAT (2026-08-10, ADR-189 amendment 1). It never
+# reaches paraPen:
 #
-# ADOPTED FROM THE DOCUMENTATION, NOT VERIFIED — and deliberately flagged, because this
-# slice exists to stop exactly that kind of claim from going unmarked (PLAN Anchor 8).
-# `scalePenalty` is the documented gam.control argument governing penalty rescaling, but
-# whether and how it applies to `paraPen` penalties specifically was NOT verifiable in the
-# container this script was written in: there is no R there. So the script does three
-# things rather than assume:
+#   * STRUCTURALLY — gam.setup passes scale.penalty only into smoothCon(); S.scale does
+#     not appear anywhere in its paraPen path.
+#   * EMPIRICALLY — with the two penalties deliberately mismatched by 1e6 and lambda
+#     fixed, max|coef(scalePenalty=TRUE) - coef(FALSE)| is EXACTLY 0.
+#
+# So `sp` already multiplies the supplied S directly, and the guarantee is STRUCTURAL
+# rather than configured. It is still set to FALSE, and the value used is still recorded,
+# because a future mgcv that DID route rescaling through paraPen would otherwise change
+# what this comparison means without saying so. That is a tripwire — a much smaller claim
+# than the one this header used to make, and the true one.
+#
+# Three guards remain, and none of them is what protects the comparison:
 #   1. sets scalePenalty = FALSE, which is strictly the safer direction;
 #   2. FAILS LOUDLY with a readable message if gam.control rejects the argument, rather
 #      than falling back to the default and quietly comparing a rescaled penalty;
-#   3. records every scaling artefact the fitted object exposes (`penalty_scaling`), so a
-#      level-1 disagreement is attributable to rescaling on sight instead of being
-#      mysterious. If that field comes back non-trivial, THAT is the first finding of the
-#      run and the fix is a one-line R change, not a re-derivation of our arithmetic.
+#   3. reads the requirement from the manifest and refuses a missing one, rather than
+#      coercing it through isFALSE() into the unsafe direction (PR #192 review).
+#
+# `penalty_scaling()` below is DELIBERATELY NOT on that list. It cannot currently fire —
+# m$paraPen$S.scale is absent and length(m$smooth) is 0 — and on the first run it reported
+# full.sp (the smoothing-parameter vector, not a rescaling factor) on all ten cells of a
+# run where level 1 agreed to 1e-13. A guard that fires every time is no better than one
+# that never fires; both read as protection and neither is. It is kept as a probe, not
+# claimed as a defence.
 #
 # REQUIREMENTS: R with `mgcv` (a base R recommended package) and `jsonlite`. No
 # reticulate, no RcppCNPy — which is why the exchange is TSV + JSON rather than .npz.
