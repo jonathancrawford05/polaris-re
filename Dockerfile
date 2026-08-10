@@ -61,6 +61,12 @@ COPY data/qa/ ./data/qa/
 COPY data/validation/ ./data/validation/
 COPY data/inputs/portfolio_sample/ ./data/inputs/portfolio_sample/
 COPY data/inputs/portfolio_staggered_sample/ ./data/inputs/portfolio_staggered_sample/
+# Committed mgcv-conformance exchange + Python reference (ADR-189). Synthetic, from a
+# pinned seed — no third-party experience. tests/test_analytics/
+# test_experience_mgcv_conformance.py reads it as a staleness guard (the committed
+# exchange must re-hash to what the exporter produces), and the runtime image runs the
+# test suite. Same reason as data/qa/ above.
+COPY data/mgcv_exchange/ ./data/mgcv_exchange/
 COPY pyproject.toml ./
 COPY Makefile ./
 COPY .env.example ./

@@ -494,7 +494,27 @@ to make it fit, and if it is reduced say so in the report (ADR-187's Monte-Carlo
 
 ### Slice 5: the `mgcv` conformance suite (autonomous build, maintainer runs R)
 
-- **Status:** **NEXT** (unblocked 2026-08-09 by slice 4)
+- **Status:** **BUILT (2026-08-10)** — **ADR-189**, 45 tests. Every deliverable below is
+  committed, including the synthetic exchange and our own reference for it. **The R run
+  itself has NOT happened** — it is the maintainer's, and until it does all three
+  quantities remain *adopted, not verified* (Anchor 8 stands).
+  Three things the build settled that the plan left open, and one it contradicted:
+  - **The correctness claim is checkable without R.** `penalized_score_infinity_norm`
+    verifies `||Xᵀ(y-μ) - Sβ||∞` at the exported coefficients — worst committed cell
+    **2.19e-10** on O(1e2-1e3) counts — so the exported coefficients *are* the unique
+    penalized MLE of the exported problem, and strict concavity pins what any conformant R
+    solver must return. A test pins it against ADR-151's unpenalized version at `S = 0`.
+  - **Level 4 cannot be one metric.** `mgcv` forms `Vc` only when `sp` was *estimated*, and
+    at free `sp` the two sides select different λ. So it is the conditional `Vb` at fixed λ
+    (exact, 1e-6) plus the *inflation ratio* at free λ (0.25) — and the second cannot
+    separate a wrong Jacobian from a λ disagreement on its own. Stated, not hidden.
+  - **A coarser synthetic grid breaks level 2, measured.** At a 2-year age step both
+    penalties saturate at the bound and `edf_total` lands on exactly 4.000 — the bilinear
+    null space. The fixture is narrowed in *range* instead, and a test guards it.
+  - **`scalePenalty = FALSE` is itself adopted-not-verified** (no R here), so it is flagged
+    the way Anchor 8 flags the other three rather than asserted: the script fails loudly if
+    the argument is rejected, records the scaling artefacts the fit exposes, and the
+    comparator refuses a reference that reports rescaling left on.
 - **Depends on:** Slice 4
 
 > **Slice 4 raised this slice's stakes rather than merely unblocking it.** Level 4 —
@@ -632,6 +652,34 @@ constraint is unchanged and is why the comparator is a separate script rather th
 case, or the disagreement is recorded as a finding with the tolerance that failed.
 `tr(F)` moves from *adopted* to *verified or refuted* — and refuted is an acceptable
 outcome that changes Anchor 4 rather than a failure of the slice.
+
+> **Discharged 2026-08-10 as BUILT-BUT-NOT-RUN, and the distinction is the whole status.**
+>
+> Every artefact is committed — exporter, R script, comparator, runbook, the synthetic
+> exchange (`data/mgcv_exchange/synthetic`, 640 KB, seed-pinned and byte-reproducible) and
+> our reference for it (90 KB). 45 tests, all passing with **no R present**: the exchange
+> round-trips bit-exactly, the comparator is exercised against a known-agreement *and* a
+> seeded known-disagreement per metric so every tolerance is shown to bite, and two
+> staleness guards regenerate the committed exchange and the committed reference and compare.
+>
+> **The acceptance criterion above is NOT met, and cannot be met by this slice.** It asks
+> whether levels 1–3 *agree*, which requires the R run. What is delivered is the thing that
+> makes one R invocation sufficient for the two-to-three round trips the plan budgets. The
+> criterion as written did not distinguish "build the suite" from "run it"; the status line
+> now does, because a slice reported as discharged against a criterion it structurally
+> cannot satisfy is the "stated **with the measurements**" failure PLAN slice 2 already
+> recorded once.
+>
+> **What the build itself settled, without R:** the exported coefficients sit at the unique
+> penalized maximiser (worst cell 2.19e-10), so any level-1 disagreement will be R's solver
+> or a convention, never our fit. That is the strongest statement available before the run,
+> and it is a measurement rather than an argument.
+>
+> **One tolerance pair is explicitly PROVISIONAL** — the free-`sp` metrics
+> (`max_abs_log10_sp_diff` at 0.5 decades, `abs_edf_total_diff_free_sp` at 1.0). They are
+> reasoned from the 0.25-decade grid and ADR-187 amendment 2's shallow profile, not
+> measured against R. Named as provisional in `LEVEL_METRICS`, in the report the comparator
+> emits, and in the runbook.
 
 ---
 

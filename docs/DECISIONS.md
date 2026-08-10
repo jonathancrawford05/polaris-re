@@ -14133,3 +14133,207 @@ now fails where before it would have passed.
 
 The premise reproduction itself is not lost; it is recorded above, with the platform it
 was observed on named.
+
+---
+
+## ADR-189: the `mgcv` conformance suite — a committed golden, not a live oracle (penalized MI surface, Slice 5)
+
+**Date:** 2026-08-10
+**Status:** Accepted
+**Context:** `PLAN_penalized_mi_surface.md` slice 5. Three quantities the penalized
+estimator now reports rest on "this is what `mgcv` does", with nothing checking it:
+`tr(F)` as the per-term EDF (Anchor 4, ADR-186), the Kass-Steffey unconditional
+covariance (ADR-188 decision 2), and Wood's `gamma` (ADR-188 decision 3). PLAN Anchor 8
+marks all three **adopted, not verified**. One R run settles them, and slice 4 raised the
+stakes: its Anchor-7 gate **failed** (unconditional coverage 0.8516 / 0.8581 against a
+floor of 0.9192), and that fails for one of two reasons with different remedies — our
+Kass-Steffey arithmetic is wrong, or the residual shortfall is shrinkage bias no
+covariance can reach. Level 4 is what separates them.
+
+**No R is present in the routine's container, and that is by design** (Anchor 5 of the A4′
+epic: CI never grows an R dependency). This slice therefore builds every artefact the run
+needs and ships the one property that makes the whole construction checkable *without* R.
+
+### Decision 1 — the exchange ships our design and our penalties, through `paraPen`
+
+ADR-151's unpenalized oracle is trustworthy because the Poisson log-likelihood over a
+**shared** design is strictly concave, so its maximiser is unique and any conformant
+solver must return it. **That argument extends:** a positive semi-definite penalty added
+to a strictly concave log-likelihood is still strictly concave, so at fixed λ over a
+shared `(X, S_age, S_year)` the penalized MLE is unique too.
+
+`mgcv` accepts exactly that model through `paraPen` — `y ~ 0 + X` with caller-supplied
+penalty matrices. Matching a `te(attained_age, calendar_year)` instead would compare two
+bases, two knot placements and two identifiability constraints, and any disagreement
+would be uninterpretable. With the design *and* the penalties supplied, **every
+disagreement is our arithmetic.** This is the same reason Anchor 1 is asserted on the
+fitted surface and never on coefficients.
+
+The design is **extracted from a fit, never re-derived** — through
+`PenalizedTensorMIModel.design_context`, the accessor ADR-188 made public for the
+selector. A conformance run against a design the model did not actually fit measures the
+exporter.
+
+### Decision 2 — the correctness claim is verified without R, by the penalized score
+
+`penalized_score_infinity_norm` computes `||Xᵀ(y - μ) - Sβ||∞` at the exported
+coefficients: the gradient of the penalized Poisson log-likelihood, which vanishes at the
+maximiser. Measured across all ten committed cells the worst is **2.19e-10** on cells
+whose deaths are O(1e2-1e3), so the exported coefficients *are* the unique penalized MLE
+of the exported problem — and strict concavity then pins what any conformant R solver must
+return.
+
+This is ADR-151's `poisson_score_infinity_norm` extended by one term, and a test asserts
+the two agree **exactly** at `S = 0`, so the sign and placement of `- Sβ` are pinned
+against an independently-tested function rather than against this module's own arithmetic.
+A second test moves the coefficients off the optimum and requires the norm to rise: a
+statistic that is near zero everywhere measures nothing.
+
+### Decision 3 — the mgcv output is a COMMITTED GOLDEN, not a live oracle
+
+**The expensive resource is the round trip, not the R compute.** Each one costs a session
+boundary. The R side is a pure function of the exchange, so once the maintainer runs it the
+reference is committed and the implementer iterates **entirely offline** — zero further R
+runs while fixing our arithmetic. A second run is needed only if the design or the
+penalties change (which changes the exchange), or to add cells.
+
+This differs from the plan's original shape, which committed only the *comparison report*.
+For the **synthetic** case there is no licensing reason to withhold the reference: it is
+generated from a pinned seed. HMD/ILEC are unchanged — exchange local-only, report
+committed (`DATA_LICENSING.md` §1, Design Anchor 6), and the exporter enforces it by
+**refusing to default a real-data output path into the repository**. A licensing boundary
+crossed by accident is crossed through a default.
+
+**The guard that makes the golden usable is the hash.** Both references record the exchange
+SHA-256 they were computed from; the comparator recomputes it from the files on disk and
+refuses if either disagrees. Iterating against a stale reference and declaring parity with
+a file R never saw is silent by nature — the numbers still look like numbers — and it is
+the worst failure mode this construction is exposed to.
+
+**TSV + JSON, not `.npz`.** R cannot read `.npz` without `reticulate` or `RcppCNPy`, and an
+earlier revision of the plan specified exactly that; requiring an extra R package would put
+a maintainer's round trip behind a package install. Floats at `%.17g`, which round-trips an
+IEEE-754 double exactly — asserted with `np.array_equal`, not a tolerance, because anything
+looser would make every level-1 disagreement partly a formatting artefact.
+
+### Decision 4 — a matrix of ten cells over three designs, and why each earns its place
+
+A design costs bytes; a cell over a shared design costs seconds inside one R invocation.
+So: three designs (two `(k_age, k_year)` pairs, factor block present and absent), ten cells.
+
+- **Three fixed-λ pairs including both saturated corners.** A penalty-dominated normal
+  equation is where conditioning bites — ADR-185 found coefficients rattling at round-off
+  in exactly the penalised directions while the deviance was settled.
+- **`l1-scale-convention` at `(1e3, 1e0)`.** The PR #190 review flagged that
+  `log|XᵀWX + S|` is evaluated at the **unscaled** penalty, fixing a convention for λ
+  relative to φ. Two λ of similar magnitude would hide a convention error; three decades
+  apart in opposite directions exposes it. This is the "a single case can agree by
+  accident" requirement made concrete.
+- **The second `k` pair moves BOTH margins**, in opposite directions. A pair that widened
+  only one margin could keep the row-wise Kronecker product's shape and leave a
+  column-ordering error alive. A test asserts the pair does this rather than trusting the
+  literal.
+
+### Decision 5 — the synthetic fixture is narrowed in RANGE, not coarsened in STEP
+
+The obvious way to keep a committed exchange small is a coarser age grid. **Measured, it
+breaks level 2:** at a 2-year age step both penalties saturate at the search bound
+`(1e8, 1e8)` and `edf_total` lands on exactly **4.000** — the dimension of the bilinear
+null space the two second-difference penalties share. Level 2 would then compare a bounded
+grid against an unbounded optimiser on a problem where the data identify *neither*
+smoothing parameter. That is the degenerate-fixture trap this epic has walked into three
+times already (ADR-186 with an unrepresentable truth, ADR-187 by design, ADR-188's first
+age-varying fixture with a null-space-resident linear gradient).
+
+So the age **range** is narrowed to 45-85 while the step and the per-cell exposure stay the
+fixture's own, and the calendar margin is untouched at ILEC's eight years. Every free-`sp`
+cell then selects an interior λ, and `test_no_committed_cell_selects_a_lambda_on_the_search_bound`
+is what stops the degeneracy creeping back the next time the fixture is touched.
+
+### Decision 6 — level 4 has two metrics, and the limitation is stated rather than hidden
+
+`mgcv` forms `Vc` **only when the smoothing parameters were estimated** — there is no `Vc`
+at fixed `sp`. But at free `sp` the two sides select *different* λ (ours from a 0.25-decade
+grid, R's continuously), so the two covariance matrices differ for a reason that is not the
+correction's arithmetic. There is no third option: no fixed-`sp` fit can produce a `Vc`.
+
+Level 4 is therefore:
+
+1. **conditional `Vb` at fixed λ**, relative tolerance `1e-6` — exact, and it validates
+   `(XᵀWX + S)⁻¹` and the scale convention;
+2. **the inflation factor** `mean(diag(Vc)) / mean(diag(Vb))` at free λ, tolerance 0.25 on
+   the ratio-of-ratios — the most scale-free summary of the correction that survives a λ
+   disagreement.
+
+**Metric 2 cannot separate a wrong Kass-Steffey Jacobian from a λ disagreement on its
+own**, and must be read only after level 2 passes. That is written into the metric's
+rationale, printed in the report, and repeated in the runbook. Recording the limitation is
+the point: a single number labelled "level 4" that quietly conflated the two would be the
+"less auditable, not more" failure Anchor 4 exists to prevent.
+
+### Decision 7 — the covariance travels unscaled and the dispersion travels beside it
+
+`mgcv`'s `poisson()` holds the scale at 1; `PenalizedMIFit` carries
+`cov = (XᵀWX + S)⁻¹ φ̂` with φ̂ the Pearson estimate. Comparing the shipped `cov` against
+`vcov(m)` would report a disagreement of exactly φ̂ and say nothing about either
+implementation. So the exported covariance is `cov / dispersion` and the dispersion is its
+own field — with a test that first asserts the fixture's φ̂ is **not** 1.0, because a
+fixture at φ̂ = 1 cannot detect a scaling mistake.
+
+Full matrices travel only where the comparison is exact (fixed λ); the free-`sp` cells carry
+**diagonals**, which is all the inflation metric needs and what an implementer bisects with,
+at `p` floats rather than `p²`. That keeps the committed reference at 90 KB.
+
+### Decision 8 — `scalePenalty = FALSE`, adopted from the documentation and flagged as such
+
+`mgcv` rescales caller-supplied penalties by default (`gam.control`'s `scalePenalty`,
+documented default `TRUE`). That redefines what `sp` multiplies, and this whole suite rests
+on `sp` multiplying the supplied `S` directly.
+
+**Whether and how that applies to `paraPen` penalties specifically was not verifiable
+here** — there is no R in this container — so it is marked rather than asserted, which is
+Anchor 8's own discipline turned on this slice's R side. Three defences instead of an
+assumption:
+
+1. the script sets `scalePenalty = FALSE`, the strictly safer direction;
+2. it **fails loudly** if `gam.control` rejects the argument, rather than reverting to the
+   default and quietly comparing a rescaled penalty;
+3. it records every scaling artefact the fitted object exposes (`penalty_scaling`), probed
+   defensively so a field absent in some mgcv version returns nothing rather than erroring.
+
+The comparator **refuses** a reference reporting `scale_penalty` anything but `false`, and
+surfaces `penalty_scaling` as a note. It also refuses a fixed-λ cell whose `sp_supplied`
+differs from the manifest's: a fixed-λ comparison at a different λ is not a comparison.
+**If `penalty_scaling` comes back non-trivial on the first run, that is the run's first
+finding**, and the fix is a one-line R change rather than a re-derivation of our arithmetic.
+
+### Decision 9 — the real-data cases read a cells file rather than re-running the ingest
+
+`run_diligence` builds real-data cells through ~60 lines that reach private helpers
+(`_regroup`, `_filter_window`). Duplicating that in the exporter would create a **second
+ingest path to keep in step** with the first, untestable in this container, for a case whose
+exchange can never be committed. Rejected. The exporter takes `--cells PATH` (parquet/CSV in
+the canonical grouped contract, with `q_base`), and the runbook carries the snippet that
+produces one from the public loaders plus `attach_empirical_base`.
+
+The path is not untested for being real-data-only: a test drives it end to end on a
+synthetic frame put through `attach_empirical_base` exactly as the runbook's snippet does,
+and asserts the manifest records the factor columns each design **actually found** rather
+than the ones its flag asked for. A frame with no factor column produces an empty factor
+block rather than a silent mismatch.
+
+**Out of scope, and therefore harvested rather than done here:** having the exporter call
+the diligence ingest directly (which would need `_regroup` and `_filter_window` promoted to
+public API); the R run itself, which is the maintainer's; and slice 6's reporting duties,
+which the plan sequences behind this.
+
+### What this slice does NOT settle
+
+`tr(F)`, the Kass-Steffey covariance and `gamma` are **still adopted, not verified.** This
+slice builds the suite; the R run converts them. Anchor 8 stands until then, and every
+document quoting the three still says so. **A run that refutes one is a successful run**
+that changes an anchor — not a failed slice.
+
+`tests/qa/` goldens are untouched (94 passed unmodified) and nothing in `products/`,
+`reinsurance/` or the CLI moved: the epic's byte-identical-goldens discipline holds through
+slice 5.

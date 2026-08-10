@@ -4,9 +4,12 @@
 spline-diagnostics epic.
 **Plan:** `docs/PLAN_penalized_mi_surface.md`
 **Predecessors:** ADR-182, **ADR-184 + amendments 1-3**
-**Status:** **SLICES 1-4 DONE (2026-08-09)** — ADR-185, ADR-186, ADR-187 + amendments
-1-2, **ADR-188**. Slice 5 (the `mgcv` conformance suite) is NEXT, and slice 4 made it
-load-bearing rather than optional.
+**Status:** **SLICES 1-5 DONE (2026-08-10)** — ADR-185, ADR-186, ADR-187 + amendments
+1-2, ADR-188, **ADR-189**. Slice 5's suite is **BUILT AND COMMITTED; the R run has NOT
+happened** — it is the maintainer's, one command, `docs/RUNBOOK_mgcv_conformance.md`.
+Until it does, `tr(F)`, the Kass-Steffey covariance and `gamma` all remain *adopted, not
+verified* (Anchor 8). Slice 6 (harness integration) is NEXT and is unblocked, with one
+caveat recorded below.
 **Total slices:** **7** (1-6 autonomous, 7 one maintainer run) — **plan revised
 2026-08-09**, see `PLAN_penalized_mi_surface.md` Revision 1.
 **Estimated scope:** ~7-9 dev-days autonomous + one `mgcv` conformance run and one
@@ -44,12 +47,18 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
    later slice must not repeat wrongly: selecting λ per replicate costs a *further* ~5
    points against ADR-187's conditional 0.8710, and the **unpenalized** delta band
    covers 10 points better (0.9586) at 4.4x the width on the identical truth and seeds.
-5. **`mgcv` conformance suite** — **NEXT** — ship our design AND our penalties via `paraPen` so
-   the model is identical and disagreement localises to our arithmetic. Five levels:
-   fixed-λ coefficients, REML selection, `tr(F)`, unconditional `vcov`, `gamma`.
-   Synthetic exchange file committed; HMD/ILEC exchange local-only, report committed.
-6. **Harness integration** — `--penalized` off by default (Anchor 6), `edf` and λ
-   reported (Anchor 4). Moved behind 4-5 deliberately.
+5. ~~**`mgcv` conformance suite**~~ **BUILT (2026-08-10)** — ADR-189. Our design AND our
+   penalties go to `mgcv` via `paraPen`, so the model is identical and disagreement
+   localises to our arithmetic. Ten cells over three designs, five levels. Synthetic
+   exchange **and** reference committed (the golden decision); HMD/ILEC exchange
+   local-only, report committed. 45 tests, none needing R.
+   **The R run has NOT happened.** Three quantities stay *adopted, not verified*.
+6. **Harness integration** — **NEXT** — `--penalized` off by default (Anchor 6), `edf` and
+   λ reported (Anchor 4). Moved behind 4-5 deliberately. **Unblocked, with a caveat:** it
+   was sequenced behind conformance so the numbers reaching a human were verified first,
+   and they are not yet. Slice 6 may proceed — but every `edf`/λ/band it surfaces must
+   carry the *adopted, not verified* mark until the run happens, which is a reporting
+   obligation on top of the Anchor-7 amendment's three.
 7. **Real data** — against the four predictions PLAN §6 registers in advance.
 
 ## Context for the next session
@@ -219,11 +228,57 @@ because this file is what the next session reads first.
   spread still falls four-fold once the truth has age structure, and a max-minus-min
   range over 200 draws is a much harder statistic than over 8.
 
+### New in slice 5 — read before slice 6
+
+- **`Rscript scripts/mgcv_conformance.R` is the one thing waiting on a human.** Two
+  commands, both in `docs/RUNBOOK_mgcv_conformance.md`. The output is committed as a golden
+  and the implementer then iterates offline against it — zero further R runs while fixing
+  arithmetic. Expected round trips: two to three.
+- **The R-free guarantee is the thing to lean on until the run happens.**
+  `penalized_score_infinity_norm` measures 2.19e-10 at worst across all ten committed
+  cells, so the exported coefficients are the unique penalized MLE of the exported problem.
+  Any level-1 disagreement will therefore be R's solver or a **convention** — never our
+  fit. That narrows what the first run can possibly find, which is the point.
+- **`scalePenalty` is the first thing to read on a level-1 disagreement.** The comparator
+  surfaces `penalty_scaling` per cell and refuses a reference reporting rescaling left on.
+  A non-trivial value there is a one-line R fix, not a re-derivation of our arithmetic —
+  and it was NOT verifiable in this container, so it carries the same *adopted* mark as the
+  three quantities the run is meant to settle.
+- **Level 4 is two metrics and the second is weak by construction.** `mgcv` has no `Vc` at
+  fixed `sp`, and at free `sp` the two sides select different λ. So the exact half is the
+  conditional `Vb` at fixed λ; the correction is only checkable as an *inflation ratio*,
+  which cannot separate a wrong Jacobian from a λ disagreement. **Read it only after level
+  2 passes.** ADR-188's failing gate still needs level 4 to choose between "our arithmetic"
+  and "shrinkage bias", and this is as sharp as level 4 gets.
+- **The synthetic fixture's shape is load-bearing, and a test says so.** A 2-year age step
+  saturates both penalties at the bound with `edf_total` exactly 4.000 (the bilinear null
+  space), which would make level 2 vacuous. The fixture is narrowed in *range* instead.
+  This is the fourth time this epic has met the degenerate-fixture trap — check any new
+  fixture against **both** the penalty null space and the basis, every time.
+- **Two free-`sp` tolerances are PROVISIONAL** — 0.5 decades on `log10 sp`, 1.0 on `edf`.
+  Reasoned from the grid resolution and the shallow profile, not measured against R. The
+  first run is what firms them, and **the answer is not to widen them to pass** (ADR-188's
+  refusal, restated).
+- **The committed exchange is a golden with two staleness guards.** One re-hashes it; one
+  regenerates it and compares. Re-exporting invalidates any committed `mgcv_reference.json`
+  and the comparator's hash guard will say so — which is the intended behaviour, not a
+  nuisance.
+- **The exporter deliberately does not re-run the diligence ingest.** Real-data cases read a
+  grouped-cells file. Duplicating `run_diligence`'s ~60 lines (which reach `_regroup` and
+  `_filter_window`) would be a second ingest path to keep in step, untestable here.
+  Harvested as a follow-up, not silently skipped.
+
 ## Open questions (for human)
 
-- Single global λ per margin, or does slice 5 promote the adaptive-penalty epic?
-- Does the `mgcv` cross-check (ADR-151) happen? It needs R and an R-equipped
-  machine, and real-data penalized fitting is when it is worth most.
+- **Will the R run happen, and when?** This is now the epic's only external dependency and
+  it gates the Anchor-8 conversion of three quantities plus the diagnosis of ADR-188's
+  failing gate. One command, no data needed, `docs/RUNBOOK_mgcv_conformance.md`. Everything
+  it needs is committed as of 2026-08-10.
+- Single global λ per margin, or does the conformance run promote the adaptive-penalty epic?
+- Should slice 6 wait for the run, or ship with the *adopted, not verified* mark? The plan
+  sequenced 6 behind 5 so the numbers a human reads would be verified first; slice 5 is
+  built but unrun, so that intent is only half met. Proceeding is defensible with the mark
+  carried explicitly; waiting is also defensible. **A human decision, not the routine's.**
 - Should the penalized path ever become the default? Not decidable before slice 5;
   flipping it means re-deriving every committed report, which carries its own
   `DATA_LICENSING.md` §5c implications.
