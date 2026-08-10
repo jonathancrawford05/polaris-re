@@ -1,12 +1,47 @@
 # Runbook — the `mgcv` conformance run
 
-**What it settles:** three quantities the penalized MI surface reports are *adopted from
+**What it settles:** three quantities the penalized MI surface reports were *adopted from
 `mgcv` and unverified* (`PLAN_penalized_mi_surface.md` Anchor 8) — `tr(F)` as the
-per-term EDF, the Kass-Steffey unconditional covariance, and Wood's `gamma`. One R run
-settles all three.
+per-term EDF, the Kass-Steffey unconditional covariance, and Wood's `gamma`.
 
-**Who runs what:** the maintainer runs **one R command**. Everything else is Python and
-already committed. ADR-189.
+**The run has happened (2026-08-10, PR #193) and it is now automated.** ADR-189 +
+amendment 1.
+
+> ## Results — R 4.6.1 / mgcv 1.9.4 / jsonlite 2.0.0, CRAN snapshot 2026-08-01
+>
+> ```
+> level 1: AGREES     level 2: AGREES     level 3: AGREES
+> level 4: DISAGREES  level 5: DISAGREES
+> ```
+>
+> | quantity | verdict |
+> |---|---|
+> | **`tr(F)` as the per-term EDF** | **VERIFIED** — agrees to 7.2e-13 (tol 1e-6) |
+> | **Kass-Steffey unconditional covariance** | **REFUTED — systematically under-inflates.** Ours 1.11-1.21x, mgcv 1.49-1.87x, every cell in the same direction |
+> | **Wood's `gamma`** | **UNSETTLED** — misses both PROVISIONAL tolerances narrowly; the cross-cell sign check passes |
+>
+> **Levels 4 and 5 are not slice-5 acceptance criteria.** The comparator exits 2 on any
+> disagreement, so the CI check is red **on findings, not on defects** — read the job
+> summary before treating red as broken. Per Anchor 8 a run that refutes one of the three
+> is a *successful* run that changes the anchor.
+>
+> **Do not widen `LEVEL_METRICS` tolerances to go green.** Level 5's two PROVISIONAL
+> tolerances may be re-derived now that a measurement exists, but only from a stated rule
+> about selection noise. A tolerance chosen because it makes a check green measures nothing.
+
+## It runs in CI now — you do not need R
+
+`.github/workflows/mgcv-conformance.yml` (PR #193) runs both halves on every change to a
+conformance file: the R side inside a **digest-pinned** container (never a tag — a tag would
+let an `mgcv` update rewrite the oracle silently), then the comparator as an ordinary `uv`
+job, publishing the table to the job summary.
+
+**ADR-151 / Anchor 5 still hold.** No job runs pytest, `rscript_mgcv_available()` still
+returns `False` everywhere Python CI runs, and the trigger is path-filtered so an ordinary PR
+never pulls the image. R exists only inside that container, in its own job.
+
+The manual commands below remain valid for a local run or for the HMD/ILEC cases, which are
+not in CI because their exchange must not leave the maintainer's machine.
 
 ---
 
@@ -48,10 +83,28 @@ our arithmetic.
 | 5 | `gamma = 1.4` | `gamma`'s reference behaviour | as level 2 |
 
 Every tolerance and the reason for it is printed in the report, and lives in
-`LEVEL_METRICS` in `src/polaris_re/analytics/experience_mgcv_conformance.py`. **The two
-free-`sp` tolerances are provisional** until this run has happened once.
+`LEVEL_METRICS` in `src/polaris_re/analytics/experience_mgcv_conformance.py`. The two
+free-`sp` tolerances were marked provisional until the first run; they now have their first
+measurement and **both pass, narrowly** — `max_abs_log10_sp_diff` 4.3221e-01 against 0.5 and
+`abs_edf_total_diff_free_sp` 8.7334e-01 against 1.0, roughly 13% of headroom each. Close
+enough that a different seed could cross either, which is a fact about the tolerances and not
+a licence to widen them.
 
-### Level 4 is the decisive one, and it has a limitation worth reading first
+**One thing the level table cannot show: λ travels inside `paraPen`, not through `gam()`'s
+top-level `sp`.** A `paraPen`-only fit has an empty smooth list, so a top-level `sp` dies in
+`gam.setup` at `fix.ind <- G$sp >= 0` — which is why every fixed-λ cell crashed on the first
+real run and the suite had never executed at all (PR #193).
+
+### Level 4 was the decisive one, and it decided — see the verdict box above
+
+**It came out refuted, and that is the actionable result of the whole slice.** Read the
+limitation below first, because it is what licenses the reading: the metric is an inflation
+ratio at independently-selected λ, so it is legible only once level 2 passes — and level 2
+passes. Ours inflates 1.11-1.21x where `mgcv` inflates 1.49-1.87x, every cell in the same
+direction. An under-inflated covariance under-covers, which is what ADR-188 measured. So the
+Anchor-7 shortfall points at **our Kass-Steffey arithmetic**, not at shrinkage bias.
+
+### The limitation that makes level 4 weak, and why it was still enough
 
 ADR-188's Anchor-7 gate **failed**: unconditional coverage 0.8516 / 0.8581 against a
 floor of 0.9192. That fails for one of two reasons with completely different remedies —
@@ -86,36 +139,41 @@ That property is checkable **without R**: `penalized_score_infinity_norm` verifi
 the penalized log-likelihood. The committed reference's worst cell measures **2.2e-10**,
 so the exported coefficients are the ones any conformant solver must return.
 
-## The one R setting that is load-bearing
+## `scalePenalty` — measured, and it is NOT load-bearing
 
-`gam.control(scalePenalty = FALSE)`.
+`gam.control(scalePenalty = FALSE)` is still set. **But an earlier revision of this runbook
+called it "the one setting that is load-bearing", and the 2026-08-10 run refuted that.** It
+never reaches `paraPen`:
 
-`mgcv` rescales caller-supplied penalties by default so penalties of different magnitudes
-are comparable. That redefines what `sp` multiplies — and this whole suite rests on `sp`
-multiplying the supplied `S` directly. Left at the default, **every fixed-λ cell could
-disagree for a reason that is not our arithmetic**. It is set in the R script, recorded in
-the manifest's `r_requirements`, asserted by a test, and reported in the R output.
+- **Structural** — `gam.setup` passes `scale.penalty` only into `smoothCon()`; `S.scale`
+  does not appear anywhere in its `paraPen` path.
+- **Empirical** — with penalties deliberately mismatched by `1e6` and λ fixed,
+  `max|coef(scalePenalty = TRUE) − coef(FALSE)|` is **exactly 0**.
 
-**This one is itself adopted from the documentation and not verified**, and it is flagged
-rather than left implicit — the same discipline Anchor 8 applies to `tr(F)`, turned on this
-slice's own R side. `scalePenalty` is the documented `gam.control` argument governing
-penalty rescaling, but whether and how it applies to `paraPen` penalties *specifically*
-could not be checked where this script was written: no R there. So the script does four
-things instead of assuming:
+`sp` already multiplies the supplied `S` directly. **The guarantee is structural, not
+configured.** Setting it `FALSE` plus the `tryCatch` is worth keeping as a **version
+tripwire** — if a future `mgcv` routes rescaling through `paraPen`, the run says so instead
+of quietly comparing a rescaled penalty — and that is a smaller, true claim in place of the
+old one.
 
-1. sets `scalePenalty = FALSE`, the strictly safer direction;
-2. **fails loudly** if `gam.control` rejects the argument, rather than reverting to the
-   default and quietly comparing a rescaled penalty;
-3. **reads the manifest field directly and refuses a missing one.** `isFALSE(NULL)` is
-   `FALSE` in R, so an absent field under a negation would hand `mgcv` its rescaling
-   default *without* the guard above firing — failing one command later than it could,
-   which costs the round trip this whole suite is built to conserve (PR #192 review);
-4. records every scaling artefact the fitted object exposes, under `penalty_scaling`.
+Three guards remain, and none of them is now claimed to be what protects the comparison:
 
-The comparator refuses outright if the reference reports `scale_penalty` anything but
-`false`, and surfaces `penalty_scaling` as a note. **If that note comes back non-trivial on
-the first run, that is the run's first finding** — and the fix is a one-line R change, not a
-re-derivation of our arithmetic. Read it before anything else on a level-1 disagreement.
+1. the script sets `scalePenalty = FALSE`, the strictly safer direction;
+2. it **fails loudly** if `gam.control` rejects the argument;
+3. it **reads the manifest field directly and refuses a missing one.** `isFALSE(NULL)` is
+   `FALSE` in R, so an absent field under a negation would hand `mgcv` the rescaling default
+   *without* guard 2 firing (PR #192 review).
+
+The comparator still refuses outright if the reference reports `scale_penalty` anything but
+`false`.
+
+**`penalty_scaling()` was removed as a defence, because it could never fire.**
+`m$paraPen$S.scale` is absent and `length(m$smooth)` is 0, so the only field it ever returned
+was `full.sp` — the **smoothing-parameter vector**, not a rescaling factor. It fired the
+comparator's "sp did not multiply the supplied S" note on **all ten cells** of a run where
+level 1 agreed to 1e-13. The `full_sp` probe is gone; the probe now returns empty, which is
+the correct reading. **A guard that fires every time is no better than one that never fires;
+both read as protection and neither is.**
 
 ## The hash guard
 

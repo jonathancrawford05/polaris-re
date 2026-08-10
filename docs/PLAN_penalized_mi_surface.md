@@ -126,8 +126,11 @@ on both counts. Called a *shrinkage* it reads as what it is — how much that pe
 took away — and nobody sums it.
 
 This keeps Anchor 4's requirement that complexity is visible per margin while every
-published number is exactly defined and the arithmetic closes. **Not settled until
-validated against real `mgcv`** — see §7.
+published number is exactly defined and the arithmetic closes. ~~**Not settled until
+validated against real `mgcv`** — see §7.~~ **SETTLED 2026-08-10 (PR #193's CI run):
+`tr(F)` agrees with `mgcv` to 7.2e-13 on `edf_total` and `edf_tensor`, and exactly on
+`edf_factors`, across all six fixed-λ cells (tolerance 1e-6). The definition in the table
+above is verified, not adopted.**
 
 **Anchor 5 — `k` is an upper bound checked against `edf`, never a tuning knob.**
 The rule is Wood's: choose `k` generously, fit, confirm `edf` sits well below it,
@@ -171,6 +174,28 @@ choice *because* a mature reference implementation makes it, and none of that is
 evidence about **our** implementation of it. Slice 5 converts them; until it does,
 every document that quotes them says "adopted, not verified" — and a conformance run
 that **refutes** one is a successful run that changes the anchor, not a failed slice.
+
+> ### Anchor 8 resolved for two of three — 2026-08-10, PR #193's CI run
+>
+> R 4.6.1 / mgcv 1.9.4 / jsonlite 2.0.0, CRAN snapshot 2026-08-01, digest-pinned image.
+> **The clause about refutation was not decoration: it fired.**
+>
+> | quantity | status | evidence |
+> |---|---|---|
+> | **`tr(F)` as the per-term EDF** | **VERIFIED** | levels 1–3 agree; `edf_total` and `edf_tensor` to 7.2e-13, `edf_factors` exactly, over six fixed-λ cells (tol 1e-6) |
+> | **Kass–Steffey unconditional covariance** | **REFUTED — systematically under-inflates** | level 4: ours 1.11–1.21×, mgcv 1.49–1.87×, every cell missing in the *same* direction. Two of three cells fail the 0.25 tolerance (−0.361, −0.350; −0.220 passes) |
+> | **Wood's `gamma`** | **UNSETTLED, not refuted** | level 5 misses both PROVISIONAL tolerances narrowly (0.672 vs 0.5; 1.127 vs 1.0) while the cross-cell sign check **passes** — `gamma` moves EDF the same way on both sides |
+>
+> **The refutation is the epic's most valuable result to date, because it discriminates
+> ADR-188's failing gate.** Slice 4 measured unconditional coverage at 0.8516 / 0.8581
+> against a 0.9192 floor and named two candidate causes with different remedies: our
+> Kass–Steffey arithmetic, or shrinkage bias no covariance can reach. Level 4 points at
+> **the arithmetic** — an under-inflated covariance under-covers, in exactly the observed
+> direction, on the same cells. And the reading is legitimate because slice 5's own caveat
+> was met: the inflation ratio is legible only once level 2 passes, and level 2 passes.
+>
+> **A third claim was refuted too, and it was one this plan made about its own R side** —
+> see the `scalePenalty` note in slice 5's status below.
 
 ## 3. Slices
 
@@ -494,10 +519,36 @@ to make it fit, and if it is reduced say so in the report (ADR-187's Monte-Carlo
 
 ### Slice 5: the `mgcv` conformance suite (autonomous build, maintainer runs R)
 
-- **Status:** **BUILT (2026-08-10)** — **ADR-189**, **PR #192**, 46 tests. Every deliverable below is
-  committed, including the synthetic exchange and our own reference for it. **The R run
-  itself has NOT happened** — it is the maintainer's, and until it does all three
-  quantities remain *adopted, not verified* (Anchor 8 stands).
+- **Status:** **BUILT AND RUN (2026-08-10)** — **ADR-189 + amendment 1**, **PR #192**
+  (build) and **PR #193** (the fix that made it run, plus CI), 46 tests.
+  **Levels 1, 2 and 3 AGREE; levels 4 and 5 DISAGREE.** `tr(F)` is **verified**, the
+  Kass–Steffey covariance is **refuted** as systematically under-inflating, and `gamma` is
+  **unsettled**. See the Anchor 8 resolution box in §2 for the table.
+  **The run also refuted two claims this plan made about its own R side**, and exposed a
+  defect in the R script that meant the suite had never executed at all:
+  - **Every fixed-λ cell crashed.** λ was supplied through `gam()`'s top-level `sp`, and a
+    `paraPen`-only fit has an empty smooth list, so `gam.setup` dies at
+    `fix.ind <- G$sp >= 0` with "argument is not interpretable as logical" — on the *first*
+    cell, before any arithmetic was compared. Six of ten cells are `free_sp: false`. λ now
+    travels **inside `paraPen`**, which binds (same design at `sp=(1,1)` vs `(1e4,1e4)`
+    gives `edf_total` 19.999 vs 13.561). **The build's grep test pins strings in a file it
+    cannot execute**, which is exactly the class of test this epic keeps catching: it
+    asserted the settings were present and could not assert the script ran. PR #193's CI
+    workflow is what closes that, not a new assertion.
+  - **`scalePenalty` is NOT load-bearing** — the build called it "THE ONE SETTING THAT IS
+    LOAD-BEARING" and built four defences around it. It never reaches `paraPen`:
+    *structurally*, `gam.setup` passes `scale.penalty` only into `smoothCon()` and
+    `S.scale` is absent from its `paraPen` path; *empirically*, with penalties mismatched
+    by `1e6` and λ fixed, `max|coef(TRUE) − coef(FALSE)|` is **exactly 0**. `sp` already
+    multiplies the supplied `S` directly, and the guarantee is **structural**. Keeping it
+    `FALSE` plus the `tryCatch` is a version tripwire, which is a smaller claim.
+  - **`penalty_scaling()` was never a live defence.** `m$paraPen$S.scale` is absent and
+    `length(m$smooth)` is 0, so the only field it could return was `full.sp` — the
+    smoothing-parameter vector, not a rescaling factor. It fired the "sp did not multiply
+    the supplied S" note on **all ten cells** of a run where level 1 agreed to 1e-13. The
+    `full_sp` probe is removed in #193. **A guard that fires every time is no better than
+    one that never fires; both read as protection and neither is** — the same sentence the
+    PR #192 review round wrote about the *other* direction of the same setting.
   Three things the build settled that the plan left open, and one it contradicted:
   - **The correctness claim is checkable without R.** `penalized_score_infinity_norm`
     verifies `||Xᵀ(y-μ) - Sβ||∞` at the exported coefficients — worst committed cell
@@ -653,6 +704,24 @@ case, or the disagreement is recorded as a finding with the tolerance that faile
 `tr(F)` moves from *adopted* to *verified or refuted* — and refuted is an acceptable
 outcome that changes Anchor 4 rather than a failure of the slice.
 
+> **Discharged 2026-08-10 — BUILT, then RUN the same day (PR #193). Both criteria are
+> met, and the discharge below is kept rather than rewritten because the sequence is the
+> record.**
+>
+> | Criterion | Status | Evidence |
+> |---|---|---|
+> | Levels 1–3 agree within stated tolerances, **or the disagreement is recorded** | **✅ they AGREE** | worst `max_abs_coef_diff` 4.9971e-13 (tol 1e-6); `max_abs_eta_diff` 2.9043e-14 (tol 1e-9); `abs_edf_total_diff` / `abs_edf_tensor_diff` 7.2120e-13, `abs_edf_factors_diff` exactly 0 (tol 1e-6); level 2 `max_abs_log10_sp_diff` 4.3221e-01 (tol 5e-1) and `abs_edf_total_diff_free_sp` 8.7334e-01 (tol 1.0). The "or" branch was not needed |
+> | `tr(F)` moves from *adopted* to *verified or refuted* | **✅ VERIFIED** | level 3, above |
+>
+> **Levels 4 and 5 are not slice-5 acceptance criteria** and their disagreement does not
+> reopen the slice. Level 4's refutation is a *finding*, promoted as work against slice 4's
+> arithmetic; level 5 is unsettled against tolerances this plan already marked PROVISIONAL.
+>
+> **The original BUILT-NOT-RUN discharge follows, unedited, because it was the honest
+> status at the time and the two ❌ rows it names are what #193 converted.**
+>
+> ---
+>
 > **Discharged 2026-08-10 as BUILT-BUT-NOT-RUN, and the distinction is the whole status.**
 >
 > Every artefact is committed — exporter, R script, comparator, runbook, the synthetic
@@ -680,6 +749,16 @@ outcome that changes Anchor 4 rather than a failure of the slice.
 > reasoned from the 0.25-decade grid and ADR-187 amendment 2's shallow profile, not
 > measured against R. Named as provisional in `LEVEL_METRICS`, in the report the comparator
 > emits, and in the runbook.
+>
+> **They now have their first measurement, and they were well chosen — narrowly.** The run
+> put `max_abs_log10_sp_diff` at 4.3221e-01 against 0.5, and
+> `abs_edf_total_diff_free_sp` at 8.7334e-01 against 1.0. Both pass with roughly 13% of
+> headroom, which is close enough that a different seed could plausibly cross either. That
+> is a fact about the tolerances, **not a licence to widen them**: the answer to a marginal
+> pass is a stated rule about selection noise, derived from the grid resolution and the
+> profile's curvature, not a larger number. **Level 5's pair — the same two metrics under
+> `gamma = 1.4` — misses**, at 6.7244e-01 and 1.1270, which is the same margin in the other
+> direction and the reason `gamma` is recorded as unsettled rather than refuted.
 
 ---
 

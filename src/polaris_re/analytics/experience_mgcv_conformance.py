@@ -588,10 +588,16 @@ def write_exchange(bundle: ExchangeBundle, directory: str | Path) -> str:
         "float_format": FLOAT_FORMAT,
         "generator": "polaris_re.analytics.experience_mgcv_conformance",
         "r_requirements": {
-            # scalePenalty=FALSE is load-bearing, not hygiene: mgcv rescales
-            # caller-supplied paraPen penalties by default, which silently redefines
-            # what `sp` multiplies and would make every fixed-lambda cell disagree for
-            # a reason that is not our arithmetic.
+            # scalePenalty=FALSE is a VERSION TRIPWIRE, not the thing that makes the
+            # comparison valid. An earlier revision called it load-bearing on the
+            # grounds that mgcv rescales caller-supplied paraPen penalties by default;
+            # the 2026-08-10 run refuted that (ADR-189 amendment 1). It never reaches
+            # paraPen — structurally gam.setup passes scale.penalty only into
+            # smoothCon(), and empirically, with penalties mismatched by 1e6 and lambda
+            # fixed, max|coef(TRUE) - coef(FALSE)| is exactly 0. `sp` already multiplies
+            # the supplied S directly and the guarantee is structural. The requirement
+            # still travels in the manifest so that a future mgcv which DID route
+            # rescaling through paraPen would be caught rather than silently obeyed.
             "gam_control_scalePenalty": False,
             "method": "REML",
             "family": "poisson",
@@ -1076,10 +1082,11 @@ def compare_reference(
             f"Case mismatch: python={python_ref.get('case')!r} vs mgcv={mgcv_ref.get('case')!r}."
         )
     # The second unconditional guard, and for the same reason as the hash: a run with
-    # mgcv's penalty rescaling left ON compared a rescaled penalty against ours, so `sp`
-    # did not multiply the same matrix on the two sides. Every fixed-lambda metric would
-    # then disagree for a reason that is not arithmetic — a false finding expensive enough
-    # to be worth refusing rather than annotating.
+    # a reference that did not honour the manifest. On the measured evidence this setting
+    # is a no-op for paraPen (ADR-189 amendment 1), so the refusal is a TRIPWIRE rather
+    # than a correctness gate: if a future mgcv routes rescaling through paraPen, `sp`
+    # stops multiplying the supplied S and the comparison quietly changes meaning. Kept as
+    # a refusal rather than a note because the cost of being wrong here is a whole run.
     if mgcv_ref.get("scale_penalty") is not False:
         raise PolarisValidationError(
             f"The mgcv reference reports scale_penalty="
@@ -1133,10 +1140,15 @@ def _compare_cell(
     # nothing and their presence is the first thing to read on a level-1 disagreement.
     scaling = theirs.get("penalty_scaling")
     if scaling:
+        # Softened deliberately. The first real run had this note firing on ALL TEN cells
+        # while level 1 agreed to 1e-13, because the probe was reporting `full.sp` — the
+        # smoothing-parameter vector, not a rescaling factor (ADR-189 amendment 1; the
+        # probe is fixed in PR #193). A note that fires every time trains the reader to
+        # skip it, so the wording now reports what was seen and lets the levels decide.
         notes.append(
-            f"`{cell.name}`: mgcv exposed penalty-scaling artefacts {scaling!r}. If these "
-            f"are not all ~1, `sp` did not multiply the supplied S directly and THAT is "
-            f"the finding, before any arithmetic is re-derived."
+            f"`{cell.name}`: mgcv exposed penalty-scaling artefacts {scaling!r}. Read "
+            f"alongside level 1 — values far from ~1 would mean `sp` did not multiply the "
+            f"supplied S directly, but level 1 agreeing is the stronger evidence either way."
         )
     if theirs.get("sp_supplied") is not None and not cell.free_sp:
         supplied = _sequence(theirs, "sp_supplied", cell.name)

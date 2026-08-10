@@ -7,7 +7,7 @@
 - **Priority:** ACTIVE EPIC (Tier-A, `COMMERCIAL_VIABILITY_REVIEW_2026-07-15`) — no
   fallback item taken
 - **Title:** The `mgcv` conformance suite
-- **Slice:** 5 of 7 — **PR #192** (draft)
+- **Slice:** 5 of 7 — **PR #192**, with **PR #193** stacked on it (the run)
 - **Branch:** `claude/quirky-ramanujan-ppo0sz` (environment-designated; the routine's
   `feat/auto-*` default is overridden per step 8)
 
@@ -41,7 +41,7 @@ omits the step.
 | 2 | REML λ selection + the Anchor-4 reporting fix | ✅ Done | #188 (ADR-186) |
 | 3 | Bayesian bands + the first coverage study | ✅ Done | #189 (ADR-187) |
 | 4 | Selector robustness + the unconditional interval | ✅ Done | #190 (ADR-188) |
-| 5 | `mgcv` conformance suite | ✅ **Built, not run** | **#192** (ADR-189) |
+| 5 | `mgcv` conformance suite | ✅ **Built and run** | **#192** + **#193** (ADR-189 + amd 1) |
 | 6 | Harness integration and reporting | ⏳ Next | — |
 | 7 | Real data against the registered predictions | 🔲 Planned (maintainer run) | — |
 
@@ -147,7 +147,7 @@ fourth time this epic has met that trap.
 - **Staleness guards on the committed golden** — re-hash; regenerate the exchange and
   compare; regenerate the *reference* and compare (**not** marked `@slow`: ~4 s measured,
   and a staleness guard excluded from `make test` fires the day after it was needed).
-- **The R script by grep** — the three load-bearing settings plus the four defences around
+- **The R script by grep** — the three settings plus the guards around
   the one that could not be verified here. A file in another language is otherwise
   unreachable from Python tests, and ADR-186 amendment 2's lesson applies across languages.
 - **The real-data path** — driven end to end on a synthetic frame put through
@@ -197,7 +197,7 @@ result rather than a reassuring one.
    epic's only external dependency and it gates both the Anchor-8 conversion of three
    quantities and the diagnosis of ADR-188's failing coverage gate.
 2. **`scalePenalty`'s `paraPen` semantics are adopted, not verified** — no R here to check
-   them. Four defences are in place; a defence is not a verification. If `penalty_scaling`
+   them. Guards are in place; a guard is not a verification. If `penalty_scaling`
    comes back non-trivial on the first run, that is the run's first finding.
 3. **Two free-`sp` tolerances are provisional** — 0.5 decades on `log10 sp`, 1.0 on `edf`,
    reasoned from the grid and the shallow profile rather than measured. The answer is not to
@@ -224,3 +224,85 @@ the third-order cap.
 `assumptions/` or the CLI was touched — the epic's byte-identical-goldens discipline holds
 through slice 5. `data/mgcv_exchange/` is a new committed directory but no golden reads it;
 it is read only by the new module's own staleness guards.
+
+---
+
+## Postscript — the run happened the same day (PR #193)
+
+Written after the fact, appended rather than edited into the body above, because the
+sequence is the record: this log said **BUILT, NOT RUN** and named the R run as the thing
+that would settle Anchor 8. It was settled hours later.
+
+`.github/workflows/mgcv-conformance.yml` (PR #193, stacked on this branch) runs the suite in
+CI against the committed synthetic exchange in a digest-pinned container — R 4.6.1 /
+mgcv 1.9.4 / jsonlite 2.0.0, CRAN snapshot 2026-08-01. **Nobody needs R installed**, which
+makes the "two to three round trips" estimate in this log's plan section obsolete in the best
+way. ADR-151 / Anchor 5 still hold: no job runs pytest and the trigger is path-filtered.
+
+```
+level 1: AGREES     level 2: AGREES     level 3: AGREES
+level 4: DISAGREES  level 5: DISAGREES
+```
+
+**Both ❌ acceptance rows in the table above are now ✅.** Levels 1–3 agree — worst
+`max_abs_coef_diff` 4.9971e-13 against a 1e-6 tolerance, `abs_edf_total_diff` 7.2120e-13
+against 1e-6 — so `tr(F)` is **verified**, and the "or the disagreement is recorded" branch
+was not needed.
+
+**Decision 2's prediction held exactly.** The R-free guarantee said any level-1 disagreement
+could only be R's solver or a convention, because `||Xᵀ(y − μ) − Sβ||∞` measured 2.19e-10.
+There is no level-1 disagreement. That is the strongest confirmation available that the
+correct-by-construction argument was sound rather than merely plausible.
+
+### What this log got wrong
+
+Three things, and they are worth more than the things it got right.
+
+1. **`scalePenalty` is not load-bearing.** This log called it "the one setting that is
+   load-bearing" and described four defences around it. It never reaches `paraPen`:
+   structurally `gam.setup` passes `scale.penalty` only into `smoothCon()`; empirically, with
+   penalties mismatched by `1e6` at fixed λ, `max|coef(TRUE) − coef(FALSE)|` is **exactly 0**.
+   The guarantee was structural all along.
+2. **`penalty_scaling()` was never a live defence, and it cried wolf.** It could only ever
+   return `full.sp` — the smoothing-parameter vector, not a rescaling factor — and it fired
+   the "sp did not multiply the supplied S" note on **all ten cells** of a run where level 1
+   agreed to 1e-13. **Two defects of opposite polarity on the same setting in two rounds**
+   (round 1: a guard that could fail silently; round 2: a guard that fires always). Both came
+   from believing it load-bearing. Over-engineering a hazard that does not exist produces its
+   own defects.
+3. **The suite had never executed, and "BUILT" concealed that.** Every fixed-λ cell crashed —
+   λ went through `gam()`'s top-level `sp`, which a `paraPen`-only fit cannot accept
+   (`gam.setup` dies at `fix.ind <- G$sp >= 0`). Six of ten cells. The R side's coverage was a
+   **grep test over a file the suite cannot execute**, and this log listed that test as
+   covering "the R script". The R-gated end-to-end test would have caught it and skipped
+   everywhere. **CI closed the gap, not an assertion** — and that generalises: for an artefact
+   in a language the test suite cannot run, the only real coverage is an environment that runs
+   it.
+
+### The finding that matters
+
+**Level 4 refutes the Kass-Steffey covariance: it systematically under-inflates.** Ours
+1.11–1.21×, mgcv 1.49–1.87×, every cell the same direction, two of three past the 0.25
+tolerance. This is the discrimination slice 5 was sequenced for — ADR-188's Anchor-7 gate
+failed at 0.8516 / 0.8581 against a 0.9192 floor with two candidate causes, and level 4 points
+at **our arithmetic** rather than shrinkage bias. An under-inflated covariance under-covers, in
+the observed direction, on the same cells. Promoted as a **BLOCKER** with the three places to
+look.
+
+And the worry recorded in this log's Verify Premise section — that level 4 was weakened to an
+inflation ratio and might not discriminate — was **half right**: it is weak, and it was still
+enough, because a three-cell same-direction 1.5×-sized miss is not what λ disagreement
+produces, and level 2 passes.
+
+### Level 5, and the tolerances
+
+`gamma` is **unsettled, not refuted**: both PROVISIONAL tolerances miss narrowly (6.7244e-01
+vs 0.5; 1.1270 vs 1.0) while the cross-cell sign check passes. The same two metrics at
+`gamma = 1.0` **pass** narrowly (4.3221e-01, 8.7334e-01) — ~13% of headroom each. **No
+tolerance was widened**, per this log's own advance commitment and the maintainer's restatement
+of it on #192.
+
+## Impact on Golden Baselines — unchanged
+
+Still none. The postscript work is documentation plus three comment/rationale corrections in
+`experience_mgcv_conformance.py`; no behaviour moved and `tests/qa/` is untouched.

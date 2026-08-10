@@ -14286,6 +14286,12 @@ at `p` floats rather than `p²`. That keeps the committed reference at 90 KB.
 
 ### Decision 8 — `scalePenalty = FALSE`, adopted from the documentation and flagged as such
 
+> **REFUTED by amendment 1 (2026-08-10) — read that first.** The setting is a **no-op on the
+> `paraPen` path**, so it is not load-bearing and the four defences below are a version
+> tripwire rather than what makes the comparison valid. `penalty_scaling()` in particular
+> could never fire. The decision is kept unedited as the audit trail; the amendment carries
+> the measurements.
+
 `mgcv` rescales caller-supplied penalties by default (`gam.control`'s `scalePenalty`,
 documented default `TRUE`). That redefines what `sp` multiplies, and this whole suite rests
 on `sp` multiplying the supplied `S` directly.
@@ -14338,6 +14344,11 @@ which the plan sequences behind this.
 
 ### What this slice does NOT settle
 
+> **SUPERSEDED by amendment 1 (2026-08-10).** The run happened the same day: `tr(F)` is
+> **verified**, the Kass-Steffey covariance is **refuted** as under-inflating, and `gamma` is
+> **unsettled**. The paragraph below was the honest status at the time of writing and is kept
+> as the audit trail.
+
 `tr(F)`, the Kass-Steffey covariance and `gamma` are **still adopted, not verified.** This
 slice builds the suite; the R run converts them. Anchor 8 stands until then, and every
 document quoting the three still says so. **A run that refutes one is a successful run**
@@ -14346,3 +14357,132 @@ that changes an anchor — not a failed slice.
 `tests/qa/` goldens are untouched (94 passed unmodified) and nothing in `products/`,
 `reinsurance/` or the CLI moved: the epic's byte-identical-goldens discipline holds through
 slice 5.
+
+### ADR-189 amendment 1 (2026-08-10) — the run happened, and it refuted three of this ADR's claims
+
+**PR #193**, stacked on #192. R 4.6.1 / mgcv 1.9.4 / jsonlite 2.0.0, CRAN snapshot
+2026-08-01, in a digest-pinned container — so the run is reproducible and no maintainer
+needs R installed. `.github/workflows/mgcv-conformance.yml` now runs it on every change to
+a conformance file, path-filtered, in its own job. **ADR-151 / Anchor 5 still hold: no job
+runs pytest, `rscript_mgcv_available()` still returns `False` everywhere Python CI runs, and
+an ordinary PR never pulls the image.**
+
+```
+level 1: AGREES     level 2: AGREES     level 3: AGREES
+level 4: DISAGREES  level 5: DISAGREES
+```
+
+### What is now verified
+
+| level | worst observed | tolerance |
+|---|---:|---:|
+| 1 `max_abs_coef_diff` | 4.9971e-13 | 1.0e-06 |
+| 1 `max_abs_eta_diff` | 2.9043e-14 | 1.0e-09 |
+| 3 `abs_edf_total_diff` | 7.2120e-13 | 1.0e-06 |
+| 3 `abs_edf_tensor_diff` | 7.2120e-13 | 1.0e-06 |
+| 3 `abs_edf_factors_diff` | 0.0000e+00 | 1.0e-06 |
+| 2 `max_abs_log10_sp_diff` | 4.3221e-01 | 5.0e-01 |
+| 2 `abs_edf_total_diff_free_sp` | 8.7334e-01 | 1.0e+00 |
+
+**Decision 1's correct-by-construction argument is confirmed empirically.** On a shared
+design with shared penalties at fixed λ, our penalized IRLS and `mgcv`'s agree to 5e-13 on
+coefficients and 3e-14 on the linear predictor. Decision 2's R-free guarantee predicted
+exactly this: `||Xᵀ(y − μ) − Sβ||∞` at 2.19e-10 said any level-1 disagreement could only be
+R's solver or a convention, and there is none. **`tr(F)` moves from adopted to VERIFIED.**
+
+### Refutation 1 — the Kass–Steffey covariance systematically under-inflates
+
+| cell | ours | mgcv | `rel_unconditional_inflation_diff` | tol |
+|---|---:|---:|---:|---:|
+| `l2-free-sp` | 1.1109× | 1.7392× | −3.6126e-01 **FAIL** | 2.5e-01 |
+| `l2-free-sp-kb` | 1.2139× | 1.8670× | −3.4983e-01 **FAIL** | 2.5e-01 |
+| `l2-free-sp-factors` | 1.1591× | 1.4863× | −2.2014e-01 PASS | 2.5e-01 |
+
+Every cell misses in the **same direction**. This is the result the whole slice was
+sequenced for: ADR-188's Anchor-7 gate failed at 0.8516 / 0.8581 against a 0.9192 floor and
+named two candidate causes with different remedies — our arithmetic, or shrinkage bias no
+covariance can reach. **Level 4 points at the arithmetic.** An under-inflated covariance
+under-covers, in the observed direction, on the same cells. And decision 6's caveat is
+satisfied rather than bypassed: the inflation ratio is legible only once level 2 passes, and
+level 2 passes.
+
+**Decision 6 was right that level 4 is weak, and wrong about what that would cost.** It is
+still true that `mgcv` forms `Vc` only for estimated `sp`, so the comparison is an inflation
+ratio at independently-selected λ rather than a matched-λ matrix diff. The amendment is that
+this turned out to be *sufficient*: a three-cell, same-direction, 1.5×-sized miss is not
+something λ disagreement produces, and level 2 passing is what licenses saying so.
+
+### Refutation 2 — `scalePenalty` is NOT load-bearing (decision 8 was wrong)
+
+Decision 8 called it "the one setting that is load-bearing" and built four defences around
+it. **It never reaches `paraPen`.** Two independent lines:
+
+- **Structural** — `gam.setup` passes `scale.penalty` only into `smoothCon()`; `S.scale`
+  does not appear anywhere in its `paraPen` path.
+- **Empirical** — with penalties deliberately mismatched by `1e6` and λ fixed,
+  `max|coef(scalePenalty = TRUE) − coef(FALSE)|` is **exactly 0**.
+
+So `sp` already multiplies the supplied `S` directly, and **the guarantee is structural
+rather than configured.** Keeping it `FALSE` plus the `tryCatch` remains worth having as a
+**version tripwire** — that is a smaller and defensible claim, and it is the one the docs now
+make. The defence count drops to **three**, because:
+
+### Refutation 3 — `penalty_scaling()` was never a live defence, and it cried wolf
+
+`m$paraPen$S.scale` is absent and `length(m$smooth)` is 0, so the only field the probe could
+ever return was `full.sp` — which is the **smoothing-parameter vector**, not a rescaling
+factor. On the first CI run it fired the comparator's note on **all ten cells** — telling the
+reader that "`sp` did not multiply the supplied S directly and THAT is the finding" — on a
+run where level 1 agreed to 1e-13. The `full_sp` probe is removed in #193 and the probe now
+correctly returns empty.
+
+**A guard that fires every time is no better than one that never fires; both read as
+protection and neither is.** That is the same sentence the PR #192 review round wrote about
+the *other* failure direction of this same setting, arrived at independently from the
+opposite side. The setting attracted two defects of opposite polarity in two rounds, which is
+itself the finding: it was over-engineered because it was believed to be load-bearing, and it
+was not.
+
+### The defect that mattered most: the suite had never executed
+
+```
+mgcv_conformance.R FAILED: argument is not interpretable as logical
+exit status 1, on the first cell
+```
+
+λ was supplied through `gam()`'s top-level `sp`. This model has no `s()`/`te()` terms, so
+`mgcv`'s smooth list is empty and a `paraPen`-only fit dies inside `gam.setup` at
+`fix.ind <- G$sp >= 0`. **Six of the ten cells are `free_sp: false`**, so the run died before
+comparing any arithmetic. λ now travels inside `paraPen`, which binds (same design at
+`sp=(1,1)` vs `(1e4,1e4)` gives `edf_total` 19.999 vs 13.561). Knock-on: `mgcv` then reports
+nothing in `m$sp` and carries the values in `m$full.sp`, so `sp` is read from whichever field
+the fit populates; `sp_supplied` still carries what `mgcv` was *asked* for, so the wrong-λ
+refusal is unaffected.
+
+**This is the honest limit of what "BUILT" meant.** The Python side was tested 46 ways; the R
+side was checked by a **grep test that pins strings in a file it cannot execute**. The
+`@pytest.mark.skipif(not rscript_mgcv_available())` end-to-end test would have caught it, and
+it skipped in every environment that ran. The gap was not a missing assertion — it was that
+nothing anywhere ran the script. **PR #193's CI workflow is what closes it**, which is why
+that workflow is the durable part of #193 rather than the one-line λ fix.
+
+### Also recorded, gating nothing
+
+`reml_score` is **not** a compared metric, so the convention offset found in every cell —
+`≈ −l_sat / gamma`, where `l_sat = Σ(y·log y − y − log y!)` is the saturated Poisson
+log-likelihood (`mgcv` scores on deviance; we use the full log-likelihood) — changes no
+verdict. A residual of 0.93–3.17 survives after removing it and is unexplained. Recorded in
+case REML is ever compared, which would make it a 0.1% question rather than a 100% one.
+
+### Not done here, and deliberately
+
+**The R script's own header still frames `scalePenalty` as load-bearing.**
+`scripts/mgcv_conformance.R` is owned by PR #193 in the current stack, and editing it from
+#192 would conflict. The prose sweep across the *documents* is done; the sweep of that file's
+header comment belongs to #193 or a follow-up, and is filed as such.
+
+**No tolerance was widened.** Levels 4 and 5 are not slice-5 acceptance criteria, the
+comparator exits 2 on any disagreement by design, and the check being red on findings is the
+intended behaviour rather than a defect to paper over. Level 5's two PROVISIONAL tolerances
+may legitimately be re-derived now that a measurement exists — but only from a stated rule
+about selection noise, and not in this change.

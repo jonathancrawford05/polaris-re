@@ -264,12 +264,17 @@ def test_an_unknown_schema_version_is_refused(tmp_path, tiny_bundle) -> None:
 
 
 def test_the_manifest_records_the_one_r_setting_that_is_load_bearing(tmp_path, tiny_bundle) -> None:
-    """``scalePenalty = FALSE`` is a correctness requirement, not R-side hygiene.
+    """``scalePenalty = FALSE`` travels in the manifest, as a version tripwire.
 
-    ``mgcv`` rescales caller-supplied ``paraPen`` penalties by default, which redefines
-    what ``sp`` multiplies. Every fixed-λ cell rests on ``sp`` multiplying the supplied
-    ``S`` directly, so the requirement travels in the manifest rather than living only in
-    a comment in the R script that a future edit could drop.
+    Written when the setting was believed load-bearing. **The 2026-08-10 run measured it as
+    a no-op on the ``paraPen`` path** (ADR-189 amendment 1): ``gam.setup`` passes
+    ``scale.penalty`` only into ``smoothCon()``, and with penalties mismatched by ``1e6``
+    at fixed λ the coefficients are bit-identical either way. ``sp`` already multiplies the
+    supplied ``S`` directly and the guarantee is structural.
+
+    The assertion stands, with a smaller claim behind it: a future ``mgcv`` that *did* route
+    rescaling through ``paraPen`` would silently change what the comparison means, and the
+    requirement living in the manifest rather than only in an R comment is what catches it.
     """
     out = tmp_path / "manifest"
     write_exchange(tiny_bundle, out)
@@ -692,8 +697,15 @@ def test_the_r_script_declares_the_load_bearing_settings_it_must_use() -> None:
         "the Python side reads each vcov as a list of ROWS; these matrices are symmetric, "
         "so a column-major dump would not show up here — which is why it is pinned"
     )
-    # The four defences around a setting this container could not verify.
-    assert "penalty_scaling" in source, "scaling artefacts are reported, not assumed absent"
+    # The three surviving guards around `scalePenalty`. It was believed load-bearing when
+    # these were written; the 2026-08-10 run measured it as a **no-op on the paraPen path**
+    # (ADR-189 amendment 1), so they are a version tripwire rather than what makes the
+    # comparison valid. The assertions stand: a tripwire that silently stopped being set
+    # would still be worth failing on.
+    assert "penalty_scaling" in source, (
+        "the probe is kept as a tripwire even though the run showed it cannot currently "
+        "fire — m$paraPen$S.scale is absent and length(m$smooth) is 0"
+    )
     assert "sp_supplied" in source, "what R was asked for travels beside what it reports"
     assert "scale_penalty = scale_penalty" in source, (
         "the value actually used is recorded, not a literal that could drift from it"
