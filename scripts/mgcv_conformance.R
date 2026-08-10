@@ -16,28 +16,38 @@
 # log-likelihood is strictly concave over a SHARED problem, its maximiser is unique, and
 # every disagreement localises to arithmetic.
 #
-# THE ONE SETTING THAT IS LOAD-BEARING: scalePenalty = FALSE
-# ---------------------------------------------------------
-# mgcv rescales caller-supplied penalties by default (gam.control's scalePenalty,
-# documented default TRUE) so that penalties of very different magnitudes are comparable.
-# That redefines what `sp` multiplies — and this whole suite rests on `sp` multiplying the
-# supplied S directly. With the default left in place, every fixed-lambda cell could
-# disagree for a reason that is not our arithmetic, which is the most expensive kind of
-# false finding available here. It is turned off, and the value used is recorded.
+# scalePenalty = FALSE — a VERSION TRIPWIRE, not the thing that makes this valid
+# ------------------------------------------------------------------------------
+# An earlier revision of this header called it "THE ONE SETTING THAT IS LOAD-BEARING",
+# on the documented grounds that mgcv rescales caller-supplied penalties by default
+# (gam.control's scalePenalty, default TRUE) and that this would redefine what `sp`
+# multiplies. THE FIRST REAL RUN REFUTED THAT (2026-08-10, ADR-189 amendment 1). It never
+# reaches paraPen:
 #
-# ADOPTED FROM THE DOCUMENTATION, NOT VERIFIED — and deliberately flagged, because this
-# slice exists to stop exactly that kind of claim from going unmarked (PLAN Anchor 8).
-# `scalePenalty` is the documented gam.control argument governing penalty rescaling, but
-# whether and how it applies to `paraPen` penalties specifically was NOT verifiable in the
-# container this script was written in: there is no R there. So the script does three
-# things rather than assume:
+#   * STRUCTURALLY — gam.setup passes scale.penalty only into smoothCon(); S.scale does
+#     not appear anywhere in its paraPen path.
+#   * EMPIRICALLY — with the two penalties deliberately mismatched by 1e6 and lambda
+#     fixed, max|coef(scalePenalty=TRUE) - coef(FALSE)| is EXACTLY 0.
+#
+# So `sp` already multiplies the supplied S directly, and the guarantee is STRUCTURAL
+# rather than configured. It is still set to FALSE, and the value used is still recorded,
+# because a future mgcv that DID route rescaling through paraPen would otherwise change
+# what this comparison means without saying so. That is a tripwire — a much smaller claim
+# than the one this header used to make, and the true one.
+#
+# Three guards remain, and none of them is what protects the comparison:
 #   1. sets scalePenalty = FALSE, which is strictly the safer direction;
 #   2. FAILS LOUDLY with a readable message if gam.control rejects the argument, rather
 #      than falling back to the default and quietly comparing a rescaled penalty;
-#   3. records every scaling artefact the fitted object exposes (`penalty_scaling`), so a
-#      level-1 disagreement is attributable to rescaling on sight instead of being
-#      mysterious. If that field comes back non-trivial, THAT is the first finding of the
-#      run and the fix is a one-line R change, not a re-derivation of our arithmetic.
+#   3. reads the requirement from the manifest and refuses a missing one, rather than
+#      coercing it through isFALSE() into the unsafe direction (PR #192 review).
+#
+# `penalty_scaling()` below is DELIBERATELY NOT on that list. It cannot currently fire —
+# m$paraPen$S.scale is absent and length(m$smooth) is 0 — and on the first run it reported
+# full.sp (the smoothing-parameter vector, not a rescaling factor) on all ten cells of a
+# run where level 1 agreed to 1e-13. A guard that fires every time is no better than one
+# that never fires; both read as protection and neither is. It is kept as a probe, not
+# claimed as a defence.
 #
 # REQUIREMENTS: R with `mgcv` (a base R recommended package) and `jsonlite`. No
 # reticulate, no RcppCNPy — which is why the exchange is TSV + JSON rather than .npz.
@@ -118,12 +128,19 @@ main <- function(argv) {
   # Every scaling artefact the fitted object exposes, probed defensively — a field that
   # does not exist in this mgcv version comes back NULL rather than erroring, and a
   # non-trivial value is the run's first finding.
+  #
+  # `full.sp` is deliberately NOT probed here. It is the smoothing-parameter vector, not
+  # a rescaling factor: for a fixed cell it is exactly the lambda we supplied (10, 100,
+  # 1e6...), and for a free cell it is the lambda mgcv selected. Reporting it as a
+  # "scaling artefact" made the comparator's note fire on all ten cells and tell the
+  # reader that `sp` had not multiplied the supplied S — on a run where level 1 agreed to
+  # 1e-13. A guard that fires every time is no better than one that never fires; both
+  # read as protection and neither is.
   penalty_scaling <- function(m) {
     probe <- function(expr) tryCatch(expr, error = function(e) NULL)
     out <- list(
       S_scale = probe(as.numeric(m$paraPen$S.scale)),
-      smooth_S_scale = probe(as.numeric(unlist(lapply(m$smooth, function(s) s$S.scale)))),
-      full_sp = probe(as.numeric(m$full.sp))
+      smooth_S_scale = probe(as.numeric(unlist(lapply(m$smooth, function(s) s$S.scale))))
     )
     out[!vapply(out, function(v) is.null(v) || length(v) == 0L, logical(1))]
   }
@@ -177,18 +194,25 @@ main <- function(argv) {
     # predictor supplied through `data`, the formula form is the one whose scoping does
     # not depend on where do.call was invoked from.
     frame <- list(y = d$y, X = d$X, off = d$off)
+    # Fixed lambda travels INSIDE paraPen, not through gam()'s top-level `sp`.
+    # This model has no s()/te() terms, so mgcv's smooth list is empty, and supplying
+    # `sp` at the top level for a paraPen-only fit dies in gam.setup with
+    # "argument is not interpretable as logical" -- every fixed-lambda cell, before any
+    # arithmetic is compared. paraPen$sp is the supported route and it binds: the same
+    # design at sp=(1,1) and sp=(1e4,1e4) returns edf_total 19.999 and 13.561.
+    pp <- list(d$S_age, d$S_year)
+    if (!isTRUE(spec$free_sp)) {
+      pp$sp <- c(as.numeric(spec$lambda_age), as.numeric(spec$lambda_year))
+    }
     args <- list(
       formula = y ~ 0 + X + offset(off),
       data = frame,
       family = poisson(),
-      paraPen = list(X = list(d$S_age, d$S_year)),
+      paraPen = list(X = pp),
       method = "REML",
       gamma = as.numeric(spec$gamma),
       control = control
     )
-    if (!isTRUE(spec$free_sp)) {
-      args$sp <- c(as.numeric(spec$lambda_age), as.numeric(spec$lambda_year))
-    }
     m <- do.call(mgcv::gam, args)
 
     edf <- as.numeric(m$edf)
@@ -212,8 +236,11 @@ main <- function(argv) {
       levels = spec$levels,
       gamma = as.numeric(spec$gamma),
       free_sp = isTRUE(spec$free_sp),
-      sp = as.numeric(m$sp),
-      sp_supplied = if (isTRUE(spec$free_sp)) NULL else as.numeric(args$sp),
+      # With lambda fixed through paraPen, mgcv reports nothing in `sp` (those
+      # parameters were not estimated) and carries the values in `full.sp` instead.
+      # Reading `m$sp` unconditionally would record numeric(0) for every fixed cell.
+      sp = if (isTRUE(spec$free_sp)) as.numeric(m$sp) else as.numeric(m$full.sp),
+      sp_supplied = if (isTRUE(spec$free_sp)) NULL else as.numeric(pp$sp),
       penalty_scaling = penalty_scaling(m),
       coef = as.numeric(coef(m)),
       edf_total = sum(edf),
