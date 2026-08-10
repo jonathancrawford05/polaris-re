@@ -19,7 +19,7 @@
 | End state (`make test`) | **3174 passed, 4 skipped, 126 deselected** (+46 tests; the +1 skip is the R-gated conformance test) |
 | New module tests | 46 (45 pass here, 1 skips: no R in this container) |
 | `tests/qa/` goldens | **94 passed, untouched** |
-| perf row | see **Perf History** below |
+| perf row | `peak_mib` 33 (Δ+0), wall-time 1.007×, **no structural creep** (12 rows — first real verdict) |
 
 The four SOA-conversion failures the routine's baseline note anticipates did **not**
 occur — `scripts/convert_soa_tables.py` reached pymort and converted 6/6. The CIA 2014
@@ -165,10 +165,19 @@ once, so it is reported as what it is.
 
 ## Perf History
 
-Row appended to `perf/history.jsonl` for this branch's feature commit — see the commit
-`chore(perf): record perf/history.jsonl row for mgcv-conformance`. **Creep verdict:
-`insufficient_data`** (the log holds 12 rows against the 2×window the analyser needs), which
-is the expected no-op while the log is still filling. Nothing to raise.
+Row appended to `perf/history.jsonl` for the feature commit `b815968` — see the follow-up
+commit `chore(perf): record perf/history.jsonl row for mgcv-conformance`. Exactly +1 line;
+no existing row touched.
+
+**Creep verdict: NO structural creep.** The log now holds **12 rows** against a window of 3,
+so it has passed `2 × window` and the analyser is no longer returning `insufficient_data` —
+this is the first routine PR to get a real verdict rather than a no-op. Project peak MiB
+33 → 33 (Δ+0), wall-time recent/baseline **1.007×**, no config drift. Nothing to raise.
+
+Worth stating because it will not be obvious next time: the row pins the *feature* commit,
+not itself, and this slice touches no engine path — the exchange is built by the existing
+fitter and read by nothing in the projection pipeline — so a flat row is the expected
+result rather than a reassuring one.
 
 ## Open Questions / Follow-ups
 
