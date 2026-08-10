@@ -494,7 +494,7 @@ to make it fit, and if it is reduced say so in the report (ADR-187's Monte-Carlo
 
 ### Slice 5: the `mgcv` conformance suite (autonomous build, maintainer runs R)
 
-- **Status:** **BUILT (2026-08-10)** — **ADR-189**, 45 tests. Every deliverable below is
+- **Status:** **BUILT (2026-08-10)** — **ADR-189**, **PR #192**, 46 tests. Every deliverable below is
   committed, including the synthetic exchange and our own reference for it. **The R run
   itself has NOT happened** — it is the maintainer's, and until it does all three
   quantities remain *adopted, not verified* (Anchor 8 stands).

@@ -7,7 +7,7 @@
 - **Priority:** ACTIVE EPIC (Tier-A, `COMMERCIAL_VIABILITY_REVIEW_2026-07-15`) — no
   fallback item taken
 - **Title:** The `mgcv` conformance suite
-- **Slice:** 5 of 7
+- **Slice:** 5 of 7 — **PR #192** (draft)
 - **Branch:** `claude/quirky-ramanujan-ppo0sz` (environment-designated; the routine's
   `feat/auto-*` default is overridden per step 8)
 
@@ -32,6 +32,18 @@ entries were **already struck through with a SHIPPED footer** by the slice-4 ses
 itself (`PRODUCT_DIRECTION_2026-07-24.md`, "Appended 2026-08-09"). **No healing was
 owed** — recorded because "nothing to do" and "not checked" look identical in a log that
 omits the step.
+
+## Decomposition Plan
+
+| Slice | Scope | Status | PR |
+|-------|-------|--------|----|
+| 1 | Penalized fitter core at fixed λ | ✅ Done | #187 (ADR-185) |
+| 2 | REML λ selection + the Anchor-4 reporting fix | ✅ Done | #188 (ADR-186) |
+| 3 | Bayesian bands + the first coverage study | ✅ Done | #189 (ADR-187) |
+| 4 | Selector robustness + the unconditional interval | ✅ Done | #190 (ADR-188) |
+| 5 | `mgcv` conformance suite | ✅ **Built, not run** | **#192** (ADR-189) |
+| 6 | Harness integration and reporting | ⏳ Next | — |
+| 7 | Real data against the registered predictions | 🔲 Planned (maintainer run) | — |
 
 ## Selection Rationale
 

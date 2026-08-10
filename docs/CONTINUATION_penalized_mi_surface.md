@@ -47,11 +47,11 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
    later slice must not repeat wrongly: selecting λ per replicate costs a *further* ~5
    points against ADR-187's conditional 0.8710, and the **unpenalized** delta band
    covers 10 points better (0.9586) at 4.4x the width on the identical truth and seeds.
-5. ~~**`mgcv` conformance suite**~~ **BUILT (2026-08-10)** — ADR-189. Our design AND our
+5. ~~**`mgcv` conformance suite**~~ **BUILT (2026-08-10)** — ADR-189, **PR #192**. Our design AND our
    penalties go to `mgcv` via `paraPen`, so the model is identical and disagreement
    localises to our arithmetic. Ten cells over three designs, five levels. Synthetic
    exchange **and** reference committed (the golden decision); HMD/ILEC exchange
-   local-only, report committed. 45 tests, none needing R.
+   local-only, report committed. 46 tests, none needing R.
    **The R run has NOT happened.** Three quantities stay *adopted, not verified*.
 6. **Harness integration** — **NEXT** — `--penalized` off by default (Anchor 6), `edf` and
    λ reported (Anchor 4). Moved behind 4-5 deliberately. **Unblocked, with a caveat:** it

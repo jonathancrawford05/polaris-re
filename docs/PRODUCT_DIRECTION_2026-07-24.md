@@ -1771,7 +1771,7 @@ to improve on currently has the better interval. That is a statement about the
   limited. *Source: ADR-188 finding 1 (1st-order).* **BLOCKER** for any slice that puts
   a penalized band in front of a reader.
 
-  **PARTLY ADDRESSED (slice 5 / ADR-189), and the level-ordering half is moot.** The
+  **PARTLY ADDRESSED (slice 5 / ADR-189, PR #192), and the level-ordering half is moot.** The
   suite is **built and committed** — exporter, R script, comparator, runbook, the
   seed-pinned synthetic exchange and our own reference for it, 45 tests, none needing R.
   Every level is batched into **one** `Rscript` invocation, so "run 1 and 4 first if R
