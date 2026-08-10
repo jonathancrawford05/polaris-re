@@ -14292,13 +14292,22 @@ on `sp` multiplying the supplied `S` directly.
 
 **Whether and how that applies to `paraPen` penalties specifically was not verifiable
 here** — there is no R in this container — so it is marked rather than asserted, which is
-Anchor 8's own discipline turned on this slice's R side. Three defences instead of an
+Anchor 8's own discipline turned on this slice's R side. Four defences instead of an
 assumption:
 
 1. the script sets `scalePenalty = FALSE`, the strictly safer direction;
 2. it **fails loudly** if `gam.control` rejects the argument, rather than reverting to the
    default and quietly comparing a rescaled penalty;
-3. it records every scaling artefact the fitted object exposes (`penalty_scaling`), probed
+3. it reads the manifest field **directly** and refuses a missing one. Added in the PR #192
+   review as a [P2]: the first implementation went through `isFALSE()`, and `isFALSE(NULL)`
+   is `FALSE`, so an absent field under the negation would have handed `mgcv`
+   `scalePenalty = TRUE` — the rescaling default this decision exists to prevent — with the
+   guard above never firing. It could not have produced a false PASS (defence 4 records the
+   value used, and the comparator refuses any reference whose `scale_penalty` is not
+   `false`), but it would have failed **one command later than it could**, and the round
+   trip is this suite's expensive resource. A guard whose safe direction is the unsafe one
+   is worse than no guard, because it reads as protection;
+4. it records every scaling artefact the fitted object exposes (`penalty_scaling`), probed
    defensively so a field absent in some mgcv version returns nothing rather than erroring.
 
 The comparator **refuses** a reference reporting `scale_penalty` anything but `false`, and

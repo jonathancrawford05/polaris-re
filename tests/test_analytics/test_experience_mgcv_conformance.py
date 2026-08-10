@@ -692,11 +692,20 @@ def test_the_r_script_declares_the_load_bearing_settings_it_must_use() -> None:
         "the Python side reads each vcov as a list of ROWS; these matrices are symmetric, "
         "so a column-major dump would not show up here — which is why it is pinned"
     )
-    # The three defences around a setting this container could not verify.
+    # The four defences around a setting this container could not verify.
     assert "penalty_scaling" in source, "scaling artefacts are reported, not assumed absent"
     assert "sp_supplied" in source, "what R was asked for travels beside what it reports"
-    assert "scale_penalty = !scale_penalty_requested" in source, (
+    assert "scale_penalty = scale_penalty" in source, (
         "the value actually used is recorded, not a literal that could drift from it"
+    )
+    # Read the field DIRECTLY, not through isFALSE(): isFALSE(NULL) is FALSE, so an
+    # absent field under a negation would hand mgcv its rescaling default without the
+    # tryCatch firing (PR #192 review [P2]).
+    assert "isFALSE(manifest" not in source, (
+        "a missing manifest field must be refused, not coerced into the unsafe direction"
+    )
+    assert "no usable r_requirements$gam_control_scalePenalty" in source, (
+        "and the refusal must name the field and the re-export, at the point of the mistake"
     )
 
 

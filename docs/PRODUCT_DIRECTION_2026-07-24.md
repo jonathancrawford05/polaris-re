@@ -1850,9 +1850,11 @@ disagreement is R's solver or a *convention* — never our fit.
   `S` **directly**, and `mgcv` rescales caller-supplied penalties by default. Whether and
   how that applies to `paraPen` specifically was not checkable in the routine's container
   — there is no R there — so it carries the same *adopted, not verified* mark as the three
-  quantities the run is meant to settle. Three defences are in place (the script sets it
-  FALSE, fails loudly if the argument is rejected, and records every scaling artefact the
-  fit exposes; the comparator refuses a reference reporting rescaling left on), but a
+  quantities the run is meant to settle. Four defences are in place (the script sets it
+  FALSE, fails loudly if the argument is rejected, reads the manifest field directly and
+  refuses a missing one rather than coercing it into the unsafe direction through
+  `isFALSE()` — PR #192 review [P2] — and records every scaling artefact the fit exposes;
+  the comparator additionally refuses a reference reporting rescaling left on), but a
   defence is not a verification. **If `penalty_scaling` comes back non-trivial on the
   first run, that is the run's first finding**, and the fix is one line of R rather than a
   re-derivation of our arithmetic. *Source: ADR-189 decision 8 (1st-order).* **IMPORTANT.**

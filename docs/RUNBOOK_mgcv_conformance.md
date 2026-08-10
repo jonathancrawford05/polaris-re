@@ -100,13 +100,17 @@ the manifest's `r_requirements`, asserted by a test, and reported in the R outpu
 rather than left implicit — the same discipline Anchor 8 applies to `tr(F)`, turned on this
 slice's own R side. `scalePenalty` is the documented `gam.control` argument governing
 penalty rescaling, but whether and how it applies to `paraPen` penalties *specifically*
-could not be checked where this script was written: no R there. So the script does three
+could not be checked where this script was written: no R there. So the script does four
 things instead of assuming:
 
 1. sets `scalePenalty = FALSE`, the strictly safer direction;
 2. **fails loudly** if `gam.control` rejects the argument, rather than reverting to the
    default and quietly comparing a rescaled penalty;
-3. records every scaling artefact the fitted object exposes, under `penalty_scaling`.
+3. **reads the manifest field directly and refuses a missing one.** `isFALSE(NULL)` is
+   `FALSE` in R, so an absent field under a negation would hand `mgcv` its rescaling
+   default *without* the guard above firing — failing one command later than it could,
+   which costs the round trip this whole suite is built to conserve (PR #192 review);
+4. records every scaling artefact the fitted object exposes, under `penalty_scaling`.
 
 The comparator refuses outright if the reference reports `scale_penalty` anything but
 `false`, and surfaces `penalty_scaling` as a note. **If that note comes back non-trivial on

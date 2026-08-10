@@ -78,9 +78,29 @@ main <- function(argv) {
 
   # Built ONCE, up front, so an argument-name change in mgcv stops the run here with a
   # sentence rather than silently reverting to the rescaling default halfway through.
-  scale_penalty_requested <- isFALSE(manifest$r_requirements$gam_control_scalePenalty)
+  #
+  # The field is read DIRECTLY and a missing one is refused, rather than passed through
+  # isFALSE(). `isFALSE(NULL)` is FALSE, so an absent field under a negation would hand
+  # mgcv scalePenalty = TRUE — its rescaling default, the exact condition ADR-189
+  # decision 8 exists to prevent — and the tryCatch below would not fire. That could
+  # never produce a false PASS (the value used is recorded, and compare_mgcv_conformance
+  # refuses any reference whose scale_penalty is not false), but it would fail one
+  # command LATER than it could, and the round trip is this suite's expensive resource.
+  # Raised as a [P2] in the PR #192 review.
+  scale_penalty <- manifest$r_requirements$gam_control_scalePenalty
+  if (!is.logical(scale_penalty) || length(scale_penalty) != 1L || is.na(scale_penalty)) {
+    stop(sprintf(
+      paste0(
+        "manifest.json has no usable r_requirements$gam_control_scalePenalty (got %s). ",
+        "This suite requires `sp` to multiply the supplied paraPen penalties DIRECTLY, ",
+        "so the setting travels in the manifest rather than being assumed here. ",
+        "Re-export with scripts/export_mgcv_case.py."
+      ),
+      paste(deparse(scale_penalty), collapse = " ")
+    ))
+  }
   control <- tryCatch(
-    mgcv::gam.control(scalePenalty = !scale_penalty_requested),
+    mgcv::gam.control(scalePenalty = scale_penalty),
     error = function(e) {
       stop(sprintf(
         paste0(
@@ -226,7 +246,8 @@ main <- function(argv) {
     mgcv_version = as.character(packageVersion("mgcv")),
     jsonlite_version = as.character(packageVersion("jsonlite")),
     r_version = R.version.string,
-    scale_penalty = !scale_penalty_requested,
+    # The value actually handed to gam.control, not a literal that could drift from it.
+    scale_penalty = scale_penalty,
     r_session_info = paste(capture.output(print(sessionInfo())), collapse = "\n"),
     cells = cells
   )

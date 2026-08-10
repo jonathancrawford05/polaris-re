@@ -147,7 +147,7 @@ fourth time this epic has met that trap.
 - **Staleness guards on the committed golden** — re-hash; regenerate the exchange and
   compare; regenerate the *reference* and compare (**not** marked `@slow`: ~4 s measured,
   and a staleness guard excluded from `make test` fires the day after it was needed).
-- **The R script by grep** — the three load-bearing settings plus the three defences around
+- **The R script by grep** — the three load-bearing settings plus the four defences around
   the one that could not be verified here. A file in another language is otherwise
   unreachable from Python tests, and ADR-186 amendment 2's lesson applies across languages.
 - **The real-data path** — driven end to end on a synthetic frame put through
@@ -197,7 +197,7 @@ result rather than a reassuring one.
    epic's only external dependency and it gates both the Anchor-8 conversion of three
    quantities and the diagnosis of ADR-188's failing coverage gate.
 2. **`scalePenalty`'s `paraPen` semantics are adopted, not verified** — no R here to check
-   them. Three defences are in place; a defence is not a verification. If `penalty_scaling`
+   them. Four defences are in place; a defence is not a verification. If `penalty_scaling`
    comes back non-trivial on the first run, that is the run's first finding.
 3. **Two free-`sp` tolerances are provisional** — 0.5 decades on `log10 sp`, 1.0 on `edf`,
    reasoned from the grid and the shallow profile rather than measured. The answer is not to
