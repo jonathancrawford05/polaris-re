@@ -177,18 +177,25 @@ main <- function(argv) {
     # predictor supplied through `data`, the formula form is the one whose scoping does
     # not depend on where do.call was invoked from.
     frame <- list(y = d$y, X = d$X, off = d$off)
+    # Fixed lambda travels INSIDE paraPen, not through gam()'s top-level `sp`.
+    # This model has no s()/te() terms, so mgcv's smooth list is empty, and supplying
+    # `sp` at the top level for a paraPen-only fit dies in gam.setup with
+    # "argument is not interpretable as logical" -- every fixed-lambda cell, before any
+    # arithmetic is compared. paraPen$sp is the supported route and it binds: the same
+    # design at sp=(1,1) and sp=(1e4,1e4) returns edf_total 19.999 and 13.561.
+    pp <- list(d$S_age, d$S_year)
+    if (!isTRUE(spec$free_sp)) {
+      pp$sp <- c(as.numeric(spec$lambda_age), as.numeric(spec$lambda_year))
+    }
     args <- list(
       formula = y ~ 0 + X + offset(off),
       data = frame,
       family = poisson(),
-      paraPen = list(X = list(d$S_age, d$S_year)),
+      paraPen = list(X = pp),
       method = "REML",
       gamma = as.numeric(spec$gamma),
       control = control
     )
-    if (!isTRUE(spec$free_sp)) {
-      args$sp <- c(as.numeric(spec$lambda_age), as.numeric(spec$lambda_year))
-    }
     m <- do.call(mgcv::gam, args)
 
     edf <- as.numeric(m$edf)
@@ -212,8 +219,11 @@ main <- function(argv) {
       levels = spec$levels,
       gamma = as.numeric(spec$gamma),
       free_sp = isTRUE(spec$free_sp),
-      sp = as.numeric(m$sp),
-      sp_supplied = if (isTRUE(spec$free_sp)) NULL else as.numeric(args$sp),
+      # With lambda fixed through paraPen, mgcv reports nothing in `sp` (those
+      # parameters were not estimated) and carries the values in `full.sp` instead.
+      # Reading `m$sp` unconditionally would record numeric(0) for every fixed cell.
+      sp = if (isTRUE(spec$free_sp)) as.numeric(m$sp) else as.numeric(m$full.sp),
+      sp_supplied = if (isTRUE(spec$free_sp)) NULL else as.numeric(pp$sp),
       penalty_scaling = penalty_scaling(m),
       coef = as.numeric(coef(m)),
       edf_total = sum(edf),

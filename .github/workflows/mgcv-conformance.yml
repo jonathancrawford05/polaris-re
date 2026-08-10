@@ -1,0 +1,150 @@
+# =============================================================================
+# Polaris RE — mgcv conformance run
+# =============================================================================
+# The R half of slice 5, executed. `docs/RUNBOOK_mgcv_conformance.md` describes
+# two maintainer commands; this runs the second and third of them against the
+# committed synthetic exchange, so `tr(F)`, the Kass-Steffey covariance and
+# Wood's `gamma` can move from *adopted* to *verified or refuted* (PLAN Anchor 8)
+# without anyone installing R.
+#
+# ADR-151 / Anchor 5 keep R out of the pytest suite, and that still holds: no job
+# here runs pytest, and `rscript_mgcv_available()` still returns False everywhere
+# CI runs Python. R appears only inside a pinned container, in its own job, on a
+# path-filtered trigger — so an ordinary PR that touches none of the conformance
+# files never pulls an image and never grows an R dependency.
+#
+# A DISAGREEMENT IS A RESULT, NOT A BROKEN BUILD. The comparator exits 2 when a
+# level disagrees, which fails this workflow on purpose: the table is the finding.
+# Per PLAN Anchor 8 a run that refutes `tr(F)` changes Anchor 4 rather than
+# failing the slice — read the job summary before treating red as a defect.
+# =============================================================================
+
+name: mgcv conformance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/mgcv_conformance.R"
+      - "scripts/compare_mgcv_conformance.py"
+      - "scripts/export_mgcv_case.py"
+      - "src/polaris_re/analytics/experience_mgcv_conformance.py"
+      - "data/mgcv_exchange/**"
+      - ".github/workflows/mgcv-conformance.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mgcv-conformance-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Digest-pinned, never a tag: the whole suite rests on the reference not moving
+  # between runs, and `:latest` would let an mgcv update rewrite the oracle
+  # silently. Bumping this is a reviewable commit with a re-run attached.
+  # Currently R 4.6.1 / mgcv 1.9.4 / jsonlite 2.0.0, CRAN snapshot 2026-08-01.
+  ORACLE_IMAGE: ghcr.io/jonathancrawford05/r-gam-base@sha256:a77a61cf231933e17ec037ee0a63450067f66200a29ebc1cddbed14b8625ce8e
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: the R side — fit every cell, emit one reference JSON
+  # ---------------------------------------------------------------------------
+  mgcv-reference:
+    name: mgcv reference (R)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # `docker run` rather than a job-level `container:`. The oracle image is
+      # built from rocker/r-ver, which ships no git, so actions/checkout inside it
+      # would fall back to a REST tarball download. Checking out on the host and
+      # mounting the workspace keeps the image a pure R runtime with nothing in it
+      # to satisfy Actions.
+      - name: Fit every cell with mgcv
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/mgcv_conformance.R \
+              data/mgcv_exchange/synthetic \
+              mgcv_reference.json
+
+      - name: Record the R environment that produced it
+        run: |
+          {
+            echo "## mgcv reference"
+            echo
+            echo "- image \`$ORACLE_IMAGE\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          d = json.load(open("mgcv_reference.json"))
+          for k in ("r_version", "mgcv_version", "jsonlite_version",
+                    "scale_penalty", "exchange_sha256"):
+              print(f"- `{k}`: `{d.get(k)}`")
+          print(f"- cells fitted: **{len(d.get('cells', {}))}**")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mgcv-reference
+          path: mgcv_reference.json
+
+  # ---------------------------------------------------------------------------
+  # Job 2: the comparison — Python, no R
+  # ---------------------------------------------------------------------------
+  compare:
+    name: Compare against the Python reference
+    runs-on: ubuntu-latest
+    needs: mgcv-reference
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: mgcv-reference
+          path: .
+
+      # The comparator re-hashes the exchange before it reads either reference, so
+      # a mismatch between what R fitted and what is committed stops here.
+      - name: Compare the two references
+        id: compare
+        run: |
+          uv run python scripts/compare_mgcv_conformance.py \
+            --exchange data/mgcv_exchange/synthetic \
+            --mgcv-reference mgcv_reference.json \
+            --markdown mgcv_conformance_report.md \
+            --output mgcv_conformance.json
+
+      # Runs even when the comparison fails: on a disagreement the table IS the
+      # deliverable, and burying it in a red step defeats the purpose of the run.
+      - name: Publish the report
+        if: always()
+        run: |
+          if [ -f mgcv_conformance_report.md ]; then
+            cat mgcv_conformance_report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "The comparator produced no report — see the step log." \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mgcv-conformance-report
+          path: |
+            mgcv_conformance_report.md
+            mgcv_conformance.json
+            mgcv_reference.json
