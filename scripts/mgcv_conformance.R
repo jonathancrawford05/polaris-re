@@ -118,12 +118,19 @@ main <- function(argv) {
   # Every scaling artefact the fitted object exposes, probed defensively — a field that
   # does not exist in this mgcv version comes back NULL rather than erroring, and a
   # non-trivial value is the run's first finding.
+  #
+  # `full.sp` is deliberately NOT probed here. It is the smoothing-parameter vector, not
+  # a rescaling factor: for a fixed cell it is exactly the lambda we supplied (10, 100,
+  # 1e6...), and for a free cell it is the lambda mgcv selected. Reporting it as a
+  # "scaling artefact" made the comparator's note fire on all ten cells and tell the
+  # reader that `sp` had not multiplied the supplied S — on a run where level 1 agreed to
+  # 1e-13. A guard that fires every time is no better than one that never fires; both
+  # read as protection and neither is.
   penalty_scaling <- function(m) {
     probe <- function(expr) tryCatch(expr, error = function(e) NULL)
     out <- list(
       S_scale = probe(as.numeric(m$paraPen$S.scale)),
-      smooth_S_scale = probe(as.numeric(unlist(lapply(m$smooth, function(s) s$S.scale)))),
-      full_sp = probe(as.numeric(m$full.sp))
+      smooth_S_scale = probe(as.numeric(unlist(lapply(m$smooth, function(s) s$S.scale))))
     )
     out[!vapply(out, function(v) is.null(v) || length(v) == 0L, logical(1))]
   }
