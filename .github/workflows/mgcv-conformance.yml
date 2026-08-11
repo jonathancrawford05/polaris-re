@@ -67,8 +67,21 @@ env:
   # Digest-pinned, never a tag: the whole suite rests on the reference not moving
   # between runs, and `:latest` would let an mgcv update rewrite the oracle
   # silently. Bumping this is a reviewable commit with a re-run attached.
-  # Currently R 4.6.1 / mgcv 1.9.4 / jsonlite 2.0.0, CRAN snapshot 2026-08-01.
-  ORACLE_IMAGE: ghcr.io/jonathancrawford05/r-gam-base@sha256:a77a61cf231933e17ec037ee0a63450067f66200a29ebc1cddbed14b8625ce8e
+  # Currently R 4.6.1 / mgcv 1.9.4 / jsonlite 2.0.0 / mboost, CRAN snapshot 2026-08-01.
+  #
+  # THE TAG STOPPED IDENTIFYING A BUILD, AND THAT IS THE ARGUMENT FOR THIS LINE.
+  # The 2026-08-10 rebuild added `mboost` without moving R, mgcv or the snapshot, and the
+  # `r4.6.1-2026-08-01` tag was moved onto it. That tag *looks* like it encodes everything
+  # relevant — R version and snapshot date — and it no longer does: anyone pinning it
+  # silently picked up a package that was not there before. Nothing broke, because the
+  # addition was additive and this workflow pins the digest. But the tag was a reasonable
+  # thing to trust, and it was wrong. Digest, always.
+  #
+  # mboost is present for the maintainer's exploratory `gamboost` work. It is NOT a parity
+  # target (docs/PLAN_mgcv_parity_engine.md §1: componentwise boosting is a different
+  # algorithm with no likelihood covariance), and nothing in this workflow uses it — so if
+  # a future rebuild drops it, this suite is unaffected.
+  ORACLE_IMAGE: ghcr.io/jonathancrawford05/r-gam-base@sha256:8853bf2b600f6ce0fcae8e29d0a78e4b95ed3603dacb4f5cafa49e7c29606b7c
 
 jobs:
   # ---------------------------------------------------------------------------

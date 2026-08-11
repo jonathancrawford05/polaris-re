@@ -1,5 +1,21 @@
 # Continuation: a penalized tensor MI surface (P-splines, REML-selected λ)
 
+> ## READ FIRST — do not start slice 6
+>
+> **This epic is superseded from slice 6 onward.** The successor is
+> `docs/PLAN_mgcv_parity_engine.md`, with its own routine
+> (`docs/ROUTINE_MGCV_PARITY.md`). A routine run arriving here should go there.
+>
+> Slices 1-5 are done and merged. **Slices 6-7 are PARKED** (maintainer direction,
+> 2026-08-10) — see the banner in the PLAN for why.
+>
+> **Owed before this file's status may change from IN PROGRESS:**
+> 1. harvest the Refinement Backlog and any unresolved Open Questions below into the latest
+>    PRODUCT_DIRECTION — the routine forbids closing a CONTINUATION without it;
+> 2. maintainer confirmation of the parking.
+>
+> **Not parked:** the level-4 Kass-Steffey under-inflation, still a BLOCKER.
+
 **Source:** `PRODUCT_DIRECTION_2026-07-24.md` (2026-08-08c), promoted from the
 spline-diagnostics epic.
 **Plan:** `docs/PLAN_penalized_mi_surface.md`
