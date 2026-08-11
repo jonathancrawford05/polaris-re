@@ -1762,7 +1762,18 @@ delta-method band covers **0.9586** at 4.4x the width — the estimator this epi
 to improve on currently has the better interval. That is a statement about the
 *interval* and does not retract ADR-186's RMSE result for the point estimate.
 
-- **Run `mgcv` conformance levels 1 and 4 before anything else in slice 5.**
+- ~~**Run `mgcv` conformance levels 1 and 4 before anything else in slice 5.**~~
+  — **SHIPPED** (PR #192 built it, **PR #193** ran it, ADR-189 + amendment 1): every level
+  ran against the committed synthetic exchange in a digest-pinned container (R 4.6.1 /
+  mgcv 1.9.4). **Levels 1-3 AGREE, levels 4 and 5 DISAGREE.** `tr(F)` **verified** to
+  7.2e-13; the Kass-Steffey covariance **refuted — it systematically under-inflates**
+  (ours 1.11-1.21x, mgcv 1.49-1.87x, every cell the same direction); `gamma` unsettled.
+  The level ordering this entry asked for became moot — every level batches into one CI run.
+  **It closes as asked and opens something better**: the successor work item is the
+  under-inflation itself, below, because it converts "the Anchor-7 shortfall is unexplained"
+  into "our Kass-Steffey arithmetic under-inflates". Original entry preserved below.
+
+  **Run `mgcv` conformance levels 1 and 4 before anything else in slice 5.**
   The failing gate has two candidate causes with different remedies — our Kass–Steffey
   arithmetic is wrong, or the residual is shrinkage bias that no covariance correction
   can reach — and `vcov(m)` vs `vcov(m, unconditional = TRUE)` is what separates them.
@@ -1770,6 +1781,22 @@ to improve on currently has the better interval. That is a statement about the
   completeness item**, and its level ordering matters if the maintainer's R time is
   limited. *Source: ADR-188 finding 1 (1st-order).* **BLOCKER** for any slice that puts
   a penalized band in front of a reader.
+
+  **PARTLY ADDRESSED (slice 5 / ADR-189, PR #192), and the level-ordering half is moot.** The
+  suite is **built and committed** — exporter, R script, comparator, runbook, the
+  seed-pinned synthetic exchange and our own reference for it, 45 tests, none needing R.
+  Every level is batched into **one** `Rscript` invocation, so "run 1 and 4 first if R
+  time is short" no longer needs answering. **The item does not close: the R run has not
+  happened.** It is now purely waiting on a human — one command,
+  `docs/RUNBOOK_mgcv_conformance.md`.
+  One thing the build sharpened and one it weakened, both worth knowing before the run:
+  the exported coefficients are verified (without R) to sit at the unique penalized
+  maximiser — worst cell `||Xᵀ(y-μ) - Sβ||∞` = **2.19e-10** — so a level-1 disagreement
+  can only be R's solver or a convention, never our fit. But **level 4 is weaker than
+  ADR-188 assumed**: `mgcv` forms `Vc` only when `sp` was *estimated*, so the
+  Kass-Steffey correction cannot be compared at a matched λ at all, only as an inflation
+  ratio at independently-selected λ. It still separates the two candidate causes, but
+  less sharply than "`vcov(m)` vs `vcov(m, unconditional = TRUE)`" reads.
 
 - **Decide whether the penalized band may be shown to a user at all.**
   Slice 6 is where these numbers reach a human. On current evidence the penalized
@@ -1811,3 +1838,182 @@ to improve on currently has the better interval. That is a statement about the
 carries age structure the penalty can see, and a max-minus-min range over 200 draws is a
 much harder statistic than over 8. No action; recorded because the amendment's headline
 number was previously supported by eight seeds.
+
+### Harvested 2026-08-10 (penalized MI slice 5 — ADR-189; the suite is BUILT, the R run is NOT)
+
+**Headline for the maintainer:** the `mgcv` conformance suite is committed and needs
+**one command** from you — `Rscript scripts/mgcv_conformance.R`, no data, no arguments,
+see `docs/RUNBOOK_mgcv_conformance.md`. It is now the epic's only external dependency,
+and it gates both the Anchor-8 conversion of three adopted quantities (`tr(F)`, the
+Kass-Steffey covariance, `gamma`) and the diagnosis of ADR-188's failing coverage gate.
+
+One result arrived without R and it narrows what the run can find: the exported
+coefficients are verified to sit at the **unique penalized maximiser** of the exported
+problem (worst cell `||Xᵀ(y-μ) - Sβ||∞` = 2.19e-10 on O(1e2-1e3) counts), so any level-1
+disagreement is R's solver or a *convention* — never our fit.
+
+- **Run the `mgcv` conformance suite.** Covered by the standing BLOCKER above, annotated
+  rather than duplicated. Listed here only so this section's reader is not left thinking
+  slice 5 finished the job: **built is not run.**
+
+- ~~**`mgcv`'s `scalePenalty` semantics for `paraPen` penalties are adopted from the
+  documentation and unverified.**~~ — **CLOSED BY MEASUREMENT** (PR #193, ADR-189
+  amendment 1): the setting is a **no-op on the `paraPen` path** and therefore not
+  load-bearing at all. Structurally `gam.setup` passes `scale.penalty` only into
+  `smoothCon()`; empirically, with penalties mismatched by `1e6` and λ fixed,
+  `max|coef(TRUE) − coef(FALSE)|` is **exactly 0**. `sp` already multiplies the supplied `S`
+  directly and the guarantee is *structural*. It stays `FALSE` as a version tripwire, which
+  is a much smaller claim than the one this entry was written about.
+  **And the fourth "defence" was worse than absent:** `penalty_scaling()` could only ever
+  return `full.sp` — the smoothing-parameter vector, not a rescaling factor — so it fired the
+  "sp did not multiply the supplied S" note on **all ten cells** of a run where level 1 agreed
+  to 1e-13. Probe removed in #193. This one setting attracted **two defects of opposite
+  polarity in two rounds** (a guard that could fail silently, then one that fired always),
+  which is the reusable lesson: it was over-engineered because it was believed load-bearing.
+  Original entry preserved below.
+
+  **`mgcv`'s `scalePenalty` semantics for `paraPen` penalties are adopted from the
+  documentation and unverified.** The whole suite rests on `sp` multiplying the supplied
+  `S` **directly**, and `mgcv` rescales caller-supplied penalties by default. Whether and
+  how that applies to `paraPen` specifically was not checkable in the routine's container
+  — there is no R there — so it carries the same *adopted, not verified* mark as the three
+  quantities the run is meant to settle. Four defences are in place (the script sets it
+  FALSE, fails loudly if the argument is rejected, reads the manifest field directly and
+  refuses a missing one rather than coercing it into the unsafe direction through
+  `isFALSE()` — PR #192 review [P2] — and records every scaling artefact the fit exposes;
+  the comparator additionally refuses a reference reporting rescaling left on), but a
+  defence is not a verification. **If `penalty_scaling` comes back non-trivial on the
+  first run, that is the run's first finding**, and the fix is one line of R rather than a
+  re-derivation of our arithmetic. *Source: ADR-189 decision 8 (1st-order).* **IMPORTANT.**
+
+- **Two free-`sp` tolerances now have their first measurement — both pass narrowly.**
+  **PARTLY ADDRESSED** (PR #193): `max_abs_log10_sp_diff` 4.3221e-01 against 0.5 and
+  `abs_edf_total_diff_free_sp` 8.7334e-01 against 1.0 — ~13% of headroom each, close enough
+  that a different seed could cross either. Under `gamma = 1.4` the same two **miss**
+  (6.7244e-01 and 1.1270), which is exactly why `gamma` is recorded as unsettled. **It does
+  not close**: a marginal pass is not a calibration, and the remaining work is a *stated rule
+  about selection noise* derived from the grid resolution and the profile's curvature — not a
+  larger number. The maintainer restated the no-widening rule on #192; it stands.
+  Original entry preserved below.
+
+  **Two free-`sp` tolerances are PROVISIONAL and nobody has calibrated them.**
+  `max_abs_log10_sp_diff` at 0.5 decades and `abs_edf_total_diff_free_sp` at 1.0 are
+  *reasoned* — from the selector's 0.25-decade grid and ADR-187 amendment 2's shallow REML
+  profile — not measured against R. A tolerance chosen without a measurement can pass a
+  real disagreement as easily as it can fail a spurious one. The first run is what firms
+  them, and **the answer is not to widen them to pass** (ADR-188's own refusal, restated).
+  *Source: ADR-189 decision 6 + PLAN slice-5 discharge (1st-order).* **IMPORTANT.**
+
+- ~~**Level 4 cannot compare the Kass-Steffey correction at a matched λ, and there is no
+  third option.**~~ — **CLOSED: weak, and it was still enough** (PR #193). The limitation is
+  real and unchanged — `mgcv` forms `Vc` only for estimated `sp`, so the comparison is an
+  inflation ratio at independently-selected λ. But it produced a clear verdict: a three-cell,
+  **same-direction**, ~1.5x-sized miss is not what λ disagreement produces, and level 2
+  passing is what licenses saying so. Neither of the two sharpenings this entry proposed (an
+  analytic derivation, or a second round trip at R's own `sp`) is needed to read the result.
+  **Worth remembering the next time a comparison looks too blunt to be worth building.**
+  Original entry preserved below.
+
+  **Level 4 cannot compare the Kass-Steffey correction at a matched λ, and there is no
+  third option.** `mgcv` forms `Vc` only when the smoothing parameters were *estimated*, so
+  no fixed-`sp` fit can produce one; and at free `sp` the two sides select different λ. The
+  exact half of level 4 is therefore the conditional `Vb` at fixed λ, and the correction
+  itself is only checkable as an **inflation ratio** at independently-selected λ — which
+  cannot separate a wrong Jacobian from a λ disagreement on its own and must be read after
+  level 2 passes. ADR-188's failing gate needs level 4 to choose between "our arithmetic"
+  and "shrinkage bias no covariance can reach", so this limitation is load-bearing. Two
+  possible sharpenings, neither cheap: derive the correction analytically and compare
+  term-by-term, or spend a second round trip feeding R's own selected `sp` back as a fixed
+  pair. *Source: ADR-189 decision 6 (1st-order).* **IMPORTANT.**
+
+- **Decide whether slice 6 waits for the R run.** The plan sequenced harness integration
+  *behind* conformance for a stated reason: slice 6 is where these numbers first reach a
+  human, and shipping an unverified `edf` beside an unverified band is the "less auditable,
+  not more" failure Anchor 4 exists to prevent. Slice 5 is built but unrun, so that intent
+  is half met. Proceeding is defensible if every `edf`/λ/band carries the *adopted, not
+  verified* mark on top of the Anchor-7 amendment's three duties; waiting is also
+  defensible. *Source: CONTINUATION_penalized_mi_surface Open Questions +
+  DEV_SESSION_LOG_2026-08-10 (1st-order).* **IMPORTANT — a maintainer decision, not the
+  routine's.**
+
+- **The conformance exporter maintains a second ingest path for real data.** It reads a
+  grouped-cells file rather than calling the diligence harness's ingest, because that ingest
+  reaches private helpers (`_regroup`, `_filter_window`) and duplicating ~60 lines would be
+  a second path to keep in step — untestable in this container, for a case whose exchange
+  can never be committed. The clean fix is to promote those two helpers to public API and
+  have the exporter call the real thing. *Source: ADR-189 decision 9 Out of scope
+  (1st-order).* **NICE-TO-HAVE** — the current path is tested end to end on a synthetic
+  frame put through `attach_empirical_base`, so this is duplication risk, not a defect.
+
+- **The comparator captures `mgcv`'s REML score but does not compare it.** The R side dumps
+  `m$gcv.ubre` as an intermediate, and our `reml_score` is in the Python reference, but the
+  two carry different additive constants so no tolerance was defensible without a
+  measurement. Once one run exists the offset is knowable and the criterion itself — not
+  only the λ it selects — becomes comparable, which is a strictly stronger check on level 2.
+  *Source: ADR-189 (1st-order).* **NICE-TO-HAVE** — and it needs the first run to exist
+  before it can be specified, so it cannot be done ahead of it.
+
+### Harvested 2026-08-10b (the conformance run — ADR-189 amendment 1, PR #193)
+
+**Headline for the maintainer: the run happened, and ADR-188's failing gate now has a
+located cause.** Levels 1-3 agree; `tr(F)` is **verified** to 7.2e-13, which discharges the
+Anchor-4 obligation that has been open since slice 2. Levels 4 and 5 disagree, and level 4's
+disagreement is the most valuable single result this epic has produced.
+
+Three entries above close on this run (the level-1-and-4 BLOCKER, the `scalePenalty`
+question, the level-4-is-weak worry). What replaces them is one BLOCKER and two smaller items.
+
+- **The Kass-Steffey unconditional covariance systematically under-inflates.**
+  Measured against `mgcv` on the committed exchange:
+
+  | cell | ours | mgcv | rel. diff | tol |
+  |---|---:|---:|---:|---:|
+  | `l2-free-sp` | 1.1109x | 1.7392x | −0.3613 **FAIL** | 0.25 |
+  | `l2-free-sp-kb` | 1.2139x | 1.8670x | −0.3498 **FAIL** | 0.25 |
+  | `l2-free-sp-factors` | 1.1591x | 1.4863x | −0.2201 pass | 0.25 |
+
+  **This is the answer to a question the project has carried since slice 4.** ADR-188
+  measured unconditional coverage at 0.8516 / 0.8581 against a 0.9192 floor and named two
+  candidate causes with different remedies: our arithmetic, or shrinkage bias no covariance
+  can reach. An under-inflated covariance under-covers, in the observed direction, on the same
+  cells — so it is **the arithmetic**, and the remedy is a fix rather than a redesign. The
+  reading is legitimate because slice 5's own precondition holds: the inflation ratio is
+  legible only once level 2 passes, and level 2 passes.
+  Places to look, in order: the central-difference Jacobian `∂β̂/∂ρ` and `KS_LOG_STEP`; the
+  **eigenvalue floor** in `smoothing_uncertainty`, which caps the variance a flat direction
+  contributes and would produce exactly this if it binds too often (ADR-188 measured
+  `n_floored` at 0.46 / 0.15 directions per fit); and the natural-log-vs-decade conversion,
+  the one place a factor of `ln(10)²` ≈ 5.3 could hide. **Do not tune the floor until it
+  matches `mgcv` — derive it.** *Source: ADR-189 amendment 1, level 4 (1st-order).*
+  **BLOCKER** — it is the standing bar on labelling anything a 95% band, and it now has a
+  location.
+
+- **`gamma` is unsettled: level 5 misses both tolerances narrowly, the sign check passes.**
+  `max_abs_log10_sp_diff_gamma` 6.7244e-01 against 0.5, `abs_edf_total_diff_gamma` 1.1270
+  against 1.0, while `gamma_edf_delta_agrees_in_sign` **passes** — `gamma` moves EDF the same
+  way on both sides. Unsettled, **not refuted**. Note the cost/benefit: `gamma` defaults to
+  1.0, is exactly inert there by construction, and nothing in the project uses it, so this
+  may be worth less than the level-4 fix. *Source: ADR-189 amendment 1, level 5
+  (1st-order).* **NICE-TO-HAVE.**
+
+- **The R script's header still frames `scalePenalty` as load-bearing.**
+  `scripts/mgcv_conformance.R` is owned by PR #193 in the current stack, so #192 deliberately
+  did not edit it — the prose sweep covered the *documents* only. The file's own header
+  comment ("THE ONE SETTING THAT IS LOAD-BEARING") is now refuted prose. *Source: ADR-189
+  amendment 1, "Not done here" (1st-order).* **NICE-TO-HAVE** — a comment, not behaviour, and
+  whoever lands #193 is best placed to do it.
+
+- **The REML convention offset is recorded and gates nothing.** `reml_score` is not a compared
+  metric, so the `≈ −l_sat/gamma` offset (`mgcv` scores on deviance; we use the full
+  log-likelihood) changes no verdict. A residual of 0.93-3.17 survives after removing it and
+  is unexplained. It only becomes a question if REML is ever compared — at which point it is a
+  0.1% question rather than a 100% one. *Source: PR #193 (1st-order).* **NICE-TO-HAVE.**
+
+**One process lesson, no code owed.** The build shipped a grep test over the R script and
+called the R side covered. **A grep test pins strings in a file it cannot execute**, and the
+script crashed on its first cell for every one of the six fixed-λ cells — λ went through
+`gam()`'s top-level `sp`, which a `paraPen`-only fit cannot accept. The R-gated end-to-end
+test *would* have caught it and skipped in every environment that existed. The gap was never a
+missing assertion; it was that nothing anywhere ran the file. **CI closed it, not a test** —
+which generalises: for any artefact in a language the test suite cannot execute, the only real
+coverage is an environment that runs it.

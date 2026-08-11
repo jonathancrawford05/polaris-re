@@ -45,11 +45,16 @@ notebooks/output/
 # data/validation/ — vendored SOA Illustrative Life Table for the validation pack tests
 # data/inputs/portfolio_sample/ — small fixture for the dashboard portfolio loader tests
 # data/inputs/portfolio_staggered_sample/ — calendar-mode (ADR-061) fixture for the same tests
+# data/mgcv_exchange/ — committed mgcv-conformance exchange + Python reference (ADR-189),
+#   synthetic and seed-pinned, read by tests/test_analytics/
+#   test_experience_mgcv_conformance.py as a staleness guard
 data/*
 !data/qa/
 !data/qa/**
 !data/validation/
 !data/validation/**
+!data/mgcv_exchange/
+!data/mgcv_exchange/**
 !data/inputs/
 data/inputs/*
 !data/inputs/portfolio_sample/

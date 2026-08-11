@@ -197,8 +197,12 @@ class PenalizedMIFit:
     ``mgcv`` reports for a smooth. Unlike the shrinkages it **closes**:
     ``edf_tensor + edf_factors == edf_total`` exactly.
 
-    The mgcv-consistency is *adopted, not verified* — nothing in this container can
-    compare against mgcv, and PLAN §7 carries that as the oracle's second job."""
+    **The mgcv-consistency is VERIFIED** (2026-08-10, ADR-189 amendment 1): on a shared
+    design with shared penalties at fixed λ, ``edf_total`` and ``edf_tensor`` agree with
+    ``mgcv`` to 7.2e-13 and ``edf_factors`` exactly, over six cells. It was *adopted, not
+    verified* from slice 2 until then, on the grounds that nothing in this container could
+    compare against mgcv — true of the container, false of the project: CI can, in a
+    digest-pinned image."""
 
     edf_factors: float
     """``tr(F)`` over the unpenalized factor columns. Present so the addition above
@@ -733,7 +737,14 @@ def reml_score(
     than only within one, since a criterion whose values silently shift by a constant
     is the kind of thing a later slice compares by accident.
 
-    **gamma is adopted from mgcv and unverified** (PLAN Anchor 8). It is here for parity,
+    **gamma is adopted from mgcv and UNSETTLED — measured, not verified, not refuted**
+    (PLAN Anchor 8; ADR-189 amendment 1). Slice 5's conformance run put level 5's two metrics
+    narrowly outside their PROVISIONAL tolerances (``max_abs_log10_sp_diff_gamma`` 0.672
+    against 0.5; ``abs_edf_total_diff_gamma`` 1.127 against 1.0) while the cross-cell sign
+    check **passed** — ``gamma`` moves EDF the same way on both sides, it is the destination
+    that differs. Note the same two metrics at ``gamma = 1.0`` pass narrowly, so the
+    tolerances themselves are the unsettled part as much as ``gamma`` is. It is here for
+    parity,
     **not** as a remedy for a bias this project has demonstrated: ADR-187 amendment 2
     measured the "REML undersmooths" direction on an age-flat fixture and found it
     does *not* reproduce on an age-varying one. It defaults to 1.0, where every term
@@ -983,8 +994,22 @@ def smoothing_uncertainty(
     numerical fudge factor, and :attr:`SmoothingUncertainty.n_floored` reports how
     often it bound.
 
-    **Adopted from mgcv and unverified** (PLAN Anchor 8) — slice 5's conformance run
-    compares this against ``vcov(m, unconditional = TRUE)`` and may refute it.
+    **REFUTED — this correction systematically UNDER-INFLATES** (2026-08-10, ADR-189
+    amendment 1). Slice 5's conformance run compared it against
+    ``vcov(m, unconditional = TRUE)``: ours inflates the mean variance 1.11-1.21x where
+    ``mgcv`` inflates it 1.49-1.87x, in the **same direction on every cell**, two of three
+    past the 0.25 tolerance. PLAN Anchor 8 said a refutation would be a successful run, and
+    this is it — an under-inflated covariance under-covers, which localises ADR-188's failing
+    Anchor-7 gate (0.8516 / 0.8581 against a 0.9192 floor) to **this arithmetic** rather than
+    to shrinkage bias no covariance could reach.
+
+    Three places to look, in order, before anything is tuned: the central-difference Jacobian
+    ``d(beta-hat)/d(rho)`` and ``log_step``; the **eigenvalue floor** below, which caps the
+    variance a flat direction contributes and would produce exactly this under-inflation if it
+    binds too often
+    (:attr:`SmoothingUncertainty.n_floored` was measured at 0.46 / 0.15 directions per fit in
+    ADR-188); and the natural-log-versus-decade conversion, the one place a factor of
+    ``ln(10)²`` could hide. **Do not tune the floor until it matches mgcv — derive it.**
 
     Raises:
         PolarisComputationError: if a perturbed λ fails to converge. Unlike the
