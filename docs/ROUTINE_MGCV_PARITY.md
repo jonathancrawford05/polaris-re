@@ -60,6 +60,14 @@ target model form, or to characterise precisely why it cannot move.
    failure set, compare against the previous session log's stated baseline, PROCEED on a
    match, STOP on a new or changed failure. Do not deadlock on known-standing failures.
 
+   ONE THING THIS ROUTINE'S OWN SETUP CHANGES, so do not misread it as a code change:
+   installing R in step 2 flips `test_the_r_script_runs_end_to_end_and_agrees` from
+   SKIPPED to PASSED — it is gated on `rscript_mgcv_available()`. So a parity run sees
+   **one more pass and one fewer skip** than a run without R, on identical code. Measured
+   2026-08-11: 3174 passed / 4 skipped without R, 3175 passed / 3 skipped with it. Compare
+   against the last PARITY session's baseline, and if you are diffing against a log written
+   by a non-R routine, account for that one test before calling anything a regression.
+
 == MEASURE FIRST ==
 
 5. BEFORE CHANGING ANYTHING, run the conformance state and write the gap down.
@@ -130,9 +138,23 @@ target model form, or to characterise precisely why it cannot move.
    uv run pytest tests/ -v --tb=short -m "not slow"
    uv run pytest tests/qa/ -v --tb=short
 
-   Then the conformance run again, and the golden spot-check:
+   Then the conformance run again.
+
+   THE AUTHORITATIVE GOLDEN GATE IS `tests/qa/test_pipeline_golden.py`, run by the
+   `pytest tests/qa/` line above. It prices ALL FIVE committed configs (`flat`, `yrt`,
+   `coins`, `policy_cession`, `fw_coins`) through the CLI's own parser and compares
+   `golden_runner`'s distilled digest against `tests/qa/golden_outputs/` within tolerance.
+
+   A `polaris price -o` dump is a HUMAN SPOT-CHECK ONLY, and never a byte diff:
+
      uv run polaris price --inforce data/qa/golden_inforce.csv \
        --config data/qa/golden_config_flat.json -o /tmp/dev_check.json
+     # read summary.total_pv_profits_cedant / _reinsurer and confirm they look sane
+
+   **The `-o` dump and `golden_outputs/` are DIFFERENT SCHEMAS** — the dump is the full
+   nested result (cohorts / summary / rated_block / per-year arrays), the goldens are a
+   distilled digest. Diffing them directly always differs, and doing so produced a false
+   four-config "regression" report on PR #180. Do not repeat it.
 
    `tests/qa/` goldens must be BYTE-IDENTICAL. This engine is new code beside the
    existing one (PLAN Anchor 7); if a golden moves, something was re-pointed that

@@ -11733,7 +11733,35 @@ perfbench` CLI subcommand (ADR-175, script-first per the B2 precedent).
 ## ADR-177: Per-merge `perf/history.jsonl` creep log — long-baseline drift detection (IMPORTANT #10)
 
 **Date:** 2026-08-02
-**Status:** Accepted
+**Status:** Accepted — **amendment 1 (2026-08-11): the docs-only exemption, in writing**
+
+> ### Amendment 1 — a PR that touches no engine path appends no row
+>
+> The rule as written was "exactly one row per PR, on the initial open", with no
+> exemption. **PR #194 was docs-only** — two new plan documents, a workflow digest bump,
+> and two banners — and skipped the append with the reasoning stated in its body. The
+> PR #194 review agreed the reasoning was sound and correctly flagged that **the codified
+> rule did not say so**, which leaves the next reviewer reading a deliberate decision as an
+> omission.
+>
+> **The exemption, stated:** a PR that modifies nothing under `src/polaris_re/` appends no
+> `perf/history.jsonl` row.
+>
+> **Why the exemption is not merely convenience.** The row's job is to detect *cumulative
+> drift in the engine*. A row for a PR that could not have moved the engine is a point that
+> measures nothing, and it is worse than absent: the analyser medians over a window, so
+> padding the series with no-op rows dilutes the window and makes a real step harder to
+> see. The creep log is a signal about code, and a docs PR is not code.
+>
+> **What is unchanged:** the log stays append-only; a row still rides the initial open of
+> every PR that *does* touch `src/`; review-feedback updates still skip; and a
+> structural-creep verdict is still surfaced for human attention rather than self-blocking
+> (the CI head-vs-main gate, ADR-176, still owns single-PR regressions).
+>
+> **Judgement call recorded rather than left implicit:** a PR touching only `scripts/` or
+> `tests/` is also exempt under this wording. That is intended — neither is on a projection
+> path — but it is the edge a future reader is most likely to question, so it is named here
+> rather than discovered.
 
 **Context:** The head-vs-main perf gate (ADR-176, `scripts/perfbench.py`) compares
 this branch's head against `origin/main` **in one CI job**, so it catches a single

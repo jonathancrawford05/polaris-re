@@ -26,9 +26,10 @@ built it, **PR #193** fixed the defect that stopped it running and put it in CI,
 maintainer needs R.
 **Anchor 8 is resolved for two of three: `tr(F)` VERIFIED, the Kass-Steffey covariance
 REFUTED (systematically under-inflates), `gamma` UNSETTLED.** Slice 6 (harness
-integration) is NEXT — and the epic now has a **new highest-value work item that is not a
-slice**: the level-4 under-inflation, which localises ADR-188's failing Anchor-7 gate to
-our arithmetic rather than to shrinkage bias.
+integration) is **PARKED — superseded**, see the banner above and
+`PLAN_mgcv_parity_engine.md` §8. The epic's one live work item is **not a slice**: the
+level-4 under-inflation, which localises ADR-188's failing Anchor-7 gate to our arithmetic
+rather than to shrinkage bias.
 **Total slices:** **7** (1-6 autonomous, 7 one maintainer run) — **plan revised
 2026-08-09**, see `PLAN_penalized_mi_surface.md` Revision 1.
 **Estimated scope:** ~7-9 dev-days autonomous + one `mgcv` conformance run and one
@@ -75,7 +76,10 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
    unsettled. The run also found that **every fixed-λ cell crashed** (top-level `sp` on a
    `paraPen`-only fit), so the suite had never executed — the grep test pins strings in a
    file it cannot run, and #193's CI workflow is what closes that.
-6. **Harness integration** — **NEXT, and its caveat has changed shape.** `--penalized` off
+6. **Harness integration** — **PARKED (superseded — see `PLAN_mgcv_parity_engine.md`
+   §8).** It would surface `--penalized`, `edf` and a band for a two-margin P-spline tensor
+   the successor epic supersedes. Its caveat, recorded before the parking and kept because
+   it is the reason the parking is safe: `--penalized` off
    by default (Anchor 6), `edf` and λ reported (Anchor 4). It was sequenced behind
    conformance so the numbers reaching a human would be verified first — and now they
    partly are:
@@ -87,7 +91,9 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
      longer "unexplained" but "our correction under-inflates, measured against mgcv at
      1.11-1.21x versus 1.49-1.87x".
    - **`gamma` stays marked** — unsettled.
-7. **Real data** — against the four predictions PLAN §6 registers in advance.
+7. **Real data** — **PARKED (superseded — see `PLAN_mgcv_parity_engine.md` §8).** It would
+   run the superseded model on real experience. The four predictions PLAN §6 registered in
+   advance are preserved there and unclaimed; they were never measured.
 
 ## Context for the next session
 
