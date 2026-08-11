@@ -312,12 +312,19 @@ exactly that reason.
 - **The oracle is local.** `apt-get install -y r-base-core r-cran-mgcv r-cran-jsonlite`,
   ~3.5 min. It gives **mgcv 1.9-1 / R 4.3.3** — *not* the pinned image's 1.9.4 / 4.6.1.
   Iterate locally; the authoritative number comes from CI on the digest.
-- **The oracle image now carries `mboost`**, at digest
-  `sha256:8853bf2b600f6ce0fcae8e29d0a78e4b95ed3603dacb4f5cafa49e7c29606b7c`.
+- **The oracle image now carries `mboost` 2.9.13**, at digest
+  `sha256:8853bf2b600f6ce0fcae8e29d0a78e4b95ed3603dacb4f5cafa49e7c29606b7c` — upstream
+  build 2. **The predecessor, build 1
+  (`sha256:a77a61cf231933e17ec037ee0a63450067f66200a29ebc1cddbed14b8625ce8e`), is the
+  build that produced ADR-189 amendment 1's numbers**, and it still resolves.
   **And the maintainer recorded a finding worth keeping:** the `r4.6.1-2026-08-01` tag was
-  moved onto the new image, so that tag no longer identifies a unique build — anyone pinning
+  moved onto the new image, so that tag no longer identified a unique build — anyone pinning
   it silently picked up `mboost`. Nothing broke, and it is a live demonstration of why the
   workflow pins by digest on a tag that *looks* like it encodes everything relevant.
+  **Fixed upstream in R-Gam-base PR #3:** immutable never-reused tags
+  (`r<R>-cran<snapshot>-b<NN>`), a digest-keyed `BUILDS.md` catalog, and a CI refusal to
+  push an existing tag. `r4.6.1-2026-08-01` is deprecated rather than deleted, because GHCR
+  deletes package *versions* and that tag sits on a digest this repo pins.
 - **`select = TRUE` is why `gamboost` is not a parity target.** It shrinks terms to exactly
   zero inside penalized likelihood: edf 47.36 → 16.96 on synthetic data of the target shape.
 - **The MI term is a varying-coefficient term, not a tensor**, and it is better conditioned

@@ -126,7 +126,13 @@ None. No `src/` or `tests/` changes — this is a planning and record PR.
 1. **Scheduling `ROUTINE_MGCV_PARITY.md`** — until it is registered, nothing advances the
    epic. Raised in the ledger as a BLOCKER on the epic itself, and it is the cheapest item
    on the list.
-2. **Retire or re-cut `r4.6.1-2026-08-01`** — the tag no longer identifies a unique build.
+2. ~~**Retire or re-cut `r4.6.1-2026-08-01`**~~ — **CLOSED** (R-Gam-base PR #3, 2026-08-11).
+   Immutable never-reused tags, a digest-keyed `BUILDS.md`, and a CI refusal to push an
+   existing tag. The tag is **deprecated, not deleted**: GHCR deletes package versions, not
+   tags, and that tag sits on the digest this repo pins — deleting it would have destroyed
+   our oracle. The right refusal. **What it cost us to close: nothing, and it bought a
+   provenance correction** — build 1 (`a77a61cf…`) produced ADR-189 amendment 1's numbers,
+   build 2 (`8853bf2b…`) is the current pin, and that distinction was nowhere in our record.
 3. **Confirm the slice 6-7 parking**, and the old CONTINUATION's refinement-backlog harvest,
    which is still owed before its status may change.
 4. **The duration treatment on real data** — reserved as a maintainer modelling judgement;

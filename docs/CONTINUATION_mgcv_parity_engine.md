@@ -57,9 +57,18 @@ fixed `sp` on a `paraPen`-only model `bam` agrees with `gam` to **2.1e-12**, and
   r-cran-jsonlite`, ~3.5 min, then 2.2 s per conformance run. It gives **mgcv 1.9-1 /
   R 4.3.3** — *not* the pinned image's 1.9.4 / 4.6.1. Iterate locally; the authoritative
   number comes from CI on the digest, and every committed number says which produced it.
-- **The oracle image is `sha256:8853bf2b…`** and now carries `mboost`. The
-  `r4.6.1-2026-08-01` tag was moved onto it, so that tag no longer identifies a unique
-  build — the workflow pins the digest for exactly this reason.
+- **The oracle image is `sha256:8853bf2b…`** (upstream build 2) and now carries `mboost`.
+  Its predecessor **build 1, `sha256:a77a61cf…`, is what produced ADR-189 amendment 1's
+  numbers** — including `tr(F)` at 7.2e-13 and the level-4 refutation. Both digests still
+  resolve. **Never quote a conformance number without the digest that produced it**; the pin
+  has already moved once, and the two builds differ.
+- **Upstream tagging is fixed (R-Gam-base PR #3):** immutable never-reused tags
+  `r<R>-cran<snapshot>-b<NN>`, a digest-keyed `BUILDS.md` catalog, CI refusal to push an
+  existing tag, and `/opt/oracle-manifest.json` from build 3 forward (builds 1-2 carry
+  `/opt/versions.json`, and record no `MASS` version). `r4.6.1-2026-08-01` is **deprecated,
+  not deleted** — GHCR deletes versions rather than tags, and that tag sits on the digest we
+  pin. The `-b1`/`-b2` tags are staged in an upstream retag workflow and **were not yet
+  applied** when this was written; the digests are the durable references either way.
 - **`mboost` is not a parity target.** It is there for the maintainer's exploratory
   `gamboost` work. Componentwise boosting is a different algorithm with no likelihood
   covariance; `select = TRUE` covers the term-selection role inside penalized likelihood.

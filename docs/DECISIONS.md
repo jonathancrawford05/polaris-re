@@ -14390,7 +14390,14 @@ slice 5.
 
 **PR #193**, stacked on #192. R 4.6.1 / mgcv 1.9.4 / jsonlite 2.0.0, CRAN snapshot
 2026-08-01, in a digest-pinned container — so the run is reproducible and no maintainer
-needs R installed. `.github/workflows/mgcv-conformance.yml` now runs it on every change to
+needs R installed. **The digest was
+`sha256:a77a61cf231933e17ec037ee0a63450067f66200a29ebc1cddbed14b8625ce8e`** — upstream
+build 1, published 2026-08-09, *without* `mboost`. Every number in this amendment belongs
+to that build. Recorded here because "a digest-pinned container" is not provenance if the
+digest is not written down: the pin moved to build 2 (`sha256:8853bf2b…`) on 2026-08-11,
+and a reader who found only the current pin would attribute these numbers to the wrong
+image. The bump was verified rather than assumed — levels 1-3 agree against the same
+committed Python reference on both builds — but the numbers below were measured on build 1. `.github/workflows/mgcv-conformance.yml` now runs it on every change to
 a conformance file, path-filtered, in its own job. **ADR-151 / Anchor 5 still hold: no job
 runs pytest, `rscript_mgcv_available()` still returns `False` everywhere Python CI runs, and
 an ordinary PR never pulls the image.**

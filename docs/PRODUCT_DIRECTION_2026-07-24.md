@@ -2043,13 +2043,26 @@ the epic **invisible in this ledger** — flagged by the PR #194 review, and fix
   nothing moves it. *Source: PR #194 review, human-review item (1st-order).* **BLOCKER on
   the item above**, and the cheapest of all of them.
 
-- **Retire or re-cut the `r4.6.1-2026-08-01` image tag.** It was moved onto the
+- ~~**Retire or re-cut the `r4.6.1-2026-08-01` image tag.**~~ It was moved onto the
   `mboost`-carrying rebuild, so a tag that looks like it encodes R version and CRAN
   snapshot date no longer identifies a unique build. Nothing broke — the conformance
   workflow pins by digest — but anyone else pinning that tag silently picked up a package
   that was not there before. *Source: maintainer observation 2026-08-10, carried into the
   workflow comment; PR #194 review (1st-order).* **NICE-TO-HAVE** — a hygiene decision in
   another repo, and the digest pin already protects this one.
+  > **CLOSED 2026-08-11 — R-Gam-base PR #3.** Immutable never-reused tags
+  > `r<R>-cran<snapshot>-b<NN>`, a digest-keyed `BUILDS.md` catalog, a CI refusal to push an
+  > existing tag, and an in-image manifest from build 3 forward. The tag is **deprecated
+  > rather than deleted**, correctly: GHCR deletes package *versions*, and that tag sits on
+  > the digest this repo pins, so deletion would have destroyed our oracle.
+  > **The close paid for itself in a way the item did not anticipate.** Reconciling the
+  > catalog against our own git history showed that ADR-189 amendment 1's numbers — `tr(F)`
+  > at 7.2e-13, the level-4 refutation — were produced on build 1 (`a77a61cf…`), while the
+  > current pin is build 2 (`8853bf2b…`). Our record said "a digest-pinned container" and
+  > named no digest, so those numbers were attributable to the wrong image. Fixed in
+  > ADR-189 amendment 1. **The hygiene item in the other repo found a provenance defect in
+  > this one** — which is the argument for treating "nothing broke" as a weaker signal than
+  > it feels like.
 
 - ~~**The old epic's slices 6-7 disposition.**~~ — **DECIDED** (maintainer direction
   2026-08-10, PR #194): **PARKED as superseded**, with banners on both
