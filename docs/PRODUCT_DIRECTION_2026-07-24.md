@@ -2012,6 +2012,22 @@ question, the level-4-is-weak worry). What replaces them is one BLOCKER and two 
   > against the floor hypothesis, in a green test, while three documents carried the
   > hypothesis for five days. A claim in prose and an assertion in a test are the same
   > claim; only one of them is checked.
+  >
+  > *Provenance of the items above: ADR-190 / the 2026-08-15 session (1st-order) — the
+  > re-scoped BLOCKER, the GPL/MIT constraint and the registered prediction all descend
+  > directly from starting this item, so none of them is a widening of it.*
+
+- **Audit prose claims in ADRs and CONTINUATIONs against the test suite.** ADR-190 found
+  the eigenvalue-floor hypothesis had been carried for five days across an ADR, a docstring
+  and this ledger while `test_the_hessian_standard_error_is_wide_but_finite` asserted its
+  negation and passed on every run. **That is a search anyone can run and nobody did**,
+  because the test was framed as being about a standard error and the hypothesis as being
+  about coverage — the two never collided in a grep. The concrete item: before naming a
+  suspect in an ADR, grep the suite for a test that already speaks to it; and sweep the
+  standing hypotheses in `DECISIONS.md` for ones a green test already answers.
+  *Source: ADR-190 / the 2026-08-15 session log follow-up 4 (2nd-order — it is a
+  consequence of the finding rather than of the BLOCKER itself).* **NICE-TO-HAVE** — the
+  cost of the miss here was five days of a wrong suspect list, not a wrong result.
 
 - **`gamma` is unsettled: level 5 misses both tolerances narrowly, the sign check passes.**
   `max_abs_log10_sp_diff_gamma` 6.7244e-01 against 0.5, `abs_edf_total_diff_gamma` 1.1270

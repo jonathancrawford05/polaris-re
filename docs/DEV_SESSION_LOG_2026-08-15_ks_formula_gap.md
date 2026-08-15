@@ -136,11 +136,16 @@ metric unchanged.
    as a band inherits this until (1) lands. Already carried in
    `CONTINUATION_mgcv_parity_engine.md`. 1st-order.
 4. **Audit other prose claims against the test suite.** The floor hypothesis survived five
-   days beside a green test asserting its negation. NICE-TO-HAVE.
+   days beside a green test asserting its negation. **2nd-order** — a consequence of the
+   finding rather than of the BLOCKER. **NICE-TO-HAVE**, and **promoted into
+   `PRODUCT_DIRECTION`** (PR #195 review [P1]: it was stated here and dropped there, and
+   the ledger carried the *observation* without the *actionable item* — which is this
+   session's own thesis turned on itself).
 
 ## Parked Polish
 
-**None.**
+**None.** All four follow-ups are carried: #1 and #2 in the `PRODUCT_DIRECTION` RE-SCOPED
+blockquote, #3 in `CONTINUATION_mgcv_parity_engine.md`, #4 as its own ledger entry.
 
 ## Impact on Golden Baselines
 
