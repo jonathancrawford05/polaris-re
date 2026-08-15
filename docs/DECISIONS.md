@@ -14521,3 +14521,61 @@ comparator exits 2 on any disagreement by design, and the check being red on fin
 intended behaviour rather than a defect to paper over. Level 5's two PROVISIONAL tolerances
 may legitimately be re-derived now that a measurement exists — but only from a stated rule
 about selection noise, and not in this change.
+
+### ADR-189 amendment 2 (2026-08-15) — the oracle was not host-independent, and we moved to a build that is
+
+**Upstream found a real defect in builds 1-7 of the oracle image.** OpenBLAS sized its
+thread pool from the runner's core count, so the reduction order — and therefore the last
+bits — depended on which machine drew the job. Two stable output values, roughly 50/50,
+with every package version identical. **Build 8 pins `OPENBLAS_NUM_THREADS=1`**, and
+upstream CI now diffs each build's reference-output hashes against the previous build's so
+it cannot recur silently.
+
+**This could not have flipped anything in amendment 1.** The tightest committed tolerance
+is 1e-09 on `max_abs_eta_diff` against 2.9e-14 observed; a last-bit reduction difference is
+~1e-16 relative. Every verdict in that amendment had at least five orders of magnitude of
+headroom. Saying so is not a dismissal — it is the reason this is a forward-looking fix
+rather than a retraction.
+
+**The reason to adopt build 8 is Anchor 1, not `mboost`.** Upstream framed the bump as
+"when you need `gamboost`", and we never will — componentwise boosting is explicitly not a
+parity target. What we need is determinism, because
+`PLAN_mgcv_parity_engine.md` Anchor 1 compares design matrices term by term and measured
+`lpmatrix` fidelity at **3.553e-15 — the same order as the nondeterminism itself**. On
+builds 1-7, a Stage-A disagreement at that scale could have been the runner's core count
+rather than our basis. That is precisely the attribution the two-stage strategy exists to
+make possible, so **determinism is a slice-1 prerequisite, not a hygiene upgrade.**
+
+### The re-measure, which was run rather than assumed
+
+`workflow_dispatch` on `82fddc4`, run **31892118379**, oracle
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8` (build 8):
+
+```
+Required levels [1, 2, 3] all agree.
+levels 4-5: warned as findings, unchanged
+```
+
+**The verdict set is identical to build 1's.** `tr(F)` stays VERIFIED, the Kass-Steffey
+under-inflation stays REFUTED and remains the standing BLOCKER, `gamma` stays unsettled.
+
+**What this amendment does NOT claim.** I read the gate's verdicts, not the per-metric
+values — those are in artifact 9248824371 on that run. So amendment 1's table stands as a
+**build-1 measurement** and is not restated here as a build-8 one. The digits may differ in
+the last bits; the verdicts do not. The metric worth watching when someone does read them is
+level 2's `max_abs_log10_sp_diff`, 4.3221e-01 against a 5.0e-01 tolerance on build 1 — the
+only committed metric without an order of magnitude of headroom, and smoothing-parameter
+selection is an optimisation where last-bit input noise can move the answer by much more
+than last-bit.
+
+### The consequence for how numbers get measured from here
+
+Local apt R is now explicitly a **scratch** oracle rather than a cheap version of the real
+one. It is mgcv 1.9.1 against reference `libblas`; the image is mgcv 1.9.4 against OpenBLAS.
+Two different mgcv releases and two different BLAS implementations do not agree in the last
+bits on any nontrivial reduction, so **local output cannot be expected to match the image at
+Stage-A precision no matter how correct the code is** — a local-vs-image difference at 1e-15
+is evidence of nothing. `ROUTINE_MGCV_PARITY.md` step 2 now defines three tiers and permits
+a committed number only from tier 3 (CI on the pinned digest, measured at ~1 minute per
+round trip). Tier 2 — the image run locally — is unavailable in the routine's environment:
+the `docker` binary is present but there is no daemon.

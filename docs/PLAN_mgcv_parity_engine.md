@@ -309,9 +309,11 @@ exactly that reason.
 
 - **Read Anchor 1 and Anchor 2 before writing code.** They are the two that change what
   you build, not just how you check it.
-- **The oracle is local.** `apt-get install -y r-base-core r-cran-mgcv r-cran-jsonlite`,
-  ~3.5 min. It gives **mgcv 1.9-1 / R 4.3.3** — *not* the pinned image's 1.9.4 / 4.6.1.
-  Iterate locally; the authoritative number comes from CI on the digest.
+- **The local oracle is a SCRATCH oracle.** `apt-get install -y r-base-core r-cran-mgcv
+  r-cran-jsonlite`, ~3.5 min. It gives **mgcv 1.9.1 / R 4.3.3 on reference `libblas`** —
+  where the image is **1.9.4 / 4.6.1 on OpenBLAS**. Different release *and* different BLAS,
+  so it cannot reproduce the image's last bits at Anchor-1 precision. Iterate locally,
+  verify on CI (~1 min per dispatch); only a CI number may be committed.
 - **The oracle image now carries `mboost` 2.9.13**, at digest
   `sha256:8853bf2b600f6ce0fcae8e29d0a78e4b95ed3603dacb4f5cafa49e7c29606b7c` — upstream
   build 2. **The predecessor, build 1

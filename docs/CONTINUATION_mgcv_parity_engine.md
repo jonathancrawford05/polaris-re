@@ -53,15 +53,28 @@ fixed `sp` on a `paraPen`-only model `bam` agrees with `gam` to **2.1e-12**, and
 - **Read PLAN Anchors 1 and 2 before writing code.** They change what you build, not just
   how you check it: construction is verified before fit, and the fitted surface is the
   acceptance criterion while coefficients are not.
-- **The oracle is local and fast.** `apt-get install -y r-base-core r-cran-mgcv
-  r-cran-jsonlite`, ~3.5 min, then 2.2 s per conformance run. It gives **mgcv 1.9-1 /
-  R 4.3.3** — *not* the pinned image's 1.9.4 / 4.6.1. Iterate locally; the authoritative
-  number comes from CI on the digest, and every committed number says which produced it.
-- **The oracle image is `sha256:8853bf2b…`** (upstream build 2) and now carries `mboost`.
-  Its predecessor **build 1, `sha256:a77a61cf…`, is what produced ADR-189 amendment 1's
-  numbers** — including `tr(F)` at 7.2e-13 and the level-4 refutation. Both digests still
-  resolve. **Never quote a conformance number without the digest that produced it**; the pin
-  has already moved once, and the two builds differ.
+- **Local R is a SCRATCH oracle, not a cheap version of the real one.** `apt-get install -y
+  r-base-core r-cran-mgcv r-cran-jsonlite`, ~3.5 min, then 2.2 s per run — but it is **mgcv
+  1.9.1 against reference `libblas`**, where the image is **mgcv 1.9.4 against OpenBLAS**.
+  Different release, different BLAS: local output *cannot* match the image at Stage-A
+  precision (~1e-15) however correct the code is, so a local-vs-image difference at that
+  scale is evidence of nothing. **Iterate locally, verify on CI** — a `workflow_dispatch`
+  round trip on the pinned digest costs about a minute (measured: run 31892118379, 59 s).
+  `ROUTINE_MGCV_PARITY.md` step 2 has the three tiers and which one a number may be
+  committed from. Running the image locally is *not* an option here: `docker` is installed
+  but there is no daemon.
+- **The oracle image is `sha256:0d54c192…`** — upstream **build 8**, the first with
+  host-independent numerics. Builds 1-7 let OpenBLAS size its thread pool from the host, so
+  the last bits depended on which runner drew the job. We adopted build 8 for **slice 1**,
+  not for `mboost`: Anchor 1 compares design matrices at ~3.5e-15, the same order as that
+  nondeterminism, so on an older build a Stage-A disagreement could have been the runner.
+  Re-measured, not assumed — run 31892118379: levels 1-3 agree, 4-5 unchanged findings.
+  ADR-189 amendment 2.
+- **ADR-189 amendment 1's numbers belong to build 1 (`sha256:a77a61cf…`)**, and amendment 2
+  deliberately does not restate them as build-8 numbers — the verdicts were reproduced, the
+  per-metric digits were not read. **Never quote a conformance number without the digest
+  that produced it.** This file has pinned three builds; `mgcv_version` does not distinguish
+  them, because all three carry mgcv 1.9.4.
 - **Upstream tagging is fixed (R-Gam-base PR #3):** immutable never-reused tags
   `r<R>-cran<snapshot>-b<NN>`, a digest-keyed `BUILDS.md` catalog, CI refusal to push an
   existing tag, and `/opt/oracle-manifest.json` from build 3 forward (builds 1-2 carry

@@ -20,11 +20,17 @@ the gap before and after.** The differences that matter:
 | what "done" means | a slice shipped | a **gap closed with a derivation**, or a gap **characterised with evidence** |
 | first action | reproduce the item's claimed problem | **measure the current gap and write the number down** |
 | iteration | implement, then test | hypothesis → change ONE thing → re-measure, in a bounded loop |
-| the oracle | absent | **local, 2.2 s per run** |
+| the oracle | absent | **local for structure (2.2 s), CI for truth (~1 min)** |
 
 The reason it can be a convergence loop at all is Anchor 6 of the PLAN: R with `mgcv`
 installs in ~3.5 minutes and the conformance suite runs in seconds. **A routine that could
 only guess and wait would have to be organised the way daily-dev is. This one can measure.**
+
+**But local R is a scratch oracle, not the oracle.** It is a different `mgcv` release
+against a different BLAS, so its last bits are not the pinned image's and never will be.
+The authoritative measurement is a CI dispatch on the pinned digest, and the thing that
+keeps this a convergence loop is that the round trip costs about a minute. See SETUP step 2
+for the three tiers and which one a number may be committed from.
 
 ---
 
@@ -39,15 +45,51 @@ target model form, or to characterise precisely why it cannot move.
 
 1. `uv sync --all-extras`
 
-2. Install the oracle (idempotent — check before installing):
+2. Install the LOCAL SCRATCH oracle (idempotent — check before installing):
      command -v Rscript >/dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
        r-base-core r-cran-mgcv r-cran-jsonlite
+     export OPENBLAS_NUM_THREADS=1     # see tier 1 below; harmless if BLAS is unthreaded
    Then RECORD the versions you got:
      Rscript -e 'cat(R.version.string, as.character(packageVersion("mgcv")), "\n")'
-   Expect R 4.3.3 / mgcv 1.9-1 from apt. THIS IS NOT THE AUTHORITATIVE ORACLE — CI runs
-   the digest-pinned image (R 4.6.1 / mgcv 1.9.4). Any number you commit must say which
-   produced it. If apt gives you a different version than last session, that is itself a
-   finding: log it and do not silently attribute a moved number to your own change.
+   Expect R 4.3.3 / mgcv 1.9.1 from apt. If apt gives you a different version than last
+   session, that is itself a finding: log it and do not silently attribute a moved number
+   to your own change.
+
+   == THE ORACLE HAS THREE TIERS AND ONLY ONE PRODUCES A COMMITTABLE NUMBER ==
+
+   TIER 1 — LOCAL apt R. Free, ~2.2 s per conformance run. R 4.3.3 / mgcv 1.9.1.
+     USE IT FOR: does this call exist, what shape does it return, does mgcv error on this
+     spec, what are the knots called, is my hypothesis even coherent. Structure, not values.
+     NEVER FOR A COMMITTED NUMBER, and the gap is bigger than the version string suggests:
+       - mgcv 1.9.1 is THREE releases behind the image's 1.9.4. Both satisfy `bs="sz"`'s
+         >= 1.9-0 requirement, so the feature is present in both — but the numerics are not
+         guaranteed equal, and SLICE 6 IS EXACTLY WHERE THAT WOULD BITE.
+       - Different BLAS entirely. Local links reference `libblas`; the image links OpenBLAS.
+         Two BLAS implementations do not agree in the last bits on any nontrivial reduction,
+         so local output CANNOT be expected to match the image at Stage-A precision (~1e-15)
+         no matter how correct your code is. A local-vs-image difference at that scale is
+         evidence of nothing.
+
+   TIER 2 — THE PINNED IMAGE, RUN LOCALLY. Currently UNAVAILABLE: this environment has the
+     `docker` binary but NO DAEMON (verified 2026-08-11). If a future environment has one,
+     the invocation contract is enforced upstream and this is the exact command:
+       docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+         Rscript scripts/mgcv_conformance.R data/mgcv_exchange/synthetic out.json
+     Check once with `docker info`; if it fails, you are on tiers 1 and 3 and that is fine.
+
+   TIER 3 — CI ON THE PINNED DIGEST. THE ONLY AUTHORITATIVE MEASUREMENT, and fast enough to
+     sit in the inner loop: push the branch, then dispatch and read the result.
+       - trigger: GitHub MCP `actions_run_trigger` / `run_workflow`, workflow
+         `mgcv-conformance.yml`, ref = your branch (it has `workflow_dispatch:`)
+       - read: `actions_list` / `list_workflow_runs`, then the job summary for
+         `r_version`, `mgcv_version`, `exchange_sha256` and the per-level verdicts
+       - MEASURED COST: ~1 minute end to end (run 31520420241: 17:59:50 to 18:00:37).
+     A CI round trip per verified hypothesis is affordable. Budget for it rather than
+     talking yourself into committing a tier-1 number.
+
+   THE RULE THAT FALLS OUT: iterate on tier 1, VERIFY ON TIER 3, and record which one
+   produced every number you write down. A tier-1 number in the ledger is a hypothesis; a
+   tier-3 number is a result.
 
 3. Read in full before writing code:
    - `docs/PLAN_mgcv_parity_engine.md` — especially Anchors 1, 2 and 8
@@ -81,7 +123,10 @@ target model form, or to characterise precisely why it cannot move.
    - every Stage-A metric per term (design and each penalty block)
    - the Stage-B metrics at fixed `sp`
    - the primary metric: the MI contrast on the pinned grid (PLAN Anchor 2)
-   - which oracle version produced them
+   - THE TIER AND THE DIGEST that produced them — e.g. "tier 3, build 8
+     `sha256:0d54c192…`". A gap measured on tier 1 and a gap measured on tier 3 are not
+     comparable quantities, and a session that mixes them will report a closed gap that
+     never closed.
 
    If the gap is already zero for this slice's scope, say so and move to the next
    unchecked slice rather than inventing work.
@@ -128,7 +173,15 @@ target model form, or to characterise precisely why it cannot move.
      Comparing coefficients is the mistake that looks most like rigour.
    - NEVER commit real experience data, or an exchange built from it
      (`DATA_LICENSING.md` §1). Derived scalars only.
-   - NEVER report a number without the oracle version that produced it.
+   - NEVER report a number without THE DIGEST that produced it. Not "the pinned image" —
+     the digest. This file has pinned three different builds, and ADR-189 amendment 1 once
+     said "in a digest-pinned container" while naming no digest, which left its numbers
+     attributable to the wrong build until it was caught. `mgcv_version` is not enough
+     either: builds 1-7 share mgcv 1.9.4 and were not host-independent.
+   - NEVER commit a number measured on TIER 1 (local apt R). Different mgcv release,
+     different BLAS. Tier 1 answers "is this hypothesis coherent"; tier 3 answers "is it
+     true". Promoting a tier-1 number because the CI round trip felt slow is the specific
+     failure this section exists to prevent, and it costs one minute to avoid.
    - NEVER change an existing test assertion to make it pass.
 
 == QUALITY GATE ==
@@ -197,8 +250,13 @@ target model form, or to characterise precisely why it cannot move.
 
 `docs/CONFORMANCE_LEDGER.md`, append-only, one row per hypothesis tried:
 
-| date | slice | hypothesis | the one change | metric | before | after | verdict |
-|---|---|---|---|---|---|---|---|
+| date | slice | hypothesis | the one change | metric | before | after | tier + digest | verdict |
+|---|---|---|---|---|---|---|---|---|
+
+The `tier + digest` column is not bookkeeping. Without it, a row measured on local apt R
+and a row measured on the pinned image read identically, and the ledger's whole purpose —
+stopping session N+3 from re-running session N's dead end — depends on a later reader being
+able to tell whether a "no movement" verdict was a real result or a tier-1 artefact.
 
 **Why it exists.** This epic will involve reading `mgcv`'s constraint and reparameterisation
 machinery and getting it wrong several times. Without a ledger, session N+3 re-runs session
