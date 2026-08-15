@@ -14388,6 +14388,12 @@ slice 5.
 
 ### ADR-189 amendment 1 (2026-08-10) — the run happened, and it refuted three of this ADR's claims
 
+> **The level-4 DIAGNOSIS below is superseded by ADR-190 (2026-08-15). The measurement is
+> not.** This amendment concludes that the under-inflation localises the coverage shortfall
+> to *our arithmetic* and names three places to look. All three are refuted by measurement,
+> and the gap is in the **formula**: `vcov(unconditional = TRUE)` is not `Vb + J V_rho Jᵀ`.
+> Do not act on the "three places to look" list.
+
 **PR #193**, stacked on #192. R 4.6.1 / mgcv 1.9.4 / jsonlite 2.0.0, CRAN snapshot
 2026-08-01, in a digest-pinned container — so the run is reproducible and no maintainer
 needs R installed. **The digest was

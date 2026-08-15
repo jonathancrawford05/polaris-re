@@ -98,10 +98,17 @@ fixed `sp` on a `paraPen`-only model `bam` agrees with `gam` to **2.1e-12**, and
 ## Carried in from the superseded epic
 
 - **The level-4 Kass-Steffey under-inflation is a live BLOCKER** — ours inflates
-  1.11-1.21x where `mgcv` inflates 1.49-1.87x, same direction every cell. It belongs to the
-  old epic's arithmetic, it is engine-agnostic, and it closes the standing bar on labelling
-  any interval a 95% band. Whatever this engine reports as a band inherits the defect until
-  it is fixed. Tracked in `PRODUCT_DIRECTION_2026-07-24.md`.
+  1.11-1.21x where `mgcv` inflates 1.49-1.87x, same direction every cell. It is
+  engine-agnostic, and it is the standing bar on labelling any interval a 95% band.
+  Whatever this engine reports as a band inherits it. Tracked in
+  `PRODUCT_DIRECTION_2026-07-24.md`.
+  **ADR-190 (2026-08-15) re-scoped it: this is a FORMULA gap, not our arithmetic.**
+  `vcov(unconditional = TRUE)` is not `Vb + J V_rho Jᵀ` — built from `mgcv`'s own
+  coefficients, `V_rho` and λ, that expression reproduces *our* number, not `mgcv`'s.
+  `mgcv` implements Wood, Pya & Säfken (2016), which uses `dw/drho`; plain Kass-Steffey is
+  its first-order part. **Closing it is a slice needing `dw/drho`, and it must be re-derived
+  from the paper — `mgcv` is GPL (>= 2), this project is MIT.** Do not go looking for a bug
+  in `smoothing_uncertainty`; two tests now pin that arithmetic as correct.
 - **The old CONTINUATION's refinement-backlog harvest is owed** before its status may
   change from IN PROGRESS. Not this epic's work, but it is the reason that file is still
   open, and a reader should not mistake it for an active epic.
