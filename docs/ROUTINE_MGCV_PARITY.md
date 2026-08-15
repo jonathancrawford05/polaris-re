@@ -95,7 +95,11 @@ target model form, or to characterise precisely why it cannot move.
    - `docs/PLAN_mgcv_parity_engine.md` — especially Anchors 1, 2 and 8
    - `docs/CONTINUATION_mgcv_parity_engine.md` (if it exists)
    - `docs/CONFORMANCE_LEDGER.md` (if it exists) — what has already been tried
-   - CLAUDE.md, and `docs/DECISIONS.md` for ADR-189 + amendment 1
+   - CLAUDE.md, and `docs/DECISIONS.md` for ADR-189 + amendments 1 and 2, and ADR-190.
+     READ ADR-190 BEFORE ADR-189 AMENDMENT 1's level-4 section: amendment 1 names three
+     suspects for the Kass-Steffey under-inflation and ADR-190 refutes all three by
+     measurement. The gap is in the FORMULA, not our arithmetic, and two tests now pin
+     that arithmetic as correct. Do not go bug-hunting in `smoothing_uncertainty`.
    - `docs/RUNBOOK_mgcv_conformance.md`
 
 4. `make test` — TOLERANCE-AWARE baseline, exactly as daily-dev does it. Record the
@@ -105,10 +109,18 @@ target model form, or to characterise precisely why it cannot move.
    ONE THING THIS ROUTINE'S OWN SETUP CHANGES, so do not misread it as a code change:
    installing R in step 2 flips `test_the_r_script_runs_end_to_end_and_agrees` from
    SKIPPED to PASSED — it is gated on `rscript_mgcv_available()`. So a parity run sees
-   **one more pass and one fewer skip** than a run without R, on identical code. Measured
-   2026-08-11: 3174 passed / 4 skipped without R, 3175 passed / 3 skipped with it. Compare
-   against the last PARITY session's baseline, and if you are diffing against a log written
-   by a non-R routine, account for that one test before calling anything a regression.
+   **one more pass and one fewer skip** than a run without R, on identical code.
+
+   THE DELTA IS THE DURABLE PART; the absolute counts move every time a test lands, so
+   treat the numbers below as a dated observation rather than a target:
+     - 2026-08-11, `main` @ `95c3f46`: 3174 / 4 skipped without R, 3175 / 3 with it
+     - 2026-08-15, `main` @ `5a3d51a`: 3175 / 3 with R
+     - PR #195 adds 2 tests, so once merged expect **3177 / 3 with R** (3176 / 4 without)
+
+   Compare against the last PARITY session's baseline, and if you are diffing against a log
+   written by a non-R routine, account for that one test before calling anything a
+   regression. If the count differs from the last parity log by exactly the number of tests
+   the intervening merges added, that is not a regression — check `git log` before stopping.
 
 == MEASURE FIRST ==
 

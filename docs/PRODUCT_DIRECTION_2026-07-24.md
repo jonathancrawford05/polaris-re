@@ -2017,6 +2017,30 @@ question, the level-4-is-weak worry). What replaces them is one BLOCKER and two 
   > re-scoped BLOCKER, the GPL/MIT constraint and the registered prediction all descend
   > directly from starting this item, so none of them is a widening of it.*
 
+- **Supply the Wood, Pya & Säfken (2016) derivation — a HUMAN prerequisite, and the only
+  thing standing between the covariance BLOCKER and a well-posed slice.** ADR-190 decision 3
+  established that `mgcv`'s implementation cannot be read: it is **GPL (>= 2)** and this
+  project is **MIT**. So the correction has to come from the mathematics, and an autonomous
+  session cannot obtain it — outbound access is policy-restricted, and the one copy on the
+  machine is the source it is forbidden to use. **A routine run pointed at this item would be
+  stuck between a source it must not read and a paper it cannot fetch, and the likely failure
+  mode is that it derives something plausible from first principles and labels it Wood's
+  correction.** That is worse than not starting.
+
+  What is needed, in order of preference:
+  1. **`docs/DERIVATION_unconditional_covariance.md`** — the correction written out as
+     mathematics, with `dw/drho` defined explicitly and the paper cited. Once this exists the
+     work becomes an ordinary implementation slice a routine can take.
+  2. Failing that, the equations transcribed from Wood, Pya & Säfken (2016, JASA 111:1548),
+     or **Wood, *GAM: An Introduction with R*, 2nd ed. §6.10**, which covers the same
+     material and may be the easier source to hand.
+
+  **Do NOT commit the paper itself.** This repository is public and the JASA article is not
+  ours to redistribute; the derivation is a rewriting, the PDF is a copy.
+  *Source: ADR-190 decision 3 (1st-order).* **BLOCKER on the BLOCKER** — the covariance item
+  above cannot start until this lands, and it is the cheapest item on this list for a human
+  and impossible for anyone else.
+
 - **Audit prose claims in ADRs and CONTINUATIONs against the test suite.** ADR-190 found
   the eigenvalue-floor hypothesis had been carried for five days across an ADR, a docstring
   and this ledger while `test_the_hessian_standard_error_is_wide_but_finite` asserted its
