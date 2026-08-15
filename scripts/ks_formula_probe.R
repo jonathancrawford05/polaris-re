@@ -18,8 +18,13 @@
 # refused to let the ADR grant itself an exemption. This script is how the finding earns
 # a tier-3 label instead of an argument for why it did not need one.
 #
-# It is DIAGNOSTIC, not a gate: it asserts nothing and cannot fail the build. The
-# conformance comparison is what gates, and it is untouched by this file.
+# It is DIAGNOSTIC, not a gate. Precisely: this script CAN exit non-zero -- it has four
+# `stop()` paths, and it should, because a probe that cannot measure must say so rather
+# than print a number. What keeps it from blocking a merge is `continue-on-error: true` on
+# its workflow step. The earlier version of this comment claimed it "cannot fail the
+# build" while nothing enforced that (PR #195 review [P1]); the enforcement is in the
+# workflow, and this sentence is now describing it rather than hoping for it.
+# The conformance comparison is what gates, and it is untouched by this file.
 # =============================================================================
 suppressPackageStartupMessages(library(mgcv))
 suppressPackageStartupMessages(library(jsonlite))
@@ -102,10 +107,31 @@ for (spec in manifest$cells) {
   delta_formula <- mean(diag(jac %*% v_rho %*% t(jac)))
   base <- mean(diag(m$Vp))
 
+  # Recorded so a later fixture cannot silently change what is being compared. Our
+  # smoothing_uncertainty() floors eigenvalues at 1/half_width^2 (7.5e-03 for the standard
+  # bounds); this probe deliberately does NOT floor, which keeps it free of our code. The
+  # two agree only while every eigenvalue clears the floor -- true today (n_floored is 0
+  # everywhere, ADR-190). If one dips below, the probe would still print a ratio while
+  # quietly measuring a different quantity, so the minimum is emitted and warned on.
+  # PR #195 review [P2].
+  min_eigen <- min(eigen(hess, symmetric = TRUE, only.values = TRUE)$values)
+  our_floor <- 1 / ((log(10) * (8 - (-2)) / 2)^2)
+  if (min_eigen < our_floor) {
+    warning(sprintf(
+      paste0("Cell '%s': outer Hessian min eigenvalue %.6e is BELOW our eigenvalue floor ",
+             "%.6e. This probe does not floor, so it is no longer measuring the same ",
+             "quantity as smoothing_uncertainty() and the ratio below is not comparable."),
+      spec$name, min_eigen, our_floor
+    ))
+  }
+
   results[[spec$name]] <- list(
     design = spec$design,
     sp = sp,
     outer_hessian = as.numeric(hess),
+    min_eigen_outer_hessian = min_eigen,
+    our_eigenvalue_floor = our_floor,
+    below_our_floor = min_eigen < our_floor,
     mean_diag_vp = base,
     mean_diag_vc = mean(diag(m$Vc)),
     mean_diag_vc_minus_vp = delta_actual,

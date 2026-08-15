@@ -110,6 +110,16 @@ target model form, or to characterise precisely why it cannot move.
      - TIER 3 ONLY in `docs/DECISIONS.md` and `PRODUCT_DIRECTION`. Those are permanent
        claims that later work is built on, and a number that enters them is treated as
        settled by everyone downstream.
+     - TIER 3 ONLY, likewise, in SOURCE DOCSTRINGS, `CONTINUATION_*.md` and `PLAN_*.md`.
+       The two lines above read as a complete partition and are not one (PR #195 review
+       [P2]): ADR-190's figures also live in `smoothing_uncertainty`'s docstring and in
+       both CONTINUATIONs. The dividing line is not the file type, it is WHO READS IT AS
+       SETTLED — a docstring is quoted back at people more often than an ADR is, and a
+       CONTINUATION is the first thing the next session believes.
+     - THE GENERAL RULE, so you do not have to find your file in a list: if a number is
+       going somewhere a future reader will treat as established fact, it is tier 3. If it
+       is going somewhere that records what this session tried, tier 1 is fine and must be
+       labelled.
 
    AND WHY NOT A MAGNITUDE CARVE-OUT, since it will occur to you as it occurred to ADR-190.
      The argument is "this finding is a factor of 3-4 against a 0.25 tolerance, so last-bit
@@ -146,7 +156,7 @@ target model form, or to characterise precisely why it cannot move.
    treat the numbers below as a dated observation rather than a target:
      - 2026-08-11, `main` @ `95c3f46`: 3174 / 4 skipped without R, 3175 / 3 with it
      - 2026-08-15, `main` @ `5a3d51a`: 3175 / 3 with R
-     - PR #195 adds 2 tests, so once merged expect **3177 / 3 with R** (3176 / 4 without)
+     - PR #195 adds 3 tests, so once merged expect **3178 / 3 with R** (3177 / 4 without)
 
    Compare against the last PARITY session's baseline, and if you are diffing against a log
    written by a non-R routine, account for that one test before calling anything a

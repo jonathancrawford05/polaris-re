@@ -14,7 +14,7 @@
 | | |
 |---|---|
 | Baseline (`main` @ `5a3d51a`) | **3175 passed, 3 skipped, 126 deselected** — no standing failures |
-| End state | **3177 passed, 3 skipped, 126 deselected** — +2, both new |
+| End state | **3178 passed, 3 skipped, 126 deselected** — +3, all new |
 | `tests/qa/` goldens | untouched, not regenerated |
 | Oracle | **tier 3** — CI on build 8 `sha256:0d54c192…`, run 31901932780 (first measured tier 1) |
 
@@ -126,6 +126,7 @@ of R and one CI step, which is worth knowing the next time the shortcut looks te
 |---|---|
 | `src/polaris_re/analytics/experience_gam_penalized.py` | docstring: the refutations replace the wrong suspects |
 | `tests/test_analytics/test_experience_gam_penalized.py` | +2 tests pinning the arithmetic |
+| `tests/test_analytics/test_experience_mgcv_conformance.py` | +1 test pinning the probe's difference step to `KS_LOG_STEP` |
 | `.github/workflows/mgcv-conformance.yml` | path filter covers the module under test; diagnostic probe step |
 | `scripts/ks_formula_probe.R` | **new** — ADR-190's decisive measurement, on the pinned oracle |
 | `docs/DECISIONS.md` | **ADR-190** |
@@ -139,7 +140,7 @@ of R and one CI step, which is worth knowing the next time the shortcut looks te
 | The gap is measured before anything changes | ✅ | reproduced to 4 s.f. against build 1 |
 | Each named hypothesis is tested, not argued | ✅ | five, with numbers |
 | No tolerance widened, no constant tuned | ✅ | level 4 still DISAGREES, still non-blocking |
-| The finding is pinned by tests | ✅ | 2 new, both passing |
+| The finding is pinned by tests | ✅ | 3 new, all passing |
 | The BLOCKER is correctly scoped | ✅ | re-scoped, not closed |
 | **The blocker is closed** | ❌ | it is a slice, not a fix — see below |
 

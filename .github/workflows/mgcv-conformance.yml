@@ -172,6 +172,14 @@ jobs:
       # It exists so ADR-190's central claim carries a TIER 3 label rather than an
       # argument for why tier 1 was good enough (PR #195 review, [P0]).
       - name: Probe whether Vc equals Vb + J V_rho J' (ADR-190)
+        # THE LINE THAT MAKES THE "DIAGNOSTIC ONLY" CLAIM TRUE RATHER THAN INTENDED.
+        # Without it the claim was prose in three places and an assertion in none: the step
+        # runs `set -euo pipefail`, the R script has four `stop()` paths, and `compare`
+        # declares `needs: mgcv-reference` — so a renamed `outer.info$hess` in some future
+        # mgcv, or a manifest with no free-sp gamma=1 cell, would redden the levels 1-3
+        # gate. That inverts this file's own policy by letting a level-4 diagnostic block a
+        # merge. PR #195 review [P1], and the same shape as the finding the probe measures.
+        continue-on-error: true
         run: |
           set -euo pipefail
           docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \

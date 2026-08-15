@@ -17,6 +17,7 @@ tolerance must reject, alongside the known-agreement case.
 
 import copy
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -26,6 +27,8 @@ import polars as pl
 import pytest
 
 from polaris_re.analytics.experience_gam_penalized import (
+    KS_LOG_STEP,
+    REFINE_STEP,
     PenalizedTensorMIModel,
     tensor_penalties,
 )
@@ -909,3 +912,33 @@ def test_a_cells_file_without_a_base_rate_is_refused_with_the_reason(tmp_path) -
     )
     assert done.returncode == 1
     assert "attach_empirical_base()" in done.stderr
+
+
+def test_the_formula_probe_uses_the_same_difference_step_as_the_python_side() -> None:
+    """`ks_formula_probe.R` hardcodes `KS_LOG_STEP` across a language boundary.
+
+    ADR-190's decisive comparison only means anything if both sides difference over the
+    same step: the probe builds `J` from `mgcv`'s coefficients and we build ours from
+    `smoothing_uncertainty`, and a step mismatch would compare two different quantities
+    while still printing a ratio. The R script cannot import `KS_LOG_STEP`, and the
+    manifest cannot carry it without re-exporting the hash-guarded exchange and
+    invalidating the committed Python reference — a large change to pin a small constant.
+    So the coupling is pinned here instead, which is the same device the suite already
+    uses for `scripts/mgcv_conformance.R`. PR #195 review [P2].
+    """
+    source = (REPO_ROOT / "scripts" / "ks_formula_probe.R").read_text()
+
+    match = re.search(r"^h <- log\(10\) \* ([0-9.]+)$", source, re.MULTILINE)
+    assert match is not None, (
+        "could not find the `h <- log(10) * <refine_step>` line in ks_formula_probe.R; if "
+        "the step moved, this test must move with it rather than be deleted"
+    )
+    assert float(match.group(1)) == REFINE_STEP, (
+        f"ks_formula_probe.R differences over log(10) * {match.group(1)} but Python's "
+        f"KS_LOG_STEP is log(10) * {REFINE_STEP}. The probe and `smoothing_uncertainty` "
+        f"would be measuring different quantities, and ADR-190's ratio would be comparing "
+        f"a central difference at one step against one at another."
+    )
+    np.testing.assert_allclose(
+        float(np.log(10.0)) * float(match.group(1)), KS_LOG_STEP, rtol=0.0, atol=0.0
+    )

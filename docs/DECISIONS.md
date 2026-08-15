@@ -14684,8 +14684,15 @@ comparison is untouched.
 implementations. The verdict now carries a tier-3 label because it was measured on tier 3,
 not because the argument was accepted.
 
-**Decision 5 (maintainer, 2026-08-15): no magnitude carve-out. The dead end gets removed
-instead.** The carve-out was tempting and is half-right, which is what makes it dangerous.
+**Decision 5: no magnitude carve-out. The dead end gets removed instead.**
+
+*Attribution, because an attributed decision is durable and PR #195's second review
+rightly asked for it to be checkable.* The **choice** is the maintainer's, made in session
+on 2026-08-15 in response to the open question PR #195's first review left for a human;
+the **analysis below is this session's**, offered as one of two options (the other being a
+narrow version-pinned carve-out). Recording it this way so a later reader knows exactly
+which part was decided and which part was argued.
+ The carve-out was tempting and is half-right, which is what makes it dangerous.
 Tier 1 differs from the pinned image in **two** ways with opposite magnitude profiles:
 
 * **BLAS** — reference `libblas` against OpenBLAS. Bounded and tiny, ~1e-15 relative. A
