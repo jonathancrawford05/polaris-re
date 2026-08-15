@@ -14589,8 +14589,10 @@ the `docker` binary is present but there is no daemon.
 ## ADR-190: the level-4 disagreement is a formula gap, not an arithmetic defect
 
 **Status:** ACCEPTED (2026-08-15). **Supersedes the diagnosis** in ADR-189 amendment 1,
-not its measurement. **Oracle:** tier 1, local apt R 4.3.3 / mgcv 1.9.1 — see "on tiers"
-below for why that is sufficient here.
+not its measurement. **Oracle: TIER 3** — CI on the digest-pinned image
+`sha256:0d54c192…` (build 8, R 4.6.1 / mgcv 1.9.4), run **31901932780**, via
+`scripts/ks_formula_probe.R`. First measured on tier 1 and re-measured on tier 3 after
+PR #195's review declined to let this ADR grant itself an exemption; see "On tiers".
 
 ### The claim being corrected
 
@@ -14657,16 +14659,37 @@ fails at 0.8516 / 0.8581 against a 0.9192 floor. **Registered in advance:** impl
 Wood (2016) should move coverage toward or past that floor. If it does not, the coverage
 gap has a second cause and this ADR's decision 1 will need re-examining.
 
-### On tiers — why local R is enough for this
+### On tiers — measured on tier 1, then earned on tier 3
 
-`ROUTINE_MGCV_PARITY.md` permits committing only tier-3 numbers, and every number above is
-tier 1 (mgcv 1.9.1, reference `libblas`). That rule exists for Stage-A comparisons at
-~1e-15, where a different BLAS makes local output meaningless. **This finding is a factor
-of 3-4 measured against a tolerance of 0.25.** mgcv 1.9.1 and 1.9.4 do not disagree about
-whether `Vc - Vp` is four times `J V_rho Jᵀ`. The tier-1 run also reproduces the committed
-build-1 figures to four significant figures (ours 1.1109 / 1.1591 / 1.2139; recorded
-1.11-1.21), which is the check that licenses reading it. **The verdict is tier 1 and is
-labelled tier 1**; CI on build 8 continues to gate the committed metrics unchanged.
+`ROUTINE_MGCV_PARITY.md` SETUP step 2 permits committing only tier-3 numbers. This ADR was
+first written from tier 1 (mgcv 1.9.1, reference `libblas`) with an argument for why that
+was good enough: the finding is a factor of 3-4 against a tolerance of 0.25, not a
+BLAS-sensitive quantity. **PR #195's review refused the argument, and was right to.** The
+rule was written four days earlier and names this exact reasoning as the failure mode it
+exists to prevent; a PR is not entitled to grant itself the exemption, least of all one
+whose own finding is that a claim in prose and an assertion in a test are the same claim.
+
+So it was re-measured rather than re-argued. `scripts/ks_formula_probe.R` is a committed,
+reviewable script that runs inside the pinned image as a **diagnostic step** in the
+conformance workflow — it asserts nothing and cannot fail the build, and the gating
+comparison is untouched.
+
+| cell | ratio, tier 1 (mgcv 1.9.1) | ratio, **tier 3** (mgcv 1.9.4, build 8) |
+|---|---:|---:|
+| `l2-free-sp` | 4.0719 | **4.0719** |
+| `l2-free-sp-factors` | 3.1601 | **3.1601** |
+| `l2-free-sp-kb` | 3.5518 | **3.5518** |
+
+**Identical at every digit printed**, across two `mgcv` releases and two BLAS
+implementations. The verdict now carries a tier-3 label because it was measured on tier 3,
+not because the argument was accepted.
+
+**A note for whoever revisits the rule.** This is one data point that the tier boundary is
+about *magnitude*, not about local-versus-CI as such: a quantity this coarse was never
+going to move. Whether the routine should carve out magnitude-robust findings is a
+maintainer decision and is deliberately **not** taken here — the point of the episode is
+that the deviation got resolved by measurement instead of by an author-granted exemption,
+and that resolution cost about forty lines of R.
 
 ### What did not change
 

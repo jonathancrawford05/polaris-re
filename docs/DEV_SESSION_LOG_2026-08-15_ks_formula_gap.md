@@ -16,7 +16,7 @@
 | Baseline (`main` @ `5a3d51a`) | **3175 passed, 3 skipped, 126 deselected** — no standing failures |
 | End state | **3177 passed, 3 skipped, 126 deselected** — +2, both new |
 | `tests/qa/` goldens | untouched, not regenerated |
-| Oracle | **tier 1**, local apt R 4.3.3 / mgcv 1.9.1 — see "On tiers" |
+| Oracle | **tier 3** — CI on build 8 `sha256:0d54c192…`, run 31901932780 (first measured tier 1) |
 
 ## Gap Before
 
@@ -49,7 +49,8 @@ ADR-189 amendment 1 named three suspects. All three are refuted.
 | 4 | our `V_rho` is too small | substituted `mgcv`'s exact `outer.info$hess` at `mgcv`'s λ | **REFUTED** — 1.14 → 1.20 against 1.74 |
 | 5 | **the formula is not `Vb + J V_rho Jᵀ`** | built `J V_rho Jᵀ` **entirely inside `mgcv`** | **CONFIRMED** |
 
-Hypothesis 5's measurement — `mgcv`'s coefficients, `mgcv`'s `V_rho`, `mgcv`'s λ:
+Hypothesis 5's measurement — `mgcv`'s coefficients, `mgcv`'s `V_rho`, `mgcv`'s λ
+(tier 3, build 8; tier 1 agrees to every digit — see "On tiers"):
 
 | cell | `mean diag(Vc - Vp)` | `mean diag(J V_rho Jᵀ)` | ratio | implied vs reported |
 |---|---:|---:|---:|---|
@@ -91,16 +92,33 @@ the hypothesis was framed as being about coverage.
 A claim in prose and an assertion in a test are the same claim. Only one of them is
 checked. Before naming a suspect, grep the suite for a test that already speaks to it.
 
-## On tiers — and why this is a legitimate tier-1 verdict
+## On tiers — the review was right, so it was re-measured
 
 `ROUTINE_MGCV_PARITY.md` step 2, written four days ago, permits committing only tier-3
-numbers. Every number here is **tier 1**. That rule exists for Stage-A comparisons at
-~1e-15 where a different BLAS makes local output meaningless; this finding is a factor of
-**3-4 against a tolerance of 0.25**, and mgcv 1.9.1 and 1.9.4 do not disagree about whether
-`Vc - Vp` is four times `J V_rho Jᵀ`. The tier-1 run reproducing the committed build-1
-figures to four significant figures is the check that licenses it. **Labelled tier 1
-throughout rather than quietly promoted**, and CI on build 8 still gates every committed
-metric unchanged.
+numbers. This session first wrote ADR-190 from **tier 1** with an argument for why that was
+good enough — the finding is a factor of 3-4 against a 0.25 tolerance, not a BLAS-sensitive
+quantity, and the tier-1 run reproduced the committed build-1 figures to four significant
+figures.
+
+**PR #195's review refused the argument [P0], and was right to.** The rule names that exact
+reasoning as the failure mode it exists to prevent, and a PR does not get to grant itself
+the exemption — least of all this one, whose whole finding is that a claim in prose and an
+assertion in a test are the same claim.
+
+Re-measured instead of re-argued. `scripts/ks_formula_probe.R` now runs inside the pinned
+image as a **diagnostic step** in the conformance workflow (it asserts nothing and cannot
+fail the build; the gating comparison is untouched):
+
+| cell | ratio, tier 1 (mgcv 1.9.1) | ratio, **tier 3** (mgcv 1.9.4, build 8) |
+|---|---:|---:|
+| `l2-free-sp` | 4.0719 | **4.0719** |
+| `l2-free-sp-factors` | 3.1601 | **3.1601** |
+| `l2-free-sp-kb` | 3.5518 | **3.5518** |
+
+Identical at every digit printed, across two `mgcv` releases and two BLAS implementations.
+The ADR's argument was sound — and it now carries a tier-3 label because it was measured on
+tier 3, not because the argument was accepted. Total cost of the correct route: ~40 lines
+of R and one CI step, which is worth knowing the next time the shortcut looks tempting.
 
 ## Files Changed
 
@@ -108,7 +126,8 @@ metric unchanged.
 |---|---|
 | `src/polaris_re/analytics/experience_gam_penalized.py` | docstring: the refutations replace the wrong suspects |
 | `tests/test_analytics/test_experience_gam_penalized.py` | +2 tests pinning the arithmetic |
-| `.github/workflows/mgcv-conformance.yml` | path filter now covers the module under test |
+| `.github/workflows/mgcv-conformance.yml` | path filter covers the module under test; diagnostic probe step |
+| `scripts/ks_formula_probe.R` | **new** — ADR-190's decisive measurement, on the pinned oracle |
 | `docs/DECISIONS.md` | **ADR-190** |
 | `docs/PRODUCT_DIRECTION_2026-07-24.md` | BLOCKER re-scoped |
 | `docs/DEV_SESSION_LOG_2026-08-15_ks_formula_gap.md` | this file |
