@@ -1000,16 +1000,34 @@ def smoothing_uncertainty(
     ``mgcv`` inflates it 1.49-1.87x, in the **same direction on every cell**, two of three
     past the 0.25 tolerance. PLAN Anchor 8 said a refutation would be a successful run, and
     this is it — an under-inflated covariance under-covers, which localises ADR-188's failing
-    Anchor-7 gate (0.8516 / 0.8581 against a 0.9192 floor) to **this arithmetic** rather than
-    to shrinkage bias no covariance could reach.
+    Anchor-7 gate (0.8516 / 0.8581 against a 0.9192 floor) to the unconditional covariance
+    rather than to shrinkage bias no covariance could reach.
 
-    Three places to look, in order, before anything is tuned: the central-difference Jacobian
-    ``d(beta-hat)/d(rho)`` and ``log_step``; the **eigenvalue floor** below, which caps the
-    variance a flat direction contributes and would produce exactly this under-inflation if it
-    binds too often
-    (:attr:`SmoothingUncertainty.n_floored` was measured at 0.46 / 0.15 directions per fit in
-    ADR-188); and the natural-log-versus-decade conversion, the one place a factor of
-    ``ln(10)²`` could hide. **Do not tune the floor until it matches mgcv — derive it.**
+    **THE ARITHMETIC HERE IS CORRECT. THE FORMULA IS THE GAP** (2026-08-15, ADR-190).
+    ADR-189 amendment 1 named three suspects and all three are refuted by measurement:
+
+    * the **difference step** — the correction moves ~1.7% across an 8x sweep of
+      ``log_step``, so both central differences are converged;
+    * the **eigenvalue floor** below — it never binds on the conformance cells
+      (eigenvalues 0.28-0.79 against a floor of 7.5e-03, ``n_floored`` 0 everywhere),
+      and ``test_the_hessian_standard_error_is_wide_but_finite`` had been asserting
+      ``n_floored == 0`` on the standard fixture the whole time;
+    * the **``ln(10)²`` conversion** — ``KS_LOG_STEP`` already converts decades to
+      natural log once, and the two are never mixed downstream.
+
+    What settles it: built from ``mgcv``'s **own** coefficients, **own** ``V_rho`` and
+    **own** λ, ``J V_rho Jᵀ`` yields inflation 1.18 / 1.15 / 1.24 — our answer, not
+    ``mgcv``'s 1.74 / 1.49 / 1.87. So ``vcov(unconditional = TRUE)`` is **not**
+    ``Vb + J V_rho Jᵀ``; it is a larger quantity, by a factor of 3.2-4.1 that is not
+    constant across cells. ``mgcv``'s ``Vb.corr`` takes the derivative of the IRLS
+    **weights** with respect to rho, which this function never forms — the correction it
+    implements is Wood, Pya & Säfken (2016), of which plain Kass-Steffey is the
+    first-order part.
+
+    Closing the gap means implementing that correction, and **it must be re-derived from
+    the paper**: ``mgcv`` is GPL (>= 2) and this project is MIT, so its implementation
+    cannot be transcribed. Tracked in ``PRODUCT_DIRECTION`` as a BLOCKER.
+    **Do not tune the floor or the step to close this — neither is the cause.**
 
     Raises:
         PolarisComputationError: if a perturbed λ fails to converge. Unlike the

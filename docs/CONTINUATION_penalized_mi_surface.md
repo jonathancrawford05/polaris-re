@@ -28,8 +28,14 @@ maintainer needs R.
 REFUTED (systematically under-inflates), `gamma` UNSETTLED.** Slice 6 (harness
 integration) is **PARKED — superseded**, see the banner above and
 `PLAN_mgcv_parity_engine.md` §8. The epic's one live work item is **not a slice**: the
-level-4 under-inflation, which localises ADR-188's failing Anchor-7 gate to our arithmetic
-rather than to shrinkage bias.
+level-4 under-inflation, which localises ADR-188's failing Anchor-7 gate to the
+unconditional covariance rather than to shrinkage bias.
+> **ADR-190 (2026-08-15) supersedes every "our arithmetic" claim in this file.** The
+> under-inflation is a **formula** gap, not an arithmetic defect: `vcov(unconditional =
+> TRUE)` is not `Vb + J V_rho Jᵀ`, and our implementation of the stated formula is correct
+> (two tests now pin it). The "three places to look" list appearing below — the difference
+> step, the eigenvalue floor, the `ln(10)²` conversion — is **refuted by measurement**. Do
+> not act on it; read ADR-190 instead.
 **Total slices:** **7** (1-6 autonomous, 7 one maintainer run) — **plan revised
 2026-08-09**, see `PLAN_penalized_mi_surface.md` Revision 1.
 **Estimated scope:** ~7-9 dev-days autonomous + one `mgcv` conformance run and one

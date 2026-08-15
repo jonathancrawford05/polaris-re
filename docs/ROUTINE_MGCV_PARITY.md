@@ -87,15 +87,60 @@ target model form, or to characterise precisely why it cannot move.
      A CI round trip per verified hypothesis is affordable. Budget for it rather than
      talking yourself into committing a tier-1 number.
 
+   IF TIER 3 CANNOT MEASURE YOUR QUANTITY, ADD A PROBE — DO NOT FALL BACK TO TIER 1.
+     The conformance suite computes what it computes. When a hypothesis needs something it
+     does not — `mgcv`'s outer Hessian, its coefficients at perturbed `sp`, any internal
+     intermediate — write a small R script, run it inside `$ORACLE_IMAGE` as a DIAGNOSTIC
+     step (asserting nothing, gating nothing), and read the result from the job summary.
+     `scripts/ks_formula_probe.R` and its step in `mgcv-conformance.yml` are the worked
+     example: ~40 lines and one step.
+
+     REACHING THIS POINT IS NOT A LICENCE TO COMMIT A TIER-1 NUMBER. It is the moment the
+     probe gets written. This rule exists because the dead end is what actually causes the
+     violation: ADR-190 was first published from tier 1 not because CI was slow but because
+     the suite did not compute the quantity and nothing here said what to do about it, so
+     the session argued its way around the rule instead. PR #195's review caught it. The
+     re-measure took forty lines.
+
    THE RULE THAT FALLS OUT: iterate on tier 1, VERIFY ON TIER 3, and record which one
    produced every number you write down. A tier-1 number in the ledger is a hypothesis; a
-   tier-3 number is a result.
+   tier-3 number is a result. Concretely, where each may appear:
+     - TIER 1 may appear in `docs/CONFORMANCE_LEDGER.md` and the session log, LABELLED,
+       as a hypothesis or a provisional reading.
+     - TIER 3 ONLY in `docs/DECISIONS.md` and `PRODUCT_DIRECTION`. Those are permanent
+       claims that later work is built on, and a number that enters them is treated as
+       settled by everyone downstream.
+     - TIER 3 ONLY, likewise, in SOURCE DOCSTRINGS, `CONTINUATION_*.md` and `PLAN_*.md`.
+       The two lines above read as a complete partition and are not one (PR #195 review
+       [P2]): ADR-190's figures also live in `smoothing_uncertainty`'s docstring and in
+       both CONTINUATIONs. The dividing line is not the file type, it is WHO READS IT AS
+       SETTLED — a docstring is quoted back at people more often than an ADR is, and a
+       CONTINUATION is the first thing the next session believes.
+     - THE GENERAL RULE, so you do not have to find your file in a list: if a number is
+       going somewhere a future reader will treat as established fact, it is tier 3. If it
+       is going somewhere that records what this session tried, tier 1 is fine and must be
+       labelled.
+
+   AND WHY NOT A MAGNITUDE CARVE-OUT, since it will occur to you as it occurred to ADR-190.
+     The argument is "this finding is a factor of 3-4 against a 0.25 tolerance, so last-bit
+     noise cannot touch it". That is sound against ONE of the two things tier 1 differs by.
+     Local R differs from the image in BLAS (bounded, ~1e-15 relative — magnitude does
+     protect you) AND in `mgcv` VERSION (1.9.1 vs 1.9.4, three releases — knot placement, a
+     default, a reparameterisation can change, and the effect is UNBOUNDED). No size of
+     finding is safe from a version change, because a version change is not noise, it is
+     different code. ADR-190's tier-1 and tier-3 ratios did agree to every digit — which
+     establishes that those quantities did not move between 1.9.1 and 1.9.4, not that
+     magnitude predicts safety in general. Maintainer decision, 2026-08-15: **no carve-out.**
 
 3. Read in full before writing code:
    - `docs/PLAN_mgcv_parity_engine.md` — especially Anchors 1, 2 and 8
    - `docs/CONTINUATION_mgcv_parity_engine.md` (if it exists)
    - `docs/CONFORMANCE_LEDGER.md` (if it exists) — what has already been tried
-   - CLAUDE.md, and `docs/DECISIONS.md` for ADR-189 + amendment 1
+   - CLAUDE.md, and `docs/DECISIONS.md` for ADR-189 + amendments 1 and 2, and ADR-190.
+     READ ADR-190 BEFORE ADR-189 AMENDMENT 1's level-4 section: amendment 1 names three
+     suspects for the Kass-Steffey under-inflation and ADR-190 refutes all three by
+     measurement. The gap is in the FORMULA, not our arithmetic, and two tests now pin
+     that arithmetic as correct. Do not go bug-hunting in `smoothing_uncertainty`.
    - `docs/RUNBOOK_mgcv_conformance.md`
 
 4. `make test` — TOLERANCE-AWARE baseline, exactly as daily-dev does it. Record the
@@ -105,10 +150,18 @@ target model form, or to characterise precisely why it cannot move.
    ONE THING THIS ROUTINE'S OWN SETUP CHANGES, so do not misread it as a code change:
    installing R in step 2 flips `test_the_r_script_runs_end_to_end_and_agrees` from
    SKIPPED to PASSED — it is gated on `rscript_mgcv_available()`. So a parity run sees
-   **one more pass and one fewer skip** than a run without R, on identical code. Measured
-   2026-08-11: 3174 passed / 4 skipped without R, 3175 passed / 3 skipped with it. Compare
-   against the last PARITY session's baseline, and if you are diffing against a log written
-   by a non-R routine, account for that one test before calling anything a regression.
+   **one more pass and one fewer skip** than a run without R, on identical code.
+
+   THE DELTA IS THE DURABLE PART; the absolute counts move every time a test lands, so
+   treat the numbers below as a dated observation rather than a target:
+     - 2026-08-11, `main` @ `95c3f46`: 3174 / 4 skipped without R, 3175 / 3 with it
+     - 2026-08-15, `main` @ `5a3d51a`: 3175 / 3 with R
+     - PR #195 adds 3 tests, so once merged expect **3178 / 3 with R** (3177 / 4 without)
+
+   Compare against the last PARITY session's baseline, and if you are diffing against a log
+   written by a non-R routine, account for that one test before calling anything a
+   regression. If the count differs from the last parity log by exactly the number of tests
+   the intervening merges added, that is not a regression — check `git log` before stopping.
 
 == MEASURE FIRST ==
 

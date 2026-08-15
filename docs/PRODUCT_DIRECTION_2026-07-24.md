@@ -1988,6 +1988,71 @@ question, the level-4-is-weak worry). What replaces them is one BLOCKER and two 
   **BLOCKER** — it is the standing bar on labelling anything a 95% band, and it now has a
   location.
 
+  > **RE-SCOPED 2026-08-15 — ADR-190. The measurement stands; the diagnosis above was
+  > wrong.** All three "places to look" are refuted by measurement: the step is converged
+  > (~1.7% across an 8x sweep), the eigenvalue floor **never binds** (`n_floored` 0 on every
+  > free-sp cell), and the `ln(10)` conversion was already correct. Built from `mgcv`'s own
+  > coefficients, own `V_rho` and own λ, `J V_rho Jᵀ` reproduces **our** inflation
+  > (1.18 / 1.15 / 1.24), not `mgcv`'s — so `vcov(unconditional = TRUE)` is **not**
+  > `Vb + J V_rho Jᵀ` but a larger quantity, by a non-constant 3.2-4.1x.
+  >
+  > **It is not our arithmetic — it is our formula.** `mgcv:::Vb.corr` uses `dw/drho`, the
+  > derivative of the IRLS weights, which our fitter never forms; plain Kass-Steffey is the
+  > first-order part of Wood, Pya & Säfken (2016).
+  >
+  > **Still a BLOCKER, now a slice rather than a fix.** Implementing Wood (2016) needs
+  > `dw/drho`, and **it must be re-derived from the paper: `mgcv` is GPL (>= 2) and this
+  > project is MIT, so its implementation cannot be transcribed.**
+  >
+  > **Registered prediction:** a correction 3.2-4.1x larger should move ADR-188's coverage
+  > from 0.8516 / 0.8581 toward the 0.9192 floor. If it does not, there is a second cause.
+  >
+  > One process finding worth keeping: `test_the_hessian_standard_error_is_wide_but_finite`
+  > has asserted `n_floored == 0` since slice 3 — the repository already held the evidence
+  > against the floor hypothesis, in a green test, while three documents carried the
+  > hypothesis for five days. A claim in prose and an assertion in a test are the same
+  > claim; only one of them is checked.
+  >
+  > *Provenance of the items above: ADR-190 / the 2026-08-15 session (1st-order) — the
+  > re-scoped BLOCKER, the GPL/MIT constraint and the registered prediction all descend
+  > directly from starting this item, so none of them is a widening of it.*
+
+- **Supply the Wood, Pya & Säfken (2016) derivation — a HUMAN prerequisite, and the only
+  thing standing between the covariance BLOCKER and a well-posed slice.** ADR-190 decision 3
+  established that `mgcv`'s implementation cannot be read: it is **GPL (>= 2)** and this
+  project is **MIT**. So the correction has to come from the mathematics, and an autonomous
+  session cannot obtain it — outbound access is policy-restricted, and the one copy on the
+  machine is the source it is forbidden to use. **A routine run pointed at this item would be
+  stuck between a source it must not read and a paper it cannot fetch, and the likely failure
+  mode is that it derives something plausible from first principles and labels it Wood's
+  correction.** That is worse than not starting.
+
+  What is needed, in order of preference:
+  1. **`docs/DERIVATION_unconditional_covariance.md`** — the correction written out as
+     mathematics, with `dw/drho` defined explicitly and the paper cited. Once this exists the
+     work becomes an ordinary implementation slice a routine can take.
+  2. Failing that, the equations transcribed from Wood, Pya & Säfken (2016, JASA 111:1548),
+     or **Wood, *GAM: An Introduction with R*, 2nd ed. §6.10**, which covers the same
+     material and may be the easier source to hand.
+
+  **Do NOT commit the paper itself.** This repository is public and the JASA article is not
+  ours to redistribute; the derivation is a rewriting, the PDF is a copy.
+  *Source: ADR-190 decision 3 (1st-order).* **BLOCKER on the BLOCKER** — the covariance item
+  above cannot start until this lands, and it is the cheapest item on this list for a human
+  and impossible for anyone else.
+
+- **Audit prose claims in ADRs and CONTINUATIONs against the test suite.** ADR-190 found
+  the eigenvalue-floor hypothesis had been carried for five days across an ADR, a docstring
+  and this ledger while `test_the_hessian_standard_error_is_wide_but_finite` asserted its
+  negation and passed on every run. **That is a search anyone can run and nobody did**,
+  because the test was framed as being about a standard error and the hypothesis as being
+  about coverage — the two never collided in a grep. The concrete item: before naming a
+  suspect in an ADR, grep the suite for a test that already speaks to it; and sweep the
+  standing hypotheses in `DECISIONS.md` for ones a green test already answers.
+  *Source: ADR-190 / the 2026-08-15 session log follow-up 4 (2nd-order — it is a
+  consequence of the finding rather than of the BLOCKER itself).* **NICE-TO-HAVE** — the
+  cost of the miss here was five days of a wrong suspect list, not a wrong result.
+
 - **`gamma` is unsettled: level 5 misses both tolerances narrowly, the sign check passes.**
   `max_abs_log10_sp_diff_gamma` 6.7244e-01 against 0.5, `abs_edf_total_diff_gamma` 1.1270
   against 1.0, while `gamma_edf_delta_agrees_in_sign` **passes** — `gamma` moves EDF the same

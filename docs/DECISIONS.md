@@ -14388,6 +14388,12 @@ slice 5.
 
 ### ADR-189 amendment 1 (2026-08-10) — the run happened, and it refuted three of this ADR's claims
 
+> **The level-4 DIAGNOSIS below is superseded by ADR-190 (2026-08-15). The measurement is
+> not.** This amendment concludes that the under-inflation localises the coverage shortfall
+> to *our arithmetic* and names three places to look. All three are refuted by measurement,
+> and the gap is in the **formula**: `vcov(unconditional = TRUE)` is not `Vb + J V_rho Jᵀ`.
+> Do not act on the "three places to look" list.
+
 **PR #193**, stacked on #192. R 4.6.1 / mgcv 1.9.4 / jsonlite 2.0.0, CRAN snapshot
 2026-08-01, in a digest-pinned container — so the run is reproducible and no maintainer
 needs R installed. **The digest was
@@ -14579,3 +14585,142 @@ is evidence of nothing. `ROUTINE_MGCV_PARITY.md` step 2 now defines three tiers 
 a committed number only from tier 3 (CI on the pinned digest, measured at ~1 minute per
 round trip). Tier 2 — the image run locally — is unavailable in the routine's environment:
 the `docker` binary is present but there is no daemon.
+
+## ADR-190: the level-4 disagreement is a formula gap, not an arithmetic defect
+
+**Status:** ACCEPTED (2026-08-15). **Supersedes the diagnosis** in ADR-189 amendment 1,
+not its measurement. **Oracle: TIER 3** — CI on the digest-pinned image
+`sha256:0d54c192…` (build 8, R 4.6.1 / mgcv 1.9.4), run **31901932780**, via
+`scripts/ks_formula_probe.R`. First measured on tier 1 and re-measured on tier 3 after
+PR #195's review declined to let this ADR grant itself an exemption; see "On tiers".
+
+### The claim being corrected
+
+ADR-189 amendment 1 refuted our Kass-Steffey correction against
+`vcov(m, unconditional = TRUE)` — ours inflates the mean variance 1.11-1.21x where `mgcv`
+inflates 1.49-1.87x — and concluded that this localised ADR-188's failing coverage gate to
+**our arithmetic**, naming three places to look. That conclusion was wrong. The
+*measurement* stands and reproduces exactly; the *attribution* does not.
+
+### Each named suspect, refuted by measurement
+
+| suspect | test | result |
+|---|---|---|
+| the difference step | 8x sweep of `log_step` (0.144 to 1.151 natural log) | inflation moves ~1.7% — converged |
+| the eigenvalue floor | eigenvalues of `H` on all three free-sp cells | 0.28-0.79 against a floor of 7.5e-03; `n_floored` **0 everywhere** |
+| the `ln(10)²` conversion | code reading | `KS_LOG_STEP` converts decades to natural log once; the two are never mixed |
+
+The floor suspect is the one worth dwelling on, because **the repository already contained
+the evidence against it.** `test_the_hessian_standard_error_is_wide_but_finite` asserts
+`n_floored == 0` on the standard fixture and has passed since slice 3. A hypothesis was
+carried for five days in an ADR, a docstring and a PRODUCT_DIRECTION entry while a green
+test asserted its negation. Nobody connected them because the test was about a standard
+error and the hypothesis was about coverage. **A claim in prose and an assertion in a test
+are the same claim; only one of them is checked.**
+
+### What actually settles it
+
+Our `V_rho` is not the cause either. Substituting `mgcv`'s **exact** outer Hessian into our
+correction, at `mgcv`'s own λ, moves the inflation from 1.14 to 1.20 — against `mgcv`'s
+1.74. So the gap survives every input being `mgcv`'s.
+
+The decisive test builds the correction entirely from `mgcv`: its coefficients at
+perturbed `sp` (central differences, same step), its `outer.info$hess`, its λ.
+
+| cell | `mean diag(Vc - Vp)` | `mean diag(J V_rho Jᵀ)` | ratio | implied inflation vs reported |
+|---|---:|---:|---:|---|
+| `l2-free-sp` | 1.99864e-04 | 4.90834e-05 | 4.07 | 1.1815 vs **1.7392** |
+| `l2-free-sp-factors` | 7.70782e-05 | 2.43909e-05 | 3.16 | 1.1539 vs **1.4863** |
+| `l2-free-sp-kb` | 3.29745e-04 | 9.28381e-05 | 3.55 | 1.2441 vs **1.8670** |
+
+`J V_rho Jᵀ` computed wholly inside `mgcv` reproduces **our** number, not `mgcv`'s.
+Therefore `Vc != Vb + J V_rho Jᵀ`. The ratio is not constant, so it is not a scalar anyone
+mis-transcribed.
+
+**Decision 1: our implementation is correct for the formula ADR-188 decision 2 specifies,
+and that formula is not what `mgcv` computes.** `mgcv:::Vb.corr` takes `dw` — the
+derivative of the IRLS weights with respect to rho — which this function never forms. Plain
+Kass-Steffey is the first-order part of the correction in Wood, Pya & Säfken (2016); `mgcv`
+implements the fuller one.
+
+**Decision 2: the BLOCKER stays open and is re-scoped.** It is no longer "find the bug in
+our arithmetic" — there is no bug in our arithmetic — but "implement Wood (2016)'s
+correction". That is a slice, not a fix: it needs `dw/drho`, which nothing in the fitter
+currently computes.
+
+**Decision 3: it must be re-derived from the paper, not read off the reference.** `mgcv` is
+**GPL (>= 2)**; polaris-re is **MIT**. Transcribing `Vb.corr` would relicense this project.
+Recorded here rather than in a comment because the temptation arrives at the exact moment
+someone has the source file open and the derivation in front of them looks tedious.
+
+**Decision 4: the direction is right for ADR-188's coverage gate, and that is a prediction,
+not a result.** A correction 3.2-4.1x larger widens every band. ADR-188's Anchor-7 gate
+fails at 0.8516 / 0.8581 against a 0.9192 floor. **Registered in advance:** implementing
+Wood (2016) should move coverage toward or past that floor. If it does not, the coverage
+gap has a second cause and this ADR's decision 1 will need re-examining.
+
+### On tiers — measured on tier 1, then earned on tier 3
+
+`ROUTINE_MGCV_PARITY.md` SETUP step 2 permits committing only tier-3 numbers. This ADR was
+first written from tier 1 (mgcv 1.9.1, reference `libblas`) with an argument for why that
+was good enough: the finding is a factor of 3-4 against a tolerance of 0.25, not a
+BLAS-sensitive quantity. **PR #195's review refused the argument, and was right to.** The
+rule was written four days earlier and names this exact reasoning as the failure mode it
+exists to prevent; a PR is not entitled to grant itself the exemption, least of all one
+whose own finding is that a claim in prose and an assertion in a test are the same claim.
+
+So it was re-measured rather than re-argued. `scripts/ks_formula_probe.R` is a committed,
+reviewable script that runs inside the pinned image as a **diagnostic step** in the
+conformance workflow — it asserts nothing and cannot fail the build, and the gating
+comparison is untouched.
+
+| cell | ratio, tier 1 (mgcv 1.9.1) | ratio, **tier 3** (mgcv 1.9.4, build 8) |
+|---|---:|---:|
+| `l2-free-sp` | 4.0719 | **4.0719** |
+| `l2-free-sp-factors` | 3.1601 | **3.1601** |
+| `l2-free-sp-kb` | 3.5518 | **3.5518** |
+
+**Identical at every digit printed**, across two `mgcv` releases and two BLAS
+implementations. The verdict now carries a tier-3 label because it was measured on tier 3,
+not because the argument was accepted.
+
+**Decision 5: no magnitude carve-out. The dead end gets removed instead.**
+
+*Attribution, because an attributed decision is durable and PR #195's second review
+rightly asked for it to be checkable.* The **choice** is the maintainer's, made in session
+on 2026-08-15 in response to the open question PR #195's first review left for a human;
+the **analysis below is this session's**, offered as one of two options (the other being a
+narrow version-pinned carve-out). Recording it this way so a later reader knows exactly
+which part was decided and which part was argued.
+ The carve-out was tempting and is half-right, which is what makes it dangerous.
+Tier 1 differs from the pinned image in **two** ways with opposite magnitude profiles:
+
+* **BLAS** — reference `libblas` against OpenBLAS. Bounded and tiny, ~1e-15 relative. A
+  magnitude argument genuinely does protect against this.
+* **`mgcv` version** — 1.9.1 against 1.9.4, three releases. Knot placement, a default, a
+  reparameterisation can change between them, and the effect is **unbounded**. **No size of
+  finding is safe from a version change, because a version change is not noise — it is
+  different code.**
+
+This ADR's tier-1 and tier-3 ratios agreeing to every digit establishes that *these
+quantities* did not move between 1.9.1 and 1.9.4. It does not establish that magnitude
+predicts safety in general, and treating one after-the-fact observation as a rule would be
+generalising from n = 1.
+
+**What actually caused the violation was a dead end, not a cost.** Tier 3 was never slow —
+CI is about a minute. The suite simply did not compute the quantity, and the routine said
+nothing about that case, so this session argued its way around the rule rather than
+extending the harness. `ROUTINE_MGCV_PARITY.md` step 2 now carries the missing instruction:
+**if tier 3 cannot measure your quantity, add a diagnostic probe — reaching that point is
+not a licence to commit a tier-1 number, it is the moment the probe gets written.** It also
+now says where each tier may appear: tier 1 in the ledger and session log, labelled, as a
+hypothesis; **tier 3 only in `DECISIONS.md` and `PRODUCT_DIRECTION`**, because those are the
+permanent claims everything downstream treats as settled.
+
+### What did not change
+
+No tolerance was widened, no constant tuned, no committed reference edited. Level 4 still
+DISAGREES and still does not block, exactly as before. Two tests now pin the arithmetic —
+`test_the_correction_is_exactly_j_vrho_jt` and
+`test_the_correction_is_converged_in_the_difference_step` — so a later session cannot
+"repair" correct code while chasing a formula gap.
