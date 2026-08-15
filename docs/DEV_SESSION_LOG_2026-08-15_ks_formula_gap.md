@@ -65,13 +65,22 @@ survives every input being `mgcv`'s, which leaves only the formula. `mgcv:::Vb.c
 ## What Was Done
 
 **No fix, because there is nothing here to fix.** The deliverable is the localisation, the
-two tests that pin it, and a correctly re-scoped BLOCKER.
+three tests that pin it, and a correctly re-scoped BLOCKER.
 
 1. **ADR-190** — the finding, the refutations, and four decisions, including the licensing
    constraint and a prediction registered in advance.
-2. **Two tests** — `test_the_correction_is_exactly_j_vrho_jt` (the arithmetic *is* the
-   stated formula, recomputed independently) and
-   `test_the_correction_is_converged_in_the_difference_step`.
+2. **Three tests** — `test_the_correction_is_exactly_j_vrho_jt` (the arithmetic *is* the
+   stated formula, recomputed independently),
+   `test_the_correction_is_converged_in_the_difference_step`, and
+   `test_the_formula_probe_uses_the_same_difference_step_as_the_python_side` (the probe's
+   hardcoded `h` against `KS_LOG_STEP`, across the language boundary).
+
+   **And the [P1] worth recording against myself.** The probe step was described as
+   non-gating in the workflow comment, the R script header and a commit message, and
+   *nothing enforced it*: `set -euo pipefail`, four `stop()` paths, and `compare` declaring
+   `needs: mgcv-reference` meant a future `mgcv` renaming `outer.info$hess` would have
+   reddened the levels 1-3 gate. A claim in prose three times and an assertion nowhere —
+   in the PR whose finding is exactly that. Fixed with `continue-on-error: true`.
 3. **The docstring** in `smoothing_uncertainty` — the "three places to look" paragraph was
    actively misleading and is replaced with the measurements.
 4. **The conformance path filter** now includes `experience_gam_penalized.py`. It did not,
@@ -106,8 +115,9 @@ the exemption — least of all this one, whose whole finding is that a claim in 
 assertion in a test are the same claim.
 
 Re-measured instead of re-argued. `scripts/ks_formula_probe.R` now runs inside the pinned
-image as a **diagnostic step** in the conformance workflow (it asserts nothing and cannot
-fail the build; the gating comparison is untouched):
+image as a **diagnostic step** in the conformance workflow, non-gating via
+`continue-on-error: true` on the step — see the [P1] note below, because the first version
+of this sentence was itself the defect this PR is about:
 
 | cell | ratio, tier 1 (mgcv 1.9.1) | ratio, **tier 3** (mgcv 1.9.4, build 8) |
 |---|---:|---:|
