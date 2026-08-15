@@ -1988,6 +1988,31 @@ question, the level-4-is-weak worry). What replaces them is one BLOCKER and two 
   **BLOCKER** — it is the standing bar on labelling anything a 95% band, and it now has a
   location.
 
+  > **RE-SCOPED 2026-08-15 — ADR-190. The measurement stands; the diagnosis above was
+  > wrong.** All three "places to look" are refuted by measurement: the step is converged
+  > (~1.7% across an 8x sweep), the eigenvalue floor **never binds** (`n_floored` 0 on every
+  > free-sp cell), and the `ln(10)` conversion was already correct. Built from `mgcv`'s own
+  > coefficients, own `V_rho` and own λ, `J V_rho Jᵀ` reproduces **our** inflation
+  > (1.18 / 1.15 / 1.24), not `mgcv`'s — so `vcov(unconditional = TRUE)` is **not**
+  > `Vb + J V_rho Jᵀ` but a larger quantity, by a non-constant 3.2-4.1x.
+  >
+  > **It is not our arithmetic — it is our formula.** `mgcv:::Vb.corr` uses `dw/drho`, the
+  > derivative of the IRLS weights, which our fitter never forms; plain Kass-Steffey is the
+  > first-order part of Wood, Pya & Säfken (2016).
+  >
+  > **Still a BLOCKER, now a slice rather than a fix.** Implementing Wood (2016) needs
+  > `dw/drho`, and **it must be re-derived from the paper: `mgcv` is GPL (>= 2) and this
+  > project is MIT, so its implementation cannot be transcribed.**
+  >
+  > **Registered prediction:** a correction 3.2-4.1x larger should move ADR-188's coverage
+  > from 0.8516 / 0.8581 toward the 0.9192 floor. If it does not, there is a second cause.
+  >
+  > One process finding worth keeping: `test_the_hessian_standard_error_is_wide_but_finite`
+  > has asserted `n_floored == 0` since slice 3 — the repository already held the evidence
+  > against the floor hypothesis, in a green test, while three documents carried the
+  > hypothesis for five days. A claim in prose and an assertion in a test are the same
+  > claim; only one of them is checked.
+
 - **`gamma` is unsettled: level 5 misses both tolerances narrowly, the sign check passes.**
   `max_abs_log10_sp_diff_gamma` 6.7244e-01 against 0.5, `abs_edf_total_diff_gamma` 1.1270
   against 1.0, while `gamma_edf_delta_agrees_in_sign` **passes** — `gamma` moves EDF the same

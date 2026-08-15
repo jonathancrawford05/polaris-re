@@ -48,6 +48,10 @@ on:
       - "scripts/compare_mgcv_conformance.py"
       - "scripts/export_mgcv_case.py"
       - "src/polaris_re/analytics/experience_mgcv_conformance.py"
+      # The module UNDER test, not just the harness. Without this line a change to
+      # the penalized fitter or the Kass-Steffey correction does not run the check
+      # that measures it — which is exactly the shape of the level-4 work (ADR-190).
+      - "src/polaris_re/analytics/experience_gam_penalized.py"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 

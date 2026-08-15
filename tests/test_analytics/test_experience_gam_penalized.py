@@ -1426,3 +1426,78 @@ def test_a_non_positive_log_step_is_refused() -> None:
         smoothing_uncertainty(
             _cells(noisy=True), lambda_age=1e2, lambda_year=1e2, log_step=0.0, k_age=7, k_year=6
         )
+
+
+# ---------------------------------------------------------------------------------
+# The level-4 refutation, localised (ADR-190)
+#
+# ADR-189 amendment 1 refuted this correction against `mgcv` and named three places to
+# look: the difference step, the eigenvalue floor, and an `ln(10)²` conversion. All
+# three are now refuted in turn — the gap is in the FORMULA, not this arithmetic. These
+# two tests exist so a later session cannot "fix" correct arithmetic while chasing it.
+# ---------------------------------------------------------------------------------
+
+
+def test_the_correction_is_exactly_j_vrho_jt() -> None:
+    """The implementation computes what ADR-188 decision 2 says it computes.
+
+    Recomputed independently from the returned `hessian` and `jacobian` rather than
+    trusting the internals. This pins the arithmetic so the open BLOCKER cannot be
+    misread as a coding error: measured against `mgcv`'s own coefficients, own `V_rho`
+    and own λ, `J V_rho Jᵀ` reproduces OUR inflation (1.18 / 1.15 / 1.24) and not
+    `mgcv`'s (1.74 / 1.49 / 1.87). `vcov(unconditional = TRUE)` is a different and
+    larger quantity — see ADR-190.
+    """
+    cells = _cells_from(_quadratic_mi)
+    selection = select_lambdas_reml(cells, k_age=7, k_year=6)
+    extra = smoothing_uncertainty(
+        cells,
+        lambda_age=selection.lambda_age,
+        lambda_year=selection.lambda_year,
+        k_age=7,
+        k_year=6,
+    )
+
+    half_width = float(np.log(10.0) * (LAMBDA_LOG10_BOUNDS[1] - LAMBDA_LOG10_BOUNDS[0])) / 2.0
+    eigenvalues, vectors = np.linalg.eigh(0.5 * (extra.hessian + extra.hessian.T))
+    expected_v_rho = (
+        vectors * (1.0 / np.maximum(eigenvalues, 1.0 / (half_width * half_width)))
+    ) @ vectors.T
+
+    np.testing.assert_allclose(extra.v_rho, expected_v_rho, rtol=1e-12, atol=0.0)
+    np.testing.assert_allclose(
+        extra.correction, extra.jacobian @ expected_v_rho @ extra.jacobian.T, rtol=1e-10
+    )
+
+
+def test_the_correction_is_converged_in_the_difference_step() -> None:
+    """Halving the step barely moves the correction, so the step is not the gap.
+
+    ADR-189 amendment 1 listed `log_step` first among the places to look. Halving it
+    doubles the resolution of both central differences; if the default step were
+    differencing structure it cannot resolve, the correction would move materially.
+    The bound is 10% — an order of magnitude above the ~1.7% measured across an 8x
+    step sweep on the conformance cells (ADR-190), and chosen to be loose enough that
+    it fails only on a real change in behaviour rather than on fixture noise.
+    """
+    cells = _cells_from(_quadratic_mi)
+    selection = select_lambdas_reml(cells, k_age=7, k_year=6)
+    corrections = [
+        smoothing_uncertainty(
+            cells,
+            lambda_age=selection.lambda_age,
+            lambda_year=selection.lambda_year,
+            log_step=step,
+            k_age=7,
+            k_year=6,
+        ).correction
+        for step in (KS_LOG_STEP, KS_LOG_STEP / 2.0)
+    ]
+
+    coarse, fine = (float(np.mean(np.diag(c))) for c in corrections)
+    assert coarse > 0.0, "the correction must be non-degenerate for this test to mean anything"
+    assert abs(fine / coarse - 1.0) < 0.10, (
+        f"the correction moved {abs(fine / coarse - 1.0):.1%} when the difference step was "
+        f"halved ({coarse:.6e} -> {fine:.6e}). ADR-190 established the step is converged; "
+        f"if this fails, that finding no longer holds and the level-4 diagnosis needs redoing."
+    )

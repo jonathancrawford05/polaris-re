@@ -14579,3 +14579,93 @@ is evidence of nothing. `ROUTINE_MGCV_PARITY.md` step 2 now defines three tiers 
 a committed number only from tier 3 (CI on the pinned digest, measured at ~1 minute per
 round trip). Tier 2 — the image run locally — is unavailable in the routine's environment:
 the `docker` binary is present but there is no daemon.
+
+## ADR-190: the level-4 disagreement is a formula gap, not an arithmetic defect
+
+**Status:** ACCEPTED (2026-08-15). **Supersedes the diagnosis** in ADR-189 amendment 1,
+not its measurement. **Oracle:** tier 1, local apt R 4.3.3 / mgcv 1.9.1 — see "on tiers"
+below for why that is sufficient here.
+
+### The claim being corrected
+
+ADR-189 amendment 1 refuted our Kass-Steffey correction against
+`vcov(m, unconditional = TRUE)` — ours inflates the mean variance 1.11-1.21x where `mgcv`
+inflates 1.49-1.87x — and concluded that this localised ADR-188's failing coverage gate to
+**our arithmetic**, naming three places to look. That conclusion was wrong. The
+*measurement* stands and reproduces exactly; the *attribution* does not.
+
+### Each named suspect, refuted by measurement
+
+| suspect | test | result |
+|---|---|---|
+| the difference step | 8x sweep of `log_step` (0.144 to 1.151 natural log) | inflation moves ~1.7% — converged |
+| the eigenvalue floor | eigenvalues of `H` on all three free-sp cells | 0.28-0.79 against a floor of 7.5e-03; `n_floored` **0 everywhere** |
+| the `ln(10)²` conversion | code reading | `KS_LOG_STEP` converts decades to natural log once; the two are never mixed |
+
+The floor suspect is the one worth dwelling on, because **the repository already contained
+the evidence against it.** `test_the_hessian_standard_error_is_wide_but_finite` asserts
+`n_floored == 0` on the standard fixture and has passed since slice 3. A hypothesis was
+carried for five days in an ADR, a docstring and a PRODUCT_DIRECTION entry while a green
+test asserted its negation. Nobody connected them because the test was about a standard
+error and the hypothesis was about coverage. **A claim in prose and an assertion in a test
+are the same claim; only one of them is checked.**
+
+### What actually settles it
+
+Our `V_rho` is not the cause either. Substituting `mgcv`'s **exact** outer Hessian into our
+correction, at `mgcv`'s own λ, moves the inflation from 1.14 to 1.20 — against `mgcv`'s
+1.74. So the gap survives every input being `mgcv`'s.
+
+The decisive test builds the correction entirely from `mgcv`: its coefficients at
+perturbed `sp` (central differences, same step), its `outer.info$hess`, its λ.
+
+| cell | `mean diag(Vc - Vp)` | `mean diag(J V_rho Jᵀ)` | ratio | implied inflation vs reported |
+|---|---:|---:|---:|---|
+| `l2-free-sp` | 1.99864e-04 | 4.90834e-05 | 4.07 | 1.1815 vs **1.7392** |
+| `l2-free-sp-factors` | 7.70782e-05 | 2.43909e-05 | 3.16 | 1.1539 vs **1.4863** |
+| `l2-free-sp-kb` | 3.29745e-04 | 9.28381e-05 | 3.55 | 1.2441 vs **1.8670** |
+
+`J V_rho Jᵀ` computed wholly inside `mgcv` reproduces **our** number, not `mgcv`'s.
+Therefore `Vc != Vb + J V_rho Jᵀ`. The ratio is not constant, so it is not a scalar anyone
+mis-transcribed.
+
+**Decision 1: our implementation is correct for the formula ADR-188 decision 2 specifies,
+and that formula is not what `mgcv` computes.** `mgcv:::Vb.corr` takes `dw` — the
+derivative of the IRLS weights with respect to rho — which this function never forms. Plain
+Kass-Steffey is the first-order part of the correction in Wood, Pya & Säfken (2016); `mgcv`
+implements the fuller one.
+
+**Decision 2: the BLOCKER stays open and is re-scoped.** It is no longer "find the bug in
+our arithmetic" — there is no bug in our arithmetic — but "implement Wood (2016)'s
+correction". That is a slice, not a fix: it needs `dw/drho`, which nothing in the fitter
+currently computes.
+
+**Decision 3: it must be re-derived from the paper, not read off the reference.** `mgcv` is
+**GPL (>= 2)**; polaris-re is **MIT**. Transcribing `Vb.corr` would relicense this project.
+Recorded here rather than in a comment because the temptation arrives at the exact moment
+someone has the source file open and the derivation in front of them looks tedious.
+
+**Decision 4: the direction is right for ADR-188's coverage gate, and that is a prediction,
+not a result.** A correction 3.2-4.1x larger widens every band. ADR-188's Anchor-7 gate
+fails at 0.8516 / 0.8581 against a 0.9192 floor. **Registered in advance:** implementing
+Wood (2016) should move coverage toward or past that floor. If it does not, the coverage
+gap has a second cause and this ADR's decision 1 will need re-examining.
+
+### On tiers — why local R is enough for this
+
+`ROUTINE_MGCV_PARITY.md` permits committing only tier-3 numbers, and every number above is
+tier 1 (mgcv 1.9.1, reference `libblas`). That rule exists for Stage-A comparisons at
+~1e-15, where a different BLAS makes local output meaningless. **This finding is a factor
+of 3-4 measured against a tolerance of 0.25.** mgcv 1.9.1 and 1.9.4 do not disagree about
+whether `Vc - Vp` is four times `J V_rho Jᵀ`. The tier-1 run also reproduces the committed
+build-1 figures to four significant figures (ours 1.1109 / 1.1591 / 1.2139; recorded
+1.11-1.21), which is the check that licenses reading it. **The verdict is tier 1 and is
+labelled tier 1**; CI on build 8 continues to gate the committed metrics unchanged.
+
+### What did not change
+
+No tolerance was widened, no constant tuned, no committed reference edited. Level 4 still
+DISAGREES and still does not block, exactly as before. Two tests now pin the arithmetic —
+`test_the_correction_is_exactly_j_vrho_jt` and
+`test_the_correction_is_converged_in_the_difference_step` — so a later session cannot
+"repair" correct code while chasing a formula gap.
