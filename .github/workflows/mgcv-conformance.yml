@@ -208,12 +208,47 @@ jobs:
           print("A ratio far from 1.0 means the formula, not the arithmetic, is the gap.")
           PY
 
+      # PLAN_mgcv_parity_engine.md slice 1's one named risk, on the authoritative oracle.
+      # DIAGNOSTIC ONLY, same contract as the ADR-190 probe above: it has `stop()` paths
+      # and can exit non-zero, and `continue-on-error: true` is what stops that from
+      # blocking a merge. No exchange dependency — it builds its own tiny `bs="cr"` case,
+      # so it runs even before slice 2 ships a real cr basis.
+      - name: Probe whether smoothCon(absorb.cons=TRUE) reproduces lpmatrix (slice 1)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/smoothcon_lpmatrix_probe.R \
+              smoothcon_lpmatrix_probe.json
+          {
+            echo
+            echo "### Slice 1 — does \`smoothCon(absorb.cons=TRUE)\$X\` equal \`lpmatrix\`'s smooth block?"
+            echo
+            echo "| case | dim | rank | max|lpmatrix - smoothCon X| | max|S diff| |"
+            echo "|---|---|---:|---:|---:|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          d = json.load(open("smoothcon_lpmatrix_probe.json"))
+          for name, c in d["cases"].items():
+              dim = "x".join(str(v) for v in c["dim_x"])
+              print(
+                  f"| `{name}` | {dim} | {c['rank']} | "
+                  f"{c['max_abs_diff_lpmatrix_vs_smoothcon_x']:.3e} | "
+                  f"{c['max_abs_diff_gam_smooth_S_vs_smoothcon_S']:.3e} |"
+              )
+          print()
+          print("Zero (to the printed precision) means the two Stage-A referents PLAN §5 "
+                "risk 1 worried about are the same object, not two competing choices.")
+          PY
+
       - uses: actions/upload-artifact@v4
         with:
           name: mgcv-reference
           path: |
             mgcv_reference.json
             ks_formula_probe.json
+            smoothcon_lpmatrix_probe.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
