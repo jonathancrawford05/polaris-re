@@ -14717,6 +14717,51 @@ now says where each tier may appear: tier 1 in the ledger and session log, label
 hypothesis; **tier 3 only in `DECISIONS.md` and `PRODUCT_DIRECTION`**, because those are the
 permanent claims everything downstream treats as settled.
 
+### Amendment 1 (2026-08-15) — retested with `mgcv`'s exact inputs; the conclusion holds
+
+**Oracle: TIER 3** — build 8 `sha256:0d54c192…` (R 4.6.1 / mgcv 1.9.4), CI run
+**31914818812**, via the extended `scripts/ks_formula_probe.R`. Tier 1 (mgcv 1.9.1) agrees
+at every digit printed.
+
+The maintainer supplied the Wood derivation (`docs/DERIVATION_unconditional_covariance.md`),
+and its `mgcv` mapping is a direct test of this ADR: it names `J` as `fit$db.drho` — an
+exact analytic matrix — and `V_rho` as `sp.vcov(fit)`, where the decisive measurement above
+used a **central-difference** `J` and `solve(outer.info$hess)`. If either substitution had
+closed the gap, decision 1 would have been wrong.
+
+Neither does.
+
+| quantity | ours (as used above) | `mgcv`'s exact | agreement |
+|---|---|---|---|
+| `J` | central difference, step `KS_LOG_STEP` | `db.drho` | max abs diff **2.8e-04 - 3.9e-04** |
+| `V_rho` | `solve(outer.info$hess)` | `sp.vcov()` | 0.5-7% element-wise |
+
+| cell | ratio, as first measured | ratio, **`mgcv`'s own `db.drho` + `sp.vcov`** |
+|---|---:|---:|
+| `l2-free-sp` | 4.0719 | **3.9661** |
+| `l2-free-sp-factors` | 3.1601 | **3.0855** |
+| `l2-free-sp-kb` | 3.5518 | **3.5185** |
+
+Exact inputs move the ratio by about 2%. **The delta-method term accounts for 28-32% of
+`Vc - Vp`**, and decision 1 stands on stronger evidence than it was written with: the gap
+survives every input being `mgcv`'s own, computed by `mgcv`'s own code.
+
+**Two things the derivation settles that were previously unverified.** The closed form
+`J[,j] = -V_beta (lambda_j S_j beta_hat)` reproduces `db.drho` to **1.5e-15**, so §2.2 of
+the derivation is exactly `mgcv`'s Jacobian; and `V_rho` is confirmed as the inverse outer
+Hessian. Neither was in doubt, but neither had been measured.
+
+**The remainder is localised further, still without guessing.** The derivation's §2.2
+assumes `W` and `z` do not depend on `rho`; `mgcv`'s correction routine takes `dw` as an
+argument. A routine needing only the delta-method term would not ask for it. That is the
+one place to look, and it is where the derivation now stops.
+
+**A shippable consequence that is not the fix:** our `J` should be the closed form rather
+than a central difference — exact, and it removes four of nine penalized fits. Registered in
+`PRODUCT_DIRECTION` as IMPORTANT and deliberately kept out of the eventual Wood
+implementation, so an exactness improvement and a formula change cannot be confused for one
+another.
+
 ### What did not change
 
 No tolerance was widened, no constant tuned, no committed reference edited. Level 4 still

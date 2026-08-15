@@ -83,7 +83,9 @@ three free-`sp` conformance cells. There is no ambiguity about the Jacobian.
 `solve(outer.info$hess)` agree to within 0.5–7% element-wise, i.e. they are the same object
 up to the optimiser's own bookkeeping.
 
-**Insufficient — with every input exact, the term is still ~3.1–4.0x too small:**
+**Insufficient — with every input exact, the term is still ~3.1–4.0x too small.** Measured
+at **tier 3**: oracle `sha256:0d54c192…` (build 8, R 4.6.1 / mgcv 1.9.4), CI run
+**31914818812**; identical to tier 1 (mgcv 1.9.1) at every digit printed.
 
 | cell | `mean diag(Vc - Vp)` | `J V_rho J'` (mgcv's own `db.drho` and `sp.vcov`) | ratio |
 |---|---:|---:|---:|
