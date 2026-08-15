@@ -76,10 +76,41 @@ def test_supplied_knots_may_omit_a_margin_to_mean_default_for_that_margin_only()
         variables=("AttdAge", "PolYear"),
         basis="ti",
         k=(13, 6),
-        knots={"AttdAge": (1, 2, 4, 7, 14, 18, 24, 35, 50, 70, 85, 90, 95)},
+        knots=(("AttdAge", (1, 2, 4, 7, 14, 18, 24, 35, 50, 70, 85, 90, 95)),),
     )
     assert term.knots is not None
-    assert "PolYear" not in term.knots
+    assert "PolYear" not in term.knots_by_variable()
+    assert term.knots_by_variable()["AttdAge"] == (1, 2, 4, 7, 14, 18, 24, 35, 50, 70, 85, 90, 95)
+
+
+def test_knots_are_immutable_and_the_spec_is_hashable() -> None:
+    term = TermSpec(
+        label="s(AttdAge)",
+        variables=("AttdAge",),
+        basis="cr",
+        k=(13,),
+        knots=(("AttdAge", (1.0, 2.0, 3.0)),),
+    )
+    with pytest.raises((TypeError, AttributeError)):
+        term.knots["AttdAge"] = (9.9,)  # type: ignore[index]
+    hash(term)  # a dict-valued field would make this raise TypeError.
+
+    # knots_by_variable() computes a fresh dict every call — mutating it must not
+    # touch the spec.
+    borrowed = term.knots_by_variable()
+    borrowed["AttdAge"] = (9.9,)
+    assert term.knots_by_variable()["AttdAge"] == (1.0, 2.0, 3.0)
+
+
+def test_a_variable_supplied_twice_in_knots_is_refused() -> None:
+    with pytest.raises(PolarisValidationError, match="more than once"):
+        TermSpec(
+            label="s(AttdAge)",
+            variables=("AttdAge",),
+            basis="cr",
+            k=(13,),
+            knots=(("AttdAge", (1.0, 2.0)), ("AttdAge", (3.0, 4.0))),
+        )
 
 
 def test_a_raw_term_carries_no_k_and_no_knots() -> None:
@@ -115,6 +146,16 @@ def test_a_raw_term_with_k_is_refused() -> None:
         TermSpec(label="tensor(age,year)", variables=("age", "year"), basis="raw", k=(7, 6))
 
 
+def test_a_raw_term_with_knots_is_refused() -> None:
+    with pytest.raises(PolarisValidationError, match="must not carry knots"):
+        TermSpec(
+            label="tensor(age,year)",
+            variables=("age", "year"),
+            basis="raw",
+            knots=(("age", (1.0, 2.0)),),
+        )
+
+
 def test_knots_for_an_unknown_variable_are_refused() -> None:
     with pytest.raises(PolarisValidationError, match="not in its variables"):
         TermSpec(
@@ -122,7 +163,7 @@ def test_knots_for_an_unknown_variable_are_refused() -> None:
             variables=("AttdAge",),
             basis="cr",
             k=(13,),
-            knots={"PolYear": (1, 2, 3)},
+            knots=(("PolYear", (1, 2, 3)),),
         )
 
 

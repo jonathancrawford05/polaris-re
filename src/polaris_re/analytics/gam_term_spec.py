@@ -63,11 +63,14 @@ class TermSpec:
         k: Basis dimension per variable, in the same order as :attr:`variables`. A
             single-margin term still carries a length-1 tuple, so every term's ``k``
             has the same shape as its ``variables`` regardless of dimension.
-        knots: Supplied knot locations per variable, or ``None`` to mean "let ``mgcv``
-            place them" (Anchor 4). When present, every key must be a variable the term
-            actually has, and a variable may be omitted to mean "default for this
-            margin only" — matching ``mgcv``'s own ``knots=list(...)`` partial-supply
-            behaviour.
+        knots: Supplied knot locations per variable, as ``((variable, locations), ...)``
+            pairs, or ``None`` to mean "let ``mgcv`` place them" (Anchor 4). A tuple of
+            pairs rather than a ``dict``, so a frozen :class:`TermSpec` is actually
+            immutable and hashable — a ``dict`` field defeats both (PR #196 review
+            [P2]). When present, every named variable must be one the term actually
+            has, and a variable may be omitted to mean "default for this margin only"
+            — matching ``mgcv``'s own ``knots=list(...)`` partial-supply behaviour. Use
+            :meth:`knots_by_variable` for dict-style lookup.
         by: A numeric ``by`` variable scaling the basis (e.g. the MI term's
             ``StudyYear_C``), or ``None``. Mutually exclusive with :attr:`factor`
             being ``True`` — ``mgcv`` has both a numeric-``by`` smooth and a
@@ -85,10 +88,19 @@ class TermSpec:
     variables: tuple[str, ...]
     basis: str
     k: tuple[int, ...] = field(default_factory=tuple)
-    knots: dict[str, tuple[float, ...]] | None = None
+    knots: tuple[tuple[str, tuple[float, ...]], ...] | None = None
     by: str | None = None
     factor: bool = False
     penalty_order: tuple[int, ...] | None = None
+
+    def knots_by_variable(self) -> dict[str, tuple[float, ...]]:
+        """:attr:`knots` as a plain ``dict``, computed on demand.
+
+        Never stored: a stored ``dict`` is exactly what made a "frozen" spec mutable
+        and unhashable (PR #196 review [P2]) — this recomputes a fresh one every call
+        instead.
+        """
+        return {} if self.knots is None else dict(self.knots)
 
     def __post_init__(self) -> None:
         if not self.label:
@@ -106,6 +118,12 @@ class TermSpec:
                     f"TermSpec {self.label!r} is basis='raw' (design and penalty "
                     f"supplied directly) and must not carry k — there is no recipe "
                     f"for mgcv to reproduce."
+                )
+            if self.knots is not None:
+                raise PolarisValidationError(
+                    f"TermSpec {self.label!r} is basis='raw' (design and penalty "
+                    f"supplied directly) and must not carry knots — there is no "
+                    f"recipe for mgcv to place them against."
                 )
         elif self.basis == "ti" and len(self.variables) < 2:
             raise PolarisValidationError(
@@ -135,7 +153,14 @@ class TermSpec:
                 f"k={self.k!r} names {len(self.k)}; one k per variable is required."
             )
         if self.knots is not None:
-            unknown = sorted(set(self.knots) - set(self.variables))
+            knot_vars = [pair[0] for pair in self.knots]
+            duplicate_vars = sorted({v for v in knot_vars if knot_vars.count(v) > 1})
+            if duplicate_vars:
+                raise PolarisValidationError(
+                    f"TermSpec {self.label!r} supplies knots more than once for "
+                    f"{duplicate_vars} — each variable may appear at most once."
+                )
+            unknown = sorted(set(knot_vars) - set(self.variables))
             if unknown:
                 raise PolarisValidationError(
                     f"TermSpec {self.label!r} supplies knots for {unknown}, which "

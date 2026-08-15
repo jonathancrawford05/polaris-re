@@ -34,6 +34,13 @@ Slice 1 had not started: no term-spec dataclasses, no per-term extractor, and PL
 one named risk (`smoothCon()` vs `lpmatrix` as Stage A's referent) was unresolved — the
 PLAN's own fallback for "neither works" was the only recorded outcome.
 
+The routine's step-5 metric set (per-term Stage-A metrics, Stage-B at fixed `sp`, the MI
+contrast, each with tier and digest) is not stated here as numbers, and that is a
+consequence of scope rather than an omission: those metrics are produced by the Stage-A
+harness this slice builds, which does not exist yet, so there is nothing to compute them
+from. What this session can and does state with tier and digest is the one quantity that
+*was* measured (PR #196 review [P2]).
+
 ## Gap After
 
 - **Term-spec dataclasses (Anchor 3): built.** `TermSpec` / `ModelSpec` in the new
@@ -73,7 +80,8 @@ PLAN's own fallback for "neither works" was the only recorded outcome.
      pushed branch.
    - **Tier 3** (R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192…` build 8, CI run
      [31907362222](https://github.com/jonathancrawford05/polaris-re/actions/runs/31907362222),
-     round trip ~65 s): **identical result, `0.0` at every printed digit, all three cases.**
+     round trip 51 s, `created_at` to `completed_at`): **identical result, `0.0` at every
+     printed digit, all three cases.**
      Required levels 1-3 of the existing conformance suite also agreed on this run — no
      regression from the workflow edit. **CONFIRMED at tier 3 — verdict promoted to
      settled**, recorded in `CONTINUATION_mgcv_parity_engine.md` and
