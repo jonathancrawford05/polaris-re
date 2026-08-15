@@ -167,10 +167,45 @@ jobs:
           print(f"- cells fitted: **{len(d.get('cells', {}))}**")
           PY
 
+      # ADR-190's decisive measurement, on the authoritative oracle. DIAGNOSTIC ONLY —
+      # it asserts nothing and cannot fail the build; the comparison job is what gates.
+      # It exists so ADR-190's central claim carries a TIER 3 label rather than an
+      # argument for why tier 1 was good enough (PR #195 review, [P0]).
+      - name: Probe whether Vc equals Vb + J V_rho J' (ADR-190)
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/ks_formula_probe.R \
+              data/mgcv_exchange/synthetic \
+              ks_formula_probe.json
+          {
+            echo
+            echo "### ADR-190 — is \`Vc\` equal to \`Vb + J V_rho Jᵀ\`?"
+            echo
+            echo "| cell | \`mean diag(Vc-Vp)\` | \`mean diag(J V_rho Jᵀ)\` | ratio | inflation from formula | mgcv reports |"
+            echo "|---|---:|---:|---:|---:|---:|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          d = json.load(open("ks_formula_probe.json"))
+          for name, c in d["cells"].items():
+              print(
+                  f"| `{name}` | {c['mean_diag_vc_minus_vp']:.5e} | "
+                  f"{c['mean_diag_j_vrho_jt']:.5e} | "
+                  f"{c['ratio_actual_over_formula']:.4f} | "
+                  f"{c['inflation_from_formula']:.4f} | "
+                  f"**{c['inflation_reported']:.4f}** |"
+              )
+          print()
+          print("A ratio far from 1.0 means the formula, not the arithmetic, is the gap.")
+          PY
+
       - uses: actions/upload-artifact@v4
         with:
           name: mgcv-reference
-          path: mgcv_reference.json
+          path: |
+            mgcv_reference.json
+            ks_formula_probe.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
