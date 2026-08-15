@@ -2017,3 +2017,57 @@ test *would* have caught it and skipped in every environment that existed. The g
 missing assertion; it was that nothing anywhere ran the file. **CI closed it, not a test** —
 which generalises: for any artefact in a language the test suite cannot execute, the only real
 coverage is an environment that runs it.
+
+### Registered 2026-08-11 — the ACTIVE epic, so it is visible to a selecting routine
+
+The `mgcv`-parity engine (`docs/PLAN_mgcv_parity_engine.md`,
+`docs/CONTINUATION_mgcv_parity_engine.md`) is the project's largest numerical undertaking
+and it entered through **maintainer direction (2026-08-10)** rather than through the
+Tier-A table of a `COMMERCIAL_VIABILITY_REVIEW`. That is a legitimate override, but it left
+the epic **invisible in this ledger** — flagged by the PR #194 review, and fixed here.
+
+- **Build a Python GAM engine at parity with `mgcv` for the mortality-improvement
+  workflow.** The maintainer's selected model form is 110 coefficients over 8 smooth terms,
+  binomial/`cloglog` on a proportion response with prior weights, hand-chosen non-uniform
+  knots, and **13 smoothing parameters — 21 with `select = TRUE`**. It needs three basis
+  classes the current engine does not have (`cr`, `ti`, `sz`) plus a numeric-`by` varying
+  coefficient term, and an N-dimensional (f)REML optimiser in place of the current
+  two-dimensional grid. The existing penalized IRLS core carries over, verified to 5e-13.
+  7 slices; `bam`/`discrete` deferred to a later epic. *Source: maintainer direction
+  2026-08-10; PLAN §1 carries the target verbatim and the measurements that size it
+  (1st-order).* **BLOCKER** — it is the path to measuring mortality improvement on the real
+  experience data, which is the commercial objective the whole experience track serves.
+
+- **Schedule `ROUTINE_MGCV_PARITY.md`.** The epic advances only when its routine is
+  registered as a scheduled task, and the cron config lives outside the repo. Until then
+  nothing moves it. *Source: PR #194 review, human-review item (1st-order).* **BLOCKER on
+  the item above**, and the cheapest of all of them.
+
+- ~~**Retire or re-cut the `r4.6.1-2026-08-01` image tag.**~~ It was moved onto the
+  `mboost`-carrying rebuild, so a tag that looks like it encodes R version and CRAN
+  snapshot date no longer identifies a unique build. Nothing broke — the conformance
+  workflow pins by digest — but anyone else pinning that tag silently picked up a package
+  that was not there before. *Source: maintainer observation 2026-08-10, carried into the
+  workflow comment; PR #194 review (1st-order).* **NICE-TO-HAVE** — a hygiene decision in
+  another repo, and the digest pin already protects this one.
+  > **CLOSED 2026-08-11 — R-Gam-base PR #3.** Immutable never-reused tags
+  > `r<R>-cran<snapshot>-b<NN>`, a digest-keyed `BUILDS.md` catalog, a CI refusal to push an
+  > existing tag, and an in-image manifest from build 3 forward. The tag is **deprecated
+  > rather than deleted**, correctly: GHCR deletes package *versions*, and that tag sits on
+  > the digest this repo pins, so deletion would have destroyed our oracle.
+  > **The close paid for itself in a way the item did not anticipate.** Reconciling the
+  > catalog against our own git history showed that ADR-189 amendment 1's numbers — `tr(F)`
+  > at 7.2e-13, the level-4 refutation — were produced on build 1 (`a77a61cf…`), while the
+  > current pin is build 2 (`8853bf2b…`). Our record said "a digest-pinned container" and
+  > named no digest, so those numbers were attributable to the wrong image. Fixed in
+  > ADR-189 amendment 1. **The hygiene item in the other repo found a provenance defect in
+  > this one** — which is the argument for treating "nothing broke" as a weaker signal than
+  > it feels like.
+
+- ~~**The old epic's slices 6-7 disposition.**~~ — **DECIDED** (maintainer direction
+  2026-08-10, PR #194): **PARKED as superseded**, with banners on both
+  `PLAN_penalized_mi_surface.md` and `CONTINUATION_penalized_mi_surface.md` and every slice
+  status changed from NEXT to PARKED so a selecting routine cannot resolve a superseded
+  slice as the next work. **Still owed before that CONTINUATION's status may change from
+  IN PROGRESS:** the refinement-backlog harvest into this file, and maintainer confirmation
+  of the parking. *Source: PR #194 review [P1-1] (1st-order).*

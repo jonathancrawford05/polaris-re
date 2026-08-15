@@ -1,5 +1,27 @@
 # Plan: a penalized tensor MI surface (P-splines with REML-selected λ)
 
+> ## SUPERSEDED for slices 6-7 — read `docs/PLAN_mgcv_parity_engine.md` first
+>
+> **Slices 1-5 are done and merged** (PR #192 + #193): `tr(F)` is **verified** against
+> `mgcv`, and the Kass-Steffey covariance is **refuted** as systematically under-inflating.
+>
+> **Slices 6 and 7 are PARKED on maintainer direction (2026-08-10), not abandoned.** The
+> maintainer supplied the real target model form, and it needs three basis classes this
+> engine does not have, 13-21 smoothing parameters against this engine's two, and a
+> binomial/cloglog response with prior weights. Slice 6 would surface `--penalized`, `edf`
+> and a band for a two-margin P-spline tensor that the successor epic supersedes; slice 7
+> would run that same superseded model on real experience. Both are throwaway work.
+>
+> **One item here is NOT parked:** the level-4 Kass-Steffey under-inflation (ours
+> 1.11-1.21x against `mgcv`'s 1.49-1.87x). It is engine-agnostic covariance arithmetic, it
+> is small, and it closes the standing bar on labelling any interval a 95% band. It remains
+> a BLOCKER in `PRODUCT_DIRECTION_2026-07-24.md`.
+>
+> **Two things are owed before this epic's CONTINUATION may change status:** the refinement
+> backlog must be harvested into the latest PRODUCT_DIRECTION (the routine's rule — ~25
+> items were once invisible the day their feature shipped), and the maintainer confirms the
+> parking. Until then the CONTINUATION stays IN PROGRESS with slices 6-7 marked PARKED.
+
 **Source:** `PRODUCT_DIRECTION_2026-07-24.md` — promoted from the spline-diagnostics
 epic (`PLAN_gam_spline_diagnostics.md`, COMPLETE 2026-08-08).
 **Predecessors:** ADR-182 (the diligence harness), **ADR-184 + amendments 1–2**

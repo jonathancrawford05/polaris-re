@@ -67,8 +67,61 @@ env:
   # Digest-pinned, never a tag: the whole suite rests on the reference not moving
   # between runs, and `:latest` would let an mgcv update rewrite the oracle
   # silently. Bumping this is a reviewable commit with a re-run attached.
-  # Currently R 4.6.1 / mgcv 1.9.4 / jsonlite 2.0.0, CRAN snapshot 2026-08-01.
-  ORACLE_IMAGE: ghcr.io/jonathancrawford05/r-gam-base@sha256:a77a61cf231933e17ec037ee0a63450067f66200a29ebc1cddbed14b8625ce8e
+  # Currently R 4.6.1 / mgcv 1.9.4 / jsonlite 2.0.0 / mboost 2.9.13, CRAN snapshot
+  # 2026-08-01 — upstream build 8, the first build with host-independent numerics.
+  #
+  # A TAG STOPPED IDENTIFYING A BUILD, AND THAT IS THE ARGUMENT FOR THIS LINE.
+  # The 2026-08-10 rebuild added `mboost` without moving R, mgcv or the snapshot, and the
+  # `r4.6.1-2026-08-01` tag was moved onto it. That tag *looks* like it encodes everything
+  # relevant — R version and snapshot date — and it no longer did: anyone pinning it
+  # silently picked up a package that was not there before. Nothing broke, because the
+  # addition was additive and this workflow pins the digest. But the tag was a reasonable
+  # thing to trust, and it was wrong. Digest, always.
+  #
+  # RESOLVED UPSTREAM (R-Gam-base PR #3, 2026-08-11): tags are now immutable and never
+  # reused, named `r<R>-cran<snapshot>-b<NN>`, with the build number carrying the
+  # distinction when the version fields cannot. `BUILDS.md` in that repo is the catalog,
+  # keyed on digest. `r4.6.1-2026-08-01` is DEPRECATED rather than deleted — GHCR has no
+  # per-tag delete, and that tag sits on the digest below, so removing it would have meant
+  # deleting a package version this workflow pins. Demotion was the right call.
+  #
+  # THE THREE BUILDS THIS FILE HAS PINNED:
+  #   build 1  sha256:a77a61cf2319…ce8e  2026-08-09  no mboost   ← pinned 0c149e3..105996e
+  #   build 2  sha256:8853bf2b6009…b7c   2026-08-11  mboost      ← pinned f16432c..fb3d31e
+  #   build 8  sha256:0d54c192e23c…0fd8  2026-08-11  determinism ← pinned from here
+  # ADR-189 amendment 1's numbers — `tr(F)` at 7.2e-13 and the level-4 refutation — were
+  # produced on BUILD 1. Each bump was verified by re-running this workflow, never assumed.
+  # Upstream asserts the locked set byte-identical across all three (mgcv 1.9.4, Matrix
+  # 1.7.5, nlme 3.1.169, jsonlite 2.0.0, digest 0.6.39) — which covers Matrix and nlme, the
+  # place an `mboost` dependency could have moved mgcv's numerics with its own version
+  # unchanged.
+  #
+  # WHY BUILD 8, AND THE REASON IS NOT `mboost`. Upstream found that builds 1-7 were NOT
+  # host-independent: OpenBLAS sized its thread pool from the runner's core count, and the
+  # differing reduction order moved the last bits — two stable outputs, roughly 50/50, with
+  # every package version identical. Build 8 pins `OPENBLAS_NUM_THREADS=1`, and upstream CI
+  # now diffs each build's reference-output hashes against the previous build's so it cannot
+  # recur silently.
+  #
+  # That defect could not have flipped a verdict here: the tightest committed tolerance is
+  # 1e-09 on `max_abs_eta_diff` against 2.9e-14 observed, and a last-bit reduction
+  # difference is ~1e-16 relative. But this file is about to be used for something stricter.
+  # PLAN_mgcv_parity_engine.md Anchor 1 compares design matrices term by term, and measured
+  # `lpmatrix` fidelity at 3.553e-15 — the same order as the nondeterminism. On builds 1-7 a
+  # Stage-A disagreement at that scale could be the runner's core count rather than our
+  # basis, which is exactly the attribution the two-stage strategy exists to make possible.
+  # Determinism is a prerequisite for slice 1, not a nicety.
+  #
+  # The metric to watch across this bump is level 2's `max_abs_log10_sp_diff`: 4.3221e-01
+  # observed against a 5.0e-01 tolerance, the only committed metric without an order of
+  # magnitude of headroom. Smoothing-parameter selection is an optimisation, so last-bit
+  # input noise can move a selected lambda by much more than last-bit.
+  #
+  # mboost is present for the maintainer's exploratory `gamboost` work. It is NOT a parity
+  # target (docs/PLAN_mgcv_parity_engine.md §1: componentwise boosting is a different
+  # algorithm with no likelihood covariance), and nothing in this workflow uses it — so if
+  # a future rebuild drops it, this suite is unaffected.
+  ORACLE_IMAGE: ghcr.io/jonathancrawford05/r-gam-base@sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8
 
 jobs:
   # ---------------------------------------------------------------------------
