@@ -87,9 +87,40 @@ target model form, or to characterise precisely why it cannot move.
      A CI round trip per verified hypothesis is affordable. Budget for it rather than
      talking yourself into committing a tier-1 number.
 
+   IF TIER 3 CANNOT MEASURE YOUR QUANTITY, ADD A PROBE — DO NOT FALL BACK TO TIER 1.
+     The conformance suite computes what it computes. When a hypothesis needs something it
+     does not — `mgcv`'s outer Hessian, its coefficients at perturbed `sp`, any internal
+     intermediate — write a small R script, run it inside `$ORACLE_IMAGE` as a DIAGNOSTIC
+     step (asserting nothing, gating nothing), and read the result from the job summary.
+     `scripts/ks_formula_probe.R` and its step in `mgcv-conformance.yml` are the worked
+     example: ~40 lines and one step.
+
+     REACHING THIS POINT IS NOT A LICENCE TO COMMIT A TIER-1 NUMBER. It is the moment the
+     probe gets written. This rule exists because the dead end is what actually causes the
+     violation: ADR-190 was first published from tier 1 not because CI was slow but because
+     the suite did not compute the quantity and nothing here said what to do about it, so
+     the session argued its way around the rule instead. PR #195's review caught it. The
+     re-measure took forty lines.
+
    THE RULE THAT FALLS OUT: iterate on tier 1, VERIFY ON TIER 3, and record which one
    produced every number you write down. A tier-1 number in the ledger is a hypothesis; a
-   tier-3 number is a result.
+   tier-3 number is a result. Concretely, where each may appear:
+     - TIER 1 may appear in `docs/CONFORMANCE_LEDGER.md` and the session log, LABELLED,
+       as a hypothesis or a provisional reading.
+     - TIER 3 ONLY in `docs/DECISIONS.md` and `PRODUCT_DIRECTION`. Those are permanent
+       claims that later work is built on, and a number that enters them is treated as
+       settled by everyone downstream.
+
+   AND WHY NOT A MAGNITUDE CARVE-OUT, since it will occur to you as it occurred to ADR-190.
+     The argument is "this finding is a factor of 3-4 against a 0.25 tolerance, so last-bit
+     noise cannot touch it". That is sound against ONE of the two things tier 1 differs by.
+     Local R differs from the image in BLAS (bounded, ~1e-15 relative — magnitude does
+     protect you) AND in `mgcv` VERSION (1.9.1 vs 1.9.4, three releases — knot placement, a
+     default, a reparameterisation can change, and the effect is UNBOUNDED). No size of
+     finding is safe from a version change, because a version change is not noise, it is
+     different code. ADR-190's tier-1 and tier-3 ratios did agree to every digit — which
+     establishes that those quantities did not move between 1.9.1 and 1.9.4, not that
+     magnitude predicts safety in general. Maintainer decision, 2026-08-15: **no carve-out.**
 
 3. Read in full before writing code:
    - `docs/PLAN_mgcv_parity_engine.md` — especially Anchors 1, 2 and 8

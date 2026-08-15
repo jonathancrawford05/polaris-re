@@ -14684,12 +14684,31 @@ comparison is untouched.
 implementations. The verdict now carries a tier-3 label because it was measured on tier 3,
 not because the argument was accepted.
 
-**A note for whoever revisits the rule.** This is one data point that the tier boundary is
-about *magnitude*, not about local-versus-CI as such: a quantity this coarse was never
-going to move. Whether the routine should carve out magnitude-robust findings is a
-maintainer decision and is deliberately **not** taken here — the point of the episode is
-that the deviation got resolved by measurement instead of by an author-granted exemption,
-and that resolution cost about forty lines of R.
+**Decision 5 (maintainer, 2026-08-15): no magnitude carve-out. The dead end gets removed
+instead.** The carve-out was tempting and is half-right, which is what makes it dangerous.
+Tier 1 differs from the pinned image in **two** ways with opposite magnitude profiles:
+
+* **BLAS** — reference `libblas` against OpenBLAS. Bounded and tiny, ~1e-15 relative. A
+  magnitude argument genuinely does protect against this.
+* **`mgcv` version** — 1.9.1 against 1.9.4, three releases. Knot placement, a default, a
+  reparameterisation can change between them, and the effect is **unbounded**. **No size of
+  finding is safe from a version change, because a version change is not noise — it is
+  different code.**
+
+This ADR's tier-1 and tier-3 ratios agreeing to every digit establishes that *these
+quantities* did not move between 1.9.1 and 1.9.4. It does not establish that magnitude
+predicts safety in general, and treating one after-the-fact observation as a rule would be
+generalising from n = 1.
+
+**What actually caused the violation was a dead end, not a cost.** Tier 3 was never slow —
+CI is about a minute. The suite simply did not compute the quantity, and the routine said
+nothing about that case, so this session argued its way around the rule rather than
+extending the harness. `ROUTINE_MGCV_PARITY.md` step 2 now carries the missing instruction:
+**if tier 3 cannot measure your quantity, add a diagnostic probe — reaching that point is
+not a licence to commit a tier-1 number, it is the moment the probe gets written.** It also
+now says where each tier may appear: tier 1 in the ledger and session log, labelled, as a
+hypothesis; **tier 3 only in `DECISIONS.md` and `PRODUCT_DIRECTION`**, because those are the
+permanent claims everything downstream treats as settled.
 
 ### What did not change
 
