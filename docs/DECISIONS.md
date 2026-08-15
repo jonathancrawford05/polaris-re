@@ -14724,3 +14724,54 @@ DISAGREES and still does not block, exactly as before. Two tests now pin the ari
 `test_the_correction_is_exactly_j_vrho_jt` and
 `test_the_correction_is_converged_in_the_difference_step` — so a later session cannot
 "repair" correct code while chasing a formula gap.
+
+## ADR-191: Stage A's referent is `smoothCon(absorb.cons=TRUE)`, not `lpmatrix` — because they are the same object
+
+**Date:** 2026-08-15
+**Status:** Accepted
+**Context:** `PLAN_mgcv_parity_engine.md` slice 1, the one risk it named in writing:
+`predict(type="lpmatrix")` returns a design **after** `mgcv` absorbs identifiability
+constraints and reparameterises; `smoothCon()` returns the smooth **before**, unless
+called with `absorb.cons = TRUE`. Which of the two Anchor 1's Stage A compares against
+changes what "our `X` equals `mgcv`'s `X`" means, and PLAN §5 risk 1 recorded a weaker
+fallback (compare column space and fitted values) for the case where neither works as a
+clean referent.
+
+**Decision: they are not two competing referents. `smoothCon(..., absorb.cons=TRUE)$X`
+reproduces `predict(type="lpmatrix")`'s corresponding smooth-term block bit-exactly**,
+because `predict.gam` dispatches to `PredictMat` on the smooth object `gam.setup` built
+with `absorb.cons = TRUE` in the first place — there is only one post-constraint
+representation, and `smoothCon()` can produce it directly without fitting anything.
+Stage A's referent is therefore `smoothCon(..., absorb.cons=TRUE)`, and PLAN §5's weaker
+fallback is not needed.
+
+**Why this is a tier-3 claim and not a tier-1 one, per `ROUTINE_MGCV_PARITY.md` step 2.**
+The finding is not a numeric value near precision limits — every measurement below is
+`0.0` exactly, not "small". What tier 1 cannot settle on its own is whether the two
+functions are *defined* to agree, which is a fact about `mgcv`'s own code and therefore
+exactly the "a version change is different code, not noise" case the routine's tier
+discipline exists for (ADR-190 decision 5). So it earns no magnitude exemption, and was
+re-measured on the pinned digest before being recorded here.
+
+**Measured**, `scripts/smoothcon_lpmatrix_probe.R`, three `bs="cr"` cases (default knots
+at `k=8` and `k=13`, supplied knots at `k=8`):
+
+| tier | oracle | `max\|lpmatrix − smoothCon(absorb.cons=TRUE) X\|` | `max\|S diff\|` |
+|---|---|---:|---:|
+| 1 | R 4.3.3 / mgcv 1.9.1 (local apt) | `0.0` (all 3 cases) | `0.0` (all 3 cases) |
+| 3 | R 4.6.1 / mgcv 1.9.4, `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8` (build 8), run [31907362222](https://github.com/jonathancrawford05/polaris-re/actions/runs/31907362222) | `0.0` (all 3 cases) | `0.0` (all 3 cases) |
+
+Identical at every printed digit across two `mgcv` releases. `docs/CONFORMANCE_LEDGER.md`
+carries both readings with their tiers; this ADR is the tier-3-only, settled version per
+the routine's own partition of where each tier's numbers may appear.
+
+**Consequence.** The R-side per-term extractor slice 1 still needs to build (not done as
+of this ADR) can call `smoothCon()` directly for every `mgcv`-native basis in
+`SUPPORTED_BASES` (`cr`, `ti`, `sz`) and needs no synthetic response or fitted model per
+isolated term — which is what makes an isolated-term Stage-A harness practical at all,
+rather than requiring a well-posed regression for every term in isolation.
+
+**What this does not settle.** Whether `smoothCon()`'s pre-constraint output (rank,
+null-space dimension, knot placement) is itself worth comparing as a secondary,
+diagnostic-only check is left to the slice that builds the extractor; this ADR only
+fixes the primary referent for the `X`/`S` comparison Anchor 1 gates on.
