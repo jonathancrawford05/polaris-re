@@ -5,9 +5,8 @@
 **Routine:** `docs/ROUTINE_MGCV_PARITY.md` — a convergence loop, not a backlog walk.
 **Predecessors:** ADR-189 + amendment 1 (the conformance suite and its first run),
 ADR-185 through ADR-188 (the penalized fitter this epic reuses).
-**Status:** **IN PROGRESS** — slice 1 is NEXT; the term-spec dataclasses and the
-referent decision below are built, the R-side per-term extractor and Python
-comparator are not.
+**Status:** **IN PROGRESS** — slice 1 is **DONE** (2026-08-15b); slice 2 (`bs = "cr"`)
+is NEXT.
 **Total slices:** **7** autonomous, plus one deferred to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
 
@@ -25,8 +24,7 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
 
 ## Slices
 
-1. **The Stage-A harness, and a term spec to hang it on** — **NEXT, partially built
-   2026-08-15.**
+1. **The Stage-A harness, and a term spec to hang it on** — **DONE 2026-08-15b.**
 
    **Done:** `src/polaris_re/analytics/gam_term_spec.py` — `TermSpec` / `ModelSpec`
    (Anchor 3), matching the target formula's own basis vocabulary (`cr`, `ti`, `sz`,
@@ -40,22 +38,37 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    built with `absorb.cons=TRUE`, so `smoothCon(..., absorb.cons=TRUE)$X` reproduces
    `lpmatrix`'s corresponding block **bit-exactly** — measured at tier 1 (R 4.3.3 /
    mgcv 1.9.1) and re-measured identical to the last printed digit at **tier 3** (R
-   4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192…`, run 31907362222) via the new
+   4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192…`, run 31907362222) via
    `scripts/smoothcon_lpmatrix_probe.R`, wired into `mgcv-conformance.yml` as a
    diagnostic step alongside ADR-190's `ks_formula_probe.R`. `docs/CONFORMANCE_LEDGER.md`
    carries both readings. **Decision: Stage A's referent is
    `smoothCon(..., absorb.cons=TRUE)`** — it needs no fitted model, which is what makes
    an isolated-term harness possible, and PLAN §5.1's weaker column-space fallback is
-   not needed.
+   not needed. Recorded in ADR-191.
 
-   **Not done:** the R-side per-term extractor (design block, every `S_j`, index
-   range, rank, knots used, for a `TermSpec`) and its Python comparator. Proving the
-   harness on the existing verified tensor basis (Anchor 1's "known-good basis first")
-   is also not done — that basis has no `smoothCon()` equivalent (it reaches `mgcv`
-   through `paraPen`, ADR-189 decision 1), so proving the new per-term extraction
-   machinery against it needs its own bridging code, named as slice 1's remaining
-   scope rather than attempted this session.
-2. **`bs = "cr"`**, with supplied and default knots. PLANNED.
+   **Done (2026-08-15b):** the R-side per-term extractor (`scripts/gam_term_extract.R`)
+   and its Python comparator (`src/polaris_re/analytics/gam_stage_a.py` —
+   `TermExtract`, `extract_raw_terms`, `compare_term_extract`), proven on the existing
+   verified `raw`/`paraPen` basis first (Anchor 1's "known-good basis before a new
+   one"). That basis has no `smoothCon()` equivalent (`paraPen`-only fits have an empty
+   smooth list), so both sides read what the fit actually used rather than a basis
+   recipe: the R side reads `m$paraPen$S` / `m$paraPen$rank` off the fitted object
+   (not the exchange's own TSVs, which would prove nothing about mgcv's bookkeeping),
+   and the Python side reads the already-fitted `DesignExport`. Agrees exactly (design
+   diff at float round-trip noise ~5e-16, `S` diff `0.0`, rank diff `0`, index ranges
+   agree) across both `d1` (tensor only) and `d2` (tensor + factor block), at tier 1 and
+   confirmed at **tier 3** (CI run 31915145674, both jobs green in 55s;
+   `docs/CONFORMANCE_LEDGER.md` carries both readings). Caught one real bug in the R
+   script's own harness proof — the factor term's JSON key didn't match its label —
+   which is exactly what "prove the harness on a known-good basis first" is for.
+
+   **Explicitly deferred to slice 2, not attempted here:** mgcv-native extraction
+   (`cr`/`ti`/`sz` via `smoothCon(..., absorb.cons=TRUE)`, per ADR-191's referent
+   decision). `extract_raw_terms` only handles `basis="raw"` and raises if handed
+   anything else — slice 2 adds the mgcv-native code path alongside the first Python
+   basis construction that needs a referent to check against, rather than building it
+   speculatively now with nothing yet to verify.
+2. **`bs = "cr"`**, with supplied and default knots. **NEXT.**
 3. **Families, links and weights** — binomial `cloglog`/`logit` on a proportion with prior
    weights, quasi-Poisson with `φ` estimated, Poisson with a log offset. Independent of 2.
    PLANNED.

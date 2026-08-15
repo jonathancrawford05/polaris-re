@@ -2139,18 +2139,12 @@ the epic **invisible in this ledger** — flagged by the PR #194 review, and fix
 
 ### Harvested 2026-08-15 — first `ROUTINE_MGCV_PARITY.md` run, slice 1 partially built
 
-- **Finish slice 1: the R-side per-term extractor and its Python comparator.** The
-  term-spec dataclasses (`gam_term_spec.py`, Anchor 3) and the Stage-A referent decision
-  are done — `smoothCon(..., absorb.cons=TRUE)` is confirmed at tier 3 to reproduce
-  `predict(type="lpmatrix")`'s smooth block bit-exactly (run 31907362222). What remains:
-  an R script that, given a `TermSpec`, extracts the design block, every `S_j`, the
-  coefficient index range, rank and knots used through `smoothCon()`; the Python
-  comparator that reads that schema; and proving both against the existing verified
-  tensor basis (Anchor 1's "known-good basis first"), which needs its own bridging code
-  since that basis has no `smoothCon()` equivalent (it reaches `mgcv` through `paraPen`,
-  ADR-189 decision 1). *Source: this session, `docs/CONTINUATION_mgcv_parity_engine.md`
-  slice 1 (1st-order — the epic's own NEXT slice).* **BLOCKER**, same standing blocker as
-  the epic itself.
+- ~~**Finish slice 1: the R-side per-term extractor and its Python comparator.**~~
+  **SHIPPED 2026-08-15b.** `scripts/gam_term_extract.R` + `gam_stage_a.py`, proven on the
+  existing verified `raw`/`paraPen` basis (Anchor 1's "known-good basis first") — see the
+  harvest entry below. mgcv-native extraction (`cr`/`ti`/`sz` via `smoothCon()`) is
+  explicitly deferred to slice 2, where it belongs alongside the first Python basis that
+  needs it.
 
 - **The R-side per-term extractor should reuse `smoothCon()`, not fit a full `gam()`
   model per term.** This session's finding is what unblocks that choice: fitting a model
@@ -2159,3 +2153,29 @@ the epic **invisible in this ledger** — flagged by the PR #194 review, and fix
   covariate values and returns the same design. *Source: this session
   (1st-order — a design decision the extractor is built from, not carried in code that
   reviews it independently).*
+
+### Harvested 2026-08-15b — second `ROUTINE_MGCV_PARITY.md` run, slice 1 finished
+
+- **Slice 1 is DONE.** All of PLAN §3 slice 1's acceptance criteria are now met:
+  term-spec dataclasses (prior session), the `smoothCon`/`lpmatrix` referent decided in
+  writing (ADR-191, prior session), and — this session — the R-side per-term extractor
+  (`scripts/gam_term_extract.R`) and Python comparator
+  (`src/polaris_re/analytics/gam_stage_a.py`), proven exactly on the existing verified
+  `raw`/`paraPen` basis at both tier 1 and tier 3 (CI run 31915145674). Caught and fixed
+  one real bug in the R script's own harness proof (a JSON key not matching its label)
+  before any tier-3 dispatch — exactly what proving the harness on a known-good basis
+  first is for. `docs/CONTINUATION_mgcv_parity_engine.md` slice 1 marked DONE, slice 2
+  marked NEXT. *Source: this session.*
+
+- **Next: slice 2 — `bs = "cr"`, with supplied and default knots.** The natural
+  continuation; `extract_raw_terms`/`TermExtract` are shaped to extend to an mgcv-native
+  code path (`smoothCon(..., absorb.cons=TRUE)` per ADR-191) without touching the `raw`
+  path already proven. *Source: `docs/PLAN_mgcv_parity_engine.md` §3 (1st-order — the
+  epic's own NEXT slice).* **BLOCKER**, same standing blocker as the epic itself.
+
+- **The pre-existing `data/mortality_tables` gap** (5 test failures — all one root
+  cause, the gitignored generated CSVs absent in this fresh container — plus some golden
+  QA-config skips) is unrelated to this epic and unaddressed here; it needs
+  `scripts/convert_soa_tables.py` run against a network-reachable table source. *Source:
+  this session's baseline check (2nd-order, NICE-TO-HAVE — orthogonal to the active
+  epic, for whichever routine next needs those tables).*
