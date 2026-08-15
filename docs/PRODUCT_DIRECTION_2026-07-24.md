@@ -2103,10 +2103,10 @@ the epic **invisible in this ledger** — flagged by the PR #194 review, and fix
   (1st-order).* **BLOCKER** — it is the path to measuring mortality improvement on the real
   experience data, which is the commercial objective the whole experience track serves.
 
-- **Schedule `ROUTINE_MGCV_PARITY.md`.** The epic advances only when its routine is
-  registered as a scheduled task, and the cron config lives outside the repo. Until then
-  nothing moves it. *Source: PR #194 review, human-review item (1st-order).* **BLOCKER on
-  the item above**, and the cheapest of all of them.
+- ~~**Schedule `ROUTINE_MGCV_PARITY.md`.**~~ — **CLOSED 2026-08-15.** This session ran as
+  the routine's own scheduled firing, which is the evidence the registration exists (the
+  cron config itself lives outside the repo, so the run is the only proof visible here).
+  *Source: PR #194 review, human-review item (1st-order).*
 
 - ~~**Retire or re-cut the `r4.6.1-2026-08-01` image tag.**~~ It was moved onto the
   `mboost`-carrying rebuild, so a tag that looks like it encodes R version and CRAN
@@ -2136,3 +2136,26 @@ the epic **invisible in this ledger** — flagged by the PR #194 review, and fix
   slice as the next work. **Still owed before that CONTINUATION's status may change from
   IN PROGRESS:** the refinement-backlog harvest into this file, and maintainer confirmation
   of the parking. *Source: PR #194 review [P1-1] (1st-order).*
+
+### Harvested 2026-08-15 — first `ROUTINE_MGCV_PARITY.md` run, slice 1 partially built
+
+- **Finish slice 1: the R-side per-term extractor and its Python comparator.** The
+  term-spec dataclasses (`gam_term_spec.py`, Anchor 3) and the Stage-A referent decision
+  are done — `smoothCon(..., absorb.cons=TRUE)` is confirmed at tier 3 to reproduce
+  `predict(type="lpmatrix")`'s smooth block bit-exactly (run 31907362222). What remains:
+  an R script that, given a `TermSpec`, extracts the design block, every `S_j`, the
+  coefficient index range, rank and knots used through `smoothCon()`; the Python
+  comparator that reads that schema; and proving both against the existing verified
+  tensor basis (Anchor 1's "known-good basis first"), which needs its own bridging code
+  since that basis has no `smoothCon()` equivalent (it reaches `mgcv` through `paraPen`,
+  ADR-189 decision 1). *Source: this session, `docs/CONTINUATION_mgcv_parity_engine.md`
+  slice 1 (1st-order — the epic's own NEXT slice).* **BLOCKER**, same standing blocker as
+  the epic itself.
+
+- **The R-side per-term extractor should reuse `smoothCon()`, not fit a full `gam()`
+  model per term.** This session's finding is what unblocks that choice: fitting a model
+  just to read `predict(type="lpmatrix")` would force every isolated-term Stage-A case to
+  be a well-posed regression (a response, real data), where `smoothCon()` needs only the
+  covariate values and returns the same design. *Source: this session
+  (1st-order — a design decision the extractor is built from, not carried in code that
+  reviews it independently).*

@@ -5,7 +5,9 @@
 **Routine:** `docs/ROUTINE_MGCV_PARITY.md` — a convergence loop, not a backlog walk.
 **Predecessors:** ADR-189 + amendment 1 (the conformance suite and its first run),
 ADR-185 through ADR-188 (the penalized fitter this epic reuses).
-**Status:** **IN PROGRESS** — slice 1 is NEXT; nothing is built yet.
+**Status:** **IN PROGRESS** — slice 1 is NEXT; the term-spec dataclasses and the
+referent decision below are built, the R-side per-term extractor and Python
+comparator are not.
 **Total slices:** **7** autonomous, plus one deferred to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
 
@@ -23,15 +25,36 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
 
 ## Slices
 
-1. **The Stage-A harness, and a term spec to hang it on** — **NEXT.**
-   R-side per-term extractor (design block, every `S_j`, index range, rank, knots used) plus
-   the Python comparator and the term-spec dataclasses of PLAN Anchor 3.
-   **Prove the harness on the existing verified basis before any new basis exists**, so a
-   later Stage-A disagreement is attributable to the new basis rather than to the harness.
-   **One thing it must decide in writing:** `predict(type="lpmatrix")` is
-   post-reparameterisation, `smoothCon()` is pre- — which one Stage A compares against
-   changes what "our `X` equals `mgcv`'s `X`" means. PLAN §5.1 carries the fallback if
-   neither works, and records that the fallback is weaker.
+1. **The Stage-A harness, and a term spec to hang it on** — **NEXT, partially built
+   2026-08-15.**
+
+   **Done:** `src/polaris_re/analytics/gam_term_spec.py` — `TermSpec` / `ModelSpec`
+   (Anchor 3), matching the target formula's own basis vocabulary (`cr`, `ti`, `sz`,
+   plus `raw` for the existing paraPen-supplied tensor). 22 tests.
+
+   **Done, and settled rather than deferred:** the one risk PLAN §5.1 named —
+   `predict(type="lpmatrix")` is post-reparameterisation, `smoothCon()` is pre- unless
+   called with `absorb.cons=TRUE`, and which one Stage A compares against changes what
+   "our `X` equals `mgcv`'s `X`" means. **They are the same object, not two competing
+   referents.** `predict.gam` dispatches to `PredictMat` on the smooth `gam.setup`
+   built with `absorb.cons=TRUE`, so `smoothCon(..., absorb.cons=TRUE)$X` reproduces
+   `lpmatrix`'s corresponding block **bit-exactly** — measured at tier 1 (R 4.3.3 /
+   mgcv 1.9.1) and re-measured identical to the last printed digit at **tier 3** (R
+   4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192…`, run 31907362222) via the new
+   `scripts/smoothcon_lpmatrix_probe.R`, wired into `mgcv-conformance.yml` as a
+   diagnostic step alongside ADR-190's `ks_formula_probe.R`. `docs/CONFORMANCE_LEDGER.md`
+   carries both readings. **Decision: Stage A's referent is
+   `smoothCon(..., absorb.cons=TRUE)`** — it needs no fitted model, which is what makes
+   an isolated-term harness possible, and PLAN §5.1's weaker column-space fallback is
+   not needed.
+
+   **Not done:** the R-side per-term extractor (design block, every `S_j`, index
+   range, rank, knots used, for a `TermSpec`) and its Python comparator. Proving the
+   harness on the existing verified tensor basis (Anchor 1's "known-good basis first")
+   is also not done — that basis has no `smoothCon()` equivalent (it reaches `mgcv`
+   through `paraPen`, ADR-189 decision 1), so proving the new per-term extraction
+   machinery against it needs its own bridging code, named as slice 1's remaining
+   scope rather than attempted this session.
 2. **`bs = "cr"`**, with supplied and default knots. PLANNED.
 3. **Families, links and weights** — binomial `cloglog`/`logit` on a proportion with prior
    weights, quasi-Poisson with `φ` estimated, Poisson with a log offset. Independent of 2.
