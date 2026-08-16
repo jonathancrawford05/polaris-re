@@ -138,6 +138,9 @@ Foundational layer. Nothing in `core/` may import from `products/`, `reinsurance
 - `projection.py` — `ProjectionConfig`
 - `cashflow.py` — `CashFlowResult`
 - `exceptions.py` — `PolarisValidationError`, `PolarisComputationError`
+- `verification.py` — `ComparisonProvenance`, `ComparedQuantity`,
+  `VerificationClaim`, `require_parity_evidence` (ADR-193: what makes a
+  comparison parity evidence rather than a harness check)
 
 ### `assumptions/`
 - `mortality.py` — `MortalityTable` (CIA 2014, SOA VBT 2015, 2001 CSO)
@@ -217,6 +220,10 @@ UL account value, Modco, Monte Carlo UQ, experience studies, CLI.
 At the start of each session:
 1. Read `CLAUDE.md` (this file) in full.
 2. Read `ARCHITECTURE.md` for the module you are working on.
+2b. If the work compares Polaris output against **any** reference — `mgcv`, a
+   vendor extract, a closed form, a cedant's figures — read
+   `docs/VERIFICATION_STANDARD.md` first and write its claim sentence before the
+   code (ADR-193).
 3. Read `docs/ROADMAP.md` to confirm phase scope.
 4. Check `docs/DECISIONS.md` for relevant architecture decisions.
 5. Run `make test` to confirm baseline test state.
@@ -236,6 +243,15 @@ At the start of each session:
 - Hardcode assumption values in product or treaty code
 - Use `==` for float comparisons — always use `np.testing.assert_allclose`
 - Run `pip` directly — use `uv run` or `uv sync`
+- Report a comparison as parity/agreement evidence unless **two independent
+  producers** computed the compared quantity (ADR-193,
+  `docs/VERIFICATION_STANDARD.md`). If the function producing one operand takes
+  the other side's payload as an input, it is not an independent producer — the
+  table is a harness check and must be titled as one
+- Hand-write the headline of a published comparison table — derive it with
+  `evidence_markdown()` from the declared `VerificationClaim`
+- Cite a golden baseline as evidence a number is *correct* — goldens are this
+  engine's own prior output, so they detect change, never correctness
 
 ---
 

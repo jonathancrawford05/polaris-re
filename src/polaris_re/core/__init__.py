@@ -23,11 +23,21 @@ from polaris_re.core.inforce import InforceBlock
 from polaris_re.core.policy import Policy, ProductType, Sex, SmokerStatus
 from polaris_re.core.projection import ProjectionConfig
 from polaris_re.core.reserve_basis import ReserveBasis
+from polaris_re.core.verification import (
+    ComparedQuantity,
+    ComparisonProvenance,
+    VerificationClaim,
+    evidence_headline,
+    evidence_markdown,
+    require_parity_evidence,
+)
 
 __all__ = [
     "AssetPortfolio",
     "Bond",
     "CashFlowResult",
+    "ComparedQuantity",
+    "ComparisonProvenance",
     "InforceBlock",
     "PolarisBaseModel",
     "PolarisComputationError",
@@ -38,4 +48,8 @@ __all__ = [
     "ReserveBasis",
     "Sex",
     "SmokerStatus",
+    "VerificationClaim",
+    "evidence_headline",
+    "evidence_markdown",
+    "require_parity_evidence",
 ]

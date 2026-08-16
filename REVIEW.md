@@ -25,6 +25,15 @@ runtime failures, or degraded code quality**. Do not comment on style issues enf
 - **Silent exception suppression**: bare `except:` or `except Exception: pass` blocks
 - **Hardcoded assumption values**: mortality rates, lapse rates, or discount rates embedded
   as literals in product or treaty code rather than passed via `AssumptionSet`
+- **A harness check reported as parity evidence** (ADR-193,
+  `docs/VERIFICATION_STANDARD.md`): for **every** comparison table in the PR — in the
+  diff, the session log, the PR body, the conformance ledger or a CI job summary — name
+  the two producers of each compared quantity. If they are the same producer, or one
+  reads the other's output (the mechanical test: *the function producing one operand
+  takes the other side's payload as an input*), the table is a harness check. Reporting
+  it as parity/agreement, or ticking an acceptance criterion on it, is a P0. Reporting it
+  honestly as ECHO/TRANSPORT is fine and often expected — harness slices are legitimate
+  work.
 
 ### P1 — Should fix before merge
 
@@ -36,6 +45,12 @@ runtime failures, or degraded code quality**. Do not comment on style issues enf
 - **Wrong error type**: raising `ValueError` or `RuntimeError` directly instead of
   `PolarisValidationError` (business logic) or `PolarisComputationError` (numerical failure)
 - **Array dtype omission**: `np.array(...)` without an explicit `dtype` argument
+- **Undeclared comparison provenance**: a new comparison whose producer does not carry a
+  `VerificationClaim` (`polaris_re.core.verification`), or a published table whose
+  headline is hand-written rather than derived via `evidence_markdown()`
+- **A parity acceptance criterion with no provenance named**: "Stage A exact" rather than
+  "**INDEPENDENT** Stage-A comparison exact for `bs="cr"`" — a criterion a harness slice
+  could tick
 
 ### P2 — Suggestions (optional, non-blocking)
 

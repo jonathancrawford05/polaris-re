@@ -81,7 +81,8 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    packaging; slice 2 narrows to the actual math question (does Python's `cr` basis
    match mgcv's).
 
-1b. **mgcv-native per-term extraction** — **DONE, 2026-08-16.**
+1b. **mgcv-native per-term extraction** — **DONE, 2026-08-16** (harness: every
+    compared quantity is TRANSPORT, ADR-193 — see the note under slice 2).
 
     Spec: `docs/WORK_ORDER_slice_1b_mgcv_native_extraction.md`. Shipped: a `smoothCon`
     branch (`extract_smooth_one`) in `scripts/gam_term_extract.R` emitting the
@@ -112,6 +113,16 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
 2. **`bs = "cr"`**, with supplied and default knots. Depends on slice 1b (done), not
    slice 1 — Stage A needs the mgcv-native extractor to check this basis against.
    **NEXT.**
+
+   **This is the epic's first Stage-A PARITY slice (ADR-193).** Slices 1 and 1b are
+   harness: slice 1's `X`/`S` are ECHO (Python supplies them to mgcv and reads them
+   back), slice 1b's columns are all TRANSPORT (the R side computes, the Python side
+   parses, and the comparison is against that same payload). Neither compares a
+   Python-computed basis against an mgcv-computed one, because **no Python `cr` basis
+   exists yet** — the shipped fitter builds a B-spline/P-spline tensor, a different
+   construction. Slice 2 builds it, and its acceptance criteria in the PLAN now name
+   the provenance they require, so a harness result cannot satisfy them. Read
+   `docs/VERIFICATION_STANDARD.md` and write the claim sentence before the code.
 3. **Families, links and weights** — binomial `cloglog`/`logit` on a proportion with prior
    weights, quasi-Poisson with `φ` estimated, Poisson with a log offset. Independent of 2.
    PLANNED.
