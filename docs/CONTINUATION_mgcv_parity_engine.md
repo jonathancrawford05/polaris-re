@@ -5,9 +5,10 @@
 **Routine:** `docs/ROUTINE_MGCV_PARITY.md` — a convergence loop, not a backlog walk.
 **Predecessors:** ADR-189 + amendment 1 (the conformance suite and its first run),
 ADR-185 through ADR-188 (the penalized fitter this epic reuses).
-**Status:** **IN PROGRESS** — slice 1 is **DONE** (2026-08-15b); slice 2 (`bs = "cr"`)
-is NEXT.
-**Total slices:** **7** autonomous, plus one deferred to a later epic.
+**Status:** **IN PROGRESS** — slice 1 is **DONE (raw path only)** (2026-08-15b); slice
+1b (mgcv-native extraction) is **NEXT**, gating slice 2 (`bs = "cr"`).
+**Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16) and one deferred
+to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
 
 > **This is the ACTIVE epic.** `CONTINUATION_penalized_mi_surface.md` is superseded from
@@ -24,7 +25,11 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
 
 ## Slices
 
-1. **The Stage-A harness, and a term spec to hang it on** — **DONE 2026-08-15b.**
+1. **The Stage-A harness, and a term spec to hang it on** — **DONE (raw path only),
+   2026-08-15b.** The mgcv-native half is slice 1b, not slice 2 — PR #197 review found
+   that deferring it to slice 2 rested on a premise that doesn't hold (the referent it
+   needs already exists and is already tier-3-green, ADR-191). See
+   `docs/WORK_ORDER_slice_1b_mgcv_native_extraction.md`.
 
    **Done:** `src/polaris_re/analytics/gam_term_spec.py` — `TermSpec` / `ModelSpec`
    (Anchor 3), matching the target formula's own basis vocabulary (`cr`, `ti`, `sz`,
@@ -62,13 +67,38 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    script's own harness proof — the factor term's JSON key didn't match its label —
    which is exactly what "prove the harness on a known-good basis first" is for.
 
-   **Explicitly deferred to slice 2, not attempted here:** mgcv-native extraction
-   (`cr`/`ti`/`sz` via `smoothCon(..., absorb.cons=TRUE)`, per ADR-191's referent
-   decision). `extract_raw_terms` only handles `basis="raw"` and raises if handed
-   anything else — slice 2 adds the mgcv-native code path alongside the first Python
-   basis construction that needs a referent to check against, rather than building it
-   speculatively now with nothing yet to verify.
-2. **`bs = "cr"`**, with supplied and default knots. **NEXT.**
+   **Explicitly deferred, not attempted here — and re-scoped to slice 1b, not slice 2
+   (2026-08-16 correction):** mgcv-native extraction (`cr`/`ti`/`sz` via
+   `smoothCon(..., absorb.cons=TRUE)`, per ADR-191's referent decision).
+   `extract_raw_terms` only handles `basis="raw"` and raises if handed anything else.
+   The original reasoning — building the mgcv-native path now would be speculative work
+   "with nothing yet to verify it against" (Anchor 8) — **does not hold**: the referent
+   is `scripts/smoothcon_lpmatrix_probe.R`, already committed and already tier-3-green
+   (ADR-191, run 31907362222). What's missing is packaging the existing per-term JSON
+   schema through that referent, not new verification, so Anchor 8 doesn't block it and
+   it doesn't need to wait for a Python `cr` basis. Slice 1b's own scope is that
+   packaging; slice 2 narrows to the actual math question (does Python's `cr` basis
+   match mgcv's).
+
+1b. **mgcv-native per-term extraction** — **NEXT.**
+
+    Spec: `docs/WORK_ORDER_slice_1b_mgcv_native_extraction.md`, in full, before writing
+    code. Adds a `smoothCon` branch to `scripts/gam_term_extract.R` emitting the
+    existing per-term schema (`label`/`index_start`/`index_end`/`X`/`S`/`rank`/`knots`)
+    for an mgcv-native term, with the probe's own cross-check (against
+    `predict(type="lpmatrix")` and `m$smooth[[j]]`) promoted from a one-off diagnostic
+    into the extractor's standing internal guard. Python side: `extract_smooth_terms()`
+    (the mgcv-native counterpart to `extract_raw_terms`), and `compare_term_extract`
+    extended to compare `knots` — currently accepted but never compared, the tell that
+    slice 1 was half a harness rather than a clean boundary. One design question to
+    settle in writing (ADR, ADR-191's form) before slice 2: whether a term's
+    coefficient index range is read from a fit or assigned by the harness when it
+    assembles terms into a model — `first.para`/`last.para` come back empty on a bare
+    `smoothCon()` object, populated only once fitted, and the isolated-term harness is
+    precisely the case with no fit. Full field-mapping table (already measured, R 4.3.3
+    / mgcv 1.9.1) is in the work order §3.
+2. **`bs = "cr"`**, with supplied and default knots. Depends on slice 1b, not slice 1 —
+   Stage A needs the mgcv-native extractor to check this basis against.
 3. **Families, links and weights** — binomial `cloglog`/`logit` on a proportion with prior
    weights, quasi-Poisson with `φ` estimated, Poisson with a log offset. Independent of 2.
    PLANNED.

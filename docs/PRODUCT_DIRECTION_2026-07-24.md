@@ -2167,15 +2167,56 @@ the epic **invisible in this ledger** — flagged by the PR #194 review, and fix
   first is for. `docs/CONTINUATION_mgcv_parity_engine.md` slice 1 marked DONE, slice 2
   marked NEXT. *Source: this session.*
 
-- **Next: slice 2 — `bs = "cr"`, with supplied and default knots.** The natural
-  continuation; `extract_raw_terms`/`TermExtract` are shaped to extend to an mgcv-native
-  code path (`smoothCon(..., absorb.cons=TRUE)` per ADR-191) without touching the `raw`
-  path already proven. *Source: `docs/PLAN_mgcv_parity_engine.md` §3 (1st-order — the
-  epic's own NEXT slice).* **BLOCKER**, same standing blocker as the epic itself.
+- ~~**Next: slice 2 — `bs = "cr"`, with supplied and default knots.**~~ **CORRECTED
+  2026-08-16 (see the harvest entry below).** The PR #197 review found the premise for
+  deferring mgcv-native extraction to slice 2 doesn't hold — a slice 1b now sits between
+  slice 1 and slice 2 and is the actual next work.
 
 - **The pre-existing `data/mortality_tables` gap** (5 test failures — all one root
   cause, the gitignored generated CSVs absent in this fresh container — plus some golden
   QA-config skips) is unrelated to this epic and unaddressed here; it needs
   `scripts/convert_soa_tables.py` run against a network-reachable table source. *Source:
   this session's baseline check (2nd-order, NICE-TO-HAVE — orthogonal to the active
-  epic, for whichever routine next needs those tables).*
+  epic, for whichever routine next needs those tables).* Confirmed by the PR #197 review
+  in a container with the tables converted: all 5 failures and 22 skips disappear (3344
+  passed / 0 failed, `tests/qa/` 94/94) — the diagnosis was right, still unaddressed.
+
+### Harvested 2026-08-16 — PR #197 review, work order for slice 1b
+
+**Headline for the maintainer:** slice 1 shipped only the `raw`-basis half of its own
+scope; a review of PR #197 found the mgcv-native half was deferred to slice 2 on a premise
+that doesn't hold, and raised a work order splitting it out as **slice 1b**, gating slice
+2. Full spec: `docs/WORK_ORDER_slice_1b_mgcv_native_extraction.md`.
+
+- **Slice 1b — mgcv-native per-term extraction. NEXT, BLOCKER** (same standing blocker as
+  the epic itself). The referent slice 1b needs already exists and is already tier-3-green
+  from a *prior* slice — `scripts/smoothcon_lpmatrix_probe.R`, ADR-191, run 31907362222 —
+  so this is packaging the existing per-term JSON schema through that referent
+  (`smoothCon(..., absorb.cons=TRUE)`), not new verification work, and Anchor 8 does not
+  block it. Scope: a `smoothCon` branch in `scripts/gam_term_extract.R` promoting the
+  probe's own cross-check into the extractor's standing internal guard;
+  `extract_smooth_terms()` on the Python side; `compare_term_extract` extended to compare
+  `knots` (currently accepted, never compared — the tell that slice 1 was half a harness).
+  One design question to settle in writing before slice 2: whether a term's coefficient
+  index range is read from a fit or assigned when the harness assembles terms into a
+  model (`first.para`/`last.para` are empty on a bare `smoothCon()` object). Full
+  field-mapping table already measured (R 4.3.3 / mgcv 1.9.1) in the work order §3.
+  *Source: PR #197 review, `docs/WORK_ORDER_slice_1b_mgcv_native_extraction.md`
+  (1st-order — the epic's actual NEXT slice, ahead of the renumbered slice 2).*
+
+- **Slice 1's own acceptance criterion was the root cause, not implementer judgement.**
+  "Stage A runs green on the existing basis" is satisfiable by the `raw`-only path alone,
+  since the existing basis is precisely the one with no `smoothCon` path. Corrected in
+  `docs/PLAN_mgcv_parity_engine.md` to: *the extractor handles both a supplied basis and
+  an mgcv-native basis, each cross-checked against the fitted model.* Worth carrying as a
+  writing lesson for future slice criteria in this epic: "runs green on X" can be true
+  while X was chosen to be the easy half. *Source: PR #197 review (1st-order — a process
+  fix, not a code fix, but it changes what "done" means for every remaining slice here).*
+
+- **All of #197's own P1/P2 findings were fixed in the same PR, not deferred to 1b**
+  (`Any` → `RTermPayload` TypedDict; two mypy errors on new lines; `gam_term_extract.R`'s
+  fixed λ now read from the manifest's `l1-interior` cell instead of a hardcoded value
+  that could silently drift; `d3` added to both comparison sites; dtype added to 8 test
+  fixtures; a job-summary table header's literal pipes fixed). Nothing outstanding from
+  that review beyond the work order's own §§1-5 and 8-9. *Source: this session, commit
+  `9154023`.*
