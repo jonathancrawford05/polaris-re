@@ -395,7 +395,11 @@ jobs:
       # (test_the_r_extractor_agrees_with_the_python_side_on_every_design) is the
       # gating version of this same check, wherever R happens to be installed
       # (ADR-151's own gate keeps it out of ordinary CI).
-      - name: Compare the per-term extraction against the Python side (slice 1)
+      #
+      # Slice 1b adds the same treatment for smooth_designs (mgcv-native, via
+      # extract_smooth_terms) — same DIAGNOSTIC contract, same job-summary table
+      # shape, plus the knots column slice 1b makes meaningful.
+      - name: Compare the per-term extraction against the Python side (slice 1 / 1b)
         if: always()
         continue-on-error: true
         run: |
@@ -414,8 +418,9 @@ jobs:
               DESIGNS, build_design, synthetic_cells,
           )
           from polaris_re.analytics.gam_stage_a import (
-              compare_term_extract, extract_raw_terms, raw_term_specs,
+              compare_term_extract, extract_raw_terms, extract_smooth_terms, raw_term_specs,
           )
+          from polaris_re.analytics.gam_term_spec import TermSpec
 
           by_id = {d.design_id: d for d in DESIGNS}
           cases = [
@@ -456,6 +461,43 @@ jobs:
           )
           if any_disagree:
               lines.insert(1, "**A term disagreed — see the table.**")
+
+          smooth_r_terms = r_payload.get("smooth_designs", {})
+          smooth_lines = [
+              "", "### Slice 1b — per-term Stage-A extraction (mgcv-native, smoothCon)", "",
+              "| term | index range agrees | max abs X diff | max abs S diff | rank diff | knots agree |",
+              "|---|---|---:|---:|---:|---|",
+          ]
+          any_smooth_disagree = False
+          if smooth_r_terms:
+              smooth_terms = tuple(
+                  TermSpec(label=label, variables=("x",), basis="cr", k=(len(r_term["knots"]),))
+                  for label, r_term in smooth_r_terms.items()
+              )
+              python_smooth_terms = extract_smooth_terms(smooth_terms, smooth_r_terms)
+              for label, python_term in python_smooth_terms.items():
+                  c = compare_term_extract(python_term, smooth_r_terms[label])
+                  if not c.agrees:
+                      any_smooth_disagree = True
+                  s_diff = ", ".join(f"{d:.3e}" for d in c.max_abs_s_diff) or "n/a"
+                  smooth_lines.append(
+                      f"| `{label}` | {c.index_range_agrees} | "
+                      f"{c.max_abs_design_diff:.3e} | {s_diff} | {c.rank_diff} | {c.knots_agree} |"
+                  )
+          else:
+              smooth_lines.append("| *(no smooth_designs in R output)* | | | | | |")
+              any_smooth_disagree = True
+          smooth_lines.append("")
+          smooth_lines.append(
+              "This table packages the R extractor's OWN internal consistency guard "
+              "(against `predict(type=\"lpmatrix\")` / `m$smooth[[j]]`, ADR-191) — a "
+              "disagreement here means the Python packaging (`extract_smooth_terms`) "
+              "or the JSON round trip broke, not the underlying mgcv extraction, "
+              "which the R script would already have refused to emit (work order §5)."
+          )
+          if any_smooth_disagree:
+              smooth_lines.insert(2, "**A term disagreed — see the table.**")
+          lines += smooth_lines
 
           with open("gam_term_extract_report.md", "w") as fh:
               fh.write("\n".join(lines) + "\n")

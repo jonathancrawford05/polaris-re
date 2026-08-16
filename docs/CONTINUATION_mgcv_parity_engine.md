@@ -6,7 +6,8 @@
 **Predecessors:** ADR-189 + amendment 1 (the conformance suite and its first run),
 ADR-185 through ADR-188 (the penalized fitter this epic reuses).
 **Status:** **IN PROGRESS** — slice 1 is **DONE (raw path only)** (2026-08-15b); slice
-1b (mgcv-native extraction) is **NEXT**, gating slice 2 (`bs = "cr"`).
+1b (mgcv-native extraction) is **DONE** (2026-08-16, pending tier-3 CI confirmation),
+unblocking slice 2 (`bs = "cr"`), which is **NEXT**.
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16) and one deferred
 to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
@@ -80,25 +81,34 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    packaging; slice 2 narrows to the actual math question (does Python's `cr` basis
    match mgcv's).
 
-1b. **mgcv-native per-term extraction** — **NEXT.**
+1b. **mgcv-native per-term extraction** — **DONE, 2026-08-16.**
 
-    Spec: `docs/WORK_ORDER_slice_1b_mgcv_native_extraction.md`, in full, before writing
-    code. Adds a `smoothCon` branch to `scripts/gam_term_extract.R` emitting the
+    Spec: `docs/WORK_ORDER_slice_1b_mgcv_native_extraction.md`. Shipped: a `smoothCon`
+    branch (`extract_smooth_one`) in `scripts/gam_term_extract.R` emitting the
     existing per-term schema (`label`/`index_start`/`index_end`/`X`/`S`/`rank`/`knots`)
-    for an mgcv-native term, with the probe's own cross-check (against
-    `predict(type="lpmatrix")` and `m$smooth[[j]]`) promoted from a one-off diagnostic
-    into the extractor's standing internal guard. Python side: `extract_smooth_terms()`
-    (the mgcv-native counterpart to `extract_raw_terms`), and `compare_term_extract`
-    extended to compare `knots` — currently accepted but never compared, the tell that
-    slice 1 was half a harness rather than a clean boundary. One design question to
-    settle in writing (ADR, ADR-191's form) before slice 2: whether a term's
-    coefficient index range is read from a fit or assigned by the harness when it
-    assembles terms into a model — `first.para`/`last.para` come back empty on a bare
-    `smoothCon()` object, populated only once fitted, and the isolated-term harness is
-    precisely the case with no fit. Full field-mapping table (already measured, R 4.3.3
-    / mgcv 1.9.1) is in the work order §3.
-2. **`bs = "cr"`**, with supplied and default knots. Depends on slice 1b, not slice 1 —
-   Stage A needs the mgcv-native extractor to check this basis against.
+    for three isolated `bs="cr"` cases (default knots `k=8`/`k=13`, supplied knots
+    `k=8`), with the probe's own cross-check (against `predict(type="lpmatrix")` and
+    `m$smooth[[j]]`) promoted from a one-off diagnostic into the extractor's standing
+    internal guard — it now `stop()`s the script if it ever stops agreeing. Python
+    side: `extract_smooth_terms()` (`gam_stage_a.py`) packages the R payload directly
+    into `TermExtract` — there is no independent Python `cr`/`ti`/`sz` basis yet, so
+    this is packaging, not re-verification — and `compare_term_extract` now compares
+    `knots`, which slice 1 accepted but never compared. **The index-range design
+    question is settled as ADR-192**: assigned by the harness assembling a term into a
+    model, not read off a fit — the model an isolated Stage-A case assembles *is* the
+    one term, so its range is `[0, width)`, mirroring how `extract_raw_terms` already
+    treats index ranges as inputs from the assembled `DesignExport` rather than
+    something read off `mgcv`.
+
+    **Caught one real bug**, exactly what Anchor 1's "prove the harness first"
+    discipline exists to catch: jsonlite's `auto_unbox` silently collapsed the
+    single-penalty `rank = sm$rank` (a length-1 vector) to a bare JSON scalar, and the
+    Python side's `for v in r_term["rank"]` raised `TypeError`. The `raw` path never
+    hit this because it always carries two penalties. Fixed with `rank = I(sm$rank)`.
+    Tier 1 confirmed (`docs/CONFORMANCE_LEDGER.md`); tier-3 dispatched with this PR.
+2. **`bs = "cr"`**, with supplied and default knots. Depends on slice 1b (done), not
+   slice 1 — Stage A needs the mgcv-native extractor to check this basis against.
+   **NEXT.**
 3. **Families, links and weights** — binomial `cloglog`/`logit` on a proportion with prior
    weights, quasi-Poisson with `φ` estimated, Poisson with a log offset. Independent of 2.
    PLANNED.

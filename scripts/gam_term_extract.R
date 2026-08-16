@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 # =============================================================================
-# Slice 1's remaining scope: the R-side per-term extractor.
+# Slice 1's remaining scope, plus slice 1b: the R-side per-term extractor.
 # =============================================================================
 # docs/PLAN_mgcv_parity_engine.md slice 1 / docs/CONTINUATION_mgcv_parity_engine.md:
 # an R-side extractor that emits, per term, the design block, every S_j, the
@@ -24,8 +24,16 @@
 # S_year)` — the rank mgcv itself relies on to compute `tr(F)`, already verified to
 # 7.2e-13 (ADR-189 amendment 1).
 #
-# mgcv-native bases (cr/ti/sz) are NOT extracted here — that is slice 2's job, paired
-# with the first Python basis that needs a referent to check against.
+# SLICE 1B (docs/WORK_ORDER_slice_1b_mgcv_native_extraction.md): mgcv-native
+# (cr/ti/sz) extraction via smoothCon(), emitting the SAME per-term schema under a
+# second top-level key (`smooth_designs`) rather than forking it. These are isolated
+# single-term bs="cr" cases — same synthetic generation as
+# scripts/smoothcon_lpmatrix_probe.R (seed 20120101, ADR-074) — so the internal guard
+# below is directly comparable to ADR-191's tier-3 reading, and needs no exchange or
+# fitted multi-term model (ADR-191's whole point: smoothCon() alone is the referent).
+# The guard promotes that probe's own diagnostic assertion into a standing check: it
+# now fails this script loudly (stop()) rather than silently accepting a schema this
+# basis has stopped satisfying.
 #
 # DIAGNOSTIC, wired with continue-on-error, same contract as ks_formula_probe.R and
 # smoothcon_lpmatrix_probe.R: it has explicit stop() paths and can exit non-zero, and
@@ -133,20 +141,108 @@ main <- function(argv) {
     list(design = design_id, n_coef = d$n_coef, n_tensor = d$n_tensor, terms = terms)
   }
 
+  # ===========================================================================
+  # Slice 1b: mgcv-native (smoothCon) per-term extraction.
+  # ===========================================================================
+  # Isolated single-term bs="cr" cases, no exchange dependency — ADR-191 needs no
+  # fitted multi-term model, which is what makes an isolated-term harness possible.
+  # index_start/index_end are 0/ncol(X): the work order §4 design question (is a
+  # term's index range read from a fit, or assigned by the harness assembling terms
+  # into a model?) is settled as the latter, ADR-192 — and the model an isolated
+  # Stage-A case assembles is exactly this one term, so its range is [0, width).
+  extract_smooth_one <- function(label, n, k, knots_x = NULL, bs = "cr") {
+    set.seed(20120101) # ADR-074: pinned, never the wall clock.
+    x <- sort(runif(n, 0, 10))
+    y <- sin(x) + rnorm(n, sd = 0.1)
+    df <- data.frame(x = x, y = y)
+    knots_arg <- if (is.null(knots_x)) NULL else list(x = knots_x)
+
+    sm <- smoothCon(s(x, k = k, bs = bs), data = df, knots = knots_arg,
+                     absorb.cons = TRUE)[[1]]
+    m <- gam(y ~ s(x, k = k, bs = bs), data = df, knots = knots_arg)
+
+    Xp <- predict(m, type = "lpmatrix")
+    smooth_cols <- grep("^s\\(x\\)", colnames(Xp))
+    Xp_smooth <- Xp[, smooth_cols, drop = FALSE]
+
+    # The extractor's OWN internal consistency guard (work order §2): the
+    # smoothCon() extraction must equal the independent lpmatrix/m$smooth route,
+    # promoted from smoothcon_lpmatrix_probe.R's one-off diagnostic assertion into a
+    # standing check every run of this script re-verifies.
+    if (!identical(dim(Xp_smooth), dim(sm$X))) {
+      stop(sprintf(
+        "smooth design '%s': lpmatrix smooth block is %dx%d but smoothCon()$X is %dx%d.",
+        label, nrow(Xp_smooth), ncol(Xp_smooth), nrow(sm$X), ncol(sm$X)
+      ))
+    }
+    guard_x <- max(abs(Xp_smooth - sm$X))
+    if (guard_x != 0) {
+      stop(sprintf(
+        "smooth design '%s': smoothCon() X disagrees with lpmatrix (max abs diff %.3e) — internal consistency guard failed.",
+        label, guard_x
+      ))
+    }
+    s_fit <- m$smooth[[1]]$S[[1]]
+    guard_s <- max(abs(s_fit - sm$S[[1]]))
+    if (guard_s != 0) {
+      stop(sprintf(
+        "smooth design '%s': smoothCon() S disagrees with m$smooth[[1]]$S (max abs diff %.3e) — internal consistency guard failed.",
+        label, guard_s
+      ))
+    }
+    guard_rank <- m$smooth[[1]]$rank - sm$rank
+    if (guard_rank != 0L) {
+      stop(sprintf(
+        "smooth design '%s': smoothCon() rank (%d) disagrees with m$smooth[[1]]$rank (%d) — internal consistency guard failed.",
+        label, sm$rank, m$smooth[[1]]$rank
+      ))
+    }
+    guard_xp <- max(abs(m$smooth[[1]]$xp - sm$xp))
+    if (guard_xp != 0) {
+      stop(sprintf(
+        "smooth design '%s': smoothCon() xp disagrees with m$smooth[[1]]$xp (max abs diff %.3e) — internal consistency guard failed.",
+        label, guard_xp
+      ))
+    }
+
+    list(
+      label = label,
+      index_start = 0L, index_end = ncol(sm$X),
+      X = sm$X,
+      S = list(sm$S[[1]]),
+      # I() forces jsonlite to keep this an array even though it has one element —
+      # a bare `sm$rank` (length-1 integer) would auto-unbox to a scalar, which
+      # broke the Python side's `for v in r_term["rank"]` (not iterable). The raw
+      # path's `rank` never hit this because it always carries two penalties.
+      rank = I(sm$rank),
+      knots = as.numeric(sm$xp)
+    )
+  }
+
+  smooth_cases <- list(
+    extract_smooth_one("default-knots-k8", n = 200, k = 8),
+    extract_smooth_one("default-knots-k13", n = 400, k = 13),
+    extract_smooth_one("supplied-knots-k8", n = 200, k = 8,
+                        knots_x = c(0, 1, 2, 3, 5, 8, 9, 10))
+  )
+  names(smooth_cases) <- vapply(smooth_cases, function(c) c$label, character(1))
+
   designs_to_probe <- Filter(function(id) manifest$designs[[id]]$n_coef > 0, names(manifest$designs))
   out <- list(
     schema_version = 1L,
     r_version = R.version.string,
     mgcv_version = as.character(packageVersion("mgcv")),
-    designs = setNames(lapply(designs_to_probe, extract_one), designs_to_probe)
+    designs = setNames(lapply(designs_to_probe, extract_one), designs_to_probe),
+    smooth_designs = smooth_cases
   )
   jsonlite::write_json(
     out, out_path,
     digits = NA, auto_unbox = TRUE, null = "null", matrix = "rowmajor"
   )
   cat(sprintf(
-    "Wrote %s — %d design(s), mgcv %s\n",
-    out_path, length(designs_to_probe), as.character(packageVersion("mgcv"))
+    "Wrote %s — %d design(s), %d smooth design(s), mgcv %s\n",
+    out_path, length(designs_to_probe), length(smooth_cases),
+    as.character(packageVersion("mgcv"))
   ))
   invisible(NULL)
 }

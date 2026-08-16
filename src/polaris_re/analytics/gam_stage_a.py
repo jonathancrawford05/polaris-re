@@ -1,4 +1,4 @@
-"""Stage-A per-term extraction and comparison (mgcv-parity engine, slice 1).
+"""Stage-A per-term extraction and comparison (mgcv-parity engine, slices 1 and 1b).
 
 ``docs/PLAN_mgcv_parity_engine.md`` slice 1's remaining scope, per
 ``docs/CONTINUATION_mgcv_parity_engine.md``: the R-side per-term extractor
@@ -23,8 +23,18 @@ re-derived — the same discipline
 follows, because a comparison against a design the model did not actually fit
 measures the exporter rather than the fitter.
 
-mgcv-native bases (``cr``/``ti``/``sz``) are not extracted here. That is slice 2's
-job, paired with the first Python basis construction that needs a referent.
+mgcv-native extraction (slice 1b, ``docs/WORK_ORDER_slice_1b_mgcv_native_extraction.md``)
+--------------------------------------------------------------------------------------
+:func:`extract_smooth_terms` is the ``cr``/``ti``/``sz`` counterpart to
+:func:`extract_raw_terms`, but it does not compute an independent Python basis —
+that is slice 2's job, paired with the first Python basis construction that needs a
+referent (ADR-192). What ADR-191 already proved is that ``scripts/gam_term_extract.R``'s
+``smoothCon(..., absorb.cons=TRUE)`` extraction agrees, term by term, with the
+independent ``predict(type="lpmatrix")`` / ``m$smooth[[j]]`` route — the R script's own
+internal guard, promoted from that ADR's one-off diagnostic into a standing check that
+fails the R side loudly if it ever stops holding. So :func:`extract_smooth_terms`'s job
+is packaging that already-verified R output into the same :class:`TermExtract` shape
+:func:`extract_raw_terms` produces, not re-verifying it.
 """
 
 from dataclasses import dataclass
@@ -42,13 +52,15 @@ __all__ = [
     "TermExtractComparison",
     "compare_term_extract",
     "extract_raw_terms",
+    "extract_smooth_terms",
     "raw_term_specs",
 ]
 
 
 class RTermPayload(TypedDict):
-    """The keys read from one ``designs.<id>.terms.<label>`` entry of
-    ``scripts/gam_term_extract.R``'s JSON output — the R-side schema
+    """The keys read from one term entry of ``scripts/gam_term_extract.R``'s JSON
+    output — either ``designs.<id>.terms.<label>`` (raw/paraPen) or
+    ``smooth_designs.<label>`` (mgcv-native, slice 1b) — the R-side schema
     :func:`compare_term_extract` reads, documented in the type rather than left as
     ``Any`` (CLAUDE.md §5)."""
 
@@ -57,6 +69,7 @@ class RTermPayload(TypedDict):
     X: list[list[float]]
     S: list[list[list[float]]]
     rank: list[int]
+    knots: list[float] | None
 
 
 _AGREEMENT_TOLERANCE = 1e-9
@@ -84,8 +97,8 @@ class TermExtract:
         rank: One rank per entry of :attr:`s`, same order.
         knots: Knot locations actually used, or ``None`` — always ``None`` for
             ``basis="raw"``, which has no knot recipe (:class:`TermSpec`'s own
-            validation forbids supplying knots for it). Populated once slice 2 adds
-            mgcv-native extraction.
+            validation forbids supplying knots for it). Populated for mgcv-native
+            terms by :func:`extract_smooth_terms` (slice 1b).
     """
 
     label: str
@@ -194,15 +207,69 @@ def extract_raw_terms(terms: tuple[TermSpec, ...], export: DesignExport) -> dict
     return result
 
 
+_MGCV_NATIVE_BASES = ("cr", "ti", "sz")
+"""``SUPPORTED_BASES`` minus ``"raw"`` — the bases :func:`extract_smooth_terms`
+handles, mirroring :func:`extract_raw_terms`'s own basis restriction the other way."""
+
+
+def extract_smooth_terms(
+    terms: tuple[TermSpec, ...], r_terms: dict[str, RTermPayload]
+) -> dict[str, TermExtract]:
+    """Package the R-side ``smoothCon()`` extraction into :class:`TermExtract`.
+
+    The mgcv-native counterpart to :func:`extract_raw_terms` (work order §2), but
+    not its computational counterpart: there is no independent Python ``cr``/``ti``/
+    ``sz`` basis to derive from yet (slice 2, ADR-192). ADR-191 already established
+    that ``scripts/gam_term_extract.R``'s ``smoothCon(..., absorb.cons=TRUE)``
+    extraction agrees with the independent ``lpmatrix``/``m$smooth[[j]]`` route, and
+    the R script's own internal guard (work order §2) re-checks that on every run —
+    so this function's job is reading that already-verified output into the shape
+    :func:`compare_term_extract` consumes, the same shape :func:`extract_raw_terms`
+    produces from an actually-fitted Python design.
+
+    Every term must have a basis in ``("cr", "ti", "sz")`` and a matching entry in
+    ``r_terms``; a ``ModelSpec`` mixing in a ``"raw"`` term is :func:`extract_raw_terms`'s
+    problem to solve, not this function's.
+    """
+    result: dict[str, TermExtract] = {}
+    for term in terms:
+        if term.basis not in _MGCV_NATIVE_BASES:
+            raise PolarisValidationError(
+                f"extract_smooth_terms only handles mgcv-native bases "
+                f"{_MGCV_NATIVE_BASES}; {term.label!r} is basis={term.basis!r} "
+                f"('raw' terms use extract_raw_terms)."
+            )
+        if term.label not in r_terms:
+            raise PolarisValidationError(
+                f"extract_smooth_terms: {term.label!r} has no matching entry in "
+                f"the R-side payload (available: {sorted(r_terms)})."
+            )
+        r_term = r_terms[term.label]
+        r_knots = r_term.get("knots")
+        result[term.label] = TermExtract(
+            label=term.label,
+            index_start=int(r_term["index_start"]),
+            index_end=int(r_term["index_end"]),
+            design=np.asarray(r_term["X"], dtype=np.float64),
+            s=tuple(np.asarray(block, dtype=np.float64) for block in r_term["S"]),
+            rank=tuple(int(v) for v in r_term["rank"]),
+            knots=tuple(float(v) for v in r_knots) if r_knots is not None else None,
+        )
+    return result
+
+
 @dataclass(frozen=True)
 class TermExtractComparison:
-    """One term's Stage-A verdict: index range, design block, every penalty, rank."""
+    """One term's Stage-A verdict: index range, design block, every penalty, rank,
+    knots."""
 
     label: str
     index_range_agrees: bool
     max_abs_design_diff: float
     max_abs_s_diff: tuple[float, ...]
     rank_diff: tuple[int, ...]
+    knots_agree: bool
+    max_abs_knots_diff: float | None
     agrees: bool
 
 
@@ -245,11 +312,36 @@ def compare_term_extract(python: TermExtract, r_term: RTermPayload) -> TermExtra
         )
     rank_diff = tuple(r - p for r, p in zip(r_rank, python.rank, strict=True))
 
+    # Knots: absent on both sides (basis="raw", TermSpec forbids supplying them)
+    # agrees trivially; present on both sides compares element-wise; present on
+    # only one side is a real disagreement (one side thinks this term has a knot
+    # recipe, the other doesn't) rather than a shape mismatch to refuse on.
+    r_knots = r_term.get("knots")
+    max_abs_knots_diff: float | None
+    if r_knots is None and python.knots is None:
+        knots_agree = True
+        max_abs_knots_diff = None
+    elif r_knots is None or python.knots is None:
+        knots_agree = False
+        max_abs_knots_diff = None
+    else:
+        r_knots_arr = np.asarray(r_knots, dtype=np.float64)
+        py_knots_arr = np.asarray(python.knots, dtype=np.float64)
+        if r_knots_arr.shape != py_knots_arr.shape:
+            raise PolarisComputationError(
+                f"TermExtract {python.label!r}: R emitted {r_knots_arr.shape[0]} "
+                f"knot(s), Python built {py_knots_arr.shape[0]} — not comparable "
+                f"element-wise."
+            )
+        max_abs_knots_diff = float(np.max(np.abs(r_knots_arr - py_knots_arr)))
+        knots_agree = max_abs_knots_diff < _AGREEMENT_TOLERANCE
+
     agrees = (
         index_range_agrees
         and max_abs_design_diff < _AGREEMENT_TOLERANCE
         and all(d < _AGREEMENT_TOLERANCE for d in max_abs_s_diff)
         and all(d == 0 for d in rank_diff)
+        and knots_agree
     )
     return TermExtractComparison(
         label=python.label,
@@ -257,5 +349,7 @@ def compare_term_extract(python: TermExtract, r_term: RTermPayload) -> TermExtra
         max_abs_design_diff=max_abs_design_diff,
         max_abs_s_diff=max_abs_s_diff,
         rank_diff=rank_diff,
+        knots_agree=knots_agree,
+        max_abs_knots_diff=max_abs_knots_diff,
         agrees=agrees,
     )
