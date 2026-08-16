@@ -136,7 +136,12 @@ target model form, or to characterise precisely why it cannot move.
    - `docs/PLAN_mgcv_parity_engine.md` — especially Anchors 1, 2 and 8
    - `docs/CONTINUATION_mgcv_parity_engine.md` (if it exists)
    - `docs/CONFORMANCE_LEDGER.md` (if it exists) — what has already been tried
-   - CLAUDE.md, and `docs/DECISIONS.md` for ADR-189 + amendments 1 and 2, and ADR-190.
+   - `docs/VERIFICATION_STANDARD.md` — **read this before writing any comparison.** It
+     defines what makes a comparison parity evidence rather than a harness check, and
+     §5 states exactly what this epic has and has not proven today.
+   - CLAUDE.md, and `docs/DECISIONS.md` for ADR-189 + amendments 1 and 2, ADR-190, and
+     **ADR-191/192/193** (Stage A's referent, the index-range convention, and the
+     provenance rule).
      READ ADR-190 BEFORE ADR-189 AMENDMENT 1's level-4 section: amendment 1 names three
      suspects for the Kass-Steffey under-inflation and ADR-190 refutes all three by
      measurement. The gap is in the FORMULA, not our arithmetic, and two tests now pin
@@ -183,6 +188,57 @@ target model form, or to characterise precisely why it cannot move.
 
    If the gap is already zero for this slice's scope, say so and move to the next
    unchecked slice rather than inventing work.
+
+   A ZERO GAP IS AMBIGUOUS UNTIL YOU KNOW WHO PRODUCED EACH SIDE. Before recording any
+   gap as closed, apply the provenance gate below. Tier and provenance are two different
+   axes and you need both: the TIER says which `mgcv` produced the reference, the
+   PROVENANCE says whether Polaris independently produced the other side at all. A
+   tier-3 zero on a TRANSPORT comparison is a fully authoritative measurement of nothing.
+
+== PROVENANCE GATE (ADR-193 — do this before writing any comparison) ==
+
+5b. Every comparison this routine writes must declare who computed each side.
+
+    a. WRITE THE CLAIM SENTENCE FIRST, in the work order / PLAN slice / ADR, before the
+       code:
+         "<left> computes <quantity> from <recipe>; <right> computes it via <call>;
+          compared on <columns>."
+       If you cannot fill that in with two DISTINCT computations, you are building a
+       HARNESS, not a parity check. That is legitimate and often required first
+       (Anchor 1's "prove the harness on a known-good basis"), but it must say so —
+       in the slice title, the PR title, the session log and the ledger.
+
+    b. APPLY THE MECHANICAL TEST TO THE SIGNATURE, BEFORE THE BODY:
+         if the function producing one operand takes the other side's payload as an
+         input, it is NOT an independent producer.
+       Equally, if Polaris SUPPLIED the quantity to `mgcv` (as the `raw`/`paraPen` path
+       supplies `X` and `S`), reading it back is ECHO, not parity.
+
+    c. CLASSIFY EVERY COMPARED QUANTITY — provenance is per-column, not per-table:
+         INDEPENDENT — two implementations from the same recipe. The only parity
+                       evidence, and the only kind that can genuinely disagree.
+         ECHO        — we supplied it, the oracle returned it. A no-tampering check.
+         TRANSPORT   — one side computed it, the other parsed it. A round-trip check.
+
+    d. DECLARE IT IN THE TYPE: build a `VerificationClaim`
+       (`polaris_re.core.verification`) with one `ComparedQuantity` per column, each
+       naming both producers, and carry it on the artefact the producer returns —
+       `TermExtract.evidence` is the worked example and has NO default, so a new
+       producer cannot skip the question.
+
+    e. DO NOT HAND-WRITE THE HEADLINE of any published table. Call
+       `evidence_markdown(claim)` and print it above the diffs. Hand-writing that line
+       is the exact step that failed twice: slices 1 and 1b both carried accurate prose
+       caveats, and the caveat did not travel while the column of `0.000e+00` did.
+
+    f. GATE ANY ASSERTED PARITY CLAIM with `require_parity_evidence(...)`, so a harness
+       result cannot satisfy a parity acceptance criterion.
+
+    WHAT COUNTS AS A GOOD SESSION, RESTATED: an INDEPENDENT comparison that DISAGREES is
+    a real result and a good outcome — it is the epic working. A table of zeros from an
+    ECHO or TRANSPORT comparison is not progress toward parity, however green it looks.
+    If this session can only produce the latter, say so plainly and name what would make
+    the comparison independent.
 
 == ITERATE ==
 
@@ -236,6 +292,17 @@ target model form, or to characterise precisely why it cannot move.
      true". Promoting a tier-1 number because the CI round trip felt slow is the specific
      failure this section exists to prevent, and it costs one minute to avoid.
    - NEVER change an existing test assertion to make it pass.
+   - NEVER report a comparison as parity, agreement or "exact" unless TWO INDEPENDENT
+     PRODUCERS computed the compared quantity (ADR-193). This is the failure that got
+     two consecutive slices past review: slice 1 compared Python's `X`/`S` against
+     `mgcv`'s echo of the `X`/`S` Python handed it; slice 1b compared a parse of the R
+     payload against that same payload. Both were honestly captioned and both were read
+     downstream as parity anyway.
+   - NEVER tick a parity acceptance criterion on an ECHO or TRANSPORT comparison, and
+     never write a criterion vague enough to allow it ("Stage A exact" — say
+     "INDEPENDENT Stage-A comparison exact for `bs=\"cr\"`").
+   - NEVER cite `tests/qa/golden_outputs/` as evidence a number is CORRECT. Goldens are
+     this engine's own prior output: they detect change, never correctness.
 
 == QUALITY GATE ==
 
@@ -274,10 +341,16 @@ target model form, or to characterise precisely why it cannot move.
 9. Conventional commit, then:
    - append ONE `perf/history.jsonl` row on the INITIAL open of a PR only (ADR-177,
      step 14b of daily-dev — same rules, including the skip on review-feedback updates)
-   - push to the environment-designated branch and open a DRAFT PR
+   - push to the environment-designated branch and open a DRAFT PR. **Title the PR for
+     what it actually establishes:** `feat(mgcv-parity): slice N — …` only when the
+     slice lands an INDEPENDENT comparison; `harness(mgcv-parity): …` when it lands
+     plumbing whose columns are ECHO/TRANSPORT. The distinction currently vanishes at
+     the PR-list level, which is where it most needs to be visible.
    - `docs/DEV_SESSION_LOG_{date}_{slug}.md`, with these sections in addition to
      daily-dev's: **Gap Before**, **Gap After**, **Hypotheses Tried** (including the
-     failures), **Oracle Version**
+     failures), **Oracle Version**, and **Provenance** — for every comparison the
+     session reports, what produced each side and the per-column classification. A gap
+     stated without provenance is not a gap statement.
    - harvest follow-ups into the latest PRODUCT_DIRECTION, with the order-classification
      cap (1st-order promote, 2nd-order NICE-TO-HAVE, 3rd-order parked)
    - update `docs/CONTINUATION_mgcv_parity_engine.md`
