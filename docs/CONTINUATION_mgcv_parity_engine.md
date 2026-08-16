@@ -6,7 +6,7 @@
 **Predecessors:** ADR-189 + amendment 1 (the conformance suite and its first run),
 ADR-185 through ADR-188 (the penalized fitter this epic reuses).
 **Status:** **IN PROGRESS** — slice 1 is **DONE (raw path only)** (2026-08-15b); slice
-1b (mgcv-native extraction) is **DONE** (2026-08-16, pending tier-3 CI confirmation),
+1b (mgcv-native extraction) is **DONE** (2026-08-16, tier 1 and tier 3 both confirmed),
 unblocking slice 2 (`bs = "cr"`), which is **NEXT**.
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16) and one deferred
 to a later epic.
@@ -105,7 +105,10 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
     single-penalty `rank = sm$rank` (a length-1 vector) to a bare JSON scalar, and the
     Python side's `for v in r_term["rank"]` raised `TypeError`. The `raw` path never
     hit this because it always carries two penalties. Fixed with `rank = I(sm$rank)`.
-    Tier 1 confirmed (`docs/CONFORMANCE_LEDGER.md`); tier-3 dispatched with this PR.
+    Tier 1 and tier 3 both confirmed (`docs/CONFORMANCE_LEDGER.md`) — tier 3 read the
+    R script's `stop()`-gated guard and the Python packaging's exception-freedom on
+    the pinned image, not the per-metric diff table (blocked by this environment's
+    egress policy on the artifact host); the ledger states that boundary explicitly.
 2. **`bs = "cr"`**, with supplied and default knots. Depends on slice 1b (done), not
    slice 1 — Stage A needs the mgcv-native extractor to check this basis against.
    **NEXT.**

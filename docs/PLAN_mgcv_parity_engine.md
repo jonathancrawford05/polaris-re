@@ -196,8 +196,12 @@ half is slice 1b. The decision above is recorded (ADR-191). Nothing in `products
 
 ### Slice 1b: mgcv-native per-term extraction
 
-- **Status:** DONE (2026-08-16), pending tier-3 confirmation in CI (dispatched with
-  this PR — `docs/CONFORMANCE_LEDGER.md` will carry the tier-3 row once it returns).
+- **Status:** DONE (2026-08-16). Tier 3 dispatched and returned (run 31946132947):
+  the R script's `stop()`-gated internal guard passed on the pinned image — a
+  genuine hard check, not a print — and the Python packaging raised no exception
+  on the tier-3 payload. The per-metric diff table itself was not read (this
+  environment's egress policy blocks the artifact blob-storage host); see
+  `docs/CONFORMANCE_LEDGER.md` for exactly what was and was not confirmed.
 - **Depends on:** Slice 1 (raw path — done)
 - **Spec:** `docs/WORK_ORDER_slice_1b_mgcv_native_extraction.md`, in full, before writing
   code. Raised by the PR #197 review, which found the referent slice 1 needs already
@@ -221,7 +225,7 @@ that term, so `[0, width)`.
 **Caught one real bug** (Anchor 1's harness-first discipline doing its job):
 jsonlite's `auto_unbox` collapsed the single-penalty `rank` field to a bare scalar,
 breaking the Python side's iteration. Fixed with `rank = I(sm$rank)`.
-`docs/CONFORMANCE_LEDGER.md` carries the tier-1 reading; tier-3 pending.
+`docs/CONFORMANCE_LEDGER.md` carries both tier readings.
 
 **Acceptance.** See the work order §5. Confirmed at tier 3, same discipline as ADR-191 and
 slice 1's `raw` path. `docs/CONFORMANCE_LEDGER.md` carries both tier readings. The
