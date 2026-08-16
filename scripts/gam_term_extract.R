@@ -66,10 +66,22 @@ main <- function(argv) {
     )
   }
 
-  # Fixed lambda, matching the committed `l1-interior` cell — the harness proof does
-  # not need free-sp selection, and fixing sp is what makes the design/penalty
-  # comparison exact rather than approximate (RUNBOOK_mgcv_conformance.md level 1).
-  extract_one <- function(design_id, lambda_age = 10, lambda_year = 100) {
+  # Fixed lambda, READ from the manifest's committed `l1-interior` cell rather than
+  # hardcoded — the harness proof does not need free-sp selection, and fixing sp is
+  # what makes the design/penalty comparison exact rather than approximate
+  # (RUNBOOK_mgcv_conformance.md level 1). Reading it from the manifest (rather than
+  # literal 10/100 with a comment claiming they match) means a future change to that
+  # cell's lambda is picked up automatically instead of silently drifting out of sync
+  # with this script (PR #197 review [P1]).
+  l1_interior <- Filter(function(c) identical(c$name, "l1-interior"), manifest$cells)
+  if (length(l1_interior) != 1L) {
+    stop("manifest.json has no (or more than one) cell named 'l1-interior' — this ",
+         "script's fixed-lambda choice is read from it and needs exactly one match.")
+  }
+  fixed_lambda_age <- as.numeric(l1_interior[[1]]$lambda_age)
+  fixed_lambda_year <- as.numeric(l1_interior[[1]]$lambda_year)
+
+  extract_one <- function(design_id, lambda_age = fixed_lambda_age, lambda_year = fixed_lambda_year) {
     d <- read_design(design_id)
     frame <- list(y = d$y, X = d$X, off = d$off)
     pp <- list(d$S_age, d$S_year)

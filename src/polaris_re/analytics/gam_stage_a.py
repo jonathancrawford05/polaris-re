@@ -28,7 +28,7 @@ job, paired with the first Python basis construction that needs a referent.
 """
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TypedDict
 
 import numpy as np
 
@@ -37,12 +37,27 @@ from polaris_re.analytics.gam_term_spec import TermSpec
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 
 __all__ = [
+    "RTermPayload",
     "TermExtract",
     "TermExtractComparison",
     "compare_term_extract",
     "extract_raw_terms",
     "raw_term_specs",
 ]
+
+
+class RTermPayload(TypedDict):
+    """The keys read from one ``designs.<id>.terms.<label>`` entry of
+    ``scripts/gam_term_extract.R``'s JSON output — the R-side schema
+    :func:`compare_term_extract` reads, documented in the type rather than left as
+    ``Any`` (CLAUDE.md §5)."""
+
+    index_start: int
+    index_end: int
+    X: list[list[float]]
+    S: list[list[list[float]]]
+    rank: list[int]
+
 
 _AGREEMENT_TOLERANCE = 1e-9
 """Stage A compares a shared design and shared penalties at fixed sp (RUNBOOK
@@ -118,7 +133,9 @@ def raw_term_specs(*, with_factor: bool, factor_label: str = "sex") -> tuple[Ter
     ``"factor:<name>"`` term over ``[n_tensor, n_coef)``. Not a label ``mgcv`` assigns
     (there is none to match), but one both sides of the comparison can key on.
     """
-    terms = (TermSpec(label="tensor", variables=("attained_age", "calendar_year"), basis="raw"),)
+    terms: tuple[TermSpec, ...] = (
+        TermSpec(label="tensor", variables=("attained_age", "calendar_year"), basis="raw"),
+    )
     if with_factor:
         terms += (TermSpec(label=f"factor:{factor_label}", variables=(factor_label,), basis="raw"),)
     return terms
@@ -129,6 +146,15 @@ def extract_raw_terms(terms: tuple[TermSpec, ...], export: DesignExport) -> dict
 
     Every term must have ``basis="raw"``; a ``ModelSpec`` mixing bases is not this
     function's problem to solve — mgcv-native extraction is slice 2's module.
+
+    The tensor term's :attr:`~TermExtract.rank` is computed with
+    :func:`numpy.linalg.matrix_rank`'s *default* tolerance, while the R side reports
+    ``mgcv``'s own ``m$paraPen$rank``. Rank is the one field this comparison computes
+    independently on both sides rather than round-tripping the same numbers through
+    JSON, so their agreement here rests on that default tolerance rather than a
+    tolerance chosen to match ``mgcv``'s convention. It agrees on the well-conditioned
+    difference penalties this basis carries (PR #197 review [P2]) — worth keeping in
+    mind if slice 2 extends this comparator to a less well-conditioned penalty.
     """
     n_tensor = export.n_tensor
     n_coef = export.n_coef
@@ -139,6 +165,8 @@ def extract_raw_terms(terms: tuple[TermSpec, ...], export: DesignExport) -> dict
                 f"extract_raw_terms only handles basis='raw' terms; {term.label!r} "
                 f"is basis={term.basis!r} (mgcv-native extraction is slice 2's module)."
             )
+        s_blocks: tuple[np.ndarray, ...]
+        rank: tuple[int, ...]
         if term.label == "tensor":
             start, end = 0, n_tensor
             s_blocks = (
@@ -178,13 +206,12 @@ class TermExtractComparison:
     agrees: bool
 
 
-def compare_term_extract(python: TermExtract, r_term: dict[str, Any]) -> TermExtractComparison:
+def compare_term_extract(python: TermExtract, r_term: RTermPayload) -> TermExtractComparison:
     """Compare a Python :class:`TermExtract` against one term of the R-side JSON.
 
     ``r_term`` is a ``designs.<id>.terms.<label>`` entry from
-    ``scripts/gam_term_extract.R``'s output, read with plain ``dict``/``list``
-    access — matching ``compare_mgcv_conformance.py``'s own convention for the R-side
-    payload rather than introducing a second schema class for the same shape.
+    ``scripts/gam_term_extract.R``'s output — see :class:`RTermPayload` for the keys
+    read.
     """
     r_start = int(r_term["index_start"])
     r_end = int(r_term["index_end"])

@@ -421,11 +421,12 @@ jobs:
           cases = [
               ("d1", raw_term_specs(with_factor=False), False),
               ("d2", raw_term_specs(with_factor=True, factor_label="sex"), True),
+              ("d3", raw_term_specs(with_factor=False), False),
           ]
 
           lines = [
               "", "### Slice 1 — per-term Stage-A extraction (raw/paraPen basis)", "",
-              "| design | term | index range agrees | max|X diff| | max|S diff| | rank diff |",
+              "| design | term | index range agrees | max abs X diff | max abs S diff | rank diff |",
               "|---|---|---|---:|---:|---:|",
           ]
           any_disagree = False

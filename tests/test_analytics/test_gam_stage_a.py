@@ -37,6 +37,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 _D1 = next(d for d in DESIGNS if d.design_id == "d1")  # no factor block
 _D2 = next(d for d in DESIGNS if d.design_id == "d2")  # carries a factor block
+_D3 = next(d for d in DESIGNS if d.design_id == "d3")  # no factor block, a third (k_age, k_year)
 
 
 def _export_d1():
@@ -47,12 +48,16 @@ def _export_d2():
     return build_design(_D2, synthetic_cells(with_factor=True))
 
 
+def _export_d3():
+    return build_design(_D3, synthetic_cells(with_factor=False))
+
+
 # --- TermExtract validation ----------------------------------------------------------
 
 
 def test_a_well_formed_term_extract_constructs() -> None:
-    design = np.zeros((5, 3))
-    s = (np.eye(3), np.eye(3))
+    design = np.zeros((5, 3), dtype=np.float64)
+    s = (np.eye(3, dtype=np.float64), np.eye(3, dtype=np.float64))
     extract = TermExtract(
         label="tensor", index_start=0, index_end=3, design=design, s=s, rank=(2, 1)
     )
@@ -62,12 +67,26 @@ def test_a_well_formed_term_extract_constructs() -> None:
 
 def test_index_end_must_exceed_index_start() -> None:
     with pytest.raises(PolarisValidationError, match="end must exceed start"):
-        TermExtract(label="x", index_start=3, index_end=3, design=np.zeros((5, 0)), s=(), rank=())
+        TermExtract(
+            label="x",
+            index_start=3,
+            index_end=3,
+            design=np.zeros((5, 0), dtype=np.float64),
+            s=(),
+            rank=(),
+        )
 
 
 def test_design_width_must_match_the_index_range() -> None:
     with pytest.raises(PolarisValidationError, match="index range spans"):
-        TermExtract(label="x", index_start=0, index_end=3, design=np.zeros((5, 2)), s=(), rank=())
+        TermExtract(
+            label="x",
+            index_start=0,
+            index_end=3,
+            design=np.zeros((5, 2), dtype=np.float64),
+            s=(),
+            rank=(),
+        )
 
 
 def test_penalty_blocks_must_be_square_at_the_term_width() -> None:
@@ -76,8 +95,8 @@ def test_penalty_blocks_must_be_square_at_the_term_width() -> None:
             label="x",
             index_start=0,
             index_end=3,
-            design=np.zeros((5, 3)),
-            s=(np.eye(2),),
+            design=np.zeros((5, 3), dtype=np.float64),
+            s=(np.eye(2, dtype=np.float64),),
             rank=(1,),
         )
 
@@ -88,8 +107,8 @@ def test_rank_count_must_match_penalty_count() -> None:
             label="x",
             index_start=0,
             index_end=3,
-            design=np.zeros((5, 3)),
-            s=(np.eye(3),),
+            design=np.zeros((5, 3), dtype=np.float64),
+            s=(np.eye(3, dtype=np.float64),),
             rank=(1, 2),
         )
 
@@ -172,6 +191,10 @@ def test_compare_term_extract_agrees_with_itself() -> None:
     comparison = compare_term_extract(tensor, _as_r_term(tensor))
     assert comparison.agrees
     assert comparison.index_range_agrees
+    # Exact 0.0, not pytest.approx: `_as_r_term` round-trips through tolist()/asarray
+    # losslessly, so the diff against itself is exactly zero by construction, not
+    # approximately zero by floating-point luck. Weakening this to a tolerance would
+    # weaken what the test actually checks (PR #197 review [P2]).
     assert comparison.max_abs_design_diff == 0.0
     assert comparison.max_abs_s_diff == (0.0, 0.0)
     assert comparison.rank_diff == (0, 0)
@@ -273,6 +296,10 @@ def test_the_r_extractor_agrees_with_the_python_side_on_every_design(
     cases = (
         ("d1", raw_term_specs(with_factor=False), _export_d1()),
         ("d2", raw_term_specs(with_factor=True, factor_label="sex"), _export_d2()),
+        # The R extractor emits d3 too (a third (k_age, k_year) pair) but the manifest
+        # names no cell reaching it through this script's other test — d1/d2 alone left
+        # its output produced and silently discarded (PR #197 review [P2]).
+        ("d3", raw_term_specs(with_factor=False), _export_d3()),
     )
     failures: list[str] = []
     for design_id, terms, export in cases:

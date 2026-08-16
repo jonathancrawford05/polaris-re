@@ -13,10 +13,14 @@
 
 - The branch's local history already contained slice 1's first half (term-spec
   dataclasses, the `smoothCon`/`lpmatrix` referent decision, PR #196 review fixes —
-  immutable knots, raw-term validation, ADR-191) from a prior local session, merged
-  but not yet pushed. Pushed it to establish the remote branch before continuing (PR
-  #196 itself was closed without merging on GitHub — a `git merge` had already folded
-  its content into this branch locally).
+  immutable knots, raw-term validation, ADR-191) from a prior local session. **Correction
+  (PR #197 review [P2]):** PR #196 *was* merged into `main` (`merged_at`
+  2026-08-15T21:59:13Z, from `claude/sharp-galileo-hxklz3`) — `main`'s tip `1534b1f` is
+  its merge commit. This branch's local history matched that merge; it had not yet been
+  pushed to `origin/claude/sharp-galileo-k0kf1x`, which is what the first commands of
+  this session did. The original text here wrongly said #196 "was closed without
+  merging" — an inaccurate provenance claim caught by review, with no code consequence
+  (this PR's diff against `main` was a clean, non-duplicated 9 files either way).
 - `uv sync --all-extras`.
 - Installed the tier-1 scratch oracle: `r-base-core r-cran-mgcv r-cran-jsonlite` via
   apt (`apt-get update` needed first — stale index on the fresh container). **R 4.3.3 /
@@ -32,7 +36,7 @@
 | The 22 skips | Also entirely `data/mortality_tables`-gated (verified: none reference `rscript_mgcv_available`) |
 | `tests/qa/` (94 tests) | 85 passed, 9 skipped (4 golden configs skip on the same missing-tables gap; `golden_flat` needs none and passes) — unmodified goldens |
 | End state | 3179 + 19 new (`test_gam_stage_a.py`) = **3198 passed**, same 5 pre-existing failures, same 22 skips |
-| Perf row | one row appended (this PR touches `src/polaris_re/analytics/gam_stage_a.py`, a new module under `src/`, so ADR-177's docs-only exemption does not apply) |
+| Perf row | one row appended (this PR touches `src/polaris_re/analytics/gam_stage_a.py`, a new module under `src/`, so ADR-177's docs-only exemption does not apply). **Creep verdict:** no structural creep — `peak_mib` 33.0 → 33.0 (delta 0.0), `config_drift: false`, output fingerprint identical across all 15 rows; the informational `wall_time` ratio (1.32 vs a 1.25 band) is cross-machine noise in this log, not a signal `perf_history.py --check-only` gates on. |
 
 ## Gap Before
 

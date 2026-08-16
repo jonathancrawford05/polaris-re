@@ -161,7 +161,8 @@ largest single piece of work and sits at 4.
 
 ### Slice 1: the Stage-A harness, and a term spec to hang it on
 
-- **Status:** NEXT
+- **Status:** DONE (2026-08-15b) — see `docs/CONTINUATION_mgcv_parity_engine.md` for
+  what shipped and what mgcv-native extraction (slice 2's job) still needs.
 - **Depends on:** nothing (the conformance harness from ADR-189 is on `main`)
 
 **Scope.** An R-side extractor that emits, per term: the design block, every `S_j`, the
