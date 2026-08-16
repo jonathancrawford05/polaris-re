@@ -1,8 +1,9 @@
 # Derivation: the unconditional covariance of a penalized GAM
 
 **Status:** the **delta-method term is derived and verified**. It is **not** what
-`mgcv::vcov(unconditional = TRUE)` returns — it is the first-order part of it, and
-reproduces roughly **28–32%** of `mgcv`'s correction. The remainder is not yet derived.
+`mgcv::vcov(unconditional = TRUE)` returns — it reproduces roughly **28–32%** of `mgcv`'s
+correction, and §5 shows by a **rank argument** that no `J V_rho J'` of any kind can
+reproduce it. The remaining term is not yet derived.
 
 **Sources.** Simon N. Wood, *Generalized Additive Models: An Introduction with R*
 (2nd ed., 2017) §6.10, and Wood, Pya & Säfken (2016), *JASA* 111:1548. Supplied by the
@@ -117,17 +118,60 @@ by about 2%. The gap is structural.
 or ML. On a fixed-`sp` fit they are absent, which is why level 4 of the conformance suite is
 measured at independently selected `lambda` (ADR-189).
 
-## 5. What is still missing, and the one place to look
+## 5. What is still missing — and a rank argument that bounds the search
 
-The assumption flagged in §2.2 — that `W` and `z` do not depend on `rho` — is the leading
-candidate for the entire remainder, for a reason independent of the arithmetic: **`mgcv`'s
-own correction routine takes `dw`, the derivative of the IRLS weights with respect to
-`rho`, as an argument.** A routine that needed only §2.4 would not ask for it.
+**`Vc - Vp` is FULL RANK. `J V_rho J'` cannot be.** `J` has one column per smoothing
+parameter — two here — so `J V_rho J'` has rank at most **2**, for *any* `V_rho`
+whatsoever. Measured on the three cells, the numerical rank of `Vc - Vp` is
+**42 / 42 / 50**.
 
-That is a signature, not a derivation, and it is deliberately as far as this document goes.
-**Do not implement from `mgcv`'s source** (ADR-190 decision 3). What is needed to finish:
-the weight-derivative term written out from Wood (2016) §3 or the book's §6.10, at the same
-level of detail as §2 above, at which point this becomes an ordinary implementation slice.
+    cell                  rank(Vc - Vp)   columns of J   best-possible 2x2 V_rho:
+                                                          relative residual
+    l2-free-sp                 42              2               0.6772
+    l2-free-sp-factors         42              2               0.4533
+    l2-free-sp-kb              50              2               0.6532
+
+The last column is the least-squares fit of `Vc - Vp` onto the span of
+`{J e_i e_j' J'}` — the **best any `V_rho` could possibly do**. It leaves 45-68% of the
+Frobenius norm unexplained.
+
+**This closes off an entire class of proposed fixes, permanently.** No rescaling of
+`V_rho`, no swap between `V.sp`, `sp.vcov()` and `solve(outer.info$hess)`, no `lambda_j^2`
+Jacobian/parameterisation correction, and no combination of them can reconcile the two
+sides, because none of them changes the rank of a rank-2 object. **The correction `mgcv`
+applies is not of the form `J V_rho J'`.** Any candidate that keeps that shape is refuted
+before it is measured.
+
+Three specific candidates were measured anyway, since they were proposed explicitly:
+
+    variant                          ratio (actual / candidate), 3 cells
+    J solve(outer.info$hess) J'      3.9521  3.0825  3.5051
+    J sp.vcov(fit) J'                3.9661  3.0855  3.5185
+    J V.sp J'                        5.1642  3.6276  4.6205   <- worse
+
+and `Vp + J V.sp J'` differs from `Vc` by **1.24e-03** against a `max|Vc|` of 2.81e-03 —
+44% of the matrix scale, not machine precision.
+
+**Two factual corrections worth recording**, because both were offered as the explanation:
+
+* `sp.vcov(fit)` is **not** on the lambda scale. It returns `4.74094` where
+  `solve(outer.info$hess)` returns `4.76223`, on a cell with `lambda = 6524`. Were it
+  `diag(lambda) V_rho diag(lambda)`, it would be larger by ~10^7.
+* The observed 3.1-4.0x is **not** `lambda_j^2` for `lambda_j` near 1.8-2.0. The fitted
+  smoothing parameters on these cells range from **226 to 27,052**.
+
+### So what is needed
+
+The **printed expression for `Vc` itself**, from Wood (2016) §3 / the book §6.10, verbatim.
+The rank result says it must contain a term outside `J`'s column space — which is where a
+bias or mean-shift component would sit, consistent with `Vc` being motivated by
+across-the-function rather than pointwise coverage. That is an inference about *shape*, not
+a derivation, and this document deliberately stops there.
+
+**Do not implement from `mgcv`'s source** (ADR-190 decision 3). And note the rank test above
+is cheap and decisive: any future candidate can be refuted or confirmed in about a minute
+using `scripts/ks_formula_probe.R`'s extracted quantities, so **candidates should be
+measured before they are written up**, not after.
 
 ## 6. What can be built today, and it is worth doing on its own
 
