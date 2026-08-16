@@ -4,9 +4,15 @@
 > `docs/CONTINUATION_mgcv_parity_engine.md`, and commit `9154023` (the sweep: dropped
 > `Any` for `RTermPayload`, fixed the two new mypy errors, `gam_term_extract.R` now reads
 > its fixed λ from the manifest's `l1-interior` cell, `d3` added to both comparison sites,
-> dtype added to the 8 test fixtures, the job-summary header's literal pipes fixed). **§§1-5
-> and §8-9 below are unchanged and are slice 1b's actual scope** — nothing in them has
-> shipped. The order is kept verbatim below as the authoritative spec for that session.
+> dtype added to the 8 test fixtures, the job-summary header's literal pipes fixed).
+>
+> **§§1-5 and §8-9 — DONE, 2026-08-16 (this session).** The R-side `smoothCon` branch
+> (`extract_smooth_one`), the Python-side `extract_smooth_terms` and `knots` comparison,
+> the index-range design question settled as ADR-192, and the R-gated end-to-end test are
+> all shipped — see `docs/PLAN_mgcv_parity_engine.md` slice 1b and
+> `docs/CONTINUATION_mgcv_parity_engine.md` for what shipped and the bug the harness caught
+> on its first run. Tier 1 confirmed (`docs/CONFORMANCE_LEDGER.md`); tier-3 dispatched with
+> this PR. The order is kept verbatim below as the authoritative spec this session followed.
 
 ---
 

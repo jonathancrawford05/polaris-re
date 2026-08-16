@@ -2220,3 +2220,38 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   fixtures; a job-summary table header's literal pipes fixed). Nothing outstanding from
   that review beyond the work order's own §§1-5 and 8-9. *Source: this session, commit
   `9154023`.*
+
+### Harvested 2026-08-16 — third `ROUTINE_MGCV_PARITY.md` run, slice 1b shipped
+
+- ~~**Slice 1b — mgcv-native per-term extraction.**~~ **SHIPPED 2026-08-16.** A
+  `smoothCon` branch (`extract_smooth_one`) in `scripts/gam_term_extract.R`, emitting
+  the existing per-term schema for three isolated `bs="cr"` cases with its own
+  internal consistency guard (promoted from `smoothcon_lpmatrix_probe.R`'s diagnostic
+  into a standing check); `extract_smooth_terms()` and a `knots` comparison in
+  `gam_stage_a.py`. Tier 1 confirmed (`docs/CONFORMANCE_LEDGER.md`); tier-3 dispatched
+  with this PR. Unblocks slice 2. *Source: this session.*
+
+- **The index-range design question is settled as ADR-192.** A term's coefficient
+  index range is assigned by whichever side assembles the term into a model, never
+  read off a fit — the `raw` path already did this (`DesignExport.n_tensor`/`n_coef`,
+  not `m$first.para`/`last.para`), and slice 1b makes it explicit for the isolated
+  mgcv-native case: the model a one-term Stage-A case assembles *is* that term, so its
+  range is `[0, width)`. Recorded now, before a multi-term model exists to get it
+  wrong for later. *Source: this session, ADR-192 (1st-order — a data-contract
+  decision every later slice built on `TermExtract` inherits).*
+
+- **The harness caught a real bug on its first run, not a rediscovered one** — jsonlite's
+  `auto_unbox` silently collapsed a single-element `rank` vector to a bare JSON scalar
+  wherever a term carries exactly one penalty, which the `raw` path's two-penalty tensor
+  term never exercised. `TypeError: 'int' object is not iterable` on the Python side, not
+  a silent wrong answer — but worth flagging for slice 2 and later: **any R-side field that
+  can be length-1 needs `I()` to survive `auto_unbox`**, and `S`/`X` are already
+  list-wrapped so only scalar-shaped fields (`rank`, and potentially per-term scalars in
+  later slices) are at risk. *Source: this session (2nd-order, NICE-TO-HAVE — a
+  documented gotcha for whoever writes the next R-side branch, not a design question).*
+
+- **Next: slice 2 — `bs = "cr"`, with supplied and default knots.** Now genuinely
+  unblocked — the mgcv-native Stage-A extractor slice 2 needs to check its basis
+  against is built and tier-1-confirmed. *Source: this session,
+  `docs/PLAN_mgcv_parity_engine.md` / `docs/CONTINUATION_mgcv_parity_engine.md`
+  (1st-order — the epic's own NEXT slice).*

@@ -14775,3 +14775,46 @@ rather than requiring a well-posed regression for every term in isolation.
 null-space dimension, knot placement) is itself worth comparing as a secondary,
 diagnostic-only check is left to the slice that builds the extractor; this ADR only
 fixes the primary referent for the `X`/`S` comparison Anchor 1 gates on.
+
+## ADR-192: a term's index range is assigned by the harness assembling it, not read off a fit
+
+**Date:** 2026-08-16
+**Status:** Accepted
+**Context:** `docs/WORK_ORDER_slice_1b_mgcv_native_extraction.md` §4, the one design
+question that slice raised: `first.para`/`last.para` come back empty on a bare
+`smoothCon()` object and are only populated once a model is fitted — but ADR-191's
+whole point is that Stage A's referent (`smoothCon(..., absorb.cons=TRUE)`) needs no
+fitted model, which is precisely the case with no `first.para`/`last.para` to read.
+`TermExtract` *requires* an index range (`gam_stage_a.py:88-108` validates the design
+and every penalty block's shape against it), so slice 1b cannot leave the field
+unpopulated.
+
+**Decision: the index range is a property of the model a term is assembled into, not
+a property `mgcv` attaches to the term itself — so it is assigned by whichever side
+is doing the assembling, not read off a fit.**
+
+This is not a new rule; it is what the `raw` path already does, made explicit now that
+a second path needs the same answer. `extract_raw_terms` does not read `m$first.para`/
+`m$last.para` either — it computes `[0, n_tensor)` and `[n_tensor, n_coef)` from
+`DesignExport.n_tensor`/`n_coef`, values the *Python* side already knows because it
+built the design. The R extractor for the `raw` path independently confirms this by
+construction: `m$paraPen$S` comes back padded to the full design width, so the
+tensor term's own block is a slice Python already knows how to take, not a range `mgcv`
+reports.
+
+For an isolated mgcv-native term, there is no larger model to slice into — the model
+the harness assembles for a one-term Stage-A case *is* that one term. So
+`extract_smooth_one` (`scripts/gam_term_extract.R`) assigns `index_start = 0`,
+`index_end = ncol(sm$X)` directly, and the Python-side counterpart
+(`extract_smooth_terms`) reads those assigned values off the R payload rather than
+computing or re-deriving them — matching how `extract_raw_terms` treats index ranges
+as already-known inputs to validate against, not outputs to infer.
+
+**Consequence for later slices.** Once slice 2 or later assembles a *multi*-term
+mgcv-native model (the target formula has eight), the index range of each term becomes
+a running offset the assembling code computes as it lays terms out in order — still
+assigned by the harness, never read from `mgcv`, because `mgcv`'s own `first.para`/
+`last.para` are a property of *its* assembled model, which by Anchor 2 this engine is
+not required to reproduce coefficient-for-coefficient. Getting this settled now, while
+the `raw` path's precedent is fresh, is what the work order asked for — reworking the
+data contract mid-epic is the cost of leaving it implicit.

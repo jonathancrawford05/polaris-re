@@ -28,6 +28,7 @@ from polaris_re.analytics.gam_stage_a import (
     TermExtract,
     compare_term_extract,
     extract_raw_terms,
+    extract_smooth_terms,
     raw_term_specs,
 )
 from polaris_re.analytics.gam_term_spec import TermSpec
@@ -171,6 +172,50 @@ def test_extract_raw_terms_refuses_an_unrecognised_label() -> None:
         extract_raw_terms((mystery,), export)
 
 
+# --- extract_smooth_terms, packaging the R-side smoothCon() extraction (slice 1b) -----
+
+
+def _fake_smooth_r_term(width: int = 4, n_rows: int = 6) -> dict:
+    """A well-formed, arbitrary ``RTermPayload``-shaped dict for testing
+    :func:`extract_smooth_terms`'s packaging (index range, design, S, rank, knots) —
+    not any particular basis's numbers, which the R-gated end-to-end test below
+    covers against the real ``smoothCon()`` extraction."""
+    return {
+        "index_start": 0,
+        "index_end": width,
+        "X": [[float(r * width + c) for c in range(width)] for r in range(n_rows)],
+        "S": [[[1.0 if i == j else 0.0 for j in range(width)] for i in range(width)]],
+        "rank": [width - 1],
+        "knots": [float(k) for k in range(width + 2)],
+    }
+
+
+def test_extract_smooth_terms_builds_a_term_extract_from_the_r_payload() -> None:
+    r_term = _fake_smooth_r_term(width=4, n_rows=6)
+    cr_term = TermSpec(label="s(x)", variables=("x",), basis="cr", k=(4,))
+    terms = extract_smooth_terms((cr_term,), {"s(x)": r_term})
+    assert set(terms) == {"s(x)"}
+    extract = terms["s(x)"]
+    assert (extract.index_start, extract.index_end) == (0, 4)
+    assert extract.design.shape == (6, 4)
+    assert len(extract.s) == 1
+    assert extract.s[0].shape == (4, 4)
+    assert extract.rank == (3,)
+    assert extract.knots == tuple(float(k) for k in range(6))
+
+
+def test_extract_smooth_terms_refuses_a_raw_term() -> None:
+    raw_term = TermSpec(label="tensor", variables=("attained_age", "calendar_year"), basis="raw")
+    with pytest.raises(PolarisValidationError, match="mgcv-native bases"):
+        extract_smooth_terms((raw_term,), {})
+
+
+def test_extract_smooth_terms_refuses_a_label_with_no_r_payload_entry() -> None:
+    cr_term = TermSpec(label="s(missing)", variables=("x",), basis="cr", k=(4,))
+    with pytest.raises(PolarisValidationError, match="no matching entry"):
+        extract_smooth_terms((cr_term,), {"s(x)": _fake_smooth_r_term()})
+
+
 # --- compare_term_extract, self-consistency (no R) -------------------------------------
 
 
@@ -182,6 +227,7 @@ def _as_r_term(extract: TermExtract) -> dict:
         "X": extract.design.tolist(),
         "S": [block.tolist() for block in extract.s],
         "rank": list(extract.rank),
+        "knots": list(extract.knots) if extract.knots is not None else None,
     }
 
 
@@ -260,6 +306,62 @@ def test_compare_term_extract_refuses_a_penalty_count_mismatch() -> None:
         compare_term_extract(tensor, r_term)
 
 
+# --- compare_term_extract, knots (slice 1b) ---------------------------------------------
+
+
+def test_compare_term_extract_knots_agree_when_both_absent() -> None:
+    export = _export_d1()
+    tensor = extract_raw_terms(raw_term_specs(with_factor=False), export)["tensor"]
+    comparison = compare_term_extract(tensor, _as_r_term(tensor))
+    assert comparison.knots_agree
+    assert comparison.max_abs_knots_diff is None
+    assert comparison.agrees
+
+
+def test_compare_term_extract_knots_agree_when_both_present_and_equal() -> None:
+    r_term = _fake_smooth_r_term(width=4, n_rows=6)
+    cr_term = TermSpec(label="s(x)", variables=("x",), basis="cr", k=(4,))
+    extract = extract_smooth_terms((cr_term,), {"s(x)": r_term})["s(x)"]
+    comparison = compare_term_extract(extract, r_term)
+    assert comparison.knots_agree
+    assert comparison.max_abs_knots_diff == 0.0
+    assert comparison.agrees
+
+
+def test_compare_term_extract_catches_a_perturbed_knot() -> None:
+    r_term = _fake_smooth_r_term(width=4, n_rows=6)
+    cr_term = TermSpec(label="s(x)", variables=("x",), basis="cr", k=(4,))
+    extract = extract_smooth_terms((cr_term,), {"s(x)": r_term})["s(x)"]
+    perturbed = dict(r_term)
+    perturbed["knots"] = list(r_term["knots"])
+    perturbed["knots"][0] += 1.0
+    comparison = compare_term_extract(extract, perturbed)
+    assert not comparison.knots_agree
+    assert comparison.max_abs_knots_diff == pytest.approx(1.0)
+    assert not comparison.agrees
+
+
+def test_compare_term_extract_catches_a_knots_presence_mismatch() -> None:
+    export = _export_d1()
+    tensor = extract_raw_terms(raw_term_specs(with_factor=False), export)["tensor"]
+    r_term = _as_r_term(tensor)
+    r_term["knots"] = [1.0, 2.0, 3.0]  # R now claims knots; Python's TermExtract still None
+    comparison = compare_term_extract(tensor, r_term)
+    assert not comparison.knots_agree
+    assert comparison.max_abs_knots_diff is None
+    assert not comparison.agrees
+
+
+def test_compare_term_extract_refuses_a_knots_shape_mismatch() -> None:
+    r_term = _fake_smooth_r_term(width=4, n_rows=6)
+    cr_term = TermSpec(label="s(x)", variables=("x",), basis="cr", k=(4,))
+    extract = extract_smooth_terms((cr_term,), {"s(x)": r_term})["s(x)"]
+    shortened = dict(r_term)
+    shortened["knots"] = r_term["knots"][:-1]
+    with pytest.raises(PolarisComputationError, match="not comparable element-wise"):
+        compare_term_extract(extract, shortened)
+
+
 # --- End to end: the R script itself, proving the harness (Anchor 1) ------------------
 
 
@@ -314,3 +416,54 @@ def test_the_r_extractor_agrees_with_the_python_side_on_every_design(
                 failures.append(f"{design_id}/{label}: {comparison}")
 
     assert not failures, "Stage-A term extraction disagreed:\n" + "\n".join(failures)
+
+
+@pytest.mark.skipif(not rscript_mgcv_available(), reason="R with mgcv is not installed here")
+def test_the_r_extractor_agrees_with_the_python_side_on_every_smooth_design(
+    tmp_path,
+) -> None:  # pragma: no cover
+    """Slice 1b's harness proof: ``gam_term_extract.R``'s ``smoothCon()`` branch,
+    packaged through :func:`extract_smooth_terms`, round-trips through
+    :func:`compare_term_extract` without disagreement.
+
+    What this test verifies is the Python-side *packaging*, not the extraction's
+    correctness — the R script emits per-term data straight from
+    ``smoothCon(absorb.cons=TRUE)`` and :func:`extract_smooth_terms` reads it
+    directly (there is no independent Python ``cr`` basis yet, slice 2), so this
+    cannot disagree unless the JSON round trip or the packaging itself is broken. The
+    extraction's correctness is what the R script's OWN internal guard re-verifies on
+    every run (against ``predict(type="lpmatrix")`` / ``m$smooth[[j]]``, ADR-191) —
+    a nonzero guard trips ``done.returncode`` below before this test's own assertions
+    run at all.
+    """
+    out_path = tmp_path / "gam_term_extract.json"
+    done = subprocess.run(
+        [
+            "Rscript",
+            str(REPO_ROOT / "scripts" / "gam_term_extract.R"),
+            str(REPO_ROOT / "data" / "mgcv_exchange" / "synthetic"),
+            str(out_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    r_payload = json.loads(out_path.read_text())
+    smooth_designs = r_payload["smooth_designs"]
+    assert set(smooth_designs) == {"default-knots-k8", "default-knots-k13", "supplied-knots-k8"}
+
+    terms = tuple(
+        TermSpec(label=label, variables=("x",), basis="cr", k=(len(r_term["knots"]),))
+        for label, r_term in smooth_designs.items()
+    )
+    python_terms = extract_smooth_terms(terms, smooth_designs)
+
+    failures: list[str] = []
+    for label, python_term in python_terms.items():
+        comparison = compare_term_extract(python_term, smooth_designs[label])
+        if not comparison.agrees:
+            failures.append(f"{label}: {comparison}")
+
+    assert not failures, "Stage-A mgcv-native term extraction disagreed:\n" + "\n".join(failures)
