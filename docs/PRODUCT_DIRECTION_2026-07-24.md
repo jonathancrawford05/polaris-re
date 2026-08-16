@@ -2252,5 +2252,6 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
 
 - **Next: slice 2 — `bs = "cr"`, with supplied and default knots.** Now genuinely
   unblocked — the mgcv-native Stage-A extractor slice 2 needs to check its basis
-  against is built and tier-1-confirmed. *Source: this session, `docs/PLAN_mgcv_parity_engine.md`
-  / `docs/CONTINUATION_mgcv_parity_engine.md`.*
+  against is built and tier-1-confirmed. *Source: this session,
+  `docs/PLAN_mgcv_parity_engine.md` / `docs/CONTINUATION_mgcv_parity_engine.md`
+  (1st-order — the epic's own NEXT slice).*

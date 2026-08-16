@@ -43,7 +43,7 @@ from typing import TypedDict
 import numpy as np
 
 from polaris_re.analytics.experience_mgcv_conformance import DesignExport
-from polaris_re.analytics.gam_term_spec import TermSpec
+from polaris_re.analytics.gam_term_spec import SUPPORTED_BASES, TermSpec
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 
 __all__ = [
@@ -207,9 +207,12 @@ def extract_raw_terms(terms: tuple[TermSpec, ...], export: DesignExport) -> dict
     return result
 
 
-_MGCV_NATIVE_BASES = ("cr", "ti", "sz")
+_MGCV_NATIVE_BASES = tuple(basis for basis in SUPPORTED_BASES if basis != "raw")
 """``SUPPORTED_BASES`` minus ``"raw"`` — the bases :func:`extract_smooth_terms`
-handles, mirroring :func:`extract_raw_terms`'s own basis restriction the other way."""
+handles, mirroring :func:`extract_raw_terms`'s own basis restriction the other way.
+Derived rather than a hand-maintained literal, so a new basis added to
+``SUPPORTED_BASES`` cannot silently drift out of step with this set (PR #199 review
+[P2])."""
 
 
 def extract_smooth_terms(
