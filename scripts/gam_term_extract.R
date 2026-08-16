@@ -1,0 +1,164 @@
+#!/usr/bin/env Rscript
+# =============================================================================
+# Slice 1's remaining scope: the R-side per-term extractor.
+# =============================================================================
+# docs/PLAN_mgcv_parity_engine.md slice 1 / docs/CONTINUATION_mgcv_parity_engine.md:
+# an R-side extractor that emits, per term, the design block, every S_j, the
+# coefficient index range, the rank, the knots actually used, and the label. ADR-191
+# settled the referent question for mgcv-native bases (smoothCon(absorb.cons=TRUE));
+# this script proves the *harness* — the extraction and serialization machinery — on
+# the "raw" basis (TermSpec.basis == "raw", ADR-189 decision 1's paraPen route)
+# BEFORE trusting it on a basis with no independent check, per Anchor 1's "known-good
+# basis first."
+#
+# WHY "RAW" NEEDS ITS OWN CODE PATH, NOT SMOOTHCON(). A paraPen-only fit has an empty
+# smooth list (`length(m$smooth) == 0`, ADR-189 amendment 1) — there is no mgcv
+# smooth-class object to call smoothCon() on. So this script reads what mgcv actually
+# FIT rather than re-echoing the exchange's own TSVs (which would prove nothing about
+# mgcv's bookkeeping): `m$paraPen$S` for the penalties mgcv used, `m$paraPen$rank`
+# for their rank (mgcv computes this itself; not re-derived here), and
+# `predict(type="lpmatrix")` for the design. Interactively verified against this
+# exchange's design d1 before being written into this script: `m$paraPen$S` and
+# `predict(type="lpmatrix")` both reproduce the exchange's own supplied matrices at
+# max-abs-diff exactly 0, and `m$paraPen$rank` is `(30, 28)` for d1's `(S_age,
+# S_year)` — the rank mgcv itself relies on to compute `tr(F)`, already verified to
+# 7.2e-13 (ADR-189 amendment 1).
+#
+# mgcv-native bases (cr/ti/sz) are NOT extracted here — that is slice 2's job, paired
+# with the first Python basis that needs a referent to check against.
+#
+# DIAGNOSTIC, wired with continue-on-error, same contract as ks_formula_probe.R and
+# smoothcon_lpmatrix_probe.R: it has explicit stop() paths and can exit non-zero, and
+# that is what keeps a harness bug from blocking a merge before slice 2 exists to fix.
+# =============================================================================
+suppressPackageStartupMessages({
+  library(mgcv)
+  library(jsonlite)
+})
+
+main <- function(argv) {
+  exchange_dir <- if (length(argv) >= 1) argv[[1]] else "data/mgcv_exchange/synthetic"
+  out_path <- if (length(argv) >= 2) argv[[2]] else "gam_term_extract.json"
+
+  manifest <- jsonlite::fromJSON(file.path(exchange_dir, "manifest.json"), simplifyVector = FALSE)
+
+  read_design <- function(design_id) {
+    meta <- manifest$designs[[design_id]]
+    tbl <- as.matrix(read.table(
+      file.path(exchange_dir, meta$files$data),
+      header = TRUE, sep = "\t", colClasses = "numeric"
+    ))
+    read_penalty <- function(key) {
+      s <- as.matrix(read.table(
+        file.path(exchange_dir, meta$files[[key]]),
+        header = TRUE, sep = "\t", colClasses = "numeric"
+      ))
+      dimnames(s) <- NULL
+      s
+    }
+    x <- tbl[, -(1:2), drop = FALSE]
+    dimnames(x) <- NULL
+    list(
+      y = as.numeric(tbl[, 1]), off = as.numeric(tbl[, 2]), X = x,
+      S_age = read_penalty("penalty_age"), S_year = read_penalty("penalty_year"),
+      n_tensor = as.integer(meta$n_tensor), n_coef = as.integer(meta$n_coef),
+      factors = unlist(meta$factors)
+    )
+  }
+
+  # Fixed lambda, READ from the manifest's committed `l1-interior` cell rather than
+  # hardcoded — the harness proof does not need free-sp selection, and fixing sp is
+  # what makes the design/penalty comparison exact rather than approximate
+  # (RUNBOOK_mgcv_conformance.md level 1). Reading it from the manifest (rather than
+  # literal 10/100 with a comment claiming they match) means a future change to that
+  # cell's lambda is picked up automatically instead of silently drifting out of sync
+  # with this script (PR #197 review [P1]).
+  l1_interior <- Filter(function(c) identical(c$name, "l1-interior"), manifest$cells)
+  if (length(l1_interior) != 1L) {
+    stop("manifest.json has no (or more than one) cell named 'l1-interior' — this ",
+         "script's fixed-lambda choice is read from it and needs exactly one match.")
+  }
+  fixed_lambda_age <- as.numeric(l1_interior[[1]]$lambda_age)
+  fixed_lambda_year <- as.numeric(l1_interior[[1]]$lambda_year)
+
+  extract_one <- function(design_id, lambda_age = fixed_lambda_age, lambda_year = fixed_lambda_year) {
+    d <- read_design(design_id)
+    frame <- list(y = d$y, X = d$X, off = d$off)
+    pp <- list(d$S_age, d$S_year)
+    pp$sp <- c(lambda_age, lambda_year)
+    m <- mgcv::gam(
+      y ~ 0 + X + offset(off),
+      data = frame, family = poisson(), paraPen = list(X = pp), method = "REML",
+      control = mgcv::gam.control(scalePenalty = FALSE)
+    )
+
+    Xp <- predict(m, type = "lpmatrix")
+    if (ncol(Xp) != d$n_coef) {
+      stop(sprintf(
+        "design '%s': lpmatrix has %d columns but the manifest declares n_coef=%d.",
+        design_id, ncol(Xp), d$n_coef
+      ))
+    }
+    if (length(m$paraPen$S) != 2L || length(m$paraPen$rank) != 2L) {
+      stop(sprintf(
+        "design '%s': m$paraPen$S/$rank did not come back as the two penalties supplied.",
+        design_id
+      ))
+    }
+
+    # m$paraPen$S is padded to the FULL design width (n_coef), matching how the
+    # exchange itself supplies the penalties (DesignExport's own padding, so mgcv
+    # knows the factor columns are unpenalized) — so the tensor TERM's own S block is
+    # the leading n_tensor x n_tensor submatrix, not the padded matrix whole.
+    tensor_idx <- seq_len(d$n_tensor)
+    terms <- list()
+    terms[["tensor"]] <- list(
+      label = "tensor",
+      index_start = 0L, index_end = d$n_tensor,
+      X = Xp[, tensor_idx, drop = FALSE],
+      S = list(m$paraPen$S[[1]][tensor_idx, tensor_idx], m$paraPen$S[[2]][tensor_idx, tensor_idx]),
+      rank = as.integer(m$paraPen$rank),
+      knots = NULL
+    )
+    if (d$n_coef > d$n_tensor) {
+      factor_idx <- (d$n_tensor + 1L):d$n_coef
+      factor_label <- paste0("factor:", paste(d$factors, collapse = ","))
+      terms[[factor_label]] <- list(
+        label = factor_label,
+        index_start = d$n_tensor, index_end = d$n_coef,
+        X = Xp[, factor_idx, drop = FALSE],
+        S = list(), rank = integer(0), knots = NULL
+      )
+    }
+    list(design = design_id, n_coef = d$n_coef, n_tensor = d$n_tensor, terms = terms)
+  }
+
+  designs_to_probe <- Filter(function(id) manifest$designs[[id]]$n_coef > 0, names(manifest$designs))
+  out <- list(
+    schema_version = 1L,
+    r_version = R.version.string,
+    mgcv_version = as.character(packageVersion("mgcv")),
+    designs = setNames(lapply(designs_to_probe, extract_one), designs_to_probe)
+  )
+  jsonlite::write_json(
+    out, out_path,
+    digits = NA, auto_unbox = TRUE, null = "null", matrix = "rowmajor"
+  )
+  cat(sprintf(
+    "Wrote %s — %d design(s), mgcv %s\n",
+    out_path, length(designs_to_probe), as.character(packageVersion("mgcv"))
+  ))
+  invisible(NULL)
+}
+
+status <- tryCatch(
+  {
+    main(commandArgs(trailingOnly = TRUE))
+    0L
+  },
+  error = function(e) {
+    message("gam_term_extract.R FAILED: ", conditionMessage(e))
+    1L
+  }
+)
+quit(status = status)

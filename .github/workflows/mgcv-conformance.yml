@@ -242,6 +242,20 @@ jobs:
                 "risk 1 worried about are the same object, not two competing choices.")
           PY
 
+      # Slice 1's remaining scope (docs/CONTINUATION_mgcv_parity_engine.md): the
+      # R-side per-term extractor, proven here on the "raw"/paraPen basis before
+      # either side trusts it on a new one (Anchor 1). DIAGNOSTIC ONLY, same
+      # contract as the two probes above — the per-term JSON is compared against
+      # the Python side in the `compare` job below, not gated here.
+      - name: Extract per-term Stage-A artefacts from the raw/paraPen basis (slice 1)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_term_extract.R \
+              data/mgcv_exchange/synthetic \
+              gam_term_extract.json
+
       - uses: actions/upload-artifact@v4
         with:
           name: mgcv-reference
@@ -249,6 +263,7 @@ jobs:
             mgcv_reference.json
             ks_formula_probe.json
             smoothcon_lpmatrix_probe.json
+            gam_term_extract.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
@@ -373,6 +388,82 @@ jobs:
               >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # Slice 1's remaining scope, the Python half: compare gam_term_extract.json
+      # (job 1) against extract_raw_terms() term by term. DIAGNOSTIC ONLY, same
+      # contract as the R-side probes — asserts nothing that fails this job, prints
+      # the verdict to the job summary. The pytest end-to-end test
+      # (test_the_r_extractor_agrees_with_the_python_side_on_every_design) is the
+      # gating version of this same check, wherever R happens to be installed
+      # (ADR-151's own gate keeps it out of ordinary CI).
+      - name: Compare the per-term extraction against the Python side (slice 1)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_term_extract.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_term_extract.json to compare ({exc}) — the R probe above "
+                    "did not produce one.")
+              sys.exit(0)
+
+          from polaris_re.analytics.experience_mgcv_conformance import (
+              DESIGNS, build_design, synthetic_cells,
+          )
+          from polaris_re.analytics.gam_stage_a import (
+              compare_term_extract, extract_raw_terms, raw_term_specs,
+          )
+
+          by_id = {d.design_id: d for d in DESIGNS}
+          cases = [
+              ("d1", raw_term_specs(with_factor=False), False),
+              ("d2", raw_term_specs(with_factor=True, factor_label="sex"), True),
+              ("d3", raw_term_specs(with_factor=False), False),
+          ]
+
+          lines = [
+              "", "### Slice 1 — per-term Stage-A extraction (raw/paraPen basis)", "",
+              "| design | term | index range agrees | max abs X diff | max abs S diff | rank diff |",
+              "|---|---|---|---:|---:|---:|",
+          ]
+          any_disagree = False
+          for design_id, terms, with_factor in cases:
+              export = build_design(by_id[design_id], synthetic_cells(with_factor=with_factor))
+              python_terms = extract_raw_terms(terms, export)
+              r_terms = r_payload.get("designs", {}).get(design_id, {}).get("terms", {})
+              for label, python_term in python_terms.items():
+                  if label not in r_terms:
+                      lines.append(f"| `{design_id}` | `{label}` | **MISSING FROM R OUTPUT** | | | |")
+                      any_disagree = True
+                      continue
+                  c = compare_term_extract(python_term, r_terms[label])
+                  if not c.agrees:
+                      any_disagree = True
+                  s_diff = ", ".join(f"{d:.3e}" for d in c.max_abs_s_diff) or "n/a"
+                  lines.append(
+                      f"| `{design_id}` | `{label}` | {c.index_range_agrees} | "
+                      f"{c.max_abs_design_diff:.3e} | {s_diff} | {c.rank_diff} |"
+                  )
+          lines.append("")
+          lines.append(
+              "Zero diffs and a zero rank diff mean the harness reads mgcv's fitted "
+              "paraPen object correctly, on a basis already verified to 5e-13 through "
+              "the fitter — the Anchor-1 proof slice 2 needs before it points this "
+              "machinery at a basis with no independent check."
+          )
+          if any_disagree:
+              lines.insert(1, "**A term disagreed — see the table.**")
+
+          with open("gam_term_extract_report.md", "w") as fh:
+              fh.write("\n".join(lines) + "\n")
+          PY
+          if [ -f gam_term_extract_report.md ]; then
+            cat gam_term_extract_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -381,3 +472,5 @@ jobs:
             mgcv_conformance_report.md
             mgcv_conformance.json
             mgcv_reference.json
+            gam_term_extract.json
+            gam_term_extract_report.md

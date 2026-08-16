@@ -4,7 +4,10 @@
 **Predecessors:** ADR-189 + amendment 1 (the conformance suite, and the first run that
 used it), ADR-185 through ADR-188 (the penalized fitter this epic reuses).
 **Supersedes:** `PLAN_penalized_mi_surface.md` slices 6-7 — see §8.
-**Total slices:** **7** autonomous, plus one deferred to a later epic.
+**Total slices:** **7** autonomous, plus one deferred to a later epic. **Plus slice 1b**
+(inserted 2026-08-16, PR #197 review): mgcv-native per-term extraction, split out of
+slice 1 rather than left folded into slice 2 — see
+`docs/WORK_ORDER_slice_1b_mgcv_native_extraction.md`.
 **Estimated scope:** the largest numerical undertaking in the project. Sized honestly
 below rather than optimistically.
 
@@ -161,7 +164,10 @@ largest single piece of work and sits at 4.
 
 ### Slice 1: the Stage-A harness, and a term spec to hang it on
 
-- **Status:** NEXT
+- **Status:** DONE (raw path only) (2026-08-15b) — see
+  `docs/CONTINUATION_mgcv_parity_engine.md` for what shipped. The mgcv-native half is
+  slice 1b (below), not slice 2 — `docs/WORK_ORDER_slice_1b_mgcv_native_extraction.md`
+  is its authoritative spec.
 - **Depends on:** nothing (the conformance harness from ADR-189 is on `main`)
 
 **Scope.** An R-side extractor that emits, per term: the design block, every `S_j`, the
@@ -180,12 +186,34 @@ the design **after** `mgcv` absorbs identifiability constraints and reparameteri
 changes what "our `X` equals `mgcv`'s `X`" even means. Decide it here, in writing, with
 the measurement that justifies it.
 
-**Acceptance.** Stage A runs green on the existing basis. The decision above is recorded.
-Nothing in `products/`, `reinsurance/` or the CLI moves; `tests/qa/` untouched.
+**Acceptance.** ~~Stage A runs green on the existing basis.~~ **Corrected 2026-08-16, PR
+#197 review:** that wording is what let a raw-only extractor read as satisfying the whole
+slice — the "existing basis" is precisely the one with no `smoothCon` path. **The
+extractor handles both a supplied basis and an mgcv-native basis, each cross-checked
+against the fitted model.** The raw/supplied half shipped 2026-08-15b; the mgcv-native
+half is slice 1b. The decision above is recorded (ADR-191). Nothing in `products/`,
+`reinsurance/` or the CLI moves; `tests/qa/` untouched.
+
+### Slice 1b: mgcv-native per-term extraction
+
+- **Status:** NEXT.
+- **Depends on:** Slice 1 (raw path — done)
+- **Spec:** `docs/WORK_ORDER_slice_1b_mgcv_native_extraction.md`, in full, before writing
+  code. Raised by the PR #197 review, which found the referent slice 1 needs already
+  exists and is already tier-3-green (ADR-191, `scripts/smoothcon_lpmatrix_probe.R`) — so
+  this is packaging (emit the existing per-term schema via `smoothCon()`, wire in
+  `compare_term_extract`'s `knots` comparison) rather than new verification work, and
+  Anchor 8 does not block it.
+
+**Acceptance.** See the work order §5. Confirmed at tier 3, same discipline as ADR-191 and
+slice 1's `raw` path. `docs/CONFORMANCE_LEDGER.md` carries both tier readings. The
+index-range design question (work order §4) is settled in writing, ADR-191's form.
+`tests/qa/` untouched; goldens byte-identical.
 
 ### Slice 2: `bs = "cr"`, with supplied and default knots
 
-- **Depends on:** Slice 1
+- **Depends on:** Slice 1b (the mgcv-native extraction Stage A needs to check this
+  basis against)
 
 Wood's cubic regression spline: knots at supplied locations or `mgcv`'s default placement,
 penalty the exact integrated squared second derivative. Stage A exact, term in isolation.
