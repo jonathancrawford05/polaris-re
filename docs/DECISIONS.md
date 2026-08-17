@@ -15284,3 +15284,11 @@ section above is unchanged, since the [P1] fix is type-level only and the
 [P2] deviance fix does not move the converged fit (re-confirmed:
 `tests/test_analytics/test_gam_family_conformance.py::test_the_r_probe_runs_end_to_end_and_agrees`
 still passes at tier 1 after both fixes, same order of `eta` agreement).
+**Re-confirmed at tier 3 on the fix commit itself**, not just inferred from
+tier 1: CI run
+[32069807927](https://github.com/jonathancrawford05/polaris-re/actions/runs/32069807927)
+(commit `75c1ec4`) reproduces every figure in the tier-3 table above to the
+last printed digit — `binomial-logit` 1.221e-15, `binomial-cloglog`
+1.488e-14, `quasipoisson-log` 8.438e-15 / dispersion 9.671e-06,
+`poisson-log-offset` 9.326e-15 — and required levels 1-3 of the existing
+suite still agree (`Required levels [1, 2, 3] all agree.`).
