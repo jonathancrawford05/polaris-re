@@ -25,6 +25,8 @@ from polaris_re.analytics.experience_mgcv_conformance import (
     synthetic_cells,
 )
 from polaris_re.analytics.gam_stage_a import (
+    RAW_PATH_CLAIM,
+    SMOOTH_PATH_CLAIM,
     TermExtract,
     compare_term_extract,
     extract_raw_terms,
@@ -33,6 +35,11 @@ from polaris_re.analytics.gam_stage_a import (
 )
 from polaris_re.analytics.gam_term_spec import TermSpec
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
+from polaris_re.core.verification import (
+    ComparisonProvenance,
+    evidence_headline,
+    require_parity_evidence,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -60,7 +67,13 @@ def test_a_well_formed_term_extract_constructs() -> None:
     design = np.zeros((5, 3), dtype=np.float64)
     s = (np.eye(3, dtype=np.float64), np.eye(3, dtype=np.float64))
     extract = TermExtract(
-        label="tensor", index_start=0, index_end=3, design=design, s=s, rank=(2, 1)
+        label="tensor",
+        index_start=0,
+        index_end=3,
+        design=design,
+        s=s,
+        rank=(2, 1),
+        evidence=RAW_PATH_CLAIM,
     )
     assert extract.label == "tensor"
     assert extract.knots is None
@@ -75,6 +88,7 @@ def test_index_end_must_exceed_index_start() -> None:
             design=np.zeros((5, 0), dtype=np.float64),
             s=(),
             rank=(),
+            evidence=RAW_PATH_CLAIM,
         )
 
 
@@ -87,6 +101,7 @@ def test_design_width_must_match_the_index_range() -> None:
             design=np.zeros((5, 2), dtype=np.float64),
             s=(),
             rank=(),
+            evidence=RAW_PATH_CLAIM,
         )
 
 
@@ -99,6 +114,7 @@ def test_penalty_blocks_must_be_square_at_the_term_width() -> None:
             design=np.zeros((5, 3), dtype=np.float64),
             s=(np.eye(2, dtype=np.float64),),
             rank=(1,),
+            evidence=RAW_PATH_CLAIM,
         )
 
 
@@ -111,6 +127,7 @@ def test_rank_count_must_match_penalty_count() -> None:
             design=np.zeros((5, 3), dtype=np.float64),
             s=(np.eye(3, dtype=np.float64),),
             rank=(1, 2),
+            evidence=RAW_PATH_CLAIM,
         )
 
 
@@ -467,3 +484,52 @@ def test_the_r_extractor_agrees_with_the_python_side_on_every_smooth_design(
             failures.append(f"{label}: {comparison}")
 
     assert not failures, "Stage-A mgcv-native term extraction disagreed:\n" + "\n".join(failures)
+
+
+# --- Provenance: what these comparisons are evidence OF (ADR-193) ----------------------
+
+
+def test_the_raw_path_declares_its_design_and_penalties_as_echoed() -> None:
+    """The raw path hands mgcv the design and penalties it then reads back, so a
+    zero diff on those columns proves no tampering — not that two sides agree."""
+    export = _export_d1()
+    tensor = extract_raw_terms(raw_term_specs(with_factor=False), export)["tensor"]
+    by_name = {q.quantity: q for q in tensor.evidence.quantities}
+    assert by_name["design_X"].provenance is ComparisonProvenance.ECHO
+    assert by_name["penalty_S"].provenance is ComparisonProvenance.ECHO
+    assert not tensor.evidence.is_parity_claim
+
+
+def test_the_raw_paths_rank_is_the_one_independently_produced_column() -> None:
+    export = _export_d1()
+    tensor = extract_raw_terms(raw_term_specs(with_factor=False), export)["tensor"]
+    assert [q.quantity for q in tensor.evidence.parity_quantities] == ["rank"]
+    require_parity_evidence(tensor.evidence.parity_quantities, claim="mgcv's own rank agrees")
+
+
+def test_the_mgcv_native_path_declares_every_quantity_as_transport() -> None:
+    """Slice 1b parses the R payload and compares it to that same payload: no
+    column there can disagree on values, and the claim now says so in the type."""
+    cr_term = TermSpec(label="s(x)", variables=("x",), basis="cr", k=(4,))
+    extract = extract_smooth_terms((cr_term,), {"s(x)": _fake_smooth_r_term()})["s(x)"]
+    assert extract.evidence is SMOOTH_PATH_CLAIM
+    assert extract.evidence.parity_quantities == ()
+    assert all(q.provenance is ComparisonProvenance.TRANSPORT for q in extract.evidence.quantities)
+
+
+def test_a_parity_claim_over_the_mgcv_native_path_is_refused() -> None:
+    """The gate that would have caught slice 1b being reported as Stage-A parity."""
+    cr_term = TermSpec(label="s(x)", variables=("x",), basis="cr", k=(4,))
+    extract = extract_smooth_terms((cr_term,), {"s(x)": _fake_smooth_r_term()})["s(x)"]
+    with pytest.raises(PolarisValidationError, match="not independently"):
+        require_parity_evidence(extract.evidence.quantities, claim="Stage A exact for bs='cr'")
+
+
+def test_a_comparison_carries_its_producers_provenance_through() -> None:
+    export = _export_d1()
+    tensor = extract_raw_terms(raw_term_specs(with_factor=False), export)["tensor"]
+    comparison = compare_term_extract(tensor, _as_r_term(tensor))
+    assert comparison.agrees
+    assert comparison.evidence is RAW_PATH_CLAIM
+    # The verdict a report prints above the zeros, derived from the declaration.
+    assert "NOT basis parity" in evidence_headline(comparison.evidence)

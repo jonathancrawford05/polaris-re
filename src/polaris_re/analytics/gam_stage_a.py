@@ -35,6 +35,18 @@ internal guard, promoted from that ADR's one-off diagnostic into a standing chec
 fails the R side loudly if it ever stops holding. So :func:`extract_smooth_terms`'s job
 is packaging that already-verified R output into the same :class:`TermExtract` shape
 :func:`extract_raw_terms` produces, not re-verifying it.
+
+What Stage A has and has not proven (ADR-193)
+---------------------------------------------
+Neither path here is a basis-parity comparison yet, and both now say so in the
+type rather than only in prose. :data:`RAW_PATH_CLAIM` marks the ``raw`` path's
+design and penalties as ``ECHO`` (Python builds them, mgcv is fitted *on them*,
+so a zero diff proves no tampering) with ``rank`` the one independently produced
+column; :data:`SMOOTH_PATH_CLAIM` marks every mgcv-native quantity as
+``TRANSPORT`` (one producer, parsed by the other). Slice 2 — a Python ``cr``
+basis built from knots and Wood's definition — is the first Stage-A work that
+can carry ``INDEPENDENT`` provenance, and ``docs/VERIFICATION_STANDARD.md``
+requires it to declare that before the comparison is reported as parity.
 """
 
 from dataclasses import dataclass
@@ -45,8 +57,15 @@ import numpy as np
 from polaris_re.analytics.experience_mgcv_conformance import DesignExport
 from polaris_re.analytics.gam_term_spec import SUPPORTED_BASES, TermSpec
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
+from polaris_re.core.verification import (
+    ComparedQuantity,
+    ComparisonProvenance,
+    VerificationClaim,
+)
 
 __all__ = [
+    "RAW_PATH_CLAIM",
+    "SMOOTH_PATH_CLAIM",
     "RTermPayload",
     "TermExtract",
     "TermExtractComparison",
@@ -80,6 +99,108 @@ tolerance. An order of magnitude looser than that measurement, matching Anchor 8
 derived from an existing verified quantity, not chosen to make this check green."""
 
 
+RAW_PATH_CLAIM = VerificationClaim(
+    claim=(
+        "extract_raw_terms slices the term's design and penalty blocks out of the "
+        "DesignExport the Python fitter produced; gam_term_extract.R reads the same "
+        "quantities back off an mgcv fit that was HANDED that design and those "
+        "penalties (y ~ 0 + X + offset(off) with paraPen, scalePenalty=FALSE). Only "
+        "the penalty rank is computed independently on the two sides."
+    ),
+    quantities=(
+        ComparedQuantity(
+            quantity="index_range",
+            left_producer="extract_raw_terms (assigned from DesignExport.n_tensor/n_coef)",
+            right_producer="gam_term_extract.R (assigned by the same convention, ADR-192)",
+            provenance=ComparisonProvenance.ECHO,
+        ),
+        ComparedQuantity(
+            quantity="design_X",
+            left_producer="PenalizedTensorMIModel's fitted design (Python B-spline tensor)",
+            right_producer="mgcv predict(type='lpmatrix') — returning the X it was supplied",
+            provenance=ComparisonProvenance.ECHO,
+        ),
+        ComparedQuantity(
+            quantity="penalty_S",
+            left_producer="tensor_penalties (Python difference penalties)",
+            right_producer="mgcv m$paraPen$S — the penalties it was supplied, unscaled",
+            provenance=ComparisonProvenance.ECHO,
+        ),
+        ComparedQuantity(
+            quantity="rank",
+            left_producer="numpy.linalg.matrix_rank on the Python penalty block",
+            right_producer="mgcv m$paraPen$rank (mgcv's own rank determination)",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+    ),
+)
+"""The ``raw``/``paraPen`` path's provenance (ADR-193).
+
+``design_X`` and ``penalty_S`` are ECHO: Python builds them, writes them to the
+exchange, and mgcv is fitted **on them**, so a zero diff proves mgcv did not
+reparameterise or rescale what it was handed — a real no-tampering check, and the
+one ``scalePenalty=FALSE`` exists to make meaningful — but not evidence that the
+two sides would agree on a basis mgcv constructed itself. ``rank`` is the single
+independently produced column, which is why it is the only one that can carry a
+parity claim here."""
+
+
+SMOOTH_PATH_CLAIM = VerificationClaim(
+    claim=(
+        "gam_term_extract.R's smoothCon(absorb.cons=TRUE) branch computes the "
+        "mgcv-native term; extract_smooth_terms PARSES that same payload into a "
+        "TermExtract. No Python cr/ti/sz basis exists yet (slice 2), so every "
+        "compared quantity has a single producer and the comparison can only fail "
+        "on the JSON round trip."
+    ),
+    quantities=(
+        ComparedQuantity(
+            quantity="index_range",
+            left_producer="extract_smooth_terms (read from the R payload)",
+            right_producer="gam_term_extract.R extract_smooth_one (assigned [0, width), ADR-192)",
+            provenance=ComparisonProvenance.TRANSPORT,
+        ),
+        ComparedQuantity(
+            quantity="design_X",
+            left_producer="extract_smooth_terms (read from the R payload)",
+            right_producer="mgcv smoothCon(..., absorb.cons=TRUE)$X",
+            provenance=ComparisonProvenance.TRANSPORT,
+        ),
+        ComparedQuantity(
+            quantity="penalty_S",
+            left_producer="extract_smooth_terms (read from the R payload)",
+            right_producer="mgcv smoothCon(...)$S",
+            provenance=ComparisonProvenance.TRANSPORT,
+        ),
+        ComparedQuantity(
+            quantity="rank",
+            left_producer="extract_smooth_terms (read from the R payload)",
+            right_producer="mgcv smoothCon(...)$rank",
+            provenance=ComparisonProvenance.TRANSPORT,
+        ),
+        ComparedQuantity(
+            quantity="knots",
+            left_producer="extract_smooth_terms (read from the R payload)",
+            right_producer="mgcv smoothCon(...)$xp",
+            provenance=ComparisonProvenance.TRANSPORT,
+        ),
+    ),
+)
+"""The mgcv-native path's provenance (ADR-193).
+
+Every quantity is TRANSPORT: :func:`extract_smooth_terms` reads the R payload and
+:func:`compare_term_extract` then compares the result against that same payload,
+so the diffs are structurally zero. This is a genuine check of the JSON round trip
+and the packaging, and it is *not* evidence about bases. The verification that
+carries weight on this path is the R script's own internal guard, which compares
+``smoothCon()`` against the independent ``predict(type="lpmatrix")`` /
+``m$smooth[[j]]`` route inside R (ADR-191).
+
+Slice 2 replaces the left producer with a Python ``cr`` basis built from the
+knots and Wood's basis definition — at which point these quantities become
+INDEPENDENT and the comparison starts meaning what its columns say."""
+
+
 @dataclass(frozen=True)
 class TermExtract:
     """One term's Stage-A artefacts, mirroring what ``gam_term_extract.R`` emits.
@@ -95,6 +216,12 @@ class TermExtract:
         s: Every penalty this term carries, each ``(width, width)``. Empty for an
             unpenalized term (e.g. a factor block).
         rank: One rank per entry of :attr:`s`, same order.
+        evidence: How this extract was produced relative to the R side it will be
+            compared against (ADR-193). Required, and with no default on purpose:
+            a new producer cannot be written without answering "who computed each
+            side?", which is the question slices 1 and 1b each answered only in
+            prose. :data:`RAW_PATH_CLAIM` and :data:`SMOOTH_PATH_CLAIM` are the two
+            answers that exist today.
         knots: Knot locations actually used, or ``None`` — always ``None`` for
             ``basis="raw"``, which has no knot recipe (:class:`TermSpec`'s own
             validation forbids supplying knots for it). Populated for mgcv-native
@@ -107,6 +234,7 @@ class TermExtract:
     design: np.ndarray
     s: tuple[np.ndarray, ...]
     rank: tuple[int, ...]
+    evidence: VerificationClaim
     knots: tuple[float, ...] | None = None
 
     def __post_init__(self) -> None:
@@ -202,6 +330,7 @@ def extract_raw_terms(terms: tuple[TermSpec, ...], export: DesignExport) -> dict
             design=np.ascontiguousarray(export.design[:, start:end]),
             s=s_blocks,
             rank=rank,
+            evidence=RAW_PATH_CLAIM,
             knots=None,
         )
     return result
@@ -256,6 +385,7 @@ def extract_smooth_terms(
             design=np.asarray(r_term["X"], dtype=np.float64),
             s=tuple(np.asarray(block, dtype=np.float64) for block in r_term["S"]),
             rank=tuple(int(v) for v in r_term["rank"]),
+            evidence=SMOOTH_PATH_CLAIM,
             knots=tuple(float(v) for v in r_knots) if r_knots is not None else None,
         )
     return result
@@ -264,7 +394,15 @@ def extract_smooth_terms(
 @dataclass(frozen=True)
 class TermExtractComparison:
     """One term's Stage-A verdict: index range, design block, every penalty, rank,
-    knots."""
+    knots — and the provenance that says what those numbers are evidence *of*.
+
+    :attr:`agrees` answers "did the numbers match"; :attr:`evidence` answers "who
+    computed each side". Both are needed to state a result: a zero diff on an ECHO
+    or TRANSPORT quantity is a working harness, not parity (ADR-193). Reports must
+    render :attr:`evidence` alongside the diffs —
+    :func:`~polaris_re.core.verification.evidence_markdown` does this — so the
+    distinction travels with the table instead of living in a caption.
+    """
 
     label: str
     index_range_agrees: bool
@@ -274,6 +412,7 @@ class TermExtractComparison:
     knots_agree: bool
     max_abs_knots_diff: float | None
     agrees: bool
+    evidence: VerificationClaim
 
 
 def compare_term_extract(python: TermExtract, r_term: RTermPayload) -> TermExtractComparison:
@@ -282,6 +421,11 @@ def compare_term_extract(python: TermExtract, r_term: RTermPayload) -> TermExtra
     ``r_term`` is a ``designs.<id>.terms.<label>`` entry from
     ``scripts/gam_term_extract.R``'s output — see :class:`RTermPayload` for the keys
     read.
+
+    The verdict carries :attr:`TermExtract.evidence` through unchanged: provenance
+    is a property of how the Python operand was produced, which this function is not
+    in a position to second-guess, so it is declared by the producer and reported
+    here rather than re-derived (ADR-193).
     """
     r_start = int(r_term["index_start"])
     r_end = int(r_term["index_end"])
@@ -355,4 +499,5 @@ def compare_term_extract(python: TermExtract, r_term: RTermPayload) -> TermExtra
         knots_agree=knots_agree,
         max_abs_knots_diff=max_abs_knots_diff,
         agrees=agrees,
+        evidence=python.evidence,
     )

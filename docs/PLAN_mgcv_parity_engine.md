@@ -240,9 +240,43 @@ index-range design question (work order §4) is settled in writing, ADR-191's fo
 Wood's cubic regression spline: knots at supplied locations or `mgcv`'s default placement,
 penalty the exact integrated squared second derivative. Stage A exact, term in isolation.
 
-**Acceptance.** `X` and `S` match `mgcv` for the target's own knot vectors and for default
-placement, at both `k = 13` and `k = 6`. A disagreement is reported with which of the two
-(basis or penalty) drifted.
+**This is the epic's first Stage-A parity slice** (ADR-193). Slices 1 and 1b built the
+harness and are honest about being harness: slice 1's `X`/`S` are `ECHO` (Python supplies
+them to `mgcv`), slice 1b's columns are all `TRANSPORT` (one producer, parsed by the
+other). Neither compares a Python-computed basis against an mgcv-computed one, because
+**no Python `cr` basis exists** — the shipped fitter builds a B-spline/P-spline tensor
+(`experience_gam_penalized._basis`), which is a different construction entirely. Building
+that basis is the substance of this slice; the harness is already in place to receive it.
+
+**Parity claim (write this before the code, per `docs/VERIFICATION_STANDARD.md`):**
+
+> `polaris_re`'s new `cr` basis computes `design_X` and `penalty_S` from the knot vector
+> and Wood's basis/penalty definition; `mgcv` computes them via
+> `smoothCon(s(x, bs="cr", k=…), absorb.cons=TRUE)`; compared on `design_X`, `penalty_S`
+> and `rank`.
+
+**Acceptance — every criterion names its provenance, so no harness result can tick one:**
+
+1. **INDEPENDENT** comparison of `design_X`: Python's `cr` basis vs `smoothCon(...)$X`,
+   `max_abs_design_diff < 1e-9`, for the target's own knot vectors *and* for `mgcv`'s
+   default placement, at both `k = 13` and `k = 6`.
+2. **INDEPENDENT** comparison of `penalty_S` to the same tolerance, over the same cases.
+3. A disagreement is reported with which of the two (basis or penalty) drifted — and,
+   because both are now independently produced, a disagreement is a *real result* about
+   the basis rather than a broken round trip.
+4. The Python producer takes **no R payload as an input** (the mechanical test). If the
+   comparison needs the knot vector, it comes from the recipe — the same knots supplied
+   to `mgcv` — not from `smoothCon()`'s output.
+5. The slice's `VerificationClaim` declares `INDEPENDENT` for `design_X`/`penalty_S`, and
+   `require_parity_evidence` gates the acceptance check.
+6. Confirmed at tier 3 on the pinned oracle, per `docs/ROUTINE_MGCV_PARITY.md`.
+
+**Carry forward from slice 1b:** `scripts/gam_term_extract.R`'s `extract_smooth_one` and
+its four `stop()`-gated internal guards are a genuine independent producer *inside R*
+(ADR-191) and are reused unchanged. What slice 2 replaces is the *left* operand —
+`extract_smooth_terms`'s parse — with a real Python computation. `extract_smooth_terms`
+itself remains useful for reading the reference payload, but it is the reference side,
+not the Polaris side, once slice 2 lands.
 
 ### Slice 3: families, links and weights
 

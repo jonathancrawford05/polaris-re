@@ -14818,3 +14818,86 @@ assigned by the harness, never read from `mgcv`, because `mgcv`'s own `first.par
 not required to reproduce coefficient-for-coefficient. Getting this settled now, while
 the `raw` path's precedent is fresh, is what the work order asked for — reworking the
 data contract mid-epic is the cost of leaving it implicit.
+
+## ADR-193: a comparison is parity evidence only if two independent producers made it
+
+**Date:** 2026-08-16
+**Status:** Accepted
+**Supersedes nothing; constrains everything that compares Polaris output to a reference.**
+
+**Context.** The `mgcv` parity epic exists to prove this engine reproduces `mgcv`.
+Twice in a row a slice shipped a comparison table that could not, structurally,
+demonstrate that:
+
+- **Slice 1** (`raw`/`paraPen` path): Python builds the design `X` and the
+  penalties `S`, writes them to the exchange, and `mgcv` is fitted *on them*
+  (`y ~ 0 + X + offset(off)`, `paraPen`, `scalePenalty=FALSE`). Reading them back
+  through `predict(type="lpmatrix")` and `m$paraPen$S` compares Python's numbers
+  against Python's numbers. A zero diff proves `mgcv` did not reparameterise or
+  rescale what it was handed — a real check, and the one `scalePenalty=FALSE`
+  exists to make meaningful — but not basis parity. The single exception is
+  `rank`, computed by `numpy.linalg.matrix_rank` on one side and `mgcv`'s own
+  rank determination on the other.
+- **Slice 1b** (mgcv-native path): `extract_smooth_terms` *parses* the R payload
+  and `compare_term_extract` then compares the result against that same payload.
+  Every column is structurally zero. Slice 1b was carved out of slice 1
+  specifically to fix slice 1's incomplete verification, and reproduced the same
+  shape of gap in the other direction.
+
+Nothing was misstated. The docstrings, the session logs, the ledger and the CI
+caption all said "packaging, not verification." The mislabelling propagated
+anyway, because **a prose caveat does not travel and a column of `0.000e+00`
+does** — into the CI job summary, the ledger's "agrees" column, the PR
+description, and an automated review that approved on it. The lesson is that
+honesty at the point of authorship is not sufficient; the artefact itself has to
+carry its own provenance.
+
+**Decision. Three relationships, one of which is evidence:**
+
+- `INDEPENDENT` — both sides computed the quantity from the same *recipe*,
+  neither reading the other's output. **The only relationship that demonstrates
+  parity, and the only one that can produce a genuine disagreement.**
+- `ECHO` — one side supplied the quantity and the other returned it. A
+  no-tampering check.
+- `TRANSPORT` — one side computed it and the other parsed it. A round-trip check.
+
+**The mechanical test, applied to the signature before the body:** *if the
+function producing one operand takes the other side's payload as an input, it is
+not an independent producer.*
+
+**Provenance is declared in the type, by the producer, with no default.**
+`polaris_re.core.verification` provides `ComparisonProvenance`,
+`ComparedQuantity` (which refuses `INDEPENDENT` when both sides name the same
+producer), `VerificationClaim`, `require_parity_evidence` (the gate an acceptance
+check calls), and `evidence_markdown`/`evidence_headline` (the headline a report
+prints, **derived** from the declaration rather than hand-written). Provenance is
+per-quantity, so a table may carry an independent column beside echoed ones —
+which is exactly the `raw` path's shape.
+
+**Consequences.**
+
+1. `TermExtract` carries a required `evidence: VerificationClaim`. A new Stage-A
+   producer cannot be written without answering "who computed each side?".
+2. The `mgcv`-conformance CI job prints the provenance legend above each diff
+   table. The slice-1 table now reads *"Harness check with one parity column —
+   NOT basis parity"* and the slice-1b table *"Harness check — NOT parity"*, both
+   derived from the declarations.
+3. Acceptance criteria must name provenance ("**INDEPENDENT** Stage-A comparison
+   exact for `bs="cr"`"), so a harness slice cannot tick a parity box. Slice 2's
+   criteria in `docs/PLAN_mgcv_parity_engine.md` are rewritten accordingly.
+4. Conformance-ledger rows state what produced each side; a row that cannot name
+   two producers is a harness row.
+5. `docs/VERIFICATION_STANDARD.md` carries the project-wide rule and is on the
+   session reading list in `CLAUDE.md`; `REVIEW.md` makes reporting a harness
+   check as parity a P0.
+
+**What this does not claim.** The epic is not tautological. Conformance levels 1–5
+compare two independently implemented *fitters* over a shared `(X, S)` — genuine
+parity evidence, which is why level 4 can and does disagree (ADR-190). The gap is
+specific and narrow: **the fitter has independent evidence; the bases have none
+yet.** Slice 2 is the first work that can carry `INDEPENDENT` provenance at
+Stage A.
+
+**Out of scope.** Retro-classifying every historical ledger row (the rule binds
+new rows; §5 of the standard classifies the epic's current state instead), and
+any change to the conformance levels themselves — they were already independent.

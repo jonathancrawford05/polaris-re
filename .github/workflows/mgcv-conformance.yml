@@ -418,9 +418,11 @@ jobs:
               DESIGNS, build_design, synthetic_cells,
           )
           from polaris_re.analytics.gam_stage_a import (
+              RAW_PATH_CLAIM, SMOOTH_PATH_CLAIM,
               compare_term_extract, extract_raw_terms, extract_smooth_terms, raw_term_specs,
           )
           from polaris_re.analytics.gam_term_spec import TermSpec
+          from polaris_re.core.verification import evidence_markdown
 
           by_id = {d.design_id: d for d in DESIGNS}
           cases = [
@@ -429,8 +431,12 @@ jobs:
               ("d3", raw_term_specs(with_factor=False), False),
           ]
 
+          # ADR-193: the provenance legend prints BEFORE the diffs, and its headline is
+          # derived from the declared claim rather than written here — so a column of
+          # zeros cannot be read as parity unless it is parity.
           lines = [
               "", "### Slice 1 — per-term Stage-A extraction (raw/paraPen basis)", "",
+              evidence_markdown(RAW_PATH_CLAIM), "",
               "| design | term | index range agrees | max abs X diff | max abs S diff | rank diff |",
               "|---|---|---|---:|---:|---:|",
           ]
@@ -454,10 +460,11 @@ jobs:
                   )
           lines.append("")
           lines.append(
-              "Zero diffs and a zero rank diff mean the harness reads mgcv's fitted "
-              "paraPen object correctly, on a basis already verified to 5e-13 through "
-              "the fitter — the Anchor-1 proof slice 2 needs before it points this "
-              "machinery at a basis with no independent check."
+              "Zero diffs mean the harness reads mgcv's fitted paraPen object correctly "
+              "and that mgcv did not reparameterise the design and penalties it was "
+              "handed. Per the legend above, `design_X` and `penalty_S` are ECHO columns "
+              "— Python supplied them — so they are a no-tampering check, not basis "
+              "parity; `rank` is the one independently produced column here."
           )
           if any_disagree:
               lines.insert(1, "**A term disagreed — see the table.**")
@@ -465,6 +472,7 @@ jobs:
           smooth_r_terms = r_payload.get("smooth_designs", {})
           smooth_lines = [
               "", "### Slice 1b — per-term Stage-A extraction (mgcv-native, smoothCon)", "",
+              evidence_markdown(SMOOTH_PATH_CLAIM), "",
               "| term | index range agrees | max abs X diff | max abs S diff | rank diff | knots agree |",
               "|---|---|---:|---:|---:|---|",
           ]
@@ -489,11 +497,15 @@ jobs:
               any_smooth_disagree = True
           smooth_lines.append("")
           smooth_lines.append(
-              "This table packages the R extractor's OWN internal consistency guard "
-              "(against `predict(type=\"lpmatrix\")` / `m$smooth[[j]]`, ADR-191) — a "
-              "disagreement here means the Python packaging (`extract_smooth_terms`) "
-              "or the JSON round trip broke, not the underlying mgcv extraction, "
-              "which the R script would already have refused to emit (work order §5)."
+              "Every column here is TRANSPORT (see the legend): `extract_smooth_terms` "
+              "reads the R payload and is then compared against that same payload, so "
+              "these diffs are structurally zero and CANNOT indicate basis agreement — "
+              "a disagreement means the packaging or the JSON round trip broke. The "
+              "check that carries weight on this path is the R extractor's own internal "
+              "guard against `predict(type=\"lpmatrix\")` / `m$smooth[[j]]` (ADR-191), "
+              "which `stop()`s the R script before it emits anything. Slice 2 replaces "
+              "the left producer with a Python `cr` basis, making these columns "
+              "INDEPENDENT — the first real Stage-A parity measurement."
           )
           if any_smooth_disagree:
               smooth_lines.insert(2, "**A term disagreed — see the table.**")

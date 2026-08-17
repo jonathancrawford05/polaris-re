@@ -2255,3 +2255,49 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   against is built and tier-1-confirmed. *Source: this session,
   `docs/PLAN_mgcv_parity_engine.md` / `docs/CONTINUATION_mgcv_parity_engine.md`
   (1st-order — the epic's own NEXT slice).*
+
+### Harvested 2026-08-16b — verification provenance (PR #199 review follow-up)
+
+- **The verification-provenance standard, shipped.** ADR-193 +
+  `docs/VERIFICATION_STANDARD.md` + `polaris_re.core.verification`: a comparison is
+  parity evidence only when two independent producers computed the compared quantity.
+  Provenance is declared in the type by the producer (no default), report headlines are
+  derived from the declaration rather than hand-written, and `require_parity_evidence`
+  gates any asserted parity claim. Both Stage-A paths now declare honestly — slice 1's
+  `X`/`S` as ECHO, slice 1b's columns as TRANSPORT — and the CI job summary says so
+  above the zeros. *Source: PR #199 review, maintainer direction (1st-order — a
+  project-wide verification contract every future comparison inherits).*
+
+- ~~**Slice 2 must be the epic's first Stage-A parity slice.**~~ **RESCOPED
+  2026-08-16.** Its acceptance criteria in `docs/PLAN_mgcv_parity_engine.md` now name
+  the provenance they require (INDEPENDENT on `design_X`/`penalty_S`), so a harness
+  result cannot tick them, and the mechanical test is written into the criteria: the
+  Python producer takes no R payload as an input. *Source: this session, ADR-193
+  (1st-order — the epic's own NEXT slice).*
+
+- **The routine prompts need their remaining edits.**
+  `docs/ROUTINE_CHANGES_2026-08-16_verification_provenance.md` carries all seven
+  verbatim with a status table. Applied 2026-08-16: the PR-review provenance audit,
+  PR-review goldens-are-not-correctness, and the mgcv-parity provenance gate.
+  Outstanding, all daily dev: the comparisons-against-a-reference step,
+  provenance-named acceptance criteria, producers named on recorded comparisons, and
+  the epic-ownership exclusion. The prompts live in the trigger configuration outside
+  this repo, so the human who owns those triggers must apply them — the repo half is
+  done. *Source: this session (1st-order — without the routine edits the standard
+  binds code but not the sessions that write it).*
+
+- **Retro-classifying the historical conformance-ledger rows.** ADR-193 declared it out
+  of scope, and the PR #200 review asked where it went. The preamble of
+  `docs/CONFORMANCE_LEDGER.md` now names the existing rows and their kind (the four
+  slice-1 rows ECHO with `rank` independent; the two slice-1b rows TRANSPORT), which
+  makes the caveat attach to identified artefacts rather than to "earlier rows". A
+  per-row `CONFIRMED (harness)` marker is still unwritten and would need an
+  append-only-safe convention first. *Source: PR #200 review [P1]/[P2] (2nd-order,
+  NICE-TO-HAVE — a follow-up of ADR-193, which was itself the #199 review's follow-up).*
+
+- **The `mgcv` epic's bases have no independent evidence yet; its fitter does.**
+  Conformance levels 1-5 compare two independently implemented fitters over a shared
+  `(X, S)`, which is why level 4 can genuinely disagree (ADR-190). §5 of the standard
+  carries the full audit. Worth re-reading before any claim about what the epic has
+  proven. *Source: this session (2nd-order, NICE-TO-HAVE — a documented statement of
+  current evidence, not a work item).*
