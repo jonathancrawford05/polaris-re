@@ -2301,3 +2301,43 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   carries the full audit. Worth re-reading before any claim about what the epic has
   proven. *Source: this session (2nd-order, NICE-TO-HAVE — a documented statement of
   current evidence, not a work item).*
+
+### Harvested 2026-08-17 — slice 2, the epic's first Stage-A basis parity (ADR-194)
+
+- ~~**The `mgcv` epic's bases have no independent evidence yet.**~~ **PARTIALLY
+  RESOLVED 2026-08-17.** The `cr` basis now does: `gam_basis_cr.py` reproduces
+  `mgcv::smoothCon(bs="cr", absorb.cons=TRUE)` to float round-trip precision on 5
+  cases, including the target formula's own `AttdAge`(k=13)/`PolYear`(k=6) knot
+  vectors, confirmed at both tier 1 and tier 3 (CI run 32033738454). `design_X`,
+  `penalty_S` and `rank` are `INDEPENDENT` (`CR_BASIS_CLAIM`) — the first table in
+  `docs/CONFORMANCE_LEDGER.md` entitled to `CONFIRMED (parity)`. (`knots` agreement
+  is also checked and also agrees on all 5 cases, but — PR #201 review [P1],
+  corrected same-day — is reported separately rather than folded into the claim,
+  since it is ECHO, not INDEPENDENT, in the 3 supplied-knot cases.) `ti` and `sz`
+  (slices 5-6) remain unbuilt. *Source: this session, ADR-194 (1st-order — the
+  epic's own next-slice progress).*
+
+- **Extrapolation beyond the knot range is unverified in the Python `cr` basis.**
+  All 5 of slice 2's cases draw `x` from inside `[knots[0], knots[-1]]` by
+  construction; what `mgcv` does outside that range was never measured, and the
+  natural boundary condition does not by itself imply the per-interval Hermite
+  formula reduces to linear extrapolation there. This foreseeably blocks a specific
+  future use: the target formula's own `AttdAge`/`PolYear` knots fit against real
+  experience data, where the data range need not equal the hand-chosen knot range.
+  *Source: this session, `gam_basis_cr.py` module docstring (1st-order — blocks a
+  named future use, not a hypothetical).*
+
+- **Slice 3 — families, links and weights.** Now genuinely unblocked (depended on
+  slice 1, independent of slice 2). Binomial `cloglog`/`logit`, quasi-Poisson with
+  `φ` estimated, Poisson with a log offset. *Source: `docs/PLAN_mgcv_parity_engine.md`
+  (1st-order — the epic's own NEXT slice).*
+
+- **The `continue-on-error` job-summary-artifact limitation likely affects the
+  ADR-190 and ADR-191 diagnostic probes too**, not only the per-term comparison step
+  fixed this session. Those steps' tier-3 confirmations rest on the same "the step
+  didn't except" reading slice 1b's row did, for the same reason (job-summary
+  artifact behind a blocked blob-storage host). The fix — `print()` the report to
+  stdout alongside the file write — is a few lines per step if a future session
+  needs to re-read one of those probes' actual numbers rather than their pass/fail.
+  *Source: this session (2nd-order, NICE-TO-HAVE — a known gap with a known cheap
+  fix, not urgent since neither probe is currently blocking anything).*

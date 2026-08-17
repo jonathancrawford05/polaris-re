@@ -1,4 +1,4 @@
-"""Stage-A per-term extraction and comparison (mgcv-parity engine, slices 1 and 1b).
+"""Stage-A per-term extraction and comparison (mgcv-parity engine, slices 1, 1b, 2).
 
 ``docs/PLAN_mgcv_parity_engine.md`` slice 1's remaining scope, per
 ``docs/CONTINUATION_mgcv_parity_engine.md``: the R-side per-term extractor
@@ -36,17 +36,28 @@ fails the R side loudly if it ever stops holding. So :func:`extract_smooth_terms
 is packaging that already-verified R output into the same :class:`TermExtract` shape
 :func:`extract_raw_terms` produces, not re-verifying it.
 
+The Python ``cr`` basis (slice 2, ``docs/PLAN_mgcv_parity_engine.md``)
+------------------------------------------------------------------------
+:func:`build_python_cr_term` (:mod:`polaris_re.analytics.gam_basis_cr` does the
+actual construction) is the first *independent* Python producer: it builds
+``design_X``/``penalty_S`` from the covariate locations and a knot vector via
+Wood's natural-cubic-spline definition, and never reads ``gam_term_extract.R``'s
+``X``/``S``/``rank``/``knots`` output — only the shared covariate ``x`` it now
+also exports (a recipe input, not a compared quantity, same status as a supplied
+knot vector under Anchor 4). :data:`CR_BASIS_CLAIM` declares every compared
+quantity ``INDEPENDENT``, and it is the epic's first Stage-A claim entitled to
+that word.
+
 What Stage A has and has not proven (ADR-193)
 ---------------------------------------------
-Neither path here is a basis-parity comparison yet, and both now say so in the
-type rather than only in prose. :data:`RAW_PATH_CLAIM` marks the ``raw`` path's
-design and penalties as ``ECHO`` (Python builds them, mgcv is fitted *on them*,
-so a zero diff proves no tampering) with ``rank`` the one independently produced
-column; :data:`SMOOTH_PATH_CLAIM` marks every mgcv-native quantity as
-``TRANSPORT`` (one producer, parsed by the other). Slice 2 — a Python ``cr``
-basis built from knots and Wood's definition — is the first Stage-A work that
-can carry ``INDEPENDENT`` provenance, and ``docs/VERIFICATION_STANDARD.md``
-requires it to declare that before the comparison is reported as parity.
+:data:`RAW_PATH_CLAIM` marks the ``raw`` path's design and penalties as ``ECHO``
+(Python builds them, mgcv is fitted *on them*, so a zero diff proves no
+tampering) with ``rank`` the one independently produced column;
+:data:`SMOOTH_PATH_CLAIM` marks every mgcv-native quantity read via
+:func:`extract_smooth_terms` as ``TRANSPORT`` (one producer, parsed by the
+other) — that function still exists and is still used, as the *reference* side
+of the slice-2 comparison rather than a thing slice 2 replaces.
+:data:`CR_BASIS_CLAIM` is the third and only ``INDEPENDENT`` claim.
 """
 
 from dataclasses import dataclass
@@ -55,6 +66,11 @@ from typing import TypedDict
 import numpy as np
 
 from polaris_re.analytics.experience_mgcv_conformance import DesignExport
+from polaris_re.analytics.gam_basis_cr import (
+    absorb_sum_to_zero_constraint,
+    cr_basis,
+    cr_default_knots,
+)
 from polaris_re.analytics.gam_term_spec import SUPPORTED_BASES, TermSpec
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 from polaris_re.core.verification import (
@@ -64,11 +80,13 @@ from polaris_re.core.verification import (
 )
 
 __all__ = [
+    "CR_BASIS_CLAIM",
     "RAW_PATH_CLAIM",
     "SMOOTH_PATH_CLAIM",
     "RTermPayload",
     "TermExtract",
     "TermExtractComparison",
+    "build_python_cr_term",
     "compare_term_extract",
     "extract_raw_terms",
     "extract_smooth_terms",
@@ -79,7 +97,7 @@ __all__ = [
 class RTermPayload(TypedDict):
     """The keys read from one term entry of ``scripts/gam_term_extract.R``'s JSON
     output — either ``designs.<id>.terms.<label>`` (raw/paraPen) or
-    ``smooth_designs.<label>`` (mgcv-native, slice 1b) — the R-side schema
+    ``smooth_designs.<label>`` (mgcv-native, slice 1b/2) — the R-side schema
     :func:`compare_term_extract` reads, documented in the type rather than left as
     ``Any`` (CLAUDE.md §5)."""
 
@@ -89,6 +107,12 @@ class RTermPayload(TypedDict):
     S: list[list[list[float]]]
     rank: list[int]
     knots: list[float] | None
+    x: list[float]
+    """Covariate locations (slice 2). Present only on ``smooth_designs`` entries —
+    ``raw`` terms have no single covariate vector. Shared recipe context, not a
+    compared quantity: :func:`build_python_cr_term` reads it to evaluate its own
+    basis at the same points, never mgcv's X/S/rank/knots (ADR-193's mechanical
+    test)."""
 
 
 _AGREEMENT_TOLERANCE = 1e-9
@@ -199,6 +223,75 @@ carries weight on this path is the R script's own internal guard, which compares
 Slice 2 replaces the left producer with a Python ``cr`` basis built from the
 knots and Wood's basis definition — at which point these quantities become
 INDEPENDENT and the comparison starts meaning what its columns say."""
+
+
+CR_BASIS_CLAIM = VerificationClaim(
+    claim=(
+        "polaris_re.analytics.gam_basis_cr builds the cr basis (design_X, "
+        "penalty_S) from the covariate locations and a knot vector, following "
+        "Wood's natural-cubic-spline construction; gam_term_extract.R's "
+        "smoothCon(absorb.cons=TRUE) branch computes the same quantities via "
+        "mgcv's own C implementation; compared on design_X, penalty_S and rank. "
+        "knots are checked for agreement too (compare_term_extract's "
+        "knots_agree/max_abs_knots_diff) but are NOT part of this claim — see "
+        "the note below on why."
+    ),
+    quantities=(
+        ComparedQuantity(
+            quantity="design_X",
+            left_producer=(
+                "gam_basis_cr.cr_basis + absorb_sum_to_zero_constraint (Wood's construction)"
+            ),
+            right_producer="mgcv smoothCon(s(x, bs='cr', k), absorb.cons=TRUE)$X",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="penalty_S",
+            left_producer=(
+                "gam_basis_cr.cr_basis (Wood's integrated-squared-second-derivative penalty)"
+            ),
+            right_producer="mgcv smoothCon(...)$S — after mgcv's own scale.penalty rescaling",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="rank",
+            left_producer="numpy.linalg.matrix_rank on the Python-constrained penalty block",
+            right_producer="mgcv smoothCon(...)$rank (mgcv's own rank determination)",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+    ),
+)
+"""The Python ``cr`` basis's provenance (ADR-193) — the epic's first INDEPENDENT
+Stage-A claim.
+
+``design_X``, ``penalty_S`` and ``rank`` are computed by two distinct
+implementations from the same recipe (the covariate locations, plus a knot
+vector either supplied to both or each side's own default placement):
+:func:`build_python_cr_term` never reads ``gam_term_extract.R``'s
+``X``/``S``/``rank``/``knots`` output, only the shared covariate ``x`` it
+exports (module docstring — ``x`` is recipe context, not a compared quantity,
+the same status a supplied knot vector already has under Anchor 4).
+
+**``knots`` is deliberately NOT in this claim (PR #201 review [P1]).** It is a
+genuine independent computation only in the default-knot cases — R's own
+``quantile()`` versus NumPy's ``quantile`` on the same unique values. In the
+supplied-knot cases (the majority — 3 of slice 2's 5 cases), *neither* side
+computes the knots: both sides simply relay the same hand-declared literal, and
+``mgcv``'s ``$xp`` returns exactly what it was handed. That is ``ECHO`` by
+``docs/VERIFICATION_STANDARD.md``'s own definition ("one side supplied the
+quantity; the other returned it"), not ``INDEPENDENT`` — and
+:class:`VerificationClaim` declares one provenance per *quantity name*, not per
+case, so a single ``knots`` entry here cannot honestly say both at once. Tagging
+it ``INDEPENDENT`` unconditionally (the first cut of this claim) let the label
+overstate 3 of 5 cases — exactly the mislabelling ADR-193 exists to prevent, an
+irony not lost on the module that carries this docstring. The comparison itself
+still runs and still matters (:meth:`TermExtractComparison.knots_agree` /
+``max_abs_knots_diff``, checked in :func:`compare_term_extract`): it is a real
+recipe-consistency check, just not a parity one, so it stays outside this
+:class:`VerificationClaim` rather than inside it with the wrong tag.
+
+A disagreement on any of the three claimed quantities is a real result about the
+basis, not a broken round trip (ADR-193's "what a good session looks like")."""
 
 
 @dataclass(frozen=True)
@@ -389,6 +482,56 @@ def extract_smooth_terms(
             knots=tuple(float(v) for v in r_knots) if r_knots is not None else None,
         )
     return result
+
+
+def build_python_cr_term(x: np.ndarray, term: TermSpec) -> TermExtract:
+    """The independent Python producer for a ``bs="cr"`` term (slice 2).
+
+    Builds ``design_X``/``penalty_S`` from ``x`` and ``term``'s own recipe (``k``,
+    and supplied knots if any) via :mod:`polaris_re.analytics.gam_basis_cr` — never
+    from ``mgcv``'s output. This is the function ADR-193's mechanical test applies
+    to: its signature takes only ``x`` (the shared covariate recipe) and ``term``
+    (the shared spec), not an R payload — the mgcv-native counterpart
+    :func:`extract_smooth_terms` above reads the R payload directly and is not this
+    function's replacement, it is the *other* producer :data:`CR_BASIS_CLAIM`
+    compares this one against.
+
+    Args:
+        x: The covariate values the comparison is evaluated at — read off the R
+            payload's own ``"x"`` field by the *caller*, not by this function, so
+            the mechanical test sees a signature with no R payload in it.
+        term: Must have ``basis="cr"`` and exactly one variable.
+    """
+    if term.basis != "cr":
+        raise PolarisValidationError(
+            f"build_python_cr_term only handles basis='cr'; {term.label!r} is basis={term.basis!r}."
+        )
+    if len(term.variables) != 1 or len(term.k) != 1:
+        raise PolarisValidationError(
+            f"build_python_cr_term: {term.label!r} must name exactly one variable "
+            f"and one k; got variables={term.variables!r}, k={term.k!r}."
+        )
+    x = np.asarray(x, dtype=np.float64)
+    k = term.k[0]
+    supplied = term.knots_by_variable().get(term.variables[0])
+    knots = (
+        np.asarray(supplied, dtype=np.float64) if supplied is not None else cr_default_knots(x, k)
+    )
+
+    design_unc, s_unc = cr_basis(x, knots)
+    design, s = absorb_sum_to_zero_constraint(design_unc, s_unc)
+    rank = int(np.linalg.matrix_rank(s))
+
+    return TermExtract(
+        label=term.label,
+        index_start=0,
+        index_end=design.shape[1],
+        design=design,
+        s=(s,),
+        rank=(rank,),
+        evidence=CR_BASIS_CLAIM,
+        knots=tuple(float(v) for v in knots),
+    )
 
 
 @dataclass(frozen=True)

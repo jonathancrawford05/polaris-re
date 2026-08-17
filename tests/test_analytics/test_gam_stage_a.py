@@ -25,9 +25,11 @@ from polaris_re.analytics.experience_mgcv_conformance import (
     synthetic_cells,
 )
 from polaris_re.analytics.gam_stage_a import (
+    CR_BASIS_CLAIM,
     RAW_PATH_CLAIM,
     SMOOTH_PATH_CLAIM,
     TermExtract,
+    build_python_cr_term,
     compare_term_extract,
     extract_raw_terms,
     extract_smooth_terms,
@@ -379,6 +381,56 @@ def test_compare_term_extract_refuses_a_knots_shape_mismatch() -> None:
         compare_term_extract(extract, shortened)
 
 
+# --- build_python_cr_term, the independent Python producer (slice 2) -------------------
+
+
+def test_build_python_cr_term_builds_a_term_extract_with_supplied_knots() -> None:
+    rng = np.random.default_rng(1)
+    x = np.sort(rng.uniform(0.0, 10.0, 100))
+    term = TermSpec(
+        label="s(x)",
+        variables=("x",),
+        basis="cr",
+        k=(8,),
+        knots=(("x", (0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 9.0, 10.0)),),
+    )
+    extract = build_python_cr_term(x, term)
+    assert extract.label == "s(x)"
+    assert (extract.index_start, extract.index_end) == (0, 7)
+    assert extract.design.shape == (100, 7)
+    assert len(extract.s) == 1
+    assert extract.s[0].shape == (7, 7)
+    assert extract.knots == (0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 9.0, 10.0)
+    assert extract.evidence is CR_BASIS_CLAIM
+
+
+def test_build_python_cr_term_derives_default_knots_when_none_supplied() -> None:
+    rng = np.random.default_rng(2)
+    x = np.sort(rng.uniform(0.0, 10.0, 200))
+    term = TermSpec(label="s(x)", variables=("x",), basis="cr", k=(8,))
+    extract = build_python_cr_term(x, term)
+    assert extract.knots is not None
+    assert len(extract.knots) == 8
+    assert extract.knots[0] == pytest.approx(float(np.min(x)))
+    assert extract.knots[-1] == pytest.approx(float(np.max(x)))
+
+
+def test_build_python_cr_term_refuses_a_non_cr_basis() -> None:
+    x = np.linspace(0.0, 10.0, 50)
+    raw_term = TermSpec(label="tensor", variables=("attained_age", "calendar_year"), basis="raw")
+    with pytest.raises(PolarisValidationError, match="basis='cr'"):
+        build_python_cr_term(x, raw_term)
+
+
+def test_build_python_cr_term_refuses_more_than_one_variable() -> None:
+    # basis='cr' does not itself forbid a second variable at TermSpec construction
+    # (that restriction is ti/sz-specific) — build_python_cr_term is what refuses it.
+    x = np.linspace(0.0, 10.0, 50)
+    two_var_term = TermSpec(label="s(a,b)", variables=("a", "b"), basis="cr", k=(8, 6))
+    with pytest.raises(PolarisValidationError, match="exactly one variable"):
+        build_python_cr_term(x, two_var_term)
+
+
 # --- End to end: the R script itself, proving the harness (Anchor 1) ------------------
 
 
@@ -469,7 +521,7 @@ def test_the_r_extractor_agrees_with_the_python_side_on_every_smooth_design(
     assert done.returncode == 0, done.stderr
     r_payload = json.loads(out_path.read_text())
     smooth_designs = r_payload["smooth_designs"]
-    assert set(smooth_designs) == {"default-knots-k8", "default-knots-k13", "supplied-knots-k8"}
+    assert set(smooth_designs) == set(_SMOOTH_CASES)
 
     terms = tuple(
         TermSpec(label=label, variables=("x",), basis="cr", k=(len(r_term["knots"]),))
@@ -484,6 +536,92 @@ def test_the_r_extractor_agrees_with_the_python_side_on_every_smooth_design(
             failures.append(f"{label}: {comparison}")
 
     assert not failures, "Stage-A mgcv-native term extraction disagreed:\n" + "\n".join(failures)
+
+
+# The (k, knots) recipe for each of gam_term_extract.R's five `extract_smooth_one`
+# cases, named explicitly here rather than inferred from the R payload —
+# build_python_cr_term must use the SAME recipe R was given (Anchor 4: never derive
+# knots when supplied), and reading either k or the knot values back off the R
+# payload would violate ADR-193's mechanical test — a k mismatch could otherwise
+# never surface as a disagreement (PR #201 review [P2]).
+_SMOOTH_CASES: dict[str, tuple[int, tuple[float, ...] | None]] = {
+    "default-knots-k8": (8, None),
+    "default-knots-k13": (13, None),
+    "supplied-knots-k8": (8, (0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 9.0, 10.0)),
+    # PLAN §1's actual target formula: s(AttdAge, k=13, bs="cr") / s(PolYear, k=6,
+    # bs="cr") — slice 2 acceptance criterion #1 names these knot vectors, not a
+    # stand-in.
+    "target-attdage-k13": (
+        13,
+        (1.0, 2.0, 4.0, 7.0, 14.0, 18.0, 24.0, 35.0, 50.0, 70.0, 85.0, 90.0, 95.0),
+    ),
+    "target-polyear-k6": (6, (1.0, 2.0, 3.0, 5.0, 10.0, 21.0)),
+}
+
+
+@pytest.mark.skipif(not rscript_mgcv_available(), reason="R with mgcv is not installed here")
+def test_the_python_cr_basis_agrees_with_smoothcon_on_every_smooth_design(
+    tmp_path,
+) -> None:  # pragma: no cover
+    """Slice 2's harness proof, and the epic's first INDEPENDENT Stage-A result:
+    :func:`build_python_cr_term` — a Python ``cr`` basis built from Wood's
+    natural-cubic-spline definition — agrees with ``mgcv``'s own
+    ``smoothCon(absorb.cons=TRUE)``, read via the R script's ``x`` export, on all
+    five of ``gam_term_extract.R``'s isolated ``bs="cr"`` cases — including the
+    target formula's own ``AttdAge``/``PolYear`` knot vectors, not just the
+    original harness's synthetic ones.
+
+    A disagreement here is a *result about the basis* (ADR-193's "what a good
+    session looks like"), not a broken round trip — unlike the TRANSPORT test
+    above, this one can genuinely fail on the numbers.
+    """
+    out_path = tmp_path / "gam_term_extract.json"
+    done = subprocess.run(
+        [
+            "Rscript",
+            str(REPO_ROOT / "scripts" / "gam_term_extract.R"),
+            str(REPO_ROOT / "data" / "mgcv_exchange" / "synthetic"),
+            str(out_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    r_payload = json.loads(out_path.read_text())
+    smooth_designs = r_payload["smooth_designs"]
+    assert set(smooth_designs) == set(_SMOOTH_CASES)
+
+    failures: list[str] = []
+    for label, r_term in smooth_designs.items():
+        k, supplied = _SMOOTH_CASES[label]
+        term = TermSpec(
+            label=label,
+            variables=("x",),
+            basis="cr",
+            k=(k,),
+            knots=(("x", supplied),) if supplied is not None else None,
+        )
+        x = np.asarray(r_term["x"], dtype=np.float64)
+        python_term = build_python_cr_term(x, term)
+        assert python_term.evidence is CR_BASIS_CLAIM
+        # Passes the FULL quantity set, not just parity_quantities — a claim that
+        # ever regressed to carrying a non-INDEPENDENT quantity must fail this gate
+        # (PR #201 review [P2]; `parity_quantities` pre-filters, so gating on it
+        # can only catch an empty claim).
+        require_parity_evidence(
+            python_term.evidence.quantities, claim=f"{label}: Stage-A cr basis parity"
+        )
+        comparison = compare_term_extract(python_term, r_term)
+        if not comparison.agrees:
+            failures.append(
+                f"{label}: max_X_diff={comparison.max_abs_design_diff:.3e} "
+                f"max_S_diff={comparison.max_abs_s_diff} rank_diff={comparison.rank_diff} "
+                f"knots_agree={comparison.knots_agree}"
+            )
+
+    assert not failures, "Stage-A cr basis parity disagreed:\n" + "\n".join(failures)
 
 
 # --- Provenance: what these comparisons are evidence OF (ADR-193) ----------------------
@@ -533,3 +671,28 @@ def test_a_comparison_carries_its_producers_provenance_through() -> None:
     assert comparison.evidence is RAW_PATH_CLAIM
     # The verdict a report prints above the zeros, derived from the declaration.
     assert "NOT basis parity" in evidence_headline(comparison.evidence)
+
+
+def test_the_python_cr_basis_declares_every_quantity_independent() -> None:
+    """Slice 2 (ADR-193): the first Stage-A claim entitled to say "parity"."""
+    rng = np.random.default_rng(3)
+    x = np.sort(rng.uniform(0.0, 10.0, 50))
+    term = TermSpec(label="s(x)", variables=("x",), basis="cr", k=(8,))
+    extract = build_python_cr_term(x, term)
+    assert extract.evidence is CR_BASIS_CLAIM
+    assert extract.evidence.is_parity_claim
+    assert all(
+        q.provenance is ComparisonProvenance.INDEPENDENT for q in extract.evidence.quantities
+    )
+    assert "Parity comparison" in evidence_headline(extract.evidence)
+    require_parity_evidence(extract.evidence.parity_quantities, claim="cr basis parity")
+
+
+def test_the_python_cr_basis_claim_excludes_knots() -> None:
+    """PR #201 review [P1]: `knots` is ECHO in 3 of slice 2's 5 cases (both sides
+    relay the same hand-declared literal when knots are supplied), so it cannot
+    honestly carry a single per-quantity INDEPENDENT tag and is excluded from
+    CR_BASIS_CLAIM rather than mislabelled — knot agreement is still checked
+    (compare_term_extract's knots_agree), just outside this claim."""
+    assert {q.quantity for q in CR_BASIS_CLAIM.quantities} == {"design_X", "penalty_S", "rank"}
+    assert "knots" not in {q.quantity for q in CR_BASIS_CLAIM.quantities}

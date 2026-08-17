@@ -14901,3 +14901,178 @@ Stage A.
 **Out of scope.** Retro-classifying every historical ledger row (the rule binds
 new rows; §5 of the standard classifies the epic's current state instead), and
 any change to the conformance levels themselves — they were already independent.
+
+## ADR-194: the Python `cr` basis reproduces `mgcv::smoothCon(bs="cr")` — the epic's first INDEPENDENT Stage-A parity result
+
+**Date:** 2026-08-17
+**Status:** Accepted
+**Context:** `docs/PLAN_mgcv_parity_engine.md` slice 2 — the epic's first Stage-A
+work entitled to claim `INDEPENDENT` provenance (ADR-193): a Python `cr` basis
+built from a knot vector and Wood's natural-cubic-spline definition, never
+reading `mgcv`'s output, compared against `mgcv::smoothCon(s(x, bs="cr", k),
+absorb.cons=TRUE)`.
+
+**Parity claim, written before the code (per `docs/VERIFICATION_STANDARD.md`):**
+`polaris_re`'s new `cr` basis computes `design_X` and `penalty_S` from the
+covariate locations and a knot vector, following Wood's natural-cubic-spline
+construction; `mgcv` computes them via `smoothCon(s(x, bs="cr", k),
+absorb.cons=TRUE)`; compared on `design_X`, `penalty_S` and `rank`.
+
+> **Amended 2026-08-17, same day (PR #201 review [P1]).** The claim as first
+> written also named `knots` as a fourth compared quantity, tagged
+> `INDEPENDENT`. That overstated 3 of slice 2's 5 cases: when knots are
+> supplied (the majority), *neither* side computes them — both the Python
+> producer and `mgcv`'s `$xp` simply relay the same hand-declared literal,
+> which is `ECHO` by `docs/VERIFICATION_STANDARD.md`'s own definition, not
+> `INDEPENDENT`. `knots` is only a genuine independent computation in the
+> two default-knot cases. Because `VerificationClaim` declares one provenance
+> per quantity *name*, not per case, a single `knots` entry could not honestly
+> carry both answers — so it is removed from `CR_BASIS_CLAIM` (`gam_stage_a.py`)
+> rather than mistagged. Knot agreement is still checked
+> (`compare_term_extract`'s `knots_agree`/`max_abs_knots_diff`) and still
+> reported in every table below; it is a real recipe-consistency check, just
+> not a parity one. Decision 3 and the measurement tables are otherwise
+> unchanged — this correction is to the claim's scope, not to any number.
+
+### Decision 1 — every construction detail was read out of `mgcv`'s own R source, not guessed
+
+CLAUDE.md forbids guessing a penalty derivation. This session read
+`mgcv:::smooth.construct.cr.smooth.spec` and `mgcv::smoothCon` directly off the
+installed R package (`deparse()`, tier 1) rather than working from memory of
+Wood's textbook alone, and pinned three facts that are not visible from the
+textbook construction in isolation:
+
+1. **Default knots** are `quantile(unique(x), seq(0, 1, length = k))` — R's
+   type-7 quantile over the *unique* data values. `numpy.quantile(...,
+   method="linear")` matches this default exactly.
+2. **The identifiability constraint absorbed by `absorb.cons=TRUE`** is
+   `C = colMeans(X)` (a *mean*, not a sum), applied via the null space of `C`
+   computed through a full QR decomposition of `Cᵀ`: `Z` is every column of `Q`
+   after the first. Measured directly: `numpy.linalg.qr(C, mode="complete")`
+   reproduces R's `qr()`/`qr.Q(qrc, complete=TRUE)` bit-for-bit on a
+   single-column input (both use the same cancellation-avoiding Householder
+   sign convention), which is what makes `Z` — and therefore the constrained
+   `X` and `S` — comparable element-wise rather than only up to an arbitrary
+   rotation of the null space.
+3. **`smoothCon`'s own `scale.penalty` argument** (default `TRUE`, distinct
+   from `gam.control(scalePenalty=)` used on the `raw`/`paraPen` path in
+   `experience_mgcv_conformance.py` — same name, unrelated setting) rescales
+   the penalty by `norm_1(S) / norm_inf(X)²` (R's one-norm of `S` over R's
+   infinity-norm of `X`, squared). Found empirically: the unscaled penalty
+   this session's Wood-formula implementation produced was a *constant*
+   multiple of `smoothCon()$S` (ratio identical across every matrix entry),
+   which is the signature of a missed rescale rather than a wrong recursion —
+   the ratio was then matched to R's own rescaling formula and confirmed to
+   remove the discrepancy to float round-trip precision.
+
+### Decision 2 — the natural-cubic-spline recursion itself is Wood's textbook construction, unaltered
+
+Given knots `x*_1 < ... < x*_k` with gaps `h_j`, the interior second-derivative
+system (`D` a `(k-2, k)` operator, `B` a `(k-2, k-2)` tridiagonal operator) and
+the per-interval cubic-Hermite-with-curvature basis row are exactly *Generalized
+Additive Models: An Introduction with R*, 2nd ed., §5.3.1 — no departure from
+the textbook was needed once the three details in Decision 1 were pinned. This
+is itself informative: PLAN §6 registered, before any code was written, the
+prediction *"Stage A on `cr` agrees exactly once knots match, and any
+disagreement is knot placement rather than the spline recursion."* The
+recursion agreed on the first measurement with no iteration — the prediction
+held, and Anchor 9 records that as the successful outcome it names.
+
+### Decision 3 — verified against the target formula's own knot vectors, not a stand-in
+
+PLAN §1's target formula names `s(AttdAge, k=13, bs="cr")` and `s(PolYear,
+k=6, bs="cr")` with specific hand-chosen, non-uniform knots. Slice 2's
+acceptance criterion #1 names these literally ("for the target's own knot
+vectors ... at both k=13 and k=6"), so this session extended
+`scripts/gam_term_extract.R`'s three original harness cases (default knots
+k=8/k=13, supplied knots k=8) with two more using the *exact* target knot
+arrays, rather than treating the harness's pre-existing synthetic cases as
+sufficient. All five cases agree to float round-trip precision (~1e-14) — see
+"The measurement" below.
+
+### Decision 4 — extrapolation beyond the knot range is explicitly out of scope, not silently assumed
+
+All five cases draw their covariate `x` from inside `[knots[0], knots[-1]]`
+(default knots are quantiles of `x` itself; the two target-knot cases use a
+matching `x_range` parameter added to `extract_smooth_one`). What `mgcv`
+actually does for `x` outside that range was not measured this session, and
+the natural boundary condition (`δ = 0` at the two end knots) does not by
+itself imply the per-interval Hermite formula reduces to linear extrapolation
+— `gam_basis_cr.py`'s module docstring marks this explicitly (CLAUDE.md: mark
+the uncertainty rather than guess). A future slice needing knots that do not
+span the data range (real experience data against the target's own
+`AttdAge`/`PolYear` knots, PLAN §1) must verify this first.
+
+### The measurement
+
+Five isolated `bs="cr"` cases (`scripts/gam_term_extract.R`'s
+`extract_smooth_one`, seed `20120101`, ADR-074): `default-knots-k8` (n=200,
+k=8), `default-knots-k13` (n=400, k=13), `supplied-knots-k8` (n=200, k=8,
+knots `c(0,1,2,3,5,8,9,10)`), `target-attdage-k13` (n=400, k=13, PLAN §1's
+`AttdAge` knots), `target-polyear-k6` (n=200, k=6, PLAN §1's `PolYear`
+knots).
+
+**Tier 1** (R 4.3.3 / mgcv 1.9.1, local apt):
+
+| case | max abs `design_X` diff | max abs `penalty_S` diff | rank diff | knots agree |
+|---|---:|---:|---:|---|
+| `default-knots-k8` | 8.4e-15 | 9.3e-15 | 0 | yes |
+| `default-knots-k13` | 1.2e-14 | 1.3e-14 | 0 | yes |
+| `supplied-knots-k8` | 7.6e-15 | 4.4e-15 | 0 | yes |
+| `target-attdage-k13` | 1.5e-14 | 3.6e-15 | 0 | yes |
+| `target-polyear-k6` | 1.4e-14 | 8.0e-15 | 0 | yes |
+
+**Tier 3** (R 4.6.1 / mgcv 1.9.4, oracle
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`, build 8,
+CI run [32033738454](https://github.com/jonathancrawford05/polaris-re/actions/runs/32033738454),
+read directly from job-log stdout via `get_job_logs` — not inferred from a masked
+`continue-on-error` step conclusion; see "the methodology fix" below):
+
+| case | max abs `design_X` diff | max abs `penalty_S` diff | rank diff | knots agree |
+|---|---:|---:|---:|---|
+| `default-knots-k8` | 8.327e-15 | 9.548e-15 | 0 | yes |
+| `default-knots-k13` | 1.213e-14 | 1.243e-14 | 0 | yes |
+| `supplied-knots-k8` | 7.605e-15 | 4.441e-15 | 0 | yes |
+| `target-attdage-k13` | 1.454e-14 | 3.553e-15 | 0 | yes |
+| `target-polyear-k6` | 1.379e-14 | 7.994e-15 | 0 | yes |
+
+Every diff, at both tiers, is float round-trip noise, not a disagreement — the
+same order as ADR-191's `lpmatrix`-vs-`smoothCon` measurement (3.553e-15) and well
+inside the `<1e-9` tolerance PLAN slice 2's acceptance criterion #1 sets. The
+last-bit differences between tiers are consistent with the different `mgcv`
+release and BLAS the routine's tier discipline predicts (`ROUTINE_MGCV_PARITY.md`
+step 2) — both tiers agree to the same order of magnitude, well within tolerance,
+so nothing here required iteration.
+
+**The methodology fix this measurement needed.** Slice 1b's own tier-3 row
+(`docs/CONFORMANCE_LEDGER.md`) could only confirm "the comparison step raised no
+exception," because the diagnostic step is `continue-on-error: true` — which makes
+its API-visible `conclusion` read `success` whether the script actually agreed or
+silently disagreed without a non-zero exit — and the per-metric job-summary
+artifact sits behind a blob-storage host this environment's egress policy has
+blocked before. This session's comparison script was extended to also `print()`
+the identical report string to stdout, which lands in plain job-log text that
+`get_job_logs` retrieves without touching the blocked host. The table above is
+read from that output directly, not inferred from a masked step conclusion — and
+the fix applies to every later slice's tier-3 reading through the same script, not
+only this one.
+
+### What this settles and what it does not
+
+**Settled:** the Python `cr` basis — design and penalty — reproduces `mgcv`'s
+`smoothCon(bs="cr")` to float precision, for both supplied and default-placed
+knots, including the target formula's own `AttdAge`/`PolYear` vectors. This is
+the epic's first genuine basis-parity result (ADR-193): `CR_BASIS_CLAIM`
+declares `design_X`/`penalty_S`/`rank` all `INDEPENDENT`, and
+`require_parity_evidence` gates the claim. Default knot placement is *also*
+independently verified (each side computes its own quantile placement), but
+`knots` is not part of `CR_BASIS_CLAIM` itself — see the amendment above — so
+that agreement is reported as a separate recipe-consistency check rather than
+folded into the parity claim.
+
+**Not settled:** extrapolation beyond the knot range (Decision 4); `ti`
+(tensor interaction, slice 5) and `sz` (factor-smooth, slice 6), which are
+different constructions entirely and share nothing with this module beyond the
+harness; and fitting a multi-term model through this basis (slice 4's outer
+optimiser is a separate, larger piece of work). This ADR is about the basis in
+isolation, matching Anchor 1's two-stage strategy.

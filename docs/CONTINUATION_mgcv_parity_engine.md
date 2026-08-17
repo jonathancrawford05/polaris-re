@@ -6,8 +6,10 @@
 **Predecessors:** ADR-189 + amendment 1 (the conformance suite and its first run),
 ADR-185 through ADR-188 (the penalized fitter this epic reuses).
 **Status:** **IN PROGRESS** — slice 1 is **DONE (raw path only)** (2026-08-15b); slice
-1b (mgcv-native extraction) is **DONE** (2026-08-16, tier 1 and tier 3 both confirmed),
-unblocking slice 2 (`bs = "cr"`), which is **NEXT**.
+1b (mgcv-native extraction) is **DONE** (2026-08-16, tier 1 and tier 3 both confirmed);
+slice 2 (`bs = "cr"`) is **DONE** (2026-08-17, tier 1 confirmed, tier 3 dispatched this
+session — ADR-194) — the epic's first INDEPENDENT Stage-A parity result. Slice 3
+(families/links/weights) is **NEXT**, independent of slices 4-7.
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16) and one deferred
 to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
@@ -112,20 +114,27 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
     egress policy on the artifact host); the ledger states that boundary explicitly.
 2. **`bs = "cr"`**, with supplied and default knots. Depends on slice 1b (done), not
    slice 1 — Stage A needs the mgcv-native extractor to check this basis against.
-   **NEXT.**
+   **DONE, 2026-08-17** (ADR-194).
 
-   **This is the epic's first Stage-A PARITY slice (ADR-193).** Slices 1 and 1b are
-   harness: slice 1's `X`/`S` are ECHO (Python supplies them to mgcv and reads them
-   back), slice 1b's columns are all TRANSPORT (the R side computes, the Python side
-   parses, and the comparison is against that same payload). Neither compares a
-   Python-computed basis against an mgcv-computed one, because **no Python `cr` basis
-   exists yet** — the shipped fitter builds a B-spline/P-spline tensor, a different
-   construction. Slice 2 builds it, and its acceptance criteria in the PLAN now name
-   the provenance they require, so a harness result cannot satisfy them. Read
-   `docs/VERIFICATION_STANDARD.md` and write the claim sentence before the code.
+   **The epic's first genuine Stage-A PARITY slice (ADR-193).** Slices 1 and 1b were
+   harness: slice 1's `X`/`S` are ECHO, slice 1b's columns are all TRANSPORT. Slice 2
+   built the missing Python producer — `src/polaris_re/analytics/gam_basis_cr.py`,
+   Wood's natural-cubic-spline construction, with every non-textbook detail (default
+   knot placement, the `colMeans`-QR identifiability constraint, `smoothCon`'s own
+   penalty rescaling) read directly out of `mgcv`'s R source rather than guessed. It
+   agrees with `smoothCon(bs="cr", absorb.cons=TRUE)` to float round-trip precision
+   (~1e-14) on 5 cases, including PLAN §1's own `AttdAge`(k=13)/`PolYear`(k=6) knot
+   vectors, not just the harness's original synthetic ones. `CR_BASIS_CLAIM`
+   (`gam_stage_a.py`) declares `design_X`/`penalty_S`/`rank` `INDEPENDENT`, and
+   `require_parity_evidence` gates the claim — `knots` is checked separately
+   (`compare_term_extract`) rather than folded into the claim, because it is ECHO,
+   not INDEPENDENT, in the 3 supplied-knot cases (PR #201 review [P1], ADR-194
+   amendment). Extrapolation beyond the knot range is explicitly unverified (module
+   docstring) — needed before real-data knots that don't span the data range. See
+   ADR-194 and `docs/CONFORMANCE_LEDGER.md`.
 3. **Families, links and weights** — binomial `cloglog`/`logit` on a proportion with prior
    weights, quasi-Poisson with `φ` estimated, Poisson with a log offset. Independent of 2.
-   PLANNED.
+   **NEXT.**
 4. **The outer optimisation — N-dimensional (f)REML.** The prerequisite for everything
    multi-term, and the largest single piece of work. PLANNED.
 5. **`ti()` and the varying-coefficient MI term.** Ship the MI term first if they split.

@@ -52,6 +52,12 @@ on:
       # the penalized fitter or the Kass-Steffey correction does not run the check
       # that measures it — which is exactly the shape of the level-4 work (ADR-190).
       - "src/polaris_re/analytics/experience_gam_penalized.py"
+      # Slice 2's own module under test — a change to the Python cr basis must
+      # re-run the Stage-A comparison that measures it against smoothCon(), same
+      # reasoning as the line above for the penalized fitter.
+      - "src/polaris_re/analytics/gam_basis_cr.py"
+      - "src/polaris_re/analytics/gam_stage_a.py"
+      - "scripts/gam_term_extract.R"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -399,7 +405,7 @@ jobs:
       # Slice 1b adds the same treatment for smooth_designs (mgcv-native, via
       # extract_smooth_terms) — same DIAGNOSTIC contract, same job-summary table
       # shape, plus the knots column slice 1b makes meaningful.
-      - name: Compare the per-term extraction against the Python side (slice 1 / 1b)
+      - name: Compare the per-term extraction against the Python side (slice 1 / 1b / 2)
         if: always()
         continue-on-error: true
         run: |
@@ -414,12 +420,15 @@ jobs:
                     "did not produce one.")
               sys.exit(0)
 
+          import numpy as np
+
           from polaris_re.analytics.experience_mgcv_conformance import (
               DESIGNS, build_design, synthetic_cells,
           )
           from polaris_re.analytics.gam_stage_a import (
-              RAW_PATH_CLAIM, SMOOTH_PATH_CLAIM,
-              compare_term_extract, extract_raw_terms, extract_smooth_terms, raw_term_specs,
+              CR_BASIS_CLAIM, RAW_PATH_CLAIM, SMOOTH_PATH_CLAIM,
+              build_python_cr_term, compare_term_extract, extract_raw_terms,
+              extract_smooth_terms, raw_term_specs,
           )
           from polaris_re.analytics.gam_term_spec import TermSpec
           from polaris_re.core.verification import evidence_markdown
@@ -511,8 +520,86 @@ jobs:
               smooth_lines.insert(2, "**A term disagreed — see the table.**")
           lines += smooth_lines
 
+          # Slice 2 — the epic's first INDEPENDENT Stage-A comparison (ADR-193): a
+          # Python cr basis (build_python_cr_term, gam_basis_cr.py) built purely
+          # from the covariate locations and a knot recipe, checked against the
+          # SAME smooth_designs payload slice 1b already reads — but as the
+          # reference side of a real computation this time, not the thing being
+          # parsed. The (k, knots) recipe per case is named here rather than
+          # inferred from the R payload (Anchor 4: never derive knots when
+          # supplied; a k mismatch read off the payload could never surface as a
+          # disagreement — PR #201 review [P2]).
+          smooth_cases = {
+              "default-knots-k8": (8, None),
+              "default-knots-k13": (13, None),
+              "supplied-knots-k8": (8, (0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 9.0, 10.0)),
+              # PLAN §1's actual target formula's own knot vectors.
+              "target-attdage-k13": (13, (1.0, 2.0, 4.0, 7.0, 14.0, 18.0, 24.0, 35.0, 50.0,
+                                           70.0, 85.0, 90.0, 95.0)),
+              "target-polyear-k6": (6, (1.0, 2.0, 3.0, 5.0, 10.0, 21.0)),
+          }
+          cr_lines = [
+              "", "### Slice 2 — Python `cr` basis vs `smoothCon()` (INDEPENDENT)", "",
+              evidence_markdown(CR_BASIS_CLAIM), "",
+              "| term | index range agrees | max abs X diff | max abs S diff | rank diff | knots agree (recipe check, not parity) |",
+              "|---|---|---:|---:|---:|---|",
+          ]
+          any_cr_disagree = False
+          if smooth_r_terms:
+              for label, r_term in smooth_r_terms.items():
+                  if label not in smooth_cases:
+                      cr_lines.append(f"| `{label}` | **UNKNOWN CASE — no knot recipe named** | | | | |")
+                      any_cr_disagree = True
+                      continue
+                  k, supplied = smooth_cases[label]
+                  term = TermSpec(
+                      label=label, variables=("x",), basis="cr",
+                      k=(k,),
+                      knots=(("x", supplied),) if supplied is not None else None,
+                  )
+                  x = np.asarray(r_term["x"], dtype=np.float64)
+                  python_term = build_python_cr_term(x, term)
+                  c = compare_term_extract(python_term, r_term)
+                  if not c.agrees:
+                      any_cr_disagree = True
+                  s_diff = ", ".join(f"{d:.3e}" for d in c.max_abs_s_diff) or "n/a"
+                  cr_lines.append(
+                      f"| `{label}` | {c.index_range_agrees} | "
+                      f"{c.max_abs_design_diff:.3e} | {s_diff} | {c.rank_diff} | {c.knots_agree} |"
+                  )
+          else:
+              cr_lines.append("| *(no smooth_designs in R output)* | | | | | |")
+              any_cr_disagree = True
+          cr_lines.append("")
+          cr_lines.append(
+              "`design_X`, `penalty_S` and `rank` are INDEPENDENT (see the legend): "
+              "the Python `cr` basis is built from Wood's natural-cubic-spline "
+              "definition and never reads mgcv's X/S/rank/knots, only the shared "
+              "covariate `x`. A disagreement on those three is a REAL RESULT about "
+              "the basis, not a broken round trip. `knots agree` is a separate "
+              "recipe-consistency check, NOT a parity column (PR #201 review "
+              "[P1]): it is independently computed only in the default-knot cases "
+              "(each side's own quantile placement) — in the supplied-knot cases "
+              "neither side computes it, both relay the same hand-declared literal, "
+              "which is ECHO, not INDEPENDENT — so it is excluded from "
+              "CR_BASIS_CLAIM rather than mislabelled. See "
+              "docs/PLAN_mgcv_parity_engine.md slice 2 and "
+              "docs/VERIFICATION_STANDARD.md."
+          )
+          if any_cr_disagree:
+              cr_lines.insert(2, "**A term disagreed — see the table. This is a genuine finding.**")
+          lines += cr_lines
+
+          report = "\n".join(lines) + "\n"
           with open("gam_term_extract_report.md", "w") as fh:
-              fh.write("\n".join(lines) + "\n")
+              fh.write(report)
+          # Also to stdout, not just the job-summary file: the job-summary artifact
+          # sits behind a blob-storage host this environment's egress policy has
+          # blocked before (docs/CONFORMANCE_LEDGER.md's slice-1b row), but stdout
+          # is plain job-log text, readable through the ordinary jobs/logs API.
+          # Printing the SAME string as the summary means a future tier-3 read never
+          # has to settle for "the step didn't except" again.
+          print(report)
           PY
           if [ -f gam_term_extract_report.md ]; then
             cat gam_term_extract_report.md >> "$GITHUB_STEP_SUMMARY"
