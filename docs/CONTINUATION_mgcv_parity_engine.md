@@ -7,9 +7,12 @@
 ADR-185 through ADR-188 (the penalized fitter this epic reuses).
 **Status:** **IN PROGRESS** — slice 1 is **DONE (raw path only)** (2026-08-15b); slice
 1b (mgcv-native extraction) is **DONE** (2026-08-16, tier 1 and tier 3 both confirmed);
-slice 2 (`bs = "cr"`) is **DONE** (2026-08-17, tier 1 confirmed, tier 3 dispatched this
-session — ADR-194) — the epic's first INDEPENDENT Stage-A parity result. Slice 3
-(families/links/weights) is **NEXT**, independent of slices 4-7.
+slice 2 (`bs = "cr"`) is **DONE** (2026-08-17, tier 1 and tier 3 both confirmed — ADR-194)
+— the epic's first INDEPENDENT Stage-A parity result. Slice 3 (families/links/weights)
+is **DONE** (2026-08-17, tier 1 and tier 3 both confirmed — ADR-195) — the epic's first
+INDEPENDENT Stage-B parity result outside the already-verified Poisson case. Slice 4
+(the outer optimiser) is **NEXT** — the largest remaining piece of work, and slices 5-7
+all depend on it.
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16) and one deferred
 to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
@@ -134,9 +137,30 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    ADR-194 and `docs/CONFORMANCE_LEDGER.md`.
 3. **Families, links and weights** — binomial `cloglog`/`logit` on a proportion with prior
    weights, quasi-Poisson with `φ` estimated, Poisson with a log offset. Independent of 2.
-   **NEXT.**
+   **DONE, 2026-08-17** (ADR-195).
+
+   **The epic's first Stage-B PARITY slice outside Poisson (ADR-193).** `gam_family.py`
+   declares the `Family`/`Link` abstraction — standard GLM IRLS theory (Wood §3.1.2), not
+   `mgcv`-internal machinery, so no R-source archaeology was needed the way the `cr` basis
+   required. `gam_fit.py`'s `penalized_irls_general` generalizes the penalized IRLS
+   recursion from `experience_gam_penalized._penalized_irls` (Poisson-log-offset only, left
+   untouched per Anchor 7) to an arbitrary family/link with prior weights, proven to reduce
+   to that already-verified function bit-for-bit at `S = 0` and under a real penalty before
+   any R round trip was spent, and cross-checked against an independent `statsmodels` GLM
+   for both binomial links. `gam_family_conformance.py`'s `FAMILY_CLAIM` declares `eta` and
+   `dispersion` `INDEPENDENT` — `fit_family_case` reads only the shared recipe off
+   `scripts/gam_family_probe.R`'s payload (a deterministic shared design it builds itself,
+   `set.seed`, ADR-074), never the R side's own `eta`/`coef`/`dispersion`. Confirmed at
+   tier 3 (CI run 32057694949): all four combinations (`binomial-logit`, `binomial-cloglog`,
+   `quasipoisson-log`, `poisson-log-offset`) agree to float round-trip precision (~1e-14 on
+   `eta`) on the first measurement — no iteration needed, same shape of result as ADR-194's
+   `cr` basis. Coefficients are never compared (Anchor 2, restated for Stage B). `cloglog`'s
+   non-canonical-link concavity gap is recorded rather than assumed (ADR-195 decision 3) —
+   it did not bite this slice's measurement, but a harder-conditioned future case could
+   still disagree, and that would be a real result, not a bug in this slice. See ADR-195
+   and `docs/CONFORMANCE_LEDGER.md`.
 4. **The outer optimisation — N-dimensional (f)REML.** The prerequisite for everything
-   multi-term, and the largest single piece of work. PLANNED.
+   multi-term, and the largest single piece of work. **NEXT.**
 5. **`ti()` and the varying-coefficient MI term.** Ship the MI term first if they split.
    PLANNED.
 6. **`bs = "sz"`** — orthogonal factor-smooth interactions. Expect the hardest basis.
