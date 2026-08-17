@@ -88,19 +88,28 @@ genuinely cannot produce these results independently today.
 5. `docs/DECISIONS.md` — **ADR-193**.
 6. `docs/VERIFICATION_STANDARD.md` — the project-wide standard (new).
 7. `CLAUDE.md`, `REVIEW.md`, `docs/CONFORMANCE_LEDGER.md` — the hooks.
-8. `docs/ROUTINE_CHANGES_2026-08-16_verification_provenance.md` — the five routine-prompt
-   edits for the human trigger owner (new).
+8. `docs/ROUTINE_CHANGES_2026-08-16_verification_provenance.md` — the routine-prompt
+   edits for the human trigger owner (new), with a status table; written neutrally
+   (any reference implementation) so the daily-dev edits do not read as parity
+   spillover. Includes the epic-ownership exclusion: `CONTINUATION_mgcv_parity_engine`
+   is the only IN PROGRESS continuation on `main`, so daily-dev step 5b's rule (a)
+   would otherwise adopt the parity epic and put two routines on one slice.
+8b. `docs/ROUTINE_MGCV_PARITY.md` — the provenance gate as step 5b, three new NEVERs, a
+   `feat(...)`/`harness(...)` PR-title convention, and a Provenance section in the
+   session log. The gate lives here as well as in the trigger prompt because the
+   trigger defers to this file on conflict.
 9. `docs/PLAN_mgcv_parity_engine.md`, `docs/CONTINUATION_mgcv_parity_engine.md` — slice 2
    rescoped; slice 1b annotated as harness.
 10. `docs/PRODUCT_DIRECTION_2026-07-24.md` — harvest, with order tags.
 
 ## Tests Added
 
-- `tests/test_core/test_verification.py` — 21 tests: the taxonomy; `ComparedQuantity`
+- `tests/test_core/test_verification.py` — 22 tests: the taxonomy; `ComparedQuantity`
   refusing a single-producer independence claim and unnamed producers; `VerificationClaim`
   splitting parity from harness quantities, refusing duplicates/empties;
   `require_parity_evidence` passing independent evidence and refusing ECHO/TRANSPORT; the
-  three derived headlines; markdown rendering and its determinism.
+  three derived headlines (including that each states only what its harness kind
+  actually proves — PR #200 review [P2]); markdown rendering and its determinism.
 - `tests/test_analytics/test_gam_stage_a.py` — 5 added: the raw path declaring ECHO with
   `rank` as its one parity column, the mgcv-native path declaring TRANSPORT throughout,
   the parity gate refusing slice 1b's claim, and provenance carrying through a comparison.
@@ -110,8 +119,8 @@ genuinely cannot produce these results independently today.
 | | |
 |---|---|
 | Baseline (PR #199 head `439fef3`, this environment) | **3352 passed, 8 skipped, 0 failed** — the 5 pre-existing `data/mortality_tables` failures do not occur here because `scripts/convert_soa_tables.py` reached pymort (6/6 SOA tables converted). Measured *before* R was installed, so the R-gated tests skipped. |
-| End state | **3381 passed, 5 skipped, 0 failed** = 3352 + 26 new + 3 that stopped skipping once R 4.3.3 / mgcv 1.9.1 was installed mid-session (the two Stage-A end-to-end proofs and one sibling gate). No new or changed failures. |
-| `tests/qa/` | 120 passed / 2 skipped, goldens byte-identical — untouched. |
+| End state | **3382 passed, 5 skipped, 0 failed** = 3352 + 27 new + 3 that stopped skipping once R 4.3.3 / mgcv 1.9.1 was installed mid-session (the two Stage-A end-to-end proofs and one sibling gate). No new or changed failures. The 27th test came with the PR #200 review fixes. |
+| `tests/qa/` | **94 passed, 0 skipped**, goldens byte-identical — untouched. (Corrected per the PR #200 review [P2]: the 120/2 first recorded here was a *combined* run of `tests/qa/` plus `test_gam_stage_a.py`, not `tests/qa/` alone.) |
 | Perf row | one row appended (ADR-177); `src/` touched, so the docs-only exemption does not apply. |
 
 ## Impact on Golden Baselines
@@ -131,6 +140,10 @@ Harvested into `docs/PRODUCT_DIRECTION_2026-07-24.md` under "Harvested 2026-08-1
 3. **The epic's evidence audit** (§5 of the standard) is a statement of current state,
    worth re-reading before any claim about what the epic has proven. 2nd-order,
    NICE-TO-HAVE.
+4. **Retro-classifying historical ledger rows**, declared out of scope by ADR-193. The
+   ledger preamble now names the existing rows and their kind explicitly (PR #200 review
+   [P1]), which covers today's table; a per-row `CONFIRMED (harness)` marker would need
+   an append-only-safe convention first. 2nd-order, NICE-TO-HAVE.
 
 ## Parked Polish
 

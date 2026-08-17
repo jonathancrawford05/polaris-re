@@ -220,10 +220,29 @@ def evidence_headline(claim: VerificationClaim) -> str:
     if claim.is_parity_claim:
         return f"**Parity comparison** — independently produced on both sides: {parity}."
     if not parity:
+        # What a zero actually proves differs by kind, so say only what holds:
+        # a TRANSPORT column structurally cannot disagree, while an ECHO column
+        # can (the reference may reparameterise or rescale what it was handed) —
+        # which is exactly why a zero there is worth reporting.
+        kinds = {q.provenance for q in claim.harness_quantities}
+        if kinds == {ComparisonProvenance.TRANSPORT}:
+            proves = (
+                "These columns cannot disagree on values; a zero proves the harness "
+                "serialises and parses correctly."
+            )
+        elif kinds == {ComparisonProvenance.ECHO}:
+            proves = (
+                "A zero proves the reference returned what it was handed unchanged — "
+                "no reparameterisation or rescaling — not that two sides agree."
+            )
+        else:
+            proves = (
+                "A zero proves the harness round-trips its TRANSPORT columns and that "
+                "the reference did not alter its ECHO ones — not that two sides agree."
+            )
         return (
             "**Harness check — NOT parity.** No column here is independently "
-            f"produced: {harness}. These columns cannot disagree on values; they "
-            "prove the harness transports and does not tamper."
+            f"produced: {harness}. {proves}"
         )
     return (
         f"**Harness check with one parity column — NOT basis parity.** Parity "

@@ -188,6 +188,40 @@ def test_headline_of_a_pure_harness_claim_says_not_parity() -> None:
     assert "`design_X`" in headline
 
 
+def test_headline_claims_only_what_the_harness_kind_actually_proves() -> None:
+    """An all-TRANSPORT claim asserts nothing about tampering, and an all-ECHO
+    claim asserts nothing about serialisation — an ECHO column *can* disagree if
+    the reference rescales, which is why a zero there is worth reporting at all
+    (PR #200 review [P2])."""
+    transport_only = evidence_headline(
+        VerificationClaim(
+            claim="Parsed back what one side computed.",
+            quantities=(_transport("design_X"), _transport("penalty_S")),
+        )
+    )
+    assert "cannot disagree on values" in transport_only
+    assert "serialises and parses" in transport_only
+    assert "reparameterisation" not in transport_only
+
+    echo_only = evidence_headline(
+        VerificationClaim(
+            claim="Handed to the reference and read back.",
+            quantities=(_echo("design_X"), _echo("penalty_S")),
+        )
+    )
+    assert "returned what it was handed unchanged" in echo_only
+    assert "cannot disagree on values" not in echo_only
+
+    mixed = evidence_headline(
+        VerificationClaim(
+            claim="One of each.",
+            quantities=(_echo("design_X"), _transport("penalty_S")),
+        )
+    )
+    assert "round-trips its TRANSPORT columns" in mixed
+    assert "did not alter its ECHO ones" in mixed
+
+
 def test_headline_of_a_mixed_claim_names_the_parity_column() -> None:
     claim = VerificationClaim(
         claim="Slice 1: echoed design, independently computed rank.",

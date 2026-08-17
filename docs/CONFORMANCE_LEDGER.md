@@ -14,8 +14,26 @@ each side* of every compared quantity, and the `verdict` column must say
 reading the other's output, and neither having supplied the quantity to the
 other. A row that cannot name two independent producers is a harness row: it
 records a real check (no-tampering, or a working round trip) and its verdict
-reads `CONFIRMED (harness)`. Rows above this note predate the rule; see §5 of the
-standard for how the epic's existing evidence classifies.
+reads `CONFIRMED (harness)`.
+
+**Every row currently in the table below predates the rule, and all of them are
+harness rows.** Naming them here rather than leaving "the earlier rows" to the
+reader is the point of ADR-193 — a caveat that attaches to nothing does not
+travel, which is the failure these rows themselves illustrate:
+
+- the four **2026-08-15 slice-1** rows read `**exact**` / `**agrees**` on the
+  `raw`/`paraPen` path, where Polaris supplied the design and penalties that
+  `mgcv` was fitted on and then read back — **ECHO** on `design_X`, `penalty_S`
+  and `index_range`; only `rank` (`numpy.linalg.matrix_rank` vs `mgcv`'s own rank
+  determination) is INDEPENDENT;
+- the two **2026-08-16 slice-1b** rows read `**exact**` on the mgcv-native path,
+  where `extract_smooth_terms` parses the R payload and is then compared against
+  that same payload — **TRANSPORT** on every column. What those rows do establish
+  is the R script's own internal guard (`smoothCon` vs `lpmatrix`/`m$smooth[[j]]`,
+  ADR-191), which is independent *inside R*.
+
+Neither set is basis-parity evidence. §5 of the standard carries the full audit,
+including what the conformance levels (which ARE independent) prove.
 
 | date | slice | hypothesis | the one change | metric | before | after | tier + digest | verdict |
 |---|---|---|---|---|---|---|---|---|
