@@ -14996,6 +14996,8 @@ knots `c(0,1,2,3,5,8,9,10)`), `target-attdage-k13` (n=400, k=13, PLAN §1's
 `AttdAge` knots), `target-polyear-k6` (n=200, k=6, PLAN §1's `PolYear`
 knots).
 
+**Tier 1** (R 4.3.3 / mgcv 1.9.1, local apt):
+
 | case | max abs `design_X` diff | max abs `penalty_S` diff | rank diff | knots agree |
 |---|---:|---:|---:|---|
 | `default-knots-k8` | 8.4e-15 | 9.3e-15 | 0 | yes |
@@ -15004,15 +15006,40 @@ knots).
 | `target-attdage-k13` | 1.5e-14 | 3.6e-15 | 0 | yes |
 | `target-polyear-k6` | 1.4e-14 | 8.0e-15 | 0 | yes |
 
-Every diff is float round-trip noise, not a disagreement — the same order as
-ADR-191's `lpmatrix`-vs-`smoothCon` measurement (3.553e-15) and well inside the
-`<1e-9` tolerance PLAN slice 2's acceptance criterion #1 sets.
+**Tier 3** (R 4.6.1 / mgcv 1.9.4, oracle
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`, build 8,
+CI run [32033738454](https://github.com/jonathancrawford05/polaris-re/actions/runs/32033738454),
+read directly from job-log stdout via `get_job_logs` — not inferred from a masked
+`continue-on-error` step conclusion; see "the methodology fix" below):
 
-**Tier and digest, per `docs/ROUTINE_MGCV_PARITY.md` step 2:** first measured
-tier 1 (R 4.3.3 / mgcv 1.9.1, local apt) — the table above. Re-measured tier 3
-(R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
-build 8), CI run [TIER3_RUN_URL] — see `docs/CONFORMANCE_LEDGER.md` for both
-readings. [TIER3_RESULT_SUMMARY]
+| case | max abs `design_X` diff | max abs `penalty_S` diff | rank diff | knots agree |
+|---|---:|---:|---:|---|
+| `default-knots-k8` | 8.327e-15 | 9.548e-15 | 0 | yes |
+| `default-knots-k13` | 1.213e-14 | 1.243e-14 | 0 | yes |
+| `supplied-knots-k8` | 7.605e-15 | 4.441e-15 | 0 | yes |
+| `target-attdage-k13` | 1.454e-14 | 3.553e-15 | 0 | yes |
+| `target-polyear-k6` | 1.379e-14 | 7.994e-15 | 0 | yes |
+
+Every diff, at both tiers, is float round-trip noise, not a disagreement — the
+same order as ADR-191's `lpmatrix`-vs-`smoothCon` measurement (3.553e-15) and well
+inside the `<1e-9` tolerance PLAN slice 2's acceptance criterion #1 sets. The
+last-bit differences between tiers are consistent with the different `mgcv`
+release and BLAS the routine's tier discipline predicts (`ROUTINE_MGCV_PARITY.md`
+step 2) — both tiers agree to the same order of magnitude, well within tolerance,
+so nothing here required iteration.
+
+**The methodology fix this measurement needed.** Slice 1b's own tier-3 row
+(`docs/CONFORMANCE_LEDGER.md`) could only confirm "the comparison step raised no
+exception," because the diagnostic step is `continue-on-error: true` — which makes
+its API-visible `conclusion` read `success` whether the script actually agreed or
+silently disagreed without a non-zero exit — and the per-metric job-summary
+artifact sits behind a blob-storage host this environment's egress policy has
+blocked before. This session's comparison script was extended to also `print()`
+the identical report string to stdout, which lands in plain job-log text that
+`get_job_logs` retrieves without touching the blocked host. The table above is
+read from that output directly, not inferred from a masked step conclusion — and
+the fix applies to every later slice's tier-3 reading through the same script, not
+only this one.
 
 ### What this settles and what it does not
 
