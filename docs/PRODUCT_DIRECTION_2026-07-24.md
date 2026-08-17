@@ -2252,8 +2252,9 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
 
 - **Next: slice 2 — `bs = "cr"`, with supplied and default knots.** Now genuinely
   unblocked — the mgcv-native Stage-A extractor slice 2 needs to check its basis
-  against is built and tier-1-confirmed. *Source: this session, `docs/PLAN_mgcv_parity_engine.md`
-  / `docs/CONTINUATION_mgcv_parity_engine.md`.*
+  against is built and tier-1-confirmed. *Source: this session,
+  `docs/PLAN_mgcv_parity_engine.md` / `docs/CONTINUATION_mgcv_parity_engine.md`
+  (1st-order — the epic's own NEXT slice).*
 
 ### Harvested 2026-08-16b — verification provenance (PR #199 review follow-up)
 
@@ -2274,14 +2275,25 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   Python producer takes no R payload as an input. *Source: this session, ADR-193
   (1st-order — the epic's own NEXT slice).*
 
-- **The routine prompts still need their five edits.**
-  `docs/ROUTINE_CHANGES_2026-08-16_verification_provenance.md` carries them verbatim
-  (daily dev: a provenance step, provenance-named acceptance criteria, ledger
-  producers; PR review: the provenance audit, and goldens-are-not-correctness). The
-  routine prompts live in the trigger configuration outside this repo, so the human
-  who owns those triggers must apply them — the repo half is done. *Source: this
-  session (1st-order — without the routine edits the standard binds code but not the
-  sessions that write it).*
+- **The routine prompts need their remaining edits.**
+  `docs/ROUTINE_CHANGES_2026-08-16_verification_provenance.md` carries all seven
+  verbatim with a status table. Applied 2026-08-16: the PR-review provenance audit,
+  PR-review goldens-are-not-correctness, and the mgcv-parity provenance gate.
+  Outstanding, all daily dev: the comparisons-against-a-reference step,
+  provenance-named acceptance criteria, producers named on recorded comparisons, and
+  the epic-ownership exclusion. The prompts live in the trigger configuration outside
+  this repo, so the human who owns those triggers must apply them — the repo half is
+  done. *Source: this session (1st-order — without the routine edits the standard
+  binds code but not the sessions that write it).*
+
+- **Retro-classifying the historical conformance-ledger rows.** ADR-193 declared it out
+  of scope, and the PR #200 review asked where it went. The preamble of
+  `docs/CONFORMANCE_LEDGER.md` now names the existing rows and their kind (the four
+  slice-1 rows ECHO with `rank` independent; the two slice-1b rows TRANSPORT), which
+  makes the caveat attach to identified artefacts rather than to "earlier rows". A
+  per-row `CONFIRMED (harness)` marker is still unwritten and would need an
+  append-only-safe convention first. *Source: PR #200 review [P1]/[P2] (2nd-order,
+  NICE-TO-HAVE — a follow-up of ADR-193, which was itself the #199 review's follow-up).*
 
 - **The `mgcv` epic's bases have no independent evidence yet; its fitter does.**
   Conformance levels 1-5 compare two independently implemented fitters over a shared
