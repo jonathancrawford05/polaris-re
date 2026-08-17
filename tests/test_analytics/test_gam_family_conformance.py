@@ -19,6 +19,8 @@ from polaris_re.analytics.experience_mgcv_conformance import rscript_mgcv_availa
 from polaris_re.analytics.gam_family_conformance import (
     FAMILY_BY_CASE,
     FAMILY_CLAIM,
+    RFamilyCasePayload,
+    RFamilyCaseRecipe,
     compare_family_case,
     fit_family_case,
 )
@@ -34,13 +36,37 @@ def test_family_claim_is_independent_on_every_declared_quantity() -> None:
 
 
 def test_fit_family_case_signature_takes_no_r_fit_output() -> None:
-    """ADR-193's mechanical test, applied directly: the function's parameters
-    are the shared recipe (``x``, ``s``, and the recipe fields of ``r_case``),
-    never ``eta``/``coef``/``dispersion`` fed in as an argument."""
+    """ADR-193's mechanical test, applied directly and STRUCTURALLY: the
+    function's parameters are the shared recipe (``x``, ``s``, and the
+    recipe fields of ``r_case``), never ``eta``/``coef``/``dispersion`` fed
+    in as an argument.
+
+    Checking only the parameter *name set* (as an earlier revision of this
+    test did) would still pass if the body were later changed to read
+    ``r_case["eta"]`` — that key exists on any real caller's dict, since
+    every payload satisfies the wider :class:`RFamilyCasePayload` shape too.
+    The guarantee this test asserts is at the TYPE: ``r_case`` is annotated
+    :class:`RFamilyCaseRecipe`, which has no ``eta``/``coef``/``dispersion``
+    key at all, so a body that indexed one would be a `mypy` error rather
+    than merely a convention (PR #202 review [P1])."""
     import inspect
+    import typing
 
     params = set(inspect.signature(fit_family_case).parameters)
     assert params == {"case_name", "x", "s", "r_case"}
+
+    hints = typing.get_type_hints(fit_family_case)
+    assert hints["r_case"] is RFamilyCaseRecipe
+
+    recipe_keys = set(RFamilyCaseRecipe.__annotations__)
+    payload_keys = set(RFamilyCasePayload.__annotations__)
+    fit_only_keys = {"eta", "coef", "dispersion", "scale_estimated", "converged"}
+    assert recipe_keys.isdisjoint(fit_only_keys)
+    # The payload is a strict superset — recipe fields plus the R side's own
+    # fit — which is what lets every real caller's dict (always a full
+    # payload) satisfy the narrower recipe type structurally.
+    assert fit_only_keys <= payload_keys
+    assert recipe_keys < payload_keys
 
 
 @pytest.mark.skipif(not rscript_mgcv_available(), reason="R with mgcv is not installed here")

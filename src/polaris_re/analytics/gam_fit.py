@@ -116,7 +116,7 @@ def penalized_irls_general(
 
         eta = offset + x @ coef
         mu = link.linkinv(eta)
-        deviance = family.deviance(y, mu)
+        deviance = family.deviance(y, mu, weights)
         if abs(deviance - previous_deviance) < _IRLS_TOL * (abs(deviance) + 0.1):
             return GeneralIRLSFit(coef=coef, eta=eta, mu=mu, n_iter=iteration)
         previous_deviance = deviance

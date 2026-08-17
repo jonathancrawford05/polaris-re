@@ -15208,3 +15208,79 @@ fixed sp"); whether `binomial`/`cloglog`'s non-canonical-link concavity gap
 this slice's; and REML/dispersion estimation for `mgcv`'s own smoothing-
 parameter selection under these families, which this slice's fixed-`sp`
 harness does not exercise.
+
+### Amendment (2026-08-17, same day, PR #202 review) — three findings, and what each one changed
+
+The automated PR review raised one [P1] and two [P2] findings. All three were
+real; none changed a measured number.
+
+**[P1] The mechanical test was asserted, not structurally enforced.**
+`fit_family_case`'s parameter was typed `RFamilyCasePayload`, and that
+`TypedDict` carried `eta`/`coef`/`dispersion` alongside the recipe fields — so
+the ADR-193 guarantee rested on the function body never reading them, which is
+exactly the "a caveat in prose, not a structural guarantee" failure mode
+ADR-193 exists to prevent (the same shape as slices 1/1b's original mistake,
+one level more subtle: here the *body* was already correct, only the *type*
+wasn't narrow enough to make that provable without reading it). **Fixed:**
+`RFamilyCasePayload` split into `RFamilyCaseRecipe` (the six recipe fields
+only) and `RFamilyCasePayload(RFamilyCaseRecipe)` (adds `eta`/`coef`/
+`dispersion`/`scale_estimated`/`converged`); `fit_family_case` now accepts
+only `RFamilyCaseRecipe`, so a future edit that reached for `r_case["eta"]`
+inside it would be a `mypy` error. The test that was supposed to check this
+(`test_fit_family_case_signature_takes_no_r_fit_output`) previously asserted
+only the parameter *name set*, which would still pass under that bug — it now
+asserts the annotated type and that the two `TypedDict`s' key sets are
+actually disjoint on the fit-only fields.
+
+**[P2] The dispersion residual (9.671e-06, identical at both tiers) is a real,
+understood-in-shape formula difference, not noise — investigated, not
+dismissed into the tolerance.** Traced with a tier-1 R probe reproducing the
+exact `quasipoisson-log` case: `mgcv`'s own `m$sig2` (0.0044075519) does NOT
+equal `pearson_rss / (n - edf)` computed from `mgcv`'s own `edf`/`fitted
+values` (0.0044172227, diff 9.6709e-06 — the observed residual, bit for bit)
+nor `deviance / (n - edf)` (0.0044090818, diff 1.5299e-06 — closer, still not
+exact) nor a `stats::glm`-style `n - rank(X)` denominator. Reading
+`mgcv:::gam.fit`'s source: for a scale-unknown family (`quasipoisson`,
+`scale.known <- FALSE`), each IRLS iteration calls `magic(..., scale =
+G$sig2, gcv = (G$sig2 < 0), ...)`; `G$sig2` is only negative on the *first*
+call, so every call after it passes `gcv = FALSE` — UBRE mode, which
+(`?magic`: "scale: the estimated (GCV) or **supplied** (UBRE) scale
+parameter") returns the *supplied* scale rather than a fresh GCV/Pearson
+recomputation. The evidence is consistent with `m$sig2` being effectively the
+Pearson-dispersion estimate from an iteration at or near convergence but not
+necessarily the literal final one — which would explain both the small
+magnitude (IRLS has nearly converged by then) and the bit-for-bit stability
+across `mgcv` releases/BLAS builds (a deterministic function of the fitting
+trajectory, not a numerical-noise floor). **This is recorded as the
+best-supported hypothesis from the evidence gathered, not asserted as fully
+traced** (CLAUDE.md: mark uncertainty rather than guess past what was
+actually shown) — full confirmation would need instrumenting `gam.fit`'s IRLS
+loop directly, not attempted here. **Decision: keep the textbook Pearson
+formula** (`gam_fit.pearson_dispersion`, matching `stats::glm(family=
+quasipoisson)`'s own dispersion estimator) rather than reaching for whichever
+formula numerically happened to land closer — matching a possibly-transient
+artifact of `mgcv`'s IRLS/GCV loop interaction would be tuning to a
+side-effect, not deriving the correct quantity (Anchor 8). The existing
+1e-4 relative tolerance is unchanged and is now known to be doing real work
+(absorbing an ~0.2% understood-in-shape discrepancy, not just headroom against
+noise) rather than an arbitrarily loose one — a future dispersion diff
+materially larger than ~1e-5 on a similarly-conditioned case would be a new
+finding worth the fuller trace this amendment stopped short of, not something
+to wave through under the same tolerance.
+
+**[P2] `Family.deviance` did not weight the per-observation terms by prior
+weights**, while the IRLS working weights (correctly) did. Harmless for this
+slice's measurement — the converged fit is set by the weighted normal
+equations, not by the (relative) convergence monitor, and every `eta` still
+agrees to ~1e-14 after the fix — but wrong as a general deviance (R's own
+family objects weight `dev.resids` by `wt`) and load-bearing once slice 4's
+REML score needs the weighted value. **Fixed:** `Family.deviance` now
+requires `weights` and computes `2 * sum(w_i * d_i)`.
+`tests/test_analytics/test_gam_family.py::TestDevianceIsWeighted` pins the
+closed form and confirms non-uniform weights change the value.
+
+No committed number changed: the tier-3 table in this ADR's "The measurement"
+section above is unchanged, since the [P1] fix is type-level only and the
+[P2] deviance fix does not move the converged fit (re-confirmed:
+`tests/test_analytics/test_gam_family_conformance.py::test_the_r_probe_runs_end_to_end_and_agrees`
+still passes at tier 1 after both fixes, same order of `eta` agreement).

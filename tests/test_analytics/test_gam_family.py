@@ -73,6 +73,43 @@ class TestLinkAlgebra:
         assert np.all(mu > 0.0) and np.all(mu < 1.0)
 
 
+class TestDevianceIsWeighted:
+    """PR #202 review [P2]: the deviance is the standard WEIGHTED definition
+    (``D = 2 * sum(w_i * d_i)``, matching R's own ``family$dev.resids``),
+    not the unweighted sum an earlier revision computed. Monitoring-only in
+    this slice (the fixed point is set by the weighted normal equations, and
+    ``TestPoissonReducesToTheVerifiedRecursion``/the R-gated conformance test
+    both confirm the converged fit is unaffected), but load-bearing once
+    slice 4's REML score needs the weighted value."""
+
+    def test_matches_the_closed_form_two_sum_w_d(self, rng) -> None:
+        family = poisson_log()
+        y = rng.poisson(5.0, size=50).astype(np.float64)
+        mu = np.clip(y + rng.normal(scale=0.5, size=50), 0.5, None)
+        weights = rng.uniform(1.0, 5.0, size=50)
+
+        expected = 2.0 * np.sum(weights * (family._deviance_terms(y, mu)))
+        assert family.deviance(y, mu, weights) == pytest.approx(expected)
+
+    def test_nonuniform_weights_change_the_deviance(self, rng) -> None:
+        family = binomial_logit()
+        y = rng.uniform(0.1, 0.9, size=30)
+        mu = np.clip(y + rng.normal(scale=0.05, size=30), 0.01, 0.99)
+        uniform = np.ones(30)
+        nonuniform = rng.uniform(1.0, 10.0, size=30)
+
+        assert family.deviance(y, mu, uniform) != pytest.approx(family.deviance(y, mu, nonuniform))
+
+    def test_uniform_weight_one_matches_the_unweighted_sum(self, rng) -> None:
+        family = binomial_cloglog()
+        y = rng.uniform(0.1, 0.9, size=40)
+        mu = np.clip(y + rng.normal(scale=0.05, size=40), 0.01, 0.99)
+        weights = np.ones(40)
+
+        unweighted = 2.0 * np.sum(family._deviance_terms(y, mu))
+        assert family.deviance(y, mu, weights) == pytest.approx(unweighted)
+
+
 class TestPoissonReducesToTheVerifiedRecursion:
     """The generalisation must be provably a superset of the already-verified
     Poisson-log case, not a rewrite that happens to look similar."""

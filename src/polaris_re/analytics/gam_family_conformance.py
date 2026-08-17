@@ -12,7 +12,15 @@ This module reads back **only the recipe fields** and fits independently via
 :func:`polaris_re.analytics.gam_fit.penalized_irls_general` — never the R script's
 ``eta`` or ``coef`` — which is what makes the ``eta`` comparison INDEPENDENT
 (ADR-193's mechanical test: :func:`fit_family_case`'s signature takes the recipe,
-not the R payload).
+not the R payload). The guarantee is carried in the **type**, not just the
+function body: :func:`fit_family_case` is annotated to accept
+:class:`RFamilyCaseRecipe`, which structurally has no ``eta``/``coef``/
+``dispersion`` keys at all — a caller (or a future edit to this function) that
+tried to read ``r_case["eta"]`` inside it would be a type error, not merely a
+convention someone has to remember to honor (PR #202 review [P1]:
+:class:`RFamilyCasePayload` alone let the signature accept the R side's own fit
+output even though the body never used it, which is exactly the gap ADR-193's
+mechanical test exists to catch structurally rather than by reading the body).
 
 **Anchor 2, applied here specifically.** ``coef`` travels in the R payload for
 human reading only. :data:`FAMILY_CLAIM` does not name it, and no function in this
@@ -55,6 +63,7 @@ __all__ = [
     "FAMILY_CLAIM",
     "FamilyCaseComparison",
     "RFamilyCasePayload",
+    "RFamilyCaseRecipe",
     "compare_family_case",
     "fit_family_case",
 ]
@@ -84,11 +93,14 @@ fixed sp over a shared, well-conditioned design, the same regime ADR-189
 amendment 1 verified the Poisson case to 5e-13 in."""
 
 
-class RFamilyCasePayload(TypedDict):
-    """One entry of ``scripts/gam_family_probe.R``'s ``cases`` — the keys this
-    module reads. ``eta``/``coef``/``dispersion`` are the R side's OWN fit,
-    read only for the comparison, never as an input to
-    :func:`fit_family_case`."""
+class RFamilyCaseRecipe(TypedDict):
+    """The shared-recipe fields of one case — everything both sides need to
+    pose the SAME regression problem, and nothing either side computed.
+    :func:`fit_family_case` is typed to accept only this, not
+    :class:`RFamilyCasePayload`, so a call site (or a future edit inside the
+    function) that reached for ``r_case["eta"]`` would be a type error —
+    the ADR-193 mechanical test enforced structurally rather than by
+    convention (PR #202 review [P1])."""
 
     family: str
     link: str
@@ -96,6 +108,18 @@ class RFamilyCasePayload(TypedDict):
     weights: list[float] | None
     offset: list[float] | None
     sp: float
+
+
+class RFamilyCasePayload(RFamilyCaseRecipe):
+    """One entry of ``scripts/gam_family_probe.R``'s ``cases`` — the recipe
+    (:class:`RFamilyCaseRecipe`) plus the R script's OWN fit. Read by
+    :func:`compare_family_case` only; :func:`fit_family_case` cannot see
+    ``eta``/``coef``/``dispersion`` at all through its narrower parameter
+    type, even though a plain dict satisfying this wider TypedDict is what
+    every caller actually passes in (a payload is always a valid recipe,
+    structurally — the narrowing is enforced going in, not by stripping keys
+    at the call site)."""
+
     eta: list[float]
     coef: list[float]
     dispersion: float
@@ -139,7 +163,7 @@ def fit_family_case(
     case_name: str,
     x: np.ndarray,
     s: np.ndarray,
-    r_case: RFamilyCasePayload,
+    r_case: RFamilyCaseRecipe,
 ) -> GeneralIRLSFit:
     """The independent Python producer for one slice-3 case.
 

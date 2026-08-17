@@ -133,8 +133,19 @@ class Family:
     def variance(self, mu: np.ndarray) -> np.ndarray:
         return self._variance(mu)
 
-    def deviance(self, y: np.ndarray, mu: np.ndarray) -> float:
-        return float(2.0 * np.sum(self._deviance_terms(y, mu)))
+    def deviance(self, y: np.ndarray, mu: np.ndarray, weights: np.ndarray) -> float:
+        """The weighted deviance ``D = 2 * sum(w_i * d_i(y_i, mu_i))`` — the
+        standard definition (matching R's own ``family$dev.resids``, e.g.
+        ``stats::poisson()$dev.resids``, which multiplies by ``wt`` before
+        summing). ``weights`` is required rather than defaulted, so a caller
+        cannot silently reproduce the unweighted bug this signature exists to
+        prevent (PR #202 review [P2]: an earlier revision omitted the prior
+        weight here while the IRLS working weights correctly included it —
+        harmless for convergence monitoring on this slice's cases, since the
+        fixed point is set by the weighted normal equations and the criterion
+        is a relative one, but wrong as a general deviance and load-bearing
+        once slice 4's REML score needs the weighted definition)."""
+        return float(2.0 * np.sum(weights * self._deviance_terms(y, mu)))
 
 
 def _poisson_variance(mu: np.ndarray) -> np.ndarray:
