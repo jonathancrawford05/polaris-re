@@ -150,9 +150,9 @@ main <- function(argv) {
   # term's index range read from a fit, or assigned by the harness assembling terms
   # into a model?) is settled as the latter, ADR-192 — and the model an isolated
   # Stage-A case assembles is exactly this one term, so its range is [0, width).
-  extract_smooth_one <- function(label, n, k, knots_x = NULL, bs = "cr") {
+  extract_smooth_one <- function(label, n, k, knots_x = NULL, bs = "cr", x_range = c(0, 10)) {
     set.seed(20120101) # ADR-074: pinned, never the wall clock.
-    x <- sort(runif(n, 0, 10))
+    x <- sort(runif(n, x_range[1], x_range[2]))
     y <- sin(x) + rnorm(n, sd = 0.1)
     df <- data.frame(x = x, y = y)
     knots_arg <- if (is.null(knots_x)) NULL else list(x = knots_x)
@@ -215,7 +215,15 @@ main <- function(argv) {
       # broke the Python side's `for v in r_term["rank"]` (not iterable). The raw
       # path's `rank` never hit this because it always carries two penalties.
       rank = I(sm$rank),
-      knots = as.numeric(sm$xp)
+      knots = as.numeric(sm$xp),
+      # Slice 2 (ADR-193): the covariate locations themselves, so the Python side
+      # can build its OWN cr basis at the SAME x rather than reading mgcv's X/S —
+      # x is shared recipe context (like a supplied knot vector), not a compared
+      # quantity, so exporting it does not make the Python producer read "the
+      # other side's payload" in the ADR-193 mechanical-test sense. Without this,
+      # Python has no way to evaluate a comparable design at points drawn from R's
+      # own RNG stream, which numpy cannot reproduce bit-for-bit from the same seed.
+      x = as.numeric(x)
     )
   }
 
@@ -223,7 +231,20 @@ main <- function(argv) {
     extract_smooth_one("default-knots-k8", n = 200, k = 8),
     extract_smooth_one("default-knots-k13", n = 400, k = 13),
     extract_smooth_one("supplied-knots-k8", n = 200, k = 8,
-                        knots_x = c(0, 1, 2, 3, 5, 8, 9, 10))
+                        knots_x = c(0, 1, 2, 3, 5, 8, 9, 10)),
+    # PLAN §1's actual target formula's own hand-chosen knot vectors — not just the
+    # harness's original synthetic cases — so slice 2's acceptance criterion #1
+    # ("for the target's own knot vectors ... at both k=13 and k=6") is tested
+    # against the literal knots the maintainer supplied, not a stand-in. x_range
+    # keeps every point inside [knots[0], knots[-1]]: cr_basis.py's extrapolation
+    # behaviour outside a knot range is explicitly unverified (module docstring),
+    # so these cases must not exercise it.
+    extract_smooth_one("target-attdage-k13", n = 400, k = 13,
+                        knots_x = c(1, 2, 4, 7, 14, 18, 24, 35, 50, 70, 85, 90, 95),
+                        x_range = c(1, 95)),
+    extract_smooth_one("target-polyear-k6", n = 200, k = 6,
+                        knots_x = c(1, 2, 3, 5, 10, 21),
+                        x_range = c(1, 21))
   )
   names(smooth_cases) <- vapply(smooth_cases, function(c) c$label, character(1))
 
