@@ -125,10 +125,13 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    agrees with `smoothCon(bs="cr", absorb.cons=TRUE)` to float round-trip precision
    (~1e-14) on 5 cases, including PLAN §1's own `AttdAge`(k=13)/`PolYear`(k=6) knot
    vectors, not just the harness's original synthetic ones. `CR_BASIS_CLAIM`
-   (`gam_stage_a.py`) declares every compared quantity `INDEPENDENT`, and
-   `require_parity_evidence` gates the claim. Extrapolation beyond the knot range is
-   explicitly unverified (module docstring) — needed before real-data knots that don't
-   span the data range. See ADR-194 and `docs/CONFORMANCE_LEDGER.md`.
+   (`gam_stage_a.py`) declares `design_X`/`penalty_S`/`rank` `INDEPENDENT`, and
+   `require_parity_evidence` gates the claim — `knots` is checked separately
+   (`compare_term_extract`) rather than folded into the claim, because it is ECHO,
+   not INDEPENDENT, in the 3 supplied-knot cases (PR #201 review [P1], ADR-194
+   amendment). Extrapolation beyond the knot range is explicitly unverified (module
+   docstring) — needed before real-data knots that don't span the data range. See
+   ADR-194 and `docs/CONFORMANCE_LEDGER.md`.
 3. **Families, links and weights** — binomial `cloglog`/`logit` on a proportion with prior
    weights, quasi-Poisson with `φ` estimated, Poisson with a log offset. Independent of 2.
    **NEXT.**

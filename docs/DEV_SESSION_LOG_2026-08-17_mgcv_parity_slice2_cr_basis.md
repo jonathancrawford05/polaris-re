@@ -1,5 +1,14 @@
 # Dev Session Log — 2026-08-17
 
+> **Amended same day (PR #201 review [P1]).** The Provenance table below
+> originally tagged `knots` as `INDEPENDENT` alongside `design_X`/`penalty_S`/
+> `rank`. That overstated 3 of the 5 cases: when knots are supplied, neither
+> side computes them — both relay the same hand-declared literal (`ECHO`), and
+> only the two default-knot cases are a genuine independent computation.
+> `knots` was removed from `CR_BASIS_CLAIM` rather than mistagged (still
+> checked, just outside the formal parity claim); the table below is corrected
+> to match. See ADR-194's own amendment for the full explanation.
+
 ## Item Selected
 
 - **Source:** `docs/ROUTINE_MGCV_PARITY.md` — scheduled firing of the parity routine
@@ -166,11 +175,14 @@ Every quantity this session reported as a comparison, and what produced each sid
 | `design_X` | `gam_basis_cr.cr_basis` + `absorb_sum_to_zero_constraint` (Wood's construction, from `x` and a knot vector, never reading mgcv's output) | `mgcv smoothCon(s(x, bs="cr", k), absorb.cons=TRUE)$X` | **INDEPENDENT** |
 | `penalty_S` | `gam_basis_cr.cr_basis` (Wood's integrated-squared-second-derivative penalty, `mgcv`'s own `scale.penalty` rescale reproduced from source) | `mgcv smoothCon(...)$S` | **INDEPENDENT** |
 | `rank` | `numpy.linalg.matrix_rank` on the Python-constrained penalty block | `mgcv smoothCon(...)$rank` (mgcv's own rank determination) | **INDEPENDENT** |
-| `knots` | `gam_basis_cr.cr_default_knots` (own quantile computation) when not supplied, else the same array supplied to mgcv | `mgcv smoothCon(...)$xp` | **INDEPENDENT** |
+| `knots` (default-knot cases only) | `gam_basis_cr.cr_default_knots` (own quantile computation) | `mgcv smoothCon(...)$xp` | **INDEPENDENT** |
+| `knots` (supplied-knot cases) | the same hand-declared literal, relayed unchanged | `mgcv smoothCon(...)$xp` — echoes what it was handed | **ECHO, not INDEPENDENT — excluded from `CR_BASIS_CLAIM`** |
 
-This is the epic's first table with every column `INDEPENDENT` — `CR_BASIS_CLAIM`
-(`src/polaris_re/analytics/gam_stage_a.py`), gated by `require_parity_evidence` in
-both the new pytest coverage and the R-gated end-to-end test. Contrast with the
+This is the epic's first table with `design_X`/`penalty_S`/`rank` all `INDEPENDENT`
+— `CR_BASIS_CLAIM` (`src/polaris_re/analytics/gam_stage_a.py`), gated by
+`require_parity_evidence` in both the new pytest coverage and the R-gated
+end-to-end test. `knots` is checked (and agrees on all 5 cases) but is not part of
+the claim, for the reason the amendment above states. Contrast with the
 existing `RAW_PATH_CLAIM` (ECHO on `design_X`/`penalty_S`, INDEPENDENT only on
 `rank`) and `SMOOTH_PATH_CLAIM` (TRANSPORT on everything) — both unchanged by this
 session, both still used as the harness/reference machinery slice 2's comparison

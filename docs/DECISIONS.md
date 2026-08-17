@@ -14916,7 +14916,23 @@ absorb.cons=TRUE)`.
 `polaris_re`'s new `cr` basis computes `design_X` and `penalty_S` from the
 covariate locations and a knot vector, following Wood's natural-cubic-spline
 construction; `mgcv` computes them via `smoothCon(s(x, bs="cr", k),
-absorb.cons=TRUE)`; compared on `design_X`, `penalty_S`, `rank` and `knots`.
+absorb.cons=TRUE)`; compared on `design_X`, `penalty_S` and `rank`.
+
+> **Amended 2026-08-17, same day (PR #201 review [P1]).** The claim as first
+> written also named `knots` as a fourth compared quantity, tagged
+> `INDEPENDENT`. That overstated 3 of slice 2's 5 cases: when knots are
+> supplied (the majority), *neither* side computes them — both the Python
+> producer and `mgcv`'s `$xp` simply relay the same hand-declared literal,
+> which is `ECHO` by `docs/VERIFICATION_STANDARD.md`'s own definition, not
+> `INDEPENDENT`. `knots` is only a genuine independent computation in the
+> two default-knot cases. Because `VerificationClaim` declares one provenance
+> per quantity *name*, not per case, a single `knots` entry could not honestly
+> carry both answers — so it is removed from `CR_BASIS_CLAIM` (`gam_stage_a.py`)
+> rather than mistagged. Knot agreement is still checked
+> (`compare_term_extract`'s `knots_agree`/`max_abs_knots_diff`) and still
+> reported in every table below; it is a real recipe-consistency check, just
+> not a parity one. Decision 3 and the measurement tables are otherwise
+> unchanged — this correction is to the claim's scope, not to any number.
 
 ### Decision 1 — every construction detail was read out of `mgcv`'s own R source, not guessed
 
@@ -15043,12 +15059,16 @@ only this one.
 
 ### What this settles and what it does not
 
-**Settled:** the Python `cr` basis — design, penalty, and default knot
-placement — reproduces `mgcv`'s `smoothCon(bs="cr")` to float precision, for
-both supplied and default-placed knots, including the target formula's own
-`AttdAge`/`PolYear` vectors. This is the epic's first genuine basis-parity
-result (ADR-193): `CR_BASIS_CLAIM` declares every compared quantity
-`INDEPENDENT`, and `require_parity_evidence` gates the claim.
+**Settled:** the Python `cr` basis — design and penalty — reproduces `mgcv`'s
+`smoothCon(bs="cr")` to float precision, for both supplied and default-placed
+knots, including the target formula's own `AttdAge`/`PolYear` vectors. This is
+the epic's first genuine basis-parity result (ADR-193): `CR_BASIS_CLAIM`
+declares `design_X`/`penalty_S`/`rank` all `INDEPENDENT`, and
+`require_parity_evidence` gates the claim. Default knot placement is *also*
+independently verified (each side computes its own quantile placement), but
+`knots` is not part of `CR_BASIS_CLAIM` itself — see the amendment above — so
+that agreement is reported as a separate recipe-consistency check rather than
+folded into the parity claim.
 
 **Not settled:** extrapolation beyond the knot range (Decision 4); `ti`
 (tensor interaction, slice 5) and `sz` (factor-smooth, slice 6), which are

@@ -231,8 +231,10 @@ CR_BASIS_CLAIM = VerificationClaim(
         "penalty_S) from the covariate locations and a knot vector, following "
         "Wood's natural-cubic-spline construction; gam_term_extract.R's "
         "smoothCon(absorb.cons=TRUE) branch computes the same quantities via "
-        "mgcv's own C implementation; compared on design_X, penalty_S, rank and "
-        "knots."
+        "mgcv's own C implementation; compared on design_X, penalty_S and rank. "
+        "knots are checked for agreement too (compare_term_extract's "
+        "knots_agree/max_abs_knots_diff) but are NOT part of this claim — see "
+        "the note below on why."
     ),
     quantities=(
         ComparedQuantity(
@@ -257,33 +259,39 @@ CR_BASIS_CLAIM = VerificationClaim(
             right_producer="mgcv smoothCon(...)$rank (mgcv's own rank determination)",
             provenance=ComparisonProvenance.INDEPENDENT,
         ),
-        ComparedQuantity(
-            quantity="knots",
-            left_producer=(
-                "gam_basis_cr.cr_default_knots (numpy.quantile of the unique x) when "
-                "not supplied, else the same array supplied to mgcv"
-            ),
-            right_producer="mgcv smoothCon(...)$xp",
-            provenance=ComparisonProvenance.INDEPENDENT,
-        ),
     ),
 )
 """The Python ``cr`` basis's provenance (ADR-193) — the epic's first INDEPENDENT
 Stage-A claim.
 
-Every quantity is computed by two distinct implementations from the same recipe
-(the covariate locations, plus a knot vector either supplied to both or each side's
-own default placement): :func:`build_python_cr_term` never reads
-``gam_term_extract.R``'s ``X``/``S``/``rank``/``knots`` output, only the shared
-covariate ``x`` it exports (module docstring — ``x`` is recipe context, not a
-compared quantity, the same status a supplied knot vector already has under
-Anchor 4). ``knots`` is a genuine independent computation only when knots are not
-supplied — R's own ``quantile()`` versus NumPy's ``quantile`` on the same unique
-values; in the supplied-knot cases both sides simply relay the same externally
-given array, which is a weaker (but still ADR-193-compliant, since neither reads
-the other's *output*) form of the same column. A disagreement on any quantity here
-is a real result about the basis, not a broken round trip (ADR-193's "what a good
-session looks like")."""
+``design_X``, ``penalty_S`` and ``rank`` are computed by two distinct
+implementations from the same recipe (the covariate locations, plus a knot
+vector either supplied to both or each side's own default placement):
+:func:`build_python_cr_term` never reads ``gam_term_extract.R``'s
+``X``/``S``/``rank``/``knots`` output, only the shared covariate ``x`` it
+exports (module docstring — ``x`` is recipe context, not a compared quantity,
+the same status a supplied knot vector already has under Anchor 4).
+
+**``knots`` is deliberately NOT in this claim (PR #201 review [P1]).** It is a
+genuine independent computation only in the default-knot cases — R's own
+``quantile()`` versus NumPy's ``quantile`` on the same unique values. In the
+supplied-knot cases (the majority — 3 of slice 2's 5 cases), *neither* side
+computes the knots: both sides simply relay the same hand-declared literal, and
+``mgcv``'s ``$xp`` returns exactly what it was handed. That is ``ECHO`` by
+``docs/VERIFICATION_STANDARD.md``'s own definition ("one side supplied the
+quantity; the other returned it"), not ``INDEPENDENT`` — and
+:class:`VerificationClaim` declares one provenance per *quantity name*, not per
+case, so a single ``knots`` entry here cannot honestly say both at once. Tagging
+it ``INDEPENDENT`` unconditionally (the first cut of this claim) let the label
+overstate 3 of 5 cases — exactly the mislabelling ADR-193 exists to prevent, an
+irony not lost on the module that carries this docstring. The comparison itself
+still runs and still matters (:meth:`TermExtractComparison.knots_agree` /
+``max_abs_knots_diff``, checked in :func:`compare_term_extract`): it is a real
+recipe-consistency check, just not a parity one, so it stays outside this
+:class:`VerificationClaim` rather than inside it with the wrong tag.
+
+A disagreement on any of the three claimed quantities is a real result about the
+basis, not a broken round trip (ADR-193's "what a good session looks like")."""
 
 
 @dataclass(frozen=True)

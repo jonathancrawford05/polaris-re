@@ -240,9 +240,11 @@ index-range design question (work order §4) is settled in writing, ADR-191's fo
   rather than guessed (ADR-194). Agrees with `smoothCon(bs="cr", absorb.cons=TRUE)` to
   float round-trip precision (~1e-14) on 5 cases — the harness's original 3 plus the
   target formula's own `AttdAge` (k=13) and `PolYear` (k=6) knot vectors, so acceptance
-  criterion #1 below is met against the literal target knots, not a stand-in. Every
-  compared quantity is `INDEPENDENT` (`CR_BASIS_CLAIM`, `gam_stage_a.py`) — the epic's
-  first genuine Stage-A parity result. See ADR-194 and `docs/CONFORMANCE_LEDGER.md`.
+  criterion #1 below is met against the literal target knots, not a stand-in.
+  `design_X`/`penalty_S`/`rank` are `INDEPENDENT` (`CR_BASIS_CLAIM`, `gam_stage_a.py`)
+  — the epic's first genuine Stage-A parity result; `knots` agreement is checked too
+  but reported separately, since it is ECHO rather than INDEPENDENT in the 3
+  supplied-knot cases (PR #201 review [P1]). See ADR-194 and `docs/CONFORMANCE_LEDGER.md`.
 - **Depends on:** Slice 1b (done — the mgcv-native extraction Stage A needs to check
   this basis against)
 

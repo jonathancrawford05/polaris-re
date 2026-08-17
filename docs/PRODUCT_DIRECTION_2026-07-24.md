@@ -2308,11 +2308,14 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   RESOLVED 2026-08-17.** The `cr` basis now does: `gam_basis_cr.py` reproduces
   `mgcv::smoothCon(bs="cr", absorb.cons=TRUE)` to float round-trip precision on 5
   cases, including the target formula's own `AttdAge`(k=13)/`PolYear`(k=6) knot
-  vectors, confirmed at both tier 1 and tier 3 (CI run 32033738454). Every compared
-  quantity (`design_X`, `penalty_S`, `rank`, `knots`) is `INDEPENDENT`
-  (`CR_BASIS_CLAIM`) — the first table in `docs/CONFORMANCE_LEDGER.md` entitled to
-  `CONFIRMED (parity)`. `ti` and `sz` (slices 5-6) remain unbuilt. *Source: this
-  session, ADR-194 (1st-order — the epic's own next-slice progress).*
+  vectors, confirmed at both tier 1 and tier 3 (CI run 32033738454). `design_X`,
+  `penalty_S` and `rank` are `INDEPENDENT` (`CR_BASIS_CLAIM`) — the first table in
+  `docs/CONFORMANCE_LEDGER.md` entitled to `CONFIRMED (parity)`. (`knots` agreement
+  is also checked and also agrees on all 5 cases, but — PR #201 review [P1],
+  corrected same-day — is reported separately rather than folded into the claim,
+  since it is ECHO, not INDEPENDENT, in the 3 supplied-knot cases.) `ti` and `sz`
+  (slices 5-6) remain unbuilt. *Source: this session, ADR-194 (1st-order — the
+  epic's own next-slice progress).*
 
 - **Extrapolation beyond the knot range is unverified in the Python `cr` basis.**
   All 5 of slice 2's cases draw `x` from inside `[knots[0], knots[-1]]` by
