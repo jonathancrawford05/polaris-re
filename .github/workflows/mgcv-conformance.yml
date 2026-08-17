@@ -581,8 +581,16 @@ jobs:
               cr_lines.insert(2, "**A term disagreed — see the table. This is a genuine finding.**")
           lines += cr_lines
 
+          report = "\n".join(lines) + "\n"
           with open("gam_term_extract_report.md", "w") as fh:
-              fh.write("\n".join(lines) + "\n")
+              fh.write(report)
+          # Also to stdout, not just the job-summary file: the job-summary artifact
+          # sits behind a blob-storage host this environment's egress policy has
+          # blocked before (docs/CONFORMANCE_LEDGER.md's slice-1b row), but stdout
+          # is plain job-log text, readable through the ordinary jobs/logs API.
+          # Printing the SAME string as the summary means a future tier-3 read never
+          # has to settle for "the step didn't except" again.
+          print(report)
           PY
           if [ -f gam_term_extract_report.md ]; then
             cat gam_term_extract_report.md >> "$GITHUB_STEP_SUMMARY"
