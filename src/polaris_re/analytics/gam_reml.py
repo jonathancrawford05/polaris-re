@@ -23,6 +23,27 @@ The target formula's own family, binomial with a fixed dispersion of 1
 (PLAN Anchor 5), never needs it, so the cut does not block slice 4's actual
 target. :func:`reml_score_general` raises rather than silently reusing the
 known-scale formula against a family it was not derived for.
+
+**ADR-196: the score uses the PENALIZED deviance, not the plain one — derived
+from Wood (2011), not guessed.** ADR-196's first measurement generalized
+``experience_gam_penalized.reml_score``'s formula verbatim, including its use
+of the plain deviance ``D(β̂)``. That disagreed with ``mgcv`` on all three
+tested pairwise score differences, tier 1 and tier 3 identical. Wood, S.N.
+(2011), *JRSS-B* 73(1), 3-36, "Fast stable restricted maximum likelihood and
+marginal likelihood estimation of semiparametric generalized linear models",
+§2 p.4, equation (4), names the quantity the criterion actually needs:
+
+    ``Dₚ = D(β̂) + β̂ᵀSβ̂``       (the PENALIZED deviance)
+    ``2lᵣ = 2l(β̂) + log|S/φ|₊ - β̂ᵀSβ̂/φ - log|H + S/φ| + Mₚlog(2π)``
+
+i.e. the criterion needs the penalty's quadratic form ``β̂ᵀSβ̂`` ADDED to the
+deviance — a term the naive generalization omitted entirely. Adding it closed
+the gap to ~1e-12 (float round-trip noise) on every tested point, tier 1 and
+tier 3. See ADR-196's resolution section for the full derivation and
+measurement, and ``docs/WORK_ORDER_reml_penalized_deviance_production_check.md``
+for whether the SAME omission is present in the already-shipped
+``experience_gam_penalized.reml_score`` this module was generalized from
+(that module is untouched here — PLAN Anchor 7).
 """
 
 import numpy as np
@@ -46,22 +67,34 @@ def reml_score_general(
 ) -> float:
     """Laplace-approximate REML for a penalized known-scale GLM (lower is better).
 
-    Identical mathematical form to ``experience_gam_penalized.reml_score``:
+    Wood (2011) §2 eq. (4), specialized to known scale (``φ = gamma``, Wood's
+    smoothness multiplier — see the ``gamma`` argument below):
 
-        ``V = D/(2*gamma) + log|XᵀWX + S|/2 - log|S|₊/2 - (p - r)*log(gamma)/2``
+        ``V = Dₚ/(2*gamma) + log|XᵀWX + S|/2 - log|S|₊/2 - (p - r)*log(gamma)/2``
 
-    generalized only in *which* deviance ``D`` and *which* IRLS working weight
-    ``W`` feed it — both now come from ``family`` (:mod:`gam_family`) rather
-    than being hardcoded to the Poisson log-link, matching the same working
-    weight :func:`gam_fit.penalized_irls_general` converges under
-    (``w_i = weights_i * (dmu/deta)_i^2 / V(mu_i)``, Wood §3.1.2/§6.6).
+    where ``Dₚ = D(β̂) + β̂ᵀSβ̂`` is the PENALIZED deviance — plain deviance plus
+    the penalty's quadratic form at the supplied coefficients. **This differs
+    from ``experience_gam_penalized.reml_score``'s formula**, which uses the
+    plain deviance ``D(β̂)`` alone: that omission is ADR-196's finding, derived
+    from and cited to Wood (2011) in this module's docstring, not present in
+    the (untouched, PLAN Anchor 7) module this one was generalized from. See
+    :func:`~polaris_re.analytics.gam_reml_conformance` for the measurement
+    that found it and confirmed the fix.
+
+    Every other term is unchanged: *which* deviance ``D`` and *which* IRLS
+    working weight ``W`` feed the formula come from ``family``
+    (:mod:`gam_family`) rather than being hardcoded to the Poisson log-link,
+    matching the same working weight :func:`gam_fit.penalized_irls_general`
+    converges under (``w_i = weights_i * (dmu/deta)_i^2 / V(mu_i)``, Wood
+    §3.1.2/§6.6).
 
     ``penalty`` is the CALLER-SUMMED ``S_λ = Σⱼ λⱼ Sⱼ`` across however many
     independently-scaled penalty blocks the model has. The score's own formula
-    depends on that sum and its rank alone, not on how many blocks produced it
-    — so no further generalization is needed to go from the tensor MI surface's
-    two blocks to the target formula's thirteen. Evaluated at the supplied
-    ``coef``, so callers own convergence: this function does not fit anything.
+    depends on that sum (both directly, and through ``β̂ᵀSβ̂``) and its rank
+    alone, not on how many blocks produced it — so no further generalization
+    is needed to go from the tensor MI surface's two blocks to the target
+    formula's thirteen. Evaluated at the supplied ``coef``, so callers own
+    convergence: this function does not fit anything.
 
     Args:
         y: response, ``(n,)`` — counts, or a proportion for binomial.
@@ -103,6 +136,12 @@ def reml_score_general(
     eta = offset + x @ coef
     mu = family.link.linkinv(eta)
     deviance = family.deviance(y, mu, weights)
+    # Wood (2011) §2 eq. (4): Dp = D(beta_hat) + beta_hat^T S beta_hat — the
+    # PENALIZED deviance. ADR-196: this term was missing entirely in the first
+    # generalization (and, per experience_gam_penalized.reml_score's own
+    # formula, is absent there too); adding it is the derived fix, not a
+    # tuned constant — see the module docstring's citation.
+    penalized_deviance = deviance + float(coef @ penalty @ coef)
 
     deta_dmu = family.link.mu_eta(eta)
     irls_weights = weights * deta_dmu**2 / family.variance(mu)
@@ -117,4 +156,6 @@ def reml_score_general(
     # (PR #190 review [P2]): `np.log(1.0)` is exactly `0.0`, so the criterion is
     # bit-identical at the default without a float-equality guard.
     scale = float(x.shape[1] - positive.size) * float(np.log(gamma))
-    return float(0.5 * deviance / gamma + 0.5 * float(logdet_h) - 0.5 * logdet_s - 0.5 * scale)
+    return float(
+        0.5 * penalized_deviance / gamma + 0.5 * float(logdet_h) - 0.5 * logdet_s - 0.5 * scale
+    )
