@@ -99,11 +99,57 @@ class TestRelationshipToTheExistingPoissonScore:
         assert new == pytest.approx(old, abs=1e-12, rel=1e-12)
 
 
+class TestClosedFormSingleColumnCase:
+    """The genuine closed-form check (PR #203 review [P2-a]): a single-column
+    design collapses every term to scalar arithmetic worked out by hand below
+    — no `np.linalg.slogdet`/`np.linalg.eigvalsh` call on the expected side at
+    all, unlike `TestMatchesWoodsFormulaDirectly` below, which recomputes the
+    same intermediate numpy calls the implementation makes (a useful
+    regression net, but not an independent derivation, since it would not
+    catch an error shared by both call sites — e.g. a wrong deviance
+    definition or working-weight convention)."""
+
+    def test_single_column_poisson_reduces_to_scalar_arithmetic(self) -> None:
+        n = 5
+        x = np.ones((n, 1))
+        y = np.full(n, 3.0)
+        c, s = 0.5, 2.0
+        coef = np.array([c])
+        penalty = np.array([[s]])
+        family = poisson_log()
+
+        # eta_i = c for every row (single column of ones), so mu is constant:
+        mu = np.exp(c)
+        # Poisson deviance, all n rows identical: D = 2n[y*log(y/mu) - (y - mu)]
+        deviance = 2.0 * n * (3.0 * np.log(3.0 / mu) - (3.0 - mu))
+        dp = deviance + c**2 * s  # Dp = D(beta_hat) + beta_hat^T S beta_hat
+
+        # log link: dmu/deta = mu, V(mu) = mu, so w_i = mu^2/mu = mu for every row.
+        # H = X^T W X + S is the 1x1 scalar (n*mu + s) — no matrix algebra needed.
+        h = n * mu + s
+        logdet_h = np.log(h)
+        logdet_s = np.log(s)  # the sole eigenvalue of a 1x1 matrix is its entry
+        # p - r = 1 - 1 = 0 (S is full rank here), so the gamma-scale term vanishes.
+        expected = 0.5 * dp + 0.5 * logdet_h - 0.5 * logdet_s
+
+        actual = reml_score_general(y, x, family, coef, penalty)
+        assert actual == pytest.approx(expected, abs=1e-12, rel=1e-12)
+
+
 class TestMatchesWoodsFormulaDirectly:
-    """A closed-form check independent of the old module entirely: Wood
-    (2011) §2 eq. (4) names `Dp = D(beta_hat) + beta_hat^T S beta_hat`
-    explicitly — assert the function's output actually decomposes that way,
-    rather than only ever comparing it against another implementation."""
+    """NOT a closed-form test (PR #203 review [P2-a] — see
+    `TestClosedFormSingleColumnCase` above for the genuine one). This
+    recomputes `deviance`/`irls_weights`/`logdet_h`/`logdet_s` with the SAME
+    calls the implementation uses (`family.deviance`, `family.link.mu_eta`,
+    `family.variance`, `np.linalg.slogdet`, `np.linalg.eigvalsh`), in the same
+    order, then asserts the implementation's output equals that
+    recomposition. Worth keeping as a regression net for a dropped term, a
+    sign flip, or a wrong ½ — Wood (2011) §2 eq. (4) names
+    `Dp = D(beta_hat) + beta_hat^T S beta_hat` explicitly and this pins the
+    decomposition against it — but it cannot catch an error shared by both
+    call sites (a wrong deviance definition, working weight, or
+    log-determinant convention), since it inherits all three from the
+    implementation it is checking."""
 
     def test_score_equals_the_explicit_dp_formula(self, rng: np.random.Generator) -> None:
         n, p = 120, 5

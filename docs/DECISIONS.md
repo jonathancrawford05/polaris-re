@@ -15537,9 +15537,15 @@ commit `1ae300d`, both jobs completed in ~57s. Required levels 1-3 of the existi
 ten-cell suite also still agree — no regression from the fix.
 
 **Verified independently of the old module too**, per CLAUDE.md's closed-form
-discipline: `tests/test_analytics/test_gam_reml.py::TestMatchesWoodsFormulaDirectly`
-asserts the score's output decomposes exactly as Wood's equation states, computed from
-first principles rather than only ever compared against another implementation.
+discipline — and corrected same day (PR #203 review [P2-a]) on which test actually earns
+that label. `tests/test_analytics/test_gam_reml.py::TestClosedFormSingleColumnCase` is the
+genuine closed-form case: a single-column design collapses every term (deviance, `H`,
+`log|S|`) to scalar arithmetic worked out by hand, with no `np.linalg.slogdet`/
+`np.linalg.eigvalsh` call on the expected side at all. `TestMatchesWoodsFormulaDirectly`
+(kept, relabeled) recomputes the score's intermediate steps with the same numpy calls the
+implementation uses, in the same order — a real regression net for a dropped term or a
+wrong ½, but not independent of a bug shared by both call sites, so it does not by itself
+satisfy CLAUDE.md's closed-form requirement the way the new test does.
 
 **What this settles:** slice 4 part A is DONE. `REML_SCORE_CLAIM`'s
 `reml_score_pairwise_diff` and `deviance` are both INDEPENDENT and both now agree —

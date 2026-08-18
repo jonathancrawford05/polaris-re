@@ -413,6 +413,19 @@ closed-form discipline: a new test
 the score's output decomposes exactly as Wood's equation (4) states, computed from
 first principles.
 
+> **Corrected 2026-08-18, same day (PR #203 second review [P2-a]).** That last claim
+> overstated what `TestMatchesWoodsFormulaDirectly` actually shows: it recomputes
+> `deviance`/`irls_weights`/`logdet_h`/`logdet_s` with the SAME numpy calls the
+> implementation uses, so it cannot catch an error shared by both call sites (a wrong
+> deviance definition, working weight, or log-determinant convention) — not
+> "computed from first principles." Added `TestClosedFormSingleColumnCase`, the
+> genuine closed-form case: a single-column design collapses every term to scalar
+> arithmetic worked out by hand, with no `np.linalg.slogdet`/`np.linalg.eigvalsh` call
+> on the expected side at all. Kept the mirror test (still a real regression net for a
+> dropped term or a wrong ½) with its docstring corrected rather than deleted. ADR-196
+> and `docs/CONFORMANCE_LEDGER.md`'s row 51 (a separate, superseded "reduces
+> bit-for-bit to the old score" claim, [P2-b]) both updated to match.
+
 ### What changed in the docs
 
 `docs/DECISIONS.md` — ADR-196 gained a "Resolution" section (title/status updated,
