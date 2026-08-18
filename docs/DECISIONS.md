@@ -15354,11 +15354,19 @@ and `(5, 0.2)`, both product 1) and the third does not (`(0.5, 8)`, product
 4) — deliberately off-diagonal, the same reasoning as
 `scripts/mgcv_conformance.R`'s `l1-scale-convention` cell.
 
-**First isolated the fit itself, not the score**: at every point, the
-Python-independent `penalized_irls_general` fit's own `deviance` matches
-`mgcv`'s reported `m$deviance` to ~1e-11 — float round-trip noise, not a
-disagreement, and consistent with slice 3's already-verified `eta` parity now
-extended to two independently-scaled blocks. **The fit is not the problem.**
+**First isolated the fit itself, not the score.** `REML_SCORE_CLAIM` declares
+`deviance` as a second INDEPENDENT quantity (PR #203 review [P1-1]:
+`gam_reml_conformance.deviance_reml_point`/`compare_reml_deviance`, using the
+SAME independent fit `score_reml_point` builds its score on) precisely so
+this claim is a committed, re-runnable comparison rather than a session-only
+observation. At every point, the Python-independent fit's own `deviance`
+matches `mgcv`'s reported `m$deviance` to ~1e-11 — float round-trip noise, not
+a disagreement, and consistent with slice 3's already-verified `eta` parity
+now extended to two independently-scaled blocks. **The fit is not the
+problem** — and, specifically, this rules out `mgcv` rescaling the supplied
+penalty blocks (`gam.control`'s `scalePenalty`) as the cause: a rescaled
+penalty would fit both sides at a different effective `lambda` and show up
+here as a deviance disagreement, which is not observed.
 
 **Tier 1** (R 4.3.3 / mgcv 1.9.1, local apt):
 
@@ -15400,26 +15408,46 @@ well-defined function of `(sp1, sp2)`.
 
 **Not concluded: which term of the formula is wrong, or what the correct one
 is.** CLAUDE.md and Anchor 8 forbid guessing a derivation or tuning a
-constant to close a measured gap; neither is done here. What the measurement
-does localize: `logdet_s` (`log|S_lambda|_+`) computed the naive way — sum
-the two blocks first, eigendecompose the sum — is IDENTICAL between `(1,1)`
-and `(5, 0.2)` in this fixture (both blocks are rank-1 second-difference
-penalties, so `logdet_s` depends only on the product `sp1 * sp2`, which is 1
-at both points by this fixture's construction) — yet those two points carry
-the *largest* residual of the three. So the naive `logdet_s` is not, on this
-evidence, where the gap concentrates; whatever `mgcv` does differently for
-multiple penalty blocks (plausibly a more careful null-space/rotation
-treatment across blocks than "sum then eigendecompose," per Wood's own
-description of multi-penalty REML machinery) is the next thing to read
-directly from the published derivation (Wood 2011, *JRSS-B*) — never from
-`mgcv`'s GPL source, per ADR-190 decision 3's precedent. **Named next
-hypothesis for the session that picks this back up:** does `mgcv`'s
-multi-penalty `log|S_lambda|_+` differ from the naive combined-eigendecomposition
-one specifically when the penalty blocks' null spaces interact — testable by
-extending this same probe to two points sharing the SAME naive `logdet_s`
-(as `(1,1)`/`(5,0.2)` already do here) while varying only the individual
-block ranks/null-space overlap, isolating the term from `logdet_h`
-independently.
+constant to close a measured gap; neither is done here.
+
+> **Corrected 2026-08-18, same day (PR #203 review [P1-3]).** An earlier
+> revision of this section reasoned: "the naive `logdet_s` is identical
+> between `(1,1)` and `(5,0.2)`, yet those two points carry the *largest*
+> residual — so the naive `logdet_s` is not where the gap concentrates." That
+> inference does not follow. Writing `e(pt) = python(pt) - mgcv(pt)`, the
+> measured *residual* between two points is `e(A) - e(B)`, and if the entire
+> error lived in the naive `logdet_s` term, that quantity equals
+> `½·(logdet_mgcv(A) - logdet_mgcv(B))` — which vanishes only if `mgcv`'s OWN
+> `log|S_lambda|_+` is *also* a function of `sp1 * sp2` alone at these two
+> points. That is exactly the fact in question, not something established
+> independently, so the argument assumed its own conclusion. Second, and more
+> consequential for what to try next: this fixture's two penalty blocks have
+> **disjoint column supports** — `S1` touches only `X`'s first three columns,
+> `S2` only the next three, verified directly on the matrices — so their null
+> spaces never interact at all. A hypothesis about `mgcv` treating
+> *interacting* null spaces differently from "sum then eigendecompose" cannot
+> be tested, confirmed, or refuted by a fixture built so the blocks never
+> interact. The paragraph below is the corrected version; no measured number
+> changed, only the inference drawn from them.
+
+**What the measurement actually localizes:** very little, beyond ruling out
+the fit (`deviance` agrees) and ruling out a pure additive-constant offset
+(the three residuals are not equal — see "Decision 3"). The apparent
+coincidence that `(1,1)` and `(5,0.2)` share a naive `logdet_s` (both blocks
+are rank-1 second-difference penalties, and `logdet_s = log(sp1 * sp2) +
+\text{const}` for disjoint rank-1 blocks) is a property of THIS fixture's
+degenerate block structure, not evidence about which formula term is at
+fault — the fixture cannot distinguish "the naive `logdet_s` is wrong" from
+"the naive `logdet_s` is fine but something else is wrong" while its blocks
+never interact. **Named next hypothesis for the session that picks this back
+up:** does `mgcv`'s multi-penalty `log|S_lambda|_+` (or its `log|X'WX+S|`
+term) differ from the naive combined-eigendecomposition treatment
+specifically when the penalty blocks' null spaces *interact* (share
+columns, or are both full-width) — and the fixture needed to test it must be
+built with genuinely overlapping/interacting blocks, unlike this session's,
+before the term can be ruled in or out. Read directly from the published
+derivation (Wood 2011, *JRSS-B*) — never from `mgcv`'s GPL source, per
+ADR-190 decision 3's precedent.
 
 ### What this does not block
 

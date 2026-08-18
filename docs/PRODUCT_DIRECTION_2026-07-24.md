@@ -2380,42 +2380,45 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   acceptance criteria (1st-order — a named, not-yet-met piece of the slice's own
   scope, correctly deferred rather than silently dropped).*
 
-- **Slice 4 — the outer optimisation (N-dimensional (f)REML).** Now the epic's
+- ~~**Slice 4 — the outer optimisation (N-dimensional (f)REML).** Now the epic's
   NEXT slice — the prerequisite for everything multi-term, and the largest single
   piece of work in the epic (PLAN §3: 4.8 million grid fits would be needed at the
   target's 13-21 smoothing parameters if the existing 2-D grid approach were
-  naively extended, which is why it is a Newton/quasi-Newton slice instead).
-  *Source: `docs/PLAN_mgcv_parity_engine.md` (1st-order — the epic's own NEXT
+  naively extended, which is why it is a Newton/quasi-Newton slice instead).~~
+  **PARTIALLY SHIPPED, 2026-08-18** — see the harvest immediately below for what
+  moved and what is still open. *Source: `docs/PLAN_mgcv_parity_engine.md`,
+  updated by this session's harvest (1st-order — the epic's own in-progress
   slice).*
 
 ### Harvested 2026-08-18 — slice 4 part A, the REML score generalized and measured (ADR-196)
 
-- ~~**Slice 4 — the outer optimisation (N-dimensional (f)REML).**~~ **PART A DONE,
-  PART B NOT STARTED.** The generalized score (`gam_reml.reml_score_general`) is
-  built and measured against `mgcv` before any search code exists — the right order,
-  since a search over a criterion not shown to match would not be a meaningful
-  measurement. It DISAGREES: an INDEPENDENT comparison (score computed two ways from
-  a shared recipe, never reading the other side's fit or score) whose pairwise-score-
-  difference residual is ~0.74 on 2 of 3 point pairs, identical at tier 1 and tier 3
-  — five orders of magnitude above BLAS/version noise, so this is a real formula gap,
-  not an artifact. *Source: this session, ADR-196 (1st-order — the epic's own
-  in-progress slice; the outer search cannot proceed meaningfully until this is
-  closed).*
+- **PART A DONE, PART B NOT STARTED.** The generalized score
+  (`gam_reml.reml_score_general`) is built and measured against `mgcv` before any
+  search code exists — the right order, since a search over a criterion not shown
+  to match would not be a meaningful measurement. It DISAGREES: an INDEPENDENT
+  comparison (score computed two ways from a shared recipe, never reading the
+  other side's fit or score) where **all three** pairwise score-difference
+  residuals miss the declared 1e-6 tolerance (two by ~0.74, one by ~9.3e-4 —
+  ~935x the tolerance, smaller than the other two but not agreement), identical
+  at tier 1 and tier 3 — five orders of magnitude above BLAS/version noise, so
+  this is a real formula gap, not an artifact. A second INDEPENDENT quantity,
+  `deviance`, agrees at every point (~1e-11), which is what rules out the fit
+  itself (or a rescaled-penalty artifact) as the cause. *Source: this session,
+  ADR-196 (1st-order — the epic's own in-progress slice; the outer search cannot
+  proceed meaningfully until this is closed).*
 
-- **Named next hypothesis for slice 4 part B's formula gap**: is the naive
-  "sum the penalty blocks, eigendecompose the sum" `log|S_lambda|_+` where `mgcv`'s
-  own multi-penalty REML score actually diverges? The measured evidence points away
-  from it in this specific fixture (two points sharing an identical naive `logdet_s`
-  carry the LARGEST residual of the three), which argues for reading `mgcv`'s
-  multi-penalty machinery from Wood (2011, *JRSS-B*) directly — never from GPL
-  source, per ADR-190 decision 3's precedent — rather than iterating on the naive
-  formula's constants. *Source: this session, ADR-196 (1st-order — the concrete
-  next step for the epic's own in-progress slice).*
-
-- **Known-scale-only REML score is a deliberate, target-motivated cut, not a gap
-  to backfill speculatively.** `reml_score_general` raises on
-  `dispersion_fixed=False` families (quasi-Poisson) rather than silently reusing a
-  formula not derived for an estimated-dispersion criterion. The target formula's
-  own family (binomial) never needs it. Only worth building if a future model form
-  actually needs quasi-Poisson under REML selection. *Source: this session (3rd-order,
-  PARKED — no known future need yet).*
+- **Named next hypothesis for slice 4 part B's formula gap, corrected same-day
+  (PR #203 review [P1-3]).** An earlier version of this entry argued the naive
+  "sum the penalty blocks, eigendecompose the sum" `log|S_lambda|_+` term was
+  probably NOT where the gap concentrates, reasoning from two points sharing an
+  identical naive `logdet_s` carrying the largest residual — that argument was
+  circular (it silently assumed `mgcv`'s own `logdet_s` behaves identically,
+  which is exactly what's in question) and this session's fixture cannot settle
+  it anyway: its two penalty blocks have disjoint column supports, so their null
+  spaces never interact, and a fixture built that way cannot distinguish "the
+  naive treatment is fine" from "the naive treatment is wrong but only shows up
+  when null spaces interact." **The corrected next step:** build a fixture with
+  genuinely overlapping/interacting penalty blocks, then read `mgcv`'s actual
+  multi-penalty treatment from Wood (2011, *JRSS-B*) directly — never from GPL
+  source, per ADR-190 decision 3's precedent. *Source: this session, ADR-196
+  (1st-order — the concrete next step for the epic's own in-progress slice).*

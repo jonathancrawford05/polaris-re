@@ -110,11 +110,28 @@ class TestGeneralizesBeyondPoisson:
     def test_two_summed_penalty_blocks_is_the_same_call_as_one(
         self, rng: np.random.Generator
     ) -> None:
-        """N independently-scaled blocks enter only through their sum — an N=2
-        case built from two separately-scaled blocks must equal the same call
-        with the pre-summed combined penalty, which is what licenses this
-        function as the score an N-dimensional (rather than 2-dimensional)
-        optimiser would call."""
+        """`reml_score_general` takes ONE combined `penalty` matrix and has no
+        concept of "blocks" in its signature at all — an N-dimensional caller
+        assembling `S_lambda = sum_j lambda_j S_j` from however many
+        independently-scaled blocks calls this function exactly the same way
+        the tensor MI surface's 2-block case does. THAT is what licenses this
+        function for an N-dimensional optimiser, and it is a fact about the
+        function's TYPE (one `(p, p)` array parameter), not something this
+        test discovers empirically.
+
+        PR #203 review [P2-1]: an earlier revision of this docstring claimed
+        this assertion "licenses" N-block support, but `combined_first` and
+        `summed_by_caller` below are bit-identical float arrays (float
+        addition of the same two terms in the same order), so the assertion
+        is `f(A) == f(A)` — it shows the function is deterministic and pure
+        (no hidden global state, no order-of-summation sensitivity within a
+        single call), which is a real and worth-pinning property, but not
+        evidence of N-block generality. Keeping the determinism check (still
+        useful — e.g. it would catch a caching bug) with the claim corrected
+        rather than replaced, since manufacturing two float-distinct paths to
+        the identical `S_lambda` would not exercise anything `reml_score_general`
+        does differently either — the function's body never inspects the
+        route the caller took to assemble its one argument."""
         n, p1, p2 = 120, 3, 4
         p = p1 + p2
         x = _design(rng, n, p)

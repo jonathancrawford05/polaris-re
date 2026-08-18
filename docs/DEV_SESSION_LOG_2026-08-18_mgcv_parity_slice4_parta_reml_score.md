@@ -80,15 +80,18 @@ attempted.
   signature takes no R-payload-shaped argument at all. `require_parity_evidence`
   gates it (`tests/test_analytics/test_gam_reml_conformance.py`).
 - **Measured, tier 1 and tier 3 identical: DISAGREES.** The fit itself is
-  correct (deviance matches `mgcv`'s to ~1e-11 at every point); the score's
-  dependence on `(sp1, sp2)` does not. 2 of 3 pairwise score differences
-  disagree by ~0.74 after differencing out any additive convention offset —
-  five orders of magnitude above BLAS/version noise, so this is a real formula
-  gap, not an artifact of the tier or the oracle build.
+  correct — a committed, INDEPENDENT `deviance` comparison
+  (`compare_reml_deviance`, added in review response — see below) matches
+  `mgcv`'s to ~1e-11 at every point; the score's dependence on `(sp1, sp2)`
+  does not. **All three** pairwise score differences miss the declared 1e-6
+  tolerance after differencing out any additive convention offset (two by
+  ~0.74, one by ~9.3e-4 — smaller, but still ~935x the tolerance, not
+  agreement) — five orders of magnitude above BLAS/version noise, so this is
+  a real formula gap, not an artifact of the tier or the oracle build.
 - **`docs/DECISIONS.md`: ADR-196** records the design decisions, both tiers'
   measurements, why this is a genuine INDEPENDENT result rather than a harness
-  defect, and the named next hypothesis (the naive "sum blocks, eigendecompose
-  the sum" `logdet_s` is not, on this evidence, where the gap concentrates).
+  defect, and a named next hypothesis (corrected in review response after the
+  original localizing argument was found circular — see below).
 - **PLAN/CONTINUATION updated:** slice 4 marked IN PROGRESS, part A DONE, part
   B (the search itself) explicitly NOT STARTED and why.
 
@@ -104,29 +107,41 @@ attempted.
      `gamma=1.4` with an offset, and at zero penalty).
    - **PARTIALLY REFUTED at tier 1 on the first measurement**: the fit
      (deviance) matches to float precision, but the score's pairwise
-     differences do not — 2 of 3 pairs disagree by ~0.74.
+     differences do not — all three pairs miss the declared tolerance (two by
+     ~0.74, one by ~9.3e-4).
    - **CONFIRMED unchanged at tier 3, identical to every printed digit** — not
      a tier-1/BLAS artifact.
 2. **The residual is a purely additive convention offset (like the one ADR-189
    amendment 1 found for the single-block Poisson case), and differencing
    pairwise cancels it.**
    - **REFUTED.** If it were a constant offset, ALL pairwise differences would
-     agree once differenced. Only 1 of 3 pairs agrees (`(1,1)-(0.5,8)`,
-     residual 0.000935); the other two disagree by ~0.74. The offset is not
-     constant — it is a real function of `(sp1, sp2)`.
+     be numerically equal (not necessarily zero, but equal to each other)
+     once differenced — they are not: two residuals are ~0.74 and the third
+     is ~800x smaller (~9.3e-4). The offset is not constant — it is a real
+     function of `(sp1, sp2)`.
 3. **The naive combined-penalty generalized log-determinant (`log|S_lambda|_+`,
    sum the blocks then eigendecompose) is where the gap concentrates.**
-   - **Evidence points away from it, not conclusively resolved.** By this
-     fixture's construction, `(1,1)` and `(5,0.2)` share the same naive
-     `logdet_s` (both blocks are rank-1 second-difference penalties, so
-     `logdet_s` depends only on the product `sp1*sp2`, which is 1 at both
-     points) — yet that pair carries the LARGEST residual of the three. If the
-     naive `logdet_s` were the sole culprit, these two points would agree.
-     They do not. **Not concluded which term is actually wrong** — CLAUDE.md
-     forbids guessing a derivation past what was measured. Named as the next
-     session's starting hypothesis (read `mgcv`'s multi-penalty treatment from
-     Wood 2011 directly, per ADR-190 decision 3's GPL/MIT precedent) rather
-     than iterated on further this session (Anchor 8: derive, do not tune).
+   - **Original session reasoning was circular — caught same-day in PR #203
+     review [P1-3].** The original argument: "`(1,1)` and `(5,0.2)` share the
+     same naive `logdet_s` (both blocks are rank-1 second-difference
+     penalties, so `logdet_s` depends only on the product `sp1*sp2`, which is
+     1 at both points), yet that pair carries the largest residual — so the
+     naive `logdet_s` is not the culprit." That does not follow: the measured
+     *residual* between two points equals `½·(logdet_mgcv(A) −
+     logdet_mgcv(B))` if the naive `logdet_s` were the sole error source,
+     and that vanishes only if `mgcv`'s OWN `logdet_s` is *also* a function
+     of `sp1*sp2` alone at those points — which is exactly the fact in
+     question, not something established independently. Second: this
+     fixture's two blocks have disjoint column supports (verified on the
+     matrices), so their null spaces never interact — a fixture built that
+     way cannot test the hypothesis "`mgcv` treats interacting null spaces
+     differently" either way. **Not concluded which term is actually
+     wrong** — CLAUDE.md forbids guessing a derivation past what was
+     measured. Corrected next hypothesis: build a fixture with genuinely
+     overlapping/interacting penalty blocks, then read `mgcv`'s multi-penalty
+     treatment from Wood 2011 directly (ADR-190 decision 3's GPL/MIT
+     precedent) rather than iterating on the naive formula's constants
+     (Anchor 8: derive, do not tune).
 
 ## Oracle Version
 
@@ -146,7 +161,7 @@ side (ADR-193):
 | quantity | left producer | right producer | provenance |
 |---|---|---|---|
 | `reml_score_pairwise_diff` | `gam_reml.reml_score_general`, evaluated at coefficients from an independently-converged `gam_fit.penalized_irls_general` fit — `score_reml_point`'s signature takes only plain arrays and the `sp` setting itself, no R-payload-shaped argument at all | `mgcv gam(..., method='REML')$gcv.ubre` at the same fixed `sp` point | **INDEPENDENT** |
-| `deviance` (diagnostic, not part of `REML_SCORE_CLAIM`) | the same independently-converged Python fit's own `family.deviance(y, mu, weights)` | `mgcv m$deviance` | **INDEPENDENT** — used this session to isolate the fit from the score, not compared as a slice-4 acceptance criterion |
+| `deviance` | `gam_reml_conformance.deviance_reml_point`/`compare_reml_deviance`, using the SAME independent fit `score_reml_point` scores — added in review response (PR #203 review [P1-1]) after the original session cited this comparison in prose with no committed producer | `mgcv m$deviance` at the same fixed `sp` point | **INDEPENDENT** — declared as the second `ComparedQuantity` on `REML_SCORE_CLAIM`, not a diagnostic aside; it is what licenses reading the score disagreement as a formula gap rather than a fit bug or a rescaled-penalty artifact |
 | `coef` | *(not compared — Anchor 2)* | *(not compared)* | **N/A, deliberately** |
 
 **Tier 3 measurement table** (read directly from job-log stdout via
@@ -168,13 +183,69 @@ standard, an INDEPENDENT comparison that DISAGREES is a real result, not a
 failed session: the two-block REML criterion is now known, with evidence, not
 to match `mgcv`, where before this session nothing had ever measured it.
 
+## Review Response (PR #203, automated review)
+
+The automated PR review found 5 [P1]s and 2 [P2]s, all about the accuracy and
+reproducibility of the record rather than shipped code (zero [P0]s, zero test
+failures). All 5 [P1]s and one [P2] were fixed; the second [P2] (a variable
+name inversion already present on `main` in `gam_fit.py`) was left, per the
+review's own recommendation, for a future one-line sweep rather than expanded
+in this PR.
+
+- **[P1-1] The `deviance` agreement had no committed producer.** Fixed:
+  `deviance_reml_point`/`compare_reml_deviance` added to
+  `gam_reml_conformance.py`, `deviance` declared as a second `ComparedQuantity`
+  on `REML_SCORE_CLAIM`, printed in the CI job summary, and asserted (not just
+  printed) in `test_the_r_probe_runs_end_to_end`.
+- **[P1-2] "2 of 3 pairs disagree" contradicted the declared 1e-6 tolerance —
+  all three do.** Fixed throughout: this log, ADR-196, `CONTINUATION`,
+  `PRODUCT_DIRECTION`, and the ledger rows now say "all three pairwise
+  differences disagree (two by ~0.74, one by ~9.3e-4 — ~935x the tolerance,
+  smaller but not agreement)."
+- **[P1-3] ADR-196's localizing inference about `logdet_s` did not follow, and
+  the fixture cannot test the hypothesis it named.** The argument assumed
+  `mgcv`'s own `logdet_s` behaves like the naive one at the two matching
+  points, which is exactly what was in question; separately, this fixture's
+  two blocks have disjoint column supports, so a hypothesis about interacting
+  null spaces cannot be tested by it either way. Fixed: ADR-196 §"What is NOT
+  concluded" rewritten with the correction stated in place (no measured
+  number changed), and every downstream doc that repeated the original
+  inference updated to match.
+- **[P1-4] `PRODUCT_DIRECTION` carried the same item as both open (original
+  entry) and closed (a second, struck-through harvest entry).** Fixed: the
+  original entry is now struck and points at the harvest section instead of
+  duplicating it.
+- **[P1-5] The quasi-Poisson 3rd-order item was written into
+  `PRODUCT_DIRECTION` instead of this log's Parked Polish** — the order cap's
+  first 3rd-order item, and the rule is that 3rd-order-or-deeper items are
+  logged once in Parked Polish, not promoted. Fixed: moved below.
+- **[P2-1] The block-summing test was tautological and its docstring
+  overclaimed.** Fixed: docstring corrected to state what the test actually
+  shows (determinism/purity) rather than "licenses N-block support," which is
+  a fact about the function's type signature, not something the test
+  demonstrates empirically.
+- **[P2-2] `deta_dmu` names `dmu/deta`** (`gam_reml.py:107`, matching the same
+  inversion already on `main` in `gam_fit.py`). Not fixed here — the review
+  recommended a future one-line sweep across all sites rather than expanding
+  this PR's diff for a naming issue with no numeric effect.
+
+No committed number changed as a result of this review round — the tier-1
+and tier-3 score-disagreement figures are exactly as first measured. What
+changed is: a new, committed `deviance` comparison (previously cited only in
+prose); corrected prose describing an unchanged tolerance evaluation; and a
+corrected (not retracted) inference about where to look next. Re-confirmed at
+tier 3 on the fix commit — see Oracle Version / Provenance above, updated
+after the fix.
+
 ## What Was Done
 
 1. `src/polaris_re/analytics/gam_reml.py` — new module: `reml_score_general`,
    generalizing `experience_gam_penalized.reml_score` onto `gam_fit`'s general
    IRLS core, known-scale families only.
 2. `src/polaris_re/analytics/gam_reml_conformance.py` — new module:
-   `REML_SCORE_CLAIM`, `score_reml_point`, `compare_reml_points`.
+   `REML_SCORE_CLAIM`, `score_reml_point`, `compare_reml_points`,
+   `deviance_reml_point`, `compare_reml_deviance` (the latter two added in
+   review response, [P1-1]).
 3. `scripts/gam_reml_probe.R` — new probe script, following the
    `gam_family_probe.R` pattern: a shared two-block binomial/logit design,
    fitted at three fixed `(sp1,sp2)` points via `paraPen` with
@@ -197,14 +268,18 @@ to match `mgcv`, where before this session nothing had ever measured it.
 - `tests/test_analytics/test_gam_reml.py` — 7 tests: three bit-for-bit
   regression tests against the already-verified Poisson score (`gamma=1`,
   `gamma=1.4` with an offset, zero penalty), a binomial-logit finiteness
-  check, an N-block-equals-pre-summed-penalty equivalence test, and two
+  check, a block-summing determinism test (docstring corrected in review
+  response, [P2-1], to state what it actually shows), and two
   input-validation tests (rejects estimated-dispersion families, rejects
   non-positive `gamma`).
-- `tests/test_analytics/test_gam_reml_conformance.py` — 3 tests: the claim is
-  a genuine parity claim (`require_parity_evidence` does not raise), the
-  mechanical-test signature check (`score_reml_point` takes no R-payload-shaped
-  argument), and the R-gated end-to-end machinery test (deliberately does NOT
-  assert agreement — see its docstring for why).
+- `tests/test_analytics/test_gam_reml_conformance.py` — 4 tests (was 3;
+  [P1-1] added one): the score claim is a genuine parity claim
+  (`require_parity_evidence` does not raise), the mechanical-test signature
+  checks for both `score_reml_point` and `deviance_reml_point` (neither takes
+  an R-payload-shaped argument), and the R-gated end-to-end machinery test —
+  which now ASSERTS `deviance` agreement directly (a real, reproducible
+  result) while still deliberately NOT asserting score agreement (see its
+  docstring for why).
 
 ## Acceptance Criteria
 
@@ -216,7 +291,8 @@ to be verified before the search. Recorded as a self-imposed standard instead:
 | Self-imposed criterion (this session) | Status | Notes |
 |---|---|---|
 | The generalized score reduces bit-for-bit to the existing verified Poisson score | ✅ | 3 regression tests |
-| The generalized score's dependence on `(sp1,sp2)` reproduces `mgcv`'s, for the target's own family (binomial), across more than one penalty block | ❌ | 2 of 3 pairs disagree by ~0.74, tier 1 and tier 3 identical — a genuine, characterized finding (ADR-196), not resolved this session |
+| The fit itself (deviance) matches `mgcv`'s | ✅ | ~1e-11 at every point, all 3 points, tier 1 and tier 3 identical — committed comparison (`compare_reml_deviance`) |
+| The generalized score's dependence on `(sp1,sp2)` reproduces `mgcv`'s, for the target's own family (binomial), across more than one penalty block | ❌ | All 3 pairs disagree against the declared 1e-6 tolerance (two by ~0.74, one by ~9.3e-4), tier 1 and tier 3 identical — a genuine, characterized finding (ADR-196), not resolved this session |
 | The outer N-dimensional search itself | **Not attempted** | Deliberately deferred — see the scope decision above |
 
 ## Open Questions / Follow-ups
@@ -224,19 +300,37 @@ to be verified before the search. Recorded as a self-imposed standard instead:
 Harvested into `docs/PRODUCT_DIRECTION_2026-07-24.md`:
 
 1. **The multi-block REML score formula gap (ADR-196)** — the named next
-   hypothesis (read `mgcv`'s actual multi-penalty treatment from Wood 2011
-   directly, since the naive combined-eigendecomposition `logdet_s` is not,
-   on this evidence, where the gap concentrates). 1st-order — blocks
+   hypothesis, corrected in review response ([P1-3]): build a fixture with
+   genuinely overlapping/interacting penalty blocks (this session's has
+   disjoint supports, so it cannot settle the question), then read `mgcv`'s
+   actual multi-penalty treatment from Wood 2011 directly. 1st-order — blocks
    everything downstream of slice 4.
-2. **Quasi-Poisson's estimated-dispersion REML criterion** — explicitly out
-   of `reml_score_general`'s scope, and the target formula never needs it.
-   3rd-order, PARKED.
-3. **Slice 4 part B — the N-dimensional search itself.** Cannot proceed
+2. **Slice 4 part B — the N-dimensional search itself.** Cannot proceed
    meaningfully until part A's formula gap is closed or the search's design is
    re-scoped around a criterion known to disagree. 1st-order — the epic's own
    next concrete step, but gated on (1).
 
+Not harvested into `PRODUCT_DIRECTION` — see Parked Polish below instead
+(PR #203 review [P1-5]: 3rd-order-or-deeper items are logged once here, not
+promoted into the harvest, per the order-classification cap).
+
 ## Parked Polish
+
+1. **Quasi-Poisson's estimated-dispersion REML criterion.** `reml_score_general`
+   raises on `dispersion_fixed=False` families rather than silently reusing a
+   formula not derived for an estimated-dispersion criterion — `mgcv` profiles
+   `phi` out of the marginal likelihood rather than treating it as fixed, a
+   materially different derivation. The target formula's own family
+   (binomial) never needs it. Only worth building if a future model form
+   actually needs quasi-Poisson under REML selection — no known need today.
+   3rd-order, PARKED — this repo's first item to reach 3rd-order (PR #203
+   review [P1-5] caught an earlier revision of this session's harvest writing
+   it into `PRODUCT_DIRECTION` instead of here; fixed in review response).
+2. **`deta_dmu` names `dmu/deta`** in `gam_reml.py:107` — used correctly
+   (as `(dmu/deta)^2/V(mu)`), only the name is inverted, matching the same
+   pre-existing inversion in `gam_fit.py:106,151` on `main`. A future
+   one-line sweep across all three sites, not urgent (PR #203 review
+   [P2-2]).
 
 None.
 

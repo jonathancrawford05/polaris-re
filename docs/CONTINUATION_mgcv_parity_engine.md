@@ -176,16 +176,22 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    three fixed `(sp1,sp2)` points, compared on PAIRWISE SCORE DIFFERENCES** (not the
    absolute value — ADR-189 amendment 1 already found an unresolved offset there for
    the single-block Poisson case; differencing cancels any purely additive offset and
-   is what an optimiser needs anyway). **The fit itself is correct** (deviance matches
-   `mgcv` to ~1e-11 at every point) **but the score's dependence on `(sp1,sp2)` does
-   NOT match `mgcv`'s** — 2 of 3 pairwise differences disagree by ~0.74, identical at
-   tier 1 and tier 3. An INDEPENDENT comparison that disagrees (ADR-193): a genuine
-   result, not a fit bug or a tier-1/BLAS artifact. Characterized with a named next
-   hypothesis (the naive "sum blocks, eigendecompose the sum" `log|S_lambda|_+` is not,
-   on this evidence, where the gap concentrates — two points with identical naive
-   `logdet_s` carry the largest residual — so `mgcv`'s actual multi-penalty treatment,
-   read from Wood 2011 directly rather than from GPL source, is the next thing to
-   pin down). See ADR-196 and `docs/CONFORMANCE_LEDGER.md`.
+   is what an optimiser needs anyway). **The fit itself is correct** (a committed,
+   INDEPENDENT `deviance` comparison — `gam_reml_conformance.compare_reml_deviance` —
+   matches `mgcv` to ~1e-11 at every point) **but the score's dependence on `(sp1,sp2)`
+   does NOT match `mgcv`'s** — **all three** pairwise differences disagree against the
+   declared 1e-6 tolerance (two by ~0.74, one by ~9.3e-4 — smaller, but still ~935x
+   the tolerance, not agreement), identical at tier 1 and tier 3. An INDEPENDENT
+   comparison that disagrees (ADR-193): a genuine result, not a fit bug or a
+   tier-1/BLAS artifact. Characterized with a named next hypothesis, corrected same-day
+   by PR #203 review [P1-3] after the original localizing argument was found circular:
+   this fixture's two penalty blocks have disjoint column supports, so their null
+   spaces never interact, and a fixture built that way cannot test whether `mgcv`'s
+   multi-penalty `log|S_lambda|_+` differs from the naive "sum blocks, eigendecompose
+   the sum" treatment specifically when null spaces DO interact — the next fixture
+   needs genuinely overlapping blocks before that term can be ruled in or out, read
+   from Wood 2011 directly rather than from GPL source. See ADR-196 and
+   `docs/CONFORMANCE_LEDGER.md`.
 
    **Part B (the N-dimensional search itself) NOT STARTED** — building it on a score
    not yet shown to reproduce `mgcv`'s criterion would not be a meaningful measurement.

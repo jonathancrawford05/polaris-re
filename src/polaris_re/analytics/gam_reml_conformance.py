@@ -37,7 +37,7 @@ from typing import TypedDict
 import numpy as np
 
 from polaris_re.analytics.gam_family import binomial_logit
-from polaris_re.analytics.gam_fit import penalized_irls_general
+from polaris_re.analytics.gam_fit import GeneralIRLSFit, penalized_irls_general
 from polaris_re.analytics.gam_reml import reml_score_general
 from polaris_re.core.verification import (
     ComparedQuantity,
@@ -50,8 +50,11 @@ __all__ = [
     "RReplPayload",
     "RReplPoint",
     "RReplRecipe",
+    "ReplDevianceComparison",
     "ReplPointComparison",
+    "compare_reml_deviance",
     "compare_reml_points",
+    "deviance_reml_point",
     "score_reml_point",
 ]
 
@@ -61,7 +64,32 @@ _AGREEMENT_TOLERANCE = 1e-6
 right, an exact function of the shared recipe with no fitting noise beyond
 IRLS convergence (the same regime slice 3's `eta` comparison earned 1e-9 in).
 Not loosened to make a disagreement pass (CLAUDE.md, Anchor 8): if this
-tolerance is missed, that is the finding, not a reason to widen it."""
+tolerance is missed, that is the finding, not a reason to widen it. Applied to
+BOTH `reml_score_pairwise_diff` and `deviance` — PR #203 review [P1-2]: an
+earlier revision of this module's callers described results as "2 of 3 pairs
+disagree" while every published table showed `agrees=False` on all three
+against this exact tolerance (the third pair's residual, ~9.3e-4, is ~935x
+this tolerance — small relative to the other two, not passing). Never
+describe a result more favourably than this constant actually evaluates."""
+
+
+def _independent_fit(
+    x: np.ndarray,
+    s1: np.ndarray,
+    s2: np.ndarray,
+    y: np.ndarray,
+    weights: np.ndarray,
+    sp: tuple[float, float],
+) -> GeneralIRLSFit:
+    """The one independent fit both :func:`score_reml_point` and
+    :func:`deviance_reml_point` are built on — takes plain arrays and the
+    ``sp`` setting itself, never a dict shaped like the R payload (PR #203
+    review [P1-1]: `deviance` needs the SAME independent fit `score_reml_point`
+    already produces, not a second, differently-sourced one)."""
+    sp1, sp2 = sp
+    penalty = sp1 * s1 + sp2 * s2
+    family = binomial_logit()
+    return penalized_irls_general(x, y, family=family, penalty=penalty, weights=weights)
 
 
 class RReplPoint(TypedDict):
@@ -138,12 +166,26 @@ REML_SCORE_CLAIM = VerificationClaim(
             right_producer="mgcv gam(..., method='REML')$gcv.ubre at the same fixed sp",
             provenance=ComparisonProvenance.INDEPENDENT,
         ),
+        ComparedQuantity(
+            quantity="deviance",
+            left_producer=(
+                "gam_family.Family.deviance on the SAME independently-converged "
+                "gam_fit.penalized_irls_general fit score_reml_point uses"
+            ),
+            right_producer="mgcv m$deviance at the same fixed sp",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
     ),
 )
 """Slice 4 part A's provenance declaration (ADR-193). INDEPENDENT: neither side
 reads the other's fit or score, only the shared recipe (``X``, ``S1``, ``S2``,
 ``y``, ``weights``, and the ``sp`` points, which are a shared SETTING both
-sides fit at, not a quantity either side computed)."""
+sides fit at, not a quantity either side computed). `deviance` (PR #203 review
+[P1-1]) is what rules out the most plausible harness artifact — that `mgcv`
+rescaled the supplied penalty blocks (`gam.control`'s `scalePenalty`), which
+would make both sides fit at a different effective lambda and turn the whole
+comparison into an artifact. Declaring and printing it, rather than citing it
+only in prose, is what makes that rebuttal auditable."""
 
 
 def score_reml_point(
@@ -154,7 +196,7 @@ def score_reml_point(
     weights: np.ndarray,
     sp: tuple[float, float],
 ) -> float:
-    """The independent Python producer for one probe point.
+    """The independent Python producer for one probe point's REML score.
 
     Takes plain arrays and the ``sp`` setting itself — never a dict shaped
     like the R payload, so there is structurally nothing here that could read
@@ -162,12 +204,73 @@ def score_reml_point(
     test than typing a narrowed recipe dict: this function does not accept
     any R-payload-shaped argument at all).
     """
-    sp1, sp2 = sp
-    penalty = sp1 * s1 + sp2 * s2
+    fit = _independent_fit(x, s1, s2, y, weights, sp)
+    penalty = sp[0] * s1 + sp[1] * s2
+    return reml_score_general(y, x, binomial_logit(), fit.coef, penalty, weights=weights)
 
-    family = binomial_logit()
-    fit = penalized_irls_general(x, y, family=family, penalty=penalty, weights=weights)
-    return reml_score_general(y, x, family, fit.coef, penalty, weights=weights)
+
+def deviance_reml_point(
+    x: np.ndarray,
+    s1: np.ndarray,
+    s2: np.ndarray,
+    y: np.ndarray,
+    weights: np.ndarray,
+    sp: tuple[float, float],
+) -> float:
+    """The independent Python producer for one probe point's deviance.
+
+    Same signature shape as :func:`score_reml_point` (no R-payload-shaped
+    argument) and the SAME independent fit (:func:`_independent_fit`) — the
+    fit that licenses "the fit itself is correct" is not a second,
+    differently-sourced computation from the one the score is built on
+    (PR #203 review [P1-1]).
+    """
+    fit = _independent_fit(x, s1, s2, y, weights, sp)
+    mu = binomial_logit().link.linkinv(fit.eta)
+    return binomial_logit().deviance(y, mu, weights)
+
+
+class ReplDevianceComparison(TypedDict):
+    sp: tuple[float, float]
+    python_deviance: float
+    r_deviance: float
+    diff: float
+    agrees: bool
+
+
+def compare_reml_deviance(
+    x: np.ndarray, s1: np.ndarray, s2: np.ndarray, r_payload: RReplPayload
+) -> tuple[ReplDevianceComparison, ...]:
+    """The deviance at every probe point, Python vs mgcv — per point, not
+    pairwise (unlike the score, deviance carries no additive convention
+    offset to cancel, so the absolute value is the right comparison).
+
+    This is what licenses "the fit itself is correct" wherever ADR-196 and
+    the session log say it: before this function existed, that claim came
+    from an ad-hoc session measurement with no committed producer (PR #203
+    review [P1-1]). It is what rules out the most plausible harness
+    artifact — `mgcv` rescaling the supplied penalty blocks, which would fit
+    both sides at a different effective lambda and make the whole score
+    comparison uninterpretable.
+    """
+    y = np.asarray(r_payload["y"], dtype=np.float64)
+    weights = np.asarray(r_payload["weights"], dtype=np.float64)
+    out: list[ReplDevianceComparison] = []
+    for p in r_payload["points"]:
+        sp = (p["sp"][0], p["sp"][1])
+        python_deviance = deviance_reml_point(x, s1, s2, y, weights, sp)
+        r_deviance = float(p["deviance"])
+        diff = python_deviance - r_deviance
+        out.append(
+            ReplDevianceComparison(
+                sp=sp,
+                python_deviance=python_deviance,
+                r_deviance=r_deviance,
+                diff=diff,
+                agrees=abs(diff) < _AGREEMENT_TOLERANCE,
+            )
+        )
+    return tuple(out)
 
 
 class ReplPointComparison(TypedDict):
