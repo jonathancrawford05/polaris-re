@@ -321,6 +321,29 @@ for it to run against, slice 4).
 ### Slice 4: the outer optimisation — N-dimensional (f)REML
 
 - **Depends on:** Slices 1-3
+- **Status:** IN PROGRESS. **Part A DONE AND RESOLVED, 2026-08-18** (ADR-196): the
+  REML score itself, generalized from `experience_gam_penalized.reml_score`
+  (Poisson, exactly two hardcoded blocks) onto `gam_fit`'s general IRLS core
+  (`gam_reml.reml_score_general`, known-scale families) — the criterion the
+  outer search will need, built and measured BEFORE the search itself, since a
+  search over a criterion known not to match `mgcv` would not be meaningful.
+  **First measurement (tier 1 and tier 3 identical): the naive generalization's
+  fit was correct (deviance matched `mgcv` to ~1e-11) but its multi-block REML
+  score did NOT reproduce `mgcv`'s criterion shape** — an INDEPENDENT
+  comparison that disagreed (a real result, ADR-193). **Resolved same day**:
+  the maintainer supplied Wood (2011) directly; §2 eq. (4) names the missing
+  term — the criterion needs the PENALIZED deviance `Dₚ = D(β̂) + β̂ᵀSβ̂`, not
+  the plain deviance the first generalization used. Adding it closed the gap
+  to float round-trip precision (~1e-12), tier 1 and tier 3 identical, CI run
+  32142352655. `REML_SCORE_CLAIM`'s two quantities are both INDEPENDENT and
+  both now agree — the epic's first Stage-C parity result. **`experience_gam_penalized.reml_score`
+  (the shipped, production tensor-MI selector) appears, by inspection, to have
+  the identical omission** — NOT yet measured or fixed (PLAN Anchor 7 protects
+  it from this epic without maintainer sign-off); scoped as
+  `docs/WORK_ORDER_reml_penalized_deviance_production_check.md`, gating the
+  epic's next session ahead of part B below. **The outer N-dimensional search
+  itself (part B, below) is now buildable in principle but NOT attempted
+  yet** — the work order above is the maintainer-directed next step first.
 
 **This is the prerequisite for everything multi-term, and the largest piece of work in the
 epic.** `select_lambdas_reml` sweeps a two-dimensional grid in ~200 fits. The target has

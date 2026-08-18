@@ -2380,10 +2380,81 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   acceptance criteria (1st-order — a named, not-yet-met piece of the slice's own
   scope, correctly deferred rather than silently dropped).*
 
-- **Slice 4 — the outer optimisation (N-dimensional (f)REML).** Now the epic's
+- ~~**Slice 4 — the outer optimisation (N-dimensional (f)REML).** Now the epic's
   NEXT slice — the prerequisite for everything multi-term, and the largest single
   piece of work in the epic (PLAN §3: 4.8 million grid fits would be needed at the
   target's 13-21 smoothing parameters if the existing 2-D grid approach were
-  naively extended, which is why it is a Newton/quasi-Newton slice instead).
-  *Source: `docs/PLAN_mgcv_parity_engine.md` (1st-order — the epic's own NEXT
+  naively extended, which is why it is a Newton/quasi-Newton slice instead).~~
+  **PARTIALLY SHIPPED, 2026-08-18** — see the harvest immediately below for what
+  moved and what is still open. *Source: `docs/PLAN_mgcv_parity_engine.md`,
+  updated by this session's harvest (1st-order — the epic's own in-progress
   slice).*
+
+### Harvested 2026-08-18 — slice 4 part A, the REML score generalized and measured (ADR-196)
+
+- **PART A DONE, PART B NOT STARTED.** The generalized score
+  (`gam_reml.reml_score_general`) is built and measured against `mgcv` before any
+  search code exists — the right order, since a search over a criterion not shown
+  to match would not be a meaningful measurement. It DISAGREES: an INDEPENDENT
+  comparison (score computed two ways from a shared recipe, never reading the
+  other side's fit or score) where **all three** pairwise score-difference
+  residuals miss the declared 1e-6 tolerance (two by ~0.74, one by ~9.3e-4 —
+  ~935x the tolerance, smaller than the other two but not agreement), identical
+  at tier 1 and tier 3 — five orders of magnitude above BLAS/version noise, so
+  this is a real formula gap, not an artifact. A second INDEPENDENT quantity,
+  `deviance`, agrees at every point (~1e-11), which is what rules out the fit
+  itself (or a rescaled-penalty artifact) as the cause. *Source: this session,
+  ADR-196 (1st-order — the epic's own in-progress slice; the outer search cannot
+  proceed meaningfully until this is closed).*
+
+- ~~**Named next hypothesis for slice 4 part B's formula gap, corrected same-day
+  (PR #203 review [P1-3]).**~~ **SUPERSEDED SAME DAY — see the harvest entry
+  immediately below.** The corrected next step named here (build a fixture with
+  overlapping penalty blocks, read Wood 2011's multi-penalty treatment) turned
+  out not to be needed: the maintainer supplied the paper directly, and the
+  actual missing term was in §2's criterion definition, not §3.1's
+  multi-penalty machinery this entry pointed at. Kept, struck, for the audit
+  trail — the reasoning that let the gap go unclosed for one more round (the
+  session was looking at the right paper's wrong section) is itself informative.
+
+### Harvested 2026-08-18b — slice 4 part A RESOLVED: the missing penalized-deviance term (ADR-196 resolution)
+
+- **RESOLVED, same day as the characterization above.** The maintainer downloaded
+  Wood (2011) directly (after some difficulty locating a free copy — resolved via
+  the University of Bath research portal, not the paywalled DOI) and asked where
+  in it the multi-penalty formula lived. §2 (p.4), equation (4), names the
+  criterion's first term as the PENALIZED deviance,
+  `Dp = D(beta_hat) + beta_hat^T S beta_hat` — a term
+  `gam_reml.reml_score_general`'s first generalization omitted entirely, having
+  copied the plain-deviance formula verbatim from
+  `experience_gam_penalized.reml_score`. Adding the missing term closed the
+  pairwise-score-difference gap to float round-trip precision (~1e-12) on all
+  three tested points, tier 1 and tier 3 identical (CI run 32142352655).
+  `REML_SCORE_CLAIM`'s two INDEPENDENT quantities both now agree — the epic's
+  first Stage-C parity result. §3.1's multi-penalty numerical-stability machinery
+  (the previous entry's "next hypothesis") turned out to be inapplicable to this
+  fixture for a well-grounded reason (disjoint-support penalty blocks cannot
+  suffer the cross-block "zero leakage" §3.1 addresses), not merely coincidental
+  — closing that question too. *Source: this session, ADR-196 resolution
+  (1st-order — closes the epic's own critical-path item).*
+
+- **The identical omission is suspected, not yet confirmed, in the ALREADY-SHIPPED
+  `experience_gam_penalized.reml_score`** — the formula the tensor MI surface's
+  production 2-D grid selector (`select_lambdas_reml`) actually uses. Same formula
+  shape, same omission by inspection. ADR-189 amendment 1's own "unexplained
+  residual of 0.93-3.17" against `mgcv`'s raw score (recorded, explicitly marked
+  "not a compared metric" at the time) is consistent in order of magnitude with
+  this same missing term, but that is motivation for measurement, not a
+  substitute for it. PLAN Anchor 7 protects that module from being touched by
+  this epic without explicit, separate maintainer sign-off — the goldens were
+  fitted with its current formula. Scoped as
+  `docs/WORK_ORDER_reml_penalized_deviance_production_check.md`. *Source: this
+  session, maintainer direction 2026-08-18 (1st-order — assigned as the epic's
+  own next `ROUTINE_MGCV_PARITY.md` session, ahead of slice 4 part B).*
+
+- **Slice 4 part B (the N-dimensional outer search) remains NOT STARTED,
+  deliberately** — now unblocked in principle by the Python-side fix, but
+  sequenced behind the work order above per maintainer direction, since building
+  the search on a criterion whose production analogue's status is still a
+  hypothesis would be premature. *Source: this session (1st-order — the epic's
+  own next-but-one step).*

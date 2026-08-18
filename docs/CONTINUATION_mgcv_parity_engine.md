@@ -11,8 +11,19 @@ slice 2 (`bs = "cr"`) is **DONE** (2026-08-17, tier 1 and tier 3 both confirmed 
 — the epic's first INDEPENDENT Stage-A parity result. Slice 3 (families/links/weights)
 is **DONE** (2026-08-17, tier 1 and tier 3 both confirmed — ADR-195) — the epic's first
 INDEPENDENT Stage-B parity result outside the already-verified Poisson case. Slice 4
-(the outer optimiser) is **NEXT** — the largest remaining piece of work, and slices 5-7
-all depend on it.
+(the outer optimiser) is **IN PROGRESS** — part A (the REML score itself, generalized to
+known-scale families and multiple penalty blocks) is **DONE AND RESOLVED, 2026-08-18**
+(ADR-196): it first DISAGREED with `mgcv` (an INDEPENDENT, tier-1/tier-3-identical
+result), then the maintainer supplied Wood (2011) directly and the fix — a missing
+penalized-deviance term, §2 eq. (4) — closed the gap to float round-trip precision, tier
+1 and tier 3 identical (CI run 32142352655). **Before slice 4 part B (the search
+itself), the epic's next session runs
+`docs/WORK_ORDER_reml_penalized_deviance_production_check.md`** (maintainer direction,
+2026-08-18): the shipped, production `experience_gam_penalized.reml_score` appears, by
+inspection, to have the identical omission, and that needs measuring — not fixing without
+separate sign-off (PLAN Anchor 7) — before the outer search is built on either module's
+criterion. This remains the epic's largest remaining piece of work, and slices 5-7 all
+depend on it.
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16) and one deferred
 to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
@@ -160,7 +171,59 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    still disagree, and that would be a real result, not a bug in this slice. See ADR-195
    and `docs/CONFORMANCE_LEDGER.md`.
 4. **The outer optimisation — N-dimensional (f)REML.** The prerequisite for everything
-   multi-term, and the largest single piece of work. **NEXT.**
+   multi-term, and the largest single piece of work. **IN PROGRESS.**
+
+   **Part A DONE AND RESOLVED, 2026-08-18** (ADR-196): `gam_reml.reml_score_general`
+   generalizes the already-verified Poisson-only, two-hardcoded-block `reml_score` onto
+   `gam_fit`'s general IRLS core — known-scale families (binomial included;
+   quasi-Poisson's estimated-dispersion criterion is a different formula the target
+   formula never needs), any number of independently-scaled penalty blocks (via their
+   caller-summed `S_lambda`). **Measured against `mgcv` on a shared two-block
+   binomial/logit design at three fixed `(sp1,sp2)` points, compared on PAIRWISE SCORE
+   DIFFERENCES** (not the absolute value — ADR-189 amendment 1 already found an
+   unresolved offset there for the single-block Poisson case; differencing cancels any
+   purely additive offset and is what an optimiser needs anyway).
+
+   **First measurement: DISAGREED.** The fit itself was correct (a committed,
+   INDEPENDENT `deviance` comparison matched `mgcv` to ~1e-11 at every point) but the
+   score's dependence on `(sp1,sp2)` did not match `mgcv`'s — all three pairwise
+   differences missed the declared 1e-6 tolerance, identical at tier 1 and tier 3. The
+   original next-hypothesis (a multi-penalty log-determinant numerical-stability issue,
+   Wood 2011 §3.1) was corrected same-day by PR #203 review [P1-3] after being found
+   circular.
+
+   **Resolution, same day: the maintainer supplied Wood (2011) directly.** §2 eq. (4)
+   names the actual missing piece — the criterion needs the PENALIZED deviance
+   `Dp = D(beta_hat) + beta_hat^T S beta_hat`, not the plain deviance the first
+   generalization used (verbatim from the old module, which appears to have the
+   identical omission — see below). Adding the missing term closed the gap to float
+   round-trip precision (~1e-12) on all three pairs, tier 1 and tier 3 identical (CI run
+   32142352655). `REML_SCORE_CLAIM`'s two declared quantities (`reml_score_pairwise_diff`,
+   `deviance`) are both INDEPENDENT and both now agree — the epic's first Stage-C
+   parity result of this kind. §3.1's numerical-stability machinery turned out to be
+   inapplicable to this fixture for a well-grounded reason (its two blocks have
+   disjoint column supports, so no cross-block "zero leakage" is possible), not merely
+   coincidentally matching at two points. See ADR-196's resolution section and
+   `docs/CONFORMANCE_LEDGER.md`.
+
+   **Before Part B (the N-dimensional search itself): the epic's next session runs
+   `docs/WORK_ORDER_reml_penalized_deviance_production_check.md`**, maintainer
+   direction 2026-08-18. `experience_gam_penalized.reml_score` — the ALREADY-SHIPPED,
+   production tensor-MI-surface REML score `select_lambdas_reml`'s 2-D grid actually
+   uses — has the identical formula shape, and by inspection the identical omission.
+   ADR-189 amendment 1's own "unexplained residual of 0.93-3.17" against `mgcv`'s raw
+   score is consistent in order of magnitude with the same missing term. The code-level
+   omission is established (confirmed by inspection); the actuarial impact is what
+   remains open, and PLAN Anchor 7 protects that module from being touched by this epic
+   without explicit, separate maintainer sign-off. **Corrected 2026-08-18 (PR #203 third
+   review, measured, not assumed): `tests/qa/golden_outputs/` is not downstream of
+   `reml_score` at all** — the golden runner never reaches the MI surface, measured
+   directly (94/94 byte-identical with the term patched in locally). The artifact that
+   DOES move is `data/mgcv_exchange/python_reference.json` (on `l2-free-sp`, `λ_age`
+   moves one grid step, `λ_year` unchanged) — that is what the work order's sign-off gate
+   actually protects. The work order scopes measurement and a recommendation only — not a
+   code change to the production module. Building the outer search on either module's
+   criterion before this is understood would be premature.
 5. **`ti()` and the varying-coefficient MI term.** Ship the MI term first if they split.
    PLANNED.
 6. **`bs = "sz"`** — orthogonal factor-smooth interactions. Expect the hardest basis.
@@ -170,6 +233,100 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
 Deferred to a later epic: `bam` + `discrete = TRUE` + fREML. Safe to defer because at
 fixed `sp` on a `paraPen`-only model `bam` agrees with `gam` to **2.1e-12**, and because
 `bam` at 125,000 rows takes **1.69 s** — performance is not the reason to want it.
+
+## Gap audit — what's not yet implemented against `mgcv` (2026-08-18)
+
+A single place to see the whole shape of what's left, rather than reconstructing it
+from seven slices' worth of status prose above. Organized by what's missing, not by
+slice number, since some gaps (the REML formula, the Kass-Steffey correction) cut
+across the slice structure.
+
+| Gap | mgcv feature | Status | Blocked on |
+|---|---|---|---|
+| Multi-penalty REML criterion (Python-side) | The penalized-deviance criterion, Wood (2011) §2 eq. (4), for any number of independently-scaled penalty blocks | **FIXED, 2026-08-18** (ADR-196) — the score was missing `β̂ᵀSβ̂`; adding it closed the gap to float precision, tier 1 and tier 3 identical | Nothing — DONE |
+| Same criterion, production module | `experience_gam_penalized.reml_score` — the SHIPPED tensor-MI 2-D grid selector's own score, same formula shape, same omission by inspection | **Suspected wrong, NOT measured or fixed** — PLAN Anchor 7 protects it from this epic without separate sign-off | `docs/WORK_ORDER_reml_penalized_deviance_production_check.md` — the epic's next session |
+| N-dimensional outer search | Newton/quasi-Newton (f)REML optimisation over 13-21 `log λ` | **Not started** | The work order above, then buildable |
+| `ti()` — tensor interaction | Tensor product with marginal main effects excluded | **Not started** | The outer search (slice 5) |
+| `s(..., by=...)` with a `cr` basis | The MI term itself — a `cr` basis scaled by a numeric `by` variable | **Not started** | The outer search (slice 5) |
+| `bs = "sz"` | Sum-to-zero factor-smooth interactions (4 terms in the target formula) | **Not started**, expected hardest basis (PLAN §6 registered prediction) | The outer search (slice 6) |
+| `select = TRUE` | The double penalty / null-space shrinkage that takes 13 sp → 21 | **Not started** | Slices 4-6 |
+| `cr` basis extrapolation | Behaviour for `x` outside `[knots[0], knots[-1]]` | **Unverified**, not assumed — `gam_basis_cr.py` marks it explicitly | A future session measuring it; blocks fitting the target's own knots against real experience data, whose range need not match the hand-chosen knots |
+| Kass-Steffey / `vcov(unconditional=TRUE)` | The full Wood, Pya & Säfken (2016) correction (`dw/drho`) | **Known wrong, re-scoped as a formula gap** (ADR-190) — a SEPARATE standing blocker, not fixed by slice 4's REML work; different paper, different derivation | `dw/drho`, re-derived from the 2016 paper, never from GPL source |
+| Anchor 5 absolute/relative idiom, demonstrated end to end | Weights and an offset used simultaneously on the target's own multi-term structure | Each control verified in isolation only (PLAN slice 3's own deferred criterion) | A multi-term model, which needs the outer search |
+| `bam(discrete=TRUE)` + fREML | The discretised-covariate fast fitting algorithm | **Deferred to a later epic**, deliberately (maintainer decision 2026-08-10) — not a gap in the current epic's scope | N/A |
+| `bs = "fs"` | Factor-smooth via difference penalties (an earlier maintainer formula) | **Superseded by `sz`** in the selected target form — recorded, not pursued | N/A |
+| `gamboost` / componentwise boosting | A different regularisation algorithm entirely | **Explicitly out of scope** (PLAN §1) — `select=TRUE` covers the term-selection role this epic needs | N/A |
+
+**Read this table as "what mgcv can do that this engine cannot yet reproduce,"** not
+as a claim that mgcv itself is incomplete — the framing the maintainer's question used
+("what is not implemented in mgcv") is inverted from what actually matters here: mgcv
+is the fully-featured reference, and every row above is this engine catching up to it.
+
+## Backlog
+
+Order-classification convention matches `docs/PRODUCT_DIRECTION_2026-07-24.md`'s own
+cap (1st-order promote, 2nd-order NICE-TO-HAVE, 3rd-order PARKED). This section is the
+epic-scoped consolidation of everything still open across that file's chronological
+harvest log — kept here because a reader working this epic shouldn't have to reread
+eleven "Harvested" entries to find out what's still outstanding. `PRODUCT_DIRECTION`
+remains the cross-epic source of record; if the two drift, that file wins and this one
+should be re-synced.
+
+### 1st-order (on the epic's critical path)
+
+1. ~~**Close the multi-penalty REML formula gap (ADR-196).**~~ **DONE, 2026-08-18.**
+   The maintainer supplied Wood (2011) directly; §2 eq. (4) named the missing
+   penalized-deviance term. Fixed, tier 1 and tier 3 confirmed to float round-trip
+   precision. See ADR-196's resolution section.
+2. **Run `docs/WORK_ORDER_reml_penalized_deviance_production_check.md`** — does the
+   SAME missing term affect the already-shipped `experience_gam_penalized.reml_score`
+   (the production tensor-MI 2-D grid selector), and if so, does it change which `λ`
+   gets selected? Measurement and recommendation only — PLAN Anchor 7 forbids patching
+   that module without separate maintainer sign-off. Gates part B below (maintainer
+   direction, 2026-08-18) — the epic's next `ROUTINE_MGCV_PARITY.md` session.
+3. **Slice 4 part B — the N-dimensional outer search.** Newton/quasi-Newton on the
+   (f)REML score, now that the Python-side criterion is closed — but sequenced behind
+   (2) above, not immediately after (1). The largest remaining implementation effort
+   in the epic (PLAN §3).
+4. **Slice 5 — `ti()` and the MI term.** Ship the MI term first if they split (PLAN
+   §3: it's the cheap, well-conditioned one and the actual point of the target
+   formula).
+5. **Slice 6 — `bs = "sz"`.** Expected hardest basis; Stage A is where a mistake here
+   is cheap (PLAN §6 registered prediction).
+6. **Slice 7 — `select = TRUE`.** 13 → 21 smoothing parameters.
+7. **Kass-Steffey / `vcov(unconditional=TRUE)` — the level-4 BLOCKER.** Separate from
+   the REML score work above: a different paper (Wood, Pya & Säfken 2016), needs
+   `dw/drho`, re-derived from the paper per the same GPL/MIT discipline. Standing
+   since ADR-188/190; see "Carried in from the superseded epic" below for the full
+   context.
+8. **Demonstrate Anchor 5's absolute/relative idiom end to end** on the target's own
+   multi-term structure, once a multi-term model exists (needs (3)).
+9. **`cr` basis extrapolation beyond the knot range.** Needed before fitting the
+   target's own `AttdAge`/`PolYear` knots against real experience data.
+
+### 2nd-order (nice-to-have, not blocking)
+
+1. **`binomial`/`cloglog`'s non-canonical-link concavity gap** — documented caveat
+   (ADR-195 decision 3), not a work item unless a future measurement actually hits it.
+2. **The `continue-on-error` job-summary-artifact limitation** likely still affects the
+   ADR-190 (`ks_formula_probe.R`) and ADR-191 (`smoothcon_lpmatrix_probe.R`) diagnostic
+   steps — their tier-3 confirmations rest on "the step didn't except" rather than a
+   read of the actual numbers, the same limitation slice 1b's row had before the
+   print-to-stdout fix (ADR-194) was adopted for every later probe. A few lines per
+   step if a future session needs to re-read one of those probes' real numbers.
+3. **Retro-classify the historical conformance-ledger rows** with a per-row
+   `CONFIRMED (harness)` marker — needs an append-only-safe convention first (PR #200
+   review).
+4. **The `auto_unbox`/length-1-field gotcha** — any R-side field that can be length-1
+   needs `I()` to survive jsonlite's `auto_unbox`, documented for whoever writes the
+   next R-side branch (slice 1b's bug).
+
+### 3rd-order (parked)
+
+1. **Quasi-Poisson's estimated-dispersion REML criterion.** `reml_score_general`
+   raises rather than silently reusing a formula not derived for it; the target
+   formula's own family (binomial) never needs it. Revive only on an explicit future
+   need.
 
 ## Context for the next session
 

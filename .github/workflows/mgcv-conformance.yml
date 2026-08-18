@@ -63,6 +63,12 @@ on:
       - "src/polaris_re/analytics/gam_fit.py"
       - "src/polaris_re/analytics/gam_family_conformance.py"
       - "scripts/gam_family_probe.R"
+      # Slice 4 part A's own module and probe — the generalized REML score,
+      # same reasoning as the family/link lines above: a change here must
+      # re-run the comparison that measures it against mgcv.
+      - "src/polaris_re/analytics/gam_reml.py"
+      - "src/polaris_re/analytics/gam_reml_conformance.py"
+      - "scripts/gam_reml_probe.R"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -281,6 +287,21 @@ jobs:
             Rscript scripts/gam_family_probe.R \
               gam_family_probe.json
 
+      # PLAN_mgcv_parity_engine.md slice 4 part A: a SHARED (X, S1, S2, y,
+      # weights) binomial/logit design with two independently-scaled penalty
+      # blocks, fitted at three fixed (sp1, sp2) points via paraPen with
+      # method="REML" so gcv.ubre reports the REML criterion at each point
+      # (no optimisation runs). Same DIAGNOSTIC contract as the probes above
+      # — the comparison against the independent Python score
+      # (gam_reml.reml_score_general) happens in the `compare` job below.
+      - name: Fit the shared two-block binomial design at fixed sp (slice 4 part A)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_reml_probe.R \
+              gam_reml_probe.json
+
       - uses: actions/upload-artifact@v4
         with:
           name: mgcv-reference
@@ -290,6 +311,7 @@ jobs:
             smoothcon_lpmatrix_probe.json
             gam_term_extract.json
             gam_family_probe.json
+            gam_reml_probe.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
@@ -700,6 +722,103 @@ jobs:
             cat gam_family_probe_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # Slice 4 part A: compares the independent Python REML score
+      # (gam_reml.reml_score_general on an independently-converged
+      # gam_fit.penalized_irls_general fit) against job 1's mgcv gcv.ubre on
+      # the SAME shared two-block binomial design at three fixed sp points —
+      # on PAIRWISE DIFFERENCES, not the absolute value (see
+      # gam_reml_conformance.py's module docstring for why). DIAGNOSTIC ONLY,
+      # printed to stdout from the start (the methodology fix ADR-194 needed
+      # partway through slice 2), so a tier-3 read never has to settle for
+      # "the step didn't except."
+      - name: Compare the two-block REML score against the Python side (slice 4 part A)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_reml_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_reml_probe.json to compare ({exc}) — the R probe "
+                    "above did not produce one.")
+              sys.exit(0)
+
+          import numpy as np
+
+          from polaris_re.analytics.gam_reml_conformance import (
+              REML_SCORE_CLAIM, compare_reml_deviance, compare_reml_points,
+          )
+          from polaris_re.core.verification import evidence_markdown
+
+          x = np.asarray(r_payload["X"], dtype=np.float64)
+          s1 = np.asarray(r_payload["S1"], dtype=np.float64)
+          s2 = np.asarray(r_payload["S2"], dtype=np.float64)
+
+          lines = [
+              "", "### Slice 4 part A — two-block REML score vs mgcv (INDEPENDENT)", "",
+              evidence_markdown(REML_SCORE_CLAIM), "",
+              "#### deviance (per point, absolute — rules out a rescaled-penalty artifact)",
+              "",
+              "| sp | python deviance | r deviance | diff | agrees |",
+              "|---|---:|---:|---:|---|",
+          ]
+          deviance_comparisons = compare_reml_deviance(x, s1, s2, r_payload)
+          any_deviance_disagree = False
+          for d in deviance_comparisons:
+              if not d["agrees"]:
+                  any_deviance_disagree = True
+              lines.append(
+                  f"| `{d['sp']}` | {d['python_deviance']:.10g} | {d['r_deviance']:.10g} | "
+                  f"{d['diff']:.6g} | {d['agrees']} |"
+              )
+          lines += [
+              "",
+              "#### reml_score_pairwise_diff (the declared claim quantity)",
+              "",
+              "| point A | point B | python diff | r diff | residual | agrees |",
+              "|---|---|---:|---:|---:|---|",
+          ]
+          comparisons = compare_reml_points(x, s1, s2, r_payload)
+          any_score_disagree = False
+          for c in comparisons:
+              if not c["agrees"]:
+                  any_score_disagree = True
+              lines.append(
+                  f"| `{c['point_a']}` | `{c['point_b']}` | {c['python_diff']:.6g} | "
+                  f"{c['r_diff']:.6g} | {c['residual']:.6g} | {c['agrees']} |"
+              )
+          lines.append("")
+          lines.append(
+              "`deviance` and `reml_score_pairwise_diff` are both INDEPENDENT (see "
+              "the legend): neither side reads the other's fit or score, only the "
+              "shared recipe (X, S1, S2, y, weights) and the sp points themselves. "
+              "`deviance` agreeing is what licenses reading a score disagreement as "
+              "a formula gap rather than a rescaled-penalty artifact (mgcv's "
+              "gam.control(scalePenalty=) would fit both sides at a different "
+              "effective lambda and show up here first). Differencing the score "
+              "pairwise cancels any purely additive convention offset between the "
+              "two criteria (ADR-189 amendment 1 already found one, unresolved, "
+              "even for the single-block Poisson case) — a residual surviving THAT "
+              "cancellation is a real result about the multi-block formula, not a "
+              "broken round trip or an artifact of the offset."
+          )
+          if any_score_disagree:
+              lines.insert(2, "**The score disagreed on at least one pair — see the table. This is a genuine, characterized finding, not a harness bug.**")
+          if any_deviance_disagree:
+              lines.insert(2, "**DEVIANCE DISAGREED — the fit itself may be wrong, not just the score. See the table before trusting any score-level conclusion.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_reml_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_reml_probe_report.md ]; then
+            cat gam_reml_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -712,3 +831,5 @@ jobs:
             gam_term_extract_report.md
             gam_family_probe.json
             gam_family_probe_report.md
+            gam_reml_probe.json
+            gam_reml_probe_report.md
