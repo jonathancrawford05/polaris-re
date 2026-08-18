@@ -12,11 +12,18 @@ slice 2 (`bs = "cr"`) is **DONE** (2026-08-17, tier 1 and tier 3 both confirmed 
 is **DONE** (2026-08-17, tier 1 and tier 3 both confirmed — ADR-195) — the epic's first
 INDEPENDENT Stage-B parity result outside the already-verified Poisson case. Slice 4
 (the outer optimiser) is **IN PROGRESS** — part A (the REML score itself, generalized to
-known-scale families and multiple penalty blocks) is **DONE, 2026-08-18** (ADR-196), but
-it DISAGREES with `mgcv` (an INDEPENDENT, characterized-not-resolved result, tier 1 and
-tier 3 identical) — the outer N-dimensional search (part B) has NOT started, since
-building it on a score not yet shown to match `mgcv` would not be meaningful. This is
-the epic's largest remaining piece of work, and slices 5-7 all depend on it.
+known-scale families and multiple penalty blocks) is **DONE AND RESOLVED, 2026-08-18**
+(ADR-196): it first DISAGREED with `mgcv` (an INDEPENDENT, tier-1/tier-3-identical
+result), then the maintainer supplied Wood (2011) directly and the fix — a missing
+penalized-deviance term, §2 eq. (4) — closed the gap to float round-trip precision, tier
+1 and tier 3 identical (CI run 32142352655). **Before slice 4 part B (the search
+itself), the epic's next session runs
+`docs/WORK_ORDER_reml_penalized_deviance_production_check.md`** (maintainer direction,
+2026-08-18): the shipped, production `experience_gam_penalized.reml_score` appears, by
+inspection, to have the identical omission, and that needs measuring — not fixing without
+separate sign-off (PLAN Anchor 7) — before the outer search is built on either module's
+criterion. This remains the epic's largest remaining piece of work, and slices 5-7 all
+depend on it.
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16) and one deferred
 to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
@@ -166,37 +173,52 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
 4. **The outer optimisation — N-dimensional (f)REML.** The prerequisite for everything
    multi-term, and the largest single piece of work. **IN PROGRESS.**
 
-   **Part A DONE, 2026-08-18** (ADR-196): `gam_reml.reml_score_general` generalizes the
-   already-verified Poisson-only, two-hardcoded-block `reml_score` onto `gam_fit`'s
-   general IRLS core — known-scale families (binomial included; quasi-Poisson's
-   estimated-dispersion criterion is a different formula the target formula never
-   needs), any number of independently-scaled penalty blocks (via their caller-summed
-   `S_lambda`). Proven a strict superset of the old score by bit-for-bit regression
-   tests. **Measured against `mgcv` on a shared two-block binomial/logit design at
-   three fixed `(sp1,sp2)` points, compared on PAIRWISE SCORE DIFFERENCES** (not the
-   absolute value — ADR-189 amendment 1 already found an unresolved offset there for
-   the single-block Poisson case; differencing cancels any purely additive offset and
-   is what an optimiser needs anyway). **The fit itself is correct** (a committed,
-   INDEPENDENT `deviance` comparison — `gam_reml_conformance.compare_reml_deviance` —
-   matches `mgcv` to ~1e-11 at every point) **but the score's dependence on `(sp1,sp2)`
-   does NOT match `mgcv`'s** — **all three** pairwise differences disagree against the
-   declared 1e-6 tolerance (two by ~0.74, one by ~9.3e-4 — smaller, but still ~935x
-   the tolerance, not agreement), identical at tier 1 and tier 3. An INDEPENDENT
-   comparison that disagrees (ADR-193): a genuine result, not a fit bug or a
-   tier-1/BLAS artifact. Characterized with a named next hypothesis, corrected same-day
-   by PR #203 review [P1-3] after the original localizing argument was found circular:
-   this fixture's two penalty blocks have disjoint column supports, so their null
-   spaces never interact, and a fixture built that way cannot test whether `mgcv`'s
-   multi-penalty `log|S_lambda|_+` differs from the naive "sum blocks, eigendecompose
-   the sum" treatment specifically when null spaces DO interact — the next fixture
-   needs genuinely overlapping blocks before that term can be ruled in or out, read
-   from Wood 2011 directly rather than from GPL source. See ADR-196 and
+   **Part A DONE AND RESOLVED, 2026-08-18** (ADR-196): `gam_reml.reml_score_general`
+   generalizes the already-verified Poisson-only, two-hardcoded-block `reml_score` onto
+   `gam_fit`'s general IRLS core — known-scale families (binomial included;
+   quasi-Poisson's estimated-dispersion criterion is a different formula the target
+   formula never needs), any number of independently-scaled penalty blocks (via their
+   caller-summed `S_lambda`). **Measured against `mgcv` on a shared two-block
+   binomial/logit design at three fixed `(sp1,sp2)` points, compared on PAIRWISE SCORE
+   DIFFERENCES** (not the absolute value — ADR-189 amendment 1 already found an
+   unresolved offset there for the single-block Poisson case; differencing cancels any
+   purely additive offset and is what an optimiser needs anyway).
+
+   **First measurement: DISAGREED.** The fit itself was correct (a committed,
+   INDEPENDENT `deviance` comparison matched `mgcv` to ~1e-11 at every point) but the
+   score's dependence on `(sp1,sp2)` did not match `mgcv`'s — all three pairwise
+   differences missed the declared 1e-6 tolerance, identical at tier 1 and tier 3. The
+   original next-hypothesis (a multi-penalty log-determinant numerical-stability issue,
+   Wood 2011 §3.1) was corrected same-day by PR #203 review [P1-3] after being found
+   circular.
+
+   **Resolution, same day: the maintainer supplied Wood (2011) directly.** §2 eq. (4)
+   names the actual missing piece — the criterion needs the PENALIZED deviance
+   `Dp = D(beta_hat) + beta_hat^T S beta_hat`, not the plain deviance the first
+   generalization used (verbatim from the old module, which appears to have the
+   identical omission — see below). Adding the missing term closed the gap to float
+   round-trip precision (~1e-12) on all three pairs, tier 1 and tier 3 identical (CI run
+   32142352655). `REML_SCORE_CLAIM`'s two declared quantities (`reml_score_pairwise_diff`,
+   `deviance`) are both INDEPENDENT and both now agree — the epic's first Stage-C
+   parity result of this kind. §3.1's numerical-stability machinery turned out to be
+   inapplicable to this fixture for a well-grounded reason (its two blocks have
+   disjoint column supports, so no cross-block "zero leakage" is possible), not merely
+   coincidentally matching at two points. See ADR-196's resolution section and
    `docs/CONFORMANCE_LEDGER.md`.
 
-   **Part B (the N-dimensional search itself) NOT STARTED** — building it on a score
-   not yet shown to reproduce `mgcv`'s criterion would not be a meaningful measurement.
-   The next session on this slice should start from ADR-196's named hypothesis, not
-   from the search.
+   **Before Part B (the N-dimensional search itself): the epic's next session runs
+   `docs/WORK_ORDER_reml_penalized_deviance_production_check.md`**, maintainer
+   direction 2026-08-18. `experience_gam_penalized.reml_score` — the ALREADY-SHIPPED,
+   production tensor-MI-surface REML score `select_lambdas_reml`'s 2-D grid actually
+   uses — has the identical formula shape, and by inspection the identical omission.
+   ADR-189 amendment 1's own "unexplained residual of 0.93-3.17" against `mgcv`'s raw
+   score is consistent in order of magnitude with the same missing term, but this is a
+   strong hypothesis, not a confirmed finding, and PLAN Anchor 7 protects that module
+   from being touched by this epic without explicit, separate maintainer sign-off (the
+   existing goldens were fitted with its current formula). The work order scopes
+   measurement and a recommendation only — not a code change to the production module.
+   Building the outer search on either module's criterion before this is understood
+   would be premature.
 5. **`ti()` and the varying-coefficient MI term.** Ship the MI term first if they split.
    PLANNED.
 6. **`bs = "sz"`** — orthogonal factor-smooth interactions. Expect the hardest basis.
@@ -216,8 +238,9 @@ across the slice structure.
 
 | Gap | mgcv feature | Status | Blocked on |
 |---|---|---|---|
-| Multi-penalty REML criterion | The actual `log\|S_λ\|_+`/`log\|X'WX+S\|` treatment for >1 independently-scaled penalty block | **Wrong** — measured disagreeing (ADR-196), naive combined-eigendecomposition ruled unlikely-but-not-excluded as the cause | Nothing — this is the epic's current critical path |
-| N-dimensional outer search | Newton/quasi-Newton (f)REML optimisation over 13-21 `log λ` | **Not started** | The REML criterion above being right first |
+| Multi-penalty REML criterion (Python-side) | The penalized-deviance criterion, Wood (2011) §2 eq. (4), for any number of independently-scaled penalty blocks | **FIXED, 2026-08-18** (ADR-196) — the score was missing `β̂ᵀSβ̂`; adding it closed the gap to float precision, tier 1 and tier 3 identical | Nothing — DONE |
+| Same criterion, production module | `experience_gam_penalized.reml_score` — the SHIPPED tensor-MI 2-D grid selector's own score, same formula shape, same omission by inspection | **Suspected wrong, NOT measured or fixed** — PLAN Anchor 7 protects it from this epic without separate sign-off | `docs/WORK_ORDER_reml_penalized_deviance_production_check.md` — the epic's next session |
+| N-dimensional outer search | Newton/quasi-Newton (f)REML optimisation over 13-21 `log λ` | **Not started** | The work order above, then buildable |
 | `ti()` — tensor interaction | Tensor product with marginal main effects excluded | **Not started** | The outer search (slice 5) |
 | `s(..., by=...)` with a `cr` basis | The MI term itself — a `cr` basis scaled by a numeric `by` variable | **Not started** | The outer search (slice 5) |
 | `bs = "sz"` | Sum-to-zero factor-smooth interactions (4 terms in the target formula) | **Not started**, expected hardest basis (PLAN §6 registered prediction) | The outer search (slice 6) |
@@ -246,28 +269,34 @@ should be re-synced.
 
 ### 1st-order (on the epic's critical path)
 
-1. **Close the multi-penalty REML formula gap (ADR-196).** Build a fixture with
-   genuinely overlapping/interacting penalty blocks (this session's has disjoint
-   column supports, so it structurally cannot test the "null spaces interact"
-   hypothesis). Read `mgcv`'s actual multi-penalty treatment from Wood (2011, JRSS-B)
-   directly — never from GPL source (ADR-190 decision 3's precedent). This gates
-   everything below it.
-2. **Slice 4 part B — the N-dimensional outer search.** Newton/quasi-Newton on the
-   (f)REML score once (1) is closed. The largest remaining implementation effort in
-   the epic (PLAN §3).
-3. **Slice 5 — `ti()` and the MI term.** Ship the MI term first if they split (PLAN
+1. ~~**Close the multi-penalty REML formula gap (ADR-196).**~~ **DONE, 2026-08-18.**
+   The maintainer supplied Wood (2011) directly; §2 eq. (4) named the missing
+   penalized-deviance term. Fixed, tier 1 and tier 3 confirmed to float round-trip
+   precision. See ADR-196's resolution section.
+2. **Run `docs/WORK_ORDER_reml_penalized_deviance_production_check.md`** — does the
+   SAME missing term affect the already-shipped `experience_gam_penalized.reml_score`
+   (the production tensor-MI 2-D grid selector), and if so, does it change which `λ`
+   gets selected? Measurement and recommendation only — PLAN Anchor 7 forbids patching
+   that module without separate maintainer sign-off. Gates part B below (maintainer
+   direction, 2026-08-18) — the epic's next `ROUTINE_MGCV_PARITY.md` session.
+3. **Slice 4 part B — the N-dimensional outer search.** Newton/quasi-Newton on the
+   (f)REML score, now that the Python-side criterion is closed — but sequenced behind
+   (2) above, not immediately after (1). The largest remaining implementation effort
+   in the epic (PLAN §3).
+4. **Slice 5 — `ti()` and the MI term.** Ship the MI term first if they split (PLAN
    §3: it's the cheap, well-conditioned one and the actual point of the target
    formula).
-4. **Slice 6 — `bs = "sz"`.** Expected hardest basis; Stage A is where a mistake here
+5. **Slice 6 — `bs = "sz"`.** Expected hardest basis; Stage A is where a mistake here
    is cheap (PLAN §6 registered prediction).
-5. **Slice 7 — `select = TRUE`.** 13 → 21 smoothing parameters.
-6. **Kass-Steffey / `vcov(unconditional=TRUE)` — the level-4 BLOCKER.** Separate from
-   (1): a different paper (Wood, Pya & Säfken 2016), needs `dw/drho`, re-derived from
-   the paper per the same GPL/MIT discipline. Standing since ADR-188/190; see "Carried
-   in from the superseded epic" below for the full context.
-7. **Demonstrate Anchor 5's absolute/relative idiom end to end** on the target's own
-   multi-term structure, once a multi-term model exists (needs (2)).
-8. **`cr` basis extrapolation beyond the knot range.** Needed before fitting the
+6. **Slice 7 — `select = TRUE`.** 13 → 21 smoothing parameters.
+7. **Kass-Steffey / `vcov(unconditional=TRUE)` — the level-4 BLOCKER.** Separate from
+   the REML score work above: a different paper (Wood, Pya & Säfken 2016), needs
+   `dw/drho`, re-derived from the paper per the same GPL/MIT discipline. Standing
+   since ADR-188/190; see "Carried in from the superseded epic" below for the full
+   context.
+8. **Demonstrate Anchor 5's absolute/relative idiom end to end** on the target's own
+   multi-term structure, once a multi-term model exists (needs (3)).
+9. **`cr` basis extrapolation beyond the knot range.** Needed before fitting the
    target's own `AttdAge`/`PolYear` knots against real experience data.
 
 ### 2nd-order (nice-to-have, not blocking)

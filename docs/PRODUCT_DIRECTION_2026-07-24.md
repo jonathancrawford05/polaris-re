@@ -2407,18 +2407,54 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   ADR-196 (1st-order — the epic's own in-progress slice; the outer search cannot
   proceed meaningfully until this is closed).*
 
-- **Named next hypothesis for slice 4 part B's formula gap, corrected same-day
-  (PR #203 review [P1-3]).** An earlier version of this entry argued the naive
-  "sum the penalty blocks, eigendecompose the sum" `log|S_lambda|_+` term was
-  probably NOT where the gap concentrates, reasoning from two points sharing an
-  identical naive `logdet_s` carrying the largest residual — that argument was
-  circular (it silently assumed `mgcv`'s own `logdet_s` behaves identically,
-  which is exactly what's in question) and this session's fixture cannot settle
-  it anyway: its two penalty blocks have disjoint column supports, so their null
-  spaces never interact, and a fixture built that way cannot distinguish "the
-  naive treatment is fine" from "the naive treatment is wrong but only shows up
-  when null spaces interact." **The corrected next step:** build a fixture with
-  genuinely overlapping/interacting penalty blocks, then read `mgcv`'s actual
-  multi-penalty treatment from Wood (2011, *JRSS-B*) directly — never from GPL
-  source, per ADR-190 decision 3's precedent. *Source: this session, ADR-196
-  (1st-order — the concrete next step for the epic's own in-progress slice).*
+- ~~**Named next hypothesis for slice 4 part B's formula gap, corrected same-day
+  (PR #203 review [P1-3]).**~~ **SUPERSEDED SAME DAY — see the harvest entry
+  immediately below.** The corrected next step named here (build a fixture with
+  overlapping penalty blocks, read Wood 2011's multi-penalty treatment) turned
+  out not to be needed: the maintainer supplied the paper directly, and the
+  actual missing term was in §2's criterion definition, not §3.1's
+  multi-penalty machinery this entry pointed at. Kept, struck, for the audit
+  trail — the reasoning that let the gap go unclosed for one more round (the
+  session was looking at the right paper's wrong section) is itself informative.
+
+### Harvested 2026-08-18b — slice 4 part A RESOLVED: the missing penalized-deviance term (ADR-196 resolution)
+
+- **RESOLVED, same day as the characterization above.** The maintainer downloaded
+  Wood (2011) directly (after some difficulty locating a free copy — resolved via
+  the University of Bath research portal, not the paywalled DOI) and asked where
+  in it the multi-penalty formula lived. §2 (p.4), equation (4), names the
+  criterion's first term as the PENALIZED deviance,
+  `Dp = D(beta_hat) + beta_hat^T S beta_hat` — a term
+  `gam_reml.reml_score_general`'s first generalization omitted entirely, having
+  copied the plain-deviance formula verbatim from
+  `experience_gam_penalized.reml_score`. Adding the missing term closed the
+  pairwise-score-difference gap to float round-trip precision (~1e-12) on all
+  three tested points, tier 1 and tier 3 identical (CI run 32142352655).
+  `REML_SCORE_CLAIM`'s two INDEPENDENT quantities both now agree — the epic's
+  first Stage-C parity result. §3.1's multi-penalty numerical-stability machinery
+  (the previous entry's "next hypothesis") turned out to be inapplicable to this
+  fixture for a well-grounded reason (disjoint-support penalty blocks cannot
+  suffer the cross-block "zero leakage" §3.1 addresses), not merely coincidental
+  — closing that question too. *Source: this session, ADR-196 resolution
+  (1st-order — closes the epic's own critical-path item).*
+
+- **The identical omission is suspected, not yet confirmed, in the ALREADY-SHIPPED
+  `experience_gam_penalized.reml_score`** — the formula the tensor MI surface's
+  production 2-D grid selector (`select_lambdas_reml`) actually uses. Same formula
+  shape, same omission by inspection. ADR-189 amendment 1's own "unexplained
+  residual of 0.93-3.17" against `mgcv`'s raw score (recorded, explicitly marked
+  "not a compared metric" at the time) is consistent in order of magnitude with
+  this same missing term, but that is motivation for measurement, not a
+  substitute for it. PLAN Anchor 7 protects that module from being touched by
+  this epic without explicit, separate maintainer sign-off — the goldens were
+  fitted with its current formula. Scoped as
+  `docs/WORK_ORDER_reml_penalized_deviance_production_check.md`. *Source: this
+  session, maintainer direction 2026-08-18 (1st-order — assigned as the epic's
+  own next `ROUTINE_MGCV_PARITY.md` session, ahead of slice 4 part B).*
+
+- **Slice 4 part B (the N-dimensional outer search) remains NOT STARTED,
+  deliberately** — now unblocked in principle by the Python-side fix, but
+  sequenced behind the work order above per maintainer direction, since building
+  the search on a criterion whose production analogue's status is still a
+  hypothesis would be premature. *Source: this session (1st-order — the epic's
+  own next-but-one step).*

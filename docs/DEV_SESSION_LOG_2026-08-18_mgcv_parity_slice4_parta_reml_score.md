@@ -355,3 +355,102 @@ None.
 
 None. `tests/qa/` untouched, 85/9 pass/skip unchanged, byte-identical goldens.
 No `products/`, `reinsurance/` or CLI code moved.
+
+## Resolution (same day, same PR #203 — maintainer supplied the paper)
+
+After the review-response round above shipped, the maintainer downloaded Wood (2011)
+directly and asked for the specific sections locating the multi-penalty REML formula.
+Reading it closed the gap this whole session had characterized.
+
+### What was found
+
+Wood, S.N. (2011), *JRSS-B* 73(1), 3-36, §2 (p.4), equation (4), names the criterion's
+first term as the **penalized** deviance:
+
+    Dp = D(beta_hat) + beta_hat^T S beta_hat
+
+`gam_reml.reml_score_general`'s first generalization used the plain deviance `D(β̂)` —
+copied verbatim from `experience_gam_penalized.reml_score`'s formula, which has the
+identical shape and, by inspection, the identical omission. The `β̂ᵀSβ̂` term (the
+penalty's quadratic form at the converged coefficients) was missing entirely, on both
+the new and the old score.
+
+Section 3.1 (the multi-penalty log-determinant numerical-stability machinery this
+session's "named next hypothesis" pointed at, corrected same-day by PR #203 review
+[P1-3]) turned out to be a well-grounded dead end for THIS fixture, not merely a
+coincidence: it addresses instability when penalty blocks have overlapping range
+spaces, and this session's two-block fixture has disjoint column supports by
+construction, so no cross-block "zero leakage" is possible and the naive `log|S_λ|₊`
+computation was already exact. Worth recording precisely because it means the original
+[P1-3]-flagged circular argument reached approximately the right conclusion (§3.1 isn't
+the issue) for the wrong reason (matching values at two points) — the paper supplies
+the right reason.
+
+### The fix
+
+`gam_reml.reml_score_general` now computes
+`penalized_deviance = deviance + coef @ penalty @ coef` and uses it wherever the
+criterion's first term appears. No other term changed.
+
+### Measurement — closed to float round-trip precision
+
+| point A | point B | before (residual) | after (residual) |
+|---|---|---:|---:|
+| `(1, 1)` | `(5, 0.2)` | -0.741273 | -1.90e-12 |
+| `(1, 1)` | `(0.5, 8)` | 0.000934569 | 8.42e-13 |
+| `(5, 0.2)` | `(0.5, 8)` | 0.742208 | 2.74e-12 |
+
+**Tier 1** confirmed via the R-gated end-to-end test (renamed
+`test_the_r_probe_runs_end_to_end_and_agrees`, now asserting score agreement directly,
+not just deviance). **Tier 3**: CI run
+[32142352655](https://github.com/jonathancrawford05/polaris-re/actions/runs/32142352655),
+commit `1ae300d`, identical to tier 1 at every printed digit. Required levels 1-3 of the
+existing ten-cell suite also still agree — no regression from the fix.
+
+Also verified independently of the old (Poisson-only) module, per CLAUDE.md's
+closed-form discipline: a new test
+(`TestMatchesWoodsFormulaDirectly::test_score_equals_the_explicit_dp_formula`) asserts
+the score's output decomposes exactly as Wood's equation (4) states, computed from
+first principles.
+
+### What changed in the docs
+
+`docs/DECISIONS.md` — ADR-196 gained a "Resolution" section (title/status updated,
+nothing in the original characterization retracted — it was accurate as written).
+`docs/CONFORMANCE_LEDGER.md` — two new rows (tier-1 hypothesis, tier-3 confirmation of
+the fix). `docs/PLAN_mgcv_parity_engine.md` and
+`docs/CONTINUATION_mgcv_parity_engine.md` — slice 4 part A marked DONE AND RESOLVED,
+the Gap audit table and Backlog updated. `docs/PRODUCT_DIRECTION_2026-07-24.md` —
+harvest entry appended.
+
+### The follow-on question, scoped and deliberately not answered here
+
+`experience_gam_penalized.reml_score` — the ALREADY-SHIPPED module the tensor MI
+surface's production 2-D grid selector (`select_lambdas_reml`) actually uses — has the
+identical formula shape and, by inspection, the identical omission. ADR-189 amendment
+1's own "unexplained residual of 0.93-3.17" against `mgcv`'s raw score (recorded,
+explicitly marked "not a compared metric" at the time) is consistent in order of
+magnitude with the same missing term. **This is a strong, precisely targeted
+hypothesis, not a confirmed finding.** PLAN Anchor 7 protects that module from being
+touched by this epic without explicit, separate maintainer sign-off — the existing
+`tests/qa/` goldens were fitted using its current formula, and any change there moves
+every downstream number they pin.
+
+Per maintainer direction (2026-08-18): scoped as its own work order,
+`docs/WORK_ORDER_reml_penalized_deviance_production_check.md`, assigned as the epic's
+**next** `ROUTINE_MGCV_PARITY.md` session — ahead of slice 4 part B (the N-dimensional
+search itself), which should not be built on a criterion (either module's) whose
+production analogue's status is still a hypothesis. The work order is explicit that it
+scopes measurement and a recommendation only, never a code change to
+`experience_gam_penalized.py` or a golden re-baseline.
+
+### Session-end state
+
+Same PR #203, three additional commits beyond the review-response round: the fix
+(`1ae300d`), and this documentation round. `pytest tests/ -m "not slow"`: 3297 passed
+(net +1 over the review-response round's 3296 — one closed-form test added, two
+bit-for-bit tests repurposed to assert the derived relationship instead), 5
+pre-existing failures unchanged, 22 skipped unchanged. `tests/qa/`: 85 passed, 9
+skipped, byte-identical. No `perf/history.jsonl` row this round — ADR-177's rule
+("initial PR open only, skip on review-feedback updates") still applies; this is a
+continuation of the same open PR, not a new one.
