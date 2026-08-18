@@ -58,6 +58,11 @@ on:
       - "src/polaris_re/analytics/gam_basis_cr.py"
       - "src/polaris_re/analytics/gam_stage_a.py"
       - "scripts/gam_term_extract.R"
+      # Slice 3's own module and probe — same reasoning as the two lines above.
+      - "src/polaris_re/analytics/gam_family.py"
+      - "src/polaris_re/analytics/gam_fit.py"
+      - "src/polaris_re/analytics/gam_family_conformance.py"
+      - "scripts/gam_family_probe.R"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -262,6 +267,20 @@ jobs:
               data/mgcv_exchange/synthetic \
               gam_term_extract.json
 
+      # PLAN_mgcv_parity_engine.md slice 3: a SHARED (X, S) design fitted under
+      # four family/link/weight combinations (binomial logit/cloglog with prior
+      # weights, quasi-Poisson, Poisson with a log offset), at fixed sp. Same
+      # DIAGNOSTIC contract as the probes above — the eta/dispersion comparison
+      # against the independent Python IRLS (gam_fit.penalized_irls_general)
+      # happens in the `compare` job below, not gated here.
+      - name: Fit the shared family/link design under four combinations (slice 3)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_family_probe.R \
+              gam_family_probe.json
+
       - uses: actions/upload-artifact@v4
         with:
           name: mgcv-reference
@@ -270,6 +289,7 @@ jobs:
             ks_formula_probe.json
             smoothcon_lpmatrix_probe.json
             gam_term_extract.json
+            gam_family_probe.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
@@ -605,6 +625,81 @@ jobs:
             cat gam_term_extract_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # Slice 3 (docs/PLAN_mgcv_parity_engine.md): compares the independent
+      # Python IRLS (gam_fit.penalized_irls_general) against job 1's mgcv fits
+      # on the SAME shared design/penalty/response/weights/offset at fixed sp.
+      # DIAGNOSTIC ONLY, same contract as the probes above — printed to stdout,
+      # not gated here, so a future tier-3 read never has to settle for "the
+      # step didn't except" (the lesson slice 2's methodology fix drew from
+      # slice 1b's masked continue-on-error conclusion).
+      - name: Compare the family/link Stage-B fits against the Python side (slice 3)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_family_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_family_probe.json to compare ({exc}) — the R probe "
+                    "above did not produce one.")
+              sys.exit(0)
+
+          import numpy as np
+
+          from polaris_re.analytics.gam_family_conformance import (
+              FAMILY_BY_CASE, FAMILY_CLAIM, compare_family_case, fit_family_case,
+          )
+          from polaris_re.core.verification import evidence_markdown
+
+          x = np.asarray(r_payload["X"], dtype=np.float64)
+          s = np.asarray(r_payload["S"], dtype=np.float64)
+
+          lines = [
+              "", "### Slice 3 — family/link/weight Stage-B fits vs mgcv (INDEPENDENT on eta)", "",
+              evidence_markdown(FAMILY_CLAIM), "",
+              "| case | family | link | max abs eta diff | dispersion diff | agrees |",
+              "|---|---|---|---:|---:|---|",
+          ]
+          any_disagree = False
+          for case_name in FAMILY_BY_CASE:
+              if case_name not in r_payload.get("cases", {}):
+                  lines.append(f"| `{case_name}` | | | **MISSING FROM R OUTPUT** | | |")
+                  any_disagree = True
+                  continue
+              r_case = r_payload["cases"][case_name]
+              fit = fit_family_case(case_name, x, s, r_case)
+              c = compare_family_case(case_name, x, s, fit, r_case)
+              if not c["agrees"]:
+                  any_disagree = True
+              disp = "n/a" if c["dispersion_diff"] is None else f"{c['dispersion_diff']:.3e}"
+              lines.append(
+                  f"| `{case_name}` | {r_case['family']} | {r_case['link']} | "
+                  f"{c['max_abs_eta_diff']:.3e} | {disp} | {c['agrees']} |"
+              )
+          lines.append("")
+          lines.append(
+              "`eta` and `dispersion` are INDEPENDENT (see the legend): "
+              "gam_fit.penalized_irls_general never reads this script's own eta, "
+              "coef or dispersion, only the shared recipe (X, S, y, weights, "
+              "offset, sp). A disagreement is a real result about the IRLS/family "
+              "arithmetic, not a broken round trip. Coefficients are NOT compared "
+              "(Anchor 2 — never a Stage-B acceptance criterion)."
+          )
+          if any_disagree:
+              lines.insert(2, "**A case disagreed — see the table. This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_family_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_family_probe_report.md ]; then
+            cat gam_family_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -615,3 +710,5 @@ jobs:
             mgcv_reference.json
             gam_term_extract.json
             gam_term_extract_report.md
+            gam_family_probe.json
+            gam_family_probe_report.md

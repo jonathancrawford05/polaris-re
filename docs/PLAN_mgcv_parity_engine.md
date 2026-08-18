@@ -291,6 +291,17 @@ not the Polaris side, once slice 2 lands.
 
 ### Slice 3: families, links and weights
 
+- **Status:** DONE, 2026-08-17. `src/polaris_re/analytics/gam_family.py` (the
+  `Family`/`Link` abstraction — standard GLM IRLS theory, Wood §3.1.2, no
+  R-source archaeology needed) and `gam_fit.py` (`penalized_irls_general`, a
+  general penalized-IRLS core proven to reduce to the already-verified Poisson
+  recursion bit-for-bit, ADR-195 decision 1). `gam_family_conformance.py`'s
+  `FAMILY_CLAIM` declares `eta`/`dispersion` `INDEPENDENT` and
+  `require_parity_evidence` gates it — the epic's first Stage-B parity result
+  outside the already-verified Poisson case. Confirmed at tier 3 (CI run
+  32057694949): all four family/link/weight combinations agree to float
+  round-trip precision (~1e-14 on `eta`) on the **first** measurement, no
+  iteration needed. See ADR-195 and `docs/CONFORMANCE_LEDGER.md`.
 - **Depends on:** Slice 1 (independent of 2)
 
 Binomial with `cloglog` and `logit` on a proportion response with prior weights;
@@ -298,9 +309,14 @@ quasi-Poisson with `φ` estimated; Poisson with a log offset (already present). 
 confirmed to fit in `mgcv` on this term structure, so all four are verifiable.
 
 **Acceptance.** At fixed `sp` on a shared design, `η` matches for each family/link/weight
-combination. `φ` matches where it is estimated. The absolute and relative idioms of
-Anchor 5 both run, and the plan's claim that they answer different questions is
-demonstrated rather than asserted.
+combination — **met**, all four combinations, tier 3. `φ` matches where it is estimated
+— **met** for quasi-Poisson (the one case `mgcv` estimates it), dispersion diff
+9.671e-06 at tier 3. **Not yet run:** the absolute and relative idioms of Anchor 5 both
+running end to end through this fitter (this slice built and verified the general IRLS
+core itself, on a dedicated small shared design — wiring it through the absolute/relative
+offset-vs-weight distinction on the target's own term structure is left to the slice that
+assembles a full multi-term model, since no outer smoothing-parameter optimiser exists yet
+for it to run against, slice 4).
 
 ### Slice 4: the outer optimisation — N-dimensional (f)REML
 

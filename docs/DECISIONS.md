@@ -15076,3 +15076,219 @@ different constructions entirely and share nothing with this module beyond the
 harness; and fitting a multi-term model through this basis (slice 4's outer
 optimiser is a separate, larger piece of work). This ADR is about the basis in
 isolation, matching Anchor 1's two-stage strategy.
+
+## ADR-195: a general penalized-IRLS core reproduces `mgcv` across family, link and prior weights — the epic's first INDEPENDENT Stage-B parity result outside Poisson
+
+**Date:** 2026-08-17
+**Status:** Accepted
+**Context:** `docs/PLAN_mgcv_parity_engine.md` slice 3 — the existing penalized
+IRLS core (`experience_gam_penalized._penalized_irls`) is hardcoded to the
+Poisson log-link with an offset, correct for the tensor MI surface and left
+untouched (Anchor 7). The target formula needs binomial `logit`/`cloglog` on a
+proportion response with **prior weights**, and quasi-Poisson with an
+estimated dispersion (PLAN §1, Anchor 5).
+
+**Parity claim, written before the code (per `docs/VERIFICATION_STANDARD.md`):**
+`polaris_re.analytics.gam_fit.penalized_irls_general` solves the penalized
+IRLS recursion for a given family/link from a shared design, penalty,
+response, weights and offset; `mgcv` computes the same fit via
+`gam(family=..., weights=..., paraPen=list(X=list(S, sp=sp)))` at the SAME
+fixed `sp`; compared on `eta` (every case) and `dispersion` (the one case
+where `mgcv` estimates it, quasi-Poisson).
+
+### Decision 1 — a new module, not a widened one (Anchor 7)
+
+`gam_family.py` (the `Family`/`Link` abstraction) and `gam_fit.py`
+(`penalized_irls_general`) are new code the tensor MI surface does not import.
+`experience_gam_penalized._penalized_irls` is untouched; slice 3 proves its own
+generalisation is a **superset** of that already-verified function rather than
+a rewrite that might have silently changed it —
+`tests/test_analytics/test_gam_family.py::TestPoissonReducesToTheVerifiedRecursion`
+asserts bit-for-bit coefficient agreement between the two at `S = 0` and again
+under a real penalty, both on freshly generated data.
+
+### Decision 2 — the recursion is textbook GLM theory, not `mgcv`-internal machinery
+
+Unlike the `cr` basis (ADR-194), this slice needed no R-source archaeology.
+The working-weight/working-response IRLS update
+(`w_i = prior_weight_i · (dμ/dη)² / V(μᵢ)`,
+`z_i = ηᵢ − offsetᵢ + (yᵢ − μᵢ)/(dμ/dη)ᵢ`) is Wood's *Generalized Additive
+Models*, 2nd ed., §3.1.2 — the same recursion `mgcv` runs internally for every
+family built on R's own `stats::binomial`/`stats::poisson`/`stats::quasipoisson`
+constructors, which is what licenses an INDEPENDENT `eta` comparison rather
+than two transcriptions of one source.
+
+### Decision 3 — `cloglog` is not the canonical link, and that is recorded rather than assumed
+
+ADR-189 decision 1's "shared `(X, S)` ⇒ strictly concave objective ⇒ unique
+optimum ⇒ every disagreement is arithmetic" argument holds unconditionally
+only for a **canonical** link (`binomial`/`logit`, `poisson`/`log`).
+`binomial`/`cloglog` is not canonical, so concavity of the penalized
+log-likelihood in the coefficients is not guaranteed by that general argument.
+`gam_family.py`'s `binomial_cloglog` docstring marks this explicitly
+(CLAUDE.md: mark uncertainty rather than guess) rather than silently
+inheriting the canonical-link argument's guarantee. It did not bite in this
+slice's measurement — see the table below — but a future disagreement on a
+harder `cloglog` case should not be read as a surprise this ADR failed to
+anticipate.
+
+### Decision 4 — Anchor 2 applies to Stage B exactly as it applies to Stage A
+
+The comparison is on `eta`, never on `coef`. `FAMILY_CLAIM`
+(`gam_family_conformance.py`) does not name `coef` as a compared quantity, and
+no function in the module reads it for comparison — `mgcv`'s own
+reparameterisation makes coefficients incomparable across two independent
+implementations even when they agree exactly on the fitted surface, the same
+reasoning Anchor 2 states for Stage A.
+
+### Decision 5 — dispersion is a second genuine INDEPENDENT quantity, computed from `tr(F)`
+
+PLAN slice 3 names a second comparable quantity: "`phi` matches where it is
+estimated." `gam_fit.effective_degrees_of_freedom` generalises
+`experience_gam_penalized.fit`'s own `edf_total = trace(hat)` computation
+(Anchor 4's `tr(F)` definition, verified against `mgcv` to 7.2e-13 in ADR-189
+amendment 1) from the Poisson-only IRLS weight to an arbitrary `Family`, and
+`gam_fit.pearson_dispersion` uses it as the residual-dof denominator for the
+Pearson dispersion estimate. `tests/test_analytics/test_gam_fit.py` pins the
+closed form this must satisfy before trusting it on a penalized case: at
+`S = 0` with full-rank `X`, `F = (XᵀWX)⁻¹XᵀWX = I`, so `tr(F) == p` exactly.
+
+### The measurement
+
+A single shared `(X, S)` — a 150×6 deterministic Fourier-basis design with a
+second-difference penalty, built once inside `scripts/gam_family_probe.R`
+(`set.seed(20260817)`, ADR-074: no wall clock, so a no-change re-run is
+byte-identical) — fitted at a fixed `sp = 2.0` under four combinations. Neither
+side reads the other's `eta`/`coef`/`dispersion`: `fit_family_case`'s
+signature takes only the shared recipe (`x`, `s`, and the recipe fields of the
+R payload), the mechanical test ADR-193 names.
+
+**Tier 1** (R 4.3.3 / mgcv 1.9.1, local apt):
+
+| case | family | link | max abs `eta` diff | dispersion diff | agrees |
+|---|---|---|---:|---:|---|
+| `binomial-logit` | binomial | logit | 1.998e-15 | n/a | True |
+| `binomial-cloglog` | binomial | cloglog | 1.488e-14 | n/a | True |
+| `quasipoisson-log` | quasipoisson | log | 7.994e-15 | 9.671e-06 | True |
+| `poisson-log-offset` | poisson | log | 9.326e-15 | n/a | True |
+
+**Tier 3** (R 4.6.1 / mgcv 1.9.4, oracle
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+build 8, CI run
+[32057694949](https://github.com/jonathancrawford05/polaris-re/actions/runs/32057694949),
+read directly from job-log stdout via `get_job_logs`, same discipline as
+ADR-194's methodology fix):
+
+| case | family | link | max abs `eta` diff | dispersion diff | agrees |
+|---|---|---|---:|---:|---|
+| `binomial-logit` | binomial | logit | 1.221e-15 | n/a | True |
+| `binomial-cloglog` | binomial | cloglog | 1.488e-14 | n/a | True |
+| `quasipoisson-log` | quasipoisson | log | 8.438e-15 | 9.671e-06 | True |
+| `poisson-log-offset` | poisson | log | 9.326e-15 | n/a | True |
+
+Every diff, at both tiers, is float round-trip noise — the same order as
+ADR-194's `cr`-basis measurement — and agreed on the **first** measurement, no
+iteration needed: hypothesis 1 (the general IRLS recursion reproduces `mgcv`
+once family, link and weights match) was confirmed without a second pass.
+Required levels 1-3 of the existing ten-cell suite also still agree on this
+run (`Required levels [1, 2, 3] all agree.`) — no regression from the workflow
+edit. `docs/CONFORMANCE_LEDGER.md` carries both readings.
+
+### What this settles and what it does not
+
+**Settled:** `design_X`/`penalty_S` are supplied by the harness (not compared
+— this is Stage B, not Stage A), and `eta`/`dispersion` are INDEPENDENT and
+agree across all four family/link/weight combinations PLAN slice 3 names, at a
+fixed smoothing parameter, on the pinned tier-3 oracle.
+
+**Not settled:** the outer smoothing-parameter optimiser for any of these
+families (slice 4's scope — PLAN slice 3's own acceptance criterion is "at
+fixed sp"); whether `binomial`/`cloglog`'s non-canonical-link concavity gap
+(Decision 3) would surface a disagreement on a harder-conditioned design than
+this slice's; and REML/dispersion estimation for `mgcv`'s own smoothing-
+parameter selection under these families, which this slice's fixed-`sp`
+harness does not exercise.
+
+### Amendment (2026-08-17, same day, PR #202 review) — three findings, and what each one changed
+
+The automated PR review raised one [P1] and two [P2] findings. All three were
+real; none changed a measured number.
+
+**[P1] The mechanical test was asserted, not structurally enforced.**
+`fit_family_case`'s parameter was typed `RFamilyCasePayload`, and that
+`TypedDict` carried `eta`/`coef`/`dispersion` alongside the recipe fields — so
+the ADR-193 guarantee rested on the function body never reading them, which is
+exactly the "a caveat in prose, not a structural guarantee" failure mode
+ADR-193 exists to prevent (the same shape as slices 1/1b's original mistake,
+one level more subtle: here the *body* was already correct, only the *type*
+wasn't narrow enough to make that provable without reading it). **Fixed:**
+`RFamilyCasePayload` split into `RFamilyCaseRecipe` (the six recipe fields
+only) and `RFamilyCasePayload(RFamilyCaseRecipe)` (adds `eta`/`coef`/
+`dispersion`/`scale_estimated`/`converged`); `fit_family_case` now accepts
+only `RFamilyCaseRecipe`, so a future edit that reached for `r_case["eta"]`
+inside it would be a `mypy` error. The test that was supposed to check this
+(`test_fit_family_case_signature_takes_no_r_fit_output`) previously asserted
+only the parameter *name set*, which would still pass under that bug — it now
+asserts the annotated type and that the two `TypedDict`s' key sets are
+actually disjoint on the fit-only fields.
+
+**[P2] The dispersion residual (9.671e-06, identical at both tiers) is a real,
+understood-in-shape formula difference, not noise — investigated, not
+dismissed into the tolerance.** Traced with a tier-1 R probe reproducing the
+exact `quasipoisson-log` case: `mgcv`'s own `m$sig2` (0.0044075519) does NOT
+equal `pearson_rss / (n - edf)` computed from `mgcv`'s own `edf`/`fitted
+values` (0.0044172227, diff 9.6709e-06 — the observed residual, bit for bit)
+nor `deviance / (n - edf)` (0.0044090818, diff 1.5299e-06 — closer, still not
+exact) nor a `stats::glm`-style `n - rank(X)` denominator. Reading
+`mgcv:::gam.fit`'s source: for a scale-unknown family (`quasipoisson`,
+`scale.known <- FALSE`), each IRLS iteration calls `magic(..., scale =
+G$sig2, gcv = (G$sig2 < 0), ...)`; `G$sig2` is only negative on the *first*
+call, so every call after it passes `gcv = FALSE` — UBRE mode, which
+(`?magic`: "scale: the estimated (GCV) or **supplied** (UBRE) scale
+parameter") returns the *supplied* scale rather than a fresh GCV/Pearson
+recomputation. The evidence is consistent with `m$sig2` being effectively the
+Pearson-dispersion estimate from an iteration at or near convergence but not
+necessarily the literal final one — which would explain both the small
+magnitude (IRLS has nearly converged by then) and the bit-for-bit stability
+across `mgcv` releases/BLAS builds (a deterministic function of the fitting
+trajectory, not a numerical-noise floor). **This is recorded as the
+best-supported hypothesis from the evidence gathered, not asserted as fully
+traced** (CLAUDE.md: mark uncertainty rather than guess past what was
+actually shown) — full confirmation would need instrumenting `gam.fit`'s IRLS
+loop directly, not attempted here. **Decision: keep the textbook Pearson
+formula** (`gam_fit.pearson_dispersion`, matching `stats::glm(family=
+quasipoisson)`'s own dispersion estimator) rather than reaching for whichever
+formula numerically happened to land closer — matching a possibly-transient
+artifact of `mgcv`'s IRLS/GCV loop interaction would be tuning to a
+side-effect, not deriving the correct quantity (Anchor 8). The existing
+1e-4 relative tolerance is unchanged and is now known to be doing real work
+(absorbing an ~0.2% understood-in-shape discrepancy, not just headroom against
+noise) rather than an arbitrarily loose one — a future dispersion diff
+materially larger than ~1e-5 on a similarly-conditioned case would be a new
+finding worth the fuller trace this amendment stopped short of, not something
+to wave through under the same tolerance.
+
+**[P2] `Family.deviance` did not weight the per-observation terms by prior
+weights**, while the IRLS working weights (correctly) did. Harmless for this
+slice's measurement — the converged fit is set by the weighted normal
+equations, not by the (relative) convergence monitor, and every `eta` still
+agrees to ~1e-14 after the fix — but wrong as a general deviance (R's own
+family objects weight `dev.resids` by `wt`) and load-bearing once slice 4's
+REML score needs the weighted value. **Fixed:** `Family.deviance` now
+requires `weights` and computes `2 * sum(w_i * d_i)`.
+`tests/test_analytics/test_gam_family.py::TestDevianceIsWeighted` pins the
+closed form and confirms non-uniform weights change the value.
+
+No committed number changed: the tier-3 table in this ADR's "The measurement"
+section above is unchanged, since the [P1] fix is type-level only and the
+[P2] deviance fix does not move the converged fit (re-confirmed:
+`tests/test_analytics/test_gam_family_conformance.py::test_the_r_probe_runs_end_to_end_and_agrees`
+still passes at tier 1 after both fixes, same order of `eta` agreement).
+**Re-confirmed at tier 3 on the fix commit itself**, not just inferred from
+tier 1: CI run
+[32069807927](https://github.com/jonathancrawford05/polaris-re/actions/runs/32069807927)
+(commit `75c1ec4`) reproduces every figure in the tier-3 table above to the
+last printed digit — `binomial-logit` 1.221e-15, `binomial-cloglog`
+1.488e-14, `quasipoisson-log` 8.438e-15 / dispersion 9.671e-06,
+`poisson-log-offset` 9.326e-15 — and required levels 1-3 of the existing
+suite still agree (`Required levels [1, 2, 3] all agree.`).

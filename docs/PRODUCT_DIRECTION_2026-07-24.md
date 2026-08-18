@@ -2341,3 +2341,49 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   needs to re-read one of those probes' actual numbers rather than their pass/fail.
   *Source: this session (2nd-order, NICE-TO-HAVE — a known gap with a known cheap
   fix, not urgent since neither probe is currently blocking anything).*
+
+### Harvested 2026-08-17 — slice 3, the epic's first Stage-B parity outside Poisson (ADR-195)
+
+- ~~**Slice 3 — families, links and weights.** Now genuinely unblocked.~~
+  **DONE 2026-08-17.** `gam_family.py` (`Family`/`Link` abstraction, standard GLM
+  IRLS theory — no R-source archaeology needed, unlike the `cr` basis) and
+  `gam_fit.py` (`penalized_irls_general`, proven to reduce to the already-verified
+  Poisson recursion bit-for-bit before any R round trip was spent) reproduce `mgcv`
+  across binomial logit/cloglog with prior weights, quasi-Poisson with an
+  estimated dispersion, and Poisson with a log offset — all four confirmed at tier
+  3 (CI run 32057694949) to float round-trip precision on the **first**
+  measurement, no iteration needed. `FAMILY_CLAIM` declares `eta`/`dispersion`
+  `INDEPENDENT`; coefficients are never compared (Anchor 2). *Source: this
+  session, ADR-195 (1st-order — the epic's own next-slice progress).*
+
+- **`binomial`/`cloglog`'s non-canonical-link concavity gap is recorded, not
+  resolved.** ADR-189 decision 1's "shared `(X,S)` ⇒ strictly concave ⇒ every
+  disagreement is arithmetic" argument holds unconditionally only for a canonical
+  link; `cloglog` is not canonical for the binomial family, so a future
+  harder-conditioned `cloglog` case could genuinely disagree where `logit` would
+  not, and that would be a real result rather than a bug in slice 3. Nothing to
+  fix today — the module docstring already marks it — but worth remembering
+  before treating a future `cloglog` disagreement as a regression. *Source: this
+  session, ADR-195 decision 3 (2nd-order, NICE-TO-HAVE — a documented caveat, not
+  a work item, unless a future slice's measurement actually hits it).*
+
+- **Anchor 5's absolute-vs-relative idiom is not yet demonstrated end to end on
+  the target's own term structure.** Slice 3 built and verified the general IRLS
+  core on a dedicated small shared design (one design, four family/link/weight
+  combinations) — it did not run the "weights AND an offset simultaneously"
+  relative idiom against real term structure, only each control in isolation at
+  the R-probe level (both together are unit-tested in
+  `test_gam_family.py::TestWeightsAreNotAnOffset`, which is Python
+  self-consistency, not an mgcv comparison). Demonstrating the distinction
+  end-to-end on the target formula needs a multi-term model, which needs slice 4's
+  optimiser first. *Source: `docs/PLAN_mgcv_parity_engine.md` slice 3's own
+  acceptance criteria (1st-order — a named, not-yet-met piece of the slice's own
+  scope, correctly deferred rather than silently dropped).*
+
+- **Slice 4 — the outer optimisation (N-dimensional (f)REML).** Now the epic's
+  NEXT slice — the prerequisite for everything multi-term, and the largest single
+  piece of work in the epic (PLAN §3: 4.8 million grid fits would be needed at the
+  target's 13-21 smoothing parameters if the existing 2-D grid approach were
+  naively extended, which is why it is a Newton/quasi-Newton slice instead).
+  *Source: `docs/PLAN_mgcv_parity_engine.md` (1st-order — the epic's own NEXT
+  slice).*
