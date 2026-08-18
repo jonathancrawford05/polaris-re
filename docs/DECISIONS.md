@@ -15368,7 +15368,16 @@ penalty blocks (`gam.control`'s `scalePenalty`) as the cause: a rescaled
 penalty would fit both sides at a different effective `lambda` and show up
 here as a deviance disagreement, which is not observed.
 
-**Tier 1** (R 4.3.3 / mgcv 1.9.1, local apt):
+**`deviance`, tier 1 and tier 3** (same oracle/build/run as below — added in
+review response, [P1-1]):
+
+| sp | python deviance | r deviance | diff | agrees (tol 1e-6) |
+|---|---:|---:|---:|---|
+| `(1, 1)` | 3.468011721 | 3.468011721 | -8.058e-12 (tier 1) / -8.058e-12 (tier 3) | True |
+| `(5, 0.2)` | 3.413926391 | 3.413926391 | -3.875e-12 (tier 1) / -3.979e-12 (tier 3) | True |
+| `(0.5, 8)` | 3.48641495 | 3.48641495 | -8.201e-12 (tier 1) / -8.136e-12 (tier 3) | True |
+
+**`reml_score_pairwise_diff`, tier 1** (R 4.3.3 / mgcv 1.9.1, local apt):
 
 | point A | point B | python diff | r diff | residual | agrees (tol 1e-6) |
 |---|---|---:|---:|---:|---|
@@ -15378,14 +15387,18 @@ here as a deviance disagreement, which is not observed.
 
 **Tier 3** (R 4.6.1 / mgcv 1.9.4, oracle
 `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
-build 8, CI run
+build 8; first CI run
 [32086738495](https://github.com/jonathancrawford05/polaris-re/actions/runs/32086738495),
-read directly from job-log stdout via `get_job_logs`, same discipline
-ADR-194's methodology fix established): **identical to tier 1 at every
-printed digit** — same three rows, same residuals, same `agrees=False`.
-Required levels 1-3 of the existing ten-cell suite also still agree on this
-run (`Required levels [1, 2, 3] all agree.`) — no regression from the
-workflow edit.
+score only; re-run
+[32090689399](https://github.com/jonathancrawford05/polaris-re/actions/runs/32090689399)
+on the review-response commit (`a517800`), score AND the new `deviance`
+comparison, both read directly from job-log stdout via `get_job_logs`, same
+discipline ADR-194's methodology fix established): **identical to tier 1 at
+every printed digit, on both quantities** — same three score residuals, same
+`agrees=False`; deviance `agrees=True` on all 3 points, same order of
+magnitude (~4e-12 to ~8e-12) as tier 1. Required levels 1-3 of the existing
+ten-cell suite also still agree on both runs (`Required levels [1, 2, 3] all
+agree.`) — no regression from the workflow edits.
 
 ### Decision 3 — this is a genuine INDEPENDENT result, not a harness defect
 

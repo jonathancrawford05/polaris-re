@@ -147,11 +147,17 @@ attempted.
 
 - **Tier 1:** R 4.3.3 / mgcv 1.9.1 (local apt, this container),
   `OPENBLAS_NUM_THREADS=1`.
-- **Tier 3:** R 4.6.1 / mgcv 1.9.4, `jsonlite` 2.0.0, image
+- **Tier 3, first run (score only):** R 4.6.1 / mgcv 1.9.4, `jsonlite` 2.0.0,
+  image
   `ghcr.io/jonathancrawford05/r-gam-base@sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
   (build 8), CI run
   [32086738495](https://github.com/jonathancrawford05/polaris-re/actions/runs/32086738495)
   on commit `6564b79`, both jobs completed in ~57s (01:02:04 to 01:03:02 UTC).
+- **Tier 3, review-response run (score AND deviance):** same oracle/build, CI
+  run [32090689399](https://github.com/jonathancrawford05/polaris-re/actions/runs/32090689399)
+  on commit `a517800` (the [P1-1] fix commit), both jobs completed in ~61s
+  (02:07:20 to 02:08:21 UTC). Identical to tier 1 on both quantities at every
+  printed digit.
 
 ## Provenance
 
@@ -164,9 +170,20 @@ side (ADR-193):
 | `deviance` | `gam_reml_conformance.deviance_reml_point`/`compare_reml_deviance`, using the SAME independent fit `score_reml_point` scores — added in review response (PR #203 review [P1-1]) after the original session cited this comparison in prose with no committed producer | `mgcv m$deviance` at the same fixed `sp` point | **INDEPENDENT** — declared as the second `ComparedQuantity` on `REML_SCORE_CLAIM`, not a diagnostic aside; it is what licenses reading the score disagreement as a formula gap rather than a fit bug or a rescaled-penalty artifact |
 | `coef` | *(not compared — Anchor 2)* | *(not compared)* | **N/A, deliberately** |
 
-**Tier 3 measurement table** (read directly from job-log stdout via
-`get_job_logs`, the same discipline slice 2's methodology fix established —
-not inferred from a masked `continue-on-error` step conclusion):
+**Tier 3 measurement tables** (from the review-response run, 32090689399,
+read directly from job-log stdout via `get_job_logs`, the same discipline
+slice 2's methodology fix established — not inferred from a masked
+`continue-on-error` step conclusion):
+
+`deviance` (per point, absolute):
+
+| sp | python deviance | r deviance | diff | agrees |
+|---|---:|---:|---:|---|
+| `(1, 1)` | 3.468011721 | 3.468011721 | -8.05844e-12 | True |
+| `(5, 0.2)` | 3.413926391 | 3.413926391 | -3.9786e-12 | True |
+| `(0.5, 8)` | 3.48641495 | 3.48641495 | -8.13571e-12 | True |
+
+`reml_score_pairwise_diff`:
 
 | point A | point B | python diff | r diff | residual | agrees (tol 1e-6) |
 |---|---|---:|---:|---:|---|
@@ -174,7 +191,7 @@ not inferred from a masked `continue-on-error` step conclusion):
 | `(1, 1)` | `(0.5, 8)` | -0.0072338 | -0.00816837 | 0.000934569 | False |
 | `(5, 0.2)` | `(0.5, 8)` | 0.462363 | -0.279845 | 0.742208 | False |
 
-Identical at every printed digit between tier 1 and tier 3.
+Both tables identical at every printed digit between tier 1 and tier 3.
 `REML_SCORE_CLAIM` (`gam_reml_conformance.py`) declares
 `reml_score_pairwise_diff` `INDEPENDENT`, gated by `require_parity_evidence`
 in `tests/test_analytics/test_gam_reml_conformance.py`. This is the epic's
