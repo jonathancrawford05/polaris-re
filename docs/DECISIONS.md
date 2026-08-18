@@ -15582,3 +15582,199 @@ Scoped as its own work order,
 `docs/WORK_ORDER_reml_penalized_deviance_production_check.md`, gating the epic's own
 next `ROUTINE_MGCV_PARITY.md` session ahead of slice 4 part B, per maintainer direction
 (2026-08-18).
+
+## ADR-197: the production REML score has ADR-196's gap too — measured, characterized, fix maintainer-gated
+
+**Date:** 2026-08-18
+**Status:** Accepted — a measurement-and-recommendation ADR, not a code change.
+**Context:** `docs/WORK_ORDER_reml_penalized_deviance_production_check.md`, run per
+`docs/ROUTINE_MGCV_PARITY.md` ahead of `docs/PLAN_mgcv_parity_engine.md` slice 4 part B,
+per maintainer direction 2026-08-18 (ADR-196's resolution section, same day). ADR-196
+fixed `gam_reml.reml_score_general`'s missing `β̂ᵀSβ̂` penalized-deviance term (Wood 2011
+§2 eq. 4) and, by inspection, found the **already-shipped** `experience_gam_penalized.
+reml_score` — the formula the production tensor-MI 2-D grid selector
+(`select_lambdas_reml`) actually uses — has the identical formula shape and the identical
+omission. This ADR records whether that matters, measured rather than assumed, per PLAN
+Anchor 7's protection of that module from an unauthorized fix.
+
+**PLAN Anchor 7 held throughout.** `experience_gam_penalized.py` was not edited.
+`data/mgcv_exchange/synthetic/python_reference.json` was not re-baselined.
+`tests/qa/golden_outputs/` was not touched. Every measurement below is DIAGNOSTIC-ONLY:
+new modules (`gam_reml_production_check.py`, `scripts/reml_production_check_probe.py`)
+call the production functions read-only, or re-implement their exact structure as a
+parallel replica scored with the corrected criterion — never a patch.
+
+### Parity claim, written before the code (per `docs/VERIFICATION_STANDARD.md`)
+
+> For each free-``sp`` cell of the ten-cell mgcv conformance fixture
+> (`experience_mgcv_conformance.py`), `polaris_re` evaluates the REML score at its own
+> independently-fitted `(lambda, coef)` — the point `select_lambdas_reml` already
+> selected — via two formulas: `experience_gam_penalized.reml_score` (current, production)
+> and `gam_reml.reml_score_general(family=poisson_log())` (corrected, ADR-196); neither
+> reads `mgcv`'s own score or coefficients. `mgcv` computes the same criterion at its own
+> independently-selected `(lambda, coef)` via `gam(family=poisson(), method='REML')
+> $gcv.ubre`; compared, per cell, as `mgcv_score - python_score` for each formula.
+
+Both declared quantities (`reml_score` current and corrected) are **INDEPENDENT**
+(`PRODUCTION_REML_CHECK_CLAIM`, `gam_reml_production_check.py`), by the ADR-193 mechanical
+test: neither Python producer's signature accepts `mgcv`'s own score or coefficients, and
+the `(lambda, coef)` evaluated is Python's own already-fitted answer from
+`select_lambdas_reml`'s grid search, which itself never reads `mgcv`'s output. This is the
+same shape of independence the ten-cell suite's other free-``sp`` conformance metrics
+(`max_abs_log10_sp_diff`, `abs_edf_total_diff_free_sp`) already carry
+(`docs/VERIFICATION_STANDARD.md` §5): two independently implemented fitters/selectors,
+each landing on its own answer, compared after the fact.
+
+### Decision 1 — the "corrected" score is not a new formula; it is `gam_reml.reml_score_general` at `poisson_log()`
+
+`experience_gam_penalized.reml_score` is Poisson log-link with an offset — exactly the
+family `gam_reml.reml_score_general` already supports (`gam_family.poisson_log()`). The
+exact relationship — `reml_score_general(family=poisson_log()) == reml_score + 0.5 *
+coef @ penalty @ coef / gamma`, bit-for-bit — is already pinned by
+`tests/test_analytics/test_gam_reml.py::TestRelationshipToTheExistingPoissonScore`
+(committed with ADR-196, before this work order ran). So `corrected_reml_score` in the new
+`gam_reml_production_check.py` module is a one-line call into an already-independently-
+verified function, not a fresh derivation written for this ADR — extended by a second,
+direct regression test on the ten-cell fixture's own design/penalty shape
+(`tests/test_analytics/test_gam_reml_production_check.py`).
+
+### §3.1 — per-cell score, current vs corrected, against `mgcv`'s own `m$gcv.ubre`
+
+`mgcv_score - python_score` carries a large additive convention offset unrelated to this
+work order's question — ADR-189 amendment 1 already found `≈ -l_sat/gamma` (`mgcv` scores
+on deviance; the production score scores on the full log-likelihood) in every cell of the
+OLD score, with a further "unexplained" residual of 0.93-3.17 surviving after removing it.
+The **offset-adjusted residual** (`gap + l_sat/gamma`, `l_sat` the saturated Poisson
+log-likelihood, recomputed here to the same convention rather than assumed) is the
+quantity directly comparable to that already-documented number:
+
+| cell | mgcv score | current python | corrected python | l_sat/gamma | residual (current) | residual (corrected) |
+|---|---:|---:|---:|---:|---:|---:|
+| `l2-free-sp` | 1616.198626 | 163.042247 | 164.945537 | -1454.992573 | -1.836194 | -3.739483 |
+| `l2-free-sp-factors` | 3218.739333 | 315.182315 | 317.333679 | -2906.054846 | -2.497827 | -4.649192 |
+| `l2-free-sp-kb` | 1615.913341 | 162.579232 | 164.706915 | -1454.992573 | -1.658464 | -3.786146 |
+
+**The residual does NOT collapse — it roughly doubles.** This is NOT a refutation of the
+missing-term hypothesis; it is a limitation named in the work order itself (§3.2's own
+framing) and confirmed here: unlike ADR-196's FIXED-``sp``, matched-point pairwise-
+difference measurement, a free-``sp`` cell has each side selecting a DIFFERENT `lambda`
+(ours from a 0.25-decade grid at the CURRENT, uncorrected criterion; `mgcv` continuously),
+so the raw/offset-adjusted score gap mixes any remaining formula error with the point
+mismatch. §3.2 is the measurement built to separate the two.
+
+### §3.2 — does the corrected criterion select a different, and closer, grid point? (the registered prediction)
+
+**Registered before running** (per the work order's own Anchor-9-style discipline): if the
+missing term is a real bug, the corrected selection should land measurably CLOSER to
+`mgcv`'s own free-``sp`` selection than the current shipped selection does; landing on the
+same grid point, or not closer, is an equally valid, honestly-reported outcome, not a
+failure.
+
+A diagnostic REPLICA of `select_lambdas_reml`'s exact grid search
+(`select_lambdas_corrected`, same coarse-then-refine sweep, same bounds, same rejection
+rule — `select_lambdas_reml` itself is not called, imported for its scorer, or modified),
+scored with the corrected criterion:
+
+| cell | current `(λ_age, λ_year)` | corrected `(λ_age, λ_year)` | mgcv `(λ_age, λ_year)` | current dist to mgcv (log10) | corrected dist to mgcv (log10) | closer? |
+|---|---|---|---|---:|---:|---|
+| `l2-free-sp` | (3162.28, 1000.00) | (5623.41, 1000.00) | (6524.17, 965.22) | 0.3149 | 0.0663 | **True** |
+| `l2-free-sp-factors` | (3162.28, 10000.00) | (3162.28, 5623.41) | (2654.58, 6747.34) | 0.1870 | 0.1097 | **True** |
+| `l2-free-sp-kb` | (10000.00, 316.23) | (31622.78, 177.83) | (27052.76, 226.38) | 0.4559 | 0.1248 | **True** |
+
+**The prediction HOLDS on all three free-``sp`` cells, not just on average.** The corrected
+grid search's `l2-free-sp` move — `λ_age` 3162.28 → 5623.41 (10^3.5 → 10^3.75), `λ_year`
+unchanged at 1000.0 — is a SECOND, INDEPENDENT confirmation of the exact number the
+maintainer's own local patch-and-refit experiment found (ADR-196's resolution section,
+work order §2): that experiment patched the production function directly and re-ran the
+real selector; this measurement never touches the production function and reproduces the
+identical grid-step move via a from-scratch parallel implementation. Two structurally
+different routes to the same number is stronger evidence than either alone.
+
+### §3.3 — does the correction change `smoothing_uncertainty`'s inputs near the optimum?
+
+A diagnostic REPLICA of `smoothing_uncertainty`'s central-difference Hessian construction
+(`score_shape_diagnostic`), evaluated at the ALREADY-SELECTED `(lambda_age, lambda_year)`
+— no re-selection. The fit (and therefore the Jacobian `∂β̂/∂log λ`) does not depend on
+which score formula is used, so a difference here isolates to the Hessian/eigenvalues/
+correction magnitude alone:
+
+| cell | eigenvalues (current) | eigenvalues (corrected) | max abs Hessian diff | inflation (current) | inflation (corrected) | mgcv inflation (reported) |
+|---|---|---|---:|---:|---:|---:|
+| `l2-free-sp` | [0.4187, 0.6711] | [0.2940, 0.4977] | 1.80e-01 | 1.1109x | 1.1538x | 1.7392x |
+| `l2-free-sp-factors` | [0.5212, 0.7925] | [0.3590, 0.7306] | 1.87e-01 | 1.1591x | 1.1851x | 1.4863x |
+| `l2-free-sp-kb` | [0.2771, 0.4133] | [0.2289, 0.3915] | 3.56e-02 | 1.2139x | 1.2418x | 1.8670x |
+
+(`inflation (current)` reproduces `smoothing_uncertainty`'s own already-published numbers
+— 1.1109x/1.1591x/1.2139x, ADR-189 amendment 1 — exactly, which is a useful internal
+cross-check that this diagnostic's parallel Hessian construction is faithful to the
+production one.)
+
+**The Hessian shifts materially (eigenvalues move ~25-40% at every cell), but the
+resulting Kass-Steffey inflation-ratio move is small** — a few percentage points, not the
+3.2-4.1x factor ADR-190 already characterized (via a DIFFERENT, separately-derived route:
+substituting `mgcv`'s own exact outer Hessian into the correction still reproduces our
+number, not `mgcv`'s, ruling this bug in or out was never that ADR's open question). **This
+bug is not a material contributor to the standing level-4 BLOCKER.** ADR-190's diagnosis —
+a missing `dw/drho` term, Wood Pya & Säfken (2016), a different derivation entirely — is
+unaffected by this finding and remains the correct, separate thing to fix there.
+
+### Tiers — both measured, identical to every printed digit
+
+**Tier 1:** R 4.3.3 / mgcv 1.9.1 (local apt), this session, before any code was pushed.
+**Tier 3:** R 4.6.1 / mgcv 1.9.4, oracle
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8` (build 8), CI run
+[32181109927](https://github.com/jonathancrawford05/polaris-re/actions/runs/32181109927),
+commit `170bd76`, both jobs completed in ~67s (`mgcv reference (R)`: 33s;
+`Compare against the Python reference`: 29s, work-order step ~3s). Every number in §3.1,
+§3.2 and §3.3 above is identical between the two tiers at every printed digit. Required
+levels 1-3 of the existing ten-cell suite also still agree on this run (`Required levels
+[1, 2, 3] all agree.`) — no regression from the workflow edit.
+
+### Decision 2 — recommendation: fix it, but the re-baseline is the maintainer's call, not this session's
+
+**The bug is real** (established by inspection and by the exact bit-for-bit relationship
+`tests/test_analytics/test_gam_reml.py` already pins), and **fixing it measurably improves
+the selection on every free-``sp`` cell tested** (§3.2). Nothing measured in this ADR
+argues against fixing `experience_gam_penalized.reml_score` the same way ADR-196 fixed
+`gam_reml.reml_score_general`.
+
+**But this ADR does not fix it, and does not decide to.** Fixing it moves
+`data/mgcv_exchange/synthetic/python_reference.json` — confirmed, not merely suspected, by
+§3.2's own independent replica reproducing the exact grid-step move a maintainer-run local
+patch already found — and re-baselining that committed reference needs the maintainer's
+explicit, separate sign-off (work order §5, PLAN Anchor 7). `tests/qa/golden_outputs/` is
+NOT at risk (ADR-196's resolution section already measured this directly: the golden
+runner never imports `experience_gam_penalized`), but that is not the artifact this
+decision is about.
+
+**Recommendation, stated for the maintainer to act on:**
+
+1. Fix `experience_gam_penalized.reml_score`'s missing `β̂ᵀSβ̂` term (mirrors ADR-196's fix
+   exactly — same paper, same equation, same derivation, already reviewed once).
+2. Re-export and re-fit `data/mgcv_exchange/synthetic/python_reference.json` against the
+   fixed selector, and update the 3 tests ADR-196's resolution section already identified
+   as sensitive to this exact change
+   (`test_both_bands_collapse_when_the_basis_cannot_represent_the_truth`,
+   `test_the_smoothing_variance_matches_the_measured_lambda_spread`,
+   `test_the_committed_reference_is_what_this_code_computes`).
+3. This is a separate, later, explicitly maintainer-directed session's work (PLAN Anchor
+   7) — not a follow-up commit to this one, mirroring how ADR-196's own fix was kept
+   separate from the epic's harness work.
+
+### Decision 3 — slice 4 part B is unblocked regardless of decision 2
+
+The N-dimensional outer search (slice 4 part B) builds on `gam_reml.reml_score_general`,
+which was already correct before this session ran (ADR-196). Whether or not the maintainer
+elects to fix the production 2-D grid selector, the search's own criterion carries no such
+gap, and this work order's gate (`docs/CONTINUATION_mgcv_parity_engine.md`) is satisfied by
+the measurement above.
+
+### What this does not claim
+
+`§3.1`'s raw/offset-adjusted residual is NOT evidence the bug is unreal or unimportant —
+it is evidence that a free-``sp``, mismatched-point comparison is the wrong instrument for
+answering that question, exactly as the work order's own framing anticipated
+("§3.2 is the harder, more consequential question" — work order §6). Nothing here
+re-derives Wood (2011); the missing term and its derivation are unchanged from ADR-196.
+`tests/qa/` remains untouched and byte-identical; this ADR records a measurement and a
+recommendation, not a code change.

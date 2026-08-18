@@ -2458,3 +2458,54 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   the search on a criterion whose production analogue's status is still a
   hypothesis would be premature. *Source: this session (1st-order — the epic's
   own next-but-one step).*
+
+### Harvested 2026-08-18c — the production REML-score work order run (measured, tier 1 AND tier 3)
+
+- **The suspected omission is CONFIRMED, and its actuarial impact is now
+  measured, not just suspected.** `docs/WORK_ORDER_reml_penalized_deviance_production_check.md`
+  ran end to end: §3.1 evaluated the SAME already-fitted `(design, coef,
+  penalty)` each free-sp cell of the ten-cell conformance fixture already
+  carries, scored two ways, against `mgcv`'s own `m$gcv.ubre` — offset-adjusted
+  per ADR-189 amendment 1's own convention, the residual does NOT collapse (it
+  roughly doubles, since the two sides select DIFFERENT lambda at a free-sp
+  cell — a mismatched-point limitation named in the work order itself, not a
+  refutation of the bug). §3.2, the harder and more consequential question, is
+  where the registered prediction actually gets tested: re-scoring the SAME
+  2-D grid search with the corrected criterion selects a point measurably
+  CLOSER to `mgcv`'s own free-sp selection on **all three** free-sp cells
+  (log10 distance to `mgcv`'s selection: 0.3149→0.0663, 0.1870→0.1097,
+  0.4559→0.1248) — the prediction HELD, not assumed. On `l2-free-sp` the
+  corrected grid search independently reproduces the exact grid-step move
+  (3162.28→5623.41, `λ_year` unchanged) the maintainer's own earlier local
+  patch-and-refit experiment found (§2 of the work order) — a second,
+  independent confirmation of that number. §3.3: the correction shifts
+  `smoothing_uncertainty`'s finite-difference Hessian eigenvalues materially
+  (~25-40%), and the resulting Kass-Steffey inflation ratio moves in the
+  right direction but only slightly (e.g. `l2-free-sp` 1.1109x → 1.1538x
+  against `mgcv`'s 1.7392x) — nowhere near closing ADR-190's already-
+  characterized, separately-derived 3-4x under-inflation gap. Tier 1 (R 4.3.3
+  / mgcv 1.9.1, local apt) and tier 3 (R 4.6.1 / mgcv 1.9.4, oracle
+  `sha256:0d54c192…`, CI run 32181109927) agree to every printed digit.
+  ADR-197 and `docs/CONFORMANCE_LEDGER.md` carry the full measurement.
+  *Source: this session (1st-order — closes the gating item ahead of slice 4
+  part B).*
+
+- **Recommendation, maintainer-gated, not decided by this session:** fix
+  `experience_gam_penalized.reml_score` the same way ADR-196 fixed
+  `gam_reml.reml_score_general` (add the missing `β̂ᵀSβ̂` term). §3.2's
+  measurement is a real, if modest, improvement in every cell tested, and no
+  measurement here argues against fixing it. **But fixing it moves the
+  committed `data/mgcv_exchange/python_reference.json`** (confirmed, not
+  assumed — §3.2's own independent grid-search replica reproduces the exact
+  move a maintainer-run local patch already found), which is the one artifact
+  this work order was explicitly forbidden from re-baselining without
+  separate, explicit sign-off (PLAN Anchor 7). Not done in this session.
+  *Source: this session — needs the maintainer's decision, not a routine
+  session's (flagged, not classified as a work item pending that decision).*
+
+- **Slice 4 part B (the N-dimensional outer search) is now unblocked to
+  proceed** — the work order's gate is satisfied (measured and characterized,
+  per its own acceptance criteria) whether or not the maintainer elects to fix
+  the production module first; the search's own criterion (`gam_reml.
+  reml_score_general`) was already correct before this session ran. *Source:
+  this session (1st-order — the epic's own next slice).*

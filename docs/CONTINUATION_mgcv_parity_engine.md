@@ -16,14 +16,19 @@ known-scale families and multiple penalty blocks) is **DONE AND RESOLVED, 2026-0
 (ADR-196): it first DISAGREED with `mgcv` (an INDEPENDENT, tier-1/tier-3-identical
 result), then the maintainer supplied Wood (2011) directly and the fix — a missing
 penalized-deviance term, §2 eq. (4) — closed the gap to float round-trip precision, tier
-1 and tier 3 identical (CI run 32142352655). **Before slice 4 part B (the search
-itself), the epic's next session runs
-`docs/WORK_ORDER_reml_penalized_deviance_production_check.md`** (maintainer direction,
-2026-08-18): the shipped, production `experience_gam_penalized.reml_score` appears, by
-inspection, to have the identical omission, and that needs measuring — not fixing without
-separate sign-off (PLAN Anchor 7) — before the outer search is built on either module's
-criterion. This remains the epic's largest remaining piece of work, and slices 5-7 all
-depend on it.
+1 and tier 3 identical (CI run 32142352655). **`docs/WORK_ORDER_reml_penalized_deviance_production_check.md`
+has now RUN, 2026-08-18** (ADR-197, tier 1 and tier 3 identical, CI run 32181109927): the
+shipped, production `experience_gam_penalized.reml_score` DOES carry the identical
+omission, and the registered §3.2 prediction HELD on all three free-sp cells (the
+corrected grid search selects measurably closer to `mgcv`'s own free-sp selection
+everywhere tested). **Recommendation, maintainer-gated, not decided by this epic's
+routine: fix `experience_gam_penalized.reml_score` the same way ADR-196 fixed
+`gam_reml.reml_score_general`** — but doing so moves the committed
+`data/mgcv_exchange/synthetic/python_reference.json`, and PLAN Anchor 7 reserves that
+re-baseline for a separate, explicitly maintainer-directed session. **Slice 4 part B is
+now unblocked to proceed regardless of that decision** — the outer search builds on
+`gam_reml.reml_score_general`, which was already correct before ADR-197's session ran.
+This remains the epic's largest remaining piece of work, and slices 5-7 all depend on it.
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16) and one deferred
 to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
@@ -206,24 +211,39 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    coincidentally matching at two points. See ADR-196's resolution section and
    `docs/CONFORMANCE_LEDGER.md`.
 
-   **Before Part B (the N-dimensional search itself): the epic's next session runs
-   `docs/WORK_ORDER_reml_penalized_deviance_production_check.md`**, maintainer
-   direction 2026-08-18. `experience_gam_penalized.reml_score` — the ALREADY-SHIPPED,
-   production tensor-MI-surface REML score `select_lambdas_reml`'s 2-D grid actually
-   uses — has the identical formula shape, and by inspection the identical omission.
-   ADR-189 amendment 1's own "unexplained residual of 0.93-3.17" against `mgcv`'s raw
-   score is consistent in order of magnitude with the same missing term. The code-level
-   omission is established (confirmed by inspection); the actuarial impact is what
-   remains open, and PLAN Anchor 7 protects that module from being touched by this epic
-   without explicit, separate maintainer sign-off. **Corrected 2026-08-18 (PR #203 third
-   review, measured, not assumed): `tests/qa/golden_outputs/` is not downstream of
-   `reml_score` at all** — the golden runner never reaches the MI surface, measured
-   directly (94/94 byte-identical with the term patched in locally). The artifact that
-   DOES move is `data/mgcv_exchange/python_reference.json` (on `l2-free-sp`, `λ_age`
-   moves one grid step, `λ_year` unchanged) — that is what the work order's sign-off gate
-   actually protects. The work order scopes measurement and a recommendation only — not a
-   code change to the production module. Building the outer search on either module's
-   criterion before this is understood would be premature.
+   **Part B's gate — `docs/WORK_ORDER_reml_penalized_deviance_production_check.md` —
+   HAS RUN, 2026-08-18** (ADR-197, tier 1 and tier 3 identical, CI run 32181109927).
+   `experience_gam_penalized.reml_score` — the ALREADY-SHIPPED, production
+   tensor-MI-surface REML score `select_lambdas_reml`'s 2-D grid actually uses — DOES
+   carry the identical omission (confirmed, not merely suspected by inspection). §3.1
+   (the raw/offset-adjusted score gap at each side's own mismatched free-sp point) does
+   NOT collapse — it roughly doubles, a named limitation of comparing at mismatched
+   points, not a refutation. **§3.2 — the decisive, registered-in-advance measurement —
+   HELD on all three free-sp cells**: a diagnostic replica of `select_lambdas_reml`'s
+   own grid search, re-scored with the corrected criterion, selects a point measurably
+   CLOSER to `mgcv`'s own free-sp selection everywhere tested (log10 distance
+   0.31→0.07, 0.19→0.11, 0.46→0.12), and independently reproduces the exact grid-step
+   move (`l2-free-sp`: λ_age 3162.28→5623.41) a maintainer-run local patch-and-refit
+   experiment already found — a second, structurally different confirmation. §3.3: the
+   correction shifts `smoothing_uncertainty`'s finite-difference Hessian materially
+   (~25-40% on eigenvalues) but the resulting inflation-ratio move is small relative to
+   ADR-190's separately-characterized 3.2-4.1x gap — **this bug is not a material
+   contributor to the standing level-4 BLOCKER.**
+
+   **Recommendation (ADR-197 decision 2), maintainer-gated, not decided here:** fix
+   `experience_gam_penalized.reml_score` the same way ADR-196 fixed
+   `gam_reml.reml_score_general` (add the missing `β̂ᵀSβ̂` term) and re-baseline
+   `data/mgcv_exchange/synthetic/python_reference.json` against the fixed selector.
+   `tests/qa/golden_outputs/` is confirmed NOT at risk (PR #203 third review measured
+   this directly: the golden runner never imports `experience_gam_penalized`), but the
+   `python_reference.json` re-baseline still needs the maintainer's explicit, separate
+   sign-off (PLAN Anchor 7) — not done in ADR-197's session, and not a follow-up commit
+   to it.
+
+   **Slice 4 part B is now unblocked to proceed, regardless of that decision** — the
+   outer search builds on `gam_reml.reml_score_general`, which was already correct
+   before ADR-197's session ran; the production 2-D grid selector's own status was the
+   thing being gated on, and it is now measured rather than merely suspected.
 5. **`ti()` and the varying-coefficient MI term.** Ship the MI term first if they split.
    PLANNED.
 6. **`bs = "sz"`** — orthogonal factor-smooth interactions. Expect the hardest basis.
@@ -244,8 +264,8 @@ across the slice structure.
 | Gap | mgcv feature | Status | Blocked on |
 |---|---|---|---|
 | Multi-penalty REML criterion (Python-side) | The penalized-deviance criterion, Wood (2011) §2 eq. (4), for any number of independently-scaled penalty blocks | **FIXED, 2026-08-18** (ADR-196) — the score was missing `β̂ᵀSβ̂`; adding it closed the gap to float precision, tier 1 and tier 3 identical | Nothing — DONE |
-| Same criterion, production module | `experience_gam_penalized.reml_score` — the SHIPPED tensor-MI 2-D grid selector's own score, same formula shape, same omission by inspection | **Suspected wrong, NOT measured or fixed** — PLAN Anchor 7 protects it from this epic without separate sign-off | `docs/WORK_ORDER_reml_penalized_deviance_production_check.md` — the epic's next session |
-| N-dimensional outer search | Newton/quasi-Newton (f)REML optimisation over 13-21 `log λ` | **Not started** | The work order above, then buildable |
+| Same criterion, production module | `experience_gam_penalized.reml_score` — the SHIPPED tensor-MI 2-D grid selector's own score, same formula shape, same omission | **CONFIRMED wrong, MEASURED, NOT fixed** (ADR-197, 2026-08-18) — §3.2's registered prediction held on all 3 free-sp cells, tier 1 and tier 3 identical; fixing it is a recommendation, re-baseline is maintainer-gated (PLAN Anchor 7) | A separate, later, explicitly maintainer-directed session (ADR-197 decision 2) |
+| N-dimensional outer search | Newton/quasi-Newton (f)REML optimisation over 13-21 `log λ` | **Not started, now unblocked** — `gam_reml.reml_score_general` was already correct before ADR-197's session ran | Buildable now |
 | `ti()` — tensor interaction | Tensor product with marginal main effects excluded | **Not started** | The outer search (slice 5) |
 | `s(..., by=...)` with a `cr` basis | The MI term itself — a `cr` basis scaled by a numeric `by` variable | **Not started** | The outer search (slice 5) |
 | `bs = "sz"` | Sum-to-zero factor-smooth interactions (4 terms in the target formula) | **Not started**, expected hardest basis (PLAN §6 registered prediction) | The outer search (slice 6) |
@@ -278,16 +298,19 @@ should be re-synced.
    The maintainer supplied Wood (2011) directly; §2 eq. (4) named the missing
    penalized-deviance term. Fixed, tier 1 and tier 3 confirmed to float round-trip
    precision. See ADR-196's resolution section.
-2. **Run `docs/WORK_ORDER_reml_penalized_deviance_production_check.md`** — does the
-   SAME missing term affect the already-shipped `experience_gam_penalized.reml_score`
-   (the production tensor-MI 2-D grid selector), and if so, does it change which `λ`
-   gets selected? Measurement and recommendation only — PLAN Anchor 7 forbids patching
-   that module without separate maintainer sign-off. Gates part B below (maintainer
-   direction, 2026-08-18) — the epic's next `ROUTINE_MGCV_PARITY.md` session.
+2. ~~**Run `docs/WORK_ORDER_reml_penalized_deviance_production_check.md`.**~~
+   **DONE, 2026-08-18** (ADR-197, tier 1 and tier 3 identical, CI run 32181109927).
+   The SAME missing term DOES affect `experience_gam_penalized.reml_score`, and §3.2's
+   registered prediction held on all 3 free-sp cells — the corrected criterion selects
+   measurably closer to `mgcv`'s own free-sp selection everywhere tested.
+   Recommendation: fix it (mirrors ADR-196's fix exactly); the re-baseline of
+   `data/mgcv_exchange/synthetic/python_reference.json` this implies is maintainer-gated
+   (PLAN Anchor 7) and NOT done in ADR-197's session. See ADR-197 for the full
+   measurement and recommendation.
 3. **Slice 4 part B — the N-dimensional outer search.** Newton/quasi-Newton on the
-   (f)REML score, now that the Python-side criterion is closed — but sequenced behind
-   (2) above, not immediately after (1). The largest remaining implementation effort
-   in the epic (PLAN §3).
+   (f)REML score. Now UNBLOCKED — (2) above is resolved (measured and characterized;
+   the search's own criterion needed no fix). The largest remaining implementation
+   effort in the epic (PLAN §3).
 4. **Slice 5 — `ti()` and the MI term.** Ship the MI term first if they split (PLAN
    §3: it's the cheap, well-conditioned one and the actual point of the target
    formula).
