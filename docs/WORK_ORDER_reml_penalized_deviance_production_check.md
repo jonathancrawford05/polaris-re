@@ -27,8 +27,25 @@ That module's formula has the **identical** shape, and the identical omission: p
 deviance, no `β̂ᵀSβ̂` term (`experience_gam_penalized.py`, `reml_score`, the `deviance`
 variable is never combined with `coef @ penalty @ coef`).
 
-**This is not yet confirmed as the same bug in that module** — it is a strong, precisely
-targeted hypothesis, not a finding. Two things distinguish it from ADR-196's own
+**Split as of 2026-08-18 (PR #203 third review), since the two halves now have different
+status:**
+
+- **The code-level omission is established, not a hypothesis.** By inspection,
+  `reml_score`'s `deviance` is never combined with `coef @ penalty @ coef`, and this
+  epic's own `test_differs_from_the_old_score_by_exactly_the_penalty_quadratic_form`
+  (`tests/test_analytics/test_gam_reml.py`) pins the delta between the two formulas as
+  exactly `½β̂ᵀSβ̂/γ`, non-zero. The formula shape is identical to `gam_reml.reml_score_general`
+  before ADR-196's fix; that this specific term is missing from the production module is a
+  fact about the code, confirmed by reading it, not an inference from a different fixture.
+- **The actuarial impact is what remains open, and is now partly pre-answered.** A
+  maintainer-run local experiment (§2 above) measured that adding the term moves the
+  `l2-free-sp` cell's selected `λ_age` one grid step (3162.28 → 5623.41) with `λ_year`
+  unchanged, and fails exactly 3 tests, none in `tests/qa/`. §3.2 below can start from
+  "here is what moves on one cell — is one grid step the right answer, and does the same
+  pattern hold on the other free-`sp` cells and against `mgcv`'s own selection?" rather
+  than from "does anything move at all?"
+
+Two things still distinguish the production module's numbers from ADR-196's own
 measurement and must not be assumed:
 
 1. ADR-196's fixture is this epic's own, purpose-built two-block binomial/logit design.
@@ -41,8 +58,8 @@ measurement and must not be assumed:
    unexplained ... `reml_score` is not a compared metric." That residual is consistent in
    *order of magnitude* with a missing `β̂ᵀSβ̂` term (β̂ᵀSβ̂/2 at a typical fitted λ on that
    fixture would plausibly fall in a similar range), but "consistent with" is not "measured
-   to be" — this work order's first job is closing that gap with an actual measurement, the
-   same discipline ADR-196 required of itself before calling anything a fix.
+   to be" against `mgcv` — §3.1 below is still this work order's first job, now with the
+   λ-selection question (§3.2) partially scoped by the measurement above.
 
 ---
 
@@ -53,15 +70,33 @@ tier 1 → tier 3 discipline as every other session in this epic.
 
 **Is not:** a license to patch `experience_gam_penalized.py`. That module is explicitly
 protected by **PLAN Anchor 7** ("the existing engine stays... every committed report was
-produced by them, the QA goldens depend on nothing moving"). `tests/qa/golden_outputs/`
-was fitted using the CURRENT (possibly-buggy) formula; changing `reml_score` would move
-every λ selection the 2-D grid makes, which moves `edf`, which moves every downstream
-number `tests/qa/` pins byte-identical. **A session running this work order may measure,
-characterize, and recommend. It may NOT edit `experience_gam_penalized.reml_score` or
-re-baseline any golden without the maintainer's explicit, separate sign-off** — the same
-boundary CLAUDE.md draws around `tests/qa/golden_outputs/` generally, sharpened here
-because the specific change under discussion is exactly the kind that would silently move
-every golden it touches.
+produced by them, the QA goldens depend on nothing moving").
+
+**Corrected 2026-08-18, same day (PR #203 third review — a maintainer-run local
+experiment, measured, not assumed).** `tests/qa/golden_outputs/` is **not** downstream of
+`reml_score` — the golden runner never reaches the MI surface (`golden_runner.py` imports
+only `profit_test`, `cli`, `pipeline`, `products.dispatch`, and nothing outside
+`analytics/` imports `experience_gam_penalized`). Measured directly: patching
+`experience_gam_penalized.reml_score` to add the `β̂ᵀSβ̂` term and running the full suite
+left `tests/qa/` at 94/94, byte-identical. **The artifact that DOES move is
+`data/mgcv_exchange/python_reference.json`**, which pins `sp`, `coef` and `edf_total` per
+cell — on the `l2-free-sp` cell the selected `λ_age` moves one grid step, 3162.28 →
+5623.41 (10^3.5 → 10^3.75), with `λ_year` unchanged at 1000.0. Three tests fail on that
+change and no others: `test_both_bands_collapse_when_the_basis_cannot_represent_the_truth`,
+`test_the_smoothing_variance_matches_the_measured_lambda_spread`,
+`test_the_committed_reference_is_what_this_code_computes` — all in
+`test_experience_gam_penalized.py`/`test_experience_mgcv_conformance.py`, none in
+`tests/qa/`. The patch was a throwaway local experiment, reverted; no branch was pushed.
+
+**A session running this work order may measure, characterize, and recommend. It may NOT
+edit `experience_gam_penalized.reml_score` or re-baseline `data/mgcv_exchange/
+python_reference.json` (the artifact that actually moves) without the maintainer's
+explicit, separate sign-off** — the same boundary CLAUDE.md draws around committed
+reference artifacts generally, sharpened here because the specific change under
+discussion is exactly the kind that would silently move that reference. Re-baselining
+`tests/qa/golden_outputs/` is not the live risk (measured above), but §5's prohibition on
+touching it stays — harmless, and it is still the general boundary this epic operates
+inside.
 
 ---
 
@@ -136,15 +171,17 @@ cheaper than assuming it.
 - §3.3 measured, at minimum a scoped statement of whether it was checked and what was
   found, even if the answer is "checked, no material change at this fixture's scale."
 - A written recommendation: fix `experience_gam_penalized.reml_score` (re-baselining
-  goldens, a maintainer-gated decision named explicitly as such), leave it as a known,
-  bounded, documented gap (if §3.2 shows no material selection change), or something
-  in between — **not a code change to that module**, regardless of which recommendation
-  the measurement supports.
+  `data/mgcv_exchange/python_reference.json` — the artifact §2's measurement found
+  actually moves, a maintainer-gated decision named explicitly as such), leave it as a
+  known, bounded, documented gap (if §3.2 shows no material selection change), or
+  something in between — **not a code change to that module**, regardless of which
+  recommendation the measurement supports.
 - `docs/CONFORMANCE_LEDGER.md` carries the measurement, `docs/DECISIONS.md` gets an ADR
   (or an ADR-190/ADR-196 amendment, whichever the finding's shape fits) recording the
   result and the recommendation.
 - `tests/qa/` untouched, goldens byte-identical — this session does not touch production
-  code, only diagnostics.
+  code, only diagnostics. (Not the live risk per §2's measurement, but still the general
+  boundary this epic operates inside.)
 
 ---
 
@@ -152,7 +189,12 @@ cheaper than assuming it.
 
 - **Do not** edit `experience_gam_penalized.py`. Any change there is a separate, later,
   explicitly maintainer-directed piece of work, not an autonomous extension of this one.
+- **Do not** re-baseline `data/mgcv_exchange/python_reference.json` — the artifact §2's
+  measurement found actually moves — without the maintainer's explicit, separate
+  sign-off.
 - **Do not** re-baseline `tests/qa/golden_outputs/` under any circumstance this session.
+  Measured (§2) not to be reachable from `reml_score` at all, but the prohibition stays —
+  harmless, and it is still the general boundary CLAUDE.md draws around goldens.
 - **Do not** start slice 4 part B (the N-dimensional search) in the same session — this
   work order is deliberately scoped narrower than that, and the search should build on
   a criterion whose production analogue's status is understood, not guessed at.

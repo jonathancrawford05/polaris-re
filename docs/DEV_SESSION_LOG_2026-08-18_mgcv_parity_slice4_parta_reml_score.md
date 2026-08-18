@@ -443,11 +443,20 @@ surface's production 2-D grid selector (`select_lambdas_reml`) actually uses —
 identical formula shape and, by inspection, the identical omission. ADR-189 amendment
 1's own "unexplained residual of 0.93-3.17" against `mgcv`'s raw score (recorded,
 explicitly marked "not a compared metric" at the time) is consistent in order of
-magnitude with the same missing term. **This is a strong, precisely targeted
-hypothesis, not a confirmed finding.** PLAN Anchor 7 protects that module from being
-touched by this epic without explicit, separate maintainer sign-off — the existing
-`tests/qa/` goldens were fitted using its current formula, and any change there moves
-every downstream number they pin.
+magnitude with the same missing term. **The code-level omission is established; the
+actuarial impact is what remains open.** PLAN Anchor 7 protects that module from being
+touched by this epic without explicit, separate maintainer sign-off.
+
+> **Corrected 2026-08-18, same day (PR #203 third review — a maintainer-run local
+> experiment, measured, not assumed).** This paragraph originally said the `tests/qa/`
+> goldens were fitted using the current formula and any change there moves every
+> downstream number they pin. Measured false: `golden_runner.py` never reaches the MI
+> surface, and patching the term into `experience_gam_penalized.reml_score` locally left
+> `tests/qa/` at 94/94, byte-identical. The artifact that DOES move is
+> `data/mgcv_exchange/python_reference.json` (on `l2-free-sp`, `λ_age` moves one grid
+> step, `λ_year` unchanged; exactly 3 tests fail, none in `tests/qa/`). Anchor 7's
+> protection of the module itself is unchanged — only the stated reason, and which
+> artifact needs sign-off, were wrong.
 
 Per maintainer direction (2026-08-18): scoped as its own work order,
 `docs/WORK_ORDER_reml_penalized_deviance_production_check.md`, assigned as the epic's

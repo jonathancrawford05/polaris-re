@@ -15559,10 +15559,26 @@ actually uses — has the **identical formula shape**, and by inspection the **i
 omission** (plain deviance, no `β̂ᵀSβ̂` term). ADR-189 amendment 1's own "unexplained
 residual of 0.93-3.17" against `mgcv`'s raw score, recorded and explicitly marked "not a
 compared metric" at the time, is consistent in order of magnitude with the same missing
-term. **This is a strong hypothesis, not a confirmed finding** — it has not been measured
-against that module's own fixture, and PLAN Anchor 7 protects that module from being
-touched by this epic without explicit maintainer direction (the existing goldens were
-fitted using its current formula). Scoped as its own work order,
+term. **The code-level omission is established** (confirmed by inspection, and by this
+PR's own `test_differs_from_the_old_score_by_exactly_the_penalty_quadratic_form`, which
+pins the delta between the two formulas as exactly `½β̂ᵀSβ̂/γ`); **the actuarial impact —
+whether it changes production behavior — has not been measured against that module's own
+fixture**, and PLAN Anchor 7 protects that module from being touched by this epic without
+explicit maintainer direction.
+
+**Corrected 2026-08-18, same day (PR #203 third review — a maintainer-run local
+experiment, measured, not assumed).** An earlier revision of this paragraph asserted "the
+existing goldens were fitted using its current formula" as the reason Anchor 7 applies.
+That premise is false: `tests/qa/golden_outputs/` never reaches the MI surface
+(`golden_runner.py` imports only `profit_test`, `cli`, `pipeline`, `products.dispatch`),
+and patching the term into `experience_gam_penalized.reml_score` locally left `tests/qa/`
+at 94/94, byte-identical. **The artifact that DOES move is
+`data/mgcv_exchange/python_reference.json`** — on the `l2-free-sp` cell, the selected
+`λ_age` moves one grid step (3162.28 → 5623.41, `λ_year` unchanged), and exactly 3 tests
+fail (`test_experience_gam_penalized.py`/`test_experience_mgcv_conformance.py`, none in
+`tests/qa/`). Anchor 7's protection of `experience_gam_penalized.py` itself is unchanged;
+only the stated reason — and which artifact needs sign-off before it moves — was wrong.
+Scoped as its own work order,
 `docs/WORK_ORDER_reml_penalized_deviance_production_check.md`, gating the epic's own
 next `ROUTINE_MGCV_PARITY.md` session ahead of slice 4 part B, per maintainer direction
 (2026-08-18).

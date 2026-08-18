@@ -212,13 +212,18 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    production tensor-MI-surface REML score `select_lambdas_reml`'s 2-D grid actually
    uses — has the identical formula shape, and by inspection the identical omission.
    ADR-189 amendment 1's own "unexplained residual of 0.93-3.17" against `mgcv`'s raw
-   score is consistent in order of magnitude with the same missing term, but this is a
-   strong hypothesis, not a confirmed finding, and PLAN Anchor 7 protects that module
-   from being touched by this epic without explicit, separate maintainer sign-off (the
-   existing goldens were fitted with its current formula). The work order scopes
-   measurement and a recommendation only — not a code change to the production module.
-   Building the outer search on either module's criterion before this is understood
-   would be premature.
+   score is consistent in order of magnitude with the same missing term. The code-level
+   omission is established (confirmed by inspection); the actuarial impact is what
+   remains open, and PLAN Anchor 7 protects that module from being touched by this epic
+   without explicit, separate maintainer sign-off. **Corrected 2026-08-18 (PR #203 third
+   review, measured, not assumed): `tests/qa/golden_outputs/` is not downstream of
+   `reml_score` at all** — the golden runner never reaches the MI surface, measured
+   directly (94/94 byte-identical with the term patched in locally). The artifact that
+   DOES move is `data/mgcv_exchange/python_reference.json` (on `l2-free-sp`, `λ_age`
+   moves one grid step, `λ_year` unchanged) — that is what the work order's sign-off gate
+   actually protects. The work order scopes measurement and a recommendation only — not a
+   code change to the production module. Building the outer search on either module's
+   criterion before this is understood would be premature.
 5. **`ti()` and the varying-coefficient MI term.** Ship the MI term first if they split.
    PLANNED.
 6. **`bs = "sz"`** — orthogonal factor-smooth interactions. Expect the hardest basis.
