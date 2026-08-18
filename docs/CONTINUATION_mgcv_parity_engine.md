@@ -11,8 +11,12 @@ slice 2 (`bs = "cr"`) is **DONE** (2026-08-17, tier 1 and tier 3 both confirmed 
 — the epic's first INDEPENDENT Stage-A parity result. Slice 3 (families/links/weights)
 is **DONE** (2026-08-17, tier 1 and tier 3 both confirmed — ADR-195) — the epic's first
 INDEPENDENT Stage-B parity result outside the already-verified Poisson case. Slice 4
-(the outer optimiser) is **NEXT** — the largest remaining piece of work, and slices 5-7
-all depend on it.
+(the outer optimiser) is **IN PROGRESS** — part A (the REML score itself, generalized to
+known-scale families and multiple penalty blocks) is **DONE, 2026-08-18** (ADR-196), but
+it DISAGREES with `mgcv` (an INDEPENDENT, characterized-not-resolved result, tier 1 and
+tier 3 identical) — the outer N-dimensional search (part B) has NOT started, since
+building it on a score not yet shown to match `mgcv` would not be meaningful. This is
+the epic's largest remaining piece of work, and slices 5-7 all depend on it.
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16) and one deferred
 to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
@@ -160,7 +164,33 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    still disagree, and that would be a real result, not a bug in this slice. See ADR-195
    and `docs/CONFORMANCE_LEDGER.md`.
 4. **The outer optimisation — N-dimensional (f)REML.** The prerequisite for everything
-   multi-term, and the largest single piece of work. **NEXT.**
+   multi-term, and the largest single piece of work. **IN PROGRESS.**
+
+   **Part A DONE, 2026-08-18** (ADR-196): `gam_reml.reml_score_general` generalizes the
+   already-verified Poisson-only, two-hardcoded-block `reml_score` onto `gam_fit`'s
+   general IRLS core — known-scale families (binomial included; quasi-Poisson's
+   estimated-dispersion criterion is a different formula the target formula never
+   needs), any number of independently-scaled penalty blocks (via their caller-summed
+   `S_lambda`). Proven a strict superset of the old score by bit-for-bit regression
+   tests. **Measured against `mgcv` on a shared two-block binomial/logit design at
+   three fixed `(sp1,sp2)` points, compared on PAIRWISE SCORE DIFFERENCES** (not the
+   absolute value — ADR-189 amendment 1 already found an unresolved offset there for
+   the single-block Poisson case; differencing cancels any purely additive offset and
+   is what an optimiser needs anyway). **The fit itself is correct** (deviance matches
+   `mgcv` to ~1e-11 at every point) **but the score's dependence on `(sp1,sp2)` does
+   NOT match `mgcv`'s** — 2 of 3 pairwise differences disagree by ~0.74, identical at
+   tier 1 and tier 3. An INDEPENDENT comparison that disagrees (ADR-193): a genuine
+   result, not a fit bug or a tier-1/BLAS artifact. Characterized with a named next
+   hypothesis (the naive "sum blocks, eigendecompose the sum" `log|S_lambda|_+` is not,
+   on this evidence, where the gap concentrates — two points with identical naive
+   `logdet_s` carry the largest residual — so `mgcv`'s actual multi-penalty treatment,
+   read from Wood 2011 directly rather than from GPL source, is the next thing to
+   pin down). See ADR-196 and `docs/CONFORMANCE_LEDGER.md`.
+
+   **Part B (the N-dimensional search itself) NOT STARTED** — building it on a score
+   not yet shown to reproduce `mgcv`'s criterion would not be a meaningful measurement.
+   The next session on this slice should start from ADR-196's named hypothesis, not
+   from the search.
 5. **`ti()` and the varying-coefficient MI term.** Ship the MI term first if they split.
    PLANNED.
 6. **`bs = "sz"`** — orthogonal factor-smooth interactions. Expect the hardest basis.

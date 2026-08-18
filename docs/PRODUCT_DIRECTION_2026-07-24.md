@@ -2387,3 +2387,35 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   naively extended, which is why it is a Newton/quasi-Newton slice instead).
   *Source: `docs/PLAN_mgcv_parity_engine.md` (1st-order — the epic's own NEXT
   slice).*
+
+### Harvested 2026-08-18 — slice 4 part A, the REML score generalized and measured (ADR-196)
+
+- ~~**Slice 4 — the outer optimisation (N-dimensional (f)REML).**~~ **PART A DONE,
+  PART B NOT STARTED.** The generalized score (`gam_reml.reml_score_general`) is
+  built and measured against `mgcv` before any search code exists — the right order,
+  since a search over a criterion not shown to match would not be a meaningful
+  measurement. It DISAGREES: an INDEPENDENT comparison (score computed two ways from
+  a shared recipe, never reading the other side's fit or score) whose pairwise-score-
+  difference residual is ~0.74 on 2 of 3 point pairs, identical at tier 1 and tier 3
+  — five orders of magnitude above BLAS/version noise, so this is a real formula gap,
+  not an artifact. *Source: this session, ADR-196 (1st-order — the epic's own
+  in-progress slice; the outer search cannot proceed meaningfully until this is
+  closed).*
+
+- **Named next hypothesis for slice 4 part B's formula gap**: is the naive
+  "sum the penalty blocks, eigendecompose the sum" `log|S_lambda|_+` where `mgcv`'s
+  own multi-penalty REML score actually diverges? The measured evidence points away
+  from it in this specific fixture (two points sharing an identical naive `logdet_s`
+  carry the LARGEST residual of the three), which argues for reading `mgcv`'s
+  multi-penalty machinery from Wood (2011, *JRSS-B*) directly — never from GPL
+  source, per ADR-190 decision 3's precedent — rather than iterating on the naive
+  formula's constants. *Source: this session, ADR-196 (1st-order — the concrete
+  next step for the epic's own in-progress slice).*
+
+- **Known-scale-only REML score is a deliberate, target-motivated cut, not a gap
+  to backfill speculatively.** `reml_score_general` raises on
+  `dispersion_fixed=False` families (quasi-Poisson) rather than silently reusing a
+  formula not derived for an estimated-dispersion criterion. The target formula's
+  own family (binomial) never needs it. Only worth building if a future model form
+  actually needs quasi-Poisson under REML selection. *Source: this session (3rd-order,
+  PARKED — no known future need yet).*

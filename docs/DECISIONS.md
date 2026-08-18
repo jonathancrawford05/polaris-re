@@ -15292,3 +15292,139 @@ last printed digit — `binomial-logit` 1.221e-15, `binomial-cloglog`
 1.488e-14, `quasipoisson-log` 8.438e-15 / dispersion 9.671e-06,
 `poisson-log-offset` 9.326e-15 — and required levels 1-3 of the existing
 suite still agree (`Required levels [1, 2, 3] all agree.`).
+
+## ADR-196: the naive multi-block generalization of the REML score disagrees with mgcv — an INDEPENDENT result, characterized not resolved
+
+**Date:** 2026-08-18
+**Status:** Accepted (as a characterization; the underlying formula gap is OPEN)
+**Context:** `docs/PLAN_mgcv_parity_engine.md` slice 4 — the outer N-dimensional
+(f)REML optimiser, "the largest single piece of work in the epic." Before any
+optimiser can search over smoothing parameters, the criterion it searches has
+to itself work for the target formula's family (binomial) and for more than
+the tensor MI surface's fixed two hardcoded penalty blocks. This is slice 4's
+first sub-piece: the score itself, generalized, and measured against `mgcv` —
+not yet the search.
+
+**Parity claim, written before the code (per `docs/VERIFICATION_STANDARD.md`):**
+`polaris_re.analytics.gam_reml.reml_score_general` computes the REML criterion
+from the shared design, two independently-scaled penalty blocks, response and
+weights, evaluated at coefficients fitted independently via
+`gam_fit.penalized_irls_general`; `mgcv` computes the same criterion via
+`gam(family=binomial(link='logit'), weights=..., paraPen=list(X=list(S1, S2,
+sp=c(sp1, sp2))), method='REML')$gcv.ubre` at the SAME fixed `sp` point;
+compared on the PAIRWISE DIFFERENCE of the score between two `sp` points, not
+the absolute value.
+
+### Decision 1 — the score is generalized structurally, not re-derived
+
+`gam_reml.reml_score_general` is `experience_gam_penalized.reml_score`
+(Poisson log-link, exactly two hardcoded blocks — ADR-189's already-verified
+formula) with only the deviance and IRLS working weight swapped for a general
+`Family`'s (`gam_family.py`). Every other line — the combined penalty's
+generalized log-determinant, the `p - r` scale term, `gamma`'s role — is
+unchanged. Proven a strict superset by three bit-for-bit regression tests
+against the existing Poisson score at `gamma=1`, at `gamma=1.4` with an
+offset, and at zero penalty (`tests/test_analytics/test_gam_reml.py`).
+**Known-scale families only**, and that is the target formula's own scope,
+not an arbitrary cut: quasi-Poisson's estimated-dispersion REML criterion is
+a materially different formula (`mgcv` profiles `phi` out of the marginal
+likelihood) that PLAN slice 3 never needed at fixed `sp`, and the target
+formula's binomial family holds dispersion fixed at 1 (Anchor 5) — it never
+needs it either. `reml_score_general` raises on a `dispersion_fixed=False`
+family rather than silently reusing a formula not derived for it.
+
+### Decision 2 — why the comparison is on pairwise differences, not the absolute score
+
+ADR-189 amendment 1 already measured, for the already-verified single-block
+Poisson case, that the raw REML score carries a convention offset against
+`mgcv`'s own (`≈ -l_sat/gamma`, the saturated log-likelihood) plus a further
+residual of 0.93-3.17 explicitly left "unexplained" and marked "not a
+compared metric." Re-litigating that residual was not this session's job.
+What matters for an optimiser is the criterion's SHAPE in `lambda` —
+`score(point A) - score(point B)` — which cancels any purely additive offset
+regardless of source. `scripts/gam_reml_probe.R` builds a shared two-block
+binomial/logit design and fits it at three fixed `(sp1, sp2)` points via
+`paraPen` with `method="REML"` (no optimisation runs — the full `sp` vector
+is supplied), so `m$gcv.ubre` is the REML criterion at that exact point.
+
+### The measurement
+
+Three points, chosen so two share a coincidental `sp1 * sp2` product (`(1,1)`
+and `(5, 0.2)`, both product 1) and the third does not (`(0.5, 8)`, product
+4) — deliberately off-diagonal, the same reasoning as
+`scripts/mgcv_conformance.R`'s `l1-scale-convention` cell.
+
+**First isolated the fit itself, not the score**: at every point, the
+Python-independent `penalized_irls_general` fit's own `deviance` matches
+`mgcv`'s reported `m$deviance` to ~1e-11 — float round-trip noise, not a
+disagreement, and consistent with slice 3's already-verified `eta` parity now
+extended to two independently-scaled blocks. **The fit is not the problem.**
+
+**Tier 1** (R 4.3.3 / mgcv 1.9.1, local apt):
+
+| point A | point B | python diff | r diff | residual | agrees (tol 1e-6) |
+|---|---|---:|---:|---:|---|
+| `(1, 1)` | `(5, 0.2)` | -0.469596 | 0.271677 | **-0.741273** | False |
+| `(1, 1)` | `(0.5, 8)` | -0.0072338 | -0.00816837 | 0.000934569 | False |
+| `(5, 0.2)` | `(0.5, 8)` | 0.462363 | -0.279845 | **0.742208** | False |
+
+**Tier 3** (R 4.6.1 / mgcv 1.9.4, oracle
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+build 8, CI run
+[32086738495](https://github.com/jonathancrawford05/polaris-re/actions/runs/32086738495),
+read directly from job-log stdout via `get_job_logs`, same discipline
+ADR-194's methodology fix established): **identical to tier 1 at every
+printed digit** — same three rows, same residuals, same `agrees=False`.
+Required levels 1-3 of the existing ten-cell suite also still agree on this
+run (`Required levels [1, 2, 3] all agree.`) — no regression from the
+workflow edit.
+
+### Decision 3 — this is a genuine INDEPENDENT result, not a harness defect
+
+`REML_SCORE_CLAIM` (`gam_reml_conformance.py`) declares
+`reml_score_pairwise_diff` `INDEPENDENT`: `score_reml_point`'s signature
+takes plain arrays and the `sp` setting itself — no R-payload-shaped argument
+at all, so there is structurally nothing for it to read from `mgcv`'s own
+`gcv_ubre` (a stronger form of ADR-193's mechanical test than a narrowed
+recipe `TypedDict`). Per ADR-193 and `docs/VERIFICATION_STANDARD.md`: **an
+INDEPENDENT comparison that disagrees is a real result, not a failure.** The
+identical tier-1/tier-3 readings rule out BLAS or `mgcv`-point-release noise
+as the cause (that class of noise is ~1e-15 relative, five orders of
+magnitude below the ~0.74 residual). The internally-consistent pattern —
+`residual(1,1→5,0.2) + residual(5,0.2→0.5,8) ≈ residual(1,1→0.5,8)`, exactly
+as pairwise differences of one underlying function must satisfy — rules out
+an arithmetic slip in the comparison itself; the discrepancy is a single,
+well-defined function of `(sp1, sp2)`.
+
+### What is NOT concluded, and the named next hypothesis
+
+**Not concluded: which term of the formula is wrong, or what the correct one
+is.** CLAUDE.md and Anchor 8 forbid guessing a derivation or tuning a
+constant to close a measured gap; neither is done here. What the measurement
+does localize: `logdet_s` (`log|S_lambda|_+`) computed the naive way — sum
+the two blocks first, eigendecompose the sum — is IDENTICAL between `(1,1)`
+and `(5, 0.2)` in this fixture (both blocks are rank-1 second-difference
+penalties, so `logdet_s` depends only on the product `sp1 * sp2`, which is 1
+at both points by this fixture's construction) — yet those two points carry
+the *largest* residual of the three. So the naive `logdet_s` is not, on this
+evidence, where the gap concentrates; whatever `mgcv` does differently for
+multiple penalty blocks (plausibly a more careful null-space/rotation
+treatment across blocks than "sum then eigendecompose," per Wood's own
+description of multi-penalty REML machinery) is the next thing to read
+directly from the published derivation (Wood 2011, *JRSS-B*) — never from
+`mgcv`'s GPL source, per ADR-190 decision 3's precedent. **Named next
+hypothesis for the session that picks this back up:** does `mgcv`'s
+multi-penalty `log|S_lambda|_+` differ from the naive combined-eigendecomposition
+one specifically when the penalty blocks' null spaces interact — testable by
+extending this same probe to two points sharing the SAME naive `logdet_s`
+(as `(1,1)`/`(5,0.2)` already do here) while varying only the individual
+block ranks/null-space overlap, isolating the term from `logdet_h`
+independently.
+
+### What this does not block
+
+Slice 4's outer search (the N-dimensional optimiser itself) is not attempted
+in this session and remains open — building it on top of a score known not
+to reproduce `mgcv`'s criterion shape would not be meaningful. This ADR is
+scope-limited to the score, which is the correct order (a search cannot be
+verified before the thing it searches is).

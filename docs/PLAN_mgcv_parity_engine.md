@@ -321,6 +321,19 @@ for it to run against, slice 4).
 ### Slice 4: the outer optimisation — N-dimensional (f)REML
 
 - **Depends on:** Slices 1-3
+- **Status:** IN PROGRESS. **Part A DONE, 2026-08-18** (ADR-196): the REML score
+  itself, generalized from `experience_gam_penalized.reml_score` (Poisson,
+  exactly two hardcoded blocks) onto `gam_fit`'s general IRLS core
+  (`gam_reml.reml_score_general`, known-scale families) — the criterion the
+  outer search will need, built and measured BEFORE the search itself, since a
+  search over a criterion known not to match `mgcv` would not be meaningful.
+  **Measured, tier 1 and tier 3 identical: the naive generalization's fit is
+  correct (deviance matches `mgcv` to ~1e-11) but its multi-block REML score
+  does NOT reproduce `mgcv`'s criterion shape** — an INDEPENDENT comparison
+  that disagrees (a real result, ADR-193), characterized with a named next
+  hypothesis about where the gap concentrates, not resolved. **The outer
+  N-dimensional search itself (part B, below) is NOT attempted yet** — it
+  would not be meaningful to build on a score not yet shown to match.
 
 **This is the prerequisite for everything multi-term, and the largest piece of work in the
 epic.** `select_lambdas_reml` sweeps a two-dimensional grid in ~200 fits. The target has
