@@ -207,6 +207,93 @@ Deferred to a later epic: `bam` + `discrete = TRUE` + fREML. Safe to defer becau
 fixed `sp` on a `paraPen`-only model `bam` agrees with `gam` to **2.1e-12**, and because
 `bam` at 125,000 rows takes **1.69 s** — performance is not the reason to want it.
 
+## Gap audit — what's not yet implemented against `mgcv` (2026-08-18)
+
+A single place to see the whole shape of what's left, rather than reconstructing it
+from seven slices' worth of status prose above. Organized by what's missing, not by
+slice number, since some gaps (the REML formula, the Kass-Steffey correction) cut
+across the slice structure.
+
+| Gap | mgcv feature | Status | Blocked on |
+|---|---|---|---|
+| Multi-penalty REML criterion | The actual `log\|S_λ\|_+`/`log\|X'WX+S\|` treatment for >1 independently-scaled penalty block | **Wrong** — measured disagreeing (ADR-196), naive combined-eigendecomposition ruled unlikely-but-not-excluded as the cause | Nothing — this is the epic's current critical path |
+| N-dimensional outer search | Newton/quasi-Newton (f)REML optimisation over 13-21 `log λ` | **Not started** | The REML criterion above being right first |
+| `ti()` — tensor interaction | Tensor product with marginal main effects excluded | **Not started** | The outer search (slice 5) |
+| `s(..., by=...)` with a `cr` basis | The MI term itself — a `cr` basis scaled by a numeric `by` variable | **Not started** | The outer search (slice 5) |
+| `bs = "sz"` | Sum-to-zero factor-smooth interactions (4 terms in the target formula) | **Not started**, expected hardest basis (PLAN §6 registered prediction) | The outer search (slice 6) |
+| `select = TRUE` | The double penalty / null-space shrinkage that takes 13 sp → 21 | **Not started** | Slices 4-6 |
+| `cr` basis extrapolation | Behaviour for `x` outside `[knots[0], knots[-1]]` | **Unverified**, not assumed — `gam_basis_cr.py` marks it explicitly | A future session measuring it; blocks fitting the target's own knots against real experience data, whose range need not match the hand-chosen knots |
+| Kass-Steffey / `vcov(unconditional=TRUE)` | The full Wood, Pya & Säfken (2016) correction (`dw/drho`) | **Known wrong, re-scoped as a formula gap** (ADR-190) — a SEPARATE standing blocker, not fixed by slice 4's REML work; different paper, different derivation | `dw/drho`, re-derived from the 2016 paper, never from GPL source |
+| Anchor 5 absolute/relative idiom, demonstrated end to end | Weights and an offset used simultaneously on the target's own multi-term structure | Each control verified in isolation only (PLAN slice 3's own deferred criterion) | A multi-term model, which needs the outer search |
+| `bam(discrete=TRUE)` + fREML | The discretised-covariate fast fitting algorithm | **Deferred to a later epic**, deliberately (maintainer decision 2026-08-10) — not a gap in the current epic's scope | N/A |
+| `bs = "fs"` | Factor-smooth via difference penalties (an earlier maintainer formula) | **Superseded by `sz`** in the selected target form — recorded, not pursued | N/A |
+| `gamboost` / componentwise boosting | A different regularisation algorithm entirely | **Explicitly out of scope** (PLAN §1) — `select=TRUE` covers the term-selection role this epic needs | N/A |
+
+**Read this table as "what mgcv can do that this engine cannot yet reproduce,"** not
+as a claim that mgcv itself is incomplete — the framing the maintainer's question used
+("what is not implemented in mgcv") is inverted from what actually matters here: mgcv
+is the fully-featured reference, and every row above is this engine catching up to it.
+
+## Backlog
+
+Order-classification convention matches `docs/PRODUCT_DIRECTION_2026-07-24.md`'s own
+cap (1st-order promote, 2nd-order NICE-TO-HAVE, 3rd-order PARKED). This section is the
+epic-scoped consolidation of everything still open across that file's chronological
+harvest log — kept here because a reader working this epic shouldn't have to reread
+eleven "Harvested" entries to find out what's still outstanding. `PRODUCT_DIRECTION`
+remains the cross-epic source of record; if the two drift, that file wins and this one
+should be re-synced.
+
+### 1st-order (on the epic's critical path)
+
+1. **Close the multi-penalty REML formula gap (ADR-196).** Build a fixture with
+   genuinely overlapping/interacting penalty blocks (this session's has disjoint
+   column supports, so it structurally cannot test the "null spaces interact"
+   hypothesis). Read `mgcv`'s actual multi-penalty treatment from Wood (2011, JRSS-B)
+   directly — never from GPL source (ADR-190 decision 3's precedent). This gates
+   everything below it.
+2. **Slice 4 part B — the N-dimensional outer search.** Newton/quasi-Newton on the
+   (f)REML score once (1) is closed. The largest remaining implementation effort in
+   the epic (PLAN §3).
+3. **Slice 5 — `ti()` and the MI term.** Ship the MI term first if they split (PLAN
+   §3: it's the cheap, well-conditioned one and the actual point of the target
+   formula).
+4. **Slice 6 — `bs = "sz"`.** Expected hardest basis; Stage A is where a mistake here
+   is cheap (PLAN §6 registered prediction).
+5. **Slice 7 — `select = TRUE`.** 13 → 21 smoothing parameters.
+6. **Kass-Steffey / `vcov(unconditional=TRUE)` — the level-4 BLOCKER.** Separate from
+   (1): a different paper (Wood, Pya & Säfken 2016), needs `dw/drho`, re-derived from
+   the paper per the same GPL/MIT discipline. Standing since ADR-188/190; see "Carried
+   in from the superseded epic" below for the full context.
+7. **Demonstrate Anchor 5's absolute/relative idiom end to end** on the target's own
+   multi-term structure, once a multi-term model exists (needs (2)).
+8. **`cr` basis extrapolation beyond the knot range.** Needed before fitting the
+   target's own `AttdAge`/`PolYear` knots against real experience data.
+
+### 2nd-order (nice-to-have, not blocking)
+
+1. **`binomial`/`cloglog`'s non-canonical-link concavity gap** — documented caveat
+   (ADR-195 decision 3), not a work item unless a future measurement actually hits it.
+2. **The `continue-on-error` job-summary-artifact limitation** likely still affects the
+   ADR-190 (`ks_formula_probe.R`) and ADR-191 (`smoothcon_lpmatrix_probe.R`) diagnostic
+   steps — their tier-3 confirmations rest on "the step didn't except" rather than a
+   read of the actual numbers, the same limitation slice 1b's row had before the
+   print-to-stdout fix (ADR-194) was adopted for every later probe. A few lines per
+   step if a future session needs to re-read one of those probes' real numbers.
+3. **Retro-classify the historical conformance-ledger rows** with a per-row
+   `CONFIRMED (harness)` marker — needs an append-only-safe convention first (PR #200
+   review).
+4. **The `auto_unbox`/length-1-field gotcha** — any R-side field that can be length-1
+   needs `I()` to survive jsonlite's `auto_unbox`, documented for whoever writes the
+   next R-side branch (slice 1b's bug).
+
+### 3rd-order (parked)
+
+1. **Quasi-Poisson's estimated-dispersion REML criterion.** `reml_score_general`
+   raises rather than silently reusing a formula not derived for it; the target
+   formula's own family (binomial) never needs it. Revive only on an explicit future
+   need.
+
 ## Context for the next session
 
 - **Read PLAN Anchors 1 and 2 before writing code.** They change what you build, not just
