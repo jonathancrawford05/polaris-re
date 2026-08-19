@@ -25,7 +25,7 @@ slice 4 part B. Three measurements, in the work order's own order:
 ``smoothing_uncertainty``, and none of those three is edited here. The grid
 search and the Kass-Steffey finite-difference machinery are re-implemented as
 parallel, read-only replicas (:func:`select_lambdas_corrected`,
-:func:`smoothing_uncertainty_score_shape_diagnostic`) that call the corrected
+:func:`score_shape_diagnostic`) that call the corrected
 scorer in place of the production one — never a patch to the production
 functions themselves.
 
@@ -256,13 +256,19 @@ def _fit_and_score_both(
 class CorrectedLambdaSelection:
     """What :func:`select_lambdas_corrected` returns — mirrors
     ``experience_gam_penalized.LambdaSelection``'s shape (not imported, since
-    that type is a `NamedTuple` this module has no need to subclass)."""
+    that type is a `NamedTuple` this module has no need to subclass), plus
+    the fit's ``edf_total``/``edf_tensor``/``edf_factors`` at the SELECTED
+    point (work order §3.2 point 2 — EDF, not only lambda, must be
+    comparable against the current shipped selection and mgcv's own)."""
 
     lambda_age: float
     lambda_year: float
     reml_score: float
     n_rejected: int
     n_evaluated: int
+    edf_total: float
+    edf_tensor: float
+    edf_factors: float
 
 
 def select_lambdas_corrected(
@@ -272,6 +278,7 @@ def select_lambdas_corrected(
     refine_step: float = REFINE_STEP,
     bounds: tuple[float, float] = LAMBDA_LOG10_BOUNDS,
     gamma: float = 1.0,
+    use_corrected_score: bool = True,
     **model_kwargs: object,
 ) -> CorrectedLambdaSelection:
     """§3.2: a diagnostic REPLICA of ``select_lambdas_reml``'s exact grid-search
@@ -281,6 +288,19 @@ def select_lambdas_corrected(
     imported for its scorer, or modified anywhere in this module — this is a
     parallel implementation built to answer one question (does the corrected
     criterion select a different grid point?), not a patch.
+
+    ``use_corrected_score=False`` is the §3.2 NULL CONTROL (PR #204 review
+    [P2]): it runs the identical replica sweep but scores each point with the
+    CURRENT (production) criterion instead, via the same
+    :func:`_fit_and_score_both` call that already computes both scores at
+    every grid point. If this replica is faithful to
+    ``select_lambdas_reml``, scoring it with the current criterion must
+    reproduce the shipped ``python_reference.json`` selection exactly — the
+    control that rules out "the corrected criterion selects closer to mgcv"
+    being an artifact of a replica that already diverged from production for
+    some OTHER reason (a different bound, a different rejection rule, a
+    different tie-break). Default ``True`` keeps every existing call site
+    (§3.2's own corrected-selection measurement) unchanged.
     """
     lo, hi = bounds
     tally = {"rejected": 0, "evaluated": 0}
@@ -288,10 +308,13 @@ def select_lambdas_corrected(
     def score_at(log_age: float, log_year: float) -> float:
         tally["evaluated"] += 1
         try:
-            _, _, value = _fit_and_score_both(cells, log_age, log_year, gamma, model_kwargs)
+            _, current, corrected = _fit_and_score_both(
+                cells, log_age, log_year, gamma, model_kwargs
+            )
         except PolarisComputationError:
             tally["rejected"] += 1
             return np.inf
+        value = corrected if use_corrected_score else current
         if not np.isfinite(value):
             tally["rejected"] += 1
             return np.inf
@@ -315,8 +338,27 @@ def select_lambdas_corrected(
             f"Corrected-score REML selection rejected every one of {tally['evaluated']} "
             f"grid points — no penalized fit converged anywhere in log10 lambda {bounds}."
         )
+    # One additional fit AT the selected point, to read off edf_total/edf_tensor/
+    # edf_factors — the sweep above only tracks the SCORE at each grid point, not
+    # the fit's other diagnostics, so this is a single extra fit, not part of the
+    # sweep's O(grid) cost. Mirrors how fit_reml re-fits at the selected point
+    # after select_lambdas_reml's own sweep (experience_gam_penalized.py).
+    model = PenalizedTensorMIModel(
+        cells,
+        lambda_age=10.0 ** fine[1],
+        lambda_year=10.0 ** fine[2],
+        **model_kwargs,  # type: ignore[arg-type]
+    )
+    fit = model.fit()
     return CorrectedLambdaSelection(
-        10.0 ** fine[1], 10.0 ** fine[2], fine[0], tally["rejected"], tally["evaluated"]
+        10.0 ** fine[1],
+        10.0 ** fine[2],
+        fine[0],
+        tally["rejected"],
+        tally["evaluated"],
+        edf_total=float(fit.edf_total),
+        edf_tensor=float(fit.edf_tensor),
+        edf_factors=float(fit.edf_factors),
     )
 
 

@@ -135,6 +135,33 @@ class TestSelectLambdasCorrected:
         assert 10.0**lo <= selection.lambda_year <= 10.0**hi
         assert np.isfinite(selection.reml_score)
         assert selection.n_evaluated > 0
+        assert np.isfinite(selection.edf_total)
+        assert selection.edf_total > 0.0
+        assert selection.edf_total == pytest.approx(
+            selection.edf_tensor + selection.edf_factors, abs=1e-9
+        )
+
+    def test_current_criterion_reproduces_the_shipped_selection_on_l2_free_sp(self) -> None:
+        """§3.2's null control (PR #204 review [P2], and the automated review's
+        own independent check on this exact cell): the replica sweep, scored
+        with the CURRENT (uncorrected, production) criterion instead of the
+        corrected one via ``use_corrected_score=False``, must reproduce
+        ``data/mgcv_exchange/synthetic/python_reference.json``'s shipped
+        ``l2-free-sp`` selection exactly — ``sp = [3162.2776601683795,
+        1000.0]``. This is the control that proves the replica is faithful to
+        ``select_lambdas_reml`` (same bounds, same coarse+refine grid, same
+        rejection rule, same gamma), so §3.2's "corrected criterion selects
+        closer to mgcv" conclusion is attributable to the SCORE FORMULA alone
+        and not to some other way the replica might have diverged from
+        production. Uses the production module's own default
+        ``bounds``/``coarse_step``/``refine_step``/``gamma`` (all left
+        unset here) — the same defaults ``l2-free-sp`` was actually selected
+        under (``fit_reml`` -> ``select_lambdas_reml``, both called with no
+        override in ``experience_mgcv_conformance._cell_result``)."""
+        cells = synthetic_cells(with_factor=False)
+        selection = select_lambdas_corrected(cells, k_age=7, k_year=6, use_corrected_score=False)
+        assert selection.lambda_age == pytest.approx(3162.2776601683795, rel=1e-9)
+        assert selection.lambda_year == pytest.approx(1000.0, rel=1e-9)
 
 
 class TestScoreShapeDiagnostic:

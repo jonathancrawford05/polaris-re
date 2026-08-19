@@ -38,6 +38,7 @@ from polaris_re.analytics.experience_mgcv_conformance import (  # noqa: E402
 )
 from polaris_re.analytics.gam_reml_production_check import (  # noqa: E402
     PRODUCTION_REML_CHECK_CLAIM,
+    CorrectedLambdaSelection,
     measure_production_score_gap,
     score_shape_diagnostic,
     select_lambdas_corrected,
@@ -46,11 +47,16 @@ from polaris_re.core.verification import evidence_markdown  # noqa: E402
 
 DEFAULT_EXCHANGE = REPO_ROOT / "data" / "mgcv_exchange" / "synthetic"
 
-FREE_SP_CELLS: dict[str, tuple[str, bool]] = {
-    # cell name -> (design_id, with_factor)
-    "l2-free-sp": ("d1", False),
-    "l2-free-sp-factors": ("d2", True),
-    "l2-free-sp-kb": ("d3", False),
+FREE_SP_CELLS: dict[str, str] = {
+    # cell name -> design_id. with_factor is looked up per-design off
+    # DesignSpec.with_factor (via by_id below), not restated here — a second,
+    # hand-maintained copy is exactly the silent-drift risk this module
+    # guards against elsewhere (LAMBDA_LOG10_BOUNDS is imported, not
+    # restated, and test_lambda_log10_bounds_is_the_production_default pins
+    # it) — PR #204 review [P2].
+    "l2-free-sp": "d1",
+    "l2-free-sp-factors": "d2",
+    "l2-free-sp-kb": "d3",
 }
 
 
@@ -132,8 +138,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     lines.append("|---|---:|---:|---:|---:|---:|---:|---|")
 
+    by_id = {d.design_id: d for d in DESIGNS}
+
     gaps = {}
-    for cell_name, (design_id, _with_factor) in FREE_SP_CELLS.items():
+    for cell_name, design_id in FREE_SP_CELLS.items():
         export = bundle.designs[design_id]
         p_cell = python_ref["cells"][cell_name]
         m_cell = mgcv_ref["cells"][cell_name]
@@ -186,10 +194,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     lines.append("|---|---|---|---|---|---:|---:|---|")
 
-    by_id = {d.design_id: d for d in DESIGNS}
-    for cell_name, (design_id, with_factor) in FREE_SP_CELLS.items():
+    corrected_selections: dict[str, CorrectedLambdaSelection] = {}
+    for cell_name, design_id in FREE_SP_CELLS.items():
         spec = by_id[design_id]
-        cells = synthetic_cells(with_factor=with_factor)
+        cells = synthetic_cells(with_factor=spec.with_factor)
         p_cell = python_ref["cells"][cell_name]
         m_cell = mgcv_ref["cells"][cell_name]
         current_sp = tuple(float(v) for v in p_cell["sp"])
@@ -199,6 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         corrected = select_lambdas_corrected(
             cells, gamma=gamma, k_age=spec.k_age, k_year=spec.k_year
         )
+        corrected_selections[cell_name] = corrected
         corrected_sp = (corrected.lambda_age, corrected.lambda_year)
 
         same_point = bool(
@@ -225,6 +234,35 @@ def main(argv: list[str] | None = None) -> int:
             f"{dist_current:.4f} | {dist_corrected:.4f} | {closer} |"
         )
     lines.append("")
+    lines.append(
+        "**EDF at each selection** (work order §3.2 point 2 — `edf_total`/`edf_tensor`/"
+        "`edf_factors`, not only lambda). `current`/`mgcv` are read directly off "
+        "`python_reference.json`/`mgcv_reference.json` (already-committed fits at each "
+        "side's own selection); `corrected` is a fresh fit AT the corrected selection's "
+        "own `(λ_age, λ_year)` (`select_lambdas_corrected`'s one extra fit at its "
+        "selected point, PR #204 review [P1]). All three are INDEPENDENT pairwise: no "
+        "producer's signature accepts another side's edf, coefficients or score — same "
+        "mechanical test (ADR-193) already applied to the λ-distance columns above."
+    )
+    lines.append("")
+    lines.append(
+        "| cell | edf_total (current) | edf_total (corrected) | edf_total (mgcv) | "
+        "edf_tensor (current) | edf_tensor (corrected) | edf_tensor (mgcv) | "
+        "edf_factors (current) | edf_factors (corrected) | edf_factors (mgcv) |"
+    )
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    for cell_name in FREE_SP_CELLS:
+        p_cell = python_ref["cells"][cell_name]
+        m_cell = mgcv_ref["cells"][cell_name]
+        corrected = corrected_selections[cell_name]
+        lines.append(
+            f"| `{cell_name}` | {float(p_cell['edf_total']):.4f} | "
+            f"{corrected.edf_total:.4f} | {float(m_cell['edf_total']):.4f} | "
+            f"{float(p_cell['edf_tensor']):.4f} | {corrected.edf_tensor:.4f} | "
+            f"{float(m_cell['edf_tensor']):.4f} | {float(p_cell['edf_factors']):.4f} | "
+            f"{corrected.edf_factors:.4f} | {float(m_cell['edf_factors']):.4f} |"
+        )
+    lines.append("")
 
     # ------------------------------------------------------------------ #
     # §3.3
@@ -245,9 +283,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     lines.append("|---|---|---|---:|---:|---:|---:|---:|---:|---:|")
 
-    for cell_name, (design_id, with_factor) in FREE_SP_CELLS.items():
+    for cell_name, design_id in FREE_SP_CELLS.items():
         spec = by_id[design_id]
-        cells = synthetic_cells(with_factor=with_factor)
+        cells = synthetic_cells(with_factor=spec.with_factor)
         p_cell = python_ref["cells"][cell_name]
         m_cell = mgcv_ref["cells"][cell_name]
         gamma = float(p_cell["gamma"])
