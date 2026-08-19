@@ -994,7 +994,7 @@ def test_the_penalized_bands_buy_width_and_pay_coverage() -> None:
     assert wd_curve / w_curve > 3.5, f"curved width ratio {wd_curve / w_curve:.1f}x"
 
 
-def test_both_bands_collapse_when_the_basis_cannot_represent_the_truth() -> None:
+def test_the_unpenalized_band_collapses_while_the_penalized_band_does_not_quite() -> None:
     """Neither interval covers a truth its basis cannot reach — and that is bias.
 
     | estimator | overall | young <= 50 | old >= 80 |

@@ -2516,3 +2516,22 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   criterion (`gam_reml.reml_score_general`) too, rather than being two steps
   removed from it. *Source: this session (1st-order — the epic's own next
   slice).*
+
+### Harvested 2026-08-19b — PR #204 round-2 review (age-axis `V_rho` follow-up)
+
+- **Restore an age-axis `V_rho` sanity check on a fixture where the age
+  margin actually carries signal.** ADR-197's production fix moved
+  `test_the_smoothing_variance_matches_the_measured_lambda_spread`'s own
+  selection to the search bound on the age axis (`lambda_age = 10**8`,
+  `_quadratic_mi`'s truth is quadratic in year and CONSTANT in age — the age
+  margin is genuinely null there), so the test's age-axis comparison against
+  ADR-187's empirical λ-spread was retired as not meaningful on THIS fixture
+  (a boundary optimum has zero-or-negative curvature by construction — not a
+  bug, and not something `LAMBDA_LOG10_BOUNDS` should be touched to avoid).
+  That is a small, well-documented, legitimate reduction in coverage — but
+  it was never harvested as a follow-up, so the gap has lived only in the
+  test's own docstring. Restore an equivalent age-axis `V_rho` check on a
+  fixture whose age margin is NOT null (an age-varying truth, so an interior
+  age-axis optimum exists to compare against a measured empirical spread),
+  so the coverage this test used to carry on the age axis is not simply
+  gone. *Source: PR #204 round-2 review [P2] (1st-order).*

@@ -15754,7 +15754,9 @@ decision is about.
 2. Re-export and re-fit `data/mgcv_exchange/synthetic/python_reference.json` against the
    fixed selector, and update the 3 tests ADR-196's resolution section already identified
    as sensitive to this exact change
-   (`test_both_bands_collapse_when_the_basis_cannot_represent_the_truth`,
+   (`test_the_unpenalized_band_collapses_while_the_penalized_band_does_not_quite`
+   — renamed from `test_both_bands_collapse_when_the_basis_cannot_represent_the_truth`
+   in the 2026-08-19 resolution, since the penalized band no longer collapses,
    `test_the_smoothing_variance_matches_the_measured_lambda_spread`,
    `test_the_committed_reference_is_what_this_code_computes`).
 3. This is a separate, later, explicitly maintainer-directed session's work (PLAN Anchor
@@ -15962,7 +15964,10 @@ legitimately moving, verified case by case:**
    it now passes because the committed reference was regenerated with `write_python_
    reference`, the same function/path the test itself calls, not hand-edited.
 5. `test_experience_gam_penalized.py::test_both_bands_collapse_when_the_basis_cannot_
-   represent_the_truth` (named in the work order) — a Monte-Carlo coverage study that fits
+   represent_the_truth` (named in the work order; **renamed 2026-08-19 (PR #204 round-2
+   review [P2]) to `test_the_unpenalized_band_collapses_while_the_penalized_band_does_
+   not_quite`**, since the penalized band no longer collapses below 0.80 — see point 5
+   itself) — a Monte-Carlo coverage study that fits
    at `select_lambdas_reml`'s seed-999 selection every replicate. The penalized estimator's
    old-age coverage **legitimately improved** with the corrected λ selection: 0.7598 →
    0.8282 (overall 0.8505 → 0.8995, young-age 0.9073 → 0.9447), while the delta-method

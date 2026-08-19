@@ -82,8 +82,10 @@ left `tests/qa/` at 94/94, byte-identical. **The artifact that DOES move is
 `data/mgcv_exchange/python_reference.json`**, which pins `sp`, `coef` and `edf_total` per
 cell — on the `l2-free-sp` cell the selected `λ_age` moves one grid step, 3162.28 →
 5623.41 (10^3.5 → 10^3.75), with `λ_year` unchanged at 1000.0. Three tests fail on that
-change and no others: `test_both_bands_collapse_when_the_basis_cannot_represent_the_truth`,
-`test_the_smoothing_variance_matches_the_measured_lambda_spread`,
+change and no others: `test_both_bands_collapse_when_the_basis_cannot_represent_the_truth`
+(renamed 2026-08-19, PR #204 round-2 review [P2], to `test_the_unpenalized_band_collapses_
+while_the_penalized_band_does_not_quite` — the penalized band no longer collapses below
+0.80 post-fix), `test_the_smoothing_variance_matches_the_measured_lambda_spread`,
 `test_the_committed_reference_is_what_this_code_computes` — all in
 `test_experience_gam_penalized.py`/`test_experience_mgcv_conformance.py`, none in
 `tests/qa/`. The patch was a throwaway local experiment, reverted; no branch was pushed.
