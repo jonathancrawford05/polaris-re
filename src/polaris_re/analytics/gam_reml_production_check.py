@@ -78,6 +78,7 @@ from polaris_re.core.verification import (
 
 __all__ = [
     "PRODUCTION_REML_CHECK_CLAIM",
+    "PRODUCTION_REML_EDF_CLAIM",
     "CorrectedLambdaSelection",
     "ProductionScoreGap",
     "ScoreShapeDiagnostic",
@@ -133,6 +134,85 @@ how the ten-cell suite's other free-sp metrics (`max_abs_log10_sp_diff`,
 levels (`docs/VERIFICATION_STANDARD.md` §5): two independently implemented
 fitters/selectors over a shared `(X, S)` recipe, each landing on its own
 answer, compared after the fact — not one side reading the other's output."""
+
+
+PRODUCTION_REML_EDF_CLAIM = VerificationClaim(
+    claim=(
+        "For each free-sp cell of the ten-cell mgcv conformance fixture, "
+        "polaris_re reads edf_total/edf_tensor/edf_factors off two independently "
+        "fitted models: the already-committed production fit (select_lambdas_reml's "
+        "own selection, as already exported to python_reference.json) and "
+        "select_lambdas_corrected's one extra fit AT its own corrected selection "
+        "(gam_reml_production_check.py); neither reads mgcv's coefficients, edf, "
+        "or score. mgcv reports the same three quantities off its own free-sp "
+        "gam(family=poisson(), method='REML') fit (scripts/mgcv_conformance.R). "
+        "Compared per cell, current-vs-mgcv and corrected-vs-mgcv only — the "
+        "current-vs-corrected pair reported alongside them is Python-vs-Python "
+        "and is not a claim against mgcv at all (same treatment as §3.3's "
+        "internal Hessian comparison), so it carries no provenance row here."
+    ),
+    quantities=(
+        ComparedQuantity(
+            quantity="edf_total (current, production selection)",
+            left_producer=(
+                "select_lambdas_reml's own selection, as already exported to python_reference.json"
+            ),
+            right_producer="mgcv's edf.total at its own free-sp REML fit",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="edf_total (corrected selection)",
+            left_producer=(
+                "select_lambdas_corrected's one extra fit AT its own corrected (λ_age, λ_year)"
+            ),
+            right_producer="mgcv's edf.total at its own free-sp REML fit",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="edf_tensor (current, production selection)",
+            left_producer=(
+                "select_lambdas_reml's own selection, as already exported to python_reference.json"
+            ),
+            right_producer="mgcv's tensor-term edf at its own free-sp REML fit",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="edf_tensor (corrected selection)",
+            left_producer=(
+                "select_lambdas_corrected's one extra fit AT its own corrected (λ_age, λ_year)"
+            ),
+            right_producer="mgcv's tensor-term edf at its own free-sp REML fit",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="edf_factors (current, production selection)",
+            left_producer=(
+                "select_lambdas_reml's own selection, as already exported to python_reference.json"
+            ),
+            right_producer="mgcv's factor-term edf at its own free-sp REML fit",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="edf_factors (corrected selection)",
+            left_producer=(
+                "select_lambdas_corrected's one extra fit AT its own corrected (λ_age, λ_year)"
+            ),
+            right_producer="mgcv's factor-term edf at its own free-sp REML fit",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+    ),
+)
+"""EDF table's provenance declaration (ADR-193, PR #204 round-2 review [P2]).
+Both `current` and `corrected` are INDEPENDENT of mgcv individually — neither
+producer's signature accepts mgcv's own edf, coefficients or score, matching
+§3.1's mechanical test above. The `current`-vs-`corrected` pair the EDF table
+also prints is deliberately NOT declared here: it is Python-vs-Python, not a
+claim against mgcv, and post-fix (ADR-197) it is expected to be bit-identical
+since both read the identical `experience_gam_penalized.reml_score` — the
+same non-claim treatment §3.3's internal Hessian-diff comparison already
+gets. A hand-written "INDEPENDENT pairwise" headline conflated that column
+with the two genuine ones (PR #204 round-2 review [P2]); this claim object
+and `evidence_markdown()` replace it."""
 
 
 def corrected_reml_score(

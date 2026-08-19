@@ -23,6 +23,7 @@ Usage:
 import argparse
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -38,7 +39,9 @@ from polaris_re.analytics.experience_mgcv_conformance import (  # noqa: E402
 )
 from polaris_re.analytics.gam_reml_production_check import (  # noqa: E402
     PRODUCTION_REML_CHECK_CLAIM,
+    PRODUCTION_REML_EDF_CLAIM,
     CorrectedLambdaSelection,
+    ProductionScoreGap,
     measure_production_score_gap,
     score_shape_diagnostic,
     select_lambdas_corrected,
@@ -74,6 +77,65 @@ def _saturated_poisson_loglik(deaths: np.ndarray) -> float:
         return float(
             np.sum(np.where(y > 0.0, y * np.log(y), 0.0)) - np.sum(y) - np.sum(gammaln(y + 1.0))
         )
+
+
+def _current_equals_corrected(current: list[float], corrected: list[float]) -> bool:
+    """Has ADR-197's fix already landed in the code this probe is running
+    against? Detected from the actually-computed scores rather than assumed
+    (PR #204 round-2 review [P1]) — pre-fix, `current` (the shipped,
+    then-buggy formula) and `corrected` (``gam_reml.reml_score_general``)
+    differ by the missing ``0.5 * coef @ penalty @ coef / gamma`` term;
+    post-fix, ``experience_gam_penalized.reml_score`` IS the corrected
+    formula, so the two are expected to agree to float precision at every
+    cell. Branching on this measured fact — rather than hardcoding "always
+    post-fix" — keeps the probe's report correct if it is ever run against
+    un-fixed code (a historical checkout, a local revert)."""
+    cur = np.asarray(current, dtype=np.float64)
+    cor = np.asarray(corrected, dtype=np.float64)
+    if cur.size == 0:
+        return False
+    return bool(np.allclose(cur, cor, atol=1e-6, rtol=1e-9))
+
+
+_POST_FIX_311_BANNER = (
+    "**Post-fix (ADR-197): this section is now a regression check, not a "
+    "closer/further comparison.** The registered prediction below was tested "
+    "PRE-fix and HELD (recorded in ADR-197 and `docs/CONFORMANCE_LEDGER.md`); "
+    "`experience_gam_penalized.reml_score` has since been corrected, so "
+    "`current python`/`corrected python` are now the SAME formula and this "
+    "run's `current == corrected` to float precision at every cell below is "
+    "the expected, healthy outcome — not a failure of the original "
+    "prediction. This detection is measured from this run's own scores "
+    "(`_current_equals_corrected`), not hardcoded, so the section reports "
+    "correctly if it is ever run against un-fixed code."
+)
+
+
+@dataclass(frozen=True)
+class _Row32:
+    """One §3.2 cell's selections and distances — collected in a first pass
+    so the post-fix detection can see all cells before any table row is
+    printed (PR #204 round-2 review [P1])."""
+
+    current_sp: tuple[float, float]
+    corrected_sp: tuple[float, float]
+    mgcv_sp: tuple[float, float]
+    same_point: bool
+    dist_current: float
+    dist_corrected: float
+
+
+_POST_FIX_32_BANNER = (
+    "**Post-fix (ADR-197): this section is now a regression check, not a "
+    "closer/further comparison.** As of ADR-197's resolution, the production "
+    "score IS the corrected score, so `current`/`corrected` are the SAME "
+    "criterion and are expected to select the identical grid point on every "
+    "cell below — that identity, not a `closer?` verdict, is what this "
+    "section now checks. The original registered prediction (below) was "
+    "tested pre-fix and HELD: the corrected criterion selected measurably "
+    "closer to mgcv's own free-sp selection on all three cells (ADR-197 "
+    "§3.2, `docs/CONFORMANCE_LEDGER.md`)."
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -132,15 +194,14 @@ def main(argv: list[str] | None = None) -> int:
         "directly comparable to that already-documented number."
     )
     lines.append("")
-    lines.append(
-        "| cell | mgcv score | current python | corrected python | l_sat/gamma | "
-        "residual (current) | residual (corrected) | |residual| collapsed? |"
-    )
-    lines.append("|---|---:|---:|---:|---:|---:|---:|---|")
 
     by_id = {d.design_id: d for d in DESIGNS}
 
-    gaps = {}
+    # First pass: compute every cell's gap before printing anything, so the
+    # post-fix detection below sees all of §3.1's evidence at once rather
+    # than deciding column-by-column (PR #204 round-2 review [P1]).
+    gaps: dict[str, ProductionScoreGap] = {}
+    l_sat_over_gammas: dict[str, float] = {}
     for cell_name, design_id in FREE_SP_CELLS.items():
         export = bundle.designs[design_id]
         p_cell = python_ref["cells"][cell_name]
@@ -149,28 +210,56 @@ def main(argv: list[str] | None = None) -> int:
         lambda_age, lambda_year = (float(v) for v in p_cell["sp"])
         gamma = float(p_cell["gamma"])
         mgcv_score = float(m_cell["reml_score"])
-        gap = measure_production_score_gap(
+        gaps[cell_name] = measure_production_score_gap(
             cell_name, export, coef, lambda_age, lambda_year, gamma, mgcv_score
         )
-        gaps[cell_name] = gap
-        l_sat_over_gamma = _saturated_poisson_loglik(export.deaths) / gamma
+        l_sat_over_gammas[cell_name] = _saturated_poisson_loglik(export.deaths) / gamma
+
+    post_fix_31 = _current_equals_corrected(
+        [gaps[c].current_python_score for c in FREE_SP_CELLS],
+        [gaps[c].corrected_python_score for c in FREE_SP_CELLS],
+    )
+    if post_fix_31:
+        lines.append(_POST_FIX_311_BANNER)
+        lines.append("")
+        lines.append(
+            "| cell | mgcv score | current python | corrected python | l_sat/gamma | "
+            "residual (current) | residual (corrected) | current == corrected? |"
+        )
+    else:
+        lines.append(
+            "| cell | mgcv score | current python | corrected python | l_sat/gamma | "
+            "residual (current) | residual (corrected) | |residual| collapsed? |"
+        )
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---|")
+
+    for cell_name in FREE_SP_CELLS:
+        gap = gaps[cell_name]
+        l_sat_over_gamma = l_sat_over_gammas[cell_name]
         residual_current = gap.gap_current + l_sat_over_gamma
         residual_corrected = gap.gap_corrected + l_sat_over_gamma
-        collapsed = abs(residual_corrected) < abs(residual_current)
+        if post_fix_31:
+            verdict = (
+                "yes"
+                if np.isclose(residual_current, residual_corrected, atol=1e-6, rtol=1e-9)
+                else "NO (formulas have diverged — investigate)"
+            )
+        else:
+            collapsed = abs(residual_corrected) < abs(residual_current)
+            verdict = "yes (smaller)" if collapsed else "NO (larger)"
         lines.append(
             f"| `{cell_name}` | {gap.mgcv_score:.6f} | {gap.current_python_score:.6f} | "
             f"{gap.corrected_python_score:.6f} | {l_sat_over_gamma:.6f} | "
-            f"{residual_current:.6f} | {residual_corrected:.6f} | "
-            f"{'yes (smaller)' if collapsed else 'NO (larger)'} |"
+            f"{residual_current:.6f} | {residual_corrected:.6f} | {verdict} |"
         )
     lines.append("")
     lines.append(
         "Both sides select a DIFFERENT lambda at this cell (ours from a 0.25-decade grid "
-        "at the CURRENT, uncorrected criterion; mgcv continuously) — this residual is "
-        "therefore NOT expected to collapse to float noise the way ADR-196's FIXED-sp, "
-        "matched-point pairwise-difference measurement did; it mixes any remaining "
-        "formula gap with the point mismatch. See §3.2 below for a matched-point-free "
-        "comparison (does the SELECTED point move closer to mgcv's)."
+        "at the CURRENT criterion; mgcv continuously) — this residual is therefore NOT "
+        "expected to collapse to float noise the way ADR-196's FIXED-sp, matched-point "
+        "pairwise-difference measurement did; it mixes any remaining formula gap with "
+        "the point mismatch. See §3.2 below for a matched-point-free comparison (does "
+        "the SELECTED point move closer to mgcv's)."
     )
     lines.append("")
 
@@ -180,21 +269,22 @@ def main(argv: list[str] | None = None) -> int:
     lines.append("## §3.2 — does the corrected criterion select a different grid point?")
     lines.append("")
     lines.append(
-        "Registered prediction (work order §3.2): if the missing term is a real bug, the "
-        "corrected selection should land measurably CLOSER to mgcv's own free-sp selection "
-        "than the current shipped selection does. If it lands on the SAME grid point, or "
-        "not closer, that is itself the finding — the grid's own resolution (0.25 decade) "
-        "may already be absorbing a small formula error."
+        "Registered prediction (work order §3.2, tested PRE-fix): if the missing term is "
+        "a real bug, the corrected selection should land measurably CLOSER to mgcv's own "
+        "free-sp selection than the current shipped selection does. If it lands on the "
+        "SAME grid point, or not closer, that is itself the finding — the grid's own "
+        "resolution (0.25 decade) may already be absorbing a small formula error. **This "
+        "prediction was tested and HELD** (ADR-197, `docs/CONFORMANCE_LEDGER.md`) before "
+        "the fix landed; see the post-fix banner below if this run is against fixed code."
     )
     lines.append("")
-    lines.append(
-        "| cell | current (λ_age, λ_year) | corrected (λ_age, λ_year) | mgcv (λ_age, λ_year) | "
-        "same grid point? | current dist to mgcv (log10) | corrected dist to mgcv (log10) | "
-        "closer? |"
-    )
-    lines.append("|---|---|---|---|---|---:|---:|---|")
 
+    # First pass: compute every cell's selections before printing, so the
+    # post-fix detection (does the replica now land on the SAME point as
+    # production on every cell?) sees all of §3.2's evidence at once
+    # (PR #204 round-2 review [P1]).
     corrected_selections: dict[str, CorrectedLambdaSelection] = {}
+    rows_32: dict[str, _Row32] = {}
     for cell_name, design_id in FREE_SP_CELLS.items():
         spec = by_id[design_id]
         cells = synthetic_cells(with_factor=spec.with_factor)
@@ -223,15 +313,40 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
 
-        dist_current = log10_dist(current_sp)
-        dist_corrected = log10_dist(corrected_sp)
-        closer = dist_corrected < dist_current
+        rows_32[cell_name] = _Row32(
+            current_sp=current_sp,
+            corrected_sp=corrected_sp,
+            mgcv_sp=mgcv_sp,
+            same_point=same_point,
+            dist_current=log10_dist(current_sp),
+            dist_corrected=log10_dist(corrected_sp),
+        )
 
+    post_fix_32 = all(rows_32[c].same_point for c in FREE_SP_CELLS)
+    if post_fix_32:
+        lines.append(_POST_FIX_32_BANNER)
+        lines.append("")
         lines.append(
-            f"| `{cell_name}` | ({current_sp[0]:.4f}, {current_sp[1]:.4f}) | "
-            f"({corrected_sp[0]:.4f}, {corrected_sp[1]:.4f}) | "
-            f"({mgcv_sp[0]:.4f}, {mgcv_sp[1]:.4f}) | {same_point} | "
-            f"{dist_current:.4f} | {dist_corrected:.4f} | {closer} |"
+            "| cell | current (λ_age, λ_year) | corrected (λ_age, λ_year) | "
+            "mgcv (λ_age, λ_year) | same grid point? | current dist to mgcv (log10) | "
+            "corrected dist to mgcv (log10) | current == corrected selection? |"
+        )
+    else:
+        lines.append(
+            "| cell | current (λ_age, λ_year) | corrected (λ_age, λ_year) | mgcv (λ_age, λ_year) | "
+            "same grid point? | current dist to mgcv (log10) | corrected dist to mgcv (log10) | "
+            "closer? |"
+        )
+    lines.append("|---|---|---|---|---|---:|---:|---|")
+
+    for cell_name in FREE_SP_CELLS:
+        row = rows_32[cell_name]
+        verdict = row.same_point if post_fix_32 else row.dist_corrected < row.dist_current
+        lines.append(
+            f"| `{cell_name}` | ({row.current_sp[0]:.4f}, {row.current_sp[1]:.4f}) | "
+            f"({row.corrected_sp[0]:.4f}, {row.corrected_sp[1]:.4f}) | "
+            f"({row.mgcv_sp[0]:.4f}, {row.mgcv_sp[1]:.4f}) | {row.same_point} | "
+            f"{row.dist_current:.4f} | {row.dist_corrected:.4f} | {verdict} |"
         )
     lines.append("")
     lines.append(
@@ -240,9 +355,17 @@ def main(argv: list[str] | None = None) -> int:
         "`python_reference.json`/`mgcv_reference.json` (already-committed fits at each "
         "side's own selection); `corrected` is a fresh fit AT the corrected selection's "
         "own `(λ_age, λ_year)` (`select_lambdas_corrected`'s one extra fit at its "
-        "selected point, PR #204 review [P1]). All three are INDEPENDENT pairwise: no "
-        "producer's signature accepts another side's edf, coefficients or score — same "
-        "mechanical test (ADR-193) already applied to the λ-distance columns above."
+        "selected point, PR #204 review [P1])."
+    )
+    lines.append("")
+    lines.append(evidence_markdown(PRODUCTION_REML_EDF_CLAIM))
+    lines.append("")
+    lines.append(
+        "The `current`/`corrected` columns printed side by side in the table below are "
+        "NOT one of the declared quantities above — that pair is Python-vs-Python, not a "
+        "claim against mgcv (same non-claim treatment §3.3's internal Hessian-diff "
+        "comparison gets), and post-fix (ADR-197) it is expected to read identically "
+        "since both now read `experience_gam_penalized.reml_score`'s single formula."
     )
     lines.append("")
     lines.append(
@@ -276,13 +399,13 @@ def main(argv: list[str] | None = None) -> int:
         "Hessian / eigenvalues / n_floored alone."
     )
     lines.append("")
-    lines.append(
-        "| cell | eigenvalues (current) | eigenvalues (corrected) | n_floored (current) | "
-        "n_floored (corrected) | max abs Hessian diff | mean diag(Vb) (shipped) | "
-        "inflation (current) | inflation (corrected) | mgcv inflation (reported) |"
-    )
-    lines.append("|---|---|---|---:|---:|---:|---:|---:|---:|---:|")
-
+    # First pass: compute every cell's diagnostic before printing, so the
+    # post-fix detection (is the Hessian itself now identical under both
+    # formulas?) sees all of §3.3's evidence at once (PR #204 round-2
+    # review [P1]).
+    rows_33: dict[str, tuple[int, int, float, float, float, float, float]] = {}
+    eig_33: dict[str, tuple[str, str]] = {}
+    hessian_diffs: list[float] = []
     for cell_name, design_id in FREE_SP_CELLS.items():
         spec = by_id[design_id]
         cells = synthetic_cells(with_factor=spec.with_factor)
@@ -300,6 +423,7 @@ def main(argv: list[str] | None = None) -> int:
             k_year=spec.k_year,
         )
         hessian_diff = float(np.max(np.abs(diag.hessian_current - diag.hessian_corrected)))
+        hessian_diffs.append(hessian_diff)
         eig_c = ", ".join(f"{v:.4f}" for v in diag.eigenvalues_current)
         eig_k = ", ".join(f"{v:.4f}" for v in diag.eigenvalues_corrected)
 
@@ -311,9 +435,51 @@ def main(argv: list[str] | None = None) -> int:
         mgcv_cond_diag = np.asarray(m_cell["vcov_diag"], dtype=np.float64)
         mgcv_inflation = float(np.mean(mgcv_unc_diag) / np.mean(mgcv_cond_diag))
 
+        rows_33[cell_name] = (
+            diag.n_floored_current,
+            diag.n_floored_corrected,
+            hessian_diff,
+            mean_vb,
+            inflation_current,
+            inflation_corrected,
+            mgcv_inflation,
+        )
+        eig_33[cell_name] = (eig_c, eig_k)
+
+    post_fix_33 = bool(np.allclose(hessian_diffs, 0.0, atol=1e-6))
+    if post_fix_33:
         lines.append(
-            f"| `{cell_name}` | [{eig_c}] | [{eig_k}] | {diag.n_floored_current} | "
-            f"{diag.n_floored_corrected} | {hessian_diff:.6e} | {mean_vb:.6e} | "
+            "**Post-fix (ADR-197): this section is now a regression check, not a "
+            "shape-change comparison.** Both formulas are now the same function, so "
+            "`max abs Hessian diff` of `0.000000e+00` on every cell below is the "
+            "expected, healthy outcome (the Hessian is a pure function of the score "
+            "formula and the fit, and both are now identical) — not evidence that the "
+            "correction had no effect. It DID have an effect, measured pre-fix (ADR-197 "
+            "§3.3): eigenvalues moved materially and the Kass-Steffey inflation ratio "
+            "narrowed slightly toward mgcv's, neither closing the level-4 gap."
+        )
+        lines.append("")
+    lines.append(
+        "| cell | eigenvalues (current) | eigenvalues (corrected) | n_floored (current) | "
+        "n_floored (corrected) | max abs Hessian diff | mean diag(Vb) (shipped) | "
+        "inflation (current) | inflation (corrected) | mgcv inflation (reported) |"
+    )
+    lines.append("|---|---|---|---:|---:|---:|---:|---:|---:|---:|")
+
+    for cell_name in FREE_SP_CELLS:
+        eig_c, eig_k = eig_33[cell_name]
+        (
+            n_floored_current,
+            n_floored_corrected,
+            hessian_diff,
+            mean_vb,
+            inflation_current,
+            inflation_corrected,
+            mgcv_inflation,
+        ) = rows_33[cell_name]
+        lines.append(
+            f"| `{cell_name}` | [{eig_c}] | [{eig_k}] | {n_floored_current} | "
+            f"{n_floored_corrected} | {hessian_diff:.6e} | {mean_vb:.6e} | "
             f"{inflation_current:.4f}x | {inflation_corrected:.4f}x | {mgcv_inflation:.4f}x |"
         )
     lines.append("")
