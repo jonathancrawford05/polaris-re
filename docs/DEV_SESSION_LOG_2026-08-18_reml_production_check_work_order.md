@@ -157,12 +157,74 @@ above and in the probe script's own report text, per the same discipline.
   `score_shape_diagnostic`, `PRODUCTION_REML_CHECK_CLAIM`).
 - `scripts/reml_production_check_probe.py` — the report generator, runnable locally
   (tier 1) or read from CI (tier 3).
-- `tests/test_analytics/test_gam_reml_production_check.py` — 10 new tests.
+- `tests/test_analytics/test_gam_reml_production_check.py` — 10 new tests, +1 in the
+  Review Response below (11 total).
 - `.github/workflows/mgcv-conformance.yml` — one new diagnostic (`continue-on-error`)
   step in the existing `compare` job, plus path-filter entries.
-- `docs/DECISIONS.md` — ADR-197.
-- `docs/CONFORMANCE_LEDGER.md` — 6 new rows (§3.1/§3.2/§3.3, tier 1 and tier 3 each).
+- `docs/DECISIONS.md` — ADR-197, +1 amendment in the Review Response below.
+- `docs/CONFORMANCE_LEDGER.md` — 6 new rows (§3.1/§3.2/§3.3, tier 1 and tier 3 each),
+  +2 in the Review Response below (8 total).
 - `docs/CONTINUATION_mgcv_parity_engine.md` — updated status line, slice 4 detail, gap
   audit table, backlog.
 - `docs/PRODUCT_DIRECTION_2026-07-24.md` — harvest entry, 1st-order.
+
+## Review Response (PR #204, automated review)
+
+The automated PR review approved with one [P1] and three [P2]s, all about scope
+completeness and code quality rather than a wrong shipped number (zero [P0]s, zero test
+failures, zero incorrect measurements). All four were fixed.
+
+- **[P1] §3.2 point 2 asked for `edf_total`/`edf_tensor`/`edf_factors` compared across
+  current/corrected/mgcv, not only `(λ_age, λ_year)`; the original report and this log's
+  §3.2 section carried lambda only.** Fixed: `select_lambdas_corrected` now does one extra
+  fit AT its own selected point (the same shape as `fit_reml` refitting at the selected
+  point after `select_lambdas_reml`'s own sweep) and returns `edf_total`/`edf_tensor`/
+  `edf_factors` alongside the selection; `current`/`mgcv` EDF are read straight off the
+  already-committed `python_reference.json`/`mgcv_reference.json`. **The EDF headline
+  agrees with the already-confirmed λ headline: closer to `mgcv` on all 3 free-sp cells,
+  roughly an order of magnitude closer on `edf_total`** —
+  `|edf_total(current) - edf_total(mgcv)|` → `|edf_total(corrected) - edf_total(mgcv)|`:
+  `l2-free-sp` 0.6514→0.1014, `-factors` 0.4806→0.0262, `-kb` 0.8734→0.0109. `edf_tensor`
+  moves identically on the two non-factor cells; `-factors`' `edf_factors` is a constant
+  1.0000 across all three producers (the lone factor dummy is effectively unpenalized
+  under every criterion, so it carries no signal about the missing-term hypothesis either
+  way). Measured tier 1 (R 4.3.3 / mgcv 1.9.1, local apt) and confirmed identical at tier 3
+  (R 4.6.1 / mgcv 1.9.4, oracle build 8, CI run
+  [32201059741](https://github.com/jonathancrawford05/polaris-re/actions/runs/32201059741),
+  commit `138683b`) at every printed digit. Written up in full in the ADR-197 amendment
+  (2026-08-19, PR #204 review) and two new `docs/CONFORMANCE_LEDGER.md` rows. This is a
+  second, independent line of evidence for ADR-197 decision 2 (fix it; re-baseline
+  maintainer-gated) — it did not exist when decision 2 was written and does not change it.
+- **[P2] `gam_reml_production_check.py:28`'s docstring referenced a function named
+  `smoothing_uncertainty_score_shape_diagnostic`; the function is `score_shape_diagnostic`
+  and was never renamed to match.** Fixed: the docstring cross-reference corrected, the
+  function untouched.
+- **[P2] `reml_production_check_probe.py`'s `FREE_SP_CELLS` hardcoded a second
+  `with_factor` flag per design id, duplicating `DesignSpec.with_factor` the probe already
+  looks up via `by_id[design_id]` for `k_age`/`k_year`.** Fixed: `FREE_SP_CELLS` now maps
+  cell name to design id only; every `with_factor` read comes off `by_id[design_id]
+  .with_factor`, the same lookup already used elsewhere in the script — no second copy left
+  to drift.
+- **[P2] The §3.2 null control (the replica scored with the CURRENT criterion must
+  reproduce the shipped `python_reference.json` selection exactly) was reasoned about in
+  the review body but not committed as a test.** Fixed: `select_lambdas_corrected` gained
+  a `use_corrected_score: bool = True` parameter (`False` scores with the production
+  criterion instead, reusing the same `_fit_and_score_both` call that already computes
+  both scores at every grid point); a new test,
+  `TestSelectLambdasCorrected::test_current_criterion_reproduces_the_shipped_selection_on_l2_free_sp`,
+  asserts it reproduces `l2-free-sp`'s shipped `sp = (3162.2776601683795, 1000.0)` exactly.
+  This is the assertion that keeps §3.2's "closer" conclusion honest if `select_lambdas_reml`
+  ever changes — previously only demonstrated ad hoc in review prose, now a committed
+  regression test tying the replica to the production selector's actual recorded behaviour
+  (`TestSelectLambdasCorrected` previously checked determinism and bounds only, deliberately,
+  per its own docstring).
+
+Quality gate re-run after the fix, full suite: `pytest tests/ -m "not slow"` — 3309 passed,
+5 pre-existing `data/mortality_tables/*.csv`-absent failures (unchanged baseline, +1 for
+the new null-control test); `pytest tests/qa/` — 85 passed, 9 skipped, byte-identical
+goldens (unchanged). `experience_gam_penalized.py`, `python_reference.json` and
+`tests/qa/golden_outputs/` confirmed untouched (`git diff` on those paths empty) both
+before and after this response. The scratch `mgcv_reference.json` generated locally to
+re-run the probe at tier 1 was deleted before the response commit, per this repo's standing
+rule that it is never committed.
 - `perf/history.jsonl` — one row, commit `170bd76`.

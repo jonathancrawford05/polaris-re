@@ -15778,3 +15778,64 @@ answering that question, exactly as the work order's own framing anticipated
 re-derives Wood (2011); the missing term and its derivation are unchanged from ADR-196.
 `tests/qa/` remains untouched and byte-identical; this ADR records a measurement and a
 recommendation, not a code change.
+
+### Amendment (2026-08-19, PR #204 review) — §3.2's missing EDF half, and a null control
+
+The automated PR review raised one [P1] and three [P2] findings on this ADR's own PR. All
+four were real; the [P1] adds a genuinely new measurement (below), the three [P2]s are
+code-quality fixes with no new numbers (a dead docstring cross-reference, a de-duplicated
+``with_factor`` lookup, and a committed null-control test — see the PR's own commit message
+for detail). None changed anything already recorded above.
+
+**[P1] §3.2 point 2 asked for `edf_total`/`edf_tensor`/`edf_factors`, not only
+`(λ_age, λ_year)`, and the original table reported lambda alone.** Closed by fitting ONCE
+MORE, at the corrected selection's own selected point (`select_lambdas_corrected`'s one
+extra fit, reading `edf_total`/`edf_tensor`/`edf_factors` off it exactly as `fit_reml`
+already does at the shipped selection); `current`/`mgcv` EDF are read straight off the
+already-committed `python_reference.json`/`mgcv_reference.json` — no new fit needed for
+either of those two. All three columns (current, corrected, mgcv) are **INDEPENDENT**
+pairwise by the same ADR-193 mechanical test already applied to the λ-distance columns:
+no producer's signature accepts another side's EDF, coefficients, or score.
+
+| cell | edf_total (current) | edf_total (corrected) | edf_total (mgcv) | edf_tensor (current) | edf_tensor (corrected) | edf_tensor (mgcv) | edf_factors (current) | edf_factors (corrected) | edf_factors (mgcv) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `l2-free-sp` | 8.2114 | 7.6614 | 7.5600 | 8.2114 | 7.6614 | 7.5600 | 0.0000 | 0.0000 | 0.0000 |
+| `l2-free-sp-factors` | 8.5722 | 9.0266 | 9.0528 | 7.5722 | 8.0266 | 8.0528 | 1.0000 | 1.0000 | 1.0000 |
+| `l2-free-sp-kb` | 8.5041 | 7.6416 | 7.6307 | 8.5041 | 7.6416 | 7.6307 | 0.0000 | 0.0000 | 0.0000 |
+
+**The EDF headline agrees with the λ headline: closer to `mgcv` on all three cells, both
+`edf_total` and `edf_tensor`.** `|edf_total(current) - edf_total(mgcv)|` vs
+`|edf_total(corrected) - edf_total(mgcv)|`: `l2-free-sp` 0.6514 → 0.1014; `-factors` 0.4806
+→ 0.0262; `-kb` 0.8734 → 0.0109 — an order of magnitude closer on every cell, not merely
+directionally closer. `edf_tensor` moves identically to `edf_total` on `l2-free-sp`/`-kb`
+(no factor block to absorb any of the EDF there); on `-factors` the two differ by exactly
+the constant `edf_factors = 1.0000`, unchanged across current/corrected/mgcv — the single
+factor dummy is effectively unpenalized under every criterion tested, so it carries no
+information about the missing-term hypothesis and was reported for completeness, not as a
+fourth independent confirmation. This is a second, independent line of evidence for
+Decision 2's recommendation (fix it; re-baseline is maintainer-gated) — it did not exist
+when Decision 2 was written and does not change it, only strengthens the case already made
+on λ alone.
+
+**Null control (the [P2] test, `TestSelectLambdasCorrected::
+test_current_criterion_reproduces_the_shipped_selection_on_l2_free_sp`):**
+`select_lambdas_corrected(..., use_corrected_score=False)` — the identical replica sweep,
+scored with the CURRENT (production) criterion instead of the corrected one — reproduces
+`python_reference.json`'s shipped `l2-free-sp` selection exactly: `(3162.2776601683795,
+1000.0)`, to the same tolerance the replica's own determinism test already uses. This is
+what licenses reading §3.2's "corrected criterion selects closer to mgcv" as a statement
+about the SCORE FORMULA rather than about some other way the replica might have diverged
+from `select_lambdas_reml` (a different bound, a different rejection rule, a different
+tie-break) — the review's own concern, now a committed regression test rather than prose.
+
+**Tiers — both measured, identical to every printed digit, same as the original ADR.**
+Tier 1: R 4.3.3 / mgcv 1.9.1 (local apt), this session, before pushing. Tier 3: R 4.6.1 /
+mgcv 1.9.4, oracle
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8` (build 8, same
+digest as the original ADR-197 measurement), CI run
+[32201059741](https://github.com/jonathancrawford05/polaris-re/actions/runs/32201059741),
+commit `138683b`, both jobs completed in ~62s. Every EDF number above (and every λ/distance
+number, unchanged from the original table) is identical between the two tiers at every
+printed digit. `experience_gam_penalized.py`, `python_reference.json` and
+`tests/qa/golden_outputs/` remain untouched — this amendment adds a measurement and a test,
+not a code change to any protected artifact.
