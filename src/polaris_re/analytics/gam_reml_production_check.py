@@ -1,6 +1,17 @@
-"""Diagnostic-only check: does the SHIPPED tensor-MI REML score have the same
+"""Diagnostic-only check: did the SHIPPED tensor-MI REML score have the same
 missing penalized-deviance term ADR-196 found and fixed in
 ``gam_reml.reml_score_general``?
+
+**Resolved 2026-08-19 (ADR-197 resolution, maintainer-authorized).**
+``experience_gam_penalized.reml_score`` now carries the same fix ADR-196 applied
+here — see that module's ``reml_score``. ``corrected_reml_score`` below and
+``production_reml_score`` (the production function, imported unchanged) now
+compute the SAME formula, so every "current vs corrected" comparison this module
+offers legitimately returns zero difference. The module and its diagnostic
+functions are kept as-is (PLAN Anchor 7 protects `experience_gam_penalized.py`
+itself, not this read-only diagnostic; nothing here needed to change to stay
+correct) — they remain a faithful record of §3.1-§3.3's measurement and a live
+regression check that the two formulas keep agreeing.
 
 ``docs/WORK_ORDER_reml_penalized_deviance_production_check.md``, run under
 ``docs/ROUTINE_MGCV_PARITY.md`` ahead of ``docs/PLAN_mgcv_parity_engine.md``

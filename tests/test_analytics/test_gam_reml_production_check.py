@@ -44,12 +44,17 @@ def _design(rng: np.random.Generator, n: int, p: int) -> np.ndarray:
 
 class TestCorrectedReMLScore:
     """:func:`corrected_reml_score` is a thin wrapper — these pin that it
-    behaves exactly like ``gam_reml.reml_score_general(family=poisson_log())``
-    and, per that function's OWN already-committed regression test
-    (``test_gam_reml.py::TestRelationshipToTheExistingPoissonScore``), differs
-    from the production score by exactly the penalty quadratic form."""
+    behaves exactly like ``gam_reml.reml_score_general(family=poisson_log())``.
 
-    def test_differs_from_production_by_exactly_the_penalty_quadratic_form(
+    **Updated 2026-08-19 (ADR-197 resolution, maintainer-authorized).** Until this
+    session, ``corrected_reml_score`` differed from the production score
+    (``production_reml_score``, imported from ``experience_gam_penalized``) by
+    exactly the penalty quadratic form, per that function's OWN already-committed
+    regression test (``test_gam_reml.py::TestRelationshipToTheExistingPoissonScore``).
+    The production function now carries the identical fix, so the two are bit-for-bit
+    identical instead — this test now pins agreement rather than the gap."""
+
+    def test_matches_production_bit_for_bit_now_that_the_missing_term_is_fixed_on_both_sides(
         self, rng: np.random.Generator
     ) -> None:
         n, p = 180, 6
@@ -65,9 +70,11 @@ class TestCorrectedReMLScore:
 
         old = production_reml_score(y, x, offset, coef, penalty, gamma=gamma)
         new = corrected_reml_score(y, x, offset, coef, penalty, gamma=gamma)
-        missing_term = 0.5 * float(coef @ penalty @ coef) / gamma
-        assert new == pytest.approx(old + missing_term, abs=1e-9, rel=1e-9)
-        assert missing_term > 0.0
+        penalty_quadratic_form = 0.5 * float(coef @ penalty @ coef) / gamma
+        assert new == pytest.approx(old, abs=1e-9, rel=1e-9)
+        # Still strictly positive under a real penalty — sanity that this fixture
+        # actually exercises the term both formulas now include, not a degenerate one.
+        assert penalty_quadratic_form > 0.0
 
     def test_matches_production_exactly_at_zero_penalty(self, rng: np.random.Generator) -> None:
         n, p = 90, 4
@@ -144,23 +151,34 @@ class TestSelectLambdasCorrected:
     def test_current_criterion_reproduces_the_shipped_selection_on_l2_free_sp(self) -> None:
         """§3.2's null control (PR #204 review [P2], and the automated review's
         own independent check on this exact cell): the replica sweep, scored
-        with the CURRENT (uncorrected, production) criterion instead of the
-        corrected one via ``use_corrected_score=False``, must reproduce
+        with the CURRENT (production) criterion via ``use_corrected_score=False``,
+        must reproduce
         ``data/mgcv_exchange/synthetic/python_reference.json``'s shipped
-        ``l2-free-sp`` selection exactly — ``sp = [3162.2776601683795,
-        1000.0]``. This is the control that proves the replica is faithful to
-        ``select_lambdas_reml`` (same bounds, same coarse+refine grid, same
-        rejection rule, same gamma), so §3.2's "corrected criterion selects
-        closer to mgcv" conclusion is attributable to the SCORE FORMULA alone
-        and not to some other way the replica might have diverged from
-        production. Uses the production module's own default
-        ``bounds``/``coarse_step``/``refine_step``/``gamma`` (all left
-        unset here) — the same defaults ``l2-free-sp`` was actually selected
-        under (``fit_reml`` -> ``select_lambdas_reml``, both called with no
-        override in ``experience_mgcv_conformance._cell_result``)."""
+        ``l2-free-sp`` selection exactly. This is the control that proves the
+        replica is faithful to ``select_lambdas_reml`` (same bounds, same
+        coarse+refine grid, same rejection rule, same gamma), so §3.2's
+        "corrected criterion selects closer to mgcv" conclusion was
+        attributable to the SCORE FORMULA alone and not to some other way the
+        replica might have diverged from production. Uses the production
+        module's own default ``bounds``/``coarse_step``/``refine_step``/``gamma``
+        (all left unset here) — the same defaults ``l2-free-sp`` was actually
+        selected under (``fit_reml`` -> ``select_lambdas_reml``, both called
+        with no override in ``experience_mgcv_conformance._cell_result``).
+
+        **Updated 2026-08-19 (ADR-197 resolution, maintainer-authorized).** The
+        production score is now fixed, so the "current" criterion this test
+        exercises IS the corrected one — ``use_corrected_score=False`` and
+        ``True`` now select the identical point (also asserted directly by
+        :func:`TestSelectLambdasCorrected.test_is_deterministic`-adjacent
+        coverage above). The expected value moves to the fixed production
+        module's own selection, exactly the grid-step move ADR-197 §3.2
+        predicted and this session's regenerated
+        ``python_reference.json`` now records: ``sp = [5623.413251903491,
+        1000.0]`` (was ``[3162.2776601683795, 1000.0]`` under the old,
+        buggy production score)."""
         cells = synthetic_cells(with_factor=False)
         selection = select_lambdas_corrected(cells, k_age=7, k_year=6, use_corrected_score=False)
-        assert selection.lambda_age == pytest.approx(3162.2776601683795, rel=1e-9)
+        assert selection.lambda_age == pytest.approx(5623.413251903491, rel=1e-9)
         assert selection.lambda_year == pytest.approx(1000.0, rel=1e-9)
 
 
