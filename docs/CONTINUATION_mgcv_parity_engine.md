@@ -21,14 +21,23 @@ has now RUN, 2026-08-18** (ADR-197, tier 1 and tier 3 identical, CI run 32181109
 shipped, production `experience_gam_penalized.reml_score` DOES carry the identical
 omission, and the registered §3.2 prediction HELD on all three free-sp cells (the
 corrected grid search selects measurably closer to `mgcv`'s own free-sp selection
-everywhere tested). **Recommendation, maintainer-gated, not decided by this epic's
-routine: fix `experience_gam_penalized.reml_score` the same way ADR-196 fixed
-`gam_reml.reml_score_general`** — but doing so moves the committed
-`data/mgcv_exchange/synthetic/python_reference.json`, and PLAN Anchor 7 reserves that
-re-baseline for a separate, explicitly maintainer-directed session. **Slice 4 part B is
-now unblocked to proceed regardless of that decision** — the outer search builds on
-`gam_reml.reml_score_general`, which was already correct before ADR-197's session ran.
-This remains the epic's largest remaining piece of work, and slices 5-7 all depend on it.
+everywhere tested). **RESOLVED, 2026-08-19 (ADR-197 amendment, maintainer-authorized):**
+the maintainer explicitly authorized "fix `experience_gam_penalized.reml_score` the same
+way ADR-196 fixed `gam_reml.reml_score_general` (add the missing term)". The fix is
+applied — `experience_gam_penalized.reml_score` and `gam_reml.reml_score_general` now
+compute the identical criterion, bit-for-bit — and `data/mgcv_exchange/synthetic/
+python_reference.json` is re-baselined via its own regeneration path, moving exactly as
+§3.2 predicted on all three named free-sp cells (`l2-free-sp` λ_age 3162.28→5623.41,
+λ_year unchanged) plus `l5-gamma` (not one of the three §3.2 named, same mechanism). The
+full ten-cell conformance suite re-run against the fixed module (tier 1 confirmed, tier 3
+pending/confirmed — see ADR-197) shows required levels 1-3 still AGREE (no regression) and
+level 5 (Wood's `gamma`) moves from DISAGREES to AGREES — an improvement beyond what §3.2
+alone measured. Level 4 (Kass-Steffey covariance) is unchanged in kind, ADR-190's separate,
+already-tracked `dw/drho` gap. **Slice 4 part B remains unblocked to proceed** — the outer
+search builds on `gam_reml.reml_score_general`, already correct before ADR-197's session
+ran, and now the production 2-D grid selector agrees with it too rather than being two
+steps removed. This remains the epic's largest remaining piece of work, and slices 5-7 all
+depend on it.
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16) and one deferred
 to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
@@ -230,15 +239,16 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    ADR-190's separately-characterized 3.2-4.1x gap — **this bug is not a material
    contributor to the standing level-4 BLOCKER.**
 
-   **Recommendation (ADR-197 decision 2), maintainer-gated, not decided here:** fix
-   `experience_gam_penalized.reml_score` the same way ADR-196 fixed
-   `gam_reml.reml_score_general` (add the missing `β̂ᵀSβ̂` term) and re-baseline
-   `data/mgcv_exchange/synthetic/python_reference.json` against the fixed selector.
-   `tests/qa/golden_outputs/` is confirmed NOT at risk (PR #203 third review measured
-   this directly: the golden runner never imports `experience_gam_penalized`), but the
-   `python_reference.json` re-baseline still needs the maintainer's explicit, separate
-   sign-off (PLAN Anchor 7) — not done in ADR-197's session, and not a follow-up commit
-   to it.
+   **RESOLVED, 2026-08-19 (ADR-197 amendment, maintainer-authorized):** the maintainer
+   explicitly authorized the fix ("Proceed to fix `experience_gam_penalized.reml_score`
+   the same way ADR-196 fixed `gam_reml.reml_score_general` (add the missing term)").
+   Applied — same pattern, same Wood (2011) §2 eq. (4) citation — and
+   `data/mgcv_exchange/synthetic/python_reference.json` re-baselined via its own
+   regeneration path (`export_mgcv_case.py`, not hand-edited), moving exactly as §3.2
+   predicted. `tests/qa/golden_outputs/` reconfirmed byte-identical after the ACTUAL fix
+   (`git diff` empty), not merely the prior diagnostic-patch measurement. Full details,
+   the exact delta, and the re-run ten-cell conformance measurement are in ADR-197's
+   2026-08-19 resolution amendment.
 
    **Slice 4 part B is now unblocked to proceed, regardless of that decision** — the
    outer search builds on `gam_reml.reml_score_general`, which was already correct
@@ -264,7 +274,7 @@ across the slice structure.
 | Gap | mgcv feature | Status | Blocked on |
 |---|---|---|---|
 | Multi-penalty REML criterion (Python-side) | The penalized-deviance criterion, Wood (2011) §2 eq. (4), for any number of independently-scaled penalty blocks | **FIXED, 2026-08-18** (ADR-196) — the score was missing `β̂ᵀSβ̂`; adding it closed the gap to float precision, tier 1 and tier 3 identical | Nothing — DONE |
-| Same criterion, production module | `experience_gam_penalized.reml_score` — the SHIPPED tensor-MI 2-D grid selector's own score, same formula shape, same omission | **CONFIRMED wrong, MEASURED, NOT fixed** (ADR-197, 2026-08-18) — §3.2's registered prediction held on all 3 free-sp cells, tier 1 and tier 3 identical; fixing it is a recommendation, re-baseline is maintainer-gated (PLAN Anchor 7) | A separate, later, explicitly maintainer-directed session (ADR-197 decision 2) |
+| Same criterion, production module | `experience_gam_penalized.reml_score` — the SHIPPED tensor-MI 2-D grid selector's own score, same formula shape, same omission | **FIXED, 2026-08-19** (ADR-197 amendment, maintainer-authorized) — identical fix to ADR-196's, `python_reference.json` re-baselined moving exactly as §3.2 predicted, required conformance levels 1-3 still agree, level 5 moved from DISAGREES to AGREES | Nothing — DONE |
 | N-dimensional outer search | Newton/quasi-Newton (f)REML optimisation over 13-21 `log λ` | **Not started, now unblocked** — `gam_reml.reml_score_general` was already correct before ADR-197's session ran | Buildable now |
 | `ti()` — tensor interaction | Tensor product with marginal main effects excluded | **Not started** | The outer search (slice 5) |
 | `s(..., by=...)` with a `cr` basis | The MI term itself — a `cr` basis scaled by a numeric `by` variable | **Not started** | The outer search (slice 5) |

@@ -15839,3 +15839,179 @@ number, unchanged from the original table) is identical between the two tiers at
 printed digit. `experience_gam_penalized.py`, `python_reference.json` and
 `tests/qa/golden_outputs/` remain untouched — this amendment adds a measurement and a test,
 not a code change to any protected artifact.
+
+### Amendment (2026-08-19) — RESOLVED: the maintainer authorized the fix, and it is applied
+
+**The maintainer's explicit authorization, quoted in full:** "Proceed to fix
+`experience_gam_penalized.reml_score` the same way ADR-196 fixed
+`gam_reml.reml_score_general` (add the missing term)." This removes PLAN Anchor 7's block
+for exactly this one change — Decision 2's recommendation above is now executed, closing
+this ADR's own open item. Nothing else in Anchor 7's general protection of
+`experience_gam_penalized.py` is waived.
+
+**The fix.** `experience_gam_penalized.reml_score` (line ~761) now computes
+`penalized_deviance = deviance + float(coef @ penalty @ coef)` immediately after the plain
+`deviance`, with the same Wood (2011) §2 eq. (4) citation as `gam_reml.reml_score_general`'s
+own comment, and uses `penalized_deviance` in place of `deviance` in the score's return
+expression — the identical pattern, same paper, same equation, same derivation already
+reviewed once for `gam_reml.py`. Verified bit-for-bit: `gam_reml.reml_score_general` and
+`experience_gam_penalized.reml_score` now compute the SAME value on every fixture tested
+(diff `0.0` exactly, not merely within tolerance) — the `new == old + missing_term`
+relationship this ADR's own tests pinned collapsed to `new == old` (`missing_term` is now
+exactly `0`), which is what "the identical omission is fixed on both sides" means measured
+rather than asserted.
+
+**`data/mgcv_exchange/synthetic/python_reference.json` re-baselined, via the codebase's own
+regeneration path** (`uv run python scripts/export_mgcv_case.py --case synthetic -o
+data/mgcv_exchange/synthetic` — the same command `test_the_committed_exchange_is_what_this_
+code_exports` names on staleness; not hand-edited). The exchange itself is unchanged
+(`sha256:78dc8914de78b3f7d3e987427d5224692afc1f136f91cd79518efd2610db71e5`, identical before
+and after — only the fits inside it moved). **The delta matches §3.2's registered
+prediction exactly, to every printed digit, on all three free-`sp` cells the prediction
+named:**
+
+| cell | `sp` before | `sp` after | `edf_total` before | `edf_total` after |
+|---|---|---|---:|---:|
+| `l2-free-sp` | `[3162.2776601683795, 1000.0]` | `[5623.413251903491, 1000.0]` | 8.211423 | 7.661360 |
+| `l2-free-sp-factors` | `[3162.2776601683795, 10000.0]` | `[3162.2776601683795, 5623.413251903491]` | 8.572232 | 9.026647 |
+| `l2-free-sp-kb` | `[10000.0, 316.22776601683796]` | `[31622.776601683792, 177.82794100389228]` | 8.504061 | 7.641616 |
+
+Every value in the "after" column is identical, to every printed digit, to §3.2's already-
+published "corrected" column above and to the [P1] amendment's "corrected" EDF column —
+three structurally different routes (a maintainer-run local patch, this session's own
+from-scratch diagnostic replica, and now the actual production fix regenerating the real
+committed reference) landing on the identical number. **λ_year is unchanged on
+`l2-free-sp`, exactly as predicted.** `coef` moved on all three free-`sp` cells
+(the refit at the new λ), and `deviance`/`reml_score` moved on every cell in the file,
+including the six FIXED-`sp` cells (`l1-*`) and `l5-gamma` — expected, since the score
+formula itself changed even where selection did not move (a fixed-`sp` fit's `coef` does
+not depend on the score). **`l5-gamma`'s `sp` also moved**
+(`[5623.413251903491, 1778.2794100389228]` → `[31622.776601683792, 1778.2794100389228]`,
+`edf_total` 7.195463 → 6.065984) — not one of §3.2's three named cells (that table covered
+only the three plain free-`sp` cells), but the identical mechanism, and level 5 of the
+conformance suite (below) shows this move landed CLOSER to `mgcv`, not further.
+
+**The full ten-cell `mgcv` conformance suite re-run against the fixed production module and
+the re-baselined reference, tier 1 (R 4.3.3 / mgcv 1.9.1, local apt) — before vs after, on
+the SAME committed exchange:**
+
+| metric | cell | before (buggy score) | after (fixed score) |
+|---|---|---:|---:|
+| `max_abs_log10_sp_diff` | `l2-free-sp` | 0.3145 | **0.0645** |
+| `max_abs_log10_sp_diff` | `l2-free-sp-factors` | 0.1709 | **0.0791** |
+| `max_abs_log10_sp_diff` | `l2-free-sp-kb` | 0.4322 | **0.1048** |
+| `abs_edf_total_diff_free_sp` | `l2-free-sp` | 0.6514 | **0.1013** |
+| `abs_edf_total_diff_free_sp` | `l2-free-sp-factors` | -0.4806 | **-0.0262** |
+| `abs_edf_total_diff_free_sp` | `l2-free-sp-kb` | 0.8733 | **0.0109** |
+| `max_abs_log10_sp_diff_gamma` | `l5-gamma` | 0.6724 (FAIL, tol 0.5) | **0.0776** (PASS) |
+| `abs_edf_total_diff_gamma` | `l5-gamma` | 1.1270 (FAIL, tol 1.0) | **-0.0024** (PASS) |
+
+```
+before:  level 1: AGREES   level 2: AGREES   level 3: AGREES   level 4: DISAGREES   level 5: DISAGREES
+after:   level 1: AGREES   level 2: AGREES   level 3: AGREES   level 4: DISAGREES   level 5: AGREES
+```
+
+**Required levels 1-3 (slice 5's own acceptance criteria) AGREE both before and after — no
+regression.** Level 5 (Wood's `gamma`, PLAN Anchor 9 — previously UNSETTLED) now AGREES,
+a genuine additional improvement beyond what §3.2 measured (which covered only the three
+plain free-`sp` cells, not `l5-gamma`). **Level 4 (the Kass-Steffey unconditional
+covariance) still DISAGREES, unchanged in kind** —
+`rel_unconditional_inflation_diff` still fails on `l2-free-sp` (-0.322, was -0.361) and
+`l2-free-sp-kb` (-0.334, was -0.350); this is ADR-190's separately-derived,
+separately-tracked `dw/drho` gap (a different missing term, a different derivation
+entirely), and §3.3's already-published finding that this specific bug "is not a material
+contributor to the standing level-4 BLOCKER" holds: the move is in the same small-and-
+insufficient direction §3.3 characterized, not a new regression.
+
+**Tier 3** confirmation: CI run
+[32204739991](https://github.com/jonathancrawford05/polaris-re/actions/runs/32204739991),
+commit `ce0b9f1` (R 4.6.1 / mgcv 1.9.4, oracle
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`, build 8, same
+digest as every prior measurement in this epic), both jobs completed in ~63s
+(`mgcv reference (R)`: 34s; `Compare against the Python reference`: 29s). Every number in
+the before/after table above — `max_abs_log10_sp_diff` (0.0645/0.0791/0.1048),
+`abs_edf_total_diff_free_sp` (0.1013/-0.0262/0.0109), `max_abs_log10_sp_diff_gamma`
+(0.0776), `abs_edf_total_diff_gamma` (-0.0024), `rel_unconditional_inflation_diff`
+(-0.322 on `l2-free-sp`, -0.334 on `l2-free-sp-kb`, both still FAIL), and the level
+verdicts (`1 AGREES 2 AGREES 3 AGREES 4 DISAGREES 5 AGREES`) — is IDENTICAL to tier 1 at
+every printed digit.
+
+**Tests updated — not hardcoded values papered over, but the underlying selected λ
+legitimately moving, verified case by case:**
+
+1. `test_gam_reml.py::TestRelationshipToTheExistingPoissonScore` (2 tests) — previously
+   pinned `reml_score_general == experience_gam_penalized.reml_score + missing_term`
+   (`missing_term > 0`); now both formulas carry the identical fix, so
+   `missing_term == 0` and the tests were rewritten to pin bit-for-bit agreement
+   (`reml_score_general == experience_gam_penalized.reml_score`, `abs=1e-9`) instead —
+   the exact zero-penalty test (`test_matches_at_zero_penalty`) needed no change, since it
+   already asserted agreement.
+2. `test_gam_reml_production_check.py::TestCorrectedReMLScore` (1 test) — same
+   relationship, same rewrite, in the diagnostic module's own regression test
+   (`corrected_reml_score` vs `production_reml_score`).
+3. `test_gam_reml_production_check.py::TestSelectLambdasCorrected::
+   test_current_criterion_reproduces_the_shipped_selection_on_l2_free_sp` (the §3.2 [P2]
+   null control) — its expected `l2-free-sp` selection moves from
+   `[3162.2776601683795, 1000.0]` to `[5623.413251903491, 1000.0]`, since
+   `use_corrected_score=False` now calls the FIXED production formula. Still verifies what
+   it always verified (the replica is faithful to `select_lambdas_reml`'s own bounds/grid/
+   rejection rule) — just against the new, correct target.
+4. `test_experience_mgcv_conformance.py::test_the_committed_reference_is_what_this_code_
+   computes` (named in the work order) — a **self-consistency** check (regenerates fresh
+   from current code, diffs against the committed file); needed NO code change at all —
+   it now passes because the committed reference was regenerated with `write_python_
+   reference`, the same function/path the test itself calls, not hand-edited.
+5. `test_experience_gam_penalized.py::test_both_bands_collapse_when_the_basis_cannot_
+   represent_the_truth` (named in the work order) — a Monte-Carlo coverage study that fits
+   at `select_lambdas_reml`'s seed-999 selection every replicate. The penalized estimator's
+   old-age coverage **legitimately improved** with the corrected λ selection: 0.7598 →
+   0.8282 (overall 0.8505 → 0.8995, young-age 0.9073 → 0.9447), while the delta-method
+   column is unchanged (0.6687, 0.8461, 0.9436 — it has no λ, so `reml_score` never enters
+   it, which is the control that shows the move is attributable to the fix). **The
+   docstring's "shared failure ~67-76% for both" framing is retired**: after the fix old
+   age is no longer a shared, similar-magnitude failure — it is now primarily the delta
+   method's. The hardcoded `p_old < 0.80` bound was updated to `0.80 <= p_old < 0.90`
+   (still short of nominal 95% coverage, the fixture's actual point) rather than widened or
+   dropped; `d_old < 0.80` is unchanged.
+6. `test_experience_gam_penalized.py::test_the_smoothing_variance_matches_the_measured_
+   lambda_spread` (named in the work order) — the more consequential finding. On this exact
+   fixture (`_quadratic_mi`, the "age-varying" truth ADR-187 amendment 1 measured at 0.75
+   empirical decades), the corrected criterion moves `select_lambdas_reml`'s own selection
+   from an interior `lambda_age ≈ 31622.78` to the search bound itself, `lambda_age =
+   10**8` (`LAMBDA_LOG10_BOUNDS`'s own upper edge — `n_evaluated` drops from 202 to 166,
+   `select_lambdas_reml`'s own documented signature for "winner clips at a bound"). A
+   boundary optimum has zero-or-negative REML curvature in that direction by construction,
+   so the age-axis eigenvalue of the finite-difference Hessian now legitimately floors —
+   `smoothing_uncertainty`'s own `n_floored` reads `1`, not `0`, and the age-axis entry of
+   `V_rho` is the search bound's own width cap (exactly `(ln(10)*(8-(-2))/2)^{-2}`, verified
+   numerically: the reported decades value is `4.99999989`, matching the cap to float
+   precision), not a measured curvature. **This is a genuine, derived finding, not a bug in
+   the fix and not something to paper over**: `LAMBDA_LOG10_BOUNDS` is out of scope for this
+   session (Anchor 7 authorized only the one-line score fix), so the age-axis comparison
+   against ADR-187's empirical spread is retired for this fixture rather than silently kept.
+   The test now asserts `n_floored == 1` (the newly-correct precondition) and checks only
+   the year axis (still interior, `sd ≈ 1.53` decades, still inside the `0.1-10.0`
+   plausibility band) against ADR-187's spread — the year axis is unaffected because this
+   fixture's `lambda_year` selection stays interior after the fix.
+
+**`tests/qa/golden_outputs/` confirmed to stay byte-identical after the ACTUAL fix** (not
+merely the prior diagnostic-patch measurement) — `git diff tests/qa/` is empty. This
+reconfirms, rather than merely re-cites, ADR-196's resolution section and the work order
+§5's own claim that the golden runner never imports `experience_gam_penalized`.
+
+**Quality gate:** `ruff format`/`ruff check` clean.
+`uv run pytest tests/ -m "not slow"`: **3309 passed, 5 failed, 22 skipped, 126 deselected**
+— IDENTICAL counts to PR #204's own last-known baseline (3309 passed). The 5 failures are
+the same pre-existing `data/mortality_tables/*.csv`-absent root cause this epic's sessions
+have repeatedly confirmed unrelated (the CSVs are not part of this checkout). Net delta:
+**zero regressions, zero new failures** — the 6 test rewrites above changed WHAT some
+already-passing tests assert, not the pass/fail count. `uv run pytest tests/qa/`: **85
+passed, 9 skipped**, unchanged from baseline; `git diff tests/qa/` is empty — byte-identical
+goldens, reconfirmed after the actual fix (not merely cited from the prior diagnostic-only
+measurement).
+
+**What this closes.** ADR-197's own Decision 2 recommendation is executed; the production
+tensor-MI 2-D grid selector (`select_lambdas_reml`) and `gam_reml.reml_score_general` now
+compute the identical REML criterion, so slice 4 part B's outer search (already unblocked
+in principle per Decision 3 above) inherits a production module that agrees with its own
+criterion rather than one two steps removed from it.

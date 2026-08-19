@@ -2490,22 +2490,29 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   *Source: this session (1st-order — closes the gating item ahead of slice 4
   part B).*
 
-- **Recommendation, maintainer-gated, not decided by this session:** fix
-  `experience_gam_penalized.reml_score` the same way ADR-196 fixed
-  `gam_reml.reml_score_general` (add the missing `β̂ᵀSβ̂` term). §3.2's
-  measurement is a real, if modest, improvement in every cell tested, and no
-  measurement here argues against fixing it. **But fixing it moves the
-  committed `data/mgcv_exchange/python_reference.json`** (confirmed, not
-  assumed — §3.2's own independent grid-search replica reproduces the exact
-  move a maintainer-run local patch already found), which is the one artifact
-  this work order was explicitly forbidden from re-baselining without
-  separate, explicit sign-off (PLAN Anchor 7). Not done in this session.
-  *Source: this session — needs the maintainer's decision, not a routine
-  session's (flagged, not classified as a work item pending that decision).*
+- **RESOLVED, 2026-08-19.** The maintainer explicitly authorized the
+  recommendation above: "Proceed to fix `experience_gam_penalized.reml_score`
+  the same way ADR-196 fixed `gam_reml.reml_score_general` (add the missing
+  term)." Applied verbatim (same Wood (2011) §2 eq. (4) pattern, same
+  citation style). `data/mgcv_exchange/synthetic/python_reference.json`
+  re-baselined via its own regeneration path (`export_mgcv_case.py`, not
+  hand-edited) — the delta matches §3.2's registered prediction to the
+  printed digit on all three named free-sp cells, plus `l5-gamma` (same
+  mechanism, not one of the three originally named). The full ten-cell `mgcv`
+  conformance suite re-run against the fixed module: required levels 1-3
+  still AGREE (no regression), and level 5 (Wood's `gamma`) moves from
+  DISAGREES to AGREES — an improvement beyond what §3.2 alone measured. Level
+  4 (Kass-Steffey covariance) is unchanged in kind — ADR-190's separate,
+  already-tracked `dw/drho` gap, confirmed not a material contributor to it
+  by §3.3, unaffected here. `tests/qa/golden_outputs/` reconfirmed
+  byte-identical after the actual fix. Full measurement, both tiers, in
+  ADR-197's 2026-08-19 resolution amendment (`docs/DECISIONS.md`) and
+  `docs/CONFORMANCE_LEDGER.md`. *Source: this session (1st-order — closes the
+  maintainer-gated follow-up from 2026-08-18c).*
 
-- **Slice 4 part B (the N-dimensional outer search) is now unblocked to
-  proceed** — the work order's gate is satisfied (measured and characterized,
-  per its own acceptance criteria) whether or not the maintainer elects to fix
-  the production module first; the search's own criterion (`gam_reml.
-  reml_score_general`) was already correct before this session ran. *Source:
-  this session (1st-order — the epic's own next slice).*
+- **Slice 4 part B (the N-dimensional outer search) remains unblocked to
+  proceed** — the work order's gate was already satisfied before this
+  session; now the production 2-D grid selector agrees with the search's own
+  criterion (`gam_reml.reml_score_general`) too, rather than being two steps
+  removed from it. *Source: this session (1st-order — the epic's own next
+  slice).*
