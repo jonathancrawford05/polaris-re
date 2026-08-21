@@ -313,14 +313,26 @@ should be re-synced.
    The SAME missing term DOES affect `experience_gam_penalized.reml_score`, and §3.2's
    registered prediction held on all 3 free-sp cells — the corrected criterion selects
    measurably closer to `mgcv`'s own free-sp selection everywhere tested.
-   Recommendation: fix it (mirrors ADR-196's fix exactly); the re-baseline of
-   `data/mgcv_exchange/synthetic/python_reference.json` this implies is maintainer-gated
-   (PLAN Anchor 7) and NOT done in ADR-197's session. See ADR-197 for the full
-   measurement and recommendation.
+   ~~Recommendation: fix it~~ **— and the fix is DONE, 2026-08-21.** The maintainer gave
+   the PLAN Anchor 7 sign-off for that one line;
+   `data/mgcv_exchange/synthetic/python_reference.json` was re-baselined through its own
+   regeneration script (`scripts/export_mgcv_case.py`, not hand-edited); the delta matched
+   §3.2's registered prediction to every printed digit. Conformance moved **level 5
+   DISAGREES → AGREES**, levels 1-3 AGREE throughout, level 4 unchanged. See ADR-197's
+   resolution amendment.
 3. **Slice 4 part B — the N-dimensional outer search.** Newton/quasi-Newton on the
-   (f)REML score. Now UNBLOCKED — (2) above is resolved (measured and characterized;
-   the search's own criterion needed no fix). The largest remaining implementation
-   effort in the epic (PLAN §3).
+   (f)REML score. **This is now the epic's next piece of work** — (2) above is fully
+   resolved, on both sides. The largest remaining implementation effort in the epic
+   (PLAN §3). **Arrive with ADR-198's registered prediction in hand:** after the fix,
+   every free-`sp` cell disagrees with `mgcv` by less than half the production grid's own
+   refinement step (0.0645 / 0.0791 / 0.1048 / 0.0776 against 0.125), and ADR-198
+   hypothesises that the grid quantisation **is** what remains. A continuous optimiser
+   should drive those toward its convergence tolerance; **if they stall near 0.1, ADR-198
+   is refuted and the criterion still differs from `mgcv`'s somewhere** — which is the
+   more important result of the two. There is a cheaper pre-test that needs no new code:
+   re-run those four cells at `refine_step = 0.05` (already a parameter of
+   `select_lambdas_reml`) and see whether the residual tracks the half-step down to
+   ~0.025.
 4. **Slice 5 — `ti()` and the MI term.** Ship the MI term first if they split (PLAN
    §3: it's the cheap, well-conditioned one and the actual point of the target
    formula).
@@ -407,6 +419,17 @@ should be re-synced.
   rigour and is least informative.
 - **The conformance CI gate blocks on levels 1-3 and annotates 4-5.** Do not narrow
   `REQUIRED_LEVELS` to go green.
+- **There are TWO searches over λ and only one of them is scheduled to become continuous**
+  (ADR-198). Slice 4 part B builds a continuous Newton/quasi-Newton optimiser **for this
+  epic's engine**, because the target has 13 smoothing parameters (21 with
+  `select = TRUE`) and a three-point grid in 14 dimensions is 4.8 million fits — the grid
+  is not slow there, it is impossible. The **shipped production selector**
+  (`experience_gam_penalized.select_lambdas_reml`) keeps its grid: two dimensions where
+  the grid is affordable, and ADR-186 chose it *deliberately* over a continuous optimiser
+  to get reproducibility by construction (three fresh interpreters, exact repr equality).
+  Re-pointing production at part B's optimiser later is a separate decision needing its own
+  Anchor 7 sign-off and its own answer on determinism. Do not conflate the two when
+  reporting what "parity" will mean.
 
 ## Carried in from the superseded epic
 
@@ -427,6 +450,22 @@ should be re-synced.
   open, and a reader should not mistake it for an active epic.
 
 ## Open questions (for human)
+
+- **Should the level-5 `gamma` tolerances be promoted from PROVISIONAL?** (PR #204 round-2
+  review, ADR-198.) After ADR-197's fix they pass with room —
+  `max_abs_log10_sp_diff_gamma` 0.0776 against tol 0.5, `abs_edf_total_diff_gamma` -0.0024
+  against tol 1.0. PLAN Anchor 8 marked them provisional because `gamma` had not been run
+  against `mgcv` when they were set; it has now. **For:** a tolerance nothing comes near
+  measures nothing. **Against:** one exchange is thin evidence for tightening, and ADR-187
+  amendment 2's finding stands — `gamma` is parity, not remedy. The routine is forbidden
+  from setting a tolerance itself either way (Anchor 8), so this waits.
+- **Does the penalized band's coverage move change anything downstream?** (ADR-188
+  amendment 2.) Old-age coverage went 0.7598 → 0.8282 with the corrected λ selection while
+  the delta-method control held at 0.6687. The routine's reading is that nothing changes —
+  **slice 4's gate still fails** (0.9192 floor untouched, still no 95% band anywhere in this
+  project) — but the PRODUCT_DIRECTION item asking whether the penalized band should ever be
+  shown to a user was written when the two estimators looked equally bad at old age, and
+  they no longer do.
 
 - **The duration treatment on real data** — band as factor, or band as ordered numeric via
   a representative value. The maintainer has reserved this as a modelling judgement; the

@@ -14162,6 +14162,39 @@ now fails where before it would have passed.
 The premise reproduction itself is not lost; it is recorded above, with the platform it
 was observed on named.
 
+### ADR-188 amendment 2 — old age is no longer a *shared* failure; ADR-197's fix moved the penalized band and not the delta method (2026-08-21)
+
+**Finding 3's numbers stand as measured, and one of its framings does not.** ADR-188 and
+the material around it described old-age (≥80) coverage as a failure the penalized band and
+the unpenalized delta method share at similar magnitude — "~67-76% for both", in the
+docstring of `test_experience_gam_penalized.py`'s coverage study. **That framing is
+retired.**
+
+ADR-197's resolution fixed the REML criterion `select_lambdas_reml` selects on, so the λ
+this study fits at moved. Measured on the same fixture, same replicates, same seed:
+
+| band | old ≥80 before | old ≥80 after | overall before | overall after | young ≤50 before | young ≤50 after |
+|---|---:|---:|---:|---:|---:|---:|
+| penalized | 0.7598 | **0.8282** | 0.8505 | 0.8995 | 0.9073 | 0.9447 |
+| unpenalized delta | 0.6687 | **0.6687** | 0.8461 | 0.8461 | 0.9436 | 0.9436 |
+
+**The delta-method column is the control and it did not move**, which is the point: it has
+no λ, so `reml_score` never enters it, and the penalized band's improvement is therefore
+attributable to the fix rather than to anything about the study. Old age is now **primarily
+the delta method's failure** (0.6687) rather than a shared one — the gap between the two
+widens from 9 points to 16, which is what makes "shared, similar magnitude" no longer a
+description of what was measured.
+
+**What does not change.** The gate still does not pass: 0.8282 is short of nominal, the
+0.9192 floor is untouched, and **nothing in this project may be labelled a 95% band**. The
+study's own bound was tightened from `p_old < 0.80` to `0.80 <= p_old < 0.90` — narrowed to
+the new measurement, not widened past it (Anchor 8) — and the test renamed from
+`test_both_bands_collapse_when_the_basis_cannot_represent_the_truth` to
+`test_the_unpenalized_band_collapses_while_the_penalized_band_does_not_quite`. Finding 3's
+headline (the unpenalized band covers better at 4.4x the width) also still holds on its own
+fixture; this amendment corrects the *shared-failure* characterisation of the old-age tail,
+not the interval comparison.
+
 ---
 
 ## ADR-189: the `mgcv` conformance suite — a committed golden, not a live oracle (penalized MI surface, Slice 5)
@@ -16020,3 +16053,145 @@ tensor-MI 2-D grid selector (`select_lambdas_reml`) and `gam_reml.reml_score_gen
 compute the identical REML criterion, so slice 4 part B's outer search (already unblocked
 in principle per Decision 3 above) inherits a production module that agrees with its own
 criterion rather than one two steps removed from it.
+
+---
+
+## ADR-198: what is left between us and `mgcv` on `sp` is the size of our own grid cell — a hypothesis, with the measurement that would refute it
+
+**Date:** 2026-08-21
+**Status:** Accepted (as a **hypothesis with a registered discriminating test**, not as a
+result — see "What would refute this")
+**Context:** ADR-197's resolution amendment fixed the production REML criterion and moved
+every free-`sp` conformance metric substantially closer to `mgcv`, but **not to zero**. The
+maintainer asked, in as many words, whether we now *match* `mgcv` or are merely closer, and
+whether the grid-vs-continuous-optimiser difference is what remains. This ADR answers the
+second question in a form that can be checked, and records it so that slice 4 part B is
+built against a stated expectation rather than an open-ended hope.
+
+### The claim
+
+**After ADR-197's fix, every remaining `sp` disagreement with `mgcv` is smaller than half
+the selector's own grid resolution.** `REFINE_STEP = 0.25` decades (`experience_gam_
+penalized.py:694`), so the finest distinction `select_lambdas_reml` is *capable* of drawing
+is 0.25 decades in `log10 λ`, and the largest error attributable purely to landing on the
+nearest grid point rather than the continuous optimum is **0.125 decades**.
+
+| cell | `max_abs_log10_sp_diff` before ADR-197's fix | after | vs. half-grid-step 0.125 |
+|---|---:|---:|---|
+| `l2-free-sp` | 0.3145 | 0.0645 | **inside** |
+| `l2-free-sp-factors` | 0.1709 | 0.0791 | **inside** |
+| `l2-free-sp-kb` | 0.4322 | 0.1048 | **inside** |
+| `l5-gamma` | 0.6724 | 0.0776 | **inside** |
+
+(`l5-gamma` is the same selector under `gamma = 1.4`; it is included because it is a free-`sp`
+selection and it moved, not because §3.2's prediction named it — it did not.)
+
+**Before the fix, all four exceeded half a grid step** (the smallest, 0.1709, by 1.4x; the
+largest, 0.6724, by 5.4x) — the disagreement was
+larger than the grid could explain, so something other than resolution had to be wrong, and
+ADR-197 found it. **After the fix, all four are inside it.** That is the whole content of
+the claim: the residual is now, on every measured cell, the size of a rounding-to-grid
+error and no longer the size of a wrong criterion.
+
+Provenance (ADR-193): **INDEPENDENT** on both sides — `mgcv`'s `sp` comes from R's own
+continuous outer optimiser, ours from `select_lambdas_reml`'s grid; neither takes the
+other's payload as an input.
+
+### Why this is a hypothesis and not a result
+
+"Consistent with" is not "caused by". Four residuals sitting under a threshold is exactly
+what grid quantisation would produce — and it is also what a small *remaining* criterion
+difference of similar magnitude would produce. The measurement above cannot separate them,
+and it must not be written up as though it could. It is worth recording precisely because
+it is the first time the residual has been small enough for the grid to be a *sufficient*
+explanation.
+
+Two further facts are consistent with it and also fail to settle it: `abs_edf_total_diff_
+free_sp` fell to 0.1013 / -0.0262 / 0.0109 (an order of magnitude), and `edf` is the smoother
+function of `λ` — a small `λ` error should show up *less* in `edf`, which is what §6's
+"`edf` agrees better than `sp` does" expectation already predicted for a search-resolution
+error and would not predict as strongly for a criterion error.
+
+### What would refute this
+
+Registered in advance, cheapest first. Either outcome is a real result.
+
+1. **Refine the grid and watch the residual.** `select_lambdas_reml` already takes
+   `refine_step` as a parameter, so this needs no production change at all — re-run the
+   four cells above at `refine_step = 0.05` (half-step 0.025). **Prediction: every residual
+   in the table falls to roughly 0.025 or below.** If instead the residuals stall at their
+   current values, the remainder is *not* grid resolution and this ADR is refuted — the
+   criterion still differs from `mgcv`'s somewhere, and finding where becomes the next
+   piece of work rather than slice 4 part B.
+2. **The continuous optimiser itself (slice 4 part B).** A Newton/quasi-Newton search on
+   the same criterion has no grid to round to. **Prediction: `max_abs_log10_sp_diff` on
+   these cells collapses toward the optimiser's own convergence tolerance rather than
+   sitting near 0.1.** This is the decisive test, and PLAN slice 4's acceptance criteria
+   have been amended to carry it.
+
+Neither prediction may be met by moving a tolerance (Anchor 8). Note also that test 1 is a
+*measurement* at a non-default parameter, not a proposal to change `REFINE_STEP`: the 0.25
+step was chosen in ADR-186 to buy determinism-by-construction, that trade is still live,
+and nothing here revisits it.
+
+### What this does NOT claim
+
+- **Not parity.** Levels 1-3 AGREE and level 5 now AGREES on their stated tolerances;
+  `sp` is *within tolerance*, not equal. "Closer, and now inside the grid's own resolution"
+  is the accurate sentence.
+- **Not level 4.** `rel_unconditional_inflation_diff` still DISAGREES (-0.322 / -0.334) and
+  is untouched by any of this — ADR-190's `dw/drho` gap is a different missing term in a
+  different derivation, and ADR-197 §3.3 already measured that this bug was not a material
+  contributor to it. A continuous optimiser is not expected to fix level 4 either.
+- **Not a plan to change the production selector.** `select_lambdas_reml` keeps its grid.
+  See "Two searches, not one" below.
+
+### Two searches, not one — which optimiser is scheduled to become continuous
+
+These have been run together in conversation and must not be, so it is recorded here:
+
+- **The new epic's own outer optimiser (slice 4 part B) — YES, continuous, and it is the
+  epic's next major build.** PLAN slice 4 has always specified Newton/quasi-Newton on the
+  (f)REML score in `log λ`, for a reason that has nothing to do with parity aesthetics: the
+  target model has 13 smoothing parameters (21 with `select = TRUE`), and three points per
+  dimension in 14 dimensions is 4.8 million fits. **The grid is not slow at 13 parameters,
+  it is impossible.** ADR-197 Decision 3 already recorded part B as unblocked.
+- **The shipped production selector (`experience_gam_penalized.select_lambdas_reml`) — NO
+  decision to make it continuous exists.** It has two dimensions, where the grid is
+  affordable, and ADR-186 chose the grid *deliberately* over a continuous optimiser to make
+  the selection reproducible by construction (`test_selection_is_reproducible_across_
+  processes` requires exact repr equality across three fresh interpreters). Replacing it
+  would trade a live guarantee for a parity digit and needs its own measurement and its own
+  PLAN Anchor 7 sign-off — the same explicit, per-change authorisation ADR-197's resolution
+  required. **Nothing in this ADR proposes it.** The realistic path, if parity on the
+  production surface is ever wanted, is that slice 4 part B's optimiser proves itself
+  inside the epic first and the production module is re-pointed at it later, as a separate
+  decision with the determinism question answered on its own terms.
+
+### Two decisions this ADR deliberately leaves to the maintainer
+
+Both surfaced by PR #204's round-2 review, and both are the kind the routine is not
+permitted to take on its own:
+
+1. **Should the level-5 `gamma` tolerances be promoted from PROVISIONAL?** They now pass
+   with room — `max_abs_log10_sp_diff_gamma` 0.0776 against tol 0.5, `abs_edf_total_diff_
+   gamma` -0.0024 against tol 1.0. PLAN Anchor 8 labels `gamma` UNSETTLED and its
+   tolerances provisional precisely because they were set before `mgcv` had been run
+   against them; that condition no longer holds. **The case for promoting:** the metrics are
+   now 6x and 400x inside their bounds, and a tolerance nothing is near is not measuring
+   anything. **The case against:** one passing measurement on one exchange is thin evidence
+   for tightening a bound, and ADR-187 amendment 2's finding still stands — `gamma` is
+   parity, not remedy, and the "REML undersmooths" direction it would remedy did not
+   reproduce on the age-varying fixture. **Not decided here.**
+2. **ADR-188's "old age is a shared failure of both estimators" framing is retired** — see
+   ADR-188 amendment 2, added alongside this ADR. That amendment records the measurement
+   and the retraction; what is left for the maintainer is whether the penalized band's move
+   to 0.8282 changes anything about slice 4's failed gate or the PRODUCT_DIRECTION item
+   asking whether the penalized band should be shown to a user at all. **It does not clear
+   the gate** (0.9192 floor untouched), so the routine's own reading is that nothing
+   downstream changes — but that is a judgement about a published gate, and it is recorded
+   here rather than acted on.
+
+**Supersedes nothing.** Extends ADR-197's resolution amendment with the interpretation of
+its own residual, and amends PLAN slice 4's acceptance criteria to test that
+interpretation.

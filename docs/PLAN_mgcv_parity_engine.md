@@ -336,14 +336,19 @@ for it to run against, slice 4).
   the plain deviance the first generalization used. Adding it closed the gap
   to float round-trip precision (~1e-12), tier 1 and tier 3 identical, CI run
   32142352655. `REML_SCORE_CLAIM`'s two quantities are both INDEPENDENT and
-  both now agree — the epic's first Stage-C parity result. **`experience_gam_penalized.reml_score`
-  (the shipped, production tensor-MI selector) appears, by inspection, to have
-  the identical omission** — NOT yet measured or fixed (PLAN Anchor 7 protects
-  it from this epic without maintainer sign-off); scoped as
-  `docs/WORK_ORDER_reml_penalized_deviance_production_check.md`, gating the
-  epic's next session ahead of part B below. **The outer N-dimensional search
-  itself (part B, below) is now buildable in principle but NOT attempted
-  yet** — the work order above is the maintainer-directed next step first.
+  both now agree — the epic's first Stage-C parity result.
+  **`experience_gam_penalized.reml_score` (the shipped, production tensor-MI
+  selector) had the identical omission — measured, then fixed. DONE
+  2026-08-19/21** (ADR-197 and its resolution amendment): the work order
+  `docs/WORK_ORDER_reml_penalized_deviance_production_check.md` measured it at
+  both tiers, the maintainer gave the PLAN Anchor 7 sign-off for that one line,
+  and `data/mgcv_exchange/synthetic/python_reference.json` was re-baselined
+  through its own regeneration script. The two implementations now compute the
+  identical criterion bit-for-bit. Conformance moved level 5 DISAGREES → AGREES,
+  levels 1-3 AGREE throughout (no regression), level 4 unchanged and still
+  DISAGREES (ADR-190's separate `dw/drho` gap). **Part B — the outer
+  N-dimensional search itself — is now the epic's next piece of work**, with a
+  registered prediction to test on arrival (ADR-198, in Acceptance below).
 
 **This is the prerequisite for everything multi-term, and the largest piece of work in the
 epic.** `select_lambdas_reml` sweeps a two-dimensional grid in ~200 fits. The target has
@@ -357,6 +362,33 @@ to within the grid's own resolution — a regression check against something alr
 At 13, it converges on the target structure and lands within a stated distance of `mgcv`'s
 `sp`, with `edf` agreeing **better** than `sp` does (see §6). Determinism across processes,
 as ADR-186 required of the grid.
+
+**Plus one registered prediction, added 2026-08-21 (ADR-198).** Part A's fix (ADR-196,
+carried into production by ADR-197's resolution) left every free-`sp` conformance cell
+disagreeing with `mgcv` by **less than half the grid's own refinement step** —
+`max_abs_log10_sp_diff` of 0.0645 / 0.0791 / 0.1048 / 0.0776 against a half-step of 0.125,
+where before the fix all four exceeded it (0.3145 / 0.1709 / 0.4322 / 0.6724). ADR-198
+states the hypothesis that what
+remains **is** the grid quantisation, and names part B as its decisive test:
+
+> On `l2-free-sp`, `l2-free-sp-factors`, `l2-free-sp-kb` and `l5-gamma`, a continuous
+> optimiser on the same criterion should drive `max_abs_log10_sp_diff` toward its own
+> convergence tolerance rather than leaving it near 0.1.
+
+**Measure this and record it either way** — a residual that stalls near 0.1 under a
+continuous search refutes ADR-198 and means the criterion still differs from `mgcv`'s
+somewhere, which is a more important result than the optimiser shipping. ADR-198 also names
+a cheaper pre-test that needs no new code (re-run those cells at `refine_step = 0.05`);
+running it first is optional but it is the fast way to learn the answer. Neither may be met
+by moving a tolerance (Anchor 8).
+
+**Out of scope here, explicitly:** replacing the *production* selector
+(`experience_gam_penalized.select_lambdas_reml`) with a continuous search. It has two
+dimensions where the grid is affordable, ADR-186 chose the grid deliberately to get
+reproducibility by construction, and PLAN Anchor 7 protects it. If part B's optimiser
+proves itself here, re-pointing production at it is a **separate** decision with its own
+maintainer sign-off and its own answer to the determinism question — see ADR-198, "Two
+searches, not one".
 
 ### Slice 5: `ti()` and the varying-coefficient MI term
 
