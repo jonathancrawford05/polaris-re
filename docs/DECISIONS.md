@@ -16168,29 +16168,29 @@ These have been run together in conversation and must not be, so it is recorded 
   inside the epic first and the production module is re-pointed at it later, as a separate
   decision with the determinism question answered on its own terms.
 
-### Two decisions this ADR deliberately leaves to the maintainer
+### Two decisions the maintainer confirmed (2026-08-21)
 
-Both surfaced by PR #204's round-2 review, and both are the kind the routine is not
-permitted to take on its own:
+Both surfaced by PR #204's round-2 review; both were routine-ineligible (the routine may
+present, not decide) and are now settled:
 
-1. **Should the level-5 `gamma` tolerances be promoted from PROVISIONAL?** They now pass
-   with room — `max_abs_log10_sp_diff_gamma` 0.0776 against tol 0.5, `abs_edf_total_diff_
-   gamma` -0.0024 against tol 1.0. PLAN Anchor 8 labels `gamma` UNSETTLED and its
-   tolerances provisional precisely because they were set before `mgcv` had been run
-   against them; that condition no longer holds. **The case for promoting:** the metrics are
-   now 6x and 400x inside their bounds, and a tolerance nothing is near is not measuring
-   anything. **The case against:** one passing measurement on one exchange is thin evidence
-   for tightening a bound, and ADR-187 amendment 2's finding still stands — `gamma` is
-   parity, not remedy, and the "REML undersmooths" direction it would remedy did not
-   reproduce on the age-varying fixture. **Not decided here.**
-2. **ADR-188's "old age is a shared failure of both estimators" framing is retired** — see
-   ADR-188 amendment 2, added alongside this ADR. That amendment records the measurement
-   and the retraction; what is left for the maintainer is whether the penalized band's move
-   to 0.8282 changes anything about slice 4's failed gate or the PRODUCT_DIRECTION item
-   asking whether the penalized band should be shown to a user at all. **It does not clear
-   the gate** (0.9192 floor untouched), so the routine's own reading is that nothing
-   downstream changes — but that is a judgement about a published gate, and it is recorded
-   here rather than acted on.
+1. **The level-5 `gamma` tolerances are NOT promoted from PROVISIONAL.** One passing
+   measurement on one exchange (`max_abs_log10_sp_diff_gamma` 0.0776 vs tol 0.5,
+   `abs_edf_total_diff_gamma` -0.0024 vs tol 1.0) is not a derivation, and Anchor 8
+   forbids tightening a bound because a single check went green — ADR-187 amendment 2's
+   finding also still stands (`gamma` is parity, not remedy; the undersmoothing direction
+   it would fix did not reproduce on the age-varying fixture). **What changes instead:**
+   PLAN Anchor 9's status for `gamma` moves from "adopted, unmeasured" to "adopted,
+   measured, AGREES" — a factual update, not a new numeric commitment. The tolerance
+   values (0.5, 1.0) stand as provisional until more conformance cells exist to derive a
+   tighter bound from (slice 5/6).
+2. **The coverage move changes nothing downstream.** ADR-188 amendment 2's retraction of
+   the "shared failure" framing is confirmed as final. The PRODUCT_DIRECTION question of
+   whether the penalized band should ever be shown to a user stays **open, and the answer
+   stays no**: 0.8282 old-age coverage is still 12 points short of the nominal 95% it would
+   need to claim, slice 4's gate is still failed (0.9192 floor untouched), and level 4
+   (ADR-190's `dw/drho` gap) remains the standing blocker on labelling any interval a 95%
+   band anywhere in this project. The coverage improvement is real; it does not reverse the
+   default.
 
 **Supersedes nothing.** Extends ADR-197's resolution amendment with the interpretation of
 its own residual, and amends PLAN slice 4's acceptance criteria to test that

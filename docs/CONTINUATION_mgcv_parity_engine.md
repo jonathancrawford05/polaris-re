@@ -449,23 +449,25 @@ should be re-synced.
   change from IN PROGRESS. Not this epic's work, but it is the reason that file is still
   open, and a reader should not mistake it for an active epic.
 
-## Open questions (for human)
+## Decisions confirmed by the maintainer (2026-08-21)
 
-- **Should the level-5 `gamma` tolerances be promoted from PROVISIONAL?** (PR #204 round-2
-  review, ADR-198.) After ADR-197's fix they pass with room —
-  `max_abs_log10_sp_diff_gamma` 0.0776 against tol 0.5, `abs_edf_total_diff_gamma` -0.0024
-  against tol 1.0. PLAN Anchor 8 marked them provisional because `gamma` had not been run
-  against `mgcv` when they were set; it has now. **For:** a tolerance nothing comes near
-  measures nothing. **Against:** one exchange is thin evidence for tightening, and ADR-187
-  amendment 2's finding stands — `gamma` is parity, not remedy. The routine is forbidden
-  from setting a tolerance itself either way (Anchor 8), so this waits.
-- **Does the penalized band's coverage move change anything downstream?** (ADR-188
-  amendment 2.) Old-age coverage went 0.7598 → 0.8282 with the corrected λ selection while
-  the delta-method control held at 0.6687. The routine's reading is that nothing changes —
-  **slice 4's gate still fails** (0.9192 floor untouched, still no 95% band anywhere in this
-  project) — but the PRODUCT_DIRECTION item asking whether the penalized band should ever be
-  shown to a user was written when the two estimators looked equally bad at old age, and
-  they no longer do.
+Both raised by PR #204's round-2 review (ADR-198) and routine-ineligible to decide alone;
+both now settled and should not be reopened without new evidence:
+
+- **The level-5 `gamma` tolerances are NOT promoted from PROVISIONAL.** They pass with
+  room (`max_abs_log10_sp_diff_gamma` 0.0776 vs tol 0.5, `abs_edf_total_diff_gamma`
+  -0.0024 vs tol 1.0), but one exchange is a measurement, not a derivation, and Anchor 8
+  forbids tightening a bound because a check went green. What did change: `gamma`'s Anchor
+  9 status moves from "adopted, unmeasured" to "adopted, measured, AGREES" — a factual
+  update, not a new tolerance. Promote only once slice 5/6 add enough conformance cells to
+  derive a tighter number from.
+- **The coverage move (0.7598 → 0.8282, old age) changes nothing downstream.** Slice 4's
+  gate still fails (0.9192 floor untouched) and the PRODUCT_DIRECTION default — the
+  penalized band is not shown to a user — stands. 82.8% is still 12 points short of the
+  95% it would need to claim, and level 4 (ADR-190's `dw/drho` gap) remains the standing
+  blocker on labelling any interval a 95% band anywhere in this project.
+
+## Open questions (for human)
 
 - **The duration treatment on real data** — band as factor, or band as ordered numeric via
   a representative value. The maintainer has reserved this as a modelling judgement; the

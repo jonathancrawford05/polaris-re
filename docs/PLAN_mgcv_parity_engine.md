@@ -155,7 +155,12 @@ a check green measures nothing.
 **Anchor 9 — anything adopted from `mgcv` is marked adopted until `mgcv` has been run.**
 Carried from the old epic's Anchor 8, where the clause about refutation was not decoration:
 it fired, and the refutation (the Kass-Steffey covariance under-inflates) is the most
-valuable result that epic produced.
+valuable result that epic produced. **`gamma`'s status update, 2026-08-21:** run and
+AGREES (level 5, ADR-197/198) — moved from "adopted, unmeasured" to "adopted, measured,
+AGREES". Its tolerances (0.5, 1.0) stay PROVISIONAL regardless (maintainer-confirmed,
+ADR-198): one passing exchange derives nothing, and Anchor 8 forbids tightening a bound
+because a check went green. Promote only once more conformance cells give something to
+derive a tighter number from.
 
 ## 3. Slices
 
