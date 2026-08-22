@@ -24,8 +24,14 @@ from polaris_re.analytics.experience_mgcv_conformance import (
     rscript_mgcv_available,
     synthetic_cells,
 )
+from polaris_re.analytics.gam_basis_cr import (
+    absorb_sum_to_zero_constraint,
+    by_scale_design,
+    cr_basis,
+)
 from polaris_re.analytics.gam_stage_a import (
     CR_BASIS_CLAIM,
+    CR_BY_BASIS_CLAIM,
     RAW_PATH_CLAIM,
     SMOOTH_PATH_CLAIM,
     TermExtract,
@@ -431,6 +437,129 @@ def test_build_python_cr_term_refuses_more_than_one_variable() -> None:
         build_python_cr_term(x, two_var_term)
 
 
+# --- The numeric-by branch (slice 5, the MI term) -------------------------------------
+#
+# R-free coverage of the by-path's own behaviour, running in the GATING pytest job.
+# The parity comparison against mgcv does run automatically on a PR touching these
+# files (`mgcv-conformance.yml`'s path-filtered `pull_request:` trigger), but it is
+# `continue-on-error` and annotate-only, so it cannot fail a PR — see the longer
+# note in test_gam_basis_cr.py (PR #206 review, as corrected in its second pass).
+
+
+def _by_term(label: str = "s(x)") -> TermSpec:
+    return TermSpec(
+        label=label,
+        variables=("x",),
+        basis="cr",
+        k=(8,),
+        knots=(("x", (0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 9.0, 10.0)),),
+        by="z",
+    )
+
+
+def test_build_python_cr_term_keeps_all_k_columns_for_a_by_term() -> None:
+    """The measured construction fact (ADR-200): mgcv absorbs NO identifiability
+    constraint on a numeric-by smooth, so the by-term keeps all k columns where
+    the no-by term drops to k-1."""
+    rng = np.random.default_rng(7)
+    x = np.sort(rng.uniform(0.0, 10.0, 100))
+    by = rng.normal(size=100)
+    extract = build_python_cr_term(x, _by_term(), by=by)
+    assert (extract.index_start, extract.index_end) == (0, 8)
+    assert extract.design.shape == (100, 8)
+    assert extract.s[0].shape == (8, 8)
+
+
+def test_the_by_term_declares_its_own_claim_not_the_no_by_one() -> None:
+    """The two branches have different producers on both sides, so they must not
+    publish the same legend (PR #206 review [P1])."""
+    rng = np.random.default_rng(7)
+    x = np.sort(rng.uniform(0.0, 10.0, 100))
+    by = rng.normal(size=100)
+    assert build_python_cr_term(x, _by_term(), by=by).evidence is CR_BY_BASIS_CLAIM
+    no_by = TermSpec(
+        label="s(x)",
+        variables=("x",),
+        basis="cr",
+        k=(8,),
+        knots=(("x", (0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 9.0, 10.0)),),
+    )
+    assert build_python_cr_term(x, no_by).evidence is CR_BASIS_CLAIM
+
+
+def test_the_by_claim_is_still_parity_evidence() -> None:
+    """Different producer strings must not have quietly downgraded the claim."""
+    assert CR_BY_BASIS_CLAIM.is_parity_claim
+    require_parity_evidence(CR_BY_BASIS_CLAIM.quantities, claim="Stage-A by-basis parity")
+
+
+def test_the_by_terms_design_is_the_unconstrained_basis_row_scaled() -> None:
+    """Ties build_python_cr_term's by-branch to gam_basis_cr's own primitives,
+    so a future refactor of either cannot silently drift from the other."""
+    rng = np.random.default_rng(11)
+    x = np.sort(rng.uniform(0.0, 10.0, 100))
+    by = rng.normal(size=100)
+    knots = np.array([0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 9.0, 10.0], dtype=np.float64)
+    design_unc, s_unc = cr_basis(x, knots)
+    extract = build_python_cr_term(x, _by_term(), by=by)
+    np.testing.assert_allclose(extract.design, by_scale_design(design_unc, by))
+    # ...and the penalty is the unconstrained one, untouched by the scaling.
+    np.testing.assert_allclose(extract.s[0], s_unc)
+
+
+def test_build_python_cr_term_refuses_a_by_term_with_no_by_array() -> None:
+    x = np.linspace(0.0, 10.0, 50)
+    with pytest.raises(PolarisValidationError, match="both or neither"):
+        build_python_cr_term(x, _by_term())
+
+
+def test_build_python_cr_term_refuses_a_by_array_on_a_non_by_term() -> None:
+    x = np.linspace(0.0, 10.0, 50)
+    no_by = TermSpec(label="s(x)", variables=("x",), basis="cr", k=(8,))
+    with pytest.raises(PolarisValidationError, match="both or neither"):
+        build_python_cr_term(x, no_by, by=np.ones(50, dtype=np.float64))
+
+
+def test_wrongly_constraining_a_by_term_fails_loudly_not_silently() -> None:
+    """What makes slice 5's ~1e-14 agreement load-bearing rather than a number
+    that had no way to come out otherwise (PR #206 review, second pass).
+
+    The obvious-but-wrong implementation of the by-branch — absorb the
+    sum-to-zero constraint anyway, then row-scale — yields `k-1` columns against
+    mgcv's `k`. `compare_term_extract` raises on the shape mismatch rather than
+    reporting a small diff, so that mistake could not have been mistaken for
+    agreement. Pinned here because it is the property the parity claim rests on,
+    and a future refactor of the comparator could weaken it silently.
+    """
+    rng = np.random.default_rng(3)
+    n = 60
+    x = np.sort(rng.uniform(0.0, 10.0, n))
+    by = rng.normal(size=n)
+    knots = np.array([0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 9.0, 10.0], dtype=np.float64)
+    design_unc, s_unc = cr_basis(x, knots)
+
+    # The correct construction: k columns, no constraint absorbed.
+    correct = build_python_cr_term(x, _by_term(), by=by)
+    assert correct.design.shape[1] == knots.shape[0]
+
+    # The wrong one: constraint absorbed first, so k-1 columns.
+    design_c, s_c = absorb_sum_to_zero_constraint(design_unc, s_unc)
+    wrong = TermExtract(
+        label="s(x)",
+        index_start=0,
+        index_end=design_c.shape[1],
+        design=by_scale_design(design_c, by),
+        s=(s_c,),
+        rank=(int(np.linalg.matrix_rank(s_c)),),
+        evidence=CR_BY_BASIS_CLAIM,
+    )
+    assert wrong.design.shape[1] == knots.shape[0] - 1
+
+    r_payload = _as_r_term(correct)  # stands in for mgcv's k-column block
+    with pytest.raises(PolarisComputationError, match="not comparable element-wise"):
+        compare_term_extract(wrong, r_payload)
+
+
 # --- End to end: the R script itself, proving the harness (Anchor 1) ------------------
 
 
@@ -544,18 +673,27 @@ def test_the_r_extractor_agrees_with_the_python_side_on_every_smooth_design(
 # knots when supplied), and reading either k or the knot values back off the R
 # payload would violate ADR-193's mechanical test — a k mismatch could otherwise
 # never surface as a disagreement (PR #201 review [P2]).
-_SMOOTH_CASES: dict[str, tuple[int, tuple[float, ...] | None]] = {
-    "default-knots-k8": (8, None),
-    "default-knots-k13": (13, None),
-    "supplied-knots-k8": (8, (0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 9.0, 10.0)),
+_SMOOTH_CASES: dict[str, tuple[int, tuple[float, ...] | None, bool]] = {
+    "default-knots-k8": (8, None, False),
+    "default-knots-k13": (13, None, False),
+    "supplied-knots-k8": (8, (0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 9.0, 10.0), False),
     # PLAN §1's actual target formula: s(AttdAge, k=13, bs="cr") / s(PolYear, k=6,
     # bs="cr") — slice 2 acceptance criterion #1 names these knot vectors, not a
     # stand-in.
     "target-attdage-k13": (
         13,
         (1.0, 2.0, 4.0, 7.0, 14.0, 18.0, 24.0, 35.0, 50.0, 70.0, 85.0, 90.0, 95.0),
+        False,
     ),
-    "target-polyear-k6": (6, (1.0, 2.0, 3.0, 5.0, 10.0, 21.0)),
+    "target-polyear-k6": (6, (1.0, 2.0, 3.0, 5.0, 10.0, 21.0), False),
+    # Slice 5, the MI term's own basis: s(AttdAge, by=StudyYear_C, k=13, bs="cr") —
+    # same target AttdAge knots, now with a numeric by variable (`with_by = TRUE`
+    # in gam_term_extract.R's extract_smooth_one).
+    "mi-term-attdage-by-k13": (
+        13,
+        (1.0, 2.0, 4.0, 7.0, 14.0, 18.0, 24.0, 35.0, 50.0, 70.0, 85.0, 90.0, 95.0),
+        True,
+    ),
 }
 
 
@@ -595,17 +733,25 @@ def test_the_python_cr_basis_agrees_with_smoothcon_on_every_smooth_design(
 
     failures: list[str] = []
     for label, r_term in smooth_designs.items():
-        k, supplied = _SMOOTH_CASES[label]
+        k, supplied, with_by = _SMOOTH_CASES[label]
         term = TermSpec(
             label=label,
             variables=("x",),
             basis="cr",
             k=(k,),
             knots=(("x", supplied),) if supplied is not None else None,
+            by="z" if with_by else None,
         )
         x = np.asarray(r_term["x"], dtype=np.float64)
-        python_term = build_python_cr_term(x, term)
-        assert python_term.evidence is CR_BASIS_CLAIM
+        by = np.asarray(r_term["by"], dtype=np.float64) if with_by else None
+        python_term = build_python_cr_term(x, term, by=by)
+        # Each branch must publish the claim naming ITS OWN producers — the
+        # by-branch skips absorb_sum_to_zero_constraint and its mgcv counterpart
+        # is smoothCon(s(x, by=z, ...)), so CR_BASIS_CLAIM's strings would
+        # misdescribe it (PR #206 review [P1]). Strictly stronger than the
+        # previous single-claim assertion, which passed for the by-case only
+        # because it did not distinguish the two.
+        assert python_term.evidence is (CR_BY_BASIS_CLAIM if with_by else CR_BASIS_CLAIM)
         # Passes the FULL quantity set, not just parity_quantities — a claim that
         # ever regressed to carrying a non-INDEPENDENT quantity must fail this gate
         # (PR #201 review [P2]; `parity_quantities` pre-filters, so gating on it

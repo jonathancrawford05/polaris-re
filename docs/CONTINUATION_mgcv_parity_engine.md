@@ -45,7 +45,12 @@ prediction** — the free-sp residual left after ADR-197's fix collapses from th
 0.0645/0.0791/0.1048/0.0776 to (tier 3) 6.9e-04/5.1e-05/1.7e-04/9.8e-04 (2-3 orders of
 magnitude, identical in verdict to tier 1) once the grid is replaced by a continuous search
 on the identical criterion. Tested only at the existing 2-block designs; extending to the
-target's 13-21 blocks needs a multi-term mgcv-native model (slice 5 onward).
+target's 13-21 blocks needs a multi-term mgcv-native model (slice 5 onward). **Slice 5
+(`ti()` and the MI term) is IN PROGRESS, 2026-08-22:** the MI term's own basis,
+`s(AttdAge, by=StudyYear_C)`, is **DONE (Stage A only)** (ADR-200, tier 1 and tier 3
+identical) — the epic's first INDEPENDENT Stage-A result for a numeric-`by` `cr` smooth;
+`mgcv` absorbs no identifiability constraint on it at all. `ti(AttdAge, PolYear)` and a
+multi-term mgcv-native model (needed for Stage B) are not yet started.
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16) and one deferred
 to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
@@ -285,7 +290,30 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    exercised it beyond 2 yet; extending to a real multi-term model (13-21 blocks)
    needs a multi-term mgcv-native model, which is slice 5 onward's own work.
 5. **`ti()` and the varying-coefficient MI term.** Ship the MI term first if they split.
-   PLANNED.
+   **IN PROGRESS.**
+
+   **The MI term's own basis is DONE (Stage A only), 2026-08-22** (ADR-200, tier 1 and
+   tier 3 both confirmed, CI run 32571764900, identical to the printed digit). `mgcv`
+   absorbs **no identifiability constraint at all** on a numeric-`by` smooth — measured
+   before writing any code (`smoothCon(s(x, by=z, bs="cr", k), absorb.cons=TRUE)$C` has
+   zero rows), not guessed — so the by-term's design is the *unconstrained* `k`-column
+   `cr` basis with each row scaled by the by-variable, and its penalty is that same
+   unconstrained `S`, untouched by the scaling. `gam_basis_cr.by_scale_design` (new) plus
+   a branch in `build_python_cr_term`; `gam_term_extract.R` gained a `with_by` branch and
+   one case (`mi-term-attdage-by-k13`, the target's own `AttdAge` k=13 knots). Agrees at
+   `max_X_diff=2.176e-14`, `max_S_diff=3.775e-15`, `rank_diff=(0,)` — same order as slice
+   2's other five cases. Carries its own `CR_BY_BASIS_CLAIM` (same three
+   INDEPENDENT quantities as `CR_BASIS_CLAIM`, but every producer string differs —
+   the by-branch skips the constraint absorption and mgcv is called with `by=z`;
+   split out same-day after PR #206 review [P1], no measured value affected). ADR-191's `smoothCon`-vs-`lpmatrix` internal guard
+   re-passed on the by-construction with no changes (the `s(x):z.N` column names still
+   match its existing grep).
+
+   **Not started:** `ti(AttdAge, PolYear)` — a materially different construction (its own
+   tensor-product machinery and identifiability treatment). And no multi-term mgcv-native
+   model exists yet, so nothing has run Stage B / Anchor 2's own criteria (the MI contrast,
+   `η`) on this term — that is what unblocks both slice 4 part B's N>2 extension and
+   Anchor 5's absolute/relative demonstration.
 6. **`bs = "sz"`** — orthogonal factor-smooth interactions. Expect the hardest basis.
    PLANNED.
 7. **`select = TRUE`** — the double penalty; 13 → 21 smoothing parameters. PLANNED.
@@ -307,7 +335,7 @@ across the slice structure.
 | Same criterion, production module | `experience_gam_penalized.reml_score` — the SHIPPED tensor-MI 2-D grid selector's own score, same formula shape, same omission | **FIXED, 2026-08-19** (ADR-197 amendment, maintainer-authorized) — identical fix to ADR-196's, `python_reference.json` re-baselined moving exactly as §3.2 predicted, required conformance levels 1-3 still agree, level 5 moved from DISAGREES to AGREES | Nothing — DONE |
 | N-dimensional outer search | Newton/quasi-Newton (f)REML optimisation over 13-21 `log λ` | **First slice DONE, 2026-08-22** (ADR-199, tier 1 AND tier 3 confirmed) — `select_lambdas_continuous` built and confirms ADR-198's prediction decisively; tested only at N=2, not yet at the target's 13-21 blocks | A multi-term mgcv-native model to build N>2 blocks from (slice 5 onward) |
 | `ti()` — tensor interaction | Tensor product with marginal main effects excluded | **Not started** | The outer search (slice 5) |
-| `s(..., by=...)` with a `cr` basis | The MI term itself — a `cr` basis scaled by a numeric `by` variable | **Not started** | The outer search (slice 5) |
+| `s(..., by=...)` with a `cr` basis | The MI term itself — a `cr` basis scaled by a numeric `by` variable | **Stage A DONE, 2026-08-22** (ADR-200, tier 1 AND tier 3 confirmed) — `mgcv` absorbs no identifiability constraint on a numeric-`by` smooth; agrees to ~2e-14. Stage B unmeasured (needs a multi-term model) | A multi-term mgcv-native model for the Stage-B half (slice 5's remaining scope) |
 | `bs = "sz"` | Sum-to-zero factor-smooth interactions (4 terms in the target formula) | **Not started**, expected hardest basis (PLAN §6 registered prediction) | The outer search (slice 6) |
 | `select = TRUE` | The double penalty / null-space shrinkage that takes 13 sp → 21 | **Not started** | Slices 4-6 |
 | `cr` basis extrapolation | Behaviour for `x` outside `[knots[0], knots[-1]]` | **Unverified**, not assumed — `gam_basis_cr.py` marks it explicitly | A future session measuring it; blocks fitting the target's own knots against real experience data, whose range need not match the hand-chosen knots |
@@ -365,7 +393,11 @@ should be re-synced.
    needs revisiting once that model exists.
 4. **Slice 5 — `ti()` and the MI term.** Ship the MI term first if they split (PLAN
    §3: it's the cheap, well-conditioned one and the actual point of the target
-   formula).
+   formula). **The MI term's basis is DONE (Stage A only), 2026-08-22** (ADR-200, tier 1
+   AND tier 3 confirmed). **What remains:** (a) `ti(AttdAge, PolYear)` — not started;
+   (b) a multi-term mgcv-native model, which is the shared prerequisite for this slice's
+   own Stage-B half, for extending slice 4 part B's search above N=2, and for item (8)
+   below.
 5. **Slice 6 — `bs = "sz"`.** Expected hardest basis; Stage A is where a mistake here
    is cheap (PLAN §6 registered prediction).
 6. **Slice 7 — `select = TRUE`.** 13 → 21 smoothing parameters.

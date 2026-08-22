@@ -90,6 +90,7 @@ from polaris_re.core.exceptions import PolarisComputationError, PolarisValidatio
 
 __all__ = [
     "absorb_sum_to_zero_constraint",
+    "by_scale_design",
     "cr_basis",
     "cr_default_knots",
 ]
@@ -224,6 +225,45 @@ def cr_basis(x: np.ndarray, knots: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     if scale == 0.0:
         raise PolarisComputationError("cr_basis: the unscaled penalty is identically zero.")
     return design, s_full / scale
+
+
+def by_scale_design(design: np.ndarray, by: np.ndarray) -> np.ndarray:
+    """Apply ``mgcv``'s numeric-``by`` construction to an **unconstrained** basis.
+
+    Slice 5 (``docs/PLAN_mgcv_parity_engine.md``, the MI term
+    ``s(AttdAge, by=StudyYear_C)``). Read directly off ``mgcv``'s own behaviour
+    (measured against ``smoothCon(s(x, by=z, bs="cr", k), absorb.cons=TRUE)`` before
+    being written here, CLAUDE.md's "do not guess at a derivation" — not merely
+    read from documentation): a numeric-``by`` smooth's identifiability constraint
+    matrix ``C`` has **zero rows** — ``mgcv`` does not absorb a sum-to-zero
+    constraint on it at all, because (``?s``'s own stated reason) ``by * constant``
+    need not be collinear with anything else in the model the way a bare smooth's
+    constant term is with the intercept. So the by-term's design is the
+    **unconstrained** ``k``-column :func:`cr_basis` output with each row scaled by
+    the by-variable value at that row, and its penalty is that same unconstrained
+    ``S`` — untouched by the scaling, and not put through
+    :func:`absorb_sum_to_zero_constraint`.
+
+    Args:
+        design: The **unconstrained** ``(n, k)`` design from :func:`cr_basis` — not
+            the constrained output of :func:`absorb_sum_to_zero_constraint`, which
+            a numeric-``by`` term never applies.
+        by: The by-variable value at each row, ``(n,)``.
+
+    Returns:
+        ``(n, k)`` — same shape as ``design``, each row ``i`` multiplied by
+        ``by[i]``. The penalty ``S`` is unchanged by this operation and is not
+        returned here; callers reuse :func:`cr_basis`'s own ``S``.
+    """
+    by = np.asarray(by, dtype=np.float64)
+    if by.shape != (design.shape[0],):
+        raise PolarisValidationError(
+            f"by_scale_design: design has {design.shape[0]} row(s) but by has shape "
+            f"{by.shape} — one by-value per row is required."
+        )
+    # np.asarray, not a bare product: mypy infers Any from the ndarray operator
+    # and this function declares a concrete return type (PR #206 review [P1]).
+    return np.asarray(design * by[:, np.newaxis], dtype=np.float64)
 
 
 def absorb_sum_to_zero_constraint(

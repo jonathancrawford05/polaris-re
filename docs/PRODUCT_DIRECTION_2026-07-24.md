@@ -2565,3 +2565,63 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   own scope — nothing in this session's module needs revisiting once that model exists.
   *Source: this session (2nd-order — a named, not-yet-met piece of the search's eventual
   target, correctly deferred rather than silently dropped).*
+
+### Harvested 2026-08-22b — slice 5's MI term: the numeric-`by` `cr` basis (ADR-200)
+
+- **THE MI TERM'S OWN BASIS IS DONE (Stage A), tier 1 AND tier 3 both confirmed and
+  identical to the printed digit.** `s(AttdAge, by = StudyYear_C)` is the actual point of
+  the target formula (PLAN §3: "the cheap one and the important one" — 13 coefficients
+  saying log-hazard is linear in calendar year with an age-varying slope), and slice 5's
+  own instruction was to ship it before `ti()` if they split. It agrees with
+  `mgcv::smoothCon(s(x, by=z, bs="cr", k), absorb.cons=TRUE)` at `max_X_diff=2.176e-14`,
+  `max_S_diff=3.775e-15`, `rank_diff=(0,)` — same order as slice 2's other five `cr`
+  cases, on the first measurement, no iteration needed. Carries its own
+  `CR_BY_BASIS_CLAIM` (ADR-193; split out from `CR_BASIS_CLAIM` after PR #206 review
+  [P1] — same quantities, different producer strings):
+  `design_X`/`penalty_S`/`rank` are INDEPENDENT, so this is genuine Stage-A
+  basis parity, not a harness check. Tier 3: CI run 32571764900, oracle
+  `sha256:0d54c192…` build 8; required levels 1-3 of the ten-cell suite also still agree
+  — no regression. *Source: this session, ADR-200 (1st-order — the epic's own active
+  slice).*
+
+- **The construction fact worth carrying forward: `mgcv` absorbs NO identifiability
+  constraint on a numeric-`by` smooth.** Measured by direct R probe before any code was
+  written (Anchor 8, CLAUDE.md's "do not guess at a derivation"): the by-case's
+  `smoothCon(..., absorb.cons=TRUE)$C` has **zero rows**, unlike a plain smooth's
+  `colMeans(X)` row. So the by-term's design is the *unconstrained* `k`-column basis with
+  each row scaled by the by-variable — `k` columns, not `k-1` — and its penalty is that
+  same unconstrained `S`, untouched by the scaling. Anyone extending to `ti()` or `sz`
+  should expect their own constraint treatment to be a separate measured question, not
+  inherited from either the plain or the `by` case. *Source: this session, ADR-200
+  decision 1 (1st-order — a construction fact later slices build on).*
+
+- **Nothing gates on the Stage-A `cr` comparison, and that is pre-existing — slice 2's
+  design, not slice 5's.** Surfaced by PR #206's review in its own second pass, after it
+  corrected an earlier mis-statement of the same area. The facts, verified directly:
+  `mgcv-conformance.yml` DOES run automatically on any PR touching `gam_basis_cr.py`,
+  `gam_stage_a.py` or `gam_term_extract.R` (a path-filtered `pull_request:` trigger), so
+  the comparison is not merely a manual dispatch — but the step is
+  `continue-on-error: true` and its `any_cr_disagree` flag only inserts an annotation
+  into the report, never exits non-zero. The workflow's actual merge gate is levels 1-3
+  of the ten-cell suite, which never calls `build_python_cr_term`. **So a genuine
+  Stage-A basis disagreement would leave every check on a PR green**, visible only as
+  text inside a job summary — the same masked-`continue-on-error` failure mode the
+  workflow's own comments warn about twice, and which ADR-194's print-to-stdout fix
+  addressed for *reading* numbers without addressing *gating* on them. Not actioned in
+  PR #206: the review explicitly framed the ask as the cheap half (R-free unit tests in
+  the gating pytest job, now added) rather than a workflow change, and re-pointing the
+  gate is a decision about the epic's verification posture that deserves its own
+  session. *Source: PR #206 review second pass, verified independently (2nd-order,
+  NICE-TO-HAVE — a real hole in the safety net, but one that has been open since slice 2
+  and blocks nothing today).*
+
+- **Slice 5 is IN PROGRESS, not DONE, and the remaining half has a named shared
+  prerequisite.** `ti(AttdAge, PolYear)` — tensor interaction with marginal main effects
+  excluded — is unstarted and is a materially different construction. Separately, this
+  session's result is **Stage A only**: no multi-term mgcv-native model exists, so nothing
+  has run Anchor 2's own acceptance criteria (the MI contrast, `η`) on this term. That
+  same missing model is the prerequisite for three currently-open items — slice 5's
+  Stage-B half, slice 4 part B's extension above N=2 (ADR-199's own named limitation), and
+  Anchor 5's absolute/relative end-to-end demonstration — which makes building it the
+  epic's highest-leverage next piece of work rather than one slice's internal detail.
+  *Source: this session (1st-order — names the epic's actual next bottleneck).*
