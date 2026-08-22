@@ -2625,3 +2625,51 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   Anchor 5's absolute/relative end-to-end demonstration — which makes building it the
   epic's highest-leverage next piece of work rather than one slice's internal detail.
   *Source: this session (1st-order — names the epic's actual next bottleneck).*
+
+### Harvested 2026-08-22c — level 4's prerequisite is built from Wood (2011) (ADR-201)
+
+- **`dw/drho` EXISTS AND IS TIER-3 VERIFIED — the ingredient ADR-190 named as
+  missing.** ADR-190 decision 2 stated the level-4 blocker as *"it needs `dw/drho`,
+  which nothing in the fitter currently computes."* `gam_derivatives` now computes
+  it, from Wood (2011) §3.4 (`dbeta/drho`, `d(eta)/drho`) and Appendix D (`dw/deta`
+  and the chain rule). Against `mgcv`'s own refits central-differenced at perturbed
+  `sp`: `d(eta)/drho` agrees to 5.3–5.8e-11 on all three cells with a Richardson
+  ratio of **4.00**, which is what establishes it as the `h -> 0` limit of `mgcv`'s
+  behaviour rather than merely close at one step. `DERIVATIVE_CLAIM` declares both
+  compared quantities INDEPENDENT. Tier 3, CI run 32586279901, oracle
+  `sha256:0d54c192…` build 8. *Source: this session, ADR-201 (1st-order — the
+  epic's oldest open blocker's critical path).*
+
+- **LEVEL 4 IS NOT CLOSED, AND THE PAPER SUPPLIED WAS NOT THE ONE IT NEEDS.** The
+  maintainer supplied Wood (2011) *JRSS-B* 73(1) — the same paper that resolved
+  ADR-196 — rather than Wood, Pya & Säfken (2016) *JASA*, which is what ADR-190
+  decision 1 names for `vcov(unconditional=TRUE)`. Wood (2011) contains `dw/drho`
+  in full but **no unconditional-covariance formula at all** (searched: zero
+  occurrences of "unconditional"); it derives those derivatives because the REML
+  Newton iteration needs them. **What is still outstanding is only the assembly** —
+  how `dw/drho` enters `Vc` — and per ADR-190 decision 3 it must be re-derived from
+  the 2016 paper, never read off `mgcv`'s GPL source. *Source: this session
+  (1st-order — names precisely what is still needed, so the next request is for the
+  right artefact).*
+
+- **The derivative needs the OBSERVED (Newton) Hessian, not the fitter's Fisher
+  weights — worth ~5 orders of magnitude, and any `Vc` work inherits it.** Fisher
+  scoring and Newton reach the same `beta-hat` but not the same derivative, because
+  `dbeta/drho` depends on the Hessian *at* the stationary point. Registered as a
+  prediction before measuring and it held: with Fisher weights the non-canonical
+  cell (`binomial-cloglog`) is wrong by 6.9e-06 against ~1e-11 on the canonical
+  ones; supplying the observed-Hessian weights closes it to 1.1e-11. `max|alpha-1|`
+  is 6.7e-16 / 0.0 / 4.3e-03 across the three cells, independently confirming
+  Wood §3.2's algebra since nothing in the implementation forces `alpha = 1` on a
+  canonical link. **The fitter is untouched** (Anchor 7). *Source: this session,
+  ADR-201 decision 1 (1st-order — a correctness fact the level-4 slice depends on).*
+
+- **A convergence diagnostic that did not say what it claimed, caught and fixed.**
+  The probe first reported one `h` regime with a Richardson ratio of ~0.6 while the
+  column header said "want ~4". At `h <= 1e-4` the residual is round-off limited —
+  differencing two separately-converged `mgcv` fits has its own floor — so halving
+  `h` makes the *reference* worse and the ratio says nothing about convergence.
+  Publishing it would have been a convergence claim the number did not support. The
+  probe now brackets both regimes and labels which is which. *Source: this session
+  (2nd-order — a methodology fix for any future finite-difference comparison in
+  this epic, of which there will be more).*

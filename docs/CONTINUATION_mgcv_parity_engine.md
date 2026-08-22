@@ -339,7 +339,7 @@ across the slice structure.
 | `bs = "sz"` | Sum-to-zero factor-smooth interactions (4 terms in the target formula) | **Not started**, expected hardest basis (PLAN §6 registered prediction) | The outer search (slice 6) |
 | `select = TRUE` | The double penalty / null-space shrinkage that takes 13 sp → 21 | **Not started** | Slices 4-6 |
 | `cr` basis extrapolation | Behaviour for `x` outside `[knots[0], knots[-1]]` | **Unverified**, not assumed — `gam_basis_cr.py` marks it explicitly | A future session measuring it; blocks fitting the target's own knots against real experience data, whose range need not match the hand-chosen knots |
-| Kass-Steffey / `vcov(unconditional=TRUE)` | The full Wood, Pya & Säfken (2016) correction (`dw/drho`) | **Known wrong, re-scoped as a formula gap** (ADR-190) — a SEPARATE standing blocker, not fixed by slice 4's REML work; different paper, different derivation | `dw/drho`, re-derived from the 2016 paper, never from GPL source |
+| Kass-Steffey / `vcov(unconditional=TRUE)` | The full Wood, Pya & Säfken (2016) correction (`dw/drho`) | **Known wrong, re-scoped as a formula gap** (ADR-190) — a SEPARATE standing blocker, not fixed by slice 4's REML work; different paper, different derivation. **Its named prerequisite `dw/drho` is now BUILT and tier-3 verified (ADR-201, 2026-08-22)** from Wood (2011) §3.4 + Appendix D — the blocker itself is unchanged | the **Vc ASSEMBLY** from Wood, Pya & Säfken (2016), re-derived from that paper, never from GPL source. Wood (2011) does not contain it (zero occurrences of "unconditional") |
 | Anchor 5 absolute/relative idiom, demonstrated end to end | Weights and an offset used simultaneously on the target's own multi-term structure | Each control verified in isolation only (PLAN slice 3's own deferred criterion) | A multi-term model, which needs the outer search |
 | `bam(discrete=TRUE)` + fREML | The discretised-covariate fast fitting algorithm | **Deferred to a later epic**, deliberately (maintainer decision 2026-08-10) — not a gap in the current epic's scope | N/A |
 | `bs = "fs"` | Factor-smooth via difference penalties (an earlier maintainer formula) | **Superseded by `sz`** in the selected target form — recorded, not pursued | N/A |
@@ -405,7 +405,16 @@ should be re-synced.
    the REML score work above: a different paper (Wood, Pya & Säfken 2016), needs
    `dw/drho`, re-derived from the paper per the same GPL/MIT discipline. Standing
    since ADR-188/190; see "Carried in from the superseded epic" below for the full
-   context.
+   context. **Its prerequisite is DONE, 2026-08-22 (ADR-201, tier 1 AND tier 3):**
+   `gam_derivatives` computes `dbeta/drho`, `d(eta)/drho` and `dw/drho` from Wood
+   (2011) §3.4 + Appendix D, agreeing with `mgcv`'s own differenced refits to
+   ~5e-11 with a Richardson ratio of 4.00. **What is still missing is only the
+   assembly** — how `dw/drho` enters `Vc` — which is the 2016 paper's own
+   contribution and is not in Wood (2011) at all. A future session starts from a
+   measured ingredient rather than an absent one. Note the derivative required the
+   OBSERVED (Newton) Hessian, not the fitter's Fisher weights; that distinction is
+   worth ~5 orders of magnitude on a non-canonical link and any `Vc` work inherits
+   it.
 8. **Demonstrate Anchor 5's absolute/relative idiom end to end** on the target's own
    multi-term structure, once a multi-term model exists (needs (3)).
 9. **`cr` basis extrapolation beyond the knot range.** Needed before fitting the

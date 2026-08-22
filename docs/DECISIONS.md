@@ -16456,3 +16456,108 @@ not a fourth parity column.
 
 **Supersedes nothing.** Extends ADR-194's `CR_BASIS_CLAIM` to a construction it did not
 previously cover; does not reopen or amend ADR-194's own content.
+
+## ADR-201: Wood (2011) gives `dw/drho` — level 4's named prerequisite is built, and level 4 is still open
+
+**Date:** 2026-08-22
+**Status:** Accepted — **CONFIRMED at tier 3**, same session (CI run 32586279901,
+oracle `sha256:0d54c192…` build 8, R 4.6.1 / mgcv 1.9.4).
+**Source paper:** Wood, S.N. (2011), *JRSS-B* **73**(1), 3–36, DOI
+`10.1111/j.1467-9868.2010.00749.x`. Supplied by the maintainer 2026-08-22.
+**Spec:** `docs/WORK_ORDER_dw_drho_wood2011.md`.
+
+### Decision 0 — which paper this is, because it is not the one level 4 needs
+
+The paper was supplied to unblock **level 4** (ADR-190's standing Kass-Steffey
+BLOCKER). **It is Wood (2011), not Wood, Pya & Säfken (2016)** — the same paper
+that already resolved ADR-196.
+
+That does not make it the wrong paper to have. ADR-190 decision 2 states the
+blocker as *"it needs `dw/drho`, which nothing in the fitter currently computes"*,
+and **Wood (2011) derives `dw/drho` in full**: §3.4 for `dβ̂/dρ` and `dη/dρ`,
+Appendix D for `dw/dη` and the chain rule, §3.5.1 putting it to work as
+`Tⱼ = diag((1/|wᵢ|)∂wᵢ/∂ρⱼ)`.
+
+**What it does not contain is the assembly.** Searched: zero occurrences of
+"unconditional", "Vc", or a smoothing-parameter-uncertainty covariance. It derives
+these derivatives because the REML *Newton iteration* needs them, not to build a
+covariance correction. How `dw/dρ` enters `Vc` is the 2016 paper's contribution.
+
+**So this ADR records a prerequisite, not a fix. Level 4 remains OPEN**, and no
+number in this ADR may be cited as advancing it beyond "its named missing
+ingredient now exists and is verified".
+
+### Decision 1 — the derivative needs the observed Hessian even though the fit does not
+
+The registered prediction (work order §3, written before measuring) was that the
+canonical-link cells would agree and `binomial-cloglog` might disagree materially,
+because Wood derives `dβ̂/dρ` by implicit differentiation at the penalized-deviance
+stationary point — where the matrix is the **observed (Newton)** Hessian — while
+`gam_fit.penalized_irls_general` uses **Fisher** weights.
+
+**The prediction held, and then the cause was derived and closed.** Against a
+central difference of this engine's own refits:
+
+| cell | `max|α − 1|` | `dη/dρ`, Fisher `W` | `dη/dρ`, Newton `W` |
+|---|---|---|---|
+| `poisson-log` | 6.7e-16 | 6.6e-12 | 6.6e-12 |
+| `binomial-logit` | 0.0 (exact) | 2.7e-11 | 2.7e-11 |
+| `binomial-cloglog` | 4.3e-03 | **6.9e-06** | **1.1e-11** |
+
+Fisher scoring and Newton converge to the *same* `β̂` — they differ in the step,
+not the fixed point — but `dβ̂/dρ` depends on the Hessian *at* that point, and that
+is the observed one. `newton_alpha` implements Wood §3.2's `α` in this codebase's
+`m ≡ dμ/dη` parameterisation (`α = 1 + (y−μ)(V′/V − m′/m²)`); nothing in it
+special-cases canonical links, so `α ≡ 1` falling out exactly for Poisson-log and
+binomial-logit is an **independent confirmation of that algebra**, not a tautology.
+
+**The fitter is untouched** (Anchor 7; its Fisher choice is verified behaviour,
+ADR-195). Only the derivative's Hessian changed, which is what the paper's own
+derivation calls for.
+
+### Decision 2 — compared on `dη/dρ`, never on `dβ̂/dρ`
+
+PLAN Anchor 2 and the routine's NEVER list forbid coefficient agreement as an
+acceptance criterion outside Stage A: `mgcv` reparameterises, so `β̂` is
+basis-dependent and `η` is not. `dβ̂/dρ` is computed internally and is deliberately
+**not** a compared quantity; `dη/dρ = X dβ̂/dρ` is its basis-invariant image and is
+what any downstream use — including the 2016 correction — actually needs.
+
+### Measurement
+
+`DERIVATIVE_CLAIM` declares both quantities `INDEPENDENT`: analytic (Wood) on one
+side, `mgcv`'s own refits central-differenced on the other. `analytic_derivatives`'
+signature takes only the shared recipe and never the R side's `eta`/`w`.
+
+| case | `d_eta_d_rho` diff | `dw_drho` diff | `eta` control | Richardson |
+|---|---:|---:|---:|---:|
+| `poisson-log` | 5.757e-11 | 1.725e-07 | 8.442e-13 | 4.00 |
+| `binomial-logit` | 5.511e-11 | 7.397e-11 | 7.772e-15 | 4.00 |
+| `binomial-cloglog` | 5.316e-11 | 5.834e-10 | 8.362e-12 | 4.00 |
+
+**Tier 3**, run 32586279901, same order as tier 1 at every case. Required levels
+1-3 of the ten-cell suite still agree; level 4 DISAGREES exactly as before.
+
+**On the step size, because the first version of this probe got it wrong.** The
+probe originally reported one `h` regime and a Richardson ratio of ~0.6, which
+would have been published as convergence evidence it was not: at `h ≤ 1e-4` the
+residual is *round-off* limited (differencing two separately-converged `mgcv` fits
+has its own floor), so halving `h` makes the reference worse, not better. The probe
+now brackets both regimes — the diff columns at the smallest `h` where agreement is
+tightest, the Richardson ratio at the largest pair where truncation dominates and
+the `O(h²)` law is observable. **A ratio of 4.00 is what licenses the claim that the
+analytic derivative is the `h → 0` limit** of `mgcv`'s behaviour rather than merely
+close at one arbitrary step.
+
+### What this does not claim
+
+- **Level 4 is not closed, or narrowed.** `vcov(unconditional = TRUE)` is
+  untouched; ADR-190's 3.2–4.1x gap stands exactly as measured.
+- **`Vc` is not implemented.** That needs the 2016 paper's assembly, and per
+  ADR-190 decision 3 it must be re-derived from that paper, never read off
+  `mgcv`'s GPL source.
+- **No production path changed** (Anchor 7). `smoothing_uncertainty`,
+  `select_lambdas_reml` and every entry point are untouched; `tests/qa/` goldens
+  byte-identical.
+- **Two penalty blocks only.** Like ADR-199, nothing here has been exercised at
+  the target's 13-21 blocks; the code is written generally but that is unmeasured.
