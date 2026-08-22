@@ -61,6 +61,14 @@ the same pattern ADR-197's authorization used, and adds this session log — clo
 the [P0] and the accompanying [P2] (docs-only commits changing PLAN's acceptance criteria
 with no session record).
 
+**Superseded in part, 2026-08-22 (maintainer direction, PR #204 round-3).** The exchange
+above is accurately recorded, but the *closure* `61a59b0` drew from it was preemptive: the
+maintainer's *"They look right"* endorsed the substance of both recommendations on that
+day's evidence, not a bar on revisiting them, and neither item has reached parity nor
+definitive obsolescence. Both are now recorded as open, movable standing positions that a
+later session may act on with its own evidence — see ADR-198's "Scope of that endorsement"
+paragraph and the matching section in `docs/CONTINUATION_mgcv_parity_engine.md`.
+
 ## Baseline and end state
 
 No code, tests, or committed reference artifacts touched by any commit in this session.

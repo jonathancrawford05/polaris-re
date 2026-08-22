@@ -16168,7 +16168,7 @@ These have been run together in conversation and must not be, so it is recorded 
   inside the epic first and the production module is re-pointed at it later, as a separate
   decision with the determinism question answered on its own terms.
 
-### Two decisions the maintainer confirmed (2026-08-21)
+### Two standing positions, held until parity work supersedes them (2026-08-21)
 
 **Flagged as a [P0] by PR #204's round-3 review**: the first version of this section
 recorded "maintainer confirmed" with no quote, channel, or session log to check it
@@ -16194,10 +16194,25 @@ the date) precisely because that pattern is what makes a "maintainer confirmed" 
 checkable rather than asserted; the gap the review found was the paragraph's absence, not
 the exchange's authenticity.
 
-Both surfaced by PR #204's round-2 review; both were routine-ineligible (the routine may
-present, not decide) and are now settled:
+**Scope of that endorsement — clarified 2026-08-22 (PR #204 round-3, maintainer
+direction).** *"They look right"* endorsed the **substance** of both positions on the
+evidence available that day. It was not a bar on revisiting them, and the first version of
+this section overreached in recording them as settled — and, in `CONTINUATION`, as items
+that "should not be reopened without new evidence". The maintainer called that closure
+preemptive: neither item has reached parity, nor definitive obsolescence, so neither is
+finished.
 
-1. **The level-5 `gamma` tolerances are NOT promoted from PROVISIONAL.** One passing
+**Both stay open.** A later session may move either one on its own evidence, without asking
+first, once the parity work supplies that evidence — each item below names what would
+count. The objective is `mgcv` parity for MI estimation, and a default that has outlived
+its reasoning is an obstacle to that rather than a safeguard. What stays maintainer-gated is
+unchanged and narrow: PLAN Anchor 7's protected artifacts, and labelling any interval a 95%
+band. Neither of these is that.
+
+Both surfaced by PR #204's round-2 review; both are the working default *because nothing
+measured yet argues for changing them*:
+
+1. **The level-5 `gamma` tolerances are not promoted from PROVISIONAL — for now.** One passing
    measurement on one exchange (`max_abs_log10_sp_diff_gamma` 0.0776 vs tol 0.5,
    `abs_edf_total_diff_gamma` -0.0024 vs tol 1.0) is not a derivation, and Anchor 8
    forbids tightening a bound because a single check went green — ADR-187 amendment 2's
@@ -16205,16 +16220,23 @@ present, not decide) and are now settled:
    it would fix did not reproduce on the age-varying fixture). **What changes instead:**
    PLAN Anchor 9's status for `gamma` moves from "adopted, unmeasured" to "adopted,
    measured, AGREES" — a factual update, not a new numeric commitment. The tolerance
-   values (0.5, 1.0) stand as provisional until more conformance cells exist to derive a
-   tighter bound from (slice 5/6).
-2. **The coverage move changes nothing downstream.** ADR-188 amendment 2's retraction of
-   the "shared failure" framing is confirmed as final. The PRODUCT_DIRECTION question of
-   whether the penalized band should ever be shown to a user stays **open, and the answer
-   stays no**: 0.8282 old-age coverage is still 12 points short of the nominal 95% it would
-   need to claim, slice 4's gate is still failed (0.9192 floor untouched), and level 4
-   (ADR-190's `dw/drho` gap) remains the standing blocker on labelling any interval a 95%
-   band anywhere in this project. The coverage improvement is real; it does not reverse the
-   default.
+   values (0.5, 1.0) stand as provisional in the meantime.
+   **What would move this:** conformance cells enough to *derive* a bound rather than
+   observe one passing — slice 5/6's cells are the expected source, and a session that has
+   them should tighten these tolerances as ordinary parity work and record the derivation.
+   Deriving a tighter bound is progress toward parity, not a liberty; the only thing Anchor
+   8 forbids is tightening because a single check went green.
+2. **The coverage move does not, on its own, change anything downstream.** ADR-188
+   amendment 2's retraction of the "shared failure" framing stands on its own measurement.
+   On the separate PRODUCT_DIRECTION question of whether the penalized band should be shown
+   to a user, the default answer remains no *on today's evidence*: 0.8282 old-age coverage
+   is still 12 points short of the nominal 95% it would need to claim, slice 4's gate is
+   still failed (0.9192 floor untouched), and level 4 (ADR-190's `dw/drho` gap) is the
+   substantive blocker. **What would move this:** closing level 4, or coverage reaching the
+   gate — at which point the question is live again and should be re-opened rather than
+   treated as answered here. The coverage improvement is real; it is simply not yet enough.
+   Note the band question is the one place where the maintainer gate genuinely bites: a
+   session may measure and recommend, but labelling an interval a 95% band stays reserved.
 
 **Supersedes nothing.** Extends ADR-197's resolution amendment with the interpretation of
 its own residual, and amends PLAN slice 4's acceptance criteria to test that

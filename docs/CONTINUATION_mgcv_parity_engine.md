@@ -449,7 +449,7 @@ should be re-synced.
   change from IN PROGRESS. Not this epic's work, but it is the reason that file is still
   open, and a reader should not mistake it for an active epic.
 
-## Decisions confirmed by the maintainer (2026-08-21)
+## Standing positions — open, and movable on new evidence (2026-08-21)
 
 **Source, quoted in full — added after PR #204's round-3 review flagged this section's
 original wording as a [P0]: no quote or channel was recorded here, unlike ADR-196/197's
@@ -459,23 +459,37 @@ open review questions so I can authorize you to confirm this for future iteratio
 the decision on hand?"*; Claude restated the recommendation `00ebd27` had already presented
 with a case for and against; the maintainer replied *"They look right."* Full record and the
 same caveat about what a conversational source can and can't prove: `docs/DECISIONS.md`,
-ADR-198, "Two decisions the maintainer confirmed".
+ADR-198, "Two standing positions, held until parity work supersedes them".
 
-Both raised by PR #204's round-2 review (ADR-198) and routine-ineligible to decide alone;
-both now settled and should not be reopened without new evidence:
+**Scope of that endorsement — clarified 2026-08-22 (PR #204 round-3, maintainer
+direction).** *"They look right"* endorsed the **substance** of both positions on that
+day's evidence; it was not a bar on revisiting them. Recording them as settled, and as
+items that "should not be reopened without new evidence", was preemptive — neither has
+reached parity nor definitive obsolescence.
 
-- **The level-5 `gamma` tolerances are NOT promoted from PROVISIONAL.** They pass with
-  room (`max_abs_log10_sp_diff_gamma` 0.0776 vs tol 0.5, `abs_edf_total_diff_gamma`
+**Both stay open, and a later session may move either on its own evidence, without asking
+first.** Each names below what would count. Do not cite this section as a reason to leave
+an item alone once the parity work has produced what it asks for — the objective is `mgcv`
+parity for MI estimation, and these are working defaults, not gates. Still maintainer-gated,
+unchanged: PLAN Anchor 7's protected artifacts, and labelling any interval a 95% band.
+
+Both raised by PR #204's round-2 review (ADR-198); both hold as the working default
+*because nothing measured yet argues for changing them*:
+
+- **The level-5 `gamma` tolerances are not promoted from PROVISIONAL — for now.** They pass
+  with room (`max_abs_log10_sp_diff_gamma` 0.0776 vs tol 0.5, `abs_edf_total_diff_gamma`
   -0.0024 vs tol 1.0), but one exchange is a measurement, not a derivation, and Anchor 8
-  forbids tightening a bound because a check went green. What did change: `gamma`'s Anchor
+  forbids tightening a bound *because a check went green*. What did change: `gamma`'s Anchor
   9 status moves from "adopted, unmeasured" to "adopted, measured, AGREES" — a factual
-  update, not a new tolerance. Promote only once slice 5/6 add enough conformance cells to
-  derive a tighter number from.
-- **The coverage move (0.7598 → 0.8282, old age) changes nothing downstream.** Slice 4's
-  gate still fails (0.9192 floor untouched) and the PRODUCT_DIRECTION default — the
-  penalized band is not shown to a user — stands. 82.8% is still 12 points short of the
-  95% it would need to claim, and level 4 (ADR-190's `dw/drho` gap) remains the standing
-  blocker on labelling any interval a 95% band anywhere in this project.
+  update, not a new tolerance. **Movable when:** slice 5/6's cells make a derived bound
+  possible. Tightening them then is ordinary parity work — do it and record the derivation.
+- **The coverage move (0.7598 → 0.8282, old age) does not by itself change anything
+  downstream.** Slice 4's gate still fails (0.9192 floor untouched), so the default of not
+  showing the penalized band holds on today's evidence: 82.8% is 12 points short of the 95%
+  it would need to claim, and level 4 (ADR-190's `dw/drho` gap) is the substantive blocker.
+  **Movable when:** level 4 closes, or coverage reaches the gate — then re-open the question
+  rather than citing this note. Labelling an interval a 95% band remains maintainer-reserved
+  either way; measuring and recommending toward it does not.
 
 ## Open questions (for human)
 
