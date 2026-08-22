@@ -48,6 +48,19 @@ knot vector under Anchor 4). :data:`CR_BASIS_CLAIM` declares every compared
 quantity ``INDEPENDENT``, and it is the epic's first Stage-A claim entitled to
 that word.
 
+The MI term's numeric ``by`` (slice 5, ``s(AttdAge, by=StudyYear_C)``)
+------------------------------------------------------------------------
+When ``term.by`` is set, :func:`build_python_cr_term` takes a second recipe
+input, ``by`` — the by-variable values, same shared-recipe status as ``x``, read
+off ``gam_term_extract.R``'s own ``by`` export. ``mgcv`` does not absorb a
+sum-to-zero constraint on a numeric-``by`` smooth at all (measured directly
+against ``smoothCon(..., absorb.cons=TRUE)$C`` before this was written — see
+:func:`~polaris_re.analytics.gam_basis_cr.by_scale_design`), so the by-term's
+design is the *unconstrained* ``k``-column basis with each row scaled by
+``by``, and its penalty is that same unconstrained ``S``. Reuses
+:data:`CR_BASIS_CLAIM` — same two producers, same claimed quantities, only the
+construction inside the left one branches on whether ``term.by`` is set.
+
 What Stage A has and has not proven (ADR-193)
 ---------------------------------------------
 :data:`RAW_PATH_CLAIM` marks the ``raw`` path's design and penalties as ``ECHO``
@@ -68,6 +81,7 @@ import numpy as np
 from polaris_re.analytics.experience_mgcv_conformance import DesignExport
 from polaris_re.analytics.gam_basis_cr import (
     absorb_sum_to_zero_constraint,
+    by_scale_design,
     cr_basis,
     cr_default_knots,
 )
@@ -113,6 +127,11 @@ class RTermPayload(TypedDict):
     compared quantity: :func:`build_python_cr_term` reads it to evaluate its own
     basis at the same points, never mgcv's X/S/rank/knots (ADR-193's mechanical
     test)."""
+
+    by: list[float] | None
+    """By-variable values (slice 5, the MI term), one per row — shared recipe
+    context like ``x`` above, present only on cases ``gam_term_extract.R`` builds
+    with ``with_by = TRUE``. ``None`` for every other case."""
 
 
 _AGREEMENT_TOLERANCE = 1e-9
@@ -484,23 +503,37 @@ def extract_smooth_terms(
     return result
 
 
-def build_python_cr_term(x: np.ndarray, term: TermSpec) -> TermExtract:
-    """The independent Python producer for a ``bs="cr"`` term (slice 2).
+def build_python_cr_term(
+    x: np.ndarray, term: TermSpec, by: np.ndarray | None = None
+) -> TermExtract:
+    """The independent Python producer for a ``bs="cr"`` term (slice 2; slice 5 for
+    ``term.by is not None``).
 
     Builds ``design_X``/``penalty_S`` from ``x`` and ``term``'s own recipe (``k``,
     and supplied knots if any) via :mod:`polaris_re.analytics.gam_basis_cr` — never
     from ``mgcv``'s output. This is the function ADR-193's mechanical test applies
-    to: its signature takes only ``x`` (the shared covariate recipe) and ``term``
-    (the shared spec), not an R payload — the mgcv-native counterpart
+    to: its signature takes only ``x``/``by`` (the shared covariate recipe) and
+    ``term`` (the shared spec), not an R payload — the mgcv-native counterpart
     :func:`extract_smooth_terms` above reads the R payload directly and is not this
     function's replacement, it is the *other* producer :data:`CR_BASIS_CLAIM`
     compares this one against.
+
+    When ``term.by`` is set (the MI term, slice 5), ``mgcv`` does not absorb any
+    identifiability constraint on a numeric-``by`` smooth (measured, see
+    :func:`~polaris_re.analytics.gam_basis_cr.by_scale_design`'s docstring) — the
+    design is the **unconstrained** ``k``-column basis with each row scaled by
+    ``by``, and the penalty is that same unconstrained, un-rescaled-by-``by`` ``S``.
+    Slice 2's constrained ``k-1`` path runs only when ``term.by is None``.
 
     Args:
         x: The covariate values the comparison is evaluated at — read off the R
             payload's own ``"x"`` field by the *caller*, not by this function, so
             the mechanical test sees a signature with no R payload in it.
         term: Must have ``basis="cr"`` and exactly one variable.
+        by: The by-variable values, read off the R payload's own ``"by"`` field by
+            the caller — required when ``term.by is not None``, and must be
+            ``None`` otherwise (a term not declaring a ``by`` recipe has nothing
+            for this array to scale).
     """
     if term.basis != "cr":
         raise PolarisValidationError(
@@ -511,6 +544,12 @@ def build_python_cr_term(x: np.ndarray, term: TermSpec) -> TermExtract:
             f"build_python_cr_term: {term.label!r} must name exactly one variable "
             f"and one k; got variables={term.variables!r}, k={term.k!r}."
         )
+    if (term.by is not None) != (by is not None):
+        raise PolarisValidationError(
+            f"build_python_cr_term: {term.label!r} has term.by={term.by!r} but the "
+            f"by array is {'absent' if by is None else 'present'} — a numeric-by "
+            f"term needs both or neither."
+        )
     x = np.asarray(x, dtype=np.float64)
     k = term.k[0]
     supplied = term.knots_by_variable().get(term.variables[0])
@@ -519,7 +558,11 @@ def build_python_cr_term(x: np.ndarray, term: TermSpec) -> TermExtract:
     )
 
     design_unc, s_unc = cr_basis(x, knots)
-    design, s = absorb_sum_to_zero_constraint(design_unc, s_unc)
+    if by is not None:
+        design = by_scale_design(design_unc, np.asarray(by, dtype=np.float64))
+        s = s_unc
+    else:
+        design, s = absorb_sum_to_zero_constraint(design_unc, s_unc)
     rank = int(np.linalg.matrix_rank(s))
 
     return TermExtract(

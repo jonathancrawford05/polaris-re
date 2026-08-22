@@ -544,18 +544,27 @@ def test_the_r_extractor_agrees_with_the_python_side_on_every_smooth_design(
 # knots when supplied), and reading either k or the knot values back off the R
 # payload would violate ADR-193's mechanical test — a k mismatch could otherwise
 # never surface as a disagreement (PR #201 review [P2]).
-_SMOOTH_CASES: dict[str, tuple[int, tuple[float, ...] | None]] = {
-    "default-knots-k8": (8, None),
-    "default-knots-k13": (13, None),
-    "supplied-knots-k8": (8, (0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 9.0, 10.0)),
+_SMOOTH_CASES: dict[str, tuple[int, tuple[float, ...] | None, bool]] = {
+    "default-knots-k8": (8, None, False),
+    "default-knots-k13": (13, None, False),
+    "supplied-knots-k8": (8, (0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 9.0, 10.0), False),
     # PLAN §1's actual target formula: s(AttdAge, k=13, bs="cr") / s(PolYear, k=6,
     # bs="cr") — slice 2 acceptance criterion #1 names these knot vectors, not a
     # stand-in.
     "target-attdage-k13": (
         13,
         (1.0, 2.0, 4.0, 7.0, 14.0, 18.0, 24.0, 35.0, 50.0, 70.0, 85.0, 90.0, 95.0),
+        False,
     ),
-    "target-polyear-k6": (6, (1.0, 2.0, 3.0, 5.0, 10.0, 21.0)),
+    "target-polyear-k6": (6, (1.0, 2.0, 3.0, 5.0, 10.0, 21.0), False),
+    # Slice 5, the MI term's own basis: s(AttdAge, by=StudyYear_C, k=13, bs="cr") —
+    # same target AttdAge knots, now with a numeric by variable (`with_by = TRUE`
+    # in gam_term_extract.R's extract_smooth_one).
+    "mi-term-attdage-by-k13": (
+        13,
+        (1.0, 2.0, 4.0, 7.0, 14.0, 18.0, 24.0, 35.0, 50.0, 70.0, 85.0, 90.0, 95.0),
+        True,
+    ),
 }
 
 
@@ -595,16 +604,18 @@ def test_the_python_cr_basis_agrees_with_smoothcon_on_every_smooth_design(
 
     failures: list[str] = []
     for label, r_term in smooth_designs.items():
-        k, supplied = _SMOOTH_CASES[label]
+        k, supplied, with_by = _SMOOTH_CASES[label]
         term = TermSpec(
             label=label,
             variables=("x",),
             basis="cr",
             k=(k,),
             knots=(("x", supplied),) if supplied is not None else None,
+            by="z" if with_by else None,
         )
         x = np.asarray(r_term["x"], dtype=np.float64)
-        python_term = build_python_cr_term(x, term)
+        by = np.asarray(r_term["by"], dtype=np.float64) if with_by else None
+        python_term = build_python_cr_term(x, term, by=by)
         assert python_term.evidence is CR_BASIS_CLAIM
         # Passes the FULL quantity set, not just parity_quantities — a claim that
         # ever regressed to carrying a non-INDEPENDENT quantity must fail this gate

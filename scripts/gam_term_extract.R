@@ -150,18 +150,30 @@ main <- function(argv) {
   # term's index range read from a fit, or assigned by the harness assembling terms
   # into a model?) is settled as the latter, ADR-192 — and the model an isolated
   # Stage-A case assembles is exactly this one term, so its range is [0, width).
-  extract_smooth_one <- function(label, n, k, knots_x = NULL, bs = "cr", x_range = c(0, 10)) {
+  extract_smooth_one <- function(label, n, k, knots_x = NULL, bs = "cr", x_range = c(0, 10),
+                                  with_by = FALSE) {
     set.seed(20120101) # ADR-074: pinned, never the wall clock.
     x <- sort(runif(n, x_range[1], x_range[2]))
     y <- sin(x) + rnorm(n, sd = 0.1)
-    df <- data.frame(x = x, y = y)
+    # Slice 5 (the MI term): a numeric `by` variable, drawn AFTER x/y so every
+    # existing (non-by) case's RNG stream is untouched by this branch's addition.
+    by_vec <- if (with_by) rnorm(n) else NULL
+    df <- if (with_by) data.frame(x = x, y = y, z = by_vec) else data.frame(x = x, y = y)
     knots_arg <- if (is.null(knots_x)) NULL else list(x = knots_x)
 
-    sm <- smoothCon(s(x, k = k, bs = bs), data = df, knots = knots_arg,
-                     absorb.cons = TRUE)[[1]]
-    m <- gam(y ~ s(x, k = k, bs = bs), data = df, knots = knots_arg)
+    if (with_by) {
+      sm <- smoothCon(s(x, by = z, k = k, bs = bs), data = df, knots = knots_arg,
+                       absorb.cons = TRUE)[[1]]
+      m <- gam(y ~ s(x, by = z, k = k, bs = bs), data = df, knots = knots_arg)
+    } else {
+      sm <- smoothCon(s(x, k = k, bs = bs), data = df, knots = knots_arg,
+                       absorb.cons = TRUE)[[1]]
+      m <- gam(y ~ s(x, k = k, bs = bs), data = df, knots = knots_arg)
+    }
 
     Xp <- predict(m, type = "lpmatrix")
+    # A numeric-by smooth's lpmatrix columns are named "s(x):z.1", "s(x):z.2", ... —
+    # still matched by the same "^s\\(x\\)" prefix as the no-by case's "s(x).1".
     smooth_cols <- grep("^s\\(x\\)", colnames(Xp))
     Xp_smooth <- Xp[, smooth_cols, drop = FALSE]
 
@@ -223,7 +235,11 @@ main <- function(argv) {
       # other side's payload" in the ADR-193 mechanical-test sense. Without this,
       # Python has no way to evaluate a comparable design at points drawn from R's
       # own RNG stream, which numpy cannot reproduce bit-for-bit from the same seed.
-      x = as.numeric(x)
+      x = as.numeric(x),
+      # Slice 5 (the MI term, PLAN §3 `s(AttdAge, by = StudyYear_C)`): the by-variable
+      # values, shared recipe like x above — NULL (dropped by auto_unbox/jsonlite as
+      # a JSON null) for every case that does not set with_by = TRUE.
+      by = if (with_by) as.numeric(by_vec) else NULL
     )
   }
 
@@ -244,7 +260,22 @@ main <- function(argv) {
                         x_range = c(1, 95)),
     extract_smooth_one("target-polyear-k6", n = 200, k = 6,
                         knots_x = c(1, 2, 3, 5, 10, 21),
-                        x_range = c(1, 21))
+                        x_range = c(1, 21)),
+    # Slice 5 (docs/PLAN_mgcv_parity_engine.md, "s(AttdAge, by = StudyYear_C)"): the
+    # MI term's own basis — same target AttdAge knots as target-attdage-k13 above,
+    # now with a numeric by variable. Confirmed by direct probe (not guessed, Anchor
+    # 8) before this case was written: a numeric-by cr smooth's absorb.cons=TRUE
+    # produces sm$C with 0 rows (mgcv's own documented rule, ?s: "by*constant" need
+    # not be collinear with the intercept, so no sum-to-zero constraint is absorbed)
+    # — the design is the UNCONSTRAINED k-column cr basis (gam_basis_cr.cr_basis's
+    # own return, before absorb_sum_to_zero_constraint) with each row scaled by the
+    # by-variable value, and the penalty S is that SAME unconstrained k x k penalty,
+    # untouched by the by-scaling (measured: max abs diff 0 against the no-by
+    # unconstrained smoothCon(..., absorb.cons=FALSE)$S[[1]] at this k, before this
+    # case was written — see gam_basis_cr.py for the Python side of this).
+    extract_smooth_one("mi-term-attdage-by-k13", n = 400, k = 13,
+                        knots_x = c(1, 2, 4, 7, 14, 18, 24, 35, 50, 70, 85, 90, 95),
+                        x_range = c(1, 95), with_by = TRUE)
   )
   names(smooth_cases) <- vapply(smooth_cases, function(c) c$label, character(1))
 
