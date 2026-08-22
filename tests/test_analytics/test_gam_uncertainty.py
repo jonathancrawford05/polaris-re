@@ -1,0 +1,132 @@
+"""Tests for Wood, Pya and Saefken (2016) eq. (7).
+
+R-free, so they run in the gating pytest job. They pin the *machinery* — the
+Cholesky-factor derivative, the V'' assembly, the first-order term's identity
+with plain Kass-Steffey. They deliberately do NOT assert agreement with mgcv:
+that comparison is characterised but NOT closed (see
+docs/WORK_ORDER_level4_wps2016.md), and a test asserting it would be asserting
+something this session did not establish.
+"""
+
+import numpy as np
+import pytest
+
+from polaris_re.analytics.gam_uncertainty import (
+    cholesky_factor_derivative,
+    d_vbeta_d_rho,
+    second_order_correction,
+    unconditional_covariance,
+)
+from polaris_re.core.exceptions import PolarisValidationError
+
+
+def _spd(p: int, seed: int = 3) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    a = rng.normal(size=(p, p))
+    return a @ a.T + p * np.eye(p)
+
+
+def test_cholesky_factor_derivative_matches_a_difference_of_a_real_factorisation() -> None:
+    """dR/dt against a central difference of an actual Cholesky factorisation."""
+    p = 5
+    v0 = _spd(p)
+    rng = np.random.default_rng(11)
+    b = rng.normal(size=(p, p))
+    dv = (b + b.T) / 2
+    h = 1e-6
+
+    def chol_upper(v: np.ndarray) -> np.ndarray:
+        return np.linalg.cholesky(v).T
+
+    fd = (chol_upper(v0 + h * dv) - chol_upper(v0 - h * dv)) / (2 * h)
+    analytic = cholesky_factor_derivative(chol_upper(v0), dv)
+    np.testing.assert_allclose(analytic, fd, atol=1e-8)
+
+
+def test_cholesky_factor_derivative_returns_an_upper_triangular_factor() -> None:
+    p = 4
+    v0 = _spd(p)
+    rng = np.random.default_rng(5)
+    b = rng.normal(size=(p, p))
+    d_r = cholesky_factor_derivative(np.linalg.cholesky(v0).T, (b + b.T) / 2)
+    np.testing.assert_allclose(d_r, np.triu(d_r), atol=0.0)
+
+
+def test_cholesky_factor_derivative_refuses_a_shape_mismatch() -> None:
+    with pytest.raises(PolarisValidationError, match="both must be"):
+        cholesky_factor_derivative(np.eye(3), np.eye(4))
+
+
+def test_second_order_correction_is_symmetric_and_psd_for_a_psd_vrho() -> None:
+    """V'' is a covariance, so it must come out symmetric — and positive
+    semi-definite whenever Vrho is, since it is a sum of Vrho-weighted Gram
+    matrices."""
+    rng = np.random.default_rng(7)
+    p, m = 5, 2
+    d_r = tuple(np.triu(rng.normal(size=(p, p))) for _ in range(m))
+    a = rng.normal(size=(m, m))
+    v_rho = a @ a.T + m * np.eye(m)
+    out = second_order_correction(d_r, v_rho)
+    np.testing.assert_allclose(out, out.T, atol=1e-12)
+    assert np.min(np.linalg.eigvalsh(out)) > -1e-10
+
+
+def test_second_order_correction_is_zero_when_vrho_is_zero() -> None:
+    """No smoothing-parameter uncertainty means no correction of either order —
+    the control that catches a stray additive term."""
+    rng = np.random.default_rng(9)
+    p, m = 4, 2
+    d_r = tuple(np.triu(rng.normal(size=(p, p))) for _ in range(m))
+    out = second_order_correction(d_r, np.zeros((m, m)))
+    assert np.count_nonzero(out) == 0
+
+
+def test_second_order_correction_refuses_a_vrho_of_the_wrong_size() -> None:
+    d_r = (np.eye(3), np.eye(3))
+    with pytest.raises(PolarisValidationError, match="expected"):
+        second_order_correction(d_r, np.eye(3))
+
+
+def test_d_vbeta_d_rho_is_symmetric() -> None:
+    rng = np.random.default_rng(13)
+    n, p = 40, 5
+    x = rng.normal(size=(n, p))
+    v_beta = np.linalg.inv(_spd(p))
+    out = d_vbeta_d_rho(v_beta, x, rng.normal(size=n), _spd(p, seed=4), 2.0)
+    np.testing.assert_allclose(out, out.T, atol=1e-12)
+
+
+def test_first_order_term_is_exactly_plain_kass_steffey() -> None:
+    """`kass_steffey` must be `Vb + J Vrho J'` and nothing else — it is the
+    thing this engine already computed, and the point of keeping the two terms
+    separable is that adding V'' cannot silently perturb it."""
+    rng = np.random.default_rng(17)
+    n, p, m = 60, 5, 2
+    x = rng.normal(size=(n, p))
+    v_beta = np.linalg.inv(_spd(p))
+    j = rng.normal(size=(m, p))
+    dw = rng.normal(size=(m, n)) * 0.01
+    pen = (_spd(p, seed=2) * 0.1, _spd(p, seed=6) * 0.1)
+    a = rng.normal(size=(m, m))
+    v_rho = a @ a.T + m * np.eye(m)
+    corr = unconditional_covariance(v_beta, x, j, dw, pen, np.array([0.5, -0.2]), v_rho)
+    np.testing.assert_allclose(corr.kass_steffey, v_beta + j.T @ v_rho @ j, rtol=1e-10)
+    np.testing.assert_allclose(corr.full, corr.kass_steffey + corr.second_order, rtol=1e-12)
+
+
+def test_unconditional_covariance_refuses_a_mismatched_j() -> None:
+    rng = np.random.default_rng(19)
+    n, p, m = 30, 4, 2
+    x = rng.normal(size=(n, p))
+    v_beta = np.linalg.inv(_spd(p))
+    pen = (np.eye(p), np.eye(p))
+    with pytest.raises(PolarisValidationError, match="dbeta_drho"):
+        unconditional_covariance(
+            v_beta,
+            x,
+            rng.normal(size=(m, p + 1)),
+            rng.normal(size=(m, n)),
+            pen,
+            np.array([0.1, 0.2]),
+            np.eye(m),
+        )
