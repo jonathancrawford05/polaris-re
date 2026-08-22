@@ -16456,3 +16456,203 @@ not a fourth parity column.
 
 **Supersedes nothing.** Extends ADR-194's `CR_BASIS_CLAIM` to a construction it did not
 previously cover; does not reopen or amend ADR-194's own content.
+
+## ADR-201: Wood (2011) gives `dw/drho` — level 4's named prerequisite is built, and level 4 is still open
+
+**Date:** 2026-08-22
+**Status:** Accepted — **CONFIRMED at tier 3**, same session (CI run 32586279901,
+oracle `sha256:0d54c192…` build 8, R 4.6.1 / mgcv 1.9.4).
+**Source paper:** Wood, S.N. (2011), *JRSS-B* **73**(1), 3–36, DOI
+`10.1111/j.1467-9868.2010.00749.x`. Supplied by the maintainer 2026-08-22.
+**Spec:** `docs/WORK_ORDER_dw_drho_wood2011.md`.
+
+### Decision 0 — which paper this is, because it is not the one level 4 needs
+
+The paper was supplied to unblock **level 4** (ADR-190's standing Kass-Steffey
+BLOCKER). **It is Wood (2011), not Wood, Pya & Säfken (2016)** — the same paper
+that already resolved ADR-196.
+
+That does not make it the wrong paper to have. ADR-190 decision 2 states the
+blocker as *"it needs `dw/drho`, which nothing in the fitter currently computes"*,
+and **Wood (2011) derives `dw/drho` in full**: §3.4 for `dβ̂/dρ` and `dη/dρ`,
+Appendix D for `dw/dη` and the chain rule, §3.5.1 putting it to work as
+`Tⱼ = diag((1/|wᵢ|)∂wᵢ/∂ρⱼ)`.
+
+**What it does not contain is the assembly.** Searched: zero occurrences of
+"unconditional", "Vc", or a smoothing-parameter-uncertainty covariance. It derives
+these derivatives because the REML *Newton iteration* needs them, not to build a
+covariance correction. How `dw/dρ` enters `Vc` is the 2016 paper's contribution.
+
+**So this ADR records a prerequisite, not a fix. Level 4 remains OPEN**, and no
+number in this ADR may be cited as advancing it beyond "its named missing
+ingredient now exists and is verified".
+
+### Decision 1 — the derivative needs the observed Hessian even though the fit does not
+
+The registered prediction (work order §3, written before measuring) was that the
+canonical-link cells would agree and `binomial-cloglog` might disagree materially,
+because Wood derives `dβ̂/dρ` by implicit differentiation at the penalized-deviance
+stationary point — where the matrix is the **observed (Newton)** Hessian — while
+`gam_fit.penalized_irls_general` uses **Fisher** weights.
+
+**The prediction held, and then the cause was derived and closed.** Against a
+central difference of this engine's own refits:
+
+| cell | `max|α − 1|` | `dη/dρ`, Fisher `W` | `dη/dρ`, Newton `W` |
+|---|---|---|---|
+| `poisson-log` | 6.7e-16 | 6.6e-12 | 6.6e-12 |
+| `binomial-logit` | 0.0 (exact) | 2.7e-11 | 2.7e-11 |
+| `binomial-cloglog` | 4.3e-03 | **6.9e-06** | **1.1e-11** |
+
+Fisher scoring and Newton converge to the *same* `β̂` — they differ in the step,
+not the fixed point — but `dβ̂/dρ` depends on the Hessian *at* that point, and that
+is the observed one. `newton_alpha` implements Wood §3.2's `α` in this codebase's
+`m ≡ dμ/dη` parameterisation (`α = 1 + (y−μ)(V′/V − m′/m²)`); nothing in it
+special-cases canonical links, so `α ≡ 1` falling out exactly for Poisson-log and
+binomial-logit is an **independent confirmation of that algebra**, not a tautology.
+
+**The fitter is untouched** (Anchor 7; its Fisher choice is verified behaviour,
+ADR-195). Only the derivative's Hessian changed, which is what the paper's own
+derivation calls for.
+
+### Decision 2 — compared on `dη/dρ`, never on `dβ̂/dρ`
+
+PLAN Anchor 2 and the routine's NEVER list forbid coefficient agreement as an
+acceptance criterion outside Stage A: `mgcv` reparameterises, so `β̂` is
+basis-dependent and `η` is not. `dβ̂/dρ` is computed internally and is deliberately
+**not** a compared quantity; `dη/dρ = X dβ̂/dρ` is its basis-invariant image and is
+what any downstream use — including the 2016 correction — actually needs.
+
+### Measurement
+
+`DERIVATIVE_CLAIM` declares both quantities `INDEPENDENT`: analytic (Wood) on one
+side, `mgcv`'s own refits central-differenced on the other. `analytic_derivatives`'
+signature takes only the shared recipe and never the R side's `eta`/`w`.
+
+| case | `d_eta_d_rho` diff | `dw_drho` diff | `eta` control | Richardson |
+|---|---:|---:|---:|---:|
+| `poisson-log` | 5.757e-11 | 1.725e-07 | 8.442e-13 | 4.00 |
+| `binomial-logit` | 5.511e-11 | 7.397e-11 | 7.772e-15 | 4.00 |
+| `binomial-cloglog` | 5.316e-11 | 5.834e-10 | 8.362e-12 | 4.00 |
+
+**Tier 3**, run 32586279901, same order as tier 1 at every case. Required levels
+1-3 of the ten-cell suite still agree; level 4 DISAGREES exactly as before.
+
+**On the step size, because the first version of this probe got it wrong.** The
+probe originally reported one `h` regime and a Richardson ratio of ~0.6, which
+would have been published as convergence evidence it was not: at `h ≤ 1e-4` the
+residual is *round-off* limited (differencing two separately-converged `mgcv` fits
+has its own floor), so halving `h` makes the reference worse, not better. The probe
+now brackets both regimes — the diff columns at the smallest `h` where agreement is
+tightest, the Richardson ratio at the largest pair where truncation dominates and
+the `O(h²)` law is observable. **A ratio of 4.00 is what licenses the claim that the
+analytic derivative is the `h → 0` limit** of `mgcv`'s behaviour rather than merely
+close at one arbitrary step.
+
+### What this does not claim
+
+- **Level 4 is not closed, or narrowed.** `vcov(unconditional = TRUE)` is
+  untouched; ADR-190's 3.2–4.1x gap stands exactly as measured.
+- **`Vc` is not implemented.** That needs the 2016 paper's assembly, and per
+  ADR-190 decision 3 it must be re-derived from that paper, never read off
+  `mgcv`'s GPL source.
+- **No production path changed** (Anchor 7). `smoothing_uncertainty`,
+  `select_lambdas_reml` and every entry point are untouched; `tests/qa/` goldens
+  byte-identical.
+- **Two penalty blocks only.** Like ADR-199, nothing here has been exercised at
+  the target's 13-21 blocks; the code is written generally but that is unmeasured.
+
+## ADR-202: level 4 is closed — eq. (7) reproduces `mgcv`'s `vcov(unconditional = TRUE)`
+
+**Date:** 2026-08-22
+**Status:** Accepted — **CONFIRMED at tier 3** (CI run 32589501512, oracle
+`sha256:0d54c192…` build 8, R 4.6.1 / mgcv 1.9.4).
+**Source:** Wood, S.N., Pya, N. & Säfken, B. (2016), *JASA* **111**(516), 1548–1563.
+Supplied by the maintainer 2026-08-22.
+**Closes:** ADR-190's standing level-4 BLOCKER, open since ADR-188.
+**Depends on:** ADR-201 (`dw/drho`, the ingredient ADR-190 named as missing).
+
+### What was blocked, and what closes it
+
+ADR-190 measured that `mgcv`'s `Vc` is **not** `Vb + J Vρ Jᵀ` — that expression,
+built from `mgcv`'s own inputs, reproduces *our* number (inflation 1.11-1.21x) and
+not `mgcv`'s (1.49-1.87x), with a non-constant ratio of 3.2-4.1x. It re-scoped the
+blocker to "implement Wood, Pya & Säfken (2016)'s correction".
+
+The paper's eq. (7) is `V′β = Vβ + V′ + V″` with `V′ = J Vρ Jᵀ`, and it states
+verbatim that *"dropping `V″`"* gives exactly the Kass-Steffey approximation. So
+ADR-190's measurement and the paper's own framing identify the same missing term,
+independently.
+
+### Decision 1 — three things had to be identified, none of them stated outright in the paper
+
+Each was measured, not chosen (Anchor 8 forbids tuning a constant to match):
+
+1. **`Vρ`'s regularisation is a ridge of exactly 0.1.** The paper names the
+   mechanism (*"equivalent to placing a Gaussian prior on ρ"*) but not the value.
+   `mgcv` publishes the result as `m$V.sp`, and `m$V.sp == solve(H + 0.1·I)` to
+   **1.78e-15** on two independent fits, with a 1-D search returning
+   `0.1000000000`. Identified against `mgcv`'s own published quantity.
+2. **`V″` is not invariant to the choice of square root.** `RᵀR = Vβ` does not
+   determine `∂R/∂ρ`: swapping a Cholesky of `Vβ` for the symmetric root moves
+   `V″` ~17%. The correct factor is Wood (2011) §3.3's `G = L⁻¹` (**lower**
+   triangular, from `A = LLᵀ`, `A = XᵀWX + Sλ`), which the 2016 paper reuses.
+   Using it dropped `poisson-log` from 26.7% to 1.87% element-wise.
+3. **The two terms use *different* inverses of the ρ Hessian** — `V′` the
+   unregularised `H⁻¹`, `V″` the ridged `(H + 0.1I)⁻¹`. Found by localisation, not
+   search: the remaining `binomial-logit` residual was **rank-1** (relative
+   singular values 1.000, 0.084, 0.0006), its dominant direction had `|cos| =
+   0.9994` with `J[1]`, and the best multiple of `J₁J₁ᵀ` was **3210** against an
+   unregularised `H⁻¹[1,1]` of **3184** — a ~1% match that named the term and its
+   treatment together.
+
+### Decision 2 — validated on held-out cases, because two cases can fit a rule
+
+The asymmetry was identified on two cases, so it was then checked on **five
+independent ones** that played no part in deriving it — different seeds, `n`, `p`,
+and including a non-canonical `cloglog` link:
+
+| case | family/link | element-wise residual | inflation rel err |
+|---|---|---:|---:|
+| `v-pois-a` | poisson/log | 0.730% | 0.071% |
+| `v-pois-b` | poisson/log | 0.334% | 0.010% |
+| `v-binom-a` | binomial/logit | 0.075% | **0.000%** |
+| `v-binom-b` | binomial/logit | 0.076% | 0.007% |
+| `v-cloglog-a` | binomial/cloglog | 0.219% | 0.002% |
+
+### Measurement (tier 3, committed probe)
+
+| case | element-wise | ours | mgcv | rel |
+|---|---:|---:|---:|---:|
+| `poisson-log` | 0.904% | 1.1319x | 1.1317x | 0.015% |
+| `binomial-logit` | 0.023% | 1.3650x | 1.3650x | 0.000% |
+| `binomial-cloglog` | 0.150% | 1.2310x | 1.2312x | 0.022% |
+
+`VC_CLAIM` declares both quantities `INDEPENDENT`. Identical to tier 1.
+
+### Decision 3 — element-wise governs, not the inflation ratio
+
+Mid-slice the scalar inflation ratio read **0.39%** while the element-wise residual
+was **26.7%**: averaging diagonals hid a real structural disagreement behind a
+green headline. Both are reported; the element-wise number is the gate, and the
+probe now exports full `Vc`/`Vp` matrices rather than only diagonals. **This is a
+general lesson for this epic's remaining comparisons, not a detail of this one.**
+
+### What is explicitly NOT closed
+
+- **The ten-cell suite's level 4 still DISAGREES, correctly.** It exercises
+  `experience_gam_penalized.smoothing_uncertainty`, the shipped path, untouched
+  here (Anchor 7). The tier-3 run confirms it: `level 4: DISAGREES`, unchanged.
+- **Re-pointing production** needs Anchor 7 sign-off and its own answer on
+  determinism (ADR-186 chose the grid deliberately for reproducibility).
+- **ADR-188's coverage gate.** ADR-190 decision 4 registered the prediction that a
+  larger correction moves coverage toward the 0.9192 floor. That is a separate
+  measurement on the production path and **has not been run.**
+- **Labelling any interval a 95% band** remains maintainer-reserved.
+
+### The residual is small but not float noise
+
+0.07–0.73% element-wise. Eq. (7) is a first-order Taylor expansion whose remainder
+`r` the paper drops, so exact agreement is not available in principle. The 2%
+tolerance comes from the observed spread with under a factor of three of headroom
+— recorded rather than explained away.

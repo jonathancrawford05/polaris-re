@@ -339,7 +339,7 @@ across the slice structure.
 | `bs = "sz"` | Sum-to-zero factor-smooth interactions (4 terms in the target formula) | **Not started**, expected hardest basis (PLAN §6 registered prediction) | The outer search (slice 6) |
 | `select = TRUE` | The double penalty / null-space shrinkage that takes 13 sp → 21 | **Not started** | Slices 4-6 |
 | `cr` basis extrapolation | Behaviour for `x` outside `[knots[0], knots[-1]]` | **Unverified**, not assumed — `gam_basis_cr.py` marks it explicitly | A future session measuring it; blocks fitting the target's own knots against real experience data, whose range need not match the hand-chosen knots |
-| Kass-Steffey / `vcov(unconditional=TRUE)` | The full Wood, Pya & Säfken (2016) correction (`dw/drho`) | **Known wrong, re-scoped as a formula gap** (ADR-190) — a SEPARATE standing blocker, not fixed by slice 4's REML work; different paper, different derivation | `dw/drho`, re-derived from the 2016 paper, never from GPL source |
+| Kass-Steffey / `vcov(unconditional=TRUE)` | The full Wood, Pya & Säfken (2016) correction (`dw/drho`) | **CLOSED, 2026-08-22** (ADR-202, tier 1 AND tier 3 identical, CI run 32589501512) — `gam_uncertainty` reproduces `mgcv`'s `Vc` to <1% element-wise and <0.1% on the inflation ratio, where the first-order-only correction inflated 1.11-1.21x against `mgcv`'s 1.49-1.87x. Built on ADR-201's `dw/drho` | Nothing for the FORMULA. What remains is a **separate, Anchor-7-gated decision**: re-pointing `experience_gam_penalized.smoothing_uncertainty` at it (with its own determinism answer, ADR-186), and then re-running ADR-188's coverage gate — until that happens the ten-cell suite's level 4 correctly still reads DISAGREES |
 | Anchor 5 absolute/relative idiom, demonstrated end to end | Weights and an offset used simultaneously on the target's own multi-term structure | Each control verified in isolation only (PLAN slice 3's own deferred criterion) | A multi-term model, which needs the outer search |
 | `bam(discrete=TRUE)` + fREML | The discretised-covariate fast fitting algorithm | **Deferred to a later epic**, deliberately (maintainer decision 2026-08-10) — not a gap in the current epic's scope | N/A |
 | `bs = "fs"` | Factor-smooth via difference penalties (an earlier maintainer formula) | **Superseded by `sz`** in the selected target form — recorded, not pursued | N/A |
@@ -401,11 +401,22 @@ should be re-synced.
 5. **Slice 6 — `bs = "sz"`.** Expected hardest basis; Stage A is where a mistake here
    is cheap (PLAN §6 registered prediction).
 6. **Slice 7 — `select = TRUE`.** 13 → 21 smoothing parameters.
-7. **Kass-Steffey / `vcov(unconditional=TRUE)` — the level-4 BLOCKER.** Separate from
-   the REML score work above: a different paper (Wood, Pya & Säfken 2016), needs
-   `dw/drho`, re-derived from the paper per the same GPL/MIT discipline. Standing
-   since ADR-188/190; see "Carried in from the superseded epic" below for the full
-   context.
+7. ~~**Kass-Steffey / `vcov(unconditional=TRUE)` — the level-4 BLOCKER.**~~
+   **CLOSED, 2026-08-22** (ADR-202, tier 1 AND tier 3 identical, CI run 32589501512).
+   The maintainer supplied Wood, Pya & Säfken (2016); eq. (7)'s `V''` term is exactly
+   what ADR-190 measured as missing, and `gam_uncertainty` now reproduces `mgcv`'s
+   `Vc` to <1% element-wise (0.023%-0.904%) and <0.1% on the inflation ratio, across
+   three committed cases plus five held-out ones including a non-canonical link.
+   Three things had to be identified and all three were MEASURED, not chosen: the
+   `Vrho` ridge is exactly 0.1 (against `mgcv`'s own `m$V.sp`, 1.78e-15); the factor
+   is Wood (2011) §3.3's lower-triangular `L^-1`, and `V''` is *not* invariant to
+   that choice; and the two terms use **different** inverses of the rho Hessian.
+   **What remains is NOT the formula.** Re-pointing production at it is a separate
+   Anchor-7 decision carrying its own determinism question (ADR-186), and ADR-188's
+   coverage gate — which ADR-190 decision 4 predicted would move toward the 0.9192
+   floor — is a further, still-unrun measurement on the production path. Labelling
+   any interval a 95% band stays maintainer-reserved.
+
 8. **Demonstrate Anchor 5's absolute/relative idiom end to end** on the target's own
    multi-term structure, once a multi-term model exists (needs (3)).
 9. **`cr` basis extrapolation beyond the knot range.** Needed before fitting the
