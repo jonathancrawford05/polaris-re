@@ -231,7 +231,10 @@ def select_lambdas_continuous(
         PolarisComputationError: if every trial point SciPy visited was
             rejected — the search found nothing to report, mirroring
             ``select_lambdas_reml``'s identical refusal to fabricate a
-            selection from a fully-rejected grid.
+            selection from a fully-rejected grid. Can also propagate,
+            unguarded, from the single re-fit at SciPy's reported minimum
+            (below) — narrow in practice, since that point was reached
+            through a converging search path, but not impossible.
     """
     n_blocks = len(penalty_blocks)
     if n_blocks == 0:

@@ -160,3 +160,13 @@ no drift. Tier 3: R 4.6.1 / mgcv 1.9.4, oracle digest
 `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8` (build 8), the
 same digest every measurement in this epic has used since ADR-189 amendment 2 — CI run
 32544930172.
+
+## Perf History
+
+One row appended (`perf/history.jsonl`, ADR-177), pinned to commit `014c404`
+(`2026-08-22T01:57:41+00:00`, the initial code commit — not wall clock). **No structural
+creep**: `peak_mib` baseline 33.0 → recent 33.0, delta 0, `has_structural_creep: false`.
+The advisory wall-time ratio is 1.34x (baseline median 0.0619s → recent 0.0831s) — per the
+maintainer design rule this is machine-dependent and does not gate, and it is not
+attributable to this session's own change (this session touched no code on the perf
+probe's hot path).

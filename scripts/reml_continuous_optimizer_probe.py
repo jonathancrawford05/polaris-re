@@ -149,7 +149,7 @@ def main(argv: list[str] | None = None) -> int:
             f"{comparison.grid_max_abs_log10_sp_diff:.4e} | "
             f"{comparison.max_abs_log10_sp_diff:.4e} | {closer} | "
             f"{comparison.selection.converged} | {comparison.selection.n_function_evals} | "
-            f"{comparison.abs_edf_total_diff:.4e} |"
+            f"{comparison.edf_total_diff:.4e} |"
         )
 
     # l5-gamma — same shape, gamma=1.4, design d1 only.
@@ -173,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
         f"[{comparison.mgcv_log_lambda[0]:.4f}, {comparison.mgcv_log_lambda[1]:.4f}] | "
         f"{comparison.grid_max_abs_log10_sp_diff:.4e} | {comparison.max_abs_log10_sp_diff:.4e} | "
         f"{closer} | {comparison.selection.converged} | {comparison.selection.n_function_evals} | "
-        f"{comparison.abs_edf_total_diff:.4e} |"
+        f"{comparison.edf_total_diff:.4e} |"
     )
     lines.append("")
 

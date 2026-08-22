@@ -95,7 +95,11 @@ class ContinuousSelectionComparison:
     """``max(|continuous.log_lambda - mgcv_log_lambda|)`` — the same metric
     shape as the ten-cell suite's ``max_abs_log10_sp_diff``, computed here for
     the continuous search rather than the grid."""
-    abs_edf_total_diff: float
+    edf_total_diff: float
+    """``selection.edf_total - mgcv_edf_total`` — SIGNED, unlike the ten-cell
+    suite's own ``abs_edf_total_diff_free_sp`` (PR #205 review [P2]: no
+    ``abs()`` is taken here, so this field is named without the misleading
+    ``abs_`` prefix)."""
 
 
 def compare_continuous_selection(
@@ -144,5 +148,5 @@ def compare_continuous_selection(
         grid_log_lambda=grid_log,
         grid_max_abs_log10_sp_diff=float(np.max(np.abs(grid_log - mgcv_log))),
         max_abs_log10_sp_diff=float(np.max(np.abs(selection.log_lambda - mgcv_log))),
-        abs_edf_total_diff=float(selection.edf_total - mgcv_edf_total),
+        edf_total_diff=float(selection.edf_total - mgcv_edf_total),
     )

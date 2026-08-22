@@ -6,8 +6,10 @@ parity measurement against ``mgcv`` — does the continuous search's selected
 ``log10(lambda)`` land closer to ``mgcv``'s own free-``sp`` selection than the
 production grid does (ADR-198's registered prediction) — is a probe script
 (``scripts/reml_continuous_optimizer_probe.py``), not a pytest test: it needs
-the committed ``mgcv_reference.json``/``python_reference.json`` exchange and is
-read at tier 1/tier 3 per ``docs/ROUTINE_MGCV_PARITY.md``.
+the committed ``python_reference.json`` plus a locally-generated
+``mgcv_reference.json`` (produced by ``scripts/mgcv_conformance.R``, never
+committed — see ``.gitignore``) and is read at tier 1/tier 3 per
+``docs/ROUTINE_MGCV_PARITY.md``.
 """
 
 from unittest.mock import patch
