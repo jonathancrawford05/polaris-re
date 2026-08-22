@@ -2535,3 +2535,33 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   age-axis optimum exists to compare against a measured empirical spread),
   so the coverage this test used to carry on the age axis is not simply
   gone. *Source: PR #204 round-2 review [P2] (1st-order).*
+
+### Harvested 2026-08-22 — slice 4 part B's first slice: the continuous search confirms ADR-198 (ADR-199)
+
+- **PART B'S FIRST SLICE DONE — ADR-198's registered decisive test ran and HOLDS, tier 1
+  AND tier 3 both confirmed.** `gam_reml_optimize.select_lambdas_continuous` — a
+  Newton/quasi-Newton search (SciPy L-BFGS-B) over `log10(lambda)` for any number of
+  independently-scaled penalty blocks and any known-scale family, built entirely on the
+  already-verified `gam_fit.penalized_irls_general`/`gam_reml.reml_score_general` (no
+  new fitting or scoring formula). On the same four free-sp cells ADR-198 measured
+  post-fix, `max_abs_log10_sp_diff` against `mgcv`'s own free-sp selection collapses
+  from the production grid's 0.0645/0.0791/0.1048/0.0776 to (tier 3, CI run
+  32544930172, oracle `sha256:0d54c192…` build 8) 6.9e-04/5.1e-05/1.7e-04/9.8e-04 — 2-3
+  orders of magnitude, landing at the search's own convergence tolerance rather than
+  anywhere near 0.1, identical in verdict to the tier-1 reading. This settles ADR-198's
+  open question decisively: the residual ADR-197's fix left behind was grid
+  quantisation, not a remaining criterion difference. `CONTINUOUS_LAMBDA_CLAIM` declares
+  both compared quantities INDEPENDENT (ADR-193). `experience_gam_penalized.
+  select_lambdas_reml` and every other production entry point are untouched (PLAN
+  Anchor 7) — this is a second, separate search, not a replacement (ADR-198 "Two
+  searches, not one"). Required levels 1-3 of the ten-cell suite also still agree on
+  the confirming CI run — no regression. *Source: this session, ADR-199 (1st-order —
+  the epic's own active slice).*
+
+- **Not yet exercised above N=2.** `select_lambdas_continuous` accepts any number of
+  penalty blocks by construction, but the only fixture available to test against is the
+  ten-cell suite's existing 2-block designs (`d1`/`d2`/`d3`). Extending to the target
+  formula's 13-21 blocks needs a multi-term mgcv-native model, which is slice 5 onward's
+  own scope — nothing in this session's module needs revisiting once that model exists.
+  *Source: this session (2nd-order — a named, not-yet-met piece of the search's eventual
+  target, correctly deferred rather than silently dropped).*

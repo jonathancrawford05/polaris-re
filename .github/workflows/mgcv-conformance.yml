@@ -75,6 +75,12 @@ on:
       # — same reasoning as the lines above.
       - "src/polaris_re/analytics/gam_reml_production_check.py"
       - "scripts/reml_production_check_probe.py"
+      # Slice 4 part B's own module and probe — the continuous outer search,
+      # same reasoning as the lines above: a change here must re-run the
+      # comparison that measures it against mgcv's own free-sp selection.
+      - "src/polaris_re/analytics/gam_reml_optimize.py"
+      - "src/polaris_re/analytics/gam_reml_optimize_conformance.py"
+      - "scripts/reml_continuous_optimizer_probe.py"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -847,6 +853,27 @@ jobs:
           cat reml_production_check_report.md
           cat reml_production_check_report.md >> "$GITHUB_STEP_SUMMARY"
 
+      # PLAN slice 4 part B, ADR-198's decisive test: does a continuous search
+      # over log10(lambda) — never reading mgcv's own selection — land closer
+      # to mgcv's own free-sp selection than the production grid does? Reads
+      # mgcv_reference.json (job 1, already produced on every dispatch — the
+      # free-sp `sp`/`edf_total` fields were already exported, so no new R
+      # work) and the COMMITTED python_reference.json (read-only, for the
+      # grid's own already-selected lambda). DIAGNOSTIC ONLY, same contract
+      # as every probe above: it fits its own independent search, calling
+      # none of experience_gam_penalized.py's production entry points and
+      # editing none of them (PLAN Anchor 7).
+      - name: Does a continuous search land closer to mgcv than the grid (slice 4 part B, ADR-198)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python scripts/reml_continuous_optimizer_probe.py \
+            --exchange data/mgcv_exchange/synthetic \
+            --mgcv-reference mgcv_reference.json \
+            > reml_continuous_optimizer_report.md
+          cat reml_continuous_optimizer_report.md
+          cat reml_continuous_optimizer_report.md >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -862,3 +889,4 @@ jobs:
             gam_reml_probe.json
             gam_reml_probe_report.md
             reml_production_check_report.md
+            reml_continuous_optimizer_report.md
