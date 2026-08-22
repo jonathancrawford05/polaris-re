@@ -37,15 +37,15 @@ already-tracked `dw/drho` gap. **Slice 4 part B remains unblocked to proceed** �
 search builds on `gam_reml.reml_score_general`, already correct before ADR-197's session
 ran, and now the production 2-D grid selector agrees with it too rather than being two
 steps removed. This remains the epic's largest remaining piece of work, and slices 5-7 all
-depend on it. **Part B's first slice is DONE, 2026-08-22** (ADR-199, tier 1 measured — tier
-3 confirmation is this session's own next step): `gam_reml_optimize.py`'s
-`select_lambdas_continuous`, a Newton/quasi-Newton search over `log10(lambda)` built on the
-already-verified `gam_fit`/`gam_reml` functions, and it **decisively confirms ADR-198's
-registered prediction** — the free-sp residual left after ADR-197's fix collapses from the
-grid's 0.0645/0.0791/0.1048/0.0776 to 5.0e-04/4.4e-05/5.4e-04/7.3e-04 (2-3 orders of
-magnitude) once the grid is replaced by a continuous search on the identical criterion.
-Tested only at the existing 2-block designs; extending to the target's 13-21 blocks needs a
-multi-term mgcv-native model (slice 5 onward).
+depend on it. **Part B's first slice is DONE, 2026-08-22** (ADR-199, tier 1 AND tier 3 both
+confirmed, CI run 32544930172): `gam_reml_optimize.py`'s `select_lambdas_continuous`, a
+Newton/quasi-Newton search over `log10(lambda)` built on the already-verified
+`gam_fit`/`gam_reml` functions, and it **decisively confirms ADR-198's registered
+prediction** — the free-sp residual left after ADR-197's fix collapses from the grid's
+0.0645/0.0791/0.1048/0.0776 to (tier 3) 6.9e-04/5.1e-05/1.7e-04/9.8e-04 (2-3 orders of
+magnitude, identical in verdict to tier 1) once the grid is replaced by a continuous search
+on the identical criterion. Tested only at the existing 2-block designs; extending to the
+target's 13-21 blocks needs a multi-term mgcv-native model (slice 5 onward).
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16) and one deferred
 to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
@@ -263,25 +263,25 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    before ADR-197's session ran; the production 2-D grid selector's own status was the
    thing being gated on, and it is now measured rather than merely suspected.
 
-   **Part B's first slice DONE, 2026-08-22** (ADR-199): `gam_reml_optimize.py`'s
-   `select_lambdas_continuous` — a Newton/quasi-Newton search (SciPy L-BFGS-B) over
-   `log10(lambda)` for any number of independently-scaled penalty blocks and any
-   known-scale family, built on `gam_fit.penalized_irls_general` and
+   **Part B's first slice DONE, 2026-08-22** (ADR-199, tier 1 AND tier 3 confirmed):
+   `gam_reml_optimize.py`'s `select_lambdas_continuous` — a Newton/quasi-Newton search
+   (SciPy L-BFGS-B) over `log10(lambda)` for any number of independently-scaled penalty
+   blocks and any known-scale family, built on `gam_fit.penalized_irls_general` and
    `gam_reml.reml_score_general` alone (no new fitting or scoring formula). This is
    ADR-198's own decisive test, and it **HOLDS, decisively**: on the same four
    free-sp cells ADR-198 measured post-fix, `max_abs_log10_sp_diff` against `mgcv`'s
    own free-sp selection collapses from the grid's 0.0645/0.0791/0.1048/0.0776 to
-   5.0e-04/4.4e-05/5.4e-04/7.3e-04 (SciPy `converged=True` on all four) — the residual
-   ADR-197's fix left behind was grid quantisation, not a remaining criterion
-   difference. `CONTINUOUS_LAMBDA_CLAIM` (`gam_reml_optimize_conformance.py`)
-   declares both `max_abs_log10_sp_diff`/`edf_total` INDEPENDENT.
-   `select_lambdas_reml` and every other production entry point are untouched (PLAN
-   Anchor 7) — this is a genuinely separate search, per ADR-198's own "Two searches,
-   not one". Measured at tier 1 only as of this ADR's initial commit; tier-3
-   confirmation is this session's own next step before any number here may be cited
-   in DECISIONS.md/PLAN/CONTINUATION as settled (routine's no-magnitude-carve-out
-   rule). **Tested only at N=2** (the existing ten-cell suite's own `d1`/`d2`/`d3`
-   designs) — the search is written to accept any block count, but nothing has
+   (tier 3) 6.9e-04/5.1e-05/1.7e-04/9.8e-04 (SciPy `converged=True` on all four,
+   identical in verdict at tier 1) — the residual ADR-197's fix left behind was grid
+   quantisation, not a remaining criterion difference. `CONTINUOUS_LAMBDA_CLAIM`
+   (`gam_reml_optimize_conformance.py`) declares both `max_abs_log10_sp_diff`/`edf_total`
+   INDEPENDENT. `select_lambdas_reml` and every other production entry point are
+   untouched (PLAN Anchor 7) — this is a genuinely separate search, per ADR-198's own
+   "Two searches, not one". Confirmed at tier 3, CI run 32544930172, oracle
+   `sha256:0d54c192…` build 8 — required levels 1-3 of the ten-cell suite also still
+   agree on this run, no regression from the workflow edit. **Tested only at N=2**
+   (the existing ten-cell suite's own `d1`/`d2`/`d3` designs) — the search is written
+   to accept any block count, but nothing has
    exercised it beyond 2 yet; extending to a real multi-term model (13-21 blocks)
    needs a multi-term mgcv-native model, which is slice 5 onward's own work.
 5. **`ti()` and the varying-coefficient MI term.** Ship the MI term first if they split.
@@ -305,7 +305,7 @@ across the slice structure.
 |---|---|---|---|
 | Multi-penalty REML criterion (Python-side) | The penalized-deviance criterion, Wood (2011) §2 eq. (4), for any number of independently-scaled penalty blocks | **FIXED, 2026-08-18** (ADR-196) — the score was missing `β̂ᵀSβ̂`; adding it closed the gap to float precision, tier 1 and tier 3 identical | Nothing — DONE |
 | Same criterion, production module | `experience_gam_penalized.reml_score` — the SHIPPED tensor-MI 2-D grid selector's own score, same formula shape, same omission | **FIXED, 2026-08-19** (ADR-197 amendment, maintainer-authorized) — identical fix to ADR-196's, `python_reference.json` re-baselined moving exactly as §3.2 predicted, required conformance levels 1-3 still agree, level 5 moved from DISAGREES to AGREES | Nothing — DONE |
-| N-dimensional outer search | Newton/quasi-Newton (f)REML optimisation over 13-21 `log λ` | **First slice DONE, 2026-08-22** (ADR-199) — `select_lambdas_continuous` built and confirms ADR-198's prediction decisively (tier 1; tier 3 pending); tested only at N=2, not yet at the target's 13-21 blocks | A multi-term mgcv-native model to build N>2 blocks from (slice 5 onward) |
+| N-dimensional outer search | Newton/quasi-Newton (f)REML optimisation over 13-21 `log λ` | **First slice DONE, 2026-08-22** (ADR-199, tier 1 AND tier 3 confirmed) — `select_lambdas_continuous` built and confirms ADR-198's prediction decisively; tested only at N=2, not yet at the target's 13-21 blocks | A multi-term mgcv-native model to build N>2 blocks from (slice 5 onward) |
 | `ti()` — tensor interaction | Tensor product with marginal main effects excluded | **Not started** | The outer search (slice 5) |
 | `s(..., by=...)` with a `cr` basis | The MI term itself — a `cr` basis scaled by a numeric `by` variable | **Not started** | The outer search (slice 5) |
 | `bs = "sz"` | Sum-to-zero factor-smooth interactions (4 terms in the target formula) | **Not started**, expected hardest basis (PLAN §6 registered prediction) | The outer search (slice 6) |
@@ -351,16 +351,17 @@ should be re-synced.
    DISAGREES → AGREES**, levels 1-3 AGREE throughout, level 4 unchanged. See ADR-197's
    resolution amendment.
 3. ~~**Slice 4 part B — the N-dimensional outer search.** Newton/quasi-Newton on the
-   (f)REML score.~~ **First slice DONE, 2026-08-22** (ADR-199, tier 1 measured — tier 3
-   pending). `gam_reml_optimize.select_lambdas_continuous` (SciPy L-BFGS-B on
-   `gam_fit`/`gam_reml`) tested ADR-198's registered prediction directly: on the same four
-   free-sp cells, `max_abs_log10_sp_diff` against `mgcv`'s own selection collapsed from the
-   grid's 0.0645/0.0791/0.1048/0.0776 to 5.0e-04/4.4e-05/5.4e-04/7.3e-04 — **ADR-198's
-   prediction HOLDS, decisively**, not merely "inside tolerance": the residual left after
-   ADR-197's fix was grid quantisation, not a remaining criterion difference. **What
-   remains of this item:** tier-3 confirmation (this session's own next step); extending
-   the search to more than 2 penalty blocks, which needs a multi-term mgcv-native model
-   (slice 5's own scope) — the search itself is already written generally, nothing here
+   (f)REML score.~~ **First slice DONE, 2026-08-22** (ADR-199, tier 1 AND tier 3
+   confirmed, CI run 32544930172). `gam_reml_optimize.select_lambdas_continuous` (SciPy
+   L-BFGS-B on `gam_fit`/`gam_reml`) tested ADR-198's registered prediction directly: on
+   the same four free-sp cells, `max_abs_log10_sp_diff` against `mgcv`'s own selection
+   collapsed from the grid's 0.0645/0.0791/0.1048/0.0776 to (tier 3)
+   6.9e-04/5.1e-05/1.7e-04/9.8e-04 — **ADR-198's prediction HOLDS, decisively**, not
+   merely "inside tolerance": the residual left after ADR-197's fix was grid
+   quantisation, not a remaining criterion difference. **What remains of this item:**
+   extending the search to more than 2 penalty blocks, which needs a multi-term
+   mgcv-native model (slice 5's own scope) — the search itself is already written
+   generally, nothing here
    needs revisiting once that model exists.
 4. **Slice 5 — `ti()` and the MI term.** Ship the MI term first if they split (PLAN
    §3: it's the cheap, well-conditioned one and the actual point of the target

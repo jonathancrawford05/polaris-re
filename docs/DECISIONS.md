@@ -16245,8 +16245,8 @@ interpretation.
 ## ADR-199: ADR-198's decisive test — a continuous outer search collapses the residual to convergence noise
 
 **Date:** 2026-08-22
-**Status:** Accepted (tier 1 measured; tier 3 pending in this session — see the confirmation
-note before treating any number here as committed, per `docs/ROUTINE_MGCV_PARITY.md` step 2)
+**Status:** Accepted — **CONFIRMED at tier 3**, same session (CI run 32544930172, oracle
+`sha256:0d54c192…` build 8). See "Tier-3 confirmation" below for the authoritative numbers.
 **Context:** ADR-198 named test 2 — "the continuous optimiser itself" — as the decisive
 discriminator between two explanations for the free-`sp` residual left after ADR-197's fix:
 grid quantisation (refutable, resolution-bound) versus a smaller remaining criterion
@@ -16298,11 +16298,32 @@ fix left behind was grid quantisation, not a remaining criterion difference — 
 explanation ADR-198 could not rule out on its own is refuted by this measurement.
 
 **tier:** 1, R 4.3.3 / mgcv 1.9.1 (local apt) — no version drift from the routine's expected
-apt versions this session. **Not yet re-measured at tier 3** as of this ADR's initial
-commit; per `docs/ROUTINE_MGCV_PARITY.md`'s no-magnitude-carve-out rule (ADR-190 decision 5),
-the size of this effect (2-3 orders of magnitude) does not exempt it from tier-3
+apt versions this session.
+
+### Tier-3 confirmation
+
+Per `docs/ROUTINE_MGCV_PARITY.md`'s no-magnitude-carve-out rule (ADR-190 decision 5), the
+size of the tier-1 effect (2-3 orders of magnitude) does not exempt it from tier-3
 confirmation — a version change is different code, not noise, regardless of finding size.
-See `docs/CONFORMANCE_LEDGER.md` for the tier-1 row and its tier-3 companion once dispatched.
+Dispatched the same session, `workflow_dispatch` on `601b73f`, CI run
+[32544930172](https://github.com/jonathancrawford05/polaris-re/actions/runs/32544930172),
+oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8` (build 8,
+R 4.6.1 / mgcv 1.9.4), both jobs completed in ~68s.
+
+| cell | grid `max_abs_log10_sp_diff` | continuous `max_abs_log10_sp_diff` (tier 3) | converged |
+|---|---:|---:|---|
+| `l2-free-sp` | 6.4525e-02 | **6.904e-04** | True |
+| `l2-free-sp-factors` | 7.9133e-02 | **5.084e-05** | True |
+| `l2-free-sp-kb` | 1.0484e-01 | **1.656e-04** | True |
+| `l5-gamma` | 7.7556e-02 | **9.764e-04** | True |
+
+**IDENTICAL IN VERDICT and order of magnitude to the tier-1 reading** — every cell closer
+by 2-3 orders of magnitude, all four converged, same shape of last-bit difference from tier
+1 the rest of this epic's measurements show (different `mgcv` release, different BLAS).
+Required levels 1-3 of the existing ten-cell suite also still agree on this run ("Required
+levels [1, 2, 3] all agree.") — no regression from the workflow edit that added this probe
+step. **CONFIRMED (parity) — settled, not tier-1-only.** See
+`docs/CONFORMANCE_LEDGER.md` for the full row.
 
 ### What this does not claim
 

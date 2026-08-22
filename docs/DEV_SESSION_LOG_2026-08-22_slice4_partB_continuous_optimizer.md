@@ -107,15 +107,20 @@ magnitude.
 **Tier 1** (R 4.3.3 / mgcv 1.9.1, this session): `max_abs_log10_sp_diff` (continuous)
 5.002e-04 / 4.393e-05 / 5.429e-04 / 7.283e-04, all four `converged=True`.
 
-**Tier 3: not yet measured as of this log's initial commit.** Per the routine's
-no-magnitude-carve-out rule (ADR-190 decision 5), the size of this reduction does not
-exempt it from tier-3 confirmation — dispatched via `workflow_dispatch` on this session's
-push; see the follow-up commit/PR update for the run ID and whether the tier-1 reading
-holds identically, the pattern every other measurement in this epic has followed.
+**Tier 3, confirmed same session.** Dispatched via `workflow_dispatch` on `601b73f`
+(after the tier-1-only commit `014c404` and a `.gitignore` fix, `3a8aef5`), CI run
+[32544930172](https://github.com/jonathancrawford05/polaris-re/actions/runs/32544930172),
+oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8` (build 8,
+R 4.6.1 / mgcv 1.9.4), both jobs completed in ~68s: `max_abs_log10_sp_diff` (continuous)
+6.904e-04 / 5.084e-05 / 1.656e-04 / 9.764e-04, all four `converged=True` — **identical in
+verdict to tier 1**, same order of magnitude, last-bit differences consistent with the
+different `mgcv` release / BLAS the routine's tier discipline predicts. Required levels
+1-3 of the ten-cell suite also still agree on this run ("Required levels [1, 2, 3] all
+agree.") — no regression from the workflow edit adding this probe step.
 
-Levels 1-3 and 5 of the ten-cell suite are unaffected by this session (no production code
-changed) and were not re-run; level 4 is untouched and unrelated (ADR-190's separate
-`dw/drho` gap).
+Levels 1-3 and 5 of the ten-cell suite are unaffected by this session's own module (no
+production code changed) and their own tier-3 numbers were unchanged by this run; level
+4 is untouched and unrelated (ADR-190's separate `dw/drho` gap).
 
 ## Provenance (ADR-193)
 
@@ -151,6 +156,7 @@ condition).
 ## Oracle Version
 
 Tier 1: R 4.3.3 / mgcv 1.9.1 (local apt) — matches the routine's documented expectation,
-no drift. Tier 3: pending as of this log's initial commit; oracle digest
+no drift. Tier 3: R 4.6.1 / mgcv 1.9.4, oracle digest
 `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8` (build 8), the
-same digest every measurement in this epic has used since ADR-189 amendment 2.
+same digest every measurement in this epic has used since ADR-189 amendment 2 — CI run
+32544930172.

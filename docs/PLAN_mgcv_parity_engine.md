@@ -356,8 +356,8 @@ for it to run against, slice 4).
   DISAGREES (ADR-190's separate `dw/drho` gap). **Part B — the outer
   N-dimensional search itself — is now the epic's next piece of work**, with a
   registered prediction to test on arrival (ADR-198, in Acceptance below).
-  **Part B's first slice DONE, 2026-08-22** (ADR-199, tier 1 measured — tier 3
-  pending): `src/polaris_re/analytics/gam_reml_optimize.py`
+  **Part B's first slice DONE, 2026-08-22** (ADR-199, tier 1 and tier 3 both
+  confirmed): `src/polaris_re/analytics/gam_reml_optimize.py`
   (`select_lambdas_continuous`) — a Newton/quasi-Newton search (SciPy
   L-BFGS-B) over `log10(lambda)` for any number of independently-scaled
   penalty blocks, built entirely on the already-verified
@@ -365,13 +365,14 @@ for it to run against, slice 4).
   fitting or scoring formula. **ADR-198's registered prediction HOLDS,
   decisively**: on the same four free-sp cells ADR-198 measured post-fix,
   `max_abs_log10_sp_diff` against `mgcv`'s own free-sp selection collapses
-  from the grid's 0.0645/0.0791/0.1048/0.0776 to 5.0e-04/4.4e-05/5.4e-04/
-  7.3e-04 — 2-3 orders of magnitude, landing at the search's own convergence
-  tolerance rather than near 0.1. `CONTINUOUS_LAMBDA_CLAIM`
-  (`gam_reml_optimize_conformance.py`) declares both compared quantities
-  INDEPENDENT. Tested only at the existing 2-block designs (`d1`/`d2`/`d3`)
-  — the module accepts any block count by construction, but nothing has
-  exercised it above 2 yet; that is slice 5 onward's work once a multi-term
+  from the grid's 0.0645/0.0791/0.1048/0.0776 to (tier 3) 6.9e-04/5.1e-05/
+  1.7e-04/9.8e-04 — 2-3 orders of magnitude, landing at the search's own
+  convergence tolerance rather than near 0.1, identical in verdict at tier 1
+  and tier 3 (CI run 32544930172, oracle `sha256:0d54c192…` build 8).
+  `CONTINUOUS_LAMBDA_CLAIM` (`gam_reml_optimize_conformance.py`) declares both
+  compared quantities INDEPENDENT. Tested only at the existing 2-block designs
+  (`d1`/`d2`/`d3`) — the module accepts any block count by construction, but
+  nothing has exercised it above 2 yet; that is slice 5 onward's work once a multi-term
   mgcv-native model exists. `experience_gam_penalized.select_lambdas_reml`
   is untouched (PLAN Anchor 7) — see ADR-198 "Two searches, not one".
 
