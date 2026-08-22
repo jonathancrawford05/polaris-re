@@ -2575,8 +2575,10 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   own instruction was to ship it before `ti()` if they split. It agrees with
   `mgcv::smoothCon(s(x, by=z, bs="cr", k), absorb.cons=TRUE)` at `max_X_diff=2.176e-14`,
   `max_S_diff=3.775e-15`, `rank_diff=(0,)` — same order as slice 2's other five `cr`
-  cases, on the first measurement, no iteration needed. Reuses `CR_BASIS_CLAIM` unchanged
-  (ADR-193): `design_X`/`penalty_S`/`rank` are INDEPENDENT, so this is genuine Stage-A
+  cases, on the first measurement, no iteration needed. Carries its own
+  `CR_BY_BASIS_CLAIM` (ADR-193; split out from `CR_BASIS_CLAIM` after PR #206 review
+  [P1] — same quantities, different producer strings):
+  `design_X`/`penalty_S`/`rank` are INDEPENDENT, so this is genuine Stage-A
   basis parity, not a harness check. Tier 3: CI run 32571764900, oracle
   `sha256:0d54c192…` build 8; required levels 1-3 of the ten-cell suite also still agree
   — no regression. *Source: this session, ADR-200 (1st-order — the epic's own active

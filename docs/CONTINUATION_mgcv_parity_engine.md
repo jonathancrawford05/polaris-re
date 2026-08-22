@@ -302,8 +302,10 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    a branch in `build_python_cr_term`; `gam_term_extract.R` gained a `with_by` branch and
    one case (`mi-term-attdage-by-k13`, the target's own `AttdAge` k=13 knots). Agrees at
    `max_X_diff=2.176e-14`, `max_S_diff=3.775e-15`, `rank_diff=(0,)` — same order as slice
-   2's other five cases. Reuses `CR_BASIS_CLAIM` unchanged (same two producers, same
-   claimed INDEPENDENT quantities). ADR-191's `smoothCon`-vs-`lpmatrix` internal guard
+   2's other five cases. Carries its own `CR_BY_BASIS_CLAIM` (same three
+   INDEPENDENT quantities as `CR_BASIS_CLAIM`, but every producer string differs —
+   the by-branch skips the constraint absorption and mgcv is called with `by=z`;
+   split out same-day after PR #206 review [P1], no measured value affected). ADR-191's `smoothCon`-vs-`lpmatrix` internal guard
    re-passed on the by-construction with no changes (the `s(x):z.N` column names still
    match its existing grep).
 

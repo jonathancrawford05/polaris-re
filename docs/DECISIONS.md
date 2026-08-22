@@ -16360,9 +16360,24 @@ ADR-196/197/199), both done.
 absorbed) builds the numeric-`by` `cr` basis (`design_X`, `penalty_S`) from the covariate
 locations, a knot vector, and the by-variable values; `mgcv` computes the same quantities
 via `smoothCon(s(x, by=z, bs="cr", k=k), absorb.cons=TRUE)`; compared on `design_X`,
-`penalty_S`, and `rank`. This reuses `CR_BASIS_CLAIM` (`gam_stage_a.py`) rather than
-declaring a new claim — same two producers, same claimed quantities; only the left
-producer's construction branches on whether a `by` array is supplied.
+`penalty_S`, and `rank`.
+
+> **Amended 2026-08-22, same day (PR #206 review [P1]).** This claim was first shipped
+> *reusing* `CR_BASIS_CLAIM` on the reasoning that the two constructions share their
+> producers and their claimed quantities. The classification was right and the numbers
+> were unaffected, but the reuse was not: `evidence_markdown(CR_BASIS_CLAIM)` is
+> published verbatim above the diff table, and for the by-row all four of its producer
+> strings misdescribe what actually ran — it names `absorb_sum_to_zero_constraint`
+> (which the by-branch deliberately skips), a right producer without `by=z`, a
+> "Python-**constrained** penalty block" for `rank` (it is the unconstrained one), and
+> "only the shared covariate `x`" (it also reads `by`). That is ADR-193's own failure
+> mode inverted — accurate ADR prose above a *derived* legend that misnames the rows
+> beneath it, where the whole point of deriving the headline was that the legend is the
+> part which travels. Corrected with a distinct **`CR_BY_BASIS_CLAIM`**, and the CI
+> report now prints two tables so each legend sits above only the rows it describes.
+> Structurally identical to `CR_BASIS_CLAIM` — same three quantities, all still
+> `INDEPENDENT` — but every producer string differs. No measured value changed;
+> re-confirmed at tier 3 on the corrected head (run 32576263426, same digest).
 
 ### Decision 1 — a numeric-`by` smooth carries no identifiability constraint, measured before being written
 
@@ -16416,10 +16431,11 @@ workflow/extractor edits. `index_range` is `[0, 13)` on both sides (unconstraine
 column dropped, unlike every non-`by` case's `[0, 12)` at the same k=13), which is itself
 part of the measured result, not an assumption.
 
-`design_X`, `penalty_S` and `rank` are INDEPENDENT (`CR_BASIS_CLAIM`, reused unchanged
-from ADR-194) — `build_python_cr_term` never reads `gam_term_extract.R`'s `X`/`S`/`rank`
-output, only the shared covariate `x` and by-variable `by`, same status a supplied knot
-vector already has under Anchor 4. `knots` agreement is reported alongside but, per
+`design_X`, `penalty_S` and `rank` are INDEPENDENT (`CR_BY_BASIS_CLAIM` — see the
+amendment above; ADR-194's `CR_BASIS_CLAIM` covers the no-`by` construction) —
+`build_python_cr_term` never reads `gam_term_extract.R`'s `X`/`S`/`rank` output, only the
+shared covariate `x` and by-variable `by`, same status a supplied knot vector already has
+under Anchor 4. `knots` agreement is reported alongside but, per
 ADR-194's own correction, is a recipe-consistency check (this case supplies knots — ECHO),
 not a fourth parity column.
 

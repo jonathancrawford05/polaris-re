@@ -53,8 +53,12 @@ the by-variable values; `mgcv` computes the same quantities via
 
 Applying the mechanical test to `build_python_cr_term`'s signature: it takes `x`,
 `term` (the spec) and now `by` — none of which is the R side's own output — so it
-remains an independent producer, same as slice 2. This reuses `CR_BASIS_CLAIM`
-(same two producers, same claimed quantities); no new claim object was needed.
+remains an independent producer, same as slice 2. Originally shipped reusing
+`CR_BASIS_CLAIM`; PR #206 review [P1] found that claim's *published producer
+strings* misdescribe the by-row (it names the constraint absorption the by-branch
+skips), so the by-construction now carries its own `CR_BY_BASIS_CLAIM` — same three
+quantities, same INDEPENDENT provenance, different producer strings. No measured
+value changed.
 
 ## Hypotheses Tried
 
@@ -120,7 +124,7 @@ number and result appended below once read.
 
 | comparison | left producer | right producer | provenance |
 |---|---|---|---|
-| `design_X`, `penalty_S`, `rank` (by-term, `mi-term-attdage-by-k13`) | `gam_basis_cr.cr_basis` + `by_scale_design` (Wood's construction, row-scaled) | `mgcv smoothCon(s(x, by=z, bs='cr', k), absorb.cons=TRUE)$X`/`$S`/`$rank` | **INDEPENDENT** (`CR_BASIS_CLAIM`, reused unchanged from slice 2) |
+| `design_X`, `penalty_S`, `rank` (by-term, `mi-term-attdage-by-k13`) | `gam_basis_cr.cr_basis` + `by_scale_design` (Wood's construction, row-scaled) | `mgcv smoothCon(s(x, by=z, bs='cr', k), absorb.cons=TRUE)$X`/`$S`/`$rank` | **INDEPENDENT** (`CR_BY_BASIS_CLAIM` — split out from `CR_BASIS_CLAIM` after PR #206 review [P1]) |
 | `knots` (same case) | `build_python_cr_term` (reads the shared `x` recipe, computes nothing knot-specific here since knots were supplied) | `mgcv smoothCon(...)$xp` | ECHO (supplied-knot case — neither side computes it independently, same as slice 2's 3 supplied-knot cases) |
 | the R-side internal guard (`smoothCon` vs `lpmatrix`/`m$smooth[[1]]`, by-case) | entirely inside R | entirely inside R | INDEPENDENT, inside R only (ADR-191's existing standing check, now re-exercised on a by-term) |
 
@@ -167,3 +171,62 @@ This closes slice 5's own gap for the by-scaled `cr` basis to float round-trip
 precision, tier 1 and tier 3 identical — the same shape of first-measurement
 result as ADR-194 (slice 2), ADR-195 (slice 3) and ADR-199 (slice 4 part B).
 See ADR-200 and the `docs/CONFORMANCE_LEDGER.md` tier-3 row.
+
+## Review round — PR #206 (3× [P1], 1× [P2])
+
+The automated review returned **approve** with four findings. Three accepted in
+full, one partially; **no measured value changed**, and the corrected head was
+re-confirmed at tier 3 (run
+[32576263426](https://github.com/jonathancrawford05/polaris-re/actions/runs/32576263426),
+same digest `sha256:0d54c192…`): by-row still `2.176e-14` / `3.775e-15` /
+`(0,)`, slice 2's five rows unchanged, `Required levels [1, 2, 3] all agree.`
+
+**[P1] The published legend misnamed the by-row's producers — accepted.** The
+substantive finding of the round, and an ADR-193 issue rather than a cosmetic
+one. Reusing `CR_BASIS_CLAIM` meant `evidence_markdown()` printed, verbatim above
+a table containing `mi-term-attdage-by-k13`, four strings that misdescribe it:
+`absorb_sum_to_zero_constraint` (skipped by that branch), a right producer without
+`by=z`, a "Python-constrained penalty block" for `rank` (unconstrained here), and
+"only the shared covariate `x`" (it also reads `by`). ADR-193's own failure mode
+inverted — the ADR prose was accurate and the *derived* legend was the wrong part,
+when deriving it was supposed to be what guaranteed it travelled correctly. Fixed
+with a distinct `CR_BY_BASIS_CLAIM` and a split CI table (one legend per
+construction). Classification unchanged: still three INDEPENDENT quantities.
+
+**[P1] Zero coverage in the R-free suite — accepted.** The by-path's only test was
+R-gated and `ci.yml` installs no R, so `by_scale_design`, the `build_python_cr_term`
+by-branch and both new raises never executed in CI. Added 10 R-free tests following
+`test_gam_basis_cr.py`'s existing pattern. **Verified by mutation rather than
+assumed:** with R absent, a no-op `by_scale_design` now fails the suite; before this
+it went green.
+
+**[P1] New mypy error — accepted.** `gam_basis_cr.py:264` returned `Any` from a
+concretely-typed function. Verified independently that `main`'s copy of the file is
+clean and the PR added exactly this one error, so it is not inherited baseline noise
+(the routine's "act only on errors your change newly introduces"). CI's mypy step is
+`continue-on-error: true`, which is why lint went green over it. One-line `np.asarray`.
+
+**[P2] `by = NULL` JSON shape — partially accepted, and the disagreement is
+recorded rather than quietly dropped.** The reviewer is right that `list(by = NULL)`
+**retains** the element (unlike `l$by <- NULL`), so the comment's word "dropped" was
+wrong and is corrected. But the inferred consequence does not hold: the reviewer
+reasoned from jsonlite's *default* `null = "list"` (which would emit `{}`), while
+`write_json` here passes `null = "null"` explicitly — so the field emits as JSON
+`null` and Python reads `None`. Measured twice, before and after the change. The
+`list[float] | None` annotation is therefore the shape actually emitted, not an
+assumption, and the comment now names the setting in force and what the default
+would have done instead.
+
+**One existing test assertion changed, deliberately and in the tightening
+direction.** The R-gated parity test asserted `evidence is CR_BASIS_CLAIM` for
+every case; it now asserts the claim matching each branch. This is strictly
+stronger — the old form passed for the by-case only because it did not distinguish
+the two claims — and it was required by the [P1] fix rather than a way around it.
+Flagged explicitly because "never change an existing test assertion to make it
+pass" is a standing rule of this routine and the exception should be visible, not
+buried in a diff.
+
+**Post-review quality gate:** `ruff format`/`check` clean · full suite **3329
+passed** (+10 new tests), 22 skipped, same 5 pre-existing missing-data-file
+failures and no new ones · `tests/qa/` 85 passed, goldens byte-identical ·
+tier-1 conformance re-run unchanged.
