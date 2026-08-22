@@ -2673,3 +2673,51 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   probe now brackets both regimes and labels which is which. *Source: this session
   (2nd-order — a methodology fix for any future finite-difference comparison in
   this epic, of which there will be more).*
+
+### Harvested 2026-08-22d — LEVEL 4 CLOSED (ADR-202)
+
+- **THE EPIC'S OLDEST BLOCKER IS CLOSED, tier 1 and tier 3 identical.** Standing since
+  ADR-188 and re-scoped by ADR-190, level 4 was: ours inflates 1.11-1.21x where `mgcv`
+  inflates 1.49-1.87x. With Wood, Pya & Säfken (2016) eq. (7), `gam_uncertainty` now
+  reproduces `mgcv`'s `vcov(unconditional=TRUE)` to **<1% element-wise** (0.023%,
+  0.150%, 0.904%) and **<0.1% on the inflation ratio**, on three committed cases plus
+  five held-out ones including a non-canonical `cloglog`. CI run 32589501512, oracle
+  `sha256:0d54c192…` build 8. *Source: this session, ADR-202 (1st-order — closes the
+  standing BLOCKER).*
+
+- **Three unknowns had to be identified, and all three were measured rather than
+  chosen.** (a) `Vrho`'s regularisation is a ridge of exactly **0.1**, identified
+  against `mgcv`'s own `m$V.sp` to 1.78e-15 — the paper names the mechanism ("a
+  Gaussian prior on rho") but not the value. (b) **`V''` is not invariant to the choice
+  of square root**; the factor is Wood (2011) §3.3's lower-triangular `L^-1`, not a
+  Cholesky of `V_beta`. (c) The two terms use **different inverses** of the rho
+  Hessian — `V'` the unregularised, `V''` the ridged. (c) was found by localisation:
+  the leftover residual was rank-1, aligned `|cos|=0.9994` with `J[1]`, and its
+  best-fitting coefficient (3210) matched the unregularised `H^-1[1,1]` (3184) to ~1%.
+  *Source: this session, ADR-202 decision 1 (1st-order — facts any future covariance
+  work depends on).*
+
+- **ELEMENT-WISE IS THE GATE, NOT THE INFLATION RATIO — a lesson for the whole epic.**
+  Mid-slice the scalar inflation ratio read 0.39% while the element-wise residual was
+  26.7%: averaging diagonals hid a real structural disagreement behind a green
+  headline. The probe now exports full `Vc`/`Vp` matrices and the comparator gates on
+  the element-wise number. Any remaining conformance comparison that reports only a
+  scalar summary is exposed to the same failure. *Source: this session (1st-order — a
+  methodology fix with scope beyond this slice).*
+
+- **WHAT IS STILL OPEN, AND IT IS NOT THE FORMULA.** The ten-cell suite's level 4
+  still reads DISAGREES on the very run that confirms the fix — correctly, because it
+  exercises the SHIPPED `experience_gam_penalized.smoothing_uncertainty`, untouched
+  (Anchor 7). Three follow-ons: **(1)** re-pointing production at `gam_uncertainty`,
+  needing Anchor 7 sign-off and its own determinism answer (ADR-186 chose the grid for
+  reproducibility by construction); **(2)** re-running ADR-188's coverage gate, which
+  ADR-190 decision 4 predicted in advance would move toward the 0.9192 floor — a
+  registered prediction now testable and **still unrun**; **(3)** labelling any
+  interval a 95% band, which stays maintainer-reserved either way. *Source: this
+  session (1st-order — the decision the maintainer now actually has in front of them).*
+
+- **A residual of 0.07-0.73% element-wise remains and is not float noise.** Eq. (7) is
+  a first-order Taylor expansion whose remainder the paper drops, so exact agreement
+  is not available in principle. Recorded rather than explained away; the 2% tolerance
+  is set from the observed spread with under 3x headroom. *Source: this session
+  (2nd-order — a documented limit of the formula, not a defect).*

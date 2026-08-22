@@ -333,7 +333,6 @@ jobs:
           docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
             Rscript scripts/gam_deriv_probe.R \
               gam_deriv_probe.json
-            gam_vc_probe.json
 
       # Level 4: mgcv's own Vb and Vc at its own free-sp selection, plus the outer
       # Hessian, so the Python side can assemble eq. (7) and compare element-wise.
@@ -992,7 +991,6 @@ jobs:
             reml_production_check_report.md
             reml_continuous_optimizer_report.md
             gam_deriv_probe.json
-            gam_vc_probe.json
             gam_deriv_report.md
             gam_vc_probe.json
             gam_vc_report.md

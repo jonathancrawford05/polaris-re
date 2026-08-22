@@ -16561,3 +16561,98 @@ close at one arbitrary step.
   byte-identical.
 - **Two penalty blocks only.** Like ADR-199, nothing here has been exercised at
   the target's 13-21 blocks; the code is written generally but that is unmeasured.
+
+## ADR-202: level 4 is closed — eq. (7) reproduces `mgcv`'s `vcov(unconditional = TRUE)`
+
+**Date:** 2026-08-22
+**Status:** Accepted — **CONFIRMED at tier 3** (CI run 32589501512, oracle
+`sha256:0d54c192…` build 8, R 4.6.1 / mgcv 1.9.4).
+**Source:** Wood, S.N., Pya, N. & Säfken, B. (2016), *JASA* **111**(516), 1548–1563.
+Supplied by the maintainer 2026-08-22.
+**Closes:** ADR-190's standing level-4 BLOCKER, open since ADR-188.
+**Depends on:** ADR-201 (`dw/drho`, the ingredient ADR-190 named as missing).
+
+### What was blocked, and what closes it
+
+ADR-190 measured that `mgcv`'s `Vc` is **not** `Vb + J Vρ Jᵀ` — that expression,
+built from `mgcv`'s own inputs, reproduces *our* number (inflation 1.11-1.21x) and
+not `mgcv`'s (1.49-1.87x), with a non-constant ratio of 3.2-4.1x. It re-scoped the
+blocker to "implement Wood, Pya & Säfken (2016)'s correction".
+
+The paper's eq. (7) is `V′β = Vβ + V′ + V″` with `V′ = J Vρ Jᵀ`, and it states
+verbatim that *"dropping `V″`"* gives exactly the Kass-Steffey approximation. So
+ADR-190's measurement and the paper's own framing identify the same missing term,
+independently.
+
+### Decision 1 — three things had to be identified, none of them stated outright in the paper
+
+Each was measured, not chosen (Anchor 8 forbids tuning a constant to match):
+
+1. **`Vρ`'s regularisation is a ridge of exactly 0.1.** The paper names the
+   mechanism (*"equivalent to placing a Gaussian prior on ρ"*) but not the value.
+   `mgcv` publishes the result as `m$V.sp`, and `m$V.sp == solve(H + 0.1·I)` to
+   **1.78e-15** on two independent fits, with a 1-D search returning
+   `0.1000000000`. Identified against `mgcv`'s own published quantity.
+2. **`V″` is not invariant to the choice of square root.** `RᵀR = Vβ` does not
+   determine `∂R/∂ρ`: swapping a Cholesky of `Vβ` for the symmetric root moves
+   `V″` ~17%. The correct factor is Wood (2011) §3.3's `G = L⁻¹` (**lower**
+   triangular, from `A = LLᵀ`, `A = XᵀWX + Sλ`), which the 2016 paper reuses.
+   Using it dropped `poisson-log` from 26.7% to 1.87% element-wise.
+3. **The two terms use *different* inverses of the ρ Hessian** — `V′` the
+   unregularised `H⁻¹`, `V″` the ridged `(H + 0.1I)⁻¹`. Found by localisation, not
+   search: the remaining `binomial-logit` residual was **rank-1** (relative
+   singular values 1.000, 0.084, 0.0006), its dominant direction had `|cos| =
+   0.9994` with `J[1]`, and the best multiple of `J₁J₁ᵀ` was **3210** against an
+   unregularised `H⁻¹[1,1]` of **3184** — a ~1% match that named the term and its
+   treatment together.
+
+### Decision 2 — validated on held-out cases, because two cases can fit a rule
+
+The asymmetry was identified on two cases, so it was then checked on **five
+independent ones** that played no part in deriving it — different seeds, `n`, `p`,
+and including a non-canonical `cloglog` link:
+
+| case | family/link | element-wise residual | inflation rel err |
+|---|---|---:|---:|
+| `v-pois-a` | poisson/log | 0.730% | 0.071% |
+| `v-pois-b` | poisson/log | 0.334% | 0.010% |
+| `v-binom-a` | binomial/logit | 0.075% | **0.000%** |
+| `v-binom-b` | binomial/logit | 0.076% | 0.007% |
+| `v-cloglog-a` | binomial/cloglog | 0.219% | 0.002% |
+
+### Measurement (tier 3, committed probe)
+
+| case | element-wise | ours | mgcv | rel |
+|---|---:|---:|---:|---:|
+| `poisson-log` | 0.904% | 1.1319x | 1.1317x | 0.015% |
+| `binomial-logit` | 0.023% | 1.3650x | 1.3650x | 0.000% |
+| `binomial-cloglog` | 0.150% | 1.2310x | 1.2312x | 0.022% |
+
+`VC_CLAIM` declares both quantities `INDEPENDENT`. Identical to tier 1.
+
+### Decision 3 — element-wise governs, not the inflation ratio
+
+Mid-slice the scalar inflation ratio read **0.39%** while the element-wise residual
+was **26.7%**: averaging diagonals hid a real structural disagreement behind a
+green headline. Both are reported; the element-wise number is the gate, and the
+probe now exports full `Vc`/`Vp` matrices rather than only diagonals. **This is a
+general lesson for this epic's remaining comparisons, not a detail of this one.**
+
+### What is explicitly NOT closed
+
+- **The ten-cell suite's level 4 still DISAGREES, correctly.** It exercises
+  `experience_gam_penalized.smoothing_uncertainty`, the shipped path, untouched
+  here (Anchor 7). The tier-3 run confirms it: `level 4: DISAGREES`, unchanged.
+- **Re-pointing production** needs Anchor 7 sign-off and its own answer on
+  determinism (ADR-186 chose the grid deliberately for reproducibility).
+- **ADR-188's coverage gate.** ADR-190 decision 4 registered the prediction that a
+  larger correction moves coverage toward the 0.9192 floor. That is a separate
+  measurement on the production path and **has not been run.**
+- **Labelling any interval a 95% band** remains maintainer-reserved.
+
+### The residual is small but not float noise
+
+0.07–0.73% element-wise. Eq. (7) is a first-order Taylor expansion whose remainder
+`r` the paper drops, so exact agreement is not available in principle. The 2%
+tolerance comes from the observed spread with under a factor of three of headroom
+— recorded rather than explained away.

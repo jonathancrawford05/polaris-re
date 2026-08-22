@@ -103,46 +103,77 @@ different square root from the upper Cholesky factor of `V_beta`.
 
 **Using it drops `poisson-log`'s element-wise residual from 26.7% to 1.87%.**
 
-## 5. Where it stands — one cell effectively closed, one with a rank-1 residual
+## 5. RESOLVED — the two terms use different inverses of the rho Hessian
 
-All inputs verified against `mgcv` individually, so nothing below is attributable
-to an ingredient:
+The binomial residual is explained. **`mgcv` does not use the same `Vrho` in both
+terms of eq. (7):**
 
-| quantity | ours vs `mgcv` |
-|---|---|
-| `coef` | 6.4e-15 / 9.4e-15 |
-| `J = dbeta/drho` | **0.000%** (2.5e-11 / 5.5e-11 absolute) |
-| `V_beta` vs `vcov()` | 1.7e-14 / 4.3e-14 |
-| `V_rho` vs `m$V.sp` | 1.78e-15 |
+    V'  (first order)  uses the UNREGULARISED  H^-1
+    V'' (second order) uses the RIDGED         (H + 0.1 I)^-1
 
-Element-wise against `mgcv`'s own `Vc - Vp`, with the ridge and the Wood factor:
+### How it was found — localisation, not search
 
-| case | first-order only | + `V''` | inflation ours vs `mgcv` |
-|---|---:|---:|---|
-| `poisson-log` | 75.3% | **1.87%** | 1.1296x vs 1.1317x |
-| `binomial-logit` | 56.7% | **31.8%** | 1.2721x vs 1.3650x |
+With a single ridged `Vrho`, `binomial-logit`'s element-wise residual against
+`mgcv`'s own `Vc - Vp` was 31.8%, and that residual was **essentially rank-1**
+(relative singular values 1.000, 0.084, 0.0006) — one missing direction, not
+accumulated error. Projecting it:
 
-**`poisson-log` is effectively closed.** `binomial-logit` is not, and its residual
-is **essentially rank-1** (singular values 1.000, 0.084, 0.0006 relative) — a
-single missing direction, not diffuse error.
+- dominant direction vs `J[1]`: **|cos| = 0.9994**
+- best multiple of `J[1] J[1]^T`: **3210**, leaving 12.3%
+- unregularised `H^-1[1,1]` for that case: **3184**
 
-## 6. Why this is still NOT called closed, and the named next step
+A ~1% match between a fitted coefficient and an independently computed quantity
+named the term and its treatment together. The four-way combination check then
+confirmed it outright: `binomial-logit` went 31.8% -> **0.023%**.
 
-One cell at ~2% and one at ~32% is not parity, and the honest reading is that
-something binomial-specific is still missing. **The residual's rank-1 structure is
-the handle**: a diffuse residual would suggest an accumulation of small errors,
-where rank-1 points at one omitted term.
+### Validation on five held-out cases
 
-**Next step, concretely.** Identify the rank-1 direction — project the residual
-onto the columns of `X`, onto `J`'s two rows, and onto the eigenvectors of
-`V_beta` — and see which it aligns with. That says whether the missing piece is a
-`rho`-direction term (suggesting the `M=2` sum is incomplete), a scale-parameter
-term (binomial with prior weights is where a dispersion term would differ from
-Poisson), or something in the prior-weight handling. The 2016 paper's online
-supplementary **SA D** is cited for the `O(Mp^3)` computation of `V''` and is the
-place to check for a term the main text compresses.
+None of these took part in identifying the rule; they vary seed, `n`, `p` and
+family, and include a non-canonical link:
 
-**Do not**, on the next pass: fit a scalar to close `binomial-logit` (the best
-scalar is 1.1767 and leaves 30.8%, so it is not a scale error anyway); re-point
-`experience_gam_penalized.smoothing_uncertainty`; or report level 4 as closed.
-Labelling any interval a 95% band remains maintainer-reserved (ADR-188).
+| case | family/link | element-wise residual | inflation rel err |
+|---|---|---:|---:|
+| `v-pois-a` | poisson/log | 0.730% | 0.071% |
+| `v-pois-b` | poisson/log | 0.334% | 0.010% |
+| `v-binom-a` | binomial/logit | 0.075% | **0.000%** |
+| `v-binom-b` | binomial/logit | 0.076% | 0.007% |
+| `v-cloglog-a` | binomial/cloglog | 0.219% | 0.002% |
+
+And on the committed 3-case probe, end to end through the shipped function:
+`poisson-log` 0.904%, `binomial-logit` 0.023%, `binomial-cloglog` 0.150%.
+
+**ADR-190's blocker was: ours inflates 1.11-1.21x where `mgcv` inflates
+1.49-1.87x. We now reproduce `mgcv`'s inflation to <0.1% and its full correction
+matrix to <1% element-wise.**
+
+## 6. What is closed, and what is deliberately not
+
+**CLOSED: the level-4 FORMULA gap.** ADR-190 re-scoped level 4 from "find the bug
+in our arithmetic" to "implement Wood, Pya & Säfken (2016)'s correction". That is
+now done and verified against `mgcv` on eight cases in total.
+
+**NOT closed, and not this slice's to close:**
+
+- **The ten-cell conformance suite's level 4 will still DISAGREE.** It exercises
+  `experience_gam_penalized.smoothing_uncertainty`, the shipped path, which this
+  does not touch (Anchor 7). That is the correct outcome, not a contradiction.
+- **Re-pointing production** at `gam_uncertainty` needs PLAN Anchor 7 sign-off and
+  its own answer on determinism (ADR-186 chose the grid deliberately for
+  reproducibility by construction).
+- **ADR-188's coverage gate.** ADR-190 decision 4 registered the prediction that a
+  larger correction moves coverage toward the 0.9192 floor. That is a *separate
+  measurement* on the production path and has not been run.
+- **Labelling any interval a 95% band** remains maintainer-reserved.
+
+## 7. Two caveats worth carrying forward
+
+**The residual is small but not float noise** (0.07–0.73% element-wise). Eq. (7)
+comes from a first-order Taylor expansion whose remainder `r` the paper explicitly
+drops, so exact agreement is not available in principle. The 2% tolerance is set
+from the observed spread, under a factor of three of headroom (Anchor 8).
+
+**Element-wise governs, not the inflation ratio.** The ratio averages diagonals:
+mid-slice it read 0.39% while the element-wise residual was 26.7%, hiding a real
+structural disagreement behind a green headline. The probe now exports full
+`Vc`/`Vp` matrices, and the comparator reports both with the element-wise number
+as the gate.
