@@ -57,6 +57,10 @@ on:
       # reasoning as the line above for the penalized fitter.
       - "src/polaris_re/analytics/gam_basis_cr.py"
       - "src/polaris_re/analytics/gam_stage_a.py"
+      - "src/polaris_re/analytics/gam_derivatives.py"
+      - "src/polaris_re/analytics/gam_derivatives_conformance.py"
+      - "scripts/gam_deriv_probe.R"
+      - "scripts/gam_deriv_compare.py"
       - "scripts/gam_term_extract.R"
       # Slice 3's own module and probe — same reasoning as the two lines above.
       - "src/polaris_re/analytics/gam_family.py"
@@ -314,6 +318,18 @@ jobs:
             Rscript scripts/gam_reml_probe.R \
               gam_reml_probe.json
 
+      # Wood (2011) derivatives (docs/WORK_ORDER_dw_drho_wood2011.md). Refits at
+      # rho +/- h so the Python side can central-difference mgcv's OWN eta and
+      # working weights — the INDEPENDENT reference operand for d(eta)/d(rho)
+      # and dw/d(rho). Same DIAGNOSTIC contract as the probes above.
+      - name: Fit at perturbed sp for the Wood (2011) derivatives
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_deriv_probe.R \
+              gam_deriv_probe.json
+
       - uses: actions/upload-artifact@v4
         with:
           name: mgcv-reference
@@ -324,6 +340,7 @@ jobs:
             gam_term_extract.json
             gam_family_probe.json
             gam_reml_probe.json
+            gam_deriv_probe.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
@@ -911,6 +928,23 @@ jobs:
           cat reml_continuous_optimizer_report.md
           cat reml_continuous_optimizer_report.md >> "$GITHUB_STEP_SUMMARY"
 
+      # Wood (2011) sections 3.4 / Appendix D — the level-4 PREREQUISITE, not level 4
+      # itself. Compares this engine's analytic d(eta)/d(rho) and dw/d(rho)
+      # against a central difference of mgcv's OWN refits. Prints to stdout so a
+      # tier-3 reading comes from plain job-log text (the ADR-194 methodology fix).
+      - name: Wood (2011) derivatives — d(eta)/d(rho) and dw/d(rho) vs mgcv
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f gam_deriv_probe.json ]; then
+            uv run python scripts/gam_deriv_compare.py \
+              --probe gam_deriv_probe.json \
+              --markdown gam_deriv_report.md
+            cat gam_deriv_report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No gam_deriv_probe.json — the R probe above did not produce one."
+          fi
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -927,3 +961,5 @@ jobs:
             gam_reml_probe_report.md
             reml_production_check_report.md
             reml_continuous_optimizer_report.md
+            gam_deriv_probe.json
+            gam_deriv_report.md
