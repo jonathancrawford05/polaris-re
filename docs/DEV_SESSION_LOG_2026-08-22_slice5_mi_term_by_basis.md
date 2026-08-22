@@ -230,3 +230,38 @@ buried in a diff.
 passed** (+10 new tests), 22 skipped, same 5 pre-existing missing-data-file
 failures and no new ones · `tests/qa/` 85 passed, goldens byte-identical ·
 tier-1 conformance re-run unchanged.
+
+### Second review pass — a retraction, and a re-founded finding
+
+The reviewer's second pass **corrected its own [P1] #2** and added two corrections
+in the PR's favour. All three of its factual claims verified directly here before
+acting:
+
+1. **Retracted, correctly:** "the R-free suite is the only suite CI runs" is false.
+   `mgcv-conformance.yml` carries a `pull_request:` trigger whose path filter names
+   `gam_basis_cr.py`, `gam_stage_a.py` and `gam_term_extract.R` — confirmed at lines
+   3-4/16-18/43 — so the by-case comparison runs automatically on a PR touching them,
+   not only on manual dispatch. **This retraction lands on me too:** the comment I
+   added in `test_gam_basis_cr.py` repeated the same wrong claim. Corrected — the
+   accurate justification for those tests is that they are the by-path's only
+   *gating* verification, not its only verification.
+2. **Re-founded finding, and it holds:** the Stage-A compare step is
+   `continue-on-error: true` (line 464) and `any_cr_disagree` only feeds an
+   annotation (line 679), never a non-zero exit. So a real basis disagreement leaves
+   every PR check green. **Pre-existing — slice 2's design, not this slice's** — and
+   the review framed the ask as the cheap half (R-free gating tests, already added in
+   the first round) rather than a workflow change. Harvested to `PRODUCT_DIRECTION`
+   as 2nd-order rather than actioned here.
+3. **Correction in the PR's favour, verified and now pinned:** `compare_term_extract`
+   raises `PolarisComputationError` on a design-shape mismatch, so the
+   obvious-but-wrong by-implementation (absorb the constraint anyway → `k-1` columns
+   against mgcv's `k`) would have failed loudly rather than reporting a small diff.
+   Reproduced directly: *"R's design block is (400, 13) but Python's is (400, 12) —
+   not comparable element-wise."* **This is what makes the 2.176e-14 load-bearing**
+   rather than a number with no way to come out otherwise, so it is now pinned by
+   `test_wrongly_constraining_a_by_term_fails_loudly_not_silently` — the property the
+   parity claim rests on should not be able to weaken silently.
+
+Also noted by the second pass and already flagged in my first reply: CI's mypy step
+is `continue-on-error`, so the green Lint check never contradicted the real
+`no-any-return` error. Verdict remained **approve** throughout both passes.

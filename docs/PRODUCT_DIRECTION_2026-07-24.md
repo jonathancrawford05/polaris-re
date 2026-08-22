@@ -2595,6 +2595,26 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   inherited from either the plain or the `by` case. *Source: this session, ADR-200
   decision 1 (1st-order — a construction fact later slices build on).*
 
+- **Nothing gates on the Stage-A `cr` comparison, and that is pre-existing — slice 2's
+  design, not slice 5's.** Surfaced by PR #206's review in its own second pass, after it
+  corrected an earlier mis-statement of the same area. The facts, verified directly:
+  `mgcv-conformance.yml` DOES run automatically on any PR touching `gam_basis_cr.py`,
+  `gam_stage_a.py` or `gam_term_extract.R` (a path-filtered `pull_request:` trigger), so
+  the comparison is not merely a manual dispatch — but the step is
+  `continue-on-error: true` and its `any_cr_disagree` flag only inserts an annotation
+  into the report, never exits non-zero. The workflow's actual merge gate is levels 1-3
+  of the ten-cell suite, which never calls `build_python_cr_term`. **So a genuine
+  Stage-A basis disagreement would leave every check on a PR green**, visible only as
+  text inside a job summary — the same masked-`continue-on-error` failure mode the
+  workflow's own comments warn about twice, and which ADR-194's print-to-stdout fix
+  addressed for *reading* numbers without addressing *gating* on them. Not actioned in
+  PR #206: the review explicitly framed the ask as the cheap half (R-free unit tests in
+  the gating pytest job, now added) rather than a workflow change, and re-pointing the
+  gate is a decision about the epic's verification posture that deserves its own
+  session. *Source: PR #206 review second pass, verified independently (2nd-order,
+  NICE-TO-HAVE — a real hole in the safety net, but one that has been open since slice 2
+  and blocks nothing today).*
+
 - **Slice 5 is IN PROGRESS, not DONE, and the remaining half has a named shared
   prerequisite.** `ti(AttdAge, PolYear)` — tensor interaction with marginal main effects
   excluded — is unstarted and is a materially different construction. Separately, this

@@ -180,11 +180,23 @@ def test_absorb_constraint_refuses_a_zero_constraint_row() -> None:
 
 # --- by_scale_design (slice 5, the MI term) ---------------------------------------
 #
-# R-free coverage, matching this module's existing pattern. The tier-1/tier-3
-# comparison against mgcv lives in test_gam_stage_a.py but is gated on
-# `rscript_mgcv_available()`, and main CI installs no R — so without these the
-# by-path would ship with no executed test on the only suite CI runs
-# (PR #206 review [P1]).
+# R-free coverage, matching this module's existing pattern. These exist because
+# they are the by-path's only *gating* verification — not, as an earlier version
+# of this comment said, its only verification at all (PR #206 review, corrected in
+# its own second pass):
+#
+#   - the by-case Stage-A comparison against mgcv DOES run automatically on every
+#     PR touching this file — `mgcv-conformance.yml` has a `pull_request:` trigger
+#     whose path filter names `gam_basis_cr.py`, `gam_stage_a.py` and
+#     `gam_term_extract.R`;
+#   - but that step is `continue-on-error: true` and its `any_cr_disagree` flag
+#     only annotates the report, never exits non-zero, so a disagreement there
+#     leaves every check on the PR green;
+#   - R is absent from the pytest job by deliberate design (ADR-151 / Anchor 5),
+#     not by oversight, so the `rscript_mgcv_available()` skip is correct.
+#
+# The tests below run in the gating pytest job, which is what makes a regression
+# in the by-path fail a PR rather than merely print a number.
 
 
 def test_by_scale_design_scales_each_row_by_its_by_value() -> None:

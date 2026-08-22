@@ -24,7 +24,11 @@ from polaris_re.analytics.experience_mgcv_conformance import (
     rscript_mgcv_available,
     synthetic_cells,
 )
-from polaris_re.analytics.gam_basis_cr import by_scale_design, cr_basis
+from polaris_re.analytics.gam_basis_cr import (
+    absorb_sum_to_zero_constraint,
+    by_scale_design,
+    cr_basis,
+)
 from polaris_re.analytics.gam_stage_a import (
     CR_BASIS_CLAIM,
     CR_BY_BASIS_CLAIM,
@@ -435,9 +439,11 @@ def test_build_python_cr_term_refuses_more_than_one_variable() -> None:
 
 # --- The numeric-by branch (slice 5, the MI term) -------------------------------------
 #
-# R-free coverage of the by-path's own behaviour. The parity comparison against
-# mgcv is R-gated and main CI installs no R, so without these the branch and both
-# of its raises would never execute in CI (PR #206 review [P1]).
+# R-free coverage of the by-path's own behaviour, running in the GATING pytest job.
+# The parity comparison against mgcv does run automatically on a PR touching these
+# files (`mgcv-conformance.yml`'s path-filtered `pull_request:` trigger), but it is
+# `continue-on-error` and annotate-only, so it cannot fail a PR — see the longer
+# note in test_gam_basis_cr.py (PR #206 review, as corrected in its second pass).
 
 
 def _by_term(label: str = "s(x)") -> TermSpec:
@@ -512,6 +518,46 @@ def test_build_python_cr_term_refuses_a_by_array_on_a_non_by_term() -> None:
     no_by = TermSpec(label="s(x)", variables=("x",), basis="cr", k=(8,))
     with pytest.raises(PolarisValidationError, match="both or neither"):
         build_python_cr_term(x, no_by, by=np.ones(50, dtype=np.float64))
+
+
+def test_wrongly_constraining_a_by_term_fails_loudly_not_silently() -> None:
+    """What makes slice 5's ~1e-14 agreement load-bearing rather than a number
+    that had no way to come out otherwise (PR #206 review, second pass).
+
+    The obvious-but-wrong implementation of the by-branch — absorb the
+    sum-to-zero constraint anyway, then row-scale — yields `k-1` columns against
+    mgcv's `k`. `compare_term_extract` raises on the shape mismatch rather than
+    reporting a small diff, so that mistake could not have been mistaken for
+    agreement. Pinned here because it is the property the parity claim rests on,
+    and a future refactor of the comparator could weaken it silently.
+    """
+    rng = np.random.default_rng(3)
+    n = 60
+    x = np.sort(rng.uniform(0.0, 10.0, n))
+    by = rng.normal(size=n)
+    knots = np.array([0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 9.0, 10.0], dtype=np.float64)
+    design_unc, s_unc = cr_basis(x, knots)
+
+    # The correct construction: k columns, no constraint absorbed.
+    correct = build_python_cr_term(x, _by_term(), by=by)
+    assert correct.design.shape[1] == knots.shape[0]
+
+    # The wrong one: constraint absorbed first, so k-1 columns.
+    design_c, s_c = absorb_sum_to_zero_constraint(design_unc, s_unc)
+    wrong = TermExtract(
+        label="s(x)",
+        index_start=0,
+        index_end=design_c.shape[1],
+        design=by_scale_design(design_c, by),
+        s=(s_c,),
+        rank=(int(np.linalg.matrix_rank(s_c)),),
+        evidence=CR_BY_BASIS_CLAIM,
+    )
+    assert wrong.design.shape[1] == knots.shape[0] - 1
+
+    r_payload = _as_r_term(correct)  # stands in for mgcv's k-column block
+    with pytest.raises(PolarisComputationError, match="not comparable element-wise"):
+        compare_term_extract(wrong, r_payload)
 
 
 # --- End to end: the R script itself, proving the harness (Anchor 1) ------------------
