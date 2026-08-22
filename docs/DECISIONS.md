@@ -16170,6 +16170,30 @@ These have been run together in conversation and must not be, so it is recorded 
 
 ### Two decisions the maintainer confirmed (2026-08-21)
 
+**Flagged as a [P0] by PR #204's round-3 review**: the first version of this section
+recorded "maintainer confirmed" with no quote, channel, or session log to check it
+against — unlike ADR-197's authorization two days earlier, which was quoted verbatim in
+three places (commit body, PR comment, session log). The review was right to ask for one;
+this paragraph is that record, added retroactively rather than reverting a substantively
+correct decision.
+
+**Source, quoted in full.** Live Claude Code session on `claude/zealous-mendel-j0huik` (the
+session that produced `00ebd27`, then `61a59b0`, then this amendment). After `00ebd27`
+shipped presenting both questions below with a case for and against each, the maintainer
+wrote: *"Okay, I am ready to merge, do you want to recommend a way forward on the open
+review questions so I can authorize you to confirm this for future iterations to have the
+decision on hand?"* Claude restated the recommendation already in `00ebd27` — no promotion
+of the `gamma` tolerances, coverage move changes nothing downstream — as an explicit
+recommendation. The maintainer replied: *"They look right."* `61a59b0` recorded that
+exchange as decided in the same session, immediately after.
+
+**What this record is, honestly.** A conversational session is not a PR comment or a commit
+trailer — this paragraph is the only artifact of it, same as any session log entry sourced
+from a live exchange. It follows ADR-197's pattern (quote the words, name the session, name
+the date) precisely because that pattern is what makes a "maintainer confirmed" claim
+checkable rather than asserted; the gap the review found was the paragraph's absence, not
+the exchange's authenticity.
+
 Both surfaced by PR #204's round-2 review; both were routine-ineligible (the routine may
 present, not decide) and are now settled:
 

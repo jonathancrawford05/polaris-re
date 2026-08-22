@@ -451,6 +451,16 @@ should be re-synced.
 
 ## Decisions confirmed by the maintainer (2026-08-21)
 
+**Source, quoted in full — added after PR #204's round-3 review flagged this section's
+original wording as a [P0]: no quote or channel was recorded here, unlike ADR-196/197's
+authorization pattern.** Live Claude Code session on `claude/zealous-mendel-j0huik`: the
+maintainer wrote *"Okay, I am ready to merge, do you want to recommend a way forward on the
+open review questions so I can authorize you to confirm this for future iterations to have
+the decision on hand?"*; Claude restated the recommendation `00ebd27` had already presented
+with a case for and against; the maintainer replied *"They look right."* Full record and the
+same caveat about what a conversational source can and can't prove: `docs/DECISIONS.md`,
+ADR-198, "Two decisions the maintainer confirmed".
+
 Both raised by PR #204's round-2 review (ADR-198) and routine-ineligible to decide alone;
 both now settled and should not be reopened without new evidence:
 
