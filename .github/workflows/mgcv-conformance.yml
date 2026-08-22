@@ -69,6 +69,12 @@ on:
       - "src/polaris_re/analytics/gam_reml.py"
       - "src/polaris_re/analytics/gam_reml_conformance.py"
       - "scripts/gam_reml_probe.R"
+      # Work order: does the SHIPPED tensor-MI REML score
+      # (experience_gam_penalized.reml_score) have the same missing
+      # penalized-deviance term ADR-196 found and fixed above? Diagnostic-only
+      # — same reasoning as the lines above.
+      - "src/polaris_re/analytics/gam_reml_production_check.py"
+      - "scripts/reml_production_check_probe.py"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -819,6 +825,28 @@ jobs:
             cat gam_reml_probe_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # docs/WORK_ORDER_reml_penalized_deviance_production_check.md: does the
+      # SHIPPED, production experience_gam_penalized.reml_score have the same
+      # missing beta_hat^T S beta_hat term ADR-196 found and fixed in
+      # gam_reml.reml_score_general? Reads mgcv_reference.json (job 1, already
+      # produced on every dispatch — reml_score/m$gcv.ubre was already
+      # exported, so no new R work) and the COMMITTED python_reference.json
+      # (never re-baselined by this step — read-only). DIAGNOSTIC ONLY, same
+      # contract as every probe above: this measures against experience_gam_
+      # penalized.reml_score/select_lambdas_reml/smoothing_uncertainty but
+      # calls none of their production entry points for a fit that would
+      # move any committed artifact, and edits none of them (PLAN Anchor 7).
+      - name: Check the production REML score for the same missing term (work order)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python scripts/reml_production_check_probe.py \
+            --exchange data/mgcv_exchange/synthetic \
+            --mgcv-reference mgcv_reference.json \
+            > reml_production_check_report.md
+          cat reml_production_check_report.md
+          cat reml_production_check_report.md >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -833,3 +861,4 @@ jobs:
             gam_family_probe_report.md
             gam_reml_probe.json
             gam_reml_probe_report.md
+            reml_production_check_report.md

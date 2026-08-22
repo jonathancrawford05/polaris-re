@@ -27,18 +27,24 @@ def _design(rng: np.random.Generator, n: int, p: int) -> np.ndarray:
 
 
 class TestRelationshipToTheExistingPoissonScore:
-    """``reml_score_general`` is NOT bit-identical to
-    ``experience_gam_penalized.reml_score`` under a real penalty, and that is
-    the point, not a regression — see ADR-196's resolution. The old module's
-    formula uses the plain deviance; Wood (2011) §2 eq. (4) requires the
-    PENALIZED deviance (``D(β̂) + β̂ᵀSβ̂``), a term the old module's formula
-    (untouched here, PLAN Anchor 7) also lacks. These tests pin the EXACT,
-    derived relationship between the two — new = old + the missing term —
-    which is both a regression check on the new function and a precise,
-    reproducible measurement of what the old one is missing, useful evidence
-    for ``docs/WORK_ORDER_reml_penalized_deviance_production_check.md``."""
+    """``reml_score_general`` is now bit-identical to
+    ``experience_gam_penalized.reml_score`` under a real penalty.
 
-    def test_differs_from_the_old_score_by_exactly_the_penalty_quadratic_form(
+    **Updated 2026-08-19 (ADR-197 resolution, maintainer-authorized).** Until this
+    session, ``reml_score_general`` was NOT bit-identical to the old module's score
+    under a real penalty, and these two tests pinned the EXACT gap between them: the
+    old module's formula used the plain deviance, while Wood (2011) §2 eq. (4)
+    requires the PENALIZED deviance (``D(β̂) + β̂ᵀSβ̂``) — a term ADR-196 added to
+    ``reml_score_general`` and, per ADR-197's measurement and the maintainer's
+    explicit direction, is now added to ``experience_gam_penalized.reml_score`` too
+    (mirrors ADR-196's fix exactly — same paper, same equation). With the identical
+    term now present on both sides, the two formulas compute the same quantity — the
+    old ``new == old + missing_term`` relationship collapsed to ``new == old``
+    (``missing_term`` is now exactly 0), so these tests now pin bit-for-bit agreement
+    instead of a gap. The zero-penalty test below is unaffected — it already asserted
+    agreement and needs no change."""
+
+    def test_matches_the_old_score_bit_for_bit_now_that_the_missing_term_is_fixed_on_both_sides(
         self, rng: np.random.Generator
     ) -> None:
         from polaris_re.analytics.experience_gam_penalized import reml_score
@@ -55,11 +61,13 @@ class TestRelationshipToTheExistingPoissonScore:
 
         old = reml_score(y, x, offset, coef, penalty, gamma=1.0)
         new = reml_score_general(y, x, poisson_log(), coef, penalty, offset=offset)
-        missing_term = 0.5 * float(coef @ penalty @ coef)  # gamma=1.0
-        assert new == pytest.approx(old + missing_term, abs=1e-9, rel=1e-9)
-        assert missing_term > 0.0  # the penalty quadratic form is strictly positive here
+        penalty_quadratic_form = 0.5 * float(coef @ penalty @ coef)  # gamma=1.0
+        assert new == pytest.approx(old, abs=1e-9, rel=1e-9)
+        # Still strictly positive under a real penalty — sanity that this fixture
+        # actually exercises the term both formulas now include, not a degenerate one.
+        assert penalty_quadratic_form > 0.0
 
-    def test_differs_by_the_penalty_quadratic_form_over_gamma_with_offset(
+    def test_matches_the_old_score_bit_for_bit_over_gamma_with_offset(
         self, rng: np.random.Generator
     ) -> None:
         from polaris_re.analytics.experience_gam_penalized import reml_score
@@ -77,8 +85,7 @@ class TestRelationshipToTheExistingPoissonScore:
 
         old = reml_score(y, x, offset, coef, penalty, gamma=gamma)
         new = reml_score_general(y, x, poisson_log(), coef, penalty, offset=offset, gamma=gamma)
-        missing_term = 0.5 * float(coef @ penalty @ coef) / gamma
-        assert new == pytest.approx(old + missing_term, abs=1e-9, rel=1e-9)
+        assert new == pytest.approx(old, abs=1e-9, rel=1e-9)
 
     def test_matches_at_zero_penalty(self, rng: np.random.Generator) -> None:
         """The unpenalized corner: `beta^T S beta` is trivially zero when `S`

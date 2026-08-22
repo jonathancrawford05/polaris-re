@@ -2458,3 +2458,80 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   the search on a criterion whose production analogue's status is still a
   hypothesis would be premature. *Source: this session (1st-order — the epic's
   own next-but-one step).*
+
+### Harvested 2026-08-18c — the production REML-score work order run (measured, tier 1 AND tier 3)
+
+- **The suspected omission is CONFIRMED, and its actuarial impact is now
+  measured, not just suspected.** `docs/WORK_ORDER_reml_penalized_deviance_production_check.md`
+  ran end to end: §3.1 evaluated the SAME already-fitted `(design, coef,
+  penalty)` each free-sp cell of the ten-cell conformance fixture already
+  carries, scored two ways, against `mgcv`'s own `m$gcv.ubre` — offset-adjusted
+  per ADR-189 amendment 1's own convention, the residual does NOT collapse (it
+  roughly doubles, since the two sides select DIFFERENT lambda at a free-sp
+  cell — a mismatched-point limitation named in the work order itself, not a
+  refutation of the bug). §3.2, the harder and more consequential question, is
+  where the registered prediction actually gets tested: re-scoring the SAME
+  2-D grid search with the corrected criterion selects a point measurably
+  CLOSER to `mgcv`'s own free-sp selection on **all three** free-sp cells
+  (log10 distance to `mgcv`'s selection: 0.3149→0.0663, 0.1870→0.1097,
+  0.4559→0.1248) — the prediction HELD, not assumed. On `l2-free-sp` the
+  corrected grid search independently reproduces the exact grid-step move
+  (3162.28→5623.41, `λ_year` unchanged) the maintainer's own earlier local
+  patch-and-refit experiment found (§2 of the work order) — a second,
+  independent confirmation of that number. §3.3: the correction shifts
+  `smoothing_uncertainty`'s finite-difference Hessian eigenvalues materially
+  (~25-40%), and the resulting Kass-Steffey inflation ratio moves in the
+  right direction but only slightly (e.g. `l2-free-sp` 1.1109x → 1.1538x
+  against `mgcv`'s 1.7392x) — nowhere near closing ADR-190's already-
+  characterized, separately-derived 3-4x under-inflation gap. Tier 1 (R 4.3.3
+  / mgcv 1.9.1, local apt) and tier 3 (R 4.6.1 / mgcv 1.9.4, oracle
+  `sha256:0d54c192…`, CI run 32181109927) agree to every printed digit.
+  ADR-197 and `docs/CONFORMANCE_LEDGER.md` carry the full measurement.
+  *Source: this session (1st-order — closes the gating item ahead of slice 4
+  part B).*
+
+- **RESOLVED, 2026-08-19.** The maintainer explicitly authorized the
+  recommendation above: "Proceed to fix `experience_gam_penalized.reml_score`
+  the same way ADR-196 fixed `gam_reml.reml_score_general` (add the missing
+  term)." Applied verbatim (same Wood (2011) §2 eq. (4) pattern, same
+  citation style). `data/mgcv_exchange/synthetic/python_reference.json`
+  re-baselined via its own regeneration path (`export_mgcv_case.py`, not
+  hand-edited) — the delta matches §3.2's registered prediction to the
+  printed digit on all three named free-sp cells, plus `l5-gamma` (same
+  mechanism, not one of the three originally named). The full ten-cell `mgcv`
+  conformance suite re-run against the fixed module: required levels 1-3
+  still AGREE (no regression), and level 5 (Wood's `gamma`) moves from
+  DISAGREES to AGREES — an improvement beyond what §3.2 alone measured. Level
+  4 (Kass-Steffey covariance) is unchanged in kind — ADR-190's separate,
+  already-tracked `dw/drho` gap, confirmed not a material contributor to it
+  by §3.3, unaffected here. `tests/qa/golden_outputs/` reconfirmed
+  byte-identical after the actual fix. Full measurement, both tiers, in
+  ADR-197's 2026-08-19 resolution amendment (`docs/DECISIONS.md`) and
+  `docs/CONFORMANCE_LEDGER.md`. *Source: this session (1st-order — closes the
+  maintainer-gated follow-up from 2026-08-18c).*
+
+- **Slice 4 part B (the N-dimensional outer search) remains unblocked to
+  proceed** — the work order's gate was already satisfied before this
+  session; now the production 2-D grid selector agrees with the search's own
+  criterion (`gam_reml.reml_score_general`) too, rather than being two steps
+  removed from it. *Source: this session (1st-order — the epic's own next
+  slice).*
+
+### Harvested 2026-08-19b — PR #204 round-2 review (age-axis `V_rho` follow-up)
+
+- **Restore an age-axis `V_rho` sanity check on a fixture where the age
+  margin actually carries signal.** ADR-197's production fix moved
+  `test_the_smoothing_variance_matches_the_measured_lambda_spread`'s own
+  selection to the search bound on the age axis (`lambda_age = 10**8`,
+  `_quadratic_mi`'s truth is quadratic in year and CONSTANT in age — the age
+  margin is genuinely null there), so the test's age-axis comparison against
+  ADR-187's empirical λ-spread was retired as not meaningful on THIS fixture
+  (a boundary optimum has zero-or-negative curvature by construction — not a
+  bug, and not something `LAMBDA_LOG10_BOUNDS` should be touched to avoid).
+  That is a small, well-documented, legitimate reduction in coverage — but
+  it was never harvested as a follow-up, so the gap has lived only in the
+  test's own docstring. Restore an equivalent age-axis `V_rho` check on a
+  fixture whose age margin is NOT null (an age-varying truth, so an interior
+  age-axis optimum exists to compare against a measured empirical spread),
+  so the coverage this test used to carry on the age axis is not simply
+  gone. *Source: PR #204 round-2 review [P2] (1st-order).*

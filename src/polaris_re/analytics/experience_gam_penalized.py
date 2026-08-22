@@ -759,6 +759,13 @@ def reml_score(
             deaths > 0.0, deaths * np.log(np.where(deaths > 0.0, deaths / mu, 1.0)), 0.0
         )
     deviance = float(2.0 * np.sum(terms - (deaths - mu)))
+    # Wood (2011) §2 eq. (4): Dp = D(beta_hat) + beta_hat^T S beta_hat — the
+    # PENALIZED deviance. ADR-196 found this term missing from
+    # gam_reml.reml_score_general's first generalization and fixed it there;
+    # ADR-197 measured, and this maintainer-authorized fix now applies, the
+    # identical omission here (this is the shipped, Poisson-only formula
+    # ADR-196's fix generalized from — same paper, same equation).
+    penalized_deviance = deviance + float(coef @ penalty @ coef)
 
     weights = np.clip(mu, 1e-300, None)
     _, logdet_h = np.linalg.slogdet(design.T @ (weights[:, None] * design) + penalty)
@@ -768,12 +775,13 @@ def reml_score(
     positive = eigenvalues[eigenvalues > max(largest, 1e-300) * 1e-10]
     logdet_s = float(np.sum(np.log(positive))) if positive.size else 0.0
 
-    # No `gamma == 1.0` short-circuit: np.log(1.0) is exactly 0.0 and `deviance / 1.0`
-    # is exact, so the criterion is bit-identical at the default without a float
-    # equality test guarding it (PR #190 review [P2]). The bit-identity is asserted by
-    # test_gamma_of_one_leaves_the_criterion_bit_identical, not by this line's shape.
+    # No `gamma == 1.0` short-circuit: np.log(1.0) is exactly 0.0 and
+    # `penalized_deviance / 1.0` is exact, so the criterion is bit-identical at the
+    # default without a float equality test guarding it (PR #190 review [P2]). The
+    # bit-identity is asserted by test_gamma_of_one_leaves_the_criterion_bit_identical,
+    # not by this line's shape.
     scale = (design.shape[1] - positive.size) * float(np.log(gamma))
-    return 0.5 * deviance / gamma + 0.5 * float(logdet_h) - 0.5 * logdet_s - 0.5 * scale
+    return 0.5 * penalized_deviance / gamma + 0.5 * float(logdet_h) - 0.5 * logdet_s - 0.5 * scale
 
 
 def _fit_and_score(
