@@ -57,9 +57,11 @@ sum-to-zero constraint on a numeric-``by`` smooth at all (measured directly
 against ``smoothCon(..., absorb.cons=TRUE)$C`` before this was written — see
 :func:`~polaris_re.analytics.gam_basis_cr.by_scale_design`), so the by-term's
 design is the *unconstrained* ``k``-column basis with each row scaled by
-``by``, and its penalty is that same unconstrained ``S``. Reuses
-:data:`CR_BASIS_CLAIM` — same two producers, same claimed quantities, only the
-construction inside the left one branches on whether ``term.by`` is set.
+``by``, and its penalty is that same unconstrained ``S``. It carries its own
+:data:`CR_BY_BASIS_CLAIM`: the claimed quantities and their INDEPENDENT
+provenance are the same three, but every *producer string* differs, and
+``evidence_markdown`` publishes those strings verbatim above the diff table
+(PR #206 review [P1]).
 
 What Stage A has and has not proven (ADR-193)
 ---------------------------------------------
@@ -70,7 +72,8 @@ tampering) with ``rank`` the one independently produced column;
 :func:`extract_smooth_terms` as ``TRANSPORT`` (one producer, parsed by the
 other) — that function still exists and is still used, as the *reference* side
 of the slice-2 comparison rather than a thing slice 2 replaces.
-:data:`CR_BASIS_CLAIM` is the third and only ``INDEPENDENT`` claim.
+:data:`CR_BASIS_CLAIM` and :data:`CR_BY_BASIS_CLAIM` are the ``INDEPENDENT``
+ones — the no-``by`` and numeric-``by`` `cr` constructions respectively.
 """
 
 from dataclasses import dataclass
@@ -95,6 +98,7 @@ from polaris_re.core.verification import (
 
 __all__ = [
     "CR_BASIS_CLAIM",
+    "CR_BY_BASIS_CLAIM",
     "RAW_PATH_CLAIM",
     "SMOOTH_PATH_CLAIM",
     "RTermPayload",
@@ -310,7 +314,72 @@ recipe-consistency check, just not a parity one, so it stays outside this
 :class:`VerificationClaim` rather than inside it with the wrong tag.
 
 A disagreement on any of the three claimed quantities is a real result about the
-basis, not a broken round trip (ADR-193's "what a good session looks like")."""
+basis, not a broken round trip (ADR-193's "what a good session looks like").
+
+**This claim covers the no-``by`` construction only.** A numeric-``by`` term has
+genuinely different producers on both sides — it skips
+:func:`absorb_sum_to_zero_constraint` entirely and its ``mgcv`` counterpart is
+``smoothCon(s(x, by=z, ...))``, not ``smoothCon(s(x, ...))`` — so it carries its
+own :data:`CR_BY_BASIS_CLAIM` rather than reusing these producer strings. Reusing
+them would publish a legend naming a constraint step the by-branch does not run,
+which is ADR-193's own failure mode inverted: accurate ADR prose above a derived
+table that misnames the thing it sits on (PR #206 review [P1])."""
+
+
+CR_BY_BASIS_CLAIM = VerificationClaim(
+    claim=(
+        "polaris_re.analytics.gam_basis_cr builds the numeric-by cr basis "
+        "(design_X, penalty_S) from the covariate locations, a knot vector and "
+        "the by-variable values, following Wood's natural-cubic-spline "
+        "construction row-scaled by the by-variable and absorbing NO "
+        "identifiability constraint; gam_term_extract.R's smoothCon(s(x, by=z), "
+        "absorb.cons=TRUE) branch computes the same quantities via mgcv's own C "
+        "implementation; compared on design_X, penalty_S and rank. knots are "
+        "checked for agreement too (compare_term_extract's "
+        "knots_agree/max_abs_knots_diff) but are NOT part of this claim, for the "
+        "same reason they are excluded from CR_BASIS_CLAIM."
+    ),
+    quantities=(
+        ComparedQuantity(
+            quantity="design_X",
+            left_producer=(
+                "gam_basis_cr.cr_basis + by_scale_design (Wood's construction, "
+                "row-scaled by the by-variable; NO constraint absorbed)"
+            ),
+            right_producer="mgcv smoothCon(s(x, by=z, bs='cr', k), absorb.cons=TRUE)$X",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="penalty_S",
+            left_producer=(
+                "gam_basis_cr.cr_basis (Wood's integrated-squared-second-derivative "
+                "penalty, unconstrained — the by-scaling does not touch it)"
+            ),
+            right_producer=(
+                "mgcv smoothCon(s(x, by=z, ...))$S — after mgcv's own scale.penalty rescaling"
+            ),
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="rank",
+            left_producer=("numpy.linalg.matrix_rank on the Python UNCONSTRAINED penalty block"),
+            right_producer="mgcv smoothCon(s(x, by=z, ...))$rank (mgcv's own rank determination)",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+    ),
+)
+"""The Python numeric-``by`` ``cr`` basis's provenance (ADR-193, ADR-200) — slice
+5's MI term.
+
+Structurally identical to :data:`CR_BASIS_CLAIM` — same two implementations, same
+three INDEPENDENT quantities — but every producer string differs, because the
+by-construction genuinely differs on both sides: the Python side row-scales an
+*unconstrained* basis via
+:func:`~polaris_re.analytics.gam_basis_cr.by_scale_design` and never calls
+:func:`absorb_sum_to_zero_constraint`, and the ``mgcv`` side is called with
+``by=z``. Split into its own claim rather than folded into
+:data:`CR_BASIS_CLAIM`'s strings so that ``evidence_markdown`` publishes a legend
+that names what actually produced the rows underneath it (PR #206 review [P1])."""
 
 
 @dataclass(frozen=True)
@@ -572,7 +641,12 @@ def build_python_cr_term(
         design=design,
         s=(s,),
         rank=(rank,),
-        evidence=CR_BASIS_CLAIM,
+        # The two branches have genuinely different producers on both sides, so
+        # they carry different claims — `evidence_markdown` publishes this
+        # verbatim above the diff table, and a legend naming a constraint step
+        # the by-branch never runs would misdescribe its own rows (PR #206
+        # review [P1]).
+        evidence=CR_BY_BASIS_CLAIM if by is not None else CR_BASIS_CLAIM,
         knots=tuple(float(v) for v in knots),
     )
 

@@ -17,6 +17,7 @@ import pytest
 
 from polaris_re.analytics.gam_basis_cr import (
     absorb_sum_to_zero_constraint,
+    by_scale_design,
     cr_basis,
     cr_default_knots,
 )
@@ -175,3 +176,54 @@ def test_absorb_constraint_refuses_a_zero_constraint_row() -> None:
     s = np.eye(5, dtype=np.float64)
     with pytest.raises(PolarisComputationError, match="colMeans"):
         absorb_sum_to_zero_constraint(design, s)
+
+
+# --- by_scale_design (slice 5, the MI term) ---------------------------------------
+#
+# R-free coverage, matching this module's existing pattern. The tier-1/tier-3
+# comparison against mgcv lives in test_gam_stage_a.py but is gated on
+# `rscript_mgcv_available()`, and main CI installs no R — so without these the
+# by-path would ship with no executed test on the only suite CI runs
+# (PR #206 review [P1]).
+
+
+def test_by_scale_design_scales_each_row_by_its_by_value() -> None:
+    """Hand-computed, not read off any implementation: row i of the result is
+    row i of the design times ``by[i]``."""
+    design = np.array(
+        [[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0]],
+        dtype=np.float64,
+    )
+    by = np.array([2.0, 0.0, -3.0], dtype=np.float64)
+    expected = np.array(
+        [[2.0, 4.0, 6.0, 8.0], [0.0, 0.0, 0.0, 0.0], [-27.0, -30.0, -33.0, -36.0]],
+        dtype=np.float64,
+    )
+    np.testing.assert_allclose(by_scale_design(design, by), expected)
+
+
+def test_by_scale_design_preserves_shape() -> None:
+    """A numeric-by term keeps all k columns — mgcv absorbs no identifiability
+    constraint on it (ADR-200), so nothing is dropped here either."""
+    knots = np.array([0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 9.0, 10.0], dtype=np.float64)
+    x = _rng_x()
+    design, _ = cr_basis(x, knots)
+    by = np.linspace(-2.0, 2.0, x.shape[0], dtype=np.float64)
+    assert by_scale_design(design, by).shape == design.shape
+
+
+def test_by_scale_design_with_unit_by_is_the_identity() -> None:
+    """by == 1 everywhere must leave the design untouched — the property that
+    makes the by-term reduce to the unconstrained basis."""
+    knots = np.array([0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 9.0, 10.0], dtype=np.float64)
+    x = _rng_x()
+    design, _ = cr_basis(x, knots)
+    ones = np.ones(x.shape[0], dtype=np.float64)
+    np.testing.assert_allclose(by_scale_design(design, ones), design)
+
+
+def test_by_scale_design_refuses_a_length_mismatch() -> None:
+    design = np.zeros((10, 5), dtype=np.float64)
+    by = np.ones(9, dtype=np.float64)
+    with pytest.raises(PolarisValidationError, match="one by-value per row"):
+        by_scale_design(design, by)

@@ -24,8 +24,10 @@ from polaris_re.analytics.experience_mgcv_conformance import (
     rscript_mgcv_available,
     synthetic_cells,
 )
+from polaris_re.analytics.gam_basis_cr import by_scale_design, cr_basis
 from polaris_re.analytics.gam_stage_a import (
     CR_BASIS_CLAIM,
+    CR_BY_BASIS_CLAIM,
     RAW_PATH_CLAIM,
     SMOOTH_PATH_CLAIM,
     TermExtract,
@@ -431,6 +433,87 @@ def test_build_python_cr_term_refuses_more_than_one_variable() -> None:
         build_python_cr_term(x, two_var_term)
 
 
+# --- The numeric-by branch (slice 5, the MI term) -------------------------------------
+#
+# R-free coverage of the by-path's own behaviour. The parity comparison against
+# mgcv is R-gated and main CI installs no R, so without these the branch and both
+# of its raises would never execute in CI (PR #206 review [P1]).
+
+
+def _by_term(label: str = "s(x)") -> TermSpec:
+    return TermSpec(
+        label=label,
+        variables=("x",),
+        basis="cr",
+        k=(8,),
+        knots=(("x", (0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 9.0, 10.0)),),
+        by="z",
+    )
+
+
+def test_build_python_cr_term_keeps_all_k_columns_for_a_by_term() -> None:
+    """The measured construction fact (ADR-200): mgcv absorbs NO identifiability
+    constraint on a numeric-by smooth, so the by-term keeps all k columns where
+    the no-by term drops to k-1."""
+    rng = np.random.default_rng(7)
+    x = np.sort(rng.uniform(0.0, 10.0, 100))
+    by = rng.normal(size=100)
+    extract = build_python_cr_term(x, _by_term(), by=by)
+    assert (extract.index_start, extract.index_end) == (0, 8)
+    assert extract.design.shape == (100, 8)
+    assert extract.s[0].shape == (8, 8)
+
+
+def test_the_by_term_declares_its_own_claim_not_the_no_by_one() -> None:
+    """The two branches have different producers on both sides, so they must not
+    publish the same legend (PR #206 review [P1])."""
+    rng = np.random.default_rng(7)
+    x = np.sort(rng.uniform(0.0, 10.0, 100))
+    by = rng.normal(size=100)
+    assert build_python_cr_term(x, _by_term(), by=by).evidence is CR_BY_BASIS_CLAIM
+    no_by = TermSpec(
+        label="s(x)",
+        variables=("x",),
+        basis="cr",
+        k=(8,),
+        knots=(("x", (0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 9.0, 10.0)),),
+    )
+    assert build_python_cr_term(x, no_by).evidence is CR_BASIS_CLAIM
+
+
+def test_the_by_claim_is_still_parity_evidence() -> None:
+    """Different producer strings must not have quietly downgraded the claim."""
+    assert CR_BY_BASIS_CLAIM.is_parity_claim
+    require_parity_evidence(CR_BY_BASIS_CLAIM.quantities, claim="Stage-A by-basis parity")
+
+
+def test_the_by_terms_design_is_the_unconstrained_basis_row_scaled() -> None:
+    """Ties build_python_cr_term's by-branch to gam_basis_cr's own primitives,
+    so a future refactor of either cannot silently drift from the other."""
+    rng = np.random.default_rng(11)
+    x = np.sort(rng.uniform(0.0, 10.0, 100))
+    by = rng.normal(size=100)
+    knots = np.array([0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 9.0, 10.0], dtype=np.float64)
+    design_unc, s_unc = cr_basis(x, knots)
+    extract = build_python_cr_term(x, _by_term(), by=by)
+    np.testing.assert_allclose(extract.design, by_scale_design(design_unc, by))
+    # ...and the penalty is the unconstrained one, untouched by the scaling.
+    np.testing.assert_allclose(extract.s[0], s_unc)
+
+
+def test_build_python_cr_term_refuses_a_by_term_with_no_by_array() -> None:
+    x = np.linspace(0.0, 10.0, 50)
+    with pytest.raises(PolarisValidationError, match="both or neither"):
+        build_python_cr_term(x, _by_term())
+
+
+def test_build_python_cr_term_refuses_a_by_array_on_a_non_by_term() -> None:
+    x = np.linspace(0.0, 10.0, 50)
+    no_by = TermSpec(label="s(x)", variables=("x",), basis="cr", k=(8,))
+    with pytest.raises(PolarisValidationError, match="both or neither"):
+        build_python_cr_term(x, no_by, by=np.ones(50, dtype=np.float64))
+
+
 # --- End to end: the R script itself, proving the harness (Anchor 1) ------------------
 
 
@@ -616,7 +699,13 @@ def test_the_python_cr_basis_agrees_with_smoothcon_on_every_smooth_design(
         x = np.asarray(r_term["x"], dtype=np.float64)
         by = np.asarray(r_term["by"], dtype=np.float64) if with_by else None
         python_term = build_python_cr_term(x, term, by=by)
-        assert python_term.evidence is CR_BASIS_CLAIM
+        # Each branch must publish the claim naming ITS OWN producers — the
+        # by-branch skips absorb_sum_to_zero_constraint and its mgcv counterpart
+        # is smoothCon(s(x, by=z, ...)), so CR_BASIS_CLAIM's strings would
+        # misdescribe it (PR #206 review [P1]). Strictly stronger than the
+        # previous single-claim assertion, which passed for the by-case only
+        # because it did not distinguish the two.
+        assert python_term.evidence is (CR_BY_BASIS_CLAIM if with_by else CR_BASIS_CLAIM)
         # Passes the FULL quantity set, not just parity_quantities — a claim that
         # ever regressed to carrying a non-INDEPENDENT quantity must fail this gate
         # (PR #201 review [P2]; `parity_quantities` pre-filters, so gating on it

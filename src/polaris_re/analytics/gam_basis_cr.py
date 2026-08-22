@@ -261,7 +261,9 @@ def by_scale_design(design: np.ndarray, by: np.ndarray) -> np.ndarray:
             f"by_scale_design: design has {design.shape[0]} row(s) but by has shape "
             f"{by.shape} — one by-value per row is required."
         )
-    return design * by[:, np.newaxis]
+    # np.asarray, not a bare product: mypy infers Any from the ndarray operator
+    # and this function declares a concrete return type (PR #206 review [P1]).
+    return np.asarray(design * by[:, np.newaxis], dtype=np.float64)
 
 
 def absorb_sum_to_zero_constraint(

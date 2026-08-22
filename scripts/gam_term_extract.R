@@ -237,8 +237,17 @@ main <- function(argv) {
       # own RNG stream, which numpy cannot reproduce bit-for-bit from the same seed.
       x = as.numeric(x),
       # Slice 5 (the MI term, PLAN §3 `s(AttdAge, by = StudyYear_C)`): the by-variable
-      # values, shared recipe like x above — NULL (dropped by auto_unbox/jsonlite as
-      # a JSON null) for every case that does not set with_by = TRUE.
+      # values, shared recipe like x above.
+      #
+      # For a case that does not set with_by = TRUE this is NULL, and the element is
+      # RETAINED rather than dropped — `list(by = NULL)` keeps the name (unlike
+      # `l$by <- NULL`, which removes it). It reaches the JSON as a literal `null`
+      # because write_json below passes `null = "null"` explicitly; under jsonlite's
+      # DEFAULT (`null = "list"`) the same value would render as `{}` instead.
+      # Measured both ways before this comment was written, so the Python side's
+      # `list[float] | None` annotation is the shape actually emitted, not an
+      # assumption (PR #206 review [P2], which correctly caught the earlier
+      # "dropped" wording but read the default rather than the setting in force).
       by = if (with_by) as.numeric(by_vec) else NULL
     )
   }
