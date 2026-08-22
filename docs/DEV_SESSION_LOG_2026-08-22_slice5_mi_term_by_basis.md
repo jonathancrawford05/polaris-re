@@ -136,7 +136,34 @@ number and result appended below once read.
   byte-identical (`git status` empty on `data/`, `tests/qa/`) — this session never
   touched the fitter or any production model path.
 - Ten-cell conformance suite re-run — see Gap After.
+- `perf/history.jsonl`: one row appended (ADR-177, initial PR open only).
+  `scripts/perf_history.py` flagged `creep: true` (ratio 1.43 on a 3-row-vs-3-row
+  window). **Not a regression, and not this session's:** the `output_fingerprint`
+  is `8331a13f` on this row and on all five preceding it — byte-identical
+  behaviour — and this run's 0.0883s sits inside the existing spread of the last
+  five rows (0.0631–0.1341s), which is shared-runner timing noise on a 3-row
+  window. This session touched no `TermLife` projection code at all; the whole
+  diff is the mgcv-parity Stage-A basis layer, its R extractor, and docs.
 
 ## Tier-3 confirmation
 
-*(filled in after CI dispatch and read)*
+Dispatched `mgcv-conformance.yml` via `workflow_dispatch` on commit `08472b3`
+(`claude/zealous-mendel-9e1awi`). Run
+[32571764900](https://github.com/jonathancrawford05/polaris-re/actions/runs/32571764900),
+both jobs `success`, ~76s end to end.
+
+- **Oracle:** R 4.6.1 / mgcv 1.9.4, image
+  `ghcr.io/jonathancrawford05/r-gam-base@sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+  (build 8) — confirmed from the R job's own `ORACLE_IMAGE` env line, same digest
+  every measurement in this epic has used since ADR-189 amendment 2.
+- **Slice 5's new row, read from job-log stdout (`get_job_logs`), not the
+  job-summary artifact:** `mi-term-attdage-by-k13 | True | 2.176e-14 | 3.775e-15 |
+  (0,) | True` — **identical to the tier-1 reading at every printed digit.**
+- **Required levels 1-3 of the existing ten-cell suite:** the "Gate on levels
+  1-3, annotate levels 4-5" step completed with conclusion `success` — no
+  regression from this session's workflow/extractor edits.
+
+This closes slice 5's own gap for the by-scaled `cr` basis to float round-trip
+precision, tier 1 and tier 3 identical — the same shape of first-measurement
+result as ADR-194 (slice 2), ADR-195 (slice 3) and ADR-199 (slice 4 part B).
+See ADR-200 and the `docs/CONFORMANCE_LEDGER.md` tier-3 row.

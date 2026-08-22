@@ -16343,3 +16343,100 @@ step. **CONFIRMED (parity) — settled, not tier-1-only.** See
 
 **Supersedes nothing.** Confirms ADR-198's registered prediction; does not reopen or amend
 any of ADR-198's other content.
+
+## ADR-200: the MI term's numeric-`by` basis reproduces `mgcv` — slice 5's first INDEPENDENT Stage-A result
+
+**Date:** 2026-08-22
+**Status:** Accepted — **CONFIRMED at tier 3**, same session (CI run 32571764900, oracle
+`sha256:0d54c192…` build 8).
+**Context:** `docs/PLAN_mgcv_parity_engine.md` slice 5 — `s(AttdAge, by = StudyYear_C)`,
+the MI term's own basis, and the cheap, well-conditioned, actually-wanted half of slice 5
+(PLAN §3: "ship the MI term first if they split"; `ti()` is the other half and is
+unstarted). Depends on slice 2 (the `cr` basis, ADR-194) and slice 4 (the outer optimiser,
+ADR-196/197/199), both done.
+
+**Parity claim, written before the code (per `docs/VERIFICATION_STANDARD.md`):**
+`gam_basis_cr.cr_basis` (+ row-scaling by the by-variable, no identifiability constraint
+absorbed) builds the numeric-`by` `cr` basis (`design_X`, `penalty_S`) from the covariate
+locations, a knot vector, and the by-variable values; `mgcv` computes the same quantities
+via `smoothCon(s(x, by=z, bs="cr", k=k), absorb.cons=TRUE)`; compared on `design_X`,
+`penalty_S`, and `rank`. This reuses `CR_BASIS_CLAIM` (`gam_stage_a.py`) rather than
+declaring a new claim — same two producers, same claimed quantities; only the left
+producer's construction branches on whether a `by` array is supplied.
+
+### Decision 1 — a numeric-`by` smooth carries no identifiability constraint, measured before being written
+
+CLAUDE.md and Anchor 8 forbid guessing a penalty or constraint derivation. Before writing
+any Python, this session ran a direct R probe against local tier-1 R
+(`smoothCon(s(x, by=z, bs="cr", k), absorb.cons=TRUE)` vs the no-`by` case, both
+`absorb.cons=TRUE` and `absorb.cons=FALSE`) and measured, not assumed:
+
+1. **`sm$C` has zero rows** for the by-case — `mgcv` absorbs *no* sum-to-zero constraint
+   on a numeric-`by` smooth at all, unlike the plain smooth's `C = colMeans(X)` row. This
+   matches `mgcv`'s own documented rule (`?s`, the `by` argument): `by * constant` need not
+   be collinear with the intercept the way a bare smooth's constant term is, so there is
+   nothing to remove.
+2. **The by-term's design is the *unconstrained* `k`-column basis, each row scaled by the
+   by-variable value** — measured: `smoothCon(s(x, by=z, ...), absorb.cons=TRUE)$X` equals
+   `z * smoothCon(s(x, ...), absorb.cons=FALSE)$X` exactly, max abs diff `0`.
+3. **The penalty `S` is untouched by the by-scaling** — identical (max abs diff `0`) to the
+   no-`by`, unconstrained penalty at the same `k`. Knot placement also agrees with the no-`by`
+   case exactly (the by-variable does not affect knot choice).
+
+`gam_basis_cr.by_scale_design` (new) implements exactly this — a row-scale of an
+*unconstrained* `cr_basis` output — and `build_python_cr_term` branches on `term.by`/`by`
+to skip `absorb_sum_to_zero_constraint` and call it instead.
+
+### Decision 2 — the R-side extractor's existing schema and internal guard extend without change
+
+`gam_term_extract.R`'s `extract_smooth_one` gained a `with_by` branch (`s(x, by=z, ...)`,
+`z` drawn from `rnorm(n)` *after* `x`/`y` so no existing case's RNG stream shifts) and one
+new case, `mi-term-attdage-by-k13`, using the target formula's own `AttdAge` k=13 knot
+vector (same knots `target-attdage-k13` already uses). ADR-191's internal guard
+(`smoothCon()` vs `predict(type="lpmatrix")`/`m$smooth[[1]]`) needed no changes: a
+numeric-`by` smooth's `lpmatrix` columns are named `s(x):z.1`, `s(x):z.2`, ... — still
+matched by the extractor's existing `grep("^s\\(x\\)", ...)` — and the guard re-passed on
+the by-case at both tiers, re-confirming ADR-191's referent decision on a construction it
+had not previously exercised.
+
+### Measurement
+
+| term | index range agrees | max abs X diff | max abs S diff | rank diff | knots agree |
+|---|---|---:|---:|---:|---|
+| `mi-term-attdage-by-k13` | True | 2.176e-14 | 3.775e-15 | (0,) | True |
+
+**Tier 1** (R 4.3.3/mgcv 1.9.1, local apt): agrees on first measurement, same order of
+magnitude as slice 2's other five cases (7.6e-15 to 1.5e-14).
+
+**Tier 3** (R 4.6.1/mgcv 1.9.4, oracle `sha256:0d54c192…` build 8, CI run
+[32571764900](https://github.com/jonathancrawford05/polaris-re/actions/runs/32571764900)):
+**identical to the tier-1 reading at every printed digit.** Required levels 1-3 of the
+existing ten-cell suite also still agree on this run — no regression from the
+workflow/extractor edits. `index_range` is `[0, 13)` on both sides (unconstrained — no
+column dropped, unlike every non-`by` case's `[0, 12)` at the same k=13), which is itself
+part of the measured result, not an assumption.
+
+`design_X`, `penalty_S` and `rank` are INDEPENDENT (`CR_BASIS_CLAIM`, reused unchanged
+from ADR-194) — `build_python_cr_term` never reads `gam_term_extract.R`'s `X`/`S`/`rank`
+output, only the shared covariate `x` and by-variable `by`, same status a supplied knot
+vector already has under Anchor 4. `knots` agreement is reported alongside but, per
+ADR-194's own correction, is a recipe-consistency check (this case supplies knots — ECHO),
+not a fourth parity column.
+
+### What this does not claim
+
+- **Not `ti()`.** Slice 5's other named piece — the tensor interaction with marginal main
+  effects excluded — is a materially different construction (its own row/column
+  tensor-product machinery and identifiability treatment) and is unstarted. Slice 5 remains
+  IN PROGRESS, not DONE.
+- **Not a multi-term fitted model.** This is Stage A only — the basis construction in
+  isolation, per Anchor 1. A model actually fitting `s(AttdAge, by=StudyYear_C)` alongside
+  the target's other terms, and the Stage-B/Anchor-2 comparisons (the MI contrast, `η`) that
+  go with it, need the multi-term mgcv-native model slice 5 onward's own scope still lacks.
+- **Not level 4.** ADR-190's Kass-Steffey under-inflation is unaffected — this ADR never
+  touches `smoothing_uncertainty` or the outer optimiser.
+- **Not a production change.** `TensorMIModel`/`PenalizedTensorMIModel` and every existing
+  entry point are untouched (Anchor 7). `tests/qa/` goldens are byte-identical.
+
+**Supersedes nothing.** Extends ADR-194's `CR_BASIS_CLAIM` to a construction it did not
+previously cover; does not reopen or amend ADR-194's own content.

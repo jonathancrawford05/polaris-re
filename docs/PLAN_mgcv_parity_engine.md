@@ -419,6 +419,10 @@ searches, not one".
 ### Slice 5: `ti()` and the varying-coefficient MI term
 
 - **Depends on:** Slices 2, 4
+- **Status:** **IN PROGRESS.** The MI term's own basis, `s(AttdAge, by = StudyYear_C)`,
+  is **DONE (Stage A only), 2026-08-22** (ADR-200, tier 1 and tier 3 both confirmed,
+  identical to the printed digit) — the epic's first INDEPENDENT Stage-A result for a
+  numeric-`by` `cr` smooth. `ti(AttdAge, PolYear)` is **not started.**
 
 `ti(AttdAge, PolYear)` — tensor interaction with the marginal main effects excluded. And
 `s(AttdAge, by = StudyYear_C)` — a `cr` basis scaled by a numeric variable.
@@ -427,7 +431,12 @@ searches, not one".
 log-hazard is linear in calendar year with an age-varying slope: the classic
 mortality-improvement structure. The old epic's full `te(age, year)` tensor spent 38-60
 coefficients on the same question and was the source of every conditioning problem from
-ADR-184 to ADR-188. **Ship the MI term before `ti`** if they must be split.
+ADR-184 to ADR-188. **Ship the MI term before `ti`** if they must be split — done, per
+ADR-200: `mgcv` absorbs no identifiability constraint on a numeric-`by` smooth at all, so
+the by-term's design is the *unconstrained* `cr` basis with each row scaled by the
+by-variable, and its penalty is that same unconstrained `S`. Stage A only — a multi-term
+mgcv-native model exercising this term (needed for Stage B / Anchor 2's MI contrast and `η`
+comparisons) is not yet built.
 
 ### Slice 6: `bs = "sz"` — orthogonal factor-smooth interactions
 

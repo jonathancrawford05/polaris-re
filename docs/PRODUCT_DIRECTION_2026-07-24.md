@@ -2565,3 +2565,41 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   own scope — nothing in this session's module needs revisiting once that model exists.
   *Source: this session (2nd-order — a named, not-yet-met piece of the search's eventual
   target, correctly deferred rather than silently dropped).*
+
+### Harvested 2026-08-22b — slice 5's MI term: the numeric-`by` `cr` basis (ADR-200)
+
+- **THE MI TERM'S OWN BASIS IS DONE (Stage A), tier 1 AND tier 3 both confirmed and
+  identical to the printed digit.** `s(AttdAge, by = StudyYear_C)` is the actual point of
+  the target formula (PLAN §3: "the cheap one and the important one" — 13 coefficients
+  saying log-hazard is linear in calendar year with an age-varying slope), and slice 5's
+  own instruction was to ship it before `ti()` if they split. It agrees with
+  `mgcv::smoothCon(s(x, by=z, bs="cr", k), absorb.cons=TRUE)` at `max_X_diff=2.176e-14`,
+  `max_S_diff=3.775e-15`, `rank_diff=(0,)` — same order as slice 2's other five `cr`
+  cases, on the first measurement, no iteration needed. Reuses `CR_BASIS_CLAIM` unchanged
+  (ADR-193): `design_X`/`penalty_S`/`rank` are INDEPENDENT, so this is genuine Stage-A
+  basis parity, not a harness check. Tier 3: CI run 32571764900, oracle
+  `sha256:0d54c192…` build 8; required levels 1-3 of the ten-cell suite also still agree
+  — no regression. *Source: this session, ADR-200 (1st-order — the epic's own active
+  slice).*
+
+- **The construction fact worth carrying forward: `mgcv` absorbs NO identifiability
+  constraint on a numeric-`by` smooth.** Measured by direct R probe before any code was
+  written (Anchor 8, CLAUDE.md's "do not guess at a derivation"): the by-case's
+  `smoothCon(..., absorb.cons=TRUE)$C` has **zero rows**, unlike a plain smooth's
+  `colMeans(X)` row. So the by-term's design is the *unconstrained* `k`-column basis with
+  each row scaled by the by-variable — `k` columns, not `k-1` — and its penalty is that
+  same unconstrained `S`, untouched by the scaling. Anyone extending to `ti()` or `sz`
+  should expect their own constraint treatment to be a separate measured question, not
+  inherited from either the plain or the `by` case. *Source: this session, ADR-200
+  decision 1 (1st-order — a construction fact later slices build on).*
+
+- **Slice 5 is IN PROGRESS, not DONE, and the remaining half has a named shared
+  prerequisite.** `ti(AttdAge, PolYear)` — tensor interaction with marginal main effects
+  excluded — is unstarted and is a materially different construction. Separately, this
+  session's result is **Stage A only**: no multi-term mgcv-native model exists, so nothing
+  has run Anchor 2's own acceptance criteria (the MI contrast, `η`) on this term. That
+  same missing model is the prerequisite for three currently-open items — slice 5's
+  Stage-B half, slice 4 part B's extension above N=2 (ADR-199's own named limitation), and
+  Anchor 5's absolute/relative end-to-end demonstration — which makes building it the
+  epic's highest-leverage next piece of work rather than one slice's internal detail.
+  *Source: this session (1st-order — names the epic's actual next bottleneck).*
