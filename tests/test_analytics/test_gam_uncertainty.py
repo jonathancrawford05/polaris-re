@@ -12,10 +12,13 @@ import numpy as np
 import pytest
 
 from polaris_re.analytics.gam_uncertainty import (
+    MGCV_RHO_RIDGE,
     cholesky_factor_derivative,
     d_vbeta_d_rho,
+    regularized_v_rho,
     second_order_correction,
     unconditional_covariance,
+    wood_factor_and_derivative,
 )
 from polaris_re.core.exceptions import PolarisValidationError
 
@@ -130,3 +133,67 @@ def test_unconditional_covariance_refuses_a_mismatched_j() -> None:
             np.array([0.1, 0.2]),
             np.eye(m),
         )
+
+
+# --- the two pieces identified by measurement against mgcv ------------------------
+
+
+def test_wood_factor_satisfies_the_identity_eq7_is_written_in() -> None:
+    """``G`` must satisfy ``Gᵀ G = V_beta`` — the defining property, checked rather
+    than assumed, since a factor that failed it would still produce a plausible
+    (and wrong) V''."""
+    p = 6
+    a = _spd(p, seed=21)
+    g, _ = wood_factor_and_derivative(a, ())
+    np.testing.assert_allclose(g.T @ g, np.linalg.inv(a), rtol=1e-10)
+
+
+def test_wood_factor_is_lower_triangular_and_differs_from_the_cholesky_of_vbeta() -> None:
+    """The finding this module turns on: eq. (7)'s factor is Wood (2011) 3.3's
+    ``L⁻¹`` — lower triangular — and is a *different* square root from the upper
+    Cholesky factor of ``V_beta``. Both satisfy ``GᵀG = V_beta``; they give
+    different ``V''``. If these ever coincided, the distinction this module
+    documents would be vacuous.
+    """
+    p = 6
+    a = _spd(p, seed=23)
+    g, _ = wood_factor_and_derivative(a, ())
+    np.testing.assert_allclose(g, np.tril(g), atol=0.0)
+    chol_of_vbeta = np.linalg.cholesky(np.linalg.inv(a)).T
+    assert np.max(np.abs(g - chol_of_vbeta)) > 1e-6
+
+
+def test_wood_factor_derivative_matches_a_difference_of_the_factor() -> None:
+    p = 5
+    a0 = _spd(p, seed=27)
+    rng = np.random.default_rng(29)
+    b = rng.normal(size=(p, p))
+    da = (b + b.T) / 2
+    h = 1e-6
+
+    def factor(a: np.ndarray) -> np.ndarray:
+        return np.linalg.inv(np.linalg.cholesky(a))
+
+    fd = (factor(a0 + h * da) - factor(a0 - h * da)) / (2 * h)
+    _, (analytic,) = wood_factor_and_derivative(a0, (da,))
+    np.testing.assert_allclose(analytic, fd, atol=1e-8)
+
+
+def test_regularized_v_rho_reproduces_the_measured_mgcv_ridge() -> None:
+    """Pins :data:`MGCV_RHO_RIDGE` to what was measured against ``mgcv``'s own
+    ``m$V.sp``, using that fit's actual outer Hessian and the ``V.sp`` it
+    published. Residual there was 1.78e-15; this asserts far looser, because the
+    point is that the *value* is 0.1 and not that this reproduces float noise.
+    """
+    hessian = np.array([[1.5789399638, -0.0001229184], [-0.0001229184, 0.0001351796]])
+    mgcv_v_sp = np.array([[0.5956139656, 0.0007311309], [0.0007311309, 9.9865011842]])
+    np.testing.assert_allclose(regularized_v_rho(hessian), mgcv_v_sp, rtol=1e-6)
+    assert MGCV_RHO_RIDGE == 0.1
+
+
+def test_an_unregularized_v_rho_blows_up_on_a_saturated_smoothing_parameter() -> None:
+    """Why the ridge is load-bearing rather than cosmetic: without it, the
+    saturated direction carries ~7400 of variance and V'' inherits it."""
+    hessian = np.array([[1.5789399638, -0.0001229184], [-0.0001229184, 0.0001351796]])
+    assert np.max(np.linalg.inv(hessian)) > 1000.0
+    assert np.max(regularized_v_rho(hessian)) < 100.0

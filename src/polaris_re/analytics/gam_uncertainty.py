@@ -73,12 +73,38 @@ import numpy as np
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 
 __all__ = [
+    "MGCV_RHO_RIDGE",
     "UncertaintyCorrection",
     "cholesky_factor_derivative",
     "d_vbeta_d_rho",
+    "regularized_v_rho",
     "second_order_correction",
     "unconditional_covariance",
+    "wood_factor_and_derivative",
 ]
+
+MGCV_RHO_RIDGE = 0.1
+"""The ridge ``mgcv`` adds to the rho Hessian before inverting it for ``Vrho``.
+
+**Identified by measurement, not chosen.** Wood, Pya and Saefken (2016) section 4
+states the mechanism but not the value: *"it is necessary to substitute a
+Moore-Penrose pseudoinverse of the Hessian if a smoothing parameter is
+effectively infinite, or otherwise to regularize the inversion (which is
+equivalent to placing a Gaussian prior on rho)."* ``mgcv`` exposes the result as
+``m$V.sp``, and::
+
+    m$V.sp == solve(m$outer.info$hess + 0.1 * I)
+
+to a residual of **1.78e-15** on two independent fits (poisson-log and
+binomial-logit), with a one-dimensional search over the ridge returning
+``0.1000000000``. So this is a Gaussian prior on rho with variance 10, read off
+``mgcv``'s own published quantity — not a constant tuned until a comparison went
+green, which this project forbids (PLAN Anchor 8).
+
+Why it matters so much: on a saturated smoothing parameter the unregularized
+inverse is enormous (``lambda_2 ~ 1.06e+05`` gives a Hessian eigenvalue of
+~1.35e-4, hence ~7400 of variance), and ``V''`` inherits it — the unregularized
+correction overshoots ``mgcv`` by 3-4x."""
 
 
 class UncertaintyCorrection:
@@ -105,12 +131,12 @@ class UncertaintyCorrection:
     def kass_steffey(self) -> np.ndarray:
         """``V*_beta = V_beta + J Vrho Jᵀ`` — the first-order approximation, i.e.
         what this engine computed before this module existed."""
-        return self.v_beta + self.first_order
+        return np.asarray(self.v_beta + self.first_order, dtype=np.float64)
 
     @property
     def full(self) -> np.ndarray:
         """``V'_beta = V_beta + V' + V''`` — eq. (7) in full."""
-        return self.v_beta + self.first_order + self.second_order
+        return np.asarray(self.v_beta + self.first_order + self.second_order, dtype=np.float64)
 
     def inflation(self, corrected: np.ndarray) -> float:
         """``mean(diag(corrected)) / mean(diag(V_beta))``.
@@ -143,7 +169,54 @@ def cholesky_factor_derivative(r_factor: np.ndarray, d_v: np.ndarray) -> np.ndar
     # Phi(A): upper triangle, diagonal halved.
     b = np.triu(a)
     np.fill_diagonal(b, np.diag(a) / 2.0)
-    return b @ r_factor
+    return np.asarray(b @ r_factor, dtype=np.float64)
+
+
+def regularized_v_rho(hessian: np.ndarray, ridge: float = MGCV_RHO_RIDGE) -> np.ndarray:
+    """``Vrho = (H + ridge * I)^-1`` — see :data:`MGCV_RHO_RIDGE`."""
+    m = hessian.shape[0]
+    return np.asarray(np.linalg.inv(hessian + ridge * np.eye(m)), dtype=np.float64)
+
+
+def wood_factor_and_derivative(
+    information: np.ndarray, d_information: tuple[np.ndarray, ...]
+) -> tuple[np.ndarray, tuple[np.ndarray, ...]]:
+    """The factor eq. (7) is actually written in, and its derivatives.
+
+    **``V''`` is NOT invariant to the choice of square root, which the paper's
+    ``R_rho^T R_rho = V_beta`` alone does not pin down.** Measured: swapping a
+    plain Cholesky of ``V_beta`` for the symmetric square root moves ``V''`` by
+    ~17% and the element-wise residual against ``mgcv`` from 26.7% to 21.2%. So
+    the factor has to be the *specific* one ``mgcv`` builds, not any valid one.
+
+    That factor comes from Wood (2011) section 3.3, which the 2016 paper
+    explicitly reuses: it forms ``A = X^T W X + S_lambda`` and works with
+    ``P = R^-1`` such that ``V_beta = P P^T``. A factor with ``G^T G = V_beta`` is
+    therefore ``G = P^T = L^-1`` where ``A = L L^T`` — **lower** triangular, and a
+    genuinely different square root from the upper-triangular Cholesky factor of
+    ``V_beta`` itself.
+
+    Measured, on ``poisson-log``: using this factor drops the element-wise
+    residual against ``mgcv``'s own ``Vc - Vp`` from **26.7% to 1.87%**.
+
+    Args:
+        information: ``A = X^T W X + S_lambda``, ``(p, p)``.
+        d_information: ``dA/drho_k`` per smoothing parameter.
+
+    Returns:
+        ``(G, (dG/drho_k, ...))``.
+    """
+    lower = np.linalg.cholesky(information)
+    g = np.linalg.inv(lower)
+    l_inv = g
+
+    def d_lower(d_a: np.ndarray) -> np.ndarray:
+        phi = l_inv @ ((d_a + d_a.T) / 2.0) @ l_inv.T
+        phi = np.tril(phi)
+        np.fill_diagonal(phi, np.diag(phi) / 2.0)
+        return np.asarray(lower @ phi, dtype=np.float64)
+
+    return g, tuple(-g @ d_lower(d_a) @ g for d_a in d_information)
 
 
 def d_vbeta_d_rho(
@@ -170,7 +243,7 @@ def d_vbeta_d_rho(
     """
     inner = design.T @ (dw_drho_k[:, None] * design) + lambda_k * penalty_block
     out = -v_beta @ inner @ v_beta
-    return (out + out.T) / 2.0
+    return np.asarray((out + out.T) / 2.0, dtype=np.float64)
 
 
 def second_order_correction(d_r_d_rho: tuple[np.ndarray, ...], v_rho: np.ndarray) -> np.ndarray:
@@ -191,7 +264,7 @@ def second_order_correction(d_r_d_rho: tuple[np.ndarray, ...], v_rho: np.ndarray
     for k in range(m):
         for lidx in range(m):
             out = out + v_rho[k, lidx] * (d_r_d_rho[k].T @ d_r_d_rho[lidx])
-    return (out + out.T) / 2.0
+    return np.asarray((out + out.T) / 2.0, dtype=np.float64)
 
 
 def unconditional_covariance(

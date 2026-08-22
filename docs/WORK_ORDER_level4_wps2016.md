@@ -69,33 +69,80 @@ Two things follow, and only two:
    > a smoothing parameter is effectively infinite, or otherwise to regularize the
    > inversion (which is equivalent to placing a Gaussian prior on ρ)."*
 
-## 4. Why this is NOT being called closed
+## 4. Two unknowns identified since — both by measurement, neither tuned
 
-**Dropping the flat direction is one reading of "regularize", not a derived rule.**
-It nearly closes `poisson-log` and leaves `binomial-logit` at 1.2741x against
-1.3650x — still ~7% out. Choosing a threshold that closes both would be **tuning a
-constant until it matches `mgcv`**, which this routine forbids outright and which
-would make the resulting agreement measure nothing.
+### 4.1 `mgcv` regularises the rho Hessian with a ridge of exactly 0.1
 
-So the honest state is: the formula is right and implemented, the ingredients are
-verified against `mgcv` individually (`Vb` to 1e-14, `Vρ` against `mgcv`'s own
-Hessian, `dw/dρ` to ~5e-11 in ADR-201), and **what remains is one specific,
-answerable question** rather than an open-ended gap.
+The paper names the mechanism but not the value: *"a Moore-Penrose pseudoinverse
+of the Hessian if a smoothing parameter is effectively infinite, or otherwise to
+regularize the inversion (which is equivalent to placing a Gaussian prior on rho)."*
 
-## 5. The named next step
+`mgcv` publishes the result as **`m$V.sp`**, and
 
-**Determine `mgcv`'s actual regularisation of `Vρ` before it enters `Vc`, from the
-2016 paper's online supplementary material (SA D is cited for the `O(Mp³)`
-computation) — or by measurement, not by fitting a threshold.**
+```
+m$V.sp == solve(m$outer.info$hess + 0.1 * I)     residual 1.78e-15
+```
 
-A clean localising experiment exists and is cheap: `mgcv` exposes
-`m$outer.info$hess`, so a probe can compute `Vc − Vb − J Vρ Jᵀ` from `mgcv`'s own
-quantities and compare it against our `V''` **element-wise** at a known `Vρ`
-treatment. That separates "our `V''` formula is wrong" from "our `Vρ` regularisation
-differs" definitively, in the same way ADR-190's own decisive probe separated its
-three suspects. This session did not run it.
+on both cases, with a 1-D search over the ridge returning `0.1000000000`. So it is
+a Gaussian prior on `rho` with variance 10, **read off `mgcv`'s own published
+quantity**, not a constant chosen to make a comparison green (Anchor 8). Without
+it the saturated direction (`lambda_2 ~ 1.06e+05`, Hessian eigenvalue ~1.35e-4)
+carries ~7400 of variance and `V''` overshoots by 3-4x.
 
-**Do not**, on the next pass: pick a threshold because it makes both cells agree;
-report any number here as closing level 4; or re-point
-`experience_gam_penalized.smoothing_uncertainty` at this module. Labelling any
-resulting interval a 95% band remains maintainer-reserved (ADR-188).
+### 4.2 `V''` is not invariant to the choice of square root — and the factor is Wood (2011) §3.3's
+
+`R_rho^T R_rho = V_beta` does **not** determine `dR/drho`. Measured: swapping a
+plain Cholesky of `V_beta` for the symmetric square root moves `V''` by ~17% and
+the element-wise residual from 26.7% to 21.2%. So the factor must be the specific
+one `mgcv` builds.
+
+The 2016 paper reuses Wood (2011) §3.3, which forms `A = X^T W X + S_lambda` and
+works with `P = R^-1`, `V_beta = P P^T`. The factor with `G^T G = V_beta` is
+therefore `G = L^-1` where `A = L L^T` — **lower** triangular, a genuinely
+different square root from the upper Cholesky factor of `V_beta`.
+
+**Using it drops `poisson-log`'s element-wise residual from 26.7% to 1.87%.**
+
+## 5. Where it stands — one cell effectively closed, one with a rank-1 residual
+
+All inputs verified against `mgcv` individually, so nothing below is attributable
+to an ingredient:
+
+| quantity | ours vs `mgcv` |
+|---|---|
+| `coef` | 6.4e-15 / 9.4e-15 |
+| `J = dbeta/drho` | **0.000%** (2.5e-11 / 5.5e-11 absolute) |
+| `V_beta` vs `vcov()` | 1.7e-14 / 4.3e-14 |
+| `V_rho` vs `m$V.sp` | 1.78e-15 |
+
+Element-wise against `mgcv`'s own `Vc - Vp`, with the ridge and the Wood factor:
+
+| case | first-order only | + `V''` | inflation ours vs `mgcv` |
+|---|---:|---:|---|
+| `poisson-log` | 75.3% | **1.87%** | 1.1296x vs 1.1317x |
+| `binomial-logit` | 56.7% | **31.8%** | 1.2721x vs 1.3650x |
+
+**`poisson-log` is effectively closed.** `binomial-logit` is not, and its residual
+is **essentially rank-1** (singular values 1.000, 0.084, 0.0006 relative) — a
+single missing direction, not diffuse error.
+
+## 6. Why this is still NOT called closed, and the named next step
+
+One cell at ~2% and one at ~32% is not parity, and the honest reading is that
+something binomial-specific is still missing. **The residual's rank-1 structure is
+the handle**: a diffuse residual would suggest an accumulation of small errors,
+where rank-1 points at one omitted term.
+
+**Next step, concretely.** Identify the rank-1 direction — project the residual
+onto the columns of `X`, onto `J`'s two rows, and onto the eigenvectors of
+`V_beta` — and see which it aligns with. That says whether the missing piece is a
+`rho`-direction term (suggesting the `M=2` sum is incomplete), a scale-parameter
+term (binomial with prior weights is where a dispersion term would differ from
+Poisson), or something in the prior-weight handling. The 2016 paper's online
+supplementary **SA D** is cited for the `O(Mp^3)` computation of `V''` and is the
+place to check for a term the main text compresses.
+
+**Do not**, on the next pass: fit a scalar to close `binomial-logit` (the best
+scalar is 1.1767 and leaves 30.8%, so it is not a scale error anyway); re-point
+`experience_gam_penalized.smoothing_uncertainty`; or report level 4 as closed.
+Labelling any interval a 95% band remains maintainer-reserved (ADR-188).
