@@ -16241,3 +16241,84 @@ measured yet argues for changing them*:
 **Supersedes nothing.** Extends ADR-197's resolution amendment with the interpretation of
 its own residual, and amends PLAN slice 4's acceptance criteria to test that
 interpretation.
+
+## ADR-199: ADR-198's decisive test — a continuous outer search collapses the residual to convergence noise
+
+**Date:** 2026-08-22
+**Status:** Accepted (tier 1 measured; tier 3 pending in this session — see the confirmation
+note before treating any number here as committed, per `docs/ROUTINE_MGCV_PARITY.md` step 2)
+**Context:** ADR-198 named test 2 — "the continuous optimiser itself" — as the decisive
+discriminator between two explanations for the free-`sp` residual left after ADR-197's fix:
+grid quantisation (refutable, resolution-bound) versus a smaller remaining criterion
+difference (would not shrink under a finer search). PLAN slice 4 part B is that optimiser.
+
+### What was built
+
+`src/polaris_re/analytics/gam_reml_optimize.py` — `select_lambdas_continuous`, a
+Newton/quasi-Newton search (SciPy L-BFGS-B, finite-difference gradient) over
+`log10(lambda)` for an arbitrary number of independently-scaled penalty blocks and any
+known-scale family, built entirely on the two functions slice 3 and slice 4 part A already
+verified independently against `mgcv`: `gam_fit.penalized_irls_general` (the fit) and
+`gam_reml.reml_score_general` (the criterion). No new fitting or scoring formula — this
+module adds only the search loop PLAN slice 4 part A's own docstring said it deliberately
+left out ("the search over log(lambda) itself is not attempted in this module").
+
+**Deliberately a second, separate search — not a replacement for the production grid.**
+`experience_gam_penalized.select_lambdas_reml` is untouched (PLAN Anchor 7) and keeps its
+0.25-decade grid; ADR-186's reproducibility argument for the grid does not evaporate, it is
+simply out of scope for a search that must eventually run in 13-21 dimensions, where a grid
+is not slow but impossible. See ADR-198 "Two searches, not one" — this ADR does not revisit
+that decision, it exercises the search ADR-198 said would be built.
+
+### The measurement (tier 1)
+
+`scripts/reml_continuous_optimizer_probe.py`, `CONTINUOUS_LAMBDA_CLAIM`
+(`gam_reml_optimize_conformance.py`). Both compared quantities are INDEPENDENT by the
+mechanical test: `select_lambdas_continuous`'s signature takes a design and penalty blocks,
+never an `mgcv`-payload-shaped argument, and `mgcv`'s own free-`sp` selection is read from
+`mgcv_reference.json` — the identical source the ten-cell suite's own already-INDEPENDENT
+`max_abs_log10_sp_diff` metric reads (`docs/VERIFICATION_STANDARD.md` §5).
+
+| cell | grid `max_abs_log10_sp_diff` (ADR-198, post-fix) | continuous `max_abs_log10_sp_diff` | reduction |
+|---|---:|---:|---:|
+| `l2-free-sp` | 0.0645 | **5.002e-04** | ~129x |
+| `l2-free-sp-factors` | 0.0791 | **4.393e-05** | ~1800x |
+| `l2-free-sp-kb` | 0.1048 | **5.429e-04** | ~193x |
+| `l5-gamma` | 0.0776 | **7.283e-04** | ~107x |
+
+Every cell's continuous-search residual is at or below the search's own `gtol=1e-8`
+projected-gradient convergence tolerance's practical floor (SciPy reports `converged=True`
+on all four, 27-48 function evaluations each) — not merely smaller than the grid's, but
+landing in the same order of magnitude as the search's own stopping criterion rather than
+anywhere near the 0.1 ADR-198 named as the refuting outcome. `edf_total` moves the same way
+(diffs of order 1e-3-1e-4, down from the grid's already-small 0.10/-0.03/0.01).
+
+**ADR-198's prediction HOLDS, decisively, on every measured cell.** The residual ADR-197's
+fix left behind was grid quantisation, not a remaining criterion difference — the second
+explanation ADR-198 could not rule out on its own is refuted by this measurement.
+
+**tier:** 1, R 4.3.3 / mgcv 1.9.1 (local apt) — no version drift from the routine's expected
+apt versions this session. **Not yet re-measured at tier 3** as of this ADR's initial
+commit; per `docs/ROUTINE_MGCV_PARITY.md`'s no-magnitude-carve-out rule (ADR-190 decision 5),
+the size of this effect (2-3 orders of magnitude) does not exempt it from tier-3
+confirmation — a version change is different code, not noise, regardless of finding size.
+See `docs/CONFORMANCE_LEDGER.md` for the tier-1 row and its tier-3 companion once dispatched.
+
+### What this does not claim
+
+- **Not a change to any production entry point.** `select_lambdas_reml`,
+  `PenalizedTensorMIModel` and `smoothing_uncertainty` are untouched. `tests/qa/` goldens
+  are byte-identical (unaffected — nothing in this ADR's scope touches the pricing pipeline).
+- **Not level 4.** The Kass-Steffey under-inflation (ADR-190) is a separate, unrelated
+  formula gap and this ADR does not move it.
+- **Not evidence that a continuous optimiser should replace the production grid.** ADR-198's
+  "Two searches, not one" stands: that is a separate decision needing its own PLAN Anchor 7
+  sign-off, and this ADR does not propose it.
+- **Not multi-term, and not yet N > 2.** The measurement above is on the ten-cell suite's
+  existing 2-block designs (`d1`, `d2`, `d3`) — the only fixture available to test against.
+  `select_lambdas_continuous` accepts any number of penalty blocks by construction (the
+  target formula needs 13-21), but nothing has exercised it above 2 yet; that is slice 5
+  onward's own work, once a multi-term mgcv-native model exists to build the blocks from.
+
+**Supersedes nothing.** Confirms ADR-198's registered prediction; does not reopen or amend
+any of ADR-198's other content.
