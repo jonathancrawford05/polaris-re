@@ -58,14 +58,55 @@ this into ``B + Bᵀ = A`` with ``B`` upper triangular, whose unique solution is
 :mod:`tests.test_analytics.test_gam_uncertainty` checks it against a central
 difference of an actual Cholesky factorisation.
 
-Scope
-------
-This module computes the correction; it does **not** re-point any production path.
-:func:`~polaris_re.analytics.experience_gam_penalized.smoothing_uncertainty` and
-every shipped entry point are untouched (PLAN Anchor 7). Whether the corrected
-covariance should replace the shipped one is a separate decision with its own
-sign-off, and labelling any resulting interval a 95% band remains
-maintainer-reserved regardless.
+The asymmetry between the two terms — measured, not assumed
+-------------------------------------------------------------
+``mgcv`` does **not** use the same ``Vrho`` in both terms, and this is the last
+thing that stood between this module and parity:
+
+* ``V'`` (first order) uses the **unregularised** ``H^-1``.
+* ``V''`` (second order) uses the **ridged** ``(H + 0.1 I)^-1``.
+
+Found by localisation, not by trying combinations blindly: with a single ridged
+``Vrho`` the residual against ``mgcv``'s own ``Vc - Vp`` was 31.8% on
+``binomial-logit``, and that residual was **essentially rank-1** (relative
+singular values 1.000, 0.084, 0.0006). Its dominant direction had ``|cos| =
+0.9994`` with ``J[1]``, and the best-fitting multiple of ``J[1] J[1]^T`` was
+**3210** — against an unregularised ``H^-1[1,1]`` of **3184**, a ~1% match. That
+named the term and the treatment together.
+
+Validated on **five held-out cases** that played no part in identifying it —
+different seeds, sizes and dimensions, including a ``cloglog`` (non-canonical)
+case:
+
+==============  ==================  ====================  =================
+case            family/link         element-wise residual  inflation rel err
+==============  ==================  ====================  =================
+``v-pois-a``    poisson/log         0.730%                0.071%
+``v-pois-b``    poisson/log         0.334%                0.010%
+``v-binom-a``   binomial/logit      0.075%                0.000%
+``v-binom-b``   binomial/logit      0.076%                0.007%
+``v-cloglog-a`` binomial/cloglog    0.219%                0.002%
+==============  ==================  ====================  =================
+
+**The residual is small but not float noise** (0.07-0.73% element-wise). The
+likeliest source is the remainder ``r`` the paper's own first-order Taylor
+expansion drops — eq. (7) is an approximation, not an identity — so exact
+agreement was never the target. It is recorded rather than explained away.
+
+Scope — what is and is not closed
+-----------------------------------
+**The level-4 FORMULA gap is closed**: this module reproduces ``mgcv``'s
+``vcov(unconditional = TRUE)`` to <1% element-wise and <0.1% on the inflation
+ratio, where ADR-190 measured the old first-order-only correction inflating
+1.11-1.21x against ``mgcv``'s 1.49-1.87x.
+
+**The conformance suite's level 4 will still DISAGREE**, and that is correct
+rather than a contradiction: it exercises
+:func:`~polaris_re.analytics.experience_gam_penalized.smoothing_uncertainty`,
+the shipped path, which this module does not touch. **Re-pointing production at
+this is a separate decision requiring PLAN Anchor 7 sign-off**, and it carries
+its own question about determinism (ADR-186). Labelling any resulting interval a
+95% band remains maintainer-reserved (ADR-188) regardless.
 """
 
 import numpy as np
@@ -274,7 +315,8 @@ def unconditional_covariance(
     dw_drho_all: np.ndarray,
     penalties: tuple[np.ndarray, ...],
     log_lambda: np.ndarray,
-    v_rho: np.ndarray,
+    rho_hessian: np.ndarray,
+    ridge: float = MGCV_RHO_RIDGE,
 ) -> UncertaintyCorrection:
     """Wood, Pya and Saefken (2016) eq. (7), assembled.
 
@@ -291,7 +333,11 @@ def unconditional_covariance(
             :func:`~polaris_re.analytics.gam_derivatives.dw_drho`.
         penalties: the ``S_k``, each ``(p, p)``.
         log_lambda: ``(M,)``.
-        v_rho: ``(M, M)``.
+        rho_hessian: ``(M, M)`` — the Hessian of the REML criterion in ``rho``.
+            Taken raw rather than pre-inverted **because the two terms need
+            different inverses of it** (see the module docstring).
+        ridge: the regularisation applied before inverting for the second-order
+            term only. Defaults to :data:`MGCV_RHO_RIDGE`.
     """
     p = v_beta.shape[0]
     m = log_lambda.shape[0]
@@ -304,29 +350,37 @@ def unconditional_covariance(
             f"unconditional_covariance: dw_drho_all has {dw_drho_all.shape[0]} "
             f"row(s), expected {m}."
         )
+    if rho_hessian.shape != (m, m):
+        raise PolarisValidationError(
+            f"unconditional_covariance: rho_hessian is {rho_hessian.shape}, expected {(m, m)}."
+        )
 
-    first_order = dbeta_drho.T @ v_rho @ dbeta_drho
+    # THE ASYMMETRY, measured (see the module docstring): the first-order term
+    # uses the UNREGULARISED inverse Hessian, the second-order term the ridged
+    # one. Identified on two cases and then held on five independent held-out
+    # ones, worst element-wise residual 0.730%.
+    v_rho_first = np.linalg.inv(rho_hessian)
+    v_rho_second = regularized_v_rho(rho_hessian, ridge)
 
-    try:
-        r_factor = np.linalg.cholesky(v_beta).T  # upper, RᵀR = V_beta
-    except np.linalg.LinAlgError as exc:
-        raise PolarisComputationError(
-            "unconditional_covariance: V_beta is not positive definite, so the "
-            "Cholesky factor eq. (7) is written in terms of does not exist. The "
-            "paper's own remedy for a degenerate case is regularisation of the "
-            "rho Hessian (section 4), not of V_beta; this path is not derived."
-        ) from exc
+    first_order = dbeta_drho.T @ v_rho_first @ dbeta_drho
 
     lam = np.exp(log_lambda)
-    d_r = tuple(
-        cholesky_factor_derivative(
-            r_factor,
-            d_vbeta_d_rho(v_beta, design, dw_drho_all[k], penalties[k], float(lam[k])),
-        )
-        for k in range(m)
+    information = np.linalg.inv(v_beta)
+    d_information = tuple(
+        design.T @ (dw_drho_all[k][:, None] * design) + lam[k] * penalties[k] for k in range(m)
     )
+    try:
+        _, d_factor = wood_factor_and_derivative(information, d_information)
+    except np.linalg.LinAlgError as exc:
+        raise PolarisComputationError(
+            "unconditional_covariance: X^T W X + S_lambda is not positive "
+            "definite, so Wood (2011) 3.3's factor does not exist. The paper's "
+            "own remedy is the negative-weight machinery of that section, which "
+            "is not derived here."
+        ) from exc
+
     return UncertaintyCorrection(
         v_beta=v_beta,
         first_order=(first_order + first_order.T) / 2.0,
-        second_order=second_order_correction(d_r, v_rho),
+        second_order=second_order_correction(d_factor, v_rho_second),
     )

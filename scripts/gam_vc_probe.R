@@ -66,6 +66,10 @@ main <- function(argv) {
       # REFERENCE operand. Never read by the Python producer.
       vcov_diag = as.numeric(diag(vb)),
       vcov_unconditional_diag = as.numeric(diag(vc)),
+      # FULL matrices: the scalar inflation ratio averages diagonals and hid a
+      # 26.7% element-wise residual behind a 0.39% headline during this slice.
+      vcov_full = as.numeric(vb),
+      vcov_unconditional_full = as.numeric(vc),
       mgcv_inflation = as.numeric(mean(diag(vc)) / mean(diag(vb))),
       edf_total = sum(m$edf),
       scale = as.numeric(m$sig2)
@@ -77,7 +81,11 @@ main <- function(argv) {
     make_case("poisson-log", poisson(link = "log"),
               rpois(n, exp(eta_true)), rep(1, n)),
     make_case("binomial-logit", binomial(link = "logit"),
-              rbinom(n, 30, 1 / (1 + exp(-eta_true))) / 30, rep(30, n))
+              rbinom(n, 30, 1 / (1 + exp(-eta_true))) / 30, rep(30, n)),
+    # Non-canonical link: alpha != 1, so the observed/expected Hessian
+    # distinction (ADR-201) is live here as it is not on the two above.
+    make_case("binomial-cloglog", binomial(link = "cloglog"),
+              rbinom(n, 20, 1 - exp(-exp(eta_true))) / 20, rep(20, n))
   )
   names(cases) <- vapply(cases, function(c) c$label, character(1))
 

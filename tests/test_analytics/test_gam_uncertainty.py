@@ -112,7 +112,9 @@ def test_first_order_term_is_exactly_plain_kass_steffey() -> None:
     pen = (_spd(p, seed=2) * 0.1, _spd(p, seed=6) * 0.1)
     a = rng.normal(size=(m, m))
     v_rho = a @ a.T + m * np.eye(m)
-    corr = unconditional_covariance(v_beta, x, j, dw, pen, np.array([0.5, -0.2]), v_rho)
+    h_rho = np.linalg.inv(v_rho)
+    corr = unconditional_covariance(v_beta, x, j, dw, pen, np.array([0.5, -0.2]), h_rho)
+    # V' uses the UNREGULARISED inverse Hessian — the measured asymmetry.
     np.testing.assert_allclose(corr.kass_steffey, v_beta + j.T @ v_rho @ j, rtol=1e-10)
     np.testing.assert_allclose(corr.full, corr.kass_steffey + corr.second_order, rtol=1e-12)
 
@@ -197,3 +199,31 @@ def test_an_unregularized_v_rho_blows_up_on_a_saturated_smoothing_parameter() ->
     hessian = np.array([[1.5789399638, -0.0001229184], [-0.0001229184, 0.0001351796]])
     assert np.max(np.linalg.inv(hessian)) > 1000.0
     assert np.max(regularized_v_rho(hessian)) < 100.0
+
+
+def test_the_two_terms_use_different_inverses_of_the_rho_hessian() -> None:
+    """The measured asymmetry, pinned: `V'` takes the UNREGULARISED `H^-1` and
+    `V''` the ridged one.
+
+    This is the single fact that took `binomial-logit` from a 31.8% element-wise
+    residual against mgcv to 0.023%. If a later change made both terms use the
+    same inverse, the correction would silently regress to something that misses
+    mgcv by ~30% on one family and ~2% on another — so it is asserted directly
+    rather than left implicit in the assembly.
+    """
+    rng = np.random.default_rng(31)
+    n, p, m = 80, 5, 2
+    x = rng.normal(size=(n, p))
+    v_beta = np.linalg.inv(_spd(p, seed=33))
+    j = rng.normal(size=(m, p))
+    dw = rng.normal(size=(m, n)) * 0.01
+    pen = (_spd(p, seed=35) * 0.1, _spd(p, seed=37) * 0.1)
+    # A Hessian with one near-null direction, as a saturated smoothing parameter gives.
+    h_rho = np.diag([1.5, 1e-4])
+    corr = unconditional_covariance(v_beta, x, j, dw, pen, np.array([0.3, 0.1]), h_rho)
+
+    unreg = j.T @ np.linalg.inv(h_rho) @ j
+    ridged = j.T @ regularized_v_rho(h_rho) @ j
+    np.testing.assert_allclose(corr.first_order, unreg, rtol=1e-10)
+    # ...and emphatically NOT the ridged one, on a Hessian like this.
+    assert np.max(np.abs(corr.first_order - ridged)) > 0.5 * np.max(np.abs(unreg))

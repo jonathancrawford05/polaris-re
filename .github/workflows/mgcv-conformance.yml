@@ -59,6 +59,10 @@ on:
       - "src/polaris_re/analytics/gam_stage_a.py"
       - "src/polaris_re/analytics/gam_derivatives.py"
       - "src/polaris_re/analytics/gam_derivatives_conformance.py"
+      - "src/polaris_re/analytics/gam_uncertainty.py"
+      - "src/polaris_re/analytics/gam_uncertainty_conformance.py"
+      - "scripts/gam_vc_probe.R"
+      - "scripts/gam_vc_compare.py"
       - "scripts/gam_deriv_probe.R"
       - "scripts/gam_deriv_compare.py"
       - "scripts/gam_term_extract.R"
@@ -329,6 +333,17 @@ jobs:
           docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
             Rscript scripts/gam_deriv_probe.R \
               gam_deriv_probe.json
+            gam_vc_probe.json
+
+      # Level 4: mgcv's own Vb and Vc at its own free-sp selection, plus the outer
+      # Hessian, so the Python side can assemble eq. (7) and compare element-wise.
+      - name: Fit free-sp and export Vc for the level-4 comparison
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_vc_probe.R \
+              gam_vc_probe.json
 
       - uses: actions/upload-artifact@v4
         with:
@@ -341,6 +356,7 @@ jobs:
             gam_family_probe.json
             gam_reml_probe.json
             gam_deriv_probe.json
+            gam_vc_probe.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
@@ -945,6 +961,20 @@ jobs:
             echo "No gam_deriv_probe.json — the R probe above did not produce one."
           fi
 
+      # Level 4 proper — eq. (7) against mgcv's vcov(unconditional = TRUE).
+      - name: Level 4 — WPS (2016) eq. (7) vs mgcv Vc
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f gam_vc_probe.json ]; then
+            uv run python scripts/gam_vc_compare.py \
+              --probe gam_vc_probe.json \
+              --markdown gam_vc_report.md
+            cat gam_vc_report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No gam_vc_probe.json — the R probe above did not produce one."
+          fi
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -962,4 +992,7 @@ jobs:
             reml_production_check_report.md
             reml_continuous_optimizer_report.md
             gam_deriv_probe.json
+            gam_vc_probe.json
             gam_deriv_report.md
+            gam_vc_probe.json
+            gam_vc_report.md
