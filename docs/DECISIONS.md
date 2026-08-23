@@ -16963,6 +16963,18 @@ itself — the study is deterministic over pinned seeds (ADR-074), so a
 regenerated document differing from the one #207 committed would be a finding
 about determinism, not a formatting difference.
 
+**It came back byte-identical.** The re-run's diff against the committed
+document is 8 lines added and 0 removed, and all 8 are the stamp block. A full
+independent 200-replicate regeneration — roughly 80,000 penalized fits, in a
+different process on a different day from the one that produced the committed
+figures — reproduced every digit. ADR-074's reproducibility claim is confirmed
+end-to-end on this path rather than assumed from the seeding discipline, and
+ADR-203's decimals are now reproducible-on-demand rather than merely recorded.
+
+Worth stating what that does *not* establish, since a clean reproduction is easy
+to over-read: it says the pipeline is deterministic, not that its numbers are
+right. The gate's whole premise is that those are different claims.
+
 **The three documents nobody here can stamp, and why they differ.**
 `MEASUREMENT_portfolio_parallel_macbook_air.md` reports timings from a MacBook
 Air with 10 logical cores, and `MEASUREMENT_engine_recursion_prework.md` from a
