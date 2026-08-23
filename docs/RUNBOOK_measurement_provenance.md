@@ -79,26 +79,55 @@ extraction of the band layer), and nobody has confirmed either way.
 
 ### From a session that has the cache
 
+> **Read this box before running anything.** `MEASUREMENT_experience_gam_hmd.md`
+> and `..._ilec.md` are **written readings, not harness output.** The files the
+> script generates are in `docs/measurements/`, and that directory's own README is
+> explicit: *"generated verbatim and never hand-edited. A re-run overwrites them
+> and the diff is the finding. That is why they are separate from the
+> `docs/MEASUREMENT_*.md` documents one level up."*
+>
+> So **never** point `--markdown` at a `docs/MEASUREMENT_*.md` path. Doing so
+> replaces a hand-written analysis — caveats, licensing text, verdict — with raw
+> output. An earlier version of this runbook told you to do exactly that; it was
+> wrong and is corrected here.
+
 ```bash
-git fetch origin && git checkout <the branch carrying this runbook>
+git fetch origin && git checkout main
 
-# 1. Regenerate both, into the committed paths.
+# 1. Regenerate the RAW output only. Flags are from docs/measurements/README.md;
+#    they are not defaults, and running without them produces a spurious diff.
 uv run python scripts/experience_diligence.py --source hmd \
-    --markdown docs/MEASUREMENT_experience_gam_hmd.md
-uv run python scripts/experience_diligence.py --source ilec \
-    --markdown docs/MEASUREMENT_experience_gam_ilec.md
+    --country USA --min-year 1990 --max-year 2019 \
+    --markdown docs/measurements/experience_gam_hmd_usa.md \
+    -o docs/measurements/experience_gam_hmd_usa.json
+uv run python scripts/experience_diligence.py --source hmd \
+    --country GBRTENW --min-year 1990 --max-year 2019 \
+    --markdown docs/measurements/experience_gam_hmd_gbrtenw.md \
+    -o docs/measurements/experience_gam_hmd_gbrtenw.json
 
-# 2. LOOK AT THE DIFF. This is the whole point of the exercise.
-git diff --stat docs/MEASUREMENT_experience_gam_*.md
-git diff docs/MEASUREMENT_experience_gam_hmd.md
+uv run python scripts/experience_diligence.py --source ilec --year-df 3 \
+    --markdown docs/measurements/experience_gam_ilec.md \
+    -o docs/measurements/experience_gam_ilec.json
+uv run python scripts/experience_diligence.py --source ilec --year-df 3 \
+    --duration-bands \
+    --markdown docs/measurements/experience_gam_ilec_duration_banded.md \
+    -o docs/measurements/experience_gam_ilec_duration_banded.json
+uv run python scripts/experience_diligence.py --source ilec --year-df 2 \
+    --year-degree 2 --duration-bands \
+    --markdown docs/measurements/experience_gam_ilec_duration_banded_quadratic.md \
+    -o docs/measurements/experience_gam_ilec_duration_banded_quadratic.json
 
-# 3. Stamp each, with a note recording where and against what.
+# 2. THE DIFF IS THE MEASUREMENT. Read it before doing anything else.
+git diff --stat docs/measurements/
+git diff docs/measurements/
+
+# 3. Only if step 2 is clean (or you have revised the analyses to match), stamp.
 uv run python scripts/measurement_stamp.py stamp \
     docs/MEASUREMENT_experience_gam_hmd.md \
-    --assert --note "regenerated <DATE> in a session holding the HMD cache <VERSION>; diff: <none | summary>"
+    --assert --note "raw output regenerated <DATE> against HMD cache <VERSION>; docs/measurements diff: <none | summary>"
 uv run python scripts/measurement_stamp.py stamp \
     docs/MEASUREMENT_experience_gam_ilec.md \
-    --assert --note "regenerated <DATE> in a session holding the ILEC extract <VERSION>; diff: <none | summary>"
+    --assert --note "raw output regenerated <DATE> against ILEC <FILE/VERSION>; docs/measurements diff: <none | summary>"
 
 uv run python scripts/measurement_stamp.py check
 ```
@@ -108,16 +137,14 @@ uv run python scripts/measurement_stamp.py check
 Step 2 is the measurement. Whichever way it goes, say so in the note and in the
 commit message:
 
-| what the diff shows | what it means | what to record |
+| what the diff shows | what it means | what to do |
 |---|---|---|
-| **no change** | `4e7dd64` was behaviour-preserving on this path, as believed | "diff: none" — now a fact rather than an assumption |
-| **numbers moved** | a second silently-stale measurement, like ADR-203's | say by how much; if any ADR or plan cites the old figures, correct them the way ADR-203 corrected its seven |
-| **it fails to run** | the producer has rotted against the current cache | that is the finding; do not stamp, open it as a defect |
+| **no change** | the harness is unchanged on this path | note "diff: none" — now a fact rather than an assumption; stamp both |
+| **numbers moved** | a second silently-stale measurement, like ADR-203's | **the `MEASUREMENT_*.md` analyses above may now be wrong.** Read them against the new numbers and revise before stamping; correct anything citing the old figures |
+| **it fails to run** | the producer has rotted against the current cache | that is the finding. Do not stamp; open it as a defect |
 
-**Do not stamp a document you did not regenerate.** An `asserted` stamp is one
-person's word that a regeneration happened somewhere this checkout cannot see. The
-tool requires `--note` for exactly that reason, and a note that does not say when,
-where, and against what version is not a note.
+**Do not stamp a document you did not verify.** An `asserted` stamp is one
+person's word that a regeneration happened somewhere this checkout cannot see.
 
 ### Cache version, please
 

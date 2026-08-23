@@ -158,21 +158,39 @@ MANIFEST: tuple[MeasurementSource, ...] = (
         document="docs/MEASUREMENT_experience_gam_ilec.md",
         producer="scripts/experience_diligence.py",
         regeneration=(
-            "uv run python scripts/experience_diligence.py --source ilec "
-            "--markdown docs/MEASUREMENT_experience_gam_ilec.md"
+            "TWO STEPS, and the first must NOT target this file. Regenerate the raw "
+            "harness output (see docs/measurements/README.md for the exact flags): "
+            "`--source ilec --year-df 3`, `--source ilec --year-df 3 --duration-bands`, "
+            "and `--source ilec --year-df 2 --year-degree 2 --duration-bands`, each "
+            "written into docs/measurements/. THEN check whether this document's "
+            "written reading still matches those numbers, and revise it if not."
         ),
         requires_experience_cache=True,
-        note="SOA-ILEC extract; not in the repository. Expect an `asserted` stamp.",
+        note=(
+            "SOA-ILEC extract; not in the repository. Expect an `asserted` stamp. "
+            "**This file is a written reading, not harness output** — the generated "
+            "artifacts are docs/measurements/experience_gam_ilec*.{json,md}, and "
+            "docs/measurements/README.md is explicit that those are overwritten by a "
+            "re-run while these analyses are not. Pointing a regeneration command at "
+            "this path would replace a hand-written analysis with raw output."
+        ),
     ),
     MeasurementSource(
         document="docs/MEASUREMENT_experience_gam_hmd.md",
         producer="scripts/experience_diligence.py",
         regeneration=(
-            "uv run python scripts/experience_diligence.py --source hmd "
-            "--markdown docs/MEASUREMENT_experience_gam_hmd.md"
+            "TWO STEPS, and the first must NOT target this file. Regenerate the raw "
+            "harness output (see docs/measurements/README.md): "
+            "`--source hmd --country USA --min-year 1990 --max-year 2019` and "
+            "`--source hmd --country GBRTENW --min-year 1990 --max-year 2019`, each "
+            "written into docs/measurements/. THEN check whether this document's "
+            "written reading still matches those numbers, and revise it if not."
         ),
         requires_experience_cache=True,
-        note="HMD extract; not in the repository. Expect an `asserted` stamp.",
+        note=(
+            "HMD extract; not in the repository. Expect an `asserted` stamp. **This "
+            "file is a written reading, not harness output** — see the ILEC entry."
+        ),
     ),
     MeasurementSource(
         document="docs/MEASUREMENT_gam_ramp_mechanism.md",
