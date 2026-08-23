@@ -509,7 +509,7 @@ to make it fit, and if it is reduced say so in the report (ADR-187's Monte-Carlo
 >
 > **Superseded 2026-08-23 (ADR-203).** `ce0b9f1`'s correct REML fix (2026-08-19) moved
 > these to 0.7435 / **0.7815** and 0.7781 / **0.8090**; eq. (7) then reached
-> **0.8172** / **0.8359**, still short of the floor. The three results below stand as
+> **0.8167** / **0.8354**, still short of the floor. The three results below stand as
 > written — the decimals moved, the conclusions did not.
 >
 > Three results, all of which change what later slices may say:

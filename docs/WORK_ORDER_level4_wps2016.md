@@ -169,8 +169,8 @@ now done and verified against `mgcv` on eight cases in total.
   its own answer on determinism (ADR-186 chose the grid deliberately for
   reproducibility by construction).
 - ~~**ADR-188's coverage gate.**~~ **RUN 2026-08-23 — ADR-203.** Eq. (7) moves
-  coverage **up but not to the floor**: age-flat 0.7815 -> 0.8172, age-varying
-  0.8090 -> 0.8359, against 0.9192. Confirmed in direction, refuted in
+  coverage **up but not to the floor**: age-flat 0.7815 -> 0.8167, age-varying
+  0.8090 -> 0.8354, against 0.9192. Confirmed in direction, refuted in
   sufficiency — the formula was *a* gap, not *the* gap, and a second cause
   remains that no covariance eq. (7) can form will reach. **Coverage does not
   supply the argument for re-pointing production**; ADR-202's parity is a

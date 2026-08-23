@@ -72,7 +72,7 @@ removing a whole polynomial order. PLAN §1 rules the framing out in writing.
    ~13-point shortfall — right direction, quarter of the gap.
    **Both figures superseded 2026-08-23 (ADR-203):** `ce0b9f1`'s correct REML fix
    moved the shipped band to 0.7815 / 0.8090, and eq. (7) then moved it to
-   0.8172 / 0.8359 — still failing, gate measured and failed a second time. The
+   0.8167 / 0.8354 — still failing, gate measured and failed a second time. The
    conclusion in bold is unchanged and now rests on two measurements.
    Two further numbers a
    later slice must not repeat wrongly: selecting λ per replicate costs a *further* ~5

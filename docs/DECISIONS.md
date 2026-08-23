@@ -16667,9 +16667,36 @@ tolerance comes from the observed spread with under a factor of three of headroo
 Wood, Pya and Saefken (2016) "should move coverage toward or past that floor. If
 it does not, the coverage gap has a second cause and this ADR's decision 1 will
 need re-examining." ADR-202 closed the parity half at tier 3. The coverage half
-had never been run. The maintainer authorized the sequence on 2026-08-23:
-measure first, decide from the number, then take the Anchor 7 question —
-explicitly *not* re-pointing production first.
+had never been run.
+
+### The authorization, quoted (the `a935013` convention)
+
+- **Source:** live maintainer exchange in this Claude Code session, on branch
+  `claude/zealous-mendel-9e1awi`, 2026-08-23.
+- **What was put to the maintainer:** a recommendation to measure before deciding,
+  in three numbered steps — (1) run ADR-188's coverage study against
+  `gam_uncertainty` offline, no production change; (2) decide from the number, with
+  both outcomes named in advance, including the one where coverage does not move
+  and ADR-190 decision 1 needs re-examining; (3) only then take the Anchor 7
+  sign-off, split into its two mechanisms. The alternative — re-point production
+  first and measure after — was stated as the maintainer's to choose, with the
+  tradeoff that it would change the band and the goldens in one motion and lose the
+  clean read.
+- **The maintainer replied, verbatim:**
+
+  > *"Proceed with steps 1 - 3 as you describe."*
+
+- **What that licenses, and what it does not.** It licenses running the gate, and
+  the two consequences that follow from running it on a different band: switching
+  the gate's band under test from the shipped `unconditional` to `wps2016`, and
+  removing the Anchor-8 "adopted, not verified" caveat now that ADR-202 has
+  measured it. It does **not** license re-pointing production — step 3 is
+  explicitly a sign-off still to be taken, and Decision 2 below is that coverage
+  does not supply the argument for it anyway.
+
+Recorded this way because PR #204's round-3 review graded a bare "maintainer
+confirmed" a [P0] and `a935013` established the pattern — quote, channel, date.
+PR #207's review caught this ADR's first draft repeating the identical omission.
 
 ### Finding 0 — the committed baseline was stale, and nothing would have caught it
 
@@ -16718,12 +16745,12 @@ such drift is visible to a reader rather than only to whoever re-runs it.
 
 | truth | conditional | unconditional (shipped) | ks-analytic | **wps2016** | floor |
 |---|---:|---:|---:|---:|---:|
-| age-flat | 0.7435 | 0.7815 | 0.7818 | **0.8172** | 0.9192 |
-| age-varying | 0.7781 | 0.8090 | 0.8091 | **0.8359** | 0.9192 |
+| age-flat | 0.7435 | 0.7815 | 0.7818 | **0.8167** | 0.9192 |
+| age-varying | 0.7781 | 0.8090 | 0.8091 | **0.8354** | 0.9192 |
 
-Eq. (7) moves coverage up on both truths (+0.0357, +0.0269) — the direction
+Eq. (7) moves coverage up on both truths (+0.0352, +0.0264) — the direction
 ADR-190 decision 4 registered, so decision 1's diagnosis was pointing at
-something real. **The gate still fails, by up to 0.1020.** The formula was *a*
+something real. **The gate still fails, by up to 0.1025.** The formula was *a*
 gap, not *the* gap.
 
 ADR-190 decision 4's contingency therefore applies in substance even though its
@@ -16734,6 +16761,39 @@ was the gap stands" on any upward movement, which would have described a
 now three-way and the middle outcome is fabricated and asserted in the test
 suite, because a registered prediction that can only be confirmed after the fact
 was never registered at all.
+
+### Amendment 1 — the figures above are the RE-MEASURED ones (2026-08-23, PR #207 review [P0])
+
+The first version of this ADR quoted **0.8172 / 0.8359**, measured with a defect the review caught. `wps_correction` passed the
+correct unscaled `v_beta` to `unconditional_covariance` but then added the
+resulting **phi = 1** `V''` to a dispersion-scaled `Vb`. `V''` is linear in the
+dispersion where `V' = J Vrho Jᵀ` is scale-free, so the second-order term was
+understated by a factor of `phi`.
+
+**Verified independently before accepting it.** Under a consistently scaled
+information matrix *and* its derivative, `V''` scales exactly as `phi` — measured
+2.000000, 3.500000 and 0.500000 at `phi` = 2, 3.5 and 0.5. A first attempt that
+scaled only `v_beta` read `phi^3`, an artifact of mixing two bases (`d_information`
+is built from design, weights and penalties and carries no scale). Recorded because
+the wrong experiment looked conclusive.
+
+The study was re-run in full. **The conclusion is unchanged and the decimals moved
+by ~0.0005**, because this fixture's Pearson dispersion is ~0.98 and the bias
+largely cancels across 200 replicates:
+
+| truth | wps2016, as first published | re-measured |
+|---|---:|---:|
+| age-flat | 0.8172 | **0.8167** |
+| age-varying | 0.8359 | **0.8354** |
+
+**Why this matters anyway, and why the tolerance did not catch it.** The module
+exists to correct MI-surface bands on real experience data, where Pearson
+dispersion of 1.5-3 is ordinary; at `phi = 2` the second-order term was
+understated by 50%. The `mgcv` conformance path could not have caught it: every
+committed case is `poisson`/`binomial` with scale fixed at 1, so both sides sit on
+the same basis and agree exactly — a blind spot in the conformance suite, not a
+failure of it. The new test overrides the dispersion deliberately rather than
+using the fixture's own.
 
 ### Decision 2 — coverage is not a reason to re-point production
 
@@ -16772,7 +16832,7 @@ Two tests pin that it floors the same directions and inverts to the same
   determinism answer (ADR-186). Not taken here, and Decision 2 means coverage
   does not supply the argument for it.
 - **The second cause.** Unidentified. The `old >= 80` column is where both bands
-  are worst — eq. (7) reaches 0.7143 / 0.7168 there against 0.9070 / 0.9191 on
+  are worst — eq. (7) reaches 0.7145 / 0.7165 there against 0.9065 / 0.9188 on
   `young <= 50`, and the shipped band 0.6821 / 0.6823 against 0.8783 / 0.8993 —
   which is where ADR-188 amendment 2 already localised a shared failure. Note
   that eq. (7) improves old-age coverage by about 3 points on both truths, so

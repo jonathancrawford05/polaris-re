@@ -28,11 +28,11 @@ ADR-187 selected λ **once** on a held-out replicate and fit every replicate at 
 | age-flat | conditional | 0.7435 | 0.8571 | 0.6256 | 0.00550 |
 | age-flat | unconditional | 0.7815 | 0.8783 | 0.6821 | 0.00618 |
 | age-flat | ks-analytic | 0.7818 | 0.8780 | 0.6829 | 0.00619 |
-| age-flat | wps2016 | 0.8172 | 0.9070 | 0.7143 | 0.00704 |
+| age-flat | wps2016 | 0.8167 | 0.9065 | 0.7145 | 0.00704 |
 | age-varying | conditional | 0.7781 | 0.8843 | 0.6263 | 0.00745 |
 | age-varying | unconditional | 0.8090 | 0.8993 | 0.6823 | 0.00814 |
 | age-varying | ks-analytic | 0.8091 | 0.8992 | 0.6829 | 0.00814 |
-| age-varying | wps2016 | 0.8359 | 0.9191 | 0.7168 | 0.00893 |
+| age-varying | wps2016 | 0.8354 | 0.9188 | 0.7165 | 0.00893 |
 | age-flat | *unpenalized delta-method (ADR-187)* | *0.9586* | *0.9574* | *0.9533* | *0.03044* |
 
 The last row is **not** re-measured here — it is quoted from ADR-187, which ran the unpenalized `TensorMIModel(age_df=6, year_df=3)` over the identical truth and the identical replicate seeds (1000..1199). It belongs beside these numbers because it is the estimator the penalized one is proposed to replace, and because it needs no unconditional variant: having no λ, it has no smoothing-parameter uncertainty to leave out.
@@ -54,17 +54,17 @@ Mean coefficient-variance inflation over replicates, `mean(diag(Vb + C)) / mean(
 
 | truth | unconditional | ks-analytic | wps2016 | eq. (7) correction vs Kass-Steffey | floored Hessian directions |
 |---|---:|---:|---:|---:|---:|
-| age-flat | 1.2285x | 1.2294x | 1.6351x | 2.77x | 1.025 |
-| age-varying | 1.1023x | 1.1022x | 1.3228x | 3.16x | 0.390 |
+| age-flat | 1.2285x | 1.2294x | 1.6324x | 2.76x | 1.025 |
+| age-varying | 1.1023x | 1.1022x | 1.3207x | 3.14x | 0.390 |
 
 The `unconditional` and `ks-analytic` columns are the **same formula** taken two different ways, so the gap between them is the entire cost of the derivative-method change — mechanism 2. The gap between `ks-analytic` and `wps2016` is mechanism 1, the `V''` term.
 
 ## ADR-190 decision 4's registered prediction
 
-**CONFIRMED IN DIRECTION, REFUTED IN SUFFICIENCY** — eq. (7) moves coverage upward on every truth, which is what ADR-190 decision 4 registered, so decision 1's diagnosis was pointing at something real. But the gate still fails by up to 0.1020, so the formula was **a** gap and not **the** gap. ADR-190 decision 4's contingency therefore applies in substance even though its literal trigger did not fire: a second cause remains, and closing it is not a covariance problem eq. (7) can reach. **Coverage is not a reason to re-point production** — mgcv parity (ADR-202) is the case for that, and it is a different case.
+**CONFIRMED IN DIRECTION, REFUTED IN SUFFICIENCY** — eq. (7) moves coverage upward on every truth, which is what ADR-190 decision 4 registered, so decision 1's diagnosis was pointing at something real. But the gate still fails by up to 0.1025, so the formula was **a** gap and not **the** gap. ADR-190 decision 4's contingency therefore applies in substance even though its literal trigger did not fire: a second cause remains, and closing it is not a covariance problem eq. (7) can reach. **Coverage is not a reason to re-point production** — mgcv parity (ADR-202) is the case for that, and it is a different case.
 
-- **age-flat**: 0.7815 -> 0.8172 (+0.0357), floor 0.9192; correction inflation 1.2285x -> 1.6351x
-- **age-varying**: 0.8090 -> 0.8359 (+0.0269), floor 0.9192; correction inflation 1.1023x -> 1.3228x
+- **age-flat**: 0.7815 -> 0.8167 (+0.0352), floor 0.9192; correction inflation 1.2285x -> 1.6324x
+- **age-varying**: 0.8090 -> 0.8354 (+0.0264), floor 0.9192; correction inflation 1.1023x -> 1.3207x
 
 ## Selection behaviour across replicates
 
@@ -79,12 +79,13 @@ The rejected-grid-point columns are the direct evidence for slice 4's first piec
 
 **GATE NOT PASSED** — no interval here may be labelled a 95% band (PLAN Anchor 7). Report the direction and the measured rate instead.
 
-- **age-flat**: wps2016 0.8172 vs floor 0.9192 — FAIL (shipped Kass-Steffey 0.7815, conditional 0.7435)
-- **age-varying**: wps2016 0.8359 vs floor 0.9192 — FAIL (shipped Kass-Steffey 0.8090, conditional 0.7781)
+- **age-flat**: wps2016 0.8167 vs floor 0.9192 — FAIL (shipped Kass-Steffey 0.7815, conditional 0.7435)
+- **age-varying**: wps2016 0.8354 vs floor 0.9192 — FAIL (shipped Kass-Steffey 0.8090, conditional 0.7781)
 
 ## Reading this honestly
 
 - A band that reaches nominal by being **very wide** has not become a good band. Read the width column beside the coverage column; the penalized band's claim was always precision, and paying all of it back for calibration is a result, not a success.
 - The λ spreads here are measured under **selection per replicate**, so they are the honest version of ADR-187 finding 2 rather than the conditional study's single draw.
+- **The shipped `unconditional` band was REFUTED against `mgcv`, and still is.** Level 4 measured it inflating the mean variance 1.11-1.21x where `mgcv` inflates 1.49-1.87x, in the same direction on every cell (ADR-189 amendment 1, ADR-190). It is tabulated above because it is what production ships, not because it is verified — and the ten-cell suite still reads `level 4: DISAGREES` on it, correctly. This sentence was missing between 2026-08-23's first and second editions of this report, which left the document's only verification status attached to a band production does not use (PR #207 review [P1]).
 - The `wps2016` covariance is **verified against `mgcv`**, not adopted from it: ADR-202 measured `unconditional_covariance` against `vcov(m, unconditional = TRUE)` on the tier-3 pinned oracle at 0.023-0.904% element-wise. That is what PLAN Anchor 8 asked for, and it is why the adopted-and-unverified caveat that stood here until 2026-08-23 is gone.
 - **`mgcv` parity and coverage are different claims.** The row above says this band is the same object `mgcv` computes. It does not say that object is well-calibrated — that is what the coverage column measures, and the two could in principle disagree. Read them as two facts, not one.

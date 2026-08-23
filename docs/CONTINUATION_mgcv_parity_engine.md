@@ -412,10 +412,17 @@ should be re-synced.
    is Wood (2011) §3.3's lower-triangular `L^-1`, and `V''` is *not* invariant to
    that choice; and the two terms use **different** inverses of the rho Hessian.
    **What remains is NOT the formula.** Re-pointing production at it is a separate
-   Anchor-7 decision carrying its own determinism question (ADR-186), and ADR-188's
-   coverage gate — which ADR-190 decision 4 predicted would move toward the 0.9192
-   floor — is a further, still-unrun measurement on the production path. Labelling
+   Anchor-7 decision carrying its own determinism question (ADR-186). Labelling
    any interval a 95% band stays maintainer-reserved.
+
+   **ADR-188's coverage gate has now been RUN** (2026-08-23, ADR-203 — this line
+   said "a further, still-unrun measurement" until then, the one document ADR-203's
+   seven-document sweep missed). ADR-190 decision 4's prediction is **confirmed in
+   direction and refuted in sufficiency**: eq. (7) moves coverage up on both truths
+   but the gate still fails by up to 0.1025, so the formula was *a* gap and not
+   *the* gap. A second cause remains that no covariance eq. (7) can form will
+   reach. **Coverage therefore does not supply the argument for re-pointing
+   production** — ADR-202's parity is that case, and it is a different one.
 
 8. **Demonstrate Anchor 5's absolute/relative idiom end to end** on the target's own
    multi-term structure, once a multi-term model exists (needs (3)).
