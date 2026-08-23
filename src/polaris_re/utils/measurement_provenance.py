@@ -239,11 +239,22 @@ MANIFEST: tuple[MeasurementSource, ...] = (
     MeasurementSource(
         document="docs/MEASUREMENT_portfolio_parallel_macbook_air.md",
         producer="src/polaris_re/analytics/portfolio.py",
-        regeneration="see the document's own header",
+        regeneration=(
+            "Needs a MacBook Air with 10 logical cores (4 performance + 6 efficiency; "
+            "check with `sysctl -n hw.ncpu hw.perflevel0.logicalcpu "
+            "hw.perflevel1.logicalcpu`). Run the three shapes in "
+            "docs/RUNBOOK_portfolio_parallel_measurement.md section 3 via "
+            "scripts/bench_portfolio_parallel.py at --k 3, extending the worker lists "
+            "to span 10 cores. Verify the SHAPE-DEPENDENCE and the 4-P-core ceiling, "
+            "not the raw seconds."
+        ),
         note=(
-            "Timings measured on specific hardware named in the title, so a "
-            "regeneration here would not reproduce them by design. The stamp still "
-            "answers the useful question: has the measured code moved?"
+            "Timings from named hardware, so what is verified is the qualitative "
+            "finding — A regresses, B gains, C peaks at 4 workers and declines "
+            "through 8/10/16 despite 10 logical cores — plus `bit-identical` on every "
+            "row, which is the deterministic metric ADR-176 actually gates on. "
+            "Re-run 2026-08-23 reproduced the ratios far more closely than expected: "
+            "peak 1.77x -> 1.78x, 16-worker 1.23x -> 1.22x."
         ),
     ),
 )
