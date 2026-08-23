@@ -68,6 +68,17 @@
     ],
     "age_df": 6,
     "year_df": 3,
+    "age_degree": 3,
+    "year_degree": 3,
+    "duration_degree": 3,
+    "interior_knots": {
+      "bs(attained_age, df=6)": [
+        42.0,
+        60.0,
+        78.0
+      ],
+      "bs(calendar_year, df=3)": []
+    },
     "n_years_observed": 8,
     "band_inflation_from_overdispersion": 1.50126243231,
     "confidence_level": 0.95,
@@ -329,7 +340,8 @@
   "caveats": [
     "277,173 cells with uw_class == 'U' (underwriting class *unknown*, not *not applicable*) were held out of this class-conditioned fit. 'NA' rows are retained as their own stratum. Pass keep_unknown_uw_class=True to include them.",
     "2 cells had zero exposure and were dropped \u2014 a Poisson offset needs exposure * q_base > 0, and a cell nobody was exposed in carries no information. They held 0.0 deaths, as expected.",
-    "Cells are pooled across duration, so select-period mortality is absorbed into the attained-age effect. If the duration mix drifts with calendar year, part of that drift lands in the fitted improvement. Pass group_keys including 'duration_months' to separate them, at ~60x the cell count.",
+    "The mix component of the A/E drift (-0.00099/yr) is LARGER than the experience component (-0.00020/yr). Most of what the crude A/E is doing is composition, not experience \u2014 read the standardised column, not the crude one.",
+    "Cells are pooled across duration, so select-period mortality is absorbed into the attained-age effect. If the duration mix drifts with calendar year, part of that drift lands in the fitted improvement. Pass `--duration-bands` to control for it at ~9x the cell count (raw `duration_months` in `--group-by` would cost ~60x for a dimension whose signal is a smooth selection curve).",
     "Pearson dispersion \u03c6 = 2.25, so the quasi-Poisson covariance scaling was applied: every band below is 1.50x wider than a plain-Poisson fit would have reported. The point estimates are unchanged \u2014 scaling touches the covariance only. A \u03c6 this far above 1 means unmodelled heterogeneity, which is expected on real grouped data and is why the scaling is not optional here.",
     "The base offset is estimated from these same cells, so `overall_ae` is ~1 by construction and is not an independent check on the level. The fitted improvement is unaffected: it is a calendar contrast, and every calendar-invariant term \u2014 the offset included \u2014 cancels in the difference."
   ],
@@ -473,6 +485,69 @@
         "expected_mi": 530406.928628,
         "ae": 1.0397537557,
         "ae_mi": 1.06130400946
+      }
+    ]
+  },
+  "standardised_ae": {
+    "standard_keys": [
+      "attained_age",
+      "sex",
+      "smoker",
+      "uw_class"
+    ],
+    "n_cells_used": 1973,
+    "coverage_share": 0.999973671108,
+    "crude_slope_per_year": -0.00118521347759,
+    "standardised_slope_per_year": -0.000195046644156,
+    "mix_slope_per_year": -0.000990166833433,
+    "rows": [
+      {
+        "calendar_year": 2012,
+        "crude_ae": 1.07536523624,
+        "standardised_ae": 1.07349369657,
+        "mix_effect": 0.00187153966453
+      },
+      {
+        "calendar_year": 2013,
+        "crude_ae": 1.08965667478,
+        "standardised_ae": 1.08532115938,
+        "mix_effect": 0.0043355153957
+      },
+      {
+        "calendar_year": 2014,
+        "crude_ae": 1.08466165637,
+        "standardised_ae": 1.08300426032,
+        "mix_effect": 0.00165739605707
+      },
+      {
+        "calendar_year": 2015,
+        "crude_ae": 1.09523301914,
+        "standardised_ae": 1.09440345488,
+        "mix_effect": 0.000829564263286
+      },
+      {
+        "calendar_year": 2016,
+        "crude_ae": 1.07082951755,
+        "standardised_ae": 1.07299766005,
+        "mix_effect": -0.00216814249278
+      },
+      {
+        "calendar_year": 2017,
+        "crude_ae": 1.08831225336,
+        "standardised_ae": 1.09041084985,
+        "mix_effect": -0.00209859648925
+      },
+      {
+        "calendar_year": 2018,
+        "crude_ae": 1.09308598971,
+        "standardised_ae": 1.09483930193,
+        "mix_effect": -0.00175331221341
+      },
+      {
+        "calendar_year": 2019,
+        "crude_ae": 1.06130400946,
+        "standardised_ae": 1.0649420972,
+        "mix_effect": -0.00363808774188
       }
     ]
   },

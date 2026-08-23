@@ -33,7 +33,7 @@
     ],
     "n_strata": 142,
     "n_strata_dropped": 0,
-    "dropped_exposure_share": 0.0,
+    "dropped_exposure_share": 2.1342338308e-16,
     "n_clipped_above_one": 0,
     "n_cells_no_exposure": 0,
     "deaths_in_no_exposure_cells": 0.0
@@ -58,6 +58,19 @@
     ],
     "age_df": 6,
     "year_df": 4,
+    "age_degree": 3,
+    "year_degree": 3,
+    "duration_degree": 3,
+    "interior_knots": {
+      "bs(attained_age, df=6)": [
+        42.0,
+        60.0,
+        78.0
+      ],
+      "bs(calendar_year, df=4)": [
+        2004.5
+      ]
+    },
     "n_years_observed": 30,
     "band_inflation_from_overdispersion": 2.32839296691,
     "confidence_level": 0.95,
@@ -257,7 +270,7 @@
       "calendar_year": 2017,
       "mi": -0.00590657071111,
       "mi_lower": -0.0114496604648,
-      "mi_upper": -0.000393858983383
+      "mi_upper": -0.000393858983384
     },
     {
       "attained_age": 45,
@@ -299,7 +312,7 @@
       "calendar_year": 1994,
       "mi": 0.0252437669521,
       "mi_lower": 0.0230631087165,
-      "mi_upper": 0.0274195576569
+      "mi_upper": 0.027419557657
     },
     {
       "attained_age": 55,
@@ -445,7 +458,7 @@
       "attained_age": 55,
       "calendar_year": 2015,
       "mi": 0.00695891132121,
-      "mi_lower": 0.00528024073847,
+      "mi_lower": 0.00528024073848,
       "mi_upper": 0.00863474901067
     },
     {
@@ -459,7 +472,7 @@
       "attained_age": 55,
       "calendar_year": 2017,
       "mi": 0.000159329158558,
-      "mi_lower": -0.00313492895012,
+      "mi_lower": -0.00313492895011,
       "mi_upper": 0.0034427690451
     },
     {
@@ -467,14 +480,14 @@
       "calendar_year": 2018,
       "mi": -0.0037558358757,
       "mi_lower": -0.00816826540228,
-      "mi_upper": 0.000637281860374
+      "mi_upper": 0.000637281860373
     },
     {
       "attained_age": 55,
       "calendar_year": 2019,
       "mi": -0.00801972587343,
       "mi_lower": -0.0137277115439,
-      "mi_upper": -0.00234388009614
+      "mi_upper": -0.00234388009615
     },
     {
       "attained_age": 65,
@@ -655,7 +668,7 @@
       "attained_age": 65,
       "calendar_year": 2016,
       "mi": 0.00827252704292,
-      "mi_lower": 0.00633643568213,
+      "mi_lower": 0.00633643568214,
       "mi_upper": 0.0102048460507
     },
     {
@@ -663,7 +676,7 @@
       "calendar_year": 2017,
       "mi": 0.00548153472071,
       "mi_lower": 0.00279937772391,
-      "mi_upper": 0.0081564775562
+      "mi_upper": 0.00815647755619
     },
     {
       "attained_age": 65,
@@ -683,8 +696,8 @@
       "attained_age": 75,
       "calendar_year": 1991,
       "mi": 0.00220334128315,
-      "mi_lower": -0.000983860246585,
-      "mi_upper": 0.00538039454376
+      "mi_lower": -0.000983860246587,
+      "mi_upper": 0.00538039454377
     },
     {
       "attained_age": 75,
@@ -746,7 +759,7 @@
       "attained_age": 75,
       "calendar_year": 2000,
       "mi": 0.0305486649457,
-      "mi_lower": 0.0295973656901,
+      "mi_lower": 0.0295973656902,
       "mi_upper": 0.0314990316292
     },
     {
@@ -838,7 +851,7 @@
       "calendar_year": 2013,
       "mi": 0.0219807878315,
       "mi_lower": 0.0212218902398,
-      "mi_upper": 0.0227390970105
+      "mi_upper": 0.0227390970104
     },
     {
       "attained_age": 75,
@@ -878,7 +891,7 @@
     {
       "attained_age": 75,
       "calendar_year": 2019,
-      "mi": -0.00619945178628,
+      "mi": -0.00619945178627,
       "mi_lower": -0.00976899991107,
       "mi_upper": -0.0026425220661
     },
@@ -893,7 +906,7 @@
       "attained_age": 85,
       "calendar_year": 1992,
       "mi": 0.00322376384108,
-      "mi_lower": 0.000646690153923,
+      "mi_lower": 0.000646690153922,
       "mi_upper": 0.00579419192179
     },
     {
@@ -1068,7 +1081,7 @@
       "attained_age": 85,
       "calendar_year": 2017,
       "mi": 0.00477608130184,
-      "mi_lower": 0.00295948335815,
+      "mi_lower": 0.00295948335816,
       "mi_upper": 0.00658936942207
     },
     {
@@ -1121,7 +1134,7 @@
         "early_upper": 0.0264673183643,
         "late_annualised_mi": 0.0058633264991,
         "late_lower": 0.00392184474057,
-        "late_upper": 0.00780102406519,
+        "late_upper": 0.00780102406518,
         "delta": -0.0188174142644,
         "bands_overlap": false
       },
@@ -1153,7 +1166,7 @@
         "early_lower": 0.00717503330684,
         "early_upper": 0.00947000695247,
         "late_annualised_mi": 0.0101055526017,
-        "late_lower": 0.00903974406192,
+        "late_lower": 0.00903974406193,
         "late_upper": 0.0111702148314,
         "delta": 0.00178236858364,
         "bands_overlap": true

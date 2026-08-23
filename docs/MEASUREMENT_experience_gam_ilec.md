@@ -280,3 +280,12 @@ offsetting-effects reading of a flat A/E (§4) were not anticipated by the plan.
 Both came from running the harness twice and comparing, which is only possible
 because the aggregation level is an explicit parameter (ADR-182) rather than a
 buried default.
+
+<!-- measurement-provenance
+fingerprint: 6ebf696b7d4106661c0e1e625d80d329da6c2567cbc5678d96f5b9f5006ed71a
+generated: 2026-08-23
+producer: scripts/experience_diligence.py
+method: asserted
+head: b45d497
+note: raw output regenerated 2026-08-23 against ILEC extract 'ILEC_2012_19 - 20240429.txt' (12,477,136,749 bytes, 2012-2019); docs/measurements diff: no fitted quantity moved; banded standardised block byte-identical; pooled run gained an additive 4-key standardised_ae section + duration_degree; last-ulp jitter on dropped_exposure_share
+-->
