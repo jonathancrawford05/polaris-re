@@ -320,8 +320,39 @@ def unconditional_covariance(
 ) -> UncertaintyCorrection:
     """Wood, Pya and Saefken (2016) eq. (7), assembled.
 
+    ## The scale convention, which is load-bearing
+
+    Everything here is on the **unit-dispersion basis**, and ``v_beta`` must be the
+    *unscaled* ``(XᵀWX + S_lambda)⁻¹`` — not ``phi`` times it. The reason is that
+    this function recovers the information matrix by inverting ``v_beta`` while
+    building its ``rho``-derivative from ``design``, ``dw_drho_all``, ``log_lambda``
+    and ``penalties``, none of which carry a scale. Passing a dispersion-scaled
+    ``v_beta`` mixes the two bases and the result is not eq. (7) at either scale.
+
+    The two returned terms then scale **differently**, which is why the convention
+    cannot be left implicit:
+
+    * ``first_order = J Vrho Jᵀ`` is scale-free. ``J = dbeta/drho`` is a derivative
+      of the point estimate and carries no ``phi``.
+    * ``second_order`` is **linear in phi**. Since ``RᵀR = V_beta``, scaling
+      ``V_beta -> phi V_beta`` gives ``R -> sqrt(phi) R`` and hence
+      ``V'' -> phi V''`` (measured: 2.000000, 3.500000 and 0.500000 at
+      ``phi`` = 2, 3.5 and 0.5, under a consistently-scaled information matrix
+      *and* derivative).
+
+    So a caller working at ``phi != 1`` must scale ``second_order`` by ``phi``
+    before adding it to a dispersion-scaled ``Vb`` — see
+    :func:`~polaris_re.analytics.gam_uncertainty_mi.wps_correction`, which does
+    exactly that and is the only caller that needs to.
+
+    **This was a real defect, caught in review of PR #207.** The MI adapter passed
+    the unscaled ``v_beta`` correctly but then added the resulting ``phi = 1``
+    ``V''`` to a dispersion-scaled ``Vb``. The ``mgcv`` conformance path could not
+    catch it: every committed case is ``poisson``/``binomial`` with scale fixed at
+    1, so both sides sit on the same basis and agree exactly.
+
     Args:
-        v_beta: ``(p, p)`` conditional covariance.
+        v_beta: ``(p, p)`` conditional covariance, **unscaled** — see above.
         design: ``(n, p)``.
         dbeta_drho: ``(M, p)`` — ``J``, from
             :func:`~polaris_re.analytics.gam_derivatives.d_beta_d_rho`. **This is

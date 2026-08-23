@@ -82,9 +82,16 @@ class MIUncertainty:
         first_order: ``V' = J Vrho Jᵀ`` with ``J`` taken analytically. The
             Kass-Steffey term, i.e. what production already approximates by
             central differences.
-        second_order: ``V''``, eq. (7)'s addition. Zero in the Kass-Steffey
-            approximation by construction, so this is exactly what re-pointing
-            production would add.
+        second_order: ``V''``, eq. (7)'s addition, **scaled by the fit's
+            dispersion**. Zero in the Kass-Steffey approximation by construction,
+            so this is exactly what re-pointing production would add.
+
+            The scaling is not cosmetic and the asymmetry with ``first_order`` is
+            real: ``V''`` is linear in ``phi`` where ``J Vrho Jᵀ`` is scale-free,
+            so the two terms arrive on different bases from
+            :func:`~polaris_re.analytics.gam_uncertainty.unconditional_covariance`
+            and only one needs correcting before being added to a dispersion-scaled
+            ``Vb``. See :func:`wps_correction`.
         n_floored: Hessian directions raised to production's eigenvalue floor.
             Nonzero means the reported correction is capped rather than measured
             in that direction.
@@ -224,9 +231,17 @@ def wps_correction(
         log_lambda=log_lambda,
         rho_hessian=hessian,
     )
+    # THE SCALE STEP. `unconditional_covariance` works on the unit-dispersion
+    # basis and its `second_order` is linear in phi, while `first_order` is
+    # scale-free (see that function's docstring for the measured ratios). The
+    # caller adds these to `fit.cov`, which IS dispersion-scaled, so V'' must be
+    # brought onto the same basis here. Omitting this understates V'' by a factor
+    # of phi — invisible on the mgcv conformance cases, where scale is fixed at 1,
+    # and ordinary on real experience data where Pearson dispersion of 1.5-3 is
+    # common. Caught in review of PR #207.
     return MIUncertainty(
         first_order=correction.first_order,
-        second_order=correction.second_order,
+        second_order=correction.second_order * fit.dispersion,
         n_floored=n_floored,
         hessian_eigenvalues=raw_eigenvalues,
     )

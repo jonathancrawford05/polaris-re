@@ -48,8 +48,9 @@ def main() -> int:
         evidence_markdown(VC_CLAIM),
         "",
         "| case | max rel correction diff (element-wise) | ours inflation | mgcv inflation "
-        "| rel inflation diff | agrees |",
-        "|---|---:|---:|---:|---:|---|",
+        "| rel inflation diff | agrees | rho-Hessian diff (ours vs mgcv, full matrix) "
+        "| correction diff with OUR Hessian |",
+        "|---|---:|---:|---:|---:|---|---:|---:|",
     ]
     any_disagree = False
     for label, case in payload["cases"].items():
@@ -59,7 +60,9 @@ def main() -> int:
             any_disagree = True
         lines.append(
             f"| `{label}` | {c.max_rel_correction_diff:.3%} | {c.ours_inflation:.4f}x "
-            f"| {c.mgcv_inflation:.4f}x | {c.rel_inflation_diff:.3%} | {c.agrees} |"
+            f"| {c.mgcv_inflation:.4f}x | {c.rel_inflation_diff:.3%} | {c.agrees} "
+            f"| {c.max_rel_own_hessian_diff:.3%} "
+            f"| {c.max_rel_correction_diff_own_hessian:.3%} |"
         )
 
     lines += [
@@ -69,6 +72,18 @@ def main() -> int:
         "exact agreement is not available in principle; across five held-out cases the "
         "worst residual was 0.730%, and the tolerance leaves under a factor of three "
         "over that observed spread (Anchor 8).",
+        "",
+        "**The last two columns are REPORTED, never gated** (PR #207 review [P1]). The "
+        "rho Hessian is a shared *input* to this comparison, read from mgcv's "
+        "`outer.info$hess` so a Hessian disagreement cannot masquerade as a correction "
+        "disagreement. Until 2026-08-23 the disclosure rested on an unpinned claim that "
+        "our own Hessian reproduced it — supported only by an EIGENVALUE comparison in a "
+        "work order, which is weaker than the matrix `V' = J H^-1 J^T` actually depends "
+        "on, and miscited to ADR-201, which contains no Hessian comparison at all. Both "
+        "halves are now measured: the full-matrix difference, and the entire correction "
+        "recomputed with our finite-difference Hessian substituted. Gating on either "
+        "would silently promote a shared input into a compared quantity, which is not "
+        "what VC_CLAIM declares.",
         "",
         "**Element-wise is the governing column, not the inflation ratio.** The ratio "
         "averages diagonals: during this slice it read 0.39% while the element-wise "

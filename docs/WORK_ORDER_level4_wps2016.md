@@ -1,11 +1,19 @@
-# Level 4 — Wood, Pya & Säfken (2016) eq. (7): CHARACTERISED, NOT CLOSED
+# Level 4 — Wood, Pya & Säfken (2016) eq. (7): CLOSED (tier 3)
 
 **Source:** Wood, S.N., Pya, N. & Säfken, B. (2016), "Smoothing Parameter and Model
 Selection for General Smooth Models", *JASA* **111**(516), 1548–1563, DOI
 `10.1080/01621459.2016.1180986`. Supplied by the maintainer 2026-08-22.
 **Predecessors:** ADR-190 (the re-scoping), ADR-201 (`dw/drho`, the prerequisite).
-**Status:** **the formula is implemented and the gap is localised to one specific
-question. Level 4 is NOT closed.** Read §4 before citing any number here.
+**Status:** **CLOSED, 2026-08-22 (ADR-202), confirmed at tier 3.** Eq. (7)
+reproduces `mgcv`'s `vcov(unconditional = TRUE)` to 0.023-0.904% element-wise;
+see §5 and §6.
+
+> **This header said "CHARACTERISED, NOT CLOSED" until 2026-08-23.** The body was
+> updated when the gap closed and the header was not, so the first thing a reader
+> hit contradicted §5 ("RESOLVED") and §6 ("CLOSED"). Caught by PR #207's review.
+> §4 remains worth reading — it records what was *not* yet settled at the time it
+> was written, and the residual it names (0.07-0.73%, not float noise) is still
+> real and still recorded rather than explained away.
 
 ---
 

@@ -242,3 +242,36 @@ def test_the_raw_hessian_eigenvalues_are_reported(fixture) -> None:
     result = wps_correction(cells, fit, extra, k_age=_K_AGE, k_year=_K_YEAR)
     expected = np.linalg.eigvalsh(0.5 * (extra.hessian + extra.hessian.T))
     np.testing.assert_allclose(result.hessian_eigenvalues, expected, rtol=1e-12, atol=1e-18)
+
+
+def test_the_second_order_term_carries_the_dispersion_and_the_first_does_not(fixture) -> None:
+    """PR #207 review [P0]: ``V''`` is linear in phi, ``V'`` is scale-free.
+
+    `unconditional_covariance` works on the unit-dispersion basis; the caller adds
+    the result to ``fit.cov``, which is ``dispersion * (XᵀWX + S)⁻¹``. So ``V''``
+    has to be brought onto that basis and ``V'`` must not be.
+
+    **The original code did neither**, understating ``V''`` by a factor of phi. It
+    was invisible on the mgcv conformance cases, where poisson/binomial scale is
+    fixed at 1 and both sides sit on the same basis, and it is ordinary on real
+    experience data where Pearson dispersion of 1.5-3 is common.
+
+    Asserted against a fit whose dispersion is deliberately overridden, rather than
+    against the fixture's own (which is ~0.95 — close enough to 1 that a missing
+    factor would hide inside the tolerance of any looser check).
+    """
+    import dataclasses
+
+    cells, fit, extra = fixture
+    base = wps_correction(cells, fit, extra, k_age=_K_AGE, k_year=_K_YEAR)
+
+    for phi in (2.0, 3.5):
+        rescaled_fit = dataclasses.replace(fit, dispersion=fit.dispersion * phi, cov=fit.cov * phi)
+        scaled = wps_correction(cells, rescaled_fit, extra, k_age=_K_AGE, k_year=_K_YEAR)
+
+        second_ratio = float(
+            np.mean(np.abs(scaled.second_order)) / np.mean(np.abs(base.second_order))
+        )
+        first_ratio = float(np.mean(np.abs(scaled.first_order)) / np.mean(np.abs(base.first_order)))
+        np.testing.assert_allclose(second_ratio, phi, rtol=1e-10)
+        np.testing.assert_allclose(first_ratio, 1.0, rtol=1e-10)

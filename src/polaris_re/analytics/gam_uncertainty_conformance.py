@@ -29,6 +29,7 @@ from polaris_re.analytics.gam_derivatives import (
 )
 from polaris_re.analytics.gam_family import Family
 from polaris_re.analytics.gam_fit import penalized_irls_general
+from polaris_re.analytics.gam_reml import reml_score_general
 from polaris_re.analytics.gam_uncertainty import unconditional_covariance
 from polaris_re.core.verification import (
     ComparedQuantity,
@@ -37,10 +38,12 @@ from polaris_re.core.verification import (
 )
 
 __all__ = [
+    "FD_HESSIAN_STEP",
     "VC_CLAIM",
     "RVcCase",
     "VcComparison",
     "compare_vc_case",
+    "finite_difference_rho_hessian",
 ]
 
 
@@ -99,9 +102,28 @@ shared recipe is ``(X, S_j, y, prior weights)`` plus ``mgcv``'s selected
 correction disagreement, which is RUNBOOK level 4's own stated hazard.
 
 The ``rho`` Hessian is read from ``mgcv``'s ``outer.info$hess`` **as a shared
-input**, not as an answer: our own finite-difference Hessian reproduces it
-(eigenvalues match, ADR-201's session), so this removes a second-order
-difference from the comparison rather than importing the result."""
+input**, not as an answer, so that a Hessian disagreement cannot masquerade as a
+correction disagreement.
+
+**How strong that disclosure is, stated precisely** (PR #207 review [P1], which
+found the previous wording overstated on all three counts):
+
+* The supporting evidence is an *eigenvalue* comparison, recorded in
+  ``docs/WORK_ORDER_level4_wps2016.md`` §2 — **not** in ADR-201 or its session
+  log, which the earlier wording cited and which contain no Hessian comparison
+  at all.
+* Eigenvalue agreement is **weaker than matrix agreement**. ``V' = J H⁻¹ Jᵀ``
+  depends on the eigenvectors too, so matching spectra do not by themselves
+  establish that substituting our own Hessian leaves ``Vc - Vp`` unchanged.
+* Nothing committed pinned it: no test, and the probe had no path that
+  substituted our own Hessian. :func:`finite_difference_rho_hessian` and the
+  ``own_hessian_*`` fields of :class:`VcComparison` now close that: every case
+  reports the full-matrix difference against ``mgcv``'s Hessian **and** the
+  correction residual recomputed with ours substituted.
+
+What still supports the INDEPENDENT declaration is the mechanical test itself —
+the compared quantity is ``Vc - Vp``, and it demonstrably *can* disagree while
+using ``mgcv``'s own ``Vrho``: ADR-190's level 4 did exactly that, at 3.2-4.1x."""
 
 
 @dataclass(frozen=True)
@@ -116,6 +138,87 @@ class VcComparison:
     agrees: bool
     tolerance: float
     evidence: VerificationClaim
+
+    max_rel_own_hessian_diff: float = float("nan")
+    """Full-matrix relative difference between our finite-difference ``rho``
+    Hessian and ``mgcv``'s ``outer.info$hess``.
+
+    **Reported, never gated.** The Hessian is a shared *input* to the comparison,
+    so a disagreement here is a caveat on the disclosure rather than a level-4
+    failure — and gating on it would quietly convert a shared input into a
+    compared quantity, which is not what ``VC_CLAIM`` declares."""
+
+    max_rel_correction_diff_own_hessian: float = float("nan")
+    """The element-wise correction residual, recomputed with **our** Hessian
+    substituted for ``mgcv``'s.
+
+    This is the number PR #207's review actually asked for. Eigenvalue agreement
+    does not establish that ``V' = J H⁻¹ Jᵀ`` is unchanged, because that depends
+    on the eigenvectors too. Substituting and re-measuring does."""
+
+
+FD_HESSIAN_STEP = 0.05
+"""Central-difference step in natural log lambda for :func:`finite_difference_rho_hessian`.
+
+Not tuned to make anything agree (PLAN Anchor 8). It is the same order as
+``experience_gam_penalized.KS_LOG_STEP`` (``ln(10) * 0.25`` = 0.576) reduced for the
+smoother general criterion, and the quantity it feeds is *reported*, never gated on.
+"""
+
+
+def finite_difference_rho_hessian(
+    design: np.ndarray,
+    y: np.ndarray,
+    penalties: tuple[np.ndarray, ...],
+    family: Family,
+    prior_weights: np.ndarray,
+    rho: np.ndarray,
+    step: float = FD_HESSIAN_STEP,
+) -> np.ndarray:
+    """Our own Hessian of the REML criterion in ``rho``, by central differences.
+
+    Exists because PR #207's review was right that the claim "our own Hessian
+    reproduces mgcv's" was **unpinned**: the supporting record was an eigenvalue
+    comparison in a work order, eigenvalues are weaker than the matrix
+    ``V' = J H⁻¹ Jᵀ`` actually depends on, and no committed path substituted our
+    own. This is that path.
+
+    Built entirely from already-verified pieces —
+    :func:`~polaris_re.analytics.gam_fit.penalized_irls_general` (ADR-195) and
+    :func:`~polaris_re.analytics.gam_reml.reml_score_general` (ADR-196/197) — so it
+    introduces no new fitting or scoring formula.
+    """
+    m = rho.shape[0]
+    p = design.shape[1]
+
+    def score_at(offsets: np.ndarray) -> float:
+        s_total = np.zeros((p, p), dtype=np.float64)
+        for lam_k, block in zip(np.exp(rho + offsets), penalties, strict=True):
+            s_total = s_total + lam_k * block
+        fit = penalized_irls_general(
+            design, y, family=family, penalty=s_total, weights=prior_weights
+        )
+        return reml_score_general(y, design, family, fit.coef, s_total, weights=prior_weights)
+
+    zero = np.zeros(m, dtype=np.float64)
+    centre = score_at(zero)
+    hessian = np.zeros((m, m), dtype=np.float64)
+    for j in range(m):
+        e_j = np.zeros(m, dtype=np.float64)
+        e_j[j] = step
+        hessian[j, j] = (score_at(e_j) - 2.0 * centre + score_at(-e_j)) / (step * step)
+        for k in range(j + 1, m):
+            e_k = np.zeros(m, dtype=np.float64)
+            e_k[k] = step
+            mixed = (
+                score_at(e_j + e_k)
+                - score_at(e_j - e_k)
+                - score_at(-e_j + e_k)
+                + score_at(-e_j - e_k)
+            ) / (4.0 * step * step)
+            hessian[j, k] = mixed
+            hessian[k, j] = mixed
+    return np.asarray(hessian, dtype=np.float64)
 
 
 def compare_vc_case(
@@ -153,6 +256,18 @@ def compare_vc_case(
 
     corr = unconditional_covariance(v_beta, design, j, dw, penalties, rho, rho_hessian)
 
+    # PR #207 review [P1]: the claim "our own Hessian reproduces mgcv's" was
+    # unpinned. Both halves of the reviewer's ask are answered here — the full
+    # matrix is compared, and the whole correction is recomputed with ours
+    # substituted, because eigenvalue agreement does not establish that
+    # V' = J H^-1 J^T is unchanged. Reported, never gated: the Hessian is a shared
+    # input, and gating on it would silently promote it to a compared quantity.
+    own_hessian = finite_difference_rho_hessian(design, y, penalties, family, prior_weights, rho)
+    max_rel_own_hessian_diff = float(
+        np.max(np.abs(own_hessian - rho_hessian)) / np.max(np.abs(rho_hessian))
+    )
+    corr_own = unconditional_covariance(v_beta, design, j, dw, penalties, rho, own_hessian)
+
     mgcv_vp = np.asarray(r_case["vcov_full"], dtype=np.float64).reshape(p, p)
     mgcv_vc = np.asarray(r_case["vcov_unconditional_full"], dtype=np.float64).reshape(p, p)
     mgcv_correction = mgcv_vc - mgcv_vp
@@ -160,6 +275,8 @@ def compare_vc_case(
     max_rel = float(
         np.max(np.abs(ours_correction - mgcv_correction)) / np.max(np.abs(mgcv_correction))
     )
+
+    ours_correction_own = corr_own.first_order + corr_own.second_order
 
     ours_infl = corr.inflation(corr.full)
     mgcv_infl = float(r_case["mgcv_inflation"])
@@ -172,4 +289,8 @@ def compare_vc_case(
         agrees=bool(max_rel < tolerance),
         tolerance=tolerance,
         evidence=VC_CLAIM,
+        max_rel_own_hessian_diff=max_rel_own_hessian_diff,
+        max_rel_correction_diff_own_hessian=float(
+            np.max(np.abs(ours_correction_own - mgcv_correction)) / np.max(np.abs(mgcv_correction))
+        ),
     )

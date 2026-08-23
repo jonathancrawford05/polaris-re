@@ -611,6 +611,15 @@ def to_markdown(results: list[TruthResult], *, gamma: float) -> str:
         "- The λ spreads here are measured under **selection per replicate**, so they "
         "are the honest version of ADR-187 finding 2 rather than the conditional "
         "study's single draw.",
+        "- **The shipped `unconditional` band was REFUTED against `mgcv`, and still "
+        "is.** Level 4 measured it inflating the mean variance 1.11-1.21x where "
+        "`mgcv` inflates 1.49-1.87x, in the same direction on every cell (ADR-189 "
+        "amendment 1, ADR-190). It is tabulated above because it is what production "
+        "ships, not because it is verified — and the ten-cell suite still reads "
+        "`level 4: DISAGREES` on it, correctly. This sentence was missing between "
+        "2026-08-23's first and second editions of this report, which left the "
+        "document's only verification status attached to a band production does not "
+        "use (PR #207 review [P1]).",
         "- The `wps2016` covariance is **verified against `mgcv`**, not adopted from "
         "it: ADR-202 measured `unconditional_covariance` against "
         "`vcov(m, unconditional = TRUE)` on the tier-3 pinned oracle at 0.023-0.904% "

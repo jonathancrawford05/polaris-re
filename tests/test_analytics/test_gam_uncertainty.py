@@ -227,3 +227,46 @@ def test_the_two_terms_use_different_inverses_of_the_rho_hessian() -> None:
     np.testing.assert_allclose(corr.first_order, unreg, rtol=1e-10)
     # ...and emphatically NOT the ridged one, on a Hessian like this.
     assert np.max(np.abs(corr.first_order - ridged)) > 0.5 * np.max(np.abs(unreg))
+
+
+def test_the_finite_difference_rho_hessian_is_symmetric_and_step_converged() -> None:
+    """PR #207 review [P1]: the "our own Hessian reproduces mgcv's" claim, pinned.
+
+    R-free, so it cannot compare against ``mgcv`` — that comparison is now a
+    reported column in the digest-pinned probe. What a unit test *can* hold is that
+    the finite-difference Hessian is a converged second derivative rather than
+    noise: symmetric, and stable across a 2x change of step.
+
+    Step convergence is the substantive half. A central-difference Hessian sits
+    between a truncation regime and a round-off regime, and this epic has already
+    published a ratio from the wrong one once (ADR-202's Richardson diagnostic read
+    ~0.6 under a header saying "want ~4"). Two steps agreeing to well under a
+    percent is what says the reported number is the derivative.
+    """
+    import numpy as np
+
+    from polaris_re.analytics.gam_family import poisson_log
+    from polaris_re.analytics.gam_uncertainty_conformance import (
+        finite_difference_rho_hessian,
+    )
+
+    rng = np.random.default_rng(20260823)
+    n, k = 120, 6
+    x = np.column_stack([np.ones(n), rng.normal(size=(n, k - 1))])
+    penalty = np.zeros((k, k))
+    penalty[1:, 1:] = np.eye(k - 1)
+    penalties = (penalty,)
+    coef_true = np.array([0.5, 0.3, -0.2, 0.1, 0.0, 0.15])
+    y = rng.poisson(np.exp(x @ coef_true)).astype(np.float64)
+    weights = np.ones(n)
+    rho = np.array([np.log(2.0)])
+
+    coarse = finite_difference_rho_hessian(x, y, penalties, poisson_log(), weights, rho, step=0.08)
+    fine = finite_difference_rho_hessian(x, y, penalties, poisson_log(), weights, rho, step=0.04)
+
+    np.testing.assert_allclose(coarse, coarse.T, rtol=1e-12, atol=1e-14)
+    relative = float(np.max(np.abs(coarse - fine)) / np.max(np.abs(fine)))
+    assert relative < 0.01, (
+        f"the Hessian moved {relative:.3%} across a 2x step change, so the reported "
+        "value is not a converged second derivative"
+    )

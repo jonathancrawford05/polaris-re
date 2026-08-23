@@ -335,6 +335,22 @@ def test_the_report_states_the_verification_status_of_the_band_it_reports() -> N
     assert "different claims" in body
 
 
+def test_the_report_states_the_shipped_bands_status_too() -> None:
+    """The document tabulates the shipped band, so it must say where that stands.
+
+    **Regression test for a real omission.** The first 2026-08-23 edition replaced
+    the report's only Anchor-8 status sentence — which was about the shipped
+    Kass-Steffey band — with one about `wps2016`, a band production does not use.
+    The shipped band is still in the results table and level 4 still **refutes** it
+    against `mgcv` (1.11-1.21x vs 1.49-1.87x), so a reader was left with a
+    verification claim attached to the wrong row. PR #207 review [P1].
+    """
+    body = to_markdown([_result(conditional=0.87, unconditional=0.95)], gamma=1.0)
+    assert "shipped `unconditional` band was REFUTED" in body
+    assert "1.11-1.21x" in body
+    assert "DISAGREES" in body
+
+
 def test_the_report_states_that_no_production_path_changed() -> None:
     """PLAN Anchor 7 of `PLAN_mgcv_parity_engine.md`, made checkable.
 
