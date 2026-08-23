@@ -89,6 +89,30 @@ same number by construction. A study that reported only the penalized rows would
 "85%" read as a property of the problem rather than of this estimator."""
 
 
+SUPERSEDED_2026_08_09 = {
+    "age-flat": (0.8201, 0.8516),
+    "age-varying": (0.8200, 0.8581),
+}
+"""The (conditional, unconditional) figures this report carried from 2026-08-09.
+
+**They no longer reproduce, and the reason is a production change, not a defect
+here.** `ce0b9f1` (2026-08-19) added Wood (2011) eq. (4)'s penalized-deviance term to
+`experience_gam_penalized.reml_score` — the maintainer-authorized ADR-197 fix, correct
+and verified bit-for-bit against `gam_reml.reml_score_general`. A different REML
+criterion selects a different λ on every replicate, so coverage moved: measured at
+-0.0432 / -0.0410 on the age-flat truth by restoring the pre-fix criterion under
+monkeypatch and re-running.
+
+Carried in the report rather than in a changelog because **nothing re-runs this
+study** — it is absent from `.github/workflows/` and from the `Makefile`, and the
+`@slow` sibling test pins direction rather than decimals. A measurement with no
+re-run trigger goes stale silently, and this one did, staying cited as current for
+four days in `CONTINUATION_penalized_mi_surface.md`, `RUNBOOK_mgcv_conformance.md`,
+`WORK_ORDER_level4_wps2016.md` and ADR-190 decision 4 itself. Printing the
+superseded pair beside the current one is what makes the next such drift visible
+to a reader instead of only to whoever happens to re-run it."""
+
+
 def q_base(age: float) -> float:
     return 0.004 * float(np.exp(0.08 * (age - 45.0)))
 
@@ -363,28 +387,56 @@ def prediction_verdict(results: list[TruthResult]) -> str:
     is resolved here rather than in prose so that the falsifying case — coverage that
     does not move — produces the words "REFUTED" from the same code path that would
     produce "CONFIRMED", instead of being described away.
+
+    **Three outcomes, not two.** "Moved toward the floor" and "reached the floor" are
+    different results and collapsing them would be this report's own version of the
+    error the epic keeps finding in itself: an early draft of this function printed
+    "the formula was the gap stands" whenever coverage rose by any amount, which
+    would have described a 3-point move onto a 10-point shortfall as a diagnosis
+    confirmed. A movement that leaves the gate failing confirms the *direction* and
+    refutes the *sufficiency*, and the report has to say both.
     """
     lines = []
     all_moved = True
+    all_cleared = True
+    worst_shortfall = 0.0
     for res in results:
         delta = res.wps2016.overall - res.unconditional.overall
-        moved = delta > 0.0
-        all_moved = all_moved and moved
+        floor = NOMINAL - 2.0 * monte_carlo_se(res.replicates)
+        all_moved = all_moved and delta > 0.0
+        all_cleared = all_cleared and res.wps2016.overall >= floor
+        worst_shortfall = max(worst_shortfall, floor - res.wps2016.overall)
         lines.append(
             f"- **{res.truth}**: {res.unconditional.overall:.4f} -> "
-            f"{res.wps2016.overall:.4f} ({delta:+.4f}); correction inflation "
-            f"{res.mean_inflation_unconditional:.4f}x -> "
+            f"{res.wps2016.overall:.4f} ({delta:+.4f}), floor {floor:.4f}; "
+            f"correction inflation {res.mean_inflation_unconditional:.4f}x -> "
             f"{res.mean_inflation_wps2016:.4f}x"
         )
-    head = (
-        "**CONFIRMED** — eq. (7) moves coverage upward on every truth, which is the "
-        "direction ADR-190 decision 4 registered. ADR-190 decision 1's diagnosis "
-        "(the formula was the gap) stands."
-        if all_moved
-        else "**REFUTED** — coverage did not move upward on every truth. Per ADR-190 "
-        "decision 4's own terms the coverage gap has a second cause and decision 1 "
-        "needs re-examining. Do not re-point production on this evidence."
-    )
+    if not all_moved:
+        head = (
+            "**REFUTED** — coverage did not move upward on every truth. Per ADR-190 "
+            "decision 4's own terms the coverage gap has a second cause and decision 1 "
+            "needs re-examining. Do not re-point production on this evidence."
+        )
+    elif all_cleared:
+        head = (
+            "**CONFIRMED IN FULL** — eq. (7) moves coverage upward on every truth and "
+            "past the floor. ADR-190 decision 1's diagnosis accounts for the gate "
+            "failure."
+        )
+    else:
+        head = (
+            "**CONFIRMED IN DIRECTION, REFUTED IN SUFFICIENCY** — eq. (7) moves "
+            "coverage upward on every truth, which is what ADR-190 decision 4 "
+            "registered, so decision 1's diagnosis was pointing at something real. "
+            "But the gate still fails by up to "
+            f"{worst_shortfall:.4f}, so the formula was **a** gap and not **the** gap. "
+            "ADR-190 decision 4's contingency therefore applies in substance even "
+            "though its literal trigger did not fire: a second cause remains, and "
+            "closing it is not a covariance problem eq. (7) can reach. **Coverage is "
+            "not a reason to re-point production** — mgcv parity (ADR-202) is the "
+            "case for that, and it is a different case."
+        )
     return head + "\n\n" + "\n".join(lines)
 
 
@@ -462,6 +514,36 @@ def to_markdown(results: list[TruthResult], *, gamma: float) -> str:
             "having no λ, it has no smoothing-parameter uncertainty to leave out.",
         ]
     out += [
+        "",
+        "## This supersedes the 2026-08-09 edition, and not because the study changed",
+        "",
+        "| truth | conditional, then -> now | unconditional, then -> now |",
+        "|---|---|---|",
+    ]
+    for res in results:
+        was = SUPERSEDED_2026_08_09.get(res.truth)
+        if was is not None:
+            out.append(
+                f"| {res.truth} | {was[0]:.4f} -> {res.conditional.overall:.4f} "
+                f"| {was[1]:.4f} -> {res.unconditional.overall:.4f} |"
+            )
+    out += [
+        "",
+        "`ce0b9f1` (2026-08-19) added Wood (2011) eq. (4)'s penalized-deviance term to "
+        "`experience_gam_penalized.reml_score` — the maintainer-authorized ADR-197 fix. "
+        "It is **correct**: ADR-197's resolution verified the criterion bit-for-bit "
+        "against `gam_reml.reml_score_general` and moved conformance level 5 from "
+        "DISAGREES to AGREES. But a different REML criterion selects a different λ on "
+        "every replicate, so coverage moved with it — measured at -0.0432 / -0.0410 on "
+        "the age-flat truth by restoring the pre-fix criterion under monkeypatch and "
+        "re-running the identical seeds.",
+        "",
+        "**The shipped band's real baseline was therefore ~0.78, not ~0.85, for four "
+        "days before this run.** Every document that cited 0.8516 / 0.8581 as the "
+        "current state of the gate — including ADR-190 decision 4, whose registered "
+        "prediction is resolved below — was quoting a superseded number. Nothing "
+        "re-runs this study in CI or the `Makefile`, which is why the drift was "
+        "silent and why this section now ships with the report.",
         "",
         "## How much each correction inflates the variance",
         "",

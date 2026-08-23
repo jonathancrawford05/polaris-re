@@ -247,8 +247,18 @@ def test_the_registered_prediction_can_be_refuted() -> None:
     """
     from unconditional_coverage_study import prediction_verdict
 
-    moved_up = [_result(conditional=0.85, unconditional=0.86, wps2016=0.94)] * 2
-    assert "CONFIRMED" in prediction_verdict(moved_up)
+    moved_up_and_cleared = [_result(conditional=0.85, unconditional=0.86, wps2016=0.94)] * 2
+    assert "CONFIRMED IN FULL" in prediction_verdict(moved_up_and_cleared)
+
+    # The outcome that actually occurred, and the one an earlier draft of the
+    # resolver would have mislabelled: coverage rises, the gate still fails. A
+    # 3-point move onto a 10-point shortfall is not a diagnosis confirmed.
+    moved_up_but_short = [_result(conditional=0.75, unconditional=0.78, wps2016=0.82)] * 2
+    partial = prediction_verdict(moved_up_but_short)
+    assert "CONFIRMED IN DIRECTION, REFUTED IN SUFFICIENCY" in partial
+    assert "**a** gap and not **the** gap" in partial
+    assert "Coverage is not a reason to re-point production" in partial
+    assert "CONFIRMED IN FULL" not in partial
 
     moved_down = [_result(conditional=0.85, unconditional=0.86, wps2016=0.84)] * 2
     body = prediction_verdict(moved_down)

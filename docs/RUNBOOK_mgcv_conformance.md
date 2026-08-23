@@ -111,6 +111,14 @@ floor of 0.9192. That fails for one of two reasons with completely different rem
 our Kass-Steffey arithmetic is wrong, or the residual shortfall is shrinkage bias that no
 covariance correction can reach. Level 4 is what separates them.
 
+> **Both numbers here are superseded, and the answer turned out to be "both"**
+> (2026-08-23, ADR-203). The 0.8516 / 0.8581 baseline went stale when `ce0b9f1`
+> corrected the REML criterion on 2026-08-19; re-measured, the shipped band sits at
+> 0.7815 / 0.8090. And the two remedies above are not exclusive: fixing the
+> arithmetic (eq. (7), ADR-202) moved coverage to 0.8172 / 0.8359 — real, and still
+> ~10 points short of the floor, so a second cause remains as well. Read the
+> paragraph above as the question that was asked, not as the current state.
+
 But `mgcv` forms `Vc` **only when the smoothing parameters were estimated** — there is no
 `Vc` at fixed `sp`. And at free `sp` the two sides select *different* λ (ours from a
 0.25-decade grid, R's continuously), so the two matrices differ for a reason that is not

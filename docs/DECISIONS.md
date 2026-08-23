@@ -16656,3 +16656,126 @@ general lesson for this epic's remaining comparisons, not a detail of this one.*
 `r` the paper drops, so exact agreement is not available in principle. The 2%
 tolerance comes from the observed spread with under a factor of three of headroom
 — recorded rather than explained away.
+
+---
+
+## ADR-203: the coverage gate re-run — eq. (7) moves it, does not close it, and the committed baseline was stale
+
+**Date:** 2026-08-23
+**Status:** Accepted
+**Context:** ADR-190 decision 4 registered a prediction in advance — implementing
+Wood, Pya and Saefken (2016) "should move coverage toward or past that floor. If
+it does not, the coverage gap has a second cause and this ADR's decision 1 will
+need re-examining." ADR-202 closed the parity half at tier 3. The coverage half
+had never been run. The maintainer authorized the sequence on 2026-08-23:
+measure first, decide from the number, then take the Anchor 7 question —
+explicitly *not* re-pointing production first.
+
+### Finding 0 — the committed baseline was stale, and nothing would have caught it
+
+**Not what this session set out to find.** `docs/MEASUREMENT_unconditional_coverage.md`
+carried 0.8201 / 0.8516 (age-flat) and 0.8200 / 0.8581 (age-varying) from
+`848eeeb` (2026-08-09). Re-running the **unmodified** script on current
+production gives 0.7435 / 0.7815 and 0.7781 / 0.8090 — a shift of 4 to 8 points
+in bands this session did not touch. Confirmed to be independent of this
+session's changes by running the pre-change script from git: 0.7633 conditional
+at 20 replicates, consistent with the 200-replicate figure and not with the
+committed one.
+
+Bisected to `ce0b9f1` (2026-08-19), the maintainer-authorized ADR-197 fix adding
+Wood (2011) eq. (4)'s penalized-deviance term to
+`experience_gam_penalized.reml_score`. **That fix is correct** — ADR-197's
+resolution verified the criterion bit-for-bit against
+`gam_reml.reml_score_general` and moved conformance level 5 DISAGREES -> AGREES.
+But it changes the REML criterion, hence the selected λ on every replicate, hence
+coverage. Measured by restoring the pre-fix criterion under monkeypatch and
+re-running the identical seeds:
+
+| age-flat, 20 replicates | conditional | unconditional |
+|---|---:|---:|
+| current production | 0.7633 | 0.7986 |
+| pre-`ce0b9f1` criterion | 0.8065 | 0.8396 |
+
+−0.0432 / −0.0410 attributable to the fix; the residual against the committed
+200-replicate figures is Monte-Carlo noise at 20 replicates (SE ≈ 4.9pp).
+
+**Nothing re-runs this study.** It appears in neither `.github/workflows/` nor
+the `Makefile`; the `@slow` sibling test pins direction, not decimals. So a
+committed measurement was silently invalidated by an authorized production
+change and stayed cited as current for four days across
+`CONTINUATION_penalized_mi_surface.md`, `RUNBOOK_mgcv_conformance.md`,
+`WORK_ORDER_level4_wps2016.md` and ADR-190 decision 4 itself.
+
+The lesson is not that the fix was wrong. It is that **a measurement document
+with no re-run trigger is a snapshot wearing the clothes of a fact**, and this
+project had one at the centre of its only open gate. The report now ships a
+`SUPERSEDED_2026_08_09` section that prints the then-and-now pair, so the next
+such drift is visible to a reader rather than only to whoever re-runs it.
+
+### Decision 1 — the prediction is confirmed in direction and refuted in sufficiency
+
+200 replicates, two truths, four bands from the same fits:
+
+| truth | conditional | unconditional (shipped) | ks-analytic | **wps2016** | floor |
+|---|---:|---:|---:|---:|---:|
+| age-flat | 0.7435 | 0.7815 | 0.7818 | **0.8172** | 0.9192 |
+| age-varying | 0.7781 | 0.8090 | 0.8091 | **0.8359** | 0.9192 |
+
+Eq. (7) moves coverage up on both truths (+0.0357, +0.0269) — the direction
+ADR-190 decision 4 registered, so decision 1's diagnosis was pointing at
+something real. **The gate still fails, by up to 0.1020.** The formula was *a*
+gap, not *the* gap.
+
+ADR-190 decision 4's contingency therefore applies in substance even though its
+literal trigger did not fire: a second cause remains and it is not a covariance
+problem eq. (7) can reach. An earlier draft of the resolver printed "the formula
+was the gap stands" on any upward movement, which would have described a
+3-point move onto a 10-point shortfall as a diagnosis confirmed; the resolver is
+now three-way and the middle outcome is fabricated and asserted in the test
+suite, because a registered prediction that can only be confirmed after the fact
+was never registered at all.
+
+### Decision 2 — coverage is not a reason to re-point production
+
+The case for re-pointing is `mgcv` parity (ADR-202), and it is a **different**
+case from calibration. This measurement says the eq. (7) band is better
+calibrated than the shipped one and still not well calibrated. Nothing here
+licenses the 95% label, and PLAN Anchor 7 of `PLAN_penalized_mi_surface.md`
+stays open — now measured twice and failed twice.
+
+### Decision 3 — the two mechanisms were separated before they were interpreted
+
+Re-pointing would change the shipped band twice over: the eq. (7) formula, and
+`J` taken analytically (Wood 2011 §3.4) rather than by central differences. Only
+the first is what ADR-202 verified against `mgcv`. The study therefore carries a
+third band, `ks-analytic` — the shipped formula with the analytic `J` — and it
+lands within 0.0003 of the shipped band on both truths, against a formula effect
+of 0.027-0.036. **Mechanism 2 is negligible and mechanism 1 is the whole story**,
+which is what licenses attributing the movement above to eq. (7) at all. Pinned
+by a `@slow` assertion that the derivative-method gap stays under a fifth of the
+formula gap.
+
+### Decision 4 — measured without touching production (PLAN Anchor 7)
+
+`analytics/gam_uncertainty_mi.py` reads a fit `experience_gam_penalized`
+produced and returns a covariance beside it. No production path changed; the
+ten-cell suite's level 4 still reads DISAGREES for the same correct reason. The
+eigenvalue floor is production's own, reused rather than reinvented (Anchor 8):
+`_floored_hessian` applies the identical bound-derived clip one step earlier,
+because `unconditional_covariance` needs the Hessian rather than its inverse.
+Two tests pin that it floors the same directions and inverts to the same
+`v_rho`, which is what makes "no new constant" checkable rather than asserted.
+
+### What this does NOT settle
+
+- **Re-pointing production** still needs its Anchor 7 sign-off and its own
+  determinism answer (ADR-186). Not taken here, and Decision 2 means coverage
+  does not supply the argument for it.
+- **The second cause.** Unidentified. The `old >= 80` column is where both bands
+  are worst — eq. (7) reaches 0.7143 / 0.7168 there against 0.9070 / 0.9191 on
+  `young <= 50`, and the shipped band 0.6821 / 0.6823 against 0.8783 / 0.8993 —
+  which is where ADR-188 amendment 2 already localised a shared failure. Note
+  that eq. (7) improves old-age coverage by about 3 points on both truths, so
+  the residual is not something the correction leaves entirely untouched. A
+  lead, not a finding; this ADR does not pursue it.
+- **Labelling any interval a 95% band** remains maintainer-reserved.

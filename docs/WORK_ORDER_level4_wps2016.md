@@ -160,9 +160,14 @@ now done and verified against `mgcv` on eight cases in total.
 - **Re-pointing production** at `gam_uncertainty` needs PLAN Anchor 7 sign-off and
   its own answer on determinism (ADR-186 chose the grid deliberately for
   reproducibility by construction).
-- **ADR-188's coverage gate.** ADR-190 decision 4 registered the prediction that a
-  larger correction moves coverage toward the 0.9192 floor. That is a *separate
-  measurement* on the production path and has not been run.
+- ~~**ADR-188's coverage gate.**~~ **RUN 2026-08-23 — ADR-203.** Eq. (7) moves
+  coverage **up but not to the floor**: age-flat 0.7815 -> 0.8172, age-varying
+  0.8090 -> 0.8359, against 0.9192. Confirmed in direction, refuted in
+  sufficiency — the formula was *a* gap, not *the* gap, and a second cause
+  remains that no covariance eq. (7) can form will reach. **Coverage does not
+  supply the argument for re-pointing production**; ADR-202's parity is a
+  separate case. Note the baseline in this bullet's earlier wording (0.8516 /
+  0.8581) was **stale** — see ADR-203 finding 0.
 - **Labelling any interval a 95% band** remains maintainer-reserved.
 
 ## 7. Two caveats worth carrying forward
