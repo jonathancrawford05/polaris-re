@@ -47,12 +47,34 @@ def _row(band: str, overall: float) -> CoverageRow:
     )
 
 
-def _result(*, conditional: float, unconditional: float, replicates: int = 200) -> TruthResult:
+def _result(
+    *,
+    conditional: float,
+    unconditional: float,
+    wps2016: float | None = None,
+    ks_analytic: float | None = None,
+    replicates: int = 200,
+) -> TruthResult:
+    """A fabricated row.
+
+    ``wps2016`` defaults to ``unconditional`` so that the pre-existing callers, which
+    predate the eq. (7) band, keep expressing what they were written to express. A test
+    about the *shipped* band's verdict should not be silently converted into a test
+    about a different band because a field was added.
+    """
+    wps = unconditional if wps2016 is None else wps2016
+    analytic = unconditional if ks_analytic is None else ks_analytic
     return TruthResult(
         truth="t",
         replicates=replicates,
         conditional=_row("conditional", conditional),
         unconditional=_row("unconditional", unconditional),
+        ks_analytic=_row("ks-analytic", analytic),
+        wps2016=_row("wps2016", wps),
+        mean_inflation_unconditional=1.14,
+        mean_inflation_ks_analytic=1.14,
+        mean_inflation_wps2016=1.45,
+        mean_floored_wps_directions=0.0,
         log10_lambda_age_spread=1.0,
         log10_lambda_year_spread=2.0,
         mean_rejected_points=0.01,
@@ -183,18 +205,68 @@ def test_the_verdict_passes_only_when_every_truth_clears_the_floor() -> None:
     floor = NOMINAL - 2.0 * monte_carlo_se(200)
     assert 0.90 < floor < NOMINAL
 
-    both_clear = [_result(conditional=0.87, unconditional=0.951)] * 2
+    both_clear = [_result(conditional=0.87, unconditional=0.86, wps2016=0.951)] * 2
     assert "GATE PASSED" in verdict(both_clear)
 
     one_short = [
-        _result(conditional=0.87, unconditional=0.96),
-        _result(conditional=0.87, unconditional=floor - 0.01),
+        _result(conditional=0.87, unconditional=0.86, wps2016=0.96),
+        _result(conditional=0.87, unconditional=0.86, wps2016=floor - 0.01),
     ]
     assert "GATE NOT PASSED" in verdict(one_short)
     assert "FAIL" in verdict(one_short)
 
-    none_clear = [_result(conditional=0.87, unconditional=0.80)] * 2
+    none_clear = [_result(conditional=0.87, unconditional=0.86, wps2016=0.80)] * 2
     assert "GATE NOT PASSED" in verdict(none_clear)
+
+
+def test_the_verdict_reads_the_wps_band_and_not_the_shipped_one() -> None:
+    """The gate is on eq. (7), and a passing shipped band cannot carry it.
+
+    Written because the band under test *changed* on 2026-08-23. The previous verdict
+    keyed off ``unconditional``; if that reading survived anywhere, a run in which the
+    shipped Kass-Steffey band happened to clear would report GATE PASSED while the
+    band actually being proposed had not. The two arguments below differ only in which
+    field holds the good number.
+    """
+    good_wps = [_result(conditional=0.87, unconditional=0.80, wps2016=0.96)] * 2
+    good_shipped = [_result(conditional=0.87, unconditional=0.96, wps2016=0.80)] * 2
+
+    assert "GATE PASSED" in verdict(good_wps)
+    assert "GATE NOT PASSED" in verdict(good_shipped)
+
+
+def test_the_registered_prediction_can_be_refuted() -> None:
+    """ADR-190 decision 4's falsifying branch executes.
+
+    The prediction was written before the answer existed: a larger correction should
+    move coverage **up**. A resolver that could only print CONFIRMED would make that
+    unfalsifiable after the fact — the precise failure ADR-186 amendment 2 found when a
+    test compared a report field against the constant that populated it. So the
+    refuting case is fabricated and asserted here, and the wording it produces names
+    the consequence ADR-190 itself specified.
+    """
+    from unconditional_coverage_study import prediction_verdict
+
+    moved_up = [_result(conditional=0.85, unconditional=0.86, wps2016=0.94)] * 2
+    assert "CONFIRMED" in prediction_verdict(moved_up)
+
+    moved_down = [_result(conditional=0.85, unconditional=0.86, wps2016=0.84)] * 2
+    body = prediction_verdict(moved_down)
+    assert "REFUTED" in body
+    assert "decision 1 needs re-examining" in body
+    assert "Do not re-point production" in body
+
+    # Unchanged is not "moved toward the floor" either: eq. (7) adding nothing would
+    # mean V'' is not being assembled, which is a refutation and not a pass.
+    unchanged = [_result(conditional=0.85, unconditional=0.86, wps2016=0.86)] * 2
+    assert "REFUTED" in prediction_verdict(unchanged)
+
+    # One truth moving up and the other down is a refutation, not an average.
+    split = [
+        _result(conditional=0.85, unconditional=0.86, wps2016=0.94),
+        _result(conditional=0.85, unconditional=0.86, wps2016=0.84),
+    ]
+    assert "REFUTED" in prediction_verdict(split)
 
 
 def test_the_floor_widens_as_replicates_fall() -> None:
@@ -230,16 +302,53 @@ def test_a_reduced_replicate_count_is_disclosed_in_the_report() -> None:
     assert f"**Replicates:** {DEFAULT_REPLICATES}" in full
 
 
-def test_the_report_states_the_adopted_not_verified_caveat() -> None:
-    """PLAN Anchor 8: nothing taken from mgcv is described as verified until slice 5.
+def test_the_report_states_the_verification_status_of_the_band_it_reports() -> None:
+    """PLAN Anchor 8, in its post-ADR-202 form.
 
-    The correction, the covariance and gamma are all adopted. A measurement document that
-    quotes their numbers without that sentence reads as though the implementation had
-    been checked against the reference it was copied from.
+    **This test previously asserted the opposite string.** Until 2026-08-23 the report
+    had to say the correction was "adopted from `mgcv` and unverified", because it was:
+    Anchor 8 forbids describing an adopted quantity as verified until something
+    measures it. ADR-202 measured it — `unconditional_covariance` against
+    `vcov(m, unconditional = TRUE)` on the tier-3 pinned oracle, 0.023-0.904%
+    element-wise — so the caveat became false and keeping it would have been its own
+    kind of misreporting.
+
+    What replaces it is not silence. The report must still separate the two claims,
+    because "this is the same object `mgcv` computes" and "this object is
+    well-calibrated" are different statements and the whole study exists to measure
+    the second one.
     """
     body = to_markdown([_result(conditional=0.87, unconditional=0.95)], gamma=1.0)
-    assert "adopted from `mgcv` and unverified" in body
-    assert "Anchor 8" in body
+    assert "adopted from `mgcv` and unverified" not in body
+    assert "verified against `mgcv`" in body
+    assert "ADR-202" in body
+    assert "different claims" in body
+
+
+def test_the_report_states_that_no_production_path_changed() -> None:
+    """PLAN Anchor 7 of `PLAN_mgcv_parity_engine.md`, made checkable.
+
+    The two new bands are computed by a module that reads a production fit rather than
+    by an edited production path, and a reader of the committed measurement cannot
+    verify that from the numbers. Stating it is the only way the claim travels with the
+    document — and a test is the only way the statement survives an edit.
+    """
+    body = to_markdown([_result(conditional=0.87, unconditional=0.95)], gamma=1.0)
+    assert "No production path changed" in body
+    assert "gam_uncertainty_mi" in body
+
+
+def test_the_report_separates_the_two_mechanisms() -> None:
+    """The `ks-analytic` row must be present and explained, not just computed.
+
+    It is the row that licenses attributing a coverage movement to the formula rather
+    than to the derivative method. A report that dropped it would still print a
+    coverage change, and a reader would have no way to tell which of the two changes
+    produced it.
+    """
+    body = to_markdown([_result(conditional=0.87, unconditional=0.95)], gamma=1.0)
+    assert "ks-analytic" in body
+    assert "two mechanisms" in body
 
 
 # --------------------------------------------------------------------------- #
@@ -286,6 +395,14 @@ def test_the_script_runs_end_to_end_and_repeats_itself(tmp_path: Path) -> None:
     assert truth["unconditional"]["mean_width"] >= truth["conditional"]["mean_width"], (
         "the unconditional band cannot be narrower — the correction is additive and PSD"
     )
+    assert truth["wps2016"]["mean_width"] >= truth["unconditional"]["mean_width"], (
+        "eq. (7) adds V'' on top of the Kass-Steffey term, so its band cannot be "
+        "narrower than the shipped one"
+    )
+    assert truth["mean_inflation_wps2016"] > truth["mean_inflation_unconditional"], (
+        "the eq. (7) correction must inflate more than plain Kass-Steffey — ADR-190 "
+        "measured the gap at 3.2-4.1x against mgcv"
+    )
     assert "reduced from the planned" in report.read_text()
 
 
@@ -325,3 +442,25 @@ def test_unconditional_coverage_of_the_shipped_procedure() -> None:
         "which an additive PSD term cannot do"
     )
     assert result.mean_evaluated_points > 100
+
+    # ADR-190 decision 4's direction, at a replicate count the suite can afford. The
+    # decimals belong to the committed 200-replicate report; what is pinned here is
+    # that eq. (7) widens further and does not move coverage down.
+    assert result.wps2016.mean_width > result.unconditional.mean_width
+    assert result.wps2016.overall >= result.unconditional.overall, (
+        f"eq. (7) moved coverage DOWN "
+        f"({result.unconditional.overall:.4f} -> {result.wps2016.overall:.4f}); it "
+        "adds a PSD term to the same covariance, so it cannot"
+    )
+    assert result.mean_inflation_wps2016 > result.mean_inflation_ks_analytic
+
+    # Mechanism 2 is the small one — analytic and finite-difference J, same formula.
+    # If this ever fails, the coverage study's attribution of movement to the formula
+    # stops being licensed and the report's claim must be rewritten before it ships.
+    analytic_gap = abs(result.mean_inflation_ks_analytic - result.mean_inflation_unconditional)
+    formula_gap = abs(result.mean_inflation_wps2016 - result.mean_inflation_ks_analytic)
+    assert analytic_gap < 0.2 * formula_gap, (
+        f"the derivative-method change ({analytic_gap:.4f}) is not small against the "
+        f"formula change ({formula_gap:.4f}), so a coverage movement can no longer be "
+        "attributed to eq. (7) rather than to the switch from central differences"
+    )
