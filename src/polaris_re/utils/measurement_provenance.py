@@ -213,8 +213,28 @@ MANIFEST: tuple[MeasurementSource, ...] = (
     MeasurementSource(
         document="docs/MEASUREMENT_engine_recursion_prework.md",
         producer="src/polaris_re/analytics/perf_harness.py",
-        regeneration="see the document's own header",
-        note="ADR-203's audit flagged it as older than `products/dispatch.py`.",
+        regeneration=(
+            "NOT REGENERABLE. The producing scripts were never committed — the "
+            "document says so itself: 'The measurement scripts were scratch, not "
+            "committed ... To redo: patch TermLife._compute_inforce_factors / "
+            "._compute_reserves_net_premium with the candidate formulations, run "
+            "tests/qa/golden_runner.run_pricing over discover_golden_cases(), and "
+            "diff the digests; time the loop against the interleaved cumprod with "
+            "timeit at N=20,000.' That is re-deriving a discarded experiment, not "
+            "regenerating a report."
+        ),
+        note=(
+            "**Unreproducible by construction, and that is the finding.** ADR-203's "
+            "audit flagged it as older than `products/dispatch.py`; it cannot be "
+            "cleared, because verifying it would require re-implementing "
+            "experimental formulations that were deliberately not kept. The "
+            "hardware is NOT the obstacle — this container is the same 4-core Linux "
+            "x86_64 the document names. A document whose producer was never "
+            "committed can be read and trusted on its authors' word, but never "
+            "checked, which is the strongest case this repository holds for the "
+            "stamp system existing. Left permanently unstamped unless the "
+            "maintainer decides otherwise."
+        ),
     ),
     MeasurementSource(
         document="docs/MEASUREMENT_portfolio_parallel_macbook_air.md",
