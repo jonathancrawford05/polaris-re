@@ -16938,10 +16938,52 @@ silently.
 - **It does not fingerprint data.** A document regenerated against a different
   experience cache carries an unchanged fingerprint. That is why the runbook
   requires the cache version in the note, in words.
-- **Nothing is stamped by this PR.** All six documents land unstamped and
-  therefore warning. Stamping requires verification, and verification is a
-  separate act: the coverage document gets its stamp when PR #207 merges, and the
-  two cache-backed ones when a session holding the cache runs
-  `RUNBOOK_measurement_provenance.md` §3.
-- **The four at-risk documents from ADR-203's audit remain unverified.** This
-  makes their state visible; it does not resolve it.
+- **Five of six documents are unstamped** and therefore warning. Stamping
+  requires verification, and verification is a separate act — the two cache-backed
+  ones wait on a session that holds the cache
+  (`RUNBOOK_measurement_provenance.md` §3), and see amendment 1 for the two whose
+  numbers nobody here can reproduce at all.
+- **The at-risk documents from ADR-203's audit remain unverified.** This makes
+  their state visible; it does not resolve it.
+
+### Amendment 1 — the coverage document is stamped `regenerated` (2026-08-23)
+
+This ADR first said *"Nothing is stamped by this PR."* That was written when this
+branch carried `main`'s **stale** copy of
+`MEASUREMENT_unconditional_coverage.md`, which nothing here could honestly vouch
+for. After PR #207 merged and was brought into this branch, the document present
+is the one #207 regenerated, and its producer needs no experience cache — so the
+strongest form of verification became available and there was no reason to defer
+it.
+
+`stamp --run` was used, not `--assert`: the tool executed the manifest's
+regeneration command in this checkout and stamped only because it exited zero.
+The run is also a **reproducibility check**, which is worth more than the stamp
+itself — the study is deterministic over pinned seeds (ADR-074), so a
+regenerated document differing from the one #207 committed would be a finding
+about determinism, not a formatting difference.
+
+**The three documents nobody here can stamp, and why they differ.**
+`MEASUREMENT_portfolio_parallel_macbook_air.md` reports timings from a MacBook
+Air with 10 logical cores, and `MEASUREMENT_engine_recursion_prework.md` from a
+named 4-core Linux container. Regenerating either anywhere else produces
+different numbers *by design*, so there is nothing to verify against and an
+`asserted` stamp would be asserting nothing. They stay unstamped rather than
+receiving a stamp that would misrepresent what was checked. Whether to add a
+third :class:`StampMethod` meaning "closure tracked, numbers unreproducible" is
+left to the maintainer; inventing one to clear a backlog would be the same
+instinct this ADR exists to resist. **`MEASUREMENT_gam_ramp_mechanism.md` turned out to be stampable
+here too, and is now stamped `regenerated`.** Its own header names
+`tests/test_analytics/test_experience_gam_ramp_diagnostic.py` as carrying every
+claim as an executing assertion — synthetic fixtures, no licensed data, no
+cache — so a passing run of that file *is* the verification. Its manifest
+`regeneration` field said "see the document's own header", a placeholder written
+when the entry was drafted and never resolved; it now names the pytest
+invocation, and running it (14 passed) is what earned the stamp. **This also
+settles ADR-203's audit flag on it:** the document was older than
+`experience_gam.py`'s 2026-08-09 band-layer extraction and unverified either
+way. It is now verified, and the extraction was behaviour-preserving on this
+path as believed.
+
+So the backlog is four, not six: two waiting on the experience cache, and two
+whose numbers no session here can reproduce.

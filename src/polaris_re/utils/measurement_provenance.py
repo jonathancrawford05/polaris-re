@@ -195,12 +195,19 @@ MANIFEST: tuple[MeasurementSource, ...] = (
     MeasurementSource(
         document="docs/MEASUREMENT_gam_ramp_mechanism.md",
         producer="src/polaris_re/analytics/experience_gam.py",
-        regeneration="see the document's own header — it reports on this module's behaviour",
+        regeneration=(
+            "uv run pytest tests/test_analytics/test_experience_gam_ramp_diagnostic.py -v"
+        ),
         note=(
             "Not script-generated, so the producer is the module the document "
-            "describes. ADR-203's audit flagged it as older than "
-            "`experience_gam.py`'s 2026-08-09 change (a behaviour-preserving "
-            "extraction of the band layer), unverified either way."
+            "describes. Its own header names "
+            "`tests/test_analytics/test_experience_gam_ramp_diagnostic.py` as carrying "
+            "every claim as an executing assertion, so a passing run of that file IS "
+            "the verification — synthetic fixtures, no licensed data, no cache. "
+            "ADR-203's audit flagged the document as older than `experience_gam.py`'s "
+            "2026-08-09 change (a behaviour-preserving extraction of the band layer); "
+            "it is stampable by anyone, and unstamped only because nobody has run it "
+            "and said so."
         ),
     ),
     MeasurementSource(
