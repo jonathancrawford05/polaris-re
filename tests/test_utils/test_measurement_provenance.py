@@ -35,6 +35,25 @@ from polaris_re.utils.measurement_provenance import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts/measurement_stamp.py"
 
+_FULL_CHECKOUT = (REPO_ROOT / "docs" / "DECISIONS.md").is_file()
+"""Is the whole repository present, or only the subset the Docker image carries?
+
+The image copies `scripts/`, `tests/` and `src/` in full but only a *subset* of
+`docs/` — `docs/measurements/`, `DATA_LICENSING.md`, and two of the six
+`MEASUREMENT_*.md` files (Dockerfile:81-86). The two tests below assert things
+about the repository's structure, so in the image they are not weaker, they are
+meaningless. `DECISIONS.md` is the sentinel because it is large, permanent, and
+deliberately not shipped in the runtime image.
+
+Found by CI, not by reasoning: the first version of this file had no such guard
+and turned the Docker job red.
+"""
+
+_PARTIAL_CHECKOUT_REASON = (
+    "needs a full source checkout; the Docker image copies only part of docs/, so "
+    "this asserts repository structure that is legitimately absent there"
+)
+
 
 def _tree(root: Path) -> Path:
     """A synthetic repo: producer -> alpha -> beta, plus an unimported gamma."""
@@ -244,22 +263,37 @@ def test_the_gate_reports_a_manifest_entry_pointing_at_nothing(tmp_path: Path) -
     assert check_manifest(tmp_path, manifest)[0].status is StampStatus.MISSING
 
 
+@pytest.mark.skipif(not _FULL_CHECKOUT, reason=_PARTIAL_CHECKOUT_REASON)
 def test_every_manifest_entry_points_at_real_paths() -> None:
     """The manifest describes this repository, so it can be checked against it.
 
     Guards the ordinary decay: a document renamed, a script moved, and a manifest
     row left behind that quietly stops checking anything.
+
+    **This is also the assertion that catches a broken manifest row at all.**
+    `check` reports a missing path as `MISSING` and does *not* fail the build,
+    deliberately — the Docker image is a legitimately partial checkout and a gate
+    that failed there would be failing on packaging rather than on provenance. So
+    the manifest-integrity guarantee lives here, in a test that runs where the
+    whole repository is present, rather than in the gate.
     """
     for source in MANIFEST:
         assert (REPO_ROOT / source.document).is_file(), f"missing document: {source.document}"
         assert (REPO_ROOT / source.producer).is_file(), f"missing producer: {source.producer}"
 
 
+@pytest.mark.skipif(not _FULL_CHECKOUT, reason=_PARTIAL_CHECKOUT_REASON)
 def test_the_manifest_covers_every_measurement_document_on_disk() -> None:
     """A measurement document absent from the manifest is never checked at all.
 
     The silent-hole case: adding `docs/MEASUREMENT_new_thing.md` without a manifest
     row leaves it outside the gate forever, and nothing else would ever say so.
+
+    Skipped on a partial checkout for a subtler reason than its sibling: there it
+    would *pass*, vacuously. The image carries two of the six documents, so
+    `on_disk - declared` is trivially empty and the test would report success
+    while checking nothing. A vacuous pass is worse than a skip, because only one
+    of the two is visible in the output.
     """
     on_disk = {f"docs/{p.name}" for p in (REPO_ROOT / "docs").glob("MEASUREMENT_*.md")}
     declared = {source.document for source in MANIFEST}
