@@ -1757,7 +1757,13 @@ explanation, which is a publishable finding in its own right.
 **Headline for the maintainer:** the select-per-replicate coverage study is delivered
 and **the gate does not pass**. Unconditional coverage is **0.8516 / 0.8581** against a
 floor of 0.9192, so **nothing in this project may be labelled a 95% band** until slice
-5 explains the shortfall. On the identical truth and seeds, the **unpenalized**
+5 explains the shortfall.
+
+> **Superseded twice, 2026-08-23 (ADR-203).** These figures went stale when `ce0b9f1`
+> corrected the REML criterion on 2026-08-19: re-measured, the shipped band is
+> **0.7815 / 0.8090**. Implementing Wood, Pya & Saefken (2016) eq. (7) then moved it to
+> **0.8167 / 0.8354** — still failing. The bolded conclusion is unchanged and now rests
+> on two independent measurements rather than one. On the identical truth and seeds, the **unpenalized**
 delta-method band covers **0.9586** at 4.4x the width — the estimator this epic set out
 to improve on currently has the better interval. That is a statement about the
 *interval* and does not retract ADR-186's RMSE result for the point estimate.
@@ -2006,6 +2012,13 @@ question, the level-4-is-weak worry). What replaces them is one BLOCKER and two 
   >
   > **Registered prediction:** a correction 3.2-4.1x larger should move ADR-188's coverage
   > from 0.8516 / 0.8581 toward the 0.9192 floor. If it does not, there is a second cause.
+  >
+  > **RESOLVED 2026-08-23 (ADR-203): confirmed in direction, refuted in sufficiency.**
+  > Against the re-measured baseline (0.7815 / 0.8090 — the quoted one was stale), eq. (7)
+  > moves coverage to 0.8167 / 0.8354. It moves, so the prediction's literal trigger did
+  > not fire; it falls up to 0.1025 short, so **there is a second cause anyway.** The
+  > prediction was written against a *number* rather than a *re-measurement*, which is
+  > how its baseline was able to drift underneath it — see ADR-203 finding 0.
   >
   > One process finding worth keeping: `test_the_hessian_standard_error_is_wide_but_finite`
   > has asserted `n_floored == 0` since slice 3 — the repository already held the evidence
@@ -2625,3 +2638,99 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   Anchor 5's absolute/relative end-to-end demonstration — which makes building it the
   epic's highest-leverage next piece of work rather than one slice's internal detail.
   *Source: this session (1st-order — names the epic's actual next bottleneck).*
+
+### Harvested 2026-08-22c — level 4's prerequisite is built from Wood (2011) (ADR-201)
+
+- **`dw/drho` EXISTS AND IS TIER-3 VERIFIED — the ingredient ADR-190 named as
+  missing.** ADR-190 decision 2 stated the level-4 blocker as *"it needs `dw/drho`,
+  which nothing in the fitter currently computes."* `gam_derivatives` now computes
+  it, from Wood (2011) §3.4 (`dbeta/drho`, `d(eta)/drho`) and Appendix D (`dw/deta`
+  and the chain rule). Against `mgcv`'s own refits central-differenced at perturbed
+  `sp`: `d(eta)/drho` agrees to 5.3–5.8e-11 on all three cells with a Richardson
+  ratio of **4.00**, which is what establishes it as the `h -> 0` limit of `mgcv`'s
+  behaviour rather than merely close at one step. `DERIVATIVE_CLAIM` declares both
+  compared quantities INDEPENDENT. Tier 3, CI run 32586279901, oracle
+  `sha256:0d54c192…` build 8. *Source: this session, ADR-201 (1st-order — the
+  epic's oldest open blocker's critical path).*
+
+- **LEVEL 4 IS NOT CLOSED, AND THE PAPER SUPPLIED WAS NOT THE ONE IT NEEDS.** The
+  maintainer supplied Wood (2011) *JRSS-B* 73(1) — the same paper that resolved
+  ADR-196 — rather than Wood, Pya & Säfken (2016) *JASA*, which is what ADR-190
+  decision 1 names for `vcov(unconditional=TRUE)`. Wood (2011) contains `dw/drho`
+  in full but **no unconditional-covariance formula at all** (searched: zero
+  occurrences of "unconditional"); it derives those derivatives because the REML
+  Newton iteration needs them. **What is still outstanding is only the assembly** —
+  how `dw/drho` enters `Vc` — and per ADR-190 decision 3 it must be re-derived from
+  the 2016 paper, never read off `mgcv`'s GPL source. *Source: this session
+  (1st-order — names precisely what is still needed, so the next request is for the
+  right artefact).*
+
+- **The derivative needs the OBSERVED (Newton) Hessian, not the fitter's Fisher
+  weights — worth ~5 orders of magnitude, and any `Vc` work inherits it.** Fisher
+  scoring and Newton reach the same `beta-hat` but not the same derivative, because
+  `dbeta/drho` depends on the Hessian *at* the stationary point. Registered as a
+  prediction before measuring and it held: with Fisher weights the non-canonical
+  cell (`binomial-cloglog`) is wrong by 6.9e-06 against ~1e-11 on the canonical
+  ones; supplying the observed-Hessian weights closes it to 1.1e-11. `max|alpha-1|`
+  is 6.7e-16 / 0.0 / 4.3e-03 across the three cells, independently confirming
+  Wood §3.2's algebra since nothing in the implementation forces `alpha = 1` on a
+  canonical link. **The fitter is untouched** (Anchor 7). *Source: this session,
+  ADR-201 decision 1 (1st-order — a correctness fact the level-4 slice depends on).*
+
+- **A convergence diagnostic that did not say what it claimed, caught and fixed.**
+  The probe first reported one `h` regime with a Richardson ratio of ~0.6 while the
+  column header said "want ~4". At `h <= 1e-4` the residual is round-off limited —
+  differencing two separately-converged `mgcv` fits has its own floor — so halving
+  `h` makes the *reference* worse and the ratio says nothing about convergence.
+  Publishing it would have been a convergence claim the number did not support. The
+  probe now brackets both regimes and labels which is which. *Source: this session
+  (2nd-order — a methodology fix for any future finite-difference comparison in
+  this epic, of which there will be more).*
+
+### Harvested 2026-08-22d — LEVEL 4 CLOSED (ADR-202)
+
+- **THE EPIC'S OLDEST BLOCKER IS CLOSED, tier 1 and tier 3 identical.** Standing since
+  ADR-188 and re-scoped by ADR-190, level 4 was: ours inflates 1.11-1.21x where `mgcv`
+  inflates 1.49-1.87x. With Wood, Pya & Säfken (2016) eq. (7), `gam_uncertainty` now
+  reproduces `mgcv`'s `vcov(unconditional=TRUE)` to **<1% element-wise** (0.023%,
+  0.150%, 0.904%) and **<0.1% on the inflation ratio**, on three committed cases plus
+  five held-out ones including a non-canonical `cloglog`. CI run 32589501512, oracle
+  `sha256:0d54c192…` build 8. *Source: this session, ADR-202 (1st-order — closes the
+  standing BLOCKER).*
+
+- **Three unknowns had to be identified, and all three were measured rather than
+  chosen.** (a) `Vrho`'s regularisation is a ridge of exactly **0.1**, identified
+  against `mgcv`'s own `m$V.sp` to 1.78e-15 — the paper names the mechanism ("a
+  Gaussian prior on rho") but not the value. (b) **`V''` is not invariant to the choice
+  of square root**; the factor is Wood (2011) §3.3's lower-triangular `L^-1`, not a
+  Cholesky of `V_beta`. (c) The two terms use **different inverses** of the rho
+  Hessian — `V'` the unregularised, `V''` the ridged. (c) was found by localisation:
+  the leftover residual was rank-1, aligned `|cos|=0.9994` with `J[1]`, and its
+  best-fitting coefficient (3210) matched the unregularised `H^-1[1,1]` (3184) to ~1%.
+  *Source: this session, ADR-202 decision 1 (1st-order — facts any future covariance
+  work depends on).*
+
+- **ELEMENT-WISE IS THE GATE, NOT THE INFLATION RATIO — a lesson for the whole epic.**
+  Mid-slice the scalar inflation ratio read 0.39% while the element-wise residual was
+  26.7%: averaging diagonals hid a real structural disagreement behind a green
+  headline. The probe now exports full `Vc`/`Vp` matrices and the comparator gates on
+  the element-wise number. Any remaining conformance comparison that reports only a
+  scalar summary is exposed to the same failure. *Source: this session (1st-order — a
+  methodology fix with scope beyond this slice).*
+
+- **WHAT IS STILL OPEN, AND IT IS NOT THE FORMULA.** The ten-cell suite's level 4
+  still reads DISAGREES on the very run that confirms the fix — correctly, because it
+  exercises the SHIPPED `experience_gam_penalized.smoothing_uncertainty`, untouched
+  (Anchor 7). Three follow-ons: **(1)** re-pointing production at `gam_uncertainty`,
+  needing Anchor 7 sign-off and its own determinism answer (ADR-186 chose the grid for
+  reproducibility by construction); **(2)** re-running ADR-188's coverage gate, which
+  ADR-190 decision 4 predicted in advance would move toward the 0.9192 floor — a
+  registered prediction now testable and **still unrun**; **(3)** labelling any
+  interval a 95% band, which stays maintainer-reserved either way. *Source: this
+  session (1st-order — the decision the maintainer now actually has in front of them).*
+
+- **A residual of 0.07-0.73% element-wise remains and is not float noise.** Eq. (7) is
+  a first-order Taylor expansion whose remainder the paper drops, so exact agreement
+  is not available in principle. Recorded rather than explained away; the 2% tolerance
+  is set from the observed spread with under 3x headroom. *Source: this session
+  (2nd-order — a documented limit of the formula, not a defect).*
