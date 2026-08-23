@@ -102,6 +102,38 @@ def test_a_from_package_import_module_form_is_followed(tmp_path: Path) -> None:
     assert "beta.py" in names
 
 
+def test_a_from_package_import_name_reaches_the_defining_module(tmp_path: Path) -> None:
+    """`from pkg import ClassName`, re-exported through the package `__init__`.
+
+    **PR #208's review found this as a live false-pass channel**, and it is the one
+    failure mode ADR-204 decision 1 singles out. Resolving only `pkg/ClassName.py`
+    and `pkg.py` — neither of which exists — drops the defining module and
+    everything below it, so a producer written this way would be stamped, look
+    vouched-for, and never detect drift in the module it actually depends on.
+
+    Measured on the real repository before the fix: a producer doing
+    `from polaris_re.core import ReserveBasis` omitted `core/reserve_basis.py`
+    from its closure entirely. The idiom is already used in four test modules
+    here, so this was reachable, not hypothetical.
+
+    Its sibling `test_a_from_package_import_module_form_is_followed` did not cover
+    it: there the speculative `f"{module}.{name}"` candidate happens to resolve
+    because the name *is* a module. Here it is a class.
+    """
+    producer = _tree(tmp_path)
+    package = tmp_path / "src" / "polaris_re" / "analytics"
+    (package / "__init__.py").write_text(
+        "from polaris_re.analytics.beta import VALUE\n\n__all__ = ['VALUE']\n"
+    )
+    producer.write_text("from polaris_re.analytics import VALUE\n")
+
+    names = {p.name for p in dependency_closure(producer, tmp_path)}
+    assert "beta.py" in names, (
+        "the defining module was dropped: the package __init__ hop is not followed, "
+        "which stamps a document against a closure that cannot see its own dependencies"
+    )
+
+
 def test_the_fingerprint_moves_when_a_transitive_dependency_changes(tmp_path: Path) -> None:
     """**The ADR-203 condition, in miniature.**
 
@@ -359,3 +391,29 @@ def test_check_passes_on_the_current_repository() -> None:
     what proves that condition still fires.
     """
     assert _run("check").returncode == 0
+
+
+def test_the_stamp_carries_the_head_sha_and_round_trips_it() -> None:
+    """PR #208 review [P2-3]: `git_head` was computed and then discarded.
+
+    The sha is **context, not identity** — `check` compares the fingerprint, which
+    is content-addressed, so a stamp stays valid across commits that do not touch
+    the closure. What the sha buys is auditability of an `asserted` stamp, which
+    vouches for work done somewhere this checkout cannot see: without it a reader
+    cannot locate what the operator was standing on.
+    """
+    stamped = format_stamp(_stamp().model_copy(update={"head": "abc1234"}))
+    parsed = parse_stamp("# Report\n\nbody\n\n" + stamped)
+    assert parsed is not None
+    assert parsed.head == "abc1234"
+
+
+def test_a_stamp_without_a_head_still_parses() -> None:
+    """Stamps written before the head field existed must not become malformed.
+
+    A parser that required it would raise on an older stamp, and `parse_stamp`
+    raises rather than returning None — turning a real drift check into a crash.
+    """
+    parsed = parse_stamp("# Report\n\n" + format_stamp(_stamp()))
+    assert parsed is not None
+    assert parsed.head == ""

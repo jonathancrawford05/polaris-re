@@ -72,6 +72,7 @@ __all__ = [
     "closure_fingerprint",
     "dependency_closure",
     "format_stamp",
+    "git_head",
     "parse_stamp",
     "strip_stamp",
 ]
@@ -219,6 +220,16 @@ class Stamp(PolarisBaseModel):
         description="How the document was verified. See :class:`StampMethod`."
     )
     note: str = Field(default="", description="Required for `asserted`; free text otherwise.")
+    head: str = Field(
+        default="",
+        description="Short git HEAD sha at stamping time. **Context, not identity** — "
+        "the fingerprint is what `check` compares, and it is content-addressed, so a "
+        "stamp stays valid across commits that do not touch the closure. This exists so "
+        "a reader auditing an `asserted` stamp — one vouching for work done in a session "
+        "this checkout cannot see — can locate what the operator was standing on. Empty "
+        "outside a git checkout, and on stamps written before PR #208's review, which "
+        "found the sha being computed and then discarded.",
+    )
 
 
 class Finding(PolarisBaseModel):
@@ -256,10 +267,30 @@ def dependency_closure(entry: Path, repo_root: Path) -> tuple[Path, ...]:
             continue
         seen.add(current)
         for dotted in _polaris_imports(current):
-            candidate = src / (dotted.replace(".", "/") + ".py")
-            if candidate.is_file() and candidate.resolve() not in seen:
-                queue.append(candidate.resolve())
+            for candidate in _candidates(src, dotted):
+                if candidate.is_file() and candidate.resolve() not in seen:
+                    queue.append(candidate.resolve())
     return tuple(sorted(seen))
+
+
+def _candidates(src: Path, dotted: str) -> tuple[Path, ...]:
+    """The two files a dotted name can resolve to: a module, or a package.
+
+    **The package form is not an edge case, it is a live idiom** —
+    ``from polaris_re.core import ReserveBasis`` re-exports through
+    ``core/__init__.py``, and this repository already does it in four test modules.
+    Resolving only ``core/ReserveBasis.py`` (absent) and ``core.py`` (absent) drops
+    the defining module and everything below it: measured on this checkout, a
+    producer importing that way omitted ``core/reserve_basis.py`` from its closure
+    entirely.
+
+    That is a **false pass** — the document would be stamped, look vouched-for, and
+    never detect drift in the module it actually depends on — which is the one
+    failure mode ADR-204 decision 1 singles out as mattering. Found by PR #208's
+    review, not by the original walker's tests.
+    """
+    stem = dotted.replace(".", "/")
+    return (src / (stem + ".py"), src / stem / "__init__.py")
 
 
 def _polaris_imports(path: Path) -> set[str]:
@@ -313,6 +344,8 @@ def format_stamp(stamp: Stamp) -> str:
         f"producer: {stamp.producer}",
         f"method: {stamp.method.value}",
     ]
+    if stamp.head:
+        lines.append(f"head: {stamp.head}")
     if stamp.note:
         # Single line: the parser is line-oriented and a wrapped note would be
         # silently truncated, which is worse than a long line.
@@ -355,6 +388,7 @@ def parse_stamp(text: str) -> Stamp | None:
         producer=fields["producer"],
         method=StampMethod(fields["method"]),
         note=fields.get("note", ""),
+        head=fields.get("head", ""),
     )
 
 

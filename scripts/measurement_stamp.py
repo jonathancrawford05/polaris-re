@@ -55,6 +55,7 @@ from polaris_re.utils.measurement_provenance import (  # noqa: E402
     closure_fingerprint,
     dependency_closure,
     format_stamp,
+    git_head,
     strip_stamp,
 )
 
@@ -161,6 +162,7 @@ def command_stamp(args: argparse.Namespace) -> int:
         producer=source.producer,
         method=method,
         note=args.note or "",
+        head=git_head(REPO_ROOT),
     )
     body = strip_stamp(document.read_text(encoding="utf-8")).rstrip("\n")
     document.write_text(body + "\n\n" + format_stamp(stamp), encoding="utf-8")

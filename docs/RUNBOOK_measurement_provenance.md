@@ -146,6 +146,15 @@ sit outside the gate forever and nothing would ever say so.
   `polaris_re` uses none today (checked). If they are introduced,
   `dependency_closure` must be extended *before* they land — a walker that skips
   them under-reports the closure, and under-reporting is a false pass.
+- **Package re-exports ARE followed, since 2026-08-23.** `from polaris_re.core
+  import ReserveBasis` resolves through `core/__init__.py` to the defining module.
+  It did not originally, and that was a live false-pass channel rather than a
+  hypothetical one: measured on this repository, such a producer omitted
+  `core/reserve_basis.py` from its closure entirely while the document still
+  looked vouched-for. Found by PR #208's review; pinned by
+  `test_a_from_package_import_name_reaches_the_defining_module`. The general
+  lesson for anyone extending the walker: **every unfollowed import is a false
+  pass**, and a false pass is the only failure this gate cannot survive.
 - **Data is not fingerprinted.** The stamp covers code, not inputs. A document
   regenerated against a different experience cache would carry an unchanged
   fingerprint, which is precisely why §3's note asks for the cache version in
