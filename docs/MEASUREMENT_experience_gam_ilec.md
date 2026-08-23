@@ -160,6 +160,24 @@ book.
 
 Additive by construction, and it holds to 2e-15.
 
+> **These figures are the BANDED run's, and the pooled run now reports a
+> different-looking decomposition. Both are right.** Since 2026-08-23
+> `docs/measurements/experience_gam_ilec.json` (the **pooled** run) also carries a
+> `standardised_ae` block, and read cold it appears to contradict the table above:
+> its mix term (−0.000990/yr) *dominates* its experience term (−0.000195/yr),
+> where here mix is small and opposite-signed.
+>
+> They standardise over different key sets on different cell sets. The table above
+> comes from `experience_gam_ilec_duration_banded.json` — five keys **including
+> `duration_months`**, 14,757 cells. The pooled block has four keys and 1,973
+> cells, because the pooled fit has no duration dimension to hold fixed, so its
+> "mix" necessarily absorbs the uncontrolled duration composition.
+>
+> That is not a contradiction of §4; it is §2's and §4's own thesis measured a
+> second way — **duration mix is the dominant confounder in the pooled fit.** The
+> note is here because the session that regenerated these files on 2026-08-23 hit
+> the apparent inversion and had to work out why, and a future reader would too.
+
 **The direction of the earlier inference is confirmed.** Experience drifts down —
 the business improved faster than SOA's scale assumed — and mix pushes the other
 way, exactly as an ageing book drifting toward higher-mortality durations would.
@@ -280,3 +298,12 @@ offsetting-effects reading of a flat A/E (§4) were not anticipated by the plan.
 Both came from running the harness twice and comparing, which is only possible
 because the aggregation level is an explicit parameter (ADR-182) rather than a
 buried default.
+
+<!-- measurement-provenance
+fingerprint: 6ebf696b7d4106661c0e1e625d80d329da6c2567cbc5678d96f5b9f5006ed71a
+generated: 2026-08-23
+producer: scripts/experience_diligence.py
+method: asserted
+head: b45d497
+note: raw output regenerated 2026-08-23 against ILEC extract 'ILEC_2012_19 - 20240429.txt' (12,477,136,749 bytes, 2012-2019); docs/measurements diff: no fitted quantity moved; banded standardised block byte-identical; pooled run gained an additive 4-key standardised_ae section + duration_degree; last-ulp jitter on dropped_exposure_share
+-->

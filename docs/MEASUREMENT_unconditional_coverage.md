@@ -89,3 +89,11 @@ The rejected-grid-point columns are the direct evidence for slice 4's first piec
 - **The shipped `unconditional` band was REFUTED against `mgcv`, and still is.** Level 4 measured it inflating the mean variance 1.11-1.21x where `mgcv` inflates 1.49-1.87x, in the same direction on every cell (ADR-189 amendment 1, ADR-190). It is tabulated above because it is what production ships, not because it is verified — and the ten-cell suite still reads `level 4: DISAGREES` on it, correctly. This sentence was missing between 2026-08-23's first and second editions of this report, which left the document's only verification status attached to a band production does not use (PR #207 review [P1]).
 - The `wps2016` covariance is **verified against `mgcv`**, not adopted from it: ADR-202 measured `unconditional_covariance` against `vcov(m, unconditional = TRUE)` on the tier-3 pinned oracle at 0.023-0.904% element-wise. That is what PLAN Anchor 8 asked for, and it is why the adopted-and-unverified caveat that stood here until 2026-08-23 is gone.
 - **`mgcv` parity and coverage are different claims.** The row above says this band is the same object `mgcv` computes. It does not say that object is well-calibrated — that is what the coverage column measures, and the two could in principle disagree. Read them as two facts, not one.
+
+<!-- measurement-provenance
+fingerprint: 396a5dcf8b3ccbd3d5f90862ab7cb3ab31e57879fb57f28ae6f71523ce3111c9
+generated: 2026-08-23
+producer: scripts/unconditional_coverage_study.py
+method: regenerated
+head: bbbef4c
+-->

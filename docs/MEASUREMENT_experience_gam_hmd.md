@@ -190,3 +190,12 @@ where SOA publishes its own expected deaths (see
 | Compared against the published reference | ✅ Qualitative structure agrees (§3) |
 | Cross-population agreement characterised | ✅ GBRTENW slows at 4/5 ages; agrees at 45–65, diverges at 85 for a reason the fit itself explains (§2b) |
 | No data files added | ✅ Findings only; the 1x1 files never left the maintainer's machine |
+
+<!-- measurement-provenance
+fingerprint: 6ebf696b7d4106661c0e1e625d80d329da6c2567cbc5678d96f5b9f5006ed71a
+generated: 2026-08-23
+producer: scripts/experience_diligence.py
+method: asserted
+head: b45d497
+note: raw output regenerated 2026-08-23 against HMD STATS bundle DOI 10.4054/HMD.Countries.20260615 (USA+GBRTENW, downloaded 2026-08-03); docs/measurements diff: no fitted quantity moved (<=1 ulp); raw files gained age_degree/year_degree/duration_degree/interior_knots
+-->

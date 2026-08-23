@@ -16839,3 +16839,163 @@ Two tests pin that it floors the same directions and inverts to the same
   the residual is not something the correction leaves entirely untouched. A
   lead, not a finding; this ADR does not pursue it.
 - **Labelling any interval a 95% band** remains maintainer-reserved.
+---
+
+## ADR-204: measurement documents carry a provenance stamp, and CI fails when a stamped one drifts
+
+**Date:** 2026-08-23
+**Status:** Accepted
+**Context:** ADR-203 finding 0. `docs/MEASUREMENT_unconditional_coverage.md`
+carried 0.8201 / 0.8516 from 2026-08-09; on current production the *unmodified*
+script gives 0.7435 / 0.7815. Bisected to `ce0b9f1` (2026-08-19), the correct
+maintainer-authorized ADR-197 REML fix, which changed the criterion and therefore
+the selected λ on every replicate. Nothing in `.github/workflows/` or the
+`Makefile` re-ran the study, so the numbers were silently invalidated and stayed
+cited as current for four days across seven documents — including ADR-190
+decision 4, whose registered prediction was being tested against them.
+
+Maintainer authorized this on 2026-08-23 as a separate PR, on the reasoning that
+a CI gate is a policy change reviewers should be able to accept or reject
+independently of the mathematics in PR #207.
+
+### Decision 1 — fingerprint the producer's import closure, by content
+
+A stamp is the SHA-256 of the transitive `polaris_re` import closure of the
+document's producer, hashed over file contents with each file's path.
+
+**Contents, not commit dates.** ADR-203's own audit used dates and could not
+separate two same-day commits — exactly the resolution the `ce0b9f1` case needed.
+Contents also catch an uncommitted working-tree edit, so a developer who changes
+the fitter and regenerates nothing sees the gate before CI does.
+
+**Path hashed alongside contents**, because a rename can change behaviour through
+import resolution while preserving every byte.
+
+**Transitive, and this is the crux.** `ce0b9f1` touched a module the coverage
+study never names; it is reached two hops down. A gate over directly-named files
+would not have caught it, which makes the transitive walk the feature rather than
+an implementation detail. The walker follows absolute imports only —
+`polaris_re` uses no relative imports today, and the limitation is recorded in
+the runbook because an unfollowed import is a **false pass**.
+
+### Decision 2 — fail on drift, warn on unstamped
+
+Six documents were unstamped when this landed and two cannot be regenerated
+outside a session holding the experience cache. A gate that failed the build for
+all six on day one is a gate somebody disables inside a week, and a disabled gate
+catches nothing.
+
+So the fatal condition is narrow: **a document we have vouched for no longer
+matches the code that produced it.** Unstamped is reported on every run and
+listed by `list`; it is a backlog, not a build break.
+
+The CI step is deliberately **not** `continue-on-error`. That is the hazard PR
+#206's review flagged in the abstract and PR #207 then hit for real — a workflow
+step exiting 127 while the job reported green.
+
+### Decision 3 — two verification methods, and the weaker one says so
+
+`regenerated` means the tool ran the producer in this checkout; `--run` refuses
+to stamp if regeneration exits non-zero, since a stamp on a failed producer is a
+false vouching. `asserted` means an operator regenerated it elsewhere and said
+so, and `--note` is **required** — an asserted stamp is one person's word about
+work this checkout cannot see, and without the note a reader cannot weigh it.
+
+The document carries the method, so a reader can tell the two apart. Collapsing
+them into one "verified" would have made the gate lie about the cache-backed
+documents, which is worse than not covering them.
+
+### Decision 4 — the manifest is code, and must cover the directory
+
+`MANIFEST` lives in `measurement_provenance.py` rather than being parsed out of
+each document's prose, because the prose is exactly what cannot be trusted to
+stay accurate — that is the failure being fixed.
+`test_the_manifest_covers_every_measurement_document_on_disk` fails when a
+`docs/MEASUREMENT_*.md` has no row, closing the silent hole where a new document
+sits outside the gate forever and nothing says so.
+
+### What was verified
+
+20 R-free tests. The one that matters is
+`test_the_gate_reports_drift_when_a_dependency_moves`: stamp a synthetic
+document, edit a module two hops from its producer, assert `DRIFTED` — the
+ADR-203 condition, fabricated and asserted to fail. Also demonstrated
+end-to-end on this repository (stamp `MEASUREMENT_gam_ramp_mechanism.md`, append
+a line to `experience_gam.py`, `check` exits 1) and reverted; that demonstration
+is not committed, because a stamp asserting a verification nobody performed is
+the defect class this ADR exists to prevent.
+
+`test_a_malformed_stamp_raises_rather_than_reading_as_absent` guards the module's
+most dangerous possible bug: a corrupt stamp parsing as `None` would report
+`unstamped`, which this gate treats as a warning, and a real drift would pass
+silently.
+
+### What this does NOT do
+
+- **It is not evidence any measurement is correct.** It says the code the
+  document was generated from is the code that is here now. A stamp on a wrong
+  measurement is a stamp on a wrong measurement.
+- **It does not fingerprint data.** A document regenerated against a different
+  experience cache carries an unchanged fingerprint. That is why the runbook
+  requires the cache version in the note, in words.
+- **Five of six documents are unstamped** and therefore warning. Stamping
+  requires verification, and verification is a separate act — the two cache-backed
+  ones wait on a session that holds the cache
+  (`RUNBOOK_measurement_provenance.md` §3), and see amendment 1 for the two whose
+  numbers nobody here can reproduce at all.
+- **The at-risk documents from ADR-203's audit remain unverified.** This makes
+  their state visible; it does not resolve it.
+
+### Amendment 1 — the coverage document is stamped `regenerated` (2026-08-23)
+
+This ADR first said *"Nothing is stamped by this PR."* That was written when this
+branch carried `main`'s **stale** copy of
+`MEASUREMENT_unconditional_coverage.md`, which nothing here could honestly vouch
+for. After PR #207 merged and was brought into this branch, the document present
+is the one #207 regenerated, and its producer needs no experience cache — so the
+strongest form of verification became available and there was no reason to defer
+it.
+
+`stamp --run` was used, not `--assert`: the tool executed the manifest's
+regeneration command in this checkout and stamped only because it exited zero.
+The run is also a **reproducibility check**, which is worth more than the stamp
+itself — the study is deterministic over pinned seeds (ADR-074), so a
+regenerated document differing from the one #207 committed would be a finding
+about determinism, not a formatting difference.
+
+**It came back byte-identical.** The re-run's diff against the committed
+document is 8 lines added and 0 removed, and all 8 are the stamp block. A full
+independent 200-replicate regeneration — roughly 80,000 penalized fits, in a
+different process on a different day from the one that produced the committed
+figures — reproduced every digit. ADR-074's reproducibility claim is confirmed
+end-to-end on this path rather than assumed from the seeding discipline, and
+ADR-203's decimals are now reproducible-on-demand rather than merely recorded.
+
+Worth stating what that does *not* establish, since a clean reproduction is easy
+to over-read: it says the pipeline is deterministic, not that its numbers are
+right. The gate's whole premise is that those are different claims.
+
+**The three documents nobody here can stamp, and why they differ.**
+`MEASUREMENT_portfolio_parallel_macbook_air.md` reports timings from a MacBook
+Air with 10 logical cores, and `MEASUREMENT_engine_recursion_prework.md` from a
+named 4-core Linux container. Regenerating either anywhere else produces
+different numbers *by design*, so there is nothing to verify against and an
+`asserted` stamp would be asserting nothing. They stay unstamped rather than
+receiving a stamp that would misrepresent what was checked. Whether to add a
+third :class:`StampMethod` meaning "closure tracked, numbers unreproducible" is
+left to the maintainer; inventing one to clear a backlog would be the same
+instinct this ADR exists to resist. **`MEASUREMENT_gam_ramp_mechanism.md` turned out to be stampable
+here too, and is now stamped `regenerated`.** Its own header names
+`tests/test_analytics/test_experience_gam_ramp_diagnostic.py` as carrying every
+claim as an executing assertion — synthetic fixtures, no licensed data, no
+cache — so a passing run of that file *is* the verification. Its manifest
+`regeneration` field said "see the document's own header", a placeholder written
+when the entry was drafted and never resolved; it now names the pytest
+invocation, and running it (14 passed) is what earned the stamp. **This also
+settles ADR-203's audit flag on it:** the document was older than
+`experience_gam.py`'s 2026-08-09 band-layer extraction and unverified either
+way. It is now verified, and the extraction was behaviour-preserving on this
+path as believed.
+
+So the backlog is four, not six: two waiting on the experience cache, and two
+whose numbers no session here can reproduce.

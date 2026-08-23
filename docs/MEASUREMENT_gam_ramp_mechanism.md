@@ -285,3 +285,11 @@ from the fixtures and independently corroborated here.
 they must be: A/E is actual against SOA's expected and does not involve our fit.
 The quadratic report therefore duplicates already-committed figures rather than
 disclosing anything new (`DATA_LICENSING.md` §5c).
+
+<!-- measurement-provenance
+fingerprint: a121dd117bb1e5b194f4c3c50e48b1f8497870a67611868d32dbdd0b083ef869
+generated: 2026-08-23
+producer: src/polaris_re/analytics/experience_gam.py
+method: regenerated
+head: 69ec553
+-->
