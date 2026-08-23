@@ -190,5 +190,21 @@ sit outside the gate forever and nothing would ever say so.
   reports timings from named hardware, so regenerating it here would not reproduce
   them by design. Its stamp answers only the narrower question: has the measured
   code moved?
+- **One known producer defect is deliberately NOT fixed, and the gate is why.**
+  The `.md` files `scripts/experience_diligence.py` writes still claim *"report
+  schema v1 … reproduces this file byte for byte"*. Both halves are now doubtful:
+  the schema gained fields on 2026-08-23 (`age_degree`, `year_degree`,
+  `duration_degree`, `interior_knots`) while still calling itself v1, and the
+  byte-for-byte claim is contradicted by observed last-ulp jitter and already
+  withdrawn in `docs/measurements/README.md`.
+
+  Fixing it means editing `experience_diligence.py` — which is **in the import
+  closure of both cache-backed documents**, so it would immediately drift their
+  stamps, and re-stamping needs a session with the experience cache. This is the
+  first case of the gate constraining a change rather than merely reporting on
+  one, and the constraint is correct: the fix and the re-stamp belong in the same
+  cache-holding session, not in a drive-by edit that leaves two documents drifted
+  with no way to clear them.
+
 - **The stamp says nothing about correctness.** Worth repeating, because a green
   gate is easy to read as more than it is.

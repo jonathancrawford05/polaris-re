@@ -160,6 +160,24 @@ book.
 
 Additive by construction, and it holds to 2e-15.
 
+> **These figures are the BANDED run's, and the pooled run now reports a
+> different-looking decomposition. Both are right.** Since 2026-08-23
+> `docs/measurements/experience_gam_ilec.json` (the **pooled** run) also carries a
+> `standardised_ae` block, and read cold it appears to contradict the table above:
+> its mix term (−0.000990/yr) *dominates* its experience term (−0.000195/yr),
+> where here mix is small and opposite-signed.
+>
+> They standardise over different key sets on different cell sets. The table above
+> comes from `experience_gam_ilec_duration_banded.json` — five keys **including
+> `duration_months`**, 14,757 cells. The pooled block has four keys and 1,973
+> cells, because the pooled fit has no duration dimension to hold fixed, so its
+> "mix" necessarily absorbs the uncontrolled duration composition.
+>
+> That is not a contradiction of §4; it is §2's and §4's own thesis measured a
+> second way — **duration mix is the dominant confounder in the pooled fit.** The
+> note is here because the session that regenerated these files on 2026-08-23 hit
+> the apparent inversion and had to work out why, and a future reader would too.
+
 **The direction of the earlier inference is confirmed.** Experience drifts down —
 the business improved faster than SOA's scale assumed — and mix pushes the other
 way, exactly as an ageing book drifting toward higher-mortality durations would.
