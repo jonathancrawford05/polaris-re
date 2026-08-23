@@ -61,6 +61,18 @@ jobs:
         run: uv run mypy src/polaris_re/ --ignore-missing-imports
         continue-on-error: true   # mypy on stubs will flag errors; non-blocking until Phase 1 complete
 
+      # ADR-204. Fails ONLY when a measurement document that carries a provenance
+      # stamp no longer matches the code that produced it — the ADR-203 condition,
+      # where a correct production fix silently invalidated a committed measurement
+      # and nothing re-ran it. Unstamped documents print a warning and pass; see
+      # scripts/measurement_stamp.py for why that rollout was chosen.
+      #
+      # Deliberately NOT continue-on-error. A gate whose failure is swallowed is
+      # the hazard PR #206's review flagged and PR #207 then hit for real — a
+      # workflow step exiting 127 while the job reported green.
+      - name: Check measurement provenance stamps
+        run: uv run python scripts/measurement_stamp.py check
+
   # ---------------------------------------------------------------------------
   # Job 2: Test — pytest matrix across Python 3.12 and 3.13
   # ---------------------------------------------------------------------------

@@ -16456,3 +16456,110 @@ not a fourth parity column.
 
 **Supersedes nothing.** Extends ADR-194's `CR_BASIS_CLAIM` to a construction it did not
 previously cover; does not reopen or amend ADR-194's own content.
+
+---
+
+## ADR-204: measurement documents carry a provenance stamp, and CI fails when a stamped one drifts
+
+**Date:** 2026-08-23
+**Status:** Accepted
+**Context:** ADR-203 finding 0. `docs/MEASUREMENT_unconditional_coverage.md`
+carried 0.8201 / 0.8516 from 2026-08-09; on current production the *unmodified*
+script gives 0.7435 / 0.7815. Bisected to `ce0b9f1` (2026-08-19), the correct
+maintainer-authorized ADR-197 REML fix, which changed the criterion and therefore
+the selected λ on every replicate. Nothing in `.github/workflows/` or the
+`Makefile` re-ran the study, so the numbers were silently invalidated and stayed
+cited as current for four days across seven documents — including ADR-190
+decision 4, whose registered prediction was being tested against them.
+
+Maintainer authorized this on 2026-08-23 as a separate PR, on the reasoning that
+a CI gate is a policy change reviewers should be able to accept or reject
+independently of the mathematics in PR #207.
+
+### Decision 1 — fingerprint the producer's import closure, by content
+
+A stamp is the SHA-256 of the transitive `polaris_re` import closure of the
+document's producer, hashed over file contents with each file's path.
+
+**Contents, not commit dates.** ADR-203's own audit used dates and could not
+separate two same-day commits — exactly the resolution the `ce0b9f1` case needed.
+Contents also catch an uncommitted working-tree edit, so a developer who changes
+the fitter and regenerates nothing sees the gate before CI does.
+
+**Path hashed alongside contents**, because a rename can change behaviour through
+import resolution while preserving every byte.
+
+**Transitive, and this is the crux.** `ce0b9f1` touched a module the coverage
+study never names; it is reached two hops down. A gate over directly-named files
+would not have caught it, which makes the transitive walk the feature rather than
+an implementation detail. The walker follows absolute imports only —
+`polaris_re` uses no relative imports today, and the limitation is recorded in
+the runbook because an unfollowed import is a **false pass**.
+
+### Decision 2 — fail on drift, warn on unstamped
+
+Six documents were unstamped when this landed and two cannot be regenerated
+outside a session holding the experience cache. A gate that failed the build for
+all six on day one is a gate somebody disables inside a week, and a disabled gate
+catches nothing.
+
+So the fatal condition is narrow: **a document we have vouched for no longer
+matches the code that produced it.** Unstamped is reported on every run and
+listed by `list`; it is a backlog, not a build break.
+
+The CI step is deliberately **not** `continue-on-error`. That is the hazard PR
+#206's review flagged in the abstract and PR #207 then hit for real — a workflow
+step exiting 127 while the job reported green.
+
+### Decision 3 — two verification methods, and the weaker one says so
+
+`regenerated` means the tool ran the producer in this checkout; `--run` refuses
+to stamp if regeneration exits non-zero, since a stamp on a failed producer is a
+false vouching. `asserted` means an operator regenerated it elsewhere and said
+so, and `--note` is **required** — an asserted stamp is one person's word about
+work this checkout cannot see, and without the note a reader cannot weigh it.
+
+The document carries the method, so a reader can tell the two apart. Collapsing
+them into one "verified" would have made the gate lie about the cache-backed
+documents, which is worse than not covering them.
+
+### Decision 4 — the manifest is code, and must cover the directory
+
+`MANIFEST` lives in `measurement_provenance.py` rather than being parsed out of
+each document's prose, because the prose is exactly what cannot be trusted to
+stay accurate — that is the failure being fixed.
+`test_the_manifest_covers_every_measurement_document_on_disk` fails when a
+`docs/MEASUREMENT_*.md` has no row, closing the silent hole where a new document
+sits outside the gate forever and nothing says so.
+
+### What was verified
+
+20 R-free tests. The one that matters is
+`test_the_gate_reports_drift_when_a_dependency_moves`: stamp a synthetic
+document, edit a module two hops from its producer, assert `DRIFTED` — the
+ADR-203 condition, fabricated and asserted to fail. Also demonstrated
+end-to-end on this repository (stamp `MEASUREMENT_gam_ramp_mechanism.md`, append
+a line to `experience_gam.py`, `check` exits 1) and reverted; that demonstration
+is not committed, because a stamp asserting a verification nobody performed is
+the defect class this ADR exists to prevent.
+
+`test_a_malformed_stamp_raises_rather_than_reading_as_absent` guards the module's
+most dangerous possible bug: a corrupt stamp parsing as `None` would report
+`unstamped`, which this gate treats as a warning, and a real drift would pass
+silently.
+
+### What this does NOT do
+
+- **It is not evidence any measurement is correct.** It says the code the
+  document was generated from is the code that is here now. A stamp on a wrong
+  measurement is a stamp on a wrong measurement.
+- **It does not fingerprint data.** A document regenerated against a different
+  experience cache carries an unchanged fingerprint. That is why the runbook
+  requires the cache version in the note, in words.
+- **Nothing is stamped by this PR.** All six documents land unstamped and
+  therefore warning. Stamping requires verification, and verification is a
+  separate act: the coverage document gets its stamp when PR #207 merges, and the
+  two cache-backed ones when a session holding the cache runs
+  `RUNBOOK_measurement_provenance.md` §3.
+- **The four at-risk documents from ADR-203's audit remain unverified.** This
+  makes their state visible; it does not resolve it.
