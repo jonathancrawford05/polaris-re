@@ -1757,7 +1757,13 @@ explanation, which is a publishable finding in its own right.
 **Headline for the maintainer:** the select-per-replicate coverage study is delivered
 and **the gate does not pass**. Unconditional coverage is **0.8516 / 0.8581** against a
 floor of 0.9192, so **nothing in this project may be labelled a 95% band** until slice
-5 explains the shortfall. On the identical truth and seeds, the **unpenalized**
+5 explains the shortfall.
+
+> **Superseded twice, 2026-08-23 (ADR-203).** These figures went stale when `ce0b9f1`
+> corrected the REML criterion on 2026-08-19: re-measured, the shipped band is
+> **0.7815 / 0.8090**. Implementing Wood, Pya & Saefken (2016) eq. (7) then moved it to
+> **0.8172 / 0.8359** — still failing. The bolded conclusion is unchanged and now rests
+> on two independent measurements rather than one. On the identical truth and seeds, the **unpenalized**
 delta-method band covers **0.9586** at 4.4x the width — the estimator this epic set out
 to improve on currently has the better interval. That is a statement about the
 *interval* and does not retract ADR-186's RMSE result for the point estimate.
@@ -2006,6 +2012,13 @@ question, the level-4-is-weak worry). What replaces them is one BLOCKER and two 
   >
   > **Registered prediction:** a correction 3.2-4.1x larger should move ADR-188's coverage
   > from 0.8516 / 0.8581 toward the 0.9192 floor. If it does not, there is a second cause.
+  >
+  > **RESOLVED 2026-08-23 (ADR-203): confirmed in direction, refuted in sufficiency.**
+  > Against the re-measured baseline (0.7815 / 0.8090 — the quoted one was stale), eq. (7)
+  > moves coverage to 0.8172 / 0.8359. It moves, so the prediction's literal trigger did
+  > not fire; it falls up to 0.1020 short, so **there is a second cause anyway.** The
+  > prediction was written against a *number* rather than a *re-measurement*, which is
+  > how its baseline was able to drift underneath it — see ADR-203 finding 0.
   >
   > One process finding worth keeping: `test_the_hessian_standard_error_is_wide_but_finite`
   > has asserted `n_floored == 0` since slice 3 — the repository already held the evidence
