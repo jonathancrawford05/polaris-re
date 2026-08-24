@@ -17128,6 +17128,115 @@ numeric-`by` basis) and its first for a two-margin term.
 **Supersedes nothing.** Extends the epic's INDEPENDENT Stage-A coverage (ADR-194, ADR-200)
 to a two-margin construction neither previously handled; does not reopen or amend either.
 
+## ADR-206: the first multi-term mgcv-native model — slice 5's remaining scope closed, INDEPENDENT Stage-B `eta` parity
+
+**Date:** 2026-08-24
+**Status:** Accepted
+
+**Context.** `docs/CONTINUATION_mgcv_parity_engine.md` named exactly what remained of
+slice 5 after ADR-200 (the MI by-term's basis) and ADR-205 (`ti()`'s basis) closed
+their own Stage-A questions: "Nothing has run Stage B / Anchor 2's own criteria (the
+MI contrast, `eta`) on either this term or the `by` term — that is what unblocks both
+slice 4 part B's N>2 extension and Anchor 5's absolute/relative demonstration, and it
+is what remains of slice 5." Both prior ADRs said the same thing from the other side:
+ADR-205's "What this does not claim" names "not a multi-term fitted model" explicitly.
+
+**Parity claim, written before the code (`docs/VERIFICATION_STANDARD.md`):**
+
+> `polaris_re` assembles the three-term design (`build_python_cr_term` for the
+> reference `s(AttdAge,k=13,bs="cr")` term, `build_python_cr_term(by=...)` for the MI
+> term `s(AttdAge,by=StudyYear_C,k=13,bs="cr")`, and `build_python_ti_term` for
+> `ti(AttdAge,PolYear,k=(13,6),bs="cr")`) from the shared recipe and fits it with
+> `gam_fit.penalized_irls_general` at a FIXED, externally-supplied `sp` (one per
+> block) under binomial/cloglog with `ExposCnt` weights; `mgcv` computes the identical
+> three-term model natively via `gam()` at the same fixed `sp`; compared on `eta` at
+> the training design.
+
+**Decision 1 — three of the target's eight terms, chosen because their bases are
+already independently verified.** `s(AttdAge, k=13, bs="cr")` (ADR-194), the MI term
+`s(AttdAge, by=StudyYear_C, k=13, bs="cr")` (ADR-200) and `ti(AttdAge, PolYear,
+k=c(13,6), bs="cr")` (ADR-205) — building a multi-term model from these three, rather
+than waiting on `sz` (slice 6, not yet built), is what makes this slice's Stage-B
+claim INDEPENDENT rather than speculative: every basis producer it calls already has
+its own committed parity result.
+
+**Decision 2 — column and penalty-block assembly.** `mgcv`'s own formula-order
+convention for `y ~ s(AttdAge) + s(AttdAge, by=StudyYear_C) + ti(AttdAge, PolYear)`
+with no other parametric term places an intercept first (mgcv always fits one unless
+the formula suppresses it), then each smooth term's own columns in formula order —
+confirmed against the R-side fit's own coefficient count (86 = 1 + 12 + 13 + 60)
+before being relied on, not assumed. `assemble_multiterm_design`
+(`gam_multiterm_conformance.py`) reproduces that order and pads each of the four
+penalty blocks — the reference term's one block, the by-term's one block, and `ti()`'s
+two (ADR-205: both apply to the *same* tensor column range, not two disjoint ranges,
+which the first draft of this function got wrong and a shape-mismatch exception
+caught immediately) — with zeros outside its own term's columns, the convention
+`DesignExport.s_age`/`s_year` and `gam_reml_optimize.penalized_fit_and_score`'s
+`penalty_blocks` already use.
+
+**Decision 3 — fixed `sp`, not REML selection, same regime as slice 3 and slice 4
+part A.** The acceptance criterion this slice needed was "does the multi-term
+*assembly* reproduce `mgcv`'s fitted surface", not "does the outer optimiser find the
+same smoothing parameters" — a separate question slice 4 part B already answers at
+N=2 blocks and is deferred to extend to N=4 here (see "What remains" below).
+
+**Measurement.**
+
+| tier | max_abs_eta_diff | agrees | tier + digest |
+|---|---:|---|---|
+| 1 (R 4.3.3 / mgcv 1.9.1, local apt) | 1.242e-10 | True | n/a |
+| 3 (R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192…` build 8) | 1.242e-10 | True | run [32722872476](https://github.com/jonathancrawford05/polaris-re/actions/runs/32722872476) |
+
+Agreed on the first measurement — the same shape of result ADR-194 (`cr`), ADR-195
+(family/link) and ADR-205 (`ti()`) each reported on their own first pass — and
+**identical to tier 1 at every printed digit**, the same cross-tier stability
+ADR-194/ADR-205 also found on their own first-pass agreements. The diff is looser
+than those single-term cases (~1e-14) by roughly four orders of magnitude, though
+still ~8x inside the inherited `1e-9` tolerance (Anchor 8: the tolerance is
+`gam_stage_a`/`gam_family_conformance`'s own existing value, not chosen for this
+case). Diagnosed, not merely observed: `cond(XᵀWX + S)` at the converged fit is a
+modest ~5000 (no ill-conditioning), the fit converges cleanly in 9 IRLS iterations,
+and the diff is concentrated in a small number of rows (median 4.3e-13, mean 1.6e-12,
+max 1.242e-10) rather than uniform — consistent with the shared `1e-10` relative-
+deviance IRLS convergence floor (`gam_fit._IRLS_TOL`) compounding slightly more in an
+86-column design with a `ti()` block than in the ~7-13-column single-term cases, not
+with a basis or assembly defect. Required levels 1-3 of the existing ten-cell suite
+re-run unaffected on this same CI dispatch (still AGREE); level 4 unchanged
+(ADR-190's separate `dw/drho` gap); level 5 unchanged (AGREES).
+
+**What this closes.** Slice 5's own remaining-scope line in
+`docs/CONTINUATION_mgcv_parity_engine.md` ("Not started: a multi-term mgcv-native
+model … that is what remains of slice 5"). Slice 5 moves from IN PROGRESS to DONE.
+
+**What this does NOT claim.**
+
+- **Not Anchor 2's primary metric.** The MI contrast — `η(age, year+1) − η(age,
+  year)` on a *pinned prediction grid* — needs evaluating the by-term and reference
+  bases at covariate values away from the training rows, which needs the same knot
+  vector and (for the reference term) the same identifiability-constraint transform
+  re-applied at unseen `x`. `gam_basis_cr.py`'s own module docstring already marks
+  extrapolation beyond the knot range as unverified; evaluating *inside* the knot
+  range at new points is a related but distinct question this slice does not answer.
+  `eta` at the training design (this slice's actual comparison) is Anchor 2's
+  *secondary* metric, not its primary one — a real result, honestly scoped rather than
+  overstated.
+- **Not slice 4 part B extended to N>2.** `select_lambdas_continuous` (ADR-199) is
+  written to accept any block count, and this slice's `assemble_multiterm_design`
+  produces exactly the four-block `(x, penalty_blocks)` shape it consumes — but no
+  run in this slice actually calls it at N=4. Wiring the two together (continuous
+  REML selection over this multi-term design) is direct follow-on work, not attempted
+  here to keep this slice to one measured claim.
+- **Not `sz`.** The two `sz` terms in the target formula (slice 6) are not part of
+  this multi-term model; adding them needs slice 6's own basis first.
+- **Not a production change.** `TensorMIModel`/`PenalizedTensorMIModel` and every
+  existing entry point are untouched (Anchor 7). `tests/qa/` goldens re-run
+  byte-identical (`git diff` on `tests/qa/golden_outputs/` empty).
+
+**Supersedes nothing.** Builds on ADR-194, ADR-200 and ADR-205's already-committed
+Stage-A results; does not reopen or amend any of the three.
+
+---
+
 
 ### ADR-204 amendment 1 — the gate's first real firing, and the first use of "case (c)" (2026-08-24)
 
@@ -17177,7 +17286,7 @@ the stamps say `asserted` so a reader knows whose word they are on.
 
 ---
 
-## ADR-206: Anchor 7 amended — the parity stack becomes a production path, not a test harness
+## ADR-207: Anchor 7 amended — the parity stack becomes a production path, not a test harness
 
 **Date:** 2026-08-24
 **Status:** **Accepted** (2026-08-24). The maintainer authorized revisiting the
@@ -17298,6 +17407,37 @@ for the next `ROUTINE_MGCV_PARITY.md` run, not something this PR should
 decide."* This ADR therefore proposes a **work order**
 (`docs/WORK_ORDER_multi_term_assembly.md`) rather than declaring a slice. The
 routine picks it up or does not.
+
+### Amendment 1 — ADR-206 confirmed this diagnosis within hours, and sharpened it (2026-08-24)
+
+This ADR was written against a repository holding nine verified modules and
+nothing permitted to compose them. **ADR-206 merged the same day and built the
+assembler** — three of the target's eight terms fit together, Stage-B `eta`
+parity with `mgcv` at `1.242e-10` on the first measurement. Excellent work, and
+it makes two of this ADR's sentences wrong as written.
+
+**What it does not make wrong is the diagnosis.** ADR-206 built the assembler as
+`gam_multiterm_conformance.assemble_multiterm_design(r_case: RMultiTermRecipe)`
+— a harness that takes its model definition from **an R script's JSON payload**
+and fits at a **fixed, externally-supplied `sp`**. It cannot fit a model `mgcv`
+has not already defined, and it does not select its own smoothing parameters.
+
+That is exactly this ADR's decision 1: under the unamended anchor there was no
+production path a component was permitted to belong to, so a conformance
+artifact was the only available shape. The prediction was tested by events
+within hours of being written, and held.
+
+**The practical effect is that the remaining gap is much smaller than this ADR
+estimated.** Not "build the assembler" — drive the existing, verified assembly
+from `ModelSpec` instead of `RMultiTermRecipe`, and select λ with
+`select_lambdas_continuous` instead of receiving it. Everything else stays.
+`docs/WORK_ORDER_multi_term_assembly.md` is rewritten to that scope.
+
+**One measurement genuinely new, and worth naming:** ADR-206 compared at fixed
+`sp`, so **our own λ selection has never been exercised on a multi-term design.**
+ADR-199 measured `select_lambdas_continuous` at 6.9e-04 to 9.8e-04 against
+`mgcv` on 2-block designs; N=4 at free `sp` is the first test of whether that
+holds as block count grows. The work order registers that prediction.
 
 ### What this does NOT settle
 

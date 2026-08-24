@@ -61,30 +61,37 @@ up to 182 in `X`), row-wise Kronecker design and penalties, then a SECOND tensor
 agreed on `X` but disagreed on `S` by a constant ratio per block). Agrees with
 `smoothCon(ti(...), absorb.cons=TRUE)` to float round-trip precision (~1e-14) on a
 synthetic case and the target's own `ti(AttdAge, PolYear, k=c(13,6))` knots.
-**A multi-term mgcv-native model (needed for Stage B on both the `by` term and `ti()`) is
-not yet started** — that is what remains of slice 5.
+**The multi-term mgcv-native model Stage B needed is now DONE, 2026-08-24** (ADR-206,
+tier 1 and tier 3 identical, CI run 32722872476): a three-term model (reference age,
+the `by` term, `ti()`) fit together at fixed sp agrees with mgcv on `eta` on the first
+measurement, `max_abs_eta_diff=1.242e-10`. **Slice 5 is DONE.**
 
-> **ANCHOR 7 IS AMENDED, and the assembler is now the epic's intended route**
-> (2026-08-24, maintainer-authorized, **ADR-206**). The epic holds nine tier-3-verified
-> modules and nothing permitted to compose them; three ADRs (199, 200, 205) each stopped
-> at Stage A or N=2 naming the same missing assembler. The gap is one function —
-> `ModelSpec` already declares the model, `select_lambdas_continuous` already takes
-> arbitrary N penalty blocks, and what is missing between them is
-> `ModelSpec + data -> (design, penalty_blocks)`.
+> **ANCHOR 7 IS AMENDED** (2026-08-24, maintainer-authorized, **ADR-207**). The old
+> engine stays until a new one demonstrably matches it and nothing is re-pointed
+> silently, but **building a new production path from the tier-3-verified components is
+> now explicitly permitted and is the epic's intended route.**
 >
-> **The assembler and the production engine are the same object.** Anchor 7 was the
-> reason that could not be said, and is amended: building a new production path from the
-> verified components is explicitly permitted; the old engine stays until a new one
-> demonstrably matches it; nothing is swapped silently.
+> **ADR-206 confirmed ADR-207's diagnosis within hours, and sharpened it.** ADR-207 was
+> written against a repository holding nine verified modules and nothing permitted to
+> compose them, arguing that Anchor 7 forced every component to justify itself as a
+> conformance artifact. ADR-206 then built the assembler — and built it as
+> `gam_multiterm_conformance.assemble_multiterm_design(r_case: RMultiTermRecipe)`: a
+> harness that takes its model definition from **an R script's JSON payload** and fits
+> at a **fixed, externally-supplied `sp`**. It is excellent work and its Stage-B `eta`
+> parity is real, but it cannot fit a model `mgcv` has not already defined, and it does
+> not select its own smoothing parameters.
 >
-> **`docs/WORK_ORDER_multi_term_assembly.md` is READY and NOT designated a slice** —
-> designating one is a routine call, not a PR's. It carries a registered prediction and
-> the scope boundaries.
+> That is the pattern, not a criticism: with Anchor 7 in force, a harness was the only
+> available framing. **The remaining gap is now precise and much smaller than ADR-207
+> estimated** — drive the same, already-verified assembly from `ModelSpec` instead of
+> `RMultiTermRecipe`, and select lambda with `select_lambdas_continuous` instead of
+> receiving it. `docs/WORK_ORDER_multi_term_assembly.md` is rewritten to that scope and
+> is **READY, not designated** — designating a slice is a routine call.
 >
 > **Withdrawn, not granted:** the long-open "re-point `smoothing_uncertainty` at
-> `gam_uncertainty`" item (ADR-206 decision 3). ADR-203 removed its justification, and
-> once the assembler exists it uses `gam_uncertainty` natively. The ten-cell suite's
-> level 4 will read DISAGREES about the legacy engine permanently and correctly.
+> `gam_uncertainty`" item (ADR-207 decision 3). ADR-203 removed its justification, and
+> the new path uses `gam_uncertainty` natively. The ten-cell suite's level 4 will read
+> DISAGREES about the legacy engine permanently and correctly.
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16) and one deferred
 to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
@@ -324,7 +331,7 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    exercised it beyond 2 yet; extending to a real multi-term model (13-21 blocks)
    needs a multi-term mgcv-native model, which is slice 5 onward's own work.
 5. **`ti()` and the varying-coefficient MI term.** Ship the MI term first if they split.
-   **IN PROGRESS.**
+   **DONE, 2026-08-24** (ADR-206 closes the remaining multi-term Stage-B scope below).
 
    **The MI term's own basis is DONE (Stage A only), 2026-08-22** (ADR-200, tier 1 and
    tier 3 both confirmed, CI run 32571764900, identical to the printed digit). `mgcv`
@@ -365,10 +372,24 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    internal guard, ADR-191's discipline, re-run on the tensor term). Carries its own
    `TI_BASIS_CLAIM` (`design_X`/`penalty_S`/`rank`, both penalty blocks, all INDEPENDENT).
 
-   **Not started:** a multi-term mgcv-native model. Nothing has run Stage B / Anchor 2's
-   own criteria (the MI contrast, `η`) on either this term or the `by` term — that is what
-   unblocks both slice 4 part B's N>2 extension and Anchor 5's absolute/relative
-   demonstration, and it is what remains of slice 5.
+   **The multi-term mgcv-native model is now DONE (Stage B on `eta`), 2026-08-24**
+   (ADR-206, tier 1 AND tier 3 identical to the printed digit, CI run 32722872476):
+   `gam_multiterm_conformance.py` assembles `s(AttdAge,k=13,bs="cr")` +
+   `s(AttdAge,by=StudyYear_C,k=13,bs="cr")` + `ti(AttdAge,PolYear,k=c(13,6),bs="cr")`
+   from the three already-independently-verified basis producers above and fits it
+   with `gam_fit.penalized_irls_general` at a fixed sp per block (binomial/cloglog,
+   `ExposCnt` weights — Anchor 5's absolute idiom), reading only the shared recipe
+   (never mgcv's own `eta`/`coef`). Agreed on the first measurement,
+   `max_abs_eta_diff=1.242e-10` (`n=900`, `p=86`), identical at tier 1 and tier 3 —
+   looser than single-term Stage-A cases (~1e-14) but diagnosed as the shared IRLS
+   convergence floor on a larger design, not a basis or assembly defect (`cond(XᵀWX+S)
+   ≈5000`, converges in 9 iterations). `MULTITERM_CLAIM` declares `eta` INDEPENDENT.
+   **This closes slice 5's own remaining-scope line.** What it does NOT do: reach
+   Anchor 2's *primary* MI-contrast-on-a-grid metric (needs basis evaluation at
+   unseen covariate values, a distinct question from this training-design `eta`
+   check), extend slice 4 part B's search to N>2 blocks (the assembled design is the
+   right shape for `select_lambdas_continuous` but nothing calls it yet), or add the
+   `sz` terms (slice 6). All three are named, separate follow-on work — see ADR-206.
 6. **`bs = "sz"`** — orthogonal factor-smooth interactions. Expect the hardest basis.
    PLANNED.
 7. **`select = TRUE`** — the double penalty; 13 → 21 smoothing parameters. PLANNED.
@@ -389,8 +410,8 @@ across the slice structure.
 | Multi-penalty REML criterion (Python-side) | The penalized-deviance criterion, Wood (2011) §2 eq. (4), for any number of independently-scaled penalty blocks | **FIXED, 2026-08-18** (ADR-196) — the score was missing `β̂ᵀSβ̂`; adding it closed the gap to float precision, tier 1 and tier 3 identical | Nothing — DONE |
 | Same criterion, production module | `experience_gam_penalized.reml_score` — the SHIPPED tensor-MI 2-D grid selector's own score, same formula shape, same omission | **FIXED, 2026-08-19** (ADR-197 amendment, maintainer-authorized) — identical fix to ADR-196's, `python_reference.json` re-baselined moving exactly as §3.2 predicted, required conformance levels 1-3 still agree, level 5 moved from DISAGREES to AGREES | Nothing — DONE |
 | N-dimensional outer search | Newton/quasi-Newton (f)REML optimisation over 13-21 `log λ` | **First slice DONE, 2026-08-22** (ADR-199, tier 1 AND tier 3 confirmed) — `select_lambdas_continuous` built and confirms ADR-198's prediction decisively; tested only at N=2, not yet at the target's 13-21 blocks | A multi-term mgcv-native model to build N>2 blocks from (slice 5 onward) |
-| `ti()` — tensor interaction | Tensor product with marginal main effects excluded | **Stage A DONE, 2026-08-24** (ADR-205, tier 1 AND tier 3 confirmed) — agrees with `smoothCon(ti(...))` to ~1e-14, including the target's own `ti(AttdAge, PolYear, k=c(13,6))` knots. Stage B unmeasured (needs a multi-term model) | A multi-term mgcv-native model for the Stage-B half |
-| `s(..., by=...)` with a `cr` basis | The MI term itself — a `cr` basis scaled by a numeric `by` variable | **Stage A DONE, 2026-08-22** (ADR-200, tier 1 AND tier 3 confirmed) — `mgcv` absorbs no identifiability constraint on a numeric-`by` smooth; agrees to ~2e-14. Stage B unmeasured (needs a multi-term model) | A multi-term mgcv-native model for the Stage-B half (slice 5's remaining scope) |
+| `ti()` — tensor interaction | Tensor product with marginal main effects excluded | **Stage A+B DONE, 2026-08-24** (ADR-205 Stage A, ADR-206 Stage B, tier 1 AND tier 3 confirmed) — agrees with `smoothCon(ti(...))` to ~1e-14 (Stage A) and with a native multi-term `gam()` fit's `eta` to 1.242e-10 (Stage B), including the target's own `ti(AttdAge, PolYear, k=c(13,6))` knots | Nothing for this term's own basis+fit; the MI-contrast-on-a-grid metric and N>2 slice-4-part-B extension remain (ADR-206) |
+| `s(..., by=...)` with a `cr` basis | The MI term itself — a `cr` basis scaled by a numeric `by` variable | **Stage A+B DONE, 2026-08-24** (ADR-200 Stage A, ADR-206 Stage B, tier 1 AND tier 3 confirmed) — `mgcv` absorbs no identifiability constraint on a numeric-`by` smooth; agrees to ~2e-14 (Stage A) and to 1.242e-10 on `eta` in the multi-term fit (Stage B) | Nothing for this term's own basis+fit; same remaining items as the `ti()` row above |
 | `bs = "sz"` | Sum-to-zero factor-smooth interactions (4 terms in the target formula) | **Not started**, expected hardest basis (PLAN §6 registered prediction) | The outer search (slice 6) |
 | `select = TRUE` | The double penalty / null-space shrinkage that takes 13 sp → 21 | **Not started** | Slices 4-6 |
 | `cr` basis extrapolation | Behaviour for `x` outside `[knots[0], knots[-1]]` | **Unverified**, not assumed — `gam_basis_cr.py` marks it explicitly | A future session measuring it; blocks fitting the target's own knots against real experience data, whose range need not match the hand-chosen knots |
@@ -442,17 +463,23 @@ should be re-synced.
    6.9e-04/5.1e-05/1.7e-04/9.8e-04 — **ADR-198's prediction HOLDS, decisively**, not
    merely "inside tolerance": the residual left after ADR-197's fix was grid
    quantisation, not a remaining criterion difference. **What remains of this item:**
-   extending the search to more than 2 penalty blocks, which needs a multi-term
-   mgcv-native model (slice 5's own scope) — the search itself is already written
-   generally, nothing here
-   needs revisiting once that model exists.
-4. **Slice 5 — `ti()` and the MI term.** Ship the MI term first if they split (PLAN
-   §3: it's the cheap, well-conditioned one and the actual point of the target
-   formula). **The MI term's basis is DONE (Stage A only), 2026-08-22** (ADR-200, tier 1
-   AND tier 3 confirmed). **`ti(AttdAge, PolYear)` is now also DONE (Stage A only),
-   2026-08-24** (ADR-205, tier 1 AND tier 3 confirmed). **What remains:** a multi-term
-   mgcv-native model, which is the shared prerequisite for this slice's own Stage-B half
-   (both terms), for extending slice 4 part B's search above N=2, and for item (8) below.
+   a real multi-term mgcv-native model now exists (ADR-206, item 4 below) and
+   `assemble_multiterm_design` produces exactly the `(x, penalty_blocks)` shape
+   `select_lambdas_continuous` consumes — extending the search to N=4 blocks on it is
+   direct follow-on work, not yet attempted (ADR-206 names it explicitly rather than
+   claiming it).
+4. ~~**Slice 5 — `ti()` and the MI term.**~~ **DONE, 2026-08-24** (ADR-206). Ship the
+   MI term first if they split (PLAN §3: it's the cheap, well-conditioned one and the
+   actual point of the target formula). The MI term's basis: **DONE (Stage A), 2026-08-22**
+   (ADR-200, tier 1 AND tier 3 confirmed). `ti(AttdAge, PolYear)`'s basis: **DONE (Stage A),
+   2026-08-24** (ADR-205, tier 1 AND tier 3 confirmed). **The multi-term mgcv-native model
+   (Stage B on both terms) is now DONE, 2026-08-24** (ADR-206, tier 1 AND tier 3 identical):
+   a three-term model — reference age smooth, the `by` term, `ti()` — fit together at a
+   fixed sp agrees with `mgcv`'s native fit on `eta`, `max_abs_eta_diff=1.242e-10`, first
+   measurement. **What remains, named but not attempted by ADR-206:** Anchor 2's primary
+   MI-contrast-on-a-grid metric (needs basis evaluation at unseen covariate values),
+   extending slice 4 part B's search to N>2 blocks on this design (item 3 above), and
+   item (8) below.
 5. **Slice 6 — `bs = "sz"`.** Expected hardest basis; Stage A is where a mistake here
    is cheap (PLAN §6 registered prediction).
 6. **Slice 7 — `select = TRUE`.** 13 → 21 smoothing parameters.
@@ -480,7 +507,12 @@ should be re-synced.
    production** — ADR-202's parity is that case, and it is a different one.
 
 8. **Demonstrate Anchor 5's absolute/relative idiom end to end** on the target's own
-   multi-term structure, once a multi-term model exists (needs (3)).
+   multi-term structure. **Partially demonstrated by ADR-206** (2026-08-24): the
+   multi-term model uses the absolute idiom (`ExposCnt` weights, no offset) and fits
+   correctly under it — but at a fixed, externally-supplied `sp`, not through the
+   outer smoothing-parameter search, and the relative idiom (an offset, no weights)
+   is not exercised at all on this structure. Both remain open for a session wiring
+   `select_lambdas_continuous` through this design (item 3 above).
 9. **`cr` basis extrapolation beyond the knot range.** Needed before fitting the
    target's own `AttdAge`/`PolYear` knots against real experience data.
 

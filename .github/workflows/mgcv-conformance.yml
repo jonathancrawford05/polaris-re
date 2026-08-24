@@ -89,6 +89,12 @@ on:
       - "src/polaris_re/analytics/gam_reml_optimize.py"
       - "src/polaris_re/analytics/gam_reml_optimize_conformance.py"
       - "scripts/reml_continuous_optimizer_probe.py"
+      # Slice 5's remaining scope — the first multi-term mgcv-native model
+      # (reference age + MI by-term + ti(age,duration)), same reasoning as the
+      # lines above: a change to any of the three basis producers or the
+      # multi-term assembly must re-run the Stage-B eta comparison against mgcv.
+      - "src/polaris_re/analytics/gam_multiterm_conformance.py"
+      - "scripts/gam_multiterm_probe.R"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -344,6 +350,20 @@ jobs:
             Rscript scripts/gam_vc_probe.R \
               gam_vc_probe.json
 
+      # Slice 5's remaining scope (docs/CONTINUATION_mgcv_parity_engine.md): the
+      # first multi-term mgcv-native model — reference age smooth, the MI
+      # by-term, and ti(AttdAge, PolYear), fit TOGETHER at a fixed sp for every
+      # block. Same DIAGNOSTIC contract as the probes above — the eta comparison
+      # against the independent Python assembly (gam_multiterm_conformance)
+      # happens in the `compare` job below, not gated here.
+      - name: Fit the shared three-term multi-term design at fixed sp (slice 5)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_multiterm_probe.R \
+              gam_multiterm_probe.json
+
       - uses: actions/upload-artifact@v4
         with:
           name: mgcv-reference
@@ -356,6 +376,7 @@ jobs:
             gam_reml_probe.json
             gam_deriv_probe.json
             gam_vc_probe.json
+            gam_multiterm_probe.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
@@ -881,6 +902,67 @@ jobs:
             cat gam_family_probe_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # Slice 5's remaining scope: compares the independent Python multi-term
+      # assembly (gam_multiterm_conformance) against job 1's native mgcv fit of
+      # the SAME three-term formula at the SAME fixed sp. DIAGNOSTIC ONLY, same
+      # contract as the probes above — printed to stdout from the start (the
+      # methodology fix ADR-194 needed partway through slice 2), so a tier-3
+      # read never has to settle for "the step didn't except."
+      - name: Compare the multi-term Stage-B fit against the Python side (slice 5)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_multiterm_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_multiterm_probe.json to compare ({exc}) — the R "
+                    "probe above did not produce one.")
+              sys.exit(0)
+
+          from polaris_re.analytics.gam_multiterm_conformance import (
+              MULTITERM_CLAIM, compare_multiterm_case, fit_multiterm_case,
+          )
+          from polaris_re.core.verification import evidence_markdown
+
+          fit, _design = fit_multiterm_case(r_payload)
+          c = compare_multiterm_case(fit, r_payload)
+
+          lines = [
+              "",
+              "### Slice 5 (remaining scope) — multi-term mgcv-native model vs mgcv (INDEPENDENT on eta)",
+              "",
+              evidence_markdown(MULTITERM_CLAIM),
+              "",
+              "| n | p | max abs eta diff | agrees |",
+              "|---:|---:|---:|---|",
+              f"| {r_payload['n']} | {len(r_payload['coef'])} | "
+              f"{c['max_abs_eta_diff']:.3e} | {c['agrees']} |",
+              "",
+              "Reference age s(AttdAge), the MI term s(AttdAge,by=StudyYear_C) and "
+              "ti(AttdAge,PolYear), fit TOGETHER at a fixed sp under "
+              "binomial/cloglog with ExposCnt weights. `eta` is INDEPENDENT (see "
+              "the legend): gam_multiterm_conformance.fit_multiterm_case never "
+              "reads this script's own eta or coef, only the shared recipe "
+              "(AttdAge, PolYear, StudyYear_C, ExposCnt, y, knots, sp). A "
+              "disagreement is a real result about the multi-term assembly, not a "
+              "broken round trip. Coefficients are NOT compared (Anchor 2).",
+          ]
+          if not c["agrees"]:
+              lines.insert(2, "**Disagreement — see the table. This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_multiterm_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_multiterm_probe_report.md ]; then
+            cat gam_multiterm_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       # Slice 4 part A: compares the independent Python REML score
       # (gam_reml.reml_score_general on an independently-converged
       # gam_fit.penalized_irls_general fit) against job 1's mgcv gcv.ubre on
@@ -1072,3 +1154,5 @@ jobs:
             gam_deriv_report.md
             gam_vc_probe.json
             gam_vc_report.md
+            gam_multiterm_probe.json
+            gam_multiterm_probe_report.md

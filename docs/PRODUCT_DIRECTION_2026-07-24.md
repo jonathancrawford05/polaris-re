@@ -2781,3 +2781,40 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   slice 5's Stage-A halves actually in hand to build it against. *Source: this session
   (1st-order — confirms the epic's next bottleneck is unchanged and is now the only
   thing between here and Stage B on two already-verified bases).*
+
+### Harvested 2026-08-24b — slice 5's remaining scope closed: the first multi-term mgcv-native model (ADR-206)
+
+- **Slice 5 IS NOW DONE.** The multi-term mgcv-native model both Stage-A halves
+  (ADR-200, ADR-205) were waiting on now exists:
+  `s(AttdAge,k=13,bs="cr") + s(AttdAge,by=StudyYear_C,k=13,bs="cr") +
+  ti(AttdAge,PolYear,k=c(13,6),bs="cr")`, binomial/cloglog with `ExposCnt` weights
+  (Anchor 5's absolute idiom), fit at a fixed `sp` per block. `polaris_re` assembles
+  the design from the three already-independently-verified basis producers and fits
+  with `gam_fit.penalized_irls_general`; `mgcv` fits the identical formula natively.
+  Agreed on the FIRST measurement — `max_abs_eta_diff=1.242e-10` (`n=900`, `p=86`),
+  identical to the printed digit at tier 1 and tier 3 (CI run 32722872476, oracle
+  `sha256:0d54c192…` build 8). `MULTITERM_CLAIM` declares `eta` INDEPENDENT. Required
+  levels 1-3 of the ten-cell suite also still agree — no regression. *Source: this
+  session, ADR-206 (1st-order — closes the epic's active slice).*
+
+- **The eta diff is real but four orders of magnitude looser than single-term
+  Stage-A/B cases (~1e-14 → ~1e-10), diagnosed rather than left unexplained.**
+  `cond(XᵀWX+S)≈5000` (well-conditioned), 9 IRLS iterations to convergence, and the
+  diff is concentrated in a handful of rows (median 4.3e-13, mean 1.6e-12, max
+  1.242e-10) — consistent with `gam_fit`'s shared `1e-10` relative-deviance IRLS
+  convergence floor (`_IRLS_TOL`) compounding slightly more on an 86-column,
+  four-penalty-block design than on the 7-13-column single-term cases every prior
+  slice measured. Still ~8x inside the existing (not newly widened, Anchor 8) `1e-9`
+  tolerance. *Source: this session (2nd-order — worth a closer look only if a future,
+  larger multi-term model's diff grows past this order of magnitude; not evidence of
+  a defect today).*
+
+- **Three things this closure explicitly does NOT reach, named rather than left
+  implicit.** (1) Anchor 2's *primary* MI-contrast-on-a-grid metric — needs basis
+  evaluation at covariate values away from the training rows, a distinct question
+  from the training-design `eta` check this session ran. (2) Extending slice 4 part
+  B's continuous search (`select_lambdas_continuous`) to this design's N=4 penalty
+  blocks — the assembled `(x, penalty_blocks)` is already the right shape, but
+  nothing calls the search on it yet. (3) `sz` (slice 6) is not part of this model.
+  *Source: this session, ADR-206 (1st-order — each is a concrete, small next slice
+  now that the multi-term harness exists, not a re-opening of slice 5).*
