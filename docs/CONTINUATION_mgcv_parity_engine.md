@@ -689,3 +689,28 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
   mode expressed in sentences rather than in figures. Whether it is worth a mechanism — a
   claim register with trigger conditions, say — or whether it stays a review-time
   responsibility, is a maintainer call, not a routine's.
+- **The stamp schema understates evidence after an inert edit** *(1st-order — defect in
+  ADR-204's schema; raised by the maintainer 2026-08-24, filed here same day)*. A stamp
+  fingerprints the producer's transitive import closure, so **any** edit inside that closure
+  drifts every document downstream of it — including documents regenerated on real inputs
+  the day before. When that happens, re-stamping under RUNBOOK §2 case (c) writes
+  `method: asserted` and `generated: <today>`, and both fields then misdescribe the
+  evidence: `asserted` reads as *"nobody re-ran this"* when the figures came from a genuine
+  run, and the field named `generated` carries the **stamp** date, not the run date
+  (`measurement_provenance.py:273`). Live instance: `MEASUREMENT_experience_gam_ilec`,
+  `_hmd` and `_portfolio_parallel_macbook_air` were all regenerated 2026-08-23 and now read
+  `asserted` / `2026-08-24` because a `table_io` error-message edit landed after them. The
+  prose notes rescue it; the machine-readable fields do not, and future tooling will read
+  the fields. **The schema collapses three states into two** — never run / run-then-inert-drift
+  / run-at-current-closure. Proposed fix: a third method value (`reconciled`) and splitting
+  `generated` into run date and stamp date. That is an amendment to ADR-204's schema and
+  re-touches every stamped document, so it is a maintainer call.
+- **Whether Anchor 7's gating pattern should bind future work**
+  *(2nd-order — process, not engine; raised by the maintainer 2026-08-24)*. ADR-207 amended
+  Anchor 7 by recording what it *cost*. The maintainer's reading supplies the other half:
+  the anchor is also what *produced* the nine tier-3-verified components, by forbidding
+  assembly until each part was understood in isolation. `PATTERN_gated_decomposition.md`
+  is the retrospective — it argues the defect was the missing release condition rather than
+  the constraint, and proposes four requirements a gate should carry. **It is PROPOSED and
+  binds nothing.** Adopting it means an ADR (the `VERIFICATION_STANDARD.md` / ADR-193
+  precedent) and, if adopted, re-reading the PLAN's other anchors against requirement 2.
