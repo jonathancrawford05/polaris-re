@@ -5,6 +5,8 @@
 §3). The MI term's own basis (`s(AttdAge, by=StudyYear_C)`) was already DONE (ADR-200,
 2026-08-22); this session's own scope is the slice's other named piece, `ti(AttdAge,
 PolYear)`.
+**PR:** #209 (`claude/zealous-mendel-oyim0j`), draft.
+**ADR:** ADR-205.
 
 ## Setup
 
