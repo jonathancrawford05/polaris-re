@@ -34,8 +34,10 @@ from polaris_re.analytics.gam_stage_a import (
     CR_BY_BASIS_CLAIM,
     RAW_PATH_CLAIM,
     SMOOTH_PATH_CLAIM,
+    TI_BASIS_CLAIM,
     TermExtract,
     build_python_cr_term,
+    build_python_ti_term,
     compare_term_extract,
     extract_raw_terms,
     extract_smooth_terms,
@@ -650,11 +652,20 @@ def test_the_r_extractor_agrees_with_the_python_side_on_every_smooth_design(
     assert done.returncode == 0, done.stderr
     r_payload = json.loads(out_path.read_text())
     smooth_designs = r_payload["smooth_designs"]
-    assert set(smooth_designs) == set(_SMOOTH_CASES)
+    # Subset, not equality: gam_term_extract.R's smooth_designs also carries slice
+    # 5's two-margin `ti` cases (`_TI_CASES` below), which this single-variable `cr`
+    # test does not build a TermSpec for.
+    assert set(_SMOOTH_CASES) <= set(smooth_designs)
 
+    # Only the single-variable cr cases named in _SMOOTH_CASES: the ti cases carry
+    # no single "knots" list (each margin has its own, module docstring), and
+    # extract_smooth_terms/compare_term_extract's ti coverage is
+    # test_the_python_ti_basis_agrees_with_smoothcon_on_every_ti_design below.
     terms = tuple(
-        TermSpec(label=label, variables=("x",), basis="cr", k=(len(r_term["knots"]),))
-        for label, r_term in smooth_designs.items()
+        TermSpec(
+            label=label, variables=("x",), basis="cr", k=(len(smooth_designs[label]["knots"]),)
+        )
+        for label in _SMOOTH_CASES
     )
     python_terms = extract_smooth_terms(terms, smooth_designs)
 
@@ -729,10 +740,16 @@ def test_the_python_cr_basis_agrees_with_smoothcon_on_every_smooth_design(
     assert done.returncode == 0, done.stderr
     r_payload = json.loads(out_path.read_text())
     smooth_designs = r_payload["smooth_designs"]
-    assert set(smooth_designs) == set(_SMOOTH_CASES)
+    # Subset, not equality: gam_term_extract.R's smooth_designs also carries slice
+    # 5's two-margin `ti` cases (`_TI_CASES` below), which this single-variable `cr`
+    # test does not build a TermSpec for.
+    assert set(_SMOOTH_CASES) <= set(smooth_designs)
 
+    # Only the single-variable cr cases: the ti cases (_TI_CASES) are
+    # test_the_python_ti_basis_agrees_with_smoothcon_on_every_ti_design's own scope.
     failures: list[str] = []
-    for label, r_term in smooth_designs.items():
+    for label in _SMOOTH_CASES:
+        r_term = smooth_designs[label]
         k, supplied, with_by = _SMOOTH_CASES[label]
         term = TermSpec(
             label=label,
@@ -768,6 +785,158 @@ def test_the_python_cr_basis_agrees_with_smoothcon_on_every_smooth_design(
             )
 
     assert not failures, "Stage-A cr basis parity disagreed:\n" + "\n".join(failures)
+
+
+# --- build_python_ti_term, the independent Python producer (slice 5, ti()) ------------
+
+
+def test_build_python_ti_term_builds_a_term_extract_with_supplied_knots() -> None:
+    rng = np.random.default_rng(4)
+    n = 200
+    x1 = np.sort(rng.uniform(1.0, 95.0, n))
+    x2 = rng.permutation(np.sort(rng.uniform(1.0, 21.0, n)))
+    term = TermSpec(
+        label="ti(a,p)",
+        variables=("attained_age", "policy_year"),
+        basis="ti",
+        k=(13, 6),
+        knots=(
+            (
+                "attained_age",
+                (1.0, 2.0, 4.0, 7.0, 14.0, 18.0, 24.0, 35.0, 50.0, 70.0, 85.0, 90.0, 95.0),
+            ),
+            ("policy_year", (1.0, 2.0, 3.0, 5.0, 10.0, 21.0)),
+        ),
+    )
+    extract = build_python_ti_term(x1, x2, term)
+    assert extract.label == "ti(a,p)"
+    assert (extract.index_start, extract.index_end) == (0, 12 * 5)
+    assert extract.design.shape == (n, 60)
+    assert len(extract.s) == 2
+    assert extract.s[0].shape == (60, 60)
+    assert extract.s[1].shape == (60, 60)
+    assert extract.evidence is TI_BASIS_CLAIM
+    assert extract.knots is None
+
+
+def test_build_python_ti_term_derives_default_knots_when_none_supplied() -> None:
+    rng = np.random.default_rng(5)
+    n = 150
+    x1 = np.sort(rng.uniform(0.0, 10.0, n))
+    x2 = rng.permutation(np.sort(rng.uniform(0.0, 5.0, n)))
+    term = TermSpec(label="ti(a,b)", variables=("a", "b"), basis="ti", k=(6, 5))
+    extract = build_python_ti_term(x1, x2, term)
+    assert extract.design.shape == (n, 5 * 4)
+
+
+def test_build_python_ti_term_refuses_a_non_ti_basis() -> None:
+    x1 = np.linspace(0.0, 10.0, 50)
+    x2 = np.linspace(0.0, 5.0, 50)
+    cr_term = TermSpec(label="s(x)", variables=("x",), basis="cr", k=(8,))
+    with pytest.raises(PolarisValidationError, match="basis='ti'"):
+        build_python_ti_term(x1, x2, cr_term)
+
+
+def test_build_python_ti_term_refuses_more_or_fewer_than_two_variables() -> None:
+    x1 = np.linspace(0.0, 10.0, 50)
+    x2 = np.linspace(0.0, 5.0, 50)
+    three_var_term = TermSpec(label="ti(a,b,c)", variables=("a", "b", "c"), basis="ti", k=(6, 5, 4))
+    with pytest.raises(PolarisValidationError, match="exactly two variables"):
+        build_python_ti_term(x1, x2, three_var_term)
+
+
+def test_the_python_ti_basis_declares_every_quantity_independent() -> None:
+    rng = np.random.default_rng(6)
+    n = 150
+    x1 = np.sort(rng.uniform(0.0, 10.0, n))
+    x2 = rng.permutation(np.sort(rng.uniform(0.0, 5.0, n)))
+    term = TermSpec(label="ti(a,b)", variables=("a", "b"), basis="ti", k=(6, 5))
+    extract = build_python_ti_term(x1, x2, term)
+    assert extract.evidence.is_parity_claim
+    assert all(
+        q.provenance is ComparisonProvenance.INDEPENDENT for q in extract.evidence.quantities
+    )
+    assert "Parity comparison" in evidence_headline(extract.evidence)
+    require_parity_evidence(extract.evidence.parity_quantities, claim="ti basis parity")
+
+
+# The (k1, k2, knots1, knots2) recipe for gam_term_extract.R's two `extract_smooth_ti`
+# cases — named explicitly, same discipline as `_SMOOTH_CASES` above (Anchor 4: never
+# derive knots when supplied; reading k or knots back off the R payload would violate
+# ADR-193's mechanical test).
+_TI_CASES: dict[str, tuple[int, int, tuple[float, ...] | None, tuple[float, ...] | None]] = {
+    "ti-default-knots-k6-k5": (6, 5, None, None),
+    "ti-target-attdage-polyear": (
+        13,
+        6,
+        (1.0, 2.0, 4.0, 7.0, 14.0, 18.0, 24.0, 35.0, 50.0, 70.0, 85.0, 90.0, 95.0),
+        (1.0, 2.0, 3.0, 5.0, 10.0, 21.0),
+    ),
+}
+
+
+@pytest.mark.skipif(not rscript_mgcv_available(), reason="R with mgcv is not installed here")
+def test_the_python_ti_basis_agrees_with_smoothcon_on_every_ti_design(
+    tmp_path,
+) -> None:  # pragma: no cover
+    """Slice 5's second Stage-A parity result: :func:`build_python_ti_term` — the
+    row-wise Kronecker of two constrained ``cr`` margins, normalized per margin
+    and again at the tensor level (``gam_basis_cr`` module docstring) — agrees
+    with ``mgcv``'s own ``smoothCon(ti(...), absorb.cons=TRUE)`` on both of
+    ``gam_term_extract.R``'s isolated ``ti`` cases, including the target
+    formula's own ``ti(AttdAge, PolYear, k=c(13,6))`` knot vectors.
+
+    A disagreement here is a real result about the tensor construction, not a
+    broken round trip.
+    """
+    out_path = tmp_path / "gam_term_extract.json"
+    done = subprocess.run(
+        [
+            "Rscript",
+            str(REPO_ROOT / "scripts" / "gam_term_extract.R"),
+            str(REPO_ROOT / "data" / "mgcv_exchange" / "synthetic"),
+            str(out_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    r_payload = json.loads(out_path.read_text())
+    smooth_designs = r_payload["smooth_designs"]
+    assert set(_TI_CASES) <= set(smooth_designs)
+
+    failures: list[str] = []
+    for label, (k1, k2, supplied1, supplied2) in _TI_CASES.items():
+        r_term = smooth_designs[label]
+        knots = []
+        if supplied1 is not None:
+            knots.append(("v1", supplied1))
+        if supplied2 is not None:
+            knots.append(("v2", supplied2))
+        term = TermSpec(
+            label=label,
+            variables=("v1", "v2"),
+            basis="ti",
+            k=(k1, k2),
+            knots=tuple(knots) if knots else None,
+        )
+        x1 = np.asarray(r_term["x1"], dtype=np.float64)
+        x2 = np.asarray(r_term["x2"], dtype=np.float64)
+        python_term = build_python_ti_term(x1, x2, term)
+        assert python_term.evidence is TI_BASIS_CLAIM
+        require_parity_evidence(
+            python_term.evidence.quantities, claim=f"{label}: Stage-A ti basis parity"
+        )
+        comparison = compare_term_extract(python_term, r_term)
+        if not comparison.agrees:
+            failures.append(
+                f"{label}: max_X_diff={comparison.max_abs_design_diff:.3e} "
+                f"max_S_diff={comparison.max_abs_s_diff} rank_diff={comparison.rank_diff}"
+            )
+
+    assert not failures, "Stage-A ti basis parity disagreed:\n" + "\n".join(failures)
 
 
 # --- Provenance: what these comparisons are evidence OF (ADR-193) ----------------------

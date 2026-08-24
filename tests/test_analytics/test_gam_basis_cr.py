@@ -20,6 +20,8 @@ from polaris_re.analytics.gam_basis_cr import (
     by_scale_design,
     cr_basis,
     cr_default_knots,
+    sum_to_zero_null_space,
+    ti_basis,
 )
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 
@@ -239,3 +241,104 @@ def test_by_scale_design_refuses_a_length_mismatch() -> None:
     by = np.ones(9, dtype=np.float64)
     with pytest.raises(PolarisValidationError, match="one by-value per row"):
         by_scale_design(design, by)
+
+
+# --- sum_to_zero_null_space: split from absorb_sum_to_zero_constraint (slice 5) ----
+
+
+def test_sum_to_zero_null_space_matches_absorb_constraint() -> None:
+    """The split (module docstring) must not have changed what either call site
+    computes — Z applied by hand reproduces absorb_sum_to_zero_constraint's own
+    design/penalty exactly."""
+    knots = np.array([0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 9.0, 10.0], dtype=np.float64)
+    x = _rng_x()
+    design, s = cr_basis(x, knots)
+    design_c, s_c = absorb_sum_to_zero_constraint(design, s)
+    z = sum_to_zero_null_space(design)
+    np.testing.assert_allclose(design @ z, design_c)
+    np.testing.assert_allclose(z.T @ s @ z, s_c)
+
+
+def test_sum_to_zero_null_space_refuses_a_zero_constraint_row() -> None:
+    design = np.zeros((10, 5), dtype=np.float64)
+    with pytest.raises(PolarisComputationError, match="colMeans"):
+        sum_to_zero_null_space(design)
+
+
+# --- ti_basis: closed-form invariants (no mgcv needed) ------------------------------
+#
+# R-gated parity against mgcv's own smoothCon(ti(...)) lives in test_gam_stage_a.py
+# (test_the_python_ti_basis_agrees_with_smoothcon_on_every_ti_design), matching
+# cr_basis's own split between this module (closed-form, no R) and that one
+# (mgcv-gated).
+
+
+def _ti_case(seed: int = 7, n: int = 120):
+    rng = np.random.default_rng(seed)
+    x1 = np.sort(rng.uniform(0.0, 10.0, n))
+    x2 = rng.permutation(np.sort(rng.uniform(0.0, 5.0, n)))
+    knots1 = np.array([0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 9.0, 10.0], dtype=np.float64)
+    knots2 = np.array([0.0, 1.0, 2.0, 3.0, 5.0], dtype=np.float64)
+    return x1, x2, knots1, knots2
+
+
+def test_ti_basis_shape_is_the_product_of_the_constrained_margins() -> None:
+    """Each margin drops one column to its own sum-to-zero constraint (k_i - 1);
+    the tensor width is the product, independent of mgcv (module docstring steps
+    1 and 4)."""
+    x1, x2, knots1, knots2 = _ti_case()
+    design, s1, s2 = ti_basis(x1, x2, knots1, knots2)
+    d1, d2 = knots1.shape[0] - 1, knots2.shape[0] - 1
+    assert design.shape == (x1.shape[0], d1 * d2)
+    assert s1.shape == (d1 * d2, d1 * d2)
+    assert s2.shape == (d1 * d2, d1 * d2)
+
+
+def test_ti_basis_penalties_are_symmetric() -> None:
+    x1, x2, knots1, knots2 = _ti_case()
+    _, s1, s2 = ti_basis(x1, x2, knots1, knots2)
+    np.testing.assert_allclose(s1, s1.T)
+    np.testing.assert_allclose(s2, s2.T)
+
+
+def test_ti_basis_penalty_ranks_are_the_kronecker_product_of_the_margin_ranks() -> None:
+    """rank(A kron B) = rank(A) * rank(B) — checkable without mgcv, and the
+    identity S_1 = Sm_1 kron I / S_2 = I kron Sm_2 (module docstring step 4) must
+    respect it: S_1's rank is margin 1's own penalty rank times margin 2's full
+    (constrained) width, and vice versa."""
+    x1, x2, knots1, knots2 = _ti_case()
+    design1_unc, s1_unc = cr_basis(x1, knots1)
+    design2_unc, s2_unc = cr_basis(x2, knots2)
+    _, s1_marg = absorb_sum_to_zero_constraint(design1_unc, s1_unc)
+    _, s2_marg = absorb_sum_to_zero_constraint(design2_unc, s2_unc)
+    margin_rank1 = np.linalg.matrix_rank(s1_marg)
+    margin_rank2 = np.linalg.matrix_rank(s2_marg)
+    d1, d2 = knots1.shape[0] - 1, knots2.shape[0] - 1
+
+    _, s1, s2 = ti_basis(x1, x2, knots1, knots2)
+    assert np.linalg.matrix_rank(s1) == margin_rank1 * d2
+    assert np.linalg.matrix_rank(s2) == d1 * margin_rank2
+
+
+def test_ti_basis_penalties_are_positive_semidefinite() -> None:
+    """Each penalty is a curvature quadratic form (cr_basis's own PSD penalty),
+    congruence-transformed (constraint, eigenvalue normalization) and Kronecker'd
+    with an identity — every one of those operations preserves PSD-ness, so
+    ``coef @ S_i @ coef`` must never be negative, for any coefficient vector, on
+    either block — independent of mgcv."""
+    x1, x2, knots1, knots2 = _ti_case()
+    _, s1, s2 = ti_basis(x1, x2, knots1, knots2)
+    rng = np.random.default_rng(13)
+    for _ in range(20):
+        coef = rng.normal(size=s1.shape[0])
+        assert coef @ s1 @ coef >= -1e-9
+        assert coef @ s2 @ coef >= -1e-9
+
+
+def test_ti_basis_refuses_a_shape_mismatch() -> None:
+    x1 = np.linspace(0.0, 10.0, 50)
+    x2 = np.linspace(0.0, 5.0, 40)
+    knots1 = np.array([0.0, 2.0, 5.0, 8.0, 10.0], dtype=np.float64)
+    knots2 = np.array([0.0, 1.0, 3.0, 5.0], dtype=np.float64)
+    with pytest.raises(PolarisValidationError, match="one value per row"):
+        ti_basis(x1, x2, knots1, knots2)

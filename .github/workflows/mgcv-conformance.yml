@@ -513,8 +513,9 @@ jobs:
           )
           from polaris_re.analytics.gam_stage_a import (
               CR_BASIS_CLAIM, CR_BY_BASIS_CLAIM, RAW_PATH_CLAIM, SMOOTH_PATH_CLAIM,
-              build_python_cr_term, compare_term_extract, extract_raw_terms,
-              extract_smooth_terms, raw_term_specs,
+              TI_BASIS_CLAIM, build_python_cr_term, build_python_ti_term,
+              compare_term_extract, extract_raw_terms, extract_smooth_terms,
+              raw_term_specs,
           )
           from polaris_re.analytics.gam_term_spec import TermSpec
           from polaris_re.core.verification import evidence_markdown
@@ -572,12 +573,19 @@ jobs:
               "|---|---|---:|---:|---:|---|",
           ]
           any_smooth_disagree = False
-          if smooth_r_terms:
+          # Single-variable cr cases only (knots is a list); the ti cases (slice 5)
+          # carry knots=None (each margin has its own, module docstring) and are
+          # this same TRANSPORT check's own section further below.
+          single_var_smooth_terms = {
+              label: r_term for label, r_term in smooth_r_terms.items()
+              if r_term.get("knots") is not None
+          }
+          if single_var_smooth_terms:
               smooth_terms = tuple(
                   TermSpec(label=label, variables=("x",), basis="cr", k=(len(r_term["knots"]),))
-                  for label, r_term in smooth_r_terms.items()
+                  for label, r_term in single_var_smooth_terms.items()
               )
-              python_smooth_terms = extract_smooth_terms(smooth_terms, smooth_r_terms)
+              python_smooth_terms = extract_smooth_terms(smooth_terms, single_var_smooth_terms)
               for label, python_term in python_smooth_terms.items():
                   c = compare_term_extract(python_term, smooth_r_terms[label])
                   if not c.agrees:
@@ -649,8 +657,8 @@ jobs:
               _HEADER, _RULE,
           ]
           any_cr_disagree = False
-          if smooth_r_terms:
-              for label, r_term in smooth_r_terms.items():
+          if single_var_smooth_terms:
+              for label, r_term in single_var_smooth_terms.items():
                   if label not in smooth_cases:
                       cr_lines.append(f"| `{label}` | **UNKNOWN CASE — no knot recipe named** | | | | |")
                       any_cr_disagree = True
@@ -712,6 +720,76 @@ jobs:
               cr_lines.insert(2, "**A term disagreed — see the table. This is a genuine finding.**")
           lines += cr_lines
           lines += by_lines
+
+          # Slice 5's second INDEPENDENT Stage-A result: the two-margin ti(x1, x2,
+          # bs="cr") tensor interaction (build_python_ti_term, gam_basis_cr.ti_basis)
+          # — row-wise Kronecker of two constrained cr margins, normalized once per
+          # margin and once at the tensor level (module docstring) — checked against
+          # the SAME smooth_designs payload, keyed on the presence of x1/x2 rather
+          # than a single x (a two-margin term has no single covariate or knots list).
+          ti_smooth_terms = {
+              label: r_term for label, r_term in smooth_r_terms.items()
+              if r_term.get("x1") is not None
+          }
+          ti_cases = {
+              "ti-default-knots-k6-k5": (6, 5, None, None),
+              "ti-target-attdage-polyear": (
+                  13, 6,
+                  (1.0, 2.0, 4.0, 7.0, 14.0, 18.0, 24.0, 35.0, 50.0, 70.0, 85.0, 90.0, 95.0),
+                  (1.0, 2.0, 3.0, 5.0, 10.0, 21.0),
+              ),
+          }
+          ti_lines = [
+              "", "### Slice 5 — Python `ti` basis vs `smoothCon(ti(...))` (INDEPENDENT)", "",
+              evidence_markdown(TI_BASIS_CLAIM), "",
+              "| term | index range agrees | max abs X diff | max abs S diff | rank diff |",
+              "|---|---|---:|---:|---:|",
+          ]
+          any_ti_disagree = False
+          if ti_smooth_terms:
+              for label, r_term in ti_smooth_terms.items():
+                  if label not in ti_cases:
+                      ti_lines.append(f"| `{label}` | **UNKNOWN CASE — no knot recipe named** | | | |")
+                      any_ti_disagree = True
+                      continue
+                  k1, k2, supplied1, supplied2 = ti_cases[label]
+                  knots = []
+                  if supplied1 is not None:
+                      knots.append(("v1", supplied1))
+                  if supplied2 is not None:
+                      knots.append(("v2", supplied2))
+                  term = TermSpec(
+                      label=label, variables=("v1", "v2"), basis="ti",
+                      k=(k1, k2), knots=tuple(knots) if knots else None,
+                  )
+                  x1 = np.asarray(r_term["x1"], dtype=np.float64)
+                  x2 = np.asarray(r_term["x2"], dtype=np.float64)
+                  python_term = build_python_ti_term(x1, x2, term)
+                  c = compare_term_extract(python_term, r_term)
+                  if not c.agrees:
+                      any_ti_disagree = True
+                  s_diff = ", ".join(f"{d:.3e}" for d in c.max_abs_s_diff) or "n/a"
+                  ti_lines.append(
+                      f"| `{label}` | {c.index_range_agrees} | "
+                      f"{c.max_abs_design_diff:.3e} | {s_diff} | {c.rank_diff} |"
+                  )
+          else:
+              ti_lines.append("| *(no ti cases in R output)* | | | | |")
+              any_ti_disagree = True
+          ti_lines.append("")
+          ti_lines.append(
+              "`design_X`, both `penalty_S` blocks and both `rank` values are "
+              "INDEPENDENT (see the legend): the Python `ti` basis is built from "
+              "each margin's covariate locations and knot vector via "
+              "`gam_basis_cr.ti_basis` and never reads mgcv's X/S/rank, only the "
+              "shared `x1`/`x2` (and `knots1`/`knots2` for the recipe, not compared "
+              "here — see gam_basis_cr.py's module docstring). A disagreement is a "
+              "REAL RESULT about the tensor construction, not a broken round trip. "
+              "See docs/PLAN_mgcv_parity_engine.md slice 5."
+          )
+          if any_ti_disagree:
+              ti_lines.insert(2, "**A term disagreed — see the table. This is a genuine finding.**")
+          lines += ti_lines
 
           report = "\n".join(lines) + "\n"
           with open("gam_term_extract_report.md", "w") as fh:

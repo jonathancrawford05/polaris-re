@@ -87,6 +87,7 @@ from polaris_re.analytics.gam_basis_cr import (
     by_scale_design,
     cr_basis,
     cr_default_knots,
+    ti_basis,
 )
 from polaris_re.analytics.gam_term_spec import SUPPORTED_BASES, TermSpec
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
@@ -101,10 +102,12 @@ __all__ = [
     "CR_BY_BASIS_CLAIM",
     "RAW_PATH_CLAIM",
     "SMOOTH_PATH_CLAIM",
+    "TI_BASIS_CLAIM",
     "RTermPayload",
     "TermExtract",
     "TermExtractComparison",
     "build_python_cr_term",
+    "build_python_ti_term",
     "compare_term_extract",
     "extract_raw_terms",
     "extract_smooth_terms",
@@ -136,6 +139,23 @@ class RTermPayload(TypedDict):
     """By-variable values (slice 5, the MI term), one per row — shared recipe
     context like ``x`` above, present only on cases ``gam_term_extract.R`` builds
     with ``with_by = TRUE``. ``None`` for every other case."""
+
+    x1: list[float] | None
+    """Margin-1 covariate locations (slice 5, ``ti()``). Present only on
+    ``extract_smooth_ti`` entries — a two-margin term has no single ``x``, so it
+    carries ``x1``/``x2`` instead of ``x``. Shared recipe context, not a
+    compared quantity, same status as ``x`` above."""
+
+    x2: list[float] | None
+    """Margin-2 covariate locations (slice 5, ``ti()``). See ``x1``."""
+
+    knots1: list[float] | None
+    """Margin-1's own knot vector, as actually used by ``mgcv`` (``sm$margin[[1]]$xp``)
+    — shared recipe context for a ``ti()`` case, like ``knots`` is for a single-margin
+    term. Present only on ``extract_smooth_ti`` entries."""
+
+    knots2: list[float] | None
+    """Margin-2's own knot vector. See ``knots1``."""
 
 
 _AGREEMENT_TOLERANCE = 1e-9
@@ -380,6 +400,71 @@ by-construction genuinely differs on both sides: the Python side row-scales an
 ``by=z``. Split into its own claim rather than folded into
 :data:`CR_BASIS_CLAIM`'s strings so that ``evidence_markdown`` publishes a legend
 that names what actually produced the rows underneath it (PR #206 review [P1])."""
+
+
+TI_BASIS_CLAIM = VerificationClaim(
+    claim=(
+        "polaris_re.analytics.gam_basis_cr.ti_basis builds the ti(x1, x2, bs='cr') "
+        "tensor-interaction design (design_X) and its two penalty blocks "
+        "(penalty_S) from each margin's covariate locations and knot vector, "
+        "following mgcv's own tensor.smooth construction (module docstring: "
+        "per-margin cr basis and constraint, no reparameterization for cr "
+        "margins, per-margin eigenvalue normalization, row-wise Kronecker "
+        "design, Kronecker penalties, then a second tensor-level scale.penalty "
+        "rescaling); gam_term_extract.R's smoothCon(absorb.cons=TRUE) branch "
+        "computes the same quantities via mgcv's own C implementation; compared "
+        "on design_X, penalty_S (both blocks) and rank (both blocks)."
+    ),
+    quantities=(
+        ComparedQuantity(
+            quantity="design_X",
+            left_producer=(
+                "gam_basis_cr.ti_basis (row-wise Kronecker of two constrained cr margins)"
+            ),
+            right_producer="mgcv smoothCon(ti(x1, x2, bs='cr', k=(k1,k2)), absorb.cons=TRUE)$X",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="penalty_S",
+            left_producer=(
+                "gam_basis_cr.ti_basis (Kronecker penalties, normalized once per "
+                "margin and once at the tensor level)"
+            ),
+            right_producer=(
+                "mgcv smoothCon(ti(...))$S — after mgcv's own two-level scale.penalty rescaling"
+            ),
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="rank",
+            left_producer="numpy.linalg.matrix_rank on each Python tensor penalty block",
+            right_producer=(
+                "mgcv smoothCon(ti(...))$rank (mgcv's own rank determination, one per block)"
+            ),
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+    ),
+)
+"""The Python ``ti()`` tensor-interaction basis's provenance (ADR-193) — slice 5's
+second INDEPENDENT Stage-A claim, and the epic's first for a two-margin term.
+
+``design_X``, both ``penalty_S`` blocks and both ``rank`` values are computed by
+two distinct implementations from the same recipe (each margin's covariate
+locations, plus a knot vector either supplied to both or each side's own default
+placement per margin): :func:`build_python_ti_term` never reads
+``gam_term_extract.R``'s ``X``/``S``/``rank`` output, only the shared
+``x1``/``x2``/``knots1``/``knots2`` it exports (the two-margin counterpart of
+:data:`CR_BASIS_CLAIM`'s single ``x``).
+
+**Knots are not part of this claim**, for the same reason :data:`CR_BASIS_CLAIM`
+excludes them, and are not run through ``compare_term_extract``'s
+``knots_agree`` field at all: a two-margin term has no single ``knots`` list
+(:class:`TermExtract` carries one ``knots`` tuple, not two), so both sides
+report it ``None`` and the field agrees trivially rather than comparing
+anything. ``knots1``/``knots2`` are shared recipe inputs
+(:func:`build_python_ti_term` reads them off the R payload the same way
+:func:`build_python_cr_term` reads a single ``knots``), never independently
+re-derived by this claim's own comparison."""
 
 
 @dataclass(frozen=True)
@@ -648,6 +733,69 @@ def build_python_cr_term(
         # review [P1]).
         evidence=CR_BY_BASIS_CLAIM if by is not None else CR_BASIS_CLAIM,
         knots=tuple(float(v) for v in knots),
+    )
+
+
+def build_python_ti_term(x1: np.ndarray, x2: np.ndarray, term: TermSpec) -> TermExtract:
+    """The independent Python producer for a ``bs="ti"`` two-margin term (slice 5,
+    ``ti(AttdAge, PolYear)``).
+
+    Builds ``design_X`` and both penalty blocks from ``x1``/``x2`` and ``term``'s
+    own recipe (``k`` per margin, and supplied knots per margin if any) via
+    :func:`~polaris_re.analytics.gam_basis_cr.ti_basis` — never from ``mgcv``'s
+    output. Same mechanical-test shape as :func:`build_python_cr_term`: the
+    signature takes only ``x1``/``x2`` (the shared per-margin covariate recipe)
+    and ``term`` (the shared spec), not an R payload.
+
+    Args:
+        x1: Margin-1 covariate values, read off the R payload's own ``"x1"``
+            field by the *caller*.
+        x2: Margin-2 covariate values, read off the R payload's own ``"x2"``
+            field by the *caller*.
+        term: Must have ``basis="ti"`` and exactly two variables (this project's
+            target formula has no ``ti()`` term over more than two — a third
+            margin is out of scope until one is needed).
+    """
+    if term.basis != "ti":
+        raise PolarisValidationError(
+            f"build_python_ti_term only handles basis='ti'; {term.label!r} is basis={term.basis!r}."
+        )
+    if len(term.variables) != 2 or len(term.k) != 2:
+        raise PolarisValidationError(
+            f"build_python_ti_term: {term.label!r} must name exactly two variables "
+            f"and two k values; got variables={term.variables!r}, k={term.k!r}."
+        )
+    x1 = np.asarray(x1, dtype=np.float64)
+    x2 = np.asarray(x2, dtype=np.float64)
+    knots_by_var = term.knots_by_variable()
+    var1, var2 = term.variables
+    k1, k2 = term.k
+    supplied1 = knots_by_var.get(var1)
+    supplied2 = knots_by_var.get(var2)
+    knots1 = (
+        np.asarray(supplied1, dtype=np.float64)
+        if supplied1 is not None
+        else cr_default_knots(x1, k1)
+    )
+    knots2 = (
+        np.asarray(supplied2, dtype=np.float64)
+        if supplied2 is not None
+        else cr_default_knots(x2, k2)
+    )
+
+    design, s1, s2 = ti_basis(x1, x2, knots1, knots2)
+    rank1 = int(np.linalg.matrix_rank(s1))
+    rank2 = int(np.linalg.matrix_rank(s2))
+
+    return TermExtract(
+        label=term.label,
+        index_start=0,
+        index_end=design.shape[1],
+        design=design,
+        s=(s1, s2),
+        rank=(rank1, rank2),
+        evidence=TI_BASIS_CLAIM,
+        knots=None,
     )
 
 
