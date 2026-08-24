@@ -17128,6 +17128,53 @@ numeric-`by` basis) and its first for a two-margin term.
 **Supersedes nothing.** Extends the epic's INDEPENDENT Stage-A coverage (ADR-194, ADR-200)
 to a two-margin construction neither previously handled; does not reopen or amend either.
 
+
+### ADR-204 amendment 1 — the gate's first real firing, and the first use of "case (c)" (2026-08-24)
+
+**It fired on the very next change after it landed, and it fired on me.** Making
+`utils/table_io.py`'s missing-mortality-table error actionable drifted **every
+stamped document in the repository** — all five: `unconditional_coverage`,
+`experience_gam_hmd`, `experience_gam_ilec`, `gam_ramp_mechanism` and
+`portfolio_parallel_macbook_air`. `table_io` is deep in the import closure of
+every one of those producers, and **not one of them names it**.
+
+I predicted four and the gate found five: `portfolio.py` reaches `table_io` to
+load the mortality basis its benchmark fits against. That is the whole argument
+for a machine-computed closure over a human-maintained list, made against my own
+list, ten minutes after writing it.
+
+That is exactly the ADR-203 topology — a change two or more hops from anything
+the document mentions — and it is the case a direct-imports gate would have
+missed. The transitive walk earned itself inside a day.
+
+**The claim, per RUNBOOK §2 case (c): this change cannot alter any measured
+quantity.** The edit replaces the message string of a `FileNotFoundError` raised
+inside `if not path.exists():`. On every successful run that branch is not taken,
+so no fitted value, no timing and no output can differ. The two new module-level
+definitions are a constant and a pure string function, neither called on a
+success path. This is inertness by control flow, not by argument.
+
+**Resolved by two different routes, deliberately:**
+
+* `gam_ramp_mechanism` — re-run and re-stamped `regenerated`. Its regeneration is
+  a pytest invocation costing seconds, so RUNBOOK §2's preference for (a) over
+  (c) applies with no friction.
+* The other three — `asserted`, with notes pointing here. `experience_gam_hmd`
+  and `..._ilec` cannot take route (a) at all without the experience cache;
+  `unconditional_coverage` could, at ~20 minutes, and that is the interesting
+  case. **Case (c) exists precisely so a provably inert edit does not cost a
+  200-replicate study.** A gate that charged 20 minutes for a docstring would be
+  a gate people route around, which is the failure ADR-204 decision 2 was written
+  to avoid.
+
+**What this validates and what it does not.** It validates that the gate fires on
+a real, non-obvious dependency and that both escape routes are usable. It does
+*not* validate the inertness claim itself — that rests on the control-flow
+argument above, which a reader should check rather than take on trust. If it is
+wrong, the four documents are stamped against a change that did move them, and
+the stamps say `asserted` so a reader knows whose word they are on.
+
+
 ---
 
 ## ADR-206: Anchor 7 amended — the parity stack becomes a production path, not a test harness

@@ -135,10 +135,10 @@ not just the best-of-k minimum). Not committed — the tables above are the reco
 re-generate with the runbook's §3 commands.
 
 <!-- measurement-provenance
-fingerprint: a225cb8ef1c07bfc7bff5f6e27ebcab004bfef776a66190d5b0ccb13abf6b201
-generated: 2026-08-23
+fingerprint: dabd8c26a294051264376a6779b7861604f26d07d2c8192a590fa7d4647fa26c
+generated: 2026-08-24
 producer: src/polaris_re/analytics/portfolio.py
 method: asserted
-head: 4656bd9
-note: re-run 2026-08-23 on a 10-logical-core Apple Silicon MacBook Air (maintainer's machine), RUNBOOK section 3 shapes A/B/C at k=3 with worker lists extended to 10/16. Shape-dependence HELD and the ratios reproduced closely: A 2w 1.30x->1.27x, 4w 0.94x->0.91x, 8w 0.70x->0.70x; B 4w 1.57x->1.61x; C peak 4w 1.77x->1.78x, 8w 1.35x->1.34x, 16w 1.23x->1.22x. bit-identical yes on every row of all three shapes. The 4-P-core ceiling is confirmed: C declines through 8/10/16 workers.
+head: 0131391
+note: closure drifted 2026-08-24 by an inert change: utils/table_io.py's missing-table FileNotFoundError message (raised only when a file is absent; no successful run reaches it). RUNBOOK section 2 case (c), claim in ADR-204 amendment 1. Route (a) needs a 10-core MacBook Air; the 2026-08-23 re-run stands — shape-dependence held, peak 1.77x -> 1.78x at 4 workers, bit-identical on every row.
 -->

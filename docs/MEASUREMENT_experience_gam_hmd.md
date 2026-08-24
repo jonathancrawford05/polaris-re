@@ -192,10 +192,10 @@ where SOA publishes its own expected deaths (see
 | No data files added | ✅ Findings only; the 1x1 files never left the maintainer's machine |
 
 <!-- measurement-provenance
-fingerprint: 6ebf696b7d4106661c0e1e625d80d329da6c2567cbc5678d96f5b9f5006ed71a
-generated: 2026-08-23
+fingerprint: d75be9a8cb4ddd64f0725f5502a1c9c84e4afcd04c7a1ef21b2b02612be1d925
+generated: 2026-08-24
 producer: scripts/experience_diligence.py
 method: asserted
-head: b45d497
-note: raw output regenerated 2026-08-23 against HMD STATS bundle DOI 10.4054/HMD.Countries.20260615 (USA+GBRTENW, downloaded 2026-08-03); docs/measurements diff: no fitted quantity moved (<=1 ulp); raw files gained age_degree/year_degree/duration_degree/interior_knots
+head: 0131391
+note: closure drifted 2026-08-24 by an inert change: utils/table_io.py's missing-table FileNotFoundError message (raised only when a file is absent; no successful run reaches it). RUNBOOK section 2 case (c), claim in ADR-204 amendment 1. Route (a) needs the experience cache and was not available; the 2026-08-23 regeneration against HMD STATS bundle DOI 10.4054/HMD.Countries.20260615 stands.
 -->

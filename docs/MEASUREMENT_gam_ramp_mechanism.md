@@ -287,9 +287,9 @@ The quadratic report therefore duplicates already-committed figures rather than
 disclosing anything new (`DATA_LICENSING.md` §5c).
 
 <!-- measurement-provenance
-fingerprint: a121dd117bb1e5b194f4c3c50e48b1f8497870a67611868d32dbdd0b083ef869
-generated: 2026-08-23
+fingerprint: 4b096548e104ef9c9f9113ebdedd451957cfeb7a5b2246b7830dfcee180ecd53
+generated: 2026-08-24
 producer: src/polaris_re/analytics/experience_gam.py
 method: regenerated
-head: 69ec553
+head: 0131391
 -->
