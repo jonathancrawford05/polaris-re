@@ -419,12 +419,18 @@ searches, not one".
 ### Slice 5: `ti()` and the varying-coefficient MI term
 
 - **Depends on:** Slices 2, 4
-- **Status:** **IN PROGRESS.** The MI term's own basis, `s(AttdAge, by = StudyYear_C)`,
+- **Status:** **DONE, 2026-08-24.** The MI term's own basis, `s(AttdAge, by = StudyYear_C)`,
   is **DONE (Stage A only), 2026-08-22** (ADR-200, tier 1 and tier 3 both confirmed,
   identical to the printed digit) — the epic's first INDEPENDENT Stage-A result for a
   numeric-`by` `cr` smooth. **`ti(AttdAge, PolYear)` is now also DONE (Stage A only),
   2026-08-24** (ADR-205, tier 1 and tier 3 both confirmed, CI run 32677470292) — the
   epic's second INDEPENDENT Stage-A result, and its first for a two-margin term.
+  **The remaining Stage-B multi-term model is DONE, 2026-08-24** (ADR-206, tier 1 and
+  tier 3 identical, CI run 32722872476): a three-term model (reference age smooth,
+  the `by` term, `ti()`) fit together at fixed sp agrees with `mgcv`'s native fit on
+  `eta` to 1.242e-10, first measurement — closing this slice's remaining scope. Not
+  claimed: Anchor 2's primary MI-contrast-on-a-grid metric, or extending slice 4 part
+  B's search to this design's N=4 blocks — both named as follow-on work in ADR-206.
 
 `ti(AttdAge, PolYear)` — tensor interaction with the marginal main effects excluded. And
 `s(AttdAge, by = StudyYear_C)` — a `cr` basis scaled by a numeric variable.
@@ -443,9 +449,10 @@ plus three steps derived by instrumenting `mgcv`'s tensor-smooth constructor dir
 (ADR-205, Anchor 8): no reparameterization for `cr` margins (they set `noterp`, so
 `ti()`'s own `np=TRUE` default never fires here), a row-wise Kronecker of the marginal
 designs and penalties, and a SECOND tensor-level `scale.penalty` rescaling on top of each
-margin's own.** Both terms are Stage A only — a multi-term mgcv-native model exercising
-either (needed for Stage B / Anchor 2's MI contrast and `η` comparisons) is not yet built,
-and is what remains of this slice.
+margin's own.** Both terms had Stage A only until 2026-08-24 — the multi-term
+mgcv-native model exercising both (ADR-206) now gives the first Stage-B `eta`
+comparison; Anchor 2's MI-contrast-on-a-grid metric specifically remains open, named
+in ADR-206 rather than attempted there.
 
 ### Slice 6: `bs = "sz"` — orthogonal factor-smooth interactions
 
