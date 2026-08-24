@@ -252,6 +252,88 @@ main <- function(argv) {
     )
   }
 
+  # ===========================================================================
+  # Slice 5: ti(x1, x2, bs="cr") -- tensor interaction, two margins.
+  # ===========================================================================
+  # Same internal-guard discipline as extract_smooth_one (ADR-191): the
+  # smoothCon() extraction must equal the independent lpmatrix/m$smooth[[1]]
+  # route, re-checked on every run rather than trusted from a one-off probe.
+  extract_smooth_ti <- function(label, n, k1, k2, x1_range, x2_range,
+                                 knots1 = NULL, knots2 = NULL) {
+    set.seed(20120101) # ADR-074: pinned, never the wall clock.
+    x1 <- sort(runif(n, x1_range[1], x1_range[2]))
+    x2 <- sort(runif(n, x2_range[1], x2_range[2]))
+    x2 <- sample(x2) # decouple the two margins -- co-sorted x1/x2 would leave
+                      # the tensor product under-determined on the diagonal only.
+    y <- sin(x1) + cos(x2) + rnorm(n, sd = 0.1)
+    df <- data.frame(x1 = x1, x2 = x2, y = y)
+    knots_arg <- NULL
+    if (!is.null(knots1) || !is.null(knots2)) {
+      knots_arg <- list()
+      if (!is.null(knots1)) knots_arg$x1 <- knots1
+      if (!is.null(knots2)) knots_arg$x2 <- knots2
+    }
+
+    sm <- smoothCon(ti(x1, x2, k = c(k1, k2), bs = "cr"), data = df,
+                     knots = knots_arg, absorb.cons = TRUE)[[1]]
+    m <- gam(y ~ ti(x1, x2, k = c(k1, k2), bs = "cr"), data = df, knots = knots_arg)
+
+    Xp <- predict(m, type = "lpmatrix")
+    ti_cols <- grep("^ti\\(x1,x2\\)", colnames(Xp))
+    Xp_ti <- Xp[, ti_cols, drop = FALSE]
+
+    if (!identical(dim(Xp_ti), dim(sm$X))) {
+      stop(sprintf(
+        "ti design '%s': lpmatrix ti block is %dx%d but smoothCon()$X is %dx%d.",
+        label, nrow(Xp_ti), ncol(Xp_ti), nrow(sm$X), ncol(sm$X)
+      ))
+    }
+    guard_x <- max(abs(Xp_ti - sm$X))
+    if (guard_x != 0) {
+      stop(sprintf(
+        "ti design '%s': smoothCon() X disagrees with lpmatrix (max abs diff %.3e) — internal consistency guard failed.",
+        label, guard_x
+      ))
+    }
+    if (length(m$smooth[[1]]$S) != 2L || length(sm$S) != 2L) {
+      stop(sprintf("ti design '%s': expected exactly 2 penalty blocks on both sides.", label))
+    }
+    for (j in 1:2) {
+      guard_s <- max(abs(m$smooth[[1]]$S[[j]] - sm$S[[j]]))
+      if (guard_s != 0) {
+        stop(sprintf(
+          "ti design '%s': smoothCon() S[[%d]] disagrees with m$smooth[[1]]$S[[%d]] (max abs diff %.3e) — internal consistency guard failed.",
+          label, j, j, guard_s
+        ))
+      }
+    }
+    guard_rank <- max(abs(m$smooth[[1]]$rank - sm$rank))
+    if (guard_rank != 0L) {
+      stop(sprintf(
+        "ti design '%s': smoothCon() rank (%s) disagrees with m$smooth[[1]]$rank (%s) — internal consistency guard failed.",
+        label, paste(sm$rank, collapse = ","), paste(m$smooth[[1]]$rank, collapse = ",")
+      ))
+    }
+
+    list(
+      label = label,
+      index_start = 0L, index_end = ncol(sm$X),
+      X = sm$X,
+      S = list(sm$S[[1]], sm$S[[2]]),
+      rank = I(as.integer(sm$rank)),
+      knots = NULL, # two margins, each with its own knot vector -- see knots1/knots2
+      x = NULL,
+      by = NULL,
+      # Shared recipe context (ADR-193's mechanical test): the two covariates and
+      # each margin's own knot vector, so the Python side builds its OWN ti basis
+      # at the SAME points with the SAME knots, never reading X/S/rank back.
+      x1 = as.numeric(x1),
+      x2 = as.numeric(x2),
+      knots1 = as.numeric(sm$margin[[1]]$xp),
+      knots2 = as.numeric(sm$margin[[2]]$xp)
+    )
+  }
+
   smooth_cases <- list(
     extract_smooth_one("default-knots-k8", n = 200, k = 8),
     extract_smooth_one("default-knots-k13", n = 400, k = 13),
@@ -284,7 +366,17 @@ main <- function(argv) {
     # case was written — see gam_basis_cr.py for the Python side of this).
     extract_smooth_one("mi-term-attdage-by-k13", n = 400, k = 13,
                         knots_x = c(1, 2, 4, 7, 14, 18, 24, 35, 50, 70, 85, 90, 95),
-                        x_range = c(1, 95), with_by = TRUE)
+                        x_range = c(1, 95), with_by = TRUE),
+    # Slice 5 (docs/PLAN_mgcv_parity_engine.md, "ti(AttdAge, PolYear, k=c(13,6),
+    # bs='cr')"): the tensor-interaction term. A small synthetic case first
+    # (Anchor 1's own discipline, mirrored from slice 2's cr harness), then the
+    # target formula's own knot vectors on both margins.
+    extract_smooth_ti("ti-default-knots-k6-k5", n = 300, k1 = 6, k2 = 5,
+                       x1_range = c(1, 20), x2_range = c(1, 10)),
+    extract_smooth_ti("ti-target-attdage-polyear", n = 500, k1 = 13, k2 = 6,
+                       x1_range = c(1, 95), x2_range = c(1, 21),
+                       knots1 = c(1, 2, 4, 7, 14, 18, 24, 35, 50, 70, 85, 90, 95),
+                       knots2 = c(1, 2, 3, 5, 10, 21))
   )
   names(smooth_cases) <- vapply(smooth_cases, function(c) c$label, character(1))
 

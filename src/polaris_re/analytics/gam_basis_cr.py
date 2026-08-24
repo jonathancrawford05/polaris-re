@@ -67,6 +67,79 @@ Construction, in order
    makes ``Z`` — and therefore the constrained ``X`` and ``S`` — comparable
    element-wise rather than only up to an arbitrary rotation of the null space.
 
+The ``ti`` tensor interaction, two ``cr`` margins (slice 5, ``ti(AttdAge, PolYear)``)
+-------------------------------------------------------------------------------------
+:func:`ti_basis` builds a two-margin ``ti(x1, x2, k=(k1,k2), bs="cr")`` term:
+tensor interaction with the marginal main effects excluded, so it can sit beside
+``s(x1)`` and ``s(x2)`` main-effect terms in one model without confounding them.
+Every step below was *measured*, not read off documentation — instrumenting
+``mgcv:::smooth.construct.tensor.smooth.spec`` directly (assigning its internal
+locals to the global environment mid-execution) and comparing each intermediate
+against a hand-replica, the same discipline the ``cr`` construction above used,
+because ``ti()``'s own R source (``mgcv::ti`` → ``mgcv::te`` →
+``smooth.construct.tensor.smooth.spec``) does not itself state the exact
+normalization order in a form that can be transcribed without running it.
+
+1. **Each margin is its own constrained ``cr`` smooth**, independently: knots per
+   Anchor 4 (supplied verbatim, or :func:`cr_default_knots` on that margin's own
+   covariate), :func:`cr_basis` for the unconstrained design/penalty, then
+   :func:`sum_to_zero_null_space` / :func:`absorb_sum_to_zero_constraint` — the
+   *same* per-margin construction :func:`~polaris_re.analytics.gam_stage_a.build_python_cr_term`
+   already uses for a standalone ``s(x)`` term, because ``ti()``'s ``mc[i]`` flag
+   defaults ``TRUE`` for every margin (``mgcv::ti`` sets ``inter=TRUE``, and
+   ``smooth.construct.tensor.smooth.spec`` reads ``object$mc <- rep(TRUE, m)``
+   whenever ``inter`` and no explicit ``mc=`` override — the target formula
+   supplies none).
+
+2. **No further reparameterization runs for ``cr`` margins.** ``mgcv::ti``'s
+   ``np=TRUE`` default would ordinarily re-express each 1-D margin via an
+   SVD-based change of basis (evaluating the constrained margin at
+   ``ncol(margin$X)`` equally spaced points and inverting), but
+   ``smooth.construct.cr.smooth.spec`` sets ``object$noterp <- TRUE`` on every
+   ``cr`` margin, and the tensor constructor's own reparam loop is gated on
+   ``is.null(object$margin[[i]]$noterp)`` — false for ``cr``, so the branch
+   assigns ``XP[[i]] <- NULL`` (a no-op on an empty list) and the per-margin
+   design/penalty from step 1 passes through unchanged. **This does not
+   generalize to other basis classes** — a future ``ti()`` over a basis that
+   does *not* set ``noterp`` (this project has none yet) would need that
+   reparameterization implemented; :func:`ti_basis` has no code for it and
+   would silently build the wrong thing if handed one, which is why this
+   function validates nothing about the marginal basis beyond taking ``cr``
+   inputs by construction.
+
+3. **Each margin's penalty is rescaled by its own leading eigenvalue**,
+   ``Sm_i ← Sm_i / λ_max(Sm_i)`` — a step ``smooth.construct.tensor.smooth.spec``
+   always runs, independent of whether step 2 changed anything.
+
+4. **The tensor design is the row-wise Kronecker product** of the (in this case,
+   untouched) marginal designs, margin 1 varying *slower* than margin 2 in the
+   column ordering — confirmed against ``mgcv::tensor.prod.model.matrix`` on a
+   tiny hand-built example before being written here, not assumed from the name
+   alone. **The tensor penalties** are ``S_1 = Sm_1 ⊗ I_{d2}``,
+   ``S_2 = I_{d1} ⊗ Sm_2`` (``mgcv::tensor.prod.penalties``), where ``d_i`` is
+   margin ``i``'s own (constrained) width.
+
+5. **A second, *tensor-level* rescaling** — ``smoothCon()``'s own
+   ``scale.penalty`` step (the same one :func:`cr_basis` applies for a
+   standalone ``cr`` term, read from the same source lines), but now over the
+   **full tensor** ``X``/``S_i``, not the margin's: ``S_i ← S_i /
+   (norm₁(S_i) / norm∞(X)²)``, using the tensor ``X`` from step 4. This is a
+   *second* application of the same formula the margin's own :func:`cr_basis`
+   call already ran once at step 1 — ``smoothCon()`` rescales every smooth it
+   returns, and a tensor-product smooth is itself a ``smoothCon()`` return
+   value, so the rescaling fires twice, once at each level. Skipping this step
+   reproduces ``mgcv``'s design exactly but its penalty by a constant factor per
+   block (measured: the two mismatched, before this step was added, at a
+   *different* ratio per block — 8.06x on one case's ``S_1`` — which is why
+   catching this needed instrumenting the source rather than trusting the
+   margin-level rescaling to be the only one).
+
+Verified against ``smoothCon(ti(x1, x2, k=(k1,k2), bs="cr"), absorb.cons=TRUE)``
+to float round-trip precision (~1e-15) on both a synthetic case and the target
+formula's own ``ti(AttdAge, PolYear, k=c(13,6))`` knot vectors, tier 1, before
+this function was written (module tests carry the tier-1 reading; the
+CI-dispatched tier-3 reading is in ``docs/CONFORMANCE_LEDGER.md``).
+
 Not handled yet
 ----------------
 **Extrapolation beyond the knot range.** All five of slice 2's cases place ``x``
@@ -93,6 +166,8 @@ __all__ = [
     "by_scale_design",
     "cr_basis",
     "cr_default_knots",
+    "sum_to_zero_null_space",
+    "ti_basis",
 ]
 
 _MIN_K = 3
@@ -266,6 +341,33 @@ def by_scale_design(design: np.ndarray, by: np.ndarray) -> np.ndarray:
     return np.asarray(design * by[:, np.newaxis], dtype=np.float64)
 
 
+def sum_to_zero_null_space(design: np.ndarray) -> np.ndarray:
+    """``mgcv``'s constraint null-space basis ``Z`` for ``colMeans(X) · β = 0``.
+
+    Split out of :func:`absorb_sum_to_zero_constraint` (slice 5's ``ti()`` work,
+    ``docs/PLAN_mgcv_parity_engine.md`` slice 5) because the tensor-interaction
+    construction needs the SAME ``Z`` applied to a margin's training-row design
+    reused to build that margin's own penalty — sharing this helper is what keeps
+    the two call sites from ever computing two different null spaces for the same
+    margin.
+
+    Args:
+        design: The unconstrained ``(n, k)`` design from :func:`cr_basis`.
+
+    Returns:
+        ``(k, k-1)`` — every column of ``Q`` after the first, from the full QR of
+        ``colMeans(X)ᵀ`` (module docstring §4).
+    """
+    constraint = design.mean(axis=0).reshape(-1, 1)
+    if np.allclose(constraint, 0.0):
+        raise PolarisComputationError(
+            "sum_to_zero_null_space: colMeans(X) is (numerically) zero — the "
+            "constraint row carries no information to build a null space from."
+        )
+    q, _ = np.linalg.qr(constraint, mode="complete")
+    return np.asarray(q[:, 1:], dtype=np.float64)
+
+
 def absorb_sum_to_zero_constraint(
     design: np.ndarray, s: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -283,14 +385,79 @@ def absorb_sum_to_zero_constraint(
         raise PolarisValidationError(
             f"absorb_sum_to_zero_constraint: design has {k} column(s) but s is {s.shape}."
         )
-    constraint = design.mean(axis=0).reshape(-1, 1)
-    if np.allclose(constraint, 0.0):
-        raise PolarisComputationError(
-            "absorb_sum_to_zero_constraint: colMeans(X) is (numerically) zero — the "
-            "constraint row carries no information to build a null space from."
-        )
-    q, _ = np.linalg.qr(constraint, mode="complete")
-    z = q[:, 1:]
+    z = sum_to_zero_null_space(design)
     design_c = design @ z
     s_c = z.T @ s @ z
     return design_c, (s_c + s_c.T) / 2.0
+
+
+def _leading_eigenvalue(matrix: np.ndarray) -> float:
+    """Largest eigenvalue of a symmetric matrix — ``eigen(S, symmetric=TRUE,
+    only.values=TRUE)$values[1]`` in R, which orders eigenvalues descending."""
+    return float(np.max(np.linalg.eigvalsh(matrix)))
+
+
+def ti_basis(
+    x1: np.ndarray,
+    x2: np.ndarray,
+    knots1: np.ndarray,
+    knots2: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """The two-margin ``ti(x1, x2, bs="cr")`` tensor-interaction design and
+    penalties (slice 5's ``ti(AttdAge, PolYear)``, module docstring's numbered
+    construction).
+
+    Every step is derived from ``mgcv``'s own source, not guessed (module
+    docstring), and both margins are ``cr`` — the only basis this function
+    handles, since the reparameterization ``cr`` margins skip (step 2) does not
+    generalize to a basis that does not set ``noterp``.
+
+    Args:
+        x1: Margin-1 covariate values, ``(n,)``.
+        x2: Margin-2 covariate values, ``(n,)``.
+        knots1: Margin-1 knot vector, ``(k1,)``, ``k1 >= 3``.
+        knots2: Margin-2 knot vector, ``(k2,)``, ``k2 >= 3``.
+
+    Returns:
+        ``(design, s1, s2)``: ``design`` is ``(n, (k1-1)*(k2-1))``, column order
+        margin 1 slower / margin 2 faster (module docstring step 4); ``s1`` and
+        ``s2`` are each ``((k1-1)*(k2-1), (k1-1)*(k2-1))``, the two penalty
+        blocks ``mgcv`` assigns independent smoothing parameters to.
+    """
+    x1 = np.asarray(x1, dtype=np.float64)
+    x2 = np.asarray(x2, dtype=np.float64)
+    if x1.shape != x2.shape:
+        raise PolarisValidationError(
+            f"ti_basis: x1 has shape {x1.shape} but x2 has shape {x2.shape} — one "
+            "value per row is required for both margins."
+        )
+
+    design1_unc, s1_unc = cr_basis(x1, knots1)
+    design2_unc, s2_unc = cr_basis(x2, knots2)
+    design1, s1_marg = absorb_sum_to_zero_constraint(design1_unc, s1_unc)
+    design2, s2_marg = absorb_sum_to_zero_constraint(design2_unc, s2_unc)
+    # Step 2 (no-op for cr margins — module docstring): mgcv's np=TRUE
+    # reparameterization is skipped whenever every margin sets `noterp`, which
+    # smooth.construct.cr.smooth.spec always does. Nothing to apply here.
+
+    s1_norm = s1_marg / _leading_eigenvalue(s1_marg)
+    s2_norm = s2_marg / _leading_eigenvalue(s2_marg)
+
+    d1 = design1.shape[1]
+    d2 = design2.shape[1]
+    design = np.einsum("ij,ik->ijk", design1, design2).reshape(design1.shape[0], d1 * d2)
+
+    eye1 = np.eye(d1, dtype=np.float64)
+    eye2 = np.eye(d2, dtype=np.float64)
+    s1_full = np.kron(s1_norm, eye2)
+    s2_full = np.kron(eye1, s2_norm)
+
+    max_x_inf_norm_sq = _r_norm_inf(design) ** 2
+    if max_x_inf_norm_sq == 0.0:
+        raise PolarisComputationError("ti_basis: the tensor design matrix is identically zero.")
+    s1_scale = _r_norm_one(s1_full) / max_x_inf_norm_sq
+    s2_scale = _r_norm_one(s2_full) / max_x_inf_norm_sq
+    if s1_scale == 0.0 or s2_scale == 0.0:
+        raise PolarisComputationError("ti_basis: an unscaled tensor penalty is identically zero.")
+
+    return design, s1_full / s1_scale, s2_full / s2_scale

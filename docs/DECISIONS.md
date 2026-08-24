@@ -16999,3 +16999,131 @@ path as believed.
 
 So the backlog is four, not six: two waiting on the experience cache, and two
 whose numbers no session here can reproduce.
+
+## ADR-205: `ti()` — the tensor interaction reproduces `mgcv` — slice 5's second INDEPENDENT Stage-A result
+
+**Date:** 2026-08-24
+**Status:** Accepted — **CONFIRMED at tier 3**, same session (CI run 32677470292, oracle
+`sha256:0d54c192…` build 8).
+**Context:** `docs/PLAN_mgcv_parity_engine.md` slice 5 — `ti(AttdAge, PolYear, k=c(13,6),
+bs="cr")`, tensor interaction with the marginal main effects excluded, the half of slice
+5 the MI term's own numeric-`by` basis (ADR-200) left unstarted. Depends on slice 2 (the
+`cr` basis, ADR-194), which this construction reuses per margin.
+
+**Parity claim, written before the code (per `docs/VERIFICATION_STANDARD.md`):**
+`gam_basis_cr.ti_basis` builds the `ti(x1, x2, bs="cr")` tensor-interaction design
+(`design_X`) and its two penalty blocks (`penalty_S`) from each margin's covariate
+locations and knot vector, following `mgcv`'s own tensor-smooth construction; `mgcv`
+computes the same quantities via `smoothCon(ti(x1, x2, bs="cr", k=(k1,k2)),
+absorb.cons=TRUE)`; compared on `design_X`, `penalty_S` (both blocks) and `rank` (both
+blocks).
+
+### Decision 1 — the construction was derived by instrumenting `mgcv`'s own source, not read from documentation
+
+CLAUDE.md and Anchor 8 forbid guessing a basis or penalty derivation. `ti()`'s R source
+(`mgcv::ti` → `mgcv::te` → `mgcv:::smooth.construct.tensor.smooth.spec`) does not state
+the exact normalization order anywhere it can be transcribed directly, so this session
+`assign()`-ed the constructor's internal locals (`Xm`, `Sm`, `XP`, `object$margin`, `d`,
+`r`) to the global environment mid-execution via a modified copy of the function body,
+and compared each intermediate against a hand-replica before writing any Python. Five
+steps, each measured:
+
+1. **Each margin is its own constrained `cr` smooth**, independently —
+   `smoothCon(s(x_i, bs="cr", k_i), absorb.cons=TRUE)`. `ti()`'s `mc[i]` (absorb each
+   margin's own constraint) defaults `TRUE` whenever `inter=TRUE`, which `mgcv::ti` always
+   sets; the target formula supplies no `mc=` override.
+2. **No further reparameterization runs for `cr` margins.** `mgcv::ti`'s `np=TRUE` default
+   would ordinarily re-express a 1-D margin via an SVD-based change of basis (evaluate the
+   constrained margin at `ncol(margin$X)` equally spaced points, invert). Measured directly:
+   `smooth.construct.cr.smooth.spec` sets `object$noterp <- TRUE` on every `cr` margin, and
+   the tensor constructor's reparam loop is gated on
+   `is.null(object$margin[[i]]$noterp)` — false for `cr`, so `XP[[i]] <- NULL` (a no-op
+   assignment into an empty list) and nothing changes. **This was found the hard way**: an
+   earlier hand-replica that DID apply the SVD reparameterization (the naive reading of the
+   source) disagreed with `smoothCon()`'s `X` by up to 182 in absolute value on a small test
+   case — instrumenting the running constructor is what found `noterp` and closed the gap to
+   exact agreement on `X`.
+3. **Each margin's penalty is rescaled by its own leading eigenvalue**,
+   `Sm_i ← Sm_i / λ_max(Sm_i)` — runs regardless of step 2.
+4. **The tensor design is the row-wise Kronecker product** of the marginal designs, margin 1
+   varying slower than margin 2 in column order — confirmed against
+   `mgcv::tensor.prod.model.matrix` on a small hand-built example (`T[i,:] =
+   kron(X1[i,:], X2[i,:])`), not assumed from the function's name. **The tensor penalties**
+   are `S_1 = Sm_1 ⊗ I_{d2}`, `S_2 = I_{d1} ⊗ Sm_2` (`mgcv::tensor.prod.penalties`).
+5. **A second, tensor-level `scale.penalty` rescaling** — `smoothCon()`'s own step (the same
+   one `gam_basis_cr.cr_basis` already applies once for a standalone `cr` term, ADR-194),
+   now run again over the FULL tensor `X`/`S_i` rather than a margin's own. Found by
+   instrumentation after step-4-only output agreed with `smoothCon()` on `X` exactly but
+   disagreed on `S` by a constant ratio per block (8.06x on one test case) — `smoothCon()`
+   rescales every smooth it returns, and a tensor-product smooth is itself one, so the
+   rescaling fires twice, once at each level.
+
+`gam_basis_cr.ti_basis` implements exactly this: two calls into the existing `cr_basis`/
+`absorb_sum_to_zero_constraint` (per margin, unchanged from ADR-194), a row-wise Kronecker
+(`np.einsum("ij,ik->ijk", ...).reshape(...)`), `numpy.kron` for the two penalty blocks, and
+the same `_r_norm_one`/`_r_norm_inf` scale-penalty helpers `cr_basis` already defines,
+applied a second time at the tensor level. `sum_to_zero_null_space` was split out of
+`absorb_sum_to_zero_constraint` (no behavior change — a regression test pins the split
+reproduces the un-split function exactly) so both call sites share one null-space
+computation rather than each margin's constraint being computed twice.
+
+### Decision 2 — the R-side extractor gets its own two-margin case and internal guard, not a variant of the single-variable one
+
+`gam_term_extract.R` gained `extract_smooth_ti`, structurally parallel to
+`extract_smooth_one` but for two covariates: it fits both `smoothCon(ti(x1, x2, ...),
+absorb.cons=TRUE)` and a full `gam(y ~ ti(x1, x2, ...))`, then re-runs ADR-191's internal
+guard (`smoothCon()` vs `predict(type="lpmatrix")` / `m$smooth[[1]]$S` / `$rank`) on the
+tensor term specifically — `stop()`-gated, the same discipline every prior mgcv-native case
+in this file carries. Two cases: a small synthetic one (`k=(6,5)`) and the target formula's
+own `ti(AttdAge, PolYear, k=c(13,6))` knot vectors on both margins. The payload carries
+`x1`/`x2`/`knots1`/`knots2` (shared recipe, read off `sm$margin[[i]]$xp` for the knots
+actually used) rather than the single-margin schema's `x`/`knots` — a two-margin term has
+no single covariate or knot vector, so extending the existing fields rather than adding
+new ones would have made a `None` do double duty for two different meanings.
+
+### Measurement
+
+| term | index range agrees | max abs X diff | max abs S diff | rank diff |
+|---|---|---:|---:|---:|
+| `ti-default-knots-k6-k5` | True | 1.549e-14 | 2.975e-14, 3.997e-14 (tier 1: 4.130e-14) | (0, 0) |
+| `ti-target-attdage-polyear` | True | 1.504e-14 | 4.974e-14, 3.908e-14 | (0, 0) |
+
+**Tier 1** (R 4.3.3/mgcv 1.9.1, local apt): agrees on first measurement, same order of
+magnitude as slice 2's `cr` basis cases (7.6e-15 to 1.5e-14) and ADR-200's numeric-`by`
+case (2.2e-14).
+
+**Tier 3** (R 4.6.1/mgcv 1.9.4, oracle `sha256:0d54c192…` build 8, CI run
+[32677470292](https://github.com/jonathancrawford05/polaris-re/actions/runs/32677470292)):
+agrees, same order of magnitude as tier 1 on both cases and **identical to the tier-1
+reading at every printed digit** on `ti-target-attdage-polyear` — the target formula's own
+knots. Required levels 1-3 of the existing ten-cell suite also still agree on this run
+(`Required levels [1, 2, 3] all agree.`) — no regression from the workflow/extractor edits.
+Level 4 unchanged, still DISAGREES (ADR-190's separate `dw/drho` gap); level 5 unchanged,
+still AGREES.
+
+`design_X`, both `penalty_S` blocks and both `rank` values are INDEPENDENT (`TI_BASIS_CLAIM`,
+`gam_stage_a.py`) — `build_python_ti_term`'s signature takes only `x1`/`x2`/`term`, never
+mgcv's `X`/`S`/`rank` output, only the shared covariates and knot recipe. The epic's second
+INDEPENDENT Stage-A claim (after ADR-194's `cr` basis, and structurally alongside ADR-200's
+numeric-`by` basis) and its first for a two-margin term.
+
+### What this does not claim
+
+- **Not a multi-term fitted model.** This is Stage A only — the basis construction in
+  isolation, per Anchor 1. A model actually fitting `ti(AttdAge, PolYear)` alongside the
+  target's other terms, and the Stage-B/Anchor-2 comparisons (the MI contrast, `η`) that go
+  with it, need the multi-term mgcv-native model that neither this ADR nor ADR-200 builds.
+  Slice 5 remains IN PROGRESS, not DONE.
+- **Not `ti()`'s monotone, `fx` (fixed/unpenalized margin), or `dropu` paths.** The
+  constructor code these steps were derived from has branches for a monotone margin, a
+  margin fixed rather than penalized, and a reduced-rank `te`. None fire for the target
+  formula's `ti(AttdAge, PolYear, k=c(13,6), bs="cr")` (no `mono`, no `fx`, no `xt$dropu`),
+  and `ti_basis` has no code for any of them — a future term needing one would need new work,
+  not a parameter.
+- **Not level 4.** ADR-190's Kass-Steffey under-inflation is unaffected — this ADR never
+  touches `smoothing_uncertainty` or the outer optimiser.
+- **Not a production change.** `TensorMIModel`/`PenalizedTensorMIModel` and every existing
+  entry point are untouched (Anchor 7). `tests/qa/` goldens are byte-identical.
+
+**Supersedes nothing.** Extends the epic's INDEPENDENT Stage-A coverage (ADR-194, ADR-200)
+to a two-margin construction neither previously handled; does not reopen or amend either.

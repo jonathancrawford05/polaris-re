@@ -49,8 +49,20 @@ target's 13-21 blocks needs a multi-term mgcv-native model (slice 5 onward). **S
 (`ti()` and the MI term) is IN PROGRESS, 2026-08-22:** the MI term's own basis,
 `s(AttdAge, by=StudyYear_C)`, is **DONE (Stage A only)** (ADR-200, tier 1 and tier 3
 identical) — the epic's first INDEPENDENT Stage-A result for a numeric-`by` `cr` smooth;
-`mgcv` absorbs no identifiability constraint on it at all. `ti(AttdAge, PolYear)` and a
-multi-term mgcv-native model (needed for Stage B) are not yet started.
+`mgcv` absorbs no identifiability constraint on it at all. **`ti(AttdAge, PolYear)` is now
+also DONE (Stage A only), 2026-08-24** (ADR-205, tier 1 and tier 3 identical, CI run
+32677470292) — the epic's second INDEPENDENT Stage-A result, built by instrumenting
+`mgcv:::smooth.construct.tensor.smooth.spec` directly (Anchor 8) rather than reading its
+own source cold: each margin's own constrained `cr` basis, no further reparameterization
+(`cr` sets `noterp`, so `ti()`'s `np=TRUE` SVD reparam never fires for an all-`cr`
+tensor — found the hard way, after an earlier hand-replica that DID apply it disagreed by
+up to 182 in `X`), row-wise Kronecker design and penalties, then a SECOND tensor-level
+`scale.penalty` rescaling on top of each margin's own (found after step-4-only output
+agreed on `X` but disagreed on `S` by a constant ratio per block). Agrees with
+`smoothCon(ti(...), absorb.cons=TRUE)` to float round-trip precision (~1e-14) on a
+synthetic case and the target's own `ti(AttdAge, PolYear, k=c(13,6))` knots.
+**A multi-term mgcv-native model (needed for Stage B on both the `by` term and `ti()`) is
+not yet started** — that is what remains of slice 5.
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16) and one deferred
 to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
@@ -309,11 +321,32 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    re-passed on the by-construction with no changes (the `s(x):z.N` column names still
    match its existing grep).
 
-   **Not started:** `ti(AttdAge, PolYear)` — a materially different construction (its own
-   tensor-product machinery and identifiability treatment). And no multi-term mgcv-native
-   model exists yet, so nothing has run Stage B / Anchor 2's own criteria (the MI contrast,
-   `η`) on this term — that is what unblocks both slice 4 part B's N>2 extension and
-   Anchor 5's absolute/relative demonstration.
+   **`ti(AttdAge, PolYear)` is now also DONE (Stage A only), 2026-08-24** (ADR-205, tier 1
+   and tier 3 both confirmed, CI run 32677470292, identical in order of magnitude and
+   identical to the printed digit on the target-knots case). `gam_basis_cr.ti_basis`
+   builds it from two per-margin `cr` constructions (unchanged from ADR-194) reused as-is:
+   each margin's own `smoothCon(absorb.cons=TRUE)`-equivalent basis/penalty, NO further
+   reparameterization (measured, not assumed — `mgcv::ti`'s `np=TRUE` default SVD
+   reparameterization is real, but every `cr` margin sets `noterp`, which the tensor
+   constructor's own gate skips; found by instrumenting
+   `mgcv:::smooth.construct.tensor.smooth.spec` directly after a naive hand-replica that
+   DID apply the reparameterization disagreed by up to 182 in `X`), a per-margin
+   eigenvalue-normalized penalty, a row-wise Kronecker design (`np.einsum` reproduces
+   `mgcv::tensor.prod.model.matrix`'s exact column order, confirmed on a hand-built
+   example), Kronecker penalties (`numpy.kron`, matching `mgcv::tensor.prod.penalties`),
+   and a SECOND, tensor-level `scale.penalty` rescaling on top of each margin's own
+   (found after step-4-only output agreed with `smoothCon()` on `X` exactly but disagreed
+   on `S` by a constant ratio per block — 8.06x on one test case). Agrees at
+   `max_X_diff≈1.5e-14`, `max_S_diff≈3-5e-14` on both blocks, `rank_diff=(0,0)`, on a
+   synthetic case and the target's own `ti(AttdAge, PolYear, k=c(13,6))` knots.
+   `gam_term_extract.R` gained `extract_smooth_ti` (its own `smoothCon`-vs-`lpmatrix`
+   internal guard, ADR-191's discipline, re-run on the tensor term). Carries its own
+   `TI_BASIS_CLAIM` (`design_X`/`penalty_S`/`rank`, both penalty blocks, all INDEPENDENT).
+
+   **Not started:** a multi-term mgcv-native model. Nothing has run Stage B / Anchor 2's
+   own criteria (the MI contrast, `η`) on either this term or the `by` term — that is what
+   unblocks both slice 4 part B's N>2 extension and Anchor 5's absolute/relative
+   demonstration, and it is what remains of slice 5.
 6. **`bs = "sz"`** — orthogonal factor-smooth interactions. Expect the hardest basis.
    PLANNED.
 7. **`select = TRUE`** — the double penalty; 13 → 21 smoothing parameters. PLANNED.
@@ -334,7 +367,7 @@ across the slice structure.
 | Multi-penalty REML criterion (Python-side) | The penalized-deviance criterion, Wood (2011) §2 eq. (4), for any number of independently-scaled penalty blocks | **FIXED, 2026-08-18** (ADR-196) — the score was missing `β̂ᵀSβ̂`; adding it closed the gap to float precision, tier 1 and tier 3 identical | Nothing — DONE |
 | Same criterion, production module | `experience_gam_penalized.reml_score` — the SHIPPED tensor-MI 2-D grid selector's own score, same formula shape, same omission | **FIXED, 2026-08-19** (ADR-197 amendment, maintainer-authorized) — identical fix to ADR-196's, `python_reference.json` re-baselined moving exactly as §3.2 predicted, required conformance levels 1-3 still agree, level 5 moved from DISAGREES to AGREES | Nothing — DONE |
 | N-dimensional outer search | Newton/quasi-Newton (f)REML optimisation over 13-21 `log λ` | **First slice DONE, 2026-08-22** (ADR-199, tier 1 AND tier 3 confirmed) — `select_lambdas_continuous` built and confirms ADR-198's prediction decisively; tested only at N=2, not yet at the target's 13-21 blocks | A multi-term mgcv-native model to build N>2 blocks from (slice 5 onward) |
-| `ti()` — tensor interaction | Tensor product with marginal main effects excluded | **Not started** | The outer search (slice 5) |
+| `ti()` — tensor interaction | Tensor product with marginal main effects excluded | **Stage A DONE, 2026-08-24** (ADR-205, tier 1 AND tier 3 confirmed) — agrees with `smoothCon(ti(...))` to ~1e-14, including the target's own `ti(AttdAge, PolYear, k=c(13,6))` knots. Stage B unmeasured (needs a multi-term model) | A multi-term mgcv-native model for the Stage-B half |
 | `s(..., by=...)` with a `cr` basis | The MI term itself — a `cr` basis scaled by a numeric `by` variable | **Stage A DONE, 2026-08-22** (ADR-200, tier 1 AND tier 3 confirmed) — `mgcv` absorbs no identifiability constraint on a numeric-`by` smooth; agrees to ~2e-14. Stage B unmeasured (needs a multi-term model) | A multi-term mgcv-native model for the Stage-B half (slice 5's remaining scope) |
 | `bs = "sz"` | Sum-to-zero factor-smooth interactions (4 terms in the target formula) | **Not started**, expected hardest basis (PLAN §6 registered prediction) | The outer search (slice 6) |
 | `select = TRUE` | The double penalty / null-space shrinkage that takes 13 sp → 21 | **Not started** | Slices 4-6 |
@@ -394,10 +427,10 @@ should be re-synced.
 4. **Slice 5 — `ti()` and the MI term.** Ship the MI term first if they split (PLAN
    §3: it's the cheap, well-conditioned one and the actual point of the target
    formula). **The MI term's basis is DONE (Stage A only), 2026-08-22** (ADR-200, tier 1
-   AND tier 3 confirmed). **What remains:** (a) `ti(AttdAge, PolYear)` — not started;
-   (b) a multi-term mgcv-native model, which is the shared prerequisite for this slice's
-   own Stage-B half, for extending slice 4 part B's search above N=2, and for item (8)
-   below.
+   AND tier 3 confirmed). **`ti(AttdAge, PolYear)` is now also DONE (Stage A only),
+   2026-08-24** (ADR-205, tier 1 AND tier 3 confirmed). **What remains:** a multi-term
+   mgcv-native model, which is the shared prerequisite for this slice's own Stage-B half
+   (both terms), for extending slice 4 part B's search above N=2, and for item (8) below.
 5. **Slice 6 — `bs = "sz"`.** Expected hardest basis; Stage A is where a mistake here
    is cheap (PLAN §6 registered prediction).
 6. **Slice 7 — `select = TRUE`.** 13 → 21 smoothing parameters.
