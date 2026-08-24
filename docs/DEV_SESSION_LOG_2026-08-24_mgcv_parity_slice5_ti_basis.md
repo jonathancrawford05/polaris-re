@@ -152,7 +152,7 @@ the `docs/CONFORMANCE_LEDGER.md` tier-3 row.
 |---|---|---|---|
 | `design_X`, `penalty_S` (both blocks), `rank` (both blocks) — `ti-default-knots-k6-k5`, `ti-target-attdage-polyear` | `gam_basis_cr.ti_basis` (row-wise Kronecker of two constrained `cr` margins, normalized once per margin and once at the tensor level) via `build_python_ti_term` | `mgcv smoothCon(ti(x1, x2, bs='cr', k=(k1,k2)), absorb.cons=TRUE)$X`/`$S`/`$rank` | **INDEPENDENT** (`TI_BASIS_CLAIM`) |
 | the R-side internal guard (`smoothCon(ti(...))` vs `lpmatrix`/`m$smooth[[1]]$S`/`$rank`, both cases) | entirely inside R (`extract_smooth_ti`) | entirely inside R | INDEPENDENT, inside R only (ADR-191's discipline, now re-exercised on a two-margin term) |
-| `knots1`/`knots2` (recipe context, not compared by `TI_BASIS_CLAIM`) | `gam_term_extract.R` (`sm$margin[[i]]$xp`, mgcv's own default placement on the `ti-default-knots-k6-k5` case) | n/a — read by `build_python_ti_term`'s caller, never compared as a claimed quantity | not a comparison (shared recipe, ADR-193's mechanical-test exemption, same status as slice 2's supplied knots) |
+| `knots1`/`knots2` (exported by `gam_term_extract.R`, not compared by `TI_BASIS_CLAIM`) | `gam_term_extract.R` (`sm$margin[[i]]$xp`, mgcv's own default placement on the `ti-default-knots-k6-k5` case) | n/a — dead fields; no current caller reads them back (PR #209 review [P2-1]/[P2-4], corrected). The knot *recipe* is instead named directly in each case's own `TermSpec` (`_TI_CASES`), matching `build_python_cr_term`'s existing pattern | not a comparison (recipe context kept for a human cross-checking the payload, same status as slice 2's supplied knots) |
 
 ## What remains of slice 5
 

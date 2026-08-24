@@ -652,9 +652,6 @@ def test_the_r_extractor_agrees_with_the_python_side_on_every_smooth_design(
     assert done.returncode == 0, done.stderr
     r_payload = json.loads(out_path.read_text())
     smooth_designs = r_payload["smooth_designs"]
-    # Subset, not equality: gam_term_extract.R's smooth_designs also carries slice
-    # 5's two-margin `ti` cases (`_TI_CASES` below), which this single-variable `cr`
-    # test does not build a TermSpec for.
     # Exact equality, not a subset check (PR #209 review [P0-1]): every case
     # gam_term_extract.R emits must have a named Python recipe SOMEWHERE in this
     # module — _SMOOTH_CASES for single-variable cr, _TI_CASES for the two-margin
@@ -746,9 +743,6 @@ def test_the_python_cr_basis_agrees_with_smoothcon_on_every_smooth_design(
     assert done.returncode == 0, done.stderr
     r_payload = json.loads(out_path.read_text())
     smooth_designs = r_payload["smooth_designs"]
-    # Subset, not equality: gam_term_extract.R's smooth_designs also carries slice
-    # 5's two-margin `ti` cases (`_TI_CASES` below), which this single-variable `cr`
-    # test does not build a TermSpec for.
     # Exact equality, not a subset check (PR #209 review [P0-1]): every case
     # gam_term_extract.R emits must have a named Python recipe SOMEWHERE in this
     # module — _SMOOTH_CASES for single-variable cr, _TI_CASES for the two-margin
