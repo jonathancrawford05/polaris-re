@@ -16,6 +16,12 @@ from polaris_re.utils.table_io import (
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
+# `tests/` is not a package, so the shared sentinel is reached via sys.path. The same
+# partial-checkout mistake has now been made twice — see tests/checkout_scope.py.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tests"))
+
+from checkout_scope import CLAUDE_MD_PRESENT, PARTIAL_CHECKOUT_REASON  # noqa: E402
+
 
 class TestLoadMortalityCSV:
     """Tests for CSV loading and validation."""
@@ -243,11 +249,6 @@ class TestLapseTableArrayLookup:
         years = np.array([1, 3, 5, 11], dtype=np.int32)
         result = table.get_rate_vector(years)
         assert result[0] > result[1] > result[2] > result[3]
-
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tests"))
-
-from checkout_scope import CLAUDE_MD_PRESENT, PARTIAL_CHECKOUT_REASON  # noqa: E402
 
 
 class TestMissingTableGuidance:

@@ -678,3 +678,14 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
   table of a `COMMERCIAL_VIABILITY_REVIEW`. It is registered in
   `PRODUCT_DIRECTION_2026-07-24.md` so it is visible to a selecting routine, but the next
   commercial-viability review should re-rank it properly.
+- **A forward-looking prose claim has no drift detection** *(1st-order — follow-up of
+  ADR-204's stamp system; raised by ADR-207, filed here 2026-08-24)*. ADR-204 gives
+  *measurements* a machine-checked closure fingerprint, so a stamped number cannot go stale
+  unnoticed. **Prose has no equivalent**, and the failure mode is not hypothetical: a
+  *"Movable when: level 4 closes"* bullet in this file, and a `level 5: DISAGREES` example in
+  `RUNBOOK_mgcv_conformance.md`, both had their trigger conditions fire (ADR-202 and ADR-197
+  respectively) and stayed wrong until a human happened to read them. Both said the blocker
+  was still ahead of a reader who had in fact already passed it. This is ADR-203's failure
+  mode expressed in sentences rather than in figures. Whether it is worth a mechanism — a
+  claim register with trigger conditions, say — or whether it stays a review-time
+  responsibility, is a maintainer call, not a routine's.
