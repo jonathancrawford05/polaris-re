@@ -17127,3 +17127,129 @@ numeric-`by` basis) and its first for a two-margin term.
 
 **Supersedes nothing.** Extends the epic's INDEPENDENT Stage-A coverage (ADR-194, ADR-200)
 to a two-margin construction neither previously handled; does not reopen or amend either.
+
+---
+
+## ADR-206: Anchor 7 amended — the parity stack becomes a production path, not a test harness
+
+**Date:** 2026-08-24
+**Status:** **Proposed** — the maintainer authorized revisiting Anchor 7; the
+specific amended form below is this ADR's proposal and needs their confirmation
+before it takes effect.
+**Supersedes in part:** `PLAN_mgcv_parity_engine.md` Anchor 7 (carried verbatim
+from the old epic's Anchor 6, where it held for five slices).
+
+### The authorization, quoted (the `a935013` convention)
+
+- **Source:** live maintainer exchange in this Claude Code session, 2026-08-24.
+- **Verbatim:**
+
+  > *"On anchor 7 - I feel we are at the moment where we can 'unshackle'
+  > development and revisit how best to reach our objective."*
+
+- **What that licenses:** revisiting the anchor and the route to the objective.
+  It is **not** an instruction to delete the anchor, nor to re-point production
+  today. Decision 3 below argues the re-point should not happen at all, which is
+  a stronger claim than the authorization makes and is offered as a
+  recommendation.
+
+### Context — what the epic actually has
+
+Nine verified modules, and nothing that composes them:
+
+| module | verified | at |
+|---|---|---|
+| `gam_basis_cr` (`cr`, `by`, `ti`) | Stage A, INDEPENDENT | tier 3 (ADR-194, 200, 205) |
+| `gam_family` / `gam_fit` | Stage B, INDEPENDENT | tier 3 (ADR-195) |
+| `gam_reml` | INDEPENDENT | tier 3 (ADR-196/197) |
+| `gam_reml_optimize` | INDEPENDENT | tier 3 (ADR-199) |
+| `gam_uncertainty` | INDEPENDENT | tier 3 (ADR-202) |
+| `gam_derivatives` | INDEPENDENT | tier 3 (ADR-201) |
+
+**There is no assembled multi-term model anywhere in the stack.** Three separate
+ADRs (199, 200, 205) each stop at Stage A or at N=2 blocks and each names the
+same missing piece. It has been named as a prerequisite three times and built
+zero times.
+
+**And the gap is one function.** `ModelSpec` already declares
+family / link / terms / weights / offset. `select_lambdas_continuous` already
+accepts `penalty_blocks: tuple[np.ndarray, ...]` — arbitrary N, by construction.
+What is missing between them is `ModelSpec + data -> (design, penalty_blocks)`.
+Everything on either side of that function is already tier-3 verified.
+
+### Decision 1 — the missing assembler and the production engine are the same artifact
+
+This is the reframe the authorization makes available. "A multi-term
+`mgcv`-native model for Stage B" and "a production Python GAM at parity with
+`mgcv`" describe **one object**. The epic has been treating the first as
+scaffolding for conformance and the second as a distant goal, and that framing
+is why the keystone keeps being deferred: nobody schedules scaffolding.
+
+Anchor 7 caused this. By protecting the shipped engine from being re-pointed, it
+made every verified component homeless — each one had to be justified as a
+conformance artifact, because there was no production path they were allowed to
+belong to.
+
+### Decision 2 — Anchor 7 is amended, not removed
+
+Two of the anchor's three original reasons are now discharged by mechanisms that
+did not exist when it was written:
+
+| original reason | status |
+|---|---|
+| "every committed report was produced by them" | **discharged** — ADR-204's stamps give reports provenance and detect drift |
+| "the QA goldens depend on nothing moving" | **still live**, and `tests/qa/` enforces it directly on every run |
+| "the λ=0 oracle chain needs them alive" | **still live** — the old engine is the referent |
+
+**Amended form (proposed):**
+
+> **Anchor 7 — the existing engine stays until a new one demonstrably matches
+> it.** `TensorMIModel` and `PenalizedTensorMIModel` are not deleted, and no
+> caller is silently re-pointed at a different implementation. **Building a new
+> production path from the tier-3-verified parity components is explicitly
+> permitted and is the epic's intended route.** A caller moves to it only when
+> the new path has been measured against the old one on the same input and the
+> comparison is committed. The QA goldens and the λ=0 oracle chain keep the old
+> engine alive regardless.
+
+What changes: building `PolarisGAM` is now the plan rather than a thing needing
+permission. What does not: nothing gets swapped silently, and the old engine
+stays.
+
+### Decision 3 — do NOT re-point `smoothing_uncertainty`, and the question dissolves
+
+For two sessions the open Anchor-7 item has been framed as "re-point production
+at `gam_uncertainty`". **Recommend dropping that framing entirely.**
+
+It was always an odd operation — surgically replacing one covariance function
+inside an engine whose basis, fitter and λ selector all differ from the verified
+ones. ADR-203 removed its remaining justification: the swap does not fix
+coverage (0.8167 / 0.8354 against a 0.9192 floor), so the case for it rested on
+`mgcv` parity alone, and parity of *one function inside a non-parity engine* is
+a weak thing to want.
+
+Once `PolarisGAM` exists it uses `gam_uncertainty` natively, because that is
+what it is built from. The old engine keeps its own covariance and its own
+goldens until callers migrate. **No swap is needed at any point**, and the
+ten-cell suite's level 4 stops being a standing anomaly: it will read DISAGREES
+about the legacy engine, correctly and permanently, while the new path is
+measured on its own terms.
+
+### Decision 4 — the next slice is designated by the routine, not by this ADR
+
+PR #209's author was right: *"designating the epic's next active slice is a call
+for the next `ROUTINE_MGCV_PARITY.md` run, not something this PR should
+decide."* This ADR therefore proposes a **work order**
+(`docs/WORK_ORDER_multi_term_assembly.md`) rather than declaring a slice. The
+routine picks it up or does not.
+
+### What this does NOT settle
+
+- **The coverage shortfall's second cause** is still unidentified (ADR-203).
+  Building `PolarisGAM` does not address it and must not be described as doing
+  so.
+- **`bs = "sz"` (slice 6) and `select = TRUE` (slice 7)** are not built, so the
+  assembler cannot fit the *full* target model yet. It can fit the
+  `cr` + `ti` + `by` subset, which is what slices 2 and 5 verified.
+- **Labelling any interval a 95% band** remains maintainer-reserved.
+- **Whether the amended anchor is the right form** — see Status.
