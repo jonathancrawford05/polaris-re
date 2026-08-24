@@ -1,5 +1,6 @@
 """Tests for mortality and lapse table CSV loading and vectorized lookups."""
 
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -244,6 +245,11 @@ class TestLapseTableArrayLookup:
         assert result[0] > result[1] > result[2] > result[3]
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tests"))
+
+from checkout_scope import CLAUDE_MD_PRESENT, PARTIAL_CHECKOUT_REASON  # noqa: E402
+
+
 class TestMissingTableGuidance:
     """The missing-mortality-table error tells you what to run.
 
@@ -270,6 +276,7 @@ class TestMissingTableGuidance:
             "a reader who does not know these are generated will look for them in git"
         )
 
+    @pytest.mark.skipif(not CLAUDE_MD_PRESENT, reason=PARTIAL_CHECKOUT_REASON)
     def test_the_command_constant_matches_what_the_docs_tell_people_to_run(self) -> None:
         """Guard against the message and CLAUDE.md drifting apart.
 

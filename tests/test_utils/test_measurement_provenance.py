@@ -35,23 +35,16 @@ from polaris_re.utils.measurement_provenance import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts/measurement_stamp.py"
 
-_FULL_CHECKOUT = (REPO_ROOT / "docs" / "DECISIONS.md").is_file()
-"""Is the whole repository present, or only the subset the Docker image carries?
+# `tests/` is not a package, so the shared sentinel is imported the same way the
+# suite already imports from `scripts/`. It lives in one place because the
+# partial-checkout mistake has now been made twice — see tests/checkout_scope.py.
+sys.path.insert(0, str(REPO_ROOT / "tests"))
 
-The image copies `scripts/`, `tests/` and `src/` in full but only a *subset* of
-`docs/` — `docs/measurements/`, `DATA_LICENSING.md`, and two of the six
-`MEASUREMENT_*.md` files (Dockerfile:81-86). The two tests below assert things
-about the repository's structure, so in the image they are not weaker, they are
-meaningless. `DECISIONS.md` is the sentinel because it is large, permanent, and
-deliberately not shipped in the runtime image.
-
-Found by CI, not by reasoning: the first version of this file had no such guard
-and turned the Docker job red.
-"""
-
-_PARTIAL_CHECKOUT_REASON = (
-    "needs a full source checkout; the Docker image copies only part of docs/, so "
-    "this asserts repository structure that is legitimately absent there"
+from checkout_scope import (  # noqa: E402
+    FULL_DOCS_CHECKOUT as _FULL_CHECKOUT,
+)
+from checkout_scope import (  # noqa: E402
+    PARTIAL_CHECKOUT_REASON as _PARTIAL_CHECKOUT_REASON,
 )
 
 
