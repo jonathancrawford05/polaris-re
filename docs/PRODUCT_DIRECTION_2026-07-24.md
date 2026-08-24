@@ -2734,3 +2734,50 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   is not available in principle. Recorded rather than explained away; the 2% tolerance
   is set from the observed spread with under 3x headroom. *Source: this session
   (2nd-order — a documented limit of the formula, not a defect).*
+
+### Harvested 2026-08-24 — slice 5's `ti()` tensor interaction (ADR-205)
+
+- **`ti(AttdAge, PolYear)` IS DONE (Stage A), tier 1 AND tier 3 both confirmed.**
+  Tensor interaction with the marginal main effects excluded — slice 5's other named
+  piece, alongside the MI term's numeric-`by` basis (ADR-200, done 2026-08-22). Agrees
+  with `mgcv::smoothCon(ti(x1, x2, bs="cr", k=(k1,k2)), absorb.cons=TRUE)` at
+  `max_X_diff≈1.5e-14`, `max_S_diff≈3-5e-14` on both penalty blocks, `rank_diff=(0,0)`,
+  on a synthetic case and the target formula's own `ti(AttdAge, PolYear, k=c(13,6))`
+  knots — the harder case agreeing to the printed digit at both tiers. `TI_BASIS_CLAIM`
+  declares `design_X`/`penalty_S`/`rank` (both blocks) INDEPENDENT: genuine Stage-A
+  basis parity, the epic's second (after ADR-194's `cr` basis) and its first for a
+  two-margin term. Tier 3: CI run 32677470292, oracle `sha256:0d54c192…` build 8;
+  required levels 1-3 of the ten-cell suite also still agree — no regression. *Source:
+  this session, ADR-205 (1st-order — the epic's own active slice).*
+
+- **The construction needed instrumenting `mgcv`'s running C-backed constructor, not
+  just reading its R source.** `mgcv::ti`'s own `np=TRUE` default names an SVD-based
+  per-margin reparameterization in its formal argument list, and a literal reading of
+  `smooth.construct.tensor.smooth.spec` suggests it always runs. A first hand-replica
+  that applied it disagreed with `smoothCon()` by up to 182 in absolute value on `X`.
+  `assignInNamespace`-installing a modified copy of the constructor that `assign()`s its
+  own internal locals to the global environment mid-execution found the actual gate:
+  `smooth.construct.cr.smooth.spec` sets `object$noterp <- TRUE` on every `cr` margin,
+  and the tensor constructor's reparam loop is `if (is.null(margin$noterp)) {reparam}
+  else XP[[i]] <- NULL` — false for `cr`, so the step is a no-op for an all-`cr` tensor.
+  A second instrumented pass found a further gap after `X` agreed exactly but `S`
+  disagreed by a constant ratio per block (8.06x on one case): `smoothCon()`'s own
+  `scale.penalty` rescaling — already known from the plain `cr` basis (ADR-194) — fires
+  **twice** for a tensor smooth, once per margin (inside each margin's own `smoothCon`
+  call) and once more over the assembled tensor `X`/`S` (the tensor product is itself a
+  `smoothCon()` return value). Anchor 8's "derive, don't guess" held even after a first
+  derivation attempt failed — the fix was to measure harder, not to fall back to fitting
+  a constant. *Source: this session, ADR-205 decision 1 (1st-order — a construction
+  fact and a methodology note later `te()`/`sz` work should expect to need the same
+  instrumentation discipline for).*
+
+- **Slice 5 is IN PROGRESS, not DONE — both Stage-A pieces are now shipped, and the
+  remaining half is the same named shared prerequisite ADR-200's harvest already
+  flagged: a multi-term mgcv-native model.** Nothing has yet run Anchor 2's own
+  acceptance criteria (the MI contrast, `η`) on either the `by` term or `ti()`, because
+  no fitted model exercises them together. That same missing model still gates slice 5's
+  Stage-B half, slice 4 part B's extension above N=2, and Anchor 5's absolute/relative
+  end-to-end demonstration — unchanged from ADR-200's assessment, now with both of
+  slice 5's Stage-A halves actually in hand to build it against. *Source: this session
+  (1st-order — confirms the epic's next bottleneck is unchanged and is now the only
+  thing between here and Stage B on two already-verified bases).*

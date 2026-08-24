@@ -422,7 +422,9 @@ searches, not one".
 - **Status:** **IN PROGRESS.** The MI term's own basis, `s(AttdAge, by = StudyYear_C)`,
   is **DONE (Stage A only), 2026-08-22** (ADR-200, tier 1 and tier 3 both confirmed,
   identical to the printed digit) — the epic's first INDEPENDENT Stage-A result for a
-  numeric-`by` `cr` smooth. `ti(AttdAge, PolYear)` is **not started.**
+  numeric-`by` `cr` smooth. **`ti(AttdAge, PolYear)` is now also DONE (Stage A only),
+  2026-08-24** (ADR-205, tier 1 and tier 3 both confirmed, CI run 32677470292) — the
+  epic's second INDEPENDENT Stage-A result, and its first for a two-margin term.
 
 `ti(AttdAge, PolYear)` — tensor interaction with the marginal main effects excluded. And
 `s(AttdAge, by = StudyYear_C)` — a `cr` basis scaled by a numeric variable.
@@ -434,9 +436,16 @@ coefficients on the same question and was the source of every conditioning probl
 ADR-184 to ADR-188. **Ship the MI term before `ti`** if they must be split — done, per
 ADR-200: `mgcv` absorbs no identifiability constraint on a numeric-`by` smooth at all, so
 the by-term's design is the *unconstrained* `cr` basis with each row scaled by the
-by-variable, and its penalty is that same unconstrained `S`. Stage A only — a multi-term
-mgcv-native model exercising this term (needed for Stage B / Anchor 2's MI contrast and `η`
-comparisons) is not yet built.
+by-variable, and its penalty is that same unconstrained `S`.
+
+**`ti(AttdAge, PolYear)` reuses two per-margin `cr` constructions unchanged (ADR-194),
+plus three steps derived by instrumenting `mgcv`'s tensor-smooth constructor directly
+(ADR-205, Anchor 8): no reparameterization for `cr` margins (they set `noterp`, so
+`ti()`'s own `np=TRUE` default never fires here), a row-wise Kronecker of the marginal
+designs and penalties, and a SECOND tensor-level `scale.penalty` rescaling on top of each
+margin's own.** Both terms are Stage A only — a multi-term mgcv-native model exercising
+either (needed for Stage B / Anchor 2's MI contrast and `η` comparisons) is not yet built,
+and is what remains of this slice.
 
 ### Slice 6: `bs = "sz"` — orthogonal factor-smooth interactions
 
