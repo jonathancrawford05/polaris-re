@@ -63,6 +63,28 @@ agreed on `X` but disagreed on `S` by a constant ratio per block). Agrees with
 synthetic case and the target's own `ti(AttdAge, PolYear, k=c(13,6))` knots.
 **A multi-term mgcv-native model (needed for Stage B on both the `by` term and `ti()`) is
 not yet started** — that is what remains of slice 5.
+
+> **ANCHOR 7 IS AMENDED, and the assembler is now the epic's intended route**
+> (2026-08-24, maintainer-authorized, **ADR-206**). The epic holds nine tier-3-verified
+> modules and nothing permitted to compose them; three ADRs (199, 200, 205) each stopped
+> at Stage A or N=2 naming the same missing assembler. The gap is one function —
+> `ModelSpec` already declares the model, `select_lambdas_continuous` already takes
+> arbitrary N penalty blocks, and what is missing between them is
+> `ModelSpec + data -> (design, penalty_blocks)`.
+>
+> **The assembler and the production engine are the same object.** Anchor 7 was the
+> reason that could not be said, and is amended: building a new production path from the
+> verified components is explicitly permitted; the old engine stays until a new one
+> demonstrably matches it; nothing is swapped silently.
+>
+> **`docs/WORK_ORDER_multi_term_assembly.md` is READY and NOT designated a slice** —
+> designating one is a routine call, not a PR's. It carries a registered prediction and
+> the scope boundaries.
+>
+> **Withdrawn, not granted:** the long-open "re-point `smoothing_uncertainty` at
+> `gam_uncertainty`" item (ADR-206 decision 3). ADR-203 removed its justification, and
+> once the assembler exists it uses `gam_uncertainty` natively. The ten-cell suite's
+> level 4 will read DISAGREES about the legacy engine permanently and correctly.
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16) and one deferred
 to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
@@ -599,9 +621,18 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 - **The coverage move (0.7598 → 0.8282, old age) does not by itself change anything
   downstream.** Slice 4's gate still fails (0.9192 floor untouched), so the default of not
   showing the penalized band holds on today's evidence: 82.8% is 12 points short of the 95%
-  it would need to claim, and level 4 (ADR-190's `dw/drho` gap) is the substantive blocker.
+  it would need to claim.
   **Movable when:** level 4 closes, or coverage reaches the gate — then re-open the question
-  rather than citing this note. Labelling an interval a 95% band remains maintainer-reserved
+  rather than citing this note.
+
+  > **The trigger has FIRED, and the answer did not change** (2026-08-24). This bullet
+  > named "level 4 (ADR-190's `dw/drho` gap)" as the substantive blocker. **That gap is
+  > closed** — ADR-202, eq. (7) reproduces `mgcv`'s `Vc` to 0.023-0.904% at tier 3. ADR-203
+  > then ran the gate and measured that closing it moved coverage only to 0.8167 / 0.8354
+  > against the 0.9192 floor. So the default of not showing the penalized band still holds,
+  > **but for a different reason**: a second cause, still unidentified, that no covariance
+  > correction reaches. A reader arriving at the original wording would have thought the
+  > blocker was still ahead of them. Labelling an interval a 95% band remains maintainer-reserved
   either way; measuring and recommending toward it does not.
 
 ## Open questions (for human)

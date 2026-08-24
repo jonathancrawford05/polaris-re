@@ -142,10 +142,37 @@ premise.** "The expensive resource is the round trip" was true when no environme
 it is false now. Iterate locally, confirm on the pinned digest, and stop designing around
 a cost that no longer exists.
 
-**Anchor 7 — the existing engine stays.** `TensorMIModel` and `PenalizedTensorMIModel`
-are not deleted or silently re-pointed. Every committed report was produced by them, the
-QA goldens depend on nothing moving, and the λ=0 oracle chain needs them alive. Carried
-verbatim from the old epic's Anchor 6, where it held for five slices.
+**Anchor 7 — the existing engine stays until a new one demonstrably matches it.**
+**AMENDED 2026-08-24 (maintainer-authorized, ADR-206).** `TensorMIModel` and
+`PenalizedTensorMIModel` are not deleted, and no caller is silently re-pointed at a
+different implementation. **Building a new production path from the tier-3-verified
+parity components is explicitly permitted and is this epic's intended route.** A caller
+moves to it only when the new path has been measured against the old one on the same
+input and the comparison is committed. The QA goldens and the λ=0 oracle chain keep the
+old engine alive regardless.
+
+> **Original form, and why it changed.** It read: *"the existing engine stays.
+> `TensorMIModel` and `PenalizedTensorMIModel` are not deleted or silently re-pointed.
+> Every committed report was produced by them, the QA goldens depend on nothing moving,
+> and the λ=0 oracle chain needs them alive."* Carried verbatim from the old epic's
+> Anchor 6, where it held for five slices, and it held for six more here.
+>
+> One of its three reasons is discharged: ADR-204's provenance stamps now give committed
+> reports their own drift detection, so the old engine is no longer their only warrant.
+> The other two — the QA goldens and the λ=0 oracle chain — are untouched and keep the
+> engine alive.
+>
+> **What the anchor cost, which is why it moved.** By protecting the shipped engine it
+> left every verified component homeless: nine tier-3-verified modules and nothing
+> permitted to compose them, so each had to justify itself as a conformance artifact.
+> Three ADRs (199, 200, 205) each stopped at Stage A or N=2 naming the same missing
+> assembler — named three times, built zero, because nobody schedules scaffolding. The
+> assembler and the production engine are the same object; the anchor was the reason
+> that could not be said. See `docs/WORK_ORDER_multi_term_assembly.md`.
+>
+> **What did NOT change:** nothing is swapped silently, and the old engine stays. The
+> long-open "re-point `smoothing_uncertainty` at `gam_uncertainty`" item is **withdrawn**
+> rather than granted — ADR-206 decision 3.
 
 **Anchor 8 — never tune a tolerance or a constant to close a gap; derive it.** This
 project has earned this twice: ADR-188 refused to widen its way past a failing coverage

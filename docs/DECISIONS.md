@@ -17180,9 +17180,10 @@ the stamps say `asserted` so a reader knows whose word they are on.
 ## ADR-206: Anchor 7 amended — the parity stack becomes a production path, not a test harness
 
 **Date:** 2026-08-24
-**Status:** **Proposed** — the maintainer authorized revisiting Anchor 7; the
-specific amended form below is this ADR's proposal and needs their confirmation
-before it takes effect.
+**Status:** **Accepted** (2026-08-24). The maintainer authorized revisiting the
+anchor, then approved this ADR's specific amended form and its decision 3
+recommendation: *"Proceed as you have proposed, let me know if you need anything
+from me."* Both quotes are in the authorization section below.
 **Supersedes in part:** `PLAN_mgcv_parity_engine.md` Anchor 7 (carried verbatim
 from the old epic's Anchor 6, where it held for five slices).
 
@@ -17194,11 +17195,19 @@ from the old epic's Anchor 6, where it held for five slices).
   > *"On anchor 7 - I feel we are at the moment where we can 'unshackle'
   > development and revisit how best to reach our objective."*
 
-- **What that licenses:** revisiting the anchor and the route to the objective.
-  It is **not** an instruction to delete the anchor, nor to re-point production
-  today. Decision 3 below argues the re-point should not happen at all, which is
-  a stronger claim than the authorization makes and is offered as a
-  recommendation.
+- **What that licensed:** revisiting the anchor and the route to the objective.
+  It was **not** an instruction to delete the anchor, nor to re-point production.
+  Decision 3 below argues the re-point should not happen at all — a stronger
+  claim than that authorization made, so it was put as a recommendation.
+
+- **Approved, second exchange, same session:**
+
+  > *"Proceed as you have proposed, let me know if you need anything from me."*
+
+  That approves the amended form in decision 2 and the recommendation in decision
+  3. `PLAN_mgcv_parity_engine.md` Anchor 7 is edited to the amended text under
+  this authorization; the diff is in the same commit as this ADR so the two can
+  be read against each other.
 
 ### Context — what the epic actually has
 
