@@ -452,19 +452,24 @@ second INDEPENDENT Stage-A claim, and the epic's first for a two-margin term.
 two distinct implementations from the same recipe (each margin's covariate
 locations, plus a knot vector either supplied to both or each side's own default
 placement per margin): :func:`build_python_ti_term` never reads
-``gam_term_extract.R``'s ``X``/``S``/``rank`` output, only the shared
-``x1``/``x2``/``knots1``/``knots2`` it exports (the two-margin counterpart of
-:data:`CR_BASIS_CLAIM`'s single ``x``).
+``gam_term_extract.R``'s ``X``/``S``/``rank`` output, only the shared ``x1``/``x2``
+it exports (the two-margin counterpart of :data:`CR_BASIS_CLAIM`'s single ``x``).
+The knot *recipe* itself — supplied verbatim, or ``None`` to mean "``mgcv``'s
+default" — is named directly in each case's own ``TermSpec`` by the caller (the
+test module's ``_TI_CASES``, the CI diagnostic's mirror of it), the same way
+:func:`build_python_cr_term`'s knot recipe is (Anchor 4: never derived from the
+R side). ``knots1``/``knots2`` (``sm$margin[[i]]$xp``, the knots ``mgcv`` actually
+used) are exported by ``gam_term_extract.R`` for a human reading the payload to
+cross-check against that same recipe — **no current caller reads them
+back** (PR #209 review [P2-1], corrected: an earlier revision of this docstring
+claimed :func:`build_python_ti_term` reads them, which was never true).
 
 **Knots are not part of this claim**, for the same reason :data:`CR_BASIS_CLAIM`
 excludes them, and are not run through ``compare_term_extract``'s
 ``knots_agree`` field at all: a two-margin term has no single ``knots`` list
 (:class:`TermExtract` carries one ``knots`` tuple, not two), so both sides
 report it ``None`` and the field agrees trivially rather than comparing
-anything. ``knots1``/``knots2`` are shared recipe inputs
-(:func:`build_python_ti_term` reads them off the R payload the same way
-:func:`build_python_cr_term` reads a single ``knots``), never independently
-re-derived by this claim's own comparison."""
+anything."""
 
 
 @dataclass(frozen=True)

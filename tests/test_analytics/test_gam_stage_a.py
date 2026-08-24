@@ -655,7 +655,13 @@ def test_the_r_extractor_agrees_with_the_python_side_on_every_smooth_design(
     # Subset, not equality: gam_term_extract.R's smooth_designs also carries slice
     # 5's two-margin `ti` cases (`_TI_CASES` below), which this single-variable `cr`
     # test does not build a TermSpec for.
-    assert set(_SMOOTH_CASES) <= set(smooth_designs)
+    # Exact equality, not a subset check (PR #209 review [P0-1]): every case
+    # gam_term_extract.R emits must have a named Python recipe SOMEWHERE in this
+    # module — _SMOOTH_CASES for single-variable cr, _TI_CASES for the two-margin
+    # ti() cases below — so a future extract_smooth_* case added to the R script
+    # without a matching entry here fails loudly instead of silently going
+    # uncompared by every gating test.
+    assert set(smooth_designs) == set(_SMOOTH_CASES) | set(_TI_CASES)
 
     # Only the single-variable cr cases named in _SMOOTH_CASES: the ti cases carry
     # no single "knots" list (each margin has its own, module docstring), and
@@ -743,7 +749,13 @@ def test_the_python_cr_basis_agrees_with_smoothcon_on_every_smooth_design(
     # Subset, not equality: gam_term_extract.R's smooth_designs also carries slice
     # 5's two-margin `ti` cases (`_TI_CASES` below), which this single-variable `cr`
     # test does not build a TermSpec for.
-    assert set(_SMOOTH_CASES) <= set(smooth_designs)
+    # Exact equality, not a subset check (PR #209 review [P0-1]): every case
+    # gam_term_extract.R emits must have a named Python recipe SOMEWHERE in this
+    # module — _SMOOTH_CASES for single-variable cr, _TI_CASES for the two-margin
+    # ti() cases below — so a future extract_smooth_* case added to the R script
+    # without a matching entry here fails loudly instead of silently going
+    # uncompared by every gating test.
+    assert set(smooth_designs) == set(_SMOOTH_CASES) | set(_TI_CASES)
 
     # Only the single-variable cr cases: the ti cases (_TI_CASES) are
     # test_the_python_ti_basis_agrees_with_smoothcon_on_every_ti_design's own scope.

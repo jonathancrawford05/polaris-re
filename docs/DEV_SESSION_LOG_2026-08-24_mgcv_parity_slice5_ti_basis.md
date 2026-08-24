@@ -192,6 +192,16 @@ not the slice.
   confirmation), matching the discipline every prior slice-2/5 row in the ledger
   follows.
 
-No `perf/history.jsonl` row: this is the PR's initial open (ADR-177 applies), but
-the row is appended once the PR itself is opened, not during the session's own
-local quality gate — done below, alongside the PR.
+## Perf history
+
+One row appended for the PR's initial open (ADR-177), commit-pinned to `c24d59d`
+— the diff's actual code change, before the two follow-up doc/review commits.
+`output_fingerprint` (`8331a13f…`) unchanged from every preceding row, confirming
+this session's diff — Stage-A basis layer, R extractor, docs — is behaviourally
+inert for the `TermLife` engine `perfbench` probes.
+
+**Creep verdict, measured (`uv run python scripts/perf_history.py
+--check-only`), added here per PR #209 review [P2-3]:** `has_structural_creep:
+false`, `has_wall_time_creep: false`, `has_config_drift: false` — a real verdict,
+not `insufficient_data` (25 rows against a window of 3). `peak_mib` 33→33
+(Δ0); wall-time ratio 1.235x, inside the 1.25x band.

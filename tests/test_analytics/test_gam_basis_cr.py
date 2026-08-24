@@ -16,6 +16,8 @@ import numpy as np
 import pytest
 
 from polaris_re.analytics.gam_basis_cr import (
+    _r_norm_inf,
+    _r_norm_one,
     absorb_sum_to_zero_constraint,
     by_scale_design,
     cr_basis,
@@ -333,6 +335,25 @@ def test_ti_basis_penalties_are_positive_semidefinite() -> None:
         coef = rng.normal(size=s1.shape[0])
         assert coef @ s1 @ coef >= -1e-9
         assert coef @ s2 @ coef >= -1e-9
+
+
+def test_ti_basis_applies_the_tensor_level_rescale() -> None:
+    """Pins construction step 5 (module docstring) — the step that took two
+    instrumented R passes to find (ADR-205) and that every OTHER `ti_basis`
+    test in this file is invariant to, since they all check shape, symmetry,
+    rank or PSD-ness, none of which a positive scalar rescale of `S` changes
+    (PR #209 review [P2-2]: deleting step 5 left every pre-existing test green).
+
+    By construction, the final rescale sets
+    ``S_i <- S_i / (norm_one(S_i_pre_rescale) / norm_inf(X)**2)``, so
+    ``norm_one(S_i_final)`` must equal ``norm_inf(X)**2`` exactly — a
+    closed-form invariant of the scaling itself, not a value read off `mgcv`,
+    so this needs no R."""
+    x1, x2, knots1, knots2 = _ti_case()
+    design, s1, s2 = ti_basis(x1, x2, knots1, knots2)
+    target = _r_norm_inf(design) ** 2
+    assert _r_norm_one(s1) == pytest.approx(target)
+    assert _r_norm_one(s2) == pytest.approx(target)
 
 
 def test_ti_basis_refuses_a_shape_mismatch() -> None:
