@@ -1,11 +1,27 @@
 # Work order — from conformance harness to production path (`PolarisGAM`)
 
-**Status:** READY, and registered as **PLAN slice 5b** so the routine's
-"next unchecked slice" rule can reach it. Registering it in the ordered list is not
-the same as designating it for a session — that remains a `ROUTINE_MGCV_PARITY.md`
-call (ADR-207 decision 4). Before 2026-08-25 this work order sat outside the slice
-list entirely, which meant the routine's selection rule would have walked past it to
-slice 6 no matter how ready it was.
+**Status:** **DONE, 2026-08-25** (ADR-208, tier 1 AND tier 3 both confirmed, CI
+run 32855338611). `PolarisGAM` exists
+(`src/polaris_re/analytics/gam_model.py`), fits the three-term `cr`+`by`+`ti`
+model from a `ModelSpec`, and selects its own smoothing parameters. The §4
+registered prediction below is **REFUTED at both tiers**. **The original
+diagnosis (a flat REML surface, no criterion gap) was corrected same-day, PR
+#212 review [P1]:** the discriminating measurement the review named shows
+`mgcv`'s own score and ours RANK `mgcv`'s point and Python's point in
+OPPOSITE order — evidence of an `sp`-dependent criterion discrepancy at this
+N=4 / `ti()`-sharing-a-span structure, **CONFIRMED at tier 3 same day** (CI
+run 32874213883, identical to tier 1 at every printed digit). Slice 6 remains
+blocked until this is localised or closed. See ADR-208's amendment and
+`docs/CONFORMANCE_LEDGER.md`. This
+document is kept as the specification that was executed, not rewritten in the
+past tense throughout; §7's Definition of Done states what was and was not met.
+
+Registered as **PLAN slice 5b** so the routine's "next unchecked slice" rule could
+reach it. Registering it in the ordered list is not the same as designating it for
+a session — that remained a `ROUTINE_MGCV_PARITY.md` call (ADR-207 decision 4).
+Before 2026-08-25 this work order sat outside the slice list entirely, which meant
+the routine's selection rule would have walked past it to slice 6 no matter how
+ready it was.
 **Predecessors:** ADR-206 (the multi-term assembly, built and Stage-B verified),
 ADR-207 (the Anchor 7 amendment that permits a production path).
 **Rewritten 2026-08-24** after ADR-206 landed. The first version of this work
@@ -129,12 +145,22 @@ measured, never the measurement.
 
 ## 7. Definition of done
 
-- `PolarisGAM` fits a three-term `cr` + `by` + `ti` model from a `ModelSpec`,
-  selecting its own λ.
-- Free-`sp` conformance at **tier 3**, with a `VerificationClaim` classifying
-  each compared quantity, and `sp`'s move from shared input to compared quantity
-  stated explicitly.
-- The §4 prediction resolved in those words — confirmed or refuted.
-- ADR-206's tests pass unchanged, proving the extraction preserved behaviour.
-- `experience_gam_penalized` and `experience_gam` untouched; `tests/qa/` goldens
-  byte-identical.
+- [x] `PolarisGAM` fits a three-term `cr` + `by` + `ti` model from a `ModelSpec`,
+  selecting its own λ. (`gam_model.fit_polaris_gam`)
+- [x] Free-`sp` conformance at **tier 1 AND tier 3**, with a `VerificationClaim`
+  (`FREE_SP_MODEL_CLAIM`) classifying each compared quantity, and `sp`'s move
+  from shared input to compared quantity stated explicitly (module docstring,
+  ADR-208). Tier 3 confirmed identical in verdict, CI run 32855338611 — see
+  ADR-208's confirmation amendment for the digest and full numbers.
+- [x] The §4 prediction resolved in those words — **REFUTED**. First
+  diagnosis (a flat REML surface, no criterion gap) was corrected same-day
+  (PR #212 review [P1]): the discriminating measurement shows `mgcv`'s own
+  criterion and ours rank the two candidate points in OPPOSITE order — real
+  evidence of an `sp`-dependent criterion discrepancy at this term
+  structure, not merely optimiser path-sensitivity. **CONFIRMED at tier 3,
+  same day** (CI run 32874213883, identical to tier 1). See ADR-208's
+  amendment.
+- [x] ADR-206's tests pass unchanged, proving the extraction preserved behaviour
+  (`tests/test_analytics/test_gam_multiterm_conformance.py`, unmodified).
+- [x] `experience_gam_penalized` and `experience_gam` untouched; `tests/qa/`
+  goldens byte-identical (neither file changed in this slice's diff).

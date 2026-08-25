@@ -17449,3 +17449,408 @@ holds as block count grows. The work order registers that prediction.
   `cr` + `ti` + `by` subset, which is what slices 2 and 5 verified.
 - **Labelling any interval a 95% band** remains maintainer-reserved.
 - **Whether the amended anchor is the right form** — see Status.
+
+## ADR-208: `PolarisGAM` built from a `ModelSpec` — slice 5b, free-`sp` lands INDEPENDENT parity evidence and REFUTES the work order's registered prediction
+
+**Date:** 2026-08-25
+**Status:** **Accepted.** Tier 1 measured and recorded below; tier 3 dispatched
+same session — see the confirmation section. **The original headline
+diagnosis below ("not evidence of a formula gap") was retracted same day
+and replaced by a confirmed, sp-dependent criterion discrepancy — see the
+Amendment section; a reader should not stop at this line.**
+**Implements:** `docs/PLAN_mgcv_parity_engine.md` slice 5b,
+`docs/WORK_ORDER_multi_term_assembly.md`, under ADR-207's amended Anchor 7.
+
+### What was built
+
+`src/polaris_re/analytics/gam_model.py` — the work order's step 1 and 2:
+
+- `assemble_model_design(model: ModelSpec, data)` generalises
+  `gam_multiterm_conformance.assemble_multiterm_design`'s column/penalty-padding
+  arithmetic from exactly three fixed terms to any `ModelSpec` built from
+  `"cr"` (with or without a numeric `by`) and `"ti"` terms.
+  `assemble_multiterm_design` is now a thin `RMultiTermRecipe`-shaped adapter
+  onto this function — the shared assembly the work order asked for, extracted
+  once rather than forked. ADR-206's own tests (`test_gam_multiterm_conformance.py`)
+  pass unchanged against the refactor — the check that the extraction was
+  behaviour-preserving.
+- `fit_polaris_gam(model, data, y)` — `PolarisGAM`'s fit entry point. Composes
+  three already tier-3-verified pieces exactly as written, nothing re-derived:
+  `select_lambdas_continuous` (ADR-199) for λ, `penalized_irls_general`
+  (ADR-195) for the fit (called internally by the search), and a per-term
+  `tr(F)` split (`_per_term_edf`) using the identical hat-matrix-diagonal
+  identity `experience_gam_penalized.PenalizedTensorMIModel.fit` already uses
+  for its two-block case, generalised to any number of named terms.
+- Nothing here re-derives a basis, a fitter, a criterion or a search — the
+  work order's own out-of-scope list (§2). `experience_gam_penalized` and
+  `experience_gam` are untouched (Anchor 7); `tests/qa/` goldens are
+  byte-identical (unaffected files).
+
+`src/polaris_re/analytics/gam_model_conformance.py` — the free-`sp` parity
+claim, `FREE_SP_MODEL_CLAIM`, and `scripts/gam_multiterm_free_sp_probe.R` —
+the same three-term formula as ADR-206's `gam_multiterm_probe.R`, but
+`method="REML"` with no `sp=` supplied.
+
+### The provenance gate (ADR-193), applied before writing the comparison
+
+**Claim sentence:** *`PolarisGAM` assembles the three-term design from the
+shared recipe via the already-independently-verified `cr`/`by`/`ti` basis
+producers, then selects its own `log10(lambda)` per block by minimizing
+`gam_reml.reml_score_general` via `select_lambdas_continuous`, and fits with
+`penalized_irls_general` — never reading `mgcv`'s own `eta`, `coef`, `sp` or
+`edf`; `mgcv` computes the identical three-term formula via
+`gam(..., method="REML")` with free `sp`, selecting its own smoothing
+parameters independently; compared on `eta`, `log10(sp)` per block,
+`edf_total` and per-term `edf`.*
+
+**The mechanical test, applied to the signature:** `fit_free_sp_case`'s only
+parameter is `RFreeSpRecipe`, which has no `eta`/`coef`/`sp`/`edf_total`/
+`term_edf` key — a caller cannot make it see `mgcv`'s own fit even by mistake
+(`test_fit_free_sp_case_signature_takes_no_r_fit_output`, the same
+type-level enforcement PR #202 and PR #210 established for the family and
+fixed-sp multi-term modules).
+
+**THE ASYMMETRY, stated explicitly (work order §3).** In ADR-206's
+`MULTITERM_CLAIM`, `sp` was a **shared input** — both sides fit at the same
+externally-supplied `sp_fixed`. Here `sp` is itself a **compared quantity**:
+each side selects it independently from the same, already-verified criterion.
+`RFreeSpRecipe` carries no `"sp"` key at all — there is nothing to share.
+Every one of the four declared quantities (`eta`, `log10(sp)` per block,
+`edf_total`, per-term `edf`) is **INDEPENDENT**
+(`test_free_sp_model_claim_is_independent_on_every_declared_quantity`,
+`require_parity_evidence` gates it).
+
+### Tier-1 measurement (R 4.3.3 / mgcv 1.9.1, local apt)
+
+Ran `scripts/gam_multiterm_free_sp_probe.R` (n=900, the target formula's own
+`AttdAge`(k=13)/`PolYear`(k=6) knots, seed `20260825` — distinct from
+`gam_multiterm_probe.R`'s `20260824`, a genuinely new draw) and compared:
+
+| quantity | value |
+|---|---|
+| `max_abs_eta_diff` | 3.677e-02 |
+| `max_abs_log10_sp_diff` | **0.7766** (block 2, the by-term) |
+| Python `log10(sp)` | `[6.753, 9.096, 3.099, 3.054]` |
+| `mgcv` `log10(sp)` | `[6.696, 9.872, 3.292, 3.029]` |
+| `edf_total_diff` | +0.7263 (Python 17.16 vs `mgcv` 16.44) |
+| `max_abs_term_edf_diff` | 0.7054 |
+| both converged | True / True |
+| `at_bound` | False |
+
+**The work order's §4 registered prediction is REFUTED.** ADR-199 measured
+`select_lambdas_continuous` against `mgcv` at 6.9e-04 to 9.8e-04 on 2-block
+designs; the prediction was that N=4 lands in the same range. It does not —
+`max_abs_log10_sp_diff` is three orders of magnitude larger. Per the work
+order's own framing: *"the 2-block result was narrower than it appeared —
+the search may scale differently with block count — and that is the
+finding."*
+
+### Diagnosis: a flat REML surface — INCOMPLETE, corrected by the amendment below
+
+Two diagnostic checks (not part of the committed comparison — both read
+`mgcv`'s own selected `sp` to run, which would violate the mechanical test if
+committed as parity evidence; they are session-only measurements using the
+already tier-3-verified `reml_score_general`/`penalized_fit_and_score`):
+
+1. **The shared, already-verified criterion scores Python's own optimum
+   LOWER (better) than `mgcv`'s own selected point.** Evaluating
+   `reml_score_general` at both `log10(sp)` vectors on the identical shared
+   design: Python's point scores 611.892, `mgcv`'s own point scores 612.618.
+   If the criterion itself disagreed with `mgcv`'s (a formula gap, the kind
+   ADR-196/197 already closed), `mgcv`'s own selection would be expected to
+   score at least as well under its own criterion — it does not, under ours.
+2. **Starting the search AT `mgcv`'s own point does not stay there.** With
+   `x0` set to `mgcv`'s selected `log10(sp)` (diagnostic-only — this is not
+   how `fit_free_sp_case` is called; doing so in the committed comparator
+   would make the Python side read the R side's output, breaking
+   independence), L-BFGS-B still moves to `[6.683, 9.820, 2.860, 3.059]`,
+   score 612.155 — closer to `mgcv`'s point (block-2 log10 diff 0.052, not
+   0.777) but still *lower*-scoring than `mgcv`'s own exact selection, and
+   still a different point from the neutral-start optimum.
+
+**Reading:** the REML surface is very flat along the by-term's smoothing
+direction at this design — a criterion difference of order 0.3-0.7 (out of
+~612) corresponds to nearly a full decade of movement in that one `lambda`.
+Two different starting points (a neutral bounds-midpoint start, and `mgcv`'s
+own point) converge to two different points on an essentially flat plateau,
+both scoring at or below `mgcv`'s own selection under the identical,
+already-verified criterion. This is PLAN §5 risk 3, measured rather than
+merely anticipated: *"the 21-dimensional optimiser may be badly conditioned
+where the 2-D grid was merely shallow... in \[many] dimensions that flatness
+is a convergence problem, not a curiosity."* It is now observed at N=4, the
+first design large enough to show it.
+
+~~**This is not evidence of a formula gap.**~~ **RETRACTED — see the
+amendment below (PR #212 review [P1]).** This claim does not follow from the
+two checks above: both evaluate ONLY our own criterion at both points, so
+they cannot distinguish "mgcv's own optimiser stopped short of its own
+optimum" (which this section assumed) from "the two criteria disagree about
+which point is better" (a genuine, `sp`-dependent formula question the fixed
+-`sp` verification in ADR-196/197 had no structure to detect). The
+discriminating measurement — reading `mgcv`'s OWN score at both points — was
+not run before this paragraph was written. It has since been run, and it
+points the other way. `reml_score_general` was verified INDEPENDENT against
+`mgcv` at fixed `sp` for a 2-block, disjoint-support design (ADR-196/197) and
+the search itself was verified INDEPENDENT at free `sp` on 2-block designs
+(ADR-199) — neither of those results is overturned by what follows, but
+neither of them covers this design's structure (N=4 blocks, one term's two
+penalties sharing a column span) either, which is exactly the gap the
+amendment below fills in.
+
+### PLAN §6's separately-registered prediction — CONFIRMED again, at N=4
+
+*"The optimiser does not land on `mgcv`'s `sp`, but `edf` agrees far better
+than `sp` does."* `max_abs_log10_sp_diff` (0.777, nearly a full decade) and
+`edf_total_diff` (0.726 out of ~16-17, ≈4%) are the same pattern the ten-cell
+suite's own level 2 established at two dimensions, and ADR-199 confirmed at
+N=2 free `sp`: `edf` (basis-invariant, PLAN Anchor 2's own reasoning for why
+it should be less sensitive than `sp` to reparameterisation and local
+optimisation noise) is the more stable quantity to report, again.
+
+### Why the search bounds were widened, and why that is not Anchor-8 tuning
+
+`mgcv`'s own free-`sp` selection for this formula reaches `log10(sp) ≈ 9.87`
+on the by-term — outside
+`gam_reml_optimize.DEFAULT_LOG10_BOUNDS`'s `(-2, 8)` entirely. Measured, not
+guessed: this is what the tier-1 run found before the comparator's bounds
+were set. `gam_model_conformance._SEARCH_BOUNDS = (-2, 11)` widens the
+SEARCH DOMAIN so the optimiser can reach the region `mgcv` itself selects in.
+This is not the tolerance-tuning Anchor 8 forbids — no comparison threshold
+moved, `at_bound` is still reported (and reads `False` in the measurement
+above, so the widened bound was not itself binding), and the search still
+found a *different*, lower-scoring point than `mgcv`'s — widening the domain
+changed what the optimiser could reach, not what counted as agreement.
+
+### What this does NOT settle
+
+- ~~**The registered prediction's refutation does not indict the criterion
+  or the search's correctness**~~ **SUPERSEDED — see the amendment below.**
+  The discriminating measurement the amendment adds points toward an
+  `sp`-dependent criterion discrepancy specific to this N=4 / ti-sharing-a
+  -span structure, not (only) optimiser path-sensitivity on an otherwise
+  shared surface.
+- **Anchor 2's primary MI-contrast-on-a-grid metric** is still not measured
+  (ADR-206 already named this; unaffected by this slice).
+- **`bs = "sz"` and `select = TRUE`** remain unbuilt (slices 6-7).
+- Whether a more robust search strategy (multi-start, informed
+  initialisation) would narrow this gap is an open question this ADR
+  deliberately does not answer — `select_lambdas_continuous` is reused
+  unchanged (work order §2: "if this work starts producing new numerics,
+  stop"), and evaluating a different search strategy is new numerics.
+
+### Tier-3 confirmation (same session)
+
+Dispatched via CI `workflow_dispatch` on `c7c5ac6` (run
+[32855338611](https://github.com/jonathancrawford05/polaris-re/actions/runs/32855338611),
+R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+build 8). R job completed in ~43s (including the new free-sp fit step, 1s);
+compare job's new "Compare PolarisGAM's free-sp selection against mgcv (slice
+5b)" step completed in ~6s, read via `get_job_logs`:
+
+| quantity | value |
+|---|---|
+| `n`, `p` | 900, 86 |
+| `max_abs_eta_diff` | 3.775e-02 |
+| `max_abs_log10_sp_diff` | **0.6398** |
+| `edf_total_diff` | +1.1482 |
+| `max_abs_term_edf_diff` | 0.8776 |
+| `at_bound` | False |
+| `agrees` | **False** |
+
+**IDENTICAL IN VERDICT to tier 1, same order of magnitude on every metric,
+last-bit-through-decimal differences consistent with the different `mgcv`
+release / BLAS the routine's own tier discipline predicts** (tier 1:
+`max_abs_log10_sp_diff=0.7766`, `edf_total_diff=+0.7263`) — the disagreement
+is not a tier-1 artefact.
+
+**Required levels 1-3 of the existing ten-cell suite also still agree on this
+run** (`level 1: AGREES`, `level 2: AGREES`, `level 3: AGREES`) — no
+regression from the workflow edit. Level 4 still `DISAGREES` (ADR-190's
+unchanged, unrelated `dw/drho` gap against the legacy engine) and level 5
+still `AGREES`.
+
+**CONFIRMED (parity) — REFUTED, settled, not tier-1-only.** `eta`,
+`log10(sp)` per block, `edf_total` and per-term `edf` — every quantity
+`FREE_SP_MODEL_CLAIM` declares — are INDEPENDENT, so this is a genuine
+INDEPENDENT comparison that disagreed at both tiers: the work order's §4
+registered prediction is refuted as a real, reproducible result, not a
+tier-1 or BLAS artefact. ~~The diagnosis above (a flat REML surface,
+evaluated using the shared, already-verified criterion) stands unchanged —
+nothing in the tier-3 numbers suggests a different explanation is needed.~~
+**The tier-3 numbers are the refutation's confirmation, not the diagnosis's**
+— the WHY was reopened separately, by review, and is corrected in the
+amendment below rather than by anything the tier-3 dispatch itself measured.
+
+### Amendment (same day) — PR #212 review [P1]: the diagnosis was
+### incomplete, and the corrected measurement points at a real criterion gap
+
+**What the review found.** Both diagnostic checks above evaluate *only our
+own* `reml_score_general` at `mgcv`'s point and at Python's point. Neither
+reads `mgcv`'s own score at either point. That leaves two explanations open
+that the checks as run cannot separate:
+
+- **(a)** Same criterion, flat plateau, `mgcv`'s own outer optimiser stops
+  short of its own true minimum — a finding about `mgcv`'s convergence.
+- **(b)** Our criterion differs from `mgcv`'s in an **`sp`-dependent** way
+  that the existing fixed-`sp` verification (ADR-196/197, a 2-block design
+  with *disjoint* column supports) had no structure to detect.
+
+The original argument — *"if the criterion itself disagreed, `mgcv`'s own
+selection would be expected to score at least as well under its own
+criterion; it does not, under ours"* — does not discriminate: under (b),
+`mgcv`'s point scoring worse **under our criterion** is exactly what would be
+observed too. The review named the actual discriminating measurement: read
+`mgcv`'s own score at both points and compare *differences* (differencing
+cancels any purely additive offset between the two implementations' score
+scales, the same reasoning ADR-196 used for its own pairwise comparison).
+
+**The measurement.** `scripts/gam_multiterm_sp_delta_probe.R` (new,
+diagnostic-only — reads a point Python selected, so it can never be part of
+`FREE_SP_MODEL_CLAIM`, same status as `scripts/gam_deriv_probe.R`/
+`gam_vc_probe.R`) reproduces the free-`sp` probe's exact recipe (seed
+`20260825`) and reads `mgcv`'s own `gcv.ubre`:
+
+- at `mgcv`'s own free-`sp` optimum (`method="REML"`, no `sp=` supplied):
+  `score_at_mgcv_pt = 2347.433463`
+- at Python's own tier-1 selected point (`log10(sp) = [6.75256951,
+  9.09550509, 3.09851263, 3.05446081]`), fit with that `sp` fully supplied
+  (no optimisation runs — the criterion is evaluated, not re-searched):
+  `score_at_python_pt = 2347.554852`
+
+```
+delta_mgcv = score_at_mgcv_pt - score_at_python_pt = -0.121389   (mgcv's own criterion)
+delta_ours = 612.617546      - 611.892459           = +0.725193  (our criterion, same two points)
+```
+
+**The signs are OPPOSITE.** Under `mgcv`'s own criterion, `mgcv`'s own point
+scores *better* (lower) than Python's point — `mgcv`'s optimiser found a
+point its own criterion prefers. Under our criterion, the ranking flips:
+Python's point scores better. Two criteria that ranked the *same* pair of
+points consistently (hypothesis (a)) would agree in sign, whatever their
+absolute scale; these do not, and the magnitudes are not close either
+(0.121 vs 0.725, roughly 6×). **This is hypothesis (b), not (a):** the two
+criteria disagree about which of these two points is better, on this
+specific N=4-block, `ti()`-sharing-a-span structure. That is a genuine,
+reopened `sp`-dependent criterion question, localised more narrowly than
+"the score is wrong" — ADR-196/197 already settled the *fixed*-`sp` value at
+arbitrary points for a 2-block, disjoint-support design, and this result
+does not contradict that. What it adds is that the criterion's *dependence
+on `sp`* has not been verified for a structure with overlapping penalty
+blocks (`ti()`'s two penalties share one column span, ADR-205 decision 2) or
+for more than two blocks.
+
+**Tier 3 confirmation (same day).** Dispatched via CI on `fbf6770`
+(pull-request-triggered run
+[32874213883](https://github.com/jonathancrawford05/polaris-re/actions/runs/32874213883),
+R 4.6.1 / mgcv 1.9.4, oracle
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+build 8), `scripts/gam_multiterm_sp_delta_probe.R`'s new step (job 1) ran
+with the SAME `python_pt` input as the tier-1 reading (the tier-1
+`log10(sp)`, since Python's own selection is not re-derived by this
+diagnostic — see the "why this reading uses tier-1 `python_pt`" note below):
+
+```
+delta_mgcv = -0.121389   (tier 3, mgcv 1.9.4) — IDENTICAL to tier 1 (mgcv 1.9.1) at every printed digit
+```
+
+**Identical, not merely consistent.** `mgcv`'s own ranking of the two points
+does not move between mgcv 1.9.1 and 1.9.4 for this fixed pair — the same
+sign, the same magnitude to six decimal places. Required levels 1-3 of the
+ten-cell suite also agree on this run (`level 1: AGREES`, `level 2: AGREES`,
+`level 3: AGREES`) — no regression from the new diagnostic step or the
+`gam_model.py` bounds fix (Amendment 2, below).
+
+**CONFIRMED, not tier-1-only.** The sign flip against `delta_ours` is a real,
+reproducible finding on the pinned production oracle, not a tier-1 or BLAS
+artefact. What remains genuinely tier-1-only is `python_pt` itself — this
+diagnostic was run with the SAME hand-supplied `log10(sp)` at both tiers
+(the tier-1 measurement's own selected point), not a fresh tier-3 selection,
+because `select_lambdas_continuous`'s tier-3 selection was never captured as
+raw numbers (only the diff metrics were read off the compare job, ADR-208's
+main tier-3 confirmation section above). That is a narrower, and lower-value,
+gap than the one this amendment closes: it would tell us whether `mgcv`
+1.9.4 ranks tier-3-Python's own point the same way, not whether the
+sign-flip finding itself survives the pinned oracle — and it already has.
+`scripts/gam_multiterm_sp_delta_probe.R` is wired into `mgcv-conformance.yml`'s
+R job as a standing diagnostic step (hand-supplied `python_pt`, documented in
+the script's own header — the two-job CI split has no path for a third R
+stage to consume Python's own output, so the input is pinned rather than
+recomputed at dispatch time), available to re-run against a freshly-captured
+tier-3 `python_pt` if a future session wants that narrower confirmation too.
+
+**What this changes about the slice's own claim.** `FREE_SP_MODEL_CLAIM`'s
+four quantities are unaffected — they remain INDEPENDENT, and the
+refutation of the work order's §4 prediction stands exactly as measured at
+both tiers. What changes is the **explanation** offered for *why*: not (only)
+"a flat surface, optimiser-path-sensitive, nothing to fix" but "the
+criterion's `sp`-dependence itself needs re-deriving or re-checking for this
+term structure" — a materially different, and more actionable, next step.
+
+**Next hypothesis, named rather than pursued here (session budget; per
+CLAUDE.md, mark the uncertainty rather than push a hypothesis past what was
+shown).** ADR-196's resolution notes that Wood (2011) §3.1's multi-penalty
+log-determinant numerical-stability machinery was found INAPPLICABLE to that
+ADR's own 2-block fixture *because* its two blocks have disjoint column
+supports, so no cross-block "zero leakage" is possible. `ti()`'s two
+penalties do **not** have disjoint supports — both apply to the same tensor
+column range (ADR-205 decision 2, `gam_multiterm_conformance.py`'s own
+comment on `_pad(ti_start, ...)`). That is the natural place to look first:
+§3.1's machinery, previously ruled out for a structural reason that no
+longer holds here.
+
+**Sequencing (review's own framing, restated, updated after the tier-3
+confirmation above).** Hypothesis (b) is now CONFIRMED at tier 3, not merely
+tier 1. **Still do not designate slice 6** (`bs = "sz"`, a fourth basis, more
+`sp` blocks) — confirming the discrepancy is real is not the same as
+localising or closing it, and the next hypothesis (Wood 2011 §3.1's
+log-determinant machinery, named above) has not been tested. Building a
+fourth basis's `sp` selection on top of a criterion with a CONFIRMED,
+still-unlocalised `sp`-dependent discrepancy would compound, not isolate,
+the next disagreement — if anything the confirmation strengthens this bar
+rather than clearing it.
+
+**Not this session's to decide (ROUTINE_MGCV_PARITY.md's MAY-NOT-DECIDE
+list, "whether to relax an acceptance criterion"):** if hypothesis (a) had
+held, PLAN Anchor 2's `edf`-over-`sp` preference would have been reinforced
+for this scope; under (b) that question does not yet arise, because the
+criterion itself, not merely the search's convergence, is what is in
+question. Either way, redefining what `FREE_SP_MODEL_CLAIM` compares is a
+maintainer call, not made here.
+
+### Amendment 2 (same day) — the search-bounds gap (PR #212 review [P1])
+
+**What the review found.** `fit_polaris_gam`'s bounds parameter defaulted to
+`gam_reml_optimize.DEFAULT_LOG10_BOUNDS = (-2.0, 8.0)` — the SAME module
+default `select_lambdas_continuous` itself uses — while this ADR's own
+measurement showed `mgcv` selects `log10(sp) ≈ 9.87` on this exact formula's
+by-term block, outside that range entirely. `gam_model_conformance._SEARCH_BOUNDS
+= (-2, 11)` already widened the *comparator's* search to reach that region;
+`PolarisGAM`'s own default had not been given the same headroom, so a caller
+fitting this exact model shape through the ordinary `fit_polaris_gam` entry
+point (not the conformance harness) would have had their search silently
+clamped at 8 — short of where `mgcv` lands, with no signal that the domain,
+not the criterion, was the limiting factor. Compounding it,
+`ContinuousLambdaSelection.at_bound` was reported by `select_lambdas_continuous`
+but not read or gated by `fit_polaris_gam` at all.
+
+**Fixed, both ways the review suggested.** `gam_model.PRODUCTION_LOG10_BOUNDS
+= (-2.0, 12.0)` is `fit_polaris_gam`'s own new default — wider than the
+comparator's `(-2, 11)`, giving margin beyond what this one measurement
+showed, without touching `gam_reml_optimize.DEFAULT_LOG10_BOUNDS`
+(ADR-199's own tier-3-verified constant, PLAN Anchor 7 — untouched). And
+`fit_polaris_gam` now raises `PolarisComputationError`, naming which
+term/block and which bound, whenever `selection.at_bound` is true for
+*whatever* `bounds` a caller ultimately supplies — a clamped smoothing
+parameter is not the criterion's minimum, and returning one silently would
+misreport `eta`/`edf` downstream with no signal that the search domain was
+the limiting factor rather than the criterion.
+`test_fit_polaris_gam_raises_loudly_when_the_search_hits_a_bound` forces the
+condition with a deliberately narrow `bounds` on the R-free smoke-test
+fixture and asserts the raise; the existing smoke test also now asserts the
+default-bounds fit lands strictly interior on both edges.
+
+**Scope.** `select_lambdas_continuous` and its module-level default are
+untouched — this is new validation in the NEW code this slice added
+(`fit_polaris_gam`), not a change to any tier-3-verified artifact.
+`FREE_SP_MODEL_CLAIM`'s own comparator (`gam_model_conformance._SEARCH_BOUNDS`)
+was already correct and is unaffected by this fix.

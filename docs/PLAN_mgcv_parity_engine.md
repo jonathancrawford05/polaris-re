@@ -484,6 +484,21 @@ in ADR-206 rather than attempted there.
 ### Slice 5b: the production path — `PolarisGAM` from a `ModelSpec`
 
 - **Depends on:** Slices 2, 4, 5
+- **Status:** **DONE, 2026-08-25** (ADR-208, tier 1 AND tier 3 both confirmed, CI
+  run 32855338611). `analytics/gam_model.py`'s `assemble_model_design` generalises
+  ADR-206's assembly to any `ModelSpec`; `fit_polaris_gam` selects its own λ via
+  `select_lambdas_continuous` and fits with `penalized_irls_general`. The work
+  order's §4 registered prediction (N=4 lands in ADR-199's 2-block range) is
+  **REFUTED at both tiers** — `max_abs_log10_sp_diff=0.7766` (tier 1) / `0.6398`
+  (tier 3). **Diagnosis corrected same-day (PR #212 review [P1]), then
+  CONFIRMED at tier 3 same day too:** the discriminating measurement shows
+  `mgcv`'s own criterion and ours rank `mgcv`'s point and Python's point in
+  OPPOSITE order (`delta_mgcv=-0.121389`, identical at tier 1 R 4.3.3/mgcv
+  1.9.1 and tier 3 R 4.6.1/mgcv 1.9.4, CI run 32874213883) — real evidence of
+  an `sp`-dependent criterion discrepancy at this N=4/`ti()`-sharing-a-span
+  structure, not merely a flat surface. **Slice 6 should not be designated
+  until this is localised or closed** (confirming it is real is not the same
+  as fixing it). See ADR-208's amendment and `docs/CONFORMANCE_LEDGER.md`.
 - **Work order:** `docs/WORK_ORDER_multi_term_assembly.md` — full scope, sequencing, the
   registered prediction and two already-paid-for traps live there. **This slice entry
   exists so the routine can select it**; the work order is the specification.
@@ -511,6 +526,13 @@ anticipate them.
 ### Slice 6: `bs = "sz"` — orthogonal factor-smooth interactions
 
 - **Depends on:** Slices 2, 4
+- **BLOCKED, 2026-08-25 (PR #212 review [P1], CONFIRMED at tier 3 same day):**
+  do not designate this slice until ADR-208's amendment (the `sp`-dependent
+  REML criterion discrepancy found on slice 5b's N=4/`ti()`-sharing-a-span
+  structure, now confirmed real on the pinned oracle, not merely tier 1) is
+  localised or closed — a fourth basis's own `sp` selection on top of a
+  CONFIRMED, still-unlocalised criterion discrepancy would compound rather
+  than isolate the next disagreement. See `docs/CONTINUATION_mgcv_parity_engine.md`.
 
 Sum-to-zero factor-smooth deviations from a reference smooth. Four terms in the target.
 Expect this to be the hardest basis of the three: the constraint and reparameterisation are
@@ -524,6 +546,18 @@ where `mgcv`-specific machinery lives, and Stage A is the only place a mistake i
 exactly zero. Takes the smoothing-parameter count from 13 to **21**, and total edf from
 47.36 to 16.96 on synthetic data of the target's shape. It is a **term-selection mechanism
 inside penalized likelihood**, and it is the reason `gamboost` is not a parity target.
+
+**Known collision, filed by PR #212 review round 2 (2026-08-25), not yet fixed:**
+`gam_model.fit_polaris_gam`'s at-bound guard (added for slice 5b) raises
+`PolarisComputationError` whenever the selected `log10(sp)` lands on *either*
+search bound. The lower bound genuinely indicates a defect, but the upper
+bound (λ→∞) is exactly what `select = TRUE` is meant to produce for a
+shrunk-to-zero term — this slice will hit that raise head-on unless the
+guard is first split to treat the two bounds differently (see
+`docs/DEV_SESSION_LOG_2026-08-25_mgcv_parity_slice5b_polarisgam.md`'s "PR
+#212 review response, round 2" section for the reviewer's suggested shape).
+Fix the guard before or as part of designating this slice, not after
+hitting the raise mid-slice.
 
 ### Deferred to a later epic: `bam` + `discrete = TRUE` + fREML
 

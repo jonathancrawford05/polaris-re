@@ -92,8 +92,57 @@ measurement, `max_abs_eta_diff=1.242e-10`. **Slice 5 is DONE.**
 > `gam_uncertainty`" item (ADR-207 decision 3). ADR-203 removed its justification, and
 > the new path uses `gam_uncertainty` natively. The ten-cell suite's level 4 will read
 > DISAGREES about the legacy engine permanently and correctly.
-**Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16) and one deferred
-to a later epic.
+
+**Slice 5b (`PolarisGAM` from a `ModelSpec`) is DONE, 2026-08-25** (ADR-208, tier 1
+and tier 3 both confirmed, CI run 32855338611).
+`src/polaris_re/analytics/gam_model.py` generalises ADR-206's
+`assemble_multiterm_design` into `assemble_model_design(model: ModelSpec, data)`
+(any mix of `"cr"`/`"ti"` terms, not just the fixed three) and adds
+`fit_polaris_gam`, which selects its own `log10(lambda)` via
+`select_lambdas_continuous` (ADR-199) and fits with `penalized_irls_general`
+(ADR-195) — nothing re-derived, exactly the work order's own scope.
+`assemble_multiterm_design` is now a thin adapter onto the shared function;
+ADR-206's own tests pass unchanged, proving the extraction preserved behaviour.
+
+**The work order's own §4 registered prediction — that N=4 free-`sp` selection
+lands in ADR-199's 2-block range (6.9e-04 to 9.8e-04) — is REFUTED at both tiers**:
+`max_abs_log10_sp_diff=0.7766` (tier 1) / `0.6398` (tier 3), three orders of
+magnitude larger, concentrated in the by-term's block. PLAN §6's *separate*
+registered prediction — "edf agrees far better than sp does" — holds again:
+`edf_total_diff` is ≈4% against `sp`'s near-full-decade disagreement.
+
+**The refutation's original diagnosis was corrected same-day (PR #212 review
+[P1]).** The first pass (two checks, both reading only OUR OWN already-verified
+criterion at mgcv's point and Python's point) concluded "a flat REML surface,
+optimiser-path-sensitive, no criterion gap" — but that inference could not
+distinguish that from an `sp`-dependent criterion discrepancy the review named
+explicitly. The discriminating measurement (`scripts/gam_multiterm_sp_delta_probe.R`,
+new, diagnostic-only): read `mgcv`'s OWN score at both points too.
+**`mgcv`'s own criterion and ours rank the two points in OPPOSITE order** —
+`mgcv`'s point scores *better* under its own criterion (`delta_mgcv=-0.1214`)
+but *worse* under ours (`delta_ours=+0.7252`). That is real evidence of an
+`sp`-dependent criterion discrepancy specific to this N=4-block, `ti()`
+-sharing-a-column-span structure — ADR-196/197's own 2-block, disjoint-support
+verification never had the structure to catch it. **CONFIRMED at tier 3, same
+day**: `scripts/gam_multiterm_sp_delta_probe.R` re-run on the pinned oracle
+(mgcv 1.9.4, CI run 32874213883) reproduced `delta_mgcv=-0.121389` identical
+to tier 1 at every printed digit — the sign flip is a real, reproducible
+finding on the production oracle, not a tier-1 or BLAS artefact. See ADR-208's
+amendment for the full measurement and the named next hypothesis (Wood 2011
+§3.1's log-determinant machinery, previously ruled out for ADR-196's
+disjoint-support fixture for a reason that does not hold for `ti()`'s
+overlapping penalty blocks). **Still do not designate slice 6** — confirming
+the discrepancy is real is not the same as localising or closing it, and the
+next hypothesis has not been tested. Building a fourth basis's own `sp`
+selection on top of a CONFIRMED, still-unlocalised `sp`-dependent discrepancy
+would compound rather than isolate the next disagreement.
+
+An INDEPENDENT comparison that disagreed is still the routine's own definition
+of a successful session — the correction is about WHY, not about whether this
+was worth reporting.
+
+**Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16), slice 5b
+(inserted 2026-08-24/25, ADR-207/ADR-208) and one deferred to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
 
 > **This is the ACTIVE epic.** `CONTINUATION_penalized_mi_surface.md` is superseded from
@@ -391,7 +440,22 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    right shape for `select_lambdas_continuous` but nothing calls it yet), or add the
    `sz` terms (slice 6). All three are named, separate follow-on work — see ADR-206.
 6. **`bs = "sz"`** — orthogonal factor-smooth interactions. Expect the hardest basis.
-   PLANNED.
+   **BLOCKED, 2026-08-25** (PR #212 review [P1], tier-3 CONFIRMED same day):
+   do not designate until ADR-208's amendment (the `sp`-dependent REML
+   criterion discrepancy on slice 5b's N=4 structure, now confirmed real at
+   tier 3, CI run 32874213883) is localised or closed — see
+   `docs/PLAN_mgcv_parity_engine.md` slice 6. **Round-2 review (same day)
+   named a cheaper measurement to run FIRST, before any Wood (2011) §3.1
+   log-determinant derivation:** ADR-206 only ever compared `eta` at fixed
+   `sp` — the REML score itself has never been compared against `mgcv` on
+   this N=4 span-sharing structure, at any `sp`. Evaluate
+   `reml_score_general` against `mgcv`'s own score at the same fixed `sp`,
+   at 2-3 well-separated `sp` vectors, reusing ADR-206's fixed-`sp` path and
+   `gam_multiterm_sp_delta_probe.R`'s `gcv.ubre` read — no optimiser, no new
+   numerics. Disagreement there points at `log|S|₊`; agreement there with
+   divergence only under free selection means §3.1 is the wrong place to
+   look. See `docs/DEV_SESSION_LOG_2026-08-25_mgcv_parity_slice5b_polarisgam.md`'s
+   "PR #212 review response, round 2" section for the full argument.
 7. **`select = TRUE`** — the double penalty; 13 → 21 smoothing parameters. PLANNED.
 
 Deferred to a later epic: `bam` + `discrete = TRUE` + fREML. Safe to defer because at

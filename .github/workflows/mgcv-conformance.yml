@@ -95,6 +95,13 @@ on:
       # multi-term assembly must re-run the Stage-B eta comparison against mgcv.
       - "src/polaris_re/analytics/gam_multiterm_conformance.py"
       - "scripts/gam_multiterm_probe.R"
+      # PLAN slice 5b — PolarisGAM from a ModelSpec, and the free-sp
+      # conformance case: a change to the shared assembly, the production
+      # path, or its probe must re-run the comparison that measures it.
+      - "src/polaris_re/analytics/gam_model.py"
+      - "src/polaris_re/analytics/gam_model_conformance.py"
+      - "scripts/gam_multiterm_free_sp_probe.R"
+      - "scripts/gam_multiterm_sp_delta_probe.R"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -364,6 +371,47 @@ jobs:
             Rscript scripts/gam_multiterm_probe.R \
               gam_multiterm_probe.json
 
+      # PLAN slice 5b (docs/WORK_ORDER_multi_term_assembly.md): the SAME
+      # three-term formula at FREE sp — mgcv chooses its own smoothing
+      # parameters via method="REML". Same DIAGNOSTIC contract as the probes
+      # above; the comparison against PolarisGAM's own selection happens in
+      # the `compare` job below.
+      - name: Fit the shared three-term multi-term design at free sp (slice 5b)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_multiterm_free_sp_probe.R \
+              gam_multiterm_free_sp_probe.json
+
+      # PR #212 review [P1] / ADR-208 amendment: does mgcv's OWN REML score
+      # rank mgcv's own free-sp point vs Python's own selected point the same
+      # way our (already-verified) criterion does? DIAGNOSTIC ONLY — reads
+      # mgcv's own score at a point Python selected, so this can never be part
+      # of the committed INDEPENDENT comparator (same reasoning as
+      # gam_deriv_probe.R / gam_vc_probe.R). Python's own log10(sp) below is
+      # the TIER-1 reading from this same slice's original measurement
+      # (docs/CONFORMANCE_LEDGER.md, 2026-08-25) — hand-supplied, not
+      # recomputed here, because the two-job CI split has no path for a
+      # third R stage to consume job 2's own output.
+      - name: Does mgcv's own score rank the two free-sp points the same way ours does? (PR #212 [P1])
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_multiterm_sp_delta_probe.R \
+              6.75256951 9.09550509 3.09851263 3.05446081 \
+              gam_multiterm_sp_delta_probe.json
+          if [ -f gam_multiterm_sp_delta_probe.json ]; then
+            {
+              echo ""
+              echo "### PR #212 [P1] — mgcv's own score at both free-sp points (diagnostic, not part of FREE_SP_MODEL_CLAIM)"
+              echo ""
+              cat gam_multiterm_sp_delta_probe.json
+              echo ""
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - uses: actions/upload-artifact@v4
         with:
           name: mgcv-reference
@@ -377,6 +425,8 @@ jobs:
             gam_deriv_probe.json
             gam_vc_probe.json
             gam_multiterm_probe.json
+            gam_multiterm_free_sp_probe.json
+            gam_multiterm_sp_delta_probe.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
@@ -961,6 +1011,70 @@ jobs:
           PY
           if [ -f gam_multiterm_probe_report.md ]; then
             cat gam_multiterm_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # PLAN slice 5b (docs/WORK_ORDER_multi_term_assembly.md): compares
+      # PolarisGAM's own free-sp selection (gam_model_conformance) against
+      # job 1's native mgcv free-sp REML fit of the SAME three-term formula.
+      # THE ASYMMETRY (work order Sec. 3): unlike the fixed-sp comparison
+      # above, mgcv's own sp is a COMPARED QUANTITY here, not a shared input
+      # — both sides choose it independently. DIAGNOSTIC ONLY, printed to
+      # stdout from the start (ADR-194's methodology fix).
+      - name: Compare PolarisGAM's free-sp selection against mgcv (slice 5b)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_multiterm_free_sp_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_multiterm_free_sp_probe.json to compare ({exc}) — "
+                    "the R probe above did not produce one.")
+              sys.exit(0)
+
+          from polaris_re.analytics.gam_model_conformance import (
+              FREE_SP_MODEL_CLAIM, compare_free_sp_case, fit_free_sp_case,
+          )
+          from polaris_re.core.verification import evidence_markdown
+
+          fit = fit_free_sp_case(r_payload)
+          c = compare_free_sp_case(fit, r_payload)
+
+          lines = [
+              "",
+              "### Slice 5b — PolarisGAM free-sp selection vs mgcv (INDEPENDENT on every quantity)",
+              "",
+              evidence_markdown(FREE_SP_MODEL_CLAIM),
+              "",
+              "| n | p | max abs eta diff | max abs log10(sp) diff | edf_total diff | max abs per-term edf diff | at bound | agrees |",
+              "|---:|---:|---:|---:|---:|---:|---|---|",
+              f"| {r_payload['n']} | {len(r_payload['coef'])} | "
+              f"{c.max_abs_eta_diff:.3e} | {c.max_abs_log10_sp_diff:.4f} | "
+              f"{c.edf_total_diff:+.4f} | {c.max_abs_term_edf_diff:.4f} | "
+              f"{c.at_bound} | {c.agrees} |",
+              "",
+              "`sp` is a COMPARED QUANTITY here, not a shared input (see the "
+              "legend) — the work order's own asymmetry versus the fixed-sp "
+              "comparison above: both sides select their own smoothing "
+              "parameters independently, from the same already-verified "
+              "REML criterion (ADR-196/197/199). A disagreement localises to "
+              "lambda selection on this N=4-block design, not to the bases, "
+              "fitter or criterion, all unchanged from the fixed-sp "
+              "measurement. Coefficients are NOT compared (Anchor 2).",
+          ]
+          if not c.agrees:
+              lines.insert(2, "**Disagreement on log10(sp) — see the table. This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_multiterm_free_sp_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_multiterm_free_sp_probe_report.md ]; then
+            cat gam_multiterm_free_sp_probe_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
       # Slice 4 part A: compares the independent Python REML score
