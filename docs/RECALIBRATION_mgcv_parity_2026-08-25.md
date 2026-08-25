@@ -113,21 +113,39 @@ direction problem makes it worse. What follows assumes the problem is direction.
 
 ## 3. Candidate root causes, ranked
 
-### 3.1 The epic has never measured its own headline metric
+### 3.1 The epic had never measured its own headline metric — now it has
 
-`PLAN_mgcv_parity_engine.md` Anchor 2 names the **MI contrast on a pinned grid** as
-the *primary* acceptance criterion — *"the number that reaches a reader."*
+`PLAN_mgcv_parity_engine.md` Anchor 2 names the **MI contrast** the *primary*
+acceptance criterion — *"the number that reaches a reader."* Occurrences in
+`CONFORMANCE_LEDGER.md` as of the morning of 2026-08-25: **zero.** Never measured,
+once, in six weeks. ADR-206 named it unmeasured; ADR-208 named it again.
 
-Occurrences of that metric in `CONFORMANCE_LEDGER.md`: **zero.** It has never been
-measured, once, in six weeks. ADR-206 named it as unmeasured; ADR-208 named it again.
+**It has now been measured — see §4.1 — and the reason it had not been is more
+interesting than neglect.** ADR-206 scoped it out on the grounds that the metric
+needs a *pinned prediction grid*: evaluating the bases away from the training rows,
+with the identifiability-constraint transform re-applied at unseen `x`, which
+`gam_basis_cr.py` marks unverified. **That reasoning is correct for a grid and it is
+what blocked the metric every time.** But it is not correct for the *metric*:
+`StudyYear_C` enters this model only through `s(AttdAge, by=StudyYear_C)`, whose
+contribution is linear in the by variable, so
 
-Everything measured to date is a component (Stage A per term), a synthetic ten-cell
-suite, or a Stage-B result on a three-term subset. **There is no number that goes
-up.** Nobody — including the maintainer — can say whether the epic is 60% or 95%
-complete, because the quantity that would answer that has no value at all.
+```
+eta(age, sy+1) - eta(age, sy) = (sy+1)*f(age) - sy*f(age) = f(age)
+```
 
-This is, I think, the actual source of the feeling of stall. Fifteen locally-correct
-results moved nothing anyone tracks.
+exactly. The contrast cancels the intercept, the reference age smooth and `ti()` —
+Anchor 2's own stated reason for preferring it — and collapses to the by-term's own
+smooth, which is available on the training rows today.
+
+So the real cause is sharper than "nobody bothered": **a capability gap (no
+prediction path) was correctly identified once and then inherited as a reason not to
+measure, without anyone re-deriving whether the metric actually needed it.** Three
+ADRs restated the blocker; none re-tested it. That is the same shape as §3.3.
+
+Until §4.1 there was **no number that went up**, and nobody — including the
+maintainer — could say whether the epic was 60% or 95% complete. That, I think, is
+the actual source of the feeling of stall: fifteen locally-correct results moving
+nothing anyone tracked.
 
 ### 3.2 The routine's definition of success has no convergence pressure
 
@@ -174,14 +192,54 @@ has never happened.
 
 ---
 
+## 4.1 Anchor 2's primary metric, measured
+
+**Tier 1 only (R 4.3.3 / mgcv 1.9.1) — a diagnostic reading, not a committed
+conformance result.** See "what this is not" below.
+
+`scripts/gam_mi_contrast_probe.R` + `scripts/gam_mi_contrast_compare.py`, on the
+same seed-20260825 design the other probes use, `n=900`, `p=86`, three terms, at a
+**shared fixed `sp`** of `[1e4, 1e4, 1e3, 1e3]` — supplied to both sides, exactly
+ADR-206's arrangement, so this is independent of the free-`sp` selection gap.
+
+| quantity | max abs diff | rms |
+|---|---:|---:|
+| **MI contrast — Anchor 2's PRIMARY metric** | **8.805e-13** | 2.378e-13 |
+| MI contrast, mean-centred | 8.549e-13 | 2.364e-13 |
+| `eta` — Anchor 2's secondary metric | 3.544e-11 | 4.549e-12 |
+
+Contrast range agrees to every printed digit: `[-0.018087, 0.041162]` on both sides.
+
+**PLAN §6's registered prediction — CONFIRMED.** *"The MI contrast agrees better
+than `η` does"* has been open since before slice 1 was written. It does, by a factor
+of ~40 (8.5e-13 against 3.5e-11). Per the PLAN's own interpretation column: *"Anchor
+2's ordering is right — the contrast cancels the intercept and anything constant in
+year."* It does so here for a structural reason, not a numerical accident.
+
+**What this is not:**
+
+- **Not a pinned grid.** Measured on the training design. Anchor 2's full definition
+  asks for a pinned prediction grid, which still needs the prediction path §3.1
+  describes. This is a partial delivery and must not be cited as the whole metric.
+- **Not tier 3.** No number here may enter `DECISIONS.md`, the PLAN, a CONTINUATION
+  or a docstring until CI confirms it on the pinned oracle.
+- **Not yet a committed conformance case.** There is no `VerificationClaim` behind
+  this table, so per `CLAUDE.md` it is reported as a diagnostic reading rather than
+  as parity evidence. The provenance is nonetheless clean by construction — `sp` is a
+  shared *input*, and each side computes the contrast from its own fit, so the
+  contrast itself is INDEPENDENT. Promoting it means a conformance module with a
+  declared claim and an `evidence_markdown()` headline, which is a slice of work, not
+  a paragraph.
+- **Three terms, not eight.** Slices 6 and 7 remain unbuilt.
+
 ## 4. What I would change
 
 Ordered by leverage, all of them maintainer decisions:
 
-1. **Measure Anchor 2's primary metric now, on the three terms that fit.** Partial
-   and honest beats absent. It gives the epic a number that moves, and it is the
-   single change most likely to dissolve the sense of stall. It does not need slices
-   6 and 7 to be worth doing.
+1. ~~**Measure Anchor 2's primary metric now, on the three terms that fit.**~~
+   **DONE this session — see §4.1.** Kept as a numbered item because the remaining
+   half (the pinned grid, and promotion to a committed conformance case) is still a
+   maintainer call.
 2. **Add a closure obligation to the routine.** Something with teeth and a subject:
    an open gap names who closes it and by when, or a session that opens its Nth gap
    must close one first. §3.2 is currently unbounded by construction.
