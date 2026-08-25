@@ -94,7 +94,7 @@ measurement, `max_abs_eta_diff=1.242e-10`. **Slice 5 is DONE.**
 > DISAGREES about the legacy engine permanently and correctly.
 
 **Slice 5b (`PolarisGAM` from a `ModelSpec`) is DONE, 2026-08-25** (ADR-208, tier 1
-measured; tier 3 dispatched same session — see the confirmation appended to ADR-208).
+and tier 3 both confirmed, CI run 32855338611).
 `src/polaris_re/analytics/gam_model.py` generalises ADR-206's
 `assemble_multiterm_design` into `assemble_model_design(model: ModelSpec, data)`
 (any mix of `"cr"`/`"ti"` terms, not just the fixed three) and adds
@@ -105,9 +105,10 @@ measured; tier 3 dispatched same session — see the confirmation appended to AD
 ADR-206's own tests pass unchanged, proving the extraction preserved behaviour.
 
 **The work order's own §4 registered prediction — that N=4 free-`sp` selection
-lands in ADR-199's 2-block range (6.9e-04 to 9.8e-04) — is REFUTED**:
-`max_abs_log10_sp_diff=0.7766`, three orders of magnitude larger, concentrated in
-the by-term's block. Diagnosed, not left uncharacterised: the shared,
+lands in ADR-199's 2-block range (6.9e-04 to 9.8e-04) — is REFUTED at both tiers**:
+`max_abs_log10_sp_diff=0.7766` (tier 1) / `0.6398` (tier 3), three orders of
+magnitude larger, concentrated in the by-term's block. Diagnosed, not left
+uncharacterised: the shared,
 already-verified REML criterion scores Python's own (mgcv-independent) optimum
 *lower* than mgcv's own selected point, and starting the search at mgcv's own
 point converges to yet a third, still-lower-scoring point — a flat REML surface

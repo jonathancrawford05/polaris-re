@@ -215,8 +215,34 @@ was nothing for either side to merely echo or transport this time.
 
 ## Oracle version
 
-Tier 1: R 4.3.3 / mgcv 1.9.1 (local apt). Tier 3: dispatched this session — see
-ADR-208's confirmation amendment for the digest, run ID and result.
+Tier 1: R 4.3.3 / mgcv 1.9.1 (local apt). Tier 3: R 4.6.1 / mgcv 1.9.4, oracle
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+(build 8), CI `workflow_dispatch` on `c7c5ac6`, run
+[32855338611](https://github.com/jonathancrawford05/polaris-re/actions/runs/32855338611)
+— R job ~43s, compare job ~40s.
+
+## Tier-3 confirmation
+
+Read directly from job-log stdout via `get_job_logs` (both steps print their
+report from the start, no masked step-conclusion reads):
+
+| quantity | tier 1 | tier 3 |
+|---|---:|---:|
+| `max_abs_eta_diff` | 3.677e-02 | 3.775e-02 |
+| `max_abs_log10_sp_diff` | 0.7766 | 0.6398 |
+| `edf_total_diff` | +0.7263 | +1.1482 |
+| `max_abs_term_edf_diff` | 0.7054 | 0.8776 |
+| `at_bound` | False | False |
+| `agrees` | False | False |
+
+**Identical in verdict, same order of magnitude on every metric** — the
+tier-to-tier differences are consistent with the different `mgcv` release
+(1.9.1 vs 1.9.4) / BLAS the routine's own tier discipline predicts, not a
+new finding. Required levels 1-3 of the ten-cell suite also agreed on this
+run (`level 1: AGREES`, `level 2: AGREES`, `level 3: AGREES` — no
+regression); level 4 still `DISAGREES` (ADR-190's separate, unaffected
+`dw/drho` gap) and level 5 still `AGREES`. The work order's §4 registered
+prediction is REFUTED at both tiers, not a tier-1 artefact.
 
 ## Quality Gate
 

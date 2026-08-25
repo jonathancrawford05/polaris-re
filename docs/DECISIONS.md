@@ -17625,6 +17625,42 @@ changed what the optimiser could reach, not what counted as agreement.
   unchanged (work order §2: "if this work starts producing new numerics,
   stop"), and evaluating a different search strategy is new numerics.
 
-### Tier-3 confirmation
+### Tier-3 confirmation (same session)
 
-See the amendment below, appended the same session after CI dispatch.
+Dispatched via CI `workflow_dispatch` on `c7c5ac6` (run
+[32855338611](https://github.com/jonathancrawford05/polaris-re/actions/runs/32855338611),
+R 4.6.1 / mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+build 8). R job completed in ~43s (including the new free-sp fit step, 1s);
+compare job's new "Compare PolarisGAM's free-sp selection against mgcv (slice
+5b)" step completed in ~6s, read via `get_job_logs`:
+
+| quantity | value |
+|---|---|
+| `n`, `p` | 900, 86 |
+| `max_abs_eta_diff` | 3.775e-02 |
+| `max_abs_log10_sp_diff` | **0.6398** |
+| `edf_total_diff` | +1.1482 |
+| `max_abs_term_edf_diff` | 0.8776 |
+| `at_bound` | False |
+| `agrees` | **False** |
+
+**IDENTICAL IN VERDICT to tier 1, same order of magnitude on every metric,
+last-bit-through-decimal differences consistent with the different `mgcv`
+release / BLAS the routine's own tier discipline predicts** (tier 1:
+`max_abs_log10_sp_diff=0.7766`, `edf_total_diff=+0.7263`) — the disagreement
+is not a tier-1 artefact.
+
+**Required levels 1-3 of the existing ten-cell suite also still agree on this
+run** (`level 1: AGREES`, `level 2: AGREES`, `level 3: AGREES`) — no
+regression from the workflow edit. Level 4 still `DISAGREES` (ADR-190's
+unchanged, unrelated `dw/drho` gap against the legacy engine) and level 5
+still `AGREES`.
+
+**CONFIRMED (parity) — REFUTED, settled, not tier-1-only.** `eta`,
+`log10(sp)` per block, `edf_total` and per-term `edf` — every quantity
+`FREE_SP_MODEL_CLAIM` declares — are INDEPENDENT, so this is a genuine
+INDEPENDENT comparison that disagreed at both tiers: the work order's §4
+registered prediction is refuted as a real, reproducible result, not a
+tier-1 or BLAS artefact. The diagnosis above (a flat REML surface, evaluated
+using the shared, already-verified criterion) stands unchanged — nothing in
+the tier-3 numbers suggests a different explanation is needed.

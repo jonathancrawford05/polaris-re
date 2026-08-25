@@ -1,13 +1,14 @@
 # Work order — from conformance harness to production path (`PolarisGAM`)
 
-**Status:** **DONE, 2026-08-25** (ADR-208). `PolarisGAM` exists
+**Status:** **DONE, 2026-08-25** (ADR-208, tier 1 AND tier 3 both confirmed, CI
+run 32855338611). `PolarisGAM` exists
 (`src/polaris_re/analytics/gam_model.py`), fits the three-term `cr`+`by`+`ti`
 model from a `ModelSpec`, and selects its own smoothing parameters. The §4
-registered prediction below is **REFUTED**, characterised with evidence and a
-named diagnosis (a flat REML surface, not a criterion defect) rather than left
-unmeasured — see ADR-208 and `docs/CONFORMANCE_LEDGER.md`. This document is kept
-as the specification that was executed, not rewritten in the past tense
-throughout; §7's Definition of Done states what was and was not met.
+registered prediction below is **REFUTED at both tiers**, characterised with
+evidence and a named diagnosis (a flat REML surface, not a criterion defect)
+rather than left unmeasured — see ADR-208 and `docs/CONFORMANCE_LEDGER.md`. This
+document is kept as the specification that was executed, not rewritten in the
+past tense throughout; §7's Definition of Done states what was and was not met.
 
 Registered as **PLAN slice 5b** so the routine's "next unchecked slice" rule could
 reach it. Registering it in the ordered list is not the same as designating it for
@@ -140,11 +141,11 @@ measured, never the measurement.
 
 - [x] `PolarisGAM` fits a three-term `cr` + `by` + `ti` model from a `ModelSpec`,
   selecting its own λ. (`gam_model.fit_polaris_gam`)
-- [x] Free-`sp` conformance at **tier 1**, with a `VerificationClaim`
+- [x] Free-`sp` conformance at **tier 1 AND tier 3**, with a `VerificationClaim`
   (`FREE_SP_MODEL_CLAIM`) classifying each compared quantity, and `sp`'s move
   from shared input to compared quantity stated explicitly (module docstring,
-  ADR-208). **Tier 3 dispatched same session** — see ADR-208's confirmation
-  amendment for the digest and run.
+  ADR-208). Tier 3 confirmed identical in verdict, CI run 32855338611 — see
+  ADR-208's confirmation amendment for the digest and full numbers.
 - [x] The §4 prediction resolved in those words — **REFUTED**, with a named
   diagnosis (a flat REML surface along the by-term's direction, not a criterion
   or search defect) rather than left an open question. See ADR-208.

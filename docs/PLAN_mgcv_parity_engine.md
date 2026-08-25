@@ -484,14 +484,15 @@ in ADR-206 rather than attempted there.
 ### Slice 5b: the production path — `PolarisGAM` from a `ModelSpec`
 
 - **Depends on:** Slices 2, 4, 5
-- **Status:** **DONE, 2026-08-25** (ADR-208, tier 1 measured; tier 3 dispatched same
-  session). `analytics/gam_model.py`'s `assemble_model_design` generalises ADR-206's
-  assembly to any `ModelSpec`; `fit_polaris_gam` selects its own λ via
+- **Status:** **DONE, 2026-08-25** (ADR-208, tier 1 AND tier 3 both confirmed, CI
+  run 32855338611). `analytics/gam_model.py`'s `assemble_model_design` generalises
+  ADR-206's assembly to any `ModelSpec`; `fit_polaris_gam` selects its own λ via
   `select_lambdas_continuous` and fits with `penalized_irls_general`. The work
   order's §4 registered prediction (N=4 lands in ADR-199's 2-block range) is
-  **REFUTED** — `max_abs_log10_sp_diff=0.7766`, diagnosed as a flat REML surface
-  along the by-term's smoothing direction (PLAN §5 risk 3, measured) rather than a
-  criterion or search defect. See ADR-208 and `docs/CONFORMANCE_LEDGER.md`.
+  **REFUTED at both tiers** — `max_abs_log10_sp_diff=0.7766` (tier 1) / `0.6398`
+  (tier 3), diagnosed as a flat REML surface along the by-term's smoothing
+  direction (PLAN §5 risk 3, measured) rather than a criterion or search defect.
+  See ADR-208 and `docs/CONFORMANCE_LEDGER.md`.
 - **Work order:** `docs/WORK_ORDER_multi_term_assembly.md` — full scope, sequencing, the
   registered prediction and two already-paid-for traps live there. **This slice entry
   exists so the routine can select it**; the work order is the specification.
