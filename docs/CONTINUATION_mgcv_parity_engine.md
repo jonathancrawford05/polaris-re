@@ -674,6 +674,14 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
   engine will support both and the routine is forbidden from deciding it.
 - **Scheduling.** This epic advances only when `ROUTINE_MGCV_PARITY.md` is registered as a
   scheduled task; the cron config lives outside the repo. Until then nothing here moves.
+  **Repo side is now ready (2026-08-25):** the next unchecked slice is **5b**, the
+  production path, and it carries a work order with a registered prediction. What remains
+  is entirely outside the repo — registering the routine's `## Prompt` block as a daily
+  scheduled task against this repo with the GitHub connector. Two things a registration
+  should carry, from the routine's own text: it **replaces** daily-dev's slot rather than
+  adding to it on days the parity epic is active (Budget), and it needs the GitHub
+  connector for the tier-3 dispatch, without which SETUP step 2 degrades to tier 1 and the
+  session cannot commit a number.
 - **Ledger framing.** This epic is sourced from maintainer direction rather than the Tier-A
   table of a `COMMERCIAL_VIABILITY_REVIEW`. It is registered in
   `PRODUCT_DIRECTION_2026-07-24.md` so it is visible to a selecting routine, but the next

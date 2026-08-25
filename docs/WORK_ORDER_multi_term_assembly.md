@@ -1,7 +1,11 @@
 # Work order — from conformance harness to production path (`PolarisGAM`)
 
-**Status:** READY. Not a designated slice — that is a `ROUTINE_MGCV_PARITY.md`
-call (ADR-207 decision 4).
+**Status:** READY, and registered as **PLAN slice 5b** so the routine's
+"next unchecked slice" rule can reach it. Registering it in the ordered list is not
+the same as designating it for a session — that remains a `ROUTINE_MGCV_PARITY.md`
+call (ADR-207 decision 4). Before 2026-08-25 this work order sat outside the slice
+list entirely, which meant the routine's selection rule would have walked past it to
+slice 6 no matter how ready it was.
 **Predecessors:** ADR-206 (the multi-term assembly, built and Stage-B verified),
 ADR-207 (the Anchor 7 amendment that permits a production path).
 **Rewritten 2026-08-24** after ADR-206 landed. The first version of this work

@@ -481,6 +481,33 @@ mgcv-native model exercising both (ADR-206) now gives the first Stage-B `eta`
 comparison; Anchor 2's MI-contrast-on-a-grid metric specifically remains open, named
 in ADR-206 rather than attempted there.
 
+### Slice 5b: the production path — `PolarisGAM` from a `ModelSpec`
+
+- **Depends on:** Slices 2, 4, 5
+- **Work order:** `docs/WORK_ORDER_multi_term_assembly.md` — full scope, sequencing, the
+  registered prediction and two already-paid-for traps live there. **This slice entry
+  exists so the routine can select it**; the work order is the specification.
+- **Authorized by:** ADR-207. Before that amendment this work had no permitted form, which
+  is why it reached 2026-08-24 as a work order with no slice to belong to.
+
+**The gap, stated narrowly.** ADR-206's `assemble_multiterm_design` takes an
+`RMultiTermRecipe` — `mgcv`'s own JSON payload — at fixed `sp`. Two things follow: it
+cannot fit a model `mgcv` has not already defined, and it does not choose its own λ.
+Everything on either side of that gap (bases, fitter, criterion, search, covariance) is
+already tier-3 verified and is reused, not rewritten.
+
+**The new measurement is free `sp` at N=4.** `select_lambdas_continuous` has been measured
+against `mgcv` only on 2-block designs (ADR-199). Extending it to a multi-term design is
+the one genuinely unverified step, and it is why this slice precedes slice 6: adding a
+fourth basis to a stack that still cannot select its own smoothing parameters widens the
+surface without closing the open question. Note also that `mgcv`'s `sp` moves from
+**shared input** to **compared quantity** here, which changes its ADR-193 classification —
+the `VerificationClaim` must say so.
+
+**Scope is the three-term subset** (`cr` + numeric-`by` + `ti`), not the target's eight
+terms. Slices 6 and 7 remain required for the full form, and this slice does not
+anticipate them.
+
 ### Slice 6: `bs = "sz"` — orthogonal factor-smooth interactions
 
 - **Depends on:** Slices 2, 4
