@@ -142,10 +142,37 @@ premise.** "The expensive resource is the round trip" was true when no environme
 it is false now. Iterate locally, confirm on the pinned digest, and stop designing around
 a cost that no longer exists.
 
-**Anchor 7 — the existing engine stays.** `TensorMIModel` and `PenalizedTensorMIModel`
-are not deleted or silently re-pointed. Every committed report was produced by them, the
-QA goldens depend on nothing moving, and the λ=0 oracle chain needs them alive. Carried
-verbatim from the old epic's Anchor 6, where it held for five slices.
+**Anchor 7 — the existing engine stays until a new one demonstrably matches it.**
+**AMENDED 2026-08-24 (maintainer-authorized, ADR-207).** `TensorMIModel` and
+`PenalizedTensorMIModel` are not deleted, and no caller is silently re-pointed at a
+different implementation. **Building a new production path from the tier-3-verified
+parity components is explicitly permitted and is this epic's intended route.** A caller
+moves to it only when the new path has been measured against the old one on the same
+input and the comparison is committed. The QA goldens and the λ=0 oracle chain keep the
+old engine alive regardless.
+
+> **Original form, and why it changed.** It read: *"the existing engine stays.
+> `TensorMIModel` and `PenalizedTensorMIModel` are not deleted or silently re-pointed.
+> Every committed report was produced by them, the QA goldens depend on nothing moving,
+> and the λ=0 oracle chain needs them alive."* Carried verbatim from the old epic's
+> Anchor 6, where it held for five slices, and it held for six more here.
+>
+> One of its three reasons is discharged: ADR-204's provenance stamps now give committed
+> reports their own drift detection, so the old engine is no longer their only warrant.
+> The other two — the QA goldens and the λ=0 oracle chain — are untouched and keep the
+> engine alive.
+>
+> **What the anchor cost, which is why it moved.** By protecting the shipped engine it
+> left every verified component homeless: nine tier-3-verified modules and nothing
+> permitted to compose them, so each had to justify itself as a conformance artifact.
+> Three ADRs (199, 200, 205) each stopped at Stage A or N=2 naming the same missing
+> assembler — named three times, built zero, because nobody schedules scaffolding. The
+> assembler and the production engine are the same object; the anchor was the reason
+> that could not be said. See `docs/WORK_ORDER_multi_term_assembly.md`.
+>
+> **What did NOT change:** nothing is swapped silently, and the old engine stays. The
+> long-open "re-point `smoothing_uncertainty` at `gam_uncertainty`" item is **withdrawn**
+> rather than granted — ADR-207 decision 3.
 
 **Anchor 8 — never tune a tolerance or a constant to close a gap; derive it.** This
 project has earned this twice: ADR-188 refused to widen its way past a failing coverage
@@ -453,6 +480,33 @@ margin's own.** Both terms had Stage A only until 2026-08-24 — the multi-term
 mgcv-native model exercising both (ADR-206) now gives the first Stage-B `eta`
 comparison; Anchor 2's MI-contrast-on-a-grid metric specifically remains open, named
 in ADR-206 rather than attempted there.
+
+### Slice 5b: the production path — `PolarisGAM` from a `ModelSpec`
+
+- **Depends on:** Slices 2, 4, 5
+- **Work order:** `docs/WORK_ORDER_multi_term_assembly.md` — full scope, sequencing, the
+  registered prediction and two already-paid-for traps live there. **This slice entry
+  exists so the routine can select it**; the work order is the specification.
+- **Authorized by:** ADR-207. Before that amendment this work had no permitted form, which
+  is why it reached 2026-08-24 as a work order with no slice to belong to.
+
+**The gap, stated narrowly.** ADR-206's `assemble_multiterm_design` takes an
+`RMultiTermRecipe` — `mgcv`'s own JSON payload — at fixed `sp`. Two things follow: it
+cannot fit a model `mgcv` has not already defined, and it does not choose its own λ.
+Everything on either side of that gap (bases, fitter, criterion, search, covariance) is
+already tier-3 verified and is reused, not rewritten.
+
+**The new measurement is free `sp` at N=4.** `select_lambdas_continuous` has been measured
+against `mgcv` only on 2-block designs (ADR-199). Extending it to a multi-term design is
+the one genuinely unverified step, and it is why this slice precedes slice 6: adding a
+fourth basis to a stack that still cannot select its own smoothing parameters widens the
+surface without closing the open question. Note also that `mgcv`'s `sp` moves from
+**shared input** to **compared quantity** here, which changes its ADR-193 classification —
+the `VerificationClaim` must say so.
+
+**Scope is the three-term subset** (`cr` + numeric-`by` + `ti`), not the target's eight
+terms. Slices 6 and 7 remain required for the full form, and this slice does not
+anticipate them.
 
 ### Slice 6: `bs = "sz"` — orthogonal factor-smooth interactions
 

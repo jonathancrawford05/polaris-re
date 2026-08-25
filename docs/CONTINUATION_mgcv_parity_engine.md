@@ -65,6 +65,33 @@ synthetic case and the target's own `ti(AttdAge, PolYear, k=c(13,6))` knots.
 tier 1 and tier 3 identical, CI run 32722872476): a three-term model (reference age,
 the `by` term, `ti()`) fit together at fixed sp agrees with mgcv on `eta` on the first
 measurement, `max_abs_eta_diff=1.242e-10`. **Slice 5 is DONE.**
+
+> **ANCHOR 7 IS AMENDED** (2026-08-24, maintainer-authorized, **ADR-207**). The old
+> engine stays until a new one demonstrably matches it and nothing is re-pointed
+> silently, but **building a new production path from the tier-3-verified components is
+> now explicitly permitted and is the epic's intended route.**
+>
+> **ADR-206 confirmed ADR-207's diagnosis within hours, and sharpened it.** ADR-207 was
+> written against a repository holding nine verified modules and nothing permitted to
+> compose them, arguing that Anchor 7 forced every component to justify itself as a
+> conformance artifact. ADR-206 then built the assembler — and built it as
+> `gam_multiterm_conformance.assemble_multiterm_design(r_case: RMultiTermRecipe)`: a
+> harness that takes its model definition from **an R script's JSON payload** and fits
+> at a **fixed, externally-supplied `sp`**. It is excellent work and its Stage-B `eta`
+> parity is real, but it cannot fit a model `mgcv` has not already defined, and it does
+> not select its own smoothing parameters.
+>
+> That is the pattern, not a criticism: with Anchor 7 in force, a harness was the only
+> available framing. **The remaining gap is now precise and much smaller than ADR-207
+> estimated** — drive the same, already-verified assembly from `ModelSpec` instead of
+> `RMultiTermRecipe`, and select lambda with `select_lambdas_continuous` instead of
+> receiving it. `docs/WORK_ORDER_multi_term_assembly.md` is rewritten to that scope and
+> is **READY, not designated** — designating a slice is a routine call.
+>
+> **Withdrawn, not granted:** the long-open "re-point `smoothing_uncertainty` at
+> `gam_uncertainty`" item (ADR-207 decision 3). ADR-203 removed its justification, and
+> the new path uses `gam_uncertainty` natively. The ten-cell suite's level 4 will read
+> DISAGREES about the legacy engine permanently and correctly.
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16) and one deferred
 to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
@@ -626,9 +653,18 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 - **The coverage move (0.7598 → 0.8282, old age) does not by itself change anything
   downstream.** Slice 4's gate still fails (0.9192 floor untouched), so the default of not
   showing the penalized band holds on today's evidence: 82.8% is 12 points short of the 95%
-  it would need to claim, and level 4 (ADR-190's `dw/drho` gap) is the substantive blocker.
+  it would need to claim.
   **Movable when:** level 4 closes, or coverage reaches the gate — then re-open the question
-  rather than citing this note. Labelling an interval a 95% band remains maintainer-reserved
+  rather than citing this note.
+
+  > **The trigger has FIRED, and the answer did not change** (2026-08-24). This bullet
+  > named "level 4 (ADR-190's `dw/drho` gap)" as the substantive blocker. **That gap is
+  > closed** — ADR-202, eq. (7) reproduces `mgcv`'s `Vc` to 0.023-0.904% at tier 3. ADR-203
+  > then ran the gate and measured that closing it moved coverage only to 0.8167 / 0.8354
+  > against the 0.9192 floor. So the default of not showing the penalized band still holds,
+  > **but for a different reason**: a second cause, still unidentified, that no covariance
+  > correction reaches. A reader arriving at the original wording would have thought the
+  > blocker was still ahead of them. Labelling an interval a 95% band remains maintainer-reserved
   either way; measuring and recommending toward it does not.
 
 ## Open questions (for human)
@@ -636,9 +672,75 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 - **The duration treatment on real data** — band as factor, or band as ordered numeric via
   a representative value. The maintainer has reserved this as a modelling judgement; the
   engine will support both and the routine is forbidden from deciding it.
-- **Scheduling.** This epic advances only when `ROUTINE_MGCV_PARITY.md` is registered as a
-  scheduled task; the cron config lives outside the repo. Until then nothing here moves.
+- ~~**Scheduling.** This epic advances only when `ROUTINE_MGCV_PARITY.md` is registered as
+  a scheduled task; the cron config lives outside the repo. Until then nothing here
+  moves.~~ **RESOLVED — and it was resolved almost immediately, then said otherwise for two
+  weeks.** Written 2026-08-11 (`57ad0f0`), when it was true. The routine has in fact been
+  running since about that date: `DEV_SESSION_LOG_2026-08-11_mgcv_parity_epic.md` onward
+  name it as their routine, and every slice from 1b to 5 was produced by one — most
+  recently `DEV_SESSION_LOG_2026-08-24_mgcv_parity_slice5_multiterm.md`, which installed
+  the tier-1 oracle, dispatched tier 3 and produced ADR-206. **Nothing outside the repo is
+  needed to advance this epic; the next unchecked slice is 5b and a routine run will
+  select it.**
+
+  **This is the third instance of the prose-drift failure two bullets up, and the most
+  expensive.** The other two were a bullet and an example output. This one was load-bearing
+  false: it says the epic cannot move, in the file the routine reads first, while the
+  routine was moving it. On 2026-08-25 it caused a session to tell the maintainer that
+  registering the routine was the blocker and to hand them a task list for work that was
+  already done — corrected only because the maintainer asked why the routine could not
+  handle it. That is the mechanism gap costing something real rather than theoretically:
+  a trigger condition fired, nobody noticed, and the stale claim was believed and acted on.
 - **Ledger framing.** This epic is sourced from maintainer direction rather than the Tier-A
   table of a `COMMERCIAL_VIABILITY_REVIEW`. It is registered in
   `PRODUCT_DIRECTION_2026-07-24.md` so it is visible to a selecting routine, but the next
   commercial-viability review should re-rank it properly.
+- **A forward-looking prose claim has no drift detection** *(1st-order — follow-up of
+  ADR-204's stamp system; raised by ADR-207, filed here 2026-08-24)*. ADR-204 gives
+  *measurements* a machine-checked closure fingerprint, so a stamped number cannot go stale
+  unnoticed. **Prose has no equivalent**, and the failure mode is not hypothetical: a
+  *"Movable when: level 4 closes"* bullet in this file, and a `level 5: DISAGREES` example in
+  `RUNBOOK_mgcv_conformance.md`, both had their trigger conditions fire (ADR-202 and ADR-197
+  respectively) and stayed wrong until a human happened to read them. Both said the blocker
+  was still ahead of a reader who had in fact already passed it. This is ADR-203's failure
+  mode expressed in sentences rather than in figures. Whether it is worth a mechanism — a
+  claim register with trigger conditions, say — or whether it stays a review-time
+  responsibility, is a maintainer call, not a routine's.
+- **The stamp schema understates evidence after an inert edit** *(1st-order — defect in
+  ADR-204's schema; raised by the maintainer 2026-08-24, filed here same day)*. A stamp
+  fingerprints the producer's transitive import closure, so **any** edit inside that closure
+  drifts every document downstream of it — including documents regenerated on real inputs
+  the day before. Re-stamping under RUNBOOK §2 case (c) then writes `method: asserted` and
+  `generated: <today>`, and the schema has no way to say what actually happened. **Two
+  distinct defects, and they show up in different documents:**
+  - **`generated` is the stamp date, not the run date** (`measurement_provenance.py:273`
+    defines it as *"ISO date the stamp was written"*). `MEASUREMENT_experience_gam_ilec`,
+    `_hmd` and `_portfolio_parallel_macbook_air` were regenerated 2026-08-23 and now read
+    `2026-08-24` because a `table_io` error-message edit landed after them. Their `method`
+    is fine — all three were already `asserted`, and an operator really did regenerate them
+    elsewhere. Only the date misleads.
+  - **`asserted` is positively false for a case-(c) document.** `StampMethod.ASSERTED`'s
+    docstring reads *"An operator regenerated it elsewhere ... and recorded a note saying
+    so."* `MEASUREMENT_unconditional_coverage.md` is the one document this PR actually moved
+    (`regenerated` → `asserted`), and nobody re-ran it anywhere — the warrant is inertness,
+    not an elsewhere-run. So case (c) fits **neither** existing value, and the enum now
+    asserts something untrue about it.
+  The prose notes rescue both; the machine-readable fields do not, and future tooling reads
+  the fields. **Proposed fix, and note the two axes are orthogonal:** *how the numbers were
+  produced* (`regenerated` / `asserted`) and *whether the stamp is reconciled to current
+  code* are independent — ilec is both `asserted` and inert-drifted at once. So a third
+  peer value is probably the wrong shape; better is to keep `method` describing production
+  and add a separate field for a closure that has moved under an inertness argument, plus
+  splitting `generated` into run date and stamp date. Conflating those two axes is what
+  produced both defects. This amends ADR-204's schema and re-touches every stamped
+  document — including a migration decision (accept both forms during a transition, or
+  re-stamp all six at once) — so it is a maintainer call.
+- **Whether Anchor 7's gating pattern should bind future work**
+  *(2nd-order — process, not engine; raised by the maintainer 2026-08-24)*. ADR-207 amended
+  Anchor 7 by recording what it *cost*. The maintainer's reading supplies the other half:
+  the anchor is also what *produced* the nine tier-3-verified components, by forbidding
+  assembly until each part was understood in isolation. `PATTERN_gated_decomposition.md`
+  is the retrospective — it argues the defect was the missing release condition rather than
+  the constraint, and proposes four requirements a gate should carry. **It is PROPOSED and
+  binds nothing.** Adopting it means an ADR (the `VERIFICATION_STANDARD.md` / ADR-193
+  precedent) and, if adopted, re-reading the PLAN's other anchors against requirement 2.

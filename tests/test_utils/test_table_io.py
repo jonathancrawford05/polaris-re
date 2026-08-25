@@ -1,5 +1,6 @@
 """Tests for mortality and lapse table CSV loading and vectorized lookups."""
 
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -14,6 +15,12 @@ from polaris_re.utils.table_io import (
 )
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
+
+# `tests/` is not a package, so the shared sentinel is reached via sys.path. The same
+# partial-checkout mistake has now been made twice — see tests/checkout_scope.py.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tests"))
+
+from checkout_scope import CLAUDE_MD_PRESENT, PARTIAL_CHECKOUT_REASON  # noqa: E402
 
 
 class TestLoadMortalityCSV:
@@ -242,3 +249,45 @@ class TestLapseTableArrayLookup:
         years = np.array([1, 3, 5, 11], dtype=np.int32)
         result = table.get_rate_vector(years)
         assert result[0] > result[1] > result[2] > result[3]
+
+
+class TestMissingTableGuidance:
+    """The missing-mortality-table error tells you what to run.
+
+    **This exists because the bare message cost real time, repeatedly.** These CSVs
+    are generated and deliberately not committed, so every fresh container hits the
+    failure; the old text named the absent path and nothing else. Two development
+    sessions went on to record the resulting failures as *pre-existing repository
+    state* in their committed test baselines, which is worse than recording nothing
+    — the next session diffs against a fiction.
+    """
+
+    def test_the_error_names_the_command_that_fixes_it(self, tmp_path: Path) -> None:
+        from polaris_re.utils.table_io import _TABLE_GENERATION_COMMAND
+
+        with pytest.raises(FileNotFoundError) as excinfo:
+            load_mortality_csv(tmp_path / "absent.csv", select_period=25, min_age=18)
+
+        message = str(excinfo.value)
+        assert "absent.csv" in message, "must still say which file is missing"
+        assert _TABLE_GENERATION_COMMAND in message, (
+            "the whole point is that the fix arrives with the failure"
+        )
+        assert "GENERATED, not committed" in message, (
+            "a reader who does not know these are generated will look for them in git"
+        )
+
+    @pytest.mark.skipif(not CLAUDE_MD_PRESENT, reason=PARTIAL_CHECKOUT_REASON)
+    def test_the_command_constant_matches_what_the_docs_tell_people_to_run(self) -> None:
+        """Guard against the message and CLAUDE.md drifting apart.
+
+        A wrong command in an error is worse than no command: it is confidently
+        actionable and it does not work.
+        """
+        from polaris_re.utils.table_io import _TABLE_GENERATION_COMMAND
+
+        claude_md = (Path(__file__).resolve().parents[2] / "CLAUDE.md").read_text()
+        assert _TABLE_GENERATION_COMMAND in claude_md, (
+            "table_io's generation command is not the one CLAUDE.md documents; "
+            "one of the two has drifted"
+        )

@@ -132,6 +132,43 @@ class MortalityTableArray:
         return self.rates[age_idx, dur_cols]
 
 
+_TABLE_GENERATION_COMMAND = (
+    "uv run python scripts/convert_soa_tables.py --source pymort --output-dir data/mortality_tables"
+)
+"""The one command that materialises the mortality tables.
+
+Held as a constant so the guidance in :func:`_missing_table_message` cannot drift
+from `CLAUDE.md` section 11 and the CI workflow independently.
+"""
+
+
+def _missing_table_message(path: Path) -> str:
+    """Say what is missing, why, and the command that fixes it.
+
+    **Guidance at the throw site, not in a setup document.** These CSVs are
+    *generated* and deliberately not committed, so a fresh container, a fresh
+    clone or a CI job without the generation step has none of them. The bare
+    "file not found" that used to be raised here named the absent path and
+    nothing else, which left every reader to rediscover a documented one-time
+    step at the exact moment they were looking for it.
+
+    That cost real time more than once: two development sessions recorded the
+    resulting failures as *pre-existing repository state* in their committed
+    baselines, when they were an omitted setup step. A wrong baseline is worse
+    than no baseline, because the next session diffs against it.
+    """
+    return (
+        f"Mortality table CSV not found: {path}\n\n"
+        "Mortality tables are GENERATED, not committed to the repository, so a "
+        "fresh checkout or container has none of them. This is a one-time step "
+        "per environment:\n\n"
+        f"    {_TABLE_GENERATION_COMMAND}\n\n"
+        "See CLAUDE.md section 11 (Environment Setup). If tests were failing "
+        "before you ran this, they were failing on the missing files rather than "
+        "on your change — re-run the suite afterwards before recording a baseline."
+    )
+
+
 def load_mortality_csv(
     path: Path,
     select_period: int,
@@ -155,7 +192,7 @@ def load_mortality_csv(
         PolarisValidationError: Table fails validation.
     """
     if not path.exists():
-        raise FileNotFoundError(f"Mortality table CSV not found: {path}")
+        raise FileNotFoundError(_missing_table_message(path))
 
     df = pl.read_csv(path)
 

@@ -12,6 +12,11 @@ amendment 1.
 > ```
 > level 1: AGREES     level 2: AGREES     level 3: AGREES
 > level 4: DISAGREES  level 5: DISAGREES
+>
+> (Illustrative, and both verdicts have since moved: **level 5 AGREES** since
+> ADR-197 fixed the REML criterion, and level 4's DISAGREES is now about the
+> SHIPPED engine not being re-pointed — ADR-190's formula gap closed in ADR-202.
+> Kept as a shape-of-output example, not a current reading.)
 > ```
 >
 > | quantity | verdict |

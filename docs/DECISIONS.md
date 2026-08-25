@@ -17234,3 +17234,218 @@ model … that is what remains of slice 5"). Slice 5 moves from IN PROGRESS to D
 
 **Supersedes nothing.** Builds on ADR-194, ADR-200 and ADR-205's already-committed
 Stage-A results; does not reopen or amend any of the three.
+
+---
+
+
+### ADR-204 amendment 1 — the gate's first real firing, and the first use of "case (c)" (2026-08-24)
+
+**It fired on the very next change after it landed, and it fired on me.** Making
+`utils/table_io.py`'s missing-mortality-table error actionable drifted **every
+stamped document in the repository** — all five: `unconditional_coverage`,
+`experience_gam_hmd`, `experience_gam_ilec`, `gam_ramp_mechanism` and
+`portfolio_parallel_macbook_air`. `table_io` is deep in the import closure of
+every one of those producers, and **not one of them names it**.
+
+I predicted four and the gate found five: `portfolio.py` reaches `table_io` to
+load the mortality basis its benchmark fits against. That is the whole argument
+for a machine-computed closure over a human-maintained list, made against my own
+list, ten minutes after writing it.
+
+That is exactly the ADR-203 topology — a change two or more hops from anything
+the document mentions — and it is the case a direct-imports gate would have
+missed. The transitive walk earned itself inside a day.
+
+**The claim, per RUNBOOK §2 case (c): this change cannot alter any measured
+quantity.** The edit replaces the message string of a `FileNotFoundError` raised
+inside `if not path.exists():`. On every successful run that branch is not taken,
+so no fitted value, no timing and no output can differ. The two new module-level
+definitions are a constant and a pure string function, neither called on a
+success path. This is inertness by control flow, not by argument.
+
+**Resolved by two different routes, deliberately:**
+
+* `gam_ramp_mechanism` — re-run and re-stamped `regenerated`. Its regeneration is
+  a pytest invocation costing seconds, so RUNBOOK §2's preference for (a) over
+  (c) applies with no friction.
+* The other three — `asserted`, with notes pointing here. `experience_gam_hmd`
+  and `..._ilec` cannot take route (a) at all without the experience cache;
+  `unconditional_coverage` could, at ~20 minutes, and that is the interesting
+  case. **Case (c) exists precisely so a provably inert edit does not cost a
+  200-replicate study.** A gate that charged 20 minutes for a docstring would be
+  a gate people route around, which is the failure ADR-204 decision 2 was written
+  to avoid.
+
+**What this validates and what it does not.** It validates that the gate fires on
+a real, non-obvious dependency and that both escape routes are usable. It does
+*not* validate the inertness claim itself — that rests on the control-flow
+argument above, which a reader should check rather than take on trust. If it is
+wrong, the four documents are stamped against a change that did move them, and
+the stamps say `asserted` so a reader knows whose word they are on.
+
+
+---
+
+## ADR-207: Anchor 7 amended — the parity stack becomes a production path, not a test harness
+
+**Date:** 2026-08-24
+**Status:** **Accepted** (2026-08-24). The maintainer authorized revisiting the
+anchor, then approved this ADR's specific amended form and its decision 3
+recommendation: *"Proceed as you have proposed, let me know if you need anything
+from me."* Both quotes are in the authorization section below.
+**Supersedes in part:** `PLAN_mgcv_parity_engine.md` Anchor 7 (carried verbatim
+from the old epic's Anchor 6, where it held for five slices).
+
+### The authorization, quoted (the `a935013` convention)
+
+- **Source:** live maintainer exchange in this Claude Code session, 2026-08-24.
+- **Verbatim:**
+
+  > *"On anchor 7 - I feel we are at the moment where we can 'unshackle'
+  > development and revisit how best to reach our objective."*
+
+- **What that licensed:** revisiting the anchor and the route to the objective.
+  It was **not** an instruction to delete the anchor, nor to re-point production.
+  Decision 3 below argues the re-point should not happen at all — a stronger
+  claim than that authorization made, so it was put as a recommendation.
+
+- **Approved, second exchange, same session:**
+
+  > *"Proceed as you have proposed, let me know if you need anything from me."*
+
+  That approves the amended form in decision 2 and the recommendation in decision
+  3. `PLAN_mgcv_parity_engine.md` Anchor 7 is edited to the amended text under
+  this authorization; the diff is in the same commit as this ADR so the two can
+  be read against each other.
+
+### Context — what the epic actually has
+
+Nine verified modules, and nothing that composes them:
+
+| module | verified | at |
+|---|---|---|
+| `gam_basis_cr` (`cr`, `by`, `ti`) | Stage A, INDEPENDENT | tier 3 (ADR-194, 200, 205) |
+| `gam_family` / `gam_fit` | Stage B, INDEPENDENT | tier 3 (ADR-195) |
+| `gam_reml` | INDEPENDENT | tier 3 (ADR-196/197) |
+| `gam_reml_optimize` | INDEPENDENT | tier 3 (ADR-199) |
+| `gam_uncertainty` | INDEPENDENT | tier 3 (ADR-202) |
+| `gam_derivatives` | INDEPENDENT | tier 3 (ADR-201) |
+
+**There is no assembled multi-term model anywhere in the stack.** Three separate
+ADRs (199, 200, 205) each stop at Stage A or at N=2 blocks and each names the
+same missing piece. It has been named as a prerequisite three times and built
+zero times.
+
+**And the gap is one function.** `ModelSpec` already declares
+family / link / terms / weights / offset. `select_lambdas_continuous` already
+accepts `penalty_blocks: tuple[np.ndarray, ...]` — arbitrary N, by construction.
+What is missing between them is `ModelSpec + data -> (design, penalty_blocks)`.
+Everything on either side of that function is already tier-3 verified.
+
+### Decision 1 — the missing assembler and the production engine are the same artifact
+
+This is the reframe the authorization makes available. "A multi-term
+`mgcv`-native model for Stage B" and "a production Python GAM at parity with
+`mgcv`" describe **one object**. The epic has been treating the first as
+scaffolding for conformance and the second as a distant goal, and that framing
+is why the keystone keeps being deferred: nobody schedules scaffolding.
+
+Anchor 7 caused this. By protecting the shipped engine from being re-pointed, it
+made every verified component homeless — each one had to be justified as a
+conformance artifact, because there was no production path they were allowed to
+belong to.
+
+### Decision 2 — Anchor 7 is amended, not removed
+
+Two of the anchor's three original reasons are now discharged by mechanisms that
+did not exist when it was written:
+
+| original reason | status |
+|---|---|
+| "every committed report was produced by them" | **discharged** — ADR-204's stamps give reports provenance and detect drift |
+| "the QA goldens depend on nothing moving" | **still live**, and `tests/qa/` enforces it directly on every run |
+| "the λ=0 oracle chain needs them alive" | **still live** — the old engine is the referent |
+
+**Amended form (proposed):**
+
+> **Anchor 7 — the existing engine stays until a new one demonstrably matches
+> it.** `TensorMIModel` and `PenalizedTensorMIModel` are not deleted, and no
+> caller is silently re-pointed at a different implementation. **Building a new
+> production path from the tier-3-verified parity components is explicitly
+> permitted and is the epic's intended route.** A caller moves to it only when
+> the new path has been measured against the old one on the same input and the
+> comparison is committed. The QA goldens and the λ=0 oracle chain keep the old
+> engine alive regardless.
+
+What changes: building `PolarisGAM` is now the plan rather than a thing needing
+permission. What does not: nothing gets swapped silently, and the old engine
+stays.
+
+### Decision 3 — do NOT re-point `smoothing_uncertainty`, and the question dissolves
+
+For two sessions the open Anchor-7 item has been framed as "re-point production
+at `gam_uncertainty`". **Recommend dropping that framing entirely.**
+
+It was always an odd operation — surgically replacing one covariance function
+inside an engine whose basis, fitter and λ selector all differ from the verified
+ones. ADR-203 removed its remaining justification: the swap does not fix
+coverage (0.8167 / 0.8354 against a 0.9192 floor), so the case for it rested on
+`mgcv` parity alone, and parity of *one function inside a non-parity engine* is
+a weak thing to want.
+
+Once `PolarisGAM` exists it uses `gam_uncertainty` natively, because that is
+what it is built from. The old engine keeps its own covariance and its own
+goldens until callers migrate. **No swap is needed at any point**, and the
+ten-cell suite's level 4 stops being a standing anomaly: it will read DISAGREES
+about the legacy engine, correctly and permanently, while the new path is
+measured on its own terms.
+
+### Decision 4 — the next slice is designated by the routine, not by this ADR
+
+PR #209's author was right: *"designating the epic's next active slice is a call
+for the next `ROUTINE_MGCV_PARITY.md` run, not something this PR should
+decide."* This ADR therefore proposes a **work order**
+(`docs/WORK_ORDER_multi_term_assembly.md`) rather than declaring a slice. The
+routine picks it up or does not.
+
+### Amendment 1 — ADR-206 confirmed this diagnosis within hours, and sharpened it (2026-08-24)
+
+This ADR was written against a repository holding nine verified modules and
+nothing permitted to compose them. **ADR-206 merged the same day and built the
+assembler** — three of the target's eight terms fit together, Stage-B `eta`
+parity with `mgcv` at `1.242e-10` on the first measurement. Excellent work, and
+it makes two of this ADR's sentences wrong as written.
+
+**What it does not make wrong is the diagnosis.** ADR-206 built the assembler as
+`gam_multiterm_conformance.assemble_multiterm_design(r_case: RMultiTermRecipe)`
+— a harness that takes its model definition from **an R script's JSON payload**
+and fits at a **fixed, externally-supplied `sp`**. It cannot fit a model `mgcv`
+has not already defined, and it does not select its own smoothing parameters.
+
+That is exactly this ADR's decision 1: under the unamended anchor there was no
+production path a component was permitted to belong to, so a conformance
+artifact was the only available shape. The prediction was tested by events
+within hours of being written, and held.
+
+**The practical effect is that the remaining gap is much smaller than this ADR
+estimated.** Not "build the assembler" — drive the existing, verified assembly
+from `ModelSpec` instead of `RMultiTermRecipe`, and select λ with
+`select_lambdas_continuous` instead of receiving it. Everything else stays.
+`docs/WORK_ORDER_multi_term_assembly.md` is rewritten to that scope.
+
+**One measurement genuinely new, and worth naming:** ADR-206 compared at fixed
+`sp`, so **our own λ selection has never been exercised on a multi-term design.**
+ADR-199 measured `select_lambdas_continuous` at 6.9e-04 to 9.8e-04 against
+`mgcv` on 2-block designs; N=4 at free `sp` is the first test of whether that
+holds as block count grows. The work order registers that prediction.
+
+### What this does NOT settle
+
+- **The coverage shortfall's second cause** is still unidentified (ADR-203).
+  Building `PolarisGAM` does not address it and must not be described as doing
+  so.
+- **`bs = "sz"` (slice 6) and `select = TRUE` (slice 7)** are not built, so the
+  assembler cannot fit the *full* target model yet. It can fit the
+  `cr` + `ti` + `by` subset, which is what slices 2 and 5 verified.
+- **Labelling any interval a 95% band** remains maintainer-reserved.
+- **Whether the amended anchor is the right form** — see Status.

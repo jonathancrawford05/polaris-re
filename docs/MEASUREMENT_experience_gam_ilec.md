@@ -300,10 +300,10 @@ because the aggregation level is an explicit parameter (ADR-182) rather than a
 buried default.
 
 <!-- measurement-provenance
-fingerprint: 6ebf696b7d4106661c0e1e625d80d329da6c2567cbc5678d96f5b9f5006ed71a
-generated: 2026-08-23
+fingerprint: d75be9a8cb4ddd64f0725f5502a1c9c84e4afcd04c7a1ef21b2b02612be1d925
+generated: 2026-08-24
 producer: scripts/experience_diligence.py
 method: asserted
-head: b45d497
-note: raw output regenerated 2026-08-23 against ILEC extract 'ILEC_2012_19 - 20240429.txt' (12,477,136,749 bytes, 2012-2019); docs/measurements diff: no fitted quantity moved; banded standardised block byte-identical; pooled run gained an additive 4-key standardised_ae section + duration_degree; last-ulp jitter on dropped_exposure_share
+head: 0131391
+note: closure drifted 2026-08-24 by an inert change: utils/table_io.py's missing-table FileNotFoundError message (raised only when a file is absent; no successful run reaches it). RUNBOOK section 2 case (c), claim in ADR-204 amendment 1. Route (a) needs the experience cache and was not available; the 2026-08-23 regeneration against ILEC extract 'ILEC_2012_19 - 20240429.txt' (12,477,136,749 bytes) stands.
 -->
