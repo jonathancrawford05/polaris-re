@@ -2855,6 +2855,24 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   established at lower dimension. *Source: this session, ADR-208 (2nd-order —
   a confirmed pattern, not a new finding requiring action).*
 
+- **Correction, same day (PR #212 review [P1]): the "flat surface, not a
+  criterion defect" diagnosis above was incomplete and is superseded.** Both
+  checks it rested on read only OUR OWN criterion at both points, which
+  cannot distinguish "mgcv's own optimiser stopped short" from "the two
+  criteria disagree about which point is better." The discriminating
+  measurement (`scripts/gam_multiterm_sp_delta_probe.R`, new) reads `mgcv`'s
+  own score at both points too: `mgcv`'s own criterion and ours rank
+  `mgcv`'s point and Python's point in OPPOSITE order
+  (`delta_mgcv=-0.1214` vs `delta_ours=+0.7252`) — real evidence of an
+  `sp`-dependent criterion discrepancy at this N=4-block, `ti()`
+  -sharing-a-span structure, not (only) optimiser path-sensitivity.
+  Tier-1 only so far; wired into CI for tier-3 confirmation. **Slice 6
+  should not be designated until this resolves at tier 3** — a fourth
+  basis's own `sp` selection on an unmeasured criterion discrepancy would
+  compound rather than isolate the next disagreement. *Source: this
+  session, ADR-208's amendment (1st-order — on the epic's critical path,
+  blocks slice 6 designation until resolved).*
+
 - **Whether a more robust search strategy narrows the N=4 gap is open, and
   deliberately not attempted here.** `select_lambdas_continuous` was reused
   unchanged per the work order's own scope ("if this work starts producing new

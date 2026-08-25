@@ -19,7 +19,7 @@ from polaris_re.analytics.gam_model import (
     resolve_family,
 )
 from polaris_re.analytics.gam_term_spec import ModelSpec, TermSpec
-from polaris_re.core.exceptions import PolarisValidationError
+from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 
 _AGE_KNOTS = (1.0, 2, 4, 7, 14, 18, 24, 35, 50, 70, 85, 90, 95)
 _YEAR_KNOTS = (1.0, 2, 3, 5, 10, 21)
@@ -209,6 +209,11 @@ def test_fit_polaris_gam_selects_its_own_lambda_and_converges() -> None:
     assert fit.converged
     assert fit.eta.shape == (150,)
     assert fit.edf_total > 0.0
+    assert fit.log_lambda.shape == (4,)
+    # Reuses the module default (PRODUCTION_LOG10_BOUNDS, wide by design,
+    # PR #212 review [P1]) and still finds an interior optimum on this case.
+    assert not np.any(np.isclose(fit.log_lambda, -2.0))
+    assert not np.any(np.isclose(fit.log_lambda, 12.0))
     assert set(fit.edf_per_term) == {
         "s(AttdAge)",
         "s(AttdAge,by=StudyYear_C)",
@@ -219,3 +224,36 @@ def test_fit_polaris_gam_selects_its_own_lambda_and_converges() -> None:
     # Excludes the intercept by construction (module docstring) — strictly
     # less than the total, never equal or greater.
     assert sum(fit.edf_per_term.values()) < fit.edf_total
+
+
+def test_fit_polaris_gam_raises_loudly_when_the_search_hits_a_bound() -> None:
+    """PR #212 review [P1]: a smoothing-parameter selection clamped at the
+    search domain's edge is not the REML criterion's minimum, and must not
+    be returned as though it were. Forces the condition with a deliberately
+    narrow `bounds` on the same well-conditioned case the smoke test above
+    fits cleanly at the wide default — isolating the guard from whether any
+    particular design happens to need a wide search."""
+    model = ModelSpec(
+        family="binomial",
+        link="cloglog",
+        terms=(
+            _cr_term(),
+            _cr_term(label="s(AttdAge,by=StudyYear_C)", by="StudyYear_C"),
+            _ti_term(),
+        ),
+        weights_column="ExposCnt",
+    )
+    data = _data(n=150)
+    rng = np.random.default_rng(7)
+    eta_true = (
+        -4.5
+        + 0.03 * data["AttdAge"]
+        - 0.02 * data["PolYear"]
+        + 0.01 * data["StudyYear_C"] * (data["AttdAge"] - 50) / 50
+    )
+    prob = 1.0 - np.exp(-np.exp(eta_true))
+    death = rng.binomial(data["ExposCnt"].astype(int), np.clip(prob, 0.0, 1.0))
+    y = death / data["ExposCnt"]
+
+    with pytest.raises(PolarisComputationError, match="a bound"):
+        fit_polaris_gam(model, data, y, maxiter=60, bounds=(3.0, 3.0 + 1e-9))

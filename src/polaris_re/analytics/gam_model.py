@@ -46,10 +46,10 @@ from polaris_re.analytics.gam_family import (
     poisson_log,
     quasipoisson_log,
 )
-from polaris_re.analytics.gam_reml_optimize import DEFAULT_LOG10_BOUNDS, select_lambdas_continuous
+from polaris_re.analytics.gam_reml_optimize import select_lambdas_continuous
 from polaris_re.analytics.gam_stage_a import TermExtract, build_python_cr_term, build_python_ti_term
 from polaris_re.analytics.gam_term_spec import ModelSpec, TermSpec
-from polaris_re.core.exceptions import PolarisValidationError
+from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 
 __all__ = [
     "ModelDesign",
@@ -71,6 +71,28 @@ against ``mgcv``. ``ModelSpec.family``/``.link`` are free-text strings (Anchor
 3), but this module only ever resolves them to one of these — deliberately no
 "unknown but assume Poisson-shaped" fallback, since a silently-wrong family
 would fail nowhere near where the mistake was made."""
+
+
+PRODUCTION_LOG10_BOUNDS = (-2.0, 12.0)
+""":func:`fit_polaris_gam`'s own default search domain for
+:func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous` —
+deliberately wider than that module's own
+``DEFAULT_LOG10_BOUNDS = (-2.0, 8.0)``.
+
+**Measured, not guessed (PR #212 review [P1]):** on the target formula's own
+three-term `cr`+`by`+`ti` structure, `mgcv`'s own free-sp REML selection
+reaches `log10(sp) ~ 9.87` on the by-term's block —
+outside `DEFAULT_LOG10_BOUNDS` entirely. A caller fitting this exact model
+shape with the module default would have its search silently clamped at 8,
+short of where the criterion's own minimum lies (or at least short of where
+`mgcv`'s optimiser lands — see ADR-208 for what that comparison does and
+does not establish). `gam_model_conformance._SEARCH_BOUNDS = (-2, 11)`
+already widened the comparator's own search to reach this region;
+this constant gives `fit_polaris_gam` itself the same headroom (plus a
+margin) by default, rather than leaving every caller to discover the clamp
+independently. `select_lambdas_continuous`'s own default is untouched
+(PLAN Anchor 7 — that module and its constant are ADR-199's tier-3-verified
+artifact)."""
 
 
 def resolve_family(family: str, link: str) -> Family:
@@ -251,7 +273,7 @@ def fit_polaris_gam(
     *,
     gamma: float = 1.0,
     x0: np.ndarray | None = None,
-    bounds: tuple[float, float] = DEFAULT_LOG10_BOUNDS,
+    bounds: tuple[float, float] = PRODUCTION_LOG10_BOUNDS,
     gtol: float = 1.0e-8,
     maxiter: int = 200,
 ) -> PolarisGAMFit:
@@ -270,14 +292,22 @@ def fit_polaris_gam(
             convention.
         gamma, x0, bounds, gtol, maxiter: passed through to
             :func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`
-            unchanged.
+            unchanged, except ``bounds`` defaults to
+            :data:`PRODUCTION_LOG10_BOUNDS` rather than that module's own
+            (narrower) default — see its docstring.
 
     Raises:
         PolarisValidationError: propagated from :func:`assemble_model_design`
             or :func:`resolve_family`.
         PolarisComputationError: propagated from
             :func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`
-            if every trial smoothing-parameter point is rejected.
+            if every trial smoothing-parameter point is rejected; or raised
+            here if the search's own selection sits AT a bound of ``bounds``
+            (PR #212 review [P1]) — a clamped smoothing parameter is not the
+            criterion's minimum, and returning it silently as though it were
+            would misreport `edf`/`eta` downstream without any signal that
+            the search domain, not the criterion, was the limiting factor.
+            Widen ``bounds`` and refit rather than reading the clamped value.
     """
     design = assemble_model_design(model, data)
     family = resolve_family(model.family, model.link)
@@ -306,6 +336,23 @@ def fit_polaris_gam(
         gtol=gtol,
         maxiter=maxiter,
     )
+    if selection.at_bound:
+        # One log_lambda entry per penalty BLOCK; a term with more than one
+        # penalty (ti carries two, ADR-205) owns a run of consecutive entries.
+        block_labels = [
+            tb["label"] for tb in design["term_blocks"] for _ in range(tb["n_penalties"])
+        ]
+        at_bound_blocks = [
+            (label, float(log_lam))
+            for label, log_lam in zip(block_labels, selection.log_lambda, strict=True)
+            if np.isclose(log_lam, bounds[0]) or np.isclose(log_lam, bounds[1])
+        ]
+        raise PolarisComputationError(
+            f"fit_polaris_gam: the smoothing-parameter search selected log10(lambda) "
+            f"at a bound of {bounds} for {at_bound_blocks or 'at least one penalty block'} "
+            "-- this is the search domain's edge, not necessarily the REML criterion's "
+            "minimum. Widen `bounds` and refit rather than reading this selection."
+        )
 
     eta = (np.zeros_like(y) if offset is None else offset) + design["x"] @ selection.coef
     mu = family.link.linkinv(eta)

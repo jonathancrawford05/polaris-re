@@ -4,9 +4,13 @@
 run 32855338611). `PolarisGAM` exists
 (`src/polaris_re/analytics/gam_model.py`), fits the three-term `cr`+`by`+`ti`
 model from a `ModelSpec`, and selects its own smoothing parameters. The §4
-registered prediction below is **REFUTED at both tiers**, characterised with
-evidence and a named diagnosis (a flat REML surface, not a criterion defect)
-rather than left unmeasured — see ADR-208 and `docs/CONFORMANCE_LEDGER.md`. This
+registered prediction below is **REFUTED at both tiers**. **The original
+diagnosis (a flat REML surface, no criterion gap) was corrected same-day, PR
+#212 review [P1]:** the discriminating measurement the review named shows
+`mgcv`'s own score and ours RANK `mgcv`'s point and Python's point in
+OPPOSITE order — evidence of an `sp`-dependent criterion discrepancy at this
+N=4 / `ti()`-sharing-a-span structure, tier-1 only so far, sequencing named
+before slice 6. See ADR-208's amendment and `docs/CONFORMANCE_LEDGER.md`. This
 document is kept as the specification that was executed, not rewritten in the
 past tense throughout; §7's Definition of Done states what was and was not met.
 
@@ -146,9 +150,13 @@ measured, never the measurement.
   from shared input to compared quantity stated explicitly (module docstring,
   ADR-208). Tier 3 confirmed identical in verdict, CI run 32855338611 — see
   ADR-208's confirmation amendment for the digest and full numbers.
-- [x] The §4 prediction resolved in those words — **REFUTED**, with a named
-  diagnosis (a flat REML surface along the by-term's direction, not a criterion
-  or search defect) rather than left an open question. See ADR-208.
+- [x] The §4 prediction resolved in those words — **REFUTED**. First
+  diagnosis (a flat REML surface, no criterion gap) was corrected same-day
+  (PR #212 review [P1]): the discriminating measurement shows `mgcv`'s own
+  criterion and ours rank the two candidate points in OPPOSITE order — real
+  evidence of an `sp`-dependent criterion discrepancy at this term
+  structure, not merely optimiser path-sensitivity. Tier-1 only so far. See
+  ADR-208's amendment.
 - [x] ADR-206's tests pass unchanged, proving the extraction preserved behaviour
   (`tests/test_analytics/test_gam_multiterm_conformance.py`, unmodified).
 - [x] `experience_gam_penalized` and `experience_gam` untouched; `tests/qa/`

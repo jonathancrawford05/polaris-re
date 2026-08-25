@@ -490,9 +490,13 @@ in ADR-206 rather than attempted there.
   `select_lambdas_continuous` and fits with `penalized_irls_general`. The work
   order's §4 registered prediction (N=4 lands in ADR-199's 2-block range) is
   **REFUTED at both tiers** — `max_abs_log10_sp_diff=0.7766` (tier 1) / `0.6398`
-  (tier 3), diagnosed as a flat REML surface along the by-term's smoothing
-  direction (PLAN §5 risk 3, measured) rather than a criterion or search defect.
-  See ADR-208 and `docs/CONFORMANCE_LEDGER.md`.
+  (tier 3). **Diagnosis corrected same-day (PR #212 review [P1]):** the
+  discriminating measurement shows `mgcv`'s own criterion and ours rank
+  `mgcv`'s point and Python's point in OPPOSITE order — evidence of an
+  `sp`-dependent criterion discrepancy at this N=4/`ti()`-sharing-a-span
+  structure (tier-1 only so far), not merely a flat surface. **Slice 6 should
+  not be designated until this resolves at tier 3.** See ADR-208's amendment
+  and `docs/CONFORMANCE_LEDGER.md`.
 - **Work order:** `docs/WORK_ORDER_multi_term_assembly.md` — full scope, sequencing, the
   registered prediction and two already-paid-for traps live there. **This slice entry
   exists so the routine can select it**; the work order is the specification.
@@ -520,6 +524,12 @@ anticipate them.
 ### Slice 6: `bs = "sz"` — orthogonal factor-smooth interactions
 
 - **Depends on:** Slices 2, 4
+- **BLOCKED, 2026-08-25 (PR #212 review [P1]):** do not designate this slice
+  until ADR-208's amendment (the `sp`-dependent REML criterion discrepancy
+  found on slice 5b's N=4/`ti()`-sharing-a-span structure) resolves at tier 3
+  — a fourth basis's own `sp` selection on an unmeasured criterion
+  discrepancy would compound rather than isolate the next disagreement. See
+  `docs/CONTINUATION_mgcv_parity_engine.md`.
 
 Sum-to-zero factor-smooth deviations from a reference smooth. Four terms in the target.
 Expect this to be the hardest basis of the three: the constraint and reparameterisation are

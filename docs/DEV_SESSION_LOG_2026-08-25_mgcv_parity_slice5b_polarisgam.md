@@ -279,3 +279,55 @@ prediction is REFUTED at both tiers, not a tier-1 artefact.
 - Anchor 2's primary MI-contrast-on-a-grid metric remains unmeasured (named by
   ADR-206, unaffected by this slice).
 - `bs = "sz"` (slice 6) and `select = TRUE` (slice 7) remain unbuilt.
+
+## PR #212 review response (same day)
+
+**[P1] the diagnosis rules out a formula gap using only our own criterion.**
+Correct — the original two checks both read `reml_score_general` at both
+points, never `mgcv`'s own score. Ran the discriminating measurement the
+review named: `scripts/gam_multiterm_sp_delta_probe.R` (new, diagnostic-only)
+reads `mgcv`'s own `gcv.ubre` at its own free-sp optimum and, via a
+fixed-`sp` refit, at Python's own tier-1 selected point.
+
+```
+delta_mgcv = score_at_mgcv_pt - score_at_python_pt = -0.121389   (mgcv's own criterion)
+delta_ours = 612.617546      - 611.892459           = +0.725193  (our criterion, ADR-208 tier-1 reading)
+```
+
+**Opposite sign.** `mgcv`'s own point is better under `mgcv`'s own criterion;
+Python's point is better under ours. That refutes the original "flat
+surface, no criterion gap" conclusion — it is evidence of an `sp`-dependent
+criterion discrepancy specific to this N=4-block, `ti()`-sharing-a-span
+structure. ADR-208 amended (retraction in place, new amendment section with
+the full measurement and the named next hypothesis: Wood 2011 §3.1's
+log-determinant machinery, previously ruled inapplicable to ADR-196's
+disjoint-support fixture for a reason `ti()`'s overlapping penalties don't
+share). `CONTINUATION`/`PLAN`/`WORK_ORDER`/`PRODUCT_DIRECTION` corrected to
+match; slice 6 marked BLOCKED pending tier-3 confirmation of this reading.
+Wired into `mgcv-conformance.yml` as a new diagnostic step (Python's tier-1
+sp values hand-supplied, per the script's own header — the two-job CI split
+has no path for a third R stage to consume Python's own output).
+
+**Tier:** the sp-delta reading itself is tier 1 only as of this response;
+dispatched via CI alongside the [P2] fix below (see the run linked in the
+final push).
+
+**[P1] `PolarisGAM`'s default bounds cannot reach where mgcv selects.**
+Fixed both ways suggested. `gam_model.PRODUCTION_LOG10_BOUNDS = (-2.0, 12.0)`
+is `fit_polaris_gam`'s own new default (wider than the comparator's
+`(-2, 11)`, independent of `gam_reml_optimize.DEFAULT_LOG10_BOUNDS`, which is
+untouched — ADR-199's own tier-3-verified constant, PLAN Anchor 7).
+`fit_polaris_gam` now raises `PolarisComputationError`, naming the
+term/block and bound, whenever `selection.at_bound` is true for whatever
+`bounds` a caller supplies. New test
+(`test_fit_polaris_gam_raises_loudly_when_the_search_hits_a_bound`) forces
+the condition with a deliberately narrow `bounds` on the R-free fixture and
+asserts the raise; the existing smoke test now also asserts the default-bounds
+fit lands strictly interior on both edges.
+
+**Quality gate re-run after the fixes:** `uv run pytest
+tests/test_analytics/test_gam_model.py
+tests/test_analytics/test_gam_model_conformance.py
+tests/test_analytics/test_gam_multiterm_conformance.py` — 21 passed (was 20;
++1 new at-bound test). Full suite and `tests/qa/` re-run before pushing —
+see the push commit for the recorded counts.
