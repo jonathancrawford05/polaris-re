@@ -17454,7 +17454,10 @@ holds as block count grows. The work order registers that prediction.
 
 **Date:** 2026-08-25
 **Status:** **Accepted.** Tier 1 measured and recorded below; tier 3 dispatched
-same session — see the confirmation section.
+same session — see the confirmation section. **The original headline
+diagnosis below ("not evidence of a formula gap") was retracted same day
+and replaced by a confirmed, sp-dependent criterion discrepancy — see the
+Amendment section; a reader should not stop at this line.**
 **Implements:** `docs/PLAN_mgcv_parity_engine.md` slice 5b,
 `docs/WORK_ORDER_multi_term_assembly.md`, under ADR-207's amended Anchor 7.
 

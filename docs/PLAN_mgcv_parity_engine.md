@@ -547,6 +547,18 @@ exactly zero. Takes the smoothing-parameter count from 13 to **21**, and total e
 47.36 to 16.96 on synthetic data of the target's shape. It is a **term-selection mechanism
 inside penalized likelihood**, and it is the reason `gamboost` is not a parity target.
 
+**Known collision, filed by PR #212 review round 2 (2026-08-25), not yet fixed:**
+`gam_model.fit_polaris_gam`'s at-bound guard (added for slice 5b) raises
+`PolarisComputationError` whenever the selected `log10(sp)` lands on *either*
+search bound. The lower bound genuinely indicates a defect, but the upper
+bound (λ→∞) is exactly what `select = TRUE` is meant to produce for a
+shrunk-to-zero term — this slice will hit that raise head-on unless the
+guard is first split to treat the two bounds differently (see
+`docs/DEV_SESSION_LOG_2026-08-25_mgcv_parity_slice5b_polarisgam.md`'s "PR
+#212 review response, round 2" section for the reviewer's suggested shape).
+Fix the guard before or as part of designating this slice, not after
+hitting the raise mid-slice.
+
 ### Deferred to a later epic: `bam` + `discrete = TRUE` + fREML
 
 `bam(discrete = TRUE)` is a different algorithm, not a faster `gam` — discretised

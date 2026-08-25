@@ -337,3 +337,75 @@ tests/test_analytics/test_gam_model_conformance.py
 tests/test_analytics/test_gam_multiterm_conformance.py` — 21 passed (was 20;
 +1 new at-bound test). Full suite and `tests/qa/` re-run before pushing —
 see the push commit for the recorded counts.
+
+**CI-red, second occurrence (`fbf6770`/`2bea62a`):** the at-bound guard just
+added tripped for real on CI, not a flake. Root cause:
+`test_gam_model_conformance.py::_small_recipe()` drew `y` as pure uniform
+noise, independent of every covariate — with no curvature to find, an
+unbounded λ (infinite smoothing) is a legitimate optimum for at least one
+block, which the new guard (correctly) refuses to return silently. First
+fix (`af2f4c8`, `n=40` + a structured `eta_true`) passed on Python 3.12 but
+Python 3.13 hit the same guard again on a *different* pair of blocks —
+`n=40` was still too small for the free-sp search's interior optimum to be
+robust across platform-numerics paths. Second fix (`5122da9`): reused
+`test_gam_model.py`'s own already-CI-proven recipe verbatim — `n=150`, the
+simpler `eta_true` (no wiggle term), and a binomial draw from an
+independently seeded `rng` (seed 7) decoupled from the covariate `rng`.
+`_SEARCH_BOUNDS` itself was left untouched throughout — only the synthetic
+fixture changed. All 9 CI checks green on `5122da9` (Lint, Test 3.12/3.13,
+Docker, Perf, Smoke, both mgcv-conformance jobs).
+
+## PR #212 review response, round 2 (same day)
+
+Re-review at `5122da9` verified both round-1 [P1]s closed (including tier-3
+confirmation) and returned **"approve in substance,"** with the fixture
+history above read correctly as a null-model case the guard mis-called an
+error, not a broken fixture — see below. Three items, none blocking this PR
+per the reviewer's own classification; the nit is fixed here, the other two
+are filed as follow-on work.
+
+**Nit — ADR-208's Status line didn't mention the amendment.** Fixed:
+`docs/DECISIONS.md`'s ADR-208 Status line now says outright that the
+original headline diagnosis was retracted and points to the amendment,
+rather than reading as if the ADR's first-pass conclusion still stood.
+
+**[P1-new, filed as follow-on, NOT fixed this session] The at-bound guard
+diverges from `mgcv` at the upper bound.** `fit_polaris_gam`'s guard
+(added for round 1's second [P1]) raises unconditionally on either bound.
+The reviewer's point: the *lower* bound (λ→0) really is a defect signal,
+but the *upper* bound (λ→∞) is not — a term with no signal smoothed to its
+null space is a normal, correct `mgcv` answer, and this PR's fixture
+failures (`af2f4c8`, `5122da9`) were exactly that case, mis-read as broken
+fixtures rather than as the guard's own overreach. Concretely: the raise's
+own remediation ("widen bounds and refit") cannot terminate for a genuine
+λ→∞ optimum, a null covariate is an ordinary actuarial case `PolarisGAM`
+cannot currently fit, and slice 7 (`select = TRUE`) is *built* around
+penalising terms to nothing — a hard upper-bound raise collides with it
+head-on. Suggested shape (not implemented here): keep the lower-bound raise
+as-is; make the upper bound non-fatal by default (report it prominently on
+the fit, or gate it on whether the REML score is still descending at the
+bound rather than flattened there — a flattened score is a converged
+optimum, a descending one is a clipped search); if a raising mode is still
+wanted for conformance use, put it behind an explicit `strict=` parameter.
+This is real engine-contract work, not a test-fixture fix, and is
+explicitly out of this slice's scope (§2: "if this work starts producing
+new numerics, stop") — tracked here for whichever session designates the
+work that touches `fit_polaris_gam`'s contract next (very plausibly slice 7
+itself, since it will hit this directly).
+
+**[P1-new, filed as follow-on, NOT run this session] A cheaper localisation
+exists before Wood (2011) §3.1.** The reviewer's point: ADR-206 only ever
+compared `eta` at fixed `sp` — the REML *score* has never been compared
+against `mgcv` on this N=4 span-sharing structure at any `sp`, fixed or
+free. The decisive next measurement therefore needs no optimiser and no new
+theory: evaluate `reml_score_general` and `mgcv`'s own score at the same
+fixed `sp`, at two or three well-separated `sp` vectors, using machinery
+that already exists on both sides (ADR-206's fixed-`sp` path;
+`gam_multiterm_sp_delta_probe.R`'s `gcv.ubre` read). Disagreement at fixed
+`sp` would point at `log|S|₊` (Wood §3.1, since `ti()` shares a span with
+the main effects, unlike ADR-196's disjoint-support 2-block fixture);
+agreement at fixed `sp` with divergence only under free selection would
+mean Wood §3.1 is the wrong place to look and the problem is in what varies
+with selection. Correctly named as the thing to run *before* any session
+commits to re-deriving `log|S|₊` — tracked here for whichever session
+resumes slice 6's blocker.

@@ -444,7 +444,18 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    do not designate until ADR-208's amendment (the `sp`-dependent REML
    criterion discrepancy on slice 5b's N=4 structure, now confirmed real at
    tier 3, CI run 32874213883) is localised or closed — see
-   `docs/PLAN_mgcv_parity_engine.md` slice 6.
+   `docs/PLAN_mgcv_parity_engine.md` slice 6. **Round-2 review (same day)
+   named a cheaper measurement to run FIRST, before any Wood (2011) §3.1
+   log-determinant derivation:** ADR-206 only ever compared `eta` at fixed
+   `sp` — the REML score itself has never been compared against `mgcv` on
+   this N=4 span-sharing structure, at any `sp`. Evaluate
+   `reml_score_general` against `mgcv`'s own score at the same fixed `sp`,
+   at 2-3 well-separated `sp` vectors, reusing ADR-206's fixed-`sp` path and
+   `gam_multiterm_sp_delta_probe.R`'s `gcv.ubre` read — no optimiser, no new
+   numerics. Disagreement there points at `log|S|₊`; agreement there with
+   divergence only under free selection means §3.1 is the wrong place to
+   look. See `docs/DEV_SESSION_LOG_2026-08-25_mgcv_parity_slice5b_polarisgam.md`'s
+   "PR #212 review response, round 2" section for the full argument.
 7. **`select = TRUE`** — the double penalty; 13 → 21 smoothing parameters. PLANNED.
 
 Deferred to a later epic: `bam` + `discrete = TRUE` + fREML. Safe to defer because at
