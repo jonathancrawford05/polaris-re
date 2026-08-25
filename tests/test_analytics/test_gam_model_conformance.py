@@ -44,26 +44,33 @@ def _small_recipe() -> RFreeSpRecipe:
     and therefore trips :func:`~polaris_re.analytics.gam_model.fit_polaris_gam`'s
     at-bound guard (PR #212 review [P1]). Locally this landed just inside the
     bound (BLAS/optimizer-path dependent); on CI's different numerics it
-    landed exactly on it. `eta_true` gives every term real dependence on its
-    own covariate, the same pattern `test_gam_model.py`'s own fit smoke test
-    already uses, so the search has a genuine interior optimum to find on any
-    platform.
+    landed exactly on it. A first fix added an `eta_true` signal at `n=40`,
+    still drawing the binomial `y` from the SAME rng instance the covariates
+    came from, plus an extra `sin`/`cos` wiggle term — insufficient: CI's
+    Python 3.13 run still drove a *different* pair of blocks onto the same
+    bound. A second fix raised `n` to 150 alone (matching `test_gam_model.py`'s
+    sample size) but kept the wiggle term and the shared rng, and *still*
+    hit the bound even locally, under this module's narrower
+    :data:`~polaris_re.analytics.gam_model_conformance._SEARCH_BOUNDS` (11.0
+    vs. :data:`~polaris_re.analytics.gam_model.PRODUCTION_LOG10_BOUNDS`'s
+    12.0 — deliberately not widened, since it is tied to the real measured
+    mgcv optimum, not a knob to tune until this synthetic case agrees).
+    This fixture now reuses `test_gam_model.py`'s exact proven-robust recipe
+    instead of a lookalike: the simpler `eta_true` (no wiggle term) and a
+    binomial draw from an *independently seeded* rng (seed 7), decoupled from
+    the covariate rng — the precise combination that has passed on CI twice,
+    on both Python 3.12 and 3.13.
     """
-    n = 40
+    n = 150
     rng = np.random.default_rng(20260825)
     age = rng.uniform(_AGE_KNOTS[0], _AGE_KNOTS[-1], size=n)
     year = rng.uniform(_YEAR_KNOTS[0], _YEAR_KNOTS[-1], size=n)
     study_year_c = rng.uniform(-5.0, 5.0, size=n)
     expos = rng.uniform(50.0, 500.0, size=n)
-    eta_true = (
-        -4.5
-        + 0.03 * age
-        - 0.02 * year
-        + 0.01 * study_year_c * (age - 50) / 50
-        + 0.15 * np.sin(age / 10) * np.cos(year / 3)
-    )
+    death_rng = np.random.default_rng(7)
+    eta_true = -4.5 + 0.03 * age - 0.02 * year + 0.01 * study_year_c * (age - 50) / 50
     prob_true = 1.0 - np.exp(-np.exp(eta_true))
-    death = rng.binomial(expos.astype(int), np.clip(prob_true, 0.0, 1.0))
+    death = death_rng.binomial(expos.astype(int), np.clip(prob_true, 0.0, 1.0))
     y = death / expos
     return RFreeSpRecipe(
         n=n,
@@ -114,7 +121,7 @@ def test_fit_free_sp_case_produces_a_design_matching_the_recipe() -> None:
     arithmetic ADR-206 pinned) and the search converges on a small case."""
     recipe = _small_recipe()
     fit = fit_free_sp_case(recipe)
-    assert fit.design["x"].shape == (40, 86)
+    assert fit.design["x"].shape == (150, 86)
     assert fit.log_lambda.shape == (4,)
     assert set(fit.edf_per_term) == {
         "s(AttdAge)",
