@@ -1,11 +1,20 @@
 # Work order — from conformance harness to production path (`PolarisGAM`)
 
-**Status:** READY, and registered as **PLAN slice 5b** so the routine's
-"next unchecked slice" rule can reach it. Registering it in the ordered list is not
-the same as designating it for a session — that remains a `ROUTINE_MGCV_PARITY.md`
-call (ADR-207 decision 4). Before 2026-08-25 this work order sat outside the slice
-list entirely, which meant the routine's selection rule would have walked past it to
-slice 6 no matter how ready it was.
+**Status:** **DONE, 2026-08-25** (ADR-208). `PolarisGAM` exists
+(`src/polaris_re/analytics/gam_model.py`), fits the three-term `cr`+`by`+`ti`
+model from a `ModelSpec`, and selects its own smoothing parameters. The §4
+registered prediction below is **REFUTED**, characterised with evidence and a
+named diagnosis (a flat REML surface, not a criterion defect) rather than left
+unmeasured — see ADR-208 and `docs/CONFORMANCE_LEDGER.md`. This document is kept
+as the specification that was executed, not rewritten in the past tense
+throughout; §7's Definition of Done states what was and was not met.
+
+Registered as **PLAN slice 5b** so the routine's "next unchecked slice" rule could
+reach it. Registering it in the ordered list is not the same as designating it for
+a session — that remained a `ROUTINE_MGCV_PARITY.md` call (ADR-207 decision 4).
+Before 2026-08-25 this work order sat outside the slice list entirely, which meant
+the routine's selection rule would have walked past it to slice 6 no matter how
+ready it was.
 **Predecessors:** ADR-206 (the multi-term assembly, built and Stage-B verified),
 ADR-207 (the Anchor 7 amendment that permits a production path).
 **Rewritten 2026-08-24** after ADR-206 landed. The first version of this work
@@ -129,12 +138,17 @@ measured, never the measurement.
 
 ## 7. Definition of done
 
-- `PolarisGAM` fits a three-term `cr` + `by` + `ti` model from a `ModelSpec`,
-  selecting its own λ.
-- Free-`sp` conformance at **tier 3**, with a `VerificationClaim` classifying
-  each compared quantity, and `sp`'s move from shared input to compared quantity
-  stated explicitly.
-- The §4 prediction resolved in those words — confirmed or refuted.
-- ADR-206's tests pass unchanged, proving the extraction preserved behaviour.
-- `experience_gam_penalized` and `experience_gam` untouched; `tests/qa/` goldens
-  byte-identical.
+- [x] `PolarisGAM` fits a three-term `cr` + `by` + `ti` model from a `ModelSpec`,
+  selecting its own λ. (`gam_model.fit_polaris_gam`)
+- [x] Free-`sp` conformance at **tier 1**, with a `VerificationClaim`
+  (`FREE_SP_MODEL_CLAIM`) classifying each compared quantity, and `sp`'s move
+  from shared input to compared quantity stated explicitly (module docstring,
+  ADR-208). **Tier 3 dispatched same session** — see ADR-208's confirmation
+  amendment for the digest and run.
+- [x] The §4 prediction resolved in those words — **REFUTED**, with a named
+  diagnosis (a flat REML surface along the by-term's direction, not a criterion
+  or search defect) rather than left an open question. See ADR-208.
+- [x] ADR-206's tests pass unchanged, proving the extraction preserved behaviour
+  (`tests/test_analytics/test_gam_multiterm_conformance.py`, unmodified).
+- [x] `experience_gam_penalized` and `experience_gam` untouched; `tests/qa/`
+  goldens byte-identical (neither file changed in this slice's diff).

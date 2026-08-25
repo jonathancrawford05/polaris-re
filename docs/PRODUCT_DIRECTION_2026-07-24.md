@@ -2818,3 +2818,50 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   nothing calls the search on it yet. (3) `sz` (slice 6) is not part of this model.
   *Source: this session, ADR-206 (1st-order — each is a concrete, small next slice
   now that the multi-term harness exists, not a re-opening of slice 5).*
+
+### Harvested 2026-08-25 — slice 5b: `PolarisGAM` built, and its own registered prediction refuted (ADR-208)
+
+- **Slice 5b IS NOW DONE — item (2) above is answered, not merely attempted.**
+  `analytics/gam_model.py` generalises ADR-206's `assemble_multiterm_design`
+  into `assemble_model_design(model: ModelSpec, data)` (any `"cr"`/`"ti"` term
+  mix, not just the fixed three) and adds `fit_polaris_gam`, which selects its
+  own `log10(lambda)` via `select_lambdas_continuous` (ADR-199) and fits with
+  `penalized_irls_general` (ADR-195) — nothing re-derived. ADR-206's own tests
+  pass unchanged against the refactor, proving it behaviour-preserving.
+  *Source: this session, ADR-208 (1st-order — closes the epic's designated
+  slice).*
+
+- **The work order's own §4 registered prediction is REFUTED, and characterised
+  rather than left an open gap.** ADR-199 measured `select_lambdas_continuous`
+  against `mgcv` at 6.9e-04-to-9.8e-04 on 2-block designs; N=4 free-`sp`
+  selection disagrees by `max_abs_log10_sp_diff=0.7766` instead — three orders
+  of magnitude larger, concentrated in one block. Two diagnostic-only checks
+  (not part of the committed, INDEPENDENT comparator) localise this to a FLAT
+  REML SURFACE along that block's direction, not a criterion or search defect:
+  the shared, already-verified criterion scores Python's own
+  mgcv-independent optimum *lower* (better) than `mgcv`'s own exact selection,
+  and starting the search from `mgcv`'s own point converges to yet a third,
+  still-lower-scoring point. PLAN §5 risk 3 ("the optimiser may be badly
+  conditioned where the 2-D grid was merely shallow"), now measured at N=4
+  rather than merely anticipated. *Source: this session, ADR-208 (1st-order —
+  a genuine INDEPENDENT disagreement is parity-epic progress per the routine's
+  own framing, not a defect to fix reflexively).*
+
+- **PLAN §6's separate registered prediction — "`edf` agrees far better than
+  `sp` does" — holds again at N=4.** `edf_total_diff` is ≈4% (0.726 out of
+  ~16-17) against `sp`'s near-full-decade disagreement. Confirms `edf` as the
+  more stable basis-invariant quantity to report from a multi-term free-`sp`
+  fit, the same lesson the ten-cell suite's level 2 and ADR-199 already
+  established at lower dimension. *Source: this session, ADR-208 (2nd-order —
+  a confirmed pattern, not a new finding requiring action).*
+
+- **Whether a more robust search strategy narrows the N=4 gap is open, and
+  deliberately not attempted here.** `select_lambdas_continuous` was reused
+  unchanged per the work order's own scope ("if this work starts producing new
+  numerics, stop") — multi-start or informed initialisation (from
+  mgcv-independent points only, so as not to break the INDEPENDENT
+  classification) would be new numerics belonging to a future slice, not this
+  one. *Source: this session (2nd-order, NICE-TO-HAVE — revisit only if a
+  future slice needs tighter free-`sp` agreement at N>2, e.g. before adding
+  `sz`/`select=TRUE` terms whose own smoothing parameters would compound the
+  same flatness).*

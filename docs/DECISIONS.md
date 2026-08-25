@@ -17449,3 +17449,182 @@ holds as block count grows. The work order registers that prediction.
   `cr` + `ti` + `by` subset, which is what slices 2 and 5 verified.
 - **Labelling any interval a 95% band** remains maintainer-reserved.
 - **Whether the amended anchor is the right form** — see Status.
+
+## ADR-208: `PolarisGAM` built from a `ModelSpec` — slice 5b, free-`sp` lands INDEPENDENT parity evidence and REFUTES the work order's registered prediction
+
+**Date:** 2026-08-25
+**Status:** **Accepted.** Tier 1 measured and recorded below; tier 3 dispatched
+same session — see the confirmation section.
+**Implements:** `docs/PLAN_mgcv_parity_engine.md` slice 5b,
+`docs/WORK_ORDER_multi_term_assembly.md`, under ADR-207's amended Anchor 7.
+
+### What was built
+
+`src/polaris_re/analytics/gam_model.py` — the work order's step 1 and 2:
+
+- `assemble_model_design(model: ModelSpec, data)` generalises
+  `gam_multiterm_conformance.assemble_multiterm_design`'s column/penalty-padding
+  arithmetic from exactly three fixed terms to any `ModelSpec` built from
+  `"cr"` (with or without a numeric `by`) and `"ti"` terms.
+  `assemble_multiterm_design` is now a thin `RMultiTermRecipe`-shaped adapter
+  onto this function — the shared assembly the work order asked for, extracted
+  once rather than forked. ADR-206's own tests (`test_gam_multiterm_conformance.py`)
+  pass unchanged against the refactor — the check that the extraction was
+  behaviour-preserving.
+- `fit_polaris_gam(model, data, y)` — `PolarisGAM`'s fit entry point. Composes
+  three already tier-3-verified pieces exactly as written, nothing re-derived:
+  `select_lambdas_continuous` (ADR-199) for λ, `penalized_irls_general`
+  (ADR-195) for the fit (called internally by the search), and a per-term
+  `tr(F)` split (`_per_term_edf`) using the identical hat-matrix-diagonal
+  identity `experience_gam_penalized.PenalizedTensorMIModel.fit` already uses
+  for its two-block case, generalised to any number of named terms.
+- Nothing here re-derives a basis, a fitter, a criterion or a search — the
+  work order's own out-of-scope list (§2). `experience_gam_penalized` and
+  `experience_gam` are untouched (Anchor 7); `tests/qa/` goldens are
+  byte-identical (unaffected files).
+
+`src/polaris_re/analytics/gam_model_conformance.py` — the free-`sp` parity
+claim, `FREE_SP_MODEL_CLAIM`, and `scripts/gam_multiterm_free_sp_probe.R` —
+the same three-term formula as ADR-206's `gam_multiterm_probe.R`, but
+`method="REML"` with no `sp=` supplied.
+
+### The provenance gate (ADR-193), applied before writing the comparison
+
+**Claim sentence:** *`PolarisGAM` assembles the three-term design from the
+shared recipe via the already-independently-verified `cr`/`by`/`ti` basis
+producers, then selects its own `log10(lambda)` per block by minimizing
+`gam_reml.reml_score_general` via `select_lambdas_continuous`, and fits with
+`penalized_irls_general` — never reading `mgcv`'s own `eta`, `coef`, `sp` or
+`edf`; `mgcv` computes the identical three-term formula via
+`gam(..., method="REML")` with free `sp`, selecting its own smoothing
+parameters independently; compared on `eta`, `log10(sp)` per block,
+`edf_total` and per-term `edf`.*
+
+**The mechanical test, applied to the signature:** `fit_free_sp_case`'s only
+parameter is `RFreeSpRecipe`, which has no `eta`/`coef`/`sp`/`edf_total`/
+`term_edf` key — a caller cannot make it see `mgcv`'s own fit even by mistake
+(`test_fit_free_sp_case_signature_takes_no_r_fit_output`, the same
+type-level enforcement PR #202 and PR #210 established for the family and
+fixed-sp multi-term modules).
+
+**THE ASYMMETRY, stated explicitly (work order §3).** In ADR-206's
+`MULTITERM_CLAIM`, `sp` was a **shared input** — both sides fit at the same
+externally-supplied `sp_fixed`. Here `sp` is itself a **compared quantity**:
+each side selects it independently from the same, already-verified criterion.
+`RFreeSpRecipe` carries no `"sp"` key at all — there is nothing to share.
+Every one of the four declared quantities (`eta`, `log10(sp)` per block,
+`edf_total`, per-term `edf`) is **INDEPENDENT**
+(`test_free_sp_model_claim_is_independent_on_every_declared_quantity`,
+`require_parity_evidence` gates it).
+
+### Tier-1 measurement (R 4.3.3 / mgcv 1.9.1, local apt)
+
+Ran `scripts/gam_multiterm_free_sp_probe.R` (n=900, the target formula's own
+`AttdAge`(k=13)/`PolYear`(k=6) knots, seed `20260825` — distinct from
+`gam_multiterm_probe.R`'s `20260824`, a genuinely new draw) and compared:
+
+| quantity | value |
+|---|---|
+| `max_abs_eta_diff` | 3.677e-02 |
+| `max_abs_log10_sp_diff` | **0.7766** (block 2, the by-term) |
+| Python `log10(sp)` | `[6.753, 9.096, 3.099, 3.054]` |
+| `mgcv` `log10(sp)` | `[6.696, 9.872, 3.292, 3.029]` |
+| `edf_total_diff` | +0.7263 (Python 17.16 vs `mgcv` 16.44) |
+| `max_abs_term_edf_diff` | 0.7054 |
+| both converged | True / True |
+| `at_bound` | False |
+
+**The work order's §4 registered prediction is REFUTED.** ADR-199 measured
+`select_lambdas_continuous` against `mgcv` at 6.9e-04 to 9.8e-04 on 2-block
+designs; the prediction was that N=4 lands in the same range. It does not —
+`max_abs_log10_sp_diff` is three orders of magnitude larger. Per the work
+order's own framing: *"the 2-block result was narrower than it appeared —
+the search may scale differently with block count — and that is the
+finding."*
+
+### Diagnosis: a flat REML surface, not a criterion defect
+
+Two diagnostic checks (not part of the committed comparison — both read
+`mgcv`'s own selected `sp` to run, which would violate the mechanical test if
+committed as parity evidence; they are session-only measurements using the
+already tier-3-verified `reml_score_general`/`penalized_fit_and_score`):
+
+1. **The shared, already-verified criterion scores Python's own optimum
+   LOWER (better) than `mgcv`'s own selected point.** Evaluating
+   `reml_score_general` at both `log10(sp)` vectors on the identical shared
+   design: Python's point scores 611.892, `mgcv`'s own point scores 612.618.
+   If the criterion itself disagreed with `mgcv`'s (a formula gap, the kind
+   ADR-196/197 already closed), `mgcv`'s own selection would be expected to
+   score at least as well under its own criterion — it does not, under ours.
+2. **Starting the search AT `mgcv`'s own point does not stay there.** With
+   `x0` set to `mgcv`'s selected `log10(sp)` (diagnostic-only — this is not
+   how `fit_free_sp_case` is called; doing so in the committed comparator
+   would make the Python side read the R side's output, breaking
+   independence), L-BFGS-B still moves to `[6.683, 9.820, 2.860, 3.059]`,
+   score 612.155 — closer to `mgcv`'s point (block-2 log10 diff 0.052, not
+   0.777) but still *lower*-scoring than `mgcv`'s own exact selection, and
+   still a different point from the neutral-start optimum.
+
+**Reading:** the REML surface is very flat along the by-term's smoothing
+direction at this design — a criterion difference of order 0.3-0.7 (out of
+~612) corresponds to nearly a full decade of movement in that one `lambda`.
+Two different starting points (a neutral bounds-midpoint start, and `mgcv`'s
+own point) converge to two different points on an essentially flat plateau,
+both scoring at or below `mgcv`'s own selection under the identical,
+already-verified criterion. This is PLAN §5 risk 3, measured rather than
+merely anticipated: *"the 21-dimensional optimiser may be badly conditioned
+where the 2-D grid was merely shallow... in \[many] dimensions that flatness
+is a convergence problem, not a curiosity."* It is now observed at N=4, the
+first design large enough to show it.
+
+**This is not evidence of a formula gap.** `reml_score_general` was verified
+INDEPENDENT against `mgcv` at fixed `sp` for exactly this multi-block
+structure (ADR-196/197) and the search itself was verified INDEPENDENT at
+free `sp` on 2-block designs (ADR-199) — nothing here re-opens either. The
+new fact is that convergence quality, not the criterion, is what varies with
+block count.
+
+### PLAN §6's separately-registered prediction — CONFIRMED again, at N=4
+
+*"The optimiser does not land on `mgcv`'s `sp`, but `edf` agrees far better
+than `sp` does."* `max_abs_log10_sp_diff` (0.777, nearly a full decade) and
+`edf_total_diff` (0.726 out of ~16-17, ≈4%) are the same pattern the ten-cell
+suite's own level 2 established at two dimensions, and ADR-199 confirmed at
+N=2 free `sp`: `edf` (basis-invariant, PLAN Anchor 2's own reasoning for why
+it should be less sensitive than `sp` to reparameterisation and local
+optimisation noise) is the more stable quantity to report, again.
+
+### Why the search bounds were widened, and why that is not Anchor-8 tuning
+
+`mgcv`'s own free-`sp` selection for this formula reaches `log10(sp) ≈ 9.87`
+on the by-term — outside
+`gam_reml_optimize.DEFAULT_LOG10_BOUNDS`'s `(-2, 8)` entirely. Measured, not
+guessed: this is what the tier-1 run found before the comparator's bounds
+were set. `gam_model_conformance._SEARCH_BOUNDS = (-2, 11)` widens the
+SEARCH DOMAIN so the optimiser can reach the region `mgcv` itself selects in.
+This is not the tolerance-tuning Anchor 8 forbids — no comparison threshold
+moved, `at_bound` is still reported (and reads `False` in the measurement
+above, so the widened bound was not itself binding), and the search still
+found a *different*, lower-scoring point than `mgcv`'s — widening the domain
+changed what the optimiser could reach, not what counted as agreement.
+
+### What this does NOT settle
+
+- **The registered prediction's refutation does not indict the criterion or
+  the search's correctness** — both remain tier-3-verified at their own
+  prior scope (fixed-sp N=4, ADR-206; free-sp N=2, ADR-199). What is newly
+  known is that free-`sp` selection on a design this size is
+  optimiser-path-sensitive, which is a property of the REML surface, not a
+  bug in either implementation.
+- **Anchor 2's primary MI-contrast-on-a-grid metric** is still not measured
+  (ADR-206 already named this; unaffected by this slice).
+- **`bs = "sz"` and `select = TRUE`** remain unbuilt (slices 6-7).
+- Whether a more robust search strategy (multi-start, informed
+  initialisation) would narrow this gap is an open question this ADR
+  deliberately does not answer — `select_lambdas_continuous` is reused
+  unchanged (work order §2: "if this work starts producing new numerics,
+  stop"), and evaluating a different search strategy is new numerics.
+
+### Tier-3 confirmation
+
+See the amendment below, appended the same session after CI dispatch.

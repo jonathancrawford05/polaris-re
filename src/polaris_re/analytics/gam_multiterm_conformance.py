@@ -53,8 +53,8 @@ import numpy as np
 
 from polaris_re.analytics.gam_family import Family, binomial_cloglog
 from polaris_re.analytics.gam_fit import GeneralIRLSFit, penalized_irls_general
-from polaris_re.analytics.gam_stage_a import build_python_cr_term, build_python_ti_term
-from polaris_re.analytics.gam_term_spec import TermSpec
+from polaris_re.analytics.gam_model import assemble_model_design
+from polaris_re.analytics.gam_term_spec import ModelSpec, TermSpec
 from polaris_re.core.exceptions import PolarisValidationError
 from polaris_re.core.verification import (
     ComparedQuantity,
@@ -165,29 +165,12 @@ class MultiTermDesign(TypedDict):
     penalty_blocks: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
 
 
-def assemble_multiterm_design(r_case: RMultiTermRecipe) -> MultiTermDesign:
-    """Build the three-term design from the shared recipe -- never from
-    ``mgcv``'s own ``X``/``coef`` (there is none in the recipe to read;
-    :class:`RMultiTermRecipe` has no such key).
-
-    Column order matches ``mgcv``'s own formula-order convention for
-    ``y ~ s(AttdAge) + s(AttdAge, by=StudyYear_C) + ti(AttdAge, PolYear)`` with no
-    other parametric term: an intercept column first (mgcv always fits one unless
-    the formula suppresses it), then each smooth term's own columns in formula
-    order. Each of the four penalty blocks is padded with zeros outside its own
-    term's columns, the same convention
-    :class:`~polaris_re.analytics.experience_mgcv_conformance.DesignExport`'s
-    ``s_age``/``s_year`` and
-    :func:`~polaris_re.analytics.gam_reml_optimize.penalized_fit_and_score`'s
-    ``penalty_blocks`` already use.
-    """
-    age = np.asarray(r_case["AttdAge"], dtype=np.float64)
-    year = np.asarray(r_case["PolYear"], dtype=np.float64)
-    by = np.asarray(r_case["StudyYear_C"], dtype=np.float64)
-    age_knots = tuple(float(v) for v in r_case["age_knots"])
-    year_knots = tuple(float(v) for v in r_case["year_knots"])
-    n = age.shape[0]
-
+def _multiterm_model_spec(age_knots: tuple[float, ...], year_knots: tuple[float, ...]) -> ModelSpec:
+    """The three-term ``ModelSpec`` this module has always fit, expressed in
+    the shape :func:`~polaris_re.analytics.gam_model.assemble_model_design`
+    (PLAN slice 5b) takes. Not exported: this module's callers use
+    :func:`assemble_multiterm_design`'s narrower ``RMultiTermRecipe`` shape,
+    matching the fixed-sp harness this module has always been."""
     ref_term = TermSpec(
         label=_REF_LABEL,
         variables=("AttdAge",),
@@ -210,35 +193,48 @@ def assemble_multiterm_design(r_case: RMultiTermRecipe) -> MultiTermDesign:
         k=(len(age_knots), len(year_knots)),
         knots=(("AttdAge", age_knots), ("PolYear", year_knots)),
     )
-
-    ref = build_python_cr_term(age, ref_term)
-    by_extract = build_python_cr_term(age, by_term, by=by)
-    ti = build_python_ti_term(age, year, ti_term)
-
-    intercept = np.ones((n, 1), dtype=np.float64)
-    x = np.hstack([intercept, ref.design, by_extract.design, ti.design])
-    p_total = x.shape[1]
-
-    def _pad(width_start: int, block: np.ndarray) -> np.ndarray:
-        width = block.shape[0]
-        padded = np.zeros((p_total, p_total), dtype=np.float64)
-        padded[width_start : width_start + width, width_start : width_start + width] = block
-        return padded
-
-    ref_start = 1
-    by_start = ref_start + ref.design.shape[1]
-    ti_start = by_start + by_extract.design.shape[1]
-    # ti()'s two penalty blocks (ADR-205) both apply to the SAME ti() column
-    # range -- two different penalties on one tensor design, not two disjoint
-    # column ranges -- so both pad at ti_start, not sequentially.
-
-    penalty_blocks = (
-        _pad(ref_start, ref.s[0]),
-        _pad(by_start, by_extract.s[0]),
-        _pad(ti_start, ti.s[0]),
-        _pad(ti_start, ti.s[1]),
+    return ModelSpec(
+        family="binomial",
+        link="cloglog",
+        terms=(ref_term, by_term, ti_term),
+        weights_column="ExposCnt",
     )
-    return MultiTermDesign(x=x, penalty_blocks=penalty_blocks)
+
+
+def assemble_multiterm_design(r_case: RMultiTermRecipe) -> MultiTermDesign:
+    """Build the three-term design from the shared recipe -- never from
+    ``mgcv``'s own ``X``/``coef`` (there is none in the recipe to read;
+    :class:`RMultiTermRecipe` has no such key).
+
+    Column order matches ``mgcv``'s own formula-order convention for
+    ``y ~ s(AttdAge) + s(AttdAge, by=StudyYear_C) + ti(AttdAge, PolYear)`` with no
+    other parametric term: an intercept column first (mgcv always fits one unless
+    the formula suppresses it), then each smooth term's own columns in formula
+    order. Each of the four penalty blocks is padded with zeros outside its own
+    term's columns, the same convention
+    :class:`~polaris_re.analytics.experience_mgcv_conformance.DesignExport`'s
+    ``s_age``/``s_year`` and
+    :func:`~polaris_re.analytics.gam_reml_optimize.penalized_fit_and_score`'s
+    ``penalty_blocks`` already use.
+
+    **Delegates to** :func:`~polaris_re.analytics.gam_model.assemble_model_design`
+    (PLAN slice 5b, ``docs/WORK_ORDER_multi_term_assembly.md`` step 1: "extract
+    the shared assembly so the harness and the engine cannot drift"). This
+    function is now the ``RMultiTermRecipe``-shaped adapter onto that one, kept
+    for this harness's own narrower fixed-sp contract; the column/penalty
+    arithmetic itself lives in exactly one place.
+    """
+    age = np.asarray(r_case["AttdAge"], dtype=np.float64)
+    year = np.asarray(r_case["PolYear"], dtype=np.float64)
+    by = np.asarray(r_case["StudyYear_C"], dtype=np.float64)
+    age_knots = tuple(float(v) for v in r_case["age_knots"])
+    year_knots = tuple(float(v) for v in r_case["year_knots"])
+
+    model = _multiterm_model_spec(age_knots, year_knots)
+    design = assemble_model_design(model, {"AttdAge": age, "PolYear": year, "StudyYear_C": by})
+    x = design["x"]
+    ref_s, by_s, ti_s1, ti_s2 = design["penalty_blocks"]
+    return MultiTermDesign(x=x, penalty_blocks=(ref_s, by_s, ti_s1, ti_s2))
 
 
 def fit_multiterm_case(r_case: RMultiTermRecipe) -> tuple[GeneralIRLSFit, MultiTermDesign]:

@@ -92,8 +92,35 @@ measurement, `max_abs_eta_diff=1.242e-10`. **Slice 5 is DONE.**
 > `gam_uncertainty`" item (ADR-207 decision 3). ADR-203 removed its justification, and
 > the new path uses `gam_uncertainty` natively. The ten-cell suite's level 4 will read
 > DISAGREES about the legacy engine permanently and correctly.
-**Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16) and one deferred
-to a later epic.
+
+**Slice 5b (`PolarisGAM` from a `ModelSpec`) is DONE, 2026-08-25** (ADR-208, tier 1
+measured; tier 3 dispatched same session — see the confirmation appended to ADR-208).
+`src/polaris_re/analytics/gam_model.py` generalises ADR-206's
+`assemble_multiterm_design` into `assemble_model_design(model: ModelSpec, data)`
+(any mix of `"cr"`/`"ti"` terms, not just the fixed three) and adds
+`fit_polaris_gam`, which selects its own `log10(lambda)` via
+`select_lambdas_continuous` (ADR-199) and fits with `penalized_irls_general`
+(ADR-195) — nothing re-derived, exactly the work order's own scope.
+`assemble_multiterm_design` is now a thin adapter onto the shared function;
+ADR-206's own tests pass unchanged, proving the extraction preserved behaviour.
+
+**The work order's own §4 registered prediction — that N=4 free-`sp` selection
+lands in ADR-199's 2-block range (6.9e-04 to 9.8e-04) — is REFUTED**:
+`max_abs_log10_sp_diff=0.7766`, three orders of magnitude larger, concentrated in
+the by-term's block. Diagnosed, not left uncharacterised: the shared,
+already-verified REML criterion scores Python's own (mgcv-independent) optimum
+*lower* than mgcv's own selected point, and starting the search at mgcv's own
+point converges to yet a third, still-lower-scoring point — a flat REML surface
+along this direction (PLAN §5 risk 3, now measured at N=4 rather than merely
+anticipated), not a defect in the criterion (ADR-196/197) or the search (ADR-199),
+both unchanged and both still tier-3-verified at their prior scope. PLAN §6's
+*separate* registered prediction — "edf agrees far better than sp does" — holds
+again: `edf_total_diff` is ≈4% against `sp`'s near-full-decade disagreement. An
+INDEPENDENT comparison that disagreed is the routine's own definition of a
+successful session, not a failure to fix here.
+
+**Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16), slice 5b
+(inserted 2026-08-24/25, ADR-207/ADR-208) and one deferred to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
 
 > **This is the ACTIVE epic.** `CONTINUATION_penalized_mi_surface.md` is superseded from
