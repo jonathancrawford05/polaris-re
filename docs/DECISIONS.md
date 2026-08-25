@@ -17736,18 +17736,44 @@ on `sp`* has not been verified for a structure with overlapping penalty
 blocks (`ti()`'s two penalties share one column span, ADR-205 decision 2) or
 for more than two blocks.
 
-**Tier:** this reading is **tier 1 only** (R 4.3.3 / mgcv 1.9.1, local apt).
-Per the routine's own discipline, a tier-1 number is a hypothesis, not a
-committed result — the sign flip is large enough that it is very unlikely to
-be BLAS/version noise (ADR-190's precedent: noise is bounded by BLAS,
-~1e-15 relative; a sign flip on an 0.1-0.7-scale quantity is not that), but
-it has **not yet been re-measured at tier 3** and must not be cited outside
-this session's own record until it is. `scripts/gam_multiterm_sp_delta_probe.R`
-is wired into `mgcv-conformance.yml`'s R job as a diagnostic step, using
-this same tier-1 `python_pt` (hand-supplied, documented in the script's own
-header — the two-job CI split has no path for a third R stage to consume
-Python's own output, so the input is pinned to this measurement rather than
-recomputed at dispatch time).
+**Tier 3 confirmation (same day).** Dispatched via CI on `fbf6770`
+(pull-request-triggered run
+[32874213883](https://github.com/jonathancrawford05/polaris-re/actions/runs/32874213883),
+R 4.6.1 / mgcv 1.9.4, oracle
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+build 8), `scripts/gam_multiterm_sp_delta_probe.R`'s new step (job 1) ran
+with the SAME `python_pt` input as the tier-1 reading (the tier-1
+`log10(sp)`, since Python's own selection is not re-derived by this
+diagnostic — see the "why this reading uses tier-1 `python_pt`" note below):
+
+```
+delta_mgcv = -0.121389   (tier 3, mgcv 1.9.4) — IDENTICAL to tier 1 (mgcv 1.9.1) at every printed digit
+```
+
+**Identical, not merely consistent.** `mgcv`'s own ranking of the two points
+does not move between mgcv 1.9.1 and 1.9.4 for this fixed pair — the same
+sign, the same magnitude to six decimal places. Required levels 1-3 of the
+ten-cell suite also agree on this run (`level 1: AGREES`, `level 2: AGREES`,
+`level 3: AGREES`) — no regression from the new diagnostic step or the
+`gam_model.py` bounds fix (Amendment 2, below).
+
+**CONFIRMED, not tier-1-only.** The sign flip against `delta_ours` is a real,
+reproducible finding on the pinned production oracle, not a tier-1 or BLAS
+artefact. What remains genuinely tier-1-only is `python_pt` itself — this
+diagnostic was run with the SAME hand-supplied `log10(sp)` at both tiers
+(the tier-1 measurement's own selected point), not a fresh tier-3 selection,
+because `select_lambdas_continuous`'s tier-3 selection was never captured as
+raw numbers (only the diff metrics were read off the compare job, ADR-208's
+main tier-3 confirmation section above). That is a narrower, and lower-value,
+gap than the one this amendment closes: it would tell us whether `mgcv`
+1.9.4 ranks tier-3-Python's own point the same way, not whether the
+sign-flip finding itself survives the pinned oracle — and it already has.
+`scripts/gam_multiterm_sp_delta_probe.R` is wired into `mgcv-conformance.yml`'s
+R job as a standing diagnostic step (hand-supplied `python_pt`, documented in
+the script's own header — the two-job CI split has no path for a third R
+stage to consume Python's own output, so the input is pinned rather than
+recomputed at dispatch time), available to re-run against a freshly-captured
+tier-3 `python_pt` if a future session wants that narrower confirmation too.
 
 **What this changes about the slice's own claim.** `FREE_SP_MODEL_CLAIM`'s
 four quantities are unaffected — they remain INDEPENDENT, and the
@@ -17769,12 +17795,16 @@ comment on `_pad(ti_start, ...)`). That is the natural place to look first:
 §3.1's machinery, previously ruled out for a structural reason that no
 longer holds here.
 
-**Sequencing (review's own framing, restated).** Do not designate slice 6
-(`bs = "sz"`, a fourth basis, more `sp` blocks) until this is resolved at
-tier 3 and — if hypothesis (b) is confirmed — localised further than "not
-disjoint-support." Building a fourth basis's `sp` selection on top of a
-criterion with an unmeasured `sp`-dependent discrepancy would compound,
-not isolate, the next disagreement.
+**Sequencing (review's own framing, restated, updated after the tier-3
+confirmation above).** Hypothesis (b) is now CONFIRMED at tier 3, not merely
+tier 1. **Still do not designate slice 6** (`bs = "sz"`, a fourth basis, more
+`sp` blocks) — confirming the discrepancy is real is not the same as
+localising or closing it, and the next hypothesis (Wood 2011 §3.1's
+log-determinant machinery, named above) has not been tested. Building a
+fourth basis's `sp` selection on top of a criterion with a CONFIRMED,
+still-unlocalised `sp`-dependent discrepancy would compound, not isolate,
+the next disagreement — if anything the confirmation strengthens this bar
+rather than clearing it.
 
 **Not this session's to decide (ROUTINE_MGCV_PARITY.md's MAY-NOT-DECIDE
 list, "whether to relax an acceptance criterion"):** if hypothesis (a) had

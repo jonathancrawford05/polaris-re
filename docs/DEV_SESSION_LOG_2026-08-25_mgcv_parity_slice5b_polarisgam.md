@@ -308,9 +308,15 @@ Wired into `mgcv-conformance.yml` as a new diagnostic step (Python's tier-1
 sp values hand-supplied, per the script's own header — the two-job CI split
 has no path for a third R stage to consume Python's own output).
 
-**Tier:** the sp-delta reading itself is tier 1 only as of this response;
-dispatched via CI alongside the [P2] fix below (see the run linked in the
-final push).
+**Tier 3 confirmation:** dispatched via CI on `fbf6770` (pull-request-triggered
+run [32874213883](https://github.com/jonathancrawford05/polaris-re/actions/runs/32874213883),
+R 4.6.1 / mgcv 1.9.4, oracle build 8) alongside the [P2] fix below.
+`delta_mgcv=-0.121389` — IDENTICAL to tier 1 at every printed digit. Required
+levels 1-3 of the ten-cell suite also agreed on this run, no regression.
+`mgcv`'s own ranking of the two points is stable across mgcv 1.9.1 → 1.9.4;
+this is a settled, real finding, not a tier-1 artefact. (A second, cancelled
+`workflow_dispatch` run — `32874213720` — stalled on the runner and was
+cancelled; the PR-triggered run above is the one that completed.)
 
 **[P1] `PolarisGAM`'s default bounds cannot reach where mgcv selects.**
 Fixed both ways suggested. `gam_model.PRODUCTION_LOG10_BOUNDS = (-2.0, 12.0)`

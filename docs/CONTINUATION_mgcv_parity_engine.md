@@ -123,17 +123,19 @@ new, diagnostic-only): read `mgcv`'s OWN score at both points too.
 but *worse* under ours (`delta_ours=+0.7252`). That is real evidence of an
 `sp`-dependent criterion discrepancy specific to this N=4-block, `ti()`
 -sharing-a-column-span structure — ADR-196/197's own 2-block, disjoint-support
-verification never had the structure to catch it. **Tier-1 only so far** (the
-sign flip is far too large to be BLAS/version noise, but per the routine's own
-discipline is not yet a committed result); the same script is wired into
-`mgcv-conformance.yml` as a diagnostic step for tier-3 confirmation. See
-ADR-208's amendment for the full measurement and the named next hypothesis
-(Wood 2011 §3.1's log-determinant machinery, previously ruled out for
-ADR-196's disjoint-support fixture for a reason that does not hold for `ti()`'s
-overlapping penalty blocks). **Do not designate slice 6 until this is resolved
-at tier 3** (the review's own sequencing point, restated in the amendment) —
-building a fourth basis's own `sp` selection on an unmeasured `sp`-dependent
-discrepancy would compound rather than isolate the next disagreement.
+verification never had the structure to catch it. **CONFIRMED at tier 3, same
+day**: `scripts/gam_multiterm_sp_delta_probe.R` re-run on the pinned oracle
+(mgcv 1.9.4, CI run 32874213883) reproduced `delta_mgcv=-0.121389` identical
+to tier 1 at every printed digit — the sign flip is a real, reproducible
+finding on the production oracle, not a tier-1 or BLAS artefact. See ADR-208's
+amendment for the full measurement and the named next hypothesis (Wood 2011
+§3.1's log-determinant machinery, previously ruled out for ADR-196's
+disjoint-support fixture for a reason that does not hold for `ti()`'s
+overlapping penalty blocks). **Still do not designate slice 6** — confirming
+the discrepancy is real is not the same as localising or closing it, and the
+next hypothesis has not been tested. Building a fourth basis's own `sp`
+selection on top of a CONFIRMED, still-unlocalised `sp`-dependent discrepancy
+would compound rather than isolate the next disagreement.
 
 An INDEPENDENT comparison that disagreed is still the routine's own definition
 of a successful session — the correction is about WHY, not about whether this
@@ -438,9 +440,11 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    right shape for `select_lambdas_continuous` but nothing calls it yet), or add the
    `sz` terms (slice 6). All three are named, separate follow-on work — see ADR-206.
 6. **`bs = "sz"`** — orthogonal factor-smooth interactions. Expect the hardest basis.
-   **BLOCKED, 2026-08-25** (PR #212 review [P1]): do not designate until ADR-208's
-   amendment (the `sp`-dependent REML criterion discrepancy on slice 5b's N=4
-   structure) resolves at tier 3 — see `docs/PLAN_mgcv_parity_engine.md` slice 6.
+   **BLOCKED, 2026-08-25** (PR #212 review [P1], tier-3 CONFIRMED same day):
+   do not designate until ADR-208's amendment (the `sp`-dependent REML
+   criterion discrepancy on slice 5b's N=4 structure, now confirmed real at
+   tier 3, CI run 32874213883) is localised or closed — see
+   `docs/PLAN_mgcv_parity_engine.md` slice 6.
 7. **`select = TRUE`** — the double penalty; 13 → 21 smoothing parameters. PLANNED.
 
 Deferred to a later epic: `bam` + `discrete = TRUE` + fREML. Safe to defer because at

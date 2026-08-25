@@ -2866,12 +2866,15 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   (`delta_mgcv=-0.1214` vs `delta_ours=+0.7252`) — real evidence of an
   `sp`-dependent criterion discrepancy at this N=4-block, `ti()`
   -sharing-a-span structure, not (only) optimiser path-sensitivity.
-  Tier-1 only so far; wired into CI for tier-3 confirmation. **Slice 6
-  should not be designated until this resolves at tier 3** — a fourth
-  basis's own `sp` selection on an unmeasured criterion discrepancy would
-  compound rather than isolate the next disagreement. *Source: this
-  session, ADR-208's amendment (1st-order — on the epic's critical path,
-  blocks slice 6 designation until resolved).*
+  **CONFIRMED at tier 3, same day** (CI run 32874213883, `delta_mgcv=-0.121389`
+  identical to tier 1 at every printed digit) — the sign flip is a real,
+  reproducible finding on the pinned production oracle. **Slice 6 should
+  still not be designated** — confirming the discrepancy is real is not the
+  same as localising or closing it; a fourth basis's own `sp` selection on
+  top of a CONFIRMED, still-unlocalised criterion discrepancy would compound
+  rather than isolate the next disagreement. *Source: this session, ADR-208's
+  amendment (1st-order — on the epic's critical path, blocks slice 6
+  designation until localised or closed).*
 
 - **Whether a more robust search strategy narrows the N=4 gap is open, and
   deliberately not attempted here.** `select_lambdas_continuous` was reused

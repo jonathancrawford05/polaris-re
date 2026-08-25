@@ -9,8 +9,10 @@ diagnosis (a flat REML surface, no criterion gap) was corrected same-day, PR
 #212 review [P1]:** the discriminating measurement the review named shows
 `mgcv`'s own score and ours RANK `mgcv`'s point and Python's point in
 OPPOSITE order — evidence of an `sp`-dependent criterion discrepancy at this
-N=4 / `ti()`-sharing-a-span structure, tier-1 only so far, sequencing named
-before slice 6. See ADR-208's amendment and `docs/CONFORMANCE_LEDGER.md`. This
+N=4 / `ti()`-sharing-a-span structure, **CONFIRMED at tier 3 same day** (CI
+run 32874213883, identical to tier 1 at every printed digit). Slice 6 remains
+blocked until this is localised or closed. See ADR-208's amendment and
+`docs/CONFORMANCE_LEDGER.md`. This
 document is kept as the specification that was executed, not rewritten in the
 past tense throughout; §7's Definition of Done states what was and was not met.
 
@@ -155,8 +157,9 @@ measured, never the measurement.
   (PR #212 review [P1]): the discriminating measurement shows `mgcv`'s own
   criterion and ours rank the two candidate points in OPPOSITE order — real
   evidence of an `sp`-dependent criterion discrepancy at this term
-  structure, not merely optimiser path-sensitivity. Tier-1 only so far. See
-  ADR-208's amendment.
+  structure, not merely optimiser path-sensitivity. **CONFIRMED at tier 3,
+  same day** (CI run 32874213883, identical to tier 1). See ADR-208's
+  amendment.
 - [x] ADR-206's tests pass unchanged, proving the extraction preserved behaviour
   (`tests/test_analytics/test_gam_multiterm_conformance.py`, unmodified).
 - [x] `experience_gam_penalized` and `experience_gam` untouched; `tests/qa/`
