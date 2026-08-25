@@ -106,10 +106,22 @@ things. Anchor 7 carried one.
 **On (2), the release condition.** Make it a property of the work, not a date or a
 judgement call. For decomposition gates the natural form is *coverage of the critical
 path*: "assembly is permitted once every component on the critical path carries an
-INDEPENDENT result at the required tier." Here that condition was **already satisfied**
-by the time ADR-199 landed — every component the three-term assembly needs was verified —
-so a gate carrying it would have opened itself, on schedule, without maintainer
-intervention.
+INDEPENDENT result at the required tier."
+
+Trace when that condition actually became true here. `assemble_multiterm_design` calls
+three builders: `build_python_cr_term` (ADR-194, 08-17), the same builder with `by=`
+(ADR-200, 08-22) and `build_python_ti_term` (ADR-205, **08-24**). So the binding component
+is `ti()`, and the earliest the gate could have fired is **ADR-205, on 2026-08-24 — the
+same day** ADR-206 built the assembler and ADR-207 amended the anchor.
+
+**That is the honest result, and it changes what requirement 2 is worth.** The gate was
+not sitting shut for slices past its own release condition; the condition had only just
+become satisfiable. The value of stating it up front is therefore **not that it fires
+earlier** — it is that it fires *at all, without an outsider*. Anchor 7 was opened because
+a maintainer looked at the epic from outside and noticed; a gate carrying its own release
+condition would have opened on the same day by its own terms, and possibly hours earlier
+— early enough to matter for §3, since the assembler's harness shape was chosen under a
+constraint that had by then already expired.
 
 **On (4), the destination.** State where components live when the gate opens, at the time
 the gate is written. "These become `PolarisGAM`" costs one sentence and removes the entire
@@ -140,18 +152,24 @@ PURPOSE:     (a) committed reports were produced by the old engine; (b) QA golde
              later disagreement localises.
 RELEASE:     Every component on the critical path carries an INDEPENDENT tier-3 result.
              (a)-(c) continue to hold the *old engine* alive independently of this.
-RE-EXAMINE:  On discharge of any of (a)-(c). ADR-204 discharged (a) on 2026-08-24.
+             (Satisfied 2026-08-24 at ADR-205, the last basis the assembly needs.)
+RE-EXAMINE:  On discharge of any of (a)-(c). ADR-204 discharged (a) on 2026-08-23.
 DESTINATION: PolarisGAM, built from the verified components.
 ```
 
 ## 7. What this does not claim
 
-- **The counterfactual is unmeasured.** A gate with a release condition would have opened
-  around ADR-199 rather than ADR-207. Whether the intervening slices would have gone
-  better is speculation — they produced real verified results, and ADR-205's `noterp`
-  finding might not have surfaced at all under a looser regime. The claim here is narrow:
-  the gate should have been able to open itself. It is *not* that the work done under it
-  was wasted, or that less constraint would have been better.
+- **The counterfactual buys hours, not slices.** A gate carrying §5's release condition
+  would have opened at ADR-205 — the same day ADR-207 opened it by hand, because `ti()`
+  was the last component the assembly needed. It is *not* the case that this gate sat shut
+  through slices it should have released. The claim is narrower than it first looks: the
+  gate should have been able to open **itself**, rather than requiring someone outside the
+  work to notice. That it would also have been slightly earlier is incidental — though see
+  §3, where hours may have been enough to change the shape the assembler was built in.
+- **The work done under the gate was not wasted, and less constraint would not obviously
+  have been better.** The intervening slices produced real verified results, and ADR-205's
+  `noterp` finding — the one that required instrumenting `mgcv` to explain a discrepancy of
+  182 in `X` — might not have surfaced at all under a looser regime.
 - **This is not an argument for fewer constraints.** The observation runs the other way:
   the constraint was productive, and its benefit went unrecorded for eleven slices because
   it was accidental. The proposal is to state gates more fully, not to use fewer of them.

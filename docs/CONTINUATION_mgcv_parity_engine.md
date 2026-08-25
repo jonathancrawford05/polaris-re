@@ -693,18 +693,31 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
   ADR-204's schema; raised by the maintainer 2026-08-24, filed here same day)*. A stamp
   fingerprints the producer's transitive import closure, so **any** edit inside that closure
   drifts every document downstream of it — including documents regenerated on real inputs
-  the day before. When that happens, re-stamping under RUNBOOK §2 case (c) writes
-  `method: asserted` and `generated: <today>`, and both fields then misdescribe the
-  evidence: `asserted` reads as *"nobody re-ran this"* when the figures came from a genuine
-  run, and the field named `generated` carries the **stamp** date, not the run date
-  (`measurement_provenance.py:273`). Live instance: `MEASUREMENT_experience_gam_ilec`,
-  `_hmd` and `_portfolio_parallel_macbook_air` were all regenerated 2026-08-23 and now read
-  `asserted` / `2026-08-24` because a `table_io` error-message edit landed after them. The
-  prose notes rescue it; the machine-readable fields do not, and future tooling will read
-  the fields. **The schema collapses three states into two** — never run / run-then-inert-drift
-  / run-at-current-closure. Proposed fix: a third method value (`reconciled`) and splitting
-  `generated` into run date and stamp date. That is an amendment to ADR-204's schema and
-  re-touches every stamped document, so it is a maintainer call.
+  the day before. Re-stamping under RUNBOOK §2 case (c) then writes `method: asserted` and
+  `generated: <today>`, and the schema has no way to say what actually happened. **Two
+  distinct defects, and they show up in different documents:**
+  - **`generated` is the stamp date, not the run date** (`measurement_provenance.py:273`
+    defines it as *"ISO date the stamp was written"*). `MEASUREMENT_experience_gam_ilec`,
+    `_hmd` and `_portfolio_parallel_macbook_air` were regenerated 2026-08-23 and now read
+    `2026-08-24` because a `table_io` error-message edit landed after them. Their `method`
+    is fine — all three were already `asserted`, and an operator really did regenerate them
+    elsewhere. Only the date misleads.
+  - **`asserted` is positively false for a case-(c) document.** `StampMethod.ASSERTED`'s
+    docstring reads *"An operator regenerated it elsewhere ... and recorded a note saying
+    so."* `MEASUREMENT_unconditional_coverage.md` is the one document this PR actually moved
+    (`regenerated` → `asserted`), and nobody re-ran it anywhere — the warrant is inertness,
+    not an elsewhere-run. So case (c) fits **neither** existing value, and the enum now
+    asserts something untrue about it.
+  The prose notes rescue both; the machine-readable fields do not, and future tooling reads
+  the fields. **Proposed fix, and note the two axes are orthogonal:** *how the numbers were
+  produced* (`regenerated` / `asserted`) and *whether the stamp is reconciled to current
+  code* are independent — ilec is both `asserted` and inert-drifted at once. So a third
+  peer value is probably the wrong shape; better is to keep `method` describing production
+  and add a separate field for a closure that has moved under an inertness argument, plus
+  splitting `generated` into run date and stamp date. Conflating those two axes is what
+  produced both defects. This amends ADR-204's schema and re-touches every stamped
+  document — including a migration decision (accept both forms during a transition, or
+  re-stamp all six at once) — so it is a maintainer call.
 - **Whether Anchor 7's gating pattern should bind future work**
   *(2nd-order — process, not engine; raised by the maintainer 2026-08-24)*. ADR-207 amended
   Anchor 7 by recording what it *cost*. The maintainer's reading supplies the other half:
