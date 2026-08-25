@@ -672,16 +672,25 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 - **The duration treatment on real data** — band as factor, or band as ordered numeric via
   a representative value. The maintainer has reserved this as a modelling judgement; the
   engine will support both and the routine is forbidden from deciding it.
-- **Scheduling.** This epic advances only when `ROUTINE_MGCV_PARITY.md` is registered as a
-  scheduled task; the cron config lives outside the repo. Until then nothing here moves.
-  **Repo side is now ready (2026-08-25):** the next unchecked slice is **5b**, the
-  production path, and it carries a work order with a registered prediction. What remains
-  is entirely outside the repo — registering the routine's `## Prompt` block as a daily
-  scheduled task against this repo with the GitHub connector. Two things a registration
-  should carry, from the routine's own text: it **replaces** daily-dev's slot rather than
-  adding to it on days the parity epic is active (Budget), and it needs the GitHub
-  connector for the tier-3 dispatch, without which SETUP step 2 degrades to tier 1 and the
-  session cannot commit a number.
+- ~~**Scheduling.** This epic advances only when `ROUTINE_MGCV_PARITY.md` is registered as
+  a scheduled task; the cron config lives outside the repo. Until then nothing here
+  moves.~~ **RESOLVED — and it was resolved almost immediately, then said otherwise for two
+  weeks.** Written 2026-08-11 (`57ad0f0`), when it was true. The routine has in fact been
+  running since about that date: `DEV_SESSION_LOG_2026-08-11_mgcv_parity_epic.md` onward
+  name it as their routine, and every slice from 1b to 5 was produced by one — most
+  recently `DEV_SESSION_LOG_2026-08-24_mgcv_parity_slice5_multiterm.md`, which installed
+  the tier-1 oracle, dispatched tier 3 and produced ADR-206. **Nothing outside the repo is
+  needed to advance this epic; the next unchecked slice is 5b and a routine run will
+  select it.**
+
+  **This is the third instance of the prose-drift failure two bullets up, and the most
+  expensive.** The other two were a bullet and an example output. This one was load-bearing
+  false: it says the epic cannot move, in the file the routine reads first, while the
+  routine was moving it. On 2026-08-25 it caused a session to tell the maintainer that
+  registering the routine was the blocker and to hand them a task list for work that was
+  already done — corrected only because the maintainer asked why the routine could not
+  handle it. That is the mechanism gap costing something real rather than theoretically:
+  a trigger condition fired, nobody noticed, and the stale claim was believed and acted on.
 - **Ledger framing.** This epic is sourced from maintainer direction rather than the Tier-A
   table of a `COMMERCIAL_VIABILITY_REVIEW`. It is registered in
   `PRODUCT_DIRECTION_2026-07-24.md` so it is visible to a selecting routine, but the next

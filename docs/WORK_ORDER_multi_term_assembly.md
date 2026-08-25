@@ -106,7 +106,16 @@ against a stored number.
    SETUP step 2. **Only tier-3 numbers may be committed.**
 4. **Ledger rows at both tiers + an ADR.**
 
-Steps 1-2 are R-free and land independently of any oracle.
+Steps 1-2 are R-free and land independently of any oracle. **That is a statement about
+those two steps, not about the slice.** Parity is claimed at step 3 and nowhere else, it is
+measured against `mgcv`, and only a tier-3 number may be committed — so the oracle is
+required for every claim this slice exists to make. What "R-free" buys is narrower: steps
+1-2 assert *internal* structure (widths sum to `p`, penalties land in the right spans, a
+`by` term is unconstrained, `ti` margins carry their own), which is checkable without
+`mgcv` because it is our own invariant rather than an agreement. So an oracle outage delays
+the measurement without idling the session. **A slice that stopped after step 2 would have
+built the engine and verified nothing about parity** — steps 1-2 are the thing being
+measured, never the measurement.
 
 ## 6. Two traps already paid for
 
