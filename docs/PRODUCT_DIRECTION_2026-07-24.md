@@ -2054,6 +2054,39 @@ question, the level-4-is-weak worry). What replaces them is one BLOCKER and two 
   above cannot start until this lands, and it is the cheapest item on this list for a human
   and impossible for anyone else.
 
+  > **PARTLY SATISFIED 2026-08-15** — `docs/DERIVATION_unconditional_covariance.md` exists,
+  > from maintainer-supplied research. **It does not unblock the item, and the reason is a
+  > result rather than a shortfall in the write-up.**
+  >
+  > Two things are now settled exactly. The closed-form Jacobian
+  > `J[,j] = -V_beta (lambda_j S_j beta_hat)` **is** what `mgcv` computes — its `db.drho`
+  > matches to 1.5e-15. And `V_rho` is the inverse outer Hessian (`sp.vcov()`; note
+  > `outer.info$cov` is *not* populated on these fits).
+  >
+  > But feeding `mgcv`'s **own** `db.drho` and **own** `sp.vcov` into
+  > `V_beta + J V_rho J'` still lands **3.1-4.0x short** of its own `Vc - Vp` — ratios
+  > 3.9661 / 3.0855 / 3.5185 (tier 3, build 8, run 31914818812), nothing approximated
+  > anywhere. The delta-method term is
+  > **28-32%** of `vcov(unconditional = TRUE)`. ADR-190's conclusion survives exact inputs;
+  > they moved it by ~2%.
+  >
+  > **Still needed, and still human:** the weight-derivative term. §2.2 of the derivation
+  > assumes `W` and `z` do not depend on `rho`, and `mgcv`'s own correction routine takes
+  > `dw` as an argument — a routine needing only the delta-method term would not ask for it.
+  > That is a signature, not a derivation. What closes this item is that term written out
+  > from Wood (2016) §3 or the book's §6.10 at the same level of detail as §2.
+
+- **Replace the finite-difference Jacobian in `smoothing_uncertainty()` with the closed
+  form.** `J[,j] = -V_beta (lambda_j S_j beta_hat)` needs only what a converged fit already
+  holds, where we currently spend **four of nine penalized fits** differencing `beta_hat`.
+  Exact rather than second-order (our differenced `J` sits 2.8e-04 to 3.9e-04 from `mgcv`'s
+  `db.drho`), and cheaper. **It is not the fix** — it moves the correction ~2% and closes
+  none of the 3.1-4.0x gap — which is precisely why it should ship on its own: landing it
+  inside the eventual Wood implementation would conflate an exactness improvement with a
+  formula change and make the resulting movement unattributable.
+  *Source: `DERIVATION_unconditional_covariance.md` §6 (1st-order).* **IMPORTANT** — ready
+  to build now, no prerequisite, and it is a well-scoped slice for the parity routine.
+
 - **Audit prose claims in ADRs and CONTINUATIONs against the test suite.** ADR-190 found
   the eigenvalue-floor hypothesis had been carried for five days across an ADR, a docstring
   and this ledger while `test_the_hessian_standard_error_is_wide_but_finite` asserted its
