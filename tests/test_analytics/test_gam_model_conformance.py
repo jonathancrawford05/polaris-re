@@ -34,13 +34,37 @@ _YEAR_KNOTS = [1, 2, 3, 5, 10, 21]
 
 
 def _small_recipe() -> RFreeSpRecipe:
+    """A minimal, R-free recipe with genuine signal.
+
+    Earlier drew ``y`` as pure uniform noise, independent of every covariate.
+    With no real curvature for the free-``sp`` search to find, at least one
+    block's REML optimum is legitimately unbounded (infinite smoothing,
+    i.e. "no signal here") — a plausible answer, but one that pins
+    ``log10(sp)`` at a bound of :data:`~polaris_re.analytics.gam_model_conformance._SEARCH_BOUNDS`
+    and therefore trips :func:`~polaris_re.analytics.gam_model.fit_polaris_gam`'s
+    at-bound guard (PR #212 review [P1]). Locally this landed just inside the
+    bound (BLAS/optimizer-path dependent); on CI's different numerics it
+    landed exactly on it. `eta_true` gives every term real dependence on its
+    own covariate, the same pattern `test_gam_model.py`'s own fit smoke test
+    already uses, so the search has a genuine interior optimum to find on any
+    platform.
+    """
     n = 40
     rng = np.random.default_rng(20260825)
     age = rng.uniform(_AGE_KNOTS[0], _AGE_KNOTS[-1], size=n)
     year = rng.uniform(_YEAR_KNOTS[0], _YEAR_KNOTS[-1], size=n)
     study_year_c = rng.uniform(-5.0, 5.0, size=n)
     expos = rng.uniform(50.0, 500.0, size=n)
-    y = rng.uniform(0.001, 0.05, size=n)
+    eta_true = (
+        -4.5
+        + 0.03 * age
+        - 0.02 * year
+        + 0.01 * study_year_c * (age - 50) / 50
+        + 0.15 * np.sin(age / 10) * np.cos(year / 3)
+    )
+    prob_true = 1.0 - np.exp(-np.exp(eta_true))
+    death = rng.binomial(expos.astype(int), np.clip(prob_true, 0.0, 1.0))
+    y = death / expos
     return RFreeSpRecipe(
         n=n,
         AttdAge=age.tolist(),
