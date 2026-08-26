@@ -141,6 +141,30 @@ An INDEPENDENT comparison that disagreed is still the routine's own definition
 of a successful session — the correction is about WHY, not about whether this
 was worth reporting.
 
+**LOCALISED, 2026-08-25 (tier 1 — hypothesis, not yet a result).** The next
+hypothesis has now been tested and it holds. Evaluating **both criteria at the
+same fixed `sp`** at eight points removes the optimiser entirely: the difference
+`ours − mgcv` is **not constant** (spread 3.9108), so the discrepancy is in the
+criterion itself. The pattern is discrete, not smooth, and departs only where the
+λ's span many decades — the signature of a rank decision flipping.
+`gam_reml.reml_score_general` cuts `log|S|₊`'s null space at a fixed relative
+`1e-10`; the true rank is 81 and reads 81 at `1e-12` and `eps·p` everywhere, but
+79–80 at `1e-10` at exactly the departing points. Correcting only that cut
+collapses the spread to **0.003281 (1192×)** and eliminates the ranking flip
+(corrected `delta_ours = −0.1211` vs `delta_mgcv = −0.1208`). This is Wood (2011)
+§3.1's **"numerical zero leakage"**, and his own trigger condition — the ratio of
+the largest positive eigenvalue of the dominant `λᵢSᵢ` to the smallest positive
+eigenvalue of a subordinate one being too great — is what our spread-λ points hit.
+Full measurement: `docs/RECALIBRATION_mgcv_parity_2026-08-25.md` §1.
+
+**The work is registered as PLAN slice 5c**, which carries Wood's Appendix B
+algorithm in implementable detail, the scope boundary (fix the determinant only;
+do not adopt the reparameterisation through the fitter), and a registered
+prediction. **Slice 6 stays blocked until 5c closes it or restates why it cannot.**
+`1e-12` is *not* the fix — that is the tuned constant Anchor 8 forbids, and Wood
+rules the tolerance approach out explicitly: *"re-parameterization is preferable to
+simply limiting the working λ range."*
+
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16), slice 5b
 (inserted 2026-08-24/25, ADR-207/ADR-208) and one deferred to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
