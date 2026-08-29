@@ -7,7 +7,12 @@ used it), ADR-185 through ADR-188 (the penalized fitter this epic reuses).
 **Total slices:** **7** autonomous, plus one deferred to a later epic. **Plus slice 1b**
 (inserted 2026-08-16, PR #197 review): mgcv-native per-term extraction, split out of
 slice 1 rather than left folded into slice 2 — see
-`docs/WORK_ORDER_slice_1b_mgcv_native_extraction.md`.
+`docs/WORK_ORDER_slice_1b_mgcv_native_extraction.md`. **Plus slice 5b** (the production
+path, `PolarisGAM` from a `ModelSpec`; inserted 2026-08-25, DONE same day, ADR-208) and
+**slice 5c** (`log|S|₊` under badly scaled λ, Wood 2011 §3.1 / Appendix B; inserted
+2026-08-25 after 5b's measurement localised the criterion discrepancy — it is what
+unblocks slice 6). The letter suffixes exist so inserting work does not renumber slices
+6 and 7 and break every cross-reference to them.
 **Estimated scope:** the largest numerical undertaking in the project. Sized honestly
 below rather than optimistically.
 
@@ -523,6 +528,329 @@ the `VerificationClaim` must say so.
 terms. Slices 6 and 7 remain required for the full form, and this slice does not
 anticipate them.
 
+### Slice 5c: the REML criterion — TWO defects, Wood (2011) §3.1/Appendix B and eq. (4)
+
+- **Depends on:** Slice 5b (ADR-208 and its amendment).
+- **Status:** READY, and it is what unblocks slice 6. Registered as a slice so the
+  routine's "next unchecked slice" rule can reach it — the same registration slice
+  5b needed. Designating it for a session remains a `ROUTINE_MGCV_PARITY.md` call.
+- **Diagnosis:** `docs/RECALIBRATION_mgcv_parity_2026-08-25.md` §1 (tier 1).
+
+> **There are two defects, found in that order and both `sp`-dependent.** Defect A is
+> numerical and is the rest of this section. **Defect B is a formula error** and is
+> written up in `#### Defect B` below — it accounts for essentially all of the
+> residual A leaves behind. A session that fixes only A will see the gap shrink by
+> three orders of magnitude and still not close; **fix both, or the §4 prediction
+> cannot resolve.**
+
+**Defect A, in one line.** `gam_reml.reml_score_general` evaluates `log|S|₊` by
+forming `S = Σⱼ λⱼSⱼ`, eigendecomposing it, and cutting the null space at a fixed
+relative tolerance of `1e-10`. When the λ's span many decades that cut is arbitrary,
+and the score moves discretely as eigenvalues are misclassified.
+
+**Wood names this failure mode and it is the paper's own §3.1.** *"`log|S|₊` … is the
+most numerically troublesome term in the REML/ML objective."* His account, and it
+matches the measurement point for point:
+
+- The computed eigendecomposition `Ŝ₁ = ÛΛ̂Ûᵀ` has *should-be-zero* eigenvalues `Λ̂⁰`
+  of typical magnitude `‖S₁‖ε_m`. As `λ₁/λ₂ → ∞` the computed determinant tends to
+  `λ₁^{r₁} ∏ᵢΛ̂⁺ᵢ · λ₁^{d₁} ∏ᵢΛ̂⁰ᵢ`, and **the second factor is essentially
+  arbitrary** (`d₁` = rank deficiency of `S₁`). Wood calls this **"numerical zero
+  leakage."**
+- His trigger condition: it *"spoils determinant calculations whenever the ratio of
+  the largest strictly positive eigenvalue of `λ₁S₁` … to the smallest strictly
+  positive eigenvalue of `λ₂S₂` is too great."* Our departures occur at exactly the
+  points where the λ's span ≳6 decades and the spectrum's null-space gap collapses
+  from ~1e10 to ~1e5.
+- *"The problem vanishes for a full rank `S₁`."* Which is why every flat-λ point in
+  the measurement agreed to ~7e-3 and only the spread-λ points departed.
+
+**And Wood rules out the tolerance approach explicitly** — quote it in the ADR,
+because it is the reason Anchor 8 applies here: *"re-parameterization is preferable
+to simply limiting the working λ range. To keep the non zero eigenvalues of all
+`λᵢSᵢ` within limits that guarantee computational stability usually entails
+unacceptably restrictive limits on the `λᵢ`."*
+
+#### What to implement — Appendix B, scoped to the determinant only
+
+Appendix B generalises §3.1's two-term similarity transform to any number of
+rank-deficient `Sᵢ`. `O(q³)`.
+
+**Pre-step (S not formally full rank).** Symmetric eigendecomposition
+`ÛΛ̂Ûᵀ = Σᵢ Sᵢ/‖Sᵢ‖_F`; let `U₊` be the columns with positive eigenvalues and set
+`S̄ᵢ = U₊ᵀSᵢU₊`. Then `|S|₊ = |Σᵢ λᵢS̄ᵢ|` and that sum has full rank.
+
+**Initialise.** `K = 0`, `Q = q`, `S̄ᵢ = Sᵢ ∀i`, `γ = {1…M}`.
+
+**Iterate to termination at step 4:**
+
+1. `Ωᵢ = ‖S̄ᵢ‖_F λᵢ` for `i ∈ γ`.
+2. `α = {i : Ωᵢ ≥ ε·max(Ω)}`, `γ' = {i : Ωᵢ < ε·max(Ω)}`, with `ε` the **cube root of
+   machine precision**. `α` indexes the dominant terms.
+3. Eigenvalues of `Σ_{i∈α} S̄ᵢ/‖S̄ᵢ‖_F` give the formal rank `r` — count those larger
+   than `ε̃` times the dominant eigenvalue, `ε̃` = machine precision raised to a power
+   in `[0.7, 0.9]`.
+4. **If `r == Q`, terminate.** The current `S` is the one to use.
+5. `UDUᵀ = Σ_{i∈α} λᵢS̄ᵢ`, eigenvalues descending. `U_r` = first `r` columns, `U_n`
+   the remainder.
+6. Partition `S = [[A_{K×K}, B_{K×Q}], [Bᵀ, C_{Q×Q}]]`. Set `B' = BU` and
+   `C' = [[D_r + U_rᵀS_{γ'}U_r, U_rᵀS_{γ'}U_n], [U_nᵀS_{γ'}U_r, U_nᵀS_{γ'}U_n]]`
+   where `S_{γ'} = Σ_{i∈γ'} λᵢS̄ᵢ`. Then
+   `S' = diag(I_K, Uᵀ) S diag(I_K, U)` and `|S| = |S'|`.
+7. `T_α = diag(I_K, U_r, 0)`, `T_{γ'} = diag(I_K, U)`; transform
+   `Sᵢ ← T_αᵀSᵢT_α ∀ i∈α` and `Sᵢ ← T_{γ'}ᵀSᵢT_{γ'} ∀ i∈γ'`.
+8. `S̄ᵢ ← U_nᵀS̄ᵢU_n ∀ i ∈ γ'`.
+9. `K ← K+r`, `Q ← Q−r`, `S ← S'`, `γ ← γ'`. Return to 1.
+
+**Then take the determinant by pivoted QR on the transformed `S`** — `∏ᵢ R̂ᵢᵢ`. Wood
+is explicit that QR is the right decomposition here *because it operates on columns
+without mixing them*, preserving the column separation the iteration created;
+*"alternative methods (Choleski or symmetric eigen) would require an additional
+pre-conditioning step."*
+
+#### Scope: build Appendix B in full, wire only the determinant — and why
+
+**The maintainer directed the full Appendix B reparameterisation** (*"I think the
+full appendix B parametrization makes sense to include, especially if we need to do
+it for parity"*). The conditional is the right question and it was **measured** rather
+than argued — tier 1, figures in `RECALIBRATION_mgcv_parity_2026-08-25.md` §1.2. The
+measurement changes *which parts* are needed:
+
+| Wood's motivation for the full reparameterisation | applies to us? | evidence |
+|---|---|---|
+| `log\|S\|₊` unstable under badly scaled λ | **YES, catastrophically** | the rank cut misreads the null space badly at a λ spread of 12 decades, which is inside `PRODUCTION_LOG10_BOUNDS`; the resulting score error is large enough to flip which of two optima looks better |
+| `log\|XᵀWX + S\|` likewise unstable | **No** | naive `slogdet` tracks a diagonally-preconditioned Cholesky closely even at the worst conditioning reached. **Structural reason:** it is full rank and positive definite, so there is **no null-space decision to get wrong** — only the *generalised* determinant has one |
+| β̂ unstable; §3.3's stable least squares | **No, and structurally so** | §3.3 exists for the **negative weights** Newton-based PIRLS produces. `gam_fit.penalized_irls_general` uses **Fisher scoring** (`w·(dη/dμ)²/V(μ)`, the expected weight), so weights are non-negative by construction. The measured `eta` degradation across the same λ range is ordinary conditioning loss, orders of magnitude below the determinant error |
+| derivatives of `log\|S\|₊` w.r.t. `ρ` | **Not yet** | `select_lambdas_continuous` uses L-BFGS-B with a **finite-difference** gradient |
+
+**Every figure behind that table is tier 1 and lives in
+`RECALIBRATION_mgcv_parity_2026-08-25.md` §1.2, not here.** The structural claims —
+Fisher scoring, the finite-difference gradient, full-rank versus generalised
+determinant — are facts about the code and the mathematics rather than measurements,
+and stand on their own.
+
+**So the resolution, and it is the maintainer's direction taken on the evidence:**
+**build Appendix B in full** — the similarity transform, the accumulated `Q_s`, the
+pivoted-QR determinant *and* the stable square root `E` — as a self-contained,
+R-free-testable component. **Wire only `log|S|₊` into `reml_score_general` in this
+slice.** Everything else stays available and unused.
+
+That is deliberately more than the determinant needs and deliberately less than a
+re-pointing. The reason not to re-point now is not that the machinery is unwanted, it
+is that **every tier-3 result this epic owns runs through the fitter path** —
+ADR-195, ADR-206's 1.242e-10, ADR-208 — so adopting the reparameterisation through
+the fit re-verifies all of them, and today there is no measured defect asking for it.
+Building the component makes that adoption a later, additive, separately-measurable
+step rather than a rewrite.
+
+**Two futures that would change the answer, and both are plausible:**
+
+1. **Newton PIRLS.** The target family is binomial/**cloglog** — non-canonical — and
+   Wood recommends Newton over Fisher exactly there (*"the Newton scheme tends to
+   converge faster than Fisher scoring in non-canonical link situations, an effect
+   which can be particularly marked"*). Newton produces negative weights, and then
+   §3.3 and the stable `E` become **required**, not optional.
+2. **An analytic gradient for the outer search**, which Wood's whole method is built
+   around and which needs Appendix B's derivative expressions:
+   `∂log|S|/∂ρⱼ = λⱼ tr(S⁻¹Sⱼ)` and
+   `∂²log|S|/∂ρᵢ∂ρⱼ = δⁱⱼ λᵢ tr(S⁻¹Sᵢ) − λᵢλⱼ tr(S⁻¹SᵢS⁻¹Sⱼ)`
+   (all on transformed versions).
+
+Build for both; adopt neither here.
+
+#### What NOT to do
+
+- **Do not change the tolerance.** Tightening it collapses the measured spread
+  sharply (tier 1 — figures in `RECALIBRATION_mgcv_parity_2026-08-25.md` §1), which
+  is what demonstrates the cause; it is still a tuned constant that would work only
+  by luck of this spectrum — Anchor 8, and Wood's own paragraph above.
+- **Do not touch the fitter, the bases or the search.** The defect is one term of one
+  function.
+- **Implement from the paper, not from `mgcv`'s source.** Same footing as ADR-196
+  (Wood 2011 eq. 4) and ADR-202 (WPS-2016 eq. 7); transcription is barred by
+  licensing anyway (Anchor 8's companion rule).
+
+#### Defect B: the score uses the EXPECTED Hessian where Wood's eq. (4) uses the OBSERVED one
+
+**Found by the maintainer, in one word: "Newton."** It is a formula error of exactly
+the class ADR-196/197 already fixed once in this same function, and it is independent
+of Defect A.
+
+Wood eq. (4) builds the criterion on `H = −∂²l/∂β∂βᵀ`, the **observed** Hessian, which
+Newton-based PIRLS produces as a by-product — §3.2's weights carry
+`αᵢ = 1 + (yᵢ − μᵢ)(V′ᵢ/Vᵢ + g″ᵢ/g′ᵢ)`. `reml_score_general:147` uses
+`weights · (dμ/dη)² / V(μ)` instead: the **expected** (Fisher) weight, Wood's
+`αᵢ ≡ 1`. He flags the substitution directly:
+
+> *"The simpler approach of using the expected Hessian in place of `H` was also
+> investigated, but in simulations gave worse performance than GCV **when
+> non-canonical links were used**."*
+
+**The target family is binomial/cloglog. Binomial's canonical link is logit, so ours
+is non-canonical** — Wood's warned case. `W` depends on `μ`, hence on `β̂`, hence on
+`sp`, so the discrepancy is `sp`-dependent, which is the signature the epic has been
+chasing since ADR-208.
+
+**Why `eta` agreeing did not rule this out, which is the trap worth naming.** Fisher
+scoring and Newton converge to the *same* penalized MLE — they differ in path, not in
+fixed point. So β̂ and `eta` are right under either scheme, and every Stage-B `eta`
+result the epic owns stays valid. **The criterion is still wrong**, because it needs a
+Hessian Fisher scoring never computes. No amount of checking `eta` would have found
+this; only comparing the criterion itself does.
+
+**What to implement.** The score needs the observed Hessian's diagonal. Two routes,
+and the choice is the implementer's:
+
+1. **Derive `αᵢ` analytically** per Wood §3.2, needing `V′(μ)` and `g″(μ)` for each
+   family/link. Exact, and it is what a Newton PIRLS would need anyway.
+2. **Difference the per-observation deviance in `η`.** The terms are independent, so
+   `Wᵢᵢ = ½·∂²Dᵢ/∂ηᵢ²` is a vectorised central difference. Cheap and family-agnostic,
+   but carries the step-size error — the recalibration's own residual is at that
+   level, so **route 2 alone cannot demonstrate closure at tier 3.**
+
+Route 1 is the one that closes it. Route 2 is how the defect was found and is a
+legitimate cross-check on route 1.
+
+**Scope note.** This does **not** require switching the fitter to Newton PIRLS. The
+criterion needs the observed Hessian; β̂ does not need to be *estimated* by Newton to
+compute one. Whether to adopt Newton PIRLS as well is a separate question — Wood
+recommends it for non-canonical links on convergence grounds — and it stays out of
+this slice.
+
+**Negative weights.** Under Newton with a non-canonical link the observed weights
+*"need not all be positive"*. Measured here: none are negative on the synthetic case
+(minimum ≈ 0.37). That is a property of this data, not a guarantee; sparser real ILEC
+cells could produce them, and that is when §3.3's stable least squares and Appendix
+B's `E` become required rather than available. Build `E`; do not wire it.
+
+#### The registered prediction
+
+> Wood §3.1's numerical-zero-leakage account is the mechanism. Implementing Appendix
+> B's similarity transform and pivoted-QR determinant should collapse the fixed-`sp`
+> difference `ours − mgcv` **to a constant across λ configurations spanning any
+> number of decades** — a spread at or below what tightening the null-space cut
+> already achieves, which is the tier-1 residual recorded in
+> `RECALIBRATION_mgcv_parity_2026-08-25.md` §1. And it should bring free-`sp`
+> `max_abs_log10_sp_diff` from **0.6398 (ADR-208, tier 3)** back toward ADR-199's
+> 2-block range of **6.9e-04 – 9.8e-04**.
+>
+> **If the fixed-`sp` spread collapses but free-`sp` `sp` does not**, something else
+> also differs under selection, the tolerance was only part of it, and *that* is the
+> finding — it would mean the search has its own defect that the criterion fix has
+> been masking.
+>
+> **Amended once already, and the amendment is the point.** The first version of this
+> prediction assumed Defect A was the whole story. It is not: A alone leaves a
+> residual that B accounts for almost exactly (§1.3 of the recalibration note). So the
+> prediction now has a **third branch**, and a session must say which one it landed
+> on: **A alone** shrinks the spread by ~3 orders and stops; **A + B** should close it
+> to the level of the implementation's own arithmetic; **anything left after both** is
+> a genuinely new finding and the most valuable outcome this slice can produce.
+
+**All branches must be resolved against the slice's own tier-3 re-measurement, not
+against the tier-1 figures in the recalibration note.** Step 1 of the sequencing
+below exists to establish the tier-3 baseline first, precisely so this prediction has
+a legitimate quantity to be judged against. ADR-203's reminder applies: register
+against a *re-measurement*, never against a stored number.
+
+#### Sequencing
+
+1. **Establish the tier-3 baseline for the fixed-`sp` spread.** This is what makes
+   the diagnosis citable and gives §4's prediction a legitimate quantity to be judged
+   against. **It is not a bare dispatch of an existing probe** — that description was
+   wrong when this slice was first written (PR #213 review [P1]). It needs three
+   things: `scripts/gam_fixed_sp_score_probe.R` (exists), its Python side
+   `scripts/gam_fixed_sp_score_compare.py` (exists — emits the `ours` column, the
+   rank-at-tolerance readings and the corrected-cut spread), and **a new step in
+   `.github/workflows/mgcv-conformance.yml`** wiring them, which does not exist yet.
+   Budget for the workflow step.
+2. **Implement Appendix B's determinant path**, R-free tests first: `log|S|₊` is
+   invariant to an orthogonal similarity transform; it is exact for a
+   known-rank synthetic `S`; it agrees with the naive path where the naive path is
+   *reliable* (flat λ); and it does **not** move when λ's are spread. **Then run the
+   mutation protocol in the next section** — an R-free test that passes against a
+   wrong implementation is worse than no test, and this is the slice where that is
+   most likely, because every one of those four invariants can be satisfied by an
+   implementation that quietly skips the step that matters.
+3. **Re-measure**, tier 1 then tier 3: the eight-point fixed-`sp` spread, then
+   free-`sp` on the slice-5b case.
+4. **Ledger rows at both tiers, an ADR, and the §4 prediction resolved in its own
+   words.**
+
+#### The mutation protocol — what "mutation-test each" means, since nothing defines it
+
+**This slice is where the phrase has to stop being decoration.** It appeared twice in
+an earlier draft of this document with no method behind it, and the repository has no
+mutation-testing tooling at all — no `mutmut`, no `cosmic-ray`, nothing in
+`pyproject.toml` or the `Makefile`. **Do not add one**: a whole-suite mutation runner
+on a numerics repo is slow and mostly reports mutants that are numerically
+indistinguishable. What is wanted is narrower and stronger.
+
+**The protocol.** For each mutation below: apply it to the implementation, run the
+R-free tests, and record **which test fails and on which assertion**. A mutation that
+leaves the suite green is a hole in the tests, not a harmless variant — fix the test
+and say so in the ADR. Revert each mutation before the next.
+
+| # | mutation | what it models | must be caught by |
+|---|---|---|---|
+| 1 | skip the `Λ̂⁰ = 0` truncation (Appendix B step 5 / §3.1's "setting `Λ̂⁰ = 0`") | the whole point of the transform — the arbitrary `λ₁^{d₁}∏Λ̂⁰ᵢ` factor is left in | the spread-λ invariance test |
+| 2 | replace the pivoted QR determinant with a plain Cholesky or symmetric-eigen determinant | Wood's stated reason for QR: it acts on columns without mixing them, so it preserves the separation the iteration built | the spread-λ test; the flat-λ test must still pass, which is what makes this mutation informative |
+| 3 | use machine precision, not its **cube root**, for the dominant/subordinate split (step 2's `ε`) | a plausible misreading of the paper | the spread-λ test at large block-count |
+| 4 | use a fixed `1e-10` for the rank count instead of `ε̃ = eps^[0.7,0.9]` (step 3) | reintroduces exactly the shipped defect | the known-rank synthetic test |
+| 5 | skip the pre-step (`S̄ᵢ = U₊ᵀSᵢU₊`) for a rank-deficient `S` | Appendix B's stated precondition | the known-rank synthetic test, at deficient rank |
+| 6 | transpose `Q_s` where it is accumulated | an orientation error that leaves `\|S\|` invariant | the `EᵀE = S` test — and **only** that test, which is why `E` must be tested on its own terms rather than through the score |
+
+**Mutation 6 is the one that justifies building `E` in this slice at all.** `log|S|₊`
+is invariant to a transposed `Q_s`, so every determinant test passes under it. Only
+the square-root identity catches it — and if `Q_s` is wrong, the later adoption of the
+reparameterisation through the fit inherits a silent orientation bug. Building `E`
+now and testing it is what makes that adoption safe later.
+
+**Record the protocol's outcome in the ADR as a table**, mutation by mutation, with
+the failing test named. "Mutation-tested" without that table is the same unbacked
+claim this section exists to retire.
+
+#### Definition of done
+
+- **Defect A:** `reml_score_general`'s `log|S|₊` uses Appendix B's transform and a
+  pivoted-QR determinant, with no tuned tolerance in the path.
+- **Defect B:** the score's Hessian term uses the **observed** Hessian per Wood eq.
+  (4), derived analytically (route 1) rather than by differencing — a
+  finite-difference `H` cannot demonstrate closure at tier 3, because its own step
+  error sits at the level being measured. `experience_gam_penalized.reml_score` is
+  **checked for the same defect and the finding recorded either way**; ADR-197 is the
+  precedent for that check being worth running, and its answer is not assumed here.
+- **Appendix B exists as a whole**, not just the determinant slice of it: the
+  similarity transform, the accumulated `Q_s`, the pivoted-QR determinant and the
+  stable square root `E` (`EᵀE = S`), each R-free tested. `E` and `Q_s` are built and
+  **deliberately unused** by this slice — the test that they are correct is their own,
+  not the score's.
+- **All six mutations in the protocol above applied, and the ADR carries the
+  mutation-by-mutation table naming the test that caught each.** A mutation that left
+  the suite green is reported as a test hole that was then closed, not omitted.
+- **A term-by-term audit of `reml_score_general` against Wood eq. (4), written into
+  the ADR as a table** — one row per term of
+  `V = Dₚ/(2φ) + log|XᵀWX + S|/2 − log|S|₊/2 − (p − r)·log(φ)/2`, each marked verified
+  or defective against the paper. **This is the finding that motivates it:** ADR-196
+  found a missing penalized-deviance term in this function; Defect B is a wrong
+  Hessian in it; Defect A is a wrong null-space cut in it. Three defects in one
+  function, each found separately, each after the previous was declared closed. A
+  fourth round of defect-by-defect discovery is the predictable continuation, and one
+  audit pass is cheaper than it. Raised in PR #213's round-3 review.
+- **Nothing is re-pointed.** `gam_fit.penalized_irls_general` still receives the
+  untransformed design and penalty; ADR-195's and ADR-206's results must be
+  bit-identical, which is the check that the build-but-do-not-adopt boundary held.
+- The eight-point fixed-`sp` spread measured at **tier 3** both before (step 1) and
+  after the fix, so the improvement is a tier-3 delta rather than a tier-3 number
+  compared against a tier-1 one.
+- Free-`sp` re-measured at tier 3, and ADR-208's refuted §4 prediction revisited in
+  light of it.
+- The §4 prediction above resolved — confirmed or refuted, in those words.
+- `experience_gam_penalized` and `experience_gam` untouched; `tests/qa/` goldens
+  byte-identical; ADR-195's and ADR-206's own results unchanged (the fitter is not
+  in scope, so they must not move).
+- Slice 6's BLOCKED note removed, or its reason restated if this does not close it.
+
 ### Slice 6: `bs = "sz"` — orthogonal factor-smooth interactions
 
 - **Depends on:** Slices 2, 4
@@ -533,6 +861,13 @@ anticipate them.
   localised or closed — a fourth basis's own `sp` selection on top of a
   CONFIRMED, still-unlocalised criterion discrepancy would compound rather
   than isolate the next disagreement. See `docs/CONTINUATION_mgcv_parity_engine.md`.
+- **The route out is now registered: slice 5c**, above. The discrepancy was
+  localised on 2026-08-25 to `log|S|₊`'s null-space cut — Wood (2011) §3.1's
+  "numerical zero leakage" — at **tier 1**
+  (`docs/RECALIBRATION_mgcv_parity_2026-08-25.md` §1). Slice 5c confirms that at
+  tier 3 and implements Appendix B. **This slice stays blocked until 5c closes it
+  or restates why it cannot**, and 5c's own definition of done carries that
+  obligation.
 
 Sum-to-zero factor-smooth deviations from a reference smooth. Four terms in the target.
 Expect this to be the hardest basis of the three: the constraint and reparameterisation are
