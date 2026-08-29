@@ -17866,7 +17866,12 @@ this, so that the future development is effective? Also, how can we guard agains
 DoD item?"* and then *"Start the adoption PR."*
 **Source:** `docs/RECALIBRATION_mgcv_parity_2026-08-25.md` §3 (five ranked causes) and
 §4 (five proposals), PR #213.
-**Amends:** `docs/ROUTINE_MGCV_PARITY.md` — DELIVER and a new WORK SELECTION clause.
+**Amends:** `docs/ROUTINE_MGCV_PARITY.md` — DELIVER only: one new bullet plus
+steps 10 and 11. **No WORK SELECTION section was added**, and the first draft of
+this header said one was (PR #214 review [P2]). Step 11 (*run it if under an hour*)
+governs MEASURE FIRST and ITERATE rather than delivery; it sits in DELIVER because
+the routine is read whole as a prompt, and that placement is a deliberate choice
+rather than an oversight.
 
 ### What this adopts, and what it deliberately does not
 
@@ -17899,7 +17904,7 @@ The evidence is from the two weeks preceding this ADR, and it is unusually clean
 
 | gap | how it was recorded | what happened |
 |---|---|---|
-| the multi-term assembler | named as a blocker by ADR-199, 200, 205 | **named three times, built zero** — the routine's selection rule cannot reach prose |
+| the multi-term assembler | named as a blocker by ADR-199, 200, 205 | **named three times in prose and built zero times** — the selection rule cannot reach prose. Built at **ADR-206**, once it became slice 5's *registered* remaining scope, which makes it a third instance of the same rule rather than a counterexample |
 | the production path | **registered as slice 5b** | picked up and delivered (ADR-208) |
 | the criterion discrepancy | filed as a CONTINUATION open question | sat un-run until a maintainer asked why |
 | the same discrepancy | **registered as slice 5c** | selectable by the next run |
@@ -17944,7 +17949,14 @@ times, each an instruction that reads as executable and is not:
   `[machine]` item must name the test or command that proves it; a `[judgement]` item
   must name who confirms it.
 
-**The tagging is the load-bearing half.** It fails at *write* time, not review time:
+**The NAMING is the load-bearing half, not the tag.** A tag applied without a named
+check costs nothing to write and proves nothing — it would be a fifth instance of the
+failure mode above rather than a cure for the first four. PR #214's own review caught
+exactly that in this ADR's first worked example, where ten items carried tags and none
+carried a name. **An item is tagged only when its check is named**, including tests
+that do not exist yet: naming an absent test is what makes its absence visible.
+
+So stated: it fails at *write* time, not review time:
 *"mutation-test each"* could not have been tagged `[machine]` without its author
 noticing there was no method behind it. That is the earliest point at which any of
 the four instances above could have been caught.
@@ -17970,3 +17982,19 @@ does not decide the `sp`-versus-`edf` question, which remains maintainer-reserve
   call about where to put it.
 - The review loop keeps the same job it has been doing informally since PR #211 —
   walking the DoD item by item — but stops depending on the reviewer choosing to.
+- **These decisions take effect on merge; no re-registration is required.** PR #214's
+  review raised the opposite — that the registered scheduled task is a *copy* of this
+  file, so edits here would be inert until re-pasted — and **that is wrong**. The
+  registered prompt is a thin wrapper that defers: *"Read
+  `docs/ROUTINE_MGCV_PARITY.md` IN FULL before writing any code, then follow it
+  exactly — it is the authoritative instruction set for this routine and it supersedes
+  anything in this box that conflicts with it."* The repo file is the instruction set;
+  the box points at it. Verified against the maintainer's own registered text.
+- **The residual risk is duplication, not staleness of authority.** The box restates
+  parts of DELIVER in shorter form. That does not *conflict* with the fuller version
+  here — so the supersede clause is not what saves it; *"follow it exactly"* is — but a
+  session could anchor on the box's shorter list and never notice the additions. The
+  box has already gone stale once this way: its CURRENT STATE section asserted facts
+  that were false for eight days. **The durable fix is to thin the box to a pointer
+  rather than a partial restatement**, which is a maintainer edit and a named
+  follow-up, not something this ADR can do.

@@ -1,6 +1,21 @@
 # Routine: mgcv Parity (convergence loop against a live oracle)
 
 **Trigger:** scheduled, daily — or on demand.
+
+> **THIS FILE IS THE INSTRUCTION SET; THE REGISTERED PROMPT POINTS AT IT.** The
+> scheduled task's own text says so — *"Read `docs/ROUTINE_MGCV_PARITY.md` IN FULL
+> before writing any code, then follow it exactly — it is the authoritative
+> instruction set for this routine and it supersedes anything in this box that
+> conflicts with it."* **So an edit here takes effect on merge. No re-registration.**
+>
+> **But the box also restates parts of this file in shorter form** — DELIVER in
+> particular. A shorter restatement does not *conflict* with the fuller version here,
+> so the supersede clause is not what protects you; *"follow it exactly"* is. **If you
+> read the box's DELIVER, read this one too and take the union.** The box has already
+> gone stale once this way: its CURRENT STATE section asserted things that were false
+> for eight days before anyone noticed. If you find the two disagreeing on fact rather
+> than length, **this file wins** — and say so in the session log, because trimming
+> the box is a maintainer edit nobody else can make.
 **Repo:** `jonathancrawford05/polaris-re`
 **Connectors:** GitHub
 **Plan:** `docs/PLAN_mgcv_parity_engine.md`

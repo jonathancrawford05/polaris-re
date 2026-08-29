@@ -812,52 +812,76 @@ claim this section exists to retire.
 
 #### Definition of done
 
-**Tagged per ADR-209 decision 3.** `[machine]` names the test or command that proves
-the item; `[judgement]` names who confirms it. The PR body reproduces this list as a
-checklist with evidence per item, or an explicit "NOT MET, because …". **This is the
-epic's worked example of the tagging** — write the tag first, and an item that cannot
-carry one is an item with no method behind it yet.
+**Tagged per ADR-209 decision 3, and NAMED.** A `[machine]` item names the test or
+command that proves it; a `[judgement]` item names who confirms it. **The naming is
+the point, not the tag** — a tag applied without a named check costs nothing, and an
+item that cannot carry a name is an item with no method behind it yet. That is the
+write-time failure ADR-209 exists to force. Tests marked *(new)* do not exist and are
+part of this slice's work; naming them now is what makes their absence visible.
 
-- `[machine]` **Defect A:** `reml_score_general`'s `log|S|₊` uses Appendix B's transform and a
-  pivoted-QR determinant, with no tuned tolerance in the path.
-- `[machine]` **Defect B:** the score's Hessian term uses the **observed** Hessian per Wood eq.
-  (4), derived analytically (route 1) rather than by differencing — a
+The PR body reproduces this list as a checklist with evidence per item, or an explicit
+"NOT MET, because …".
+
+- `[machine]` **Defect A:** `reml_score_general`'s `log|S|₊` uses Appendix B's
+  transform and a pivoted-QR determinant, with no tuned tolerance in the path.
+  → `test_logdet_s_is_invariant_to_lambda_spread` *(new)*, plus
+  `test_no_bare_tolerance_constant_in_the_logdet_path` *(new)*, which asserts the
+  shipped `1e-10` is gone rather than replaced.
+- `[machine]` **Defect B:** the score's Hessian term uses the **observed** Hessian per
+  Wood eq. (4), derived analytically (route 1) rather than by differencing — a
   finite-difference `H` cannot demonstrate closure at tier 3, because its own step
-  error sits at the level being measured. `experience_gam_penalized.reml_score` is
-  **checked for the same defect and the finding recorded either way**; ADR-197 is the
-  precedent for that check being worth running, and its answer is not assumed here.
-- `[machine]` **Appendix B exists as a whole**, not just the determinant slice of it: the
-  similarity transform, the accumulated `Q_s`, the pivoted-QR determinant and the
-  stable square root `E` (`EᵀE = S`), each R-free tested. `E` and `Q_s` are built and
-  **deliberately unused** by this slice — the test that they are correct is their own,
-  not the score's.
-- `[machine]` + `[judgement]` **All six mutations in the protocol above applied, and the ADR carries the
-  mutation-by-mutation table naming the test that caught each.** A mutation that left
-  the suite green is reported as a test hole that was then closed, not omitted.
-- `[judgement]` **A term-by-term audit of `reml_score_general` against Wood eq. (4), written into
-  the ADR as a table** — one row per term of
+  error sits at the level being measured.
+  → `test_analytic_alpha_matches_the_finite_difference_probe` *(new)*, cross-checking
+  the analytic `αᵢ` against `scripts/gam_hessian_weight_probe.py`'s differenced `H`.
+- `[machine]` `experience_gam_penalized.reml_score` **checked for the same defect and
+  the finding recorded either way** — ADR-197 is the precedent for that check being
+  worth running, and its answer is not assumed here.
+  → `test_experience_gam_penalized_hessian_weight_provenance` *(new)*: asserts which
+  weight that function uses, so the answer is recorded as a test rather than as prose.
+- `[machine]` **Appendix B exists as a whole**, not just the determinant slice of it:
+  the similarity transform, the accumulated `Q_s`, the pivoted-QR determinant and the
+  stable square root `E`. `E` and `Q_s` are built and **deliberately unused** by this
+  slice — the test that they are correct is their own, not the score's.
+  → `test_E_transpose_E_reconstructs_S` and
+  `test_Qs_similarity_transform_preserves_the_determinant` *(both new)*.
+- `[machine]` **All six mutations in the protocol above applied**, each with its
+  failing test recorded.
+  → the protocol's own table; each mutation names the test that must catch it, and
+  `test_E_transpose_E_reconstructs_S` is the only one that catches mutation 6.
+- `[judgement]` **Any mutation that left the suite green is reported as a test hole
+  that was then closed, not omitted.** → confirmed by the PR reviewer against the
+  mutation table; a green mutation with no accompanying new test is the finding.
+- `[judgement]` **A term-by-term audit of `reml_score_general` against Wood eq. (4),
+  written into the ADR as a table** — one row per term of
   `V = Dₚ/(2φ) + log|XᵀWX + S|/2 − log|S|₊/2 − (p − r)·log(φ)/2`, each marked verified
-  or defective against the paper. **This is the finding that motivates it:** ADR-196
-  found a missing penalized-deviance term in this function; Defect B is a wrong
-  Hessian in it; Defect A is a wrong null-space cut in it. Three defects in one
-  function, each found separately, each after the previous was declared closed. A
-  fourth round of defect-by-defect discovery is the predictable continuation, and one
-  audit pass is cheaper than it. Raised in PR #213's round-3 review.
-- `[machine]` **Nothing is re-pointed.** `gam_fit.penalized_irls_general` still receives the
-  untransformed design and penalty; ADR-195's and ADR-206's results must be
-  bit-identical, which is the check that the build-but-do-not-adopt boundary held.
-- `[machine]` The eight-point fixed-`sp` spread measured at **tier 3** both before (step 1) and
-  after the fix, so the improvement is a tier-3 delta rather than a tier-3 number
-  compared against a tier-1 one.
-- `[machine]` Free-`sp` re-measured at tier 3, and ADR-208's refuted §4 prediction revisited in
-  light of it.
-- `[judgement]` The §4 prediction above resolved — confirmed or refuted, in those words.
-- `[machine]` `experience_gam_penalized` and `experience_gam` untouched; `tests/qa/` goldens
-  byte-identical; ADR-195's and ADR-206's own results unchanged (the fitter is not
-  in scope, so they must not move).
-- `[judgement]` Slice 6's BLOCKED note removed, or its reason restated if this does not close it.
+  or defective against the paper. → confirmed by the PR reviewer, who checks the rows
+  against the paper rather than against the author's summary of it. **The motivation:**
+  ADR-196 found a missing penalized-deviance term in this function; Defect B is a wrong
+  Hessian in it; Defect A is a wrong null-space cut in it — three defects in one
+  function, each found after the previous was declared closed. Raised in PR #213's
+  round-3 review.
+- `[machine]` **Nothing is re-pointed.** `gam_fit.penalized_irls_general` still
+  receives the untransformed design and penalty.
+  → `tests/test_analytics/test_gam_family_conformance.py` (ADR-195) and
+  `test_gam_multiterm_conformance.py` (ADR-206) pass **unchanged**, and
+  `tests/qa/test_pipeline_golden.py` keeps `tests/qa/golden_outputs/` byte-identical.
+- `[machine]` The eight-point fixed-`sp` spread measured at **tier 3** both before
+  (step 1) and after the fix, so the improvement is a tier-3 delta rather than a
+  tier-3 number compared against a tier-1 one.
+  → `scripts/gam_fixed_sp_score_probe.R` + `gam_fixed_sp_score_compare.py`, dispatched
+  through the new `mgcv-conformance.yml` step that step 1 has to build.
+- `[machine]` Free-`sp` re-measured at tier 3, and ADR-208's refuted §4 prediction
+  revisited in light of it.
+  → the existing `gam_model_conformance.compare_free_sp_case` path, tier-3 dispatch.
+- `[judgement]` **The §4 prediction resolved — confirmed or refuted, in those words**,
+  and which of its three branches was landed on. → confirmed by the PR reviewer;
+  escalated to the maintainer if the third branch (something left after both defects)
+  is the outcome, because that reopens the epic's cost estimate.
+- `[judgement]` Slice 6's BLOCKED note removed, or its reason restated if this does
+  not close it. → the maintainer, since designating or unblocking a slice is a
+  `ROUTINE_MGCV_PARITY.md` scheduling call rather than a session's.
 
-**Two items are `[judgement]` for a reason worth naming.** The eq. (4) audit and the
+**Two items stay `[judgement]` for a reason worth naming.** The eq. (4) audit and the
 prediction's resolution are the ones a machine cannot check: a test can assert the
 audit *table exists with N rows*, never that its rows are *right*. That is precisely
 the limit ADR-209 states — the tagging guards against a MISSING claim, never a WRONG
