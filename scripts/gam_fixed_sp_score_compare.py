@@ -1,43 +1,41 @@
-"""The Polaris side of the fixed-`sp` criterion comparison — the `ours` column,
-the rank-at-tolerance readings, and the corrected-cut spread.
+"""The Polaris side of the fixed-`sp` REML score/deviance comparison — PLAN
+slice 5c's own parity measurement, now that `reml_score_general` carries
+Appendix B and the observed-Hessian weight (ADR-210).
 
-DIAGNOSTIC ONLY, never committed parity evidence: it reads ``mgcv``'s own REML
-score, so the comparison ticks no criterion and declares no ``VerificationClaim``.
-Same status as ``gam_deriv_probe.R`` (ADR-201), ``gam_vc_probe.R`` (ADR-202) and
-``gam_multiterm_sp_delta_probe.R`` (ADR-208's amendment).
+**INDEPENDENT parity evidence, not a diagnostic** (PR #215 review [P1-1]).
+An earlier revision of this script's docstring read "DIAGNOSTIC ONLY, never
+committed parity evidence: it reads mgcv's own REML score" — written while
+`gam_reml.reml_score_general` was still the SUSPECT, not the verified
+criterion, and never corrected once ADR-210 fixed it. That framing was
+always mechanically wrong: `gam_reml_optimize.penalized_fit_and_score`
+(this script's own producer) takes ``y, x, family, penalty_blocks,
+log_lambda, weights`` — no `mgcv`-shaped argument exists for it to read even
+by accident — and `mgcv_score`/`mgcv_deviance` enter this script only as
+the right-hand side of a comparison, never as an input to the fit or score
+computed here. That is the identical mechanical shape
+`gam_reml_conformance.score_reml_point`/`REML_SCORE_CLAIM` already carry as
+INDEPENDENT — see `gam_reml_optimize_conformance.FIXED_SP_MULTITERM_REML_CLAIM`,
+declared for THIS fixture (4 blocks, binomial/cloglog, formula-built) rather
+than reusing `REML_SCORE_CLAIM` (2 blocks, binomial/logit, `paraPen`-supplied),
+which covers a different producer and a different model.
 
-WHAT IT ANSWERS. ADR-208's amendment established that ``mgcv``'s criterion and ours
-rank ``mgcv``'s free-``sp`` point and Python's in opposite order. That is consistent
-with two different worlds:
+WHAT IT ANSWERS. ADR-208's amendment established that (pre-fix) `mgcv`'s
+criterion and ours ranked `mgcv`'s free-`sp` point and Python's in opposite
+order. Evaluating BOTH criteria at the SAME fixed `sp`, at several
+well-separated points, discriminates a criterion-formula problem from an
+optimiser one and involves no optimiser at all — a spread of `ours - mgcv`
+that is ~0 across every point means the two criteria agree up to an additive
+constant (same argmin); a spread that varies means they disagree as
+functions of `sp`. ADR-210 measured this AFTER both of PLAN slice 5c's
+defects were fixed: the spread collapses to float round-trip precision (see
+that ADR for the full before/after tables at both tiers).
 
-  (a) the criteria are the same function up to an additive constant (identical
-      argmin) and the flip came from the optimiser, or
-  (b) they are genuinely different functions of ``sp``.
-
-Evaluating BOTH criteria at the SAME fixed ``sp``, at several well-separated points,
-discriminates them and involves no optimiser at all. A CONSTANT difference means
-(a) — same argmin, criterion exonerated. A VARYING difference means (b).
-
-WHY THE SECOND HALF EXISTS. If the difference varies, the shape says where to look.
-``log|S|+`` is the generalised determinant over the POSITIVE eigenvalues of
-``S = sum_j lambda_j S_j``, so it needs a null-space cut, and
-``gam_reml.reml_score_general`` uses a fixed relative tolerance. The null-space
-dimension of ``S`` is a property of the MODEL — constant for any strictly positive
-lambda — so a rank that MOVES with lambda is the defect. This script reports the
-rank at three plausible tolerances, and then applies the null-space correction
-analytically to test whether the tolerance CAUSES the discrepancy or merely
-correlates with it: counting ``k`` extra eigenvalues as positive raises
-``log|S|+`` by ``sum(log e_i)``, moving the score by ``-sum(log e_i)/2``.
-
-WHY THAT CORRECTION IS COMPLETE, AND WHEN IT WOULD STOP BEING. ``log|S|+`` is not
-the only rank-dependent term in ``reml_score_general``: the score also carries
-``-(p - positive.size) * log(gamma) / 2``, which moves with the rank too. It
-vanishes identically at ``gamma = 1.0``, the default this script uses and the one
-every measurement here was taken at, so the analytic correction below is the WHOLE
-effect of the cut rather than part of it. **At any other gamma it would be partial
-and silently so**, understating or overstating the correction by
-``(k * log(gamma)) / 2``. Raised by the PR #213 round-2 review; stated here because
-it is load-bearing and invisible at the call site.
+`deviance` is the companion quantity `REML_SCORE_CLAIM` already carries, for
+the identical reason: it rules out the most plausible harness artifact
+(`mgcv` rescaling the supplied penalty via `gam.control()$scalePenalty`,
+which would make both sides fit at a different effective lambda and turn
+the whole comparison into an artifact) independently of whether the score
+formula itself is right.
 
 Usage:
     Rscript scripts/gam_fixed_sp_score_probe.R out.json
@@ -52,13 +50,11 @@ import numpy as np
 
 from polaris_re.analytics.gam_model import assemble_model_design, resolve_family
 from polaris_re.analytics.gam_model_conformance import _multiterm_model_spec
-from polaris_re.analytics.gam_reml_optimize import penalized_fit_and_score
-
-# The tolerance gam_reml.reml_score_general ships with, and a tighter one used ONLY
-# to demonstrate causation. Neither is proposed as a fix: PLAN slice 5c implements
-# Wood (2011) Appendix B, and Wood rules the tolerance approach out explicitly.
-SHIPPED_TOL = 1e-10
-TIGHTER_TOL = 1e-12
+from polaris_re.analytics.gam_reml_optimize_conformance import (
+    FIXED_SP_MULTITERM_REML_CLAIM,
+    compare_fixed_sp_multiterm_case,
+)
+from polaris_re.core.verification import evidence_markdown
 
 
 def main(payload_path: str) -> None:
@@ -76,60 +72,36 @@ def main(payload_path: str) -> None:
     design = assemble_model_design(model, data)
     family = resolve_family(model.family, model.link)
     weights = data["ExposCnt"]
-    blocks = design["penalty_blocks"]
-    p = design["x"].shape[1]
+    blocks = tuple(design["penalty_blocks"])
 
-    print(f"n={len(y)}  p={p}  blocks={len(blocks)}")
+    comparison = compare_fixed_sp_multiterm_case(
+        y, design["x"], family, blocks, weights, tuple(payload["points"])
+    )
+
+    print(f"n={len(y)}  p={design['x'].shape[1]}  blocks={len(blocks)}")
     print(f"mgcv {payload['mgcv_version']} / {payload['r_version']}")
     print()
-    print(
-        f"{'point':<14}{'spread':>7}{'ours':>13}{'mgcv':>13}"
-        f"{'raw diff':>13}{'corr diff':>13}{'k':>3}"
-        f"{'r@1e-10':>9}{'r@1e-12':>9}"
-    )
-    print("-" * 107)
-
-    raw: list[float] = []
-    corrected: list[float] = []
-    for row in payload["points"]:
-        log_lambda = np.asarray(row["log10_sp"], dtype=np.float64)
-        _coef, ours = penalized_fit_and_score(
-            y, design["x"], family, blocks, log_lambda, weights=weights
-        )
-        mgcv_score = float(row["mgcv_score"])
-
-        s = np.zeros((p, p), dtype=np.float64)
-        for lam, block in zip(10.0**log_lambda, blocks, strict=True):
-            s = s + lam * block
-        eig = np.linalg.eigvalsh(s)
-        largest = eig.max()
-        kept_shipped = eig > max(largest, 1e-300) * SHIPPED_TOL
-        kept_tight = eig > max(largest, 1e-300) * TIGHTER_TOL
-        extra = eig[kept_tight & ~kept_shipped]
-        ours_corrected = ours - np.sum(np.log(extra)) / 2.0
-
-        raw.append(ours - mgcv_score)
-        corrected.append(ours_corrected - mgcv_score)
+    print(evidence_markdown(FIXED_SP_MULTITERM_REML_CLAIM))
+    print()
+    print(f"{'point':<14}{'spread':>7}{'ours':>13}{'mgcv':>13}{'score diff':>13}{'dev diff':>11}")
+    print("-" * 71)
+    for point in comparison.points:
+        spread = float(point.log10_sp.max() - point.log10_sp.min())
         print(
-            f"{row['name']:<14}{log_lambda.max() - log_lambda.min():>7.2f}"
-            f"{ours:>13.5f}{mgcv_score:>13.5f}"
-            f"{ours - mgcv_score:>13.5f}{ours_corrected - mgcv_score:>13.5f}"
-            f"{extra.size:>3d}{int(kept_shipped.sum()):>9d}{int(kept_tight.sum()):>9d}"
+            f"{point.name:<14}{spread:>7.2f}{point.ours_score:>13.5f}"
+            f"{point.mgcv_score:>13.5f}{point.score_diff:>13.5f}"
+            f"{point.deviance_diff:>11.3e}"
         )
-
-    raw_arr = np.asarray(raw)
-    corr_arr = np.asarray(corrected)
-    raw_spread = float(raw_arr.max() - raw_arr.min())
-    corr_spread = float(corr_arr.max() - corr_arr.min())
-    print("-" * 107)
-    print(f"SPREAD, shipped cut {SHIPPED_TOL:g}: {raw_spread:.6f}")
-    print(f"SPREAD, tighter cut {TIGHTER_TOL:g}: {corr_spread:.6f}")
-    print(f"reduction factor: {raw_spread / max(corr_spread, 1e-15):.1f}x")
+    print("-" * 71)
+    print(f"SPREAD (ours - mgcv, score): {comparison.score_diff_spread:.6f}")
+    print(f"MAX ABS DEVIANCE DIFF: {comparison.max_abs_deviance_diff:.6e}")
     print()
     print(
-        "A spread that is NOT ~0 under the shipped cut means the criterion itself "
-        "moves with sp.\nA spread that collapses under the tighter cut means the "
-        "null-space cut is the cause,\nnot a correlate — see PLAN slice 5c."
+        "A score spread that is NOT ~0 means the criterion itself moves with sp\n"
+        "relative to mgcv's; ~0 means the two criteria agree up to an additive\n"
+        "constant at every tested point. A large deviance diff would point at a\n"
+        "rescaled-penalty harness artifact rather than the criterion itself —\n"
+        "see the module docstring."
     )
 
 

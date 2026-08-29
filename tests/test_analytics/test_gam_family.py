@@ -288,6 +288,102 @@ class TestPearsonDispersion:
         assert phi > 1.3
 
 
+class TestObservedInformationWeight:
+    """``docs/PLAN_mgcv_parity_engine.md`` slice 5c, Defect B — Wood (2011)
+    Section 3.2's OBSERVED-Hessian weight, ``alpha_i * w_i^F``.
+
+    Self-consistency only, same framing as the rest of this file: a
+    canonical-link identity that follows from the textbook fact that Fisher
+    scoring and Newton's method coincide for a canonical link, and a
+    central-difference cross-check against the definition
+    ``W_ii = 0.5 * d^2 D_i / d eta_i^2`` directly (independent of the
+    ``alpha_i`` algebra, since it never touches ``V'`` or ``d2mu_deta2``).
+    """
+
+    def test_alpha_is_exactly_one_for_poisson_log_canonical_link(
+        self, rng: np.random.Generator
+    ) -> None:
+        n = 500
+        eta = rng.normal(scale=1.5, size=n)
+        family = poisson_log()
+        mu = family.link.linkinv(eta)
+        y = rng.poisson(mu).astype(np.float64)
+        weights = np.ones(n)
+
+        fisher = weights * family.link.mu_eta(eta) ** 2 / family.variance(mu)
+        observed = family.observed_information_weight(y, eta, weights)
+        assert observed == pytest.approx(fisher, rel=1e-9, abs=1e-12)
+
+    def test_alpha_is_exactly_one_for_binomial_logit_canonical_link(
+        self, rng: np.random.Generator
+    ) -> None:
+        n = 500
+        eta = rng.normal(scale=1.5, size=n)
+        family = binomial_logit()
+        mu = family.link.linkinv(eta)
+        trials = np.full(n, 20.0)
+        y = np.round(trials * mu) / trials
+        weights = trials
+
+        fisher = weights * family.link.mu_eta(eta) ** 2 / family.variance(mu)
+        observed = family.observed_information_weight(y, eta, weights)
+        assert observed == pytest.approx(fisher, rel=1e-9, abs=1e-12)
+
+    def test_alpha_differs_from_one_for_cloglog_non_canonical_link(
+        self, rng: np.random.Generator
+    ) -> None:
+        """The non-canonical case Wood warns about — the observed and
+        expected weights must NOT coincide here, or this whole module has
+        no effect for the target formula's own family/link."""
+        n = 500
+        eta = rng.normal(scale=1.0, size=n)
+        family = binomial_cloglog()
+        mu = family.link.linkinv(eta)
+        trials = np.full(n, 20.0)
+        y = np.round(trials * mu) / trials
+        weights = trials
+
+        fisher = weights * family.link.mu_eta(eta) ** 2 / family.variance(mu)
+        observed = family.observed_information_weight(y, eta, weights)
+        assert not np.allclose(observed, fisher, rtol=1e-6)
+
+    def test_cloglog_matches_the_finite_difference_definition_directly(
+        self, rng: np.random.Generator
+    ) -> None:
+        """Cross-check against ``W_ii = 0.5 * d^2 D_i / d eta_i^2`` by
+        central-differencing the PER-OBSERVATION deviance in ``eta`` —
+        the definition itself (``l = l_sat - D/(2*phi)`` at ``phi=1``),
+        computed without going anywhere near ``alpha_i``, ``V'`` or
+        ``d2mu_deta2``. Independent of the analytic route this module
+        implements, unlike ``TestMatchesWoodsFormulaDirectly``-style tests
+        elsewhere that recompute the same intermediate calls."""
+        n = 300
+        eta = rng.normal(scale=1.0, size=n)
+        family = binomial_cloglog()
+        mu = family.link.linkinv(eta)
+        trials = np.full(n, 30.0)
+        y = np.round(trials * mu) / trials
+        weights = trials
+        step = 1e-5
+
+        def deviance_terms(e: np.ndarray) -> np.ndarray:
+            mu_e = np.clip(family.link.linkinv(e), 1e-12, 1.0 - 1e-12)
+            y_c = np.clip(y, 1e-12, 1.0 - 1e-12)
+            return (
+                2.0
+                * weights
+                * (y_c * np.log(y_c / mu_e) + (1.0 - y_c) * np.log((1.0 - y_c) / (1.0 - mu_e)))
+            )
+
+        finite_difference_hessian = (
+            0.5
+            * (deviance_terms(eta + step) - 2.0 * deviance_terms(eta) + deviance_terms(eta - step))
+            / step**2
+        )
+        analytic = family.observed_information_weight(y, eta, weights)
+        assert analytic == pytest.approx(finite_difference_hessian, rel=2e-3, abs=1e-3)
+
+
 class TestValidateFamilyInputs:
     def test_rejects_mismatched_shapes(self) -> None:
         x = np.ones((5, 2))

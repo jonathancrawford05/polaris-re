@@ -192,13 +192,16 @@ def finite_difference_rho_hessian(
     p = design.shape[1]
 
     def score_at(offsets: np.ndarray) -> float:
+        lambdas = np.exp(rho + offsets)
         s_total = np.zeros((p, p), dtype=np.float64)
-        for lam_k, block in zip(np.exp(rho + offsets), penalties, strict=True):
+        for lam_k, block in zip(lambdas, penalties, strict=True):
             s_total = s_total + lam_k * block
         fit = penalized_irls_general(
             design, y, family=family, penalty=s_total, weights=prior_weights
         )
-        return reml_score_general(y, design, family, fit.coef, s_total, weights=prior_weights)
+        return reml_score_general(
+            y, design, family, fit.coef, penalties, lambdas, weights=prior_weights
+        )
 
     zero = np.zeros(m, dtype=np.float64)
     centre = score_at(zero)

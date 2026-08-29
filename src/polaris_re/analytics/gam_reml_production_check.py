@@ -220,7 +220,8 @@ def corrected_reml_score(
     design: np.ndarray,
     offset: np.ndarray,
     coef: np.ndarray,
-    penalty: np.ndarray,
+    penalty_blocks: tuple[np.ndarray, ...],
+    lambdas: np.ndarray,
     gamma: float = 1.0,
 ) -> float:
     """The Dₚ-based corrected score for a Poisson/log/offset fit — diagnostic only.
@@ -230,10 +231,32 @@ def corrected_reml_score(
     IS the corrected version of ``experience_gam_penalized.reml_score`` for
     this family, a relationship pinned by an existing test rather than
     asserted fresh here.
+
+    ``penalty_blocks``/``lambdas`` are the INDIVIDUAL, already-full-width
+    penalty blocks and their smoothing parameters (PLAN slice 5c:
+    ``reml_score_general`` needs them separately, not pre-summed, to run
+    Appendix B's structural rank determination) — for this module's own
+    fixture, ``(s_age, s_year)`` and ``(lambda_age, lambda_year)``. Slice
+    5c's Defect B (the observed-Hessian weight) is a no-op for this
+    module's family: ``poisson_log()``'s log link is CANONICAL, so
+    ``alpha_i == 1`` identically (see
+    ``Family.observed_information_weight``'s own canonical-link tests) —
+    this function's output changes only if slice 5c's Defect A (Appendix
+    B's null-space determination) disagrees with the naive cut at this
+    cell's own smoothing parameters, which is exactly the "same defect,
+    other module" question this file exists to answer.
     """
     weights = np.ones(deaths.shape[0], dtype=np.float64)
     return reml_score_general(
-        deaths, design, poisson_log(), coef, penalty, offset=offset, weights=weights, gamma=gamma
+        deaths,
+        design,
+        poisson_log(),
+        coef,
+        penalty_blocks,
+        lambdas,
+        offset=offset,
+        weights=weights,
+        gamma=gamma,
     )
 
 
@@ -281,7 +304,13 @@ def measure_production_score_gap(
         export.deaths, export.design, export.offset, coef, penalty, gamma
     )
     corrected = corrected_reml_score(
-        export.deaths, export.design, export.offset, coef, penalty, gamma
+        export.deaths,
+        export.design,
+        export.offset,
+        coef,
+        (export.s_age, export.s_year),
+        np.array([lambda_age, lambda_year]),
+        gamma,
     )
     return ProductionScoreGap(
         cell=cell_name,
@@ -330,15 +359,26 @@ def _fit_and_score_both(
     if context is None:  # pragma: no cover - fit() always sets it
         raise PolarisComputationError("fit() did not record its design context.")
     design = context.design
-    penalty = np.zeros((design.shape[1], design.shape[1]), dtype=np.float64)
+    p = design.shape[1]
+    penalty = np.zeros((p, p), dtype=np.float64)
     penalty[: context.n_tensor, : context.n_tensor] = (
         10.0**log_age * context.s_age + 10.0**log_year * context.s_year
     )
+    s_age_full = np.zeros((p, p), dtype=np.float64)
+    s_age_full[: context.n_tensor, : context.n_tensor] = context.s_age
+    s_year_full = np.zeros((p, p), dtype=np.float64)
+    s_year_full[: context.n_tensor, : context.n_tensor] = context.s_year
     current = production_reml_score(
         context.deaths, design, context.offset, fit.coef, penalty, gamma
     )
     corrected = corrected_reml_score(
-        context.deaths, design, context.offset, fit.coef, penalty, gamma
+        context.deaths,
+        design,
+        context.offset,
+        fit.coef,
+        (s_age_full, s_year_full),
+        np.array([10.0**log_age, 10.0**log_year]),
+        gamma,
     )
     return fit.coef, current, corrected
 

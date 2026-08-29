@@ -91,10 +91,9 @@ The rejected-grid-point columns are the direct evidence for slice 4's first piec
 - **`mgcv` parity and coverage are different claims.** The row above says this band is the same object `mgcv` computes. It does not say that object is well-calibrated — that is what the coverage column measures, and the two could in principle disagree. Read them as two facts, not one.
 
 <!-- measurement-provenance
-fingerprint: 5fd1f0d1139f59771c4fe07bf139dae531f0e1de8d29dd3c74eb00afecf7a065
-generated: 2026-08-24
+fingerprint: c3d93f8873cb80ff4bab8d93b907bb9b9fcaa6aec72bc157fb35174112575d19
+generated: 2026-08-29
 producer: scripts/unconditional_coverage_study.py
-method: asserted
-head: 0131391
-note: closure drifted 2026-08-24 by an inert change: utils/table_io.py's missing-table FileNotFoundError message. Raised only inside 'if not path.exists()', so no successful run reaches it and no measured quantity can differ — RUNBOOK section 2 case (c), claim recorded in ADR-204 amendment 1. Not re-run: route (a) costs a 200-replicate study for a provably inert edit.
+method: regenerated
+head: e30d2b5
 -->

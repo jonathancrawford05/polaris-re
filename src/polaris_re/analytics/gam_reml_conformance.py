@@ -205,8 +205,9 @@ def score_reml_point(
     any R-payload-shaped argument at all).
     """
     fit = _independent_fit(x, s1, s2, y, weights, sp)
-    penalty = sp[0] * s1 + sp[1] * s2
-    return reml_score_general(y, x, binomial_logit(), fit.coef, penalty, weights=weights)
+    return reml_score_general(
+        y, x, binomial_logit(), fit.coef, (s1, s2), np.asarray(sp), weights=weights
+    )
 
 
 def deviance_reml_point(

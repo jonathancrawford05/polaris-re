@@ -14,9 +14,14 @@
 #                          criterion is NOT the defect
 #   varies with sp      -> a genuine sp-dependent criterion discrepancy
 #
-# This reads mgcv's own score, so it is a DIAGNOSTIC, never committed parity
-# evidence -- same status as gam_deriv_probe.R / gam_vc_probe.R / the existing
-# gam_multiterm_sp_delta_probe.R.
+# This R side is mgcv's own independent fit and score/deviance at a
+# caller-supplied fixed sp -- it never reads Python's score, so pairing it
+# with gam_reml_optimize_conformance.compare_fixed_sp_multiterm_case (which
+# never reads mgcv's eta/coef either) is INDEPENDENT parity evidence, the
+# same mechanical shape as gam_reml_conformance.score_reml_point /
+# REML_SCORE_CLAIM (PR #215 review [P1-1]; an earlier revision of this
+# comment called it DIAGNOSTIC, written while reml_score_general was still
+# the suspect rather than the verified criterion -- ADR-210 fixed it).
 #
 # Data generation is byte-identical to scripts/gam_multiterm_free_sp_probe.R and
 # scripts/gam_multiterm_sp_delta_probe.R (same seed, same n, same knots), so the
@@ -80,7 +85,10 @@ main <- function(argv) {
       data = df, family = binomial(link = "cloglog"), weights = ExposCnt,
       knots = knots_arg, sp = 10^lg, method = "REML"
     )
-    list(name = nm, log10_sp = lg, mgcv_score = as.numeric(m$gcv.ubre))
+    list(
+      name = nm, log10_sp = lg, mgcv_score = as.numeric(m$gcv.ubre),
+      mgcv_deviance = as.numeric(m$deviance)
+    )
   })
 
   out <- list(

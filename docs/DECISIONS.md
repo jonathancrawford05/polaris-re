@@ -17998,3 +17998,393 @@ does not decide the `sp`-versus-`edf` question, which remains maintainer-reserve
   that were false for eight days. **The durable fix is to thin the box to a pointer
   rather than a partial restatement**, which is a maintainer edit and a named
   follow-up, not something this ADR can do.
+
+## ADR-210: Slice 5c — Wood (2011) Appendix B closes the fixed-`sp` gap to float precision; free-`sp` re-lands on an optimiser finding, not a criterion one
+
+**Date:** 2026-08-29
+**Status:** **Accepted for Defects A and B — both fixed, tier 1 AND tier 3
+confirmed identical (CI runs 33267701996/33267879635): the fixed-`sp` spread
+reads exactly `0.000000` at tier 3's print precision.** The work order's own
+registered prediction (PLAN slice 5c §4)
+lands on its **third branch**: fixed-`sp` closes to float precision, but free-`sp`
+selection on ADR-208's own N=4 structure does **not** follow it there — for a newly
+localised reason (below) that is itself the most valuable result this slice
+produces, and one the maintainer should see before slice 6 is unblocked.
+**Implements:** `docs/PLAN_mgcv_parity_engine.md` slice 5c, in full for Defects A
+and B; the registered prediction's third branch is a new finding, not itself
+implemented.
+
+### What was built
+
+`src/polaris_re/analytics/gam_reml_appendix_b.py` — Wood's Appendix B whole, per
+the PLAN's scope ("build it all, wire only the determinant"):
+
+- `appendix_b_transform(blocks, lambdas)`: the pre-step (a Frobenius-normalized,
+  UNWEIGHTED average of the blocks isolates any `lambda`-independent shared null
+  space — Appendix B's "S not formally full rank"), then the iterative
+  dominant/subordinate split (`_dominant_split`, cube-root-machine-epsilon
+  threshold on each block's own `Omega_i = ||S_bar_i||_F * lambda_i`), the
+  structural rank determination (`_formal_rank`, `eps^0.8` on the dominant
+  terms' own Frobenius-normalized sum — Wood's stated `[0.7, 0.9]` range, not
+  the shipped `1e-10`), the similarity-transform peel-off (steps 5-7: the
+  subordinate terms' small leakage into the dominant directions is folded in
+  via `d_r + u_r^T @ S_subordinate @ u_r` before finalizing them), and a
+  pivoted-QR determinant on each resolved block (Wood: QR "operates on columns
+  without mixing them", which Choleski or symmetric eigen would not without an
+  extra pre-conditioning step).
+- Returns `AppendixBResult(logdet_s_plus, rank, e)`. `e` (shape `(rank, q)`,
+  `E^T @ E == S` restricted to its positive eigenspace) and the accumulated
+  orthogonal transform `Q_s` are built and tested on their own terms — **not
+  adopted by the fitter in this slice**, exactly the PLAN's scope line. They
+  exist so a later adoption (needed only if PIRLS ever moves to Newton's method
+  for a non-canonical link, Wood Section 3.3) starts from a component already
+  known correct rather than from an orientation bug an invariant is hiding
+  (see mutation 6 below).
+
+`src/polaris_re/analytics/gam_family.py` — `Family.observed_information_weight`,
+Wood (2011) Section 3.2's Defect B:
+
+```
+alpha_i = 1 + (y_i - mu_i) * (V'(mu_i)/V(mu_i) + g''(mu_i)/g'(mu_i))
+w_i^observed = alpha_i * w_i^Fisher
+```
+
+stated in `eta` rather than `mu` (`g''(mu)/g'(mu) = -d2mu_deta2(eta) /
+mu_eta(eta)^2`, by the chain rule) because every call site already has `eta`
+on hand and re-deriving through `mu` a second time would reintroduce the
+numerical-stability problem `mu_eta` exists to avoid. `Link` gained
+`d2mu_deta2`; `Family` gained `variance_prime` — both required constructor
+arguments, supplied for all four families this module defines (`poisson_log`,
+`quasipoisson_log` (inherits `poisson_log`'s), `binomial_logit`,
+`binomial_cloglog`).
+
+**Verified analytically before any R round trip**
+(`tests/test_analytics/test_gam_family.py::TestObservedInformationWeight`):
+`alpha_i == 1` EXACTLY for both canonical links this module defines
+(`poisson_log`, `binomial_logit`) — the textbook fact that Fisher scoring and
+Newton's method coincide for a canonical link, derived here rather than
+assumed. `binomial_cloglog` (non-canonical — the target formula's own link)
+gives `alpha_i != 1`, and the analytic weight is cross-checked against a
+central-difference of the definition itself
+(`W_ii = 0.5 * d^2 D_i / d eta_i^2`) computed independently of `alpha_i`,
+`V'` or `d2mu_deta2` — agrees to `2e-3` relative (the finite-difference
+step's own error floor, consistent with the PLAN's own note that route 2
+"cannot demonstrate closure at tier 3").
+
+`src/polaris_re/analytics/gam_reml.py` — `reml_score_general` now takes
+`penalty_blocks`/`lambdas` in place of one caller-summed `penalty`: Appendix
+B needs the individual blocks to determine `S`'s rank structurally, and a
+pre-summed matrix cannot be un-summed back into them. `log|S|+` now comes
+from `appendix_b_transform` (both `logdet_s_plus` and `rank`, from the SAME
+call, so the `(p - r) * log(gamma)` term and the determinant can never
+disagree about what "positive" means). `log|X'WX + S|` now uses
+`Family.observed_information_weight` in place of the plain Fisher weight —
+the one-line change Defect B needed. Every other term (the penalized
+deviance `Dp = D(beta_hat) + beta_hat^T S beta_hat`, ADR-196's own fix) is
+untouched. All five production call sites
+(`gam_reml_optimize.penalized_fit_and_score`, `gam_reml_conformance.
+score_reml_point`, `gam_reml_production_check.corrected_reml_score` (both
+its call sites), `gam_uncertainty_conformance.finite_difference_rho_hessian`)
+updated to pass blocks/lambdas; ~13 test call sites likewise.
+
+### Term-by-term audit against Wood eq. (4) — the `[judgement]` item PR #213's
+### round-3 review named, because three defects have now been found in this
+### one function one at a time
+
+`V = Dp/(2*gamma) + log|X'WX + S|/2 - log|S|+/2 - (p - r)*log(gamma)/2`
+
+| Term | Verified against Wood, or defective? |
+|---|---|
+| `Dp = D(beta_hat) + beta_hat^T S beta_hat` | **Verified** — ADR-196's own fix, untouched by this slice. `S` here is the caller-SUMMED `sum_j lambda_j * penalty_blocks[j]`, matching eq. (4)'s own `S = sum_j lambda_j S_j`. |
+| `log\|X'WX + S\|` | **Was defective (Defect B), now fixed.** `W` must be the OBSERVED Hessian's diagonal (Wood: `H = -d2l/d(beta)d(beta)^T`); the prior code used the EXPECTED (Fisher) weight, correct only for a canonical link. `Family.observed_information_weight` supplies Wood Section 3.2's `alpha_i`-scaled weight now. |
+| `log\|S\|+` | **Was defective (Defect A), now fixed.** Wood's generalized determinant over `S`'s POSITIVE eigenspace, with the eigenspace determined STRUCTURALLY (Appendix B) rather than by a single fixed-tolerance cut on the eigenvalues of the summed `S` — Section 3.1's "numerical zero leakage". |
+| `(p - r) * log(gamma)` | **Verified**, and now uses the SAME `r` (Appendix B's structural rank) the `log\|S\|+` term uses — previously `r` came from the same fixed-tolerance cut Defect A replaces, so this term inherited Defect A's error too; fixed as a consequence of fixing `log\|S\|+`, not a fourth defect. |
+| The `1/(2*gamma)` scaling of `Dp`, and the `0.5 *` on every term | **Verified** against eq. (4) directly — unchanged by this slice, and pinned by `TestClosedFormSingleColumnCase`'s hand-worked scalar arithmetic (no `slogdet`/`eigvalsh` call on the expected side at all). |
+
+No fourth defect found. The two found here are exactly the two the PLAN
+registered in advance (title: "TWO defects, Wood (2011) Section 3.1/Appendix
+B and eq. (4)") — the audit did not turn up a surprise, which is itself
+worth recording given the function's history.
+
+### The mutation protocol — six mutations, two caught, four not, recorded
+### honestly rather than manufactured
+
+Per PLAN slice 5c's own instruction: for each mutation, apply it, run the
+R-free suite, record which test fails (or that none does) and why.
+
+| # | mutation | caught by | verdict |
+|---|---|---|---|
+| 1 | skip the `Lambda-hat-0 = 0` truncation entirely (`_formal_rank` always returns `dim`) | **nothing** | Every fixture tried — including the target model's own four real blocks at its own measured `sp` — has the SAME termination behaviour whether or not the truncation runs, because the case that would expose it (a dominant block's OWN null space corrupted by floating-point noise from a genuinely ill-conditioned matrix PRODUCT, not a clean synthetic construction) could not be built by hand in the time budgeted. Recorded as an open test-coverage gap, not silently patched over. |
+| 2 | replace the pivoted-QR determinant with plain `slogdet` | **nothing** | By the time `_pivoted_qr_logdet` is called, the algorithm's OWN separation has already isolated a well-conditioned block — Wood's argument for QR concerns the FULL, still-poorly-conditioned matrix, which this code path never hands the determinant step in any fixture tried. Same open gap as mutation 1, same reason: needs a case where the separation itself is imperfect, not merely absent. |
+| 3 | machine epsilon instead of its cube root, for the dominant/subordinate split | **nothing** | In every fixture tried, block `Omega` ratios land either far above or far below the threshold, never in the narrow band the exponent choice would decide. |
+| 4 | fixed `1e-10` instead of `eps^0.8` for the in-loop rank cut — reintroduces the shipped defect's own constant, ONE LEVEL DOWN (inside the already-separated dominant block, not on the raw summed `S`) | **nothing** | Every rank-deficient fixture's null eigenvalues sit at pure floating-point noise (~1e-15 relative to the dominant scale) once separated, and `1e-10` and `eps^0.8` (~3e-13) both correctly exclude noise at that level — the two thresholds only diverge for an eigenvalue that is small-but-genuinely-not-noise, which no fixture tried constructs. |
+| 5 | skip the pre-step (`u_plus = eye(q)`, never project out a shared null space) | `TestKnownRankSynthetic::test_shared_null_space_across_two_blocks` | **CAUGHT** — reports rank 5 where the true, `lambda`-independent shared null space makes it 4. |
+| 6 | transpose the accumulated similarity transform `Q_s` where it is built | `TestEReconstructsS::test_e_reconstructs_s_on_the_target_models_own_four_blocks` | **CAUGHT**, but only by the THIRD attempt at a test for it. The first (axis-aligned block construction) never forces genuine dominant/subordinate separation at all — `_formal_rank` resolves everything in one step and the mutated code path is dead. The second (both blocks built from the SAME random rotation, to force a non-symmetric `u_full`) is accidentally simultaneously diagonalizable — `block1` and `block2` share eigenvectors, which gives the mutated and unmutated reconstructions an extra symmetry that happens to make them agree anyway. Only the target model's own four REAL penalty blocks (no engineered structure) exposed it, with `max abs diff` on the order of `max abs S` itself — not a rounding-level discrepancy, a essentially complete corruption. |
+
+**Read honestly: mutations 1-4 are a genuine test-coverage gap, not a
+harmless-variant finding.** Per the protocol's own instruction ("a mutation
+that leaves the suite green is a hole in the tests, not a harmless variant —
+fix the test and say so"), this is said here rather than papered over. What
+the investigation DID establish, empirically and reproducibly (mutations 2 and
+6's own diagnosis process): this repository's actual measured cases —
+including the target model's real four-block structure at its own measured
+`sp` values — do not exercise the specific numerical pathway those four
+constants exist to guard against, because the SEPARATION step (mutations 5
+and 6's own territory) is doing the load-bearing work for every case tried.
+Closing this gap needs a fixture with a genuinely ill-conditioned matrix
+PRODUCT (not a clean algebraic null space) where a dominant block's own
+near-zero eigenvalues are computed, not exact — filed as a follow-up (below)
+rather than forced within this session's budget.
+
+### Gap measurement (tier 1, R 4.3.3 / mgcv 1.9.1, apt)
+
+**Before (raw, shipped `1e-10` cut, expected/Fisher weight only) — the
+fixed-`sp` eight-point spread, same design as ADR-208's amendment
+(`n=900`, `p=86`, 4 blocks: reference-age `cr`, the by-term, `ti()`'s two
+margins):**
+
+| point | log10(sp) spread (decades) | ours - mgcv |
+|---|---:|---:|
+| `mgcv_opt` | 6.84 | -1734.81581 |
+| `python_opt` | 6.04 | -1735.66183 |
+| `flat_2` | 0.00 | -1734.82043 |
+| `flat_4` | 0.00 | -1734.82219 |
+| `flat_6` | 0.00 | -1734.82229 |
+| `mixed_lo_hi` | 6.00 | -1738.72658 |
+| `mixed_hi_lo` | 6.00 | -1736.41732 |
+| `mid` | 2.00 | -1734.81997 |
+
+**SPREAD (raw): 3.910776**
+
+**After (Appendix B + observed-Hessian weight, the ACTUAL production
+`reml_score_general`, not a diagnostic replica):**
+
+| point | ours - mgcv |
+|---|---:|
+| `mgcv_opt` | -1734.822702 |
+| `python_opt` | -1734.822702 |
+| `flat_2` | -1734.822703 |
+| `flat_4` | -1734.822702 |
+| `flat_6` | -1734.822702 |
+| `mixed_lo_hi` | -1734.822703 |
+| `mixed_hi_lo` | -1734.822702 |
+| `mid` | -1734.822703 |
+
+**SPREAD (both defects fixed): 4.271e-07** — a ~9.2-million-times reduction,
+at float round-trip precision. Compare the diagnostic-replica reading
+(Defect A alone: spread 0.003281; Defect A + a FINITE-DIFFERENCE Hessian:
+0.000098, `scripts/gam_hessian_weight_probe.py`) — the ANALYTIC weight
+implemented here closes roughly 230x further than the finite-difference
+cross-check could, exactly as the PLAN predicted ("Route 1 is the one that
+closes it. Route 2 is how the defect was found.").
+
+### The free-`sp` measurement — the registered prediction's THIRD branch,
+### and a new, more precise diagnosis
+
+PLAN slice 5c §4 registered three branches in advance. **Branch 3 landed:**
+"A alone" would shrink the spread ~3 orders and stop (refuted — fixing A
+alone already gets to 0.0033, and A+B gets to 4.27e-7, both far past "3
+orders"); "A + B" would close the FIXED-sp gap to arithmetic precision
+(**confirmed** — see above); but free-`sp` selection on ADR-208's own N=4
+structure does not follow: `max_abs_log10_sp_diff` measures **0.7560**
+(tier 1), against ADR-208's pre-fix **0.7766** — a small, not qualitative,
+move.
+
+**This is not evidence the criterion is still wrong.** The fixed-`sp`
+measurement above already shows the criterion agrees with `mgcv` to 4e-7 at
+EVERY tested point, including both sides' own free-`sp` optima. The
+discriminating measurement (evaluate our OWN, now-corrected criterion at
+BOTH mgcv's selected point and our own optimiser's converged point):
+
+```
+our criterion at PYTHON's own optimum: 612.6630
+our criterion at MGCV's own optimum:   612.6108
+delta (python - mgcv):                 +0.0523
+```
+
+**Our own optimiser's converged point scores WORSE, under our OWN criterion,
+than mgcv's point does.** That is not a criterion disagreement — it is our
+`select_lambdas_continuous` (SciPy L-BFGS-B, finite-difference gradient)
+failing to reach the true optimum of a criterion that is now demonstrably
+correct. Per-block, the disagreement concentrates in the `by`-term's own
+`lambda` (python `log10(sp) = 9.116` vs mgcv `9.872`, the single largest
+component of the 0.756 spread — matching ADR-208's own localisation to "the
+by-term's block", now under a corrected criterion instead of a suspect one).
+
+**This is the most valuable result this slice can report, and it reopens a
+question ADR-208 had provisionally closed.** ADR-208's amendment argued the
+free-`sp` disagreement was a CRITERION problem; this measurement, taken
+after the criterion is fixed, says it is instead (or also) an OPTIMISER
+problem on this specific N=4, `ti()`-sharing-a-span landscape. Both can be
+true at different points in the epic's history, and the discriminating test
+here does not distinguish "L-BFGS-B's finite-difference gradient is too
+imprecise on this surface" from "there are multiple near-tied optima and
+the search finds a different one than mgcv's own optimiser" — either would
+produce exactly this signature. **Escalated rather than chased further this
+session** (PLAN slice 5c's own DoD: *"escalated to the maintainer if the
+third branch is the outcome, because that reopens the epic's cost
+estimate"*) — see Consequences.
+
+### Nothing is re-pointed
+
+`gam_fit.penalized_irls_general` still receives the untransformed design and
+penalty (`tests/test_analytics/test_gam_family_conformance.py`,
+`test_gam_multiterm_conformance.py` pass unchanged).
+`experience_gam_penalized.py` is untouched. `corrected_reml_score`
+(`gam_reml_production_check.py`) now threads blocks/lambdas through to check
+`experience_gam_penalized.reml_score` for the SAME two defects — ADR-197's own
+precedent for running that check rather than assuming its answer.
+**Finding: no material difference** on that module's own well-conditioned
+two-block fixture (`TestCorrectedReMLScore` continues to pass at the SAME
+`1e-9`/`1e-12` tolerances ADR-197 established) — consistent with Wood's "the
+problem vanishes for a full rank S1" and this module's own `lambda`s never
+spanning the decades slice 5c's target structure does. `tests/qa/` goldens
+byte-identical.
+
+### Tier-3 confirmation
+
+CI run **33267701996** (initial dispatch) then **33267879635** (re-dispatch
+after the job-summary-visibility fix below), oracle digest
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+(build 8), 2026-08-29, this branch. Numbers below are read from job-log
+stdout (`get_job_logs`), not inferred from a `continue-on-error` step's
+`conclusion` — the same discipline ADR-194's slice-2 tier-3 row established.
+
+**Fixed-`sp` spread — CONFIRMED, and cleaner than the tier-1 reading.**
+`scripts/gam_fixed_sp_score_compare.py`'s own "raw diff" column (`ours` is
+the ACTUAL production `reml_score_general`, not a diagnostic replica) reads
+identically to the printed precision at every point:
+
+```
+point          spread         ours         mgcv     raw diff
+mgcv_opt         6.84    612.61076   2347.43346  -1734.82270
+python_opt       6.04    612.73157   2347.55428  -1734.82270
+flat_2           0.00    675.07093   2409.89363  -1734.82270
+flat_4           0.00    638.43254   2373.25524  -1734.82270
+flat_6           0.00    637.93836   2372.76106  -1734.82270
+mixed_lo_hi      6.00    638.99151   2373.81421  -1734.82270
+mixed_hi_lo      6.00    644.77208   2379.59478  -1734.82270
+
+SPREAD, shipped cut 1e-10: 0.000000
+```
+
+At 5-decimal print precision the spread is exactly zero — consistent with,
+and at least as tight as, the tier-1 reading (`4.271e-07`). **The script's
+own "corr diff"/"tighter cut" column is now STALE and must be ignored**:
+it was written to show what a TIGHTER manual cut would do to the OLD,
+pre-fix score, and now double-applies that adjustment on top of a score
+that already carries Appendix B's own correct rank determination — the
+`3.909281` it prints is an artifact of that double-correction, not a
+regression. Filed as a follow-up (below): update or retire that column,
+since its premise (the score under test still uses the naive cut) no
+longer holds.
+
+**Free-`sp` N=4 — CONFIRMED, and the residual is materially worse at tier 3
+than tier 1, which is itself informative.** `max_abs_log10_sp_diff` reads
+**1.0996** — larger than both this session's own tier-1 reading (0.7560)
+and ADR-208's pre-fix tier-3 reading (0.6398). The two dispatches (before
+and after the job-summary-visibility fix) agree on this figure exactly,
+ruling out a transient. **This does not weaken the optimiser-convergence
+diagnosis** — the discriminating measurement (our own criterion ranks
+mgcv's point better than our optimiser's own converged point) was taken at
+tier 1 and stands on its own regardless of the exact tier-3 magnitude; if
+anything, a LARGER tier-3 residual on the SAME structure the tier-1
+diagnosis already explained (an under-converged search on a landscape
+where the by-term's own `lambda` is weakly identified) is consistent with,
+not contrary to, "this is an optimiser problem, not a criterion problem" —
+a criterion-formula bug would be expected to produce a stable, reproducible
+error, not one that swings between two nominally-identical fixture draws
+under different R/BLAS. **Tier-3 re-running the discriminating measurement
+itself (mgcv's tier-3 point vs Python's tier-3 point, scored under our own
+criterion) is the natural next check and is NOT done in this session** —
+registered as part of PLAN slice 5d below rather than chased further here.
+
+**No regression:** required levels 1-3 of the ten-cell suite still agree on
+both dispatches (`Compare the two-block REML score`,
+`Check the production REML score for the same missing term` — the latter's
+own `max abs Hessian diff` column reads `0.000000e+00`/`4.29e-13`/`5.15e-13`
+across all three free-sp cells, i.e. bit-identical, confirming this
+session's tier-1 finding that `experience_gam_penalized.reml_score` shows
+no material change under the same two defects, now also at tier 3).
+
+**Re-confirmed a third time, CI run 33270274504, after the review-round-2
+fix below** (correct `VerificationClaim` attribution, `evidence_markdown()`
+headline, `deviance` companion added to the R payload): identical result
+under the newly-correct label — `SPREAD (ours - mgcv, score): 0.000000`,
+`MAX ABS DEVIANCE DIFF: 5.274874e-07` — confirming the fix to the EVIDENCE
+RECORD did not, and should not, move the underlying number.
+
+### Consequences
+
+- **Slice 6 (`bs = "sz"`) stays BLOCKED.** Fixed-`sp` closing to float
+  precision is real progress, but the free-`sp` optimiser finding above is a
+  NEW, unlocalised gap on the exact structure slice 6 would add a fourth
+  basis to — building on it now would compound rather than isolate the next
+  disagreement, the same reasoning PR #212's review applied to ADR-208.
+- **Registered as PLAN slice 5d** (below): localise whether the free-`sp`
+  residual is the optimiser's own convergence (gradient precision, restarts,
+  an analytic gradient using Appendix B's own derivative expressions the
+  PLAN already names) or a genuinely multi-modal criterion surface (mgcv's
+  own optimiser reaching a different local optimum than ours would on
+  repeated runs from different starts). Either answer unblocks slice 6;
+  neither is assumed here.
+- **The mutation-protocol gap (mutations 1-4) is filed as a follow-up**, not
+  silently closed — see PRODUCT_DIRECTION harvesting in the session log.
+- `E` and `Q_s` are now available, tested, and NOT adopted through the
+  fitter — a later session adopting Newton PIRLS for the non-canonical
+  `cloglog` link (Wood Section 3.3, needed only if negative observed weights
+  are found on real data) can build on them directly.
+- ~~**`scripts/gam_fixed_sp_score_compare.py`'s "tighter cut" column is now
+  stale**~~ **FIXED, same day (PR #215 review round 2).** The script now
+  declares and prints `FIXED_SP_MULTITERM_REML_CLAIM` via
+  `evidence_markdown()` instead of a hand-written headline, and the stale
+  correction logic is gone entirely rather than patched.
+
+### Amendment (2026-08-29, PR #215 automated review, same-day round 2)
+
+The review found zero P0s and zero test failures but held Changes
+Requested on one guardrail trip and two P1s — all about the EVIDENCE
+RECORD, not the mathematics (independently re-derived Defect B's formula
+and confirmed it exact; confirmed both DoD spot-checks). Fixed all three,
+plus every P2. Full detail in the session log's "Round 2" section; summary:
+
+- **[P1-1]** This ADR originally cited `REML_SCORE_CLAIM` for the fixed-`sp`
+  measurement above — WRONG, that claim covers a different fixture/producer
+  (ADR-196's 2-block, binomial-logit, `paraPen`-supplied `score_reml_point`,
+  not this slice's 4-block, binomial-cloglog, formula-built
+  `penalized_fit_and_score`). A new claim,
+  `gam_reml_optimize_conformance.FIXED_SP_MULTITERM_REML_CLAIM`, is declared
+  for the actual producer, with a `deviance` companion mirroring
+  `REML_SCORE_CLAIM`'s own `scalePenalty`-artifact rebuttal. Both quantities
+  are **INDEPENDENT** — the reviewer's own mechanical test on
+  `penalized_fit_and_score`'s signature confirmed this before the fix; what
+  was wrong was attribution, not classification. The R probe
+  (`gam_fixed_sp_score_probe.R`) and workflow step comments, which called
+  this DIAGNOSTIC (written before this slice fixed the criterion and never
+  revisited), are corrected to match.
+- **[P1-2]** `evidence_markdown(FIXED_SP_MULTITERM_REML_CLAIM)` now produces
+  the CI headline in place of a hand-written `f"SPREAD, shipped cut..."`.
+- **[P1-3]**, the guardrail trip: `test_score_equals_the_explicit_dp_formula`
+  had started calling `observed_information_weight`/`logdet_s_plus`
+  directly instead of independently re-deriving them, which the reviewer
+  flagged as compounding with the mutation-protocol gap (mutations 1-4
+  uncaught in exactly that code). Split into a canonical-link case (inlines
+  the plain Fisher weight, valid only because `alpha_i == 1` exactly for
+  `binomial_logit` — a textbook identity, not a call to the method proving
+  it) and a NEW non-canonical case (`binomial_cloglog`, inlining Wood's
+  `alpha_i` formula from the paper directly, with a sanity assertion that
+  `alpha != 1` on this fixture) — genuine independent re-derivation restored
+  for both branches Defect B's fix touches.
+- **[P2-1] through [P2-5]**: `reml_score_general`'s `Raises:` doc corrected
+  by fixing the CODE (two explicit `PolarisValidationError` checks now run
+  before either bare exception could fire); missing `dtype=np.float64` added
+  in three places; a dead `rng` dropped and a manual loop converted to
+  `pytest.mark.parametrize`; the perf creep verdict
+  (`has_structural_creep=False`, `has_wall_time_creep=False`,
+  `has_config_drift=False`) recorded; the order-cap placement item left as
+  is, per the reviewer's own reading that its tag and location were already
+  correct.
+
+New R-free test coverage:
+`tests/test_analytics/test_gam_reml_optimize_conformance.py` (the new
+comparison function and its claim's provenance gate).
