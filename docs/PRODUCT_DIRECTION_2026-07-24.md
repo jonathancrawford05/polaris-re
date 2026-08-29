@@ -2886,3 +2886,76 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   future slice needs tighter free-`sp` agreement at N>2, e.g. before adding
   `sz`/`select=TRUE` terms whose own smoothing parameters would compound the
   same flatness).*
+
+### Harvested 2026-08-29 — slice 5c CLOSES the criterion defect (ADR-210); the N=4 gap re-lands as an optimiser question, escalated
+
+- **Slice 5c IS NOW DONE.** Both defects PLAN slice 5c registered — Wood
+  (2011) §3.1's `log|S|+` null-space cut (Appendix B, built whole:
+  similarity transform, pivoted-QR determinant, the stable square root `E`)
+  and eq. (4)'s observed-Hessian weight (`Family.observed_information_weight`,
+  analytically exact `alpha_i=1` for both canonical links this module
+  defines) — are fixed in the PRODUCTION `reml_score_general`. The eight-point
+  fixed-`sp` spread against `mgcv` collapses from 3.910776 (raw, shipped) to
+  4.271e-07 (tier 1) / 0.000000 at tier 3's print precision — ~9.2 million
+  times smaller, identical at both tiers. *Source: this session, ADR-210
+  (1st-order — closes the epic's designated slice).*
+
+- **The registered prediction (PLAN slice 5c §4) lands on its THIRD branch —
+  the most valuable and most consequential result this session produced.**
+  Fixed-`sp` closes exactly as predicted. Free-`sp` selection on ADR-208's
+  own N=4 structure does NOT follow it there: `max_abs_log10_sp_diff` reads
+  0.7560 (tier 1) / **1.0996 (tier 3 — WORSE than the 0.6398 pre-fix
+  reading)**. The discriminating measurement (score both sides' points under
+  our OWN now-correct criterion) shows `mgcv`'s own selected point scoring
+  measurably BETTER than our optimiser's own converged point
+  (612.611 vs 612.663, tier 1) — **this re-diagnoses ADR-208's own finding**:
+  the N=4 free-`sp` disagreement is no longer a criterion problem (the
+  criterion is now settled, float precision, both tiers) but an OPTIMISER
+  CONVERGENCE problem on this specific `by`-term-dominated landscape.
+  *Source: this session, ADR-210 (1st-order — reopens the epic's cost
+  estimate for the free-`sp`/slice-6 path; explicitly flagged for maintainer
+  attention per slice 5c's own DoD, not absorbed as a routine finding).*
+
+- **Registered as PLAN slice 5d, with two named hypotheses and a cheap
+  tier-3 discriminator named before either needs new code.** (1) The
+  finite-difference gradient L-BFGS-B uses may be too imprecise on a
+  weakly-identified `lambda` — an analytic gradient exists to test this,
+  built in this session but unused (Appendix B's own derivative
+  expressions). (2) The surface may be genuinely multi-modal, distinguished
+  from (1) by multi-start restarts on the same fixture. *Source: this
+  session, ADR-210/PLAN slice 5d (1st-order — unblocks slice 6, which stays
+  BLOCKED with its reason restated rather than lifted).*
+
+- **Mutation-tested per the slice's own protocol, and reported honestly
+  rather than papered over.** 6 mutations applied; 2 caught by dedicated
+  tests (skip the pre-step; transpose the accumulated similarity transform),
+  4 NOT caught by any fixture attempted — including the target model's own
+  real four-block penalty structure at its own measured `sp`. The four
+  constants those mutations touch only matter in a regime (a dominant
+  block's own near-zero eigenvalues corrupted by genuine floating-point
+  roundoff from an ill-conditioned matrix product) no fixture built by hand
+  or drawn from this repository's own models currently exercises. *Source:
+  this session, ADR-210 (2nd-order, NICE-TO-HAVE — closing it needs a
+  harder-to-construct fixture than the two that succeeded; not blocking any
+  acceptance criterion, since the two mutations that WERE caught are the
+  ones the PLAN itself flagged as most load-bearing, mutation 6 especially).*
+
+- **`experience_gam_penalized.reml_score` checked for the same two defects
+  and found unaffected, at both tiers** — ADR-197's own precedent for
+  running that check rather than assuming its answer, now run twice more.
+  No material difference on that module's own well-conditioned two-block
+  fixture, consistent with Wood's "the problem vanishes for a full rank S1"
+  and that module's own `lambda`s never spanning the decades the target
+  structure does. *Source: this session, ADR-210 (2nd-order — confirms no
+  action needed on the production tensor-MI selector, PLAN Anchor 7).*
+
+- **A job-summary-artifact limitation this session's own new workflow step
+  reintroduced, caught and fixed same session.** The new fixed-`sp` compare
+  step initially wrote its output ONLY into `$GITHUB_STEP_SUMMARY`, invisible
+  to `get_job_logs` — the exact limitation `CONTINUATION_mgcv_parity_engine.md`'s
+  backlog already names for two other steps, self-inflicted this time.
+  `tee`'d to a file and re-dispatched before treating the run as sufficient
+  confirmation. *Source: this session (3rd-order, PARKED — a one-line
+  pattern fix, not a recurring risk once named; the two PRE-EXISTING
+  instances of this same limitation remain the 2nd-order backlog item they
+  already were).*

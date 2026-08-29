@@ -164,13 +164,55 @@ make them citable.
 **The work is registered as PLAN slice 5c**, which carries Wood's Appendix B
 algorithm in implementable detail, the scope boundary (fix the determinant only;
 do not adopt the reparameterisation through the fitter), and a registered
-prediction. **Slice 6 stays blocked until 5c closes it or restates why it cannot.**
-`1e-12` is *not* the fix — that is the tuned constant Anchor 8 forbids, and Wood
-rules the tolerance approach out explicitly: *"re-parameterization is preferable to
-simply limiting the working λ range."*
+prediction. `1e-12` is *not* the fix — that is the tuned constant Anchor 8
+forbids, and Wood rules the tolerance approach out explicitly:
+*"re-parameterization is preferable to simply limiting the working λ range."*
+
+> **Slice 5c is DONE, 2026-08-29 (ADR-210, tier 1 AND tier 3 confirmed identical,
+> CI runs 33267701996/33267879635).** Both defects — `log|S|₊`'s null-space cut
+> (Appendix B, built whole: the similarity transform, the pivoted-QR determinant,
+> the stable square root `E`) and the score's use of the expected/Fisher Hessian
+> where Wood eq. (4) needs the observed one (`Family.observed_information_weight`,
+> analytically exact `alpha_i=1` for both canonical links this module defines) —
+> are fixed in the ACTUAL production `reml_score_general`, not a diagnostic
+> replica. The eight-point fixed-`sp` spread against `mgcv` collapses from
+> **3.910776** (raw, shipped defect) to **4.271e-07** (tier 1) / **0.000000 at
+> tier 3's print precision** — float round-trip precision, identical at both
+> tiers, ~9.2 million times smaller than the standing defect. Mutation-tested:
+> 2 of 6 mutations caught by dedicated tests (skip the pre-step; transpose the
+> accumulated `Q_s`), 4 NOT caught by any fixture tried including the target
+> model's own real four-block structure — recorded as an honest test-coverage
+> gap in ADR-210 rather than papered over.
+>
+> **The work order's §4 registered prediction lands on its THIRD branch, and
+> this is the session's most important finding.** Fixed-`sp` closes exactly as
+> predicted. Free-`sp` selection on ADR-208's own N=4 structure does NOT follow
+> it there: `max_abs_log10_sp_diff` reads 0.7560 (tier 1) / **1.0996 (tier 3 —
+> WORSE than the 0.6398 pre-fix reading)**. But the discriminating measurement
+> (score both sides' points under our OWN now-correct criterion) shows `mgcv`'s
+> own selected point scoring measurably BETTER than our optimiser's own
+> converged point (612.611 vs 612.663, tier 1) — **this is an OPTIMISER
+> CONVERGENCE finding, not a criterion-formula one.** ADR-208's amendment had
+> attributed the N=4 free-`sp` disagreement to the criterion; that diagnosis is
+> now superseded for the *residual that remains after the criterion is fixed* —
+> the criterion itself is settled (float precision, both tiers), and what is
+> left is `select_lambdas_continuous`'s own convergence on this specific
+> `by`-term-dominated landscape.
+>
+> **Registered as PLAN slice 5d**, which is what unblocks slice 6 now — not 5c
+> a second time. Two live hypotheses (optimiser precision on a weakly-identified
+> `lambda`, versus a genuinely multi-modal surface `mgcv`'s own Newton-based
+> optimiser navigates differently than SciPy L-BFGS-B does), a cheap tier-3
+> discriminator named before either needs new code, and an explicit escalation
+> note per slice 5c's own DoD (a third-branch outcome reopens the epic's cost
+> estimate — this is a fact for the maintainer, not a session's call to absorb
+> silently). **Slice 6 stays blocked** — see slice 5d's own entry for why the
+> blocking reason changed rather than lifted.
 
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16), slice 5b
-(inserted 2026-08-24/25, ADR-207/ADR-208) and one deferred to a later epic.
+(inserted 2026-08-24/25, ADR-207/ADR-208), slice 5c (inserted 2026-08-25, DONE
+2026-08-29, ADR-210) and slice 5d (inserted 2026-08-29, ADR-210) plus one
+deferred to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
 
 > **This is the ACTIVE epic.** `CONTINUATION_penalized_mi_surface.md` is superseded from
@@ -761,6 +803,23 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 
 ## Open questions (for human)
 
+- **Slice 5c's registered prediction landed on its third branch — escalated per the
+  slice's own DoD** *(filed 2026-08-29, ADR-210)*. Both defects (Appendix B's
+  `log|S|+`, the observed-Hessian weight) are fixed and the fixed-`sp` criterion
+  now agrees with `mgcv` to float precision at both tiers — real, closed progress.
+  But free-`sp` selection on the N=4 structure ADR-208 already found disagreeing
+  is now WORSE at tier 3 (1.0996 vs the pre-fix 0.6398), and the cause has moved
+  from "the criterion is wrong" to "our optimiser (SciPy L-BFGS-B, finite-difference
+  gradient) is not converging to this now-correct criterion's true optimum, on this
+  specific `by`-term-dominated landscape" — a different, and possibly larger, kind
+  of gap than the epic's cost estimate assumed. Registered as PLAN slice 5d with
+  two named hypotheses and a cheap tier-3 discriminator; not chased further this
+  session per its own DoD ("escalated to the maintainer if the third branch is the
+  outcome, because that reopens the epic's cost estimate"). **Not this routine's
+  call to size**: whether an analytic-gradient optimiser rewrite belongs in this
+  epic's scope, or whether the free-`sp` acceptance bar for a 13-21-parameter
+  target needs to be restated given a 2-block optimiser (ADR-199) already needed
+  1e-4-level precision to demonstrate parity and a 4-block one does not reach it.
 - **The duration treatment on real data** — band as factor, or band as ordered numeric via
   a representative value. The maintainer has reserved this as a modelling judgement; the
   engine will support both and the routine is forbidden from deciding it.
