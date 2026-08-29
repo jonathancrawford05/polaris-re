@@ -5,10 +5,16 @@
 > choosing a path. This note does two things: reports a measurement run during the
 > recalibration that changes the picture, and sets out the causes I think are real.
 >
-> **Status: for maintainer decision.** Nothing here is adopted. §1's numbers are
-> **tier 1 only** and are therefore hypotheses, not results, under
-> `ROUTINE_MGCV_PARITY.md`'s own tier discipline — they must not be copied into
-> `DECISIONS.md`, `PLAN_*`, `CONTINUATION_*` or a docstring until tier 3 confirms them.
+> **Status: PARTIALLY ADOPTED, 2026-08-29 — ADR-209.** Proposals 1, 2 (rewritten) and
+> 4 are adopted; 3 and 5 are **not**, because both live outside the repository. See
+> §4, where each carries its disposition. **§3's five causes are the diagnosis and are
+> not themselves "adopted"** — they are why the proposals exist.
+>
+> **§1's numbers remain tier 1 only** — hypotheses, not results, under
+> `ROUTINE_MGCV_PARITY.md`'s own tier discipline. Adoption of the *process* proposals
+> changes nothing about that: they must not be copied into `DECISIONS.md`, `PLAN_*`,
+> `CONTINUATION_*` or a docstring until tier 3 confirms them. PLAN slice 5c step 1 is
+> the measurement that would.
 
 ---
 
@@ -339,21 +345,33 @@ year."* It does so here for a structural reason, not a numerical accident.
 
 ## 4. What I would change
 
+> **ADOPTED 2026-08-29 as ADR-209** — proposals 1, 2 (rewritten) and 4. Proposals 3
+> and 5 are **not** adopted: both live outside the repository, and neither is
+> something an ADR can implement. They stay open rather than being quietly closed by
+> association. **Proposal 2 was rejected as drafted and rewritten** — see below.
+
 Ordered by leverage, all of them maintainer decisions:
 
 1. ~~**Measure Anchor 2's primary metric now, on the three terms that fit.**~~
    **DONE this session — see §4.1.** Kept as a numbered item because the remaining
    half (the pinned grid, and promotion to a committed conformance case) is still a
    maintainer call.
-2. **Add a closure obligation to the routine.** Something with teeth and a subject:
+2. **Add a closure obligation to the routine.** ~~Something with teeth and a subject:
    an open gap names who closes it and by when, or a session that opens its Nth gap
-   must close one first. §3.2 is currently unbounded by construction.
-3. **Give the maintainer queue a cadence** — a standing slot that clears reserved
+   must close one first.~~ **REJECTED AS DRAFTED** — that penalises a session for
+   *reporting* a gap, inverting the routine's own best rule (*"an INDEPENDENT
+   comparison that DISAGREES is a SUCCESS"*) and pushing sessions toward not looking.
+   **Adopted instead (ADR-209 decision 1):** a gap must be closed, or **registered as
+   a slice in the PLAN with a release condition**. Prose in an open-questions list is
+   not registration, because the work-selection rule cannot reach it. That is the
+   mechanism this epic proved twice (slices 5b and 5c) and saw fail twice (the
+   assembler named by three ADRs; the localisation filed and un-run).
+3. **NOT ADOPTED — yours.** **Give the maintainer queue a cadence** — a standing slot that clears reserved
    decisions. Seven items is already the critical path.
-4. **Add "run it if it is under an hour" to the review norm.** A cheap measurement
+4. **ADOPTED (ADR-209 decision 2).** **Add "run it if it is under an hour" to the review norm.** A cheap measurement
    filed is a cheap measurement lost; §1 cost twenty minutes and had been deferred
    for a day.
-5. **Re-ask the scope question** with the commercial-viability re-rank, before slices
+5. **NOT ADOPTED — yours.** **Re-ask the scope question** with the commercial-viability re-rank, before slices
    6 and 7 are built. They are the two most expensive slices in the plan.
 
 ## 5. What I would not change
