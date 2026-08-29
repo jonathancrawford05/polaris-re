@@ -699,12 +699,48 @@ against a *re-measurement*, never against a stored number.
 2. **Implement Appendix B's determinant path**, R-free tests first: `log|S|₊` is
    invariant to an orthogonal similarity transform; it is exact for a
    known-rank synthetic `S`; it agrees with the naive path where the naive path is
-   *reliable* (flat λ); and it does **not** move when λ's are spread. Mutation-test
-   each.
+   *reliable* (flat λ); and it does **not** move when λ's are spread. **Then run the
+   mutation protocol in the next section** — an R-free test that passes against a
+   wrong implementation is worse than no test, and this is the slice where that is
+   most likely, because every one of those four invariants can be satisfied by an
+   implementation that quietly skips the step that matters.
 3. **Re-measure**, tier 1 then tier 3: the eight-point fixed-`sp` spread, then
    free-`sp` on the slice-5b case.
 4. **Ledger rows at both tiers, an ADR, and the §4 prediction resolved in its own
    words.**
+
+#### The mutation protocol — what "mutation-test each" means, since nothing defines it
+
+**This slice is where the phrase has to stop being decoration.** It appeared twice in
+an earlier draft of this document with no method behind it, and the repository has no
+mutation-testing tooling at all — no `mutmut`, no `cosmic-ray`, nothing in
+`pyproject.toml` or the `Makefile`. **Do not add one**: a whole-suite mutation runner
+on a numerics repo is slow and mostly reports mutants that are numerically
+indistinguishable. What is wanted is narrower and stronger.
+
+**The protocol.** For each mutation below: apply it to the implementation, run the
+R-free tests, and record **which test fails and on which assertion**. A mutation that
+leaves the suite green is a hole in the tests, not a harmless variant — fix the test
+and say so in the ADR. Revert each mutation before the next.
+
+| # | mutation | what it models | must be caught by |
+|---|---|---|---|
+| 1 | skip the `Λ̂⁰ = 0` truncation (Appendix B step 5 / §3.1's "setting `Λ̂⁰ = 0`") | the whole point of the transform — the arbitrary `λ₁^{d₁}∏Λ̂⁰ᵢ` factor is left in | the spread-λ invariance test |
+| 2 | replace the pivoted QR determinant with a plain Cholesky or symmetric-eigen determinant | Wood's stated reason for QR: it acts on columns without mixing them, so it preserves the separation the iteration built | the spread-λ test; the flat-λ test must still pass, which is what makes this mutation informative |
+| 3 | use machine precision, not its **cube root**, for the dominant/subordinate split (step 2's `ε`) | a plausible misreading of the paper | the spread-λ test at large block-count |
+| 4 | use a fixed `1e-10` for the rank count instead of `ε̃ = eps^[0.7,0.9]` (step 3) | reintroduces exactly the shipped defect | the known-rank synthetic test |
+| 5 | skip the pre-step (`S̄ᵢ = U₊ᵀSᵢU₊`) for a rank-deficient `S` | Appendix B's stated precondition | the known-rank synthetic test, at deficient rank |
+| 6 | transpose `Q_s` where it is accumulated | an orientation error that leaves `\|S\|` invariant | the `EᵀE = S` test — and **only** that test, which is why `E` must be tested on its own terms rather than through the score |
+
+**Mutation 6 is the one that justifies building `E` in this slice at all.** `log|S|₊`
+is invariant to a transposed `Q_s`, so every determinant test passes under it. Only
+the square-root identity catches it — and if `Q_s` is wrong, the later adoption of the
+reparameterisation through the fit inherits a silent orientation bug. Building `E`
+now and testing it is what makes that adoption safe later.
+
+**Record the protocol's outcome in the ADR as a table**, mutation by mutation, with
+the failing test named. "Mutation-tested" without that table is the same unbacked
+claim this section exists to retire.
 
 #### Definition of done
 
@@ -712,9 +748,12 @@ against a *re-measurement*, never against a stored number.
   determinant, with no tuned tolerance in the path.
 - **Appendix B exists as a whole**, not just the determinant slice of it: the
   similarity transform, the accumulated `Q_s`, the pivoted-QR determinant and the
-  stable square root `E` (`EᵀE = S`), each R-free tested and mutation-tested. `E` and
-  `Q_s` are built and **deliberately unused** by this slice — the test that they are
-  correct is their own, not the score's.
+  stable square root `E` (`EᵀE = S`), each R-free tested. `E` and `Q_s` are built and
+  **deliberately unused** by this slice — the test that they are correct is their own,
+  not the score's.
+- **All six mutations in the protocol above applied, and the ADR carries the
+  mutation-by-mutation table naming the test that caught each.** A mutation that left
+  the suite green is reported as a test hole that was then closed, not omitted.
 - **Nothing is re-pointed.** `gam_fit.penalized_irls_general` still receives the
   untransformed design and penalty; ADR-195's and ADR-206's results must be
   bit-identical, which is the check that the build-but-do-not-adopt boundary held.
