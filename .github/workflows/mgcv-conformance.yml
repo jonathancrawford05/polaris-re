@@ -1105,12 +1105,20 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
+          # `tee` rather than a group-redirect into $GITHUB_STEP_SUMMARY alone
+          # (the mistake ADR-192's "job-summary-artifact limitation" backlog
+          # item warns about): the summary is not part of the regular job
+          # log stream, so a step that ONLY writes there leaves a tier-3
+          # reader unable to verify anything beyond "the step didn't except"
+          # — exactly the limitation this pattern is written to avoid.
           if [ -f gam_fixed_sp_score_probe.json ]; then
+            uv run python scripts/gam_fixed_sp_score_compare.py gam_fixed_sp_score_probe.json \
+              | tee gam_fixed_sp_score_compare_output.txt
             {
               echo ""
               echo "### Slice 5c — fixed-sp REML score spread vs mgcv (Defects A + B)"
               echo '```'
-              uv run python scripts/gam_fixed_sp_score_compare.py gam_fixed_sp_score_probe.json
+              cat gam_fixed_sp_score_compare_output.txt
               echo '```'
               echo ""
             } >> "$GITHUB_STEP_SUMMARY"
