@@ -18307,6 +18307,13 @@ across all three free-sp cells, i.e. bit-identical, confirming this
 session's tier-1 finding that `experience_gam_penalized.reml_score` shows
 no material change under the same two defects, now also at tier 3).
 
+**Re-confirmed a third time, CI run 33270274504, after the review-round-2
+fix below** (correct `VerificationClaim` attribution, `evidence_markdown()`
+headline, `deviance` companion added to the R payload): identical result
+under the newly-correct label — `SPREAD (ours - mgcv, score): 0.000000`,
+`MAX ABS DEVIANCE DIFF: 5.274874e-07` — confirming the fix to the EVIDENCE
+RECORD did not, and should not, move the underlying number.
+
 ### Consequences
 
 - **Slice 6 (`bs = "sz"`) stays BLOCKED.** Fixed-`sp` closing to float
