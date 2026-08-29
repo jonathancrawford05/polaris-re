@@ -828,6 +828,15 @@ claim this section exists to retire.
 - **All six mutations in the protocol above applied, and the ADR carries the
   mutation-by-mutation table naming the test that caught each.** A mutation that left
   the suite green is reported as a test hole that was then closed, not omitted.
+- **A term-by-term audit of `reml_score_general` against Wood eq. (4), written into
+  the ADR as a table** — one row per term of
+  `V = Dₚ/(2φ) + log|XᵀWX + S|/2 − log|S|₊/2 − (p − r)·log(φ)/2`, each marked verified
+  or defective against the paper. **This is the finding that motivates it:** ADR-196
+  found a missing penalized-deviance term in this function; Defect B is a wrong
+  Hessian in it; Defect A is a wrong null-space cut in it. Three defects in one
+  function, each found separately, each after the previous was declared closed. A
+  fourth round of defect-by-defect discovery is the predictable continuation, and one
+  audit pass is cheaper than it. Raised in PR #213's round-3 review.
 - **Nothing is re-pointed.** `gam_fit.penalized_irls_general` still receives the
   untransformed design and penalty; ADR-195's and ADR-206's results must be
   bit-identical, which is the check that the build-but-do-not-adopt boundary held.
