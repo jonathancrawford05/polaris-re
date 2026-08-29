@@ -27,8 +27,17 @@ lambda — so a rank that MOVES with lambda is the defect. This script reports t
 rank at three plausible tolerances, and then applies the null-space correction
 analytically to test whether the tolerance CAUSES the discrepancy or merely
 correlates with it: counting ``k`` extra eigenvalues as positive raises
-``log|S|+`` by ``sum(log e_i)``, moving the score by ``-sum(log e_i)/2`` and
-changing nothing else.
+``log|S|+`` by ``sum(log e_i)``, moving the score by ``-sum(log e_i)/2``.
+
+WHY THAT CORRECTION IS COMPLETE, AND WHEN IT WOULD STOP BEING. ``log|S|+`` is not
+the only rank-dependent term in ``reml_score_general``: the score also carries
+``-(p - positive.size) * log(gamma) / 2``, which moves with the rank too. It
+vanishes identically at ``gamma = 1.0``, the default this script uses and the one
+every measurement here was taken at, so the analytic correction below is the WHOLE
+effect of the cut rather than part of it. **At any other gamma it would be partial
+and silently so**, understating or overstating the correction by
+``(k * log(gamma)) / 2``. Raised by the PR #213 round-2 review; stated here because
+it is load-bearing and invisible at the call site.
 
 Usage:
     Rscript scripts/gam_fixed_sp_score_probe.R out.json

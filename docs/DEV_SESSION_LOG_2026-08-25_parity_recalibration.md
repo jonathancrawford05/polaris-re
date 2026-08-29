@@ -41,9 +41,21 @@ a docstring. This was got wrong on the first push and corrected after review —
 - Slice 6 BLOCKED on it.
 - **Anchor 2's primary metric (the MI contrast): never measured.** Zero occurrences
   in `CONFORMANCE_LEDGER.md` in six weeks.
-- Test baseline on `origin/main` at session start: not separately recorded; this
-  branch measures **3588 passed, 14 skipped, 0 failed** (review environment,
-  `cecd5ce`).
+- Test baseline: not separately recorded at session start. This branch measures
+  **3588 passed, 14 skipped, 0 failed** — review environment, `cecd5ce` and
+  unchanged on `cf10e7b`, **WITHOUT R**.
+
+  **The without-R qualifier is load-bearing, and the PR #213 round-2 review supplied
+  it after correcting its own round-1 figure.** About **ten** of those fourteen skips
+  are R-gated (nine `R with mgcv is not installed here`, one `rpy2 + R + mgcv not
+  available`; the `got empty parameter set for (basis)` pair is very likely the same
+  cause). Installing R flips them SKIPPED→PASSED, so **a session running WITH R should
+  expect roughly 3598 passed / 4 skipped**. Recorded this explicitly because
+  `ROUTINE_MGCV_PARITY.md`'s stop-on-changed-count rule would otherwise have a future
+  parity session read that ten-test delta as a phantom regression and burn a session
+  chasing it. The routine's own recorded baselines carry the same distinction —
+  *"3174 / 4 skipped without R, 3175 / 3 with it"* — and expect **zero failures**;
+  there is no standing allowance for SOA-conversion failures on the parity track.
 
 ## Hypotheses tried
 
@@ -132,3 +144,12 @@ genuinely INDEPENDENT — and doing so needs a conformance module with an
 - Anchor 2's pinned prediction grid — the contrast is measured on the training design
   only, a partial delivery.
 - The five recalibration proposals are maintainer decisions; none adopted.
+- **A pre-existing instance of this PR's own [P0], deliberately left alone.** The
+  PR #213 round-2 review found `CONTINUATION_mgcv_parity_engine.md:123` carrying
+  `delta_ours=+0.7252` on `main` today — a tier-1 figure in a tier-3-only file, the
+  same defect class this PR was blocked on. It arrived with ADR-208 (PR #212), not
+  with this branch. Not fixed here on the reviewer's own advice that widening this PR
+  would be the wrong move, and recorded here so it is not lost between the review
+  thread and the next session. **It needs its own follow-up**: either the tier-3
+  re-measurement that makes it citable, or the same qualitative treatment this PR
+  applied to its own figures.
