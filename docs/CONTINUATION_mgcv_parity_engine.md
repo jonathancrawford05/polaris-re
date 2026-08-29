@@ -141,21 +141,25 @@ An INDEPENDENT comparison that disagreed is still the routine's own definition
 of a successful session — the correction is about WHY, not about whether this
 was worth reporting.
 
-**LOCALISED, 2026-08-25 (tier 1 — hypothesis, not yet a result).** The next
-hypothesis has now been tested and it holds. Evaluating **both criteria at the
-same fixed `sp`** at eight points removes the optimiser entirely: the difference
-`ours − mgcv` is **not constant** (spread 3.9108), so the discrepancy is in the
-criterion itself. The pattern is discrete, not smooth, and departs only where the
-λ's span many decades — the signature of a rank decision flipping.
-`gam_reml.reml_score_general` cuts `log|S|₊`'s null space at a fixed relative
-`1e-10`; the true rank is 81 and reads 81 at `1e-12` and `eps·p` everywhere, but
-79–80 at `1e-10` at exactly the departing points. Correcting only that cut
-collapses the spread to **0.003281 (1192×)** and eliminates the ranking flip
-(corrected `delta_ours = −0.1211` vs `delta_mgcv = −0.1208`). This is Wood (2011)
-§3.1's **"numerical zero leakage"**, and his own trigger condition — the ratio of
-the largest positive eigenvalue of the dominant `λᵢSᵢ` to the smallest positive
-eigenvalue of a subordinate one being too great — is what our spread-λ points hit.
-Full measurement: `docs/RECALIBRATION_mgcv_parity_2026-08-25.md` §1.
+**LOCALISED, 2026-08-25 — at TIER 1 ONLY, so no figure from it appears in this
+file.** The named next hypothesis has been tested and it holds, qualitatively:
+evaluating **both criteria at the same fixed `sp`** removes the optimiser from the
+comparison entirely, and the difference `ours − mgcv` is **not constant** — so the
+discrepancy is in the criterion, not the search. It departs only where the λ's span
+many decades, which is the signature of a rank decision flipping rather than a wrong
+formula term, and `gam_reml.reml_score_general` cuts `log|S|₊`'s null space at a
+fixed relative tolerance. Correcting only that cut collapses the difference to a
+constant and removes the ranking flip. This is Wood (2011) §3.1's **"numerical zero
+leakage"**, whose own trigger condition — the ratio of the largest positive
+eigenvalue of the dominant `λᵢSᵢ` to the smallest positive eigenvalue of a
+subordinate one being too great — is what the spread-λ configurations hit.
+
+**Every number from that measurement lives in
+`docs/RECALIBRATION_mgcv_parity_2026-08-25.md` §1, which is a tier-1 session
+record.** They are deliberately not repeated here: this file is TIER 3 ONLY
+(`ROUTINE_MGCV_PARITY.md` — *"a CONTINUATION is the first thing the next session
+believes"*). Slice 5c's sequencing step 1 is the tier-3 re-measurement that would
+make them citable.
 
 **The work is registered as PLAN slice 5c**, which carries Wood's Appendix B
 algorithm in implementable detail, the scope boundary (fix the determinant only;

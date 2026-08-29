@@ -618,9 +618,10 @@ expressions, all on transformed versions):
 
 #### What NOT to do
 
-- **Do not change the tolerance.** `1e-12` collapses the measured spread 1192×, and
-  it is still a tuned constant that works by luck of this spectrum — Anchor 8, and
-  Wood's own paragraph above.
+- **Do not change the tolerance.** Tightening it collapses the measured spread
+  sharply (tier 1 — figures in `RECALIBRATION_mgcv_parity_2026-08-25.md` §1), which
+  is what demonstrates the cause; it is still a tuned constant that would work only
+  by luck of this spectrum — Anchor 8, and Wood's own paragraph above.
 - **Do not touch the fitter, the bases or the search.** The defect is one term of one
   function.
 - **Implement from the paper, not from `mgcv`'s source.** Same footing as ADR-196
@@ -631,9 +632,11 @@ expressions, all on transformed versions):
 
 > Wood §3.1's numerical-zero-leakage account is the mechanism. Implementing Appendix
 > B's similarity transform and pivoted-QR determinant should collapse the fixed-`sp`
-> difference `ours − mgcv` to a constant — the recalibration's residual **0.0033** or
-> below — across λ configurations spanning any number of decades, and should bring
-> free-`sp` `max_abs_log10_sp_diff` from **0.6398 (tier 3)** back toward ADR-199's
+> difference `ours − mgcv` **to a constant across λ configurations spanning any
+> number of decades** — a spread at or below what tightening the null-space cut
+> already achieves, which is the tier-1 residual recorded in
+> `RECALIBRATION_mgcv_parity_2026-08-25.md` §1. And it should bring free-`sp`
+> `max_abs_log10_sp_diff` from **0.6398 (ADR-208, tier 3)** back toward ADR-199's
 > 2-block range of **6.9e-04 – 9.8e-04**.
 >
 > **If the fixed-`sp` spread collapses but free-`sp` `sp` does not**, something else
@@ -641,13 +644,23 @@ expressions, all on transformed versions):
 > finding — it would mean the search has its own defect that the criterion fix has
 > been masking.
 
-Register it before running. ADR-203's reminder applies: register against a
-*re-measurement*, never against the stored numbers above.
+**Both halves must be resolved against the slice's own tier-3 re-measurement, not
+against the tier-1 figures in the recalibration note.** Step 1 of the sequencing
+below exists to establish the tier-3 baseline first, precisely so this prediction has
+a legitimate quantity to be judged against. ADR-203's reminder applies: register
+against a *re-measurement*, never against a stored number.
 
 #### Sequencing
 
-1. **Confirm the recalibration's tier-1 localisation at tier 3** — it is a CI
-   dispatch of an existing probe and it is what makes the diagnosis citable.
+1. **Establish the tier-3 baseline for the fixed-`sp` spread.** This is what makes
+   the diagnosis citable and gives §4's prediction a legitimate quantity to be judged
+   against. **It is not a bare dispatch of an existing probe** — that description was
+   wrong when this slice was first written (PR #213 review [P1]). It needs three
+   things: `scripts/gam_fixed_sp_score_probe.R` (exists), its Python side
+   `scripts/gam_fixed_sp_score_compare.py` (exists — emits the `ours` column, the
+   rank-at-tolerance readings and the corrected-cut spread), and **a new step in
+   `.github/workflows/mgcv-conformance.yml`** wiring them, which does not exist yet.
+   Budget for the workflow step.
 2. **Implement Appendix B's determinant path**, R-free tests first: `log|S|₊` is
    invariant to an orthogonal similarity transform; it is exact for a
    known-rank synthetic `S`; it agrees with the naive path where the naive path is
@@ -662,7 +675,9 @@ Register it before running. ADR-203's reminder applies: register against a
 
 - `reml_score_general`'s `log|S|₊` uses Appendix B's transform and a pivoted-QR
   determinant, with no tuned tolerance in the path.
-- The eight-point fixed-`sp` spread re-measured at **tier 3**.
+- The eight-point fixed-`sp` spread measured at **tier 3** both before (step 1) and
+  after the fix, so the improvement is a tier-3 delta rather than a tier-3 number
+  compared against a tier-1 one.
 - Free-`sp` re-measured at tier 3, and ADR-208's refuted §4 prediction revisited in
   light of it.
 - The §4 prediction above resolved — confirmed or refuted, in those words.
