@@ -390,17 +390,19 @@ jobs:
       # mgcv's own score at a point Python selected, so this can never be part
       # of the committed INDEPENDENT comparator (same reasoning as
       # gam_deriv_probe.R / gam_vc_probe.R). Python's own log10(sp) below is
-      # the TIER-1 reading from this same slice's original measurement
-      # (docs/CONFORMANCE_LEDGER.md, 2026-08-25) — hand-supplied, not
-      # recomputed here, because the two-job CI split has no path for a
-      # third R stage to consume job 2's own output.
+      # gam_model_conformance.fit_free_sp_case()'s CURRENT selection on this
+      # recipe, after ADR-210's two fixes (Appendix B + observed-Hessian
+      # weight) moved it from the pre-fix ADR-208 reading — hand-supplied,
+      # not recomputed here, because the two-job CI split has no path for a
+      # third R stage to consume job 2's own output (PLAN slice 5d's
+      # registered "cheap step", 2026-08-29).
       - name: Does mgcv's own score rank the two free-sp points the same way ours does? (PR #212 [P1])
         continue-on-error: true
         run: |
           set -euo pipefail
           docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
             Rscript scripts/gam_multiterm_sp_delta_probe.R \
-              6.75256951 9.09550509 3.09851263 3.05446081 \
+              6.91278405 9.11609505 3.35910172 2.97236369 \
               gam_multiterm_sp_delta_probe.json
           if [ -f gam_multiterm_sp_delta_probe.json ]; then
             {

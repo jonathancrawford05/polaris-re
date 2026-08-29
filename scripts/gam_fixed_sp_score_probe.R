@@ -67,7 +67,17 @@ main <- function(argv) {
 
   # The evaluation grid: both sides' own free-sp optima, plus a deliberate
   # spread so that any sp-dependence in the difference has room to show.
-  python_opt_log10 <- c(6.753, 9.096, 3.099, 3.054) # ADR-208 tier-1 reading
+  #
+  # python_opt_log10 is Python's own gam_model_conformance.fit_free_sp_case()
+  # selection on this exact recipe (same seed, n, knots) AFTER ADR-210's two
+  # defect fixes (Appendix B + observed-Hessian weight) -- gam_reml_optimize.
+  # select_lambdas_continuous depends only on the shared recipe, never on R,
+  # so this number needs no "tier" label of its own (module docstring of
+  # gam_multiterm_sp_delta_probe.R makes the same point). REPLACES ADR-208's
+  # pre-fix tier-1 reading (6.753, 9.096, 3.099, 3.054), which this script
+  # carried unchanged through slice 5c even after the fix moved Python's own
+  # selection (PLAN slice 5d's registered "cheap step").
+  python_opt_log10 <- c(6.91278405, 9.11609505, 3.35910172, 2.97236369)
   points <- list(
     mgcv_opt          = mgcv_opt_log10,
     python_opt        = python_opt_log10,
