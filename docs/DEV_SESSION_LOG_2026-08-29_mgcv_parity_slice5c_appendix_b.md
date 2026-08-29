@@ -289,19 +289,104 @@ Oracle: `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8
   ill-conditioned matrix PRODUCT (not a clean algebraic null space) —
   harder to construct than the two that succeeded, and not attempted
   further this session per the wall-clock guardrail.
-- **`scripts/gam_fixed_sp_score_compare.py`'s "tighter cut" column is now
-  stale** (ADR-210 Consequences) — it double-corrects an already-fixed
-  score and should be dropped or turned into a no-op regression assertion.
+- ~~**`scripts/gam_fixed_sp_score_compare.py`'s "tighter cut" column is now
+  stale**~~ **FIXED in round 2 below**, not merely filed.
+
+## Round 2 — PR #215 automated review response
+
+The review (2026-08-29, same day) found zero P0s and zero test failures but
+held the PR to Changes Requested on one guardrail trip and two P1s. Fixed
+all three, plus every P2:
+
+- **[P1-1] Provenance mislabelling, four different ways in four documents.**
+  The fixed-`sp` comparison IS INDEPENDENT (the reviewer's own mechanical
+  test on `penalized_fit_and_score`'s signature confirmed it), but nothing
+  declared a `VerificationClaim` for its actual producer — the ledger cited
+  `REML_SCORE_CLAIM`, which covers a DIFFERENT fixture (2-block,
+  binomial-logit, `paraPen`-supplied via `score_reml_point`) than this
+  session's own (4-block, binomial-cloglog, formula-built via
+  `penalized_fit_and_score`). Fixed: declared
+  `gam_reml_optimize_conformance.FIXED_SP_MULTITERM_REML_CLAIM` — two
+  quantities (the score spread, and a `deviance` companion mirroring
+  `REML_SCORE_CLAIM`'s own `scalePenalty`-artifact rebuttal) — on the
+  correct producer, `compare_fixed_sp_multiterm_case`. Added `mgcv_deviance`
+  to `gam_fixed_sp_score_probe.R`'s payload (was score-only). Corrected the
+  now-contradictory "DIAGNOSTIC ONLY" language in the R probe's own header
+  comment and both `mgcv-conformance.yml` step comments (three places, all
+  written before ADR-210 fixed the criterion and never revisited).
+- **[P1-2] `evidence_markdown()` bypassed on a table this PR newly
+  publishes to CI.** Fixed as a consequence of P1-1: `gam_fixed_sp_score_compare.py`
+  now prints `evidence_markdown(FIXED_SP_MULTITERM_REML_CLAIM)` as its
+  headline instead of a hand-written `f"SPREAD, shipped cut ...`. This also
+  retired the stale "tighter cut" column (was double-correcting an
+  already-fixed score, per this log's own follow-up list above) rather than
+  leaving it as a separate cleanup — the rewrite replaced the whole
+  comparison loop with a call to `compare_fixed_sp_multiterm_case`, so
+  there was no cheaper place to stop.
+- **[P1-3] The guardrail trip: an existing test lost its independent
+  re-derivation.** `test_score_equals_the_explicit_dp_formula` had started
+  calling `observed_information_weight`/`logdet_s_plus` directly — "the
+  implementation's own helpers, the same two calls `reml_score_general`
+  makes" — which the reviewer flagged as compounding with mutations 1-4
+  going uncaught in exactly that code. Fixed: split into two tests, both
+  inlining formulas rather than calling the two helpers.
+  `..._canonical_link` inlines the plain Fisher weight (valid as "expected"
+  only because `binomial_logit` is canonical, `alpha_i == 1` exactly — a
+  textbook identity, not a call to the method that asserts it) and the
+  naive eigenvalue cut (valid only because this fixture is a single
+  well-conditioned block, where Appendix B and the naive cut necessarily
+  agree). `..._noncanonical_link` (new) uses `binomial_cloglog` and inlines
+  Wood's own `alpha_i = 1 + (y-mu)(V'/V + g''/g')` formula from the paper,
+  with a `assert not np.allclose(alpha, 1.0)` sanity check that this
+  fixture actually exercises the non-canonical branch Defect B fixes — the
+  case `binomial_logit` alone structurally cannot exercise.
+- **[P2-1]** `reml_score_general`'s `Raises:` doc was aspirational, not
+  accurate — inconsistent `penalty_blocks`/`lambdas` raised a bare
+  `IndexError`/`ValueError` before ever reaching
+  `appendix_b_transform`'s own (correct) validation. Fixed the CODE, not
+  just the doc: two explicit checks now raise `PolarisValidationError`
+  before either failure mode can occur.
+- **[P2-2]** Added `dtype=np.float64` to the three `np.zeros`/`np.zeros_like`
+  calls that omitted it (`gam_reml.py`, `gam_reml_appendix_b.py`),
+  consistent with every other array construction in both modules.
+- **[P2-3]** Dropped the dead `rng`/`del rng` in
+  `test_spread_lambda_stays_close_to_the_flat_baseline_prediction` and
+  converted its manual loop to `pytest.mark.parametrize`, per the review's
+  own suggestion.
+- **[P2-5]** `perf/history.jsonl`'s creep verdict, omitted from round 1:
+  `{'has_structural_creep': False, 'has_wall_time_creep': False,
+  'has_config_drift': False}` — peak MiB 33 -> 33, no creep.
+- **[P2-4]** (order-cap placement) not changed — the 3rd-order
+  job-summary-limitation item's `PRODUCT_DIRECTION` placement is correct
+  per the reviewer's own reading ("the tag is correct... the item is a
+  completed-work record"); this log has no "Parked Polish" section to move
+  it to and adding one for a single already-resolved item did not seem
+  worth the churn. Noted here instead.
+
+New test coverage added in round 2, all passing:
+`tests/test_analytics/test_gam_reml_optimize_conformance.py` (4 tests: the
+new comparison function against a self-consistent "mgcv" comparand, a
+deliberately-wrong deviance artifact, a length-mismatch rejection, and the
+claim's own provenance gate); `test_gam_reml.py`'s split canonical/
+non-canonical tests (above). Full suite re-run clean after all fixes:
+`tests/test_analytics/` unaffected files unchanged; every touched test file
+green.
 
 ## Provenance summary (routine requirement)
 
 Every comparison this session reports, restated in one place per
-`ROUTINE_MGCV_PARITY.md`'s DELIVER requirement:
+`ROUTINE_MGCV_PARITY.md`'s DELIVER requirement — corrected in round 2 per
+[P1-1] above:
 
-- Fixed-`sp` REML score (8 points, both tiers): **INDEPENDENT** — unchanged
-  in kind from ADR-196's own claim, now measured against the fixed formula.
+- Fixed-`sp` REML score AND deviance (8 points, both tiers): **INDEPENDENT**
+  — `gam_reml_optimize_conformance.FIXED_SP_MULTITERM_REML_CLAIM`, declared
+  in round 2 for this session's own 4-block/cloglog producer
+  (`gam_reml_optimize.penalized_fit_and_score`), NOT a reuse of ADR-196's
+  `REML_SCORE_CLAIM` (a different fixture/producer — round 1's session log
+  said "unchanged in kind," which was imprecise in exactly the way [P1-1]
+  named).
 - Free-`sp` selection (N=4, both tiers): **INDEPENDENT** — unchanged in kind
-  from ADR-208's own claim.
+  from ADR-208's own claim (`FREE_SP_MODEL_CLAIM`, same producer).
 - "Our criterion at mgcv's point vs ours" (tier 1 only): **DIAGNOSTIC** —
   reads `mgcv`'s own selected point as an input; never claimed as parity
   evidence, exists solely to discriminate a criterion defect from an

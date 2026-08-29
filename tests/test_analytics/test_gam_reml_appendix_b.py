@@ -190,7 +190,12 @@ class TestUnaffectedBySpreadLambda:
     departure from "what naive gives at a flat point, rescaled" must be
     far smaller than the naive method's own departure."""
 
-    def test_spread_lambda_stays_close_to_the_flat_baseline_prediction(self) -> None:
+    @pytest.mark.parametrize(
+        "log_l1,log_l2", [(2.0, 2.0), (6.0, 6.0), (-1.0, 11.0), (11.0, -1.0), (4.0, 9.0)]
+    )
+    def test_spread_lambda_stays_close_to_the_flat_baseline_prediction(
+        self, log_l1: float, log_l2: float
+    ) -> None:
         p = 6
         s1 = _second_difference_penalty(p)  # rank p-2
         s2 = np.eye(p) * 0.3  # rank p, shares the whole span with s1
@@ -199,23 +204,19 @@ class TestUnaffectedBySpreadLambda:
         # rank), so log|S|+ = log|lambda_1*s1 + lambda_2*s2| exactly — a
         # genuine `np.linalg.slogdet` is valid here as ground truth,
         # independent of both the naive cut and Appendix B.
-        rng = np.random.default_rng(3)
-        spreads = [(2.0, 2.0), (6.0, 6.0), (-1.0, 11.0), (11.0, -1.0), (4.0, 9.0)]
-        for log_l1, log_l2 in spreads:
-            lambdas = np.array([10.0**log_l1, 10.0**log_l2])
-            ground_truth = np.linalg.slogdet(lambdas[0] * s1 + lambdas[1] * s2)[1]
-            appendix_b_value = logdet_s_plus((s1, s2), lambdas)
-            # A 12-decade lambda spread pushes `X'WX`-scale conditioning near
-            # `cond ~ 1e12` even for a genuinely full-rank sum — double
-            # precision (`eps ~2.2e-16`) itself is only good to
-            # `~cond*eps ~2e-4` there, on EITHER side of this comparison
-            # (slogdet included), so `rel=1e-6` would be asserting more
-            # precision than IEEE 754 can supply, not testing the algorithm.
-            assert appendix_b_value == pytest.approx(ground_truth, rel=2e-3), (
-                f"Appendix B departed from the true (full-rank) determinant at "
-                f"log10 lambda=({log_l1}, {log_l2})"
-            )
-        del rng  # fixture symmetry with the other test classes; unused here
+        lambdas = np.array([10.0**log_l1, 10.0**log_l2])
+        ground_truth = np.linalg.slogdet(lambdas[0] * s1 + lambdas[1] * s2)[1]
+        appendix_b_value = logdet_s_plus((s1, s2), lambdas)
+        # A 12-decade lambda spread pushes `X'WX`-scale conditioning near
+        # `cond ~ 1e12` even for a genuinely full-rank sum — double
+        # precision (`eps ~2.2e-16`) itself is only good to
+        # `~cond*eps ~2e-4` there, on EITHER side of this comparison
+        # (slogdet included), so `rel=1e-6` would be asserting more
+        # precision than IEEE 754 can supply, not testing the algorithm.
+        assert appendix_b_value == pytest.approx(ground_truth, rel=2e-3), (
+            f"Appendix B departed from the true (full-rank) determinant at "
+            f"log10 lambda=({log_l1}, {log_l2})"
+        )
 
 
 class TestEReconstructsS:

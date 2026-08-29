@@ -156,9 +156,13 @@ def reml_score_general(
 
     Raises:
         PolarisValidationError: if ``family.dispersion_fixed`` is ``False``,
-            ``gamma`` is not positive, or ``penalty_blocks``/``lambdas`` are
-            inconsistent (propagated from
-            :func:`~polaris_re.analytics.gam_reml_appendix_b.appendix_b_transform`).
+            ``gamma`` is not positive, ``penalty_blocks`` is empty, or
+            ``lambdas`` does not have one entry per block. (PR #215 review
+            [P2-1]: an earlier revision let ``penalty_blocks[0]``/``zip``
+            raise the bare ``IndexError``/``ValueError`` this validation now
+            pre-empts, before ever reaching
+            :func:`~polaris_re.analytics.gam_reml_appendix_b.appendix_b_transform`'s
+            own — correct, but unreachable for these two cases.)
     """
     if not family.dispersion_fixed:
         raise PolarisValidationError(
@@ -169,13 +173,21 @@ def reml_score_general(
         )
     if gamma <= 0.0:
         raise PolarisValidationError(f"gamma must be positive, got {gamma}.")
+    if not penalty_blocks:
+        raise PolarisValidationError("reml_score_general: penalty_blocks must be non-empty.")
+    if len(lambdas) != len(penalty_blocks):
+        raise PolarisValidationError(
+            f"reml_score_general: lambdas has {len(lambdas)} entries, but "
+            f"{len(penalty_blocks)} penalty_blocks were supplied — one lambda "
+            "per block."
+        )
 
     n = y.shape[0]
     offset = np.zeros(n, dtype=np.float64) if offset is None else np.asarray(offset)
     weights = np.ones(n, dtype=np.float64) if weights is None else np.asarray(weights)
     lambdas = np.asarray(lambdas, dtype=np.float64)
 
-    penalty = np.zeros_like(penalty_blocks[0])
+    penalty = np.zeros_like(penalty_blocks[0], dtype=np.float64)
     for lam, block in zip(lambdas, penalty_blocks, strict=True):
         penalty = penalty + lam * block
 

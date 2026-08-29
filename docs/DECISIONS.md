@@ -18327,11 +18327,57 @@ no material change under the same two defects, now also at tier 3).
   fitter — a later session adopting Newton PIRLS for the non-canonical
   `cloglog` link (Wood Section 3.3, needed only if negative observed weights
   are found on real data) can build on them directly.
-- **`scripts/gam_fixed_sp_score_compare.py`'s "tighter cut" column is now
-  stale** and prints a misleading `3.909281` where the real, correct answer
-  (the "raw" column) reads `0.000000` — it was written to demonstrate a
-  MANUAL tolerance fix against the OLD, pre-Appendix-B score, and now
-  double-applies that fix to an already-correct one. Cheap to fix (drop the
-  now-redundant correction, or make it a no-op assertion that
-  `ours == ours_corrected`); filed rather than fixed here to keep this
-  slice's diff to the score formula itself.
+- ~~**`scripts/gam_fixed_sp_score_compare.py`'s "tighter cut" column is now
+  stale**~~ **FIXED, same day (PR #215 review round 2).** The script now
+  declares and prints `FIXED_SP_MULTITERM_REML_CLAIM` via
+  `evidence_markdown()` instead of a hand-written headline, and the stale
+  correction logic is gone entirely rather than patched.
+
+### Amendment (2026-08-29, PR #215 automated review, same-day round 2)
+
+The review found zero P0s and zero test failures but held Changes
+Requested on one guardrail trip and two P1s — all about the EVIDENCE
+RECORD, not the mathematics (independently re-derived Defect B's formula
+and confirmed it exact; confirmed both DoD spot-checks). Fixed all three,
+plus every P2. Full detail in the session log's "Round 2" section; summary:
+
+- **[P1-1]** This ADR originally cited `REML_SCORE_CLAIM` for the fixed-`sp`
+  measurement above — WRONG, that claim covers a different fixture/producer
+  (ADR-196's 2-block, binomial-logit, `paraPen`-supplied `score_reml_point`,
+  not this slice's 4-block, binomial-cloglog, formula-built
+  `penalized_fit_and_score`). A new claim,
+  `gam_reml_optimize_conformance.FIXED_SP_MULTITERM_REML_CLAIM`, is declared
+  for the actual producer, with a `deviance` companion mirroring
+  `REML_SCORE_CLAIM`'s own `scalePenalty`-artifact rebuttal. Both quantities
+  are **INDEPENDENT** — the reviewer's own mechanical test on
+  `penalized_fit_and_score`'s signature confirmed this before the fix; what
+  was wrong was attribution, not classification. The R probe
+  (`gam_fixed_sp_score_probe.R`) and workflow step comments, which called
+  this DIAGNOSTIC (written before this slice fixed the criterion and never
+  revisited), are corrected to match.
+- **[P1-2]** `evidence_markdown(FIXED_SP_MULTITERM_REML_CLAIM)` now produces
+  the CI headline in place of a hand-written `f"SPREAD, shipped cut..."`.
+- **[P1-3]**, the guardrail trip: `test_score_equals_the_explicit_dp_formula`
+  had started calling `observed_information_weight`/`logdet_s_plus`
+  directly instead of independently re-deriving them, which the reviewer
+  flagged as compounding with the mutation-protocol gap (mutations 1-4
+  uncaught in exactly that code). Split into a canonical-link case (inlines
+  the plain Fisher weight, valid only because `alpha_i == 1` exactly for
+  `binomial_logit` — a textbook identity, not a call to the method proving
+  it) and a NEW non-canonical case (`binomial_cloglog`, inlining Wood's
+  `alpha_i` formula from the paper directly, with a sanity assertion that
+  `alpha != 1` on this fixture) — genuine independent re-derivation restored
+  for both branches Defect B's fix touches.
+- **[P2-1] through [P2-5]**: `reml_score_general`'s `Raises:` doc corrected
+  by fixing the CODE (two explicit `PolarisValidationError` checks now run
+  before either bare exception could fire); missing `dtype=np.float64` added
+  in three places; a dead `rng` dropped and a manual loop converted to
+  `pytest.mark.parametrize`; the perf creep verdict
+  (`has_structural_creep=False`, `has_wall_time_creep=False`,
+  `has_config_drift=False`) recorded; the order-cap placement item left as
+  is, per the reviewer's own reading that its tag and location were already
+  correct.
+
+New R-free test coverage:
+`tests/test_analytics/test_gam_reml_optimize_conformance.py` (the new
+comparison function and its claim's provenance gate).

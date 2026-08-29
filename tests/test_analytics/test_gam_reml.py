@@ -12,9 +12,13 @@ against ``mgcv`` lives in ``scripts/gam_reml_probe.R`` /
 import numpy as np
 import pytest
 
-from polaris_re.analytics.gam_family import binomial_logit, poisson_log, quasipoisson_log
+from polaris_re.analytics.gam_family import (
+    binomial_cloglog,
+    binomial_logit,
+    poisson_log,
+    quasipoisson_log,
+)
 from polaris_re.analytics.gam_reml import reml_score_general
-from polaris_re.analytics.gam_reml_appendix_b import logdet_s_plus
 from polaris_re.core.exceptions import PolarisValidationError
 
 
@@ -154,27 +158,36 @@ class TestClosedFormSingleColumnCase:
 class TestMatchesWoodsFormulaDirectly:
     """NOT a closed-form test (PR #203 review [P2-a] — see
     `TestClosedFormSingleColumnCase` above for the genuine one). This
-    recomputes `deviance`/`irls_weights`/`logdet_h`/`logdet_s` with the SAME
-    calls the implementation uses (`family.deviance`, `family.link.mu_eta`,
-    `family.variance`, `np.linalg.slogdet`, `np.linalg.eigvalsh`), in the same
-    order, then asserts the implementation's output equals that
-    recomposition. Worth keeping as a regression net for a dropped term, a
-    sign flip, or a wrong ½ — Wood (2011) §2 eq. (4) names
-    `Dp = D(beta_hat) + beta_hat^T S beta_hat` explicitly and this pins the
-    decomposition against it — but it cannot catch an error shared by both
-    call sites (a wrong deviance definition, working weight, or
-    log-determinant convention), since it inherits all three from the
-    implementation it is checking.
+    recomputes `deviance`/the working weight/`logdet_h`/`logdet_s` from
+    formulas written out IN THE TEST, not by calling
+    `Family.observed_information_weight` or
+    `gam_reml_appendix_b.logdet_s_plus` (PR #215 review [P1-3]: an earlier
+    revision called those two functions directly — "the implementation's
+    own helpers, the same two calls `reml_score_general` makes" — which
+    weakened this from an independent re-derivation to a tautology). Worth
+    keeping as a regression net for a dropped term, a sign flip, or a wrong
+    ½ — Wood (2011) §2 eq. (4) names `Dp = D(beta_hat) + beta_hat^T S
+    beta_hat` explicitly and this pins the decomposition against it — but
+    it cannot catch an error shared by both call sites (a wrong deviance
+    definition or log-determinant convention), since it inherits those from
+    the implementation it is checking.
 
-    **PLAN slice 5c:** the weight and the ``S`` determinant are now
-    :meth:`Family.observed_information_weight` and
-    :func:`~polaris_re.analytics.gam_reml_appendix_b.logdet_s_plus`
-    respectively, rather than the plain Fisher weight and a fixed-tolerance
-    eigenvalue cut — still the SAME calls the implementation makes, so the
-    "cannot catch an error shared by both call sites" caveat above is
-    unchanged, just against the new pair of calls."""
+    **Two cases, for a reason:** the CANONICAL-link case
+    (`binomial_logit`) inlines the plain FISHER weight as `expected` — valid
+    because `alpha_i == 1` exactly for a canonical link (Wood §3.2,
+    `TestObservedInformationWeight`'s own canonical-link tests), so this
+    is a genuinely different computation that would still have to agree.
+    It alone cannot exercise Defect B's own fix (the observed/Fisher split
+    only bites for a NON-canonical link), so a second case
+    (`binomial_cloglog`) inlines Wood's `alpha_i` formula directly from
+    the paper's `V'(mu)/V(mu) + g''(mu)/g'(mu)` — duplicating the maths,
+    not calling `observed_information_weight` — so a bug in that method
+    would have to also appear, independently, in this test's own inlined
+    formula to go undetected."""
 
-    def test_score_equals_the_explicit_dp_formula(self, rng: np.random.Generator) -> None:
+    def test_score_equals_the_explicit_dp_formula_canonical_link(
+        self, rng: np.random.Generator
+    ) -> None:
         n, p = 120, 5
         x = _design(rng, n, p)
         beta_true = rng.normal(scale=0.3, size=p)
@@ -194,13 +207,78 @@ class TestMatchesWoodsFormulaDirectly:
         deviance = family.deviance(y, mu, trials)
         dp = deviance + float(coef @ penalty @ coef)
 
-        observed_weights = family.observed_information_weight(y, eta, trials)
-        _, logdet_h = np.linalg.slogdet(x.T @ (observed_weights[:, None] * x) + penalty)
-        logdet_s = logdet_s_plus((block,), lambdas)
+        # The plain FISHER weight, inlined — NOT a call to
+        # observed_information_weight. Valid as "expected" only because
+        # binomial_logit is CANONICAL (alpha_i == 1 exactly), so the
+        # observed and expected Hessians coincide here by a textbook
+        # identity independent of this module's own implementation.
+        deta_dmu = family.link.mu_eta(eta)
+        fisher_weights = trials * deta_dmu**2 / family.variance(mu)
+        _, logdet_h = np.linalg.slogdet(x.T @ (fisher_weights[:, None] * x) + penalty)
+        # The naive fixed-tolerance eigenvalue cut, inlined — NOT a call to
+        # logdet_s_plus. Valid as "expected" only because this fixture is a
+        # SINGLE, well-conditioned block (Wood: "the problem vanishes for a
+        # full rank S1"), where Appendix B and the naive cut necessarily
+        # agree (`TestAgreesWithNaiveAtFlatLambda` pins that agreement on
+        # its own terms).
+        eigenvalues = np.linalg.eigvalsh(penalty)
+        positive = eigenvalues[eigenvalues > eigenvalues.max() * 1e-10]
+        logdet_s = float(np.sum(np.log(positive)))
         expected = 0.5 * dp + 0.5 * float(logdet_h) - 0.5 * logdet_s
 
         actual = reml_score_general(y, x, family, coef, (block,), lambdas, weights=trials)
         assert actual == pytest.approx(expected, abs=1e-9, rel=1e-9)
+
+    def test_score_equals_the_explicit_dp_formula_noncanonical_link(
+        self, rng: np.random.Generator
+    ) -> None:
+        """The non-canonical case Defect B's fix actually changes —
+        `binomial_logit` above cannot exercise it, since Fisher and
+        observed coincide there regardless of whether the fix exists."""
+        n, p = 120, 5
+        x = _design(rng, n, p)
+        beta_true = rng.normal(scale=0.3, size=p)
+        eta_true = x @ beta_true
+        prob = 1.0 - np.exp(-np.exp(eta_true))
+        trials = np.full(n, 25.0)
+        y = np.clip(np.round(trials * prob) / trials, 1.0 / trials, 1.0 - 1.0 / trials)
+        d = np.diff(np.eye(p), n=2, axis=0)
+        block = d.T @ d
+        lambdas = np.array([6.0])
+        penalty = 6.0 * block
+        coef = beta_true
+        family = binomial_cloglog()
+
+        eta = x @ coef
+        mu = family.link.linkinv(eta)
+        deviance = family.deviance(y, mu, trials)
+        dp = deviance + float(coef @ penalty @ coef)
+
+        # Wood (2011) section 3.2's alpha_i, written out from the paper —
+        # NOT a call to observed_information_weight. V'(mu) = 1 - 2*mu for
+        # binomial; g''(mu)/g'(mu) for cloglog derived independently here
+        # via the SAME chain rule the implementation's docstring states
+        # (g''(mu)/g'(mu) = -d2mu/deta2 / (dmu/deta)^2), but with
+        # d2mu/deta2 = mu_eta(eta) * (1 - exp(eta)) written inline rather
+        # than calling Link.d2mu_deta2.
+        mu_eta = family.link.mu_eta(eta)
+        d2mu_deta2 = mu_eta * (1.0 - np.exp(eta))
+        variance_prime = 1.0 - 2.0 * mu
+        alpha = 1.0 + (y - mu) * (variance_prime / family.variance(mu) - d2mu_deta2 / mu_eta**2)
+        fisher_weights = trials * mu_eta**2 / family.variance(mu)
+        observed_weights_inline = alpha * fisher_weights
+        _, logdet_h = np.linalg.slogdet(x.T @ (observed_weights_inline[:, None] * x) + penalty)
+        eigenvalues = np.linalg.eigvalsh(penalty)
+        positive = eigenvalues[eigenvalues > eigenvalues.max() * 1e-10]
+        logdet_s = float(np.sum(np.log(positive)))
+        expected = 0.5 * dp + 0.5 * float(logdet_h) - 0.5 * logdet_s
+
+        actual = reml_score_general(y, x, family, coef, (block,), lambdas, weights=trials)
+        assert actual == pytest.approx(expected, abs=1e-9, rel=1e-9)
+        # Sanity that this fixture actually exercises alpha != 1 (i.e. the
+        # non-canonical branch), not a degenerate case that happens to
+        # collapse to the canonical one.
+        assert not np.allclose(alpha, 1.0, atol=1e-6)
 
 
 class TestGeneralizesBeyondPoisson:

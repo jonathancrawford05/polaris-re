@@ -290,8 +290,10 @@ def appendix_b_transform(
     # RESOLVED part only; pad with zero columns for any discarded true
     # null-space directions (q_accum's trailing q0-rank columns) so the
     # shapes line up with q_accum's full q0 columns.
-    e_square = scipy.linalg.block_diag(*e_blocks) if e_blocks else np.zeros((0, 0))
-    e_reduced = np.hstack([e_square, np.zeros((rank, q0 - rank))])
+    e_square = (
+        scipy.linalg.block_diag(*e_blocks) if e_blocks else np.zeros((0, 0), dtype=np.float64)
+    )
+    e_reduced = np.hstack([e_square, np.zeros((rank, q0 - rank), dtype=np.float64)])
     # Map back: q_accum @ (block-diagonal S in the resolved basis) @
     # q_accum^T equals the original (U_plus-projected) sum
     # `sum_i lambda_i * s_bar_i`, restricted to its positive eigenspace —
