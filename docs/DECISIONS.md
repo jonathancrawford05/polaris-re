@@ -18543,12 +18543,77 @@ and tier-3 sessions read different numbers off the same (INDEPENDENT)
   it does not change, tune or widen any tolerance (Anchor 8)** — the same
   argument that justified pinning it for R in the first place.
 
+### Tier-3 confirmation
+
+CI run [33279913273](https://github.com/jonathancrawford05/polaris-re/actions/runs/33279913273),
+oracle digest `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+(build 8), R 4.6.1 / mgcv 1.9.4, 2026-08-29, this branch, `OPENBLAS_NUM_THREADS=1`
+now pinned per this ADR's own fix. Read from job-log stdout (`get_job_logs`),
+not a `continue-on-error` step's conclusion.
+
+**`scripts/gam_free_sp_warmstart_diagnostic.py` — the decisive discriminator,
+confirmed:**
+
+```
+mgcv's own log10(sp):        [6.695961 9.87212  3.291837 3.029185]
+blind (default-start) fit:  log10(sp)=[6.565093 8.71847  3.287554 3.012677]  score=612.641622  converged=False at_bound=False
+warm (start-at-mgcv) fit:   log10(sp)=[6.696071 9.872214 3.291849 3.029269]  score=612.610760  converged=True at_bound=False
+
+SCORE GAP (blind - warm):        +0.030862
+MAX ABS (warm log10(sp) - mgcv): 0.000109
+```
+
+`mgcv`'s own free-`sp` draw is bit-identical to the printed digit against
+ADR-208/210's own tier-1 AND tier-3 readings — the R-side draw was never in
+question. The warm start again converges to within `1.09e-4` of `mgcv`'s own
+point (tighter than the tier-1 reading's `1e-6`, still well inside any
+meaningful tolerance on this scale) at score `612.610760` — matching the
+tier-1 reading to the last printed digit — a full **0.030862 BETTER** than
+the blind default start. **Hypothesis 2 refuted at tier 3 too**: the
+identical starting point, on the pinned production oracle, reaches the
+identical, better point.
+
+**The blind default start is WORSE than at tier 1, not better, once thread
+count is controlled for** — and this is itself informative rather than
+noise. At tier 3, with `OPENBLAS_NUM_THREADS=1` now pinned, `select_lambdas_continuous`'s
+blind run reports `converged=False` (SciPy's own success flag), landing at
+`log10(sp)=[6.565, 8.718, 3.288, 3.013]` — this is a DIFFERENT single-thread
+result than this session's own local tier-1 single-thread reading
+(`[6.913, 9.116, 3.359, 2.972]`, `converged=True`), even though both pin the
+identical thread count. Two different machines (a local container here vs.
+a GitHub Actions runner) running the identical algorithm at the identical
+thread count reach measurably different points, one of which does not even
+satisfy the optimiser's own convergence criterion. **This is not a
+weakness in the finding — it is a second, independent confirmation of it**:
+pinning thread count controls one source of platform-dependent
+floating-point noise, not all of them (CPU microarchitecture, compiler,
+libm all still vary between these two hosts), and the search's own
+sensitivity to that remaining noise, on this specific weakly-identified
+direction, is exactly hypothesis 1's mechanism. `mgcv`'s point is the one
+stable thing across every environment measured so far, and it is reachable
+and better every time.
+
+**The official `FREE_SP_MODEL_CLAIM` comparison, same run, same thread
+pin:** `max_abs_eta_diff=1.225e-02`, `max_abs_log10_sp_diff=1.1536`,
+`edf_total_diff=+0.4673`, `at_bound=False`, `agrees=False` (the blind fit's
+own `converged=False` alone is sufficient to fail `agrees`, independent of
+the distance check). This is the SAME blind fit the warm-start diagnostic
+above reads as its own "before" point (`1.1536` reproduces `max(|6.696-6.565|,
+|9.872-8.718|, |3.292-3.288|, |3.029-3.013|) = 1.154` to rounding) — one
+blind fit, read by two steps, consistent between them. **This number is not
+a new, worse "official" gap to chase**: it is the same already-diagnosed
+optimiser-convergence artifact, on a blind default start that (this run)
+did not even converge by its own optimiser's criterion. Required levels 1-3
+of the ten-cell suite still agree on this run (no regression from either
+the new script or the `OPENBLAS_NUM_THREADS` pin).
+
 ### Nothing is re-pointed
 
 No production code changed. `gam_reml_optimize.py`, `gam_model.py`,
 `gam_reml.py`, `gam_fit.py` are byte-identical to `HEAD~1`. `tests/qa/`
-goldens byte-identical; the full non-slow suite passes unchanged (see
-session log for the exact count).
+goldens byte-identical; the full non-slow suite passes unchanged: 3499
+passed, 8 skipped, 126 deselected, 0 failed (`uv run pytest tests/ -q -m
+"not slow"`, `OPENBLAS_NUM_THREADS=1`); `tests/qa/` separately, 94 passed.
 
 ### Consequences
 

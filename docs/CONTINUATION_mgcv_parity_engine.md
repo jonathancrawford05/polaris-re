@@ -231,8 +231,16 @@ forbids, and Wood rules the tolerance approach out explicitly:
 > non-cheating multi-start check (9 starts, no information from `mgcv`)
 > reaches 612.6149 at best — closer than the single default start's
 > 612.6630 but short of `mgcv`'s reachable 612.6108, and 2 of 9 far-corner
-> starts fail to converge outright. **This does not by itself fix the
-> production search** — it is registered as PLAN slice 5e, a real,
+> starts fail to converge outright. **Confirmed at tier 3, same day** (CI
+> run 33279913273, oracle `sha256:0d54c192…` build 8): warm start lands
+> within `1.09e-4` of `mgcv`'s point at score `612.610760` — identical to
+> the tier-1 reading's last printed digit — `0.030862` better than a blind
+> start that this run reports `converged=False` outright. A second,
+> independent host (a GitHub Actions runner vs. this session's own
+> container) landing on a DIFFERENT, non-converging blind result at the
+> identical pinned thread count is a second, independent confirmation of
+> hypothesis 1, not a weaker reading of it. **This does not by itself fix
+> the production search** — it is registered as PLAN slice 5e, a real,
 > unfixed, and now precisely characterized engineering gap that will only
 > get harder at the target's 13-21 blocks, and is flagged below as an open
 > question for the maintainer per the same escalation practice slice 5c

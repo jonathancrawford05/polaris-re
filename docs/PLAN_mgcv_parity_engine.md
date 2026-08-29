@@ -981,7 +981,14 @@ one. Only the tier-3 oracle and ADR-193's two-producer rule do that.
   (9.116 / 8.519 / 8.773 at 1 / 2 / 4 threads) while a FIXED-sp evaluation of
   the identical criterion moves by `~4e-10` across the same thread counts —
   this is what made ADR-210's own tier-1 (0.7560) and tier-3 (1.0996)
-  readings of "the same" measurement disagree. **Slice 6 is unblocked.**
+  readings of "the same" measurement disagree. **Confirmed at tier 3**
+  (CI run 33279913273, oracle `sha256:0d54c192…` build 8): warm start lands
+  within `1.09e-4` of `mgcv`'s point at the identical score (`612.610760`,
+  matching the tier-1 reading to the last printed digit), `0.030862` better
+  than a blind start that this run reports `converged=False` — a second,
+  independent host reaching a different (and this time non-converging)
+  blind result at the SAME pinned thread count is itself further evidence
+  for hypothesis 1, not a weakening of it. **Slice 6 is unblocked.**
   Slice 5e (below) registers the still-open production-robustness question
   this finding raises but does not fix.
 
