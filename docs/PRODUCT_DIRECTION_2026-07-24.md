@@ -2959,3 +2959,50 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   pattern fix, not a recurring risk once named; the two PRE-EXISTING
   instances of this same limitation remain the 2nd-order backlog item they
   already were).*
+
+### Harvested 2026-08-29 — slice 5d resolves both hypotheses (ADR-211); slice 6 unblocked; a new production-robustness gap registered as slice 5e
+
+- **Slice 5d IS NOW DONE, same day as 5c.** The N=4 free-`sp` residual
+  slice 5c's session reopened is resolved: it is `select_lambdas_continuous`'s
+  own convergence precision on a weakly-identified `lambda` (hypothesis 1,
+  CONFIRMED), not `mgcv` reaching a point ours cannot (hypothesis 2,
+  REFUTED). Warm-starting the search at `mgcv`'s own selection converges
+  back to it (within 1e-6) at a score 0.052286 BETTER than the blind
+  default start's own result — the identical starting point reaches the
+  identical, better point, which is the direct refutation of hypothesis 2.
+  *Source: this session, ADR-211 (1st-order — closes the epic's designated
+  slice and unblocks slice 6).*
+
+- **The mechanism is precise, not inferred, and explains a standing
+  inconsistency in the epic's own numbers.** On identical code and data,
+  the blind search's own converged point on the by-term's block moves by
+  nearly a full log10 decade (9.116 / 8.519 / 8.773) depending SOLELY on
+  `OPENBLAS_NUM_THREADS`, while a fixed-`sp` evaluation of the identical
+  criterion moves by ~4e-10 across the same thread counts. This is what
+  made ADR-210's own tier-1 (0.7560) and tier-3 (1.0996) readings of "the
+  same" measurement disagree — a confound in the epic's own tooling, not a
+  BLAS/mgcv-version artifact of the kind the routine already knows to
+  watch for on the R side. *Source: this session, ADR-211 (1st-order —
+  affects how every future free-`sp` reading in this epic should be taken
+  and compared).*
+
+- **Fixed: `OPENBLAS_NUM_THREADS=1` now pinned for the CI "compare" job**
+  (`.github/workflows/mgcv-conformance.yml`), mirroring the R oracle's own
+  existing pin. Not a tolerance change (Anchor 8) — it removes a measurement
+  confound, the identical argument that justified pinning it for R.
+  *Source: this session, ADR-211 (1st-order — every future free-`sp`
+  measurement in this workflow is now reproducible run to run).*
+
+- **Registered as PLAN slice 5e, READY but not designated: the production
+  search's own convergence robustness at N > 4 blocks is unfixed.** A
+  blind, non-cheating 9-start check improved on the single default start
+  (612.6149 vs 612.6630 best-of-9) but did not reach `mgcv`'s reachable
+  612.6108, and 2 of 9 far-corner starts failed to converge outright. The
+  target formula has 13-21 blocks — more room for this pathology, not
+  less. Candidate fixes named but not chosen (multi-start with best-of-N,
+  an analytic gradient on Appendix B's own derivative expressions, a
+  different search algorithm). *Source: this session, ADR-211/PLAN slice 5e
+  (1st-order — on the epic's critical path before slice 7's 21-block
+  `select = TRUE`, and arguably before slice 6 if `sz`'s blocks interact
+  with the by-term's; sizing and sequencing against slices 6/7 is a
+  maintainer call, not this routine's).*

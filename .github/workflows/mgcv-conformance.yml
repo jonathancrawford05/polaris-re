@@ -102,6 +102,7 @@ on:
       - "src/polaris_re/analytics/gam_model_conformance.py"
       - "scripts/gam_multiterm_free_sp_probe.R"
       - "scripts/gam_multiterm_sp_delta_probe.R"
+      - "scripts/gam_free_sp_warmstart_diagnostic.py"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -113,6 +114,25 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # PLAN slice 5d: the Python "compare" job's own NumPy/SciPy calls run on
+  # OpenBLAS with DYNAMIC_ARCH (`numpy.show_config()`), which is exactly the
+  # class of host/thread-count-dependent numerics `ROUTINE_MGCV_PARITY.md`
+  # step 2 already pins `OPENBLAS_NUM_THREADS=1` for on the R side. Measured,
+  # not assumed: on the IDENTICAL free-sp fixture, `select_lambdas_continuous`
+  # (the finite-difference-gradient outer search, PLAN slice 4 part B)
+  # converges to a DIFFERENT point depending SOLELY on this thread count —
+  # log10(sp) on the by-term's own block reads 9.116 at 1 thread, 8.519 at 2,
+  # 8.773 at 4 — while a FIXED-sp score evaluation of the same criterion
+  # (`penalized_fit_and_score`, no search involved) moves by ~4e-10 across the
+  # same thread counts. The search, not the criterion, is what is sensitive
+  # here (`scripts/gam_free_sp_warmstart_diagnostic.py`), and leaving thread
+  # count unpinned means two runs of this workflow on identical code and data
+  # can read genuinely different `max_abs_log10_sp_diff` values, exactly the
+  # inconsistency PLAN slice 5d's own tier-1-vs-tier-3 readings (0.7560 vs
+  # 1.0996) show. Pinning this does not change, tune or widen any tolerance
+  # (Anchor 8) — it removes a confound from the measurement, the same
+  # argument that justified pinning it for R.
+  OPENBLAS_NUM_THREADS: "1"
   # The levels that BLOCK a merge, as a visible policy rather than a shell condition
   # buried in a step. These are slice 5's acceptance criteria; 4 and 5 are findings
   # under active work. Widening this list is a deliberate, reviewable edit — and
@@ -1093,6 +1113,33 @@ jobs:
           PY
           if [ -f gam_multiterm_free_sp_probe_report.md ]; then
             cat gam_multiterm_free_sp_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # PLAN slice 5d's cheap first step, extended: does mgcv's own free-sp
+      # point score BETTER, under our OWN now-fixed criterion (ADR-210), than
+      # our optimiser's own blind (default-start) result — discriminating
+      # "our search doesn't converge precisely enough" from "mgcv reaches a
+      # point ours cannot". DIAGNOSTIC ONLY (the warm start reads mgcv's own
+      # sp as an input) — same status as gam_multiterm_sp_delta_probe.R,
+      # never part of FREE_SP_MODEL_CLAIM. `OPENBLAS_NUM_THREADS=1` above is
+      # what makes this reading reproducible across runs of this job.
+      - name: Does mgcv's own free-sp point score better than our blind search's own result? (slice 5d)
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f gam_multiterm_free_sp_probe.json ]; then
+            uv run python scripts/gam_free_sp_warmstart_diagnostic.py gam_multiterm_free_sp_probe.json \
+              | tee gam_free_sp_warmstart_diagnostic_output.txt
+            {
+              echo ""
+              echo "### Slice 5d — warm-start-at-mgcv's-point diagnostic (NOT part of FREE_SP_MODEL_CLAIM)"
+              echo '```'
+              cat gam_free_sp_warmstart_diagnostic_output.txt
+              echo '```'
+              echo ""
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No gam_multiterm_free_sp_probe.json to diagnose — the R probe did not produce one." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       # PLAN slice 5c sequencing step 1 (tier-3 baseline) — the eight-point

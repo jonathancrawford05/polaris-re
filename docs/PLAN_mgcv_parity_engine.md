@@ -909,11 +909,21 @@ one. Only the tier-3 oracle and ADR-193's two-producer rule do that.
 ### Slice 5d: localise the free-`sp` residual on the N=4 structure — optimiser or surface?
 
 - **Depends on:** Slice 5c (ADR-210).
-- **Status:** READY. Registered so the routine's "next unchecked slice" rule can
-  reach it — the same registration slice 5b/5c needed. Designating it for a
-  session remains a `ROUTINE_MGCV_PARITY.md` call, and per slice 5c's own DoD,
-  this finding is also flagged for maintainer visibility (it reopens the
-  epic's cost estimate for slice 6).
+- **Status:** **DONE, 2026-08-29 (ADR-211).** Both hypotheses resolved:
+  hypothesis 1 (optimiser convergence precision) CONFIRMED with a precise
+  mechanism (the default single bounds-centre start stalls on the by-term's
+  own weakly-identified `lambda`, and where it stalls is sensitive to
+  OpenBLAS thread count — this is what made ADR-210's own tier-1 (0.7560)
+  and tier-3 (1.0996) readings of the identical measurement disagree, not a
+  criterion or data-draw difference); hypothesis 2 (mgcv reaching a point
+  ours structurally cannot) REFUTED — warm-starting `select_lambdas_continuous`
+  at mgcv's own point converges back to it at a BETTER score (612.6108) than
+  the blind default start reaches (612.6630). **Slice 6 is unblocked.** The
+  production search's own convergence robustness at N > 4 blocks is a real,
+  unfixed gap, registered as slice 5e below rather than attempted in this
+  session (PLAN §5, "never burn a whole session on hypothesis 1" — this
+  session found the mechanism cleanly on the second check and stopped
+  there).
 - **The gap, stated precisely.** ADR-210 closed the fixed-`sp` REML criterion
   to float round-trip precision (both tiers) — the score itself is no longer
   in question. Free-`sp` selection on the same N=4, `ti()`-sharing-a-span
@@ -959,22 +969,77 @@ one. Only the tier-3 oracle and ADR-193's two-producer rule do that.
   genuine multi-modality) unblocks slice 6. A third finding — neither
   hypothesis holds — is itself a result per the routine's own standard, and
   re-opens the question at a session's discretion.
+- **RESOLVED, 2026-08-29 (ADR-211).** Warm-starting `select_lambdas_continuous`
+  at `mgcv`'s own free-`sp` selection converges back to it (within `1e-6`) at
+  a score **0.052286 BETTER** than the blind, bounds-centre default start's
+  own result — hypothesis 1 (optimiser convergence precision) confirmed;
+  hypothesis 2 (`mgcv` reaching somewhere ours structurally cannot) refuted,
+  since ours reaches the identical point from the identical start. The
+  mechanism is precise, not merely inferred: on the SAME fixed data and
+  code, the blind start's own converged point moves by up to a full log10
+  decade on the by-term's block depending SOLELY on `OPENBLAS_NUM_THREADS`
+  (9.116 / 8.519 / 8.773 at 1 / 2 / 4 threads) while a FIXED-sp evaluation of
+  the identical criterion moves by `~4e-10` across the same thread counts —
+  this is what made ADR-210's own tier-1 (0.7560) and tier-3 (1.0996)
+  readings of "the same" measurement disagree. **Slice 6 is unblocked.**
+  Slice 5e (below) registers the still-open production-robustness question
+  this finding raises but does not fix.
+
+### Slice 5e: robustify the outer search's own convergence before scaling past N=4 blocks
+
+- **Depends on:** Slice 5d (ADR-211).
+- **Status:** READY, not designated. Registered per ADR-209 decision 1 ("a
+  gap you open is closed or registered — never merely filed") — slice 5d
+  found this and deliberately did not fix it in the same session.
+- **The gap.** `select_lambdas_continuous`'s default single start (the
+  bounds-centre, uninformative by construction) measurably fails to
+  converge to the true REML optimum on a `by`-term-dominated, weakly
+  identified direction at N=4 blocks — a full log10 decade short of a
+  reachable, better-scoring point `mgcv`'s own selection already occupies
+  (ADR-211). The target formula has 13-21 blocks; more directions for a
+  flat/weakly-identified pathology like this one to hide in, not fewer, so
+  this is not safe to leave unaddressed before slice 7 (`select = TRUE`,
+  which pushes the block count to 21) and arguably not before slice 6 either
+  if `sz`'s own blocks interact with the by-term's.
+- **What a blind, non-cheating multi-start check already showed (ADR-211):**
+  bounds-centre + 8 uniform-random starts reached as low as 612.6149 in 9
+  tries (closer to `mgcv`'s 612.6108 than the single default start's
+  612.6630, but not equal to it), and 2 of 9 far-corner starts FAILED TO
+  CONVERGE outright. A few extra starts help; they do not by themselves
+  guarantee the true optimum within a small, fixed budget.
+- **Candidate approaches, not chosen here:** (1) multiple starts with a
+  best-of-N selection (simple, cheap, the natural next thing to measure —
+  ADR-211's own blind check is a first data point, not a designed
+  experiment); (2) an analytic gradient built on Appendix B's own
+  derivative expressions, already stated in slice 5c's text —
+  `∂log|S|/∂ρⱼ = λⱼ tr(S⁻¹Sⱼ)` and the corresponding second derivative —
+  built but unused there (`E`, `Q_s`); (3) a different search algorithm
+  (e.g. a trust-region method less sensitive to a near-flat direction than
+  a finite-difference quasi-Newton line search).
+- **Acceptance.** A measured, reproducible (thread-count-pinned) improvement
+  in `max_abs_log10_sp_diff` on the N=4 fixture, with the chosen approach's
+  own cost (extra fit evaluations) stated — not a claim that the residual
+  reaches zero, which ADR-211's own multi-start data point suggests may not
+  be achievable cheaply on this specific landscape.
 
 ### Slice 6: `bs = "sz"` — orthogonal factor-smooth interactions
 
 - **Depends on:** Slices 2, 4
-- **BLOCKED, 2026-08-25 (PR #212 review [P1], CONFIRMED at tier 3 same day);
-  RESTATED, 2026-08-29 (ADR-210):** slice 5c closed the criterion-formula
-  gap it was registered to close (both defects, tier 1 AND tier 3 confirmed
-  to float precision on the fixed-`sp` measurement) — but free-`sp`
-  selection on the same N=4 structure still disagrees with `mgcv`
+- **UNBLOCKED, 2026-08-29 (ADR-211).** Slice 5d resolved both of its
+  registered hypotheses: the free-`sp` residual on the N=4 structure is the
+  outer search's own convergence precision on a weakly-identified
+  direction, not an unreachable `mgcv` optimum and not a remaining
+  criterion defect (both defects already closed to float precision at
+  fixed `sp`, ADR-210). A fourth basis's own `sp` selection no longer
+  compounds an unlocalised question — it inherits a NAMED, characterized
+  one (slice 5e), the same status slice 5 itself shipped under (ADR-206
+  named the N>2 search extension as follow-on work rather than blocking on
+  it). **BLOCKED, 2026-08-25 (PR #212 review [P1]); RESTATED, 2026-08-29
+  (ADR-210)** — superseded history, kept for the record: slice 5c closed
+  the criterion-formula gap it was registered to close, but free-`sp`
+  selection on the same N=4 structure still disagreed with `mgcv`
   (`max_abs_log10_sp_diff` 1.0996 at tier 3, worse than the pre-fix 0.6398),
-  now diagnosed as an OPTIMISER CONVERGENCE question rather than a criterion
-  one (ADR-210). **This slice stays blocked** — a fourth basis's own `sp`
-  selection on top of a still-unlocalised optimiser-convergence gap would
-  compound rather than isolate the next disagreement, the same reasoning
-  that blocked it on ADR-208's original (criterion) diagnosis. **The route
-  out is now slice 5d**, above.
+  diagnosed at the time as an unlocalised OPTIMISER CONVERGENCE question.
 
 Sum-to-zero factor-smooth deviations from a reference smooth. Four terms in the target.
 Expect this to be the hardest basis of the three: the constraint and reparameterisation are

@@ -18388,3 +18388,194 @@ plus every P2. Full detail in the session log's "Round 2" section; summary:
 New R-free test coverage:
 `tests/test_analytics/test_gam_reml_optimize_conformance.py` (the new
 comparison function and its claim's provenance gate).
+
+---
+
+## ADR-211: Slice 5d — the free-`sp` residual is the outer search's own convergence precision, not a criterion or a reachability gap; slice 6 unblocked
+
+**Date:** 2026-08-29
+**Status:** Accepted. **Both live hypotheses PLAN slice 5d registered are
+resolved: hypothesis 1 (optimiser convergence precision on a
+weakly-identified `lambda`) is CONFIRMED, with a precise, reproducible
+mechanism; hypothesis 2 (a genuinely multi-modal surface where `mgcv`
+reaches a point ours structurally cannot) is REFUTED — `mgcv`'s own point is
+a reachable, better-scoring optimum of our own criterion.** Slice 6
+(`bs = "sz"`) is unblocked per slice 5d's own acceptance criterion. A new
+follow-on item — the production search's own convergence robustness at
+N > 4 blocks — is registered below rather than fixed in this session, and
+flagged for maintainer visibility per the same escalation practice slice 5c
+used.
+**Implements:** `docs/PLAN_mgcv_parity_engine.md` slice 5d, in full.
+
+### The cheap first step, and what it actually found
+
+Slice 5d's own sequencing named a cheap first step: re-run the discriminating
+measurement at tier 3, since ADR-210's own reading was tier 1 only. Doing
+that surfaced something the slice did not anticipate: **a single, unpinned
+degree of freedom in this session's own environment — the NumPy/OpenBLAS
+thread count — moves the free-`sp` residual by more than the entire gap
+being chased**, and explains why ADR-210's tier-1 (0.7560) and tier-3
+(1.0996) readings of the identical measurement disagreed in the first place.
+
+Measured directly, on one fixed, freshly-drawn tier-1 fixture (same recipe
+and seed as `gam_multiterm_free_sp_probe.R`, `mgcv`'s own selection
+reproduced exactly: `log10(sp) = [6.696, 9.872, 3.292, 3.029]`, matching
+ADR-208/210's own reading to the printed digit — the data draw is stable):
+
+| `OPENBLAS_NUM_THREADS` | Python's own `log10(sp)` on the by-term block | REML score |
+|---:|---:|---:|
+| 1 | **9.116** | 612.663047 |
+| 2 | 8.519 | 612.673344 |
+| 4 (unset default on this container) | 8.773 | 612.675960 |
+
+`9.116` is ADR-210's own tier-1 reading, to the printed digit
+(`max_abs_log10_sp_diff = 0.7560`). `8.773` reproduces a `max_abs_log10_sp_diff`
+of **1.0996** — ADR-210's own tier-3 reading, to the printed digit — on a
+run that never touched R at all. **Three repeated runs at a FIXED thread
+count are bit-identical** (this is not run-to-run randomness; the search
+itself has no RNG). The dependency is entirely on the thread count, and nothing
+else changed between rows: same code, same data, same starting point.
+
+**Contrast with the criterion itself, evaluated at the SAME `mgcv` point with
+no search involved** (`penalized_fit_and_score` at `mgcv`'s own fixed
+`log10(sp)`): `612.6107604228214` (1 thread) vs `612.6107604232177` (4
+threads) — a difference of `~4e-10`, consistent with ADR-210's own
+float-round-trip-precision finding at fixed `sp`, regardless of thread count.
+**The criterion is rock solid across environments; the SEARCH is not.**
+This is the first structural fact slice 5d needed: the residual lives
+entirely in `select_lambdas_continuous`'s own finite-difference-gradient
+line search, not in `reml_score_general`.
+
+### The decisive discriminator: warm-starting at `mgcv`'s own point
+
+The mechanism above explains *why* readings vary across environments; it
+does not by itself say whether `mgcv`'s point is even a good point under our
+own (now fixed, ADR-210) criterion, which is the actual question slice 5d's
+two hypotheses turn on. Tested directly, `OPENBLAS_NUM_THREADS=1` pinned for
+reproducibility (`scripts/gam_free_sp_warmstart_diagnostic.py`, new,
+DIAGNOSTIC — see Provenance):
+
+```
+mgcv's own log10(sp):        [6.695961 9.87212  3.291837 3.029185]
+blind (default-start) fit:   log10(sp)=[6.912784 9.116095 3.359102 2.972364]  score=612.663047
+warm (start-at-mgcv) fit:    log10(sp)=[6.69596  9.872119 3.291836 3.029185]  score=612.610760
+
+SCORE GAP (blind - warm):        +0.052286
+MAX ABS (warm log10(sp) - mgcv): 0.000001
+```
+
+**Started AT `mgcv`'s own point, `select_lambdas_continuous` stays there** —
+converging back to within `1e-6` of the input, at a score `0.0523` BETTER
+(lower) than its own default-start (bounds-centre) result reaches. Two
+things follow directly:
+
+1. **`mgcv`'s point is a genuine, reachable local optimum of our own,
+   now-verified-correct criterion.** Hypothesis 2, in the form the PLAN
+   registered it ("`mgcv`'s own optimiser... reaches a different local
+   optimum than ours would even from an identical starting point") is
+   REFUTED: from the identical starting point, ours reaches the SAME point,
+   and it scores BETTER than what the default start alone finds.
+2. **The default (bounds-centre) start's own result is objectively worse,
+   under a criterion we ourselves trust.** This is hypothesis 1, confirmed
+   directly rather than inferred: the search is not failing because `mgcv`
+   is doing something ours cannot reach; it is failing because the blind
+   start does not walk far enough along a direction (the by-term's own
+   `lambda`) flat enough that the OpenBLAS-thread-dependent noise floor
+   (`~4e-10` in the objective, per the fixed-`sp` measurement above) is
+   large enough, relative to the local curvature, to stall a
+   finite-difference gradient short of the true minimum — and *where* it
+   stalls depends on that noise, which is exactly the thread-count table
+   above.
+
+A blind, non-cheating multi-start check (bounds-centre plus 8 uniform random
+draws in `[-2, 11]^4`, `OPENBLAS_NUM_THREADS=1`, no information from `mgcv`'s
+point) reaches as low as `612.6149` (one random start) — closer to `mgcv`'s
+`612.6108` than the single blind default start's `612.6630`, but still not
+equal to it in 9 tries, and two of the nine random starts (far corners) FAIL
+TO CONVERGE outright (`converged=False`, landing at a search bound with a
+much worse score, `~636.7`). This bounds what a cheap fix can promise: a few
+extra starts help, but do not by themselves guarantee finding the true
+optimum on this landscape within a small, fixed budget — precisely the kind
+of thing PLAN §4/Anchor 8 says to report rather than paper over with a
+looser convergence check.
+
+### Provenance (ADR-193)
+
+**Claim sentence, both new comparisons:**
+
+> `select_lambdas_continuous` (`polaris_re.analytics.gam_reml_optimize`)
+> computes its own converged `log10(lambda)` and REML score from a supplied
+> starting point, on the design/penalty blocks `gam_model.assemble_model_design`
+> builds; the warm-start variant differs only in `x0`, which is read from
+> `mgcv`'s own free-`sp` selection (`scripts/gam_multiterm_free_sp_probe.R`'s
+> payload) — compared on `log10(sp)` and the REML score, both Python-computed.
+
+**Mechanical test:** `select_lambdas_continuous`'s own signature takes `x0`
+as an ordinary caller-supplied array; the warm-start call supplies `mgcv`'s
+own selection as that argument. This is the identical pattern
+`gam_multiterm_sp_delta_probe.R`'s docstring already names as the reason its
+own reading is diagnostic, not independent: **the warm-start result is
+TRANSPORT-adjacent (one side's own output used as the other's input), never
+INDEPENDENT, and is not, and must never be, folded into `FREE_SP_MODEL_CLAIM`.**
+What it establishes is real regardless — a REACHABILITY fact about our own
+already-INDEPENDENT criterion (ADR-196/197/199/210), not a parity comparison
+in its own right. The BLAS-thread table is not a comparison against `mgcv`
+at all; it is an internal reproducibility measurement of our own code,
+included because it is the finding that explains why two independent tier-1
+and tier-3 sessions read different numbers off the same (INDEPENDENT)
+`FREE_SP_MODEL_CLAIM` comparison.
+
+### What was built
+
+- `scripts/gam_free_sp_warmstart_diagnostic.py` — the warm-start/blind-start
+  comparison above, reusing `select_lambdas_continuous`/`assemble_model_design`/
+  `resolve_family` unchanged. No new fitting or scoring formula; this module
+  adds no production code, only a diagnostic script, per the same discipline
+  `gam_multiterm_sp_delta_probe.R` established.
+- `.github/workflows/mgcv-conformance.yml`: a new workflow-level
+  `OPENBLAS_NUM_THREADS: "1"` (previously unset for the Python "compare"
+  job — the R oracle side has pinned this since ADR-189 amendment 2, but
+  nothing pinned the Python side's own NumPy/OpenBLAS calls, which is
+  exactly the gap this ADR's thread-count table exposes) and a new step
+  running the diagnostic above against job 1's existing
+  `gam_multiterm_free_sp_probe.json` artefact (no new R script — reuses the
+  payload the slice 5b/5c steps already fetch). **This pins reproducibility;
+  it does not change, tune or widen any tolerance (Anchor 8)** — the same
+  argument that justified pinning it for R in the first place.
+
+### Nothing is re-pointed
+
+No production code changed. `gam_reml_optimize.py`, `gam_model.py`,
+`gam_reml.py`, `gam_fit.py` are byte-identical to `HEAD~1`. `tests/qa/`
+goldens byte-identical; the full non-slow suite passes unchanged (see
+session log for the exact count).
+
+### Consequences
+
+- **Slice 6 (`bs = "sz"`) is unblocked**, per slice 5d's own acceptance
+  criterion ("Either hypothesis resolved with evidence... unblocks slice
+  6"). The blocking condition was "the free-`sp` residual on N=4 is
+  unlocalised"; it is now localised to the outer search's own convergence
+  precision on a weakly-identified direction, with the criterion itself
+  cleared at both fixed and free `sp`.
+- **New follow-on, NOT fixed in this session and not this session's to
+  size:** `select_lambdas_continuous`'s default single bounds-centre start
+  is measurably insufficient on a `by`-term-dominated landscape at N=4, and
+  the target formula has 13-21 blocks — more directions for a flat/weakly
+  identified pathology like this one to hide in, not fewer. A production
+  fix (multiple starts with a best-of selection, an analytic gradient built
+  on Appendix B's own derivative expressions — already stated in slice 5c's
+  text, `∂log|S|/∂ρⱼ = λⱼ tr(S⁻¹Sⱼ)` — or a different search algorithm
+  entirely) is real engineering work, not a one-line change, and is
+  registered as PLAN slice 5e rather than attempted here (PLAN §5,
+  "NEVER burn the whole session on hypothesis 1... a fourth guess" — this
+  session found the mechanism on the first two checks and stops there
+  rather than open-endedly iterating on a fix).
+- **A reproducibility gap in the epic's OWN tooling, not `mgcv`'s, is
+  closed**: every future free-`sp` reading through this CI workflow is now
+  taken at a pinned thread count, so a session comparing today's number
+  against a future one is comparing like with like. Every PAST free-`sp`
+  reading in the ledger (ADR-208, ADR-210) stays valid as a dated
+  observation of whatever thread count that session's environment happened
+  to run at — not retroactively corrected, per the ledger's own append-only
+  discipline — but now explained rather than merely inconsistent.

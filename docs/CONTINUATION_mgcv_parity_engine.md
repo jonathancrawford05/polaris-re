@@ -209,9 +209,39 @@ forbids, and Wood rules the tolerance approach out explicitly:
 > silently). **Slice 6 stays blocked** — see slice 5d's own entry for why the
 > blocking reason changed rather than lifted.
 
+> **Slice 5d is DONE, 2026-08-29 (ADR-211), and both hypotheses resolved —
+> Slice 6 is UNBLOCKED.** Slice 5d's own cheap first step (re-measure the
+> discriminator at tier 3) surfaced something the slice did not anticipate:
+> a single unpinned degree of freedom in the Python side's own environment
+> — OpenBLAS thread count — moves the free-`sp` residual (by-term
+> `log10(sp)`: 9.116 / 8.519 / 8.773 at 1/2/4 threads) by more than the
+> entire gap under investigation, while a FIXED-sp evaluation of the
+> identical criterion moves by `~4e-10` across the same thread counts. This
+> fully explains why ADR-210's own tier-1 (0.7560) and tier-3 (1.0996)
+> readings of "the same" measurement disagreed — the criterion is
+> thread-independent, the SEARCH is not. **The decisive discriminator:**
+> warm-starting `select_lambdas_continuous` at `mgcv`'s own free-`sp`
+> selection converges back to it (within `1e-6`) at a score **0.052286
+> BETTER** than the blind, bounds-centre default start's own result.
+> Hypothesis 2 (`mgcv` reaching somewhere ours structurally cannot) is
+> REFUTED — the identical starting point reaches the identical, better
+> point. Hypothesis 1 (optimiser convergence precision on a
+> weakly-identified `lambda`) is CONFIRMED, with the thread-count table as
+> the precise mechanism rather than a vague "the surface is flat." A blind,
+> non-cheating multi-start check (9 starts, no information from `mgcv`)
+> reaches 612.6149 at best — closer than the single default start's
+> 612.6630 but short of `mgcv`'s reachable 612.6108, and 2 of 9 far-corner
+> starts fail to converge outright. **This does not by itself fix the
+> production search** — it is registered as PLAN slice 5e, a real,
+> unfixed, and now precisely characterized engineering gap that will only
+> get harder at the target's 13-21 blocks, and is flagged below as an open
+> question for the maintainer per the same escalation practice slice 5c
+> used.
+
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16), slice 5b
 (inserted 2026-08-24/25, ADR-207/ADR-208), slice 5c (inserted 2026-08-25, DONE
-2026-08-29, ADR-210) and slice 5d (inserted 2026-08-29, ADR-210) plus one
+2026-08-29, ADR-210), slice 5d (inserted 2026-08-29, DONE 2026-08-29,
+ADR-211) and slice 5e (inserted 2026-08-29, READY, ADR-211) plus one
 deferred to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
 
@@ -820,6 +850,31 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
   epic's scope, or whether the free-`sp` acceptance bar for a 13-21-parameter
   target needs to be restated given a 2-block optimiser (ADR-199) already needed
   1e-4-level precision to demonstrate parity and a 4-block one does not reach it.
+
+  > **RESOLVED, 2026-08-29 (ADR-211).** Slice 5d's own cheap first step found
+  > the answer directly rather than needing a maintainer sizing call: the
+  > N=4 residual is `select_lambdas_continuous`'s own convergence precision
+  > on a weakly-identified direction — NOT a remaining criterion defect (both
+  > already closed to float precision, ADR-210) and NOT `mgcv` reaching
+  > somewhere ours structurally cannot (warm-starting our own search at
+  > `mgcv`'s point converges back to it at a BETTER score, 612.6108 vs the
+  > blind start's 612.6630). The precise mechanism: the blind default
+  > start's own converged point on the by-term's block moves by nearly a
+  > full log10 decade (9.116 → 8.519 → 8.773) depending SOLELY on
+  > `OPENBLAS_NUM_THREADS`, while a fixed-`sp` evaluation of the identical
+  > criterion moves by `~4e-10` across the same thread counts — this is
+  > what made ADR-210's own tier-1/tier-3 readings of "the same"
+  > measurement disagree. **Slice 6 is unblocked.** The sizing question IS
+  > still live, restated more precisely: `select_lambdas_continuous`'s
+  > default single-start strategy needs a real fix (multi-start, an
+  > analytic gradient built on Appendix B's own derivative expressions, or
+  > a different search algorithm) before the target's 13-21 blocks can be
+  > trusted — a blind 9-start check improved but did not close the N=4 gap
+  > (best of 9: 612.6149, still short of 612.6108; 2 of 9 failed to
+  > converge at all). Registered as PLAN slice 5e, READY but not designated
+  > — whether it belongs before slice 6, before slice 7, or is sized as its
+  > own piece of work is a maintainer call, the same class of decision
+  > slice 5c's own DoD escalated.
 - **The duration treatment on real data** — band as factor, or band as ordered numeric via
   a representative value. The maintainer has reserved this as a modelling judgement; the
   engine will support both and the routine is forbidden from deciding it.
