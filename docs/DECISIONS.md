@@ -17854,3 +17854,119 @@ untouched — this is new validation in the NEW code this slice added
 (`fit_polaris_gam`), not a change to any tier-3-verified artifact.
 `FREE_SP_MODEL_CLAIM`'s own comparator (`gam_model_conformance._SEARCH_BOUNDS`)
 was already correct and is unaffected by this fix.
+
+---
+
+## ADR-209: the recalibration adopted — a closure obligation, a cheap-measurement rule, and a Definition of Done that something consumes
+
+**Date:** 2026-08-29
+**Status:** **Accepted.** The maintainer requested the recalibration, read it, and
+adopted it: *"I am happy to adopt the calibration changes, how do you propose we do
+this, so that the future development is effective? Also, how can we guard against the
+DoD item?"* and then *"Start the adoption PR."*
+**Source:** `docs/RECALIBRATION_mgcv_parity_2026-08-25.md` §3 (five ranked causes) and
+§4 (five proposals), PR #213.
+**Amends:** `docs/ROUTINE_MGCV_PARITY.md` — DELIVER and a new WORK SELECTION clause.
+
+### What this adopts, and what it deliberately does not
+
+| § 4 proposal | disposition |
+|---|---|
+| 1. Measure Anchor 2's primary metric | **Already done** (PR #213, tier 1). The remaining half — the pinned grid, and promotion to a committed conformance case — stays open and is *not* decided here |
+| 2. A closure obligation | **Adopted, in a rewritten form.** See decision 1 — the drafted version was rejected |
+| 3. A cadence for the maintainer queue | **Not adopted here.** Scheduling lives outside the repo; nothing in this ADR can implement it |
+| 4. "Run it if it is under an hour" | **Adopted.** Decision 2 |
+| 5. Re-ask the scope question | **Not adopted here.** A maintainer judgement plus a commercial-viability re-rank, neither of which is a repo edit |
+
+Two of five are outside this ADR's reach and are recorded as still open rather than
+quietly dropped.
+
+### Decision 1 — a gap must be closed, or REGISTERED AS A SLICE
+
+**The drafted proposal was wrong and is not adopted as written.** §4.2 proposed *"an
+open gap names who closes it and by when, or a session that opens its Nth gap must
+close one first."* That penalises a session for *reporting* a gap, which inverts the
+routine's own most valuable rule — *"an INDEPENDENT comparison that DISAGREES is a
+SUCCESS"* — and would push sessions toward not looking.
+
+**Adopted instead, and it is the mechanism this epic has already proven twice:**
+
+> A gap a session opens must either be **closed**, or **registered as a slice in
+> `PLAN_mgcv_parity_engine.md`** with a release condition. Prose in an
+> "Open questions" list is not registration.
+
+The evidence is from the two weeks preceding this ADR, and it is unusually clean:
+
+| gap | how it was recorded | what happened |
+|---|---|---|
+| the multi-term assembler | named as a blocker by ADR-199, 200, 205 | **named three times, built zero** — the routine's selection rule cannot reach prose |
+| the production path | **registered as slice 5b** | picked up and delivered (ADR-208) |
+| the criterion discrepancy | filed as a CONTINUATION open question | sat un-run until a maintainer asked why |
+| the same discrepancy | **registered as slice 5c** | selectable by the next run |
+
+Registration costs one PLAN edit. It is the difference between a finding that is
+visible and a finding that is *reachable*.
+
+### Decision 2 — run it if it is under an hour
+
+> A measurement a review can name, that costs **under an hour**, is **run**, not
+> filed. Filing it requires saying why it could not be run.
+
+This is adopted because it has a measured cost. PR #212's round-2 review named a
+twenty-minute localisation and labelled it *"follow-on, not a blocker"* — a
+defensible per-PR judgement that was wrong for the epic. It sat for a day, and when
+finally run it localised the blocker to one line and then, prompted once more, to a
+second independent defect. **The label was mine, and it is why this rule exists.**
+
+### Decision 3 — the Definition of Done gets a consumer
+
+**The finding that drove it:** `ROUTINE_MGCV_PARITY.md`'s DELIVER section asks for a
+commit, a `perf/history.jsonl` row, a draft PR, a session log, follow-up harvesting
+and a CONTINUATION update — **and never mentions the slice's Definition of Done at
+all.** The PLAN defines it; no process consumes it.
+
+That makes it the fourth instance of one failure mode this epic has now found four
+times, each an instruction that reads as executable and is not:
+
+1. *"Mutation-test each"* — no method, and no mutation tooling in the repository.
+2. *"A CI dispatch of an existing probe"* — the probe's Python side and the workflow
+   step did not exist.
+3. *"This epic advances only when the routine is registered"* — true for one day,
+   false for the fourteen after it, and believed by a session.
+4. **The Definition of Done itself** — defined, never checked.
+
+**Adopted, two layers:**
+
+- **DELIVER gains a bullet.** The PR body reproduces the designated slice's DoD
+  verbatim as a checklist, each item carrying its evidence — a command, a test name,
+  an ADR section — or an explicit *"not met, because …"*.
+- **Every DoD item is tagged `[machine]` or `[judgement]` when written.** A
+  `[machine]` item must name the test or command that proves it; a `[judgement]` item
+  must name who confirms it.
+
+**The tagging is the load-bearing half.** It fails at *write* time, not review time:
+*"mutation-test each"* could not have been tagged `[machine]` without its author
+noticing there was no method behind it. That is the earliest point at which any of
+the four instances above could have been caught.
+
+### What this does NOT do, stated because the limit matters
+
+**None of this guards against a WRONG claim — only a MISSING one.** A `[machine]`
+item can name a test that passes while asserting the wrong thing; the eq. (4) audit
+table slice 5c requires can be filled in incorrectly and every check still goes
+green. The only defence there is independent verification: the three-tier oracle and
+ADR-193's two-producer rule, both of which already exist and neither of which this
+ADR touches.
+
+It also does not add mutation-testing tooling (slice 5c's protocol is six named
+mutations, deliberately not a runner), does not change any acceptance criterion, and
+does not decide the `sp`-versus-`edf` question, which remains maintainer-reserved.
+
+### Consequences
+
+- Slice 5c is the first slice to run under all three decisions, and its DoD is
+  retagged here as the worked example.
+- A session that opens a gap now has a one-edit obligation rather than a judgement
+  call about where to put it.
+- The review loop keeps the same job it has been doing informally since PR #211 —
+  walking the DoD item by item — but stops depending on the reviewer choosing to.

@@ -354,6 +354,32 @@ target model form, or to characterise precisely why it cannot move.
    - harvest follow-ups into the latest PRODUCT_DIRECTION, with the order-classification
      cap (1st-order promote, 2nd-order NICE-TO-HAVE, 3rd-order parked)
    - update `docs/CONTINUATION_mgcv_parity_engine.md`
+   - **REPRODUCE THE SLICE'S DEFINITION OF DONE IN THE PR BODY, AS A CHECKLIST**
+     (ADR-209 decision 3). Verbatim from the PLAN, one line per item, each carrying
+     either its EVIDENCE — a command, a test name, an ADR section — or an explicit
+     "NOT MET, because …". Neither a silent omission nor a bare tick.
+     **Why this bullet exists:** until ADR-209 nothing in this routine mentioned the
+     DoD at all. The PLAN defined it and no step consumed it, which made it the fourth
+     instruction in this epic that read as executable and was not — after
+     "mutation-test each" (no method), "a CI dispatch of an existing probe" (the probe
+     and the workflow step did not exist), and "this epic advances only when the
+     routine is registered" (false for fourteen days, and believed).
+
+10. **A GAP YOU OPEN IS CLOSED OR REGISTERED — never merely filed** (ADR-209
+    decision 1). If this session opens a gap it does not close, **add it to
+    `PLAN_mgcv_parity_engine.md` as a slice, with a release condition**, using the
+    letter-suffix convention (5b, 5c) so slice numbers do not renumber. An entry in a
+    CONTINUATION "Open questions" list is a note, not a registration: **the work
+    selection rule cannot reach it.** The assembler was named as a blocker by three
+    ADRs and built zero times for exactly this reason; registering it as slice 5b got
+    it delivered in a day.
+
+11. **RUN IT IF IT IS UNDER AN HOUR** (ADR-209 decision 2). A measurement this session
+    or a review can name, costing under an hour, is **run** — not filed. Filing it
+    requires stating why it could not be run. Precedent, and the label was a
+    reviewer's own: PR #212's round-2 review named a twenty-minute localisation
+    "follow-on, not a blocker". It sat a day; run, it localised the epic's blocker to
+    one line, and then to a second independent defect.
 
 == GUARDRAILS ==
 
