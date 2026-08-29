@@ -69,7 +69,7 @@ class TestCorrectedReMLScore:
         gamma = 1.4
 
         old = production_reml_score(y, x, offset, coef, penalty, gamma=gamma)
-        new = corrected_reml_score(y, x, offset, coef, penalty, gamma=gamma)
+        new = corrected_reml_score(y, x, offset, coef, (penalty,), np.array([1.0]), gamma=gamma)
         penalty_quadratic_form = 0.5 * float(coef @ penalty @ coef) / gamma
         assert new == pytest.approx(old, abs=1e-9, rel=1e-9)
         # Still strictly positive under a real penalty — sanity that this fixture
@@ -86,7 +86,7 @@ class TestCorrectedReMLScore:
         penalty = np.zeros((p, p))
 
         old = production_reml_score(y, x, offset, beta_true, penalty)
-        new = corrected_reml_score(y, x, offset, beta_true, penalty)
+        new = corrected_reml_score(y, x, offset, beta_true, (penalty,), np.array([1.0]))
         assert new == pytest.approx(old, abs=1e-12, rel=1e-12)
 
 

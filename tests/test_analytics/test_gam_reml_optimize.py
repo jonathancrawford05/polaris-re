@@ -53,7 +53,9 @@ class TestPenalizedFitAndScore:
         coef, score = penalized_fit_and_score(y, x, family, (s,), np.array([1.5]))
 
         direct_fit = penalized_irls_general(x, y, family=family, penalty=(10.0**1.5) * s)
-        direct_score = reml_score_general(y, x, family, direct_fit.coef, (10.0**1.5) * s)
+        direct_score = reml_score_general(
+            y, x, family, direct_fit.coef, (s,), np.array([10.0**1.5])
+        )
         np.testing.assert_allclose(coef, direct_fit.coef, rtol=1e-12)
         assert score == pytest.approx(direct_score, rel=1e-12)
 
@@ -70,7 +72,9 @@ class TestPenalizedFitAndScore:
 
         penalty = (10.0**0.5) * s1 + (10.0**1.5) * s2
         direct_fit = penalized_irls_general(x, y, family=family, penalty=penalty)
-        direct_score = reml_score_general(y, x, family, direct_fit.coef, penalty)
+        direct_score = reml_score_general(
+            y, x, family, direct_fit.coef, (s1, s2), np.array([10.0**0.5, 10.0**1.5])
+        )
         np.testing.assert_allclose(coef, direct_fit.coef, rtol=1e-12)
         assert score == pytest.approx(direct_score, rel=1e-12)
 

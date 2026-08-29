@@ -128,14 +128,23 @@ def penalized_fit_and_score(
             f"log_lambda has shape {log_lambda.shape}, but {len(penalty_blocks)} "
             "penalty_blocks were supplied — one log10(lambda) entry per block."
         )
+    lambdas = 10.0**log_lambda
     penalty = np.zeros_like(penalty_blocks[0])
-    for log_lam, block in zip(log_lambda, penalty_blocks, strict=True):
-        penalty = penalty + (10.0**log_lam) * block
+    for lam, block in zip(lambdas, penalty_blocks, strict=True):
+        penalty = penalty + lam * block
     fit = penalized_irls_general(
         x, y, family=family, penalty=penalty, offset=offset, weights=weights
     )
     score = reml_score_general(
-        y, x, family, fit.coef, penalty, offset=offset, weights=weights, gamma=gamma
+        y,
+        x,
+        family,
+        fit.coef,
+        penalty_blocks,
+        lambdas,
+        offset=offset,
+        weights=weights,
+        gamma=gamma,
     )
     return fit.coef, score
 

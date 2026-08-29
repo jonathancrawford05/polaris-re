@@ -412,6 +412,21 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # PLAN slice 5c sequencing step 1: the tier-3 baseline for the
+      # fixed-sp criterion spread — the discriminating measurement behind
+      # Defects A (log|S|+) and B (the observed-Hessian weight). DIAGNOSTIC
+      # ONLY: reads mgcv's own gcv.ubre at fixed sp, same status as the
+      # free-sp delta probe above. Eight points, same shared design as
+      # gam_multiterm_free_sp_probe.R / gam_multiterm_sp_delta_probe.R (same
+      # seed, same n, same knots).
+      - name: Fixed-sp REML score at 8 points, spanning up to a 6.8-decade lambda spread (slice 5c)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_fixed_sp_score_probe.R \
+              gam_fixed_sp_score_probe.json
+
       - uses: actions/upload-artifact@v4
         with:
           name: mgcv-reference
@@ -427,6 +442,7 @@ jobs:
             gam_multiterm_probe.json
             gam_multiterm_free_sp_probe.json
             gam_multiterm_sp_delta_probe.json
+            gam_fixed_sp_score_probe.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
@@ -1075,6 +1091,31 @@ jobs:
           PY
           if [ -f gam_multiterm_free_sp_probe_report.md ]; then
             cat gam_multiterm_free_sp_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # PLAN slice 5c sequencing step 1 (tier-3 baseline) — the eight-point
+      # fixed-sp spread, both before Defects A/B (raw) and after (this
+      # branch's reml_score_general, which already carries the fix — the
+      # "before" figure is the tier-1 measurement in the ADR, re-derived
+      # here isn't possible without checking out the pre-fix commit).
+      # DIAGNOSTIC ONLY (reads mgcv's own gcv.ubre) — printed to stdout
+      # directly by the script itself, same discipline as the slice 4 part
+      # A step below.
+      - name: Fixed-sp REML score spread vs mgcv, Appendix B + observed-Hessian weight (slice 5c)
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f gam_fixed_sp_score_probe.json ]; then
+            {
+              echo ""
+              echo "### Slice 5c — fixed-sp REML score spread vs mgcv (Defects A + B)"
+              echo '```'
+              uv run python scripts/gam_fixed_sp_score_compare.py gam_fixed_sp_score_probe.json
+              echo '```'
+              echo ""
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No gam_fixed_sp_score_probe.json to compare — the R probe did not produce one." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       # Slice 4 part A: compares the independent Python REML score

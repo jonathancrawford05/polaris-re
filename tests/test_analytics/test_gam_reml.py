@@ -14,6 +14,7 @@ import pytest
 
 from polaris_re.analytics.gam_family import binomial_logit, poisson_log, quasipoisson_log
 from polaris_re.analytics.gam_reml import reml_score_general
+from polaris_re.analytics.gam_reml_appendix_b import logdet_s_plus
 from polaris_re.core.exceptions import PolarisValidationError
 
 
@@ -56,11 +57,14 @@ class TestRelationshipToTheExistingPoissonScore:
         mu_true = np.exp(x @ beta_true)
         y = rng.poisson(mu_true).astype(np.float64)
         d = np.diff(np.eye(p), n=2, axis=0)
-        penalty = 3.0 * (d.T @ d)
+        block = d.T @ d
+        penalty = 3.0 * block
         coef = beta_true  # any coefficient vector — the score does not fit
 
         old = reml_score(y, x, offset, coef, penalty, gamma=1.0)
-        new = reml_score_general(y, x, poisson_log(), coef, penalty, offset=offset)
+        new = reml_score_general(
+            y, x, poisson_log(), coef, (block,), np.array([3.0]), offset=offset
+        )
         penalty_quadratic_form = 0.5 * float(coef @ penalty @ coef)  # gamma=1.0
         assert new == pytest.approx(old, abs=1e-9, rel=1e-9)
         # Still strictly positive under a real penalty — sanity that this fixture
@@ -79,12 +83,14 @@ class TestRelationshipToTheExistingPoissonScore:
         mu_true = np.exp(offset + x @ beta_true)
         y = rng.poisson(mu_true).astype(np.float64)
         d = np.diff(np.eye(p), n=2, axis=0)
-        penalty = 12.0 * (d.T @ d)
+        block = d.T @ d
         coef = beta_true
         gamma = 1.4
 
-        old = reml_score(y, x, offset, coef, penalty, gamma=gamma)
-        new = reml_score_general(y, x, poisson_log(), coef, penalty, offset=offset, gamma=gamma)
+        old = reml_score(y, x, offset, coef, 12.0 * block, gamma=gamma)
+        new = reml_score_general(
+            y, x, poisson_log(), coef, (block,), np.array([12.0]), offset=offset, gamma=gamma
+        )
         assert new == pytest.approx(old, abs=1e-9, rel=1e-9)
 
     def test_matches_at_zero_penalty(self, rng: np.random.Generator) -> None:
@@ -102,7 +108,9 @@ class TestRelationshipToTheExistingPoissonScore:
         penalty = np.zeros((p, p))
 
         old = reml_score(y, x, offset, beta_true, penalty)
-        new = reml_score_general(y, x, poisson_log(), beta_true, penalty, offset=offset)
+        new = reml_score_general(
+            y, x, poisson_log(), beta_true, (penalty,), np.array([1.0]), offset=offset
+        )
         assert new == pytest.approx(old, abs=1e-12, rel=1e-12)
 
 
@@ -139,7 +147,7 @@ class TestClosedFormSingleColumnCase:
         # p - r = 1 - 1 = 0 (S is full rank here), so the gamma-scale term vanishes.
         expected = 0.5 * dp + 0.5 * logdet_h - 0.5 * logdet_s
 
-        actual = reml_score_general(y, x, family, coef, penalty)
+        actual = reml_score_general(y, x, family, coef, (penalty,), np.array([1.0]))
         assert actual == pytest.approx(expected, abs=1e-12, rel=1e-12)
 
 
@@ -156,7 +164,15 @@ class TestMatchesWoodsFormulaDirectly:
     decomposition against it — but it cannot catch an error shared by both
     call sites (a wrong deviance definition, working weight, or
     log-determinant convention), since it inherits all three from the
-    implementation it is checking."""
+    implementation it is checking.
+
+    **PLAN slice 5c:** the weight and the ``S`` determinant are now
+    :meth:`Family.observed_information_weight` and
+    :func:`~polaris_re.analytics.gam_reml_appendix_b.logdet_s_plus`
+    respectively, rather than the plain Fisher weight and a fixed-tolerance
+    eigenvalue cut — still the SAME calls the implementation makes, so the
+    "cannot catch an error shared by both call sites" caveat above is
+    unchanged, just against the new pair of calls."""
 
     def test_score_equals_the_explicit_dp_formula(self, rng: np.random.Generator) -> None:
         n, p = 120, 5
@@ -167,7 +183,9 @@ class TestMatchesWoodsFormulaDirectly:
         trials = np.full(n, 25.0)
         y = np.round(trials * prob) / trials
         d = np.diff(np.eye(p), n=2, axis=0)
-        penalty = 6.0 * (d.T @ d)
+        block = d.T @ d
+        lambdas = np.array([6.0])
+        penalty = 6.0 * block
         coef = beta_true
         family = binomial_logit()
 
@@ -176,15 +194,12 @@ class TestMatchesWoodsFormulaDirectly:
         deviance = family.deviance(y, mu, trials)
         dp = deviance + float(coef @ penalty @ coef)
 
-        deta_dmu = family.link.mu_eta(eta)
-        irls_weights = trials * deta_dmu**2 / family.variance(mu)
-        _, logdet_h = np.linalg.slogdet(x.T @ (irls_weights[:, None] * x) + penalty)
-        eigenvalues = np.linalg.eigvalsh(penalty)
-        positive = eigenvalues[eigenvalues > eigenvalues.max() * 1e-10]
-        logdet_s = float(np.sum(np.log(positive)))
+        observed_weights = family.observed_information_weight(y, eta, trials)
+        _, logdet_h = np.linalg.slogdet(x.T @ (observed_weights[:, None] * x) + penalty)
+        logdet_s = logdet_s_plus((block,), lambdas)
         expected = 0.5 * dp + 0.5 * float(logdet_h) - 0.5 * logdet_s
 
-        actual = reml_score_general(y, x, family, coef, penalty, weights=trials)
+        actual = reml_score_general(y, x, family, coef, (block,), lambdas, weights=trials)
         assert actual == pytest.approx(expected, abs=1e-9, rel=1e-9)
 
 
@@ -201,38 +216,29 @@ class TestGeneralizesBeyondPoisson:
         trials = np.full(n, 20.0)
         y = np.round(trials * prob) / trials
         d = np.diff(np.eye(p), n=2, axis=0)
-        penalty = 4.0 * (d.T @ d)
+        block = d.T @ d
 
-        score = reml_score_general(y, x, binomial_logit(), beta_true, penalty, weights=trials)
+        score = reml_score_general(
+            y, x, binomial_logit(), beta_true, (block,), np.array([4.0]), weights=trials
+        )
         assert np.isfinite(score)
 
-    def test_two_summed_penalty_blocks_is_the_same_call_as_one(
-        self, rng: np.random.Generator
-    ) -> None:
-        """`reml_score_general` takes ONE combined `penalty` matrix and has no
-        concept of "blocks" in its signature at all — an N-dimensional caller
-        assembling `S_lambda = sum_j lambda_j S_j` from however many
-        independently-scaled blocks calls this function exactly the same way
-        the tensor MI surface's 2-block case does. THAT is what licenses this
-        function for an N-dimensional optimiser, and it is a fact about the
-        function's TYPE (one `(p, p)` array parameter), not something this
-        test discovers empirically.
-
-        PR #203 review [P2-1]: an earlier revision of this docstring claimed
-        this assertion "licenses" N-block support, but `combined_first` and
-        `summed_by_caller` below are bit-identical float arrays (float
-        addition of the same two terms in the same order), so the assertion
-        is `f(A) == f(A)` — it shows the function is deterministic and pure
-        (no hidden global state, no order-of-summation sensitivity within a
-        single call), which is a real and worth-pinning property, but not
-        evidence of N-block generality. Keeping the determinism check (still
-        useful — e.g. it would catch a caching bug) with the claim corrected
-        rather than replaced, since manufacturing two float-distinct paths to
-        the identical `S_lambda` would not exercise anything `reml_score_general`
-        does differently either — the function's body never inspects the
-        route the caller took to assemble its one argument."""
-        n, p1, p2 = 120, 3, 4
-        p = p1 + p2
+    def test_is_deterministic_and_pure_across_n_blocks(self, rng: np.random.Generator) -> None:
+        """**Superseded premise, PLAN slice 5c.** Until this slice,
+        `reml_score_general` took ONE caller-summed `penalty` matrix and had
+        no concept of "blocks" in its signature, so this test's original
+        point was that a caller could assemble `S_lambda = sum_j lambda_j
+        S_j` however it liked before calling in — true, but (PR #203 review
+        [P2-1]) never actually exercised by two bit-identical float arrays.
+        Appendix B's null-space determination NEEDS the individual blocks
+        (a summed matrix cannot be un-summed), so the signature now takes
+        `penalty_blocks`/`lambdas` directly — blocks are no longer incidental,
+        they are the point. What is still worth pinning: calling twice with
+        the SAME blocks/lambdas gives the SAME score (pure, no hidden state
+        — e.g. would catch a caching bug), across more than the 2-block case
+        every other test in this file uses."""
+        n, p1, p2, p3 = 120, 3, 4, 2
+        p = p1 + p2 + p3
         x = _design(rng, n, p)
         beta_true = rng.normal(scale=0.2, size=p)
         mu_true = np.exp(x @ beta_true)
@@ -243,17 +249,16 @@ class TestGeneralizesBeyondPoisson:
         s1[:p1, :p1] = d1.T @ d1
         d2 = np.diff(np.eye(p2), n=2, axis=0)
         s2 = np.zeros((p, p))
-        s2[p1:, p1:] = d2.T @ d2
+        s2[p1 : p1 + p2, p1 : p1 + p2] = d2.T @ d2
+        s3 = np.zeros((p, p))
+        s3[p1 + p2 :, p1 + p2 :] = np.eye(p3)
+        blocks = (s1, s2, s3)
+        lambdas = np.array([3.0, 7.0, 0.5])
 
-        lambda_1, lambda_2 = 3.0, 7.0
-        combined_first = lambda_1 * s1 + lambda_2 * s2
-        summed_by_caller = np.zeros((p, p))
-        summed_by_caller += lambda_1 * s1
-        summed_by_caller += lambda_2 * s2
-
-        score_a = reml_score_general(y, x, poisson_log(), beta_true, combined_first)
-        score_b = reml_score_general(y, x, poisson_log(), beta_true, summed_by_caller)
+        score_a = reml_score_general(y, x, poisson_log(), beta_true, blocks, lambdas)
+        score_b = reml_score_general(y, x, poisson_log(), beta_true, blocks, lambdas)
         assert score_a == score_b
+        assert np.isfinite(score_a)
 
 
 class TestRejectsWhatItMustReject:
@@ -266,7 +271,7 @@ class TestRejectsWhatItMustReject:
         penalty = np.zeros((p, p))
 
         with pytest.raises(PolarisValidationError, match="dispersion_fixed=False"):
-            reml_score_general(y, x, quasipoisson_log(), beta_true, penalty)
+            reml_score_general(y, x, quasipoisson_log(), beta_true, (penalty,), np.array([1.0]))
 
     def test_rejects_nonpositive_gamma(self, rng: np.random.Generator) -> None:
         n, p = 50, 3
@@ -275,4 +280,6 @@ class TestRejectsWhatItMustReject:
         penalty = np.zeros((p, p))
 
         with pytest.raises(PolarisValidationError, match="gamma must be positive"):
-            reml_score_general(y, x, poisson_log(), np.zeros(p), penalty, gamma=0.0)
+            reml_score_general(
+                y, x, poisson_log(), np.zeros(p), (penalty,), np.array([1.0]), gamma=0.0
+            )
