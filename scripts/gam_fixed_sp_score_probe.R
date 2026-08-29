@@ -69,15 +69,18 @@ main <- function(argv) {
   # spread so that any sp-dependence in the difference has room to show.
   #
   # python_opt_log10 is Python's own gam_model_conformance.fit_free_sp_case()
-  # selection on this exact recipe (same seed, n, knots) AFTER ADR-210's two
-  # defect fixes (Appendix B + observed-Hessian weight) -- gam_reml_optimize.
-  # select_lambdas_continuous depends only on the shared recipe, never on R,
-  # so this number needs no "tier" label of its own (module docstring of
-  # gam_multiterm_sp_delta_probe.R makes the same point). REPLACES ADR-208's
-  # pre-fix tier-1 reading (6.753, 9.096, 3.099, 3.054), which this script
-  # carried unchanged through slice 5c even after the fix moved Python's own
-  # selection (PLAN slice 5d's registered "cheap step").
-  python_opt_log10 <- c(6.91278405, 9.11609505, 3.35910172, 2.97236369)
+  # selection on this exact recipe (same seed, n, knots) -- depends only on
+  # the shared recipe, never on R, so this number needs no "tier" label of
+  # its own (module docstring of gam_multiterm_sp_delta_probe.R makes the
+  # same point). CURRENT reading is AFTER ADR-211's finite-difference-step
+  # fix (gam_reml_optimize._FINITE_DIFF_STEP): the by-term's own lambda
+  # (component 2) is now known to be weakly identified by this criterion on
+  # this fixture -- see ADR-211 -- so it moves a great deal between reruns
+  # without the fitted eta or the score changing materially. REPLACES the
+  # pre-eps-fix reading (6.913, 9.116, 3.359, 2.972, ADR-210), which itself
+  # replaced ADR-208's original pre-Appendix-B reading (6.753, 9.096, 3.099,
+  # 3.054).
+  python_opt_log10 <- c(6.69944259, 10.74980618, 3.29280772, 3.02752645)
   points <- list(
     mgcv_opt          = mgcv_opt_log10,
     python_opt        = python_opt_log10,

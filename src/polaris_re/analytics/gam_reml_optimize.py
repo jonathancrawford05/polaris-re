@@ -76,6 +76,37 @@ away from the bad region, so the rejection has to stay differentiable-adjacent:
 large enough that no converged point could ever compete with it, finite
 enough that SciPy's numerical gradient stays finite too."""
 
+_FINITE_DIFF_STEP = 1.0e-5
+"""``scipy.optimize.minimize(method="L-BFGS-B")``'s own default forward-
+difference step (``eps=1.4901161193847656e-08``, absolute) sits INSIDE this
+objective's own noise floor, not below it — PLAN slice 5d's own measurement
+(``docs/DECISIONS.md`` ADR-211), not a value chosen to move any comparison
+against ``mgcv``.
+
+``penalized_fit_and_score`` refits :func:`~polaris_re.analytics.gam_fit.penalized_irls_general`
+at every trial point, and that fit only converges to its own ``_IRLS_TOL``
+(``gam_fit.py``, ``1e-10`` relative on deviance) — so two trial points closer
+together than that residual differ by numerical noise, not signal. Measured
+directly (forward differences of the SAME objective at a fixed point, varying
+only the step): the derivative estimate is stable to four significant figures
+for every ``h`` from ``1e-1`` down to ``1e-6`` (matching an independent
+central-difference cross-check at each ``h``), then breaks down catastrophically
+at ``h <= 1e-9`` — including a WRONG-SIGN estimate at ``h = 1e-9``. SciPy's own
+default step falls inside that broken region (``1.49e-8`` is between the last
+stable reading at ``1e-6`` and the sign-flip at ``1e-9``), which is why
+:func:`select_lambdas_continuous` was reporting spurious convergence: its
+gradient norm at a reported "minimum" measures ``~0.55`` under an independent
+central-difference check with a stable step, not the near-zero SciPy's own
+noise-corrupted internal estimate implied.
+
+``1e-5`` is two orders of magnitude above the measured stable/unstable
+boundary — a safety margin on OUR OWN measured noise floor, not a tuned
+constant (Anchor 8 / ``ROUTINE_MGCV_PARITY.md``'s "never widen a tolerance to
+close a gap": this step was derived from this module's own IRLS tolerance and
+verified against an independent central-difference estimate, both entirely
+without reference to ``mgcv``, before it was ever checked against ``mgcv`` at
+all)."""
+
 
 def penalized_fit_and_score(
     y: np.ndarray,
@@ -289,7 +320,7 @@ def select_lambdas_continuous(
         start,
         method="L-BFGS-B",
         bounds=[bounds] * n_blocks,
-        options={"gtol": gtol, "maxiter": maxiter},
+        options={"gtol": gtol, "maxiter": maxiter, "eps": _FINITE_DIFF_STEP},
     )
     if not any_converged["flag"]:
         raise PolarisComputationError(
