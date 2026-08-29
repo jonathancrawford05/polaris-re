@@ -146,6 +146,63 @@ two futures that would pull the rest in — Newton PIRLS (which Wood recommends 
 non-canonical links, and cloglog is one) and an analytic outer gradient — are named
 there.
 
+### 1.3 There is a SECOND defect, and it is a formula error, not a numerical one
+
+**Prompted by the maintainer, in one word: "Newton."** Chasing it found a second,
+independent cause — and it corrects §1.2's conclusion in an important way.
+
+Wood (2011) eq. (4) defines the REML criterion using
+`H = −∂²l/∂β∂βᵀ`, the **observed** Hessian, which Newton-based PIRLS produces as a
+by-product (§3.2, weights carrying `αᵢ = 1 + (yᵢ − μᵢ)(V′ᵢ/Vᵢ + g″ᵢ/g′ᵢ)`).
+`gam_reml.reml_score_general:147` instead uses
+`irls_weights = weights · (dμ/dη)² / V(μ)` — the **expected** (Fisher) weight,
+Wood's `αᵢ ≡ 1` case. Wood flags precisely this substitution:
+
+> *"The simpler approach of using the expected Hessian in place of `H` was also
+> investigated, but in simulations gave worse performance than GCV **when
+> non-canonical links were used**."*
+
+**Our family is binomial/cloglog. The canonical link for binomial is logit, so ours
+is non-canonical** — the exact case Wood warns about. And because `W` depends on `μ`,
+which depends on `β̂`, which depends on `sp`, the discrepancy is **`sp`-dependent**,
+which is the signature we have been chasing.
+
+**Measured** (observed Hessian obtained by central-differencing the per-observation
+deviance in `η`, which is exact up to the difference step since the terms are
+independent):
+
+| correction applied | spread of `ours − mgcv` |
+|---|---:|
+| none (shipped) | 3.910776 |
+| null-space cut only (§1.1) | 0.003281 |
+| **null-space cut + observed Hessian** | **0.000078** |
+
+The Hessian term's own contribution has spread **0.003277** against the **0.003281**
+residual §1.1 left behind — a match to four significant figures. **Total reduction
+~50,000×**, and the remaining 7.8e-5 is consistent with the finite-difference step
+used to approximate `H` here rather than with a third cause.
+
+**This corrects §1.2, and the distinction is subtle enough to state plainly.** §1.2
+concluded "the fitter is not implicated; Fisher scoring means §3.3 does not apply."
+The first half stands and the second was too quick:
+
+- **β̂ is fine.** Fisher scoring and Newton converge to the *same* penalized MLE —
+  they differ in path, not fixed point — which is why `eta` agreed to 1.3e-09 even at
+  12 decades. That measurement was right and it measured the right thing.
+- **The criterion is not fine.** The REML score needs the *observed* Hessian, and
+  Fisher scoring never computes it. **So the score is wrong even where the fit is
+  right** — and no amount of checking `eta` would ever have revealed it.
+
+That is why "the fitter is verified" was the wrong warrant twice: in §1.2 it was
+weak for conditioning, and here it is beside the point entirely.
+
+**Negative weights: not exercised, not excluded.** Zero observed weights are negative
+on this synthetic data at any of the eight points (minimum ≈ 0.37). Wood notes they
+*"need not all be positive"* under Newton with non-canonical links, so this is a
+property of the data rather than a guarantee — sparser real ILEC cells could produce
+them, and that is when §3.3's stable least squares and Appendix B's `E` stop being
+optional. Building `E` in slice 5c keeps that door open.
+
 ---
 
 ## 2. Was the epic actually stalled?

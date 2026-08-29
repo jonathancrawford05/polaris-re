@@ -528,7 +528,7 @@ the `VerificationClaim` must say so.
 terms. Slices 6 and 7 remain required for the full form, and this slice does not
 anticipate them.
 
-### Slice 5c: `log|S|₊` under badly scaled λ — Wood (2011) §3.1 and Appendix B
+### Slice 5c: the REML criterion — TWO defects, Wood (2011) §3.1/Appendix B and eq. (4)
 
 - **Depends on:** Slice 5b (ADR-208 and its amendment).
 - **Status:** READY, and it is what unblocks slice 6. Registered as a slice so the
@@ -536,7 +536,14 @@ anticipate them.
   5b needed. Designating it for a session remains a `ROUTINE_MGCV_PARITY.md` call.
 - **Diagnosis:** `docs/RECALIBRATION_mgcv_parity_2026-08-25.md` §1 (tier 1).
 
-**The defect, in one line.** `gam_reml.reml_score_general` evaluates `log|S|₊` by
+> **There are two defects, found in that order and both `sp`-dependent.** Defect A is
+> numerical and is the rest of this section. **Defect B is a formula error** and is
+> written up in `#### Defect B` below — it accounts for essentially all of the
+> residual A leaves behind. A session that fixes only A will see the gap shrink by
+> three orders of magnitude and still not close; **fix both, or the §4 prediction
+> cannot resolve.**
+
+**Defect A, in one line.** `gam_reml.reml_score_general` evaluates `log|S|₊` by
 forming `S = Σⱼ λⱼSⱼ`, eigendecomposing it, and cutting the null space at a fixed
 relative tolerance of `1e-10`. When the λ's span many decades that cut is arbitrary,
 and the score moves discretely as eigenvalues are misclassified.
@@ -663,6 +670,59 @@ Build for both; adopt neither here.
   (Wood 2011 eq. 4) and ADR-202 (WPS-2016 eq. 7); transcription is barred by
   licensing anyway (Anchor 8's companion rule).
 
+#### Defect B: the score uses the EXPECTED Hessian where Wood's eq. (4) uses the OBSERVED one
+
+**Found by the maintainer, in one word: "Newton."** It is a formula error of exactly
+the class ADR-196/197 already fixed once in this same function, and it is independent
+of Defect A.
+
+Wood eq. (4) builds the criterion on `H = −∂²l/∂β∂βᵀ`, the **observed** Hessian, which
+Newton-based PIRLS produces as a by-product — §3.2's weights carry
+`αᵢ = 1 + (yᵢ − μᵢ)(V′ᵢ/Vᵢ + g″ᵢ/g′ᵢ)`. `reml_score_general:147` uses
+`weights · (dμ/dη)² / V(μ)` instead: the **expected** (Fisher) weight, Wood's
+`αᵢ ≡ 1`. He flags the substitution directly:
+
+> *"The simpler approach of using the expected Hessian in place of `H` was also
+> investigated, but in simulations gave worse performance than GCV **when
+> non-canonical links were used**."*
+
+**The target family is binomial/cloglog. Binomial's canonical link is logit, so ours
+is non-canonical** — Wood's warned case. `W` depends on `μ`, hence on `β̂`, hence on
+`sp`, so the discrepancy is `sp`-dependent, which is the signature the epic has been
+chasing since ADR-208.
+
+**Why `eta` agreeing did not rule this out, which is the trap worth naming.** Fisher
+scoring and Newton converge to the *same* penalized MLE — they differ in path, not in
+fixed point. So β̂ and `eta` are right under either scheme, and every Stage-B `eta`
+result the epic owns stays valid. **The criterion is still wrong**, because it needs a
+Hessian Fisher scoring never computes. No amount of checking `eta` would have found
+this; only comparing the criterion itself does.
+
+**What to implement.** The score needs the observed Hessian's diagonal. Two routes,
+and the choice is the implementer's:
+
+1. **Derive `αᵢ` analytically** per Wood §3.2, needing `V′(μ)` and `g″(μ)` for each
+   family/link. Exact, and it is what a Newton PIRLS would need anyway.
+2. **Difference the per-observation deviance in `η`.** The terms are independent, so
+   `Wᵢᵢ = ½·∂²Dᵢ/∂ηᵢ²` is a vectorised central difference. Cheap and family-agnostic,
+   but carries the step-size error — the recalibration's own residual is at that
+   level, so **route 2 alone cannot demonstrate closure at tier 3.**
+
+Route 1 is the one that closes it. Route 2 is how the defect was found and is a
+legitimate cross-check on route 1.
+
+**Scope note.** This does **not** require switching the fitter to Newton PIRLS. The
+criterion needs the observed Hessian; β̂ does not need to be *estimated* by Newton to
+compute one. Whether to adopt Newton PIRLS as well is a separate question — Wood
+recommends it for non-canonical links on convergence grounds — and it stays out of
+this slice.
+
+**Negative weights.** Under Newton with a non-canonical link the observed weights
+*"need not all be positive"*. Measured here: none are negative on the synthetic case
+(minimum ≈ 0.37). That is a property of this data, not a guarantee; sparser real ILEC
+cells could produce them, and that is when §3.3's stable least squares and Appendix
+B's `E` become required rather than available. Build `E`; do not wire it.
+
 #### The registered prediction
 
 > Wood §3.1's numerical-zero-leakage account is the mechanism. Implementing Appendix
@@ -678,8 +738,16 @@ Build for both; adopt neither here.
 > also differs under selection, the tolerance was only part of it, and *that* is the
 > finding — it would mean the search has its own defect that the criterion fix has
 > been masking.
+>
+> **Amended once already, and the amendment is the point.** The first version of this
+> prediction assumed Defect A was the whole story. It is not: A alone leaves a
+> residual that B accounts for almost exactly (§1.3 of the recalibration note). So the
+> prediction now has a **third branch**, and a session must say which one it landed
+> on: **A alone** shrinks the spread by ~3 orders and stops; **A + B** should close it
+> to the level of the implementation's own arithmetic; **anything left after both** is
+> a genuinely new finding and the most valuable outcome this slice can produce.
 
-**Both halves must be resolved against the slice's own tier-3 re-measurement, not
+**All branches must be resolved against the slice's own tier-3 re-measurement, not
 against the tier-1 figures in the recalibration note.** Step 1 of the sequencing
 below exists to establish the tier-3 baseline first, precisely so this prediction has
 a legitimate quantity to be judged against. ADR-203's reminder applies: register
@@ -744,8 +812,14 @@ claim this section exists to retire.
 
 #### Definition of done
 
-- `reml_score_general`'s `log|S|₊` uses Appendix B's transform and a pivoted-QR
-  determinant, with no tuned tolerance in the path.
+- **Defect A:** `reml_score_general`'s `log|S|₊` uses Appendix B's transform and a
+  pivoted-QR determinant, with no tuned tolerance in the path.
+- **Defect B:** the score's Hessian term uses the **observed** Hessian per Wood eq.
+  (4), derived analytically (route 1) rather than by differencing — a
+  finite-difference `H` cannot demonstrate closure at tier 3, because its own step
+  error sits at the level being measured. `experience_gam_penalized.reml_score` is
+  **checked for the same defect and the finding recorded either way**; ADR-197 is the
+  precedent for that check being worth running, and its answer is not assumed here.
 - **Appendix B exists as a whole**, not just the determinant slice of it: the
   similarity transform, the accumulated `Q_s`, the pivoted-QR determinant and the
   stable square root `E` (`EᵀE = S`), each R-free tested. `E` and `Q_s` are built and
