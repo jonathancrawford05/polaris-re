@@ -98,6 +98,54 @@ discrepancy. It is now localised to one function, with a demonstrated cause and 
 named principled repair. The residual 0.0033 may be genuine or numerical and is the
 next thing to look at, not a blocker.
 
+### 1.2 How far the leakage reaches — scoping Appendix B by measurement
+
+The maintainer asked for **the full Appendix B reparameterisation**, *"especially if
+we need to do it for parity."* That conditional is answerable, so it was answered
+rather than assumed. Nine fixed-`sp` points, extended to a λ spread of **12 decades**
+— harsher than anything previously measured and inside `PRODUCTION_LOG10_BOUNDS`.
+
+| point | λ spread | max abs `eta` diff | `log\|XᵀWX+S\|`: naive vs preconditioned | cond(XᵀWX+S) | rank@1e-10 |
+|---|---:|---:|---:|---:|---:|
+| `flat_2` | 0.0 | 7.576e-13 | 2.27e-13 | 2.22e+04 | 81 |
+| `mid` | 2.0 | 2.082e-11 | 5.68e-13 | 1.13e+05 | 81 |
+| `mixed_lo_hi` | 6.0 | 2.159e-11 | 1.44e-11 | 1.99e+08 | **79** |
+| `mgcv_opt` | 6.8 | 2.565e-10 | 5.99e-10 | 6.48e+09 | **79** |
+| **`extreme`** | **12.0** | 1.260e-09 | 4.07e-10 | 4.05e+11 | **59** |
+
+**Three findings, and they scope the slice:**
+
+1. **`log|S|₊` is the only thing catastrophically wrong.** At 12 decades the
+   null-space cut reads **rank 59 against a true 81** — twenty-two eigenvalues
+   misclassified. On the score, the eight-point spread is a **~6e-3 relative** error,
+   large enough to flip which of two optima looks better.
+2. **`log|XᵀWX + S|` is fine**, and structurally so. Naive `slogdet` matches a
+   diagonally-preconditioned Cholesky to **≤4.1e-10 even at cond 4.05e11**. It is
+   full-rank and positive definite, so there is no null-space decision to get wrong —
+   only the *generalised* determinant has one. Wood lists it as at-risk in general;
+   for our model it is not.
+3. **The fitter is not implicated.** `eta` degrades 7.6e-13 → 1.3e-09 across 0 → 12
+   decades, tracking `cond` exactly as ordinary floating-point loss should. That is
+   ~1600× degradation of a quantity that is still seven orders of magnitude better
+   than the determinant error.
+
+**And two structural checks that matter more than the numbers:** §3.3's stable least
+squares exists for the **negative weights** Newton-based PIRLS produces, and
+`gam_fit.penalized_irls_general` uses **Fisher scoring**, so weights are non-negative
+by construction. Appendix B's derivative expressions are unused because
+`select_lambdas_continuous` runs L-BFGS-B on a **finite-difference** gradient.
+
+**This corrects my own earlier reasoning.** I had argued the fitter was "tier-3
+verified and not implicated" — but ADR-195 and ADR-206 verified it at *one
+well-conditioned* `sp`, and at spread λ it had never been checked at all. The
+conclusion survives; the argument for it did not, and it is the measurement that
+carries it now, not the appeal to prior verification.
+
+Slice 5c is scoped on this: **build Appendix B in full, wire only `log|S|₊`.** The
+two futures that would pull the rest in — Newton PIRLS (which Wood recommends for
+non-canonical links, and cloglog is one) and an analytic outer gradient — are named
+there.
+
 ---
 
 ## 2. Was the epic actually stalled?

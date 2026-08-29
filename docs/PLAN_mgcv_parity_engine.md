@@ -601,20 +601,55 @@ without mixing them*, preserving the column separation the iteration created;
 *"alternative methods (Choleski or symmetric eigen) would require an additional
 pre-conditioning step."*
 
-**Scope it to the determinant.** The transform is an orthogonal similarity, so
-`log|S|₊` is invariant under it — the transform can be applied, the determinant read,
-and the result discarded. **Do not adopt the Appendix B reparameterisation through
-the rest of the fit.** Wood notes the stable square root `E` *"is only useful if the
-rest of the model fitting adopts the Appendix B re-parameterization"*, which would
-mean carrying `XQ_s`, transformed penalties, and mapping coefficients back as
-`Q_sβ̃`. Our fitter is already tier-3 verified on `eta` (ADR-195, ADR-206 at
-1.242e-10) and is not implicated by this defect. Changing it would put a verified
-component at risk to fix an unrelated one.
+#### Scope: build Appendix B in full, wire only the determinant — and why
 
-**Derivatives**, if and when the outer search needs them (Appendix B's own
-expressions, all on transformed versions):
-`∂log|S|/∂ρⱼ = λⱼ tr(S⁻¹Sⱼ)` and
-`∂²log|S|/∂ρᵢ∂ρⱼ = δⁱⱼ λᵢ tr(S⁻¹Sᵢ) − λᵢλⱼ tr(S⁻¹SᵢS⁻¹Sⱼ)`.
+**The maintainer directed the full Appendix B reparameterisation** (*"I think the
+full appendix B parametrization makes sense to include, especially if we need to do
+it for parity"*). The conditional is the right question and it was **measured** rather
+than argued — tier 1, figures in `RECALIBRATION_mgcv_parity_2026-08-25.md` §1.2. The
+measurement changes *which parts* are needed:
+
+| Wood's motivation for the full reparameterisation | applies to us? | evidence |
+|---|---|---|
+| `log\|S\|₊` unstable under badly scaled λ | **YES, catastrophically** | the rank cut misreads the null space badly at a λ spread of 12 decades, which is inside `PRODUCTION_LOG10_BOUNDS`; the resulting score error is large enough to flip which of two optima looks better |
+| `log\|XᵀWX + S\|` likewise unstable | **No** | naive `slogdet` tracks a diagonally-preconditioned Cholesky closely even at the worst conditioning reached. **Structural reason:** it is full rank and positive definite, so there is **no null-space decision to get wrong** — only the *generalised* determinant has one |
+| β̂ unstable; §3.3's stable least squares | **No, and structurally so** | §3.3 exists for the **negative weights** Newton-based PIRLS produces. `gam_fit.penalized_irls_general` uses **Fisher scoring** (`w·(dη/dμ)²/V(μ)`, the expected weight), so weights are non-negative by construction. The measured `eta` degradation across the same λ range is ordinary conditioning loss, orders of magnitude below the determinant error |
+| derivatives of `log\|S\|₊` w.r.t. `ρ` | **Not yet** | `select_lambdas_continuous` uses L-BFGS-B with a **finite-difference** gradient |
+
+**Every figure behind that table is tier 1 and lives in
+`RECALIBRATION_mgcv_parity_2026-08-25.md` §1.2, not here.** The structural claims —
+Fisher scoring, the finite-difference gradient, full-rank versus generalised
+determinant — are facts about the code and the mathematics rather than measurements,
+and stand on their own.
+
+**So the resolution, and it is the maintainer's direction taken on the evidence:**
+**build Appendix B in full** — the similarity transform, the accumulated `Q_s`, the
+pivoted-QR determinant *and* the stable square root `E` — as a self-contained,
+R-free-testable component. **Wire only `log|S|₊` into `reml_score_general` in this
+slice.** Everything else stays available and unused.
+
+That is deliberately more than the determinant needs and deliberately less than a
+re-pointing. The reason not to re-point now is not that the machinery is unwanted, it
+is that **every tier-3 result this epic owns runs through the fitter path** —
+ADR-195, ADR-206's 1.242e-10, ADR-208 — so adopting the reparameterisation through
+the fit re-verifies all of them, and today there is no measured defect asking for it.
+Building the component makes that adoption a later, additive, separately-measurable
+step rather than a rewrite.
+
+**Two futures that would change the answer, and both are plausible:**
+
+1. **Newton PIRLS.** The target family is binomial/**cloglog** — non-canonical — and
+   Wood recommends Newton over Fisher exactly there (*"the Newton scheme tends to
+   converge faster than Fisher scoring in non-canonical link situations, an effect
+   which can be particularly marked"*). Newton produces negative weights, and then
+   §3.3 and the stable `E` become **required**, not optional.
+2. **An analytic gradient for the outer search**, which Wood's whole method is built
+   around and which needs Appendix B's derivative expressions:
+   `∂log|S|/∂ρⱼ = λⱼ tr(S⁻¹Sⱼ)` and
+   `∂²log|S|/∂ρᵢ∂ρⱼ = δⁱⱼ λᵢ tr(S⁻¹Sᵢ) − λᵢλⱼ tr(S⁻¹SᵢS⁻¹Sⱼ)`
+   (all on transformed versions).
+
+Build for both; adopt neither here.
 
 #### What NOT to do
 
@@ -675,6 +710,14 @@ against a *re-measurement*, never against a stored number.
 
 - `reml_score_general`'s `log|S|₊` uses Appendix B's transform and a pivoted-QR
   determinant, with no tuned tolerance in the path.
+- **Appendix B exists as a whole**, not just the determinant slice of it: the
+  similarity transform, the accumulated `Q_s`, the pivoted-QR determinant and the
+  stable square root `E` (`EᵀE = S`), each R-free tested and mutation-tested. `E` and
+  `Q_s` are built and **deliberately unused** by this slice — the test that they are
+  correct is their own, not the score's.
+- **Nothing is re-pointed.** `gam_fit.penalized_irls_general` still receives the
+  untransformed design and penalty; ADR-195's and ADR-206's results must be
+  bit-identical, which is the check that the build-but-do-not-adopt boundary held.
 - The eight-point fixed-`sp` spread measured at **tier 3** both before (step 1) and
   after the fix, so the improvement is a tier-3 delta rather than a tier-3 number
   compared against a tier-1 one.
