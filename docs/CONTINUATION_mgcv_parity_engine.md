@@ -282,21 +282,28 @@ forbids, and Wood rules the tolerance approach out explicitly:
 > seed, ADR-074), the same "adds no new formula" discipline every function
 > in this search's own family follows — turns ADR-211's own one-off blind
 > multi-start check into a reusable production-available building block.
-> Measured, thread-pinned, at two points, **making no mgcv comparison
+> Measured, thread-pinned, at two points (the N=4 and N=8 structures —
+> three `OPENBLAS_NUM_THREADS` settings each), **making no mgcv comparison
 > anywhere** (there is no second producer for ADR-193's mechanical test to
 > apply to — an internal robustness measurement, the same class ADR-211's
 > own BLAS-thread table already was). **At N=4 (the actual ADR-211/212
-> fixture), 4 threads: the single bounds-centre start does NOT converge**
-> (`success=False`, score `612.6115`); **best-of-9 finds the same
-> converged, better point** (`612.6100`) it finds at 1 thread — a real,
-> reproducible improvement on the exact structure the slice's acceptance
-> criterion was registered against. **At a synthetic N=8 stress case**
-> (PART 1's own three-term shape duplicated onto a second, covariate-
-> DECOUPLED draw — chosen after reusing `AttdAge`/`PolYear` under more
-> `by`-scalings produced an exactly singular design first): **single-start
-> already sufficed at both thread counts tested** — the opposite of what
-> motivated the slice, and a genuine answer rather than a null result.
-> Cost: best-of-9 runs ~9-17x a single search's own function evaluations.
+> fixture): single-start's own score spread across all three thread counts
+> is `0.001483`, best-of-9's is `0.000006` — a ~247x tighter reproducibility
+> band.** At 4 threads the single bounds-centre start does NOT converge
+> (`success=False`, score `612.6115`); at 2 threads it reports
+> `converged=True` but still lands on its own worst reading of the three —
+> a "successful" termination is not itself evidence of a good point on this
+> surface. Best-of-9 finds the same converged, better point at every thread
+> count — a real, reproducible improvement on the exact structure the
+> slice's acceptance criterion was registered against. **At a synthetic
+> N=8 stress case** (PART 1's own three-term shape duplicated onto a
+> second, covariate-DECOUPLED draw — chosen after reusing
+> `AttdAge`/`PolYear` under more `by`-scalings produced an exactly singular
+> design first): **single-start already sufficed at every thread count
+> tested** (three) — the opposite of what motivated the slice, and a
+> genuine answer rather than a null result; its own spread (`0.001180`) is
+> essentially equal to best-of-9's (`0.001165`), unlike N=4's 247x gap.
+> Cost: best-of-9 runs ~8-21x a single search's own function evaluations, across all three thread counts.
 > **Registered as PLAN slice 5f, not blocking**: ADR-213's own N=8 case was
 > deliberately covariate-decoupled (to rule out the rank-deficiency its
 > first attempt hit), so it says nothing about a structure where the extra

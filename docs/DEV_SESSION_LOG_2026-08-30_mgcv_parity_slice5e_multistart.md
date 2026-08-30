@@ -274,7 +274,7 @@ verdict rather than the original (inaccurate) one:
       itself refutes as the finding.** The reproducible improvement that
       WAS measured is at N=4 (recovering a real 4-thread convergence
       failure), the structure the slice's premise was restated against;
-      it is not evidence about N>4. Cost stated: ~9-17x function
+      it is not evidence about N>4. Cost stated: ~8-21x function
       evaluations.
 - [x] "Not a claim that `max_abs_log10_sp_diff` reaches zero." Not made —
       this slice never compares against `mgcv` at all, so that metric does

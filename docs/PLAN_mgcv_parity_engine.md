@@ -1000,7 +1000,7 @@ one. Only the tier-3 oracle and ADR-193's two-producer rule do that.
   reproducible improvement this slice's acceptance criterion asked for) and
   at a synthetic N=8 stress case (single-start already sufficed on this
   specific, deliberately-decoupled construction — a genuine answer, not the
-  one the slice's premise anticipated). Cost stated: ~9-17x a single
+  one the slice's premise anticipated). Cost stated: ~8-21x a single
   search's own function evaluations. See ADR-213 for the full measurement,
   what remains open (a covariate-SHARING N>4 structure, closer to the
   target formula's own shape, is untested), and why no mgcv comparison is
@@ -1083,7 +1083,7 @@ one. Only the tier-3 oracle and ADR-193's two-producer rule do that.
   case built by duplicating the N=4 shape onto an independent,
   covariate-DECOUPLED second draw (single-start already sufficed there at
   every thread count tested — a real finding, not the one the slice's
-  premise anticipated). Cost: ~9-17x a single search's own function
+  premise anticipated). Cost: ~8-21x a single search's own function
   evaluations. See ADR-213 for the full measurement and every number.
 
   > **Acceptance criterion restated, 2026-08-30 (PR #218 review [P1]).** The
