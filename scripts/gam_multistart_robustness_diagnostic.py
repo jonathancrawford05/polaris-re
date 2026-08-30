@@ -50,8 +50,6 @@ Usage:
     (loops threads {1, 2, 4} itself via subprocess re-exec -- see `_THREAD_SWEEP`)
 """
 
-from __future__ import annotations
-
 import json
 import os
 import pathlib
@@ -143,9 +141,9 @@ def _worker(n_threads: int) -> None:
     rng2 = np.random.default_rng(20260830)
     n = data["AttdAge"].shape[0]
     data8 = dict(data)
-    data8["AttdAge2"] = rng2.uniform(1.0, 95.0, size=n)
-    data8["PolYear2"] = rng2.uniform(1.0, 21.0, size=n)
-    data8["StudyYear_C2"] = rng2.uniform(-5.0, 5.0, size=n)
+    data8["AttdAge2"] = rng2.uniform(1.0, 95.0, size=n).astype(np.float64)
+    data8["PolYear2"] = rng2.uniform(1.0, 21.0, size=n).astype(np.float64)
+    data8["StudyYear_C2"] = rng2.uniform(-5.0, 5.0, size=n).astype(np.float64)
 
     def _ref_by_ti(suffix: str, age_var: str, year_var: str, by_var: str) -> tuple[TermSpec, ...]:
         return (
@@ -225,12 +223,11 @@ def main() -> None:
     )
     print(header)
     for r in rows:
-        gap = r["n4_single_score"] - (
-            r["n4_multi_score"] if r["n4_multi_score"] is not None else float("nan")
-        )
+        n4_multi = r["n4_multi_score"] if r["n4_multi_score"] is not None else float("nan")
+        gap = r["n4_single_score"] - n4_multi
         print(
             f"{r['n_threads']:>7}  {r['n4_single_score']:>13.6f}  "
-            f"{(r['n4_multi_score'] or float('nan')):>12.6f}  {gap:>9.6f}  "
+            f"{n4_multi:>12.6f}  {gap:>9.6f}  "
             f"{r['n4_single_converged']!s:>11}  {r['n4_multi_total_evals']!s:>11}"
         )
     single_scores4 = [r["n4_single_score"] for r in rows]
@@ -245,11 +242,11 @@ def main() -> None:
     print(f"PART 2 -- N={rows[0]['n8_blocks']} (synthetic, no mgcv comparison)")
     print(header)
     for r in rows:
-        m = r["n8_multi_score"]
-        gap = r["n8_single_score"] - (m if m is not None else float("nan"))
+        n8_multi = r["n8_multi_score"] if r["n8_multi_score"] is not None else float("nan")
+        gap = r["n8_single_score"] - n8_multi
         print(
             f"{r['n_threads']:>7}  {r['n8_single_score']:>13.6f}  "
-            f"{(m or float('nan')):>12.6f}  {gap:>9.6f}  "
+            f"{n8_multi:>12.6f}  {gap:>9.6f}  "
             f"{r['n8_single_converged']!s:>11}  {r['n8_multi_total_evals']!s:>11}"
         )
     single_scores8 = [r["n8_single_score"] for r in rows]

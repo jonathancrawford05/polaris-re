@@ -1079,14 +1079,29 @@ one. Only the tier-3 oracle and ADR-193's two-producer rule do that.
 - **DONE, 2026-08-30 (ADR-213).** Candidate (1), best-of-9 multi-start
   (`select_lambdas_continuous_multistart`), built and measured, thread-pinned,
   at two points: the ACTUAL N=4 fixture (multi-start recovers a real
-  single-start convergence failure at 4 threads — the acceptance criterion's
-  own "reproducible improvement", met on the structure it was registered
-  against) and a synthetic N=8 stress case built by duplicating the N=4
-  shape onto an independent, covariate-DECOUPLED second draw (single-start
-  already sufficed there at both thread counts tested — a real finding, not
-  the one the slice's premise anticipated). Cost: ~9-17x a single search's
-  own function evaluations. See ADR-213 for the full measurement and every
-  number.
+  single-start convergence failure at 4 threads) and a synthetic N=8 stress
+  case built by duplicating the N=4 shape onto an independent,
+  covariate-DECOUPLED second draw (single-start already sufficed there at
+  every thread count tested — a real finding, not the one the slice's
+  premise anticipated). Cost: ~9-17x a single search's own function
+  evaluations. See ADR-213 for the full measurement and every number.
+
+  > **Acceptance criterion restated, 2026-08-30 (PR #218 review [P1]).** The
+  > criterion as originally worded above — "a measured, reproducible
+  > improvement **at N > 4 blocks**" — presupposes the answer. The N=8
+  > measurement REFUTES that presupposition (single-start already
+  > sufficed), so ticking the original wording "MET" overstates what was
+  > found. **What the criterion actually became, and what this slice
+  > delivers**: *answer*, with thread-pinned evidence, whether one start
+  > still suffices past N=4 — which this slice does, on the one structure
+  > tested (yes) — while separately demonstrating, on the exact N=4
+  > structure the premise was restated against, that best-of-N is a real
+  > and reproducible mitigation when it IS needed. Slice 5e is DONE because
+  > the question is answered with evidence, not because the originally
+  > anticipated failure mode was reproduced and fixed at N>4. A reader of
+  > slice 6/7 (13-21 blocks) should take from this: N>4 robustness is
+  > MEASURED on one (covariate-decoupled) structure, not settled in
+  > general — slice 5f is exactly the structure that would settle more of it.
 
 ### Slice 5f: multi-start's own value on a covariate-SHARING N>4 structure
 

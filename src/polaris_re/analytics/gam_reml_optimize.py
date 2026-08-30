@@ -540,8 +540,9 @@ def select_lambdas_continuous_multistart(
     if best_run is None:
         raise PolarisComputationError(
             f"select_lambdas_continuous_multistart: every one of {n_starts} starts "
-            f"rejected every trial point — no penalized fit converged anywhere in "
-            f"log10 lambda {bounds}."
+            f"raised PolarisComputationError (its own search rejected every trial "
+            f"point it tried) — no penalized fit converged anywhere in log10 lambda "
+            f"{bounds}."
         )
 
     return MultiStartLambdaSelection(

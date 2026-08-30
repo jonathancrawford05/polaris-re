@@ -227,26 +227,83 @@ pinned digest.
 - `uv run ruff check src/ tests/ scripts/gam_multistart_robustness_diagnostic.py --fix`
   — clean.
 - `uv run pytest tests/test_analytics/test_gam_reml_optimize.py -q` (the
-  changed module's own suite, `OPENBLAS_NUM_THREADS=1`): **21 passed**
-  (45.33s).
-- Full non-slow suite and `tests/qa/` re-run: [to be run before opening the
-  PR — see PR body for the final reading].
+  changed module's own suite, `OPENBLAS_NUM_THREADS=1`): **22 passed**
+  (40.33s, after the PR #218 review round — 1 new test added, see below).
+- `uv run pytest tests/ -q -m "not slow"` (full suite, `OPENBLAS_NUM_THREADS=1`,
+  after `scripts/convert_soa_tables.py`): **3515 passed, 3 skipped, 126
+  deselected, 0 failed** (495.68s) — no regression against the pre-session
+  baseline once the environment gap (see Setup) is accounted for.
+- `uv run pytest tests/qa/ -q`: **94 passed** (68.58s), goldens
+  byte-identical.
+- `uv run python scripts/perf_history.py`: no structural creep (peak MiB
+  33 → 33).
 
-## Definition of done (PLAN slice 5e's own acceptance, reproduced verbatim)
+## Definition of done (PLAN slice 5e's own acceptance, restated)
 
-- [x] "A measured, reproducible (thread-count-pinned) improvement at N > 4
+**Restated 2026-08-30 (PR #218 review [P1]):** the original wording below
+("a measured, reproducible improvement **at N > 4 blocks**") presupposes
+the answer, and this session's own N=8 measurement refutes that
+presupposition (single-start already sufficed) — so "MET" is the wrong
+word for a criterion whose premise the measurement overturned. See
+`docs/PLAN_mgcv_parity_engine.md` slice 5e's own restated-acceptance
+addendum for the full correction. Reproduced here with the corrected
+verdict rather than the original (inaccurate) one:
+
+- [~] "A measured, reproducible (thread-count-pinned) improvement at N > 4
       blocks... stated against a freshly-taken POST-FIX baseline... with
-      the chosen approach's own cost... stated." **MET, with a scope
-      note**: the clearest reproducible improvement was measured at N=4
-      (recovering a real 4-thread convergence failure), which IS the
-      structure the slice's premise was restated against 2026-08-30. At
-      the N=8 structure actually built this session, the measured answer
-      is that no improvement was needed (single-start already sufficient)
-      — a real, evidenced answer to the slice's own question, not a
-      failure to produce one. Cost stated: ~9-17x function evaluations.
+      the chosen approach's own cost... stated." **AMENDED — the criterion
+      became "answer whether one start suffices past N=4", which this
+      session does (yes, on the one covariate-decoupled structure tested)
+      — not "demonstrate an improvement there", which the N=8 measurement
+      itself refutes as the finding.** The reproducible improvement that
+      WAS measured is at N=4 (recovering a real 4-thread convergence
+      failure), the structure the slice's premise was restated against;
+      it is not evidence about N>4. Cost stated: ~9-17x function
+      evaluations.
 - [x] "Not a claim that `max_abs_log10_sp_diff` reaches zero." Not made —
       this slice never compares against `mgcv` at all, so that metric does
       not appear in this session's own measurement.
+
+## PR #218 review response (2026-08-30)
+
+An automated review (posted as a comment on the PR's own author account,
+since GitHub forbids a formal changes-requested review on one's own PR)
+found one [P0] and several P1/P2 findings. Addressed:
+
+- **[P0]** `scripts/gam_multistart_robustness_diagnostic.py` carried
+  `from __future__ import annotations` — on CLAUDE.md's Never list (Python
+  3.12, not needed) and unused by any annotation in the file. Removed.
+- **[P1]** The DoD's first box read "MET" on a criterion the measurement's
+  own N=8 finding refuted the premise of. Restated above and in the PLAN
+  as AMENDED, with the criterion's own new meaning spelled out.
+- **[P1]** `test_best_is_never_worse_than_the_single_default_start`'s
+  docstring claimed a general guarantee (`best` is never worse than the
+  single-start default) that the code does not provide — `best` minimises
+  only over CONVERGED runs, so a non-converged single-start reading with a
+  numerically lower score is correctly NOT preferred, and the test only
+  exercises the case both converge. Docstring corrected to state that
+  precondition explicitly (and assert it); a new test,
+  `test_best_prefers_a_converged_run_over_a_lower_scoring_non_converged_one`,
+  exercises the actual guarantee directly via a faked
+  `select_lambdas_continuous`.
+- **[P2]** `docs/PRODUCT_DIRECTION_2026-07-24.md`'s two harvested items
+  gained the house-style `(2nd-order)` tag (NICE-TO-HAVE), matching how
+  they were already classified.
+- **[P2]** The diagnostic's own `_THREAD_SWEEP = (1, 2, 4)` published only
+  the 1/4 readings. Re-ran `--worker 2`; the 2-thread row is now in both
+  PART 1/PART 2 tables (ADR-213, this log, the ledger row, the PR body).
+- **[P2]** This section's own placeholder ("[to be run before opening the
+  PR]") is filled in above with the actual final gate numbers.
+- **[P2]** `data8["AttdAge2"]` and its two siblings now carry an explicit
+  `.astype(np.float64)` (CLAUDE.md §5).
+- **[P2]** The table printer's `(x or float("nan"))` pattern would have
+  rendered a legitimate `0.0` score as `nan` (unreachable at these
+  magnitudes, but a latent bug). Replaced with an explicit `is not None`
+  check.
+- **[P2]** `select_lambdas_continuous_multistart`'s "every start rejected
+  every trial point" error message overstated what the function itself
+  observes (a per-start `PolarisComputationError`, not a claim about each
+  start's own internal trial-point bookkeeping). Reworded.
 
 ## Follow-ups filed
 

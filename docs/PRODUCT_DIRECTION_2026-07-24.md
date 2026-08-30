@@ -1244,13 +1244,14 @@ session touches these files:
   from an earlier session (ADR-208's pre-Appendix-B reading, per ADR-211's own
   note); refreshing under the now-pinned `OPENBLAS_NUM_THREADS=1` regime is
   bookkeeping for a different (mgcv-comparison) measurement than slice 5e's
-  own, so it was named but not done here. *Source: ADR-213, PLAN slice 5e.*
+  own, so it was named but not done here. *Source: ADR-213, PLAN slice 5e
+  (2nd-order).*
 - **`fit_polaris_gam` could expose multi-start as an opt-in parameter.**
   `select_lambdas_continuous_multistart` exists and is measured to help on a
   real (if narrow) N=4 case; wiring it through `PolarisGAM`'s own production
   entry point as a caller-chosen option (never a changed default — that is a
   separate, maintainer-gated decision per ADR-186's own precedent) is a small
-  follow-up. *Source: ADR-213 Consequences.*
+  follow-up. *Source: ADR-213 Consequences (2nd-order).*
 
 ---
 

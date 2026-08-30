@@ -29,6 +29,7 @@ from polaris_re.analytics.gam_multiterm_conformance import _multiterm_model_spec
 from polaris_re.analytics.gam_reml import reml_score_general
 from polaris_re.analytics.gam_reml_optimize import (
     _FINITE_DIFF_STEP,
+    ContinuousLambdaSelection,
     penalized_fit_and_score,
     select_lambdas_continuous,
     select_lambdas_continuous_multistart,
@@ -434,15 +435,75 @@ class TestSelectLambdasContinuousMultistart:
         self, rng: np.random.Generator
     ) -> None:
         """Best-of-N's own score must be <= the bounds-centre-only score on
-        the SAME problem — start 0 is that single-start run, so this is a
-        strict inequality-of-minimum property, not a numerical claim about
-        how much better multi-start does."""
+        this well-posed toy problem, where start 0 (bounds-centre, the same
+        point the single-start default uses) converges. This is NOT a
+        general guarantee of the function: `best` minimises only over
+        CONVERGED runs (`converged_indices` in
+        `select_lambdas_continuous_multistart`), so if start 0 fails to
+        converge while some other start does, `best` is drawn from that
+        other, converged run and can legitimately score WORSE than a
+        non-converged single-start reading (this is the correct behaviour —
+        a converged point is preferred over a lower but non-converged score
+        — see PR #218 review [P1], and ADR-213's own N=4/4-thread reading,
+        where the single default start does not converge). This test only
+        exercises the case both converge; it asserts that precondition
+        explicitly rather than assuming it."""
         x = _design(rng, 40, 3)
         y = rng.poisson(5.0, size=40).astype(np.float64)
         s = np.eye(3)
         single = select_lambdas_continuous(y, x, poisson_log(), (s,))
         multi = select_lambdas_continuous_multistart(y, x, poisson_log(), (s,), n_starts=5, seed=1)
+        assert single.converged
+        assert multi.best.converged
         assert multi.best.reml_score <= single.reml_score + 1e-9
+
+    def test_best_prefers_a_converged_run_over_a_lower_scoring_non_converged_one(
+        self, rng: np.random.Generator
+    ) -> None:
+        """The actual guarantee `best` provides (PR #218 review [P1]): drawn
+        from the converged runs when any exist, even if a non-converged run
+        reports a numerically lower (better-looking) score. Fakes
+        `select_lambdas_continuous` directly rather than relying on a real
+        fixture to happen to reproduce this shape."""
+        x = _design(rng, 30, 3)
+        y = rng.poisson(5.0, size=30).astype(np.float64)
+        s = np.eye(3)
+
+        def fake_search(
+            *args: object, x0: np.ndarray, **kwargs: object
+        ) -> ContinuousLambdaSelection:
+            # The first start (bounds-centre) "fails to converge" but reports
+            # a lower score than every other, converged start -- the exact
+            # shape ADR-213 measured at N=4/4-threads.
+            not_converged = np.isclose(x0, np.array([3.0]))[0]
+            score = 1.0 if not_converged else 5.0 + float(x0[0])
+            return ContinuousLambdaSelection(
+                log_lambda=x0,
+                lambda_=10.0**x0,
+                coef=np.zeros(3),
+                reml_score=score,
+                edf_total=1.0,
+                n_function_evals=10,
+                n_rejected=0,
+                converged=not not_converged,
+                at_bound=False,
+                message="fake",
+            )
+
+        with patch(
+            "polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous",
+            side_effect=fake_search,
+        ):
+            result = select_lambdas_continuous_multistart(
+                y, x, poisson_log(), (s,), n_starts=3, seed=1
+            )
+
+        assert result.any_converged
+        assert result.best.converged
+        # The non-converged start (index 0, score 1.0) is numerically lower
+        # than every converged alternative -- `best` must NOT pick it.
+        assert result.best.reml_score > 1.0
+        assert result.best_start_index != 0
 
     def test_all_starts_rejected_raises(self, rng: np.random.Generator) -> None:
         x = _design(rng, 30, 3)
