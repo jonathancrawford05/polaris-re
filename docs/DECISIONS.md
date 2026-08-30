@@ -18388,3 +18388,215 @@ plus every P2. Full detail in the session log's "Round 2" section; summary:
 New R-free test coverage:
 `tests/test_analytics/test_gam_reml_optimize_conformance.py` (the new
 comparison function and its claim's provenance gate).
+
+## ADR-212: Slice 5d — the free-`sp` residual localised to a finite-difference-step defect, not a criterion or a genuinely multi-modal surface
+
+**Status:** ACCEPTED, 2026-08-29 (same day as ADR-210, which registered this slice).
+
+**Context.** ADR-210 closed the fixed-`sp` REML criterion to float round-trip
+precision (both tiers) and discovered a THIRD-branch finding: free-`sp`
+selection on the N=4, `ti()`-sharing-a-span structure still disagreed with
+`mgcv` (`max_abs_log10_sp_diff = 0.7560` tier 1 / `1.0996` tier 3), and the
+discriminating measurement (score both sides' points under our OWN
+now-correct criterion) showed our optimiser's own converged point scoring
+WORSE than `mgcv`'s point (`612.6630` vs `612.6108`, +0.0523) — an optimiser
+finding, not a criterion one. PLAN slice 5d registered two live hypotheses
+(1: `select_lambdas_continuous`'s finite-difference gradient too imprecise;
+2: a genuinely multi-modal surface) and named a cheap first step: re-run the
+discriminating measurement at tier 3.
+
+**What this session did, in order.**
+
+1. **The cheap step, run first.** `gam_fixed_sp_score_probe.R`'s
+   `python_opt_log10` and the workflow's `gam_multiterm_sp_delta_probe.R`
+   invocation still carried ADR-208's original pre-Appendix-B reading —
+   stale by two sessions. Refreshed both to Python's CURRENT free-`sp`
+   selection (`fit_free_sp_case` depends only on the shared recipe, never on
+   `mgcv`, so this number carries no tier label of its own — the same point
+   applies regardless of which `mgcv` produced the recipe's covariates,
+   since the shared data draw is seed-determined and independent of `mgcv`
+   entirely). Tier 1 and tier 3 (CI run 33275225043) reproduced the IDENTICAL
+   `+0.0523` finding from BOTH directions:
+
+   | direction | at mgcv's point | at Python's point | delta | tier 1 | tier 3 |
+   |---|---:|---:|---:|---|---|
+   | our criterion | 612.61076 | 612.66305 | +0.05229 | ✓ | ✓ (612.61076 / 612.66305) |
+   | `mgcv`'s own criterion | 2347.43346 | 2347.48575 | −0.05229 | ✓ | ✓ (`delta_mgcv=-0.052286`) |
+
+   Both criteria rank `mgcv`'s point better, by the IDENTICAL margin — which
+   is mechanically guaranteed once the fixed-`sp` SPREAD is 0 everywhere
+   (ADR-210): a constant-offset-equivalent criterion cannot disagree about
+   which of two points is better. **This step, by itself, already retires
+   hypothesis 2's "the two criteria disagree" flavor entirely** — there is
+   only one criterion function here now, just a search that under-performs
+   on it.
+
+2. **Interpolation sweep (new this session, no analytic gradient needed).**
+   Scored our OWN criterion along the straight line between the default
+   optimiser's converged point and `mgcv`'s point, at 11 points:
+
+   ```
+   t=0.0  pt=[6.913, 9.116, 3.359, 2.972]  score=612.663039   <- our default converged point
+   t=0.5  pt=[6.804, 9.494, 3.325, 3.001]  score=612.623883
+   t=1.0  pt=[6.696, 9.872, 3.292, 3.029]  score=612.610760   <- mgcv's point
+   ```
+
+   The score decreases MONOTONICALLY and smoothly across the entire
+   interval — no barrier, no bump, no sign of a second basin. This is
+   evidence AGAINST genuine multi-modality between these two points
+   specifically: a converged local optimum should not have a strictly
+   better point a short, smooth walk away with no ridge to cross.
+
+3. **The root cause, found directly.** Central-difference gradients of the
+   objective at the default optimiser's own reported "minimum", at several
+   step sizes:
+
+   ```
+   h=1e-2   grad norm=0.5477
+   h=1e-4   grad norm=0.5478
+   h=1e-6   grad norm=0.5508
+   ```
+
+   all agree the TRUE gradient there is `~0.55` — nowhere near the `gtol=1e-8`
+   SciPy's own L-BFGS-B reported satisfying to call this point converged. A
+   forward-difference scan at ONE point, holding everything else fixed and
+   varying only the step `h`, localises exactly why:
+
+   ```
+   h=1e-1   fwd_diff= 0.279     h=1e-6   fwd_diff= 0.233
+   h=1e-2   fwd_diff= 0.236     h=1e-7   fwd_diff= 0.199   <- starting to drift
+   h=1e-3   fwd_diff= 0.232     h=1e-8   fwd_diff= 0.232   <- lucky
+   h=1e-4   fwd_diff= 0.231     h=1e-9   fwd_diff=-2.069   <- WRONG SIGN
+   h=1e-5   fwd_diff= 0.232     h=1e-10  fwd_diff= 4.097   <- garbage
+   ```
+
+   `scipy.optimize.minimize(method="L-BFGS-B")`'s own default finite-difference
+   step is `eps=1.4901161193847656e-08` — squarely inside the region where
+   this scan has already broken down. The mechanism: `penalized_fit_and_score`
+   refits `penalized_irls_general` at every trial point, and that inner solve
+   only converges to `gam_fit._IRLS_TOL` (`1e-10` relative on deviance) — two
+   trial points closer together than that residual differ by IRLS noise, not
+   signal, and SciPy's default step is far inside that noise floor for this
+   objective. **This is Wood's own warning, precisely**: "SciPy's own
+   step-size error can dominate" (PLAN slice 5d's own registered text),
+   now measured rather than hypothesised.
+
+**The fix.** `gam_reml_optimize._FINITE_DIFF_STEP = 1e-5` — two orders of
+magnitude above the measured stable/unstable boundary in step 3 above — wired
+into `select_lambdas_continuous`'s `scipy.optimize.minimize` call via
+`options={"eps": _FINITE_DIFF_STEP, ...}`. **Derived from this module's own
+measured noise floor, never from a comparison against `mgcv`** — the ADR-193
+"never tune a constant to match" rule applies to comparisons against the
+oracle, and no oracle value entered this derivation; `mgcv` is used only
+AFTER the fact, to check the outcome, which is the routine's intended use of
+the oracle, not the forbidden one.
+
+**Result — re-running PLAN slice 5d's own multi-start experiment with the fix
+in place (no other line changed):**
+
+| start | log10(lambda) | score | vs. mgcv's own point |
+|---|---|---:|---|
+| default center (production `x0=None`) | `[6.699, 10.750, 3.293, 3.028]` | `612.610092` | **0.00067 tier-1 `mgcv`-side, was 0.0523** |
+| at mgcv's own point | `[6.695, 10.307, 3.292, 3.029]` | `612.610250` | stays in the same score band |
+| 6 scattered starts near the default | scores `612.6101`–`612.6116` | | all converge to the SAME score band |
+| 2 adversarial starts (far outside, `low_all`/`random_2`) | hit bounds, non-convergent or poor | `636`–`637` | expected — extreme starts on a bounded search are not this fix's target |
+
+Every reasonable start (near the production default, or near either known
+optimum) now lands in a `~0.001`-wide score band matching `mgcv`'s own
+optimum — a roughly **78-times tighter agreement** than before the fix
+(`delta_mgcv` moves from `-0.052286` to `+0.000668`, tier 1, confirmed via
+`gam_multiterm_sp_delta_probe.R` under mgcv's own independent criterion).
+
+**But `max_abs_log10_sp_diff` gets WORSE at tier 1, not better (`0.7560` →
+`0.8777`) — and that is itself the second finding, sharpened further by what
+tier 3 then showed.** The by-term's own `lambda` (component 2) now ranges
+from `~9.6` to `~11` (the search bound) across different converged runs,
+while the OTHER three components and the fitted surface converge tightly:
+
+| quantity | tier 1, before this fix | tier 1, after this fix | **tier 3, after this fix** |
+|---|---:|---:|---:|
+| `max_abs_log10_sp_diff` | 0.7560 | 0.8777 | **0.2606** |
+| `max_abs_eta_diff` | ADR-208 pre-Appendix-B: 3.677e-02 | 8.068e-04 | **7.593e-04** |
+| `edf_total_diff` | ADR-208 pre-Appendix-B: +0.7263 | -0.01838 | **+0.0150** |
+
+Fitted `eta` now agrees to under a thousandth at BOTH tiers (consistent to
+three figures across mgcv 1.9.1/1.9.4 and two different BLAS builds), and
+`edf_total` agrees to about 1.5-2 hundredths at both — both far tighter than
+before this fix, at either tier. The raw `log10(sp)` metric, by contrast,
+is NOT STABLE ACROSS TIERS: `0.8777` at tier 1 versus `0.2606` at tier 3 — a
+**3.4x swing** on what is nominally the identical comparison, while `eta`
+barely moves between the same two runs. **That instability is itself
+diagnostic, not noise to average away**: a genuine, reproducible criterion
+or optimiser defect would be expected to produce a STABLE gap across R
+builds, the same way the fixed-`sp` spread (item 1 above) reproduces to the
+same 6 decimal places at both tiers. A gap that swings 3.4x between two
+runs of the same comparison, while the quantity that actually describes the
+FITTED MODEL (`eta`) stays essentially fixed, is the signature of measuring
+a coordinate on a near-flat direction, not of two model fits disagreeing.
+
+The honest reading: **the by-term's own smoothing parameter is weakly
+identified by this criterion on this fixture** — moving it across roughly a
+decade and a half changes the REML score by a few thousandths and barely
+moves the fitted surface at all, so different (equally valid, equally
+converged) runs, and even different R builds' OWN free-`sp` selections, land
+at different values along that near-flat direction without disagreeing about
+the MODEL. `max_abs_log10_sp_diff` is the wrong metric to chase to zero on
+this specific dimension; `eta`/`edf` are the ones that answer "do the two
+fits agree," and they now agree far better than before, consistently at both
+tiers. PLAN §6's own prior prediction ("edf agrees far better than sp does")
+is now true by a wide margin, not a narrow one.
+
+**Hypothesis verdict.** Hypothesis 1 (optimiser/gradient precision) is
+CONFIRMED, with a specific, measured, non-`mgcv`-tuned mechanism, and
+substantially fixed for three of the four blocks. Hypothesis 2 (genuine
+multi-modality with a barrier between distinct optima) is REFUTED for this
+specific structure — the interpolation sweep found a single smooth,
+monotonic surface between the two points, not two basins. A third,
+previously-unregistered finding — the by-term's own smoothing parameter is
+weakly identified by the data/criterion on this fixture, independent of the
+optimiser — is now the honest characterisation of what remains, and is a
+property of the MODEL, not a defect in Polaris's engine.
+
+**Nothing is re-pointed.** `_FINITE_DIFF_STEP` lives in
+`gam_reml_optimize.py`, the N-dimensional continuous search PLAN slice 4B
+built — never `experience_gam_penalized.select_lambdas_reml` (the SHIPPED
+grid selector, PLAN Anchor 7, untouched). `tests/qa/golden_outputs/`
+byte-identical (94/94). Full suite: `uv run pytest tests/ -m "not slow"` —
+**3504 passed, 3 skipped**, identical to the pre-session baseline.
+
+**Tier-3 confirmation, two dispatches.**
+
+- CI run [33275225043](https://github.com/jonathancrawford05/polaris-re/actions/runs/33275225043)
+  (the cheap step, pre-fix code) confirmed item 1's `+0.05229`/`-0.052286`
+  readings exactly — tier 1 and tier 3 agree to printed precision on both
+  directions.
+- CI run [33279785437](https://github.com/jonathancrawford05/polaris-re/actions/runs/33279785437)
+  (after the `_FINITE_DIFF_STEP` fix) confirmed the fix's own result on the
+  real oracle: `delta_mgcv=0.000668` (identical to the tier-1 reading to
+  every printed digit), our own criterion at `mgcv`'s point `612.61076` vs
+  at Python's point `612.61009` (Python's default-start point now scores
+  a hair BETTER than `mgcv`'s own, under our criterion — SPREAD still
+  `0.000000`), and the free-`sp` table's `max_abs_eta_diff=7.593e-04` /
+  `max_abs_log10_sp_diff=0.2606` / `edf_total_diff=+0.0150` — the numbers
+  the table above already reports in the "tier 3, after this fix" column.
+
+**Consequences.** Slice 6 (`bs="sz"`) is UNBLOCKED — both hypotheses PLAN
+slice 5d registered are resolved with evidence (hypothesis 1 confirmed and
+fixed; hypothesis 2 refuted), and the remaining `max_abs_log10_sp_diff`
+residual is now understood as weak identifiability on one block rather than
+an open optimiser or criterion question, so a fourth basis's own `sp`
+selection would not compound an unlocalised defect (the reasoning that
+originally blocked slice 6). `PLAN_mgcv_parity_engine.md`'s own slice 6 entry
+is restated accordingly, and `docs/PRODUCT_DIRECTION_2026-07-24.md`/
+`docs/CONTINUATION_mgcv_parity_engine.md` agree — an earlier revision of this
+paragraph read "remains blocked pending a maintainer decision," left
+unreconciled after slice 6 was updated to UNBLOCKED elsewhere in this same
+session (PR #216 review [P1-1]); this is the correction. A narrower,
+non-blocking question remains open for the maintainer: whether
+`FREE_SP_MODEL_CLAIM`'s own primary metric should be revisited to weight
+`eta`/`edf` over raw `log10(sp)` on a structure with a weakly-identified
+block, since the raw metric is now demonstrated unstable across R builds in
+a way that does not track model agreement. That is a comparator-design
+question PLAN's own "what the routine may not decide" section reserves for
+the maintainer — but slice 6 proceeds under the CURRENT metric either way,
+it is not a release condition.

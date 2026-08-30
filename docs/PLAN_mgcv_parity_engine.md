@@ -13,9 +13,12 @@ path, `PolarisGAM` from a `ModelSpec`; inserted 2026-08-25, DONE same day, ADR-2
 2011 §3.1/Appendix B and eq. 4; inserted 2026-08-25, DONE 2026-08-29, ADR-210 — both
 defects closed to float precision at fixed `sp`, tier 1 and tier 3 identical), and
 **slice 5d** (inserted 2026-08-29 after 5c's own measurement re-diagnosed the
-free-`sp` residual as an optimiser-convergence question rather than a criterion one —
-it is what unblocks slice 6 now). The letter suffixes exist so inserting work does not
-renumber slices 6 and 7 and break every cross-reference to them.
+free-`sp` residual as an optimiser-convergence question rather than a criterion one;
+DONE the same day, ADR-212 — a finite-difference-step defect confirmed and fixed at
+both tiers, and the remaining `log10(sp)` residual localised to weak identifiability
+on one block rather than a defect, unblocking slice 6). The letter suffixes exist so
+inserting work does not renumber slices 6 and 7 and break every cross-reference to
+them.
 **Estimated scope:** the largest numerical undertaking in the project. Sized honestly
 below rather than optimistically.
 
@@ -909,72 +912,74 @@ one. Only the tier-3 oracle and ADR-193's two-producer rule do that.
 ### Slice 5d: localise the free-`sp` residual on the N=4 structure — optimiser or surface?
 
 - **Depends on:** Slice 5c (ADR-210).
-- **Status:** READY. Registered so the routine's "next unchecked slice" rule can
-  reach it — the same registration slice 5b/5c needed. Designating it for a
-  session remains a `ROUTINE_MGCV_PARITY.md` call, and per slice 5c's own DoD,
-  this finding is also flagged for maintainer visibility (it reopens the
-  epic's cost estimate for slice 6).
-- **The gap, stated precisely.** ADR-210 closed the fixed-`sp` REML criterion
-  to float round-trip precision (both tiers) — the score itself is no longer
-  in question. Free-`sp` selection on the same N=4, `ti()`-sharing-a-span
-  structure still disagrees with `mgcv`'s own selection by `max_abs_log10_sp_diff
-  = 0.7560` (tier 1) / `1.0996` (tier 3), concentrated in the `by`-term's own
-  `lambda`. The discriminating measurement (score both sides' points under our
-  OWN now-correct criterion) shows `mgcv`'s point scoring measurably BETTER
-  than our optimiser's own converged point (`612.611` vs `612.663`, tier 1) —
-  our `select_lambdas_continuous` (SciPy L-BFGS-B, finite-difference gradient)
-  is not reaching the true optimum of a criterion that is now demonstrably
-  right.
-- **Two live hypotheses, not yet distinguished:**
-  1. **Optimiser precision.** L-BFGS-B's finite-difference gradient is too
-     imprecise on this specific landscape (the `by`-term's `lambda` may be
-     weakly identified — a small score change over a wide `lambda` range —
-     which is exactly where a numerical gradient's own step-size error can
-     dominate). An analytic gradient exists to test this: Appendix B's own
-     derivative expressions, already stated in slice 5c's own text —
-     `∂log|S|/∂ρⱬ = λⱼ tr(S⁻¹Sⱼ)` and the corresponding second derivative —
-     built but unused there (`E`, `Q_s`), available to build on here.
-  2. **A genuinely multi-modal or very flat surface**, where `mgcv`'s own
-     optimiser (a different algorithm — Newton on the REML score with exact
-     derivatives, not L-BFGS-B with finite differences) reaches a different
-     local optimum than ours would even from an identical starting point.
-     Distinguishing this from (1) needs restarting `select_lambdas_continuous`
-     from several different starting points on the SAME fixture and checking
-     whether it converges to `mgcv`'s point, a range of different points, or
-     reliably the same (wrong) point every time.
-- **What would settle it, cheaply, before either hypothesis needs new code:**
-  re-run the tier-1 discriminating measurement
-  (`scripts/gam_fixed_sp_score_probe.R`/`gam_fixed_sp_score_compare.py`,
-  already committed) at tier 3, scoring `mgcv`'s OWN tier-3 free-sp point
-  under our tier-3-fixed criterion — ADR-210's discriminating measurement
-  was tier 1 only; the tier-3 free-sp residual (1.0996) is large enough that
-  confirming the SAME sign-and-magnitude relationship holds at tier 3 is a
-  cheap first step (an R dispatch, no new code) before either hypothesis is
-  pursued with new code.
-- **Out of scope:** re-pointing the production grid selector
-  (`experience_gam_penalized.select_lambdas_reml`) — unaffected either way
+- **Status:** DONE, 2026-08-29, same day as 5c (ADR-212). Both hypotheses
+  distinguished with evidence, at both tiers, without needing the analytic
+  gradient hypothesis 1 named as available to build on.
+- **The gap, as stated when this slice was registered.** ADR-210 closed the
+  fixed-`sp` REML criterion to float round-trip precision (both tiers) — the
+  score itself was no longer in question. Free-`sp` selection on the same
+  N=4, `ti()`-sharing-a-span structure still disagreed with `mgcv`'s own
+  selection by `max_abs_log10_sp_diff = 0.7560` (tier 1) / `1.0996` (tier 3),
+  and the discriminating measurement showed `mgcv`'s point scoring measurably
+  BETTER than our optimiser's own converged point (`612.611` vs `612.663`,
+  tier 1).
+- **What was found.** The cheap step (re-running the discriminating
+  measurement at tier 3) confirmed the tier-1 reading exactly and, since the
+  fixed-`sp` spread is 0 everywhere, mechanically ruled out hypothesis (b)
+  ("the two criteria disagree") — leaving purely an optimiser question. An
+  interpolation sweep between the two points found a single smooth,
+  monotonic surface (no barrier), refuting hypothesis 2 (genuine
+  multi-modality) for this pair of points. A forward-difference step scan at
+  the optimiser's own "converged" point localised hypothesis 1's exact
+  mechanism: SciPy's L-BFGS-B default step (`eps=1.49e-8`) sits inside the
+  noise floor `penalized_fit_and_score`'s nested IRLS solve creates
+  (`_IRLS_TOL=1e-10` relative), so the "converged" point had a true residual
+  gradient of `~0.55`, not the near-zero SciPy's own noisy estimate implied.
+  **Fixed** by deriving `gam_reml_optimize._FINITE_DIFF_STEP = 1e-5` from
+  this module's own measured noise floor (never from a comparison against
+  `mgcv`) and wiring it into the one `scipy.optimize.minimize` call. Result,
+  confirmed at both tiers: `mgcv`'s own criterion now ranks Python's
+  default-start point within `0.0007` of its own optimum (was `0.0523`, a
+  ~78x tighter agreement), `eta` agreement improves to `~8e-4` (from an
+  earlier `3.7e-2`), `edf_total` agreement to `~0.015-0.018`. The raw
+  `max_abs_log10_sp_diff` metric, however, is NOT fixed by this — and swings
+  3.4x between tiers (`0.8777` tier 1, `0.2606` tier 3) while `eta` barely
+  moves, which is itself the decisive evidence for a THIRD finding: the
+  by-term's own smoothing parameter is weakly identified by this criterion
+  on this fixture (moving it across a decade and a half changes the score by
+  a few thousandths), so different converged runs — and even different R
+  builds' own selections — land at different values along that near-flat
+  direction without disagreeing about the fitted model. See ADR-212 for the
+  full measurement.
+- **Out of scope, honoured:** the production grid selector
+  (`experience_gam_penalized.select_lambdas_reml`) was not touched
   (PLAN Anchor 7, ADR-198 "Two searches, not one").
-- **Acceptance.** Either hypothesis resolved with evidence (an analytic
-  gradient measurably improves convergence, or repeated restarts demonstrate
-  genuine multi-modality) unblocks slice 6. A third finding — neither
-  hypothesis holds — is itself a result per the routine's own standard, and
-  re-opens the question at a session's discretion.
+- **Acceptance, as met:** hypothesis 1 confirmed and fixed with a
+  non-`mgcv`-tuned derivation; hypothesis 2 refuted for this structure; the
+  residual `max_abs_log10_sp_diff` is now understood, not merely observed.
+  **Unblocks slice 6** on the finding that the remaining `log10(sp)` gap is a
+  weak-identifiability property of the model, not an unresolved optimiser or
+  criterion defect — see slice 6's own restated note below. Whether
+  `FREE_SP_MODEL_CLAIM`'s own primary metric should be revisited to weight
+  `eta`/`edf` over raw `log10(sp)` remains a maintainer call (ADR-212
+  Consequences).
 
 ### Slice 6: `bs = "sz"` — orthogonal factor-smooth interactions
 
 - **Depends on:** Slices 2, 4
-- **BLOCKED, 2026-08-25 (PR #212 review [P1], CONFIRMED at tier 3 same day);
-  RESTATED, 2026-08-29 (ADR-210):** slice 5c closed the criterion-formula
-  gap it was registered to close (both defects, tier 1 AND tier 3 confirmed
-  to float precision on the fixed-`sp` measurement) — but free-`sp`
-  selection on the same N=4 structure still disagrees with `mgcv`
-  (`max_abs_log10_sp_diff` 1.0996 at tier 3, worse than the pre-fix 0.6398),
-  now diagnosed as an OPTIMISER CONVERGENCE question rather than a criterion
-  one (ADR-210). **This slice stays blocked** — a fourth basis's own `sp`
-  selection on top of a still-unlocalised optimiser-convergence gap would
-  compound rather than isolate the next disagreement, the same reasoning
-  that blocked it on ADR-208's original (criterion) diagnosis. **The route
-  out is now slice 5d**, above.
+- **BLOCKED, 2026-08-25** (PR #212 review [P1], CONFIRMED at tier 3 same day);
+  **RESTATED, 2026-08-29** (ADR-210): diagnosed as an optimiser-convergence
+  question rather than a criterion one; **UNBLOCKED, 2026-08-29, same day**
+  (ADR-212): slice 5d localised the optimiser defect to a specific,
+  now-fixed finite-difference-step bug (`gam_reml_optimize._FINITE_DIFF_STEP`)
+  and found the REMAINING `max_abs_log10_sp_diff` residual is a weak-
+  identifiability property of the by-term's own smoothing parameter on this
+  fixture (the metric swings 3.4x between tiers while `eta`/`edf` agree
+  tightly and consistently at both) — not an unresolved defect a fourth
+  basis's own `sp` selection would compound. **Status: READY**, same
+  registration mechanism slices 5b/5c/5d used — designating it for a session
+  is still a `ROUTINE_MGCV_PARITY.md` scheduling call, and per the routine's
+  "one slice per session" rule this was not started the same session as 5d.
 
 Sum-to-zero factor-smooth deviations from a reference smooth. Four terms in the target.
 Expect this to be the hardest basis of the three: the constraint and reparameterisation are

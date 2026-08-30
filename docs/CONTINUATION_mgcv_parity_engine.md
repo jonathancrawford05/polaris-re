@@ -209,10 +209,41 @@ forbids, and Wood rules the tolerance approach out explicitly:
 > silently). **Slice 6 stays blocked** — see slice 5d's own entry for why the
 > blocking reason changed rather than lifted.
 
+> **Slice 5d done the SAME DAY as 5c (ADR-212).** Both hypotheses were
+> distinguished with evidence, at both tiers, without building the analytic
+> gradient hypothesis 1 had named as available. The cheap tier-3 step
+> confirmed the tier-1 reading exactly and, since the fixed-`sp` spread is 0
+> everywhere, mechanically ruled out "the two criteria disagree" — leaving
+> purely an optimiser question. An interpolation sweep between the optimiser's
+> converged point and `mgcv`'s point found a single smooth, monotonic surface
+> (no barrier), refuting genuine multi-modality for this pair of points. A
+> forward-difference step scan at the "converged" point localised hypothesis
+> 1's exact mechanism: SciPy's L-BFGS-B default step (`1.49e-8`) sits inside
+> the noise floor the nested penalized-IRLS solve creates, so the reported
+> "convergence" had a true residual gradient of `~0.55`, not the near-zero
+> SciPy's own noisy estimate implied. **Fixed** by deriving
+> `gam_reml_optimize._FINITE_DIFF_STEP = 1e-5` from this module's OWN measured
+> noise floor — never from a comparison against `mgcv` — and wiring it into
+> the one `scipy.optimize.minimize` call. Confirmed at both tiers: `mgcv`'s
+> own criterion now ranks Python's default-start point within `0.0007` of its
+> own optimum (was `0.0523`, ~78x tighter), `eta` agreement improves to
+> `~8e-4` (from `3.7e-2`), `edf_total` to `~0.015-0.018`. **But the raw
+> `max_abs_log10_sp_diff` metric swings 3.4x between tiers** (`0.8777` tier 1,
+> `0.2606` tier 3) **while `eta` barely moves** — the decisive evidence for a
+> third finding: the by-term's own smoothing parameter is weakly identified
+> by this criterion on this fixture, so different converged runs (and
+> different R builds' own selections) land at different values along a
+> near-flat direction without disagreeing about the fitted model.
+> **Slice 6 is now UNBLOCKED** (PLAN's own entry restated accordingly) on the
+> finding that the remaining gap is understood, not merely observed. One open
+> question carried to the maintainer: whether `FREE_SP_MODEL_CLAIM`'s primary
+> metric should be revisited to weight `eta`/`edf` over raw `log10(sp)` given
+> this finding (ADR-212 Consequences) — see "Open questions" below.
+
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16), slice 5b
 (inserted 2026-08-24/25, ADR-207/ADR-208), slice 5c (inserted 2026-08-25, DONE
-2026-08-29, ADR-210) and slice 5d (inserted 2026-08-29, ADR-210) plus one
-deferred to a later epic.
+2026-08-29, ADR-210) and slice 5d (inserted 2026-08-29, DONE same day, ADR-212 —
+unblocks slice 6) plus one deferred to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
 
 > **This is the ACTIVE epic.** `CONTINUATION_penalized_mi_surface.md` is superseded from
@@ -803,7 +834,23 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 
 ## Open questions (for human)
 
-- **Slice 5c's registered prediction landed on its third branch — escalated per the
+- **RESOLVED, same day (2026-08-29, ADR-212).** Slice 5c's third-branch escalation
+  (below, filed the same day) was resolved by slice 5d before this file was next
+  read: the optimiser defect was a specific, measured finite-difference-step bug
+  (SciPy's default step sitting inside the nested-IRLS noise floor), now fixed
+  from the module's own measured noise floor rather than tuned against `mgcv`.
+  The remaining `max_abs_log10_sp_diff` residual is now understood as weak
+  identifiability on the by-term's own smoothing parameter (the metric swings
+  3.4x between tiers while `eta`/`edf` agree tightly and consistently at both) —
+  not an unresolved defect. Slice 6 is unblocked. **What is still an open
+  question for the maintainer, narrower than before:** whether
+  `FREE_SP_MODEL_CLAIM`'s own primary metric should be revisited to weight
+  `eta`/`edf` over raw `log10(sp)` on structures where one block is weakly
+  identified, since the raw metric is now demonstrated to be unstable across R
+  builds in a way that does not track model agreement (ADR-212 Consequences).
+  The original escalation is kept below, struck through, for the record of what
+  was asked and how quickly it resolved.
+- ~~**Slice 5c's registered prediction landed on its third branch — escalated per the
   slice's own DoD** *(filed 2026-08-29, ADR-210)*. Both defects (Appendix B's
   `log|S|+`, the observed-Hessian weight) are fixed and the fixed-`sp` criterion
   now agrees with `mgcv` to float precision at both tiers — real, closed progress.
@@ -819,7 +866,7 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
   call to size**: whether an analytic-gradient optimiser rewrite belongs in this
   epic's scope, or whether the free-`sp` acceptance bar for a 13-21-parameter
   target needs to be restated given a 2-block optimiser (ADR-199) already needed
-  1e-4-level precision to demonstrate parity and a 4-block one does not reach it.
+  1e-4-level precision to demonstrate parity and a 4-block one does not reach it.~~
 - **The duration treatment on real data** — band as factor, or band as ordered numeric via
   a representative value. The maintainer has reserved this as a modelling judgement; the
   engine will support both and the routine is forbidden from deciding it.
