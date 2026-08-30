@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
+from threadpoolctl import threadpool_limits
 
 from polaris_re.analytics.experience_gam_penalized import select_lambdas_reml
 from polaris_re.analytics.experience_mgcv_conformance import DESIGNS, build_design, synthetic_cells
@@ -227,6 +228,17 @@ class TestFiniteDiffStep:
     point of a real multi-block criterion, not at an arbitrary point, so
     the real fixture is used rather than a synthetic approximation that
     might not exhibit the property it is meant to test.
+
+    Both fixture-based tests below pin ``threadpool_limits(1, "blas")``: PR
+    #217 (concurrent with this one) found this exact free-``sp`` selection
+    moves with ``OPENBLAS_NUM_THREADS`` alone, and CI first caught this
+    class doing exactly that — ``test_finite_diff_step_default_...`` reported
+    ``converged=False`` (``ABNORMAL_TERMINATION_IN_LNSRCH``) on a
+    multi-core runner where it converges cleanly at 1 thread. The env var
+    alone does not reliably reach an already-imported OpenBLAS;
+    ``threadpoolctl`` calls the library directly and is what
+    ``ROUTINE_MGCV_PARITY.md``'s own ``OPENBLAS_NUM_THREADS=1`` convention
+    needs inside a running test process.
     """
 
     @staticmethod
@@ -292,9 +304,10 @@ class TestFiniteDiffStep:
                 return real_minimize(fn, x0, method=method, bounds=bounds, options=options)
 
             spy.side_effect = call_with_default_eps
-            selection = select_lambdas_continuous(
-                y, x, family, blocks, weights=weights, x0=center, bounds=(-2.0, 11.0)
-            )
+            with threadpool_limits(limits=1, user_api="blas"):
+                selection = select_lambdas_continuous(
+                    y, x, family, blocks, weights=weights, x0=center, bounds=(-2.0, 11.0)
+                )
 
         assert selection.converged  # SciPy itself reports success — the point IS spurious
 
@@ -322,9 +335,10 @@ class TestFiniteDiffStep:
         y, x, family, blocks, weights = self._load_fixture()
         center = np.full(4, 4.5)
 
-        selection = select_lambdas_continuous(
-            y, x, family, blocks, weights=weights, x0=center, bounds=(-2.0, 11.0)
-        )
+        with threadpool_limits(limits=1, user_api="blas"):
+            selection = select_lambdas_continuous(
+                y, x, family, blocks, weights=weights, x0=center, bounds=(-2.0, 11.0)
+            )
         assert selection.converged
 
         def score_at(point: np.ndarray) -> float:
