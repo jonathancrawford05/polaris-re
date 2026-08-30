@@ -912,9 +912,13 @@ one. Only the tier-3 oracle and ADR-193's two-producer rule do that.
 ### Slice 5d: localise the free-`sp` residual on the N=4 structure — optimiser or surface?
 
 - **Depends on:** Slice 5c (ADR-210).
-- **Status:** DONE, 2026-08-29, same day as 5c (ADR-212). Both hypotheses
-  distinguished with evidence, at both tiers, without needing the analytic
-  gradient hypothesis 1 named as available to build on.
+- **Status:** **DONE, 2026-08-29** — resolved TWICE, the same day, by two
+  daily-dev sessions running concurrently against the same base and unaware
+  of each other: **ADR-212** (PR #216, merged first) and **ADR-211**
+  (PR #217). Both hypotheses were distinguished with evidence at both tiers,
+  without needing the analytic gradient hypothesis 1 named as available to
+  build on. The two findings are complementary — see "What the concurrent
+  session found" below.
 - **The gap, as stated when this slice was registered.** ADR-210 closed the
   fixed-`sp` REML criterion to float round-trip precision (both tiers) — the
   score itself was no longer in question. Free-`sp` selection on the same
@@ -951,6 +955,28 @@ one. Only the tier-3 oracle and ADR-193's two-producer rule do that.
   builds' own selections — land at different values along that near-flat
   direction without disagreeing about the fitted model. See ADR-212 for the
   full measurement.
+- **What the concurrent session (ADR-211) found, and why it is not a
+  duplicate.** Working the same slice at the same time, PR #217 approached it
+  from the environment rather than the objective. Two results stand
+  independently of the fix above. (1) **The blind search's own converged point
+  moves with `OPENBLAS_NUM_THREADS` alone** — by-term `log10(sp)` reads
+  `9.116` / `8.519` / `8.773` at 1 / 2 / 4 threads on one identical fixture,
+  while a FIXED-`sp` evaluation of the same criterion moves by `~4e-10` across
+  the same sweep. That is what made ADR-210's tier-1 (`0.7560`) and tier-3
+  (`1.0996`) readings of the identical measurement disagree: a confound in the
+  epic's own tooling, not a data-draw or `mgcv`-version artifact. It is now
+  pinned in `.github/workflows/mgcv-conformance.yml`. (2) **Hypothesis 2 was
+  refuted directly rather than by inference**: warm-starting
+  `select_lambdas_continuous` at `mgcv`'s own point converges back to it
+  (within `1e-6` tier 1, `1.09e-4` tier 3) at a BETTER score than the blind
+  start reaches — so `mgcv`'s point is reachable under our own criterion, not
+  structurally out of reach. That check is DIAGNOSTIC by ADR-193's mechanical
+  test (`mgcv`'s own output is its input) and is never folded into
+  `FREE_SP_MODEL_CLAIM`. A gradient step inside the objective's noise floor is
+  precisely what lets BLAS summation order move the landing point, so ADR-212's
+  mechanism and ADR-211's confound are two readings of one defect: ADR-212
+  fixes CONVERGENCE QUALITY, ADR-211 fixes MEASUREMENT REPRODUCIBILITY, and
+  neither substitutes for the other.
 - **Out of scope, honoured:** the production grid selector
   (`experience_gam_penalized.select_lambdas_reml`) was not touched
   (PLAN Anchor 7, ADR-198 "Two searches, not one").
@@ -962,7 +988,86 @@ one. Only the tier-3 oracle and ADR-193's two-producer rule do that.
   criterion defect — see slice 6's own restated note below. Whether
   `FREE_SP_MODEL_CLAIM`'s own primary metric should be revisited to weight
   `eta`/`edf` over raw `log10(sp)` remains a maintainer call (ADR-212
-  Consequences).
+  Consequences). The follow-on robustness question ADR-211 registered stays
+  open as slice 5e below, with its premise restated against the merged fix.
+
+### Slice 5e: robustify the outer search's own convergence before scaling past N=4 blocks
+
+- **Depends on:** Slice 5d (ADR-211 and ADR-212).
+- **Status:** READY, not designated. Registered per ADR-209 decision 1 ("a
+  gap you open is closed or registered — never merely filed") — slice 5d
+  found this and deliberately did not fix it in the same session.
+- **PREMISE RESTATED, 2026-08-30, against the merged fix.** This slice was
+  registered by ADR-211 while ADR-212's `_FINITE_DIFF_STEP` fix was being
+  written concurrently and had not yet landed. Every reading below marked
+  PRE-FIX was taken against the old SciPy-default step and no longer
+  describes the shipped default. What ADR-212 closed, and what it did not:
+  - **Closed (mostly): the score gap.** PR #216's own post-fix thread sweep
+    (reported in its review response; not independently re-measured here)
+    has the production default landing in a `612.6101`-`612.6116` band
+    across 1 / 2 / 4 threads — spread `0.0015`, against `612.6630`-`612.6760`
+    (spread `0.013`) pre-fix, roughly 9x tighter, and now essentially tied
+    with `mgcv`'s own `612.6108`. The original framing here — "a full log10
+    decade short of a reachable, better-scoring point" — is no longer true
+    of the SCORE.
+  - **Not closed: the coordinate.** The by-term's own `log10(sp)` still
+    moves with thread count post-fix (`9.60` / `9.61` / `10.75` at threads
+    `{2, 4, 1}`), and `max_abs_log10_sp_diff` still swings across tiers
+    (`0.8777` tier 1, `0.2606` tier 3, ADR-212). Whether that is worth
+    chasing at all depends on the maintainer's reserved metric question
+    (ADR-212 Consequences) — if `eta`/`edf` become the primary measure, much
+    of this slice's motivation goes with it.
+  - **Not answered at all: does one start still suffice at N > 4?** This is
+    the part of the slice that survives the fix intact. The target formula
+    has 13-21 blocks — more directions for a flat or weakly-identified
+    pathology to hide in, not fewer — and nothing measured so far speaks to
+    the search's behaviour above N=4. That makes this the live question
+    before slice 7 (`select = TRUE`, which pushes the block count to 21),
+    and arguably before slice 6 if `sz`'s own blocks interact with the
+    by-term's.
+- **What a blind, non-cheating multi-start check showed PRE-FIX (ADR-211):**
+  bounds-centre + 8 uniform-random starts reached as low as 612.6149 in 9
+  tries (closer to `mgcv`'s 612.6108 than the single default start's
+  612.6630, but not equal to it), and 2 of 9 far-corner starts FAILED TO
+  CONVERGE outright. Kept as the record of what motivated this slice; it is
+  **not** a valid baseline for measuring any future fix, because the
+  single-start number it was compared against has since moved. A first task
+  for whoever takes this slice is to re-run that check against the current
+  default.
+- **A merge artifact to clear first, created by neither PR alone.** ADR-212
+  refreshed the hardcoded `python_opt_log10` that
+  `scripts/gam_fixed_sp_score_probe.R` and the `gam_multiterm_sp_delta_probe.R`
+  workflow invocation carry (`6.69944259, 10.74980618, 3.29280772,
+  3.02752645`), measured in its own session's container; ADR-211 then pinned
+  `OPENBLAS_NUM_THREADS=1` — but only for the `compare` job, since the R
+  probe's own work runs inside `docker run` and would not inherit it. Those
+  two changes are individually correct and were written concurrently, so
+  neither session could see the result: the discriminator now scores `mgcv`
+  against a Python point that the pinned pipeline would not necessarily
+  reproduce today. Not a defect in either ADR and not urgent — the point is
+  hand-supplied by construction, and ADR-212 recorded its provenance
+  (`nproc=4`, `OPENBLAS_NUM_THREADS=1`) precisely so this could be checked.
+  Refresh it once under the pinned regime and record the reading, before
+  using this discriminator as a baseline for anything in this slice.
+- **Candidate approaches, not chosen here:** (1) multiple starts with a
+  best-of-N selection (simple, cheap, the natural next thing to measure —
+  ADR-211's own blind check is a first data point, not a designed
+  experiment); (2) an analytic gradient built on Appendix B's own
+  derivative expressions, already stated in slice 5c's text —
+  `∂log|S|/∂ρⱼ = λⱼ tr(S⁻¹Sⱼ)` and the corresponding second derivative —
+  built but unused there (`E`, `Q_s`). ADR-212 makes this one MORE
+  attractive, not less: it removed a finite-difference step error, but the
+  search still has no exact derivatives. (3) A different search algorithm
+  (e.g. a trust-region method less sensitive to a near-flat direction than
+  a finite-difference quasi-Newton line search).
+- **Acceptance.** A measured, reproducible (thread-count-pinned) improvement
+  at N > 4 blocks — the question the fix did not answer — stated against a
+  freshly-taken POST-FIX baseline, never against the pre-fix numbers above,
+  and with the chosen approach's own cost (extra fit evaluations) stated.
+  Not a claim that `max_abs_log10_sp_diff` reaches zero: ADR-211's own
+  multi-start data point and ADR-212's weak-identifiability finding both
+  suggest that is not cheaply achievable on this specific landscape, and may
+  be the wrong target entirely pending the maintainer's metric call.
 
 ### Slice 6: `bs = "sz"` — orthogonal factor-smooth interactions
 
@@ -976,7 +1081,13 @@ one. Only the tier-3 oracle and ADR-193's two-producer rule do that.
   identifiability property of the by-term's own smoothing parameter on this
   fixture (the metric swings 3.4x between tiers while `eta`/`edf` agree
   tightly and consistently at both) — not an unresolved defect a fourth
-  basis's own `sp` selection would compound. **Status: READY**, same
+  basis's own `sp` selection would compound. The concurrently-written ADR-211
+  reaches the same unblock from the other side: `mgcv`'s own point is
+  REACHABLE under our criterion (a warm start converges back to it at a
+  better score than the blind start reaches), so what remains is a named,
+  characterised robustness question (slice 5e) rather than an unlocalised
+  one — the same status slice 5 itself shipped under (ADR-206 named the
+  N>2 search extension as follow-on work rather than blocking on it). **Status: READY**, same
   registration mechanism slices 5b/5c/5d used — designating it for a session
   is still a `ROUTINE_MGCV_PARITY.md` scheduling call, and per the routine's
   "one slice per session" rule this was not started the same session as 5d.

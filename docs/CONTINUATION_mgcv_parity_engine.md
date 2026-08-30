@@ -240,10 +240,50 @@ forbids, and Wood rules the tolerance approach out explicitly:
 > metric should be revisited to weight `eta`/`edf` over raw `log10(sp)` given
 > this finding (ADR-212 Consequences) — see "Open questions" below.
 
+> **Slice 5d is DONE, 2026-08-29 (ADR-211), and both hypotheses resolved —
+> Slice 6 is UNBLOCKED.** Slice 5d's own cheap first step (re-measure the
+> discriminator at tier 3) surfaced something the slice did not anticipate:
+> a single unpinned degree of freedom in the Python side's own environment
+> — OpenBLAS thread count — moves the free-`sp` residual (by-term
+> `log10(sp)`: 9.116 / 8.519 / 8.773 at 1/2/4 threads) by more than the
+> entire gap under investigation, while a FIXED-sp evaluation of the
+> identical criterion moves by `~4e-10` across the same thread counts. This
+> fully explains why ADR-210's own tier-1 (0.7560) and tier-3 (1.0996)
+> readings of "the same" measurement disagreed — the criterion is
+> thread-independent, the SEARCH is not. **The decisive discriminator:**
+> warm-starting `select_lambdas_continuous` at `mgcv`'s own free-`sp`
+> selection converges back to it (within `1e-6`) at a score **0.052286
+> BETTER** than the blind, bounds-centre default start's own result.
+> Hypothesis 2 (`mgcv` reaching somewhere ours structurally cannot) is
+> REFUTED — the identical starting point reaches the identical, better
+> point. Hypothesis 1 (optimiser convergence precision on a
+> weakly-identified `lambda`) is CONFIRMED, with the thread-count table as
+> the precise mechanism rather than a vague "the surface is flat." A blind,
+> non-cheating multi-start check (9 starts, no information from `mgcv`)
+> reaches 612.6149 at best — closer than the single default start's
+> 612.6630 but short of `mgcv`'s reachable 612.6108, and 2 of 9 far-corner
+> starts fail to converge outright. **Confirmed at tier 3, same day** (CI
+> run 33279913273, oracle `sha256:0d54c192…` build 8): warm start lands
+> within `1.09e-4` of `mgcv`'s point at score `612.610760` — identical to
+> the tier-1 reading's last printed digit — `0.030862` better than a blind
+> start that this run reports `converged=False` outright. A second,
+> independent host (a GitHub Actions runner vs. this session's own
+> container) landing on a DIFFERENT, non-converging blind result at the
+> identical pinned thread count is a second, independent confirmation of
+> hypothesis 1, not a weaker reading of it. **This does not by itself fix
+> the production search** — it is registered as PLAN slice 5e, a real,
+> unfixed, and now precisely characterized engineering gap that will only
+> get harder at the target's 13-21 blocks, and is flagged below as an open
+> question for the maintainer per the same escalation practice slice 5c
+> used.
+
+
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16), slice 5b
 (inserted 2026-08-24/25, ADR-207/ADR-208), slice 5c (inserted 2026-08-25, DONE
-2026-08-29, ADR-210) and slice 5d (inserted 2026-08-29, DONE same day, ADR-212 —
-unblocks slice 6) plus one deferred to a later epic.
+2026-08-29, ADR-210), slice 5d (inserted 2026-08-29, DONE 2026-08-29 — resolved
+concurrently by ADR-212 (PR #216) and ADR-211 (PR #217), which unblock slice 6)
+and slice 5e (inserted 2026-08-29, READY, ADR-211, premise restated 2026-08-30
+against ADR-212's merged fix) plus one deferred to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
 
 > **This is the ACTIVE epic.** `CONTINUATION_penalized_mi_surface.md` is superseded from
@@ -867,6 +907,25 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
   epic's scope, or whether the free-`sp` acceptance bar for a 13-21-parameter
   target needs to be restated given a 2-block optimiser (ADR-199) already needed
   1e-4-level precision to demonstrate parity and a 4-block one does not reach it.~~
+
+  > **Addendum, ADR-211 (PR #217, written concurrently with ADR-212).** A
+  > second session resolved the same slice the same day, from the environment
+  > rather than the objective, and two of its results are not covered by the
+  > bullet above. (1) The blind search's own converged point moves with
+  > `OPENBLAS_NUM_THREADS` alone — by-term `log10(sp)` at `9.116` / `8.519` /
+  > `8.773` on 1 / 2 / 4 threads, against `~4e-10` of movement for a fixed-`sp`
+  > evaluation of the same criterion — which is what made ADR-210's own
+  > tier-1/tier-3 readings of "the same" measurement disagree. That confound is
+  > now pinned in the CI compare job. (2) Hypothesis 2 was refuted directly:
+  > warm-starting our own search at `mgcv`'s point converges back to it at a
+  > better score than the blind start reaches, so that point is REACHABLE under
+  > our criterion (a DIAGNOSTIC check by ADR-193's mechanical test — `mgcv`'s
+  > own output is its input — never folded into `FREE_SP_MODEL_CLAIM`). The
+  > sizing question ADR-211 registered as PLAN slice 5e survives ADR-212's fix,
+  > but with a narrower premise: the score gap it was registered against has
+  > largely closed, and what remains open is whether a single start still
+  > suffices at the target's 13-21 blocks. See PLAN slice 5e, premise restated
+  > 2026-08-30.
 - **The duration treatment on real data** — band as factor, or band as ordered numeric via
   a representative value. The maintainer has reserved this as a modelling judgement; the
   engine will support both and the routine is forbidden from deciding it.
