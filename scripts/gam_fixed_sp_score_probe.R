@@ -67,7 +67,26 @@ main <- function(argv) {
 
   # The evaluation grid: both sides' own free-sp optima, plus a deliberate
   # spread so that any sp-dependence in the difference has room to show.
-  python_opt_log10 <- c(6.753, 9.096, 3.099, 3.054) # ADR-208 tier-1 reading
+  #
+  # python_opt_log10 is Python's own gam_model_conformance.fit_free_sp_case()
+  # selection on this exact recipe (same seed, n, knots) -- depends only on
+  # the shared recipe, never on R, so this number needs no "tier" label of
+  # its own (module docstring of gam_multiterm_sp_delta_probe.R makes the
+  # same point). CURRENT reading is AFTER ADR-212's finite-difference-step
+  # fix (gam_reml_optimize._FINITE_DIFF_STEP), produced with
+  # OPENBLAS_NUM_THREADS=1 (ROUTINE_MGCV_PARITY.md's own tier-1 convention):
+  # the by-term's own lambda (component 2) is now known to be weakly
+  # identified by this criterion on this fixture -- see ADR-212 -- so it
+  # moves by up to a full log10 decade with OPENBLAS_NUM_THREADS alone (PR
+  # #216 review [P2-3], cross-checked by the concurrent PR #217's own
+  # measurement) without the fitted eta or the score changing materially. A
+  # refresh under a different thread count is expected to land somewhere
+  # else in this same near-flat region, not at a "wrong" answer -- record
+  # the thread count that produced it when this is next refreshed. REPLACES
+  # the pre-eps-fix reading (6.913, 9.116, 3.359, 2.972, ADR-210), which itself
+  # replaced ADR-208's original pre-Appendix-B reading (6.753, 9.096, 3.099,
+  # 3.054).
+  python_opt_log10 <- c(6.69944259, 10.74980618, 3.29280772, 3.02752645)
   points <- list(
     mgcv_opt          = mgcv_opt_log10,
     python_opt        = python_opt_log10,

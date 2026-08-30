@@ -2960,6 +2960,43 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   instances of this same limitation remain the 2nd-order backlog item they
   already were).*
 
+### Harvested 2026-08-29 (session 2, slice 5d)
+
+- **Slice 5c's third-branch escalation, resolved the SAME DAY.** The optimiser-
+  convergence question ADR-210 registered as PLAN slice 5d (above) was
+  distinguished with evidence without needing the analytic-gradient hypothesis
+  built in that session. Root cause: SciPy's L-BFGS-B default finite-difference
+  step (`1.49e-8`, absolute) sits inside the noise floor `select_lambdas_continuous`'s
+  own nested penalized-IRLS solve creates — a forward-difference scan at the
+  optimiser's own "converged" point showed the derivative estimate stable from
+  `h=1e-1` to `1e-6`, then wrong-signed at `h=1e-9`, with SciPy's default squarely
+  inside the broken region. Fixed by deriving a step from this module's OWN
+  measured noise floor (never from a comparison against `mgcv`) — confirmed at
+  both tiers: `mgcv`'s own criterion now ranks Python's default-start point
+  within `0.0007` of its own optimum (was `0.0523`, ~78x tighter), `eta`
+  agreement improves to `~8e-4` (from `3.7e-2`). *Source: this session,
+  ADR-212 (1st-order — unblocks slice 6, the epic's next basis).*
+
+- **A genuinely new finding this fix surfaced: one smoothing parameter can be
+  weakly identified by REML on real data, and the standard `log10(sp)`
+  agreement metric is the wrong yardstick when that happens.** The by-term's
+  own `lambda` swings across a decade and a half (and even flips which tier's
+  `mgcv` build "wins" the comparison) while changing the REML score by only
+  a few thousandths and barely moving the fitted surface — `max_abs_log10_sp_diff`
+  swings 3.4x between tiers (`0.8777` tier 1, `0.2606` tier 3) while `eta`
+  agreement stays fixed at `~8e-4` on both. *Source: this session, ADR-212
+  (1st-order for the METHODOLOGY point — a future basis with a weakly-identified
+  parameter should expect this signature and check `eta`/`edf` stability across
+  tiers before trusting a raw `log10(sp)` disagreement as a defect; 2nd-order
+  for the specific metric-revision question below, since it is maintainer-reserved).*
+
+- **Open question carried to the maintainer, narrower than 5c's original
+  escalation:** whether `FREE_SP_MODEL_CLAIM`'s own primary metric should be
+  revisited to weight `eta`/`edf` over raw `log10(sp)` on structures with a
+  weakly-identified block, now that the raw metric is demonstrated unstable
+  across R builds in a way that does not track model agreement. *Source: this
+  session, ADR-212 Consequences (2nd-order — a comparator-design decision,
+  not blocking any slice; slice 6 proceeds under the current metric either way).*
 ### Harvested 2026-08-29 — slice 5d resolves both hypotheses (ADR-211); slice 6 unblocked; a new production-robustness gap registered as slice 5e
 
 - **Slice 5d IS NOW DONE, same day as 5c.** The N=4 free-`sp` residual
@@ -3006,3 +3043,40 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   `select = TRUE`, and arguably before slice 6 if `sz`'s blocks interact
   with the by-term's; sizing and sequencing against slices 6/7 is a
   maintainer call, not this routine's).*
+
+### Harvested 2026-08-30 — reconciling the two concurrent slice-5d ADRs (merge of PR #216 into PR #217)
+
+- **Two daily-dev sessions resolved slice 5d concurrently, and the merge is
+  where the reconciliation had to happen.** ADR-212 (PR #216, merged first)
+  localised the MECHANISM — SciPy's L-BFGS-B default finite-difference step
+  sits inside the nested IRLS solve's noise floor — and fixed it. ADR-211
+  (PR #217, this branch) localised the environment CONFOUND — the blind
+  search's landing point moves with `OPENBLAS_NUM_THREADS` alone — and pinned
+  it in CI. Neither subsumes the other: a gradient step inside the noise floor
+  is exactly what lets BLAS summation order move the result, so one fixes
+  convergence quality and the other fixes measurement reproducibility.
+  ADR-211 carries an amendment recording this; `DECISIONS.md` keeps both in
+  numeric order, so the 211 slot the renumber would otherwise have left empty
+  is filled. *Source: this merge, ADR-211 amendment 1 (1st-order — the epic's
+  own critical path).*
+
+- **PLAN slice 5e's premise was restated against the merged fix rather than
+  carried forward unchanged.** Every number slice 5e was registered against
+  (`612.6630` single-start, `612.6149` best-of-9, both versus `mgcv`'s
+  `612.6108`) was measured PRE-fix and no longer describes the shipped
+  default; PR #216's own post-fix sweep has it landing in a `612.6101`–
+  `612.6116` band. What survives the fix intact is the question nothing has
+  measured yet: whether a single start still suffices at the target's 13–21
+  blocks. *Source: this merge, PLAN slice 5e (1st-order — a follow-up of an
+  originally-planned feature, and the acceptance bar for slices 6/7).*
+
+- **A merge artifact neither session could see, registered as slice 5e's
+  first task:** ADR-212's refreshed hardcoded `python_opt_log10` was measured
+  before ADR-211's thread pin existed, and the pin is scoped to the `compare`
+  job while that constant is consumed by the R job. The discriminator
+  therefore scores `mgcv` against a Python point the pinned pipeline would not
+  necessarily reproduce. Harmless today (the point is hand-supplied by
+  construction, and ADR-212 recorded its `nproc`/thread provenance for exactly
+  this check), but it should be refreshed once under the pinned regime before
+  being used as a baseline. *Source: this merge, PLAN slice 5e (2nd-order — a
+  follow-up of a follow-up, promoted as NICE-TO-HAVE only, per the order cap).*

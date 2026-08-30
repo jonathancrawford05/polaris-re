@@ -13,9 +13,12 @@ path, `PolarisGAM` from a `ModelSpec`; inserted 2026-08-25, DONE same day, ADR-2
 2011 §3.1/Appendix B and eq. 4; inserted 2026-08-25, DONE 2026-08-29, ADR-210 — both
 defects closed to float precision at fixed `sp`, tier 1 and tier 3 identical), and
 **slice 5d** (inserted 2026-08-29 after 5c's own measurement re-diagnosed the
-free-`sp` residual as an optimiser-convergence question rather than a criterion one —
-it is what unblocks slice 6 now). The letter suffixes exist so inserting work does not
-renumber slices 6 and 7 and break every cross-reference to them.
+free-`sp` residual as an optimiser-convergence question rather than a criterion one;
+DONE the same day, ADR-212 — a finite-difference-step defect confirmed and fixed at
+both tiers, and the remaining `log10(sp)` residual localised to weak identifiability
+on one block rather than a defect, unblocking slice 6). The letter suffixes exist so
+inserting work does not renumber slices 6 and 7 and break every cross-reference to
+them.
 **Estimated scope:** the largest numerical undertaking in the project. Sized honestly
 below rather than optimistically.
 
@@ -909,144 +912,185 @@ one. Only the tier-3 oracle and ADR-193's two-producer rule do that.
 ### Slice 5d: localise the free-`sp` residual on the N=4 structure — optimiser or surface?
 
 - **Depends on:** Slice 5c (ADR-210).
-- **Status:** **DONE, 2026-08-29 (ADR-211).** Both hypotheses resolved:
-  hypothesis 1 (optimiser convergence precision) CONFIRMED with a precise
-  mechanism (the default single bounds-centre start stalls on the by-term's
-  own weakly-identified `lambda`, and where it stalls is sensitive to
-  OpenBLAS thread count — this is what made ADR-210's own tier-1 (0.7560)
-  and tier-3 (1.0996) readings of the identical measurement disagree, not a
-  criterion or data-draw difference); hypothesis 2 (mgcv reaching a point
-  ours structurally cannot) REFUTED — warm-starting `select_lambdas_continuous`
-  at mgcv's own point converges back to it at a BETTER score (612.6108) than
-  the blind default start reaches (612.6630). **Slice 6 is unblocked.** The
-  production search's own convergence robustness at N > 4 blocks is a real,
-  unfixed gap, registered as slice 5e below rather than attempted in this
-  session (PLAN §5, "never burn a whole session on hypothesis 1" — this
-  session found the mechanism cleanly on the second check and stopped
-  there).
-- **The gap, stated precisely.** ADR-210 closed the fixed-`sp` REML criterion
-  to float round-trip precision (both tiers) — the score itself is no longer
-  in question. Free-`sp` selection on the same N=4, `ti()`-sharing-a-span
-  structure still disagrees with `mgcv`'s own selection by `max_abs_log10_sp_diff
-  = 0.7560` (tier 1) / `1.0996` (tier 3), concentrated in the `by`-term's own
-  `lambda`. The discriminating measurement (score both sides' points under our
-  OWN now-correct criterion) shows `mgcv`'s point scoring measurably BETTER
-  than our optimiser's own converged point (`612.611` vs `612.663`, tier 1) —
-  our `select_lambdas_continuous` (SciPy L-BFGS-B, finite-difference gradient)
-  is not reaching the true optimum of a criterion that is now demonstrably
-  right.
-- **Two live hypotheses, not yet distinguished:**
-  1. **Optimiser precision.** L-BFGS-B's finite-difference gradient is too
-     imprecise on this specific landscape (the `by`-term's `lambda` may be
-     weakly identified — a small score change over a wide `lambda` range —
-     which is exactly where a numerical gradient's own step-size error can
-     dominate). An analytic gradient exists to test this: Appendix B's own
-     derivative expressions, already stated in slice 5c's own text —
-     `∂log|S|/∂ρⱬ = λⱼ tr(S⁻¹Sⱼ)` and the corresponding second derivative —
-     built but unused there (`E`, `Q_s`), available to build on here.
-  2. **A genuinely multi-modal or very flat surface**, where `mgcv`'s own
-     optimiser (a different algorithm — Newton on the REML score with exact
-     derivatives, not L-BFGS-B with finite differences) reaches a different
-     local optimum than ours would even from an identical starting point.
-     Distinguishing this from (1) needs restarting `select_lambdas_continuous`
-     from several different starting points on the SAME fixture and checking
-     whether it converges to `mgcv`'s point, a range of different points, or
-     reliably the same (wrong) point every time.
-- **What would settle it, cheaply, before either hypothesis needs new code:**
-  re-run the tier-1 discriminating measurement
-  (`scripts/gam_fixed_sp_score_probe.R`/`gam_fixed_sp_score_compare.py`,
-  already committed) at tier 3, scoring `mgcv`'s OWN tier-3 free-sp point
-  under our tier-3-fixed criterion — ADR-210's discriminating measurement
-  was tier 1 only; the tier-3 free-sp residual (1.0996) is large enough that
-  confirming the SAME sign-and-magnitude relationship holds at tier 3 is a
-  cheap first step (an R dispatch, no new code) before either hypothesis is
-  pursued with new code.
-- **Out of scope:** re-pointing the production grid selector
-  (`experience_gam_penalized.select_lambdas_reml`) — unaffected either way
+- **Status:** **DONE, 2026-08-29** — resolved TWICE, the same day, by two
+  daily-dev sessions running concurrently against the same base and unaware
+  of each other: **ADR-212** (PR #216, merged first) and **ADR-211**
+  (PR #217). Both hypotheses were distinguished with evidence at both tiers,
+  without needing the analytic gradient hypothesis 1 named as available to
+  build on. The two findings are complementary — see "What the concurrent
+  session found" below.
+- **The gap, as stated when this slice was registered.** ADR-210 closed the
+  fixed-`sp` REML criterion to float round-trip precision (both tiers) — the
+  score itself was no longer in question. Free-`sp` selection on the same
+  N=4, `ti()`-sharing-a-span structure still disagreed with `mgcv`'s own
+  selection by `max_abs_log10_sp_diff = 0.7560` (tier 1) / `1.0996` (tier 3),
+  and the discriminating measurement showed `mgcv`'s point scoring measurably
+  BETTER than our optimiser's own converged point (`612.611` vs `612.663`,
+  tier 1).
+- **What was found.** The cheap step (re-running the discriminating
+  measurement at tier 3) confirmed the tier-1 reading exactly and, since the
+  fixed-`sp` spread is 0 everywhere, mechanically ruled out hypothesis (b)
+  ("the two criteria disagree") — leaving purely an optimiser question. An
+  interpolation sweep between the two points found a single smooth,
+  monotonic surface (no barrier), refuting hypothesis 2 (genuine
+  multi-modality) for this pair of points. A forward-difference step scan at
+  the optimiser's own "converged" point localised hypothesis 1's exact
+  mechanism: SciPy's L-BFGS-B default step (`eps=1.49e-8`) sits inside the
+  noise floor `penalized_fit_and_score`'s nested IRLS solve creates
+  (`_IRLS_TOL=1e-10` relative), so the "converged" point had a true residual
+  gradient of `~0.55`, not the near-zero SciPy's own noisy estimate implied.
+  **Fixed** by deriving `gam_reml_optimize._FINITE_DIFF_STEP = 1e-5` from
+  this module's own measured noise floor (never from a comparison against
+  `mgcv`) and wiring it into the one `scipy.optimize.minimize` call. Result,
+  confirmed at both tiers: `mgcv`'s own criterion now ranks Python's
+  default-start point within `0.0007` of its own optimum (was `0.0523`, a
+  ~78x tighter agreement), `eta` agreement improves to `~8e-4` (from an
+  earlier `3.7e-2`), `edf_total` agreement to `~0.015-0.018`. The raw
+  `max_abs_log10_sp_diff` metric, however, is NOT fixed by this — and swings
+  3.4x between tiers (`0.8777` tier 1, `0.2606` tier 3) while `eta` barely
+  moves, which is itself the decisive evidence for a THIRD finding: the
+  by-term's own smoothing parameter is weakly identified by this criterion
+  on this fixture (moving it across a decade and a half changes the score by
+  a few thousandths), so different converged runs — and even different R
+  builds' own selections — land at different values along that near-flat
+  direction without disagreeing about the fitted model. See ADR-212 for the
+  full measurement.
+- **What the concurrent session (ADR-211) found, and why it is not a
+  duplicate.** Working the same slice at the same time, PR #217 approached it
+  from the environment rather than the objective. Two results stand
+  independently of the fix above. (1) **The blind search's own converged point
+  moves with `OPENBLAS_NUM_THREADS` alone** — by-term `log10(sp)` reads
+  `9.116` / `8.519` / `8.773` at 1 / 2 / 4 threads on one identical fixture,
+  while a FIXED-`sp` evaluation of the same criterion moves by `~4e-10` across
+  the same sweep. That is what made ADR-210's tier-1 (`0.7560`) and tier-3
+  (`1.0996`) readings of the identical measurement disagree: a confound in the
+  epic's own tooling, not a data-draw or `mgcv`-version artifact. It is now
+  pinned in `.github/workflows/mgcv-conformance.yml`. (2) **Hypothesis 2 was
+  refuted directly rather than by inference**: warm-starting
+  `select_lambdas_continuous` at `mgcv`'s own point converges back to it
+  (within `1e-6` tier 1, `1.09e-4` tier 3) at a BETTER score than the blind
+  start reaches — so `mgcv`'s point is reachable under our own criterion, not
+  structurally out of reach. That check is DIAGNOSTIC by ADR-193's mechanical
+  test (`mgcv`'s own output is its input) and is never folded into
+  `FREE_SP_MODEL_CLAIM`. A gradient step inside the objective's noise floor is
+  precisely what lets BLAS summation order move the landing point, so ADR-212's
+  mechanism and ADR-211's confound are two readings of one defect: ADR-212
+  fixes CONVERGENCE QUALITY, ADR-211 fixes MEASUREMENT REPRODUCIBILITY, and
+  neither substitutes for the other.
+- **Out of scope, honoured:** the production grid selector
+  (`experience_gam_penalized.select_lambdas_reml`) was not touched
   (PLAN Anchor 7, ADR-198 "Two searches, not one").
-- **Acceptance.** Either hypothesis resolved with evidence (an analytic
-  gradient measurably improves convergence, or repeated restarts demonstrate
-  genuine multi-modality) unblocks slice 6. A third finding — neither
-  hypothesis holds — is itself a result per the routine's own standard, and
-  re-opens the question at a session's discretion.
-- **RESOLVED, 2026-08-29 (ADR-211).** Warm-starting `select_lambdas_continuous`
-  at `mgcv`'s own free-`sp` selection converges back to it (within `1e-6`) at
-  a score **0.052286 BETTER** than the blind, bounds-centre default start's
-  own result — hypothesis 1 (optimiser convergence precision) confirmed;
-  hypothesis 2 (`mgcv` reaching somewhere ours structurally cannot) refuted,
-  since ours reaches the identical point from the identical start. The
-  mechanism is precise, not merely inferred: on the SAME fixed data and
-  code, the blind start's own converged point moves by up to a full log10
-  decade on the by-term's block depending SOLELY on `OPENBLAS_NUM_THREADS`
-  (9.116 / 8.519 / 8.773 at 1 / 2 / 4 threads) while a FIXED-sp evaluation of
-  the identical criterion moves by `~4e-10` across the same thread counts —
-  this is what made ADR-210's own tier-1 (0.7560) and tier-3 (1.0996)
-  readings of "the same" measurement disagree. **Confirmed at tier 3**
-  (CI run 33279913273, oracle `sha256:0d54c192…` build 8): warm start lands
-  within `1.09e-4` of `mgcv`'s point at the identical score (`612.610760`,
-  matching the tier-1 reading to the last printed digit), `0.030862` better
-  than a blind start that this run reports `converged=False` — a second,
-  independent host reaching a different (and this time non-converging)
-  blind result at the SAME pinned thread count is itself further evidence
-  for hypothesis 1, not a weakening of it. **Slice 6 is unblocked.**
-  Slice 5e (below) registers the still-open production-robustness question
-  this finding raises but does not fix.
+- **Acceptance, as met:** hypothesis 1 confirmed and fixed with a
+  non-`mgcv`-tuned derivation; hypothesis 2 refuted for this structure; the
+  residual `max_abs_log10_sp_diff` is now understood, not merely observed.
+  **Unblocks slice 6** on the finding that the remaining `log10(sp)` gap is a
+  weak-identifiability property of the model, not an unresolved optimiser or
+  criterion defect — see slice 6's own restated note below. Whether
+  `FREE_SP_MODEL_CLAIM`'s own primary metric should be revisited to weight
+  `eta`/`edf` over raw `log10(sp)` remains a maintainer call (ADR-212
+  Consequences). The follow-on robustness question ADR-211 registered stays
+  open as slice 5e below, with its premise restated against the merged fix.
 
 ### Slice 5e: robustify the outer search's own convergence before scaling past N=4 blocks
 
-- **Depends on:** Slice 5d (ADR-211).
+- **Depends on:** Slice 5d (ADR-211 and ADR-212).
 - **Status:** READY, not designated. Registered per ADR-209 decision 1 ("a
   gap you open is closed or registered — never merely filed") — slice 5d
   found this and deliberately did not fix it in the same session.
-- **The gap.** `select_lambdas_continuous`'s default single start (the
-  bounds-centre, uninformative by construction) measurably fails to
-  converge to the true REML optimum on a `by`-term-dominated, weakly
-  identified direction at N=4 blocks — a full log10 decade short of a
-  reachable, better-scoring point `mgcv`'s own selection already occupies
-  (ADR-211). The target formula has 13-21 blocks; more directions for a
-  flat/weakly-identified pathology like this one to hide in, not fewer, so
-  this is not safe to leave unaddressed before slice 7 (`select = TRUE`,
-  which pushes the block count to 21) and arguably not before slice 6 either
-  if `sz`'s own blocks interact with the by-term's.
-- **What a blind, non-cheating multi-start check already showed (ADR-211):**
+- **PREMISE RESTATED, 2026-08-30, against the merged fix.** This slice was
+  registered by ADR-211 while ADR-212's `_FINITE_DIFF_STEP` fix was being
+  written concurrently and had not yet landed. Every reading below marked
+  PRE-FIX was taken against the old SciPy-default step and no longer
+  describes the shipped default. What ADR-212 closed, and what it did not:
+  - **Closed (mostly): the score gap.** PR #216's own post-fix thread sweep
+    (reported in its review response; not independently re-measured here)
+    has the production default landing in a `612.6101`-`612.6116` band
+    across 1 / 2 / 4 threads — spread `0.0015`, against `612.6630`-`612.6760`
+    (spread `0.013`) pre-fix, roughly 9x tighter, and now essentially tied
+    with `mgcv`'s own `612.6108`. The original framing here — "a full log10
+    decade short of a reachable, better-scoring point" — is no longer true
+    of the SCORE.
+  - **Not closed: the coordinate.** The by-term's own `log10(sp)` still
+    moves with thread count post-fix (`9.60` / `9.61` / `10.75` at threads
+    `{2, 4, 1}`), and `max_abs_log10_sp_diff` still swings across tiers
+    (`0.8777` tier 1, `0.2606` tier 3, ADR-212). Whether that is worth
+    chasing at all depends on the maintainer's reserved metric question
+    (ADR-212 Consequences) — if `eta`/`edf` become the primary measure, much
+    of this slice's motivation goes with it.
+  - **Not answered at all: does one start still suffice at N > 4?** This is
+    the part of the slice that survives the fix intact. The target formula
+    has 13-21 blocks — more directions for a flat or weakly-identified
+    pathology to hide in, not fewer — and nothing measured so far speaks to
+    the search's behaviour above N=4. That makes this the live question
+    before slice 7 (`select = TRUE`, which pushes the block count to 21),
+    and arguably before slice 6 if `sz`'s own blocks interact with the
+    by-term's.
+- **What a blind, non-cheating multi-start check showed PRE-FIX (ADR-211):**
   bounds-centre + 8 uniform-random starts reached as low as 612.6149 in 9
   tries (closer to `mgcv`'s 612.6108 than the single default start's
   612.6630, but not equal to it), and 2 of 9 far-corner starts FAILED TO
-  CONVERGE outright. A few extra starts help; they do not by themselves
-  guarantee the true optimum within a small, fixed budget.
+  CONVERGE outright. Kept as the record of what motivated this slice; it is
+  **not** a valid baseline for measuring any future fix, because the
+  single-start number it was compared against has since moved. A first task
+  for whoever takes this slice is to re-run that check against the current
+  default.
+- **A merge artifact to clear first, created by neither PR alone.** ADR-212
+  refreshed the hardcoded `python_opt_log10` that
+  `scripts/gam_fixed_sp_score_probe.R` and the `gam_multiterm_sp_delta_probe.R`
+  workflow invocation carry (`6.69944259, 10.74980618, 3.29280772,
+  3.02752645`), measured in its own session's container; ADR-211 then pinned
+  `OPENBLAS_NUM_THREADS=1` — but only for the `compare` job, since the R
+  probe's own work runs inside `docker run` and would not inherit it. Those
+  two changes are individually correct and were written concurrently, so
+  neither session could see the result: the discriminator now scores `mgcv`
+  against a Python point that the pinned pipeline would not necessarily
+  reproduce today. Not a defect in either ADR and not urgent — the point is
+  hand-supplied by construction, and ADR-212 recorded its provenance
+  (`nproc=4`, `OPENBLAS_NUM_THREADS=1`) precisely so this could be checked.
+  Refresh it once under the pinned regime and record the reading, before
+  using this discriminator as a baseline for anything in this slice.
 - **Candidate approaches, not chosen here:** (1) multiple starts with a
   best-of-N selection (simple, cheap, the natural next thing to measure —
   ADR-211's own blind check is a first data point, not a designed
   experiment); (2) an analytic gradient built on Appendix B's own
   derivative expressions, already stated in slice 5c's text —
   `∂log|S|/∂ρⱼ = λⱼ tr(S⁻¹Sⱼ)` and the corresponding second derivative —
-  built but unused there (`E`, `Q_s`); (3) a different search algorithm
+  built but unused there (`E`, `Q_s`). ADR-212 makes this one MORE
+  attractive, not less: it removed a finite-difference step error, but the
+  search still has no exact derivatives. (3) A different search algorithm
   (e.g. a trust-region method less sensitive to a near-flat direction than
   a finite-difference quasi-Newton line search).
 - **Acceptance.** A measured, reproducible (thread-count-pinned) improvement
-  in `max_abs_log10_sp_diff` on the N=4 fixture, with the chosen approach's
-  own cost (extra fit evaluations) stated — not a claim that the residual
-  reaches zero, which ADR-211's own multi-start data point suggests may not
-  be achievable cheaply on this specific landscape.
+  at N > 4 blocks — the question the fix did not answer — stated against a
+  freshly-taken POST-FIX baseline, never against the pre-fix numbers above,
+  and with the chosen approach's own cost (extra fit evaluations) stated.
+  Not a claim that `max_abs_log10_sp_diff` reaches zero: ADR-211's own
+  multi-start data point and ADR-212's weak-identifiability finding both
+  suggest that is not cheaply achievable on this specific landscape, and may
+  be the wrong target entirely pending the maintainer's metric call.
 
 ### Slice 6: `bs = "sz"` — orthogonal factor-smooth interactions
 
 - **Depends on:** Slices 2, 4
-- **UNBLOCKED, 2026-08-29 (ADR-211).** Slice 5d resolved both of its
-  registered hypotheses: the free-`sp` residual on the N=4 structure is the
-  outer search's own convergence precision on a weakly-identified
-  direction, not an unreachable `mgcv` optimum and not a remaining
-  criterion defect (both defects already closed to float precision at
-  fixed `sp`, ADR-210). A fourth basis's own `sp` selection no longer
-  compounds an unlocalised question — it inherits a NAMED, characterized
-  one (slice 5e), the same status slice 5 itself shipped under (ADR-206
-  named the N>2 search extension as follow-on work rather than blocking on
-  it). **BLOCKED, 2026-08-25 (PR #212 review [P1]); RESTATED, 2026-08-29
-  (ADR-210)** — superseded history, kept for the record: slice 5c closed
-  the criterion-formula gap it was registered to close, but free-`sp`
-  selection on the same N=4 structure still disagreed with `mgcv`
-  (`max_abs_log10_sp_diff` 1.0996 at tier 3, worse than the pre-fix 0.6398),
-  diagnosed at the time as an unlocalised OPTIMISER CONVERGENCE question.
+- **BLOCKED, 2026-08-25** (PR #212 review [P1], CONFIRMED at tier 3 same day);
+  **RESTATED, 2026-08-29** (ADR-210): diagnosed as an optimiser-convergence
+  question rather than a criterion one; **UNBLOCKED, 2026-08-29, same day**
+  (ADR-212): slice 5d localised the optimiser defect to a specific,
+  now-fixed finite-difference-step bug (`gam_reml_optimize._FINITE_DIFF_STEP`)
+  and found the REMAINING `max_abs_log10_sp_diff` residual is a weak-
+  identifiability property of the by-term's own smoothing parameter on this
+  fixture (the metric swings 3.4x between tiers while `eta`/`edf` agree
+  tightly and consistently at both) — not an unresolved defect a fourth
+  basis's own `sp` selection would compound. The concurrently-written ADR-211
+  reaches the same unblock from the other side: `mgcv`'s own point is
+  REACHABLE under our criterion (a warm start converges back to it at a
+  better score than the blind start reaches), so what remains is a named,
+  characterised robustness question (slice 5e) rather than an unlocalised
+  one — the same status slice 5 itself shipped under (ADR-206 named the
+  N>2 search extension as follow-on work rather than blocking on it). **Status: READY**, same
+  registration mechanism slices 5b/5c/5d used — designating it for a session
+  is still a `ROUTINE_MGCV_PARITY.md` scheduling call, and per the routine's
+  "one slice per session" rule this was not started the same session as 5d.
 
 Sum-to-zero factor-smooth deviations from a reference smooth. Four terms in the target.
 Expect this to be the hardest basis of the three: the constraint and reparameterisation are

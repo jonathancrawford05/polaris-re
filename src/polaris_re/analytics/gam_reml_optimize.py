@@ -76,6 +76,51 @@ away from the bad region, so the rejection has to stay differentiable-adjacent:
 large enough that no converged point could ever compete with it, finite
 enough that SciPy's numerical gradient stays finite too."""
 
+_FINITE_DIFF_STEP = 1.0e-5
+"""``scipy.optimize.minimize(method="L-BFGS-B")``'s own default forward-
+difference step (``eps=1.4901161193847656e-08``, absolute) sits INSIDE this
+objective's own noise floor, not below it — PLAN slice 5d's own measurement
+(``docs/DECISIONS.md`` ADR-212), not a value chosen to move any comparison
+against ``mgcv``.
+
+``penalized_fit_and_score`` refits :func:`~polaris_re.analytics.gam_fit.penalized_irls_general`
+at every trial point, and that fit only converges to its own ``_IRLS_TOL``
+(``gam_fit.py``, ``1e-10`` relative on deviance) — so two trial points closer
+together than that residual differ by numerical noise, not signal. Measured
+directly (forward differences of the SAME objective at a fixed point, varying
+only the step): the derivative estimate is stable to four significant figures
+for every ``h`` from ``1e-1`` down to ``1e-6`` (matching an independent
+central-difference cross-check at each ``h``), then breaks down catastrophically
+at ``h <= 1e-9`` — including a WRONG-SIGN estimate at ``h = 1e-9``. SciPy's own
+default step falls inside that broken region (``1.49e-8`` is between the last
+stable reading at ``1e-6`` and the sign-flip at ``1e-9``), which is why
+:func:`select_lambdas_continuous` was reporting spurious convergence: its
+gradient norm at a reported "minimum" measures ``~0.55`` under an independent
+central-difference check with a stable step, not the near-zero SciPy's own
+noise-corrupted internal estimate implied.
+
+``1e-5`` is two orders of magnitude above the measured stable/unstable
+boundary — a safety margin on OUR OWN measured noise floor, not a tuned
+constant (Anchor 8 / ``ROUTINE_MGCV_PARITY.md``'s "never widen a tolerance to
+close a gap": this step was derived from this module's own IRLS tolerance and
+verified against an independent central-difference estimate, both entirely
+without reference to ``mgcv``, before it was ever checked against ``mgcv`` at
+all).
+
+**This default is a trade-off, not a universal improvement, and PR #216's own
+review caught it** ([P1-2]): an independent probe on a SEPARATE, well-
+conditioned single-block design (unrelated to the N=4 structure this value
+was measured on) found SciPy's default step accurate to ``~6e-6`` there,
+while ``1e-5`` was ~10x LESS accurate — exactly what forward-difference
+truncation error predicts on a problem with no noise-floor problem to begin
+with. So this module trades a digit of gradient accuracy on easy problems
+for robustness against the specific spurious-convergence failure mode
+measured above. :func:`select_lambdas_continuous` exposes ``finite_diff_step``
+so a caller who knows their own problem is well-conditioned (no near-flat
+block, no badly-scaled lambda spread) may pass a smaller value; this module's
+default stays conservative because the target multi-term formula's own N=4
+structure is exactly the badly-conditioned case, not the easy one."""
+
 
 def penalized_fit_and_score(
     y: np.ndarray,
@@ -206,6 +251,7 @@ def select_lambdas_continuous(
     bounds: tuple[float, float] = DEFAULT_LOG10_BOUNDS,
     gtol: float = 1.0e-8,
     maxiter: int = 200,
+    finite_diff_step: float = _FINITE_DIFF_STEP,
 ) -> ContinuousLambdaSelection:
     """Choose ``log10(lambda)`` for every penalty block by continuous REML
     minimisation (``scipy.optimize.minimize``, L-BFGS-B).
@@ -230,6 +276,15 @@ def select_lambdas_continuous(
             not imported from there).
         gtol: SciPy's projected-gradient convergence tolerance.
         maxiter: SciPy's iteration cap.
+        finite_diff_step: SciPy's forward-difference step for L-BFGS-B's
+            internal gradient estimate (no analytic gradient is supplied).
+            Defaults to :data:`_FINITE_DIFF_STEP` — see that constant's
+            docstring for the trade-off (robust on this module's own
+            badly-conditioned target structure, less accurate than SciPy's
+            own default on an easy, well-conditioned problem). Achievable
+            ``gtol`` is bounded below by this value on a noisy objective, so
+            a caller both wanting a tighter ``gtol`` AND knowing their design
+            has no near-flat block may pass a smaller step.
 
     Returns:
         :class:`ContinuousLambdaSelection`.
@@ -289,7 +344,7 @@ def select_lambdas_continuous(
         start,
         method="L-BFGS-B",
         bounds=[bounds] * n_blocks,
-        options={"gtol": gtol, "maxiter": maxiter},
+        options={"gtol": gtol, "maxiter": maxiter, "eps": finite_diff_step},
     )
     if not any_converged["flag"]:
         raise PolarisComputationError(
