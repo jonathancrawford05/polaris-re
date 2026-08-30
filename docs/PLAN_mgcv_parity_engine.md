@@ -14,7 +14,7 @@ path, `PolarisGAM` from a `ModelSpec`; inserted 2026-08-25, DONE same day, ADR-2
 defects closed to float precision at fixed `sp`, tier 1 and tier 3 identical), and
 **slice 5d** (inserted 2026-08-29 after 5c's own measurement re-diagnosed the
 free-`sp` residual as an optimiser-convergence question rather than a criterion one;
-DONE the same day, ADR-211 — a finite-difference-step defect confirmed and fixed at
+DONE the same day, ADR-212 — a finite-difference-step defect confirmed and fixed at
 both tiers, and the remaining `log10(sp)` residual localised to weak identifiability
 on one block rather than a defect, unblocking slice 6). The letter suffixes exist so
 inserting work does not renumber slices 6 and 7 and break every cross-reference to
@@ -912,7 +912,7 @@ one. Only the tier-3 oracle and ADR-193's two-producer rule do that.
 ### Slice 5d: localise the free-`sp` residual on the N=4 structure — optimiser or surface?
 
 - **Depends on:** Slice 5c (ADR-210).
-- **Status:** DONE, 2026-08-29, same day as 5c (ADR-211). Both hypotheses
+- **Status:** DONE, 2026-08-29, same day as 5c (ADR-212). Both hypotheses
   distinguished with evidence, at both tiers, without needing the analytic
   gradient hypothesis 1 named as available to build on.
 - **The gap, as stated when this slice was registered.** ADR-210 closed the
@@ -949,7 +949,7 @@ one. Only the tier-3 oracle and ADR-193's two-producer rule do that.
   on this fixture (moving it across a decade and a half changes the score by
   a few thousandths), so different converged runs — and even different R
   builds' own selections — land at different values along that near-flat
-  direction without disagreeing about the fitted model. See ADR-211 for the
+  direction without disagreeing about the fitted model. See ADR-212 for the
   full measurement.
 - **Out of scope, honoured:** the production grid selector
   (`experience_gam_penalized.select_lambdas_reml`) was not touched
@@ -961,7 +961,7 @@ one. Only the tier-3 oracle and ADR-193's two-producer rule do that.
   weak-identifiability property of the model, not an unresolved optimiser or
   criterion defect — see slice 6's own restated note below. Whether
   `FREE_SP_MODEL_CLAIM`'s own primary metric should be revisited to weight
-  `eta`/`edf` over raw `log10(sp)` remains a maintainer call (ADR-211
+  `eta`/`edf` over raw `log10(sp)` remains a maintainer call (ADR-212
   Consequences).
 
 ### Slice 6: `bs = "sz"` — orthogonal factor-smooth interactions
@@ -970,7 +970,7 @@ one. Only the tier-3 oracle and ADR-193's two-producer rule do that.
 - **BLOCKED, 2026-08-25** (PR #212 review [P1], CONFIRMED at tier 3 same day);
   **RESTATED, 2026-08-29** (ADR-210): diagnosed as an optimiser-convergence
   question rather than a criterion one; **UNBLOCKED, 2026-08-29, same day**
-  (ADR-211): slice 5d localised the optimiser defect to a specific,
+  (ADR-212): slice 5d localised the optimiser defect to a specific,
   now-fixed finite-difference-step bug (`gam_reml_optimize._FINITE_DIFF_STEP`)
   and found the REMAINING `max_abs_log10_sp_diff` residual is a weak-
   identifiability property of the by-term's own smoothing parameter on this

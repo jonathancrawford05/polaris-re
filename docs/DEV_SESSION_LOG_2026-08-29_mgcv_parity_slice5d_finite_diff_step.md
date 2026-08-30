@@ -5,11 +5,24 @@ as slice 5c (ADR-210) — PR #215 for 5c merged first, this branch restarted fro
 `main` per the merged-PR protocol, then slice 5d designated as the PLAN's next
 unchecked, READY slice.
 
+**Branch:** `claude/intelligent-hamilton-bvll60` (PR #216).
+
 ## Setup
 
 - `uv sync --all-extras` — no changes.
 - R already installed from the earlier session in this container:
   `R version 4.3.3 (2024-02-29)`, `mgcv 1.9.1` (apt) — tier 1 confirmed available.
+- `nproc`: **4** cores. `OPENBLAS_NUM_THREADS=1` exported for every local R and
+  Python invocation this session (`ROUTINE_MGCV_PARITY.md` SETUP step 2's own
+  convention) — every tier-1 number in this log, including the hardcoded
+  `python_opt_log10` refresh in `gam_fixed_sp_score_probe.R`, was produced
+  under this pin (PR #216 review [P2-3]: PR #217, running concurrently, found
+  this same free-`sp` selection moves by up to a full log10 decade on the
+  by-term's own block as `OPENBLAS_NUM_THREADS` varies with NO other change —
+  so the refreshed point recorded below is reproducible only at
+  `OPENBLAS_NUM_THREADS=1` on this container's BLAS; a different thread count
+  is expected to land somewhere else in the same near-flat region, not at a
+  different, wrong answer).
 - Read `docs/PLAN_mgcv_parity_engine.md` slice 5d (registered by ADR-210),
   `docs/DECISIONS.md` ADR-210, `docs/CONFORMANCE_LEDGER.md`'s tail.
 - Baseline `uv run pytest tests/ -m "not slow"`: **3504 passed, 3 skipped** —
@@ -111,7 +124,7 @@ Stated in PLAN slice 5d exactly as ADR-210 left it:
   `1.0996`, and 3.4x smaller than this session's own tier-1 reading). **This
   metric's cross-tier instability, while `eta` stays fixed, is read as
   diagnostic of weak identifiability on one block — not as a residual defect**
-  (full argument in ADR-211).
+  (full argument in ADR-212).
 
 ## Mutation protocol
 

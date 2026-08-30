@@ -209,7 +209,7 @@ forbids, and Wood rules the tolerance approach out explicitly:
 > silently). **Slice 6 stays blocked** — see slice 5d's own entry for why the
 > blocking reason changed rather than lifted.
 
-> **Slice 5d done the SAME DAY as 5c (ADR-211).** Both hypotheses were
+> **Slice 5d done the SAME DAY as 5c (ADR-212).** Both hypotheses were
 > distinguished with evidence, at both tiers, without building the analytic
 > gradient hypothesis 1 had named as available. The cheap tier-3 step
 > confirmed the tier-1 reading exactly and, since the fixed-`sp` spread is 0
@@ -238,11 +238,11 @@ forbids, and Wood rules the tolerance approach out explicitly:
 > finding that the remaining gap is understood, not merely observed. One open
 > question carried to the maintainer: whether `FREE_SP_MODEL_CLAIM`'s primary
 > metric should be revisited to weight `eta`/`edf` over raw `log10(sp)` given
-> this finding (ADR-211 Consequences) — see "Open questions" below.
+> this finding (ADR-212 Consequences) — see "Open questions" below.
 
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16), slice 5b
 (inserted 2026-08-24/25, ADR-207/ADR-208), slice 5c (inserted 2026-08-25, DONE
-2026-08-29, ADR-210) and slice 5d (inserted 2026-08-29, DONE same day, ADR-211 —
+2026-08-29, ADR-210) and slice 5d (inserted 2026-08-29, DONE same day, ADR-212 —
 unblocks slice 6) plus one deferred to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
 
@@ -834,7 +834,7 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 
 ## Open questions (for human)
 
-- **RESOLVED, same day (2026-08-29, ADR-211).** Slice 5c's third-branch escalation
+- **RESOLVED, same day (2026-08-29, ADR-212).** Slice 5c's third-branch escalation
   (below, filed the same day) was resolved by slice 5d before this file was next
   read: the optimiser defect was a specific, measured finite-difference-step bug
   (SciPy's default step sitting inside the nested-IRLS noise floor), now fixed
@@ -847,7 +847,7 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
   `FREE_SP_MODEL_CLAIM`'s own primary metric should be revisited to weight
   `eta`/`edf` over raw `log10(sp)` on structures where one block is weakly
   identified, since the raw metric is now demonstrated to be unstable across R
-  builds in a way that does not track model agreement (ADR-211 Consequences).
+  builds in a way that does not track model agreement (ADR-212 Consequences).
   The original escalation is kept below, struck through, for the record of what
   was asked and how quickly it resolved.
 - ~~**Slice 5c's registered prediction landed on its third branch — escalated per the

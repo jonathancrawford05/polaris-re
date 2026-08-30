@@ -2960,7 +2960,7 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   instances of this same limitation remain the 2nd-order backlog item they
   already were).*
 
-## Harvested 2026-08-29 (session 2, slice 5d)
+### Harvested 2026-08-29 (session 2, slice 5d)
 
 - **Slice 5c's third-branch escalation, resolved the SAME DAY.** The optimiser-
   convergence question ADR-210 registered as PLAN slice 5d (above) was
@@ -2975,7 +2975,7 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   both tiers: `mgcv`'s own criterion now ranks Python's default-start point
   within `0.0007` of its own optimum (was `0.0523`, ~78x tighter), `eta`
   agreement improves to `~8e-4` (from `3.7e-2`). *Source: this session,
-  ADR-211 (1st-order — unblocks slice 6, the epic's next basis).*
+  ADR-212 (1st-order — unblocks slice 6, the epic's next basis).*
 
 - **A genuinely new finding this fix surfaced: one smoothing parameter can be
   weakly identified by REML on real data, and the standard `log10(sp)`
@@ -2984,7 +2984,7 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   `mgcv` build "wins" the comparison) while changing the REML score by only
   a few thousandths and barely moving the fitted surface — `max_abs_log10_sp_diff`
   swings 3.4x between tiers (`0.8777` tier 1, `0.2606` tier 3) while `eta`
-  agreement stays fixed at `~8e-4` on both. *Source: this session, ADR-211
+  agreement stays fixed at `~8e-4` on both. *Source: this session, ADR-212
   (1st-order for the METHODOLOGY point — a future basis with a weakly-identified
   parameter should expect this signature and check `eta`/`edf` stability across
   tiers before trusting a raw `log10(sp)` disagreement as a defect; 2nd-order
@@ -2995,5 +2995,5 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   revisited to weight `eta`/`edf` over raw `log10(sp)` on structures with a
   weakly-identified block, now that the raw metric is demonstrated unstable
   across R builds in a way that does not track model agreement. *Source: this
-  session, ADR-211 Consequences (2nd-order — a comparator-design decision,
+  session, ADR-212 Consequences (2nd-order — a comparator-design decision,
   not blocking any slice; slice 6 proceeds under the current metric either way).*

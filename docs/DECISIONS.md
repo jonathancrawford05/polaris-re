@@ -18389,7 +18389,7 @@ New R-free test coverage:
 `tests/test_analytics/test_gam_reml_optimize_conformance.py` (the new
 comparison function and its claim's provenance gate).
 
-## ADR-211: Slice 5d — the free-`sp` residual localised to a finite-difference-step defect, not a criterion or a genuinely multi-modal surface
+## ADR-212: Slice 5d — the free-`sp` residual localised to a finite-difference-step defect, not a criterion or a genuinely multi-modal surface
 
 **Status:** ACCEPTED, 2026-08-29 (same day as ADR-210, which registered this slice).
 
@@ -18580,11 +18580,23 @@ byte-identical (94/94). Full suite: `uv run pytest tests/ -m "not slow"` —
   `max_abs_log10_sp_diff=0.2606` / `edf_total_diff=+0.0150` — the numbers
   the table above already reports in the "tier 3, after this fix" column.
 
-**Consequences.** Slice 6 (`bs="sz"`) remains blocked pending a maintainer
-decision on whether the remaining `max_abs_log10_sp_diff` residual (now
-understood as weak identifiability on one block, not an optimiser or
-criterion defect) is an acceptable release condition for slice 6 to proceed
-under, or whether `FREE_SP_MODEL_CLAIM`'s own primary metric should be
-revisited to weight `eta`/`edf` over raw `log10(sp)` given this finding — a
-modelling-judgement call PLAN's own "what the routine may not decide" section
-reserves for the maintainer, not this session.
+**Consequences.** Slice 6 (`bs="sz"`) is UNBLOCKED — both hypotheses PLAN
+slice 5d registered are resolved with evidence (hypothesis 1 confirmed and
+fixed; hypothesis 2 refuted), and the remaining `max_abs_log10_sp_diff`
+residual is now understood as weak identifiability on one block rather than
+an open optimiser or criterion question, so a fourth basis's own `sp`
+selection would not compound an unlocalised defect (the reasoning that
+originally blocked slice 6). `PLAN_mgcv_parity_engine.md`'s own slice 6 entry
+is restated accordingly, and `docs/PRODUCT_DIRECTION_2026-07-24.md`/
+`docs/CONTINUATION_mgcv_parity_engine.md` agree — an earlier revision of this
+paragraph read "remains blocked pending a maintainer decision," left
+unreconciled after slice 6 was updated to UNBLOCKED elsewhere in this same
+session (PR #216 review [P1-1]); this is the correction. A narrower,
+non-blocking question remains open for the maintainer: whether
+`FREE_SP_MODEL_CLAIM`'s own primary metric should be revisited to weight
+`eta`/`edf` over raw `log10(sp)` on a structure with a weakly-identified
+block, since the raw metric is now demonstrated unstable across R builds in
+a way that does not track model agreement. That is a comparator-design
+question PLAN's own "what the routine may not decide" section reserves for
+the maintainer — but slice 6 proceeds under the CURRENT metric either way,
+it is not a release condition.

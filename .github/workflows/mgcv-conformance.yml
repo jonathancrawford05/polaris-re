@@ -391,7 +391,7 @@ jobs:
       # of the committed INDEPENDENT comparator (same reasoning as
       # gam_deriv_probe.R / gam_vc_probe.R). Python's own log10(sp) below is
       # gam_model_conformance.fit_free_sp_case()'s CURRENT selection on this
-      # recipe, after ADR-211's finite-difference-step fix — hand-supplied,
+      # recipe, after ADR-212's finite-difference-step fix — hand-supplied,
       # not recomputed here, because the two-job CI split has no path for a
       # third R stage to consume job 2's own output (PLAN slice 5d).
       - name: Does mgcv's own score rank the two free-sp points the same way ours does? (PR #212 [P1])

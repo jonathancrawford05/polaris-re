@@ -12,6 +12,8 @@ committed — see ``.gitignore``) and is read at tier 1/tier 3 per
 ``docs/ROUTINE_MGCV_PARITY.md``.
 """
 
+import json
+import pathlib
 from unittest.mock import patch
 
 import numpy as np
@@ -21,12 +23,17 @@ from polaris_re.analytics.experience_gam_penalized import select_lambdas_reml
 from polaris_re.analytics.experience_mgcv_conformance import DESIGNS, build_design, synthetic_cells
 from polaris_re.analytics.gam_family import binomial_logit, poisson_log
 from polaris_re.analytics.gam_fit import penalized_irls_general
+from polaris_re.analytics.gam_model import assemble_model_design, resolve_family
+from polaris_re.analytics.gam_multiterm_conformance import _multiterm_model_spec
 from polaris_re.analytics.gam_reml import reml_score_general
 from polaris_re.analytics.gam_reml_optimize import (
+    _FINITE_DIFF_STEP,
     penalized_fit_and_score,
     select_lambdas_continuous,
 )
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
+
+_FIXTURES_DIR = pathlib.Path(__file__).parent.parent / "fixtures"
 
 
 @pytest.fixture
@@ -200,3 +207,137 @@ class TestSelectLambdasContinuousReproducesTheProductionGridWithinItsResolution:
 
         grid_log = np.array([np.log10(grid.lambda_age), np.log10(grid.lambda_year)])
         np.testing.assert_allclose(continuous.log_lambda, grid_log, atol=0.25)
+
+
+class TestFiniteDiffStep:
+    """PR #216 review [P0-2]: ``_FINITE_DIFF_STEP`` (ADR-212) changes what
+    ``select_lambdas_continuous`` converges to on a production path
+    (``gam_model.fit_polaris_gam``, ADR-207) with nothing in the suite
+    sensitive to it before this class. Two things need pinning: the wiring
+    (a future refactor must not silently drop the option), and the actual
+    behaviour it fixes (spurious convergence on a near-flat block).
+
+    The fixture (``tests/fixtures/gam_reml_optimize_near_flat_direction.json``)
+    is the ACTUAL N=4 structure ADR-212 measured the defect on — a
+    three-term formula (reference age, a numeric-``by`` MI term, a
+    ``ti()`` interaction) at ``n=900``, synthetic data, seed ``20260825``
+    (the same recipe ``scripts/gam_multiterm_free_sp_probe.R`` generates).
+    A hand-built toy design was tried first and did not reproduce the
+    breakdown: the failure mode only appears near an ACTUAL near-stationary
+    point of a real multi-block criterion, not at an arbitrary point, so
+    the real fixture is used rather than a synthetic approximation that
+    might not exhibit the property it is meant to test.
+    """
+
+    @staticmethod
+    def _load_fixture() -> tuple[
+        np.ndarray, np.ndarray, object, tuple[np.ndarray, ...], np.ndarray
+    ]:
+        payload = json.loads(
+            (_FIXTURES_DIR / "gam_reml_optimize_near_flat_direction.json").read_text()
+        )
+        age_knots = tuple(float(v) for v in payload["age_knots"])
+        year_knots = tuple(float(v) for v in payload["year_knots"])
+        model = _multiterm_model_spec(age_knots, year_knots)
+        data = {
+            k: np.asarray(payload[k], dtype=np.float64)
+            for k in ("AttdAge", "PolYear", "StudyYear_C", "ExposCnt")
+        }
+        y = np.asarray(payload["y"], dtype=np.float64)
+        design = assemble_model_design(model, data)
+        family = resolve_family(model.family, model.link)
+        weights = data["ExposCnt"]
+        blocks = tuple(design["penalty_blocks"])
+        return y, design["x"], family, blocks, weights
+
+    def test_the_eps_option_reaches_scipy_minimize(self, rng: np.random.Generator) -> None:
+        """Wiring test: a future refactor that drops ``"eps"`` from the
+        ``options`` dict, or stops threading ``finite_diff_step`` through,
+        must fail a test — not silently regress to SciPy's own default."""
+        x = _design(rng, 30, 3)
+        y = rng.poisson(5.0, size=30).astype(np.float64)
+        s = np.eye(3)
+
+        with patch(
+            "polaris_re.analytics.gam_reml_optimize.minimize",
+            wraps=__import__("scipy.optimize", fromlist=["minimize"]).minimize,
+        ) as spy:
+            select_lambdas_continuous(y, x, poisson_log(), (s,), maxiter=5)
+
+        assert spy.call_count >= 1
+        assert spy.call_args.kwargs["options"]["eps"] == _FINITE_DIFF_STEP
+
+        with patch(
+            "polaris_re.analytics.gam_reml_optimize.minimize",
+            wraps=__import__("scipy.optimize", fromlist=["minimize"]).minimize,
+        ) as spy:
+            select_lambdas_continuous(y, x, poisson_log(), (s,), maxiter=5, finite_diff_step=1e-3)
+
+        assert spy.call_args.kwargs["options"]["eps"] == 1e-3
+
+    def test_default_step_reports_spurious_convergence_on_the_near_flat_fixture(self) -> None:
+        """SciPy's own default step (bypassed here by monkeypatching the
+        option away, reproducing pre-ADR-212 behaviour) reports "converged"
+        at a point whose independently-measured central-difference gradient
+        is large — the exact defect ADR-212 measured and this class pins."""
+        y, x, family, blocks, weights = self._load_fixture()
+        center = np.full(4, 4.5)
+
+        with patch("polaris_re.analytics.gam_reml_optimize.minimize") as spy:
+            from scipy.optimize import minimize as real_minimize
+
+            def call_with_default_eps(fn, x0, method, bounds, options):
+                options = dict(options)
+                options.pop("eps", None)  # SciPy's own default, pre-ADR-212
+                return real_minimize(fn, x0, method=method, bounds=bounds, options=options)
+
+            spy.side_effect = call_with_default_eps
+            selection = select_lambdas_continuous(
+                y, x, family, blocks, weights=weights, x0=center, bounds=(-2.0, 11.0)
+            )
+
+        assert selection.converged  # SciPy itself reports success — the point IS spurious
+
+        def score_at(point: np.ndarray) -> float:
+            _, score = penalized_fit_and_score(y, x, family, blocks, point, weights=weights)
+            return score
+
+        h = 1.0e-3  # well inside the measured stable region (ADR-212: stable 1e-1 to 1e-6)
+        grad = np.zeros(4)
+        for i in range(4):
+            step = np.zeros(4)
+            step[i] = h
+            grad[i] = (
+                score_at(selection.log_lambda + step) - score_at(selection.log_lambda - step)
+            ) / (2 * h)
+
+        # SciPy's own gtol=1e-8 implies a near-zero gradient at a reported
+        # minimum; the true gradient there is nowhere close.
+        assert np.linalg.norm(grad) > 0.1
+
+    def test_finite_diff_step_default_avoids_the_spurious_convergence(self) -> None:
+        """The same fixture and starting point, through the production
+        default (``finite_diff_step`` unset — ``_FINITE_DIFF_STEP``): the
+        independently-measured gradient at the reported minimum is small."""
+        y, x, family, blocks, weights = self._load_fixture()
+        center = np.full(4, 4.5)
+
+        selection = select_lambdas_continuous(
+            y, x, family, blocks, weights=weights, x0=center, bounds=(-2.0, 11.0)
+        )
+        assert selection.converged
+
+        def score_at(point: np.ndarray) -> float:
+            _, score = penalized_fit_and_score(y, x, family, blocks, point, weights=weights)
+            return score
+
+        h = 1.0e-3
+        grad = np.zeros(4)
+        for i in range(4):
+            step = np.zeros(4)
+            step[i] = h
+            grad[i] = (
+                score_at(selection.log_lambda + step) - score_at(selection.log_lambda - step)
+            ) / (2 * h)
+
+        assert np.linalg.norm(grad) < 0.05
