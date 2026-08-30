@@ -31,6 +31,7 @@ from polaris_re.analytics.gam_reml_optimize import (
     _FINITE_DIFF_STEP,
     penalized_fit_and_score,
     select_lambdas_continuous,
+    select_lambdas_continuous_multistart,
 )
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 
@@ -365,3 +366,129 @@ class TestFiniteDiffStep:
             ) / (2 * h)
 
         assert np.linalg.norm(grad) < 0.05
+
+
+class TestSelectLambdasContinuousMultistart:
+    """PLAN slice 5e, candidate (1) — best-of-N starts as a reusable building
+    block rather than a one-off diagnostic script (ADR-211's own blind
+    multi-start check). These are self-consistency/wiring checks; the actual
+    N>4-block robustness measurement is a diagnostic script
+    (``scripts/gam_multistart_robustness_diagnostic.py``), not a pytest test,
+    for the same reason the module-level docstring gives for the single-start
+    search's own parity measurement."""
+
+    def test_rejects_empty_penalty_blocks(self, rng: np.random.Generator) -> None:
+        x = _design(rng, 30, 3)
+        y = rng.poisson(5.0, size=30).astype(np.float64)
+        with pytest.raises(PolarisValidationError, match="at least one penalty block"):
+            select_lambdas_continuous_multistart(y, x, poisson_log(), ())
+
+    def test_rejects_fewer_than_one_start(self, rng: np.random.Generator) -> None:
+        x = _design(rng, 30, 3)
+        y = rng.poisson(5.0, size=30).astype(np.float64)
+        s = np.eye(3)
+        with pytest.raises(PolarisValidationError, match="n_starts >= 1"):
+            select_lambdas_continuous_multistart(y, x, poisson_log(), (s,), n_starts=0)
+
+    def test_first_start_is_the_bounds_centre(self, rng: np.random.Generator) -> None:
+        """Index 0 must read as "what a single-start search alone would have
+        tried" — the same default :func:`select_lambdas_continuous` itself
+        uses — so a caller can compare best-of-N against a single start
+        without a second search call."""
+        x = _design(rng, 30, 3)
+        y = rng.poisson(5.0, size=30).astype(np.float64)
+        s = np.eye(3)
+        result = select_lambdas_continuous_multistart(
+            y, x, poisson_log(), (s,), bounds=(-2.0, 8.0), n_starts=3, maxiter=5
+        )
+        np.testing.assert_array_equal(result.starts[0], np.array([3.0]))
+
+    def test_deterministic_starts_across_calls(self, rng: np.random.Generator) -> None:
+        """Same seed, same starts, bit-identical — the whole point of pinning
+        `numpy.random.default_rng` rather than an unseeded draw (ADR-074)."""
+        x = _design(rng, 30, 3)
+        y = rng.poisson(5.0, size=30).astype(np.float64)
+        s = np.eye(3)
+        first = select_lambdas_continuous_multistart(
+            y, x, poisson_log(), (s,), n_starts=5, maxiter=5
+        )
+        second = select_lambdas_continuous_multistart(
+            y, x, poisson_log(), (s,), n_starts=5, maxiter=5
+        )
+        for a, b in zip(first.starts, second.starts, strict=True):
+            np.testing.assert_array_equal(a, b)
+
+    def test_total_function_evals_sums_every_start(self, rng: np.random.Generator) -> None:
+        x = _design(rng, 30, 3)
+        y = rng.poisson(5.0, size=30).astype(np.float64)
+        s = np.eye(3)
+        result = select_lambdas_continuous_multistart(
+            y, x, poisson_log(), (s,), n_starts=4, maxiter=10
+        )
+        assert len(result.starts) == 4
+        assert len(result.scores) == 4
+        assert len(result.converged) == 4
+        assert result.total_function_evals > 0
+
+    def test_best_is_never_worse_than_the_single_default_start(
+        self, rng: np.random.Generator
+    ) -> None:
+        """Best-of-N's own score must be <= the bounds-centre-only score on
+        the SAME problem — start 0 is that single-start run, so this is a
+        strict inequality-of-minimum property, not a numerical claim about
+        how much better multi-start does."""
+        x = _design(rng, 40, 3)
+        y = rng.poisson(5.0, size=40).astype(np.float64)
+        s = np.eye(3)
+        single = select_lambdas_continuous(y, x, poisson_log(), (s,))
+        multi = select_lambdas_continuous_multistart(y, x, poisson_log(), (s,), n_starts=5, seed=1)
+        assert multi.best.reml_score <= single.reml_score + 1e-9
+
+    def test_all_starts_rejected_raises(self, rng: np.random.Generator) -> None:
+        x = _design(rng, 30, 3)
+        y = rng.poisson(5.0, size=30).astype(np.float64)
+        s = np.eye(3)
+        with (
+            patch(
+                "polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous",
+                side_effect=PolarisComputationError("nothing converged"),
+            ),
+            pytest.raises(PolarisComputationError, match="every one of 3 starts"),
+        ):
+            select_lambdas_continuous_multistart(y, x, poisson_log(), (s,), n_starts=3)
+
+    def test_multistart_on_the_near_flat_fixture_matches_or_beats_the_default_start(
+        self,
+    ) -> None:
+        """ADR-211's own reading, replayed as the reusable function: on the
+        ACTUAL N=4 near-flat structure, best-of-9 (the default `n_starts`)
+        must not do worse than the single bounds-centre start, and its own
+        `starts[0]` run must reproduce `select_lambdas_continuous`'s
+        no-`x0` default (same point, same code path)."""
+        payload = json.loads(
+            (_FIXTURES_DIR / "gam_reml_optimize_near_flat_direction.json").read_text()
+        )
+        age_knots = tuple(float(v) for v in payload["age_knots"])
+        year_knots = tuple(float(v) for v in payload["year_knots"])
+        model = _multiterm_model_spec(age_knots, year_knots)
+        data = {
+            k: np.asarray(payload[k], dtype=np.float64)
+            for k in ("AttdAge", "PolYear", "StudyYear_C", "ExposCnt")
+        }
+        y = np.asarray(payload["y"], dtype=np.float64)
+        design = assemble_model_design(model, data)
+        family = resolve_family(model.family, model.link)
+        weights = data["ExposCnt"]
+        blocks = tuple(design["penalty_blocks"])
+        bounds = (-2.0, 11.0)
+
+        with threadpool_limits(limits=1, user_api="blas"):
+            single = select_lambdas_continuous(
+                y, design["x"], family, blocks, weights=weights, bounds=bounds
+            )
+            multi = select_lambdas_continuous_multistart(
+                y, design["x"], family, blocks, weights=weights, bounds=bounds, n_starts=9
+            )
+
+        assert multi.best.reml_score <= single.reml_score + 1e-6
+        assert multi.any_converged
