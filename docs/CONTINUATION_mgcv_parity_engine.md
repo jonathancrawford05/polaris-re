@@ -277,13 +277,42 @@ forbids, and Wood rules the tolerance approach out explicitly:
 > question for the maintainer per the same escalation practice slice 5c
 > used.
 
+> **Slice 5e is DONE, 2026-08-30 (ADR-213).** `select_lambdas_continuous_multistart`
+> — best-of-9, deterministic starts (`numpy.random.default_rng`, pinned
+> seed, ADR-074), the same "adds no new formula" discipline every function
+> in this search's own family follows — turns ADR-211's own one-off blind
+> multi-start check into a reusable production-available building block.
+> Measured, thread-pinned, at two points, **making no mgcv comparison
+> anywhere** (there is no second producer for ADR-193's mechanical test to
+> apply to — an internal robustness measurement, the same class ADR-211's
+> own BLAS-thread table already was). **At N=4 (the actual ADR-211/212
+> fixture), 4 threads: the single bounds-centre start does NOT converge**
+> (`success=False`, score `612.6115`); **best-of-9 finds the same
+> converged, better point** (`612.6100`) it finds at 1 thread — a real,
+> reproducible improvement on the exact structure the slice's acceptance
+> criterion was registered against. **At a synthetic N=8 stress case**
+> (PART 1's own three-term shape duplicated onto a second, covariate-
+> DECOUPLED draw — chosen after reusing `AttdAge`/`PolYear` under more
+> `by`-scalings produced an exactly singular design first): **single-start
+> already sufficed at both thread counts tested** — the opposite of what
+> motivated the slice, and a genuine answer rather than a null result.
+> Cost: best-of-9 runs ~9-17x a single search's own function evaluations.
+> **Registered as PLAN slice 5f, not blocking**: ADR-213's own N=8 case was
+> deliberately covariate-decoupled (to rule out the rank-deficiency its
+> first attempt hit), so it says nothing about a structure where the extra
+> blocks SHARE covariates the way the target formula's own 13-21 blocks
+> mostly do — that measurement remains open. See ADR-213 for every number.
+
 
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16), slice 5b
 (inserted 2026-08-24/25, ADR-207/ADR-208), slice 5c (inserted 2026-08-25, DONE
 2026-08-29, ADR-210), slice 5d (inserted 2026-08-29, DONE 2026-08-29 — resolved
-concurrently by ADR-212 (PR #216) and ADR-211 (PR #217), which unblock slice 6)
-and slice 5e (inserted 2026-08-29, READY, ADR-211, premise restated 2026-08-30
-against ADR-212's merged fix) plus one deferred to a later epic.
+concurrently by ADR-212 (PR #216) and ADR-211 (PR #217), which unblock slice 6),
+slice 5e (inserted 2026-08-29, DONE 2026-08-30, ADR-213 — best-of-9 multi-start
+built, recovers a real N=4 convergence failure, no mgcv comparison anywhere in
+the slice) and slice 5f (inserted 2026-08-30, READY, not blocking slice 6/7 —
+the same N>4 question on a covariate-SHARING structure, which ADR-213's own
+deliberately-decoupled N=8 case did not test) plus one deferred to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
 
 > **This is the ACTIVE epic.** `CONTINUATION_penalized_mi_surface.md` is superseded from

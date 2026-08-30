@@ -18905,3 +18905,149 @@ a way that does not track model agreement. That is a comparator-design
 question PLAN's own "what the routine may not decide" section reserves for
 the maintainer — but slice 6 proceeds under the CURRENT metric either way,
 it is not a release condition.
+
+---
+
+## ADR-213: Slice 5e — best-of-N multi-start built and measured; single-start already suffices on the one N=8 stress case tested, and multi-start recovers a real thread-dependent convergence failure at N=4
+
+**Status:** ACCEPTED, 2026-08-30.
+
+**Context.** ADR-211/212 (slice 5d) fixed `select_lambdas_continuous`'s
+spurious-convergence defect (`_FINITE_DIFF_STEP`) and found what remained
+was the by-term's own weak identifiability, not an unresolved criterion or
+optimiser bug — but registered PLAN slice 5e for the question neither ADR
+answered: **does the production search's single (bounds-centre) start still
+suffice once a design has more blocks than the N=4 structure both ADRs
+measured on**, given the target formula's own 13-21? ADR-211's amendment 1
+restated the premise against ADR-212's merged fix: the SCORE gap the two
+ADRs found is "closed (mostly)" (a `612.6101`-`612.6116` band across thread
+counts, essentially tied with `mgcv`), the COORDINATE is "not closed" (the
+by-term's own `log10(sp)` still moves across threads), and "not answered at
+all: does one start still suffice at N > 4?"
+
+**What this session built.** `select_lambdas_continuous_multistart`
+(`gam_reml_optimize.py`) — ADR-211's own blind multi-start check (bounds-
+centre + 8 uniform-random draws), turned from a one-off diagnostic script
+into a reusable, deterministic function: best-of-`n_starts` (default 9)
+independent `select_lambdas_continuous` calls, the first always the
+bounds-centre (so index 0 reproduces the single-start default exactly),
+the rest drawn by `numpy.random.default_rng(seed=20260830)` — pinned per
+ADR-074, deterministic across platforms and thread counts regardless of
+BLAS (only each *start's own converged score* can still move with thread
+count, for the identical reason ADR-211 found a single search's own score
+does — multi-start does not remove that per-fit noise, it gives the search
+several independent attempts to escape whichever near-flat direction the
+noise happens to stall on). Adds no new fitting or scoring formula — every
+start is an ordinary, already-verified `select_lambdas_continuous` call.
+7 new tests (`TestSelectLambdasContinuousMultistart`), including a replay
+of ADR-211's own near-flat-fixture check through the new function.
+
+**What this session measured — `scripts/gam_multistart_robustness_diagnostic.py`,
+`OPENBLAS_NUM_THREADS` PINNED per-run (threadpoolctl's own lesson from
+ADR-211/PR#217: the env var alone does not reliably reach an
+already-imported OpenBLAS, so this script re-execs itself per thread count
+rather than looping in-process).**
+
+**NO mgcv COMPARISON IS MADE ANYWHERE IN THIS ADR.** Both parts below fit
+Polaris's own search against itself; there is no second producer for
+ADR-193's mechanical test to apply to, so nothing here is INDEPENDENT,
+ECHO or TRANSPORT — it is simply not a comparison. Declaring a
+`VerificationClaim` would be dishonest (there is no `right_producer`), so
+none is declared; the module docstring says this explicitly, and
+`docs/CONFORMANCE_LEDGER.md`'s row for this measurement says so too. This
+is the same class of internal-only measurement ADR-211's own BLAS-thread
+table already was, generalised.
+
+**Part 1 — N=4, the ACTUAL ADR-211/212 structure**
+(`tests/fixtures/gam_reml_optimize_near_flat_direction.json`, the identical
+recipe `scripts/gam_multiterm_free_sp_probe.R` draws), single default start
+vs. best-of-9, replayed through the new function at two thread counts:
+
+| threads | single score | single converged | multi (best-of-9) score | multi total evals |
+|---:|---:|:---:|---:|---:|
+| 1 | 612.610092 | **True** | 612.610032 | 2190 |
+| 4 | 612.611509 | **False** | 612.610038 | 1935 |
+
+At 1 thread, single-start already converges to essentially the same point
+multi-start finds (gap `6e-5`) — consistent with ADR-212's own "closed
+(mostly)" characterisation. **At 4 threads, the single bounds-centre start
+does NOT converge** (SciPy's own `success=False`) and lands at a
+measurably worse score (`612.6115` vs `612.6100`); best-of-9 finds the
+SAME converged, better point multi-start found at 1 thread
+(`612.610038` vs `612.610032`, agreeing to the fifth decimal across
+threads, unlike the single-start reading). **This is the reproducible
+improvement PLAN slice 5e's acceptance criterion asks for** — not at N>4,
+but on the exact N=4 structure the slice's own premise was restated
+against, at a thread count (4 — this container's own unpinned default)
+where the single-start default genuinely fails. The by-term's own
+`log10(sp)` (index 1) still varies with thread count under multi-start too
+(`10.999` at 1 thread vs `10.950` at 4 threads) — the coordinate-level weak
+identifiability ADR-211/212 already characterised is a property of the
+criterion's surface, not of which start finds it, and multi-start does not
+and should not be expected to remove it.
+
+**Part 2 — N=8, SYNTHETIC.** PART 1's own three-term shape (`ref` + numeric-
+`by` + `ti`) duplicated onto a second, independent synthetic covariate draw
+(own pinned seed `20260830`, same `n=900`, same response `y` — the second
+copy is not generatively related to `y`, which is irrelevant to what this
+measures). Rejected first: reusing `AttdAge`/`PolYear` under additional
+`by`-scalings, which produced an exactly singular design at the search's
+own selected point (`effective_degrees_of_freedom`'s `LinAlgError` inside
+`select_lambdas_continuous`) — independent draws avoid the column-span
+overlap that caused it.
+
+| threads | single score | single converged | multi (best-of-9) score | multi total evals |
+|---:|---:|:---:|---:|---:|
+| 1 | 621.069367 | **True** | 621.069367 (identical to printed digit) | 5886 |
+| 4 | 621.070305 | **True** | 621.070290 | 8874 |
+
+**On this stress case, single-start already suffices at both thread
+counts tested — the opposite of what motivated the slice.** No convergence
+failure, and multi-start's own best score matches or beats single-start by
+at most `1.5e-5`, an order of magnitude tighter than N=4's own thread
+spread. This is a genuine, measured answer to "does one start still
+suffice past N=4 blocks", not a null result: on this specific synthetic
+construction (two independent copies of the same three-term shape,
+sharing no covariates), duplicating the block count did not compound or
+even reproduce the N=4 fixture's own weak-identifiability pathology. That
+is evidence about THIS structure, not a general proof that every N>4
+design is safe — the two copies here are, by construction, decoupled from
+each other, which the target formula's own 13-21 blocks (many sharing
+`AttdAge`/`PolYear`/factor levels) are not.
+
+**Cost, both parts.** Best-of-9 costs roughly `9`-`17`× a single search's
+own function evaluations (N=4: 1935-2190 vs 120-230; N=8: 5886-8874 vs
+414-513) — not exactly `9`× because harder starts iterate longer and easier
+ones terminate sooner. This is the real price PLAN slice 5e's acceptance
+criterion asks to be stated, not hidden behind a "multi-start is free"
+framing.
+
+**What this does NOT do.** `select_lambdas_continuous_multistart` is not
+wired into `fit_polaris_gam`'s default (PLAN Anchor 7-adjacent discipline:
+this module and `gam_reml_optimize.py`'s own single-start default are
+untouched) — a caller who wants the extra robustness at roughly 9-17× the
+cost can call the new function directly; making it the PRODUCTION default
+is a separate decision (repeating ADR-186's own reasoning: determinism and
+cost tradeoffs for a default are a maintainer call, not one this session
+makes unilaterally). The housekeeping item PLAN slice 5e also named — the
+stale `python_opt_log10` refresh in `gam_fixed_sp_score_probe.R`/
+`gam_multiterm_sp_delta_probe.R` under the now-pinned thread regime — is
+NOT done here: neither script is used by this measurement (both are mgcv-
+comparison discriminators, and this ADR makes no mgcv comparison), so
+refreshing them was out of this session's own scope; left open below.
+Does not touch `experience_gam_penalized.select_lambdas_reml` (PLAN
+Anchor 7) or `mgcv`-conformance CI (no R involved anywhere in this ADR).
+
+**Consequences.** PLAN slice 5e's own open question — does one start still
+suffice past N=4 — is ANSWERED with evidence for the one stress structure
+tested (yes, on this construction) while the reusable mitigation (best-of-9)
+is BUILT and separately shown to recover a real, reproducible N=4
+convergence failure. Slice 5e is DONE. What remains open, named rather
+than silently dropped: (1) this session's N=8 case is one specific,
+deliberately-decoupled construction — a structure where the extra blocks
+SHARE covariates with the existing ones (closer to the target formula's own
+13-21-block shape) has not been tested, and could behave differently; (2)
+the `python_opt_log10` refresh noted above; (3) whether `fit_polaris_gam`
+should expose multi-start as an opt-in (not default) parameter is a small,
+uncontroversial follow-up, not filed as its own slice since it is a few
+lines once wanted.
