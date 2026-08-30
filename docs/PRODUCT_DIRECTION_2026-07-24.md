@@ -1229,6 +1229,29 @@ and undermines the CI perf gate (ADR-176) landed only days ago. A maintainer may
 reasonably downgrade it. *Source: DISCOVERY during PR #182 review round
 (1st-order).* **IMPORTANT.**
 
+### Harvested 2026-08-30 (mgcv-parity slice 5e, ADR-213) — NICE-TO-HAVE, not numbered into the catalogue above
+
+The epic's own PLAN registers the substantive follow-on as slice 5f
+(covariate-sharing N>4 multi-start robustness, not blocking) — that is the
+primary registration mechanism per `docs/CONTINUATION_mgcv_parity_engine.md`'s
+own note that this file is the cross-epic view, and left un-renumbered here to
+avoid disturbing the catalogue's existing count. Two smaller items named but
+not actioned this session, cross-epic-visible in case a later, unrelated
+session touches these files:
+
+- **Stale `python_opt_log10` in `scripts/gam_fixed_sp_score_probe.R` /
+  `gam_multiterm_sp_delta_probe.R`.** Both still carry the free-`sp` point
+  from an earlier session (ADR-208's pre-Appendix-B reading, per ADR-211's own
+  note); refreshing under the now-pinned `OPENBLAS_NUM_THREADS=1` regime is
+  bookkeeping for a different (mgcv-comparison) measurement than slice 5e's
+  own, so it was named but not done here. *Source: ADR-213, PLAN slice 5e.*
+- **`fit_polaris_gam` could expose multi-start as an opt-in parameter.**
+  `select_lambdas_continuous_multistart` exists and is measured to help on a
+  real (if narrow) N=4 case; wiring it through `PolarisGAM`'s own production
+  entry point as a caller-chosen option (never a changed default — that is a
+  separate, maintainer-gated decision per ADR-186's own precedent) is a small
+  follow-up. *Source: ADR-213 Consequences.*
+
 ---
 
 ## Comparison with Previous Assessment
