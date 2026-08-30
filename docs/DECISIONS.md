@@ -18961,30 +18961,45 @@ table already was, generalised.
 **Part 1 — N=4, the ACTUAL ADR-211/212 structure**
 (`tests/fixtures/gam_reml_optimize_near_flat_direction.json`, the identical
 recipe `scripts/gam_multiterm_free_sp_probe.R` draws), single default start
-vs. best-of-9, replayed through the new function at two thread counts:
+vs. best-of-9, replayed through the new function at all three of
+`_THREAD_SWEEP`'s own thread counts (PR #218 review [P2]: the 2-thread
+reading was measured after the initial PR open, which reported only 1 and
+4 — added here rather than left as a published gap in what the diagnostic
+itself sweeps):
 
 | threads | single score | single converged | multi (best-of-9) score | multi total evals |
 |---:|---:|:---:|---:|---:|
 | 1 | 612.610092 | **True** | 612.610032 | 2190 |
+| 2 | 612.611575 | **True** | 612.610032 | 2270 |
 | 4 | 612.611509 | **False** | 612.610038 | 1935 |
 
-At 1 thread, single-start already converges to essentially the same point
-multi-start finds (gap `6e-5`) — consistent with ADR-212's own "closed
-(mostly)" characterisation. **At 4 threads, the single bounds-centre start
-does NOT converge** (SciPy's own `success=False`) and lands at a
-measurably worse score (`612.6115` vs `612.6100`); best-of-9 finds the
-SAME converged, better point multi-start found at 1 thread
-(`612.610038` vs `612.610032`, agreeing to the fifth decimal across
-threads, unlike the single-start reading). **This is the reproducible
+**Spread across all three threads: single-start 0.001483, best-of-9
+0.000006 — a ~247x tighter reproducibility band**, not just a single
+before/after pair. At 1 thread, single-start already converges to
+essentially the same point multi-start finds (gap `6e-5`) — consistent
+with ADR-212's own "closed (mostly)" characterisation. **At 2 threads,
+single-start DOES report `converged=True` but still lands measurably
+worse** (`612.611575`, the single worst single-start reading of the three)
+— the coordinate-level weak identifiability is not only a
+non-convergence failure mode; a "successful" SciPy termination can still
+land on a materially worse point on this surface. **At 4 threads, the
+single bounds-centre start does NOT converge** (SciPy's own
+`success=False`) and lands at a measurably worse score (`612.6115` vs
+`612.6100`); best-of-9 finds the SAME converged, better point at every one
+of the three thread counts (`612.610032`/`612.610032`/`612.610038`,
+agreeing to the fifth decimal), unlike the single-start reading, which
+never repeats itself across threads. **This is the reproducible
 improvement PLAN slice 5e's acceptance criterion asks for** — not at N>4,
 but on the exact N=4 structure the slice's own premise was restated
-against, at a thread count (4 — this container's own unpinned default)
-where the single-start default genuinely fails. The by-term's own
-`log10(sp)` (index 1) still varies with thread count under multi-start too
-(`10.999` at 1 thread vs `10.950` at 4 threads) — the coordinate-level weak
-identifiability ADR-211/212 already characterised is a property of the
-criterion's surface, not of which start finds it, and multi-start does not
-and should not be expected to remove it.
+against, at thread counts where the single-start default is measurably
+unreliable (worse at every one of the three settings tested, not merely
+one). The by-term's own `log10(sp)` (index 1) still varies with thread
+count under multi-start too (`10.999`/`10.999`/`10.950` across the three
+threads) — the coordinate-level weak identifiability ADR-211/212 already
+characterised is a property of the criterion's surface, not of which
+start finds it, and multi-start does not and should not be expected to
+remove it; what it removes is the SCORE's own sensitivity to thread
+count, which the 247x figure above states directly.
 
 **Part 2 — N=8, SYNTHETIC.** PART 1's own three-term shape (`ref` + numeric-
 `by` + `ti`) duplicated onto a second, independent synthetic covariate draw
@@ -18999,15 +19014,20 @@ overlap that caused it.
 | threads | single score | single converged | multi (best-of-9) score | multi total evals |
 |---:|---:|:---:|---:|---:|
 | 1 | 621.069367 | **True** | 621.069367 (identical to printed digit) | 5886 |
+| 2 | 621.069125 | **True** | 621.069125 (identical to printed digit) | 5346 |
 | 4 | 621.070305 | **True** | 621.070290 | 8874 |
 
-**On this stress case, single-start already suffices at both thread
+**On this stress case, single-start already suffices at all three thread
 counts tested — the opposite of what motivated the slice.** No convergence
-failure, and multi-start's own best score matches or beats single-start by
-at most `1.5e-5`, an order of magnitude tighter than N=4's own thread
-spread. This is a genuine, measured answer to "does one start still
-suffice past N=4 blocks", not a null result: on this specific synthetic
-construction (two independent copies of the same three-term shape,
+failure at any of the three settings, and multi-start's own best score
+matches single-start exactly at two of three (1 and 2 threads) and beats
+it by `1.5e-5` at the third (4 threads). Spread across threads: single-start
+`0.001180`, best-of-9 `0.001165` — essentially the SAME spread, unlike
+N=4's 247x gap, because at N=8 both searches are tracking the identical
+underlying thread-dependent movement rather than one recovering from a
+failure the other has. This is a genuine, measured answer to "does one
+start still suffice past N=4 blocks", not a null result: on this specific
+synthetic construction (two independent copies of the same three-term shape,
 sharing no covariates), duplicating the block count did not compound or
 even reproduce the N=4 fixture's own weak-identifiability pathology. That
 is evidence about THIS structure, not a general proof that every N>4
@@ -19015,17 +19035,17 @@ design is safe — the two copies here are, by construction, decoupled from
 each other, which the target formula's own 13-21 blocks (many sharing
 `AttdAge`/`PolYear`/factor levels) are not.
 
-**Cost, both parts.** Best-of-9 costs roughly `9`-`17`× a single search's
-own function evaluations (N=4: 1935-2190 vs 120-230; N=8: 5886-8874 vs
-414-513) — not exactly `9`× because harder starts iterate longer and easier
-ones terminate sooner. This is the real price PLAN slice 5e's acceptance
-criterion asks to be stated, not hidden behind a "multi-start is free"
-framing.
+**Cost, both parts.** Best-of-9 costs roughly `8`-`21`× a single search's
+own function evaluations, across all three thread counts (N=4: 1935-2270
+vs 110-230; N=8: 5346-8874 vs 306-513) — not a fixed multiple, because
+harder starts iterate longer and easier ones terminate sooner. This is the
+real price PLAN slice 5e's acceptance criterion asks to be stated, not
+hidden behind a "multi-start is free" framing.
 
 **What this does NOT do.** `select_lambdas_continuous_multistart` is not
 wired into `fit_polaris_gam`'s default (PLAN Anchor 7-adjacent discipline:
 this module and `gam_reml_optimize.py`'s own single-start default are
-untouched) — a caller who wants the extra robustness at roughly 9-17× the
+untouched) — a caller who wants the extra robustness at roughly 8-21× the
 cost can call the new function directly; making it the PRODUCTION default
 is a separate decision (repeating ADR-186's own reasoning: determinism and
 cost tradeoffs for a default are a maintainer call, not one this session
@@ -19051,3 +19071,24 @@ the `python_opt_log10` refresh noted above; (3) whether `fit_polaris_gam`
 should expose multi-start as an opt-in (not default) parameter is a small,
 uncontroversial follow-up, not filed as its own slice since it is a few
 lines once wanted.
+
+**Amendment 1, 2026-08-30 (PR #218 review response).** One [P0] (the
+diagnostic script carried `from __future__ import annotations`, on
+CLAUDE.md's Never list — removed) and several P1/P2 findings, all fixed in
+the same PR before merge-readiness. The one that changes this ADR's own
+framing: the DoD/acceptance wording originally reproduced elsewhere (PLAN,
+session log, PR body) read the first criterion "MET" — the review correctly
+read that as overstating a criterion ("a measured, reproducible improvement
+at N > 4 blocks") whose own premise this ADR's N=8 finding refutes.
+Restated everywhere as AMENDED: the criterion's actual content is "answer
+whether one start suffices past N=4" (yes, on this structure), not
+"demonstrate an improvement there" (refuted as the finding, not achieved).
+This ADR's own body above was written in that corrected framing from the
+start ("not at N>4, but on the exact N=4 structure...") — only the
+DoD-reproducing documents needed the correction. The other substantive
+change: the diagnostic's own `_THREAD_SWEEP = (1, 2, 4)` originally
+published only the 1- and 4-thread readings; the 2-thread point is now
+measured and folded into both tables above, which sharpens Part 1's own
+headline from a single before/after pair to a stated spread (`0.001483`
+single-start vs `0.000006` best-of-9 — the 247x figure) and confirms Part
+2's "single suffices" finding holds at a third thread count, not just two.

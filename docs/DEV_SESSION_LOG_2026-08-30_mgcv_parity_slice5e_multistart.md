@@ -144,8 +144,11 @@ already was.
 
 ## Measurement
 
-Both thread counts read directly from the diagnostic script's own JSON
-output (`--worker N`), no post-processing beyond formatting.
+All three thread counts read directly from the diagnostic script's own
+JSON output (`--worker N`), no post-processing beyond formatting. The
+2-thread reading was added in response to PR #218 review [P2]: the
+script's own `_THREAD_SWEEP` already declares `{1, 2, 4}`, but the
+initial PR open reported only 1 and 4.
 
 **PART 1 — N=4 (`tests/fixtures/gam_reml_optimize_near_flat_direction.json`,
 the identical recipe `scripts/gam_multiterm_free_sp_probe.R` draws):**
@@ -153,14 +156,20 @@ the identical recipe `scripts/gam_multiterm_free_sp_probe.R` draws):**
 | threads | single score | single converged | multi (best-of-9) score | multi total evals |
 |---:|---:|:---:|---:|---:|
 | 1 | 612.610092 | True | 612.610032 | 2190 |
+| 2 | 612.611575 | True | 612.610032 | 2270 |
 | 4 | 612.611509 | **False** | 612.610038 | 1935 |
 
-At 1 thread the two are already close (gap `6e-5`). **At 4 threads the
-single bounds-centre start fails SciPy's own convergence check and lands
-`0.0015` worse; best-of-9 finds the same converged, better point it found
-at 1 thread (agreeing to the fifth decimal across threads).** This is the
-reproducible improvement the slice's acceptance criterion asked for, on
-the exact structure the slice was registered against.
+**Spread across all three threads: single-start `0.001483`, best-of-9
+`0.000006` — a ~247x tighter reproducibility band.** At 1 thread the two
+are already close (gap `6e-5`). At 2 threads single-start reports
+`converged=True` but lands at its own WORST reading of the three — a
+"successful" termination is not itself evidence of a good point on this
+surface. At 4 threads the single bounds-centre start fails SciPy's own
+convergence check outright and lands `0.0015` worse; best-of-9 finds the
+same converged, better point at every one of the three thread counts
+(agreeing to the fifth decimal). This is the reproducible improvement the
+slice's acceptance criterion asked for, on the exact structure the slice
+was registered against.
 
 **PART 2 — synthetic N=8** (PART 1's own shape duplicated onto an
 independent draw, hypothesis 2 above):
@@ -168,16 +177,23 @@ independent draw, hypothesis 2 above):
 | threads | single score | single converged | multi (best-of-9) score | multi total evals |
 |---:|---:|:---:|---:|---:|
 | 1 | 621.069367 | True | 621.069367 (identical to printed digit) | 5886 |
+| 2 | 621.069125 | True | 621.069125 (identical to printed digit) | 5346 |
 | 4 | 621.070305 | True | 621.070290 | 8874 |
 
-Single-start converged at both thread counts; multi-start's own advantage
-shrinks to at most `1.5e-5` — an order of magnitude tighter than N=4's own
-gap. **On this specific stress structure, one start already suffices.**
+Single-start converged at all three thread counts; multi-start matches it
+exactly at two of three and beats it by `1.5e-5` at the third. **Spread
+across threads: single-start `0.001180`, best-of-9 `0.001165` — essentially
+the SAME spread**, unlike N=4's 247x gap (an earlier two-point reading of
+this same measurement called it "an order of magnitude tighter"; the third
+point corrects that — both searches are tracking the same thread-dependent
+movement here, not one recovering from a failure the other has). **On this
+specific stress structure, one start already suffices, at every thread
+count tested.**
 
-**Cost.** Best-of-9 costs `~9-17x` a single search's own function
-evaluations (not exactly `9x`: harder starts iterate longer). Reported
-because the slice's own acceptance criterion asks for it stated, not
-hidden.
+**Cost.** Best-of-9 costs `~8-21x` a single search's own function
+evaluations across all three thread counts (not a fixed multiple: harder
+starts iterate longer). Reported because the slice's own acceptance
+criterion asks for it stated, not hidden.
 
 ## Gap After
 
