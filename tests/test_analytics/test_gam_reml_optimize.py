@@ -289,9 +289,21 @@ class TestFiniteDiffStep:
 
     def test_default_step_reports_spurious_convergence_on_the_near_flat_fixture(self) -> None:
         """SciPy's own default step (bypassed here by monkeypatching the
-        option away, reproducing pre-ADR-212 behaviour) reports "converged"
-        at a point whose independently-measured central-difference gradient
-        is large — the exact defect ADR-212 measured and this class pins."""
+        option away, reproducing pre-ADR-212 behaviour) lands at a point
+        whose independently-measured central-difference gradient is large —
+        the exact defect ADR-212 measured and this class pins.
+
+        Deliberately does NOT assert ``selection.converged`` either way: CI
+        first caught this test asserting ``converged is True`` (a specific
+        SciPy-internal bookkeeping state) and failing on a runner whose
+        L-BFGS-B line search reached ``ABNORMAL_TERMINATION`` instead, at a
+        DIFFERENT point along the same near-flat direction, on the SAME
+        (thread-pinned) code — that flag is itself downstream of the same
+        noise this test exists to demonstrate, so treating it as load-bearing
+        makes the test as unstable as the bug. Whether SciPy calls it success
+        or failure, the gradient at wherever the default step actually lands
+        is what the fix (below) needs to be small; that is the only portable
+        claim."""
         y, x, family, blocks, weights = self._load_fixture()
         center = np.full(4, 4.5)
 
@@ -308,8 +320,6 @@ class TestFiniteDiffStep:
                 selection = select_lambdas_continuous(
                     y, x, family, blocks, weights=weights, x0=center, bounds=(-2.0, 11.0)
                 )
-
-        assert selection.converged  # SciPy itself reports success — the point IS spurious
 
         def score_at(point: np.ndarray) -> float:
             _, score = penalized_fit_and_score(y, x, family, blocks, point, weights=weights)
