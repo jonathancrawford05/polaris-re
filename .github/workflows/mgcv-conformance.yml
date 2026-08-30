@@ -114,25 +114,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # PLAN slice 5d: the Python "compare" job's own NumPy/SciPy calls run on
-  # OpenBLAS with DYNAMIC_ARCH (`numpy.show_config()`), which is exactly the
-  # class of host/thread-count-dependent numerics `ROUTINE_MGCV_PARITY.md`
-  # step 2 already pins `OPENBLAS_NUM_THREADS=1` for on the R side. Measured,
-  # not assumed: on the IDENTICAL free-sp fixture, `select_lambdas_continuous`
-  # (the finite-difference-gradient outer search, PLAN slice 4 part B)
-  # converges to a DIFFERENT point depending SOLELY on this thread count —
-  # log10(sp) on the by-term's own block reads 9.116 at 1 thread, 8.519 at 2,
-  # 8.773 at 4 — while a FIXED-sp score evaluation of the same criterion
-  # (`penalized_fit_and_score`, no search involved) moves by ~4e-10 across the
-  # same thread counts. The search, not the criterion, is what is sensitive
-  # here (`scripts/gam_free_sp_warmstart_diagnostic.py`), and leaving thread
-  # count unpinned means two runs of this workflow on identical code and data
-  # can read genuinely different `max_abs_log10_sp_diff` values, exactly the
-  # inconsistency PLAN slice 5d's own tier-1-vs-tier-3 readings (0.7560 vs
-  # 1.0996) show. Pinning this does not change, tune or widen any tolerance
-  # (Anchor 8) — it removes a confound from the measurement, the same
-  # argument that justified pinning it for R.
-  OPENBLAS_NUM_THREADS: "1"
   # The levels that BLOCK a merge, as a visible policy rather than a shell condition
   # buried in a step. These are slice 5's acceptance criteria; 4 and 5 are findings
   # under active work. Widening this list is a deliberate, reviewable edit — and
@@ -473,6 +454,34 @@ jobs:
     name: Compare against the Python reference
     runs-on: ubuntu-latest
     needs: mgcv-reference
+    env:
+      # PLAN slice 5d: THIS job's own NumPy/SciPy calls run on OpenBLAS with
+      # DYNAMIC_ARCH (`numpy.show_config()`), which is exactly the class of
+      # host/thread-count-dependent numerics `ROUTINE_MGCV_PARITY.md` step 2
+      # already pins `OPENBLAS_NUM_THREADS=1` for on the R side. Measured,
+      # not assumed: on the IDENTICAL free-sp fixture, `select_lambdas_continuous`
+      # (the finite-difference-gradient outer search, PLAN slice 4 part B)
+      # converges to a DIFFERENT point depending SOLELY on this thread count —
+      # log10(sp) on the by-term's own block reads 9.116 at 1 thread, 8.519 at 2,
+      # 8.773 at 4 — while a FIXED-sp score evaluation of the same criterion
+      # (`penalized_fit_and_score`, no search involved) moves by ~4e-10 across the
+      # same thread counts. The search, not the criterion, is what is sensitive
+      # here (`scripts/gam_free_sp_warmstart_diagnostic.py`), and leaving thread
+      # count unpinned means two runs of this workflow on identical code and data
+      # can read genuinely different `max_abs_log10_sp_diff` values, exactly the
+      # inconsistency PLAN slice 5d's own tier-1-vs-tier-3 readings (0.7560 vs
+      # 1.0996) show. Pinning this does not change, tune or widen any tolerance
+      # (Anchor 8) — it removes a confound from the measurement, the same
+      # argument that justified pinning it for R.
+      #
+      # Scoped to THIS job only (PR #217 review [P2-2]): the `mgcv-reference`
+      # job's own work happens inside `docker run`, which does not inherit
+      # the host's env unless passed with `-e` — a workflow-level pin there
+      # would be a no-op that misleadingly suggested it did something, and
+      # the R side already pins this internally regardless (ADR-189
+      # amendment 2). Scoping to where the comment's own argument applies is
+      # what makes placement match intent.
+      OPENBLAS_NUM_THREADS: "1"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
