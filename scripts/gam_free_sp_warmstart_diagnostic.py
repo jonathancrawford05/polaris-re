@@ -49,6 +49,49 @@ import numpy as np
 from polaris_re.analytics.gam_model import assemble_model_design, resolve_family
 from polaris_re.analytics.gam_model_conformance import _SEARCH_BOUNDS, _multiterm_model_spec
 from polaris_re.analytics.gam_reml_optimize import select_lambdas_continuous
+from polaris_re.core.verification import (
+    ComparedQuantity,
+    ComparisonProvenance,
+    VerificationClaim,
+    evidence_markdown,
+)
+
+WARM_START_CLAIM = VerificationClaim(
+    claim=(
+        "gam_reml_optimize.select_lambdas_continuous computes a converged "
+        "log10(lambda) and REML score from a supplied starting point x0; the "
+        "warm-start reading below supplies mgcv's own free-sp selection "
+        "(scripts/gam_multiterm_free_sp_probe.R's payload) as that x0 -- so "
+        "the mechanical test (docs/VERIFICATION_STANDARD.md) fails on sight, "
+        "the same reasoning scripts/gam_multiterm_sp_delta_probe.R's own "
+        "docstring gives; compared on log10(sp) and the REML score against "
+        "mgcv's own selection."
+    ),
+    quantities=(
+        ComparedQuantity(
+            quantity="warm_log10_sp",
+            left_producer="select_lambdas_continuous(x0=mgcv's own log10(sp))",
+            right_producer="mgcv's own free-sp selection (the SAME values supplied as x0)",
+            provenance=ComparisonProvenance.TRANSPORT,
+        ),
+        ComparedQuantity(
+            quantity="warm_reml_score",
+            left_producer="select_lambdas_continuous(x0=mgcv's own log10(sp))'s own score",
+            right_producer="gam_reml.reml_score_general at mgcv's own selection (same x0)",
+            provenance=ComparisonProvenance.TRANSPORT,
+        ),
+    ),
+)
+"""Declared per ADR-193/`docs/VERIFICATION_STANDARD.md` (PR #217 review round
+2, [P1-1]): every accurate prose caveat in this script's own history did not
+stop the standard's own point from applying here too — a comparison's
+provenance belongs in the type, not only in five places of prose. TRANSPORT,
+not INDEPENDENT: the warm start's own `x0` IS `mgcv`'s output, so the two
+"sides" being compared are one computation and its own input, echoed back.
+Never gates a parity claim (`require_parity_evidence` is not called) and
+never folds into `FREE_SP_MODEL_CLAIM` — this is what the module docstring
+and every print statement already said in prose; `evidence_markdown` below
+now derives the same headline structurally instead."""
 
 
 def main(payload_path: str) -> None:
@@ -79,11 +122,12 @@ def main(payload_path: str) -> None:
     print(f"n={len(y)}  p={design['x'].shape[1]}  blocks={len(blocks)}")
     print(f"mgcv {payload.get('mgcv_version', '?')} / {payload.get('r_version', '?')}")
     print()
+    print(evidence_markdown(WARM_START_CLAIM))
+    print()
     print(
-        "DIAGNOSTIC, not parity evidence (docs/VERIFICATION_STANDARD.md): the "
-        "warm start below takes mgcv's own selected log10(sp) as an INPUT, so "
-        "this can never be part of FREE_SP_MODEL_CLAIM — same status as "
-        "scripts/gam_multiterm_sp_delta_probe.R."
+        "Never part of FREE_SP_MODEL_CLAIM (that comparison's own quantities are "
+        "unchanged, still INDEPENDENT) — what this establishes is a REACHABILITY "
+        "fact about our own criterion, not a second parity comparison."
     )
     print()
     print(f"mgcv's own log10(sp):        {np.round(mgcv_log10_sp, 6)}")

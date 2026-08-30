@@ -18532,13 +18532,15 @@ and tier-3 sessions read different numbers off the same (INDEPENDENT)
   `resolve_family` unchanged. No new fitting or scoring formula; this module
   adds no production code, only a diagnostic script, per the same discipline
   `gam_multiterm_sp_delta_probe.R` established.
-- `.github/workflows/mgcv-conformance.yml`: a new workflow-level
-  `OPENBLAS_NUM_THREADS: "1"` (previously unset for the Python "compare"
-  job — the R oracle side has pinned this since ADR-189 amendment 2, but
-  nothing pinned the Python side's own NumPy/OpenBLAS calls, which is
-  exactly the gap this ADR's thread-count table exposes) and a new step
-  running the diagnostic above against job 1's existing
-  `gam_multiterm_free_sp_probe.json` artefact (no new R script — reuses the
+- `.github/workflows/mgcv-conformance.yml`: a new `OPENBLAS_NUM_THREADS: "1"`,
+  scoped to the `compare` job's own `env:` (PR #217 review round 1 [P2-2] —
+  the R oracle's own work runs inside `docker run`, which does not inherit
+  host env, so a workflow-level pin there would be a no-op; previously unset
+  for the Python "compare" job — the R oracle side has pinned this since
+  ADR-189 amendment 2, but nothing pinned the Python side's own
+  NumPy/OpenBLAS calls, which is exactly the gap this ADR's thread-count
+  table exposes) and a new step running the diagnostic above against job 1's
+  existing `gam_multiterm_free_sp_probe.json` artefact (no new R script — reuses the
   payload the slice 5b/5c steps already fetch). **This pins reproducibility;
   it does not change, tune or widen any tolerance (Anchor 8)** — the same
   argument that justified pinning it for R in the first place.

@@ -197,13 +197,21 @@ oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
 ## What was built
 
 - `scripts/gam_free_sp_warmstart_diagnostic.py` — new, diagnostic script (see
-  Provenance). No new production code.
-- `.github/workflows/mgcv-conformance.yml`: `OPENBLAS_NUM_THREADS: "1"` added
-  to the workflow-level `env:` (previously unset for the Python "compare"
-  job — the R oracle side has pinned this since ADR-189 amendment 2, nothing
-  pinned the Python side); a new step running the diagnostic against job 1's
-  existing `gam_multiterm_free_sp_probe.json` artefact (no new R script); the
-  new script's path added to the workflow's own path-filter list.
+  Provenance). No new production code. **Round 2 review [P1-1]:** initially
+  declared its own DIAGNOSTIC status in prose only (five places); now
+  declares `WARM_START_CLAIM` (`ComparedQuantity` per quantity, TRANSPORT
+  provenance) and prints `evidence_markdown(WARM_START_CLAIM)` instead of a
+  hand-written headline, matching `scripts/reml_continuous_optimizer_probe.py`'s
+  own precedent.
+- `.github/workflows/mgcv-conformance.yml`: `OPENBLAS_NUM_THREADS: "1"` added,
+  scoped to the `compare` job's own `env:` (round 1 [P2-2] moved this from an
+  initial workflow-level placement — the R oracle's own job runs inside
+  `docker run`, which does not inherit host env, so a workflow-level pin
+  there would be a no-op; the R oracle side has pinned this since ADR-189
+  amendment 2, nothing pinned the Python side); a new step running the
+  diagnostic against job 1's existing `gam_multiterm_free_sp_probe.json`
+  artefact (no new R script); the new script's path added to the workflow's
+  own path-filter list.
 
 ## Quality gate
 
