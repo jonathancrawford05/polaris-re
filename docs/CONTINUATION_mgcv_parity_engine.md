@@ -332,10 +332,13 @@ forbids, and Wood rules the tolerance approach out explicitly:
 > evidence covariate-sharing drives the pathology" — is answered in the
 > negative**: this specific covariate-sharing construction is MORE stable
 > than either prior reading, the opposite of what that hypothesis
-> predicted. One feature persists regardless of structure: the MI by-term
-> still sits exactly on the search's own upper bound at every reading
-> across N=4 and both N=8 shapes — present, but on this structure it does
-> not propagate into whole-search instability. Cost: best-of-9 ~9x-15x a
+> predicted. One feature partially persists regardless of structure: the
+> MI by-term sits exactly on the search's own upper bound at 2 of the 3
+> thread counts on this structure (at 1 thread it lands at `10.859`,
+> `at_bound=False` — PR #219 review [P1-1], corrected from an earlier
+> "at every thread count" overstatement) — present, but on this structure
+> it does not propagate into whole-search score instability. Cost:
+> best-of-9 ~9x-15x a
 > single search's own evaluations, inside ADR-213's stated range. Caveat
 > named: this is one covariate-sharing construction (independent
 > `by`-indicators, not `sz`'s own constrained parameterisation) — evidence

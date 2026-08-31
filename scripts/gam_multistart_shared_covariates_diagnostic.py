@@ -224,16 +224,22 @@ def main() -> None:
     print()
     header = (
         f"{'threads':>7}  {'single score':>13}  {'multi score':>12}  "
-        f"{'gap':>9}  {'single conv':>11}  {'multi evals':>11}"
+        f"{'gap':>9}  {'single conv':>11}  {'single evals':>12}  "
+        f"{'multi evals':>11}  {'by at_bound':>11}"
     )
     print(header)
     for r in rows:
         multi_score = r["multi_score"] if r["multi_score"] is not None else float("nan")
         gap = r["single_score"] - multi_score
+        # PR #219 review [P1-1]/[P1-2]: `at_bound` and `single_evals` are printed here
+        # (not left to a separate, uncommitted follow-up script) precisely so a
+        # per-thread reading like "the by-term sits at the bound" cannot be silently
+        # generalised from one thread count to all three the way it was the first time.
         print(
             f"{r['n_threads']:>7}  {r['single_score']:>13.6f}  "
             f"{multi_score:>12.6f}  {gap:>9.6f}  "
-            f"{r['single_converged']!s:>11}  {r['multi_total_evals']!s:>11}"
+            f"{r['single_converged']!s:>11}  {r['single_evals']:>12}  "
+            f"{r['multi_total_evals']!s:>11}  {r['single_at_bound']!s:>11}"
         )
 
     single_scores = [r["single_score"] for r in rows]

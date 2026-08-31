@@ -3135,8 +3135,8 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   direction — one exact dependency per repeated indicator. `mgcv`'s own
   `sz` avoids this via its own centering constraint, which this simpler
   stand-in deliberately does not build. *Source: this session, ADR-214
-  (2nd-order — a documented dead end for whoever builds `sz`'s own Stage-A
-  fixtures in slice 6, not itself a code gap).*
+  (2nd-order, NICE-TO-HAVE — a documented dead end for whoever builds
+  `sz`'s own Stage-A fixtures in slice 6, not itself a code gap).*
 
 - **What remains open, explicitly not filed as new slices:** (1) this is
   one covariate-sharing construction (independent binary indicators), not
@@ -3148,5 +3148,5 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   rest of the search — not a new finding, but not resolved either; (3)
   whether single-start continues to suffice past N=8, toward the target's
   13-21 blocks, remains untested in any shape. *Source: this session,
-  ADR-214 (2nd-order — named for slice 6/7's own future sessions, not
-  urgent on its own).*
+  ADR-214 (2nd-order, NICE-TO-HAVE — named for slice 6/7's own future
+  sessions, not urgent on its own).*

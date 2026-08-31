@@ -98,11 +98,19 @@ column.
 ## Measurement
 
 All three thread counts read directly from the diagnostic script's own
-JSON output (`--worker N`); single-start eval counts and the `at_bound`/
-`log_lambda` detail were captured with a short standalone follow-up
-script calling `select_lambdas_continuous` directly (same design, same
-bounds), since the diagnostic's own printed table does not carry those
-fields.
+JSON output (`--worker N`), which already carries `single_evals`,
+`single_at_bound` and `single_log10_sp`. **PR #219 review [P1-2]:** the
+first draft of this log instead cited a short, uncommitted standalone
+script for those three fields, on the (false) grounds that the
+diagnostic's printed table didn't carry them — the `--worker` JSON
+always did, only `main()`'s own aggregate table dropped them. That gap is
+what let a single, ambient-thread-count reading of `at_bound` get
+generalised to "every thread count" below ([P1-1], corrected). Fixed by
+reading `--worker` output directly (as this correction does) and by
+having `main()` print `single_evals`/`single_at_bound` in its own table
+going forward, so the published detail and the committed script cannot
+drift apart again — the identical gap PR #218's review caught in mirror
+image (`_THREAD_SWEEP` swept `{1,2,4}`, only `{1,4}` got reported).
 
 | threads | single score | single converged | single evals | multi (best-of-9) score | multi total evals | gap |
 |---:|---:|:---:|---:|---:|---:|---:|
@@ -132,15 +140,22 @@ N=8, that is evidence covariate-sharing drives the pathology") is
 answered in the negative: this structure sits below both prior readings,
 not between them.
 
-**One feature persists regardless of structure.** The MI by-term (block
-index 1) lands exactly on the search's own upper bound at every thread
-count (`log_lambda[1]=11.0`, `at_bound=True`; full point at 4 threads:
+**One feature partially persists regardless of structure — stated
+precisely rather than rounded up.** The MI by-term (block index 1) lands
+exactly on the search's own upper bound at 2 of the 3 thread counts:
+2 threads `log_lambda[1]=11.000000` (`at_bound=True`), 4 threads
+`log_lambda[1]=11.000000` (`at_bound=True`, full point
 `[7.136, 11.000, 3.315, 2.840, 10.276, 6.471, 8.382, 5.055]`,
 `edf_total≈26.0`) — the same "shrunk toward a large, weakly-identified
 lambda" signature ADR-211/212 found for this exact term in the N=4
-fixture. Here, unlike there, it does not destabilise the rest of the
-search: the other seven blocks converge to the identical point regardless
-of thread count or starting point.
+fixture. **At 1 thread it does NOT reach the bound**:
+`log_lambda[1]=10.859083`, `at_bound=False`, at the identical landing
+point the table above already reports (score `602.994904`, `441`
+evals — confirmed by re-reading the same `--worker 1` output, not a
+different run). Here, unlike in the N=4 fixture, it does not destabilise
+the rest of the search: the other seven blocks converge to the identical
+overall score regardless of thread count or starting point, even where
+this one block's own coordinate still moves (10.859 to 11.000).
 
 **Cost.** Best-of-9 costs `~9x`-`~15x` a single search's own function
 evaluations (6444/4617/5166 vs. 441/522/504) — inside ADR-213's own
@@ -216,7 +231,15 @@ digest.
   goldens byte-identical — expected, since no production code changed
   this session.
 - `uv run python scripts/perf_history.py`: run once on this PR's initial
-  open (ADR-177).
+  open (ADR-177). No structural creep (`has_structural_creep: false`,
+  peak MiB 33 → 33, the gating signal). **PR #219 review [P2-1]:**
+  `has_wall_time_creep` flipped `false → true` with this PR's row (ratio
+  1.169 → 1.354, band 1.25) — advisory only, never gates
+  (`ProbeCreep`'s own docstring attributes this class of flip to
+  cross-machine hardware drift), and since no production code changed
+  this session it is almost certainly container drift rather than a
+  real regression, but worth recording as the first time this advisory
+  flag has flipped rather than passing over it silently.
 
 ## Definition of done (PLAN slice 5f's own acceptance)
 
@@ -238,3 +261,41 @@ digest.
   this slice's own scope (one construction, not `sz` itself) and a
   question slice 6/7 will answer as a byproduct of their own work, not a
   gap this session opened that needs independent tracking.
+
+## PR #219 review response (2026-08-31)
+
+Automated review (verdict: approve, with two P1 findings to correct
+before merge — doc-only, the slice's own finding reproduces exactly).
+Independently re-verified [P1-1] before touching anything (re-ran
+`select_lambdas_continuous` at 1 thread on the committed script's own
+design: `log_lambda[1]=10.859083`, `at_bound=False`, score/evals
+byte-identical to the published 1-thread reading — confirms the review's
+reading exactly). Addressed:
+
+- **[P1-1]** "at every thread count" was false at 1 thread (by-term
+  `at_bound=False` there, `True` at 2 and 4 threads). Corrected in all
+  four places the review named: this log (Measurement and Quality-gate-
+  adjacent sections above), ADR-214, `CONTINUATION_mgcv_parity_engine.md`,
+  and the PR body — each now states the finding as "2 of 3 thread
+  counts" with the 1-thread value given explicitly, rather than rounding
+  up to all three.
+- **[P1-2]** The root cause: the published `at_bound`/`log_lambda` detail
+  came from an uncommitted, ad hoc script rather than the diagnostic's
+  own already-emitted `--worker` JSON fields, and only one (ambient,
+  unpinned-thread) run of that script was taken — which is how a single
+  reading got generalised to "every thread count." Fixed two ways:
+  reading `--worker` output directly for this correction (as the review
+  itself did), and adding `single_evals`/`single_at_bound` to
+  `main()`'s own printed table in `scripts/gam_multistart_shared_covariates_diagnostic.py`
+  so the published detail and the committed script cannot drift apart on
+  a future run.
+- **[P2-1]** Added one line to the Quality gate section above noting the
+  advisory `has_wall_time_creep` flag's first flip to `true` on this PR
+  (never gates; almost certainly container drift given no production
+  code changed).
+- **[P2-2]** ADR-214's rank-deficiency sentence read "rank 124 of 124
+  columns needed, deficiency exactly 2" — self-contradictory. Corrected
+  to "rank 122 of the 124 columns needed."
+- **[P2-3]** The two 2nd-order `PRODUCT_DIRECTION_2026-07-24.md` harvest
+  bullets gained the explicit `, NICE-TO-HAVE` tier label matching the
+  immediately-preceding entry's own house form.

@@ -19138,7 +19138,7 @@ construction the slice's own registration asked for.** The first draft
 used two independent binary indicators (mirroring `FaceSize`/`Smoke`
 literally) and put each one on BOTH an `AttdAge` term and a `PolYear`
 term. Measured directly (`numpy.linalg.matrix_rank`, then SVD): rank
-124 of 124 columns needed, deficiency exactly 2, and the two near-null
+122 of the 124 columns needed, deficiency exactly 2, and the two near-null
 singular vectors (singular values `~1e-15` against the next at `1.3e-2`)
 load exclusively on the age/year block pair sharing one indicator each.
 The mechanism: an UNCONSTRAINED `by`-scaled `cr` basis always contains the
@@ -19203,23 +19203,31 @@ the decoupled N=8 one, that is evidence covariate-sharing drives the
 pathology") is answered in the negative, cleanly: this covariate-sharing
 structure sits BELOW both prior readings, not between them.
 
-**One structural feature does carry over from N=4, and it is worth
-naming rather than treating the clean spread number as the whole
-story.** The MI `by`-term (block index 1) lands exactly on the search's
-own upper bound at every thread count (`log_lambda[1] = 11.0`,
-`at_bound=True`; full point at 4 threads:
-`[7.136, 11.000, 3.315, 2.840, 10.276, 6.471, 8.382, 5.055]`,
-`edf_total≈26.0`), the same "shrunk toward a large, weakly-identified
-smoothing parameter" signature ADR-211/212 found for this exact term in
-the N=4 fixture. **What differs is the consequence, not the mechanism**:
-in the N=4 fixture that direction's weak identifiability let thread-level
-noise move the WHOLE search's landing point and, at some thread counts,
-break SciPy's own convergence check outright. Here, the same term still
-sits at a bound, but the other seven blocks' own identifiability is
-apparently strong enough that the search converges to the SAME point
-regardless of thread count or starting point — weak identifiability in
-one block does not, on this structure, propagate into the kind of
-whole-search instability multi-start exists to mitigate.
+**One structural feature does partially carry over from N=4, and it is
+worth naming precisely rather than rounding up to the clean spread
+number's own story.** The MI `by`-term (block index 1) lands exactly on
+the search's own upper bound at **2 of the 3** thread counts —
+`[7.123, 11.000, 3.315, 2.845, 10.152, 6.467, 8.786, 5.053]` at 2
+threads and `[7.136, 11.000, 3.315, 2.840, 10.276, 6.471, 8.382, 5.055]`
+at 4 threads (`edf_total≈26.0`), both `at_bound=True` — the same "shrunk
+toward a large, weakly-identified smoothing parameter" signature
+ADR-211/212 found for this exact term in the N=4 fixture. **At 1 thread
+it does NOT reach the bound**: `log_lambda[1]=10.859083`,
+`at_bound=False` (PR #219 review [P1-1], independently reproduced twice
+on the committed script — this is the SAME landing point the table above
+publishes for 1 thread, not a different run: score `602.994904` and
+`441` evaluations match to the digit). **What differs from N=4 is the
+consequence, not the mechanism**: in the N=4 fixture that direction's
+weak identifiability let thread-level noise move the WHOLE search's
+landing point and, at some thread counts, break SciPy's own convergence
+check outright. Here, the same term sits near or at a bound at every
+thread count tested, but the other seven blocks' own identifiability is
+apparently strong enough that the search converges to the SAME overall
+score regardless of thread count or starting point — weak identifiability
+in one block does not, on this structure, propagate into the kind of
+whole-search score instability multi-start exists to mitigate, even
+where that one block's own coordinate still moves (10.859 to 11.000
+across the three readings).
 
 **Cost.** Best-of-9 costs `~9x`-`~15x` a single search's own function
 evaluations here (evals 6444/4617/5166 vs. single 441/522/504) — inside
