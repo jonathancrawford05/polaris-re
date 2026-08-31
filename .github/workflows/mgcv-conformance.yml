@@ -103,6 +103,13 @@ on:
       - "scripts/gam_multiterm_free_sp_probe.R"
       - "scripts/gam_multiterm_sp_delta_probe.R"
       - "scripts/gam_free_sp_warmstart_diagnostic.py"
+      # PLAN slice 6b — the first multi-term mgcv-native model containing an
+      # `sz` term (reference age + one of the target formula's own `sz`
+      # terms), same reasoning as the slice 5 lines above: a change to the
+      # `sz` basis producer, the ModelSpec `sz` dispatch, this module or its
+      # probe must re-run the Stage-B eta comparison against mgcv.
+      - "src/polaris_re/analytics/gam_multiterm_sz_conformance.py"
+      - "scripts/gam_multiterm_sz_probe.R"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -372,6 +379,21 @@ jobs:
             Rscript scripts/gam_multiterm_probe.R \
               gam_multiterm_probe.json
 
+      # PLAN slice 6b: the first multi-term mgcv-native model containing an
+      # `sz` term — reference age smooth plus the target formula's own first
+      # `sz` term (s(FaceSize, AttdAge, ...)), fit TOGETHER at a fixed sp for
+      # every block (1 for the reference term, 2 for the two-level `sz`
+      # term). Same DIAGNOSTIC contract as the probes above — the eta
+      # comparison against the independent Python assembly
+      # (gam_multiterm_sz_conformance) happens in the `compare` job below.
+      - name: Fit the shared reference+sz multi-term design at fixed sp (slice 6b)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_multiterm_sz_probe.R \
+              gam_multiterm_sz_probe.json
+
       # PLAN slice 5b (docs/WORK_ORDER_multi_term_assembly.md): the SAME
       # three-term formula at FREE sp — mgcv chooses its own smoothing
       # parameters via method="REML". Same DIAGNOSTIC contract as the probes
@@ -443,6 +465,7 @@ jobs:
             gam_deriv_probe.json
             gam_vc_probe.json
             gam_multiterm_probe.json
+            gam_multiterm_sz_probe.json
             gam_multiterm_free_sp_probe.json
             gam_multiterm_sp_delta_probe.json
             gam_fixed_sp_score_probe.json
@@ -1128,6 +1151,68 @@ jobs:
             cat gam_multiterm_probe_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # PLAN slice 6b: compares the independent Python reference+sz
+      # assembly (gam_multiterm_sz_conformance) against job 1's native mgcv
+      # fit of the SAME two-term formula at the SAME fixed sp. DIAGNOSTIC
+      # ONLY, same contract as the probes above — printed to stdout from the
+      # start (ADR-194's methodology fix), so a tier-3 read never has to
+      # settle for "the step didn't except."
+      - name: Compare the reference+sz multi-term Stage-B fit against the Python side (slice 6b)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_multiterm_sz_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_multiterm_sz_probe.json to compare ({exc}) — the R "
+                    "probe above did not produce one.")
+              sys.exit(0)
+
+          from polaris_re.analytics.gam_multiterm_sz_conformance import (
+              SZ_MULTITERM_CLAIM, compare_sz_multiterm_case, fit_sz_multiterm_case,
+          )
+          from polaris_re.core.verification import evidence_markdown
+
+          fit, _design = fit_sz_multiterm_case(r_payload)
+          c = compare_sz_multiterm_case(fit, r_payload)
+
+          lines = [
+              "",
+              "### Slice 6b — reference + sz multi-term mgcv-native model vs mgcv (INDEPENDENT on eta)",
+              "",
+              evidence_markdown(SZ_MULTITERM_CLAIM),
+              "",
+              "| n | p | max abs eta diff | agrees |",
+              "|---:|---:|---:|---|",
+              f"| {r_payload['n']} | {len(r_payload['coef'])} | "
+              f"{c['max_abs_eta_diff']:.3e} | {c['agrees']} |",
+              "",
+              "Reference age s(AttdAge) and the target formula's own first sz "
+              "term s(FaceSize,AttdAge), fit TOGETHER at a fixed sp under "
+              "binomial/cloglog with ExposCnt weights. `eta` is INDEPENDENT "
+              "(see the legend): gam_multiterm_sz_conformance.fit_sz_multiterm_case "
+              "never reads this script's own eta or coef, only the shared "
+              "recipe (AttdAge, FaceSize's 0-indexed level code, ExposCnt, y, "
+              "the reference term's own knots, sp). A disagreement is a real "
+              "result about the sz-carrying multi-term assembly, not a broken "
+              "round trip. Coefficients are NOT compared (Anchor 2).",
+          ]
+          if not c["agrees"]:
+              lines.insert(2, "**Disagreement — see the table. This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_multiterm_sz_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_multiterm_sz_probe_report.md ]; then
+            cat gam_multiterm_sz_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       # PLAN slice 5b (docs/WORK_ORDER_multi_term_assembly.md): compares
       # PolarisGAM's own free-sp selection (gam_model_conformance) against
       # job 1's native mgcv free-sp REML fit of the SAME three-term formula.
@@ -1446,3 +1531,5 @@ jobs:
             gam_vc_report.md
             gam_multiterm_probe.json
             gam_multiterm_probe_report.md
+            gam_multiterm_sz_probe.json
+            gam_multiterm_sz_probe_report.md

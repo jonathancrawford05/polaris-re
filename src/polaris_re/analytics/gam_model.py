@@ -22,10 +22,17 @@ ADR-200, ADR-205), the continuous smoothing-parameter search
 ADR-199), and the general penalized fitter it already calls internally
 (:func:`~polaris_re.analytics.gam_fit.penalized_irls_general` — ADR-195).
 
-**What this module does NOT do.** ``"sz"`` terms (slice 6) and
-``select = TRUE`` (slice 7) are not built — :func:`assemble_model_design`
-raises on any basis it does not recognise rather than silently skipping a
-term. It does not touch ``experience_gam_penalized`` or ``experience_gam``
+**What this module does NOT do.** ``select = TRUE`` (slice 7) is not built
+— :func:`assemble_model_design` raises on any basis it does not recognise
+rather than silently skipping a term. ``"sz"`` terms (slice 6b,
+``docs/PLAN_mgcv_parity_engine.md``) ARE built by :func:`assemble_model_design`
+via :func:`~polaris_re.analytics.gam_stage_a.build_python_sz_term` (ADR-215),
+but :func:`fit_polaris_gam`'s own outer search
+(:func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`)
+has never been exercised on an ``sz``-shaped block structure (one smoothing
+parameter per factor level) — slice 6b's own scope is the fixed-``sp``
+assembly and fit, not extending the free-``sp`` search to this shape. It
+does not touch ``experience_gam_penalized`` or ``experience_gam``
 (PLAN Anchor 7) — those stay the production tensor-MI surface until a caller
 is explicitly moved, which this module does not do on its own. It does not
 compute an unconditional (Kass-Steffey / Wood-Pya-Saefken) covariance — the
@@ -47,7 +54,12 @@ from polaris_re.analytics.gam_family import (
     quasipoisson_log,
 )
 from polaris_re.analytics.gam_reml_optimize import select_lambdas_continuous
-from polaris_re.analytics.gam_stage_a import TermExtract, build_python_cr_term, build_python_ti_term
+from polaris_re.analytics.gam_stage_a import (
+    TermExtract,
+    build_python_cr_term,
+    build_python_sz_term,
+    build_python_ti_term,
+)
 from polaris_re.analytics.gam_term_spec import ModelSpec, TermSpec
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 
@@ -140,12 +152,24 @@ def _build_term_extract(term: TermSpec, data: Mapping[str, np.ndarray]) -> TermE
         x1 = np.asarray(data[term.variables[0]], dtype=np.float64)
         x2 = np.asarray(data[term.variables[1]], dtype=np.float64)
         return build_python_ti_term(x1, x2, term)
+    if term.basis == "sz":
+        # TermSpec's own documented order for basis="sz": (factor_name, smoothed_name).
+        factor_name, smoothed_name = term.variables
+        x = np.asarray(data[smoothed_name], dtype=np.float64)
+        group = np.asarray(data[factor_name], dtype=np.int64)
+        if term.n_levels is None:
+            raise PolarisValidationError(
+                f"assemble_model_design: TermSpec {term.label!r} is basis='sz' "
+                "with n_levels=None — the factor-level count is an input "
+                "(Anchor 4), not derived from a sample's own observed group "
+                "codes. Set TermSpec.n_levels explicitly."
+            )
+        return build_python_sz_term(x, group, term.n_levels, term)
     raise PolarisValidationError(
         f"assemble_model_design: TermSpec {term.label!r} has basis={term.basis!r}, "
-        "which PolarisGAM does not build yet — only 'cr' and 'ti' are wired. "
-        "'sz' is slice 6 (docs/PLAN_mgcv_parity_engine.md); 'raw' supplies its "
-        "own design/penalty directly and has no recipe for this function to "
-        "build from."
+        "which PolarisGAM does not build yet — only 'cr', 'ti' and 'sz' are "
+        "wired. 'raw' supplies its own design/penalty directly and has no "
+        "recipe for this function to build from."
     )
 
 
@@ -164,12 +188,14 @@ def assemble_model_design(model: ModelSpec, data: Mapping[str, np.ndarray]) -> M
     (now built on this function) already use.
 
     Args:
-        model: every term must be ``basis="cr"`` or ``basis="ti"`` — see
-            :func:`_build_term_extract`.
+        model: every term must be ``basis="cr"``, ``basis="ti"`` or
+            ``basis="sz"`` — see :func:`_build_term_extract`.
         data: covariate arrays keyed by name, e.g. ``{"AttdAge": ..., "PolYear":
             ..., "StudyYear_C": ...}`` — a numeric-``by`` term reads its scaling
-            variable from here via ``term.by``, and a ``ti`` term reads both of
-            ``term.variables`` from here.
+            variable from here via ``term.by``, a ``ti`` term reads both of
+            ``term.variables`` from here, and an ``sz`` term reads its factor's
+            0-indexed level codes (``term.variables[0]``) and its smoothed
+            margin's values (``term.variables[1]``) from here.
 
     Raises:
         PolarisValidationError: if a term names a basis this function does not

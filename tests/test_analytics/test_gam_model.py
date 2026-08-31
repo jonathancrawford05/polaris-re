@@ -56,6 +56,24 @@ def _ti_term() -> TermSpec:
     )
 
 
+def _sz_term(n_levels: int = 2) -> TermSpec:
+    return TermSpec(
+        label="s(FaceSize,AttdAge)",
+        variables=("FaceSize", "AttdAge"),
+        basis="sz",
+        k=(len(_AGE_KNOTS),),
+        knots=(("AttdAge", _AGE_KNOTS),),
+        n_levels=n_levels,
+    )
+
+
+def _data_with_face_size(n: int = 60, seed: int = 20260825) -> dict[str, np.ndarray]:
+    data = _data(n=n, seed=seed)
+    rng = np.random.default_rng(seed + 1)
+    data["FaceSize"] = rng.integers(0, 2, size=n)
+    return data
+
+
 def test_resolve_family_covers_every_slice_3_combination() -> None:
     for family, link in [
         ("poisson", "log"),
@@ -171,12 +189,58 @@ def test_ti_term_carries_two_penalty_blocks_over_the_same_span() -> None:
 
 
 def test_assemble_model_design_rejects_an_unbuilt_basis() -> None:
-    term = TermSpec(
-        label="s(FaceSize,AttdAge)", variables=("FaceSize", "AttdAge"), basis="sz", k=(13,)
-    )
+    """``"raw"`` has no recipe for this function to build from — its design
+    and penalty are supplied directly (ADR-189 decision 1), unlike
+    ``"cr"``/``"ti"``/``"sz"``, all three of which PLAN slice 6b now wires."""
+    term = TermSpec(label="raw-term", variables=("AttdAge",), basis="raw")
     model = ModelSpec(family="binomial", link="cloglog", terms=(term,))
     with pytest.raises(PolarisValidationError, match="does not build yet"):
         assemble_model_design(model, _data())
+
+
+def test_assemble_model_design_requires_n_levels_for_sz() -> None:
+    """PLAN slice 6b: unlike ADR-215's own narrower Stage-A harness
+    (``build_python_sz_term``, which takes ``n_levels`` as its own explicit
+    argument), the ``ModelSpec``-driven path reads it off ``TermSpec.n_levels``
+    and raises loudly rather than deriving it from a sample's own observed
+    group codes (Anchor 4)."""
+    term = TermSpec(
+        label="s(FaceSize,AttdAge)",
+        variables=("FaceSize", "AttdAge"),
+        basis="sz",
+        k=(len(_AGE_KNOTS),),
+    )
+    model = ModelSpec(family="binomial", link="cloglog", terms=(term,))
+    with pytest.raises(PolarisValidationError, match="n_levels=None"):
+        assemble_model_design(model, _data_with_face_size())
+
+
+def test_sz_term_carries_one_penalty_block_per_factor_level() -> None:
+    """ADR-215's own ``sz_basis`` contract: one penalty block per factor
+    level (2 here), both blocks spanning the SAME ``k * (n_levels - 1)``
+    columns — the same "shared span, not disjoint" shape ``ti()``'s two
+    margin penalties already have (ADR-205 decision 2)."""
+    model = ModelSpec(
+        family="binomial",
+        link="cloglog",
+        terms=(_cr_term(), _sz_term()),
+        weights_column="ExposCnt",
+    )
+    design = assemble_model_design(model, _data_with_face_size())
+
+    ref_block, sz_block = design["term_blocks"]
+    k = len(_AGE_KNOTS)
+    assert ref_block["end"] - ref_block["start"] == k - 1  # constrained
+    assert sz_block["end"] - sz_block["start"] == k * 1  # k * (n_levels - 1) = k
+    assert sz_block["n_penalties"] == 2  # one per factor level
+    assert len(design["penalty_blocks"]) == 3  # 1 (ref) + 2 (sz, one per level)
+
+    (lo, hi) = sz_block["start"], sz_block["end"]
+    for block in design["penalty_blocks"][1:]:
+        support = np.flatnonzero(np.any(block != 0.0, axis=0))
+        assert support.size > 0
+        assert support.min() >= lo
+        assert support.max() < hi
 
 
 def test_fit_polaris_gam_selects_its_own_lambda_and_converges() -> None:
