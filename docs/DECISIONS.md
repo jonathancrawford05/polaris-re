@@ -19411,3 +19411,122 @@ block) 5.107e-15/4.441e-15/5.773e-15, `rank_diff` all-zero throughout. Both
 jobs (`mgcv reference (R)`, `Compare against the Python reference`)
 completed successfully; the conformance gate's required levels 1-3 show no
 regression. `docs/CONFORMANCE_LEDGER.md`'s slice-6 row carries the reading.
+
+## ADR-216: Slice 6b — the first `sz`-carrying multi-term Stage-B fit, INDEPENDENT on `eta`, agrees on the first measurement at both tiers
+
+**Status:** ACCEPTED, 2026-08-31.
+
+**Context.** ADR-215 closed slice 6's Stage A the same day: a single-factor
+`sz` basis agreeing with `smoothCon(bs="sz", absorb.cons=TRUE)` at float
+round-trip precision. It explicitly registered Stage B — "a multi-term fit
+including an `sz` term, compared on `eta` against `mgcv`'s own native fit,
+ADR-206's own pattern" — as PLAN slice 6b, "READY, not designated." The
+routine's "next unchecked slice, no fallback picks" rule selects it this
+session.
+
+**Claim, written before the code (`docs/VERIFICATION_STANDARD.md` §3.2):**
+`gam_multiterm_sz_conformance.fit_sz_multiterm_case` computes `eta` by
+assembling a two-term design (`s(AttdAge,k=13,bs="cr")` +
+`s(FaceSize,AttdAge,k=13,bs="sz",xt=list(bs="cr"))` — the target formula's
+own first `sz` term verbatim, PLAN Section 1, at its own `AttdAge` k=13 knot
+vector, the same knots ADR-215's "sz-target-attdage-k13" Stage-A case
+already used) from `gam_model.assemble_model_design` and fitting with
+`gam_fit.penalized_irls_general` at a FIXED, externally-supplied `sp` per
+block (1 reference + 2 sz-factor-level blocks); `mgcv` computes the
+identical two-term model natively via `gam(y ~ s(AttdAge,k=13,bs="cr") +
+s(FaceSize,AttdAge,k=13,bs="sz",xt=list(bs="cr")),
+family=binomial(link="cloglog"), weights=ExposCnt, sp=sp_fixed)`; compared
+on `eta` at the training design.
+
+**What shipped.**
+- `src/polaris_re/analytics/gam_term_spec.py`: `TermSpec.n_levels` — a new,
+  optional field carrying the factor-level count for a `basis="sz"` term.
+  An INPUT (Anchor 4), never derived from a sample's own observed group
+  codes: a factor level absent from one particular draw must not silently
+  shrink the term. Validated `>= 2` when set on `sz`, forbidden on any other
+  basis. Deliberately optional even for `sz` — ADR-215's own narrower
+  Stage-A harness (`build_python_sz_term`) takes `n_levels` as its own
+  explicit function argument and does not read the spec, so none of that
+  session's existing `TermSpec` construction sites needed to change.
+- `src/polaris_re/analytics/gam_model.py`: `_build_term_extract` now
+  dispatches `basis="sz"` to `build_python_sz_term`, reading the factor's
+  0-indexed level codes and the smoothed margin from `data` by
+  `TermSpec.variables`' own documented `(factor, smoothed)` order, and
+  raising loudly (not silently deriving `n_levels`) when the spec doesn't
+  carry one. `assemble_model_design` now builds all three of PLAN §3's
+  in-scope bases — `cr`, `ti`, `sz` — the same function slice 5b (ADR-207/
+  208) built for the first two.
+- `src/polaris_re/analytics/gam_multiterm_sz_conformance.py` (new): the
+  Stage-B comparison, `MULTITERM_CLAIM`-shaped (ADR-206). `SZ_MULTITERM_CLAIM`
+  declares `eta` `INDEPENDENT` — `fit_sz_multiterm_case`'s signature takes
+  only `RSzMultiTermRecipe`, which structurally excludes `eta`/`coef`
+  (checked at the type, not merely by convention,
+  `test_fit_sz_multiterm_case_signature_takes_no_r_fit_output`).
+- `scripts/gam_multiterm_sz_probe.R` (new): builds the shared recipe
+  deterministically (`set.seed(20260831)`, ADR-074) and fits the identical
+  formula natively at the fixed `sp`.
+- `.github/workflows/mgcv-conformance.yml`: a job-1 fit step and a job-2
+  compare step, same `continue-on-error`/diagnostic contract as the slice
+  5/5b Stage-B sections (printed to stdout from the start, ADR-194's
+  methodology fix) — never folded into `REQUIRED_LEVELS`.
+- Tests: `tests/test_analytics/test_gam_term_spec.py` (`n_levels`
+  validation), `tests/test_analytics/test_gam_model.py` (the `sz` dispatch:
+  block widths and spans, the "one penalty block per factor level, shared
+  span" shape — the same non-disjoint shape `ti()`'s two margin penalties
+  already have, ADR-205 decision 2 — and the `n_levels=None` guard),
+  `tests/test_analytics/test_gam_multiterm_sz_conformance.py` (R-free
+  structural tests plus the R-gated end-to-end parity test, same shape as
+  `test_gam_multiterm_conformance.py`).
+
+**Measured: agrees on the first attempt, both tiers, no iteration needed —
+the same shape ADR-206 and ADR-215 both had.**
+
+| tier | n | p | max abs eta diff | agrees |
+|---|---:|---:|---:|---|
+| 1 (local apt, R 4.3.3 / mgcv 1.9.1) | 700 | 26 | 3.921e-12 | True |
+| 3 (pinned oracle, R 4.6.1 / mgcv 1.9.4, `sha256:0d54c192…` build 8, CI run [33393744694](https://github.com/jonathancrawford05/polaris-re/actions/runs/33393744694)) | 700 | 26 | 3.912e-12 | True |
+
+Both tiers agree to the same order of magnitude (the residual digits differ
+in the noise floor, not in verdict) — consistent with a well-conditioned,
+disjoint-support two-term design, the same reading ADR-206's own first
+multi-term measurement (`1.242e-10`) had. Required conformance levels 1-3
+show no regression on this run (both jobs completed successfully; the
+compare job's gate step fails the job outright on a levels-1-3 regression,
+so a green job is itself the evidence).
+
+**Provenance (ADR-193).**
+
+| quantity | left producer | right producer | provenance |
+|---|---|---|---|
+| `eta` | `gam_fit.penalized_irls_general` over a design from `gam_model.assemble_model_design`'s independently-verified `cr`/`sz` producers | `mgcv::predict(m, type='link')` on a native `gam()` fit of the identical formula at the same fixed `sp` | INDEPENDENT |
+
+Coefficients travel in the R payload for diagnostic reading only and are
+never compared (Anchor 2); `SZ_MULTITERM_CLAIM` does not name `coef`.
+
+**Scope, stated explicitly (what this ADR does NOT close).**
+- **Fixed `sp` only.** `select_lambdas_continuous` has not been exercised on
+  an `sz`-shaped block structure (one smoothing parameter per factor
+  level) — named, not attempted, the same discipline ADR-206 used before
+  ADR-208 built the free-`sp` counterpart for `ti`/`by`.
+- **The minimal `cr`+`sz` pairing only.** A model with more than one `sz`
+  term, or an `sz` term alongside a `ti`/numeric-`by` term the way the
+  target formula's own eight terms sit together, is unexercised — this
+  slice deliberately proved the smallest new shape first, the same
+  discipline ADR-206 used for `ti`/`by` before combining them.
+- **`cr` basis extrapolation beyond the knot range** remains the same
+  standing, inherited limitation named since ADR-194.
+
+**Consequences.** Every basis PLAN §1 named as required (`cr`, `ti`, `sz`,
+plus a numeric-`by`-scaled `cr`) now has both an INDEPENDENT Stage-A AND an
+INDEPENDENT Stage-B result. What remains before the target formula's full
+eight-term structure can be assembled, fit and have its own smoothing
+parameters selected: extending the outer search to an `sz`-shaped block
+structure, combining `sz` with `ti`/`by` in one model, and slice 7
+(`select = TRUE`).
+
+**Named, not registered as a slice** (below the ADR-209 decision-1 bar for
+a session-blocking gap, per this session's own judgement — a future
+session should register these if either becomes the epic's next unchecked
+work): extending `select_lambdas_continuous` to an `sz`-shaped block
+structure; a multi-term model combining `sz` with `ti`/`by`; a model with
+more than one `sz` term.

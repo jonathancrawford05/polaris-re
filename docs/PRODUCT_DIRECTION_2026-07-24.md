@@ -3180,3 +3180,30 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   session, ADR-215 (1st-order — a follow-up of the slice this session
   closed, needed before the target's full eight-term structure can be
   assembled and fit).*
+
+### Harvested 2026-08-31 — slice 6b: the first `sz`-carrying multi-term Stage-B fit, agrees on the first measurement at both tiers (ADR-216)
+
+- **Slice 6b IS NOW DONE, the same day slice 6 closed Stage A.**
+  `gam_model.assemble_model_design` dispatches `basis="sz"` (via a new,
+  explicit `TermSpec.n_levels` input) alongside the `cr`/`ti` dispatch slice
+  5b already built — every basis PLAN §1 named as required now has both an
+  INDEPENDENT Stage-A and an INDEPENDENT Stage-B result. A two-term model
+  (`s(AttdAge,k=13,bs="cr")` + the target formula's own first `sz` term,
+  `s(FaceSize,AttdAge,k=13,bs="sz",xt=list(bs="cr"))`, fixed sp) agrees with
+  `mgcv`'s native fit on `eta` at `3.921e-12` (tier 1) / `3.912e-12` (tier
+  3) — the first measurement, no iteration needed, the same shape ADR-206's
+  own first multi-term result had (`1.242e-10`). *Source: this session,
+  ADR-216 (1st-order — closes the epic's next unchecked slice and is the
+  last basis-class gap named in PLAN §1).*
+
+- **What remains open, named but not yet registered as a slice:**
+  extending `select_lambdas_continuous` to an `sz`-shaped block structure
+  (one smoothing parameter per factor level); a multi-term model combining
+  `sz` with `ti`/numeric-`by` (the target formula's own actual shape, all
+  eight terms together); a model with more than one `sz` term (the target
+  has four). This session deliberately proved the minimal new `cr`+`sz`
+  pairing first, the same discipline ADR-206 used before combining `ti`
+  and `by`. Slice 7 (`select = TRUE`) remains the epic's next PLANNED,
+  un-blocked slice. *Source: this session, ADR-216 (1st-order — a
+  follow-up needed before the target's full eight-term structure can be
+  assembled, fit and have its own smoothing parameters selected).*
