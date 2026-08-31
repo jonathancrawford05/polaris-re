@@ -16,9 +16,14 @@ defects closed to float precision at fixed `sp`, tier 1 and tier 3 identical), a
 free-`sp` residual as an optimiser-convergence question rather than a criterion one;
 DONE the same day, ADR-212 — a finite-difference-step defect confirmed and fixed at
 both tiers, and the remaining `log10(sp)` residual localised to weak identifiability
-on one block rather than a defect, unblocking slice 6). The letter suffixes exist so
-inserting work does not renumber slices 6 and 7 and break every cross-reference to
-them.
+on one block rather than a defect, unblocking slice 6), **slice 5e** (inserted
+2026-08-29/30, DONE 2026-08-30, ADR-213 — best-of-N multi-start built and measured;
+recovers a real N=4 convergence failure, single-start already sufficient on a
+covariate-DECOUPLED N=8 stress case), and **slice 5f** (inserted 2026-08-30, DONE
+2026-08-31, ADR-214 — the same question on a covariate-SHARING N=8 structure;
+single-start sufficient there too, and MORE stable than either of slice 5e's own
+readings). The letter suffixes exist so inserting work does not renumber slices 6
+and 7 and break every cross-reference to them.
 **Estimated scope:** the largest numerical undertaking in the project. Sized honestly
 below rather than optimistically.
 
@@ -1131,6 +1136,30 @@ one. Only the tier-3 oracle and ADR-193's two-producer rule do that.
   results (single suffices / multi-start meaningfully helps / neither
   converges reliably) is the deliverable; this is not registered with a
   predicted answer.
+- **DONE, 2026-08-31 (ADR-214).** `scripts/gam_multistart_shared_covariates_diagnostic.py`
+  built an N=8 design (the N=4 fixture's own `ref`+`by`+`ti` plus four
+  `s(x, by=Group)` terms, two on `AttdAge` and two on `PolYear`, four
+  independent binary indicators — a first two-indicator draft reusing one
+  indicator across both variables was exactly rank-deficient by 2,
+  SVD-confirmed, the mechanism recorded in ADR-214). At all three thread
+  counts (1/2/4), single-start CONVERGED and matched best-of-9 EXACTLY
+  (gap `0.000000` throughout); thread-to-thread spread was `0.000656` for
+  BOTH — the smallest spread of any structure measured across slices
+  5e/5f, tighter than ADR-213's own N=4 reading (0.001483/0.000006) and
+  its decoupled-N=8 reading (0.001180/0.001165), not between them. **The
+  acceptance criterion's own predicted range of outcomes resolves to
+  "single suffices, and this structure is MORE stable than either prior
+  one"** — the opposite of what "covariate-sharing compounds the
+  pathology" would predict, for this specific construction. One
+  structural feature persists regardless of N or covariate-sharing: the
+  MI by-term (block index 1) sits exactly on the search's own upper bound
+  at every reading across N=4 and both N=8 shapes — present but, on this
+  structure, not destabilising. Cost: best-of-9 ~9x-15x a single search's
+  own evaluations, inside ADR-213's own stated 8x-21x range. **Caveat
+  named, not resolved:** this is one covariate-sharing construction
+  (independent `by`-indicators), not `sz`'s own constrained
+  parameterisation (slice 6) — evidence about the outer search's
+  robustness, not a preview of `sz`'s own basis behaviour. See ADR-214.
 
 ### Slice 6: `bs = "sz"` — orthogonal factor-smooth interactions
 

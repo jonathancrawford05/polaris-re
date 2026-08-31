@@ -310,6 +310,43 @@ forbids, and Wood rules the tolerance approach out explicitly:
 > blocks SHARE covariates the way the target formula's own 13-21 blocks
 > mostly do — that measurement remains open. See ADR-213 for every number.
 
+> **Slice 5f is DONE, 2026-08-31 (ADR-214).** Built the covariate-SHARING
+> N=8 structure ADR-213 flagged as untested: the N=4 fixture's own
+> `ref`+`by`+`ti` plus four `s(x, by=Group)` terms (two on `AttdAge`, two
+> on `PolYear`, standing in for the target's own four `sz(factor,
+> AttdAge/PolYear)` terms without building `sz`'s own constrained
+> construction). A first two-indicator draft (reusing one indicator across
+> an `AttdAge` term and a `PolYear` term, mirroring `FaceSize`/`Smoke`
+> literally) was exactly rank-deficient by 2, SVD-confirmed — an
+> unconstrained `by`-scaled `cr` basis always contains the constant
+> function in its span (ADR-200), so two terms sharing one indicator each
+> contain that indicator's own direction. Fixed with four independent
+> indicators; measured full rank and well-conditioned before use.
+> **At all three thread counts (1/2/4), single-start converged and
+> matched best-of-9 EXACTLY — gap `0.000000` throughout — and the
+> thread-to-thread spread (`0.000656` for both) is the SMALLEST of any
+> structure measured across slices 5e/5f**, tighter than both of ADR-213's
+> own readings (N=4: 0.001483/0.000006; decoupled N=8: 0.001180/0.001165),
+> not between them. **ADR-213's own registered reading question —
+> "does this structure's spread sit closer to N=4 than to decoupled N=8,
+> evidence covariate-sharing drives the pathology" — is answered in the
+> negative**: this specific covariate-sharing construction is MORE stable
+> than either prior reading, the opposite of what that hypothesis
+> predicted. One feature partially persists regardless of structure: the
+> MI by-term sits exactly on the search's own upper bound at 2 of the 3
+> thread counts on this structure (at 1 thread it lands at `10.859`,
+> `at_bound=False` — PR #219 review [P1-1], corrected from an earlier
+> "at every thread count" overstatement) — present, but on this structure
+> it does not propagate into whole-search score instability. Cost:
+> best-of-9 ~9x-15x a
+> single search's own evaluations, inside ADR-213's stated range. Caveat
+> named: this is one covariate-sharing construction (independent
+> `by`-indicators, not `sz`'s own constrained parameterisation) — evidence
+> about the outer search's robustness, not a preview of `sz`'s own basis
+> behaviour (slice 6). No mgcv comparison anywhere in this ADR, the same
+> status ADR-213 declared for its own measurements. See ADR-214 for every
+> number.
+
 
 **Total slices:** **7** autonomous, plus slice 1b (inserted 2026-08-16), slice 5b
 (inserted 2026-08-24/25, ADR-207/ADR-208), slice 5c (inserted 2026-08-25, DONE
@@ -317,9 +354,10 @@ forbids, and Wood rules the tolerance approach out explicitly:
 concurrently by ADR-212 (PR #216) and ADR-211 (PR #217), which unblock slice 6),
 slice 5e (inserted 2026-08-29, DONE 2026-08-30, ADR-213 — best-of-9 multi-start
 built, recovers a real N=4 convergence failure, no mgcv comparison anywhere in
-the slice) and slice 5f (inserted 2026-08-30, READY, not blocking slice 6/7 —
-the same N>4 question on a covariate-SHARING structure, which ADR-213's own
-deliberately-decoupled N=8 case did not test) plus one deferred to a later epic.
+the slice) and slice 5f (inserted 2026-08-30, DONE 2026-08-31, ADR-214 — the
+same N>4 question on a covariate-SHARING structure; single-start already
+sufficient there too, and the most stable structure measured across either
+slice) plus one deferred to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
 
 > **This is the ACTIVE epic.** `CONTINUATION_penalized_mi_surface.md` is superseded from

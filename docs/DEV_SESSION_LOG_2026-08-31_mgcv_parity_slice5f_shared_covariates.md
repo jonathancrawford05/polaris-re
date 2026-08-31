@@ -1,0 +1,301 @@
+# Session log — 2026-08-31 — Slice 5f: multi-start on a covariate-SHARING N=8 structure
+
+**Routine:** `docs/ROUTINE_MGCV_PARITY.md`
+**Slice:** 5f — `docs/PLAN_mgcv_parity_engine.md`, registered 2026-08-30 (ADR-213).
+The routine's "next unchecked slice" rule selected it (slice 5f precedes slice 6
+in the PLAN's own ordering; both were READY, but 5f was registered first — the
+identical reasoning that selected 5e over 6 the session before).
+**PR:** this branch (`claude/intelligent-hamilton-u2qecs`), draft.
+**ADR:** ADR-214.
+
+## Setup
+
+- `uv sync --all-extras` — clean.
+- Installed the local scratch oracle (tier 1): `apt-get install -y -qq
+  r-base-core r-cran-mgcv r-cran-jsonlite` failed on stale package-index
+  404s first (the same recurring transient prior sessions record —
+  `docs/DEV_SESSION_LOG_2026-08-30_mgcv_parity_slice5e_multistart.md`
+  hit the identical failure); `apt-get update` fixed it. Versions
+  recorded: **R 4.3.3 / mgcv 1.9.1 / jsonlite 1.8.8** — matches the
+  routine's expected apt versions exactly, no drift to flag. (Tier 1 is
+  not used for any quantity in this session's own measurement — see
+  "No mgcv comparison" below; installed per the routine's own SETUP step
+  2, unconditionally.)
+- `OPENBLAS_NUM_THREADS` is not exported for a fixed baseline run; the
+  slice's own measurement pins threads per-run via a subprocess re-exec
+  (the same `threadpoolctl`-vs-env-var lesson ADR-211/213 both name — the
+  env var alone does not reliably reach an already-imported OpenBLAS).
+
+## Gap Before
+
+PLAN slice 5f's own registered question (ADR-213): ADR-213's own N=8 stress
+case duplicated the N=4 near-flat fixture's shape onto a SECOND,
+INDEPENDENT covariate draw — chosen deliberately to rule out rank-deficiency
+after a covariate-REUSE attempt failed that way — and found single-start
+already sufficient there, at every thread count tested. But the target
+formula's own 13-21 blocks mostly SHARE covariates (`AttdAge`, `PolYear`,
+factor levels across `sz(FaceSize, AttdAge)`, `sz(Smoke, AttdAge)`,
+`sz(FaceSize, PolYear)`, `sz(Smoke, PolYear)`), which two decoupled copies
+say nothing about. **Never measured before this session**: does a
+covariate-SHARING N>4 structure behave differently?
+
+**Tier and digest:** N/A for this slice's own measurement — see "No mgcv
+comparison" below. ADR-213's own numbers quoted above are pure-Python
+internal measurements (no R involved), cited for context only.
+
+## Hypotheses tried
+
+1. **Two independent binary indicators, each scaled onto BOTH an `AttdAge`
+   term and a `PolYear` term (mirroring `sz(FaceSize, AttdAge)` /
+   `sz(FaceSize, PolYear)` literally) — tried first, REJECTED.** Measured
+   directly (`numpy.linalg.matrix_rank` on the assembled design): rank
+   deficient by exactly 2 out of 124 columns. SVD confirmed the mechanism
+   before writing the diagnostic script the other way: the two smallest
+   singular values are `~1e-15` against the next at `1.3e-2`, and their
+   null-space vectors load exclusively on the age/year block pair sharing
+   one indicator each. An unconstrained `by`-scaled `cr` basis always
+   contains the constant function in its span (ADR-200's own finding — no
+   identifiability constraint is absorbed on a numeric-`by` smooth), so
+   `s(AttdAge, by=Ind)` and `s(PolYear, by=Ind)` sharing the SAME
+   indicator each contain the direction `Ind` itself in their column
+   space — one exact linear dependency per repeated indicator. Recorded
+   here, and in the script's own docstring, so a future session does not
+   repeat it blind (the same discipline ADR-213's own rejected-hypothesis
+   1 modeled).
+2. **Four INDEPENDENT binary indicators, never repeating one across an
+   `AttdAge` term and a `PolYear` term (adopted).** `GroupA`/`GroupB` on
+   `AttdAge` (k=13, matching `ref`/`by`'s own knots), `GroupC`/`GroupD` on
+   `PolYear` (k=6, matching `ti`'s own year margin), each drawn from
+   `numpy.random.default_rng(20260831)` (pinned per ADR-074). Measured
+   full rank (124/124) and well-conditioned (`cond(XᵀX)≈1.3e7`) before
+   the diagnostic script was written the way it is — Anchor 8's "argue,
+   don't merely try" applied to a construction choice. **Verdict:
+   worked** — see Measurement below.
+
+## No mgcv comparison in this slice
+
+Stated explicitly, per `docs/VERIFICATION_STANDARD.md` §3.2, the identical
+status ADR-213 declared for its own two measurements: the claim sentence
+cannot be filled in with two distinct computations —
+`select_lambdas_continuous_multistart` is compared against
+`select_lambdas_continuous` (the single-start default), Polaris's own
+code, not a second, independent producer. Nothing here is INDEPENDENT,
+ECHO or TRANSPORT by ADR-193's mechanical test; there is no
+`right_producer` to name, so no `VerificationClaim` is declared anywhere.
+`docs/CONFORMANCE_LEDGER.md`'s new row states the same in its own verdict
+column.
+
+## What was built
+
+- `scripts/gam_multistart_shared_covariates_diagnostic.py` — the N=8
+  covariate-sharing design (the N=4 fixture's own `ref`/`by`/`ti` plus
+  `gA`/`gB`/`gC`/`gD`), and the measurement below. Re-execs itself per
+  `OPENBLAS_NUM_THREADS` value, the same pattern
+  `gam_multistart_robustness_diagnostic.py` (ADR-213) uses. No production
+  code changed — `select_lambdas_continuous`/`select_lambdas_continuous_multistart`
+  are used exactly as ADR-213 shipped them.
+
+## Measurement
+
+All three thread counts read directly from the diagnostic script's own
+JSON output (`--worker N`), which already carries `single_evals`,
+`single_at_bound` and `single_log10_sp`. **PR #219 review [P1-2]:** the
+first draft of this log instead cited a short, uncommitted standalone
+script for those three fields, on the (false) grounds that the
+diagnostic's printed table didn't carry them — the `--worker` JSON
+always did, only `main()`'s own aggregate table dropped them. That gap is
+what let a single, ambient-thread-count reading of `at_bound` get
+generalised to "every thread count" below ([P1-1], corrected). Fixed by
+reading `--worker` output directly (as this correction does) and by
+having `main()` print `single_evals`/`single_at_bound` in its own table
+going forward, so the published detail and the committed script cannot
+drift apart again — the identical gap PR #218's review caught in mirror
+image (`_THREAD_SWEEP` swept `{1,2,4}`, only `{1,4}` got reported).
+
+| threads | single score | single converged | single evals | multi (best-of-9) score | multi total evals | gap |
+|---:|---:|:---:|---:|---:|---:|---:|
+| 1 | 602.994904 | True | 441 | 602.994904 | 6444 | 0.000000 |
+| 2 | 602.994248 | True | 522 | 602.994248 | 4617 | 0.000000 |
+| 4 | 602.994548 | True | 504 | 602.994548 | 5166 | 0.000000 |
+
+**Single-start converged at every thread count, and multi-start's best-of-9
+result is identical to it — to the printed digit — at every one of the
+three.** `starts[0]` (the bounds-centre, i.e. what single-start alone
+tries) is the winner every time; best-of-9 finds nothing new here.
+
+**Spread across threads: single-start `0.000656`, multi-start `0.000656` —
+identical.** Read against ADR-213's own two readings on the same axis:
+
+| structure | single-start spread | best-of-9 spread |
+|---|---:|---:|
+| N=4, near-flat (ADR-211/212/213) | 0.001483 | 0.000006 |
+| N=8, covariate-DECOUPLED (ADR-213) | 0.001180 | 0.001165 |
+| N=8, covariate-SHARING (this session) | **0.000656** | **0.000656** |
+
+This is the smallest spread of any structure measured across either
+slice — roughly 2x tighter than the decoupled N=8 case and better than
+2x tighter than the N=4 fixture. ADR-213's own registered reading
+question ("if this design's spread sits closer to N=4 than to decoupled
+N=8, that is evidence covariate-sharing drives the pathology") is
+answered in the negative: this structure sits below both prior readings,
+not between them.
+
+**One feature partially persists regardless of structure — stated
+precisely rather than rounded up.** The MI by-term (block index 1) lands
+exactly on the search's own upper bound at 2 of the 3 thread counts:
+2 threads `log_lambda[1]=11.000000` (`at_bound=True`), 4 threads
+`log_lambda[1]=11.000000` (`at_bound=True`, full point
+`[7.136, 11.000, 3.315, 2.840, 10.276, 6.471, 8.382, 5.055]`,
+`edf_total≈26.0`) — the same "shrunk toward a large, weakly-identified
+lambda" signature ADR-211/212 found for this exact term in the N=4
+fixture. **At 1 thread it does NOT reach the bound**:
+`log_lambda[1]=10.859083`, `at_bound=False`, at the identical landing
+point the table above already reports (score `602.994904`, `441`
+evals — confirmed by re-reading the same `--worker 1` output, not a
+different run). Here, unlike in the N=4 fixture, it does not destabilise
+the rest of the search: the other seven blocks converge to the identical
+overall score regardless of thread count or starting point, even where
+this one block's own coordinate still moves (10.859 to 11.000).
+
+**Cost.** Best-of-9 costs `~9x`-`~15x` a single search's own function
+evaluations (6444/4617/5166 vs. 441/522/504) — inside ADR-213's own
+stated `8x`-`21x` range, not a new figure.
+
+## Gap After
+
+PLAN slice 5f's own question — does a covariate-SHARING N>4 structure
+behave differently from ADR-213's covariate-DECOUPLED one — is ANSWERED:
+no, and if anything this specific construction is MORE stable, not less.
+Slice 5f is DONE. What remains open, named rather than dropped: (1) this
+is one covariate-sharing construction (independent binary indicators
+standing in for `sz`'s own factor levels), not `sz`'s own constrained
+parameterisation (slice 6) — evidence about the outer search's own
+robustness, not a preview of `sz`'s Stage-A or Stage-B behaviour;
+(2) the MI by-term's own at-bound, weakly-identified behaviour persists
+structurally across every N tested so far — not new, but not resolved,
+and worth remembering if a future structure DOES reproduce the N=4
+pathology; (3) whether single-start continues to suffice past N=8, toward
+the target's 13-21 blocks, remains untested in any shape.
+
+## Provenance (ADR-193)
+
+No comparison against `mgcv` is made anywhere in this session, the
+identical status ADR-213 declared for its own measurements. Both
+readings above compare `select_lambdas_continuous_multistart`'s own
+output against `select_lambdas_continuous`'s own output — the SAME
+producer family, never a second independent implementation, an `mgcv`
+fit, or any external reference. Per `docs/VERIFICATION_STANDARD.md` §2's
+mechanical test, this is not INDEPENDENT, ECHO or TRANSPORT — those three
+exhaust the relationships a comparison *against a second producer* can
+have, and there is no second producer here at all. No `VerificationClaim`
+is declared; `docs/CONFORMANCE_LEDGER.md`'s new row states this in its
+own verdict column. The one place tier-1 R was installed this session
+(SETUP step 2, unconditional) was not used for any quantity in this
+session's own measurement — no R script was run.
+
+## Oracle version
+
+R 4.3.3 / mgcv 1.9.1 / jsonlite 1.8.8 (local apt, tier 1) — installed per
+the routine's SETUP step, not used by any quantity in this session's own
+measurement. No tier-3 (CI/pinned-image) dispatch was made this session:
+nothing measured here has an `mgcv` side to verify against a pinned
+digest.
+
+## Quality gate
+
+- `uv run ruff format scripts/gam_multistart_shared_covariates_diagnostic.py`
+  — clean (1 file left unchanged).
+- `uv run ruff check scripts/gam_multistart_shared_covariates_diagnostic.py --fix`
+  — clean (all checks passed).
+- `OPENBLAS_NUM_THREADS=1 uv run pytest tests/ -q -m "not slow"` (full
+  suite, no production code changed this session): **5 failed, 3492
+  passed, 22 skipped, 126 deselected** (501.09s) on first run — all 5
+  failures were `FileNotFoundError: Mortality table CSV not found`
+  (`tests/test_synthetic_block.py::TestCalibratedPremiums`,
+  `tests/test_analytics/test_experience_loaders.py::test_loaded_ilec_feeds_tensor_mi_surface`),
+  the identical documented, one-time-per-environment gap
+  `DEV_SESSION_LOG_2026-08-30_mgcv_parity_slice5e_multistart.md`'s own
+  Setup section hit on this same fresh container (CLAUDE.md §11 —
+  mortality tables are generated, not committed). Ran
+  `scripts/convert_soa_tables.py --source pymort --output-dir
+  data/mortality_tables`; re-ran the 5 affected tests — **all 5 pass**.
+  Not a code regression; **3497 passed, 22 skipped, 126 deselected, 0
+  failed** is this session's own baseline once the environment gap is
+  accounted for (did not re-run the full ~500s suite a second time for a
+  fresh aggregate count — the 5 tests were individually confirmed, which
+  is what matters for "is this a code regression": no).
+- `uv run pytest tests/test_analytics/test_gam_reml_optimize.py
+  tests/test_analytics/test_gam_model.py -q`: **31 passed** (38.58s) —
+  the two modules this session's script depends on, unchanged.
+- `uv run pytest tests/qa/ -q --tb=short`: **94 passed** (73.64s),
+  goldens byte-identical — expected, since no production code changed
+  this session.
+- `uv run python scripts/perf_history.py`: run once on this PR's initial
+  open (ADR-177). No structural creep (`has_structural_creep: false`,
+  peak MiB 33 → 33, the gating signal). **PR #219 review [P2-1]:**
+  `has_wall_time_creep` flipped `false → true` with this PR's row (ratio
+  1.169 → 1.354, band 1.25) — advisory only, never gates
+  (`ProbeCreep`'s own docstring attributes this class of flip to
+  cross-machine hardware drift), and since no production code changed
+  this session it is almost certainly container drift rather than a
+  real regression, but worth recording as the first time this advisory
+  flag has flipped rather than passing over it silently.
+
+## Definition of done (PLAN slice 5f's own acceptance)
+
+- [x] "The same measurement shape ADR-213 used (single vs. best-of-9,
+      thread-pinned at >=2 thread counts, cost stated) on a
+      covariate-sharing structure." Met: all three of ADR-213's own
+      thread counts (1/2/4), cost stated (~9x-15x).
+- [x] "Reporting whichever finding actually results (single suffices /
+      multi-start meaningfully helps / neither converges reliably) is
+      the deliverable; this is not registered with a predicted answer."
+      Met: single suffices, and more decisively than either of ADR-213's
+      own readings (identical single/multi scores at every thread count,
+      not merely a small gap).
+
+## Follow-ups filed
+
+- None registered as new PLAN slices. What remains open (Gap After,
+  above) is named but not filed as its own slice — it is a caveat on
+  this slice's own scope (one construction, not `sz` itself) and a
+  question slice 6/7 will answer as a byproduct of their own work, not a
+  gap this session opened that needs independent tracking.
+
+## PR #219 review response (2026-08-31)
+
+Automated review (verdict: approve, with two P1 findings to correct
+before merge — doc-only, the slice's own finding reproduces exactly).
+Independently re-verified [P1-1] before touching anything (re-ran
+`select_lambdas_continuous` at 1 thread on the committed script's own
+design: `log_lambda[1]=10.859083`, `at_bound=False`, score/evals
+byte-identical to the published 1-thread reading — confirms the review's
+reading exactly). Addressed:
+
+- **[P1-1]** "at every thread count" was false at 1 thread (by-term
+  `at_bound=False` there, `True` at 2 and 4 threads). Corrected in all
+  four places the review named: this log (Measurement and Quality-gate-
+  adjacent sections above), ADR-214, `CONTINUATION_mgcv_parity_engine.md`,
+  and the PR body — each now states the finding as "2 of 3 thread
+  counts" with the 1-thread value given explicitly, rather than rounding
+  up to all three.
+- **[P1-2]** The root cause: the published `at_bound`/`log_lambda` detail
+  came from an uncommitted, ad hoc script rather than the diagnostic's
+  own already-emitted `--worker` JSON fields, and only one (ambient,
+  unpinned-thread) run of that script was taken — which is how a single
+  reading got generalised to "every thread count." Fixed two ways:
+  reading `--worker` output directly for this correction (as the review
+  itself did), and adding `single_evals`/`single_at_bound` to
+  `main()`'s own printed table in `scripts/gam_multistart_shared_covariates_diagnostic.py`
+  so the published detail and the committed script cannot drift apart on
+  a future run.
+- **[P2-1]** Added one line to the Quality gate section above noting the
+  advisory `has_wall_time_creep` flag's first flip to `true` on this PR
+  (never gates; almost certainly container drift given no production
+  code changed).
+- **[P2-2]** ADR-214's rank-deficiency sentence read "rank 124 of 124
+  columns needed, deficiency exactly 2" — self-contradictory. Corrected
+  to "rank 122 of the 124 columns needed."
+- **[P2-3]** The two 2nd-order `PRODUCT_DIRECTION_2026-07-24.md` harvest
+  bullets gained the explicit `, NICE-TO-HAVE` tier label matching the
+  immediately-preceding entry's own house form.
