@@ -1242,23 +1242,44 @@ where `mgcv`-specific machinery lives, and Stage A is the only place a mistake i
 ### Slice 7: `select = TRUE`
 
 - **Depends on:** Slices 4-6
+- **Status: IN PROGRESS, 2026-09-01** (ADR-217, tier 1 only — tier 3 not yet
+  dispatched). The at-bound guard collision below is FIXED (`strict=`
+  parameter, the reviewer's own suggested shape). **Stage A DONE at tier 1**:
+  `gam_select_penalty.null_space_penalty` — ONE basis-agnostic rule
+  (eigendecompose the sum of a term's own existing penalty block(s) at their
+  natural, unscaled magnitude; the extra penalty is `U0 @ U0.T` for the
+  null-space eigenvectors) — agrees with `mgcv`'s own
+  `gam(..., select=TRUE, fit=FALSE)$smooth[[i]]$S` to float round-trip
+  precision on all six target-formula term archetypes (`cr` reference x2,
+  the `by` MI term, `ti`, `sz` x2), no per-basis special-casing needed.
+  **Stage B DONE at tier 1**: the same three-term model ADR-206 verified,
+  now fit with `ModelSpec.select=True` (7 blocks) via
+  `gam_model.assemble_model_design`, agrees with `mgcv`'s native
+  `select=TRUE` fit on `eta` to `6.164e-11` — no iteration needed. **What
+  remains**: tier-3 confirmation (CI dispatch, new `mgcv-conformance.yml`
+  steps land in this same PR), then extending
+  `select_lambdas_continuous`/`fit_polaris_gam`'s own free-`sp` search to
+  the doubled/increased block count `select=True` produces — nothing here
+  reproduces PLAN §1's own headline 13→21/47.36→16.96 figures yet, since
+  every case measured uses a fixed, externally-supplied `sp`. See ADR-217
+  and `docs/CONFORMANCE_LEDGER.md`.
 
 `mgcv`'s double penalty — an extra null-space penalty per smooth, so a term can shrink to
 exactly zero. Takes the smoothing-parameter count from 13 to **21**, and total edf from
 47.36 to 16.96 on synthetic data of the target's shape. It is a **term-selection mechanism
 inside penalized likelihood**, and it is the reason `gamboost` is not a parity target.
 
-**Known collision, filed by PR #212 review round 2 (2026-08-25), not yet fixed:**
-`gam_model.fit_polaris_gam`'s at-bound guard (added for slice 5b) raises
-`PolarisComputationError` whenever the selected `log10(sp)` lands on *either*
-search bound. The lower bound genuinely indicates a defect, but the upper
-bound (λ→∞) is exactly what `select = TRUE` is meant to produce for a
-shrunk-to-zero term — this slice will hit that raise head-on unless the
-guard is first split to treat the two bounds differently (see
-`docs/DEV_SESSION_LOG_2026-08-25_mgcv_parity_slice5b_polarisgam.md`'s "PR
-#212 review response, round 2" section for the reviewer's suggested shape).
-Fix the guard before or as part of designating this slice, not after
-hitting the raise mid-slice.
+**Known collision, filed by PR #212 review round 2 (2026-08-25) — FIXED, 2026-09-01
+(ADR-217).** `gam_model.fit_polaris_gam`'s at-bound guard (added for slice 5b) raised
+`PolarisComputationError` whenever the selected `log10(sp)` landed on *either*
+search bound. The lower bound genuinely indicates a defect and still raises
+unconditionally; the upper bound (λ→∞) is exactly what `select = TRUE` is meant to
+produce for a shrunk-to-zero term, so it is now reported on the fit
+(`PolarisGAMFit.at_bound`/`.at_bound_blocks`) by default rather than raised, with a new
+`strict=True` parameter for the conformance/harness mode that still wants a hard raise
+at either bound — the reviewer's own suggested shape
+(`docs/DEV_SESSION_LOG_2026-08-25_mgcv_parity_slice5b_polarisgam.md`'s "PR #212 review
+response, round 2" section).
 
 ### Deferred to a later epic: `bam` + `discrete = TRUE` + fREML
 

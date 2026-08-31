@@ -243,6 +243,64 @@ def test_sz_term_carries_one_penalty_block_per_factor_level() -> None:
         assert support.max() < hi
 
 
+def test_assemble_model_design_ignores_select_by_default() -> None:
+    """``ModelSpec.select`` defaults to ``False`` — every earlier slice's
+    block count is unchanged unless a caller opts in (PLAN slice 7)."""
+    model = ModelSpec(
+        family="binomial",
+        link="cloglog",
+        terms=(_cr_term(), _ti_term()),
+        weights_column="ExposCnt",
+    )
+    design = assemble_model_design(model, _data())
+    assert len(design["penalty_blocks"]) == 3  # 1 (cr) + 2 (ti)
+
+
+def test_assemble_model_design_appends_one_null_space_block_per_term_under_select() -> None:
+    """PLAN slice 7 (ADR-217): under ``select=True``, each term gets exactly
+    ONE extra penalty block appended after its own existing ones — the
+    basis-agnostic rule measured against ``mgcv``'s own ``select=TRUE``
+    setup path across every term archetype (``gam_select_penalty``'s module
+    docstring), not one extra block per existing penalty."""
+    model = ModelSpec(
+        family="binomial",
+        link="cloglog",
+        terms=(
+            _cr_term(),  # 1 existing block -> 2 under select
+            _cr_term(label="s(AttdAge,by=StudyYear_C)", by="StudyYear_C"),  # 1 -> 2
+            _ti_term(),  # 2 existing blocks -> 3 under select
+        ),
+        weights_column="ExposCnt",
+        select=True,
+    )
+    design = assemble_model_design(model, _data())
+    assert len(design["penalty_blocks"]) == 7  # 2 + 2 + 3
+    n_penalties = [tb["n_penalties"] for tb in design["term_blocks"]]
+    assert n_penalties == [2, 2, 3]
+    # Widths and column spans are otherwise unchanged from the non-select
+    # case (the extra penalty adds no new COLUMN, only a new penalty over
+    # the term's existing ones).
+    non_select = assemble_model_design(
+        ModelSpec(family="binomial", link="cloglog", terms=model.terms, weights_column="ExposCnt"),
+        _data(),
+    )
+    assert design["x"].shape == non_select["x"].shape
+    np.testing.assert_array_equal(design["x"], non_select["x"])
+    for select_tb, plain_tb in zip(design["term_blocks"], non_select["term_blocks"], strict=True):
+        assert (select_tb["start"], select_tb["end"]) == (plain_tb["start"], plain_tb["end"])
+    # The null-space block still lands only in its own term's column span,
+    # the same containment invariant every other penalty block satisfies
+    # (test_penalty_blocks_land_only_in_their_own_term_span).
+    p = design["x"].shape[1]
+    spans = [(1, 13), (1, 13), (13, 26), (13, 26), (26, 86), (26, 86), (26, 86)]
+    for block, (lo, hi) in zip(design["penalty_blocks"], spans, strict=True):
+        assert block.shape == (p, p)
+        support = np.flatnonzero(np.any(block != 0.0, axis=0))
+        assert support.size > 0
+        assert support.min() >= lo
+        assert support.max() < hi
+
+
 def test_fit_polaris_gam_selects_its_own_lambda_and_converges() -> None:
     """R-free smoke test of the full path (design -> continuous lambda search
     -> penalized fit -> per-term edf) on a small, well-conditioned case —
@@ -321,3 +379,47 @@ def test_fit_polaris_gam_raises_loudly_when_the_search_hits_a_bound() -> None:
 
     with pytest.raises(PolarisComputationError, match="a bound"):
         fit_polaris_gam(model, data, y, maxiter=60, bounds=(3.0, 3.0 + 1e-9))
+
+
+def _no_signal_recipe(n: int = 150) -> tuple[ModelSpec, dict[str, np.ndarray], np.ndarray]:
+    """A single ``cr`` term with NO true relationship to ``y`` — mgcv's own
+    select=TRUE routinely shrinks a term like this to its null space
+    (log10(lambda) -> a large value), the exact false-positive fixture PR
+    #212's own review named
+    (`docs/DEV_SESSION_LOG_2026-08-25_mgcv_parity_slice5b_polarisgam.md`)."""
+    model = ModelSpec(
+        family="binomial",
+        link="cloglog",
+        terms=(_cr_term(),),
+        weights_column="ExposCnt",
+    )
+    data = _data(n=n)
+    rng = np.random.default_rng(20260825)
+    prob = np.full(n, 0.05)
+    death = rng.binomial(data["ExposCnt"].astype(int), prob)
+    y = death / data["ExposCnt"]
+    return model, data, y
+
+
+def test_fit_polaris_gam_reports_rather_than_raises_at_the_upper_bound() -> None:
+    """PR #212 review [P1-new], now fixed: a term with no true signal is a
+    normal case for mgcv's own select=TRUE to shrink to its null space —
+    this is not the same conditioning defect the lower bound signals, so
+    the default (`strict=False`) reports it on the fit rather than
+    raising."""
+    model, data, y = _no_signal_recipe()
+
+    fit = fit_polaris_gam(model, data, y, bounds=(-2.0, 2.0), maxiter=60)
+    assert fit.at_bound
+    assert fit.at_bound_blocks == ("s(AttdAge)",)
+    assert np.isclose(fit.log_lambda[0], 2.0)
+
+
+def test_fit_polaris_gam_strict_raises_at_the_upper_bound_too() -> None:
+    """The same no-signal fixture as the reporting test above, but with
+    `strict=True` — the conformance/harness mode PR #212's review named,
+    where a bound hit anywhere is worth failing loudly on."""
+    model, data, y = _no_signal_recipe()
+
+    with pytest.raises(PolarisComputationError, match=r"a bound.*UPPER"):
+        fit_polaris_gam(model, data, y, bounds=(-2.0, 2.0), maxiter=60, strict=True)

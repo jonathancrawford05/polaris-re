@@ -216,6 +216,14 @@ class ModelSpec:
         offset_column: Name of the offset column, or ``None``. See Anchor 5's table:
             the target formula uses weights with no offset; the existing polaris engine
             uses an offset. Both idioms are represented, never combined into one field.
+        select: ``mgcv``'s ``select = TRUE`` — Marra & Wood's null-space double
+            penalty (PLAN slice 7), which lets a term shrink to exactly zero under
+            REML rather than only becoming smoother. ``False`` (``mgcv``'s own
+            default) reproduces every earlier slice's behaviour unchanged;
+            :func:`~polaris_re.analytics.gam_model.assemble_model_design` reads
+            this field to decide whether to append each term's own extra
+            null-space penalty block
+            (:func:`~polaris_re.analytics.gam_select_penalty.null_space_penalty`).
     """
 
     family: str
@@ -223,6 +231,7 @@ class ModelSpec:
     terms: tuple[TermSpec, ...]
     weights_column: str | None = None
     offset_column: str | None = None
+    select: bool = False
 
     def __post_init__(self) -> None:
         if not self.family:

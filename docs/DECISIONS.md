@@ -19530,3 +19530,172 @@ session should register these if either becomes the epic's next unchecked
 work): extending `select_lambdas_continuous` to an `sz`-shaped block
 structure; a multi-term model combining `sz` with `ti`/`by`; a model with
 more than one `sz` term.
+
+## ADR-217: Slice 7 — `select = TRUE`'s double penalty is one basis-agnostic rule; Stage A and a Stage B fixed-`sp` fit both land INDEPENDENT parity evidence on the first measurement, at tier 1
+
+**Status:** ACCEPTED (tier 1 only — tier 3 not yet dispatched this session), 2026-09-01.
+
+**Context.** Slice 7 (`select = TRUE`, the double penalty that takes the target
+formula's smoothing-parameter count from 13 to 21, total edf from 47.36 to 16.96
+on synthetic data of the target's shape, PLAN §1) is the last unchecked slice:
+every basis PLAN §1 names (`cr`, `ti`, `sz`, the numeric-`by`-scaled `cr`) now
+has both Stage-A and Stage-B INDEPENDENT parity evidence (ADR-194/195/200/205/
+206/215/216), and slices 5e/5f closed the outer search's own robustness
+questions without leaving a registered blocker in slice 7's way. The routine's
+"next unchecked slice, no fallback picks" rule selects it this session.
+
+**One prerequisite named explicitly in the PLAN, fixed first.** PR #212 round-2
+review flagged that `fit_polaris_gam`'s at-bound guard raises unconditionally at
+either search bound, but only the LOWER bound (`log10(sp) -> -inf`) is a
+conditioning defect — the UPPER bound (`log10(sp) -> +inf`, a term smoothed to
+its null space) is exactly what `select = TRUE` is built to produce for a term
+with no signal, and a hard raise there collides with this slice head-on. Fixed
+per the reviewer's own suggested shape: the lower bound still raises
+unconditionally; the upper bound is reported on the fit
+(`PolarisGAMFit.at_bound`/`.at_bound_blocks`) rather than raised, unless a new
+`strict=True` parameter is passed (the conformance/harness mode the guard was
+originally written for). `test_gam_model.py` gained two tests reproducing PR
+#212's own false-positive fixture (a term drawn independent of its covariate,
+which legitimately shrinks to the upper bound) — one asserting the default
+reports rather than raises, one asserting `strict=True` still raises.
+
+### Stage A — the null-space penalty is ONE rule, not four
+
+**Claim, written before the code (`docs/VERIFICATION_STANDARD.md` §3.2):**
+`polaris_re`'s `gam_select_penalty.null_space_penalty` computes the extra
+penalty from a term's own already-independently-verified penalty block(s), via
+NumPy's own eigendecomposition and `matrix_rank` tolerance; `mgcv` computes it
+via `gam(formula, family, data, knots, select = TRUE, fit = FALSE)$smooth[[i]]$S`
+(the last entry) — the setup-only path that builds every smooth's own
+null-space penalty without fitting a model; compared on the null-space penalty
+matrix `S_null`, one case per target-formula term archetype.
+
+**What this session found, before writing any Python.** `gam(..., select=TRUE,
+fit=FALSE)` returns mgcv's own setup object (a `"gam.prefit"`) without fitting —
+exact for this purpose, not an approximation, because `S` depends only on the
+model's structure (knots, basis, `by`/factor variables), never on `y`. Reading
+`$smooth[[i]]$S` on a single `s(x, bs="cr", k=13)` term showed `select=TRUE`
+appends exactly ONE extra `(k-1, k-1)` block after the term's own existing one.
+Testing the hypothesis that this extra block is `U0 @ U0.T` — `U0` the
+eigenvectors of the term's own existing penalty below `matrix_rank`'s tolerance
+— matched to `1.14e-12` on the first try. The same rule, tested next against a
+numeric-`by` term (1 existing block, unconstrained, null dimension 2), a `ti()`
+term (2 existing blocks, combined-sum null dimension 1)
+and an `sz` term (2 existing per-level blocks, combined-sum null dimension 2),
+matched every time to the same float-round-trip precision — **with no per-basis
+branch anywhere in the implementation.** The rule combines a term's existing
+blocks (unscaled, `lambda=1` each) BEFORE taking the null space, not each block
+separately — verified as the actual mechanism (not merely a matching special
+case) by an R-free unit test with two synthetic blocks whose individual null
+spaces differ but whose sum has a known, smaller one.
+
+**Six cases, all at the target formula's own knot vectors where the term has
+one:** `cr-ref-attdage-k13`, `cr-ref-polyear-k6`, `cr-by-mi-attdage-k13`,
+`ti-attdage-polyear`, `sz-facesize-attdage-k13`, `sz-facesize-polyear-k6`
+(`Smoke`'s own two `sz` terms are the identical construction over the same two
+margins as `FaceSize`'s and are not duplicated). All six agree at
+`max_abs_s_null_diff` between `9.8e-15` and `8.9e-12` — see
+`docs/CONFORMANCE_LEDGER.md` for the per-case table.
+
+**A data-dependent trap caught by Anchor 1's own discipline.** The first attempt
+at this comparison used an independently-drawn Python covariate sample for each
+case and disagreed by ~0.02-0.05 for the plain `cr`/`ti` cases (which absorb
+`mgcv`'s `colMeans(X)`-based sum-to-zero constraint, itself data-dependent) while
+agreeing exactly for the `by`/`sz` cases (whose constraints do not depend on the
+data at all). The fix — echo the R probe's own covariate sample back in its
+JSON and read it on the Python side, the same shared-recipe convention
+`build_python_cr_term`'s own `x` argument already documents — is not a new rule,
+but it is exactly the kind of mistake a harness that skipped "prove it on a
+known-good case first" would have shipped silently.
+
+**Provenance (ADR-193).**
+
+| quantity | left producer | right producer | provenance |
+|---|---|---|---|
+| `S_null` | `gam_select_penalty.null_space_penalty` (eigendecomposition of a term's own already-verified penalty blocks' unscaled sum) | `mgcv gam(..., select=TRUE, fit=FALSE)$smooth[[i]]$S`, last entry | INDEPENDENT |
+
+### Stage B — the same three-term model ADR-206 verified, now under `select=TRUE`
+
+**Claim, written before the code:** `polaris_re` assembles the three-term
+design (`s(AttdAge)` + `s(AttdAge,by=StudyYear_C)` + `ti(AttdAge,PolYear)`, the
+same formula ADR-206 verified) via
+`gam_model.assemble_model_design(ModelSpec(..., select=True))`, which appends
+each term's own null-space penalty from Stage A above, then fits with
+`gam_fit.penalized_irls_general` at a FIXED, externally-supplied `sp` (7
+blocks: `s(AttdAge)`'s existing + null, `s(AttdAge,by=StudyYear_C)`'s existing +
+null, `ti(...)`'s two existing + null); `mgcv` computes the identical model
+natively via `gam(..., select=TRUE, sp=sp_fixed)`; compared on `eta` at the
+training design.
+
+**One structural question resolved at tier 1 before any Python code assumed
+it:** does `mgcv`'s own `sp=` argument take `select=TRUE`'s extra blocks in the
+same flat, per-smooth-grouped (existing-then-null) order `$smooth[[i]]$S`
+already showed? Confirmed directly (`gam(..., select=TRUE, fit=FALSE)`'s own
+`$smooth` list reports `2, 2, 3` blocks for this formula's three terms, `7`
+total, matching `assemble_model_design`'s own count exactly) — a tier-1
+structural check, never a committed value (`ROUTINE_MGCV_PARITY.md` step 2).
+
+**Result: agrees on the first measurement**, `max_abs_eta_diff = 6.164e-11`
+(`n=900`, `p=86`), the same order of magnitude as ADR-206's own first
+multi-term reading (`1.242e-10`) and ADR-216's `sz` Stage-B reading (`3.9e-12`)
+— no iteration needed, the same shape every basis-level Stage-B measurement in
+this epic has had once its Stage A was independently correct.
+
+**Provenance (ADR-193).**
+
+| quantity | left producer | right producer | provenance |
+|---|---|---|---|
+| `eta` | `gam_fit.penalized_irls_general` over `assemble_model_design(ModelSpec(..., select=True))` (the ADR-194/200/205 basis producers plus this ADR's own null-space producer) | `mgcv::predict(m, type='link')` on a native `select=TRUE` fit of the identical formula at the same fixed `sp` | INDEPENDENT |
+
+Coefficients travel in the R payload for diagnostic reading only and are never
+compared (Anchor 2).
+
+**Required conformance levels 1-3 re-run at tier 1 (`scripts/mgcv_conformance.R`
++ `compare_mgcv_conformance.py`) show no regression** — levels 1/2/3/5 AGREE,
+level 4 DISAGREES (ADR-190's separate, permanently-standing `dw/drho` gap,
+unaffected by this session). `tests/qa/` byte-identical (`git diff` on
+`tests/qa/golden_outputs/` empty — this session touches no path any golden
+depends on). Full suite: 3505 passed / 5 failed (pre-existing, this
+environment's mortality tables were not generated — unrelated to this epic) /
+33 skipped without R, one fewer skipped and one more passed with R installed
+(`test_the_r_script_runs_end_to_end_and_agrees`), matching
+`ROUTINE_MGCV_PARITY.md`'s own documented delta.
+
+**Scope, stated explicitly (what this ADR does NOT close).**
+- **TIER 1 ONLY.** Every number above is local apt R (4.3.3/mgcv 1.9.1), never
+  committed as a settled figure per `ROUTINE_MGCV_PARITY.md`'s own rule — the
+  CI dispatch (new `mgcv-conformance.yml` steps, this PR) is what would make
+  these figures tier-3-citable. Filed as the session's own open item, not
+  silently promoted.
+- **Free-`sp` selection under `select=True` is not built.** Every case here
+  uses a FIXED, externally-supplied `sp` (the recipe's own, or the fixed
+  values `gam_select_multiterm_probe.R` supplies) — extending
+  `select_lambdas_continuous`/`fit_polaris_gam`'s own outer search to the
+  doubled/increased block count `select=True` produces is slice 7's own
+  remaining scope, not attempted here. This is the step that would let a
+  caller actually reproduce PLAN §1's own headline number (13 -> 21 smoothing
+  parameters, edf 47.36 -> 16.96).
+- **The three-term subset only**, the same scope ADR-206/208 used before this
+  epic's other Stage-B slices widened it — not the target's full eight-term
+  structure, and no `sz` term combined with `select=True` yet (Stage A's
+  `sz-facesize-*` cases are single-term).
+- **`cr` basis extrapolation beyond the knot range** remains the same
+  standing, inherited limitation named since ADR-194.
+
+**Consequences.** The last basis-level question this epic's slices 1-6b left
+open — does `select=TRUE` need per-basis machinery, or does one rule cover
+every archetype the target formula uses — is answered: one rule, no per-basis
+branch, and it is now wired into the production assembly path
+(`ModelSpec.select`, `assemble_model_design`) rather than living only in a
+Stage-A-only module the way ADR-215 first shipped `sz`. What remains before
+PLAN §1's own headline `select=TRUE` figures are reproducible: the free-`sp`
+search extension (named above), then combining `select=True` with the target's
+full eight-term structure.
+
+**Tier-3 confirmation is this session's own open item** — registered here
+rather than silently left for whoever next reads the CONTINUATION, per
+`ROUTINE_MGCV_PARITY.md`'s "run it if it is under an hour" (a CI round trip on
+the pinned digest is a ~1 minute dispatch): the next session (or a
+`workflow_dispatch` before merge) should confirm both Stage-A and Stage-B
+figures at tier 3 and promote this ADR's Status line accordingly before it is
+cited as settled.
