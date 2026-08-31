@@ -170,7 +170,8 @@ cases (~1e-14/1e-15) — float round-trip precision, no iteration needed.
 producer exists (`gam_basis_cr.sz_basis`), agrees with `mgcv` bit-for-bit on
 `design_X`/`penalty_S`/`rank` at both `n_levels=2` (matching every target
 `sz` term) and `n_levels=3` (exercising the general case), and every
-compared quantity is `INDEPENDENT` (`SZ_BASIS_CLAIM`). **PLAN §6's own
+compared quantity is `INDEPENDENT` (`SZ_BASIS_CLAIM`) — confirmed at both
+tier 1 and tier 3, identical to the printed digit. **PLAN §6's own
 "hardest basis" prediction did not bite Stage A** — the cost was entirely in
 *understanding* `mgcv`'s constraint machinery (no closed-form documentation
 anywhere), not in getting the numbers to agree once that understanding
@@ -214,9 +215,16 @@ would have produced a real, measurable disagreement.
 
 ## Oracle version
 
-Tier 1: R 4.3.3 (2024-02-29) / mgcv 1.9-1 (local apt). Tier 3: dispatched
-this session against the pinned oracle digest — see
-`docs/CONFORMANCE_LEDGER.md` for the run and reading.
+Tier 1: R 4.3.3 (2024-02-29) / mgcv 1.9-1 (local apt). Tier 3: **CONFIRMED**,
+R 4.6.1 (2026-06-24) / mgcv 1.9.4, oracle
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+(build 8, the same digest this epic has used throughout), CI run
+[33353326193](https://github.com/jonathancrawford05/polaris-re/actions/runs/33353326193).
+All three `sz` cases agree identically to the printed digit against the
+tier-1 reading above: `max_X_diff` 2.854e-14/1.443e-14/1.699e-14,
+`max_S_diff` (every block) 5.107e-15/4.441e-15/5.773e-15, `rank_diff`
+all-zero throughout. Both jobs completed successfully; required conformance
+levels 1-3 show no regression.
 
 ## Quality gate
 
@@ -247,7 +255,7 @@ actually closes, in the shape other slices' DoD sections use:
   absorb.cons=TRUE)` on `design_X`, every `penalty_S` block and `rank`, at
   `n_levels` 2 and 3, including the target formula's own `AttdAge`/`PolYear`
   knots.** → `test_the_python_sz_basis_agrees_with_smoothcon_on_every_sz_design`
-  (R-gated, PASSED this session at tier 1); tier-3 CI dispatch, this session.
+  (R-gated, PASSED at tier 1); tier-3 CI run 33353326193, CONFIRMED identical.
 - `[machine]` **Every claimed quantity declared `INDEPENDENT` in the type,
   gated by `require_parity_evidence`.** → `SZ_BASIS_CLAIM`,
   `test_the_python_sz_basis_declares_every_quantity_independent`.

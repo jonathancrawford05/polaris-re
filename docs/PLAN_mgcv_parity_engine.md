@@ -1187,8 +1187,8 @@ one. Only the tier-3 oracle and ADR-193's two-producer rule do that.
   is still a `ROUTINE_MGCV_PARITY.md` scheduling call, and per the routine's
   "one slice per session" rule this was not started the same session as 5d.
 
-  **Stage A DONE, 2026-08-31** (ADR-215, tier 1 confirmed; tier 3 dispatched
-  this session — see `docs/CONFORMANCE_LEDGER.md`). `gam_basis_cr.sz_basis` —
+  **Stage A DONE, 2026-08-31** (ADR-215, tier 1 AND tier 3 confirmed identical,
+  CI run 33353326193). `gam_basis_cr.sz_basis` —
   a single-factor construction independently re-derived from `mgcv`'s measured
   behaviour (the raw, un-rescaled per-level `cr` block tensored against a
   factor-level indicator, one shared `scale.penalty` factor, then a
