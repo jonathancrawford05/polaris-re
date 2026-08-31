@@ -19092,3 +19092,160 @@ measured and folded into both tables above, which sharpens Part 1's own
 headline from a single before/after pair to a stated spread (`0.001483`
 single-start vs `0.000006` best-of-9 — the 247x figure) and confirms Part
 2's "single suffices" finding holds at a third thread count, not just two.
+
+## ADR-214: Slice 5f — a covariate-SHARING N=8 structure answers "does one start suffice"; single already does, and this structure is MORE stable than either of ADR-213's own two
+
+**Status:** ACCEPTED, 2026-08-31.
+
+**Context.** ADR-213 (slice 5e) built `select_lambdas_continuous_multistart`
+and measured it on two structures: the ACTUAL N=4 near-flat fixture
+(ADR-211/212's own — multi-start recovers a real, reproducible
+thread-dependent convergence failure there) and a SYNTHETIC N=8 case built
+by duplicating that N=4 shape onto a second, INDEPENDENT covariate draw
+(single-start already sufficed there, at every thread count tested).
+ADR-213's own text named what the second case could not answer: the
+target formula's own 13-21 blocks mostly SHARE covariates
+(`AttdAge`, `PolYear`, factor levels across `sz(FaceSize, AttdAge)`,
+`sz(Smoke, AttdAge)`, `sz(FaceSize, PolYear)`, `sz(Smoke, PolYear)` —
+`docs/PLAN_mgcv_parity_engine.md` §1), which two covariate-DECOUPLED copies
+cannot speak to. Registered as PLAN slice 5f, READY, explicitly not blocking
+slices 6/7. The routine's own "next unchecked slice, no fallback picks"
+rule selected it over slice 6 for the identical reason it selected 5e over
+6 the session before — 5f precedes 6 in the PLAN's own ordering and its one
+dependency (5e) was already met.
+
+**What this session built.** `scripts/gam_multistart_shared_covariates_diagnostic.py`
+— an N=8 design that reuses the ACTUAL N=4 near-flat fixture's own three
+terms (`ref`, the numeric-`by` MI term, `ti(AttdAge, PolYear)` — identical
+to `_multiterm_model_spec`) and adds four more `s(x, by=Group)` terms
+standing in for the target's own four `sz(factor, AttdAge/PolYear)` terms,
+without building `sz`'s own constrained construction (slice 6's work, not
+this one's):
+
+```
+ref  : s(AttdAge, k=13, cr)                                     1 block
+by   : s(AttdAge, by=StudyYear_C, k=13, cr)                     1 block
+ti   : ti(AttdAge, PolYear, k=(13,6), cr)                       2 blocks
+gA   : s(AttdAge, by=GroupA, k=13, cr)                          1 block
+gB   : s(AttdAge, by=GroupB, k=13, cr)                          1 block
+gC   : s(PolYear, by=GroupC, k=6, cr)                           1 block
+gD   : s(PolYear, by=GroupD, k=6, cr)                           1 block
+                                                        total: 8 blocks
+```
+
+**A first attempt was exactly singular, and the fix is the argued
+construction the slice's own registration asked for.** The first draft
+used two independent binary indicators (mirroring `FaceSize`/`Smoke`
+literally) and put each one on BOTH an `AttdAge` term and a `PolYear`
+term. Measured directly (`numpy.linalg.matrix_rank`, then SVD): rank
+124 of 124 columns needed, deficiency exactly 2, and the two near-null
+singular vectors (singular values `~1e-15` against the next at `1.3e-2`)
+load exclusively on the age/year block pair sharing one indicator each.
+The mechanism: an UNCONSTRAINED `by`-scaled `cr` basis always contains the
+constant function in its span (ADR-200's own finding — no identifiability
+constraint is absorbed on a numeric-`by` smooth), so `s(AttdAge, by=Ind)`
+and `s(PolYear, by=Ind)` sharing the SAME indicator each contain the
+direction `Ind` itself in their column space — one exact linear dependency
+per repeated indicator. `mgcv`'s own `sz` avoids this by centering each
+level's deviation against a shared reference smooth, an identifiability
+constraint this stand-in deliberately does not build (that is slice 6's
+own scope). **Fix: never reuse the same indicator across an `AttdAge` term
+and a `PolYear` term** — four independent indicators
+(`numpy.random.default_rng(20260831)`, pinned per ADR-074) instead of two
+reused ones. Measured full rank (`124 == 124`) and well-conditioned
+(`cond(XᵀX) ≈ 1.3e7`, ordinary for a real design, nothing near the singular
+draft's `~1e17`) before the script was written the way it is — Anchor 8's
+"argue, don't merely try" applied to a construction choice rather than a
+numerical tolerance.
+
+**NO mgcv COMPARISON IS MADE ANYWHERE IN THIS ADR**, the identical status
+ADR-213 declared for its own two measurements. Both parts fit Polaris's
+own search against itself; there is no second producer for ADR-193's
+mechanical test to apply to, so nothing here is INDEPENDENT, ECHO or
+TRANSPORT — it is simply not a comparison. No `VerificationClaim` is
+declared (there is no `right_producer` to name); the module docstring
+says this explicitly, and `docs/CONFORMANCE_LEDGER.md`'s row for this
+measurement does too.
+
+**Measurement**, `OPENBLAS_NUM_THREADS` pinned per-run via subprocess
+re-exec (the identical `threadpoolctl`-vs-env-var lesson ADR-211/213
+both name):
+
+| threads | single score | single converged | single evals | multi (best-of-9) score | multi total evals | gap |
+|---:|---:|:---:|---:|---:|---:|---:|
+| 1 | 602.994904 | **True** | 441 | 602.994904 | 6444 | 0.000000 |
+| 2 | 602.994248 | **True** | 522 | 602.994248 | 4617 | 0.000000 |
+| 4 | 602.994548 | **True** | 504 | 602.994548 | 5166 | 0.000000 |
+
+**Single-start CONVERGED at every one of the three thread counts, and
+multi-start's own best-of-9 result is IDENTICAL to it, to the printed
+digit, at every one of the three thread counts too.** Best-of-9 finds
+nothing single-start does not already find, on this structure, anywhere
+in the sweep — `starts[0]` (the bounds-centre, i.e. what single-start
+alone tries) is already the winner every time.
+
+**Spread across threads: single-start `0.000656`, multi-start
+`0.000656` — identical**, not merely close. Read against ADR-213's own
+two prior readings on the SAME slice's own comparison axis:
+
+| structure | single-start spread | best-of-9 spread | ratio |
+|---|---:|---:|---:|
+| N=4, near-flat (ADR-211/212/213) | 0.001483 | 0.000006 | ~247x tighter |
+| N=8, covariate-DECOUPLED (ADR-213) | 0.001180 | 0.001165 | ~1.01x (unchanged) |
+| **N=8, covariate-SHARING (this ADR)** | **0.000656** | **0.000656** | **1.00x (identical)** |
+
+**This is the smallest thread-spread of any structure measured across
+either slice, by roughly 2x against the decoupled N=8 case and better
+than 2x against the N=4 fixture — the OPPOSITE of what "covariate-sharing
+compounds the pathology" would predict.** ADR-213's own reading question
+("if this design's spread and gap sit closer to the N=4 reading than to
+the decoupled N=8 one, that is evidence covariate-sharing drives the
+pathology") is answered in the negative, cleanly: this covariate-sharing
+structure sits BELOW both prior readings, not between them.
+
+**One structural feature does carry over from N=4, and it is worth
+naming rather than treating the clean spread number as the whole
+story.** The MI `by`-term (block index 1) lands exactly on the search's
+own upper bound at every thread count (`log_lambda[1] = 11.0`,
+`at_bound=True`; full point at 4 threads:
+`[7.136, 11.000, 3.315, 2.840, 10.276, 6.471, 8.382, 5.055]`,
+`edf_total≈26.0`), the same "shrunk toward a large, weakly-identified
+smoothing parameter" signature ADR-211/212 found for this exact term in
+the N=4 fixture. **What differs is the consequence, not the mechanism**:
+in the N=4 fixture that direction's weak identifiability let thread-level
+noise move the WHOLE search's landing point and, at some thread counts,
+break SciPy's own convergence check outright. Here, the same term still
+sits at a bound, but the other seven blocks' own identifiability is
+apparently strong enough that the search converges to the SAME point
+regardless of thread count or starting point — weak identifiability in
+one block does not, on this structure, propagate into the kind of
+whole-search instability multi-start exists to mitigate.
+
+**Cost.** Best-of-9 costs `~9x`-`~15x` a single search's own function
+evaluations here (evals 6444/4617/5166 vs. single 441/522/504) — inside
+ADR-213's own stated `8x`-`21x` range, not a new figure.
+
+**Consequences.** PLAN slice 5f's own question — does a covariate-SHARING
+N>4 structure behave differently from ADR-213's covariate-DECOUPLED one —
+is ANSWERED: no, and if anything this specific construction is more
+stable, not less. Slice 5f is DONE. What remains open, named rather than
+dropped: (1) this is ONE covariate-sharing construction (four independent
+binary indicators standing in for `sz`'s own factor levels) — the real
+`sz` basis (slice 6) has its own constrained parameterisation, centered
+against a shared reference smooth, which this stand-in deliberately does
+not build, so this finding is evidence about the outer SEARCH's own
+robustness to block count and covariate reuse, not a preview of `sz`'s own
+Stage-A or Stage-B behaviour; (2) the MI by-term's own at-bound,
+weakly-identified behaviour persists structurally across every N tested so
+far (N=4, both N=8 shapes) — not a new finding, but not yet resolved
+either, and worth remembering if a future structure DOES show the N=4
+pathology, since the by-term is the recurring suspect; (3) whether
+single-start continues to suffice as block count climbs toward the
+target's 13-21 remains untested past N=8 in any shape.
+
+**Follow-up, not filed as its own slice (small, uncontroversial,
+per ADR-213's own precedent for the identical situation):** none of the
+housekeeping items ADR-213 left open (the stale `python_opt_log10`
+refresh, `fit_polaris_gam` exposing multi-start as opt-in) are touched by
+this ADR, for the identical reason ADR-213 gave — neither script nor
+production path is used by a comparison this slice makes.
