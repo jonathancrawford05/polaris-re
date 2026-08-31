@@ -3104,3 +3104,49 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   this check), but it should be refreshed once under the pinned regime before
   being used as a baseline. *Source: this merge, PLAN slice 5e (2nd-order — a
   follow-up of a follow-up, promoted as NICE-TO-HAVE only, per the order cap).*
+
+### Harvested 2026-08-31 — slice 5f: covariate-sharing N=8 robustness answered, and it is MORE stable than either of slice 5e's own readings (ADR-214)
+
+- **Slice 5f IS NOW DONE.** ADR-213 (slice 5e) left open whether a
+  covariate-SHARING N>4 structure — closer to the target formula's own
+  13-21 blocks, most of which share `AttdAge`/`PolYear`/factor levels —
+  behaves differently from its own covariate-DECOUPLED N=8 stress case.
+  This session built one (the N=4 fixture's own three terms plus four
+  `s(x, by=Group)` terms standing in for the target's own four
+  `sz(factor, AttdAge/PolYear)` terms) and measured it the identical way
+  ADR-213 measured its two structures. **Single-start converged and
+  matched best-of-9 EXACTLY at all three thread counts** — the cleanest
+  reading of any structure tested across either slice, and the
+  thread-to-thread spread (`0.000656`) is smaller than BOTH of ADR-213's
+  own readings (N=4: `0.001483`; decoupled N=8: `0.001180`), not between
+  them. *Source: this session, ADR-214 (1st-order — closes the epic's
+  designated slice and answers the open question slice 5e itself could
+  not, without unblocking or blocking anything else: slice 6 was already
+  unblocked by slice 5d).*
+
+- **A real defect was found and fixed during construction, not just in
+  the final measurement — worth keeping for the next session that builds
+  a covariate-sharing fixture.** A first draft (two indicators, each
+  reused across an `AttdAge` term and a `PolYear` term, mirroring
+  `sz(FaceSize, AttdAge)`/`sz(FaceSize, PolYear)` literally) was exactly
+  rank-deficient by 2, SVD-confirmed: an unconstrained `by`-scaled `cr`
+  basis always contains the constant function in its span (ADR-200), so
+  two terms sharing one indicator each contain that indicator's own
+  direction — one exact dependency per repeated indicator. `mgcv`'s own
+  `sz` avoids this via its own centering constraint, which this simpler
+  stand-in deliberately does not build. *Source: this session, ADR-214
+  (2nd-order — a documented dead end for whoever builds `sz`'s own Stage-A
+  fixtures in slice 6, not itself a code gap).*
+
+- **What remains open, explicitly not filed as new slices:** (1) this is
+  one covariate-sharing construction (independent binary indicators), not
+  `sz`'s own constrained parameterisation — evidence about the outer
+  search's robustness, not a preview of `sz`'s own basis behaviour (slice
+  6's own work); (2) the MI by-term's own at-bound, weakly-identified
+  behaviour (first found in ADR-211/212's N=4 fixture) persists
+  structurally across every N tested so far without destabilising the
+  rest of the search — not a new finding, but not resolved either; (3)
+  whether single-start continues to suffice past N=8, toward the target's
+  13-21 blocks, remains untested in any shape. *Source: this session,
+  ADR-214 (2nd-order — named for slice 6/7's own future sessions, not
+  urgent on its own).*

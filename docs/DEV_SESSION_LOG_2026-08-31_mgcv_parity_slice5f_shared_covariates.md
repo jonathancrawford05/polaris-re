@@ -193,9 +193,28 @@ digest.
 - `uv run ruff check scripts/gam_multistart_shared_covariates_diagnostic.py --fix`
   — clean (all checks passed).
 - `OPENBLAS_NUM_THREADS=1 uv run pytest tests/ -q -m "not slow"` (full
-  suite, no production code changed this session): **[filled in below
-  once the run completes]**.
-- `uv run pytest tests/qa/ -v --tb=short`: **[filled in below]**.
+  suite, no production code changed this session): **5 failed, 3492
+  passed, 22 skipped, 126 deselected** (501.09s) on first run — all 5
+  failures were `FileNotFoundError: Mortality table CSV not found`
+  (`tests/test_synthetic_block.py::TestCalibratedPremiums`,
+  `tests/test_analytics/test_experience_loaders.py::test_loaded_ilec_feeds_tensor_mi_surface`),
+  the identical documented, one-time-per-environment gap
+  `DEV_SESSION_LOG_2026-08-30_mgcv_parity_slice5e_multistart.md`'s own
+  Setup section hit on this same fresh container (CLAUDE.md §11 —
+  mortality tables are generated, not committed). Ran
+  `scripts/convert_soa_tables.py --source pymort --output-dir
+  data/mortality_tables`; re-ran the 5 affected tests — **all 5 pass**.
+  Not a code regression; **3497 passed, 22 skipped, 126 deselected, 0
+  failed** is this session's own baseline once the environment gap is
+  accounted for (did not re-run the full ~500s suite a second time for a
+  fresh aggregate count — the 5 tests were individually confirmed, which
+  is what matters for "is this a code regression": no).
+- `uv run pytest tests/test_analytics/test_gam_reml_optimize.py
+  tests/test_analytics/test_gam_model.py -q`: **31 passed** (38.58s) —
+  the two modules this session's script depends on, unchanged.
+- `uv run pytest tests/qa/ -q --tb=short`: **94 passed** (73.64s),
+  goldens byte-identical — expected, since no production code changed
+  this session.
 - `uv run python scripts/perf_history.py`: run once on this PR's initial
   open (ADR-177).
 
