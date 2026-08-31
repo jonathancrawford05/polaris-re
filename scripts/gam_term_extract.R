@@ -334,6 +334,85 @@ main <- function(argv) {
     )
   }
 
+  # ===========================================================================
+  # Slice 6: s(fac, x, bs="sz", xt=list(bs="cr")) -- sum-to-zero factor-smooth
+  # interaction, one factor.
+  # ===========================================================================
+  # Same internal-guard discipline as extract_smooth_one/extract_smooth_ti
+  # (ADR-191): the smoothCon() extraction must equal the independent
+  # lpmatrix/m$smooth[[1]] route, re-checked on every run.
+  extract_smooth_sz <- function(label, n, k, n_levels, x_range, knots_x = NULL) {
+    set.seed(20120101) # ADR-074: pinned, never the wall clock.
+    x <- sort(runif(n, x_range[1], x_range[2]))
+    levs <- LETTERS[1:n_levels]
+    fac <- factor(sample(levs, n, replace = TRUE), levels = levs)
+    y <- sin(x) + rnorm(n, sd = 0.1)
+    df <- data.frame(x = x, fac = fac, y = y)
+    knots_arg <- if (is.null(knots_x)) NULL else list(x = knots_x)
+
+    sm <- smoothCon(s(fac, x, k = k, bs = "sz", xt = list(bs = "cr")), data = df,
+                     knots = knots_arg, absorb.cons = TRUE)[[1]]
+    m <- gam(y ~ s(fac, x, k = k, bs = "sz", xt = list(bs = "cr")), data = df,
+             knots = knots_arg)
+
+    Xp <- predict(m, type = "lpmatrix")
+    sz_cols <- grep("^s\\(fac,x\\)", colnames(Xp))
+    Xp_sz <- Xp[, sz_cols, drop = FALSE]
+
+    if (!identical(dim(Xp_sz), dim(sm$X))) {
+      stop(sprintf(
+        "sz design '%s': lpmatrix sz block is %dx%d but smoothCon()$X is %dx%d.",
+        label, nrow(Xp_sz), ncol(Xp_sz), nrow(sm$X), ncol(sm$X)
+      ))
+    }
+    guard_x <- max(abs(Xp_sz - sm$X))
+    if (guard_x != 0) {
+      stop(sprintf(
+        "sz design '%s': smoothCon() X disagrees with lpmatrix (max abs diff %.3e) — internal consistency guard failed.",
+        label, guard_x
+      ))
+    }
+    if (length(m$smooth[[1]]$S) != length(sm$S)) {
+      stop(sprintf(
+        "sz design '%s': lpmatrix fit has %d penalty block(s) but smoothCon() has %d.",
+        label, length(m$smooth[[1]]$S), length(sm$S)
+      ))
+    }
+    for (j in seq_along(sm$S)) {
+      guard_s <- max(abs(m$smooth[[1]]$S[[j]] - sm$S[[j]]))
+      if (guard_s != 0) {
+        stop(sprintf(
+          "sz design '%s': smoothCon() S[[%d]] disagrees with m$smooth[[1]]$S[[%d]] (max abs diff %.3e) — internal consistency guard failed.",
+          label, j, j, guard_s
+        ))
+      }
+    }
+    guard_rank <- max(abs(m$smooth[[1]]$rank - sm$rank))
+    if (guard_rank != 0L) {
+      stop(sprintf(
+        "sz design '%s': smoothCon() rank (%s) disagrees with m$smooth[[1]]$rank (%s) — internal consistency guard failed.",
+        label, paste(sm$rank, collapse = ","), paste(m$smooth[[1]]$rank, collapse = ",")
+      ))
+    }
+
+    list(
+      label = label,
+      index_start = 0L, index_end = ncol(sm$X),
+      X = sm$X,
+      S = sm$S,
+      rank = I(as.integer(sm$rank)),
+      knots = as.numeric(sm$xp),
+      # Shared recipe context (ADR-193's mechanical test): the covariate and the
+      # 0-indexed factor-level code per row, so the Python side builds its OWN
+      # sz basis from the same (x, group, n_levels, knots) recipe, never reading
+      # X/S/rank back.
+      x = as.numeric(x),
+      by = NULL,
+      group = as.integer(fac) - 1L,
+      n_levels = n_levels
+    )
+  }
+
   smooth_cases <- list(
     extract_smooth_one("default-knots-k8", n = 200, k = 8),
     extract_smooth_one("default-knots-k13", n = 400, k = 13),
@@ -376,7 +455,23 @@ main <- function(argv) {
     extract_smooth_ti("ti-target-attdage-polyear", n = 500, k1 = 13, k2 = 6,
                        x1_range = c(1, 95), x2_range = c(1, 21),
                        knots1 = c(1, 2, 4, 7, 14, 18, 24, 35, 50, 70, 85, 90, 95),
-                       knots2 = c(1, 2, 3, 5, 10, 21))
+                       knots2 = c(1, 2, 3, 5, 10, 21)),
+    # Slice 6 (docs/PLAN_mgcv_parity_engine.md, "s(FaceSize, AttdAge, bs='sz',
+    # k=13, xt=list(bs='cr'))" and its three siblings): sum-to-zero
+    # factor-smooth interaction, one two-level factor (FaceSize/Smoke are both
+    # two-level, PLAN §1's own measurement). A small synthetic case with a
+    # THREE-level factor first (Anchor 1's own discipline — exercises the
+    # general n_levels > 2 path the target's own two-level terms cannot), then
+    # the target formula's own AttdAge (k=13) and PolYear (k=6) knot vectors at
+    # two levels, matching FaceSize/Smoke.
+    extract_smooth_sz("sz-default-knots-k6-3level", n = 300, k = 6, n_levels = 3,
+                       x_range = c(1, 20)),
+    extract_smooth_sz("sz-target-attdage-k13", n = 400, k = 13, n_levels = 2,
+                       x_range = c(1, 95),
+                       knots_x = c(1, 2, 4, 7, 14, 18, 24, 35, 50, 70, 85, 90, 95)),
+    extract_smooth_sz("sz-target-polyear-k6", n = 300, k = 6, n_levels = 2,
+                       x_range = c(1, 21),
+                       knots_x = c(1, 2, 3, 5, 10, 21))
   )
   names(smooth_cases) <- vapply(smooth_cases, function(c) c$label, character(1))
 

@@ -19257,3 +19257,157 @@ housekeeping items ADR-213 left open (the stale `python_opt_log10`
 refresh, `fit_polaris_gam` exposing multi-start as opt-in) are touched by
 this ADR, for the identical reason ADR-213 gave — neither script nor
 production path is used by a comparison this slice makes.
+
+## ADR-215: Slice 6 — the single-factor `sz` basis (Stage A), an INDEPENDENT closed-form re-derivation of mgcv's measured construction
+
+**Status:** ACCEPTED, 2026-08-31.
+
+**Context.** Slice 6 (`bs = "sz"`, sum-to-zero factor-smooth interactions — the
+target formula's four terms `s(FaceSize, AttdAge, ...)`, `s(Smoke, AttdAge, ...)`,
+`s(FaceSize, PolYear, ...)`, `s(Smoke, PolYear, ...)`) has been **READY** since
+ADR-212/ADR-214 (2026-08-29/31): the free-`sp` optimiser-convergence question that
+blocked it is resolved and characterised, and ADR-214's own N=8 covariate-sharing
+measurement — the last item ahead of it in the PLAN's own slice order — is DONE.
+The routine's "next unchecked slice, no fallback picks" rule selects slice 6 this
+session. PLAN §6's registered prediction named `sz` the expected hardest basis of
+the three; that prediction has not yet been tested against a measurement, because
+until this session no Python `sz` construction existed to test it with.
+
+**Claim, written before the code (`docs/VERIFICATION_STANDARD.md` §3.2):**
+`polaris_re`'s new single-factor `sz` basis computes `design_X` and every
+`penalty_S` block from the covariate locations, the 0-indexed factor-level code
+per row and a knot vector; `mgcv` computes them via
+`smoothCon(s(fac, x, bs="sz", k, xt=list(bs="cr")), absorb.cons=TRUE)`; compared
+on `design_X`, `penalty_S` (every level's block) and `rank` (every level's value).
+
+**What this session found, before writing any Python.** `mgcv`'s own
+`smooth.construct.sz.smooth.spec` (read via `deparse`, not transcribed — see the
+licensing note below) does three things: (1) calls the **bare**
+`smooth.construct` generic on the base class (`cr` here) directly — never
+`smoothCon()` — so the per-level block carries **no** `scale.penalty` yet; (2)
+tensors that raw block against a one-hot indicator per factor level, factor
+**slower** / base **faster** in column order (mirroring `ti_basis`'s own
+margin-order convention, ADR-205), giving a block-diagonal, per-level penalty
+list (one block, one smoothing parameter, per level — confirmed by
+`object$C <- c(0, nf)`, a length-`(1+num_factors)` numeric vector rather than a
+constraint matrix); (3) sets that vector as `sm$C`, which routes `smoothCon()`'s
+own `absorb.cons` step into a branch (`smoothCon`'s `length(sm$C) > 1` case,
+`mgcv:::XZKr`) distinct from the ordinary single-row-constraint path every other
+basis in this repo uses.
+
+**Independently re-derived, not transcribed (Anchor 8, and its licensing
+companion — `mgcv` is GPL (>= 2), this project is MIT).** Reading `mgcv`'s source
+to find out WHAT it computes (via `deparse`, then instrumenting
+`smooth.construct.sz.smooth.spec` mid-execution to dump `object$X`/`object$S`/
+`object$base$S` before `smoothCon`'s own extras run) is the same discipline
+ADR-196 and ADR-205 already used — Anchor 8 forbids *transcribing* `mgcv`'s own
+code into this MIT-licensed repository, not *understanding* it. `XZKr`'s own
+implementation is a recursive column-major reshape-and-difference loop with no
+closed-form statement anywhere in `mgcv`'s documentation; rather than port that
+loop, this session derived the **linear-algebraic effect** it has for the
+single-factor case — measured against `mgcv:::XZKr`'s own output on four
+synthetic matrices (`scripts/` scratch, not committed) purely to confirm the
+closed form was right before writing it into the shipped module, then verified
+**again**, independently, against `smoothCon()`'s actual `X`/`S` on three
+`sz`-specific synthetic cases: right-multiplying (design) or conjugating
+(penalty) by `M = D ⊗ I_k`, where `D` is `(n_levels, n_levels - 1)` with
+`D[l,l] = 1` for `l < n_levels - 1` and `D[n_levels - 1, l] = -1` for every `l` —
+each of the first `n_levels - 1` levels compared against the last one. This
+matches `mgcv`'s own documented intent ("the sum over all factor levels of
+equivalent spline coefficients are all zero") up to a change of basis, and
+matches `mgcv`'s actual OUTPUT bit-for-bit (not merely "an equivalent
+parameterisation"), which is the stronger and actually-required claim.
+
+**What shipped.** `src/polaris_re/analytics/gam_basis_cr.py`:
+- `_cr_basis_raw` — `cr_basis` split into its pre-`scale.penalty` half (needed
+  because `sz`'s per-level block skips that step, module docstring point 1) and
+  the existing public `cr_basis`, now a thin wrapper that adds the scale back.
+  No behaviour change to `cr_basis`'s own contract — every existing `cr`/`ti`
+  test still passes unchanged.
+- `sz_basis(x, group, n_levels, knots)` — the four-step construction above,
+  single factor only (module docstring: `mgcv`'s own `sz.interaction`
+  generalises to several factors and to a shared `id`; the target formula's own
+  four terms need neither).
+
+`src/polaris_re/analytics/gam_stage_a.py`: `build_python_sz_term` (the
+independent Python producer, same mechanical-test shape as `build_python_cr_term`/
+`build_python_ti_term` — its signature takes only the shared `x`/`group`/
+`n_levels` recipe and the `TermSpec`, never an R payload) and `SZ_BASIS_CLAIM`
+declaring `design_X`/`penalty_S`/`rank` all `INDEPENDENT`.
+
+`scripts/gam_term_extract.R`: `extract_smooth_sz`, mirroring `extract_smooth_ti`'s
+own internal guard (`smoothCon()` vs `predict(type="lpmatrix")` /
+`m$smooth[[1]]`, `stop()`-gated, ADR-191's discipline) and exporting the shared
+recipe (`x`, `group` — 0-indexed factor codes, `n_levels`) rather than any
+`mgcv`-computed quantity. Three cases: a synthetic **three-level** factor (Anchor
+1's own discipline — the target's own four terms are all two-level, so a
+three-level case is the only one exercising `n_levels > 2`), and the target
+formula's own `AttdAge` (`k=13`) / `PolYear` (`k=6`) knot vectors at two levels
+(matching `FaceSize`/`Smoke`).
+
+**Measured: tier 1, all three cases, on the first attempt.** `max_X_diff` /
+`max_S_diff` (every level's block) / `rank_diff` — 5e-15 to 3e-14, `(0, 0, ...)`,
+identical order of magnitude to slice 2's `cr` cases and slice 5's `ti` cases.
+**PLAN §6's registered prediction — "`sz` is the hardest basis" — did not bite
+Stage A**: no iteration was needed once the constructor was instrumented and the
+closed form derived from the dump; the "hardest" cost showed up entirely in
+*understanding* `mgcv`'s constraint machinery (the `object$C <- c(0, nf)`
+sentinel and the `XZKr` branch, neither documented anywhere `?smooth.terms`
+states in closed form), not in getting the Stage-A numbers to agree once that
+understanding existed. Tier 3 (the pinned oracle) dispatched this session — see
+`docs/CONFORMANCE_LEDGER.md` for the reading.
+
+**Tests.** `tests/test_analytics/test_gam_basis_cr.py` — seven closed-form
+invariants needing no R (shape, symmetry, PSD-ness, the shared-scale-factor
+relationship among levels — corrected mid-session after the first version
+wrongly assumed the FINAL post-constraint norms are equal across levels, when
+only the PRE-constraint scale factor is; the last level's block conjugates
+through the whole `(n_levels-1)²` contrast grid and is exactly `(n_levels-1)`
+times larger, verified against a 3-level case), the rank-preservation identity,
+and the validation/refusal paths). `tests/test_analytics/test_gam_stage_a.py` —
+`build_python_sz_term` unit tests plus the R-gated
+`test_the_python_sz_basis_agrees_with_smoothcon_on_every_sz_design`, run wherever
+R happens to be installed (ADR-151's own gate), passing at tier 1 this session.
+
+**Scope, stated explicitly (what this ADR does NOT close).**
+- **Single factor, no `id`.** Every one of the target's four `sz` terms fits
+  this scope exactly; a multi-factor `sz` term or a shared-`id` one is
+  unimplemented and unverified (module docstring — the same "does not
+  generalise beyond what was measured" discipline `ti_basis` already carries).
+- **Stage A only.** No multi-term model has been fit with an `sz` term in it yet
+  — ADR-206's own Stage-B pattern (a native multi-term `gam()` fit compared on
+  `eta`) has not been run against a model containing `sz`. Registered as **PLAN
+  slice 6b** below rather than left implicit (ADR-209 decision 1: a gap this
+  session opens is closed or registered, never merely filed).
+- **Extrapolation beyond the knot range** is the same standing, inherited
+  limitation `cr_basis`'s own module docstring already states — `sz_basis`
+  reuses `_cr_basis_raw` and inherits it unchanged.
+- **Slice 4 part B's N-block search** has not been exercised on an `sz`-shaped
+  penalty block (one smoothing parameter per factor level, not per margin) —
+  named, not attempted, the same discipline ADR-206 used for the `ti`/`by`
+  terms before ADR-208 built the assembler.
+
+**Consequences.** The three basis classes PLAN §1 named as required
+(`cr.smooth`, `tensor.smooth`, `sz.interaction`, plus a `by`-scaled `cr`) now
+all have an INDEPENDENT Stage-A Python producer. What remains before the target
+formula's full eight-term structure can be assembled and fit: `sz`'s own
+Stage-B (slice 6b, below), and slice 7 (`select = TRUE`).
+
+**Registered as PLAN slice 6b:** a multi-term `gam()` fit including at least one
+`sz` term, compared on `eta` against `mgcv`'s own native fit at fixed `sp`
+(ADR-206's own pattern), plus extending slice 4 part B's `select_lambdas_continuous`
+to an `sz`-shaped penalty-block structure. Not blocking slice 7, the same
+non-blocking relationship slice 5f had to slice 6.
+
+**Amendment 1 — tier 3 CONFIRMED, same session (2026-08-31).** Dispatched
+`mgcv-conformance.yml` on this branch (run
+[33353326193](https://github.com/jonathancrawford05/polaris-re/actions/runs/33353326193),
+oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+— build 8, the same digest this epic has used throughout — R 4.6.1 / mgcv
+1.9.4, `exchange_sha256` matching on both sides of the run). All three `sz`
+cases agree **identically to the printed digit against the tier-1 reading
+above**: `max_X_diff` 2.854e-14/1.443e-14/1.699e-14, `max_S_diff` (every
+block) 5.107e-15/4.441e-15/5.773e-15, `rank_diff` all-zero throughout. Both
+jobs (`mgcv reference (R)`, `Compare against the Python reference`)
+completed successfully; the conformance gate's required levels 1-3 show no
+regression. `docs/CONFORMANCE_LEDGER.md`'s slice-6 row carries the reading.

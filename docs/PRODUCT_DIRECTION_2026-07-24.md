@@ -3150,3 +3150,33 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   13-21 blocks, remains untested in any shape. *Source: this session,
   ADR-214 (2nd-order, NICE-TO-HAVE — named for slice 6/7's own future
   sessions, not urgent on its own).*
+
+### Harvested 2026-08-31 — slice 6: the `sz` basis Stage A, an INDEPENDENT closed-form re-derivation (ADR-215)
+
+- **Slice 6's Stage A IS NOW DONE.** The target formula's four
+  `sz(<factor>, <smoothed margin>, ...)` terms all name a single two-level
+  factor and no `id`; this session built and verified exactly that scope.
+  `mgcv`'s own constraint machinery for `sz` (`object$C <- c(0, nf)`, routed
+  through `smoothCon`'s `mgcv:::XZKr` branch) has no closed-form statement
+  anywhere `mgcv` documents, so this session instrumented the constructor
+  directly, derived the linear-algebraic effect as a contrast-against-the-
+  last-level matrix (`M = D kron I_k`), and verified that closed form against
+  `smoothCon()`'s actual output on three cases — agreeing to float
+  round-trip precision (~1e-14) on the first attempt. PLAN §6's own
+  registered prediction ("`sz` is the hardest basis") did not bite Stage A:
+  the cost was entirely in understanding the constraint machinery, not in
+  getting the numbers to agree once that understanding existed. *Source:
+  this session, ADR-215 (1st-order — closes the epic's next unchecked
+  slice and is the third of the three basis classes PLAN §1 named as
+  required).*
+
+- **What remains open, registered rather than left implicit (PLAN slice
+  6b):** nothing has yet fit a multi-term model containing an `sz` term and
+  compared it against `mgcv`'s own native fit on `eta`, the way ADR-206 did
+  for the `ti`/numeric-`by` terms. Slice 4 part B's outer search
+  (`select_lambdas_continuous`) has also not been exercised on an
+  `sz`-shaped penalty-block structure (one smoothing parameter per factor
+  level rather than per margin). Neither blocks slice 7. *Source: this
+  session, ADR-215 (1st-order — a follow-up of the slice this session
+  closed, needed before the target's full eight-term structure can be
+  assembled and fit).*

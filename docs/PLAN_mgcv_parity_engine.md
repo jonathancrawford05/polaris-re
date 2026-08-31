@@ -22,8 +22,11 @@ recovers a real N=4 convergence failure, single-start already sufficient on a
 covariate-DECOUPLED N=8 stress case), and **slice 5f** (inserted 2026-08-30, DONE
 2026-08-31, ADR-214 — the same question on a covariate-SHARING N=8 structure;
 single-start sufficient there too, and MORE stable than either of slice 5e's own
-readings). The letter suffixes exist so inserting work does not renumber slices 6
-and 7 and break every cross-reference to them.
+readings), and **slice 6b** (inserted 2026-08-31, ADR-215 — slice 6's own Stage A
+closed the same day; a multi-term fit including an `sz` term, ADR-206's own
+Stage-B pattern, remains open and is registered rather than left implicit). The
+letter suffixes exist so inserting work does not renumber slices 6 and 7 and
+break every cross-reference to them.
 **Estimated scope:** the largest numerical undertaking in the project. Sized honestly
 below rather than optimistically.
 
@@ -1184,9 +1187,48 @@ one. Only the tier-3 oracle and ADR-193's two-producer rule do that.
   is still a `ROUTINE_MGCV_PARITY.md` scheduling call, and per the routine's
   "one slice per session" rule this was not started the same session as 5d.
 
+  **Stage A DONE, 2026-08-31** (ADR-215, tier 1 AND tier 3 confirmed identical,
+  CI run 33353326193). `gam_basis_cr.sz_basis` —
+  a single-factor construction independently re-derived from `mgcv`'s measured
+  behaviour (the raw, un-rescaled per-level `cr` block tensored against a
+  factor-level indicator, one shared `scale.penalty` factor, then a
+  contrast-against-the-last-level constraint — NOT a transcription of
+  `mgcv:::XZKr`, which has no closed-form statement in `mgcv`'s own
+  documentation) — agrees with `smoothCon(bs="sz", absorb.cons=TRUE)` to float
+  round-trip precision (~1e-14) on `design_X`, every `penalty_S` block and
+  `rank`, on a synthetic three-level-factor case and the target formula's own
+  `AttdAge` (k=13) / `PolYear` (k=6) knots at two levels (matching
+  `FaceSize`/`Smoke`). `SZ_BASIS_CLAIM` declares all three quantities
+  `INDEPENDENT`. **PLAN §6's own "hardest basis" prediction did not bite Stage
+  A** — no iteration was needed once `mgcv`'s constraint machinery was
+  instrumented and understood; see ADR-215. **Scope: single factor, no `id`**
+  (every one of the target's four terms fits this exactly). **Stage B —
+  a multi-term fit including an `sz` term — is NOT yet built**, registered
+  below as slice 6b.
+
 Sum-to-zero factor-smooth deviations from a reference smooth. Four terms in the target.
 Expect this to be the hardest basis of the three: the constraint and reparameterisation are
 where `mgcv`-specific machinery lives, and Stage A is the only place a mistake is cheap.
+
+### Slice 6b: `sz` Stage B — a multi-term fit including an `sz` term
+
+- **Depends on:** Slice 6 (ADR-215).
+- **Status:** READY, not designated. Registered per ADR-209 decision 1 — slice
+  6 closed Stage A only; nothing yet fits a multi-term model containing an
+  `sz` term and compares it against `mgcv`'s own native fit.
+- **What to build.** The same pattern ADR-206 used for the `ti`/numeric-`by`
+  terms: assemble a multi-term design (at least a reference `cr` smooth plus
+  one `sz` term) via `gam_model.assemble_model_design`, fit at a fixed,
+  externally-supplied `sp` per block with `penalized_irls_general`, and
+  compare `eta` against a native `gam()` fit of the identical formula. Not in
+  scope here: extending slice 4 part B's `select_lambdas_continuous` to an
+  `sz`-shaped block structure (one smoothing parameter per factor level) —
+  that is further follow-on, name it if this slice's own measurement reaches
+  it cleanly, otherwise register it separately.
+- **Acceptance.** An INDEPENDENT `eta` comparison (ADR-206's own pattern) on a
+  multi-term model containing at least one `sz` term, agreeing to a
+  derived — not tuned — tolerance. Not blocking slice 7 (the same
+  non-blocking relationship slice 5f had to slice 6).
 
 ### Slice 7: `select = TRUE`
 
