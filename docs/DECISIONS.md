@@ -19704,3 +19704,73 @@ automatically on push, completing in under 2 minutes end to end, CI run
 33417357327). Both Stage-A and Stage-B figures are confirmed identical in
 verdict and order of magnitude to the tier-1 readings above; this ADR's
 Status line is promoted accordingly.
+
+**Amendment 1, PR #222 review (2026-09-01, automated review, verdict approve
+with 2 P1s and 4 P2s — all addressed in the same PR before merge).**
+
+- **[P1-1] `strict=True` was not wired into the one caller four documents
+  named.** `gam_model_conformance.fit_free_sp_case` was never updated to
+  pass `strict=True`, despite this ADR's own text (and the PLAN,
+  CONTINUATION, and the session log's hypothesis 1) describing that caller
+  as the reason the parameter exists. **Resolved by choosing the
+  documentation fix over the code fix, deliberately**: that caller's own
+  CI step has no `try`/`except` around the call, so `strict=True` there
+  would turn an occasional bound hit into an uncaught crash that loses the
+  whole diagnostic step, which is worse than the current graceful
+  degradation — `FreeSpCaseComparison.at_bound` already surfaces the
+  condition, and `compare_free_sp_case`'s own `max_abs_log10_sp_diff <
+  1e-2` gate already fails loudly on a clamped selection (a bound of 11
+  against `mgcv`'s own ~9.87 misses by two orders of magnitude more than
+  the tolerance). `fit_polaris_gam`'s own `strict` docstring now states
+  this explicitly rather than implying the caller uses it.
+- **[P1-2] Follow-ups were named in the session log but not harvested into
+  `PRODUCT_DIRECTION_2026-07-24.md`, and the stale slice-6b line calling
+  slice 7 "PLANNED, un-blocked" was left uncorrected.** Both fixed: a
+  2026-09-01 harvest entry is added (1st-order, matching every other
+  recent slice's own harvest), and the stale line now reads
+  "~~...~~ — **SHIPPED** (PR #222)" per house style.
+- **[P2-1] No "Perf History" section in the session log.** Added — no
+  structural creep, confirmed by running `scripts/perf_history.py`.
+- **[P2-2] The perf-history row was pinned to `6385dae`, the branch's base
+  commit, not a commit on this branch** — an ordering mistake (the script
+  ran before `git add`/`git commit`). A second row was recorded after
+  staging, correctly attributed to a commit on this branch; the
+  mis-attributed row stays, per the log's own append-only convention.
+- **[P2-3] "All six target-formula term archetypes" conflated archetype
+  count with case count.** It is four archetypes (`cr`, numeric-`by` `cr`,
+  `ti`, `sz`) across six cases. Fixed in the PLAN and CONTINUATION lines
+  that had it wrong; the module docstring, `SELECT_PENALTY_CLAIM` and this
+  ADR's own body already had it right.
+- **[P2-4] The tier-3 citation points at CI run 33417357327 (the first
+  feature commit, `0a42d26`), not the head commit (`c85c0f1`, docs-only).**
+  The reviewer independently re-read the head commit's own run
+  ([33417953915](https://github.com/jonathancrawford05/polaris-re/actions/runs/33417953915))
+  and confirmed identical verdicts at digit-level noise consistent with
+  BLAS/runner variation: Stage A `9.726e-13 / 2.248e-15 / 5.819e-13 /
+  1.168e-12 / 1.996e-12 / 2.401e-14` (all six `agrees=True`, same null
+  dims as the cited run), Stage B `5.977e-11` (`agrees=True`). Recorded
+  here rather than re-pointing every citation at a moving target: the only
+  change between the two runs is documentation (`c85c0f1` touches no
+  `src`/`tests`/`scripts` file), so the cited run's evidence is evidence
+  for the code actually in this PR, and a further docs-only push would
+  only repeat the same non-problem against a third run.
+
+**Independent verification, same review.** The reviewer re-derived
+provenance from the function signatures rather than accepting this ADR's
+own characterisation (confirming both `S_null` and `eta` are INDEPENDENT,
+not merely asserted so), reproduced the tier-1 baseline figures exactly,
+and ran two negative controls neither of which this ADR's own measurement
+included: Stage A with deliberately wrong knots (`agrees=False`, diff
+2.429e-02) and Stage B with `sp × 1.5` (`agrees=False`, diff 2.243e-01) —
+confirming the comparison has real discriminating power rather than being
+a tautology that would pass regardless of what the code computes.
+
+**Not raised as a defect, flagged for a human decision:** `PolarisGAMFit.at_bound`'s
+meaning changed (it reported either bound before this ADR; now only the
+upper bound, since the lower bound raises before a fit is returned) —
+correct and intentional, but a public dataclass's semantics changed, and
+its one consumer (`FreeSpCaseComparison.at_bound`) is reported rather than
+gated. Also flagged: the epic's written PLAN is now otherwise exhausted —
+extending the free-`sp` search to `select=True`'s doubled block count
+(this ADR's own "what remains") is the largest piece left, and whether it
+becomes a registered slice 7b is a maintainer decision, not a routine's.

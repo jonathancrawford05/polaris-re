@@ -63,13 +63,26 @@ number for.
    at-bound check: the LOWER bound still raises unconditionally (a
    conditioning defect regardless of `select`); the UPPER bound is reported
    on the fit (`PolarisGAMFit.at_bound`/`.at_bound_blocks`, new field) by
-   default, with a new `strict=True` parameter for the one existing caller
-   (`gam_model_conformance.fit_free_sp_case`) that wants a hard raise at
-   either bound for conformance use. **Held on the first try** — two new
-   R-free tests reproduce PR #212's own false-positive fixture (a `cr` term
-   with `y` drawn independent of its covariate, which legitimately shrinks
-   to the upper bound under a narrow search range): one asserts the default
+   default, with a new `strict=True` parameter for a caller that wants a
+   hard raise at either bound. **Held on the first try** — two new R-free
+   tests reproduce PR #212's own false-positive fixture (a `cr` term with
+   `y` drawn independent of its covariate, which legitimately shrinks to
+   the upper bound under a narrow search range): one asserts the default
    reports rather than raises, one asserts `strict=True` still raises.
+   **Correction (PR #222 review [P1-1]):** the one existing conformance
+   caller this parameter was written for
+   (`gam_model_conformance.fit_free_sp_case`) was NOT updated to pass
+   `strict=True` this session, despite this log's first draft and three
+   other documents (ADR-217, PLAN, CONTINUATION) all describing it as
+   already using strict mode — a real inconsistency the reviewer caught.
+   Left non-strict deliberately once examined: that caller's own CI step
+   has no `try`/`except` around it, so `strict=True` there would turn an
+   occasional bound hit into an uncaught crash that loses the whole
+   diagnostic step, rather than `compare_free_sp_case`'s existing graceful
+   degradation (`FreeSpCaseComparison.at_bound` still surfaces the
+   condition, and its `max_abs_log10_sp_diff < 1e-2` gate already fails
+   loudly on a clamped selection). See `gam_model.py`'s own `strict`
+   docstring for the fuller reasoning, added in the same fix.
 
 2. **Is `select = TRUE`'s extra penalty one rule, or four (one per basis)?**
    Read `mgcv`'s own `gam(..., select=TRUE, fit=FALSE)$smooth[[i]]$S`
@@ -339,6 +352,19 @@ Tier 3: R 4.6.1 (2026-06-24) / mgcv 1.9.4, oracle
   — both jobs (`mgcv reference (R)`, `Compare against the Python reference`)
   completed successfully in under 2 minutes end to end, confirming every
   tier-1 figure above at tier 3.
+
+## Perf history
+
+`uv run python scripts/perf_history.py`: **no structural creep**
+(`has_structural_creep: false`, `peak_mib` 33 → 33 MiB, wall-time ratio
+1.072 inside the 1.25 band, `config_drift: false`, 37 rows). Run twice
+this session: once before staging (recorded against `6385dae`, the
+branch's base commit rather than a commit on this branch — an ordering
+mistake, PR #222 review [P2-2]), and once more after both feature commits
+landed (recorded against `c85c0f1`, this PR's own docs-only head at the
+time) — the second row is the one that correctly attributes to this PR's
+code. Both readings agree (no creep either way); the log is append-only,
+so the mis-attributed row stays rather than being edited out.
 
 ## Definition of done (PLAN slice 7's own acceptance, per ADR-209 decision 3)
 

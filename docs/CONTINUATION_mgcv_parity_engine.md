@@ -424,9 +424,10 @@ magnitude; the extra penalty is `U0 @ U0.T` for the resulting null-space
 eigenvectors — agreeing with `mgcv`'s own
 `gam(..., select=TRUE, fit=FALSE)$smooth[[i]]$S` to float round-trip
 precision (tier 1: 9.8e-15 to 8.9e-12; tier 3, same day: 3.0e-14 to
-2.2e-12, identical in verdict) on all six target-formula term archetypes
-(`cr` reference x2, the `by` MI term, `ti`, `sz` x2), with no per-basis
-branch in the implementation. **Stage B**: the same three-term model
+2.2e-12, identical in verdict) on all four target-formula term archetypes
+(`cr`, numeric-`by` `cr`, `ti`, `sz`; six cases — `cr` reference x2, the
+`by` MI term, `ti`, `sz` x2), with no per-basis branch in the
+implementation. **Stage B**: the same three-term model
 ADR-206 verified at fixed `sp`, now fit with `ModelSpec.select=True` (7
 penalty blocks) via `gam_model.assemble_model_design`, agrees with
 `mgcv`'s native `select=TRUE` fit on `eta` to `6.164e-11` (tier 1) /

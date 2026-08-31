@@ -359,9 +359,19 @@ def fit_polaris_gam(
             carries no signal (PR #212 review [P1-new], `docs/DEV_SESSION_LOG_
             2026-08-25_mgcv_parity_slice5b_polarisgam.md` "PR #212 review
             response, round 2"); a hard raise there collided with that case
-            head-on rather than reporting it. Pass ``True`` for the
-            conformance/harness use this guard was originally written for,
-            where a bound hit anywhere is worth failing loudly on.
+            head-on rather than reporting it. Pass ``True`` for a caller that
+            wants a bound hit anywhere to fail loudly.
+            :func:`~polaris_re.analytics.gam_model_conformance.fit_free_sp_case`
+            — the conformance/harness use this guard was originally written
+            for — deliberately stays non-strict (PR #222 review [P1-1]):
+            its own CI step does not guard the call in a ``try``/``except``,
+            so ``strict=True`` there would turn an occasional bound hit into
+            an uncaught crash that loses the whole diagnostic, rather than
+            the graceful degradation ``compare_free_sp_case`` already gives —
+            ``FreeSpCaseComparison.at_bound`` still surfaces the condition,
+            and its own ``max_abs_log10_sp_diff < 1e-2`` gate already fails
+            loudly on a clamped selection (a bound of 11 against `mgcv`'s own
+            ~9.87 misses by two orders of magnitude more than the tolerance).
 
     Raises:
         PolarisValidationError: propagated from :func:`assemble_model_design`
