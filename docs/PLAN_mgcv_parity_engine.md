@@ -1242,22 +1242,21 @@ where `mgcv`-specific machinery lives, and Stage A is the only place a mistake i
 ### Slice 7: `select = TRUE`
 
 - **Depends on:** Slices 4-6
-- **Status: IN PROGRESS, 2026-09-01** (ADR-217, tier 1 only — tier 3 not yet
-  dispatched). The at-bound guard collision below is FIXED (`strict=`
-  parameter, the reviewer's own suggested shape). **Stage A DONE at tier 1**:
-  `gam_select_penalty.null_space_penalty` — ONE basis-agnostic rule
-  (eigendecompose the sum of a term's own existing penalty block(s) at their
-  natural, unscaled magnitude; the extra penalty is `U0 @ U0.T` for the
-  null-space eigenvectors) — agrees with `mgcv`'s own
+- **Status: DONE FOR STAGE A AND A FIXED-`sp` STAGE B, 2026-09-01** (ADR-217,
+  tier 1 AND tier 3 confirmed identical, CI run 33417357327). The at-bound
+  guard collision below is FIXED (`strict=` parameter, the reviewer's own
+  suggested shape). **Stage A**: `gam_select_penalty.null_space_penalty` —
+  ONE basis-agnostic rule (eigendecompose the sum of a term's own existing
+  penalty block(s) at their natural, unscaled magnitude; the extra penalty
+  is `U0 @ U0.T` for the null-space eigenvectors) — agrees with `mgcv`'s own
   `gam(..., select=TRUE, fit=FALSE)$smooth[[i]]$S` to float round-trip
   precision on all six target-formula term archetypes (`cr` reference x2,
   the `by` MI term, `ti`, `sz` x2), no per-basis special-casing needed.
-  **Stage B DONE at tier 1**: the same three-term model ADR-206 verified,
-  now fit with `ModelSpec.select=True` (7 blocks) via
-  `gam_model.assemble_model_design`, agrees with `mgcv`'s native
-  `select=TRUE` fit on `eta` to `6.164e-11` — no iteration needed. **What
-  remains**: tier-3 confirmation (CI dispatch, new `mgcv-conformance.yml`
-  steps land in this same PR), then extending
+  **Stage B**: the same three-term model ADR-206 verified, now fit with
+  `ModelSpec.select=True` (7 blocks) via `gam_model.assemble_model_design`,
+  agrees with `mgcv`'s native `select=TRUE` fit on `eta` to `6.164e-11`
+  (tier 1) / `5.691e-11` (tier 3) — no iteration needed on either stage.
+  **What remains**: extending
   `select_lambdas_continuous`/`fit_polaris_gam`'s own free-`sp` search to
   the doubled/increased block count `select=True` produces — nothing here
   reproduces PLAN §1's own headline 13→21/47.36→16.96 figures yet, since

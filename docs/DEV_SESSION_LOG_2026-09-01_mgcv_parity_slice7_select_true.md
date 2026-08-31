@@ -199,27 +199,48 @@ Same order of magnitude as ADR-206's own first multi-term reading
 (`1.242e-10`) and ADR-216's `sz` Stage-B reading (`3.9e-12`) — no iteration
 needed on either stage.
 
-**Tier 3: NOT dispatched this session.** The new `mgcv-conformance.yml`
-steps are written and included in this PR, ready for `workflow_dispatch` on
-this branch or the PR's own CI run, but no run has completed as of this log.
-This is stated explicitly per `ROUTINE_MGCV_PARITY.md`'s own rule — every
-number above is TIER 1 and must not be read as settled outside this session
-log.
+**Tier 3: CONFIRMED, same session.** Dispatched automatically via this PR's
+own `pull_request` trigger (CI run
+[33417357327](https://github.com/jonathancrawford05/polaris-re/actions/runs/33417357327),
+oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+— build 8, R 4.6.1 / mgcv 1.9.4), completed in under 2 minutes end to end:
+
+**Stage A, tier 3:**
+
+| case | null dim | max abs S_null diff | agrees |
+|---|---:|---:|---|
+| `cr-ref-attdage-k13` | 1 | 1.257e-12 | True |
+| `cr-ref-polyear-k6` | 1 | 3.092e-14 | True |
+| `cr-by-mi-attdage-k13` | 2 | 8.979e-13 | True |
+| `ti-attdage-polyear` | 1 | 2.195e-12 | True |
+| `sz-facesize-attdage-k13` | 2 | 1.562e-12 | True |
+| `sz-facesize-polyear-k6` | 2 | 3.000e-14 | True |
+
+**Stage B, tier 3:** `max_abs_eta_diff = 5.691e-11`, `agrees=True` (`n=900`,
+`p=86`, 7 blocks) — identical order of magnitude to the tier-1 reading
+above.
+
+Both tiers agree in verdict and order of magnitude on every case. Both jobs
+(`mgcv reference (R)`, `Compare against the Python reference`) completed
+successfully; required conformance levels re-confirmed at tier 3: levels
+1/2/3/5 AGREE, level 4 DISAGREES (ADR-190, unaffected) — identical to the
+tier-1 reading, no regression from this session's changes on the pinned
+oracle.
 
 ## Gap After
 
-**Slice 7's Stage A and a fixed-`sp` Stage B are DONE at tier 1.** The
-`select = TRUE` double penalty is confirmed to be one basis-agnostic rule —
-not four per-basis constructions — and it composes correctly with the
-production `assemble_model_design` path (not a separate Stage-A-only
-module, unlike `sz`'s own first landing in ADR-215). This closes the
-`select = TRUE` row of `CONTINUATION_mgcv_parity_engine.md`'s gap-audit
-table from "Not started" to "Stage A+B DONE, tier 1 only."
+**Slice 7's Stage A and a fixed-`sp` Stage B are DONE, tier 1 AND tier 3
+CONFIRMED (CI run 33417357327).** The `select = TRUE` double penalty is
+confirmed to be one basis-agnostic rule — not four per-basis constructions —
+and it composes correctly with the production `assemble_model_design` path
+(not a separate Stage-A-only module, unlike `sz`'s own first landing in
+ADR-215). This closes the `select = TRUE` row of
+`CONTINUATION_mgcv_parity_engine.md`'s gap-audit table from "Not started" to
+"Stage A+B DONE."
 
 **What remains, named rather than attempted:**
 
-1. **Tier-3 confirmation** — this session's own open item (see above).
-2. **Free-`sp` selection under `select=True`.** Every case measured this
+1. **Free-`sp` selection under `select=True`.** Every case measured this
    session uses a FIXED, externally-supplied `sp`. Extending
    `select_lambdas_continuous`/`fit_polaris_gam`'s own outer search to the
    doubled/increased block count `select=True` produces is what would let
@@ -230,7 +251,7 @@ table from "Not started" to "Stage A+B DONE, tier 1 only."
    inside slice 5e/5f's own measured N=4-N=8 robustness range, but
    `select_lambdas_continuous` has never actually been POINTED at a
    `select=True`-shaped design.
-3. **Combining `select=True` with the target's full eight-term structure**,
+2. **Combining `select=True` with the target's full eight-term structure**,
    including more than one `sz` term.
 
 ## Provenance (ADR-193)
@@ -267,8 +288,11 @@ never compared (Anchor 2).
 
 ## Oracle version
 
-Tier 1: R 4.3.3 (2024-02-29) / mgcv 1.9-1 (local apt). **Tier 3: not
-dispatched this session** — no digest or CI run to record yet.
+Tier 1: R 4.3.3 (2024-02-29) / mgcv 1.9-1 (local apt).
+Tier 3: R 4.6.1 (2026-06-24) / mgcv 1.9.4, oracle
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+(build 8), CI run
+[33417357327](https://github.com/jonathancrawford05/polaris-re/actions/runs/33417357327).
 
 ## Quality gate
 
@@ -301,13 +325,20 @@ dispatched this session** — no digest or CI run to record yet.
   + `compare_mgcv_conformance.py`): **levels 1/2/3/5 AGREE, level 4
   DISAGREES** — the same standing, permanent state
   `ROUTINE_MGCV_PARITY.md` documents (ADR-190's separate `dw/drho` gap).
-  No regression from this session's changes.
+  No regression from this session's changes. **Re-confirmed at tier 3**
+  on this PR's own CI run (33417357327): identical verdict.
 - Full suite, `OPENBLAS_NUM_THREADS=1 uv run pytest tests/ -m "not slow"`
   (R installed): **3533 passed, 5 failed (the same pre-existing
   mortality-table environment gap named in the baseline above, unrelated to
   this epic), 22 skipped, 126 deselected.** No new failure beyond the 5
   pre-existing ones — every new/changed test in the targeted 74-test
   re-run above passed as part of this same run.
+- **CI dispatch**: `mgcv-conformance.yml` ran automatically on this PR's
+  `pull_request` trigger, CI run
+  [33417357327](https://github.com/jonathancrawford05/polaris-re/actions/runs/33417357327)
+  — both jobs (`mgcv reference (R)`, `Compare against the Python reference`)
+  completed successfully in under 2 minutes end to end, confirming every
+  tier-1 figure above at tier 3.
 
 ## Definition of done (PLAN slice 7's own acceptance, per ADR-209 decision 3)
 
@@ -326,15 +357,16 @@ delivered, tagged here:
   `test_the_r_probe_runs_end_to_end_and_agrees`
   (`tests/test_analytics/test_gam_select_penalty.py`), tier 1 PASSED, six
   cases, `SELECT_PENALTY_CLAIM` gated by `require_parity_evidence`
-  (`test_select_penalty_claim_is_independent`). **NOT MET at tier 3** —
-  not yet dispatched this session.
+  (`test_select_penalty_claim_is_independent`). **CONFIRMED at tier 3**,
+  CI run 33417357327, same session — all six cases `agrees=True`.
 - `[machine]` **A `select=TRUE` multi-term fit is INDEPENDENT Stage-B
   parity evidence on `eta`, at a fixed `sp`.** →
   `test_the_r_probe_runs_end_to_end_and_agrees`
   (`tests/test_analytics/test_gam_select_multiterm_conformance.py`), tier
   1 PASSED, `max_abs_eta_diff=6.164e-11`, `SELECT_MULTITERM_CLAIM` gated
   (`test_select_multiterm_claim_is_independent_on_every_declared_quantity`).
-  **NOT MET at tier 3** — not yet dispatched this session.
+  **CONFIRMED at tier 3**, CI run 33417357327, `max_abs_eta_diff=5.691e-11`,
+  `agrees=True`.
 - `[machine]` **The null-space rule is verified as combining blocks BEFORE
   taking the null space, not per-block** — the actual mechanism, not a
   coincidence. →
@@ -355,11 +387,6 @@ delivered, tagged here:
 
 ## Follow-ups filed
 
-- **This session's own open item, not a future session's**: dispatch
-  `mgcv-conformance.yml` on this PR (or via `workflow_dispatch`) before
-  merge, and confirm both Stage-A and Stage-B tier-1 figures at tier 3 —
-  per `ROUTINE_MGCV_PARITY.md`'s "run it if it is under an hour" (a CI
-  round trip on the pinned digest costs about a minute).
 - **Named, not yet a registered slice** (below the ADR-209 decision-1 bar
   for a session-blocking gap, per this session's own judgement — a future
   session should register as slice 7b if it becomes the epic's next

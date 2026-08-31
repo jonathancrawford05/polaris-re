@@ -19531,9 +19531,12 @@ work): extending `select_lambdas_continuous` to an `sz`-shaped block
 structure; a multi-term model combining `sz` with `ti`/`by`; a model with
 more than one `sz` term.
 
-## ADR-217: Slice 7 — `select = TRUE`'s double penalty is one basis-agnostic rule; Stage A and a Stage B fixed-`sp` fit both land INDEPENDENT parity evidence on the first measurement, at tier 1
+## ADR-217: Slice 7 — `select = TRUE`'s double penalty is one basis-agnostic rule; Stage A and a Stage B fixed-`sp` fit both land INDEPENDENT parity evidence on the first measurement, tier 1 AND tier 3 confirmed identical
 
-**Status:** ACCEPTED (tier 1 only — tier 3 not yet dispatched this session), 2026-09-01.
+**Status:** ACCEPTED, tier 1 AND tier 3 confirmed identical in verdict, 2026-09-01
+(CI run [33417357327](https://github.com/jonathancrawford05/polaris-re/actions/runs/33417357327),
+oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+— build 8, the digest this epic has used throughout, R 4.6.1 / mgcv 1.9.4).
 
 **Context.** Slice 7 (`select = TRUE`, the double penalty that takes the target
 formula's smoothing-parameter count from 13 to 21, total edf from 47.36 to 16.96
@@ -19594,8 +19597,10 @@ one:** `cr-ref-attdage-k13`, `cr-ref-polyear-k6`, `cr-by-mi-attdage-k13`,
 `ti-attdage-polyear`, `sz-facesize-attdage-k13`, `sz-facesize-polyear-k6`
 (`Smoke`'s own two `sz` terms are the identical construction over the same two
 margins as `FaceSize`'s and are not duplicated). All six agree at
-`max_abs_s_null_diff` between `9.8e-15` and `8.9e-12` — see
-`docs/CONFORMANCE_LEDGER.md` for the per-case table.
+`max_abs_s_null_diff` between `9.8e-15` and `8.9e-12` (tier 1) — see
+`docs/CONFORMANCE_LEDGER.md` for the per-case table. **Confirmed at tier 3**,
+same day, identical in verdict and order of magnitude (`1.257e-12` to
+`3.092e-14`, all six cases `agrees=True`, CI run 33417357327).
 
 **A data-dependent trap caught by Anchor 1's own discipline.** The first attempt
 at this comparison used an independently-drawn Python covariate sample for each
@@ -19636,10 +19641,12 @@ total, matching `assemble_model_design`'s own count exactly) — a tier-1
 structural check, never a committed value (`ROUTINE_MGCV_PARITY.md` step 2).
 
 **Result: agrees on the first measurement**, `max_abs_eta_diff = 6.164e-11`
-(`n=900`, `p=86`), the same order of magnitude as ADR-206's own first
+(tier 1, `n=900`, `p=86`), the same order of magnitude as ADR-206's own first
 multi-term reading (`1.242e-10`) and ADR-216's `sz` Stage-B reading (`3.9e-12`)
 — no iteration needed, the same shape every basis-level Stage-B measurement in
-this epic has had once its Stage A was independently correct.
+this epic has had once its Stage A was independently correct. **Confirmed at
+tier 3**, same day: `max_abs_eta_diff = 5.691e-11`, `agrees=True`, CI run
+33417357327 — identical order of magnitude to tier 1.
 
 **Provenance (ADR-193).**
 
@@ -19653,20 +19660,18 @@ compared (Anchor 2).
 **Required conformance levels 1-3 re-run at tier 1 (`scripts/mgcv_conformance.R`
 + `compare_mgcv_conformance.py`) show no regression** — levels 1/2/3/5 AGREE,
 level 4 DISAGREES (ADR-190's separate, permanently-standing `dw/drho` gap,
-unaffected by this session). `tests/qa/` byte-identical (`git diff` on
-`tests/qa/golden_outputs/` empty — this session touches no path any golden
-depends on). Full suite: 3505 passed / 5 failed (pre-existing, this
-environment's mortality tables were not generated — unrelated to this epic) /
-33 skipped without R, one fewer skipped and one more passed with R installed
+unaffected by this session). **Re-confirmed at tier 3** on this PR's own CI
+run (33417357327): levels 1/2/3/5 AGREE, level 4 DISAGREES — identical
+verdict, no regression on the pinned oracle either. `tests/qa/`
+byte-identical (`git diff` on `tests/qa/golden_outputs/` empty — this
+session touches no path any golden depends on). Full suite: 3505 passed / 5
+failed (pre-existing, this environment's mortality tables were not
+generated — unrelated to this epic) / 33 skipped without R, one fewer
+skipped and one more passed with R installed
 (`test_the_r_script_runs_end_to_end_and_agrees`), matching
 `ROUTINE_MGCV_PARITY.md`'s own documented delta.
 
 **Scope, stated explicitly (what this ADR does NOT close).**
-- **TIER 1 ONLY.** Every number above is local apt R (4.3.3/mgcv 1.9.1), never
-  committed as a settled figure per `ROUTINE_MGCV_PARITY.md`'s own rule — the
-  CI dispatch (new `mgcv-conformance.yml` steps, this PR) is what would make
-  these figures tier-3-citable. Filed as the session's own open item, not
-  silently promoted.
 - **Free-`sp` selection under `select=True` is not built.** Every case here
   uses a FIXED, externally-supplied `sp` (the recipe's own, or the fixed
   values `gam_select_multiterm_probe.R` supplies) — extending
@@ -19692,10 +19697,10 @@ PLAN §1's own headline `select=TRUE` figures are reproducible: the free-`sp`
 search extension (named above), then combining `select=True` with the target's
 full eight-term structure.
 
-**Tier-3 confirmation is this session's own open item** — registered here
-rather than silently left for whoever next reads the CONTINUATION, per
-`ROUTINE_MGCV_PARITY.md`'s "run it if it is under an hour" (a CI round trip on
-the pinned digest is a ~1 minute dispatch): the next session (or a
-`workflow_dispatch` before merge) should confirm both Stage-A and Stage-B
-figures at tier 3 and promote this ADR's Status line accordingly before it is
-cited as settled.
+**Tier-3 confirmation ran the same session**, per `ROUTINE_MGCV_PARITY.md`'s
+"run it if it is under an hour" (a CI round trip on the pinned digest is a
+~1 minute dispatch — this PR's own `pull_request` trigger dispatched it
+automatically on push, completing in under 2 minutes end to end, CI run
+33417357327). Both Stage-A and Stage-B figures are confirmed identical in
+verdict and order of magnitude to the tier-1 readings above; this ADR's
+Status line is promoted accordingly.

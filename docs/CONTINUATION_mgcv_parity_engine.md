@@ -408,8 +408,9 @@ parameters selected: extending the outer search to an `sz`-shaped block
 structure, combining `sz` with `ti`/`by` in one model, and slice 7
 (`select = TRUE`).
 
-**Slice 7 (`select = TRUE`) is IN PROGRESS, 2026-09-01 (ADR-217, TIER 1
-ONLY — tier 3 not yet dispatched this session).** The at-bound-guard
+**Slice 7 (`select = TRUE`) is DONE FOR STAGE A AND A FIXED-`sp` STAGE B,
+2026-09-01 (ADR-217, tier 1 AND tier 3 confirmed identical, CI run
+33417357327).** The at-bound-guard
 collision the PLAN named ("fix before or as part of designating this
 slice") is fixed: `fit_polaris_gam`'s guard now raises unconditionally
 only at the LOWER search bound; the upper bound (a term shrunk to its
@@ -422,17 +423,19 @@ term's own existing penalty block(s) at their natural, unscaled
 magnitude; the extra penalty is `U0 @ U0.T` for the resulting null-space
 eigenvectors — agreeing with `mgcv`'s own
 `gam(..., select=TRUE, fit=FALSE)$smooth[[i]]$S` to float round-trip
-precision (9.8e-15 to 8.9e-12) on all six target-formula term archetypes
+precision (tier 1: 9.8e-15 to 8.9e-12; tier 3, same day: 3.0e-14 to
+2.2e-12, identical in verdict) on all six target-formula term archetypes
 (`cr` reference x2, the `by` MI term, `ti`, `sz` x2), with no per-basis
 branch in the implementation. **Stage B**: the same three-term model
 ADR-206 verified at fixed `sp`, now fit with `ModelSpec.select=True` (7
 penalty blocks) via `gam_model.assemble_model_design`, agrees with
-`mgcv`'s native `select=TRUE` fit on `eta` to `6.164e-11` — no iteration
-needed on either stage, the same shape every basis-level Stage-B result
-in this epic has had once its Stage A was independently correct. **What
-remains, named rather than attempted**: tier-3 confirmation (this
-session's own open item — new `mgcv-conformance.yml` steps are in the
-same PR, ready to dispatch); extending
+`mgcv`'s native `select=TRUE` fit on `eta` to `6.164e-11` (tier 1) /
+`5.691e-11` (tier 3) — no iteration needed on either stage, the same
+shape every basis-level Stage-B result in this epic has had once its
+Stage A was independently correct. Required conformance levels 1-3 also
+re-confirmed AGREE at tier 3 on this run, level 4 unchanged (DISAGREES,
+ADR-190), level 5 AGREES — no regression. **What remains, named rather
+than attempted**: extending
 `select_lambdas_continuous`/`fit_polaris_gam`'s own free-`sp` search to
 the doubled/increased block count `select=True` produces, which is what
 would let a caller actually reproduce PLAN §1's own headline 13→21 /
@@ -783,7 +786,7 @@ across the slice structure.
 | `ti()` — tensor interaction | Tensor product with marginal main effects excluded | **Stage A+B DONE, 2026-08-24** (ADR-205 Stage A, ADR-206 Stage B, tier 1 AND tier 3 confirmed) — agrees with `smoothCon(ti(...))` to ~1e-14 (Stage A) and with a native multi-term `gam()` fit's `eta` to 1.242e-10 (Stage B), including the target's own `ti(AttdAge, PolYear, k=c(13,6))` knots | Nothing for this term's own basis+fit; the MI-contrast-on-a-grid metric and N>2 slice-4-part-B extension remain (ADR-206) |
 | `s(..., by=...)` with a `cr` basis | The MI term itself — a `cr` basis scaled by a numeric `by` variable | **Stage A+B DONE, 2026-08-24** (ADR-200 Stage A, ADR-206 Stage B, tier 1 AND tier 3 confirmed) — `mgcv` absorbs no identifiability constraint on a numeric-`by` smooth; agrees to ~2e-14 (Stage A) and to 1.242e-10 on `eta` in the multi-term fit (Stage B) | Nothing for this term's own basis+fit; same remaining items as the `ti()` row above |
 | `bs = "sz"` | Sum-to-zero factor-smooth interactions (4 terms in the target formula) | **Stage A+B DONE, 2026-08-31** (ADR-215 Stage A, ADR-216 Stage B, both tier 1 AND tier 3 confirmed — single factor, no `id`) — agrees with `smoothCon(bs="sz")` to ~1e-14 (Stage A) and with a native multi-term `gam()` fit's `eta` to ~4e-12 (Stage B) | Extending `select_lambdas_continuous` to an `sz`-shaped block structure; combining `sz` with `ti`/`by` in one model; more than one `sz` term |
-| `select = TRUE` | The double penalty / null-space shrinkage that takes 13 sp → 21 | **Stage A+B DONE, TIER 1 ONLY, 2026-09-01** (ADR-217) — `gam_select_penalty.null_space_penalty`'s one basis-agnostic rule agrees with `mgcv`'s `select=TRUE` setup path to ~1e-12 (Stage A, all four term archetypes) and a `select=TRUE` multi-term fit agrees with `mgcv`'s native fit on `eta` to 6.164e-11 (Stage B) | Tier-3 confirmation (this session's own open item); extending `select_lambdas_continuous`/`fit_polaris_gam`'s free-`sp` search to the doubled block count (needed to reproduce PLAN §1's own 13→21/47.36→16.96 figures); combining with the target's full eight-term structure |
+| `select = TRUE` | The double penalty / null-space shrinkage that takes 13 sp → 21 | **Stage A+B DONE, 2026-09-01** (ADR-217, tier 1 AND tier 3 confirmed identical, CI run 33417357327) — `gam_select_penalty.null_space_penalty`'s one basis-agnostic rule agrees with `mgcv`'s `select=TRUE` setup path to ~1e-12 (Stage A, all four term archetypes) and a `select=TRUE` multi-term fit agrees with `mgcv`'s native fit on `eta` to 6.164e-11/5.691e-11 (Stage B) | Extending `select_lambdas_continuous`/`fit_polaris_gam`'s free-`sp` search to the doubled block count (needed to reproduce PLAN §1's own 13→21/47.36→16.96 figures); combining with the target's full eight-term structure |
 | `cr` basis extrapolation | Behaviour for `x` outside `[knots[0], knots[-1]]` | **Unverified**, not assumed — `gam_basis_cr.py` marks it explicitly | A future session measuring it; blocks fitting the target's own knots against real experience data, whose range need not match the hand-chosen knots |
 | Kass-Steffey / `vcov(unconditional=TRUE)` | The full Wood, Pya & Säfken (2016) correction (`dw/drho`) | **CLOSED, 2026-08-22** (ADR-202, tier 1 AND tier 3 identical, CI run 32589501512) — `gam_uncertainty` reproduces `mgcv`'s `Vc` to <1% element-wise and <0.1% on the inflation ratio, where the first-order-only correction inflated 1.11-1.21x against `mgcv`'s 1.49-1.87x. Built on ADR-201's `dw/drho` | Nothing for the FORMULA. What remains is a **separate, Anchor-7-gated decision**: re-pointing `experience_gam_penalized.smoothing_uncertainty` at it (with its own determinism answer, ADR-186), and then re-running ADR-188's coverage gate — until that happens the ten-cell suite's level 4 correctly still reads DISAGREES |
 | Anchor 5 absolute/relative idiom, demonstrated end to end | Weights and an offset used simultaneously on the target's own multi-term structure | Each control verified in isolation only (PLAN slice 3's own deferred criterion) | A multi-term model, which needs the outer search |
@@ -859,12 +862,13 @@ should be re-synced.
    the outer search to an `sz`-shaped block structure, combining `sz` with
    `ti`/`by`, and more than one `sz` term — named, not yet registered as a
    slice.
-6. **Slice 7 — `select = TRUE`.** 13 → 21 smoothing parameters. **IN
-   PROGRESS, 2026-09-01** (ADR-217, tier 1 only): Stage A (one
-   basis-agnostic null-space-penalty rule, all four term archetypes) and
-   Stage B (a fixed-`sp` multi-term fit) both agree with `mgcv` on the
-   first measurement. Remaining: tier-3 confirmation, then the free-`sp`
-   search extension needed to reach 13→21/47.36→16.96.
+6. **Slice 7 — `select = TRUE`.** 13 → 21 smoothing parameters. **DONE
+   FOR STAGE A AND A FIXED-`sp` STAGE B, 2026-09-01** (ADR-217, tier 1
+   AND tier 3 confirmed identical): Stage A (one basis-agnostic
+   null-space-penalty rule, all four term archetypes) and Stage B (a
+   fixed-`sp` multi-term fit) both agree with `mgcv` on the first
+   measurement, at both tiers. Remaining: the free-`sp` search extension
+   needed to reach 13→21/47.36→16.96.
 7. ~~**Kass-Steffey / `vcov(unconditional=TRUE)` — the level-4 BLOCKER.**~~
    **CLOSED, 2026-08-22** (ADR-202, tier 1 AND tier 3 identical, CI run 32589501512).
    The maintainer supplied Wood, Pya & Säfken (2016); eq. (7)'s `V''` term is exactly
