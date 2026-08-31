@@ -55,8 +55,10 @@ from polaris_re.core.exceptions import PolarisComputationError, PolarisValidatio
 
 __all__ = [
     "ContinuousLambdaSelection",
+    "MultiStartLambdaSelection",
     "penalized_fit_and_score",
     "select_lambdas_continuous",
+    "select_lambdas_continuous_multistart",
 ]
 
 DEFAULT_LOG10_BOUNDS = (-2.0, 8.0)
@@ -375,4 +377,180 @@ def select_lambdas_continuous(
         converged=bool(result.success),
         at_bound=bool(np.any(np.isclose(log_lambda, lo)) or np.any(np.isclose(log_lambda, hi))),
         message=str(result.message),
+    )
+
+
+_MULTISTART_SEED = 20260830
+"""Pinned per ADR-074 (never the wall clock), not tuned against any ``mgcv``
+reading — the starting points below are read off this seed alone, before any
+fit runs. Fixed so a re-run of :func:`select_lambdas_continuous_multistart`
+on identical ``(y, x, penalty_blocks)`` draws the identical set of starts
+regardless of platform or `NumPy` version: `numpy.random.default_rng`'s
+PCG64 stream is a pure integer/bit algorithm, independent of BLAS, OpenMP or
+thread count — the axis PLAN slice 5e/ADR-211 found the SEARCH itself
+sensitive to. Only the *starting points* are pinned this way; each start's
+own converged score can still move with thread count, for the identical
+reason a single-start search does (ADR-211) — multi-start does not remove
+that per-fit noise, it gives the search several independent attempts to
+escape whichever near-flat direction the noise happens to stall on."""
+
+
+@dataclass(frozen=True)
+class MultiStartLambdaSelection:
+    """What :func:`select_lambdas_continuous_multistart` returns — the
+    best-scoring converged result of ``n_starts`` independent
+    :func:`select_lambdas_continuous` calls, plus enough bookkeeping to state
+    the search's own cost and how much the starts actually disagreed."""
+
+    best: ContinuousLambdaSelection
+    """The lowest-score CONVERGED run (or, if none converged, the
+    lowest-score run overall — see :attr:`any_converged`)."""
+    starts: tuple[np.ndarray, ...]
+    """Every ``x0`` tried, in the order evaluated. ``starts[0]`` is always
+    the bounds-centre — the same point :func:`select_lambdas_continuous`
+    itself defaults to — so a caller can read index 0 as "what the
+    single-start search alone would have returned"."""
+    scores: tuple[float, ...]
+    """Each start's own converged (or best-effort) REML score, same order as
+    :attr:`starts` — ``_REJECTED_SCORE`` for a start whose own search
+    rejected every trial point it tried."""
+    converged: tuple[bool, ...]
+    """Each start's own :attr:`ContinuousLambdaSelection.converged`, same
+    order as :attr:`starts`."""
+    best_start_index: int
+    """Index into :attr:`starts`/:attr:`scores` of the run :attr:`best` came
+    from."""
+    any_converged: bool
+    """Whether at least one start converged. ``False`` means :attr:`best` is
+    the least-bad non-converged run, reported rather than raised — mirrors
+    :func:`select_lambdas_continuous`'s own per-start rejection handling,
+    but at the level of whole runs instead of trial points."""
+    total_function_evals: int
+    """Sum of every start's own ``n_function_evals`` — the search's real
+    cost: ``n_starts`` times a single search's own evaluation count, give or
+    take each start's own path length."""
+
+
+def select_lambdas_continuous_multistart(
+    y: np.ndarray,
+    x: np.ndarray,
+    family: Family,
+    penalty_blocks: tuple[np.ndarray, ...],
+    *,
+    offset: np.ndarray | None = None,
+    weights: np.ndarray | None = None,
+    gamma: float = 1.0,
+    bounds: tuple[float, float] = DEFAULT_LOG10_BOUNDS,
+    gtol: float = 1.0e-8,
+    maxiter: int = 200,
+    finite_diff_step: float = _FINITE_DIFF_STEP,
+    n_starts: int = 9,
+    seed: int = _MULTISTART_SEED,
+) -> MultiStartLambdaSelection:
+    """Best-of-``n_starts`` :func:`select_lambdas_continuous`, candidate (1)
+    of PLAN slice 5e (``docs/PLAN_mgcv_parity_engine.md``).
+
+    ADR-211's own blind multi-start check (9 starts: bounds-centre plus 8
+    uniform-random draws) found the single bounds-centre start alone can
+    land measurably short of a reachable, better-scoring point on a
+    near-flat, weakly-identified block — this function is that check turned
+    into a reusable, deterministic building block rather than a one-off
+    diagnostic script. It adds no new fitting or scoring formula: every
+    start is an ordinary :func:`select_lambdas_continuous` call, and this
+    function only picks the best of their results.
+
+    The first start is always the bounds-centre (matching
+    :func:`select_lambdas_continuous`'s own default ``x0``); the remaining
+    ``n_starts - 1`` are drawn uniformly from ``bounds`` by
+    ``numpy.random.default_rng(seed)`` — deterministic across platforms
+    regardless of BLAS thread count (see :data:`_MULTISTART_SEED`).
+
+    A start whose own search raises :class:`~polaris_re.core.exceptions.PolarisComputationError`
+    (every trial point it tried was rejected) is recorded with score
+    :data:`_REJECTED_SCORE` and ``converged=False`` rather than aborting the
+    whole multi-start run — one bad start should not hide the other starts'
+    results, the same reasoning a single search's own per-trial-point
+    rejection already uses.
+
+    Args:
+        y, x, family, penalty_blocks, offset, weights, gamma, bounds, gtol,
+            maxiter, finite_diff_step: passed to every
+            :func:`select_lambdas_continuous` call unchanged.
+        n_starts: total number of starts, bounds-centre included. ADR-211's
+            own diagnostic used 9; kept as the default here since it is the
+            one value this module has actual evidence about, not because 9
+            is derived from anything.
+        seed: seeds the ``n_starts - 1`` random starts. Change only to
+            explore a different draw — the default is pinned, not tuned.
+
+    Returns:
+        :class:`MultiStartLambdaSelection`.
+
+    Raises:
+        PolarisValidationError: if ``penalty_blocks`` is empty, or
+            ``n_starts < 1``.
+    """
+    n_blocks = len(penalty_blocks)
+    if n_blocks == 0:
+        raise PolarisValidationError(
+            "select_lambdas_continuous_multistart needs at least one penalty block."
+        )
+    if n_starts < 1:
+        raise PolarisValidationError(
+            f"select_lambdas_continuous_multistart needs n_starts >= 1; got {n_starts}."
+        )
+    lo, hi = bounds
+    centre = np.full(n_blocks, (lo + hi) / 2.0, dtype=np.float64)
+    rng = np.random.default_rng(seed)
+    starts = [centre] + [
+        rng.uniform(lo, hi, size=n_blocks).astype(np.float64) for _ in range(n_starts - 1)
+    ]
+
+    runs: list[ContinuousLambdaSelection | None] = []
+    for start in starts:
+        try:
+            runs.append(
+                select_lambdas_continuous(
+                    y,
+                    x,
+                    family,
+                    penalty_blocks,
+                    offset=offset,
+                    weights=weights,
+                    gamma=gamma,
+                    x0=start,
+                    bounds=bounds,
+                    gtol=gtol,
+                    maxiter=maxiter,
+                    finite_diff_step=finite_diff_step,
+                )
+            )
+        except PolarisComputationError:
+            runs.append(None)
+
+    scores = tuple(_REJECTED_SCORE if run is None else run.reml_score for run in runs)
+    converged = tuple(False if run is None else run.converged for run in runs)
+    total_evals = sum(0 if run is None else run.n_function_evals for run in runs)
+
+    converged_indices = [i for i, ok in enumerate(converged) if ok]
+    any_conv = bool(converged_indices)
+    candidate_indices = converged_indices if any_conv else list(range(len(runs)))
+    best_idx = min(candidate_indices, key=lambda i: scores[i])
+    best_run = runs[best_idx]
+    if best_run is None:
+        raise PolarisComputationError(
+            f"select_lambdas_continuous_multistart: every one of {n_starts} starts "
+            f"raised PolarisComputationError (its own search rejected every trial "
+            f"point it tried) — no penalized fit converged anywhere in log10 lambda "
+            f"{bounds}."
+        )
+
+    return MultiStartLambdaSelection(
+        best=best_run,
+        starts=tuple(starts),
+        scores=scores,
+        converged=converged,
+        best_start_index=best_idx,
+        any_converged=any_conv,
+        total_function_evals=total_evals,
     )

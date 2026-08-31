@@ -994,9 +994,17 @@ one. Only the tier-3 oracle and ADR-193's two-producer rule do that.
 ### Slice 5e: robustify the outer search's own convergence before scaling past N=4 blocks
 
 - **Depends on:** Slice 5d (ADR-211 and ADR-212).
-- **Status:** READY, not designated. Registered per ADR-209 decision 1 ("a
-  gap you open is closed or registered — never merely filed") — slice 5d
-  found this and deliberately did not fix it in the same session.
+- **Status: DONE, 2026-08-30 (ADR-213).** `select_lambdas_continuous_multistart`
+  (best-of-9, deterministic starts) built; measured, thread-pinned, at N=4
+  (recovers a real single-start convergence failure at 4 threads — the
+  reproducible improvement this slice's acceptance criterion asked for) and
+  at a synthetic N=8 stress case (single-start already sufficed on this
+  specific, deliberately-decoupled construction — a genuine answer, not the
+  one the slice's premise anticipated). Cost stated: ~8-21x a single
+  search's own function evaluations. See ADR-213 for the full measurement,
+  what remains open (a covariate-SHARING N>4 structure, closer to the
+  target formula's own shape, is untested), and why no mgcv comparison is
+  made anywhere in this slice.
 - **PREMISE RESTATED, 2026-08-30, against the merged fix.** This slice was
   registered by ADR-211 while ADR-212's `_FINITE_DIFF_STEP` fix was being
   written concurrently and had not yet landed. Every reading below marked
@@ -1068,6 +1076,61 @@ one. Only the tier-3 oracle and ADR-193's two-producer rule do that.
   multi-start data point and ADR-212's weak-identifiability finding both
   suggest that is not cheaply achievable on this specific landscape, and may
   be the wrong target entirely pending the maintainer's metric call.
+- **DONE, 2026-08-30 (ADR-213).** Candidate (1), best-of-9 multi-start
+  (`select_lambdas_continuous_multistart`), built and measured, thread-pinned,
+  at two points: the ACTUAL N=4 fixture (multi-start recovers a real
+  single-start convergence failure at 4 threads) and a synthetic N=8 stress
+  case built by duplicating the N=4 shape onto an independent,
+  covariate-DECOUPLED second draw (single-start already sufficed there at
+  every thread count tested — a real finding, not the one the slice's
+  premise anticipated). Cost: ~8-21x a single search's own function
+  evaluations. See ADR-213 for the full measurement and every number.
+
+  > **Acceptance criterion restated, 2026-08-30 (PR #218 review [P1]).** The
+  > criterion as originally worded above — "a measured, reproducible
+  > improvement **at N > 4 blocks**" — presupposes the answer. The N=8
+  > measurement REFUTES that presupposition (single-start already
+  > sufficed), so ticking the original wording "MET" overstates what was
+  > found. **What the criterion actually became, and what this slice
+  > delivers**: *answer*, with thread-pinned evidence, whether one start
+  > still suffices past N=4 — which this slice does, on the one structure
+  > tested (yes) — while separately demonstrating, on the exact N=4
+  > structure the premise was restated against, that best-of-N is a real
+  > and reproducible mitigation when it IS needed. Slice 5e is DONE because
+  > the question is answered with evidence, not because the originally
+  > anticipated failure mode was reproduced and fixed at N>4. A reader of
+  > slice 6/7 (13-21 blocks) should take from this: N>4 robustness is
+  > MEASURED on one (covariate-decoupled) structure, not settled in
+  > general — slice 5f is exactly the structure that would settle more of it.
+
+### Slice 5f: multi-start's own value on a covariate-SHARING N>4 structure
+
+- **Depends on:** Slice 5e (ADR-213). **Not blocking** slice 6 or 7 — the
+  same non-blocking relationship slice 5e itself had to slice 6.
+- **Status:** READY, not designated. Registered per ADR-209 decision 1 ("a
+  gap you open is closed or registered — never merely filed"): ADR-213's own
+  N=8 stress case deliberately duplicated the N=4 shape onto an
+  INDEPENDENT, covariate-decoupled second draw (to rule out a rank-deficient
+  design after a covariate-reuse attempt failed that way) — and found
+  single-start already sufficient there. That is real evidence for a
+  decoupled structure, but the target formula's own 13-21 blocks mostly
+  SHARE covariates (`AttdAge`, `PolYear`, factor levels across multiple
+  terms, closer to `sz`'s own eventual shape than two independent copies
+  are), which is exactly the structure ADR-213 did not test and flagged as
+  open.
+- **What to build.** An N>4 (6-8 block) structure where the additional
+  terms reuse `AttdAge`/`PolYear`/`StudyYear_C` under different
+  `by`-scalings or margins, without hitting the exact rank-deficiency ADR-213
+  hit on its own first attempt (its own module docstring records what
+  failed and why, as a starting point — a smaller `k` on the added terms,
+  or terms whose column spans are argued rather than merely tried to be
+  distinct, are both worth trying before another blind attempt).
+- **Acceptance.** The same measurement shape ADR-213 used (single vs.
+  best-of-9, thread-pinned at >=2 thread counts, cost stated) on a
+  covariate-sharing structure — reporting whichever finding actually
+  results (single suffices / multi-start meaningfully helps / neither
+  converges reliably) is the deliverable; this is not registered with a
+  predicted answer.
 
 ### Slice 6: `bs = "sz"` — orthogonal factor-smooth interactions
 
