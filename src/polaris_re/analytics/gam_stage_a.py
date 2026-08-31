@@ -87,6 +87,7 @@ from polaris_re.analytics.gam_basis_cr import (
     by_scale_design,
     cr_basis,
     cr_default_knots,
+    sz_basis,
     ti_basis,
 )
 from polaris_re.analytics.gam_term_spec import SUPPORTED_BASES, TermSpec
@@ -102,11 +103,13 @@ __all__ = [
     "CR_BY_BASIS_CLAIM",
     "RAW_PATH_CLAIM",
     "SMOOTH_PATH_CLAIM",
+    "SZ_BASIS_CLAIM",
     "TI_BASIS_CLAIM",
     "RTermPayload",
     "TermExtract",
     "TermExtractComparison",
     "build_python_cr_term",
+    "build_python_sz_term",
     "build_python_ti_term",
     "compare_term_extract",
     "extract_raw_terms",
@@ -156,6 +159,15 @@ class RTermPayload(TypedDict):
 
     knots2: list[float] | None
     """Margin-2's own knot vector. See ``knots1``."""
+
+    group: list[int] | None
+    """0-indexed factor-level code per row (slice 6, ``bs="sz"``) — shared recipe
+    context like ``x``, present only on ``extract_smooth_sz`` entries. ``None`` for
+    every other case."""
+
+    n_levels: int | None
+    """Number of factor levels (slice 6, ``bs="sz"``) — shared recipe context,
+    present only on ``extract_smooth_sz`` entries. ``None`` for every other case."""
 
 
 _AGREEMENT_TOLERANCE = 1e-9
@@ -470,6 +482,74 @@ excludes them, and are not run through ``compare_term_extract``'s
 (:class:`TermExtract` carries one ``knots`` tuple, not two), so both sides
 report it ``None`` and the field agrees trivially rather than comparing
 anything."""
+
+
+SZ_BASIS_CLAIM = VerificationClaim(
+    claim=(
+        "polaris_re.analytics.gam_basis_cr.sz_basis builds the single-factor "
+        "s(<factor>, x, bs='sz', xt=list(bs='cr')) design (design_X) and its "
+        "n_levels penalty blocks (penalty_S) from the covariate locations, the "
+        "0-indexed factor-level codes and a knot vector, following a "
+        "closed-form re-derivation of mgcv's own sum-to-zero factor-smooth "
+        "construction (module docstring: the raw per-level cr block, a "
+        "per-row factor-level selection, one shared scale.penalty rescaling, "
+        "then a contrast-against-the-last-level constraint); "
+        "gam_term_extract.R's smoothCon(absorb.cons=TRUE) branch computes the "
+        "same quantities via mgcv's own C implementation; compared on "
+        "design_X, penalty_S (every level's block) and rank (every level's "
+        "value)."
+    ),
+    quantities=(
+        ComparedQuantity(
+            quantity="design_X",
+            left_producer=(
+                "gam_basis_cr.sz_basis (per-row factor selection of the raw cr "
+                "block, then the contrast-vs-last-level constraint)"
+            ),
+            right_producer=(
+                "mgcv smoothCon(s(fac, x, bs='sz', k, xt=list(bs='cr')), absorb.cons=TRUE)$X"
+            ),
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="penalty_S",
+            left_producer=(
+                "gam_basis_cr.sz_basis (one raw-block-derived penalty per "
+                "factor level, rescaled once, then constraint-conjugated)"
+            ),
+            right_producer=(
+                "mgcv smoothCon(s(fac, x, bs='sz', ...))$S — after mgcv's own "
+                "per-block scale.penalty rescaling"
+            ),
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity="rank",
+            left_producer="numpy.linalg.matrix_rank on each Python sz penalty block",
+            right_producer=(
+                "mgcv smoothCon(s(fac, x, bs='sz', ...))$rank (mgcv's own rank "
+                "determination, one per level)"
+            ),
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+    ),
+)
+"""The Python single-factor ``sz`` basis's provenance (ADR-193) — slice 6's
+INDEPENDENT Stage-A claim.
+
+``design_X``, every ``penalty_S`` block and every ``rank`` value are computed by
+two distinct implementations from the same recipe (the covariate locations, the
+0-indexed factor-level code per row, and a knot vector either supplied to both or
+Python's own default placement): :func:`build_python_sz_term` never reads
+``gam_term_extract.R``'s ``X``/``S``/``rank`` output, only the shared ``x``/``group``/
+``n_levels`` it exports (the factor-crossed counterpart of :data:`CR_BASIS_CLAIM`'s
+single ``x``).
+
+**Knots are not part of this claim**, for the same reason :data:`CR_BASIS_CLAIM`
+excludes them (ECHO in the supplied-knot cases, INDEPENDENT only when both sides
+place mgcv's own default). **Scope: one factor, no ``id``** — the same limitation
+:func:`~polaris_re.analytics.gam_basis_cr.sz_basis`'s own docstring states, matching
+every one of the target formula's four ``sz`` terms."""
 
 
 @dataclass(frozen=True)
@@ -801,6 +881,61 @@ def build_python_ti_term(x1: np.ndarray, x2: np.ndarray, term: TermSpec) -> Term
         rank=(rank1, rank2),
         evidence=TI_BASIS_CLAIM,
         knots=None,
+    )
+
+
+def build_python_sz_term(
+    x: np.ndarray, group: np.ndarray, n_levels: int, term: TermSpec
+) -> TermExtract:
+    """The independent Python producer for a single-factor ``bs="sz"`` term
+    (slice 6, e.g. ``s(FaceSize, AttdAge, bs="sz", xt=list(bs="cr"))``).
+
+    Builds ``design_X`` and every penalty block from ``x``/``group``/``n_levels``
+    and ``term``'s own recipe (``k``, and supplied knots if any) via
+    :func:`~polaris_re.analytics.gam_basis_cr.sz_basis` — never from ``mgcv``'s
+    output. Same mechanical-test shape as :func:`build_python_cr_term` and
+    :func:`build_python_ti_term`: the signature takes only the shared covariate
+    recipe and ``term``, not an R payload.
+
+    Args:
+        x: The smoothed margin's covariate values, read off the R payload's own
+            ``"x"`` field by the *caller*.
+        group: 0-indexed factor-level code per row, read off the R payload's own
+            ``"group"`` field by the *caller*.
+        n_levels: Number of factor levels, read off the R payload's own
+            ``"n_levels"`` field by the *caller*.
+        term: Must have ``basis="sz"``. ``term.variables`` is
+            ``(factor_name, smoothed_name)`` (:class:`TermSpec`'s own documented
+            order, matching the target formula's own ``s(FaceSize, AttdAge, ...)``
+            argument order) and ``term.k`` is the smoothed margin's single ``k``.
+    """
+    if term.basis != "sz":
+        raise PolarisValidationError(
+            f"build_python_sz_term only handles basis='sz'; {term.label!r} is basis={term.basis!r}."
+        )
+    # TermSpec.__post_init__ already guarantees exactly two variables and one k
+    # for basis="sz" (gam_term_spec.py) — no redundant re-check here.
+    x = np.asarray(x, dtype=np.float64)
+    group = np.asarray(group, dtype=np.int64)
+    k = term.k[0]
+    smoothed_var = term.variables[1]
+    supplied = term.knots_by_variable().get(smoothed_var)
+    knots = (
+        np.asarray(supplied, dtype=np.float64) if supplied is not None else cr_default_knots(x, k)
+    )
+
+    design, s_blocks = sz_basis(x, group, n_levels, knots)
+    rank = tuple(int(np.linalg.matrix_rank(s)) for s in s_blocks)
+
+    return TermExtract(
+        label=term.label,
+        index_start=0,
+        index_end=design.shape[1],
+        design=design,
+        s=s_blocks,
+        rank=rank,
+        evidence=SZ_BASIS_CLAIM,
+        knots=tuple(float(v) for v in knots),
     )
 
 

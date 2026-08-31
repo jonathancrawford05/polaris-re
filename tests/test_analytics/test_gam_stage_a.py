@@ -34,9 +34,11 @@ from polaris_re.analytics.gam_stage_a import (
     CR_BY_BASIS_CLAIM,
     RAW_PATH_CLAIM,
     SMOOTH_PATH_CLAIM,
+    SZ_BASIS_CLAIM,
     TI_BASIS_CLAIM,
     TermExtract,
     build_python_cr_term,
+    build_python_sz_term,
     build_python_ti_term,
     compare_term_extract,
     extract_raw_terms,
@@ -658,7 +660,7 @@ def test_the_r_extractor_agrees_with_the_python_side_on_every_smooth_design(
     # ti() cases below — so a future extract_smooth_* case added to the R script
     # without a matching entry here fails loudly instead of silently going
     # uncompared by every gating test.
-    assert set(smooth_designs) == set(_SMOOTH_CASES) | set(_TI_CASES)
+    assert set(smooth_designs) == set(_SMOOTH_CASES) | set(_TI_CASES) | set(_SZ_CASES)
 
     # Only the single-variable cr cases named in _SMOOTH_CASES: the ti cases carry
     # no single "knots" list (each margin has its own, module docstring), and
@@ -749,7 +751,7 @@ def test_the_python_cr_basis_agrees_with_smoothcon_on_every_smooth_design(
     # ti() cases below — so a future extract_smooth_* case added to the R script
     # without a matching entry here fails loudly instead of silently going
     # uncompared by every gating test.
-    assert set(smooth_designs) == set(_SMOOTH_CASES) | set(_TI_CASES)
+    assert set(smooth_designs) == set(_SMOOTH_CASES) | set(_TI_CASES) | set(_SZ_CASES)
 
     # Only the single-variable cr cases: the ti cases (_TI_CASES) are
     # test_the_python_ti_basis_agrees_with_smoothcon_on_every_ti_design's own scope.
@@ -943,6 +945,146 @@ def test_the_python_ti_basis_agrees_with_smoothcon_on_every_ti_design(
             )
 
     assert not failures, "Stage-A ti basis parity disagreed:\n" + "\n".join(failures)
+
+
+# --- build_python_sz_term, the independent Python producer (slice 6, bs="sz") ---------
+
+
+def test_build_python_sz_term_builds_a_term_extract_with_supplied_knots() -> None:
+    rng = np.random.default_rng(9)
+    n = 200
+    x = np.sort(rng.uniform(1.0, 95.0, n))
+    group = rng.integers(0, 2, size=n)
+    term = TermSpec(
+        label="s(FaceSize,AttdAge)",
+        variables=("FaceSize", "AttdAge"),
+        basis="sz",
+        k=(13,),
+        knots=(
+            (
+                "AttdAge",
+                (1.0, 2.0, 4.0, 7.0, 14.0, 18.0, 24.0, 35.0, 50.0, 70.0, 85.0, 90.0, 95.0),
+            ),
+        ),
+    )
+    extract = build_python_sz_term(x, group, 2, term)
+    assert extract.label == "s(FaceSize,AttdAge)"
+    assert (extract.index_start, extract.index_end) == (0, 13)
+    assert extract.design.shape == (n, 13)
+    assert len(extract.s) == 2
+    assert extract.s[0].shape == (13, 13)
+    assert extract.evidence is SZ_BASIS_CLAIM
+
+
+def test_build_python_sz_term_derives_default_knots_when_none_supplied() -> None:
+    rng = np.random.default_rng(10)
+    n = 150
+    x = np.sort(rng.uniform(0.0, 10.0, n))
+    group = rng.integers(0, 3, size=n)
+    term = TermSpec(label="s(g,x)", variables=("g", "x"), basis="sz", k=(6,))
+    extract = build_python_sz_term(x, group, 3, term)
+    assert extract.design.shape == (n, 6 * 2)
+    assert len(extract.s) == 3
+
+
+def test_build_python_sz_term_refuses_a_non_sz_basis() -> None:
+    x = np.linspace(0.0, 10.0, 50)
+    group = np.zeros(50, dtype=np.int64)
+    cr_term = TermSpec(label="s(x)", variables=("x",), basis="cr", k=(8,))
+    with pytest.raises(PolarisValidationError, match="basis='sz'"):
+        build_python_sz_term(x, group, 2, cr_term)
+
+
+def test_the_python_sz_basis_declares_every_quantity_independent() -> None:
+    rng = np.random.default_rng(12)
+    n = 150
+    x = np.sort(rng.uniform(0.0, 10.0, n))
+    group = rng.integers(0, 2, size=n)
+    term = TermSpec(label="s(g,x)", variables=("g", "x"), basis="sz", k=(6,))
+    extract = build_python_sz_term(x, group, 2, term)
+    assert extract.evidence.is_parity_claim
+    assert all(
+        q.provenance is ComparisonProvenance.INDEPENDENT for q in extract.evidence.quantities
+    )
+    assert "Parity comparison" in evidence_headline(extract.evidence)
+    require_parity_evidence(extract.evidence.parity_quantities, claim="sz basis parity")
+
+
+# The (k, n_levels, knots) recipe for gam_term_extract.R's three `extract_smooth_sz`
+# cases — named explicitly, same discipline as `_SMOOTH_CASES`/`_TI_CASES` above
+# (Anchor 4: never derive knots when supplied; reading k/knots back off the R
+# payload would violate ADR-193's mechanical test).
+_SZ_CASES: dict[str, tuple[int, int, tuple[float, ...] | None]] = {
+    "sz-default-knots-k6-3level": (6, 3, None),
+    "sz-target-attdage-k13": (
+        13,
+        2,
+        (1.0, 2.0, 4.0, 7.0, 14.0, 18.0, 24.0, 35.0, 50.0, 70.0, 85.0, 90.0, 95.0),
+    ),
+    "sz-target-polyear-k6": (6, 2, (1.0, 2.0, 3.0, 5.0, 10.0, 21.0)),
+}
+
+
+@pytest.mark.skipif(not rscript_mgcv_available(), reason="R with mgcv is not installed here")
+def test_the_python_sz_basis_agrees_with_smoothcon_on_every_sz_design(
+    tmp_path,
+) -> None:  # pragma: no cover
+    """Slice 6's Stage-A parity result: :func:`build_python_sz_term` — the raw
+    per-level ``cr`` block tensored against a factor-level indicator, rescaled
+    once, then constrained via a contrast against the last level
+    (``gam_basis_cr`` module docstring) — agrees with ``mgcv``'s own
+    ``smoothCon(s(fac, x, bs="sz", ...), absorb.cons=TRUE)`` on all three of
+    ``gam_term_extract.R``'s isolated ``sz`` cases, including a three-level
+    factor and the target formula's own ``AttdAge``/``PolYear`` knot vectors at
+    two levels (matching ``FaceSize``/``Smoke``).
+
+    A disagreement here is a real result about the construction, not a broken
+    round trip.
+    """
+    out_path = tmp_path / "gam_term_extract.json"
+    done = subprocess.run(
+        [
+            "Rscript",
+            str(REPO_ROOT / "scripts" / "gam_term_extract.R"),
+            str(REPO_ROOT / "data" / "mgcv_exchange" / "synthetic"),
+            str(out_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    r_payload = json.loads(out_path.read_text())
+    smooth_designs = r_payload["smooth_designs"]
+    assert set(_SZ_CASES) <= set(smooth_designs)
+
+    failures: list[str] = []
+    for label, (k, n_levels, supplied) in _SZ_CASES.items():
+        r_term = smooth_designs[label]
+        term = TermSpec(
+            label=label,
+            variables=("fac", "x"),
+            basis="sz",
+            k=(k,),
+            knots=(("x", supplied),) if supplied is not None else None,
+        )
+        x = np.asarray(r_term["x"], dtype=np.float64)
+        group = np.asarray(r_term["group"], dtype=np.int64)
+        python_term = build_python_sz_term(x, group, n_levels, term)
+        assert python_term.evidence is SZ_BASIS_CLAIM
+        require_parity_evidence(
+            python_term.evidence.quantities, claim=f"{label}: Stage-A sz basis parity"
+        )
+        comparison = compare_term_extract(python_term, r_term)
+        if not comparison.agrees:
+            failures.append(
+                f"{label}: max_X_diff={comparison.max_abs_design_diff:.3e} "
+                f"max_S_diff={comparison.max_abs_s_diff} rank_diff={comparison.rank_diff} "
+                f"knots_agree={comparison.knots_agree}"
+            )
+
+    assert not failures, "Stage-A sz basis parity disagreed:\n" + "\n".join(failures)
 
 
 # --- Provenance: what these comparisons are evidence OF (ADR-193) ----------------------

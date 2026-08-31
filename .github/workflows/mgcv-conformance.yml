@@ -631,9 +631,9 @@ jobs:
           )
           from polaris_re.analytics.gam_stage_a import (
               CR_BASIS_CLAIM, CR_BY_BASIS_CLAIM, RAW_PATH_CLAIM, SMOOTH_PATH_CLAIM,
-              TI_BASIS_CLAIM, build_python_cr_term, build_python_ti_term,
-              compare_term_extract, extract_raw_terms, extract_smooth_terms,
-              raw_term_specs,
+              SZ_BASIS_CLAIM, TI_BASIS_CLAIM, build_python_cr_term, build_python_sz_term,
+              build_python_ti_term, compare_term_extract, extract_raw_terms,
+              extract_smooth_terms, raw_term_specs,
           )
           from polaris_re.analytics.gam_term_spec import TermSpec
           from polaris_re.core.verification import evidence_markdown
@@ -693,10 +693,13 @@ jobs:
           any_smooth_disagree = False
           # Single-variable cr cases only (knots is a list); the ti cases (slice 5)
           # carry knots=None (each margin has its own, module docstring) and are
-          # this same TRANSPORT check's own section further below.
+          # this same TRANSPORT check's own section further below. The sz cases
+          # (slice 6) also carry a non-None "knots" (the smoothed margin's own
+          # recipe) but are excluded here via "group is None" — they have their
+          # own section further below, keyed on "group" instead.
           single_var_smooth_terms = {
               label: r_term for label, r_term in smooth_r_terms.items()
-              if r_term.get("knots") is not None
+              if r_term.get("knots") is not None and r_term.get("group") is None
           }
           if single_var_smooth_terms:
               smooth_terms = tuple(
@@ -908,6 +911,71 @@ jobs:
           if any_ti_disagree:
               ti_lines.insert(2, "**A term disagreed — see the table. This is a genuine finding.**")
           lines += ti_lines
+
+          # Slice 6's INDEPENDENT Stage-A result: the single-factor
+          # s(<factor>, x, bs="sz", xt=list(bs="cr")) construction
+          # (build_python_sz_term, gam_basis_cr.sz_basis) — the raw per-level cr
+          # block tensored against a factor-level indicator, rescaled once, then
+          # constrained via a contrast against the last level (module docstring)
+          # — checked against the SAME smooth_designs payload, keyed on the
+          # presence of "group" rather than x1/x2 or a bare knots list.
+          sz_smooth_terms = {
+              label: r_term for label, r_term in smooth_r_terms.items()
+              if r_term.get("group") is not None
+          }
+          sz_cases = {
+              "sz-default-knots-k6-3level": (6, 3, None),
+              "sz-target-attdage-k13": (
+                  13, 2,
+                  (1.0, 2.0, 4.0, 7.0, 14.0, 18.0, 24.0, 35.0, 50.0, 70.0, 85.0, 90.0, 95.0),
+              ),
+              "sz-target-polyear-k6": (6, 2, (1.0, 2.0, 3.0, 5.0, 10.0, 21.0)),
+          }
+          sz_lines = [
+              "", "### Slice 6 — Python `sz` basis vs `smoothCon(bs=\"sz\")` (INDEPENDENT)", "",
+              evidence_markdown(SZ_BASIS_CLAIM), "",
+              "| term | index range agrees | max abs X diff | max abs S diff | rank diff |",
+              "|---|---|---:|---:|---:|",
+          ]
+          any_sz_disagree = False
+          if sz_smooth_terms:
+              for label, r_term in sz_smooth_terms.items():
+                  if label not in sz_cases:
+                      sz_lines.append(f"| `{label}` | **UNKNOWN CASE — no knot recipe named** | | | |")
+                      any_sz_disagree = True
+                      continue
+                  k, n_levels, supplied = sz_cases[label]
+                  term = TermSpec(
+                      label=label, variables=("fac", "x"), basis="sz",
+                      k=(k,), knots=(("x", supplied),) if supplied is not None else None,
+                  )
+                  x = np.asarray(r_term["x"], dtype=np.float64)
+                  group = np.asarray(r_term["group"], dtype=np.int64)
+                  python_term = build_python_sz_term(x, group, n_levels, term)
+                  c = compare_term_extract(python_term, r_term)
+                  if not c.agrees:
+                      any_sz_disagree = True
+                  s_diff = ", ".join(f"{d:.3e}" for d in c.max_abs_s_diff) or "n/a"
+                  sz_lines.append(
+                      f"| `{label}` | {c.index_range_agrees} | "
+                      f"{c.max_abs_design_diff:.3e} | {s_diff} | {c.rank_diff} |"
+                  )
+          else:
+              sz_lines.append("| *(no sz cases in R output)* | | | | |")
+              any_sz_disagree = True
+          sz_lines.append("")
+          sz_lines.append(
+              "`design_X`, every `penalty_S` block and every `rank` value are "
+              "INDEPENDENT (see the legend): the Python `sz` basis is built from "
+              "the covariate locations, the 0-indexed factor-level code and a knot "
+              "vector via `gam_basis_cr.sz_basis` and never reads mgcv's "
+              "X/S/rank, only the shared `x`/`group`/`n_levels`. A disagreement is "
+              "a REAL RESULT about the construction, not a broken round trip. See "
+              "docs/PLAN_mgcv_parity_engine.md slice 6."
+          )
+          if any_sz_disagree:
+              sz_lines.insert(2, "**A term disagreed — see the table. This is a genuine finding.**")
+          lines += sz_lines
 
           report = "\n".join(lines) + "\n"
           with open("gam_term_extract_report.md", "w") as fh:

@@ -354,11 +354,35 @@ forbids, and Wood rules the tolerance approach out explicitly:
 concurrently by ADR-212 (PR #216) and ADR-211 (PR #217), which unblock slice 6),
 slice 5e (inserted 2026-08-29, DONE 2026-08-30, ADR-213 — best-of-9 multi-start
 built, recovers a real N=4 convergence failure, no mgcv comparison anywhere in
-the slice) and slice 5f (inserted 2026-08-30, DONE 2026-08-31, ADR-214 — the
+the slice), slice 5f (inserted 2026-08-30, DONE 2026-08-31, ADR-214 — the
 same N>4 question on a covariate-SHARING structure; single-start already
 sufficient there too, and the most stable structure measured across either
-slice) plus one deferred to a later epic.
+slice), and slice 6b (inserted 2026-08-31, ADR-215 — slice 6's Stage A closed
+the same day; the Stage-B multi-term fit including an `sz` term is registered
+rather than left implicit) plus one deferred to a later epic.
 **Estimated scope:** the largest numerical undertaking in the project.
+
+**Slice 6 (`bs = "sz"`) is DONE FOR STAGE A, 2026-08-31** (ADR-215, tier 1
+confirmed, tier 3 dispatched this session — `docs/CONFORMANCE_LEDGER.md`
+carries the reading). `gam_basis_cr.sz_basis` — a single-factor construction
+independently re-derived from `mgcv`'s own measured behaviour (the raw,
+un-rescaled per-level `cr` block tensored against a factor-level indicator,
+one shared `scale.penalty` factor, then a contrast-against-the-last-level
+constraint, `M = D ⊗ I_k` — NOT a transcription of `mgcv:::XZKr`, which has no
+closed-form statement anywhere `mgcv` documents) — agrees with
+`smoothCon(bs="sz", absorb.cons=TRUE)` to float round-trip precision (~1e-14)
+on `design_X`, every `penalty_S` block and `rank`, on a synthetic three-level
+case and the target formula's own `AttdAge` (k=13) / `PolYear` (k=6) knots at
+two levels (matching `FaceSize`/`Smoke`). `SZ_BASIS_CLAIM` declares all three
+`INDEPENDENT`. **PLAN §6's own "hardest basis" prediction did not bite Stage
+A** — the cost was entirely in *understanding* `mgcv`'s constraint machinery
+(the `object$C <- c(0, nf)` sentinel routing `smoothCon()`'s `absorb.cons`
+step into a branch no other basis in this repo uses), not in getting the
+numbers to agree once that understanding existed; no iteration was needed.
+**Scope: single factor, no `id`** — every one of the target's four `sz` terms
+fits this exactly. **Stage B is NOT yet built** (registered as slice 6b) —
+nothing has fit a multi-term model containing an `sz` term and compared it
+against `mgcv`'s own native fit the way ADR-206 did for `ti`/numeric-`by`.
 
 > **This is the ACTIVE epic.** `CONTINUATION_penalized_mi_surface.md` is superseded from
 > its slice 6 onward and all of its remaining slices are PARKED. A routine run selecting
@@ -691,7 +715,7 @@ across the slice structure.
 | N-dimensional outer search | Newton/quasi-Newton (f)REML optimisation over 13-21 `log λ` | **First slice DONE, 2026-08-22** (ADR-199, tier 1 AND tier 3 confirmed) — `select_lambdas_continuous` built and confirms ADR-198's prediction decisively; tested only at N=2, not yet at the target's 13-21 blocks | A multi-term mgcv-native model to build N>2 blocks from (slice 5 onward) |
 | `ti()` — tensor interaction | Tensor product with marginal main effects excluded | **Stage A+B DONE, 2026-08-24** (ADR-205 Stage A, ADR-206 Stage B, tier 1 AND tier 3 confirmed) — agrees with `smoothCon(ti(...))` to ~1e-14 (Stage A) and with a native multi-term `gam()` fit's `eta` to 1.242e-10 (Stage B), including the target's own `ti(AttdAge, PolYear, k=c(13,6))` knots | Nothing for this term's own basis+fit; the MI-contrast-on-a-grid metric and N>2 slice-4-part-B extension remain (ADR-206) |
 | `s(..., by=...)` with a `cr` basis | The MI term itself — a `cr` basis scaled by a numeric `by` variable | **Stage A+B DONE, 2026-08-24** (ADR-200 Stage A, ADR-206 Stage B, tier 1 AND tier 3 confirmed) — `mgcv` absorbs no identifiability constraint on a numeric-`by` smooth; agrees to ~2e-14 (Stage A) and to 1.242e-10 on `eta` in the multi-term fit (Stage B) | Nothing for this term's own basis+fit; same remaining items as the `ti()` row above |
-| `bs = "sz"` | Sum-to-zero factor-smooth interactions (4 terms in the target formula) | **Not started**, expected hardest basis (PLAN §6 registered prediction) | The outer search (slice 6) |
+| `bs = "sz"` | Sum-to-zero factor-smooth interactions (4 terms in the target formula) | **Stage A DONE, 2026-08-31** (ADR-215, tier 1 confirmed, tier 3 dispatched — single factor, no `id`) — PLAN §6's "hardest basis" prediction did not bite Stage A | Stage B (slice 6b) — a multi-term fit including an `sz` term |
 | `select = TRUE` | The double penalty / null-space shrinkage that takes 13 sp → 21 | **Not started** | Slices 4-6 |
 | `cr` basis extrapolation | Behaviour for `x` outside `[knots[0], knots[-1]]` | **Unverified**, not assumed — `gam_basis_cr.py` marks it explicitly | A future session measuring it; blocks fitting the target's own knots against real experience data, whose range need not match the hand-chosen knots |
 | Kass-Steffey / `vcov(unconditional=TRUE)` | The full Wood, Pya & Säfken (2016) correction (`dw/drho`) | **CLOSED, 2026-08-22** (ADR-202, tier 1 AND tier 3 identical, CI run 32589501512) — `gam_uncertainty` reproduces `mgcv`'s `Vc` to <1% element-wise and <0.1% on the inflation ratio, where the first-order-only correction inflated 1.11-1.21x against `mgcv`'s 1.49-1.87x. Built on ADR-201's `dw/drho` | Nothing for the FORMULA. What remains is a **separate, Anchor-7-gated decision**: re-pointing `experience_gam_penalized.smoothing_uncertainty` at it (with its own determinism answer, ADR-186), and then re-running ADR-188's coverage gate — until that happens the ten-cell suite's level 4 correctly still reads DISAGREES |
@@ -759,8 +783,9 @@ should be re-synced.
    MI-contrast-on-a-grid metric (needs basis evaluation at unseen covariate values),
    extending slice 4 part B's search to N>2 blocks on this design (item 3 above), and
    item (8) below.
-5. **Slice 6 — `bs = "sz"`.** Expected hardest basis; Stage A is where a mistake here
-   is cheap (PLAN §6 registered prediction).
+5. ~~**Slice 6 — `bs = "sz"`.** Expected hardest basis; Stage A is where a mistake here
+   is cheap (PLAN §6 registered prediction).~~ **Stage A DONE, 2026-08-31** (ADR-215).
+   Stage B (a multi-term fit including an `sz` term) remains, registered as slice 6b.
 6. **Slice 7 — `select = TRUE`.** 13 → 21 smoothing parameters.
 7. ~~**Kass-Steffey / `vcov(unconditional=TRUE)` — the level-4 BLOCKER.**~~
    **CLOSED, 2026-08-22** (ADR-202, tier 1 AND tier 3 identical, CI run 32589501512).

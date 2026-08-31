@@ -23,6 +23,7 @@ from polaris_re.analytics.gam_basis_cr import (
     cr_basis,
     cr_default_knots,
     sum_to_zero_null_space,
+    sz_basis,
     ti_basis,
 )
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
@@ -363,3 +364,109 @@ def test_ti_basis_refuses_a_shape_mismatch() -> None:
     knots2 = np.array([0.0, 1.0, 3.0, 5.0], dtype=np.float64)
     with pytest.raises(PolarisValidationError, match="one value per row"):
         ti_basis(x1, x2, knots1, knots2)
+
+
+# --- sz_basis: closed-form invariants (no mgcv needed) ------------------------------
+#
+# R-gated parity against mgcv's own smoothCon(bs="sz") lives in test_gam_stage_a.py
+# (test_the_python_sz_basis_agrees_with_smoothcon_on_every_sz_design), matching the
+# split cr_basis/ti_basis already use.
+
+
+def _sz_case(seed: int = 11, n: int = 150, n_levels: int = 3):
+    rng = np.random.default_rng(seed)
+    x = np.sort(rng.uniform(1.0, 20.0, n))
+    group = rng.integers(0, n_levels, size=n)
+    knots = np.array([1.0, 3.0, 6.0, 10.0, 15.0, 20.0], dtype=np.float64)
+    return x, group, n_levels, knots
+
+
+def test_sz_basis_shape_is_k_times_n_levels_minus_one() -> None:
+    """One column block per level except the last, which is absorbed into the
+    contrast (module docstring point 4) — independent of mgcv."""
+    x, group, n_levels, knots = _sz_case()
+    k = knots.shape[0]
+    design, s_blocks = sz_basis(x, group, n_levels, knots)
+    width = k * (n_levels - 1)
+    assert design.shape == (x.shape[0], width)
+    assert len(s_blocks) == n_levels
+    for s in s_blocks:
+        assert s.shape == (width, width)
+
+
+def test_sz_basis_penalties_are_symmetric() -> None:
+    x, group, n_levels, knots = _sz_case()
+    _, s_blocks = sz_basis(x, group, n_levels, knots)
+    for s in s_blocks:
+        np.testing.assert_allclose(s, s.T)
+
+
+def test_sz_basis_penalties_are_positive_semidefinite() -> None:
+    """Each block is a congruence transform (Mᵀ · (raw block-diagonal PSD) · M)
+    of a curvature quadratic form, which preserves PSD-ness — independent of
+    mgcv."""
+    x, group, n_levels, knots = _sz_case()
+    _, s_blocks = sz_basis(x, group, n_levels, knots)
+    rng = np.random.default_rng(17)
+    for s in s_blocks:
+        for _ in range(10):
+            coef = rng.normal(size=s.shape[0])
+            assert coef @ s @ coef >= -1e-9
+
+
+def test_sz_basis_every_level_before_last_has_equal_final_penalty_norm() -> None:
+    """Module docstring point 3: every level's raw penalty block is the SAME
+    raw cr S merely relocated, so the scale.penalty factor applied is one
+    shared scalar (not level-dependent). That does NOT mean the FINAL
+    (post-constraint) blocks all share the same one-norm, though — the
+    constraint conjugates the last level's block through the whole
+    contrast (touching every off-diagonal sub-block, module docstring point
+    4), while every OTHER level's block stays confined to its own diagonal
+    sub-block. So: the first (n_levels - 1) blocks agree with each other,
+    and the last is exactly (n_levels - 1) times larger — both checkable
+    without mgcv."""
+    x, group, n_levels, knots = _sz_case()
+    _, s_blocks = sz_basis(x, group, n_levels, knots)
+    norms = [_r_norm_one(s) for s in s_blocks]
+    for n in norms[1:-1]:
+        assert n == pytest.approx(norms[0])
+    assert norms[-1] == pytest.approx(norms[0] * (n_levels - 1))
+
+
+def test_sz_basis_penalty_rank_matches_the_raw_margin_rank_per_level() -> None:
+    """mgcv's own bookkeeping (module docstring point 4's note): the reported
+    rank is the PRE-constraint per-level rank, unchanged by the contrast
+    transform. The margin's own (scaled) cr penalty has the same rank as the
+    raw one (scaling does not change rank), so this is checkable against
+    cr_basis's own public rank without needing the private raw helper."""
+    x, group, n_levels, knots = _sz_case()
+    _, s_unc = cr_basis(x, knots)
+    margin_rank = np.linalg.matrix_rank(s_unc)
+    _, s_blocks = sz_basis(x, group, n_levels, knots)
+    for s in s_blocks:
+        assert np.linalg.matrix_rank(s) == margin_rank
+
+
+def test_sz_basis_refuses_a_shape_mismatch() -> None:
+    x = np.linspace(1.0, 20.0, 50)
+    group = np.zeros(40, dtype=np.int64)
+    knots = np.array([1.0, 5.0, 10.0, 15.0, 20.0], dtype=np.float64)
+    with pytest.raises(PolarisValidationError, match="one factor-level code per row"):
+        sz_basis(x, group, 2, knots)
+
+
+def test_sz_basis_refuses_fewer_than_two_levels() -> None:
+    x = np.linspace(1.0, 20.0, 50)
+    group = np.zeros(50, dtype=np.int64)
+    knots = np.array([1.0, 5.0, 10.0, 15.0, 20.0], dtype=np.float64)
+    with pytest.raises(PolarisValidationError, match="at least 2 factor levels"):
+        sz_basis(x, group, 1, knots)
+
+
+def test_sz_basis_refuses_an_out_of_range_group_code() -> None:
+    x = np.linspace(1.0, 20.0, 50)
+    group = np.zeros(50, dtype=np.int64)
+    group[0] = 5
+    knots = np.array([1.0, 5.0, 10.0, 15.0, 20.0], dtype=np.float64)
+    with pytest.raises(PolarisValidationError, match=r"\[0, 2\)"):
+        sz_basis(x, group, 2, knots)
