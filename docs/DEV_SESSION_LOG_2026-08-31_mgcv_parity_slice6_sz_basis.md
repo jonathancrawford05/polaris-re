@@ -4,7 +4,8 @@
 **Slice:** 6 — `docs/PLAN_mgcv_parity_engine.md`. READY since ADR-212/ADR-214;
 the routine's "next unchecked slice, no fallback picks" rule selected it —
 slice 5f (the last item ahead of it) closed the same day.
-**PR:** this branch, draft.
+**PR:** `claude/intelligent-hamilton-nae7tp` (branch), draft at the time this
+log was written — later marked ready for review, see PR #220.
 **ADR:** ADR-215.
 
 ## Setup
@@ -244,6 +245,14 @@ levels 1-3 show no regression.
 - Full suite (`uv run pytest tests/ -q -m "not slow"`): 3504 passed, 6 failed
   (all pre-existing, confirmed via `git stash` against the same baseline),
   22 skipped — matches the session's own recorded baseline exactly.
+- `uv run python scripts/perf_history.py`: run once on this PR's initial
+  open (ADR-177), appended for commit `a739603`. No structural creep
+  (`has_structural_creep: false`, peak MiB 33 → 33, the gating signal).
+  `has_wall_time_creep: true` (ratio 1.354) — advisory only, never gates;
+  this is a continuation of PR #219's own first flip of this flag
+  (`ProbeCreep`'s docstring attributes this class of flip to cross-machine
+  hardware drift), not a new occurrence, and no production code changed
+  this session.
 
 ## Definition of done (PLAN slice 6's own acceptance, reproduced per ADR-209 decision 3)
 
@@ -271,7 +280,7 @@ actually closes, in the shape other slices' DoD sections use:
   `tests/qa/` untouched.** → `tests/qa/` byte-identical, confirmed above.
 - `[judgement]` **Scope stated explicitly: single factor, no `id`.** →
   module docstring, `SZ_BASIS_CLAIM`'s own docstring, PLAN slice 6's status
-  note, this log's "Gap After" section. Confirmed by the PR reviewer against
+  note, this log's "Gap After" section. For the PR reviewer to check against
   the target formula's own four `sz` terms (PLAN §1) — all four are
   single-factor, none sets `id`.
 - `[judgement]` **The remaining gap (Stage B) is registered, not left
