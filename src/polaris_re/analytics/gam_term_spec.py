@@ -82,6 +82,17 @@ class TermSpec:
             "``mgcv``'s default for this basis" rather than "no penalty" — every
             basis in :data:`SUPPORTED_BASES` other than an unpenalized parametric
             term is penalized.
+        n_levels: Number of factor levels for a ``basis="sz"`` term (``mgcv``'s
+            ``length(levels(fac))``) — an input, not derived from data, the same
+            Anchor-4 discipline ``k``/``knots`` already follow: a factor level
+            absent from one particular sample must not silently shrink the term.
+            Must be ``None`` for any other basis. Optional even for ``"sz"``:
+            :func:`~polaris_re.analytics.gam_stage_a.build_python_sz_term`'s
+            narrower Stage-A harness takes ``n_levels`` as its own explicit
+            argument (the R-side recipe's ``"n_levels"`` field) rather than
+            reading it here; :func:`~polaris_re.analytics.gam_model.assemble_model_design`
+            (the ``ModelSpec``-driven multi-term path, slice 6b) is what requires
+            it set on the spec, and raises if it is not.
     """
 
     label: str
@@ -92,6 +103,7 @@ class TermSpec:
     by: str | None = None
     factor: bool = False
     penalty_order: tuple[int, ...] | None = None
+    n_levels: int | None = None
 
     def knots_by_variable(self) -> dict[str, tuple[float, ...]]:
         """:attr:`knots` as a plain ``dict``, computed on demand.
@@ -147,6 +159,11 @@ class TermSpec:
                     f"takes exactly one k — the smoothed margin's basis dimension, "
                     f"not one per variable."
                 )
+            if self.n_levels is not None and self.n_levels < 2:
+                raise PolarisValidationError(
+                    f"TermSpec {self.label!r} is basis='sz' with n_levels="
+                    f"{self.n_levels!r}; sz needs at least 2 factor levels."
+                )
         elif len(self.k) != len(self.variables):
             raise PolarisValidationError(
                 f"TermSpec {self.label!r} has {len(self.variables)} variable(s) but "
@@ -172,6 +189,12 @@ class TermSpec:
                 f"TermSpec {self.label!r} sets both by={self.by!r} and factor=True — "
                 f"a numeric-by smooth and a factor-smooth are different mgcv "
                 f"constructions; a term is one or the other."
+            )
+        if self.basis != "sz" and self.n_levels is not None:
+            raise PolarisValidationError(
+                f"TermSpec {self.label!r} has basis={self.basis!r} but sets "
+                f"n_levels={self.n_levels!r} — only a basis='sz' term has a "
+                f"factor-level count."
             )
 
 

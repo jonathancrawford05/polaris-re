@@ -1213,22 +1213,31 @@ where `mgcv`-specific machinery lives, and Stage A is the only place a mistake i
 ### Slice 6b: `sz` Stage B — a multi-term fit including an `sz` term
 
 - **Depends on:** Slice 6 (ADR-215).
-- **Status:** READY, not designated. Registered per ADR-209 decision 1 — slice
-  6 closed Stage A only; nothing yet fits a multi-term model containing an
-  `sz` term and compares it against `mgcv`'s own native fit.
-- **What to build.** The same pattern ADR-206 used for the `ti`/numeric-`by`
-  terms: assemble a multi-term design (at least a reference `cr` smooth plus
-  one `sz` term) via `gam_model.assemble_model_design`, fit at a fixed,
+- **Status: DONE, 2026-08-31** (ADR-216, tier 1 AND tier 3 confirmed, CI run
+  33393744694). `gam_model.assemble_model_design` now dispatches `basis="sz"`
+  (via `TermSpec.n_levels`, an input never derived from a sample's own
+  observed factor codes, Anchor 4). `gam_multiterm_sz_conformance.py`
+  assembles and fits `s(AttdAge,k=13,bs="cr") + s(FaceSize,AttdAge,k=13,
+  bs="sz",xt=list(bs="cr"))` — the target formula's own first `sz` term
+  verbatim, PLAN Section 1 — at a fixed `sp`, agreeing with `mgcv`'s native
+  fit on `eta` at `3.921e-12` (tier 1) / `3.912e-12` (tier 3), the first
+  measurement, no iteration needed — the same shape ADR-206's own first
+  multi-term result had. `SZ_MULTITERM_CLAIM` declares `eta` INDEPENDENT.
+- **What was built.** The same pattern ADR-206 used for the `ti`/numeric-`by`
+  terms: assemble a multi-term design (a reference `cr` smooth plus one `sz`
+  term) via `gam_model.assemble_model_design`, fit at a fixed,
   externally-supplied `sp` per block with `penalized_irls_general`, and
-  compare `eta` against a native `gam()` fit of the identical formula. Not in
-  scope here: extending slice 4 part B's `select_lambdas_continuous` to an
-  `sz`-shaped block structure (one smoothing parameter per factor level) —
-  that is further follow-on, name it if this slice's own measurement reaches
-  it cleanly, otherwise register it separately.
-- **Acceptance.** An INDEPENDENT `eta` comparison (ADR-206's own pattern) on a
-  multi-term model containing at least one `sz` term, agreeing to a
-  derived — not tuned — tolerance. Not blocking slice 7 (the same
-  non-blocking relationship slice 5f had to slice 6).
+  compare `eta` against a native `gam()` fit of the identical formula.
+  **Not built, named rather than silently skipped:** extending slice 4 part
+  B's `select_lambdas_continuous` to an `sz`-shaped block structure (one
+  smoothing parameter per factor level); a model combining `sz` with
+  `ti`/`by`; a model with more than one `sz` term. See ADR-216's
+  "Consequences" section.
+- **Acceptance — MET.** An INDEPENDENT `eta` comparison (ADR-206's own
+  pattern) on a multi-term model containing at least one `sz` term, agreeing
+  to a derived — not tuned — tolerance (`1e-9`, the same order ADR-206's
+  `MULTITERM_CLAIM` used). Not blocking slice 7 (the same non-blocking
+  relationship slice 5f had to slice 6).
 
 ### Slice 7: `select = TRUE`
 

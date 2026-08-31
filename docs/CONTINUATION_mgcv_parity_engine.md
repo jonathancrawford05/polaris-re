@@ -357,9 +357,9 @@ built, recovers a real N=4 convergence failure, no mgcv comparison anywhere in
 the slice), slice 5f (inserted 2026-08-30, DONE 2026-08-31, ADR-214 — the
 same N>4 question on a covariate-SHARING structure; single-start already
 sufficient there too, and the most stable structure measured across either
-slice), and slice 6b (inserted 2026-08-31, ADR-215 — slice 6's Stage A closed
-the same day; the Stage-B multi-term fit including an `sz` term is registered
-rather than left implicit) plus one deferred to a later epic.
+slice), slice 6b (inserted 2026-08-31, DONE the same day, ADR-216 — the
+Stage-B multi-term fit including an `sz` term) plus one deferred to a later
+epic.
 **Estimated scope:** the largest numerical undertaking in the project.
 
 **Slice 6 (`bs = "sz"`) is DONE FOR STAGE A, 2026-08-31** (ADR-215, tier 1
@@ -380,9 +380,33 @@ A** — the cost was entirely in *understanding* `mgcv`'s constraint machinery
 step into a branch no other basis in this repo uses), not in getting the
 numbers to agree once that understanding existed; no iteration was needed.
 **Scope: single factor, no `id`** — every one of the target's four `sz` terms
-fits this exactly. **Stage B is NOT yet built** (registered as slice 6b) —
-nothing has fit a multi-term model containing an `sz` term and compared it
-against `mgcv`'s own native fit the way ADR-206 did for `ti`/numeric-`by`.
+fits this exactly.
+
+**Slice 6b (`sz` Stage B) is DONE, 2026-08-31, the same day** (ADR-216, tier 1
+AND tier 3 confirmed, CI run 33393744694). `gam_model.assemble_model_design`
+now dispatches `basis="sz"` (via `TermSpec.n_levels`, an explicit input never
+derived from a sample's own observed factor codes, Anchor 4), alongside the
+`cr`/`ti` dispatch slice 5b already built — the third and, for the target
+formula's own vocabulary, final basis this function needed. `gam_multiterm_sz_conformance.py`
+assembles and fits `s(AttdAge,k=13,bs="cr") + s(FaceSize,AttdAge,k=13,
+bs="sz",xt=list(bs="cr"))` — the target formula's own first `sz` term
+verbatim, at its own `AttdAge` k=13 knots (ADR-215's own
+"sz-target-attdage-k13" case) — at a fixed `sp`, agreeing with `mgcv`'s
+native fit on `eta` to `3.921e-12` (tier 1) / `3.912e-12` (tier 3), first
+measurement, no iteration needed — the same shape ADR-206's own first
+multi-term result had (`1.242e-10`). `SZ_MULTITERM_CLAIM` declares `eta`
+INDEPENDENT. **Not built, named rather than silently skipped:** extending
+`select_lambdas_continuous` to an `sz`-shaped block structure (one smoothing
+parameter per factor level); a model combining `sz` with `ti`/`by`; a model
+with more than one `sz` term. See ADR-216.
+
+**Every basis PLAN §1 named as required (`cr`, `ti`, `sz`, plus a
+numeric-`by`-scaled `cr`) now has both an INDEPENDENT Stage-A AND an
+INDEPENDENT Stage-B result.** What remains before the target formula's full
+eight-term structure can be assembled, fit and have its own smoothing
+parameters selected: extending the outer search to an `sz`-shaped block
+structure, combining `sz` with `ti`/`by` in one model, and slice 7
+(`select = TRUE`).
 
 > **This is the ACTIVE epic.** `CONTINUATION_penalized_mi_surface.md` is superseded from
 > its slice 6 onward and all of its remaining slices are PARKED. A routine run selecting
@@ -695,6 +719,17 @@ layer is a rebuild.** PLAN §1 has the target verbatim and the measurements that
    divergence only under free selection means §3.1 is the wrong place to
    look. See `docs/DEV_SESSION_LOG_2026-08-25_mgcv_parity_slice5b_polarisgam.md`'s
    "PR #212 review response, round 2" section for the full argument.
+
+   **UNBLOCKED and DONE FOR STAGE A, 2026-08-31** (ADR-215) — the blocking
+   `sp`-dependent REML criterion discrepancy above was localised and closed
+   by slices 5c/5d (ADR-210/ADR-211/ADR-212), same day. See the status block
+   above for the full measurement.
+6b. **`sz` Stage B — a multi-term fit including an `sz` term.** **DONE,
+   2026-08-31, the same day as slice 6** (ADR-216). See the status block
+   above for the full measurement. Not built, named rather than silently
+   skipped: extending `select_lambdas_continuous` to an `sz`-shaped block
+   structure; a model combining `sz` with `ti`/`by`; a model with more than
+   one `sz` term.
 7. **`select = TRUE`** — the double penalty; 13 → 21 smoothing parameters. PLANNED.
 
 Deferred to a later epic: `bam` + `discrete = TRUE` + fREML. Safe to defer because at
@@ -715,7 +750,7 @@ across the slice structure.
 | N-dimensional outer search | Newton/quasi-Newton (f)REML optimisation over 13-21 `log λ` | **First slice DONE, 2026-08-22** (ADR-199, tier 1 AND tier 3 confirmed) — `select_lambdas_continuous` built and confirms ADR-198's prediction decisively; tested only at N=2, not yet at the target's 13-21 blocks | A multi-term mgcv-native model to build N>2 blocks from (slice 5 onward) |
 | `ti()` — tensor interaction | Tensor product with marginal main effects excluded | **Stage A+B DONE, 2026-08-24** (ADR-205 Stage A, ADR-206 Stage B, tier 1 AND tier 3 confirmed) — agrees with `smoothCon(ti(...))` to ~1e-14 (Stage A) and with a native multi-term `gam()` fit's `eta` to 1.242e-10 (Stage B), including the target's own `ti(AttdAge, PolYear, k=c(13,6))` knots | Nothing for this term's own basis+fit; the MI-contrast-on-a-grid metric and N>2 slice-4-part-B extension remain (ADR-206) |
 | `s(..., by=...)` with a `cr` basis | The MI term itself — a `cr` basis scaled by a numeric `by` variable | **Stage A+B DONE, 2026-08-24** (ADR-200 Stage A, ADR-206 Stage B, tier 1 AND tier 3 confirmed) — `mgcv` absorbs no identifiability constraint on a numeric-`by` smooth; agrees to ~2e-14 (Stage A) and to 1.242e-10 on `eta` in the multi-term fit (Stage B) | Nothing for this term's own basis+fit; same remaining items as the `ti()` row above |
-| `bs = "sz"` | Sum-to-zero factor-smooth interactions (4 terms in the target formula) | **Stage A DONE, 2026-08-31** (ADR-215, tier 1 AND tier 3 confirmed identical — single factor, no `id`) — PLAN §6's "hardest basis" prediction did not bite Stage A | Stage B (slice 6b) — a multi-term fit including an `sz` term |
+| `bs = "sz"` | Sum-to-zero factor-smooth interactions (4 terms in the target formula) | **Stage A+B DONE, 2026-08-31** (ADR-215 Stage A, ADR-216 Stage B, both tier 1 AND tier 3 confirmed — single factor, no `id`) — agrees with `smoothCon(bs="sz")` to ~1e-14 (Stage A) and with a native multi-term `gam()` fit's `eta` to ~4e-12 (Stage B) | Extending `select_lambdas_continuous` to an `sz`-shaped block structure; combining `sz` with `ti`/`by` in one model; more than one `sz` term |
 | `select = TRUE` | The double penalty / null-space shrinkage that takes 13 sp → 21 | **Not started** | Slices 4-6 |
 | `cr` basis extrapolation | Behaviour for `x` outside `[knots[0], knots[-1]]` | **Unverified**, not assumed — `gam_basis_cr.py` marks it explicitly | A future session measuring it; blocks fitting the target's own knots against real experience data, whose range need not match the hand-chosen knots |
 | Kass-Steffey / `vcov(unconditional=TRUE)` | The full Wood, Pya & Säfken (2016) correction (`dw/drho`) | **CLOSED, 2026-08-22** (ADR-202, tier 1 AND tier 3 identical, CI run 32589501512) — `gam_uncertainty` reproduces `mgcv`'s `Vc` to <1% element-wise and <0.1% on the inflation ratio, where the first-order-only correction inflated 1.11-1.21x against `mgcv`'s 1.49-1.87x. Built on ADR-201's `dw/drho` | Nothing for the FORMULA. What remains is a **separate, Anchor-7-gated decision**: re-pointing `experience_gam_penalized.smoothing_uncertainty` at it (with its own determinism answer, ADR-186), and then re-running ADR-188's coverage gate — until that happens the ten-cell suite's level 4 correctly still reads DISAGREES |
@@ -785,7 +820,13 @@ should be re-synced.
    item (8) below.
 5. ~~**Slice 6 — `bs = "sz"`.** Expected hardest basis; Stage A is where a mistake here
    is cheap (PLAN §6 registered prediction).~~ **Stage A DONE, 2026-08-31** (ADR-215).
-   Stage B (a multi-term fit including an `sz` term) remains, registered as slice 6b.
+   ~~Stage B (a multi-term fit including an `sz` term) remains, registered as slice 6b.~~
+   **Slice 6b DONE, 2026-08-31, the same day** (ADR-216, tier 1 AND tier 3
+   confirmed): a two-term `cr`+`sz` model agrees with `mgcv`'s native fit on
+   `eta` at `3.912e-12` (tier 3), first measurement. What remains: extending
+   the outer search to an `sz`-shaped block structure, combining `sz` with
+   `ti`/`by`, and more than one `sz` term — named, not yet registered as a
+   slice.
 6. **Slice 7 — `select = TRUE`.** 13 → 21 smoothing parameters.
 7. ~~**Kass-Steffey / `vcov(unconditional=TRUE)` — the level-4 BLOCKER.**~~
    **CLOSED, 2026-08-22** (ADR-202, tier 1 AND tier 3 identical, CI run 32589501512).

@@ -70,6 +70,34 @@ def test_sz_takes_exactly_two_variables_and_one_k() -> None:
         )
 
 
+def test_sz_n_levels_is_optional_and_only_valid_on_sz() -> None:
+    """PLAN slice 6b: ``n_levels`` lets ``ModelSpec``-driven assembly
+    (``gam_model.assemble_model_design``) build an ``sz`` term without
+    re-deriving the factor-level count from a sample. Optional (ADR-215's
+    own Stage-A harness passes it separately, not via the spec), and only
+    an ``sz`` term may carry it."""
+    sz_term = TermSpec(
+        label="s(FaceSize,AttdAge)",
+        variables=("FaceSize", "AttdAge"),
+        basis="sz",
+        k=(13,),
+        n_levels=2,
+    )
+    assert sz_term.n_levels == 2
+
+    with pytest.raises(PolarisValidationError, match="at least 2 factor levels"):
+        TermSpec(
+            label="s(FaceSize,AttdAge)",
+            variables=("FaceSize", "AttdAge"),
+            basis="sz",
+            k=(13,),
+            n_levels=1,
+        )
+
+    with pytest.raises(PolarisValidationError, match="only a basis='sz' term"):
+        TermSpec(label="s(AttdAge)", variables=("AttdAge",), basis="cr", k=(13,), n_levels=2)
+
+
 def test_supplied_knots_may_omit_a_margin_to_mean_default_for_that_margin_only() -> None:
     term = TermSpec(
         label="ti(AttdAge,PolYear)",
