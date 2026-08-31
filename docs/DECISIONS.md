@@ -19473,7 +19473,7 @@ on `eta` at the training design.
   validation), `tests/test_analytics/test_gam_model.py` (the `sz` dispatch:
   block widths and spans, the "one penalty block per factor level, shared
   span" shape — the same non-disjoint shape `ti()`'s two margin penalties
-  already have, ADR-205 decision 2 — and the `n_levels=None` guard),
+  already have, ADR-206 decision 2 — and the `n_levels=None` guard),
   `tests/test_analytics/test_gam_multiterm_sz_conformance.py` (R-free
   structural tests plus the R-gated end-to-end parity test, same shape as
   `test_gam_multiterm_conformance.py`).

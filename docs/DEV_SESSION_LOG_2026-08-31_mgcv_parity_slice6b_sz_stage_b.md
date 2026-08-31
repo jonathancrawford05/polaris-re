@@ -133,8 +133,9 @@ evidence).
 **Stage B closed for the scope this slice named**: an `sz`-carrying
 multi-term model can be assembled and fit by `gam_model.assemble_model_design`
 + `gam_fit.penalized_irls_general`, and its `eta` agrees with `mgcv`'s own
-native fit of the identical formula to float round-trip precision (tier 1;
-tier 3 pending). `SZ_MULTITERM_CLAIM` declares `eta` `INDEPENDENT`.
+native fit of the identical formula to float round-trip precision, tier 1
+AND tier 3 CONFIRMED (CI run 33393744694). `SZ_MULTITERM_CLAIM` declares
+`eta` `INDEPENDENT`.
 
 **What remains, named but not attempted (PLAN slice 6b's own scope line):**
 extending `select_lambdas_continuous` to an `sz`-shaped block structure (one

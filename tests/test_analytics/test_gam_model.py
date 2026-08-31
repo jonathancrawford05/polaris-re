@@ -219,7 +219,7 @@ def test_sz_term_carries_one_penalty_block_per_factor_level() -> None:
     """ADR-215's own ``sz_basis`` contract: one penalty block per factor
     level (2 here), both blocks spanning the SAME ``k * (n_levels - 1)``
     columns — the same "shared span, not disjoint" shape ``ti()``'s two
-    margin penalties already have (ADR-205 decision 2)."""
+    margin penalties already have (ADR-206 decision 2)."""
     model = ModelSpec(
         family="binomial",
         link="cloglog",
