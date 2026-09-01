@@ -3249,3 +3249,49 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   run picks work (PR #222 review, "Human review recommended for"). *Source:
   this session, ADR-217 (1st-order — the step that would let a caller
   actually reach the target formula's own headline `select=TRUE` figures).*
+
+### Harvested 2026-09-01b — slice 7b: the free-`sp` search on `select=TRUE`'s 7-block structure, characterised (ADR-218)
+
+- **Slice 7b IS NOW DONE, tier 1 measured this session, tier 3 dispatched —
+  registered and closed the same session, maintainer-authorized.** The item
+  the entry above named ("whether it becomes a registered slice 7b is a
+  maintainer decision") was authorized in-session; `fit_polaris_gam`'s own
+  free-`sp` search is now measured on `select=True`'s 7-block structure.
+  Single-start disagrees badly (`max_abs_log10_sp_diff=5.13`, worse than
+  any N=4 reading this epic has taken). A new opt-in
+  `fit_polaris_gam(multistart=True)` parameter (best-of-9,
+  `select_lambdas_continuous_multistart`, ADR-213 — every other caller's
+  default behaviour unchanged) closes `eta` agreement 166x (to `0.0027`)
+  and `edf_total` 22x (to `0.11`); raw `log10(sp)` only tightens to `1.48`.
+  A warm-start diagnostic (TRANSPORT, never a parity claim) shows the
+  survivor is optimiser convergence on a weakly-identified surface —
+  `mgcv`'s own point scores measurably better under our own criterion than
+  best-of-9 blind multistart reaches, the exact mechanism ADR-211/212 fixed
+  at N=4, now recurring at a larger scale. **Refutes** slice 7b's own
+  "null-space blocks are the likely culprit" registered-prediction clause:
+  multistart resolves the three null-space blocks to `<0.01` agreement; the
+  residual relocates to two of the three terms' own EXISTING blocks
+  instead. PLAN §1's own headline `select=TRUE` figures (13→21 smoothing
+  parameters, edf 47.36→16.96) are now reachable through the production
+  path with a working, measured mitigation. *Source: this session, ADR-218
+  (1st-order — the step that lets a caller actually reach the target
+  formula's own headline `select=TRUE` figures through `fit_polaris_gam`).*
+
+- **The `eta`/`edf`-vs-`log10(sp)` acceptance-metric question (first raised
+  ADR-212 Consequences) now has a second, larger data point.** At N=7,
+  after `multistart=True`, `max_abs_log10_sp_diff` stays at `1.48` (misses
+  `SELECT_FREE_SP_MODEL_CLAIM`'s own `1e-2` gate by two orders of magnitude)
+  while `eta` agrees to `0.0027` and `edf_total` to `0.11` — sharper than
+  ADR-212's own N=4 reading. **Still maintainer-reserved, restated rather
+  than re-opened as a new question** (`docs/CONTINUATION_mgcv_parity_engine.md`
+  "Open questions"). *Source: this session, ADR-218 (2nd-order — a
+  comparator-design decision, not blocking; the epic's remaining scope
+  proceeds under the current metric either way).*
+
+- **What remains open, named but not yet registered as a slice:**
+  combining `select=True` with the target's full eight-term structure, or
+  with an `sz` term (Stage A's `sz-facesize-*` cases are single-term only).
+  Not attempted this session; out of slice 7b's own stated scope. *Source:
+  this session, ADR-218 (2nd-order — the epic's written PLAN is otherwise
+  exhausted at the three-term subset every Stage-B slice since ADR-206 has
+  used).*

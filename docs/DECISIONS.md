@@ -19778,8 +19778,11 @@ becomes a registered slice 7b is a maintainer decision, not a routine's.
 ## ADR-218: Slice 7b — the free-`sp` search on `select=TRUE`'s 7-block structure needs multistart even more than N=4 did, and the residual that survives it is optimiser convergence, not a formula defect
 
 **Date:** 2026-09-01
-**Status:** ACCEPTED, tier 1 measured this session; tier 3 dispatched, pending
-at PR open (CI run cited below once it returns).
+**Status:** ACCEPTED, tier 1 AND tier 3 confirmed identical in verdict and
+order of magnitude, same session (CI run
+[33458654272](https://github.com/jonathancrawford05/polaris-re/actions/runs/33458654272),
+oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+— build 8, the digest this epic has used throughout, R 4.6.1 / mgcv 1.9.4).
 **Implements:** `docs/PLAN_mgcv_parity_engine.md` slice 7b, registered this
 session (maintainer-authorized) per ADR-209 decision 1 and ADR-217's own
 closing line, which named this exact gap and named its registration as "a
@@ -19821,34 +19824,44 @@ three already-verified existing blocks.
 ### What was measured
 
 **Single-start (the module's own default): disagrees badly.**
-`max_abs_log10_sp_diff = 5.132`, `max_abs_eta_diff = 0.4456`,
-`edf_total_diff = +2.4216` (Python 16.98 vs `mgcv` 14.56) — worse in
-absolute terms than any N=4 reading this epic has taken. The single worst
-block is `ti(...)`'s own null-space block (Python `5.02` vs `mgcv` `-0.11`),
-provisionally supporting the prediction's second half.
+`max_abs_log10_sp_diff = 5.132` (tier 1) / `5.1320` (tier 3),
+`max_abs_eta_diff = 0.4456` (both tiers),
+`edf_total_diff = +2.4216` (both tiers, Python 16.98 vs `mgcv` 14.56) — worse
+in absolute terms than any N=4 reading this epic has taken, identical at
+both tiers. The single worst block is `ti(...)`'s own null-space block
+(Python `5.02` vs `mgcv` `-0.11`), provisionally supporting the prediction's
+second half.
 
 **`multistart=True` (best-of-9, one change): closes most of it, and
-relocates the rest.** `max_abs_log10_sp_diff` falls to `1.475` (3.5x
-tighter), `max_abs_eta_diff` to `0.00268` (166x tighter), `edf_total_diff`
-to `-0.111` (22x tighter). Per block, the three null-space blocks now agree
-to `<0.01` — **the prediction's second half is REFUTED**: multistart
-resolves the null-space blocks essentially exactly, and the surviving
-residual is on two of the three terms' own EXISTING blocks (the reference
-age smooth's and the by-term's), both being driven toward large `lambda`.
-This is the same shape PLAN section 6's own standing prediction names — edf
-agrees far better than raw `log10(sp)` — now demonstrated on a structure
-twice as many blocks wide as any prior measurement.
+relocates the rest.** `max_abs_log10_sp_diff` falls to `1.475` (tier 1) /
+`1.4754` (tier 3) — 3.5x tighter, `max_abs_eta_diff` to `0.00268` (tier 1) /
+`0.002681` (tier 3) — 166x tighter, `edf_total_diff` to `-0.111` (both
+tiers) — 22x tighter, identical in verdict and order of magnitude at both
+tiers. Per block, the three null-space blocks now agree to `<0.01` — **the
+prediction's second half is REFUTED**: multistart resolves the null-space
+blocks essentially exactly, and the surviving residual is on two of the
+three terms' own EXISTING blocks (the reference age smooth's and the
+by-term's), both being driven toward large `lambda`. This is the same shape
+PLAN section 6's own standing prediction names — edf agrees far better than
+raw `log10(sp)` — now demonstrated on a structure twice as many blocks wide
+as any prior measurement.
 
 **Warm-start diagnostic (TRANSPORT, never a parity claim — `mgcv`'s own
-selection is the supplied `x0`): decisive.** Starting `select_lambdas_
-continuous` AT `mgcv`'s own 7-value selection, the search stays there
-(`max abs diff = 0.00148` from `mgcv`'s point) at a score `0.0141` BETTER
-than best-of-9 multistart's own blind result, `converged=False` (a
-near-zero gradient, consistent with a weakly-identified surface at that
+selection is the supplied `x0`): decisive, confirmed at both tiers.**
+Starting `select_lambdas_continuous` AT `mgcv`'s own 7-value selection, the
+search stays there (`max abs diff = 0.00148` tier 1 / `0.00131` tier 3 from
+`mgcv`'s point) at a score `0.0141` (tier 1) / `0.0141` (tier 3) BETTER than
+best-of-9 multistart's own blind result, `converged=False` (a near-zero
+gradient, consistent with a weakly-identified surface at that
 point). **`mgcv`'s own point is a reachable, better-scoring optimum of our
 own criterion than nine blind starts reach** — the same mechanism ADR-211/
 212 found and fixed at N=4 (optimiser convergence on a weakly-identified
 surface), now recurring at a larger, harder scale rather than a new defect.
+
+**Required conformance levels 1-3 re-confirmed AGREE on this session's own
+CI run** (levels 1/2/3/5 AGREE, level 4 DISAGREES — ADR-190's separate,
+permanently-standing `dw/drho` gap, unaffected by this session) — no
+regression from `fit_polaris_gam`'s new opt-in parameter.
 
 ### The one production change
 

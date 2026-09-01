@@ -1287,8 +1287,8 @@ response, round 2" section).
   Stage-B assembly), Slice 5e (ADR-213, `select_lambdas_continuous_multistart`
   — this structure has more blocks than any free-`sp` case measured so far and
   N=4 already needed it).
-- **Status: DONE, tier 1 measured 2026-09-01, tier 3 dispatched and
-  pending (ADR-218).** ADR-217's own closing line named this gap and named
+- **Status: DONE, tier 1 AND tier 3 confirmed identical, 2026-09-01
+  (ADR-218, CI run 33458654272).** ADR-217's own closing line named this gap and named
   its registration as "a maintainer decision, not a routine's" — the
   maintainer authorized proceeding in this session's own conversation.
   Single-start `fit_polaris_gam` disagrees badly (`max_abs_log10_sp_diff=
