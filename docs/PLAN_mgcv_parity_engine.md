@@ -1385,6 +1385,196 @@ response, round 2" section).
 - `[machine]` `tests/qa/golden_outputs/` byte-identical (`git diff` empty) —
   proven by `pytest tests/qa/`.
 
+### Slice 7c: an analytic REML gradient for the outer search — and whether the `log10(sp)` gate is reachable at all
+
+- **Depends on:** Slice 7b (ADR-218, which opened this gap and characterised
+  it); ADR-201/202 (Wood 2011 Appendix C/D — `d_beta_d_rho`, `d_eta_d_rho`,
+  `dw_drho`, `newton_working_weights`, all already INDEPENDENT-verified
+  against `mgcv`); slice 5c/ADR-196 (Appendix B's stable `log|S|₊`,
+  `gam_reml_appendix_b.logdet_s_plus`); ADR-212, whose `_FINITE_DIFF_STEP`
+  compromise this slice would retire rather than re-tune.
+- **Status: PROPOSED, not registered.** Drafted at the maintainer's request
+  (2026-09-01, in the PR #223 review conversation), NOT self-registered.
+  Two reasons the routine may not register this one itself: Part 2 below
+  bears directly on **whether to relax an acceptance criterion**, which
+  `docs/ROUTINE_MGCV_PARITY.md` places under "May not decide"; and Part 1
+  changes how every `fit_polaris_gam` caller's smoothing parameters are
+  selected, which is an Anchor 7 question. If the maintainer registers it,
+  this bullet becomes a status line and `CONTINUATION_mgcv_parity_engine.md`
+  gains the slice; until then this section is a proposal, and ADR-209
+  decision 1's "closed or registered, never merely filed" obligation for
+  ADR-218's open gap is **not** yet discharged by it.
+
+**The gap, stated precisely.** ADR-218's warm-start diagnostic established
+that starting `select_lambdas_continuous` AT `mgcv`'s own 7-value selection,
+it stays there (`max abs diff = 0.0013`) at REML score `523.6453` — `0.0141`
+BETTER (lower) than best-of-9 multistart's own blind result `523.6594`.
+**Our own criterion prefers `mgcv`'s answer to the one our own optimiser
+finds.** So the residual `max_abs_log10_sp_diff = 1.48` is not a disagreement
+about the mathematics — the bases (ADR-194/200/205/215), the null-space
+penalty rule (ADR-217), the fitter (ADR-195) and the criterion (ADR-196,
+Appendix B) are each independently verified and unchanged. What is left is
+that a search cannot reliably locate the minimum of a function this epic has
+already got right. That narrows this slice to the OUTER SEARCH, and it is the
+last named piece of ADR-218's own "does not close" list.
+
+**Part 0 — is the `1e-2` gate reachable? (run FIRST; it may end the slice.)**
+Before optimising anything, establish whether `max_abs_log10_sp_diff < 1e-2`
+is attainable *in principle* on this structure. Compute the REML score's
+Hessian w.r.t. `rho` at `mgcv`'s own point and read its eigenspectrum — the
+tool already exists and is itself `mgcv`-checked:
+`gam_uncertainty_conformance.finite_difference_rho_hessian` (central
+differences in natural-log lambda, compared against `mgcv`'s own
+`outer_hessian` by `VcComparison`'s `own_hessian_*` fields).
+
+  Back-of-envelope from ADR-218's own two numbers, to be CHECKED not
+  trusted: `1.4754` decades is `3.397` in natural-log lambda, so if that
+  whole displacement cost only `0.0141` of score, the curvature along it is
+  roughly `2 x 0.0141 / 3.397² ≈ 0.0024`. A well-identified smoothing
+  parameter carries REML curvature of order 1-10 in the same units. The
+  estimate assumes the displacement lies along a single eigendirection,
+  which it does not — which is exactly why the eigendecomposition, not the
+  arithmetic, is the deliverable.
+
+If the spectrum confirms that spread (three-ish orders of magnitude between
+the stiff directions and the two residual-carrying ones), then **no optimiser
+closes that gate**, because the criterion does not localise lambda in that
+direction to anything like `1e-2` — and the honest close for this slice is
+Part 2, not Part 1. If instead every direction is well conditioned, Part 1
+should close the gate outright and Part 2 is unnecessary. **Either outcome is
+a result; the slice must say which it got before proceeding.**
+
+**Part 1 — replace the finite-difference gradient with the analytic one.**
+`select_lambdas_continuous` calls `scipy.optimize.minimize(..., method=
+"L-BFGS-B", options={"gtol": gtol, "eps": finite_diff_step})`
+(`gam_reml_optimize.py`) with **no `jac=`**. Over 7 blocks that is 8 nested
+penalized-IRLS solves per gradient, each differenced at `h = 1e-5`. Two
+consequences, and they match the symptoms exactly:
+
+- On a direction with curvature `~0.002` the true gradient near the optimum
+  is tiny, so a forward difference at `h = 1e-5` returns mostly noise; the
+  search stalls where signal drops below difference error — which is
+  precisely "the residual sits on the two weakly-identified EXISTING
+  blocks".
+- `gtol = 1e-8` is far below the finite-difference gradient's own error
+  floor, so the convergence test is testing noise. That is the likeliest
+  explanation for ADR-218's otherwise contradictory reading: the
+  warm-started fit reports `converged=False` AT a near-zero gradient.
+
+ADR-212 already fought this at N=4 and landed on `_FINITE_DIFF_STEP = 1e-5`
+as a truncation-vs-noise compromise. There is no step size that wins at
+N=7; the fix is to stop differencing. For `rho_j = log(lambda_j)`, with
+`S = sum_j lambda_j S_j`, `H = XᵀWX + S` and `V` as `reml_score_general`
+computes it:
+
+    dV/drho_j =  lambda_j * betâᵀ S_j betâ / (2*gamma)      # envelope theorem: the
+                                                            # indirect dbetâ term vanishes
+              +  0.5 * tr(H⁻¹ lambda_j S_j)
+              +  0.5 * tr(H⁻¹ Xᵀ (dW/drho_j) X)
+              -  0.5 * lambda_j * tr(S⁺ S_j)                # via Appendix B, never naively
+
+- **Already built and verified:** `d_beta_d_rho`, `d_eta_d_rho`
+  (`gam_derivatives.py`), `logdet_s_plus`/`appendix_b_transform` for the
+  fourth term, `newton_working_weights` for `W` itself.
+- **The trap this slice must NOT walk into.** `reml_score_general`'s `W` is
+  the **observed-information** weight (its own docstring, slice 5c Defect
+  B) — `newton_working_weights`, i.e. `alpha * w_Fisher`. But the existing
+  `dw_deta`/`dw_drho` differentiate the **Fisher** weight only: their
+  docstring states Appendix D "at `alpha ≡ 1`", with the `alpha` term
+  dropped. Wiring `dw_drho` straight into the third term therefore yields a
+  gradient that is correct for a canonical link and **silently wrong for
+  `cloglog`** — the exact case this epic fits, and the exact case where
+  `newton_alpha` departs from 1. The missing chain is `d(alpha)/d(eta)`,
+  which needs `d³mu/d(eta)³` and `V''(mu)`; `second_deriv_mu_eta` and
+  `variance_deriv` stop one order short of both. **This is new math, not
+  assembly, and the slice should budget for it.**
+- **The cheap check that may make it unnecessary, and should be run before
+  deriving anything.** `alpha - 1` is proportional to `(y - mu)`, which has
+  mean ~0, so the third term's contribution may be negligible in practice.
+  Compare the analytic gradient WITHOUT the `dW/drho` term against a
+  high-quality central-difference gradient at a WELL-CONDITIONED point (the
+  N=4 fixture, where finite differences are trustworthy). If they agree to
+  the central-difference noise floor, document the term as negligible with
+  the measurement that shows it, and skip the derivation. If they do not,
+  derive `d(alpha)/d(eta)`. **State which branch was taken and why** — a
+  dropped term that was never measured is the kind of silent approximation
+  Anchor 8 exists to prevent.
+
+Two things follow for free if Part 1 lands: gradient cost drops from ~8
+solves to ~1, so `multistart=True` stops being the 9-17x cost tradeoff
+ADR-213 measured; and `gtol` becomes a meaningful stopping rule for the
+first time in this epic.
+
+**Part 2 — what the acceptance criterion should become (MEASURE, DO NOT
+DECIDE).** ADR-212 and ADR-218 have now both parked the same question, and
+Part 0 turns it from a matter of taste into a measurement. The framing to
+avoid is "`eta`/`edf` **or** raw `log10(sp)`" — both are proxies, and
+`eta`/`edf` agreeing while `log10(sp)` does not is a *symptom* of a flat
+direction, not an independent reason to prefer them (it would get the right
+answer here for a reason that does not generalise to a well-conditioned
+structure). The geometry names two candidates directly:
+
+- the **score gap** `V(rho_ours) - V(rho_mgcv)` under our own criterion —
+  scale-free, and already what the warm-start diagnostic reports (`0.0141`);
+- the **Hessian-weighted distance**
+  `sqrt((rho_ours - rho_mgcv)ᵀ H (rho_ours - rho_mgcv))`, which measures the
+  displacement in the units the criterion can actually resolve.
+
+Raw `max|Δlog10 sp|` implicitly assumes every direction is equally
+identified, which is the assumption `select=TRUE` breaks. **This slice may
+measure both candidates on the existing fixtures and recommend one; it may
+not change `SELECT_FREE_SP_MODEL_CLAIM`'s or `FREE_SP_MODEL_CLAIM`'s gate.**
+That edit is the maintainer's (`ROUTINE_MGCV_PARITY.md`, "May not decide").
+
+**Registered prediction, to be written into the session log before any
+measurement.** The analytic gradient closes the SCORE gap to at or below the
+objective's own noise floor (i.e. blind multistart reaches what the warm
+start reaches, and `converged` stops disagreeing with a near-zero gradient),
+but `max_abs_log10_sp_diff` stays O(1) because the direction is not
+identified — making the Part 2 metric question decidable on evidence rather
+than preference. **If instead the gate closes to `1e-2`,** the prediction is
+refuted, Part 2 is moot, and that is the more valuable outcome (Anchor 9).
+
+**Out of scope, stated up front.** Second derivatives / a full Newton outer
+search (Wood 2011 §4's Hessian — the gradient alone is the hypothesis here);
+the target's full eight-term structure; `select=True` combined with an `sz`
+term; any change to `experience_gam_penalized`'s production grid selector
+(Anchor 7, ADR-198 "Two searches, not one"); and changing any committed
+acceptance gate (Part 2).
+
+**Definition of Done, tagged per ADR-209 decision 3.**
+
+- `[machine]` The `rho` Hessian at `mgcv`'s own `select=TRUE` point is
+  computed and its eigenspectrum recorded in `docs/CONFORMANCE_LEDGER.md`,
+  with the stiff/flat ratio stated — proven by a committed diagnostic script
+  plus the ledger row. This is a property of OUR OWN criterion and needs no
+  `mgcv` side; it is therefore neither parity nor transport, and the ledger
+  row must say so rather than borrowing either label.
+- `[judgement]` Part 0's verdict — gate reachable, or not — stated in those
+  words in the session log BEFORE Part 1's result is reported.
+- `[machine]` An analytic `dV/drho` exists, is passed to `L-BFGS-B` via
+  `jac=`, and agrees with a central-difference gradient at a
+  well-conditioned point (the N=4 fixture) to the central-difference noise
+  floor — proven by a new R-free unit test. **A gradient that agrees only
+  with the `1e-5` forward difference it replaces proves nothing**; the
+  reference must be the higher-quality central difference.
+- `[machine]` The `dW/drho` term is either included with `d(alpha)/d(eta)`
+  derived, or excluded with a committed measurement showing it negligible at
+  the N=4 fixture — proven by a test either way, never by assertion.
+- `[machine]` `select_lambdas_continuous`'s existing behaviour is preserved
+  for every current caller unless the gradient is opt-in: either the
+  analytic path is default AND every existing conformance reading is
+  re-measured and shown no worse, or it is gated behind a parameter the way
+  `multistart=` was (ADR-218). **State which, and why.**
+- `[machine]` `SELECT_FREE_SP_MODEL_CLAIM`'s four quantities re-measured at
+  tier 1 AND tier 3, both recorded, provenance unchanged (INDEPENDENT).
+- `[machine]` Required conformance levels 1-3 still AGREE, no regression.
+- `[machine]` `tests/qa/golden_outputs/` byte-identical — this slice must not
+  touch a path any golden depends on.
+- `[judgement]` Part 2's two candidate metrics measured and one RECOMMENDED,
+  with the recommendation filed for the maintainer and **no committed gate
+  edited** — confirmed by whoever reviews the PR.
+
 ### Deferred to a later epic: `bam` + `discrete = TRUE` + fREML
 
 `bam(discrete = TRUE)` is a different algorithm, not a faster `gam` — discretised
