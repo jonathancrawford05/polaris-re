@@ -117,6 +117,11 @@ on:
       - "scripts/gam_select_penalty_probe.R"
       - "src/polaris_re/analytics/gam_select_multiterm_conformance.py"
       - "scripts/gam_select_multiterm_probe.R"
+      # PLAN slice 7b — extending the free-sp search to select=TRUE's
+      # doubled block count: fit_polaris_gam's new multistart= parameter,
+      # this slice's own comparator, and its probe.
+      - "src/polaris_re/analytics/gam_select_free_sp_conformance.py"
+      - "scripts/gam_select_multiterm_free_sp_probe.R"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -432,6 +437,22 @@ jobs:
             Rscript scripts/gam_select_multiterm_probe.R \
               gam_select_multiterm_probe.json
 
+      # PLAN slice 7b (ADR-218): the SAME three-term formula under
+      # select=TRUE, but at FREE sp -- mgcv chooses all 7 smoothing
+      # parameters via method="REML". Slice 7 only ever compared eta at a
+      # FIXED sp under select=TRUE (immediately above) or free sp WITHOUT
+      # select=TRUE (gam_multiterm_free_sp_probe.R, slice 5b); this is the
+      # first probe to combine both. Same DIAGNOSTIC contract as the probes
+      # above -- the comparison against PolarisGAM's own free-sp selection
+      # (gam_select_free_sp_conformance) happens in the `compare` job below.
+      - name: Fit the shared three-term multi-term design under select=TRUE at free sp (slice 7b)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_select_multiterm_free_sp_probe.R \
+              gam_select_multiterm_free_sp_probe.json
+
       # PLAN slice 5b (docs/WORK_ORDER_multi_term_assembly.md): the SAME
       # three-term formula at FREE sp — mgcv chooses its own smoothing
       # parameters via method="REML". Same DIAGNOSTIC contract as the probes
@@ -509,6 +530,7 @@ jobs:
             gam_fixed_sp_score_probe.json
             gam_select_penalty_probe.json
             gam_select_multiterm_probe.json
+            gam_select_multiterm_free_sp_probe.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
@@ -1431,6 +1453,107 @@ jobs:
           PY
           if [ -f gam_select_multiterm_probe_report.md ]; then
             cat gam_select_multiterm_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # PLAN slice 7b (ADR-218): compares PolarisGAM's own free-sp selection
+      # under select=TRUE (gam_select_free_sp_conformance) against job 1's
+      # native mgcv free-sp select=TRUE fit of the SAME three-term formula,
+      # at BOTH single-start (fit_polaris_gam's own default) and
+      # multistart=True (ADR-213's best-of-9, ADR-218's registered
+      # prediction that this 7-block structure needs it the way the N=4
+      # non-select structure did). THE ASYMMETRY (ADR-208 Sec. 3, restated):
+      # sp is a COMPARED quantity here, not a shared input. DIAGNOSTIC ONLY,
+      # printed to stdout from the start (ADR-194's methodology fix).
+      - name: Compare PolarisGAM's free-sp selection under select=TRUE against mgcv (slice 7b)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_select_multiterm_free_sp_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_select_multiterm_free_sp_probe.json to compare ({exc}) — "
+                    "the R probe above did not produce one.")
+              sys.exit(0)
+
+          from polaris_re.analytics.gam_select_free_sp_conformance import (
+              SELECT_FREE_SP_MODEL_CLAIM, compare_select_free_sp_case,
+              fit_select_free_sp_case,
+          )
+          from polaris_re.core.verification import evidence_markdown
+
+          single = fit_select_free_sp_case(r_payload)
+          c_single = compare_select_free_sp_case(single, r_payload)
+          multi = fit_select_free_sp_case(r_payload, multistart=True, n_starts=9)
+          c_multi = compare_select_free_sp_case(multi, r_payload)
+
+          lines = [
+              "",
+              "### Slice 7b — free-sp selection under select=TRUE vs mgcv (INDEPENDENT on every quantity)",
+              "",
+              evidence_markdown(SELECT_FREE_SP_MODEL_CLAIM),
+              "",
+              "| search | n | p | max abs eta diff | max abs log10(sp) diff | edf_total diff | max abs per-term edf diff | at bound | agrees |",
+              "|---|---:|---:|---:|---:|---:|---:|---|---|",
+              f"| single-start (fit_polaris_gam default) | {r_payload['n']} | {len(r_payload['coef'])} | "
+              f"{c_single.max_abs_eta_diff:.3e} | {c_single.max_abs_log10_sp_diff:.4f} | "
+              f"{c_single.edf_total_diff:+.4f} | {c_single.max_abs_term_edf_diff:.4f} | "
+              f"{c_single.at_bound} | {c_single.agrees} |",
+              f"| multistart=True, n_starts=9 (ADR-213) | {r_payload['n']} | {len(r_payload['coef'])} | "
+              f"{c_multi.max_abs_eta_diff:.3e} | {c_multi.max_abs_log10_sp_diff:.4f} | "
+              f"{c_multi.edf_total_diff:+.4f} | {c_multi.max_abs_term_edf_diff:.4f} | "
+              f"{c_multi.at_bound} | {c_multi.agrees} |",
+              "",
+              "`sp` is a COMPARED QUANTITY here, not a shared input — both sides "
+              "select all 7 smoothing parameters independently, from the same "
+              "already-verified REML criterion (ADR-217). This slice's own "
+              "registered prediction: single-start underperforms multistart at "
+              "least as much as it did at N=4 (ADR-211/212/213) — see the table. "
+              "A residual `log10(sp)` disagreement after multistart is a real, "
+              "characterised finding (see the warm-start diagnostic below), not "
+              "evidence the bases, null-space-penalty rule, fitter or criterion "
+              "are wrong — all are unchanged from ADR-217's fixed-sp measurement. "
+              "Coefficients are NOT compared (Anchor 2).",
+          ]
+          if not c_multi.agrees:
+              lines.insert(2, "**Disagreement on log10(sp) — see the table. This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_select_multiterm_free_sp_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_select_multiterm_free_sp_probe_report.md ]; then
+            cat gam_select_multiterm_free_sp_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # PLAN slice 7b (ADR-218): does mgcv's OWN free-sp select=TRUE point
+      # score better, under our OWN criterion (ADR-217's fixed-sp fix),
+      # than our best-of-9 multistart result reaches — same discriminator
+      # ADR-211/212 used at N=4 (slice 5d). DIAGNOSTIC ONLY — reads mgcv's
+      # own sp as an input (x0), so this can never be part of the committed
+      # INDEPENDENT comparator above, same reasoning as
+      # gam_free_sp_warmstart_diagnostic.py / gam_multiterm_sp_delta_probe.R.
+      - name: Does mgcv's own select=TRUE free-sp point score better than our best multistart result? (slice 7b)
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f gam_select_multiterm_free_sp_probe.json ]; then
+            uv run python scripts/gam_select_free_sp_warmstart_diagnostic.py gam_select_multiterm_free_sp_probe.json \
+              | tee gam_select_free_sp_warmstart_diagnostic_output.txt
+            {
+              echo ""
+              echo "### Slice 7b — warm-start-at-mgcv's-point diagnostic (NOT part of SELECT_FREE_SP_MODEL_CLAIM)"
+              echo '```'
+              cat gam_select_free_sp_warmstart_diagnostic_output.txt
+              echo '```'
+              echo ""
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No gam_select_multiterm_free_sp_probe.json to diagnose — the R probe did not produce one." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       # PLAN slice 5b (docs/WORK_ORDER_multi_term_assembly.md): compares

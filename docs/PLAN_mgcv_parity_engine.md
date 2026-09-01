@@ -1281,6 +1281,99 @@ at either bound — the reviewer's own suggested shape
 (`docs/DEV_SESSION_LOG_2026-08-25_mgcv_parity_slice5b_polarisgam.md`'s "PR #212 review
 response, round 2" section).
 
+### Slice 7b: extend the free-`sp` search to `select=TRUE`'s doubled block count
+
+- **Depends on:** Slice 7 (ADR-217, the null-space penalty and the fixed-`sp`
+  Stage-B assembly), Slice 5e (ADR-213, `select_lambdas_continuous_multistart`
+  — this structure has more blocks than any free-`sp` case measured so far and
+  N=4 already needed it).
+- **Status: DONE, tier 1 measured 2026-09-01, tier 3 dispatched and
+  pending (ADR-218).** ADR-217's own closing line named this gap and named
+  its registration as "a maintainer decision, not a routine's" — the
+  maintainer authorized proceeding in this session's own conversation.
+  Single-start `fit_polaris_gam` disagrees badly (`max_abs_log10_sp_diff=
+  5.13`, worse than any N=4 reading); a new opt-in `multistart=True`
+  parameter (best-of-9, ADR-213) closes `eta` agreement 166x (to `0.0027`)
+  and `edf_total` 22x (to `0.11`) while `log10(sp)` itself only tightens to
+  `1.48` — a warm-start diagnostic shows the residual is optimiser
+  convergence on a weakly-identified surface (`mgcv`'s own point scores
+  better under our own criterion than best-of-9 blind multistart reaches),
+  not a formula defect, refuting this slice's own "null-space blocks are
+  the culprit" half of its registered prediction (multistart resolves them
+  essentially exactly; the residual is on two EXISTING blocks instead). See
+  ADR-218 for the full measurement.
+- **The gap, as stated when this slice was registered.** `fit_polaris_gam`
+  already calls `select_lambdas_continuous` on whatever `penalty_blocks`
+  `assemble_model_design` returns, `select=True` included — there is no code
+  path that refuses the doubled block count. What has never been MEASURED is
+  whether that search, aimed at the 7-block structure `select=True` produces
+  on the same three-term model ADR-206/217 verified (`s(AttdAge)` + `by`-MI
+  term + `ti(AttdAge,PolYear)`, `2+2+3` blocks), lands anywhere near `mgcv`'s
+  own free-`sp` selection under `select=TRUE` — `gam_select_multiterm_probe.R`
+  (ADR-217) only ever fit at a FIXED, externally-supplied `sp`.
+- **Registered prediction, before any measurement.** Slices 5c/5d/5e found
+  that the N=4 (non-`select`) structure's free-`sp` search needed a
+  finite-difference-step fix (ADR-212) and best-of-9 multi-start (ADR-213)
+  before it reliably reached `mgcv`'s own selected point — and even then, one
+  block (the `by`-term) stayed weakly identified. `select=True` does not
+  change the by-term's own identifiability; it adds three more, differently
+  conditioned blocks (each term's own null-space penalty) to the same
+  landscape. **Prediction: single-start `fit_polaris_gam` will underperform
+  `select_lambdas_continuous_multistart` on this structure at least as much
+  as it did at N=4, and the null-space blocks (never exercised under free
+  selection before) are the more likely place for a genuinely new
+  disagreement — not the three already-verified existing blocks.** If this
+  holds, `edf_total`/`eta` are the metrics to gate on (PLAN §6's own
+  standing prediction), not raw `log10(sp)`. If it fails — single-start
+  already suffices, or a null-space block disagrees for a structural
+  reason no amount of multi-start fixes — that is the more informative
+  outcome and should be reported as such (Anchor 9).
+- **What this closes, if it closes:** the last piece needed to reproduce PLAN
+  §1's own headline `select=TRUE` figures (13 -> 21 smoothing parameters, edf
+  47.36 -> 16.96) end to end through the production path
+  (`fit_polaris_gam`/`assemble_model_design`), rather than only at a fixed,
+  externally-supplied `sp`.
+- **Out of scope, stated up front:** the target's full eight-term structure
+  (still the same three-term subset ADR-206/208/217 used); combining `sz`
+  with `select=True`'s free search (slice 6b's own remaining scope, separate);
+  any change to `experience_gam_penalized`'s production grid selector
+  (PLAN Anchor 7, ADR-198 "Two searches, not one").
+
+**Definition of Done, tagged per ADR-209 decision 3.**
+
+- `[machine]` A new R probe (`scripts/gam_select_multiterm_free_sp_probe.R`)
+  fits the three-term formula with `select = TRUE` and free `sp`
+  (`method="REML"`, no `sp=` argument), exporting `m$sp` (7 entries),
+  `eta`, `term_edf`, `edf_total` — verified by the probe's own successful
+  run producing valid JSON (`Rscript scripts/gam_select_multiterm_free_sp_probe.R
+  gam_select_multiterm_free_sp_probe.json` exits 0).
+- `[machine]` A new Python comparator (`gam_select_free_sp_conformance.py`,
+  `fit_select_free_sp_case`/`compare_select_free_sp_case`) reads only the
+  shared recipe (`RSelectFreeSpRecipe`, structurally excluding `eta`/`sp`/
+  `edf`) and selects its own `log10(lambda)` via `fit_polaris_gam` — proven
+  by `test_gam_select_free_sp_conformance.py`.
+- `[machine]` `SELECT_FREE_SP_MODEL_CLAIM` declares `eta`/`log10(sp) per
+  block`/`edf_total`/`per-term edf` INDEPENDENT, gated by
+  `require_parity_evidence` — proven by a passing test that constructs the
+  claim and asserts no `PolarisValidationError`.
+- `[machine]` Tier-1 AND tier-3 measurement recorded in
+  `docs/CONFORMANCE_LEDGER.md`, both readings identical in verdict — proven
+  by the ledger row itself plus the cited CI run.
+- `[judgement]` The registered prediction above resolved — confirmed or
+  refuted, in those words — by whoever writes the session log.
+- `[judgement]` If the gap does not close in this session's bounded
+  iteration budget, it is characterised with evidence and a named next
+  hypothesis (registered as slice 7c if it is not closed), never left as an
+  unregistered "Open question" — confirmed by whoever reviews the PR.
+- `[machine]` `.github/workflows/mgcv-conformance.yml` gains the new probe
+  step, artifact entry and comparator step, `continue-on-error: true` on
+  the R side (same DIAGNOSTIC contract as every other probe) — proven by the
+  CI run this PR's own push dispatches.
+- `[machine]` Required conformance levels 1-3 still AGREE, no regression —
+  proven by the same tier-3 CI run's job summary.
+- `[machine]` `tests/qa/golden_outputs/` byte-identical (`git diff` empty) —
+  proven by `pytest tests/qa/`.
+
 ### Deferred to a later epic: `bam` + `discrete = TRUE` + fREML
 
 `bam(discrete = TRUE)` is a different algorithm, not a faster `gam` — discretised
