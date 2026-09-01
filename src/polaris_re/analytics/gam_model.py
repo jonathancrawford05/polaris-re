@@ -22,16 +22,23 @@ ADR-200, ADR-205), the continuous smoothing-parameter search
 ADR-199), and the general penalized fitter it already calls internally
 (:func:`~polaris_re.analytics.gam_fit.penalized_irls_general` — ADR-195).
 
-**What this module does NOT do.** ``select = TRUE`` (PLAN slice 7) is now
+**What this module does NOT do.** ``select = TRUE`` (PLAN slice 7) is
 wired into :func:`assemble_model_design` — set ``ModelSpec.select = True``
 and each term's own null-space penalty
 (:func:`~polaris_re.analytics.gam_select_penalty.null_space_penalty`, Stage-A
 verified against ``mgcv``, ADR-217) is appended after its existing
-block(s) — but :func:`fit_polaris_gam`'s own outer search
-(:func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`)
-has not been exercised on the doubled block count this produces; nothing
-here selects the extra smoothing parameters any differently from an
-ordinary block. :func:`assemble_model_design` raises on any basis it does
+block(s). :func:`fit_polaris_gam`'s own outer search has now been measured
+on the doubled (7-)block count this produces (PLAN slice 7b): single-start
+disagrees badly with ``mgcv``'s own free-``sp`` selection on this structure
+(worse than the N=4 non-``select`` case ever did), but ``multistart=True``
+(:func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous_multistart`,
+ADR-213) closes ``eta``/``edf`` agreement to the same order every other
+Stage-B measurement in this epic has reached, leaving a raw ``log10(sp)``
+residual on two of the three terms' own EXISTING blocks (not the null-space
+ones) that a warm-start diagnostic shows is optimiser-convergence on a
+weakly-identified surface, not a formula defect — see ADR-218. Nothing here
+selects the extra smoothing parameters any differently from an ordinary
+block. :func:`assemble_model_design` raises on any basis it does
 not recognise rather than silently skipping a term. ``"sz"`` terms (slice 6b,
 ``docs/PLAN_mgcv_parity_engine.md``) ARE built by :func:`assemble_model_design`
 via :func:`~polaris_re.analytics.gam_stage_a.build_python_sz_term` (ADR-215),
@@ -61,7 +68,10 @@ from polaris_re.analytics.gam_family import (
     poisson_log,
     quasipoisson_log,
 )
-from polaris_re.analytics.gam_reml_optimize import select_lambdas_continuous
+from polaris_re.analytics.gam_reml_optimize import (
+    select_lambdas_continuous,
+    select_lambdas_continuous_multistart,
+)
 from polaris_re.analytics.gam_select_penalty import null_space_penalty
 from polaris_re.analytics.gam_stage_a import (
     TermExtract,
@@ -333,9 +343,13 @@ def fit_polaris_gam(
     gtol: float = 1.0e-8,
     maxiter: int = 200,
     strict: bool = False,
+    multistart: bool = False,
+    n_starts: int = 9,
 ) -> PolarisGAMFit:
     """Fit ``model`` to ``data``/``y``, selecting every smoothing parameter by
-    continuous REML (:func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`).
+    continuous REML (:func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`,
+    or :func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous_multistart`
+    when ``multistart=True``).
 
     Args:
         model: family/link/terms/weights/offset (Anchor 5 — both may be set
@@ -351,7 +365,12 @@ def fit_polaris_gam(
             :func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`
             unchanged, except ``bounds`` defaults to
             :data:`PRODUCTION_LOG10_BOUNDS` rather than that module's own
-            (narrower) default — see its docstring.
+            (narrower) default — see its docstring. ``x0`` applies only when
+            ``multistart=False`` (the default) —
+            :func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous_multistart`
+            has no ``x0`` parameter of its own (its first start is always
+            the bounds-centre, by design); supplying both raises rather than
+            silently dropping ``x0`` (PR #223 review [P2-1]).
         strict: whether a selection at the UPPER bound also raises. Default
             ``False`` — PLAN slice 7 (``select = TRUE``) is built around
             penalising a term to nothing, and ``mgcv``'s own free-``sp``
@@ -372,10 +391,35 @@ def fit_polaris_gam(
             and its own ``max_abs_log10_sp_diff < 1e-2`` gate already fails
             loudly on a clamped selection (a bound of 11 against `mgcv`'s own
             ~9.87 misses by two orders of magnitude more than the tolerance).
+        multistart: when ``True``, selects lambda via
+            :func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous_multistart`
+            (best-of-``n_starts``, ADR-213) instead of the single
+            bounds-centre start
+            :func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`
+            defaults to. Default ``False`` — every existing caller's
+            behaviour is unchanged. **Measured, not a general
+            recommendation** (PLAN slice 7b, ADR-218): on a
+            ``ModelSpec.select=True`` fit (7 blocks from a 3-term model),
+            single-start disagreed with ``mgcv``'s own free-``sp`` selection
+            by up to 5.1 decades on ``log10(sp)``; ``multistart=True``
+            (9 starts) brought that to 1.5 decades while closing ``eta``
+            agreement from 0.45 to 0.0027 and ``edf_total`` agreement from
+            2.42 to 0.11 — a warm-start diagnostic confirmed the residual is
+            optimiser convergence on a weakly-identified surface (`mgcv`'s
+            own point is reachable and scores better under our own
+            criterion), not a formula defect. Costs ``n_starts`` times a
+            single search's own function evaluations (ADR-213).
+        n_starts: passed through to
+            :func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous_multistart`
+            when ``multistart=True``; ignored otherwise.
 
     Raises:
         PolarisValidationError: propagated from :func:`assemble_model_design`
-            or :func:`resolve_family`.
+            or :func:`resolve_family`; or raised here if both ``multistart``
+            and ``x0`` are supplied — ``select_lambdas_continuous_multistart``
+            has no ``x0`` of its own to receive it, so silently ignoring a
+            caller-supplied starting point would misreport what search
+            actually ran (PR #223 review [P2-1]).
         PolarisComputationError: propagated from
             :func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`
             if every trial smoothing-parameter point is rejected; or raised
@@ -389,6 +433,14 @@ def fit_polaris_gam(
             criterion, was the limiting factor. Widen ``bounds`` and refit
             rather than reading a lower-bound selection.
     """
+    if multistart and x0 is not None:
+        raise PolarisValidationError(
+            "fit_polaris_gam: x0 was supplied together with multistart=True. "
+            "select_lambdas_continuous_multistart has no x0 parameter of its "
+            "own -- its first start is always the bounds-centre by design -- "
+            "so x0 would be silently dropped rather than used. Pass one or "
+            "the other."
+        )
     design = assemble_model_design(model, data)
     family = resolve_family(model.family, model.link)
     weights = (
@@ -403,19 +455,38 @@ def fit_polaris_gam(
     )
     y = np.asarray(y, dtype=np.float64)
 
-    selection = select_lambdas_continuous(
-        y,
-        design["x"],
-        family,
-        design["penalty_blocks"],
-        offset=offset,
-        weights=weights,
-        gamma=gamma,
-        x0=x0,
-        bounds=bounds,
-        gtol=gtol,
-        maxiter=maxiter,
-    )
+    n_function_evals: int
+    if multistart:
+        multi = select_lambdas_continuous_multistart(
+            y,
+            design["x"],
+            family,
+            design["penalty_blocks"],
+            offset=offset,
+            weights=weights,
+            gamma=gamma,
+            bounds=bounds,
+            gtol=gtol,
+            maxiter=maxiter,
+            n_starts=n_starts,
+        )
+        selection = multi.best
+        n_function_evals = multi.total_function_evals
+    else:
+        selection = select_lambdas_continuous(
+            y,
+            design["x"],
+            family,
+            design["penalty_blocks"],
+            offset=offset,
+            weights=weights,
+            gamma=gamma,
+            x0=x0,
+            bounds=bounds,
+            gtol=gtol,
+            maxiter=maxiter,
+        )
+        n_function_evals = selection.n_function_evals
     if selection.at_bound:
         # One log_lambda entry per penalty BLOCK; a term with more than one
         # penalty (ti carries two, ADR-205) owns a run of consecutive entries.
@@ -473,7 +544,7 @@ def fit_polaris_gam(
         edf_per_term=edf_per_term,
         reml_score=selection.reml_score,
         converged=selection.converged,
-        n_function_evals=selection.n_function_evals,
+        n_function_evals=n_function_evals,
         n_rejected=selection.n_rejected,
         at_bound=bool(upper_bound_blocks),
         at_bound_blocks=tuple(label for label, _ in upper_bound_blocks),

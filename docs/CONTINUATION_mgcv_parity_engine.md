@@ -444,6 +444,35 @@ would let a caller actually reproduce PLAN §1's own headline 13→21 /
 externally-supplied `sp`); combining `select=True` with the target's full
 eight-term structure. See ADR-217 and `docs/CONFORMANCE_LEDGER.md`.
 
+> **Slice 7b (extending the free-`sp` search to `select=TRUE`'s 7-block
+> structure) is DONE, tier 1 AND tier 3 confirmed identical, 2026-09-01
+> (ADR-218, CI run 33458654272).** ADR-217's own closing line named this gap and flagged its
+> registration as a maintainer decision, not a routine's — the maintainer
+> authorized it in-session and it is registered as PLAN slice 7b.
+> Single-start `fit_polaris_gam` disagrees badly with `mgcv`'s own free-`sp`
+> `select=TRUE` selection (`max_abs_log10_sp_diff=5.13`, worse than any N=4
+> reading this epic has taken). A new opt-in `fit_polaris_gam(multistart=
+> True)` parameter (best-of-9, ADR-213 — every other caller's default
+> behaviour unchanged) closes `eta` agreement 166x (to `0.0027`) and
+> `edf_total` 22x (to `0.11`); raw `log10(sp)` only tightens to `1.48`. A
+> warm-start diagnostic (TRANSPORT, never a parity claim) shows the
+> survivor is optimiser convergence on a weakly-identified surface —
+> `mgcv`'s own point scores measurably better under our own criterion than
+> best-of-9 blind multistart reaches, the same mechanism ADR-211/212 fixed
+> at N=4, now recurring at a larger scale rather than a new defect. **This
+> refutes slice 7b's own "null-space blocks are the likely culprit"
+> registered-prediction clause**: multistart resolves the three null-space
+> blocks to <0.01 agreement; the residual relocates to two of the three
+> terms' own EXISTING blocks instead. PLAN §1's own headline `select=TRUE`
+> figures (13→21 sp, edf 47.36→16.96) are now reachable through the
+> production path (`fit_polaris_gam`), with a working, measured mitigation
+> and a decisive explanation for what remains open. See ADR-218 and
+> `docs/CONFORMANCE_LEDGER.md`. **Whether `SELECT_FREE_SP_MODEL_CLAIM`'s own
+> acceptance criterion should weight `eta`/`edf` over raw `log10(sp)`** —
+> the same open question ADR-212 Consequences raised at N=4 — now has a
+> second, larger data point and stays maintainer-reserved (see "Open
+> questions" below).
+
 > **This is the ACTIVE epic.** `CONTINUATION_penalized_mi_surface.md` is superseded from
 > its slice 6 onward and all of its remaining slices are PARKED. A routine run selecting
 > work should land here.
@@ -787,7 +816,7 @@ across the slice structure.
 | `ti()` — tensor interaction | Tensor product with marginal main effects excluded | **Stage A+B DONE, 2026-08-24** (ADR-205 Stage A, ADR-206 Stage B, tier 1 AND tier 3 confirmed) — agrees with `smoothCon(ti(...))` to ~1e-14 (Stage A) and with a native multi-term `gam()` fit's `eta` to 1.242e-10 (Stage B), including the target's own `ti(AttdAge, PolYear, k=c(13,6))` knots | Nothing for this term's own basis+fit; the MI-contrast-on-a-grid metric and N>2 slice-4-part-B extension remain (ADR-206) |
 | `s(..., by=...)` with a `cr` basis | The MI term itself — a `cr` basis scaled by a numeric `by` variable | **Stage A+B DONE, 2026-08-24** (ADR-200 Stage A, ADR-206 Stage B, tier 1 AND tier 3 confirmed) — `mgcv` absorbs no identifiability constraint on a numeric-`by` smooth; agrees to ~2e-14 (Stage A) and to 1.242e-10 on `eta` in the multi-term fit (Stage B) | Nothing for this term's own basis+fit; same remaining items as the `ti()` row above |
 | `bs = "sz"` | Sum-to-zero factor-smooth interactions (4 terms in the target formula) | **Stage A+B DONE, 2026-08-31** (ADR-215 Stage A, ADR-216 Stage B, both tier 1 AND tier 3 confirmed — single factor, no `id`) — agrees with `smoothCon(bs="sz")` to ~1e-14 (Stage A) and with a native multi-term `gam()` fit's `eta` to ~4e-12 (Stage B) | Extending `select_lambdas_continuous` to an `sz`-shaped block structure; combining `sz` with `ti`/`by` in one model; more than one `sz` term |
-| `select = TRUE` | The double penalty / null-space shrinkage that takes 13 sp → 21 | **Stage A+B DONE, 2026-09-01** (ADR-217, tier 1 AND tier 3 confirmed identical, CI run 33417357327) — `gam_select_penalty.null_space_penalty`'s one basis-agnostic rule agrees with `mgcv`'s `select=TRUE` setup path to ~1e-12 (Stage A, all four term archetypes) and a `select=TRUE` multi-term fit agrees with `mgcv`'s native fit on `eta` to 6.164e-11/5.691e-11 (Stage B) | Extending `select_lambdas_continuous`/`fit_polaris_gam`'s free-`sp` search to the doubled block count (needed to reproduce PLAN §1's own 13→21/47.36→16.96 figures); combining with the target's full eight-term structure |
+| `select = TRUE` | The double penalty / null-space shrinkage that takes 13 sp → 21 | **Stage A+B DONE, 2026-09-01** (ADR-217, tier 1 AND tier 3 confirmed identical, CI run 33417357327) — `gam_select_penalty.null_space_penalty`'s one basis-agnostic rule agrees with `mgcv`'s `select=TRUE` setup path to ~1e-12 (Stage A, all four term archetypes) and a `select=TRUE` multi-term fit agrees with `mgcv`'s native fit on `eta` to 6.164e-11/5.691e-11 (Stage B). **Free-`sp` search DONE, tier 1 AND tier 3 confirmed, 2026-09-01** (ADR-218, CI run 33458654272) — `fit_polaris_gam(multistart=True)` closes `eta`/`edf_total` agreement 166x/22x; raw `log10(sp)` residual (1.48) is characterised as optimiser convergence on a weakly-identified surface, not a formula defect | Combining `select=True` with the target's full eight-term structure or an `sz` term; whether `SELECT_FREE_SP_MODEL_CLAIM` should weight `eta`/`edf` over raw `log10(sp)` (maintainer-reserved) |
 | `cr` basis extrapolation | Behaviour for `x` outside `[knots[0], knots[-1]]` | **Unverified**, not assumed — `gam_basis_cr.py` marks it explicitly | A future session measuring it; blocks fitting the target's own knots against real experience data, whose range need not match the hand-chosen knots |
 | Kass-Steffey / `vcov(unconditional=TRUE)` | The full Wood, Pya & Säfken (2016) correction (`dw/drho`) | **CLOSED, 2026-08-22** (ADR-202, tier 1 AND tier 3 identical, CI run 32589501512) — `gam_uncertainty` reproduces `mgcv`'s `Vc` to <1% element-wise and <0.1% on the inflation ratio, where the first-order-only correction inflated 1.11-1.21x against `mgcv`'s 1.49-1.87x. Built on ADR-201's `dw/drho` | Nothing for the FORMULA. What remains is a **separate, Anchor-7-gated decision**: re-pointing `experience_gam_penalized.smoothing_uncertainty` at it (with its own determinism answer, ADR-186), and then re-running ADR-188's coverage gate — until that happens the ten-cell suite's level 4 correctly still reads DISAGREES |
 | Anchor 5 absolute/relative idiom, demonstrated end to end | Weights and an offset used simultaneously on the target's own multi-term structure | Each control verified in isolation only (PLAN slice 3's own deferred criterion) | A multi-term model, which needs the outer search |
@@ -1056,6 +1085,24 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 
 ## Open questions (for human)
 
+- **The `eta`/`edf`-vs-`log10(sp)` acceptance-metric question, restated with
+  a second, larger data point (2026-09-01, ADR-218).** ADR-212's own
+  Consequences first raised this at N=4: when a smoothing parameter is
+  weakly identified, raw `log10(sp)` disagreement can be large while `eta`/
+  `edf` (what the fitted model actually looks like) agree tightly. Slice 7b
+  measured the same pattern at N=7 (`select=True`'s doubled block count),
+  and more sharply: after `multistart=True`, `max_abs_log10_sp_diff` stays
+  at `1.48` (misses `SELECT_FREE_SP_MODEL_CLAIM`'s own `1e-2` gate by two
+  orders of magnitude) while `eta` agrees to `0.0027` and `edf_total` to
+  `0.11` — a warm-start diagnostic confirms this is optimiser convergence on
+  a weakly-identified surface, not a wrong criterion or a wrong basis.
+  **Question for the maintainer, unchanged in substance from ADR-212 but now
+  with a second structure's worth of evidence:** should
+  `SELECT_FREE_SP_MODEL_CLAIM` (and `FREE_SP_MODEL_CLAIM` before it) gate
+  primarily on `eta`/`edf` agreement rather than raw `log10(sp)`, on
+  structures where a block is weakly identified? Not decided here — the
+  routine may measure and characterise, not redefine an acceptance
+  criterion (`docs/ROUTINE_MGCV_PARITY.md`, "May not decide").
 - **RESOLVED, same day (2026-08-29, ADR-212).** Slice 5c's third-branch escalation
   (below, filed the same day) was resolved by slice 5d before this file was next
   read: the optimiser defect was a specific, measured finite-difference-step bug

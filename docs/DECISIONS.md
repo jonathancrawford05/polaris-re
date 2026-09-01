@@ -19774,3 +19774,144 @@ gated. Also flagged: the epic's written PLAN is now otherwise exhausted —
 extending the free-`sp` search to `select=True`'s doubled block count
 (this ADR's own "what remains") is the largest piece left, and whether it
 becomes a registered slice 7b is a maintainer decision, not a routine's.
+
+## ADR-218: Slice 7b — the free-`sp` search on `select=TRUE`'s 7-block structure needs multistart even more than N=4 did, and the residual that survives it is optimiser convergence, not a formula defect
+
+**Date:** 2026-09-01
+**Status:** ACCEPTED, tier 1 AND tier 3 confirmed identical in verdict and
+order of magnitude, same session (CI run
+[33458654272](https://github.com/jonathancrawford05/polaris-re/actions/runs/33458654272),
+oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+— build 8, the digest this epic has used throughout, R 4.6.1 / mgcv 1.9.4).
+**Implements:** `docs/PLAN_mgcv_parity_engine.md` slice 7b, registered this
+session (maintainer-authorized) per ADR-209 decision 1 and ADR-217's own
+closing line, which named this exact gap and named its registration as "a
+maintainer decision, not a routine's".
+
+### Context
+
+ADR-217 (PLAN slice 7) verified `select=TRUE`'s null-space penalty (Stage A)
+and a fixed-`sp` multi-term fit under it (Stage B), but never exercised
+`fit_polaris_gam`'s own free-`sp` search on the 7-block structure
+`select=TRUE` produces (2+2+3 blocks: each of the three terms'
+`s(AttdAge)`/`s(AttdAge,by=StudyYear_C)`/`ti(AttdAge,PolYear)` own existing
+penalty block(s), plus one null-space block per term). That is the last
+piece needed to reproduce PLAN section 1's own headline `select=TRUE`
+figures (13 -> 21 smoothing parameters, edf 47.36 -> 16.96) through the
+production path rather than only at a fixed, externally-supplied `sp`.
+
+**Claim, written before the code (`docs/VERIFICATION_STANDARD.md` section
+3.2):** `polaris_re`'s `gam_model.fit_polaris_gam` selects all 7
+`log10(lambda)` values for `ModelSpec(..., select=True)`'s three-term design
+via `gam_reml_optimize.select_lambdas_continuous`
+(single-start)/`select_lambdas_continuous_multistart` (best-of-9); `mgcv`
+computes the identical three-term formula via `gam(..., select=TRUE,
+method="REML")` with free `sp`, selecting its own 7 smoothing parameters
+independently (`scripts/gam_select_multiterm_free_sp_probe.R`); compared on
+`eta`, `log10(sp)` per block, `edf_total` and per-term `edf`.
+
+### Registered prediction
+
+Slices 5c/5d/5e found that the N=4 (non-`select`) structure's free-`sp`
+search needed a finite-difference-step fix (ADR-212) and best-of-9
+multi-start (ADR-213) before it reliably reached `mgcv`'s own selected
+point, and even then the by-term stayed weakly identified. Prediction:
+single-start `fit_polaris_gam` underperforms multistart at least as much
+here, and the null-space blocks (never exercised under free selection
+before) are the more likely place for a genuinely new disagreement — not the
+three already-verified existing blocks.
+
+### What was measured
+
+**Single-start (the module's own default): disagrees badly.**
+`max_abs_log10_sp_diff = 5.132` (tier 1) / `5.1320` (tier 3),
+`max_abs_eta_diff = 0.4456` (both tiers),
+`edf_total_diff = +2.4216` (both tiers, Python 16.98 vs `mgcv` 14.56) — worse
+in absolute terms than any N=4 reading this epic has taken, identical at
+both tiers. The single worst block is `ti(...)`'s own null-space block
+(Python `5.02` vs `mgcv` `-0.11`), provisionally supporting the prediction's
+second half.
+
+**`multistart=True` (best-of-9, one change): closes most of it, and
+relocates the rest.** `max_abs_log10_sp_diff` falls to `1.475` (tier 1) /
+`1.4754` (tier 3) — 3.5x tighter, `max_abs_eta_diff` to `0.00268` (tier 1) /
+`0.002681` (tier 3) — 166x tighter, `edf_total_diff` to `-0.111` (both
+tiers) — 22x tighter, identical in verdict and order of magnitude at both
+tiers. Per block, the three null-space blocks now agree to `<0.01` — **the
+prediction's second half is REFUTED**: multistart resolves the null-space
+blocks essentially exactly, and the surviving residual is on two of the
+three terms' own EXISTING blocks (the reference age smooth's and the
+by-term's), both being driven toward large `lambda`. This is the same shape
+PLAN section 6's own standing prediction names — edf agrees far better than
+raw `log10(sp)` — now demonstrated on a structure twice as many blocks wide
+as any prior measurement.
+
+**Warm-start diagnostic (TRANSPORT, never a parity claim — `mgcv`'s own
+selection is the supplied `x0`): decisive, confirmed at both tiers.**
+Starting `select_lambdas_continuous` AT `mgcv`'s own 7-value selection, the
+search stays there (`max abs diff = 0.00148` tier 1 / `0.00131` tier 3 from
+`mgcv`'s point) at a score `0.0141` (tier 1) / `0.0141` (tier 3) BETTER than
+best-of-9 multistart's own blind result, `converged=False` (a near-zero
+gradient, consistent with a weakly-identified surface at that
+point). **`mgcv`'s own point is a reachable, better-scoring optimum of our
+own criterion than nine blind starts reach** — the same mechanism ADR-211/
+212 found and fixed at N=4 (optimiser convergence on a weakly-identified
+surface), now recurring at a larger, harder scale rather than a new defect.
+
+**Required conformance levels 1-3 re-confirmed AGREE on this session's own
+CI run** (levels 1/2/3/5 AGREE, level 4 DISAGREES — ADR-190's separate,
+permanently-standing `dw/drho` gap, unaffected by this session) — no
+regression from `fit_polaris_gam`'s new opt-in parameter.
+
+### The one production change
+
+`gam_model.fit_polaris_gam` gained an opt-in `multistart: bool = False,
+n_starts: int = 9` parameter pair, threading to
+`select_lambdas_continuous_multistart` when `True` — every existing
+caller's behaviour is unchanged (default `False`), and no new fitting or
+scoring formula is added (Anchor 7): this composes ADR-213's already-
+verified building block into the one production entry point four
+conformance modules already call, rather than duplicating its
+post-processing a second time inside `gam_select_free_sp_conformance.py`
+(the first draft did exactly that; refactored once the measurement showed
+the parameter was worth having centrally).
+
+### Provenance (ADR-193)
+
+| quantity | left producer | right producer | provenance |
+|---|---|---|---|
+| `eta` | `gam_model.fit_polaris_gam` (single-start or `multistart=True`) at its own selected `log_lambda` | `mgcv gam(select=TRUE, method='REML')` free-`sp` fit, `predict(m, type='link')` | INDEPENDENT |
+| `log10(sp)` per block | `gam_reml_optimize.select_lambdas_continuous`(`_multistart`)'s own `log_lambda` (7 blocks) | `mgcv`'s own `log10(m$sp)` at its free-`sp` `select=TRUE` selection | INDEPENDENT |
+| `edf_total` | `PolarisGAMFit.edf_total` at the selected `log_lambda` | `mgcv`'s own `sum(m$edf)` | INDEPENDENT |
+| per-term `edf` | `PolarisGAMFit.edf_per_term` | `mgcv`'s own `summary(m)$s.table[, 'edf']`, read positionally | INDEPENDENT |
+| `warm_log10_sp` / `warm_reml_score` (diagnostic) | `select_lambdas_continuous(x0=mgcv's own log10(sp))` | `mgcv`'s own selection (the same values supplied as `x0`) | TRANSPORT — never gates a parity claim |
+
+### What this closes, and what it does not
+
+Closes: the measurement PLAN section 1's own headline `select=TRUE` figures
+needed — `fit_polaris_gam`'s free-`sp` search now has a characterised
+reading on the 7-block structure, with a working, measured mitigation
+(`multistart=True`) and a decisive explanation for the residual that
+survives it.
+
+Does **not** close: `max_abs_log10_sp_diff` still misses
+`compare_select_free_sp_case`'s own `1e-2` gate even with multistart — this
+is reported honestly as `agrees=False`, not tuned away (Anchor 8 forbids
+widening the tolerance to call it closed). Whether `SELECT_FREE_SP_MODEL_
+CLAIM`'s own acceptance criterion should weight `eta`/`edf` over raw
+`log10(sp)` on a structure this size is the same open question ADR-212
+Consequences already raised at N=4, now with a second, larger data point —
+still maintainer-reserved, not decided here. Combining `select=True` with
+the target's full eight-term structure, or with an `sz` term, remains
+future scope (ADR-217's own "what remains", restated).
+
+### Consequences
+
+`fit_polaris_gam`'s `multistart=` parameter is now available to every
+caller, not only this slice's own conformance harness — a caller fitting a
+`select=True` model with more than a handful of blocks should consider it,
+at the cost ADR-213 already measured (`n_starts` times a single search's
+own function evaluations). The N=7 reading is the second data point (after
+ADR-213/214's N=4/N=8 readings) that a weakly-identified surface's own
+raw-`log10(sp)` disagreement need not track model agreement — `eta`/`edf`
+moved by two to three orders of magnitude more than `log10(sp)` did.

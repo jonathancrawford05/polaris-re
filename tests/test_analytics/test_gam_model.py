@@ -348,6 +348,65 @@ def test_fit_polaris_gam_selects_its_own_lambda_and_converges() -> None:
     assert sum(fit.edf_per_term.values()) < fit.edf_total
 
 
+def test_fit_polaris_gam_multistart_matches_default_shape() -> None:
+    """PLAN slice 7b (ADR-218): ``multistart=True`` is an opt-in over
+    :func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous_multistart`
+    (ADR-213) rather than the module's own default single bounds-centre
+    start. R-free: proves the parameter wires through end to end (same
+    design, same block count, still converges) on the identical
+    well-conditioned case the single-start smoke test above uses — the
+    measured N=7-block parity finding this parameter exists for is a
+    separate, R-gated conformance test
+    (``test_gam_select_free_sp_conformance.py``)."""
+    model = ModelSpec(
+        family="binomial",
+        link="cloglog",
+        terms=(
+            _cr_term(),
+            _cr_term(label="s(AttdAge,by=StudyYear_C)", by="StudyYear_C"),
+            _ti_term(),
+        ),
+        weights_column="ExposCnt",
+    )
+    data = _data(n=150)
+    rng = np.random.default_rng(7)
+    eta_true = (
+        -4.5
+        + 0.03 * data["AttdAge"]
+        - 0.02 * data["PolYear"]
+        + 0.01 * data["StudyYear_C"] * (data["AttdAge"] - 50) / 50
+    )
+    prob = 1.0 - np.exp(-np.exp(eta_true))
+    death = rng.binomial(data["ExposCnt"].astype(int), np.clip(prob, 0.0, 1.0))
+    y = death / data["ExposCnt"]
+
+    single = fit_polaris_gam(model, data, y, maxiter=60)
+    multi = fit_polaris_gam(model, data, y, maxiter=60, multistart=True, n_starts=3)
+    assert multi.converged
+    assert multi.log_lambda.shape == single.log_lambda.shape == (4,)
+    assert multi.eta.shape == single.eta.shape == (150,)
+    # multistart's own reported cost is n_starts searches' worth of nfev,
+    # never fewer than a single search alone would report on this case.
+    assert multi.n_function_evals >= single.n_function_evals
+
+
+def test_fit_polaris_gam_rejects_x0_together_with_multistart() -> None:
+    """PR #223 review [P2-1]: ``select_lambdas_continuous_multistart`` has
+    no ``x0`` of its own (its first start is always the bounds-centre), so
+    a caller supplying both would have ``x0`` silently dropped rather than
+    used. Raises instead of misreporting what search actually ran."""
+    model = ModelSpec(
+        family="binomial",
+        link="cloglog",
+        terms=(_cr_term(),),
+        weights_column="ExposCnt",
+    )
+    data = _data(n=150)
+    y = np.zeros(150, dtype=np.float64)
+    with pytest.raises(PolarisValidationError, match="x0"):
+        fit_polaris_gam(model, data, y, multistart=True, x0=np.zeros(2))
+
+
 def test_fit_polaris_gam_raises_loudly_when_the_search_hits_a_bound() -> None:
     """PR #212 review [P1]: a smoothing-parameter selection clamped at the
     search domain's edge is not the REML criterion's minimum, and must not
