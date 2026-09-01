@@ -169,7 +169,13 @@ unchanged. Per `ROUTINE_MGCV_PARITY.md` step 2 the rows are marked tier 1 and
 
 ## Perf history
 
-One row appended for this branch's HEAD (ADR-177 step 14b, initial PR open).
+`uv run python scripts/perf_history.py` — one row appended for this branch's
+HEAD commit (ADR-177 step 14b, initial PR open), append-only, no prior row
+touched. Verdict: `has_structural_creep=False`; `has_wall_time_creep=True`
+(recent/baseline ratio 1.338x on the `TermLife.project` probe) — **the same
+1.338x ADR-218 recorded hours earlier**, i.e. unchanged run-to-run variance on
+a probe entirely unrelated to this GAM-only, no-production-path-changed
+session, not a fresh signal from it.
 
 ## Definition of done
 
