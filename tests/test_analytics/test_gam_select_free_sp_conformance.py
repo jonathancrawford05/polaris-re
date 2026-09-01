@@ -38,20 +38,27 @@ _YEAR_KNOTS = [1, 2, 3, 5, 10, 21]
 def _small_recipe() -> RSelectFreeSpRecipe:
     """Same covariate recipe as ``test_gam_model_conformance._small_recipe``
     (proven robust for the non-``select`` 4-block search on CI, both Python
-    3.12 and 3.13), but at ``n=300`` rather than 150. **Measured, not
-    guessed:** at ``n=150``, ``select=True``'s three extra null-space blocks
-    (one per term) land EXACTLY at the search's own lower bound on this
-    exact recipe — the null-space direction (the term's low-order, linear
-    component) is well enough determined by so few points that the REML
-    criterion genuinely wants zero extra penalty there, which
-    :func:`~polaris_re.analytics.gam_model.fit_polaris_gam`'s at-bound guard
-    (written for a term's own EXISTING wiggliness block, PR #212) reads as a
-    conditioning defect and raises on. ``n=300`` already clears every block
-    off the bound (checked up to ``n=900``, the R probe's own sample size,
-    which also never hits it) — this is a small-sample fixture property, not
-    a defect in the guard or the search, and is named rather than silently
-    routed around (ADR-218)."""
-    n = 300
+    3.12 and 3.13), but at ``n=900`` — the R probe's own sample size
+    (``scripts/gam_select_multiterm_free_sp_probe.R``), matching the scale
+    this session's own tier-1 AND tier-3 (GitHub Actions) measurements both
+    ran clean at, on two independently-provisioned runners in the same CI
+    run. **Measured, not guessed, and revised once already (PR #223
+    review):** at ``n=150``, ``select=True``'s three extra null-space blocks
+    landed EXACTLY at the search's own lower bound; at ``n=300`` the
+    null-space blocks cleared it in THIS session's own sandbox, but PR
+    #223's own CI (a different BLAS/thread environment) landed a DIFFERENT
+    block — ``s(AttdAge)``'s own EXISTING wiggliness block — exactly on the
+    lower bound instead, on Python 3.12, 3.13 AND the Docker build, all
+    three. This is the same class of environment-dependent search-path
+    sensitivity ADR-211/212 found for the free-`sp` search generally
+    (``OPENBLAS_NUM_THREADS`` alone moves which trial points a blind search
+    reaches) — a fixture-robustness property of a SMALL, marginally-signed
+    sample, not a defect in the guard, the search, or this slice's own
+    measurement (which used ``n=900`` throughout and never hit a bound at
+    either tier). ``n=300`` is not reused as "probably enough" a second
+    time; ``n=900`` matches the one scale this epic has actual
+    cross-runner evidence for."""
+    n = 900
     rng = np.random.default_rng(20260825)
     age = rng.uniform(_AGE_KNOTS[0], _AGE_KNOTS[-1], size=n)
     year = rng.uniform(_YEAR_KNOTS[0], _YEAR_KNOTS[-1], size=n)
@@ -112,7 +119,7 @@ def test_fit_select_free_sp_case_produces_7_penalty_blocks() -> None:
     non-select recipe's (select=True adds penalty blocks, not columns)."""
     recipe = _small_recipe()
     fit = fit_select_free_sp_case(recipe)
-    assert fit.design["x"].shape == (300, 86)
+    assert fit.design["x"].shape == (900, 86)
     assert fit.log_lambda.shape == (7,)
     assert set(fit.edf_per_term) == {
         "s(AttdAge)",
