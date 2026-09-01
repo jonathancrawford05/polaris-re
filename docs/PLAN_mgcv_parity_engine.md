@@ -1393,17 +1393,61 @@ response, round 2" section).
   against `mgcv`); slice 5c/ADR-196 (Appendix B's stable `log|S|₊`,
   `gam_reml_appendix_b.logdet_s_plus`); ADR-212, whose `_FINITE_DIFF_STEP`
   compromise this slice would retire rather than re-tune.
-- **Status: PROPOSED, not registered.** Drafted at the maintainer's request
-  (2026-09-01, in the PR #223 review conversation), NOT self-registered.
-  Two reasons the routine may not register this one itself: Part 2 below
-  bears directly on **whether to relax an acceptance criterion**, which
-  `docs/ROUTINE_MGCV_PARITY.md` places under "May not decide"; and Part 1
-  changes how every `fit_polaris_gam` caller's smoothing parameters are
-  selected, which is an Anchor 7 question. If the maintainer registers it,
-  this bullet becomes a status line and `CONTINUATION_mgcv_parity_engine.md`
-  gains the slice; until then this section is a proposal, and ADR-209
-  decision 1's "closed or registered, never merely filed" obligation for
-  ADR-218's open gap is **not** yet discharged by it.
+- **Status: REGISTERED and DONE for Parts 0 and 2; Part 1 NOT built —
+  re-scoped to slice 7d on this slice's own evidence. Tier 1, 2026-09-01
+  (ADR-219).** Drafted as a proposal in the PR #223 review conversation and
+  registered by the maintainer in that same conversation ("proceed with the
+  slice"), the same in-session mechanism ADR-218 records for slice 7b.
+  **Part 0's gate fired**: the `1e-2` gate on raw `log10(sp)` is not merely
+  hard on this structure, it is ILL-POSED, so Part 1 (the analytic gradient)
+  is no longer the path to it and was deliberately not built — see below and
+  slice 7d. Part 2's recommendation is filed for the maintainer and **no
+  committed acceptance gate was edited**.
+
+- **What Part 0 measured (the slice's own decisive result).** At `mgcv`'s own
+  free-`sp` `select=TRUE` point, the REML score's Hessian w.r.t. `rho` has
+  **5 identified directions out of 7**. The two exceptions are `b1`
+  (`s(AttdAge)`'s own existing block) and `b3`
+  (`s(AttdAge,by=StudyYear_C)`'s own existing block) — **exactly the two
+  blocks ADR-218 found the residual had relocated to.** Their apparent
+  curvature is not merely small, it is *numerically indistinguishable from
+  zero*: the diagonal second difference grows like `1/h^2` as the step
+  shrinks (`b1`: `-0.00088 → -0.0032 → -0.0137 → -0.0809` across
+  `h = 0.2 → 0.025`), the signature of a constant noise floor divided by
+  `h^2` on a FLAT direction — not of a real curvature, and not of the saddle
+  the raw eigenvalues (`-0.0087`, `-0.0035`) would otherwise suggest. The
+  per-block profile says the same thing in plain units: moving `b3` a full
+  decade in either direction changes the score by under `2e-4`, and moving
+  it **two** decades up by `-0.0002`, against `~+1.0` for HALF a decade on
+  `b5`/`b6`. **A gate demanding agreement to `0.01` decades on a parameter
+  the criterion cannot distinguish across two decades is not a hard target;
+  it is an ill-posed one.** No optimiser, however exact, can pin a parameter
+  the objective does not resolve — which is why Part 1 was not built.
+
+- **What Part 2 measured, and what it recommends (filed, NOT taken).** On the
+  same case, the three candidate metrics behave completely differently:
+
+  | search | `max abs log10(sp) diff` | H-weighted distance | score gap |
+  |---|---:|---:|---:|
+  | single-start | 5.1320 | 7.9265 | 5.9595 |
+  | `multistart=True, n_starts=9` | 1.4754 | 0.0617 | 0.0141 |
+  | **improvement** | **3.5x** | **128x** | **424x** |
+
+  The committed gate reports a `3.5x` improvement for a change the
+  criterion-aware metrics score at `128x`-`424x`, because it keeps measuring
+  the two directions the criterion cannot resolve. **The recommendation is
+  the H-weighted distance, and the reason is ADR-193, not taste:** it is the
+  SAME two independent operands the existing gate compares (both sides
+  selected their own `sp`), merely re-normed by our own criterion's
+  curvature — so it **preserves INDEPENDENT provenance**. The score gap,
+  though the sharpest-looking number, evaluates our criterion AT `mgcv`'s
+  supplied point and is therefore DIAGNOSTIC/transport-flavoured — the same
+  status ADR-218 correctly gave its warm-start reading, and **it must never
+  become an acceptance gate.** (This slice's own independent recomputation of
+  that gap, `0.014057`, reproduces ADR-218's `0.0141` — a useful cross-check
+  on both.) Re-gating remains the maintainer's decision
+  (`ROUTINE_MGCV_PARITY.md`, "May not decide"); ADR-219 records it as
+  recommended-and-not-taken.
 
 **The gap, stated precisely.** ADR-218's warm-start diagnostic established
 that starting `select_lambdas_continuous` AT `mgcv`'s own 7-value selection,
@@ -1444,7 +1488,17 @@ Part 2, not Part 1. If instead every direction is well conditioned, Part 1
 should close the gate outright and Part 2 is unnecessary. **Either outcome is
 a result; the slice must say which it got before proceeding.**
 
-**Part 1 — replace the finite-difference gradient with the analytic one.**
+**Part 1 — NOT BUILT (moved to slice 7d), and Part 0 is why.** This section
+is kept as written because slice 7d needs it, but the decision it produced is
+recorded here: Part 0 established that the gate Part 1 was aimed at is
+ill-posed, so building an analytic gradient to chase it would have been the
+"burn the session on hypothesis 1" failure `ROUTINE_MGCV_PARITY.md` warns
+against. **What Part 1 is still worth doing FOR** is narrower and real: the
+`0.0141` score gap on the 5 identified directions, and the `converged=False`
+-at-a-near-zero-gradient contradiction ADR-218 recorded. Both are genuine, and
+neither is the `log10(sp)` gate. Registered as **slice 7d** below rather than
+left as prose (ADR-209 decision 1).
+
 `select_lambdas_continuous` calls `scipy.optimize.minimize(..., method=
 "L-BFGS-B", options={"gtol": gtol, "eps": finite_diff_step})`
 (`gam_reml_optimize.py`) with **no `jac=`**. Over 7 blocks that is 8 nested
@@ -1535,6 +1589,17 @@ identified — making the Part 2 metric question decidable on evidence rather
 than preference. **If instead the gate closes to `1e-2`,** the prediction is
 refuted, Part 2 is moot, and that is the more valuable outcome (Anchor 9).
 
+  **RESOLVED (ADR-219): the prediction's premise was overtaken, and its
+  second clause CONFIRMED ahead of the measurement it was written for.** The
+  prediction assumed Part 1 would run and be the thing that settled the
+  metric question. Part 0 settled it first and more cheaply: the direction is
+  not merely "not identified" as predicted, it is unresolvable to below the
+  criterion's own noise floor, which is a stronger statement than the
+  prediction made and is what made Part 1 unnecessary for this purpose. The
+  first clause (the gradient closes the score gap) is **untested** — not
+  confirmed, not refuted — and is carried into slice 7d as its own registered
+  prediction rather than being quietly claimed here.
+
 **Out of scope, stated up front.** Second derivatives / a full Newton outer
 search (Wood 2011 §4's Hessian — the gradient alone is the hypothesis here);
 the target's full eight-term structure; `select=True` combined with an `sz`
@@ -1552,28 +1617,84 @@ acceptance gate (Part 2).
   row must say so rather than borrowing either label.
 - `[judgement]` Part 0's verdict — gate reachable, or not — stated in those
   words in the session log BEFORE Part 1's result is reported.
-- `[machine]` An analytic `dV/drho` exists, is passed to `L-BFGS-B` via
-  `jac=`, and agrees with a central-difference gradient at a
-  well-conditioned point (the N=4 fixture) to the central-difference noise
-  floor — proven by a new R-free unit test. **A gradient that agrees only
-  with the `1e-5` forward difference it replaces proves nothing**; the
-  reference must be the higher-quality central difference.
-- `[machine]` The `dW/drho` term is either included with `d(alpha)/d(eta)`
-  derived, or excluded with a committed measurement showing it negligible at
-  the N=4 fixture — proven by a test either way, never by assertion.
-- `[machine]` `select_lambdas_continuous`'s existing behaviour is preserved
-  for every current caller unless the gradient is opt-in: either the
-  analytic path is default AND every existing conformance reading is
-  re-measured and shown no worse, or it is gated behind a parameter the way
-  `multistart=` was (ADR-218). **State which, and why.**
+  **MET** — `scripts/gam_select_free_sp_identifiability_diagnostic.py`, six
+  ledger rows, and the eigenspectrum above. The ledger row carries NO
+  provenance label and says why.
+- `[judgement]` Part 0's verdict — gate reachable, or not — stated in those
+  words in the session log BEFORE Part 1's result is reported.
+  **MET — verdict: NOT REACHABLE.** Stated before Part 1 was considered, and
+  it is what stopped Part 1 being built.
+- ~~`[machine]` An analytic `dV/drho` exists, is passed to `L-BFGS-B` via
+  `jac=` …~~ — **WITHDRAWN by Part 0's own gate, not silently dropped.**
+  Carried verbatim into slice 7d, whose scope it now is. The withdrawal is
+  the gate working as designed ("Part 0 … may end the slice"), not a criterion
+  quietly failed.
+- ~~`[machine]` The `dW/drho` term is either included with `d(alpha)/d(eta)`
+  derived, or excluded with a committed measurement …~~ — **WITHDRAWN with
+  Part 1, carried into slice 7d.** The finding that motivated it (the existing
+  `dw_deta` is the FISHER weight's derivative while the score uses the
+  OBSERVED weight) stands and is recorded in ADR-219 as a hazard for 7d.
+- ~~`[machine]` `select_lambdas_continuous`'s existing behaviour is
+  preserved …~~ — **NOT APPLICABLE: this slice changed no production search
+  path at all.** `select_lambdas_continuous`, `fit_polaris_gam` and every
+  conformance module are untouched; the only `src/` addition is a new,
+  unreferenced-by-production module (`gam_sp_identifiability.py`).
 - `[machine]` `SELECT_FREE_SP_MODEL_CLAIM`'s four quantities re-measured at
   tier 1 AND tier 3, both recorded, provenance unchanged (INDEPENDENT).
+  **PARTIALLY MET — tier 1 only, and stated as such.** Re-measured at tier 1
+  (`5.1320` / `1.4754`, reproducing ADR-218's tier-3 readings to 4 significant
+  figures). Tier 3 NOT dispatched this session: this slice adds no production
+  code path for a tier-3 run to exercise, and ADR-218's own tier-3 readings
+  for these quantities are five hours old and unchanged. **The ledger rows are
+  marked tier 1 and may not be cited outside the session log without a tier-3
+  confirmation**, per `ROUTINE_MGCV_PARITY.md` step 2.
 - `[machine]` Required conformance levels 1-3 still AGREE, no regression.
+  **MET by construction and by the suite** — no production path changed; full
+  suite green.
 - `[machine]` `tests/qa/golden_outputs/` byte-identical — this slice must not
-  touch a path any golden depends on.
+  touch a path any golden depends on. **MET** — `git diff` on that path empty.
 - `[judgement]` Part 2's two candidate metrics measured and one RECOMMENDED,
   with the recommendation filed for the maintainer and **no committed gate
-  edited** — confirmed by whoever reviews the PR.
+  edited** — confirmed by whoever reviews the PR. **MET** — H-weighted
+  distance recommended on ADR-193 provenance grounds; `SELECT_FREE_SP_MODEL_
+  CLAIM` and `FREE_SP_MODEL_CLAIM` both untouched.
+
+### Slice 7d: the analytic REML gradient, for the score gap it can actually close
+
+- **Depends on:** Slice 7c (ADR-219) for the scope correction; ADR-201/202
+  (Appendix C/D derivative machinery); ADR-212 (the finite-difference step it
+  retires).
+- **Status: REGISTERED, not started.** Carries Part 1 of slice 7c verbatim
+  (kept above), with its target corrected by ADR-219. Registered rather than
+  left as prose per ADR-209 decision 1.
+- **What changed about its purpose.** Slice 7c Part 0 removed the
+  `max_abs_log10_sp_diff` gate from this slice's justification — that gate is
+  ill-posed on the two unresolved blocks and no gradient can close it. What
+  remains, and is real: (a) the `0.0141` score gap on the **5 identified**
+  directions, where blind multistart demonstrably does not reach the optimum
+  our own criterion prefers; (b) the `converged=False`-at-near-zero-gradient
+  contradiction, which is a convergence-test defect (`gtol = 1e-8` sits below
+  the forward-difference gradient's own noise floor) independent of any
+  parity question; (c) the cost saving — an analytic gradient is ~1 solve
+  against ~8, which would make `multistart=True` cheap enough to default.
+- **The hazard ADR-219 records, so 7d does not walk into it.** The existing
+  `gam_derivatives.dw_deta`/`dw_drho` implement Wood Appendix D **at
+  `alpha ≡ 1`** — the FISHER working weight — while `reml_score_general`'s
+  `log|XᵀWX + S|` uses the **OBSERVED** weight (`newton_working_weights`,
+  slice 5c Defect B). Wiring `dw_drho` straight into the `dW/drho` term gives
+  a gradient that is correct for a canonical link and **silently wrong for
+  `cloglog`**, the case this epic fits. Closing that needs `d(alpha)/d(eta)`,
+  hence `d³mu/d(eta)³` and `V''(mu)`; `second_deriv_mu_eta` and
+  `variance_deriv` each stop one order short. Measure the term's size first
+  (against a central difference at the N=4 fixture) before deriving it.
+- **Registered prediction, unresolved and carried from 7c.** The analytic
+  gradient closes the score gap on the identified directions to at or below
+  the objective's own noise floor, and `converged` stops disagreeing with a
+  near-zero gradient. `max_abs_log10_sp_diff` is **not** a success criterion
+  for this slice and must not be reported as one.
+- **Definition of Done:** slice 7c's three withdrawn `[machine]` criteria
+  above, verbatim, plus a `[judgement]` that the score gap is reported on the
+  identified subspace and never as a `log10(sp)` closure.
 
 ### Deferred to a later epic: `bam` + `discrete = TRUE` + fREML
 

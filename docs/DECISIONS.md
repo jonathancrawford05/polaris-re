@@ -19915,3 +19915,135 @@ own function evaluations). The N=7 reading is the second data point (after
 ADR-213/214's N=4/N=8 readings) that a weakly-identified surface's own
 raw-`log10(sp)` disagreement need not track model agreement — `eta`/`edf`
 moved by two to three orders of magnitude more than `log10(sp)` did.
+
+## ADR-219: Slice 7c — `SELECT_FREE_SP_MODEL_CLAIM`'s `log10(sp)` gate is ill-posed on two of the seven blocks, so the acceptance metric — not the optimiser — is what ADR-218's residual was about
+
+**Date:** 2026-09-01
+**Status:** ACCEPTED, **tier 1 only** — this slice adds no production code
+path for a tier-3 run to exercise, and its numbers may not be cited outside
+the session log without a tier-3 confirmation (`ROUTINE_MGCV_PARITY.md`
+step 2).
+**Implements:** `docs/PLAN_mgcv_parity_engine.md` slice 7c, drafted as a
+proposal in the PR #223 review conversation and registered by the maintainer
+in that same conversation — the same in-session mechanism ADR-218 records for
+slice 7b.
+
+### Context
+
+ADR-218 closed slice 7b with a residual it attributed to optimiser
+convergence: `multistart=True` brought `eta` to `0.0027` and `edf_total` to
+`0.11`, but `max_abs_log10_sp_diff` stayed at `1.48` against a `1e-2` gate,
+and a warm-start diagnostic showed `mgcv`'s own point scores `0.0141` better
+under our own criterion than best-of-9 blind multistart reaches. ADR-218
+named a better optimiser (an analytic REML gradient) as the next hypothesis.
+
+Slice 7c was registered to build that gradient — but with a **Part 0 gate in
+front of it**: is the `1e-2` gate on raw `log10(sp)` attainable at all? That
+ordering is the whole content of this ADR.
+
+### What was measured
+
+**The gate is NOT attainable, and the reason is geometric.** At `mgcv`'s own
+free-`sp` `select=TRUE` point, the REML score's Hessian w.r.t. `rho` has
+**5 identified directions out of 7**. The two exceptions load on `b1`
+(`s(AttdAge)`'s existing block) and `b3` (`s(AttdAge,by=StudyYear_C)`'s
+existing block) — **exactly the two blocks ADR-218 found the residual had
+relocated to.**
+
+Their raw eigenvalues are NEGATIVE (`-0.0087`, `-0.0035`), which would read as
+a saddle. It is not: a step-stability scan shows the diagonal second
+difference growing like `1/h^2` as the step shrinks —
+
+| block | h=0.2 | h=0.1 | h=0.05 | h=0.025 | reading |
+|---|---:|---:|---:|---:|---|
+| b1 | -0.00088 | -0.00324 | -0.01369 | -0.08094 | FLAT (noise) |
+| b3 | -0.00020 | -0.00234 | -0.01042 | -0.02382 | FLAT (noise) |
+| b5 | 1.57935 | 1.57766 | 1.57380 | 1.54281 | identified |
+| b6 | 1.28503 | 1.28156 | 1.27370 | 1.22681 | identified |
+
+— the signature of a constant absolute noise floor divided by `h^2`, not of a
+real curvature of either sign. The identified blocks are stable to ~2% across
+the same 8x step range. **The negative eigenvalues are numerical, and the true
+curvature on `b1`/`b3` is indistinguishable from zero.**
+
+The per-block profile says it without Hessians: moving `b3` (at
+`log10(sp) = 11.70`) a full decade in either direction changes the score by
+under `2e-4`, and **two** decades up by `-0.0002` — against `~+1.0` for HALF a
+decade on `b5`. `b1` (at `10.30`) behaves the same way.
+
+**Conclusion.** A gate demanding agreement to `0.01` decades on a parameter
+whose value the criterion cannot distinguish across two decades is not a hard
+target; it is an ill-posed one. No optimiser, however exact, can pin a
+parameter the objective does not resolve. **ADR-218's residual was never an
+optimiser defect on these two blocks — it was the metric.**
+
+### The candidate metrics (Part 2 — filed, NOT taken)
+
+| search | `max abs log10(sp) diff` | H-weighted distance | score gap |
+|---|---:|---:|---:|
+| single-start | 5.1320 | 7.9265 | 5.9595 |
+| `multistart=True, n_starts=9` | 1.4754 | 0.0617 | 0.0141 |
+| improvement | **3.5x** | **128x** | **424x** |
+
+The committed gate credits multistart with `3.5x` for a change the
+criterion-aware metrics score at `128x`-`424x`, because it keeps measuring the
+two directions the criterion cannot resolve. The independently recomputed
+score gap (`0.014057`) reproduces ADR-218's warm-start `0.0141`.
+
+**Recommended: the Hessian-weighted distance — on ADR-193 grounds, not
+aesthetics.** It compares the SAME two independent operands the current gate
+does (both sides selected their own `sp`), merely re-normed by our own
+criterion's curvature, so it **preserves INDEPENDENT provenance**. The score
+gap, though the sharpest number in the table, evaluates our criterion AT
+`mgcv`'s supplied point — DIAGNOSTIC/transport-flavoured, the same status
+ADR-218 correctly gave its warm-start reading — and **must never become an
+acceptance gate.** That distinction is the substance of the recommendation.
+
+**Not taken.** Re-gating is a maintainer decision (`ROUTINE_MGCV_PARITY.md`,
+"May not decide" — "whether to relax an acceptance criterion"). No committed
+gate was edited; `SELECT_FREE_SP_MODEL_CLAIM` and `FREE_SP_MODEL_CLAIM` are
+untouched.
+
+### Provenance (ADR-193)
+
+**This slice publishes no parity comparison, and that is a deliberate
+classification, not an omission.** Part 0's eigenspectrum, step scan and
+profile are properties of our OWN criterion; `mgcv`'s selection enters only as
+the POINT of evaluation, an argument rather than an operand. There is no
+second producer to name, so the measurement is **neither INDEPENDENT nor
+ECHO/TRANSPORT** — those labels classify comparisons, and this is not one.
+Forcing it into either would be a category error. The ledger rows carry no
+provenance label and say why.
+
+The Part 2 table's three columns have three different statuses, which is the
+point of the recommendation: `max abs log10(sp) diff` INDEPENDENT (unchanged
+from ADR-218), H-weighted distance INDEPENDENT (same operands, different
+norm), score gap DIAGNOSTIC (our criterion at a point `mgcv` supplied).
+
+### The one production change
+
+**None to any search path.** `select_lambdas_continuous`, `fit_polaris_gam`
+and every conformance module are untouched. `src/` gains one new module,
+`gam_sp_identifiability.py` (`hessian_weighted_distance`,
+`identified_direction_count`), which nothing in production calls — it exists
+for the diagnostic and for whatever the maintainer decides about the gate.
+Verified against closed forms (identity Hessian → Euclidean norm; diagonal
+Hessian → hand-computed quadratic form; rotation invariance), not against
+another implementation of itself.
+
+### Consequences
+
+Slice 7c's Part 1 (the analytic gradient) was **deliberately not built**, and
+ADR-218's "next hypothesis" is re-scoped as **slice 7d**: the gradient is
+still worth having, but for the `0.0141` score gap on the 5 identified
+directions, for the `converged=False`-at-near-zero-gradient defect, and for
+the ~8x cost saving — **not** for the `log10(sp)` gate, which it cannot close.
+7d also inherits a hazard this slice found: `gam_derivatives.dw_deta` is
+Appendix D at `alpha ≡ 1` (the FISHER weight) while `reml_score_general` uses
+the OBSERVED weight, so wiring `dw_drho` straight in yields a gradient correct
+for a canonical link and silently wrong for `cloglog`.
+
+More generally: this epic now has a measured instance of a gate that a
+correct engine cannot pass. That is worth remembering the next time a
+comparison "fails" — the third possibility, after "our code is wrong" and
+"their code is wrong", is "the question is unanswerable as posed."

@@ -473,6 +473,38 @@ eight-term structure. See ADR-217 and `docs/CONFORMANCE_LEDGER.md`.
 > second, larger data point and stays maintainer-reserved (see "Open
 > questions" below).
 
+> **Slice 7c (is the `log10(sp)` gate reachable at all?) is DONE for Parts 0
+> and 2, tier 1, 2026-09-01 (ADR-219). Part 1 was deliberately NOT built and
+> is re-scoped as slice 7d.** Registered by the maintainer in the PR #223
+> review conversation, the same in-session mechanism slice 7b used.
+> **The answer to ADR-218's open question is that the question was posed in
+> the wrong units.** At `mgcv`'s own point the REML criterion resolves only
+> **5 of the 7** `rho` directions; the two it does not are `b1` and `b3` —
+> exactly the two ADR-218 found its residual had relocated to. Their apparent
+> curvature grows like `1/h^2` as the finite-difference step shrinks (the
+> signature of a noise floor on a FLAT direction, not the saddle their raw
+> negative eigenvalues suggest), and moving `b3` TWO decades changes the score
+> by `-0.0002` against `~+1.0` for HALF a decade on an identified block. **A
+> `1e-2` gate on a parameter the criterion cannot distinguish across two
+> decades is ill-posed, not merely hard** — so ADR-218's residual was never an
+> optimiser defect on those blocks, and no analytic gradient could have closed
+> it. Part 2 measured three candidate metrics (committed gate `3.5x`
+> improvement from multistart; H-weighted distance `128x`; score gap `424x`)
+> and **recommends the H-weighted distance on ADR-193 grounds** — it preserves
+> INDEPENDENT provenance, while the sharper-looking score gap is DIAGNOSTIC
+> (our criterion at a point `mgcv` supplied) and must never become a gate.
+> **Recommended, NOT taken: no committed gate was edited, and no production
+> search path changed.** Tier 1 only — not citable outside the session log
+> without a tier-3 confirmation. See ADR-219 and `docs/CONFORMANCE_LEDGER.md`.
+>
+> **NEXT: slice 7d** — the analytic REML gradient, re-aimed by ADR-219 at the
+> `0.0141` score gap on the 5 identified directions, the
+> `converged=False`-at-near-zero-gradient defect, and the ~8x cost saving;
+> explicitly NOT at the `log10(sp)` gate. Carries a hazard ADR-219 found:
+> `gam_derivatives.dw_deta` is Appendix D at `alpha ≡ 1` (Fisher weight) while
+> `reml_score_general` uses the OBSERVED weight, so wiring `dw_drho` straight
+> in is correct for a canonical link and silently wrong for `cloglog`.
+
 > **This is the ACTIVE epic.** `CONTINUATION_penalized_mi_surface.md` is superseded from
 > its slice 6 onward and all of its remaining slices are PARKED. A routine run selecting
 > work should land here.
