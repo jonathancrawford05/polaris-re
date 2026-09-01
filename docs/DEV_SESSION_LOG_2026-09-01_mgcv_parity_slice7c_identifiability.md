@@ -25,11 +25,41 @@ in-session mechanism ADR-218 records for slice 7b.**
 
 ## Baseline
 
-`uv run pytest tests/ -m "not slow" -q` on the merged base — **3551 passed,
-0 failed, 17 skipped, 126 deselected.** No standing failures in this
-environment: setup step 2's `convert_soa_tables.py` was run, which clears the
-5 mortality-table failures other sessions record. (R-gated tests ran, since R
-was installed before the suite.)
+Two configurations, and the difference between them matters — recorded in
+full because a single number here would have been misleading:
+
+- **Before R was installed** (R-gated tests SKIPPED), on the merged base:
+  **3551 passed, 0 failed, 17 skipped, 126 deselected.** No mortality-table
+  failures — setup step 2's `convert_soa_tables.py` was run, which clears the
+  5 that other sessions record as standing.
+- **After R was installed** (R-gated tests RUN), on this branch:
+  **3574 passed, 1 failed, 3 skipped, 126 deselected.**
+
+**The one failure is PRE-EXISTING on `main`, and was verified there directly
+rather than assumed:** `test_gam_model_conformance.py::test_the_r_probe_runs_
+end_to_end` fails at `assert comparison.converged` with
+`max_abs_eta_diff=0.000759342158123566`,
+`max_abs_log10_sp_diff=0.2606175963459325` — and reproduces on `origin/main`
+(`0fd6ddc`) **to the last printed digit**, with this session's changes absent.
+It is not the flake ADR-218's own log records for this test (that one passed
+in isolation; this one fails in isolation too, deterministically).
+
+**Root cause, measured not guessed:** it is ADR-211/213's own
+`OPENBLAS_NUM_THREADS` sensitivity. This container's default is 4 threads
+(`nproc=4`, variable unset), the count ADR-213's ledger row already records as
+the one where the blind single-start free-`sp` fit FAILS to converge. Pinning
+it reverses the result on `main`, unchanged code:
+
+| `OPENBLAS_NUM_THREADS` | result on `origin/main` |
+|---|---|
+| unset (4 threads, the container default) | **FAILED** |
+| `1` (what CI's compare job pins, PR #217 review [P1-1]) | **passed** |
+
+So CI is green because the workflow pins threads job-level, while any
+contributor running the suite locally with default threads sees a red test.
+That is a real gap, it is **out of this slice's scope**, and it is filed as a
+promoted follow-up rather than folded in or silently noted (DISCOVERY
+protocol) — see "Follow-ups filed".
 
 ## Gap Before
 
@@ -163,7 +193,8 @@ unchanged. Per `ROUTINE_MGCV_PARITY.md` step 2 the rows are marked tier 1 and
   pre-existing errors, none in a file this session touched (verified).
 - `uv run pytest tests/test_analytics/test_gam_sp_identifiability.py -q` —
   **9 passed** (all closed-form).
-- Full suite — recorded in the "Verification" section of the PR body.
+- Full suite — **3574 passed, 1 failed, 3 skipped**; the single failure is
+  pre-existing on `main` and thread-count-induced, established above.
 - `tests/qa/golden_outputs/` byte-identical — this session touches no path any
   golden depends on.
 
@@ -203,3 +234,15 @@ slice"), not criteria quietly failed.
   session for the reason above; needed before these numbers are cited outside
   this log. *2nd-order — a confirmation obligation on this session's own
   rows, not new scope.*
+- **`test_the_r_probe_runs_end_to_end` is green only when
+  `OPENBLAS_NUM_THREADS` is pinned** — discovered while running this session's
+  baseline, quantified above (fails at the 4-thread container default,
+  passes at 1, both on unmodified `main`), and **NOT fixed here: it is outside
+  slice 7c's scope and touching a committed conformance test to make a red
+  local run green is exactly the kind of change that needs its own slice and
+  its own justification.** The test asserts `converged` on a fit ADR-211/213
+  already measured as thread-sensitive, so the candidate fixes (pin threads in
+  the test, drop the `converged` assertion, or use `multistart=True` there)
+  are not equivalent and the choice is a real decision. *1st-order — a defect
+  in an originally-planned component, in committed code, filed the session it
+  was found.*

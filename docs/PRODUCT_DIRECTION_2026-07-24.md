@@ -3340,3 +3340,22 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   required before these numbers are cited outside the session log. *Source:
   this session, ADR-219 (2nd-order — a confirmation obligation on this
   session's own rows, not new scope).*
+
+- **`test_the_r_probe_runs_end_to_end` passes only when
+  `OPENBLAS_NUM_THREADS` is pinned — green in CI, red for a contributor
+  running the suite locally.** Found while taking slice 7c's own baseline and
+  verified on unmodified `main` (`0fd6ddc`): at this container's default of 4
+  threads the test fails at `assert comparison.converged`
+  (`max_abs_eta_diff=0.000759342158123566`,
+  `max_abs_log10_sp_diff=0.2606175963459325`, identical to the last digit on
+  `main` and on the branch); at `OPENBLAS_NUM_THREADS=1` — what the CI compare
+  job pins job-level, PR #217 review [P1-1] — it passes. This is ADR-211/213's
+  own measured thread sensitivity (its ledger row already records single-start
+  failing to converge at 4 threads) surfacing as a test that is green only in
+  the one environment that pins threads. **Not fixed in slice 7c's PR:
+  out of scope, and the candidate fixes are not equivalent** — pinning threads
+  inside the test, dropping the `converged` assertion, or switching that
+  harness to `multistart=True` each say something different about what the
+  test is for. Needs its own slice. *Source: this session, slice 7c baseline
+  (1st-order — a defect in an originally-planned component, in committed
+  code).*
