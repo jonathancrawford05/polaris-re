@@ -365,7 +365,12 @@ def fit_polaris_gam(
             :func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`
             unchanged, except ``bounds`` defaults to
             :data:`PRODUCTION_LOG10_BOUNDS` rather than that module's own
-            (narrower) default — see its docstring.
+            (narrower) default — see its docstring. ``x0`` applies only when
+            ``multistart=False`` (the default) —
+            :func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous_multistart`
+            has no ``x0`` parameter of its own (its first start is always
+            the bounds-centre, by design); supplying both raises rather than
+            silently dropping ``x0`` (PR #223 review [P2-1]).
         strict: whether a selection at the UPPER bound also raises. Default
             ``False`` — PLAN slice 7 (``select = TRUE``) is built around
             penalising a term to nothing, and ``mgcv``'s own free-``sp``
@@ -410,7 +415,11 @@ def fit_polaris_gam(
 
     Raises:
         PolarisValidationError: propagated from :func:`assemble_model_design`
-            or :func:`resolve_family`.
+            or :func:`resolve_family`; or raised here if both ``multistart``
+            and ``x0`` are supplied — ``select_lambdas_continuous_multistart``
+            has no ``x0`` of its own to receive it, so silently ignoring a
+            caller-supplied starting point would misreport what search
+            actually ran (PR #223 review [P2-1]).
         PolarisComputationError: propagated from
             :func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`
             if every trial smoothing-parameter point is rejected; or raised
@@ -424,6 +433,14 @@ def fit_polaris_gam(
             criterion, was the limiting factor. Widen ``bounds`` and refit
             rather than reading a lower-bound selection.
     """
+    if multistart and x0 is not None:
+        raise PolarisValidationError(
+            "fit_polaris_gam: x0 was supplied together with multistart=True. "
+            "select_lambdas_continuous_multistart has no x0 parameter of its "
+            "own -- its first start is always the bounds-centre by design -- "
+            "so x0 would be silently dropped rather than used. Pass one or "
+            "the other."
+        )
     design = assemble_model_design(model, data)
     family = resolve_family(model.family, model.link)
     weights = (

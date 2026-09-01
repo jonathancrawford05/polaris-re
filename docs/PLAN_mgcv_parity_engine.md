@@ -1363,8 +1363,19 @@ response, round 2" section).
   refuted, in those words — by whoever writes the session log.
 - `[judgement]` If the gap does not close in this session's bounded
   iteration budget, it is characterised with evidence and a named next
-  hypothesis (registered as slice 7c if it is not closed), never left as an
-  unregistered "Open question" — confirmed by whoever reviews the PR.
+  hypothesis, registered as slice 7c UNLESS the remaining item is not a
+  technical hypothesis the routine could register and work but an
+  acceptance-criterion policy question — `ROUTINE_MGCV_PARITY.md` puts
+  "whether to relax an acceptance criterion" under "May not decide" — in
+  which case it is routed to CONTINUATION's "Open questions" as
+  maintainer-reserved instead, never left as an unregistered "Open
+  question" with no explicit disposition either way — confirmed by whoever
+  reviews the PR. **Resolved this way**: PR #223 review [P2-2] flagged
+  that the parenthetical's literal text ("registered as slice 7c") was not
+  followed; the actual remaining item (whether `SELECT_FREE_SP_MODEL_CLAIM`
+  should weight `eta`/`edf` over raw `log10(sp)`) is the maintainer-reserved
+  case, so routing it to CONTINUATION was the correct disposition and this
+  bullet is revised to say so explicitly rather than read as unmet.
 - `[machine]` `.github/workflows/mgcv-conformance.yml` gains the new probe
   step, artifact entry and comparator step, `continue-on-error: true` on
   the R side (same DIAGNOSTIC contract as every other probe) — proven by the

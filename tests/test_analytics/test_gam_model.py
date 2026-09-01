@@ -390,6 +390,23 @@ def test_fit_polaris_gam_multistart_matches_default_shape() -> None:
     assert multi.n_function_evals >= single.n_function_evals
 
 
+def test_fit_polaris_gam_rejects_x0_together_with_multistart() -> None:
+    """PR #223 review [P2-1]: ``select_lambdas_continuous_multistart`` has
+    no ``x0`` of its own (its first start is always the bounds-centre), so
+    a caller supplying both would have ``x0`` silently dropped rather than
+    used. Raises instead of misreporting what search actually ran."""
+    model = ModelSpec(
+        family="binomial",
+        link="cloglog",
+        terms=(_cr_term(),),
+        weights_column="ExposCnt",
+    )
+    data = _data(n=150)
+    y = np.zeros(150, dtype=np.float64)
+    with pytest.raises(PolarisValidationError, match="x0"):
+        fit_polaris_gam(model, data, y, multistart=True, x0=np.zeros(2))
+
+
 def test_fit_polaris_gam_raises_loudly_when_the_search_hits_a_bound() -> None:
     """PR #212 review [P1]: a smoothing-parameter selection clamped at the
     search domain's edge is not the REML criterion's minimum, and must not
