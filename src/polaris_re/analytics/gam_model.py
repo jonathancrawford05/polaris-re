@@ -22,9 +22,17 @@ ADR-200, ADR-205), the continuous smoothing-parameter search
 ADR-199), and the general penalized fitter it already calls internally
 (:func:`~polaris_re.analytics.gam_fit.penalized_irls_general` — ADR-195).
 
-**What this module does NOT do.** ``select = TRUE`` (slice 7) is not built
-— :func:`assemble_model_design` raises on any basis it does not recognise
-rather than silently skipping a term. ``"sz"`` terms (slice 6b,
+**What this module does NOT do.** ``select = TRUE`` (PLAN slice 7) is now
+wired into :func:`assemble_model_design` — set ``ModelSpec.select = True``
+and each term's own null-space penalty
+(:func:`~polaris_re.analytics.gam_select_penalty.null_space_penalty`, Stage-A
+verified against ``mgcv``, ADR-217) is appended after its existing
+block(s) — but :func:`fit_polaris_gam`'s own outer search
+(:func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`)
+has not been exercised on the doubled block count this produces; nothing
+here selects the extra smoothing parameters any differently from an
+ordinary block. :func:`assemble_model_design` raises on any basis it does
+not recognise rather than silently skipping a term. ``"sz"`` terms (slice 6b,
 ``docs/PLAN_mgcv_parity_engine.md``) ARE built by :func:`assemble_model_design`
 via :func:`~polaris_re.analytics.gam_stage_a.build_python_sz_term` (ADR-215),
 but :func:`fit_polaris_gam`'s own outer search
@@ -54,6 +62,7 @@ from polaris_re.analytics.gam_family import (
     quasipoisson_log,
 )
 from polaris_re.analytics.gam_reml_optimize import select_lambdas_continuous
+from polaris_re.analytics.gam_select_penalty import null_space_penalty
 from polaris_re.analytics.gam_stage_a import (
     TermExtract,
     build_python_cr_term,
@@ -189,7 +198,13 @@ def assemble_model_design(model: ModelSpec, data: Mapping[str, np.ndarray]) -> M
 
     Args:
         model: every term must be ``basis="cr"``, ``basis="ti"`` or
-            ``basis="sz"`` — see :func:`_build_term_extract`.
+            ``basis="sz"`` — see :func:`_build_term_extract`. When
+            ``model.select`` is ``True`` (PLAN slice 7), each term's own
+            null-space penalty
+            (:func:`~polaris_re.analytics.gam_select_penalty.null_space_penalty`)
+            is appended after that term's own existing block(s) — skipped for
+            a term whose existing blocks are already full rank (nothing left
+            to penalise), never padded in as an all-zero block.
         data: covariate arrays keyed by name, e.g. ``{"AttdAge": ..., "PolYear":
             ..., "StudyYear_C": ...}`` — a numeric-``by`` term reads its scaling
             variable from here via ``term.by``, a ``ti`` term reads both of
@@ -212,10 +227,15 @@ def assemble_model_design(model: ModelSpec, data: Mapping[str, np.ndarray]) -> M
     for term, extract in extracts:
         width = extract.design.shape[1]
         columns.append(extract.design)
+        term_s = list(extract.s)
+        if model.select:
+            null_result = null_space_penalty(extract.s)
+            if null_result is not None:
+                term_s.append(null_result[0])
         term_blocks.append(
-            TermBlock(label=term.label, start=col, end=col + width, n_penalties=len(extract.s))
+            TermBlock(label=term.label, start=col, end=col + width, n_penalties=len(term_s))
         )
-        raw_blocks.extend((col, block) for block in extract.s)
+        raw_blocks.extend((col, block) for block in term_s)
         col += width
 
     x = np.hstack(columns)
@@ -290,6 +310,16 @@ class PolarisGAMFit:
     n_function_evals: int
     n_rejected: int
     at_bound: bool
+    """Whether any penalty block's selected ``log10(lambda)`` sits at the
+    UPPER bound of the search — see :func:`fit_polaris_gam`'s ``strict``
+    parameter. The lower bound is never reported here: a selection there is
+    always a defect signal and :func:`fit_polaris_gam` raises before
+    returning (PR #212 review [P1])."""
+    at_bound_blocks: tuple[str, ...]
+    """Term labels whose selected ``log10(lambda)`` sits at the upper bound
+    — a term ``mgcv``'s own ``select = TRUE`` would routinely shrink to its
+    null space (PLAN slice 7), not necessarily a defect. Empty unless
+    :attr:`at_bound` is ``True``."""
 
 
 def fit_polaris_gam(
@@ -302,6 +332,7 @@ def fit_polaris_gam(
     bounds: tuple[float, float] = PRODUCTION_LOG10_BOUNDS,
     gtol: float = 1.0e-8,
     maxiter: int = 200,
+    strict: bool = False,
 ) -> PolarisGAMFit:
     """Fit ``model`` to ``data``/``y``, selecting every smoothing parameter by
     continuous REML (:func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`).
@@ -321,6 +352,26 @@ def fit_polaris_gam(
             unchanged, except ``bounds`` defaults to
             :data:`PRODUCTION_LOG10_BOUNDS` rather than that module's own
             (narrower) default — see its docstring.
+        strict: whether a selection at the UPPER bound also raises. Default
+            ``False`` — PLAN slice 7 (``select = TRUE``) is built around
+            penalising a term to nothing, and ``mgcv``'s own free-``sp``
+            selection routinely lands a term at very large `lambda` when it
+            carries no signal (PR #212 review [P1-new], `docs/DEV_SESSION_LOG_
+            2026-08-25_mgcv_parity_slice5b_polarisgam.md` "PR #212 review
+            response, round 2"); a hard raise there collided with that case
+            head-on rather than reporting it. Pass ``True`` for a caller that
+            wants a bound hit anywhere to fail loudly.
+            :func:`~polaris_re.analytics.gam_model_conformance.fit_free_sp_case`
+            — the conformance/harness use this guard was originally written
+            for — deliberately stays non-strict (PR #222 review [P1-1]):
+            its own CI step does not guard the call in a ``try``/``except``,
+            so ``strict=True`` there would turn an occasional bound hit into
+            an uncaught crash that loses the whole diagnostic, rather than
+            the graceful degradation ``compare_free_sp_case`` already gives —
+            ``FreeSpCaseComparison.at_bound`` still surfaces the condition,
+            and its own ``max_abs_log10_sp_diff < 1e-2`` gate already fails
+            loudly on a clamped selection (a bound of 11 against `mgcv`'s own
+            ~9.87 misses by two orders of magnitude more than the tolerance).
 
     Raises:
         PolarisValidationError: propagated from :func:`assemble_model_design`
@@ -328,12 +379,15 @@ def fit_polaris_gam(
         PolarisComputationError: propagated from
             :func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`
             if every trial smoothing-parameter point is rejected; or raised
-            here if the search's own selection sits AT a bound of ``bounds``
-            (PR #212 review [P1]) — a clamped smoothing parameter is not the
-            criterion's minimum, and returning it silently as though it were
-            would misreport `edf`/`eta` downstream without any signal that
-            the search domain, not the criterion, was the limiting factor.
-            Widen ``bounds`` and refit rather than reading the clamped value.
+            here if the search's own selection sits at the LOWER bound of
+            ``bounds`` (always — a term driven toward zero smoothing is a
+            conditioning defect, never a genuine `mgcv` optimum), or at the
+            UPPER bound with ``strict=True`` — a clamped smoothing parameter
+            is not necessarily the criterion's minimum, and returning it
+            silently as though it were would misreport `edf`/`eta`
+            downstream without any signal that the search domain, not the
+            criterion, was the limiting factor. Widen ``bounds`` and refit
+            rather than reading a lower-bound selection.
     """
     design = assemble_model_design(model, data)
     family = resolve_family(model.family, model.link)
@@ -368,17 +422,38 @@ def fit_polaris_gam(
         block_labels = [
             tb["label"] for tb in design["term_blocks"] for _ in range(tb["n_penalties"])
         ]
-        at_bound_blocks = [
+        lo, hi = bounds
+        lower_bound_blocks = [
             (label, float(log_lam))
             for label, log_lam in zip(block_labels, selection.log_lambda, strict=True)
-            if np.isclose(log_lam, bounds[0]) or np.isclose(log_lam, bounds[1])
+            if np.isclose(log_lam, lo)
         ]
-        raise PolarisComputationError(
-            f"fit_polaris_gam: the smoothing-parameter search selected log10(lambda) "
-            f"at a bound of {bounds} for {at_bound_blocks or 'at least one penalty block'} "
-            "-- this is the search domain's edge, not necessarily the REML criterion's "
-            "minimum. Widen `bounds` and refit rather than reading this selection."
-        )
+        upper_bound_blocks = [
+            (label, float(log_lam))
+            for label, log_lam in zip(block_labels, selection.log_lambda, strict=True)
+            if np.isclose(log_lam, hi) and not np.isclose(log_lam, lo)
+        ]
+        if lower_bound_blocks:
+            raise PolarisComputationError(
+                f"fit_polaris_gam: the smoothing-parameter search selected log10(lambda) "
+                f"at a bound (the LOWER bound) of {bounds} for {lower_bound_blocks} "
+                "-- this is the search domain's edge, not the REML criterion's minimum, "
+                "and unlike the upper bound (which mgcv's own select=TRUE routinely "
+                "reaches for a term with no signal), the lower bound is always a "
+                "conditioning defect, never a genuine optimum. Widen `bounds` and refit "
+                "rather than reading this selection."
+            )
+        if upper_bound_blocks and strict:
+            raise PolarisComputationError(
+                f"fit_polaris_gam: the smoothing-parameter search selected log10(lambda) "
+                f"at a bound (the UPPER bound) of {bounds} for {upper_bound_blocks} with "
+                "strict=True -- pass strict=False (the default) to accept a term smoothed "
+                "to its null space, which mgcv's own select=TRUE routinely selects for a "
+                "term with no signal, or widen `bounds` if this is not expected for this "
+                "model."
+            )
+    else:
+        upper_bound_blocks = []
 
     eta = (np.zeros_like(y) if offset is None else offset) + design["x"] @ selection.coef
     mu = family.link.linkinv(eta)
@@ -400,5 +475,6 @@ def fit_polaris_gam(
         converged=selection.converged,
         n_function_evals=selection.n_function_evals,
         n_rejected=selection.n_rejected,
-        at_bound=selection.at_bound,
+        at_bound=bool(upper_bound_blocks),
+        at_bound_blocks=tuple(label for label, _ in upper_bound_blocks),
     )

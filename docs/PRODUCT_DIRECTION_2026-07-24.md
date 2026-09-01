@@ -3203,7 +3203,49 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   eight terms together); a model with more than one `sz` term (the target
   has four). This session deliberately proved the minimal new `cr`+`sz`
   pairing first, the same discipline ADR-206 used before combining `ti`
-  and `by`. Slice 7 (`select = TRUE`) remains the epic's next PLANNED,
-  un-blocked slice. *Source: this session, ADR-216 (1st-order — a
-  follow-up needed before the target's full eight-term structure can be
-  assembled, fit and have its own smoothing parameters selected).*
+  and `by`. ~~Slice 7 (`select = TRUE`) remains the epic's next PLANNED,
+  un-blocked slice.~~ — **SHIPPED** (PR #222, 2026-09-01): see the
+  2026-09-01 harvest entry below. *Source: this session, ADR-216
+  (1st-order — a follow-up needed before the target's full eight-term
+  structure can be assembled, fit and have its own smoothing parameters
+  selected).*
+
+### Harvested 2026-09-01 — slice 7: `select = TRUE`'s double penalty is one basis-agnostic rule; Stage A and a fixed-`sp` Stage B both agree with mgcv, tier 1 AND tier 3 (ADR-217)
+
+- **Slice 7 IS NOW DONE for Stage A and a fixed-`sp` Stage B — the last
+  unchecked slice in the epic's written PLAN.**
+  `gam_select_penalty.null_space_penalty` found and confirmed ONE
+  basis-agnostic rule for `mgcv`'s `select=TRUE` double penalty
+  (eigendecompose the sum of a term's own existing penalty block(s) at
+  their natural, unscaled magnitude; the extra penalty is `U0 @ U0.T` for
+  the resulting null-space eigenvectors), agreeing with `mgcv`'s own
+  `gam(..., select=TRUE, fit=FALSE)$smooth[[i]]$S` to float round-trip
+  precision across all four term archetypes the target formula uses
+  (`cr`, numeric-`by` `cr`, `ti`, `sz`; six cases total, at the target's
+  own knots), with no per-basis branch in the implementation. Wired into
+  the production `assemble_model_design` path via a new `ModelSpec.select`
+  field — the same three-term model ADR-206 verified now fits under
+  `select=TRUE` (7 blocks) and agrees with `mgcv`'s native fit on `eta` to
+  `6.164e-11` (tier 1) / `5.691e-11` (tier 3). Both stages confirmed
+  tier 1 AND tier 3 identical, same session, CI run 33417357327 (also
+  reproduced on the PR's docs-only head commit, run 33417953915). Also
+  fixed the at-bound-guard collision PR #212's review named: only the
+  lower search bound raises by default now; the upper bound (exactly what
+  `select=TRUE` produces for a no-signal term) is reported on the fit
+  rather than raised, with a new `strict=True` for the harness mode that
+  still wants a hard raise. *Source: this session, ADR-217 (1st-order —
+  closes the epic's last unchecked PLAN slice).*
+
+- **What remains open, named but not yet registered as a slice:**
+  extending `select_lambdas_continuous`/`fit_polaris_gam`'s own free-`sp`
+  search to the doubled/increased block count `select=True` produces —
+  every case measured this session uses a FIXED, externally-supplied `sp`,
+  so nothing yet reproduces PLAN §1's own headline figures (13 → 21
+  smoothing parameters, edf 47.36 → 16.96); combining `select=True` with
+  the target's full eight-term structure, including more than one `sz`
+  term. **The epic's written PLAN is now otherwise exhausted** — this is
+  the largest remaining piece of work, and whether it becomes a registered
+  slice 7b is a maintainer decision worth making before the next routine
+  run picks work (PR #222 review, "Human review recommended for"). *Source:
+  this session, ADR-217 (1st-order — the step that would let a caller
+  actually reach the target formula's own headline `select=TRUE` figures).*

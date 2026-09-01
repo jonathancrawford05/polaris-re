@@ -110,6 +110,13 @@ on:
       # probe must re-run the Stage-B eta comparison against mgcv.
       - "src/polaris_re/analytics/gam_multiterm_sz_conformance.py"
       - "scripts/gam_multiterm_sz_probe.R"
+      # PLAN slice 7 — select=TRUE's double penalty: the null-space-penalty
+      # producer (Stage A) and the multi-term Stage-B fit that exercises it,
+      # same reasoning as the slice 6b lines above.
+      - "src/polaris_re/analytics/gam_select_penalty.py"
+      - "scripts/gam_select_penalty_probe.R"
+      - "src/polaris_re/analytics/gam_select_multiterm_conformance.py"
+      - "scripts/gam_select_multiterm_probe.R"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -394,6 +401,37 @@ jobs:
             Rscript scripts/gam_multiterm_sz_probe.R \
               gam_multiterm_sz_probe.json
 
+      # PLAN slice 7 (ADR-217): select=TRUE's extra null-space penalty, read
+      # directly off mgcv's own gam(..., select=TRUE, fit=FALSE)$smooth[[i]]$S
+      # -- no fit, so this is cheap and exact (S never depends on y, see the
+      # script's own header). One case per target-formula term archetype
+      # (cr, cr-by, ti, sz), at the target's own knot vectors. Same
+      # DIAGNOSTIC contract as the probes above -- the comparison against the
+      # independent Python null_space_penalty producer happens in the
+      # `compare` job below.
+      - name: Extract select=TRUE's null-space penalty per term archetype (slice 7)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_select_penalty_probe.R \
+              gam_select_penalty_probe.json
+
+      # PLAN slice 7 Stage B (ADR-217): the SAME three-term model
+      # gam_multiterm_probe.R (slice 5) already verified, fit with
+      # select=TRUE at a fixed sp for every block including the extra
+      # null-space block each term gets (7 total). Same DIAGNOSTIC contract
+      # as the probes above -- the eta comparison against the independent
+      # Python assembly (gam_select_multiterm_conformance) happens in the
+      # `compare` job below.
+      - name: Fit the shared three-term multi-term design under select=TRUE at fixed sp (slice 7)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_select_multiterm_probe.R \
+              gam_select_multiterm_probe.json
+
       # PLAN slice 5b (docs/WORK_ORDER_multi_term_assembly.md): the SAME
       # three-term formula at FREE sp — mgcv chooses its own smoothing
       # parameters via method="REML". Same DIAGNOSTIC contract as the probes
@@ -469,6 +507,8 @@ jobs:
             gam_multiterm_free_sp_probe.json
             gam_multiterm_sp_delta_probe.json
             gam_fixed_sp_score_probe.json
+            gam_select_penalty_probe.json
+            gam_select_multiterm_probe.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
@@ -1213,6 +1253,186 @@ jobs:
             cat gam_multiterm_sz_probe_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # PLAN slice 7 Stage A (ADR-217): compares the independent Python
+      # null_space_penalty producer against job 1's own read of mgcv's
+      # select=TRUE setup path, one case per target-formula term archetype.
+      # DIAGNOSTIC ONLY, printed to stdout from the start (ADR-194's
+      # methodology fix).
+      - name: Compare select=TRUE's null-space penalty against mgcv, per archetype (slice 7)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              payload = json.load(open("gam_select_penalty_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_select_penalty_probe.json to compare ({exc}) — the "
+                    "R probe above did not produce one.")
+              sys.exit(0)
+
+          import numpy as np
+
+          from polaris_re.analytics.gam_select_penalty import (
+              SELECT_PENALTY_CLAIM, compare_null_space_penalty,
+          )
+          from polaris_re.analytics.gam_stage_a import (
+              build_python_cr_term, build_python_sz_term, build_python_ti_term,
+          )
+          from polaris_re.analytics.gam_term_spec import TermSpec
+          from polaris_re.core.verification import evidence_markdown
+
+          AGE_KNOTS = (1.0, 2, 4, 7, 14, 18, 24, 35, 50, 70, 85, 90, 95)
+          YEAR_KNOTS = (1.0, 2, 3, 5, 10, 21)
+          cases = payload["cases"]
+
+          def arr(case, key):
+              return np.asarray(cases[case][key], dtype=np.float64)
+
+          results = {}
+
+          age_x = arr("cr-ref-attdage-k13", "x")
+          term = TermSpec(label="s(AttdAge)", variables=("AttdAge",), basis="cr",
+                           k=(13,), knots=(("AttdAge", AGE_KNOTS),))
+          extract = build_python_cr_term(age_x, term)
+          results["cr-ref-attdage-k13"] = compare_null_space_penalty(
+              "cr-ref-attdage-k13", extract.s, cases["cr-ref-attdage-k13"])
+
+          year_x = arr("cr-ref-polyear-k6", "x")
+          term2 = TermSpec(label="s(PolYear)", variables=("PolYear",), basis="cr",
+                            k=(6,), knots=(("PolYear", YEAR_KNOTS),))
+          extract2 = build_python_cr_term(year_x, term2)
+          results["cr-ref-polyear-k6"] = compare_null_space_penalty(
+              "cr-ref-polyear-k6", extract2.s, cases["cr-ref-polyear-k6"])
+
+          by_x = arr("cr-by-mi-attdage-k13", "x")
+          by_var = arr("cr-by-mi-attdage-k13", "by_var")
+          term3 = TermSpec(label="s(AttdAge,by=StudyYear_C)", variables=("AttdAge",),
+                            basis="cr", k=(13,), knots=(("AttdAge", AGE_KNOTS),),
+                            by="StudyYear_C")
+          extract3 = build_python_cr_term(by_x, term3, by=by_var)
+          results["cr-by-mi-attdage-k13"] = compare_null_space_penalty(
+              "cr-by-mi-attdage-k13", extract3.s, cases["cr-by-mi-attdage-k13"])
+
+          ti_x1 = arr("ti-attdage-polyear", "x")
+          ti_x2 = arr("ti-attdage-polyear", "x2")
+          term4 = TermSpec(label="ti(AttdAge,PolYear)", variables=("AttdAge", "PolYear"),
+                            basis="ti", k=(13, 6),
+                            knots=(("AttdAge", AGE_KNOTS), ("PolYear", YEAR_KNOTS)))
+          extract4 = build_python_ti_term(ti_x1, ti_x2, term4)
+          results["ti-attdage-polyear"] = compare_null_space_penalty(
+              "ti-attdage-polyear", extract4.s, cases["ti-attdage-polyear"])
+
+          for case, x_var, var_name in (
+              ("sz-facesize-attdage-k13", AGE_KNOTS, "AttdAge"),
+              ("sz-facesize-polyear-k6", YEAR_KNOTS, "PolYear"),
+          ):
+              x = arr(case, "x")
+              group = np.asarray(cases[case]["group"], dtype=np.int64)
+              n_levels = int(cases[case]["n_levels"])
+              term_sz = TermSpec(label=f"s(FaceSize,{var_name})",
+                                  variables=("FaceSize", var_name), basis="sz",
+                                  k=(len(x_var),), knots=((var_name, x_var),),
+                                  n_levels=n_levels)
+              extract_sz = build_python_sz_term(x, group, n_levels, term_sz)
+              results[case] = compare_null_space_penalty(case, extract_sz.s, cases[case])
+
+          lines = [
+              "",
+              "### Slice 7 Stage A — select=TRUE's null-space penalty vs mgcv (INDEPENDENT)",
+              "",
+              evidence_markdown(SELECT_PENALTY_CLAIM),
+              "",
+              "| case | null dim | max abs S_null diff | agrees |",
+              "|---|---:|---:|---|",
+          ]
+          all_agree = True
+          for case, c in results.items():
+              all_agree = all_agree and c.agrees
+              lines.append(f"| {case} | {c.null_dim} | {c.max_abs_s_null_diff:.3e} | {c.agrees} |")
+          lines += [
+              "",
+              "Every case's null-space penalty is built independently in Python "
+              "from that term's own already-verified penalty block(s) (never "
+              "from this script's own S) via eigendecomposition of their "
+              "unscaled sum. A disagreement is a real result about the rule "
+              "itself (module docstring), not a broken round trip.",
+          ]
+          if not all_agree:
+              lines.insert(2, "**Disagreement — see the table. This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_select_penalty_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_select_penalty_probe_report.md ]; then
+            cat gam_select_penalty_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # PLAN slice 7 Stage B (ADR-217): compares the independent Python
+      # select=TRUE multi-term assembly (gam_select_multiterm_conformance)
+      # against job 1's native mgcv fit of the SAME formula at the SAME
+      # fixed sp (7 blocks). DIAGNOSTIC ONLY, printed to stdout from the
+      # start (ADR-194's methodology fix).
+      - name: Compare the select=TRUE multi-term Stage-B fit against the Python side (slice 7)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_select_multiterm_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_select_multiterm_probe.json to compare ({exc}) — "
+                    "the R probe above did not produce one.")
+              sys.exit(0)
+
+          from polaris_re.analytics.gam_select_multiterm_conformance import (
+              SELECT_MULTITERM_CLAIM, compare_select_multiterm_case,
+              fit_select_multiterm_case,
+          )
+          from polaris_re.core.verification import evidence_markdown
+
+          fit, _blocks = fit_select_multiterm_case(r_payload)
+          c = compare_select_multiterm_case(fit, r_payload)
+
+          lines = [
+              "",
+              "### Slice 7 Stage B — select=TRUE multi-term model vs mgcv (INDEPENDENT on eta)",
+              "",
+              evidence_markdown(SELECT_MULTITERM_CLAIM),
+              "",
+              "| n | p | n blocks | max abs eta diff | agrees |",
+              "|---:|---:|---:|---:|---|",
+              f"| {r_payload['n']} | {len(r_payload['coef'])} | 7 | "
+              f"{c['max_abs_eta_diff']:.3e} | {c['agrees']} |",
+              "",
+              "The same reference/by/ti formula ADR-206 verified at fixed sp, "
+              "now fit with select=TRUE (7 blocks: each term's own existing "
+              "penalty block(s) plus one null-space block, ADR-217). `eta` is "
+              "INDEPENDENT: gam_select_multiterm_conformance.fit_select_multiterm_case "
+              "never reads this script's own eta or coef, only the shared "
+              "recipe. A disagreement is a real result about the null-space "
+              "penalty rule or its wiring into assemble_model_design, not a "
+              "broken round trip. Coefficients are NOT compared (Anchor 2).",
+          ]
+          if not c["agrees"]:
+              lines.insert(2, "**Disagreement — see the table. This is a genuine finding.**")
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_select_multiterm_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_select_multiterm_probe_report.md ]; then
+            cat gam_select_multiterm_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       # PLAN slice 5b (docs/WORK_ORDER_multi_term_assembly.md): compares
       # PolarisGAM's own free-sp selection (gam_model_conformance) against
       # job 1's native mgcv free-sp REML fit of the SAME three-term formula.
@@ -1533,3 +1753,7 @@ jobs:
             gam_multiterm_probe_report.md
             gam_multiterm_sz_probe.json
             gam_multiterm_sz_probe_report.md
+            gam_select_penalty_probe.json
+            gam_select_penalty_probe_report.md
+            gam_select_multiterm_probe.json
+            gam_select_multiterm_probe_report.md
