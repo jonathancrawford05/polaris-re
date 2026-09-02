@@ -1714,6 +1714,56 @@ acceptance gate (Part 2).
     our own point closes that channel. Expect the numbers to move — measure by
     how much and report it, rather than assuming the two curvatures agree.
 
+### Slice 7e: re-gate on `eta`/`edf`, with the H-weighted distance as companion
+
+- **Depends on:** Slice 7c (ADR-219 + amendment 1) for the evidence and the
+  decision; slice 7d only if the maintainer wants the score-gap column too.
+- **Status: REGISTERED, not started.** The maintainer accepted the re-gating
+  (ADR-219 amendment 1, decision 4) **with the metric changed from what ADR-219
+  originally recommended**: not the H-weighted distance as primary.
+- **What changes.** `SELECT_FREE_SP_MODEL_CLAIM`'s (and, if the maintainer
+  extends it, `FREE_SP_MODEL_CLAIM`'s) acceptance gate moves from
+  `max |Δ log10(sp)| < 1e-2` to a gate on **`eta` and `edf`**, with the
+  H-weighted distance reported alongside as the `sp`-space companion — there to
+  catch a surfaces-agree-but-parameters-diverge case whose cause is *not*
+  flatness. Rationale: provenance constrains what MAY gate; it does not
+  establish what SHOULD. Polaris is a pricing engine, and what a user needs is
+  whether the fitted surface matches, which is `eta`/`edf`.
+- **THE CONSTRAINT THAT GOVERNS THIS SLICE (ADR-219 amendment 1).** `mgcv`
+  parity is intended as a **marketing benchmark**. Changing an acceptance
+  criterion to one the engine passes more easily, in service of a claim that
+  will be marketed, is structurally what Anchor 8 forbids — *even though this
+  change is correct on the merits.* This slice is therefore only legitimate if
+  it **narrows the claim rather than loosening the measurement**, and it must
+  fail loudly rather than quietly if that inverts.
+- **Out of scope:** any change to conformance levels 1-5 themselves; level 4's
+  standing DISAGREE (ADR-190) is untouched and must stay visible.
+
+**Definition of Done, tagged per ADR-209 decision 3.**
+
+- `[machine]` The new gate's quantities are declared on the claim as
+  `ComparedQuantity` entries naming both producers, covered by
+  `require_parity_evidence`, with `evidence_markdown` deriving the headline —
+  **before** anything gates on them.
+- `[machine]` The H-weighted companion's weighting Hessian is evaluated at
+  **our own** selected point (slice 7d precondition 2), and the shift from
+  `mgcv`-point weighting is measured and reported, not assumed negligible.
+- `[machine]` Every prior committed reading is **re-stated under both the old
+  and the new gate**, in the ledger. A gate change that silently reclassifies
+  historical `agrees=False` rows as passing is indistinguishable from tuning;
+  showing both columns is what makes it auditable.
+- `[judgement]` **The claim sentence is narrower than the one it replaces**,
+  names the quantity, the tolerance and the structure measured, and is written
+  before the code (§3.2). If the new sentence is broader than the old one, the
+  slice has failed and must stop.
+- `[judgement]` **No unqualified "mgcv parity" claim is produced anywhere** —
+  not in the ADR, the ledger, the README, or any marketing-facing artefact
+  derived from them. Conformance level 4 genuinely DISAGREES (ADR-190); an
+  unqualified claim would be refuted by our own committed ledger, which is the
+  worst possible way for a public claim to fail.
+- `[machine]` Tier 1 AND tier 3, both recorded, both agreeing in verdict.
+- `[machine]` `tests/qa/golden_outputs/` byte-identical.
+
 ### Deferred to a later epic: `bam` + `discrete = TRUE` + fREML
 
 `bam(discrete = TRUE)` is a different algorithm, not a faster `gam` — discretised

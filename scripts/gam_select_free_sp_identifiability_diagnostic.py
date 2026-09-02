@@ -8,10 +8,14 @@ Everything this script measures is a property of **our own** REML criterion
 profile in each of the 7 `log10(lambda)` directions. No Polaris quantity is
 compared against an `mgcv` quantity anywhere in it, so it is neither a parity
 comparison nor a transport/echo harness check: there is no second producer to
-name (`docs/VERIFICATION_STANDARD.md`). `mgcv`'s own selection enters ONLY as
-the POINT at which our criterion is examined -- an argument, not an operand.
-Reporting it under either provenance label would be a category error, so it
-carries no claim at all and the ledger row says so.
+name. `mgcv`'s own selection enters ONLY as the POINT at which our criterion
+is examined -- an argument, not an operand. Reporting it under either provenance
+label would be a category error, so it carries no `VerificationClaim` at all and
+the ledger rows use the third category `MEASUREMENT (own criterion)`
+(`docs/VERIFICATION_STANDARD.md` §2.1).
+
+The mechanical test for that category: remove the reference entirely -- is there
+still a number? Here yes; `mgcv` only chose the coordinates.
 
 WHAT IT ESTABLISHES (ADR-219)
 -----------------------------

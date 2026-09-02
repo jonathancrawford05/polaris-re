@@ -21,8 +21,10 @@ acceptance criterion"), which ADR-219 records as recommended-and-not-taken.
 **Provenance (ADR-193).** Nothing here is a comparison between two producers.
 :func:`hessian_weighted_distance` is a norm on a displacement, and the
 Hessian it weights by is our OWN criterion's curvature. It carries no
-``VerificationClaim`` because there is no second producer to name -- see
-``scripts/gam_select_free_sp_identifiability_diagnostic.py``'s own docstring.
+``VerificationClaim`` because there is no second producer to name -- the
+``MEASUREMENT (own criterion)`` category, ``docs/VERIFICATION_STANDARD.md``
+§2.1. That category can never carry a parity claim: it says something about
+our own engine and nothing about agreement with ``mgcv``.
 """
 
 import numpy as np

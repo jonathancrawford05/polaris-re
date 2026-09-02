@@ -171,7 +171,10 @@ eigenspectrum, step scan and profile are properties of our OWN criterion, with
 `mgcv`'s selection as the POINT of evaluation — an argument, not an operand.
 No second producer exists to name, so the measurement is **neither INDEPENDENT
 nor ECHO/TRANSPORT**: those labels classify comparisons and this is not one.
-The three ledger rows carry no provenance label and say why.
+The three ledger rows carry the third category, `MEASUREMENT (own
+criterion)` — codified at `docs/VERIFICATION_STANDARD.md` §2.1 by ADR-219
+amendment 1, after review round 1 observed that a BLANK label is
+indistinguishable from a forgotten one.
 
 Part 2's table is mixed by column, which is the substance of its
 recommendation: `max abs log10(sp) diff` INDEPENDENT (unchanged from ADR-218),
@@ -247,6 +250,54 @@ All three findings accepted and fixed; none disputed.
   Exactness genuinely is the contract there, but the convention holds anyway;
   now `assert_allclose(..., rtol=0.0, atol=0.0)`, which states the same
   contract inside the rule.
+
+## Maintainer decisions, round 2 (2026-09-02) — ADR-219 amendment 1
+
+All four open items resolved in conversation. Three implemented here; one
+registered as its own slice because it edits a committed acceptance criterion.
+
+1. **Tier-1 status accepted.** The diagnostic is now wired into
+   `mgcv-conformance.yml` so the next tier-3 run confirms the eigenspectrum for
+   free — the residual risk being that the reading is taken *at `mgcv`'s
+   selected point*, which is version-dependent in principle. Bounded by
+   evidence already held: ADR-218's tier-1 and tier-3 readings of this fixture
+   agree to four significant figures.
+2. **Provenance precedent ratified AND upgraded.** Not left as a precedent —
+   codified as `VERIFICATION_STANDARD.md` §2.1, a third category
+   `MEASUREMENT (own criterion)` with its own mechanical test ("remove the
+   reference entirely — is there still a number?"). The three ledger rows now
+   carry that label explicitly instead of a bare absence, because an unlabelled
+   row is indistinguishable from a forgotten one.
+3. **Slice 7d accepted, ranking left open.** Its headline justification is
+   gone; what remains is real but not urgent, and should be ranked rather than
+   inherit "next" by adjacency.
+4. **Re-gating accepted, WITH THE METRIC CHANGED from this slice's own
+   recommendation.** Not H-weighted primary. `eta`/`edf` primary, H-weighted as
+   the `sp`-space companion — because provenance constrains what MAY gate, not
+   what SHOULD, and a pricing engine's users care whether the fitted surface
+   matches. Registered as **slice 7e**, not implemented here.
+
+### The marketing constraint, recorded because it was not previously written down
+
+The maintainer noted that `mgcv` parity is intended as a **marketing benchmark**
+once development progresses far enough, and asked that we make sure parity can
+be reached rapidly. That is a material design input and it makes slice 7e *more*
+delicate rather than less:
+
+- **It must narrow the claim, never loosen the measurement.** Changing an
+  acceptance criterion to one the engine passes more easily, in service of a
+  marketed claim, is structurally the move Anchor 8 forbids — even though this
+  particular change is right on the merits. The defence is that the claim gets
+  *smaller and more precise*, not that the evidence is good.
+- **No unqualified "mgcv parity" claim, now or after 7e.** Conformance level 4
+  genuinely DISAGREES (ADR-190) and `VERIFICATION_STANDARD.md` §5 records that
+  this disagreement is real *because* levels 1-5 carry INDEPENDENT provenance.
+  An unqualified claim would be refuted by our own committed ledger — the worst
+  way for a public claim to fail.
+- **"Rapidly" is a schedule target, not an input to a verification standard.**
+  Named in advance rather than discovered later: where speed and defensibility
+  conflict, the standard wins, because the fastest route to a claim that must
+  later be retracted is not fast.
 
 ## Follow-ups filed
 

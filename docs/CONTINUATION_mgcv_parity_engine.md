@@ -497,7 +497,27 @@ eight-term structure. See ADR-217 and `docs/CONFORMANCE_LEDGER.md`.
 > search path changed.** Tier 1 only — not citable outside the session log
 > without a tier-3 confirmation. See ADR-219 and `docs/CONFORMANCE_LEDGER.md`.
 >
-> **NEXT: slice 7d** — the analytic REML gradient, re-aimed by ADR-219 at the
+> **Maintainer decisions, 2026-09-02 (ADR-219 amendment 1).** All four open
+> items resolved: tier-1 status accepted (with the diagnostic now wired into
+> `mgcv-conformance.yml` so the next tier-3 run confirms the eigenspectrum for
+> free); the provenance precedent **ratified and codified** as
+> `VERIFICATION_STANDARD.md` §2.1's third category
+> **`MEASUREMENT (own criterion)`**, with the three ledger rows relabelled from
+> a bare absence (an unlabelled row is indistinguishable from a forgotten one);
+> slice 7d accepted but its *ranking* left open; and **the re-gating accepted
+> with the metric changed** — `eta`/`edf` primary, H-weighted companion, not
+> H-weighted primary as ADR-219 originally recommended. Registered as slice 7e.
+>
+> **NEW CONTEXT, and it constrains slice 7e: `mgcv` parity is intended as a
+> MARKETING BENCHMARK.** That makes the gate change more delicate, not less —
+> changing a criterion to one the engine passes more easily, for a claim that
+> will be marketed, is structurally what Anchor 8 forbids even when the change
+> is right on the merits. Slice 7e is legitimate only if it **narrows the claim
+> rather than loosening the measurement**, and **no unqualified "mgcv parity"
+> claim may be published**: conformance level 4 genuinely DISAGREES (ADR-190),
+> so an unqualified claim would be refuted by our own committed ledger.
+>
+> **NEXT: slice 7e** (the re-gating, decided and scoped) or **slice 7d** — the analytic REML gradient, re-aimed by ADR-219 at the
 > `0.0141` score gap on the 5 identified directions, the
 > `converged=False`-at-near-zero-gradient defect, and the ~8x cost saving;
 > explicitly NOT at the `log10(sp)` gate. Carries a hazard ADR-219 found:

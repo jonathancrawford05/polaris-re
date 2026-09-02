@@ -122,6 +122,10 @@ on:
       # this slice's own comparator, and its probe.
       - "src/polaris_re/analytics/gam_select_free_sp_conformance.py"
       - "scripts/gam_select_multiterm_free_sp_probe.R"
+      # PLAN slice 7c — the own-criterion curvature reading (ADR-219). Not a
+      # comparison; see VERIFICATION_STANDARD.md §2.1.
+      - "src/polaris_re/analytics/gam_sp_identifiability.py"
+      - "scripts/gam_select_free_sp_identifiability_diagnostic.py"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -1554,6 +1558,44 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "No gam_select_multiterm_free_sp_probe.json to diagnose — the R probe did not produce one." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # PLAN slice 7c (ADR-219): is the 1e-2 gate on raw log10(sp) REACHABLE on
+      # this structure at all? Reads the curvature of OUR OWN REML criterion at
+      # the point mgcv selected -- eigenspectrum, step-stability scan, per-block
+      # profile. NOT A COMPARISON: mgcv's sp is the POINT of evaluation, never an
+      # operand, so this carries no VerificationClaim and the ledger rows use the
+      # third category MEASUREMENT (own criterion), VERIFICATION_STANDARD.md
+      # §2.1. It can never carry a parity claim.
+      #
+      # Wired in per ADR-219 amendment 1 decision 1: the tier-1 reading is taken
+      # at mgcv 1.9-1 and the eigenspectrum has never been read at tier 3. The
+      # point it is evaluated at is version-dependent in principle (ADR-218's own
+      # cross-tier readings agree to 4 s.f., so the risk is small), and this step
+      # closes it for free on the next tier-3 run.
+      - name: Is the log10(sp) gate reachable? Own-criterion curvature at mgcv's point (slice 7c)
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f gam_select_multiterm_free_sp_probe.json ]; then
+            uv run python scripts/gam_select_free_sp_identifiability_diagnostic.py \
+              gam_select_multiterm_free_sp_probe.json \
+              | tee gam_select_free_sp_identifiability_output.txt
+            {
+              echo ""
+              echo "### Slice 7c — is the gate reachable? MEASUREMENT (own criterion), NOT a comparison"
+              echo ""
+              echo "Every number below is our own REML criterion's geometry. \`mgcv\`'s selection"
+              echo "is the POINT of evaluation, never an operand — so this is neither INDEPENDENT"
+              echo "nor ECHO/TRANSPORT (\`docs/VERIFICATION_STANDARD.md\` §2.1) and **says nothing"
+              echo "about agreement with \`mgcv\`**."
+              echo '```'
+              cat gam_select_free_sp_identifiability_output.txt
+              echo '```'
+              echo ""
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No gam_select_multiterm_free_sp_probe.json to read — the R probe did not produce one." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       # PLAN slice 5b (docs/WORK_ORDER_multi_term_assembly.md): compares

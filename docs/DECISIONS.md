@@ -20047,8 +20047,9 @@ profile are properties of our OWN criterion; `mgcv`'s selection enters only as
 the POINT of evaluation, an argument rather than an operand. There is no
 second producer to name, so the measurement is **neither INDEPENDENT nor
 ECHO/TRANSPORT** — those labels classify comparisons, and this is not one.
-Forcing it into either would be a category error. The ledger rows carry no
-provenance label and say why.
+Forcing it into either would be a category error. The ledger rows carry the
+third category, **`MEASUREMENT (own criterion)`**, codified by amendment 1 at
+`docs/VERIFICATION_STANDARD.md` §2.1.
 
 The Part 2 table's three columns have three different statuses, which is the
 point of the recommendation: `max abs log10(sp) diff` INDEPENDENT (unchanged
@@ -20082,3 +20083,77 @@ More generally: this epic now has a measured instance of a gate that a
 correct engine cannot pass. That is worth remembering the next time a
 comparison "fails" — the third possibility, after "our code is wrong" and
 "their code is wrong", is "the question is unanswerable as posed."
+
+## ADR-219 amendment 1: the maintainer's decisions, and the marketing constraint they now sit under
+
+**Date:** 2026-09-02. **Status:** ACCEPTED (maintainer, PR #224 conversation).
+
+### The four decisions
+
+1. **Tier-1-only status ACCEPTED.** The residual risk is bounded by evidence
+   already in hand: the eigenspectrum is read at `mgcv`'s selected point, which
+   is version-dependent in principle, but ADR-218's tier-1 and tier-3 readings
+   of this same fixture agreed to four significant figures — so `mgcv` 1.9-1
+   and 1.9.4 select materially the same point here. The diagnostic is
+   nevertheless wired into `mgcv-conformance.yml` so the next tier-3 run
+   confirms the eigenspectrum for free.
+2. **The no-provenance-label precedent RATIFIED, and upgraded.** Not left as a
+   precedent: codified as `docs/VERIFICATION_STANDARD.md` §2.1, and the bare
+   absence replaced by an explicit `MEASUREMENT (own criterion)` label, because
+   an unlabelled row is indistinguishable from a forgotten one.
+3. **Slice 7d registration ACCEPTED**, with its ranking noted as open: its
+   headline justification is gone and what remains (a `0.0141` score gap, the
+   `converged` flag defect, an ~8x speedup) is real but not urgent. It should
+   be ranked against other Tier-A work, not inherit "next" by adjacency.
+4. **The re-gating ACCEPTED, with the metric changed from what this ADR
+   originally recommended.** Not the H-weighted distance as primary. See below.
+
+### Decision 4, restated: `eta`/`edf` primary, H-weighted companion
+
+This ADR's body recommends the H-weighted distance on ADR-193 provenance
+grounds. That reasoning stands, but it answers the wrong question: **provenance
+constrains what MAY gate, it does not establish what SHOULD.** Polaris is a
+pricing engine; what a user needs to know is whether the fitted surface matches
+`mgcv`'s. That is `eta` and `edf`. The smoothing parameters are machinery.
+
+Accepted form: **`eta`/`edf` as the primary acceptance gate, with the
+H-weighted distance as the `sp`-space companion** — the companion catching the
+case where the surfaces agree but the parameters diverge for some reason that
+is *not* flatness. Gating on the H-weighted distance alone would make the
+criterion answer a question no reinsurer asks. Registered as **slice 7e**;
+this ADR does not implement it.
+
+### The constraint the marketing context imposes (maintainer, 2026-09-02)
+
+The maintainer noted that **`mgcv` parity is intended as a marketing benchmark
+for Polaris RE once development has progressed far enough.** That is a material
+design input, it was not previously written down anywhere in this repo, and it
+makes the gate change *more* delicate rather than less. Three consequences,
+binding on slice 7e:
+
+**1. This must narrow the claim, never loosen the measurement.** Changing an
+acceptance criterion to one the engine passes more easily, in service of a
+claim that will be marketed, is structurally the exact move Anchor 8 forbids —
+*even when the change is correct on the merits, as this one is.* The defence is
+not that the evidence is good; it is that **the claim gets smaller and more
+precise, not larger**. "Polaris reproduces `mgcv`'s fitted surface (`eta`,
+`edf`) to <tolerance> on <structure>" is narrower than, and strictly implied by
+nothing in, "Polaris reproduces `mgcv`". Slice 7e must state the claim in that
+shape or not ship.
+
+**2. Never publish an unqualified "mgcv parity" claim — it is not true today,
+and slice 7e will not make it true.** Conformance **level 4 genuinely
+DISAGREES** (ADR-190, the Wood/Pya/Säfken `dw/drho` correction), and
+`VERIFICATION_STANDARD.md` §5 records that this disagreement is real precisely
+*because* levels 1-5 carry INDEPENDENT provenance. A public claim must name the
+quantity, the tolerance and the structure it was measured on. An unqualified
+claim would be refuted by our own committed ledger — the most damaging way for
+it to fail, since the refutation is in our own repository.
+
+**3. "Rapidly" is a scheduling target and cannot be an input to a verification
+standard.** Schedule pressure on an acceptance criterion is the specific
+pressure ADR-193 exists to resist. The routine will optimise for *defensibility
+per unit time*, which is not the same as speed: the fastest route to a claim
+that later has to be retracted is not fast. Where the two conflict, the
+standard wins and the slower path gets taken — and this paragraph is the
+record that the trade-off was named in advance rather than discovered later.
