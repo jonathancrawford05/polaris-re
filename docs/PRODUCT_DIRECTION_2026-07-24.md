@@ -3361,3 +3361,18 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   test is for. Needs its own slice. *Source: this session, slice 7c baseline
   (1st-order — a defect in an originally-planned component, in committed
   code).*
+
+- **`select_lambdas_continuous`/`_multistart` is not reproducible across CI
+  runner instances, even with `OPENBLAS_NUM_THREADS` pinned to 1.** Three
+  readings of one fixture (ADR-219 amendments 2-3): two tier-3 runs on the SAME
+  oracle image with the SAME pins disagree by **four decades** on the selected
+  `sp` for a weakly-identified block (`multistart` `max abs log10(sp) diff`
+  `5.9517` vs `1.4754`), while one of them reproduces the tier-1 reading exactly.
+  ADR-211/213 measured sensitivity to thread COUNT; this is the same class one
+  level deeper — identical pinned configuration, different physical runner.
+  **Consequence: any acceptance gate must be shown reproducible across repeated
+  runs in one environment before it is a gate**, which is a harder bar than
+  cross-tier agreement and the right one given the marketing intent recorded in
+  amendment 1. Not fixed in slice 7c (out of scope). *Source: this session,
+  ADR-219 amendment 3 (1st-order — a reproducibility defect in an
+  originally-planned component, in committed code).*

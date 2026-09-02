@@ -524,10 +524,15 @@ eight-term structure. See ADR-217 and `docs/CONFORMANCE_LEDGER.md`.
 > 7"** (the eigenvalue SIGN count reads 7 of 7 at tier 3 — it counted the sign of
 > noise; `identified_direction_count` now requires an explicit `floor`, and the
 > robust statement is **2 of 7 carry no resolvable curvature**), and **the Part 2
-> ratios 3.5x/128x/424x** (tier 3 reads 0.8x/3.3x/261x — our own search is
-> BLAS-environment sensitive, ADR-211/213). The conclusion is SHARPER for it: at
-> tier 3 the committed gate calls multistart a *regression* on a change whose
-> score gap closed 261x.
+> ratios 3.5x/128x/424x**. **Amendment 3 then corrected the ATTRIBUTION:** a
+> third reading (second tier-3 run, same oracle) reproduced tier 1 exactly while
+> differing from the first tier-3 run by four decades — so this is **run-to-run
+> non-reproducibility of our own free-`sp` search across CI runner instances**,
+> threads pinned throughout, not a tier effect. The ratios are one draw from a
+> distribution. The conclusion is SHARPER for it: on the anomalous run the
+> committed gate called multistart a *regression* on a change whose score gap
+> closed 261x. Eigenvalue-sign count across the three readings: 5, 7, 6.
+> Step-stability: 5 of 7, every time.
 >
 > **NEXT: slice 7e** (the re-gating, decided and scoped) or **slice 7d** — the analytic REML gradient, re-aimed by ADR-219 at the
 > `0.0141` score gap on the 5 identified directions, the

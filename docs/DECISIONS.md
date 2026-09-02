@@ -20242,3 +20242,68 @@ across tiers before it is published**, because the metric this slice recommends
 replacing is not the only quantity here that moves with the environment. The
 H-weighted distance moved 36x between tiers on the multistart row; it is a
 better metric, and it is not yet a demonstrably stable one.
+
+## ADR-219 amendment 3: a third reading corrects amendment 2's attribution — the instability is RUN-TO-RUN, not tier-related
+
+**Date:** 2026-09-02. **Status:** ACCEPTED. **Tier 3**, same oracle
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+CI run [33636732346](https://github.com/jonathancrawford05/polaris-re/actions/runs/33636732346)
+— the push that carried amendment 2 itself re-ran the diagnostic, giving a
+second tier-3 reading on the same image.
+
+Amendment 2 framed its second retraction as a tier-1-versus-tier-3 difference
+and attributed it to a BLAS-environment change between the two. **That
+attribution is wrong, and the third reading is worse news than the second.**
+
+### Three readings of one fixture
+
+| reading | eigenvalue-SIGN count | step-stability | single `max abs log10(sp) diff` | multi | multi H-weighted | multi score gap |
+|---|---:|---:|---:|---:|---:|---:|
+| tier 1 (local, mgcv 1.9-1) | **5 of 7** | 5 of 7 | 5.1320 | 1.4754 | 0.0617 | 0.0141 |
+| tier 3 run 1 (33633783477) | **7 of 7** | 5 of 7 | 4.6424 | 5.9517 | 2.2095 | 0.0227 |
+| tier 3 run 2 (33636732346) | **6 of 7** | 5 of 7 | 5.1320 | 1.4754 | 0.1758 | 0.0141 |
+
+**Tier-3 run 2 reproduces tier 1 exactly** on `max abs log10(sp) diff`
+(`5.1320` / `1.4754`, to the printed digit) and on the score gap (`0.014071`
+against `0.014057`). The two tier-3 runs — **same oracle image, same pinned
+`OPENBLAS_NUM_THREADS=1`, same code, same data** — disagree with each other by
+**four decades** on the multistart row, far more than tier 3 disagrees with
+tier 1.
+
+So the mechanism amendment 2 named (our own free-`sp` search, not the data or
+`mgcv`) was right; the axis it named was not. This is **run-to-run
+non-reproducibility across CI runner instances**, not a version difference.
+Amendment 2's retraction of the `3.5x / 128x / 424x` ratios **stands and is
+reinforced** — they are not merely tier-1 artefacts, they are one draw from a
+distribution — but its explanation is corrected here.
+
+### What this vindicates
+
+**The eigenvalue-sign count took the values 5, 6 and 7 on one fixture.**
+Amendment 2 made `floor` a required argument on
+`identified_direction_count` after seeing two of those; the third confirms the
+fix was not an over-reaction to a single disagreement.
+
+**The step-stability discriminator read 5 of 7 in all three.** It is the
+reading that survives, and it is now the only one quoted.
+
+> **A coincidence worth naming so nobody misreads it.** The robust count is
+> also `5 of 7`. That is *not* the retracted "5 identified directions of 7"
+> being vindicated — the old number counted eigenvalue signs and happened to
+> land on 5 at tier 1; the new one counts step-stability verdicts and lands on
+> 5 everywhere. Same digits, different quantity, different epistemic status.
+
+### The defect this exposes, filed rather than absorbed
+
+`select_lambdas_continuous`/`_multistart` is **not reproducible across CI
+runner instances even with `OPENBLAS_NUM_THREADS` pinned to 1.** ADR-211/213
+measured sensitivity to *thread count*; this is the same class one level
+deeper — identical pinned configuration, different physical runner, four
+decades of movement in the selected `sp` on a weakly-identified block. Filed as
+a promoted follow-up (`PRODUCT_DIRECTION`), not folded into slice 7c.
+
+**Consequence for slice 7e, sharper than amendment 2's:** an acceptance gate
+must be reproducible before it is a gate. Any candidate metric now has to be
+shown stable across *repeated runs in one environment*, not merely across
+tiers — a strictly harder bar, and the right one if the resulting claim is
+going to be marketed.

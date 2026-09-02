@@ -287,9 +287,16 @@ curvature**, both tiers.
 | score gap | 423x | 261x |
 
 The Hessian, profile and `mgcv` point are stable, so the divergence is in **our
-own free-`sp` search** — ADR-211/213's BLAS-environment sensitivity, dominating
-the multistart row even with threads pinned on both sides. `3.5x / 128x / 424x`
-is withdrawn as a tier-1 artefact.
+own free-`sp` search**. **Corrected by a third reading (amendment 3):** it is
+not a tier effect at all. A second tier-3 run on the SAME oracle reproduced
+tier 1 exactly (`5.1320` / `1.4754`), while the two tier-3 runs differ from each
+other by four decades — **run-to-run non-reproducibility across CI runner
+instances**, with threads pinned on all three. `3.5x / 128x / 424x` is withdrawn
+not as a tier-1 artefact but as **one draw from a distribution**.
+
+The eigenvalue-sign count read **5, then 7, then 6** across the three readings;
+step-stability read **5 of 7 every time**. (The robust count sharing the digits
+of the retracted one is a coincidence, not a vindication — different quantity.)
 
 **The conclusion survives and tier 3 sharpens it.** At tier 3 the committed gate
 calls multistart a *regression* (`4.64 → 5.95`) on a change whose score gap
