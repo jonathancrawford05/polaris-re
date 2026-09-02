@@ -67,7 +67,7 @@ def hessian_weighted_distance(
     delta_rho: np.ndarray,
     hessian: np.ndarray,
     *,
-    floor: float = 0.0,
+    floor: float,
 ) -> float:
     """``sqrt(Δᵀ H₊ Δ)`` — a displacement in ``rho`` measured in the units the
     REML criterion actually resolves.
@@ -89,10 +89,28 @@ def hessian_weighted_distance(
             ``log10``; multiply a ``log10`` difference by ``ln(10)`` first.
         hessian: ``(M, M)`` symmetric REML Hessian w.r.t. natural-log lambda,
             evaluated at one of the two points.
-        floor: eigenvalues strictly below this are clipped to zero. Default
-            ``0.0`` — clip only the negatives a noise floor produces. Pass a
-            small positive value to also discard directions that are
-            technically positive but below the criterion's own resolution.
+        floor: eigenvalues strictly below this are clipped to zero. **Required,
+            for the same reason it is required on
+            :func:`identified_direction_count` — an earlier revision defaulted
+            it to ``0.0`` and that default is a trap.** Clipping only the
+            NEGATIVES is asymmetric: noise that lands negative is discarded
+            while noise that lands positive is kept and contributes. Measured
+            across four readings of the slice 7c fixture (ADR-219 amendment 4),
+            with the selection identical in three of them:
+
+            ==========  ==========================  ============  ==============
+            reading     two noise eigenvalues       ``floor=0``   ``floor=0.1``
+            ==========  ==========================  ============  ==============
+            tier 1      ``-0.008687``, ``-0.003479``  0.0976        0.0973
+            t3 run 1    ``+0.005624``, ``+0.012057``  **0.4625**    0.0973
+            t3 run 2    ``-0.003605``, ``+0.001244``  **0.1546**    0.0973
+            t3 run 3    ``-0.004976``, ``-0.002473``  0.0976        0.0973
+            ==========  ==========================  ============  ==============
+
+            At ``floor=0`` the metric moves 4.7x on nothing but the sign of
+            noise; above the noise floor it is identical everywhere. Derive the
+            value from the criterion's own measured noise floor (Anchor 8) —
+            never from what makes a number look good.
 
     Returns:
         The non-negative distance. ``0.0`` exactly when ``delta_rho`` lies

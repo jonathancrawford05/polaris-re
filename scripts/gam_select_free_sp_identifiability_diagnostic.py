@@ -197,7 +197,18 @@ def main(payload_path: str) -> None:
     # both tiers, so it is the reading that survived re-measurement.
     resolved = len(blocks) - len(flat_blocks)
     print(f"    resolved directions (by step-stability): {resolved} of {len(blocks)}")
-    header = f"{'search':<24}{'max|dlog10 sp|':>16}{'H-weighted':>13}{'score gap':>13}"
+    # The floor is DERIVED, not chosen: the step-stability scan above already
+    # determined HOW MANY directions are unresolved, so clip exactly that many
+    # smallest eigenvalues. Reporting H at floor=0 alongside it makes the
+    # instability visible rather than hidden -- at floor=0 this metric moved 4.7x
+    # across four readings on nothing but the SIGN of noise (ADR-219 amendment 4).
+    sorted_evals = np.sort(evals)
+    noise_floor = float(sorted_evals[len(flat_blocks)]) if flat_blocks else 0.0
+    print(f"    derived floor (smallest resolved eigenvalue): {noise_floor:.6f}")
+    header = (
+        f"{'search':<22}{'max|dlog10 sp|':>16}{'H (floor=0)':>13}"
+        f"{'H (floored)':>13}{'score gap':>13}"
+    )
     print(f"    {header}")
     for label, kwargs in (
         ("single-start", {}),
@@ -207,8 +218,9 @@ def main(payload_path: str) -> None:
         comparison = compare_select_free_sp_case(fit, payload)
         d_rho = (fit.log_lambda - log10_mgcv) * ln10
         print(
-            f"    {label:<24}{comparison.max_abs_log10_sp_diff:16.4f}"
-            f"{hessian_weighted_distance(d_rho, hessian):13.6f}"
+            f"    {label:<22}{comparison.max_abs_log10_sp_diff:16.4f}"
+            f"{hessian_weighted_distance(d_rho, hessian, floor=0.0):13.6f}"
+            f"{hessian_weighted_distance(d_rho, hessian, floor=noise_floor):13.6f}"
             f"{fit.reml_score - base:13.6f}"
         )
     print()

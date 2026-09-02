@@ -20307,3 +20307,72 @@ must be reproducible before it is a gate. Any candidate metric now has to be
 shown stable across *repeated runs in one environment*, not merely across
 tiers — a strictly harder bar, and the right one if the resulting claim is
 going to be marketed.
+
+## ADR-219 amendment 4: a fourth reading explains the instability, and it is fixable
+
+**Date:** 2026-09-02. **Status:** ACCEPTED. Fourth reading, tier 3, same
+oracle, CI run
+[33639284944](https://github.com/jonathancrawford05/polaris-re/actions/runs/33639284944).
+
+### The four readings, and what is actually unstable
+
+| reading | eigenvalue-SIGN count | step-stability | single `max abs log10(sp)` | multi | multi H (`floor=0`) |
+|---|---:|---:|---:|---:|---:|
+| tier 1 (local) | 5 of 7 | **5 of 7** | 5.1320 | 1.4754 | 0.0617 |
+| tier 3 run 1 | 7 of 7 | **5 of 7** | 4.6424 | **5.9517** | **2.2095** |
+| tier 3 run 2 | 6 of 7 | **5 of 7** | 5.1320 | 1.4754 | 0.1758 |
+| tier 3 run 3 | 5 of 7 | **5 of 7** | 5.1320 | 1.4754 | 0.1343 |
+
+**This refines amendment 3 twice over.**
+
+**The search is mostly deterministic, with an occasional large excursion.**
+`max abs log10(sp) diff` reads `5.1320` / `1.4754` in **three of four**
+readings, to the printed digit. Run 1 was the outlier. Amendment 3 called the
+ratios "one draw from a distribution", which over-stated it — the truer
+description is *mostly reproducible with an intermittent multi-decade
+excursion*, and for a gate that is **worse**, not better: an intermittent
+failure is harder to catch than consistent noise.
+
+**The H-weighted metric moved even when the selection did not.** Runs 2 and 3
+selected identically (`1.4754`) yet read `0.1758` and `0.1343`; tier 1 read
+`0.0617`. So a second, independent instability sits in the *metric*, not the
+search.
+
+### Root cause of the metric's instability, and the fix
+
+`hessian_weighted_distance` clipped eigenvalues below `floor`, and `floor`
+defaulted to `0.0` — which clips only the NEGATIVES. **That is asymmetric:
+noise landing negative is discarded, noise landing positive is kept and
+contributes.** Since the displacement is largest exactly along the unresolved
+directions, that contribution is not small. Reproduced with the four readings'
+own eigenvalues:
+
+| reading | two noise eigenvalues | `floor=0` | `floor=0.1` |
+|---|---|---:|---:|
+| tier 1 | `-0.008687`, `-0.003479` | 0.0976 | 0.0973 |
+| t3 run 1 | `+0.005624`, `+0.012057` | **0.4625** | 0.0973 |
+| t3 run 2 | `-0.003605`, `+0.001244` | **0.1546** | 0.0973 |
+| t3 run 3 | `-0.004976`, `-0.002473` | 0.0976 | 0.0973 |
+
+**At `floor=0` the metric moves 4.7x on nothing but the sign of noise. Above
+the noise floor it is identical across all four.** The instability amendment 3
+attributed wholly to the search was, for this column, substantially the
+metric's own doing.
+
+**Fixed:** `floor` is now **required** on `hessian_weighted_distance` as well
+as on `identified_direction_count` — same defect, same guard. The diagnostic
+**derives** it rather than choosing it: the step-stability scan already
+determines how many directions are unresolved, so the floor is set to the
+smallest *resolved* eigenvalue, clipping exactly that many. Both columns are
+printed so the instability stays visible rather than hidden behind the fix.
+
+### What this changes for slice 7e
+
+Amendment 3 left the H-weighted distance as "a better metric, and not yet a
+demonstrably stable one". **It is now demonstrably stabilisable**, with a
+derived floor and a mechanism understood well enough to test. That materially
+improves 7e's prospects — but the requirement stands and is unchanged: **an
+acceptance number must be shown to reproduce across repeated runs before it
+gates anything.** The remaining instability, the intermittent multi-decade
+search excursion, is a property of the *search*, not the metric, and is filed
+separately.
