@@ -517,6 +517,18 @@ eight-term structure. See ADR-217 and `docs/CONFORMANCE_LEDGER.md`.
 > claim may be published**: conformance level 4 genuinely DISAGREES (ADR-190),
 > so an unqualified claim would be refuted by our own committed ledger.
 >
+> **TIER-3 RE-MEASUREMENT (2026-09-02, run 33633783477) confirmed the finding
+> and REFUTED two published numbers** (ADR-219 amendment 2). Confirmed: `mgcv`'s
+> point, the profile and the step-stability verdict are stable across tiers, so
+> the gate is ill-posed at two tiers. Retracted: **"5 identified directions of
+> 7"** (the eigenvalue SIGN count reads 7 of 7 at tier 3 — it counted the sign of
+> noise; `identified_direction_count` now requires an explicit `floor`, and the
+> robust statement is **2 of 7 carry no resolvable curvature**), and **the Part 2
+> ratios 3.5x/128x/424x** (tier 3 reads 0.8x/3.3x/261x — our own search is
+> BLAS-environment sensitive, ADR-211/213). The conclusion is SHARPER for it: at
+> tier 3 the committed gate calls multistart a *regression* on a change whose
+> score gap closed 261x.
+>
 > **NEXT: slice 7e** (the re-gating, decided and scoped) or **slice 7d** — the analytic REML gradient, re-aimed by ADR-219 at the
 > `0.0141` score gap on the 5 identified directions, the
 > `converged=False`-at-near-zero-gradient defect, and the ~8x cost saving;

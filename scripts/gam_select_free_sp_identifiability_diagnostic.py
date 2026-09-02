@@ -63,10 +63,7 @@ from polaris_re.analytics.gam_select_free_sp_conformance import (
     compare_select_free_sp_case,
     fit_select_free_sp_case,
 )
-from polaris_re.analytics.gam_sp_identifiability import (
-    hessian_weighted_distance,
-    identified_direction_count,
-)
+from polaris_re.analytics.gam_sp_identifiability import hessian_weighted_distance
 from polaris_re.analytics.gam_uncertainty_conformance import finite_difference_rho_hessian
 from polaris_re.core.exceptions import PolarisComputationError
 
@@ -193,8 +190,13 @@ def main(payload_path: str) -> None:
     print("      score gap      : DIAGNOSTIC (transport-flavoured) -- our criterion")
     print("                       evaluated AT mgcv's supplied point. Never a parity claim.")
     print()
-    ident = identified_direction_count(hessian)
-    print(f"    identified directions: {ident} of {len(blocks)}")
+    # Counted from the STEP-STABILITY verdict, not from eigenvalue signs. The
+    # sign count is not stable across environments -- on this same fixture it
+    # read 5 of 7 at tier 1 and 7 of 7 at tier 3, purely on which side of zero
+    # the noise landed (ADR-219 amendment 2). The step scan called b1/b3 FLAT at
+    # both tiers, so it is the reading that survived re-measurement.
+    resolved = len(blocks) - len(flat_blocks)
+    print(f"    resolved directions (by step-stability): {resolved} of {len(blocks)}")
     header = f"{'search':<24}{'max|dlog10 sp|':>16}{'H-weighted':>13}{'score gap':>13}"
     print(f"    {header}")
     for label, kwargs in (

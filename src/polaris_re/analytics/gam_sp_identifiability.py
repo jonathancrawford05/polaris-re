@@ -113,12 +113,41 @@ def hessian_weighted_distance(
     return float(np.sqrt(max(float(np.sum(evals * projected**2)), 0.0)))
 
 
-def identified_direction_count(hessian: np.ndarray, *, floor: float = 0.0) -> int:
-    """How many of ``hessian``'s directions the criterion actually resolves.
+def identified_direction_count(hessian: np.ndarray, *, floor: float) -> int:
+    """How many of ``hessian``'s directions carry curvature above ``floor``.
 
-    The companion reading to :func:`hessian_weighted_distance`: a gate on raw
-    ``log10(sp)`` is only meaningful when this equals the block count. On the
-    slice 7c fixture it is 5 of 7 (ADR-219).
+    **``floor`` is REQUIRED, and that is a correctness guard, not pedantry.**
+    An earlier revision defaulted it to ``0.0``, which counts eigenvalues by
+    SIGN — and on a criterion with a noise floor the sign of an unresolved
+    direction is not a property of the model at all. Measured, on the *same*
+    slice 7c fixture (ADR-219 amendment 2):
+
+    ===========================  ==========================  =============
+    tier                         two smallest eigenvalues    count at 0.0
+    ===========================  ==========================  =============
+    1 (R 4.3.3 / mgcv 1.9-1)     ``-0.008687``, ``-0.003479``  **5 of 7**
+    3 (R 4.6.1 / mgcv 1.9.4)     ``+0.005624``, ``+0.012057``  **7 of 7**
+    ===========================  ==========================  =============
+
+    Same fixture, same `mgcv` selection to four decimal places, same profile to
+    three — and a headline that moves from 5 to 7 purely on which side of zero
+    the noise landed. Requiring an explicit ``floor`` makes that mistake
+    impossible to make by accident.
+
+    **This is the secondary reading, never the headline.** The robust
+    discriminator is the step-stability scan in
+    ``scripts/gam_select_free_sp_identifiability_diagnostic.py``: a real
+    curvature holds steady as the finite-difference step shrinks, while a noise
+    floor divided by ``h^2`` grows. That scan called `b1`/`b3` FLAT at BOTH
+    tiers, which is the finding — the eigenvalue count did not survive
+    re-measurement and must not be quoted as though it had.
+
+    Args:
+        hessian: ``(M, M)`` symmetric REML Hessian w.r.t. natural-log lambda.
+        floor: curvature at or below which a direction counts as unresolved.
+            There is no universally right value — derive it from the criterion's
+            own measured noise floor for the case at hand (Anchor 8), never from
+            what makes a number look good.
     """
     evals, _ = _psd_part(np.asarray(hessian, dtype=np.float64), floor)
     return int(np.count_nonzero(evals > 0.0))

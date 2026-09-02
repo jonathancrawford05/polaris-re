@@ -19945,7 +19945,9 @@ ordering is the whole content of this ADR.
 
 **The gate is NOT attainable, and the reason is geometric.** At `mgcv`'s own
 free-`sp` `select=TRUE` point, the REML score's Hessian w.r.t. `rho` has
-**5 identified directions out of 7**. The two exceptions load on `b1`
+**2 of the 7 directions carrying no resolvable curvature** (the reading
+that survived tier-3 re-measurement — see amendment 2; the *eigenvalue-sign*
+count that originally read "5 of 7" did NOT). The two exceptions load on `b1`
 (`s(AttdAge)`'s existing block) and `b3` (`s(AttdAge,by=StudyYear_C)`'s
 existing block) — **exactly the two blocks ADR-218 found the residual had
 relocated to.**
@@ -20157,3 +20159,86 @@ per unit time*, which is not the same as speed: the fastest route to a claim
 that later has to be retracted is not fast. Where the two conflict, the
 standard wins and the slower path gets taken — and this paragraph is the
 record that the trade-off was named in advance rather than discovered later.
+
+## ADR-219 amendment 2: the tier-3 re-measurement, and the two things it refuted
+
+**Date:** 2026-09-02. **Status:** ACCEPTED. **Tier 3**, R 4.6.1 / mgcv 1.9.4,
+oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+CI run [33633783477](https://github.com/jonathancrawford05/polaris-re/actions/runs/33633783477).
+
+Amendment 1 decision 1 wired the slice 7c diagnostic into
+`mgcv-conformance.yml` so the next tier-3 run would confirm the eigenspectrum
+"for free". It ran on the very next push — **and it refuted two of the things
+this ADR published.** Both are retracted here rather than quietly amended.
+
+### What CONFIRMED
+
+The substantive finding, and it is unchanged:
+
+- **`mgcv`'s selected point is version-stable.** `log10(sp)` for `b1`/`b3` reads
+  `10.2964` / `11.7046` at BOTH tiers — vindicating amendment 1 decision 1's
+  argument that the point of evaluation does not move between mgcv 1.9-1 and
+  1.9.4 on this fixture.
+- **`b1` and `b3` carry no resolvable curvature, at both tiers**, by the
+  step-stability scan — the discriminator that survived.
+- **The per-block profile is essentially identical.** Moving `b3` two decades
+  changes the score by `-0.000219` (tier 1) / `-0.000188` (tier 3); moving `b1`
+  three decades down costs `+0.196660` / `+0.196680`.
+- **Therefore the gate is ill-posed, confirmed at two tiers.** Slice 7c's
+  decision not to build the analytic gradient stands.
+
+### RETRACTION 1 — "5 identified directions of 7" was not a robust number
+
+The eigenvalue-*sign* count reads differently at the two tiers on the same
+fixture:
+
+| tier | two smallest eigenvalues | count by sign |
+|---|---|---:|
+| 1 (R 4.3.3 / mgcv 1.9-1) | `-0.008687`, `-0.003479` | **5 of 7** |
+| 3 (R 4.6.1 / mgcv 1.9.4) | `+0.005624`, `+0.012057` | **7 of 7** |
+
+Same fixture, same `mgcv` point to four decimals, same profile to three — and a
+headline that moves from 5 to 7 purely on which side of zero the noise landed.
+**The number was never meaningful**: it counted the sign of a quantity this
+ADR's own step-stability scan had already shown to be noise. Publishing it as a
+headline was the error, not the tier-3 disagreement.
+
+**Fixed structurally, not with a caveat.**
+`gam_sp_identifiability.identified_direction_count` no longer defaults `floor`
+to `0.0` — the parameter is **required**, so a sign count cannot be obtained by
+accident, and the diagnostic script now derives its headline from the
+step-stability verdict instead. The robust statement is **"2 of 7 directions
+carry no resolvable curvature", confirmed at both tiers.**
+
+### RETRACTION 2 — the Part 2 improvement ratios do not reproduce
+
+| metric | tier 1 single → multi | tier 3 single → multi |
+|---|---|---|
+| `max abs log10(sp) diff` | 5.1320 → 1.4754 (**3.5x better**) | 4.6424 → 5.9517 (**0.8x — WORSE**) |
+| H-weighted distance | 7.9265 → 0.0617 (**128x**) | 7.2440 → 2.2095 (**3.3x**) |
+| score gap | 5.9595 → 0.0141 (**423x**) | 5.9312 → 0.0227 (**261x**) |
+
+The Hessian, profile and `mgcv` point are stable across tiers, so the data and
+the reference are identical; **what moved is our own free-`sp` search.** This
+is ADR-211/213's already-measured `OPENBLAS_NUM_THREADS`/BLAS-environment
+sensitivity, dominating the multistart row even with threads pinned to 1 on
+both sides — a different BLAS build reaches different trial points. The
+specific ratios `3.5x / 128x / 424x` are therefore **tier-1 artefacts and are
+withdrawn**; only their qualitative shape survives.
+
+**The qualitative conclusion survives, and tier 3 makes it sharper.** At tier 3
+the committed gate reports multistart as a **regression** (`4.64 → 5.95`) on a
+change whose score gap closed **261x**. A metric that calls a 261-fold
+improvement in the criterion a regression is not measuring the model; it is
+measuring where an optimiser happened to stop on directions the criterion does
+not resolve. That is a stronger case for re-gating than the tier-1 table made,
+arrived at by the reading that disagreed with us.
+
+### Consequence for slice 7e
+
+Its DoD already requires tier 1 AND tier 3. This amendment adds the reason with
+teeth: **any acceptance number for the new gate must be shown to reproduce
+across tiers before it is published**, because the metric this slice recommends
+replacing is not the only quantity here that moves with the environment. The
+H-weighted distance moved 36x between tiers on the multistart row; it is a
+better metric, and it is not yet a demonstrably stable one.

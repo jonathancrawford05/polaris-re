@@ -89,7 +89,10 @@ eigenspectrum of the REML Hessian w.r.t. `rho` at `mgcv`'s own point (reusing
 the already-`mgcv`-checked `finite_difference_rho_hessian`), plus a
 step-stability scan and a per-block profile. No production code touched.
 
-**Measured (tier 1):** **5 identified directions of 7.** The two exceptions
+**Measured (tier 1):** eigenvalue-sign count read **5 of 7** — a number that
+later FAILED tier-3 re-measurement and is retracted (see "Tier-3 confirmation"
+below). The robust reading, confirmed at both tiers, is that **2 of 7
+directions carry no resolvable curvature.** The two exceptions
 load on `b1` (`s(AttdAge)` existing) and `b3` (`s(AttdAge,by=StudyYear_C)`
 existing) with raw eigenvalues `-0.0087` and `-0.0035` — **exactly the two
 blocks ADR-218 reported the residual had relocated to.**
@@ -250,6 +253,49 @@ All three findings accepted and fixed; none disputed.
   Exactness genuinely is the contract there, but the convention holds anyway;
   now `assert_allclose(..., rtol=0.0, atol=0.0)`, which states the same
   contract inside the rule.
+
+## Tier-3 confirmation (2026-09-02) — and the two things it refuted
+
+Amendment 1 wired the diagnostic into `mgcv-conformance.yml` so the next tier-3
+run would confirm the eigenspectrum "for free". It ran on the very next push
+(CI run 33633783477, R 4.6.1 / mgcv 1.9.4) **and refuted two published
+numbers.** Recorded here as retractions, not quiet edits.
+
+**Confirmed — the substantive finding, unchanged.** `mgcv`'s point is identical
+across tiers (`b1` `10.2964`, `b3` `11.7046`), the profile is identical to three
+decimals (`b3` +2 decades: `-0.000188` vs `-0.000219`), and step-stability calls
+`b1`/`b3` FLAT at both tiers. **The gate is ill-posed, confirmed at two tiers**,
+and not building the gradient stands. Amendment 1 decision 1's argument — that
+`mgcv`'s selection does not move between 1.9-1 and 1.9.4 — is vindicated.
+
+**Retraction 1: "5 identified directions of 7".** At tier 3 all seven
+eigenvalues are positive (`+0.005624`, `+0.012057`, …), so the sign count reads
+**7 of 7**. Same fixture. The number counted the *sign* of a quantity this
+session's own step-stability scan had already shown to be noise — publishing it
+as a headline was the error, not the disagreement. Fixed structurally:
+`identified_direction_count` now REQUIRES an explicit `floor`, so a sign count
+cannot be taken by accident, and the script derives its headline from
+step-stability. Robust statement: **2 of 7 directions carry no resolvable
+curvature**, both tiers.
+
+**Retraction 2: the Part 2 improvement ratios.**
+
+| metric | tier 1 | tier 3 |
+|---|---|---|
+| `max abs log10(sp) diff` | 3.5x better | **0.8x — WORSE** |
+| H-weighted | 128x | 3.3x |
+| score gap | 423x | 261x |
+
+The Hessian, profile and `mgcv` point are stable, so the divergence is in **our
+own free-`sp` search** — ADR-211/213's BLAS-environment sensitivity, dominating
+the multistart row even with threads pinned on both sides. `3.5x / 128x / 424x`
+is withdrawn as a tier-1 artefact.
+
+**The conclusion survives and tier 3 sharpens it.** At tier 3 the committed gate
+calls multistart a *regression* (`4.64 → 5.95`) on a change whose score gap
+closed **261x**. A metric that reports a 261-fold criterion improvement as a
+regression is measuring where the optimiser stopped, not the model. The reading
+that disagreed with us made the case better than the one that agreed.
 
 ## Maintainer decisions, round 2 (2026-09-02) — ADR-219 amendment 1
 

@@ -3300,7 +3300,9 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
 
 - **The `1e-2` gate on raw `log10(sp)` is ILL-POSED on two of the seven
   `select=TRUE` blocks — measured, not argued.** At `mgcv`'s own point our
-  REML criterion resolves 5 of 7 `rho` directions; the two it does not are
+  REML criterion fails to resolve 2 of the 7 `rho` directions (step-stability,
+  confirmed at both tiers; an eigenvalue-sign count read "5 of 7" at tier 1 and
+  "7 of 7" at tier 3 and must not be quoted — ADR-219 amendment 2); the two are
   exactly the two ADR-218 found its residual had relocated to. Their apparent
   curvature grows like `1/h^2` as the step shrinks (a noise floor on a flat
   direction, not the saddle their raw negative eigenvalues suggest), and

@@ -1406,7 +1406,9 @@ response, round 2" section).
 
 - **What Part 0 measured (the slice's own decisive result).** At `mgcv`'s own
   free-`sp` `select=TRUE` point, the REML score's Hessian w.r.t. `rho` has
-  **5 identified directions out of 7**. The two exceptions are `b1`
+  **2 of the 7 directions carrying no resolvable curvature** (step-stability,
+  confirmed at both tiers; the eigenvalue-sign count that first read "5 of 7"
+  did NOT survive tier 3 — ADR-219 amendment 2). The two exceptions are `b1`
   (`s(AttdAge)`'s own existing block) and `b3`
   (`s(AttdAge,by=StudyYear_C)`'s own existing block) — **exactly the two
   blocks ADR-218 found the residual had relocated to.** Their apparent

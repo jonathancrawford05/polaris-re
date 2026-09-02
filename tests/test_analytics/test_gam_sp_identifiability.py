@@ -82,8 +82,29 @@ def test_floor_discards_directions_below_the_criterion_s_resolution() -> None:
 
 def test_identified_direction_count_reads_the_spectrum() -> None:
     h = np.diag(np.array([2.0, 0.0, -1.0e-3, 5.0], dtype=np.float64))
-    assert identified_direction_count(h) == 2
-    assert identified_direction_count(np.eye(4, dtype=np.float64)) == 4
+    assert identified_direction_count(h, floor=0.0) == 2
+    assert identified_direction_count(np.eye(4, dtype=np.float64), floor=0.0) == 4
+
+
+def test_floor_is_required_because_a_sign_count_is_not_stable() -> None:
+    """ADR-219 amendment 2, from the tier-3 re-measurement. `floor` has no
+    default on purpose: counting by SIGN gave 5-of-7 at tier 1 and 7-of-7 at
+    tier 3 on the SAME fixture, because the two unresolved directions' curvature
+    is noise and landed either side of zero. A required `floor` makes that
+    mistake impossible to make by accident."""
+    with pytest.raises(TypeError):
+        identified_direction_count(np.eye(2, dtype=np.float64))  # type: ignore[call-arg]
+
+    # The two tiers' actual readings, to the printed digits.
+    tier1 = np.diag(np.array([-0.008687, -0.003479, 0.443909, 1.653181], dtype=np.float64))
+    tier3 = np.diag(np.array([0.005624, 0.012057, 0.449262, 1.662867], dtype=np.float64))
+    # By sign the same fixture reads differently across tiers — the defect.
+    assert identified_direction_count(tier1, floor=0.0) == 2
+    assert identified_direction_count(tier3, floor=0.0) == 4
+    # Above the criterion's own noise floor both tiers agree, which is the point
+    # of requiring the caller to state one.
+    assert identified_direction_count(tier1, floor=0.1) == 2
+    assert identified_direction_count(tier3, floor=0.1) == 2
 
 
 def test_rejects_a_non_square_or_asymmetric_hessian() -> None:
