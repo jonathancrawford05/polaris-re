@@ -36,7 +36,12 @@ def test_a_displacement_along_a_flat_direction_costs_nothing() -> None:
     Slice 7b's own residual is exactly this shape."""
     h = np.diag(np.array([1.0, 0.0], dtype=np.float64))
     huge_along_flat = np.array([0.0, 25.0], dtype=np.float64)
-    assert hessian_weighted_distance(huge_along_flat, h) == 0.0
+    # Exactness IS the documented contract here ("0.0 exactly when delta_rho
+    # lies entirely in the clipped subspace"), so the tolerance is zero — but
+    # stated through assert_allclose, per CLAUDE.md's ban on float `==`.
+    np.testing.assert_allclose(
+        hessian_weighted_distance(huge_along_flat, h), 0.0, rtol=0.0, atol=0.0
+    )
 
 
 def test_a_negative_eigenvalue_from_the_noise_floor_is_clipped_not_propagated() -> None:

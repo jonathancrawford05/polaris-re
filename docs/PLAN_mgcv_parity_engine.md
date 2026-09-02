@@ -1615,11 +1615,16 @@ acceptance gate (Part 2).
   plus the ledger row. This is a property of OUR OWN criterion and needs no
   `mgcv` side; it is therefore neither parity nor transport, and the ledger
   row must say so rather than borrowing either label.
-- `[judgement]` Part 0's verdict — gate reachable, or not — stated in those
-  words in the session log BEFORE Part 1's result is reported.
-  **MET** — `scripts/gam_select_free_sp_identifiability_diagnostic.py`, six
-  ledger rows, and the eigenspectrum above. The ledger row carries NO
-  provenance label and says why.
+  **MET** — `scripts/gam_select_free_sp_identifiability_diagnostic.py` plus
+  **three** ledger rows carrying the eigenspectrum. None of the three carries
+  a provenance label, and each says why. **Stiff/flat ratio, as this criterion
+  asks:** largest eigenvalue `1.6532` against the two unresolved directions'
+  `|eigenvalue| <= 0.008687` — a ratio of **>= 190**. It is stated as a lower
+  bound deliberately: the denominator is a noise floor rather than a curvature,
+  so the ratio grows as the step coarsens (on the diagonal readings at
+  `h = 0.2`, `1.5793` against `0.00088`, i.e. **~1.8e3**). That
+  step-dependence is not an imprecision in the reading — it *is* the finding
+  that those directions carry no resolvable curvature.
 - `[judgement]` Part 0's verdict — gate reachable, or not — stated in those
   words in the session log BEFORE Part 1's result is reported.
   **MET — verdict: NOT REACHABLE.** Stated before Part 1 was considered, and
@@ -1694,7 +1699,20 @@ acceptance gate (Part 2).
   for this slice and must not be reported as one.
 - **Definition of Done:** slice 7c's three withdrawn `[machine]` criteria
   above, verbatim, plus a `[judgement]` that the score gap is reported on the
-  identified subspace and never as a `log10(sp)` closure.
+  identified subspace and never as a `log10(sp)` closure, plus the two
+  preconditions below if any re-gating lands in this slice.
+- **Preconditions inherited from ADR-219 (PR #224 review), binding only if
+  the maintainer accepts the re-gating.** Recorded on the slice so they cannot
+  be lost between the ADR and the work:
+  - `[machine]` The H-weighted distance is added to
+    `SELECT_FREE_SP_MODEL_CLAIM.quantities` as a declared `ComparedQuantity`
+    naming both producers, so `require_parity_evidence` and
+    `evidence_markdown` cover it, **before** it gates anything.
+  - `[machine]` The weighting Hessian is evaluated at **our own** selected
+    point, not at `mgcv`'s. Both operands are already independent, but
+    weighting at `mgcv`'s point lets its payload re-enter through the norm;
+    our own point closes that channel. Expect the numbers to move — measure by
+    how much and report it, rather than assuming the two curvatures agree.
 
 ### Deferred to a later epic: `bam` + `discrete = TRUE` + fREML
 

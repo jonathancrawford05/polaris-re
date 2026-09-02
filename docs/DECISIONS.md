@@ -20004,6 +20004,41 @@ acceptance gate.** That distinction is the substance of the recommendation.
 gate was edited; `SELECT_FREE_SP_MODEL_CLAIM` and `FREE_SP_MODEL_CLAIM` are
 untouched.
 
+### Two preconditions if the re-gating is ever accepted (PR #224 review)
+
+Both were raised by the automated review of this ADR's own PR, and both are
+recorded here rather than left in prose, because a precondition that lives
+only in a review comment does not travel.
+
+**1. The H-weighted distance must be declared before it gates anything.**
+Today only `max abs log10(sp) diff` is a declared `ComparedQuantity` on
+`SELECT_FREE_SP_MODEL_CLAIM`. The H-weighted column is labelled INDEPENDENT
+correctly, but only in prose (this ADR, the ledger row, the script's stdout,
+the session log) — which is the exact "a caveat in a paragraph does not
+travel, a column of numbers does" failure `VERIFICATION_STANDARD.md` §1
+exists to prevent. That is tolerable while it is a *reported statistic* and
+nothing is gated on it. **If it becomes a gate it must first be added to
+`SELECT_FREE_SP_MODEL_CLAIM.quantities` naming both producers**, so that
+`require_parity_evidence` and `evidence_markdown` cover it.
+
+**2. The weighting matrix is a second channel, and it should be closed.**
+A sharper point, and it qualifies the INDEPENDENT label this ADR gives the
+H-weighted column: the two *operands* are independently produced, but the
+Hessian doing the weighting is evaluated **at `mgcv`'s supplied point**, so
+`mgcv`'s payload re-enters the metric through the norm even though it is
+absent from both operands. That is not a mislabelling as reported here —
+provenance classifies the operands, the displacement is genuinely between two
+independent selections, and nothing gates on it — but it is a real seam and
+it should not be carried into a gate unexamined. **The fix is available and
+cheap: evaluate the Hessian at OUR OWN selected point instead.** Our point is
+our own producer's output, which removes `mgcv` from the weighting entirely
+and leaves the metric a pure function of our criterion and our selection. A
+symmetrised form (the mean of the two curvatures) is the alternative, and is
+strictly worse on this axis for the same reason. **Whoever accepts the
+re-gating should require the own-point weighting**, and should expect the
+numbers to move slightly — the curvature differs between the two points, and
+by exactly how much is itself unmeasured here.
+
 ### Provenance (ADR-193)
 
 **This slice publishes no parity comparison, and that is a deliberate

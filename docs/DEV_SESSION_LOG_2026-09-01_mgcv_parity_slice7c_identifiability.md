@@ -216,6 +216,38 @@ fired. They are struck through with the reason, not deleted, and carried
 verbatim into slice 7d — the gate working as designed ("Part 0 … may end the
 slice"), not criteria quietly failed.
 
+## PR #224 review response, round 1
+
+All three findings accepted and fixed; none disputed.
+
+- **[P1-1] the slice 7c DoD duplicated a criterion and misfiled its evidence
+  — CORRECT, and self-inflicted.** The edit that recorded the outcomes began
+  its replacement one bullet too low, so the `**MET**` intended for the
+  `[machine]` eigenspectrum criterion landed under the pre-existing
+  `[judgement]` line, which was then rewritten — leaving a duplicated
+  `[judgement]` and a `[machine]` criterion with no verdict beside it. The
+  reviewer's framing is right that this is what a quietly-dropped criterion
+  also looks like. Fixed: duplicate removed, `MET` moved under the `[machine]`
+  line, **six → three** ledger rows corrected (six was copied from slice 7b's
+  count), and the **stiff/flat ratio the criterion explicitly asks for** now
+  stated — `>= 190` on eigenvalues, `~1.8e3` on the coarsest diagonal
+  readings, given as a lower bound because the denominator is a noise floor,
+  which is itself the finding.
+- **[P2-1] the Part 2 table's provenance travelled only in prose — CORRECT.**
+  Recorded as two binding preconditions in ADR-219 and on slice 7d, so they
+  cannot be lost between the ADR and the work: the H-weighted distance must be
+  a declared `ComparedQuantity` before it gates anything, and — the reviewer's
+  sharper point, which genuinely qualifies this ADR's INDEPENDENT label — the
+  **weighting Hessian must be evaluated at OUR OWN point, not `mgcv`'s.** Both
+  operands are independently produced, but weighting at `mgcv`'s point lets its
+  payload re-enter through the norm as a second channel. Not a live
+  mislabelling (nothing gates on it, and provenance classifies the operands),
+  but a real seam, and closing it is cheap.
+- **[P2-2] bare float `==` at `test_gam_sp_identifiability.py:39` — CORRECT.**
+  Exactness genuinely is the contract there, but the convention holds anyway;
+  now `assert_allclose(..., rtol=0.0, atol=0.0)`, which states the same
+  contract inside the rule.
+
 ## Follow-ups filed
 
 - **Slice 7d registered** (`PLAN_mgcv_parity_engine.md`) — the analytic REML
