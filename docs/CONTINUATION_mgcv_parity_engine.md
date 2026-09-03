@@ -473,6 +473,75 @@ eight-term structure. See ADR-217 and `docs/CONFORMANCE_LEDGER.md`.
 > second, larger data point and stays maintainer-reserved (see "Open
 > questions" below).
 
+> **Slice 7c (is the `log10(sp)` gate reachable at all?) is DONE for Parts 0
+> and 2, tier 1, 2026-09-01 (ADR-219). Part 1 was deliberately NOT built and
+> is re-scoped as slice 7d.** Registered by the maintainer in the PR #223
+> review conversation, the same in-session mechanism slice 7b used.
+> **The answer to ADR-218's open question is that the question was posed in
+> the wrong units.** At `mgcv`'s own point the REML criterion resolves only
+> **5 of the 7** `rho` directions; the two it does not are `b1` and `b3` —
+> exactly the two ADR-218 found its residual had relocated to. Their apparent
+> curvature grows like `1/h^2` as the finite-difference step shrinks (the
+> signature of a noise floor on a FLAT direction, not the saddle their raw
+> negative eigenvalues suggest), and moving `b3` TWO decades changes the score
+> by `-0.0002` against `~+1.0` for HALF a decade on an identified block. **A
+> `1e-2` gate on a parameter the criterion cannot distinguish across two
+> decades is ill-posed, not merely hard** — so ADR-218's residual was never an
+> optimiser defect on those blocks, and no analytic gradient could have closed
+> it. Part 2 measured three candidate metrics (committed gate `3.5x`
+> improvement from multistart; H-weighted distance `128x`; score gap `424x`)
+> and **recommends the H-weighted distance on ADR-193 grounds** — it preserves
+> INDEPENDENT provenance, while the sharper-looking score gap is DIAGNOSTIC
+> (our criterion at a point `mgcv` supplied) and must never become a gate.
+> **Recommended, NOT taken: no committed gate was edited, and no production
+> search path changed.** Tier 1 only — not citable outside the session log
+> without a tier-3 confirmation. See ADR-219 and `docs/CONFORMANCE_LEDGER.md`.
+>
+> **Maintainer decisions, 2026-09-02 (ADR-219 amendment 1).** All four open
+> items resolved: tier-1 status accepted (with the diagnostic now wired into
+> `mgcv-conformance.yml` so the next tier-3 run confirms the eigenspectrum for
+> free); the provenance precedent **ratified and codified** as
+> `VERIFICATION_STANDARD.md` §2.1's third category
+> **`MEASUREMENT (own criterion)`**, with the three ledger rows relabelled from
+> a bare absence (an unlabelled row is indistinguishable from a forgotten one);
+> slice 7d accepted but its *ranking* left open; and **the re-gating accepted
+> with the metric changed** — `eta`/`edf` primary, H-weighted companion, not
+> H-weighted primary as ADR-219 originally recommended. Registered as slice 7e.
+>
+> **NEW CONTEXT, and it constrains slice 7e: `mgcv` parity is intended as a
+> MARKETING BENCHMARK.** That makes the gate change more delicate, not less —
+> changing a criterion to one the engine passes more easily, for a claim that
+> will be marketed, is structurally what Anchor 8 forbids even when the change
+> is right on the merits. Slice 7e is legitimate only if it **narrows the claim
+> rather than loosening the measurement**, and **no unqualified "mgcv parity"
+> claim may be published**: conformance level 4 genuinely DISAGREES (ADR-190),
+> so an unqualified claim would be refuted by our own committed ledger.
+>
+> **TIER-3 RE-MEASUREMENT (2026-09-02, run 33633783477) confirmed the finding
+> and REFUTED two published numbers** (ADR-219 amendment 2). Confirmed: `mgcv`'s
+> point, the profile and the step-stability verdict are stable across tiers, so
+> the gate is ill-posed at two tiers. Retracted: **"5 identified directions of
+> 7"** (the eigenvalue SIGN count reads 7 of 7 at tier 3 — it counted the sign of
+> noise; `identified_direction_count` now requires an explicit `floor`, and the
+> robust statement is **2 of 7 carry no resolvable curvature**), and **the Part 2
+> ratios 3.5x/128x/424x**. **Amendment 3 then corrected the ATTRIBUTION:** a
+> third reading (second tier-3 run, same oracle) reproduced tier 1 exactly while
+> differing from the first tier-3 run by four decades — so this is **run-to-run
+> non-reproducibility of our own free-`sp` search across CI runner instances**,
+> threads pinned throughout, not a tier effect. The ratios are one draw from a
+> distribution. The conclusion is SHARPER for it: on the anomalous run the
+> committed gate called multistart a *regression* on a change whose score gap
+> closed 261x. Eigenvalue-sign count across the three readings: 5, 7, 6.
+> Step-stability: 5 of 7, every time.
+>
+> **NEXT: slice 7e** (the re-gating, decided and scoped) or **slice 7d** — the analytic REML gradient, re-aimed by ADR-219 at the
+> `0.0141` score gap on the 5 identified directions, the
+> `converged=False`-at-near-zero-gradient defect, and the ~8x cost saving;
+> explicitly NOT at the `log10(sp)` gate. Carries a hazard ADR-219 found:
+> `gam_derivatives.dw_deta` is Appendix D at `alpha ≡ 1` (Fisher weight) while
+> `reml_score_general` uses the OBSERVED weight, so wiring `dw_drho` straight
+> in is correct for a canonical link and silently wrong for `cloglog`.
+
 > **This is the ACTIVE epic.** `CONTINUATION_penalized_mi_surface.md` is superseded from
 > its slice 6 onward and all of its remaining slices are PARKED. A routine run selecting
 > work should land here.

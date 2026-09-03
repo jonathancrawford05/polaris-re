@@ -53,6 +53,46 @@ computed by `numpy.linalg.matrix_rank` on one side and `mgcv`'s own rank
 determination on the other, while `X` and `S` in the same table are echoed. Say
 so per column; do not average it into one verdict.
 
+### 2.1 The third category: a reading that is not a comparison at all
+
+**Amended 2026-09-02 (ADR-219, PR #224).** INDEPENDENT / ECHO / TRANSPORT
+classify *comparisons*. Some measurements are not comparisons, and forcing one
+of those three labels onto them is a category error that makes the ledger less
+truthful, not more.
+
+> **`MEASUREMENT (own criterion)`** — a reading of one of our own quantities'
+> own behaviour, where no second producer's value is placed opposite ours.
+> A reference's output may enter as the **point of evaluation** — an argument —
+> without becoming an **operand**.
+
+The case that forced this: slice 7c read the curvature of our own REML score
+(eigenspectrum, step-stability scan, per-block profile) *at the point `mgcv`
+selected*. `mgcv`'s `sp` is an input telling us **where to look**; nothing
+`mgcv` computed is compared against anything Polaris computed. There is no
+second producer to name, so there is nothing for the two-producer rule to rule
+on.
+
+**The distinguishing question, and it is answerable mechanically:**
+
+> Remove the reference entirely. Is there still a number?
+
+If yes, and the reference only chose the coordinates, it is a
+`MEASUREMENT (own criterion)`. If no — the number cannot exist without the
+reference's value — it is a comparison, and the two-producer rule applies in
+full.
+
+**Why an explicit label rather than leaving it blank.** An unlabelled row is
+indistinguishable from a row whose author forgot the label, and a reader six
+months later cannot tell deliberate classification from carelessness. Prose in
+the cell does not survive the way a column does — which is the failure §1
+exists to stop, reappearing one level up.
+
+**This category can never carry a parity claim, and grants nothing.** It is not
+a softer INDEPENDENT. A `MEASUREMENT (own criterion)` row says something about
+*our* engine's behaviour and **nothing whatever** about agreement with the
+reference. Do not let one appear in a table whose headline claims agreement,
+and never tick an acceptance criterion on one.
+
 ## 3. What you must do
 
 ### 3.1 Declare provenance in the type, at the producer

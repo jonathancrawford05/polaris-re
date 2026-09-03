@@ -19915,3 +19915,464 @@ own function evaluations). The N=7 reading is the second data point (after
 ADR-213/214's N=4/N=8 readings) that a weakly-identified surface's own
 raw-`log10(sp)` disagreement need not track model agreement — `eta`/`edf`
 moved by two to three orders of magnitude more than `log10(sp)` did.
+
+## ADR-219: Slice 7c — `SELECT_FREE_SP_MODEL_CLAIM`'s `log10(sp)` gate is ill-posed on two of the seven blocks, so the acceptance metric — not the optimiser — is what ADR-218's residual was about
+
+**Date:** 2026-09-01
+**Status:** ACCEPTED, **tier 1 only** — this slice adds no production code
+path for a tier-3 run to exercise, and its numbers may not be cited outside
+the session log without a tier-3 confirmation (`ROUTINE_MGCV_PARITY.md`
+step 2).
+**Implements:** `docs/PLAN_mgcv_parity_engine.md` slice 7c, drafted as a
+proposal in the PR #223 review conversation and registered by the maintainer
+in that same conversation — the same in-session mechanism ADR-218 records for
+slice 7b.
+
+### Context
+
+ADR-218 closed slice 7b with a residual it attributed to optimiser
+convergence: `multistart=True` brought `eta` to `0.0027` and `edf_total` to
+`0.11`, but `max_abs_log10_sp_diff` stayed at `1.48` against a `1e-2` gate,
+and a warm-start diagnostic showed `mgcv`'s own point scores `0.0141` better
+under our own criterion than best-of-9 blind multistart reaches. ADR-218
+named a better optimiser (an analytic REML gradient) as the next hypothesis.
+
+Slice 7c was registered to build that gradient — but with a **Part 0 gate in
+front of it**: is the `1e-2` gate on raw `log10(sp)` attainable at all? That
+ordering is the whole content of this ADR.
+
+### What was measured
+
+**The gate is NOT attainable, and the reason is geometric.** At `mgcv`'s own
+free-`sp` `select=TRUE` point, the REML score's Hessian w.r.t. `rho` has
+**2 of the 7 directions carrying no resolvable curvature** (the reading
+that survived tier-3 re-measurement — see amendment 2; the *eigenvalue-sign*
+count that originally read "5 of 7" did NOT). The two exceptions load on `b1`
+(`s(AttdAge)`'s existing block) and `b3` (`s(AttdAge,by=StudyYear_C)`'s
+existing block) — **exactly the two blocks ADR-218 found the residual had
+relocated to.**
+
+Their raw eigenvalues are NEGATIVE (`-0.0087`, `-0.0035`), which would read as
+a saddle. It is not: a step-stability scan shows the diagonal second
+difference growing like `1/h^2` as the step shrinks —
+
+| block | h=0.2 | h=0.1 | h=0.05 | h=0.025 | reading |
+|---|---:|---:|---:|---:|---|
+| b1 | -0.00088 | -0.00324 | -0.01369 | -0.08094 | FLAT (noise) |
+| b3 | -0.00020 | -0.00234 | -0.01042 | -0.02382 | FLAT (noise) |
+| b5 | 1.57935 | 1.57766 | 1.57380 | 1.54281 | identified |
+| b6 | 1.28503 | 1.28156 | 1.27370 | 1.22681 | identified |
+
+— the signature of a constant absolute noise floor divided by `h^2`, not of a
+real curvature of either sign. The identified blocks are stable to ~2% across
+the same 8x step range. **The negative eigenvalues are numerical, and the true
+curvature on `b1`/`b3` is indistinguishable from zero.**
+
+The per-block profile says it without Hessians: moving `b3` (at
+`log10(sp) = 11.70`) a full decade in either direction changes the score by
+under `2e-4`, and **two** decades up by `-0.0002` — against `~+1.0` for HALF a
+decade on `b5`. `b1` (at `10.30`) behaves the same way.
+
+**Conclusion.** A gate demanding agreement to `0.01` decades on a parameter
+whose value the criterion cannot distinguish across two decades is not a hard
+target; it is an ill-posed one. No optimiser, however exact, can pin a
+parameter the objective does not resolve. **ADR-218's residual was never an
+optimiser defect on these two blocks — it was the metric.**
+
+### The candidate metrics (Part 2 — filed, NOT taken)
+
+| search | `max abs log10(sp) diff` | H-weighted distance | score gap |
+|---|---:|---:|---:|
+| single-start | 5.1320 | 7.9265 | 5.9595 |
+| `multistart=True, n_starts=9` | 1.4754 | 0.0617 | 0.0141 |
+| improvement | **3.5x** | **128x** | **424x** |
+
+The committed gate credits multistart with `3.5x` for a change the
+criterion-aware metrics score at `128x`-`424x`, because it keeps measuring the
+two directions the criterion cannot resolve. The independently recomputed
+score gap (`0.014057`) reproduces ADR-218's warm-start `0.0141`.
+
+**Recommended: the Hessian-weighted distance — on ADR-193 grounds, not
+aesthetics.** It compares the SAME two independent operands the current gate
+does (both sides selected their own `sp`), merely re-normed by our own
+criterion's curvature, so it **preserves INDEPENDENT provenance**. The score
+gap, though the sharpest number in the table, evaluates our criterion AT
+`mgcv`'s supplied point — DIAGNOSTIC/transport-flavoured, the same status
+ADR-218 correctly gave its warm-start reading — and **must never become an
+acceptance gate.** That distinction is the substance of the recommendation.
+
+**Not taken.** Re-gating is a maintainer decision (`ROUTINE_MGCV_PARITY.md`,
+"May not decide" — "whether to relax an acceptance criterion"). No committed
+gate was edited; `SELECT_FREE_SP_MODEL_CLAIM` and `FREE_SP_MODEL_CLAIM` are
+untouched.
+
+### Two preconditions if the re-gating is ever accepted (PR #224 review)
+
+Both were raised by the automated review of this ADR's own PR, and both are
+recorded here rather than left in prose, because a precondition that lives
+only in a review comment does not travel.
+
+**1. The H-weighted distance must be declared before it gates anything.**
+Today only `max abs log10(sp) diff` is a declared `ComparedQuantity` on
+`SELECT_FREE_SP_MODEL_CLAIM`. The H-weighted column is labelled INDEPENDENT
+correctly, but only in prose (this ADR, the ledger row, the script's stdout,
+the session log) — which is the exact "a caveat in a paragraph does not
+travel, a column of numbers does" failure `VERIFICATION_STANDARD.md` §1
+exists to prevent. That is tolerable while it is a *reported statistic* and
+nothing is gated on it. **If it becomes a gate it must first be added to
+`SELECT_FREE_SP_MODEL_CLAIM.quantities` naming both producers**, so that
+`require_parity_evidence` and `evidence_markdown` cover it.
+
+**2. The weighting matrix is a second channel, and it should be closed.**
+A sharper point, and it qualifies the INDEPENDENT label this ADR gives the
+H-weighted column: the two *operands* are independently produced, but the
+Hessian doing the weighting is evaluated **at `mgcv`'s supplied point**, so
+`mgcv`'s payload re-enters the metric through the norm even though it is
+absent from both operands. That is not a mislabelling as reported here —
+provenance classifies the operands, the displacement is genuinely between two
+independent selections, and nothing gates on it — but it is a real seam and
+it should not be carried into a gate unexamined. **The fix is available and
+cheap: evaluate the Hessian at OUR OWN selected point instead.** Our point is
+our own producer's output, which removes `mgcv` from the weighting entirely
+and leaves the metric a pure function of our criterion and our selection. A
+symmetrised form (the mean of the two curvatures) is the alternative, and is
+strictly worse on this axis for the same reason. **Whoever accepts the
+re-gating should require the own-point weighting**, and should expect the
+numbers to move slightly — the curvature differs between the two points, and
+by exactly how much is itself unmeasured here.
+
+### Provenance (ADR-193)
+
+**This slice publishes no parity comparison, and that is a deliberate
+classification, not an omission.** Part 0's eigenspectrum, step scan and
+profile are properties of our OWN criterion; `mgcv`'s selection enters only as
+the POINT of evaluation, an argument rather than an operand. There is no
+second producer to name, so the measurement is **neither INDEPENDENT nor
+ECHO/TRANSPORT** — those labels classify comparisons, and this is not one.
+Forcing it into either would be a category error. The ledger rows carry the
+third category, **`MEASUREMENT (own criterion)`**, codified by amendment 1 at
+`docs/VERIFICATION_STANDARD.md` §2.1.
+
+The Part 2 table's three columns have three different statuses, which is the
+point of the recommendation: `max abs log10(sp) diff` INDEPENDENT (unchanged
+from ADR-218), H-weighted distance INDEPENDENT (same operands, different
+norm), score gap DIAGNOSTIC (our criterion at a point `mgcv` supplied).
+
+### The one production change
+
+**None to any search path.** `select_lambdas_continuous`, `fit_polaris_gam`
+and every conformance module are untouched. `src/` gains one new module,
+`gam_sp_identifiability.py` (`hessian_weighted_distance`,
+`identified_direction_count`), which nothing in production calls — it exists
+for the diagnostic and for whatever the maintainer decides about the gate.
+Verified against closed forms (identity Hessian → Euclidean norm; diagonal
+Hessian → hand-computed quadratic form; rotation invariance), not against
+another implementation of itself.
+
+### Consequences
+
+Slice 7c's Part 1 (the analytic gradient) was **deliberately not built**, and
+ADR-218's "next hypothesis" is re-scoped as **slice 7d**: the gradient is
+still worth having, but for the `0.0141` score gap on the 5 identified
+directions, for the `converged=False`-at-near-zero-gradient defect, and for
+the ~8x cost saving — **not** for the `log10(sp)` gate, which it cannot close.
+7d also inherits a hazard this slice found: `gam_derivatives.dw_deta` is
+Appendix D at `alpha ≡ 1` (the FISHER weight) while `reml_score_general` uses
+the OBSERVED weight, so wiring `dw_drho` straight in yields a gradient correct
+for a canonical link and silently wrong for `cloglog`.
+
+More generally: this epic now has a measured instance of a gate that a
+correct engine cannot pass. That is worth remembering the next time a
+comparison "fails" — the third possibility, after "our code is wrong" and
+"their code is wrong", is "the question is unanswerable as posed."
+
+## ADR-219 amendment 1: the maintainer's decisions, and the marketing constraint they now sit under
+
+**Date:** 2026-09-02. **Status:** ACCEPTED (maintainer, PR #224 conversation).
+
+### The four decisions
+
+1. **Tier-1-only status ACCEPTED.** The residual risk is bounded by evidence
+   already in hand: the eigenspectrum is read at `mgcv`'s selected point, which
+   is version-dependent in principle, but ADR-218's tier-1 and tier-3 readings
+   of this same fixture agreed to four significant figures — so `mgcv` 1.9-1
+   and 1.9.4 select materially the same point here. The diagnostic is
+   nevertheless wired into `mgcv-conformance.yml` so the next tier-3 run
+   confirms the eigenspectrum for free.
+2. **The no-provenance-label precedent RATIFIED, and upgraded.** Not left as a
+   precedent: codified as `docs/VERIFICATION_STANDARD.md` §2.1, and the bare
+   absence replaced by an explicit `MEASUREMENT (own criterion)` label, because
+   an unlabelled row is indistinguishable from a forgotten one.
+3. **Slice 7d registration ACCEPTED**, with its ranking noted as open: its
+   headline justification is gone and what remains (a `0.0141` score gap, the
+   `converged` flag defect, an ~8x speedup) is real but not urgent. It should
+   be ranked against other Tier-A work, not inherit "next" by adjacency.
+4. **The re-gating ACCEPTED, with the metric changed from what this ADR
+   originally recommended.** Not the H-weighted distance as primary. See below.
+
+### Decision 4, restated: `eta`/`edf` primary, H-weighted companion
+
+This ADR's body recommends the H-weighted distance on ADR-193 provenance
+grounds. That reasoning stands, but it answers the wrong question: **provenance
+constrains what MAY gate, it does not establish what SHOULD.** Polaris is a
+pricing engine; what a user needs to know is whether the fitted surface matches
+`mgcv`'s. That is `eta` and `edf`. The smoothing parameters are machinery.
+
+Accepted form: **`eta`/`edf` as the primary acceptance gate, with the
+H-weighted distance as the `sp`-space companion** — the companion catching the
+case where the surfaces agree but the parameters diverge for some reason that
+is *not* flatness. Gating on the H-weighted distance alone would make the
+criterion answer a question no reinsurer asks. Registered as **slice 7e**;
+this ADR does not implement it.
+
+### The constraint the marketing context imposes (maintainer, 2026-09-02)
+
+The maintainer noted that **`mgcv` parity is intended as a marketing benchmark
+for Polaris RE once development has progressed far enough.** That is a material
+design input, it was not previously written down anywhere in this repo, and it
+makes the gate change *more* delicate rather than less. Three consequences,
+binding on slice 7e:
+
+**1. This must narrow the claim, never loosen the measurement.** Changing an
+acceptance criterion to one the engine passes more easily, in service of a
+claim that will be marketed, is structurally the exact move Anchor 8 forbids —
+*even when the change is correct on the merits, as this one is.* The defence is
+not that the evidence is good; it is that **the claim gets smaller and more
+precise, not larger**. "Polaris reproduces `mgcv`'s fitted surface (`eta`,
+`edf`) to <tolerance> on <structure>" is narrower than, and strictly implied by
+nothing in, "Polaris reproduces `mgcv`". Slice 7e must state the claim in that
+shape or not ship.
+
+**2. Never publish an unqualified "mgcv parity" claim — it is not true today,
+and slice 7e will not make it true.** Conformance **level 4 genuinely
+DISAGREES** (ADR-190, the Wood/Pya/Säfken `dw/drho` correction), and
+`VERIFICATION_STANDARD.md` §5 records that this disagreement is real precisely
+*because* levels 1-5 carry INDEPENDENT provenance. A public claim must name the
+quantity, the tolerance and the structure it was measured on. An unqualified
+claim would be refuted by our own committed ledger — the most damaging way for
+it to fail, since the refutation is in our own repository.
+
+**3. "Rapidly" is a scheduling target and cannot be an input to a verification
+standard.** Schedule pressure on an acceptance criterion is the specific
+pressure ADR-193 exists to resist. The routine will optimise for *defensibility
+per unit time*, which is not the same as speed: the fastest route to a claim
+that later has to be retracted is not fast. Where the two conflict, the
+standard wins and the slower path gets taken — and this paragraph is the
+record that the trade-off was named in advance rather than discovered later.
+
+## ADR-219 amendment 2: the tier-3 re-measurement, and the two things it refuted
+
+**Date:** 2026-09-02. **Status:** ACCEPTED. **Tier 3**, R 4.6.1 / mgcv 1.9.4,
+oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+CI run [33633783477](https://github.com/jonathancrawford05/polaris-re/actions/runs/33633783477).
+
+Amendment 1 decision 1 wired the slice 7c diagnostic into
+`mgcv-conformance.yml` so the next tier-3 run would confirm the eigenspectrum
+"for free". It ran on the very next push — **and it refuted two of the things
+this ADR published.** Both are retracted here rather than quietly amended.
+
+### What CONFIRMED
+
+The substantive finding, and it is unchanged:
+
+- **`mgcv`'s selected point is version-stable.** `log10(sp)` for `b1`/`b3` reads
+  `10.2964` / `11.7046` at BOTH tiers — vindicating amendment 1 decision 1's
+  argument that the point of evaluation does not move between mgcv 1.9-1 and
+  1.9.4 on this fixture.
+- **`b1` and `b3` carry no resolvable curvature, at both tiers**, by the
+  step-stability scan — the discriminator that survived.
+- **The per-block profile is essentially identical.** Moving `b3` two decades
+  changes the score by `-0.000219` (tier 1) / `-0.000188` (tier 3); moving `b1`
+  three decades down costs `+0.196660` / `+0.196680`.
+- **Therefore the gate is ill-posed, confirmed at two tiers.** Slice 7c's
+  decision not to build the analytic gradient stands.
+
+### RETRACTION 1 — "5 identified directions of 7" was not a robust number
+
+The eigenvalue-*sign* count reads differently at the two tiers on the same
+fixture:
+
+| tier | two smallest eigenvalues | count by sign |
+|---|---|---:|
+| 1 (R 4.3.3 / mgcv 1.9-1) | `-0.008687`, `-0.003479` | **5 of 7** |
+| 3 (R 4.6.1 / mgcv 1.9.4) | `+0.005624`, `+0.012057` | **7 of 7** |
+
+Same fixture, same `mgcv` point to four decimals, same profile to three — and a
+headline that moves from 5 to 7 purely on which side of zero the noise landed.
+**The number was never meaningful**: it counted the sign of a quantity this
+ADR's own step-stability scan had already shown to be noise. Publishing it as a
+headline was the error, not the tier-3 disagreement.
+
+**Fixed structurally, not with a caveat.**
+`gam_sp_identifiability.identified_direction_count` no longer defaults `floor`
+to `0.0` — the parameter is **required**, so a sign count cannot be obtained by
+accident, and the diagnostic script now derives its headline from the
+step-stability verdict instead. The robust statement is **"2 of 7 directions
+carry no resolvable curvature", confirmed at both tiers.**
+
+### RETRACTION 2 — the Part 2 improvement ratios do not reproduce
+
+| metric | tier 1 single → multi | tier 3 single → multi |
+|---|---|---|
+| `max abs log10(sp) diff` | 5.1320 → 1.4754 (**3.5x better**) | 4.6424 → 5.9517 (**0.8x — WORSE**) |
+| H-weighted distance | 7.9265 → 0.0617 (**128x**) | 7.2440 → 2.2095 (**3.3x**) |
+| score gap | 5.9595 → 0.0141 (**423x**) | 5.9312 → 0.0227 (**261x**) |
+
+The Hessian, profile and `mgcv` point are stable across tiers, so the data and
+the reference are identical; **what moved is our own free-`sp` search.** This
+is ADR-211/213's already-measured `OPENBLAS_NUM_THREADS`/BLAS-environment
+sensitivity, dominating the multistart row even with threads pinned to 1 on
+both sides — a different BLAS build reaches different trial points. The
+specific ratios `3.5x / 128x / 424x` are therefore **tier-1 artefacts and are
+withdrawn**; only their qualitative shape survives.
+
+**The qualitative conclusion survives, and tier 3 makes it sharper.** At tier 3
+the committed gate reports multistart as a **regression** (`4.64 → 5.95`) on a
+change whose score gap closed **261x**. A metric that calls a 261-fold
+improvement in the criterion a regression is not measuring the model; it is
+measuring where an optimiser happened to stop on directions the criterion does
+not resolve. That is a stronger case for re-gating than the tier-1 table made,
+arrived at by the reading that disagreed with us.
+
+### Consequence for slice 7e
+
+Its DoD already requires tier 1 AND tier 3. This amendment adds the reason with
+teeth: **any acceptance number for the new gate must be shown to reproduce
+across tiers before it is published**, because the metric this slice recommends
+replacing is not the only quantity here that moves with the environment. The
+H-weighted distance moved 36x between tiers on the multistart row; it is a
+better metric, and it is not yet a demonstrably stable one.
+
+## ADR-219 amendment 3: a third reading corrects amendment 2's attribution — the instability is RUN-TO-RUN, not tier-related
+
+**Date:** 2026-09-02. **Status:** ACCEPTED. **Tier 3**, same oracle
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+CI run [33636732346](https://github.com/jonathancrawford05/polaris-re/actions/runs/33636732346)
+— the push that carried amendment 2 itself re-ran the diagnostic, giving a
+second tier-3 reading on the same image.
+
+Amendment 2 framed its second retraction as a tier-1-versus-tier-3 difference
+and attributed it to a BLAS-environment change between the two. **That
+attribution is wrong, and the third reading is worse news than the second.**
+
+### Three readings of one fixture
+
+| reading | eigenvalue-SIGN count | step-stability | single `max abs log10(sp) diff` | multi | multi H-weighted | multi score gap |
+|---|---:|---:|---:|---:|---:|---:|
+| tier 1 (local, mgcv 1.9-1) | **5 of 7** | 5 of 7 | 5.1320 | 1.4754 | 0.0617 | 0.0141 |
+| tier 3 run 1 (33633783477) | **7 of 7** | 5 of 7 | 4.6424 | 5.9517 | 2.2095 | 0.0227 |
+| tier 3 run 2 (33636732346) | **6 of 7** | 5 of 7 | 5.1320 | 1.4754 | 0.1758 | 0.0141 |
+
+**Tier-3 run 2 reproduces tier 1 exactly** on `max abs log10(sp) diff`
+(`5.1320` / `1.4754`, to the printed digit) and on the score gap (`0.014071`
+against `0.014057`). The two tier-3 runs — **same oracle image, same pinned
+`OPENBLAS_NUM_THREADS=1`, same code, same data** — disagree with each other by
+**four decades** on the multistart row, far more than tier 3 disagrees with
+tier 1.
+
+So the mechanism amendment 2 named (our own free-`sp` search, not the data or
+`mgcv`) was right; the axis it named was not. This is **run-to-run
+non-reproducibility across CI runner instances**, not a version difference.
+Amendment 2's retraction of the `3.5x / 128x / 424x` ratios **stands and is
+reinforced** — they are not merely tier-1 artefacts, they are one draw from a
+distribution — but its explanation is corrected here.
+
+### What this vindicates
+
+**The eigenvalue-sign count took the values 5, 6 and 7 on one fixture.**
+Amendment 2 made `floor` a required argument on
+`identified_direction_count` after seeing two of those; the third confirms the
+fix was not an over-reaction to a single disagreement.
+
+**The step-stability discriminator read 5 of 7 in all three.** It is the
+reading that survives, and it is now the only one quoted.
+
+> **A coincidence worth naming so nobody misreads it.** The robust count is
+> also `5 of 7`. That is *not* the retracted "5 identified directions of 7"
+> being vindicated — the old number counted eigenvalue signs and happened to
+> land on 5 at tier 1; the new one counts step-stability verdicts and lands on
+> 5 everywhere. Same digits, different quantity, different epistemic status.
+
+### The defect this exposes, filed rather than absorbed
+
+`select_lambdas_continuous`/`_multistart` is **not reproducible across CI
+runner instances even with `OPENBLAS_NUM_THREADS` pinned to 1.** ADR-211/213
+measured sensitivity to *thread count*; this is the same class one level
+deeper — identical pinned configuration, different physical runner, four
+decades of movement in the selected `sp` on a weakly-identified block. Filed as
+a promoted follow-up (`PRODUCT_DIRECTION`), not folded into slice 7c.
+
+**Consequence for slice 7e, sharper than amendment 2's:** an acceptance gate
+must be reproducible before it is a gate. Any candidate metric now has to be
+shown stable across *repeated runs in one environment*, not merely across
+tiers — a strictly harder bar, and the right one if the resulting claim is
+going to be marketed.
+
+## ADR-219 amendment 4: a fourth reading explains the instability, and it is fixable
+
+**Date:** 2026-09-02. **Status:** ACCEPTED. Fourth reading, tier 3, same
+oracle, CI run
+[33639284944](https://github.com/jonathancrawford05/polaris-re/actions/runs/33639284944).
+
+### The four readings, and what is actually unstable
+
+| reading | eigenvalue-SIGN count | step-stability | single `max abs log10(sp)` | multi | multi H (`floor=0`) |
+|---|---:|---:|---:|---:|---:|
+| tier 1 (local) | 5 of 7 | **5 of 7** | 5.1320 | 1.4754 | 0.0617 |
+| tier 3 run 1 | 7 of 7 | **5 of 7** | 4.6424 | **5.9517** | **2.2095** |
+| tier 3 run 2 | 6 of 7 | **5 of 7** | 5.1320 | 1.4754 | 0.1758 |
+| tier 3 run 3 | 5 of 7 | **5 of 7** | 5.1320 | 1.4754 | 0.1343 |
+
+**This refines amendment 3 twice over.**
+
+**The search is mostly deterministic, with an occasional large excursion.**
+`max abs log10(sp) diff` reads `5.1320` / `1.4754` in **three of four**
+readings, to the printed digit. Run 1 was the outlier. Amendment 3 called the
+ratios "one draw from a distribution", which over-stated it — the truer
+description is *mostly reproducible with an intermittent multi-decade
+excursion*, and for a gate that is **worse**, not better: an intermittent
+failure is harder to catch than consistent noise.
+
+**The H-weighted metric moved even when the selection did not.** Runs 2 and 3
+selected identically (`1.4754`) yet read `0.1758` and `0.1343`; tier 1 read
+`0.0617`. So a second, independent instability sits in the *metric*, not the
+search.
+
+### Root cause of the metric's instability, and the fix
+
+`hessian_weighted_distance` clipped eigenvalues below `floor`, and `floor`
+defaulted to `0.0` — which clips only the NEGATIVES. **That is asymmetric:
+noise landing negative is discarded, noise landing positive is kept and
+contributes.** Since the displacement is largest exactly along the unresolved
+directions, that contribution is not small. Reproduced with the four readings'
+own eigenvalues:
+
+| reading | two noise eigenvalues | `floor=0` | `floor=0.1` |
+|---|---|---:|---:|
+| tier 1 | `-0.008687`, `-0.003479` | 0.0976 | 0.0973 |
+| t3 run 1 | `+0.005624`, `+0.012057` | **0.4625** | 0.0973 |
+| t3 run 2 | `-0.003605`, `+0.001244` | **0.1546** | 0.0973 |
+| t3 run 3 | `-0.004976`, `-0.002473` | 0.0976 | 0.0973 |
+
+**At `floor=0` the metric moves 4.7x on nothing but the sign of noise. Above
+the noise floor it is identical across all four.** The instability amendment 3
+attributed wholly to the search was, for this column, substantially the
+metric's own doing.
+
+**Fixed:** `floor` is now **required** on `hessian_weighted_distance` as well
+as on `identified_direction_count` — same defect, same guard. The diagnostic
+**derives** it rather than choosing it: the step-stability scan already
+determines how many directions are unresolved, so the floor is set to the
+smallest *resolved* eigenvalue, clipping exactly that many. Both columns are
+printed so the instability stays visible rather than hidden behind the fix.
+
+### What this changes for slice 7e
+
+Amendment 3 left the H-weighted distance as "a better metric, and not yet a
+demonstrably stable one". **It is now demonstrably stabilisable**, with a
+derived floor and a mechanism understood well enough to test. That materially
+improves 7e's prospects — but the requirement stands and is unchanged: **an
+acceptance number must be shown to reproduce across repeated runs before it
+gates anything.** The remaining instability, the intermittent multi-decade
+search excursion, is a property of the *search*, not the metric, and is filed
+separately.

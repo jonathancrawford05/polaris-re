@@ -3295,3 +3295,84 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   this session, ADR-218 (2nd-order — the epic's written PLAN is otherwise
   exhausted at the three-term subset every Stage-B slice since ADR-206 has
   used).*
+
+### Harvested 2026-09-01c — slice 7c: ADR-218's residual was the metric, not the optimiser (ADR-219)
+
+- **The `1e-2` gate on raw `log10(sp)` is ILL-POSED on two of the seven
+  `select=TRUE` blocks — measured, not argued.** At `mgcv`'s own point our
+  REML criterion fails to resolve 2 of the 7 `rho` directions (step-stability,
+  confirmed at both tiers; an eigenvalue-sign count read "5 of 7" at tier 1 and
+  "7 of 7" at tier 3 and must not be quoted — ADR-219 amendment 2); the two are
+  exactly the two ADR-218 found its residual had relocated to. Their apparent
+  curvature grows like `1/h^2` as the step shrinks (a noise floor on a flat
+  direction, not the saddle their raw negative eigenvalues suggest), and
+  moving one of them TWO decades changes the score by `-0.0002` against
+  `~+1.0` for HALF a decade on an identified block. **No optimiser, however
+  exact, can pin a parameter the objective does not resolve** — which is why
+  slice 7c's own Part 1 (the analytic gradient) was deliberately not built.
+  *Source: this session, ADR-219 (1st-order — it corrects the target of
+  ADR-218's own named next hypothesis).*
+
+- **Slice 7d registered: the analytic REML gradient, re-aimed.** Still worth
+  building, but for the `0.0141` score gap on the 5 identified directions, the
+  `converged=False`-at-near-zero-gradient defect, and the ~8x cost saving that
+  would make `multistart=True` cheap enough to default — **not** for the
+  `log10(sp)` gate it cannot close. *Source: this session, ADR-219 (1st-order
+  — the direct continuation of ADR-218's next hypothesis).*
+
+- **A defect-in-waiting found in committed code, filed before it bites.**
+  `gam_derivatives.dw_deta`/`dw_drho` implement Wood Appendix D **at
+  `alpha ≡ 1`** (the FISHER working weight), while `reml_score_general`'s
+  `log|XᵀWX + S|` uses the **OBSERVED** weight (`newton_working_weights`,
+  slice 5c Defect B). Any future REML gradient that wires `dw_drho` straight
+  into its `dW/drho` term is correct for a canonical link and **silently wrong
+  for `cloglog`** — the case this epic fits. Recorded on slice 7d. *Source:
+  this session, ADR-219 (1st-order — a latent defect in an
+  originally-planned component, found while reading it for slice 7c).*
+
+- **Recommended and NOT taken: re-gate on the Hessian-weighted distance.** It
+  preserves INDEPENDENT provenance (the same two operands, re-normed by our
+  own criterion's curvature) where the sharper-looking score gap is
+  DIAGNOSTIC and must never be a gate. Stays maintainer-reserved. *Source:
+  this session, ADR-219 (2nd-order — a comparator-design decision, unchanged
+  in status from ADR-212/218).*
+
+- **Tier-3 confirmation owed on ADR-219's three ledger rows.** Not dispatched
+  this session (no production path changed for a tier-3 run to exercise);
+  required before these numbers are cited outside the session log. *Source:
+  this session, ADR-219 (2nd-order — a confirmation obligation on this
+  session's own rows, not new scope).*
+
+- **`test_the_r_probe_runs_end_to_end` passes only when
+  `OPENBLAS_NUM_THREADS` is pinned — green in CI, red for a contributor
+  running the suite locally.** Found while taking slice 7c's own baseline and
+  verified on unmodified `main` (`0fd6ddc`): at this container's default of 4
+  threads the test fails at `assert comparison.converged`
+  (`max_abs_eta_diff=0.000759342158123566`,
+  `max_abs_log10_sp_diff=0.2606175963459325`, identical to the last digit on
+  `main` and on the branch); at `OPENBLAS_NUM_THREADS=1` — what the CI compare
+  job pins job-level, PR #217 review [P1-1] — it passes. This is ADR-211/213's
+  own measured thread sensitivity (its ledger row already records single-start
+  failing to converge at 4 threads) surfacing as a test that is green only in
+  the one environment that pins threads. **Not fixed in slice 7c's PR:
+  out of scope, and the candidate fixes are not equivalent** — pinning threads
+  inside the test, dropping the `converged` assertion, or switching that
+  harness to `multistart=True` each say something different about what the
+  test is for. Needs its own slice. *Source: this session, slice 7c baseline
+  (1st-order — a defect in an originally-planned component, in committed
+  code).*
+
+- **`select_lambdas_continuous`/`_multistart` is not reproducible across CI
+  runner instances, even with `OPENBLAS_NUM_THREADS` pinned to 1.** Three
+  readings of one fixture (ADR-219 amendments 2-3): two tier-3 runs on the SAME
+  oracle image with the SAME pins disagree by **four decades** on the selected
+  `sp` for a weakly-identified block (`multistart` `max abs log10(sp) diff`
+  `5.9517` vs `1.4754`), while one of them reproduces the tier-1 reading exactly.
+  ADR-211/213 measured sensitivity to thread COUNT; this is the same class one
+  level deeper — identical pinned configuration, different physical runner.
+  **Consequence: any acceptance gate must be shown reproducible across repeated
+  runs in one environment before it is a gate**, which is a harder bar than
+  cross-tier agreement and the right one given the marketing intent recorded in
+  amendment 1. Not fixed in slice 7c (out of scope). *Source: this session,
+  ADR-219 amendment 3 (1st-order — a reproducibility defect in an
+  originally-planned component, in committed code).*
