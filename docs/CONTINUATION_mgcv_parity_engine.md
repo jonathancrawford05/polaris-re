@@ -562,10 +562,7 @@ eight-term structure. See ADR-217 and `docs/CONFORMANCE_LEDGER.md`.
 > protocol (opt-in, every existing caller's default behaviour unchanged) and
 > threaded through `select_lambdas_continuous_multistart`/`fit_polaris_gam`/
 > `fit_select_free_sp_case`. **Registered prediction's first clause HOLDS**:
-> on the `select=TRUE` N=7 structure (**tier 1 only**, R 4.3.3/mgcv 1.9-1 —
-> tier-3 dispatch ATTEMPTED THREE TIMES this session and did NOT complete,
-> CI/runner contention stalling the compare job rather than a code defect;
-> a future check-in must retry, see ADR-220),
+> on the `select=TRUE` N=7 structure (**tier 1**, R 4.3.3/mgcv 1.9-1),
 > warm-starting the analytic search at `mgcv`'s own point reaches score
 > `523.645314` against `mgcv`'s `523.645336` (`max abs log10(sp) diff =
 > 0.0010`, the tightest reading this epic has produced on this structure),
@@ -580,8 +577,24 @@ eight-term structure. See ADR-217 and `docs/CONFORMANCE_LEDGER.md`.
 > from ADR-212's finite-difference-noise mechanism (that supplied a NOISY
 > gradient near a genuine optimum; this supplies the EXACT gradient and the
 > optimiser still exits early near a bound-active corner). Filed as a new
-> follow-up, not fixed this session. See ADR-220 for the full measurement
-> and provenance table.
+> follow-up (PLAN slice 7f), not fixed this session.
+>
+> **TIER 3 CONFIRMED, same session (ADR-220 amendment 1).** After the three
+> stalled dispatch attempts above, a fourth run (`33766634959`, R 4.6.1 /
+> mgcv 1.9.4, pinned oracle digest
+> `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+> build 8) completed all 27 steps successfully once the colliding
+> `workflow_dispatch` runs were cancelled and the runner contention
+> cleared. Every finding above is IDENTICAL IN VERDICT at tier 3, several
+> tighter: `multistart(9)` analytic reaches `max abs eta diff = 5.460e-03`
+> at **9.5x fewer function evaluations**; the warm-start score gap vs
+> `mgcv`'s own score `523.645331092` is `-0.000016` (tighter than tier 1's
+> `-0.0002`) — the tightest reading this epic has produced, confirmed at
+> both tiers. The `ftol`-vs-exact-gradient refutation (slice 7f) also
+> reproduces at tier 3 (true `|grad|` `3.249347`, same order of magnitude
+> and same structural signature as tier 1's `3.067`). Both tables are now
+> citable outside this session log. See ADR-220 for the full measurement
+> and provenance tables.
 
 > **This is the ACTIVE epic.** `CONTINUATION_penalized_mi_surface.md` is superseded from
 > its slice 6 onward and all of its remaining slices are PARKED. A routine run selecting

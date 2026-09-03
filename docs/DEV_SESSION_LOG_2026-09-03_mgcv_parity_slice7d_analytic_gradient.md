@@ -274,18 +274,25 @@ production-converged point (default finite-difference search,
 | `docs/MEASUREMENT_unconditional_coverage.md` re-stamp | `scripts/unconditional_coverage_study.py`, re-run for real this session | its own prior committed figures | regression check on THIS engine's own numbers (goldens detect change, not correctness — `ROUTINE_MGCV_PARITY.md`'s own never-list) — unchanged to the printed digit, see below |
 
 **Everything against `mgcv` in this session (the `SELECT_FREE_SP_MODEL_CLAIM`
-table) is TIER 1 ONLY (R 4.3.3 / mgcv 1.9-1, local apt) — not citable outside
-this session log until a tier-3 dispatch confirms it, per
-`ROUTINE_MGCV_PARITY.md` step 2.** The N=4 fixture's own numbers and every
-unit-level derivative check involve no `mgcv` comparison and carry no tier
-label at all (`MEASUREMENT (own criterion)`, self-contained Python).
+table) was first read TIER 1 (R 4.3.3 / mgcv 1.9-1, local apt), then
+CONFIRMED at TIER 3 (R 4.6.1 / mgcv 1.9.4, pinned oracle digest
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+CI run [33766634959](https://github.com/jonathancrawford05/polaris-re/actions/runs/33766634959))
+later the same session, identical in verdict — see ADR-220 amendment 1. Both
+tables below are now citable outside this session log. The N=4 fixture's own
+numbers and every unit-level derivative check involve no `mgcv` comparison
+and carry no tier label at all (`MEASUREMENT (own criterion)`, self-contained
+Python).
 
 ## Oracle version
 
 Tier 1: R 4.3.3 (2024-02-29) / mgcv 1.9.1, local apt install, this
-container. Tier 3: see the PR/ADR once dispatched (this session's own
-`workflow_dispatch` — recorded there, not duplicated here to avoid a stale
-copy).
+container. Tier 3: R 4.6.1 / mgcv 1.9.4, pinned oracle digest
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+(build 8), CI run
+[33766634959](https://github.com/jonathancrawford05/polaris-re/actions/runs/33766634959)
+— full tables in ADR-220 amendment 1, not duplicated here to avoid a stale
+copy.
 
 ## Quality gate
 
@@ -304,25 +311,31 @@ copy).
 - `uv run pytest tests/qa/ -q --tb=short` — **85 passed, 9 skipped.**
   Byte-identical goldens (`git diff` on `tests/qa/golden_outputs/` empty):
   nothing in `products/`, `reinsurance/` or the CLI moved.
-- Conformance run — **attempted three times, did not complete.** Two
+- Conformance run — **attempted four times; the fourth completed.** Two
   `workflow_dispatch` runs (144, 146) and the automatic `pull_request` run
   (145, triggered by opening PR #225 — several touched paths are in the
   workflow's own trigger list) all reached the R job successfully every
   time (green, unaffected). The Python "Compare against the Python
-  reference" job stalled: run 144 hung on the generic "Install
-  dependencies" step for 15+ minutes without ever reaching this session's
-  own code; after cancelling it, run 145 progressed through most steps at
-  a normal pace (including this session's own extended slice 7b table) but
-  then stalled 20+ minutes inside the PRE-EXISTING, UNMODIFIED slice 7c
-  identifiability diagnostic step — a step ADR-219's own session completed
-  in well under a minute. All three runs cancelled after generous waits
-  rather than left running. Reads as CI/runner resource contention in this
-  environment on this day, not a defect introduced this session: the stall
-  occurred inside code this session does not touch. **The
-  `SELECT_FREE_SP_MODEL_CLAIM` table above is TIER 1 ONLY** and not yet
-  citable as settled parity evidence outside this session log/PR #225
-  until a future check-in successfully re-dispatches
-  `mgcv-conformance.yml` on this branch.
+  reference" job stalled on the first three: run 144 hung on the generic
+  "Install dependencies" step for 15+ minutes without ever reaching this
+  session's own code; after cancelling it, run 145 progressed through most
+  steps at a normal pace but then stalled 20+ minutes inside the
+  PRE-EXISTING, UNMODIFIED slice 7c identifiability diagnostic step — a
+  step ADR-219's own session completed in well under a minute. Read as
+  CI/runner resource contention (two concurrent `workflow_dispatch` runs
+  plus the auto-triggered `pull_request` run racing for the same runner
+  pool), not a defect introduced this session. Cancelling the two
+  colliding `workflow_dispatch` runs (144, 146) freed run 145
+  (`33766634959`) to complete normally: all 27 steps `success`, R 4.6.1 /
+  mgcv 1.9.4, oracle digest
+  `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+  (build 8). **The `SELECT_FREE_SP_MODEL_CLAIM` table above is now
+  CONFIRMED at tier 3, identical in verdict to the tier-1 reading, several
+  readings tighter** — see ADR-220 amendment 1 for the full tier-3 tables
+  (including `mgcv`'s own REML score `523.645331092` and the warm-start
+  score gap `-0.000016`, the tightest reading this epic has produced on
+  this structure). Citable outside this session log as of this
+  confirmation.
 
 ## Perf history
 

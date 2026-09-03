@@ -1692,19 +1692,26 @@ acceptance gate (Part 2).
   verified unchanged.
 
   **Registered prediction, both clauses, measured on the `select=TRUE` N=7
-  structure (TIER 1 ONLY, R 4.3.3/mgcv 1.9-1 — see ADR-220 for the tier-3
-  status at write time):** first clause (score gap closes to at or below
-  the noise floor) **HOLDS** — warm-start reaches `523.645314` against
-  `mgcv`'s `523.645336`, and `multistart(9)` with the analytic gradient
-  reaches essentially the same score gap as the finite-difference default
-  (`0.0180` vs `0.0141`) at 8.4x fewer function evaluations. Second clause
-  (`converged` stops disagreeing with a near-zero gradient) **REFUTED by a
-  NEW mechanism**: SciPy's own `ftol`-style stopping rule can fire — and
-  report `converged=True` — while the TRUE (exact) gradient is large on
-  directions not pinned at a search bound, a different defect from
-  ADR-212's finite-difference-noise mechanism. Filed as a follow-up, not
-  fixed this session. See ADR-220 for the full measurement and the
-  provenance table.
+  structure — TIER 1 (R 4.3.3/mgcv 1.9-1) AND TIER 3 (R 4.6.1/mgcv 1.9.4,
+  pinned oracle digest
+  `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+  CI run [33766634959](https://github.com/jonathancrawford05/polaris-re/actions/runs/33766634959)),
+  both CONFIRMED, identical in verdict — see ADR-220 and its amendment
+  1:** first clause (score gap closes to at or below the noise floor)
+  **HOLDS** — tier 1 warm-start reaches `523.645314` against `mgcv`'s
+  `523.645336`; tier 3 warm-start reaches `523.645315` against `mgcv`'s own
+  `523.645331092` (gap `-0.000016`, the tightest reading this epic has
+  produced). `multistart(9)` with the analytic gradient reaches essentially
+  the same score gap as the finite-difference default at 8.4x (tier 1) to
+  9.5x (tier 3) fewer function evaluations. Second clause (`converged`
+  stops disagreeing with a near-zero gradient) **REFUTED by a NEW
+  mechanism, at both tiers**: SciPy's own `ftol`-style stopping rule can
+  fire — and report `converged=True` — while the TRUE (exact) gradient is
+  large (tier 1: `3.067`; tier 3: `3.249347`) on directions not pinned at a
+  search bound, a different defect from ADR-212's finite-difference-noise
+  mechanism. Filed as a follow-up (slice 7f below), not fixed this
+  session. See ADR-220 and its amendment 1 for the full measurement and
+  provenance tables.
 - **What changed about its purpose.** Slice 7c Part 0 removed the
   `max_abs_log10_sp_diff` gate from this slice's justification — that gate is
   ill-posed on the two unresolved blocks and no gradient can close it. What

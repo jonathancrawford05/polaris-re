@@ -3392,17 +3392,22 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   (1st-order — closes a defect-in-waiting an earlier session filed).*
 
 - **The score-gap half of ADR-218's residual is closed, decisively, at a
-  measured 8.4x lower search cost.** On the `select=TRUE` N=7 structure
-  (TIER 1 ONLY at write time — tier-3 confirmation owed, same obligation
-  ADR-219's own rows carried), a warm-started analytic-gradient search
-  reaches REML score `523.645314` against `mgcv`'s own `523.645336`
-  (`max abs log10(sp) diff = 0.0010` — the tightest reading this epic has
-  produced on this structure), and `multistart(9)` with the analytic
-  gradient reaches essentially the same score gap as the finite-difference
-  default (`0.0180` vs `0.0141`) using 549 function evaluations against
-  4600 — the "~8x cost saving" ADR-219 predicted in advance, now measured
-  rather than assumed. *Source: this session, ADR-220 (1st-order — closes
-  the direct continuation of ADR-218's own named next hypothesis).*
+  measured 8.4x-9.5x lower search cost — CONFIRMED at both tier 1 and tier
+  3.** On the `select=TRUE` N=7 structure, tier 1 (R 4.3.3/mgcv 1.9-1) and
+  tier 3 (R 4.6.1/mgcv 1.9.4, pinned oracle digest
+  `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+  CI run [33766634959](https://github.com/jonathancrawford05/polaris-re/actions/runs/33766634959))
+  agree identically in verdict: a warm-started analytic-gradient search
+  reaches REML score `523.645314` (tier 1) / `523.645315` (tier 3) against
+  `mgcv`'s own `523.645336` (tier 1) / `523.645331092` (tier 3) — tier 3's
+  gap of `-0.000016` is the tightest reading this epic has produced on this
+  structure — and `multistart(9)` with the analytic gradient reaches
+  essentially the same score gap as the finite-difference default using 549
+  (tier 1) / 462 (tier 3) function evaluations against 4600 / 4384 — the
+  "~8x cost saving" ADR-219 predicted in advance, now measured and
+  confirmed at both tiers rather than assumed. *Source: this session,
+  ADR-220 and its amendment 1 (1st-order — closes the direct continuation
+  of ADR-218's own named next hypothesis).*
 
 - **NEW: SciPy L-BFGS-B can report `converged=True` via its own `ftol`-style
   stopping rule while the TRUE gradient (now exact, not finite-differenced)
@@ -3418,11 +3423,15 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   *Source: this session, ADR-220 (1st-order — a defect in the search this
   slice's own scope touches directly).*
 
-- **Tier-3 confirmation owed on ADR-220's `SELECT_FREE_SP_MODEL_CLAIM` table
-  (analytic-gradient rows).** Not yet dispatched at the time this file was
-  updated; required before those numbers are cited outside the session log
-  or ADR-220 itself. *Source: this session, ADR-220 (2nd-order — a
-  confirmation obligation on this session's own rows, not new scope).*
+- **Tier-3 confirmation on ADR-220's `SELECT_FREE_SP_MODEL_CLAIM` table
+  (analytic-gradient rows) is now OBTAINED, same session (ADR-220 amendment
+  1).** A fourth dispatch (`33766634959`) succeeded after cancelling two
+  colliding `workflow_dispatch` runs freed the runner; all 27 steps
+  succeeded and every finding matched tier 1 in verdict, several tighter.
+  Both tables are citable outside the session log as of this confirmation.
+  *Source: this session, ADR-220 amendment 1 (2nd-order — discharges the
+  confirmation obligation this session's own rows carried, not new
+  scope).*
 
 - **`docs/MEASUREMENT_unconditional_coverage.md`'s stamp drifted from an
   INERT edit, the same schema gap `CONTINUATION_mgcv_parity_engine.md`'s own

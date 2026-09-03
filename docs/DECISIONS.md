@@ -20380,23 +20380,17 @@ separately.
 ## ADR-220: Slice 7d — the analytic REML gradient closes the score gap on the identified directions, and a NEW SciPy stopping-rule defect explains the `converged` contradiction ADR-218 recorded
 
 **Date:** 2026-09-03
-**Status:** ACCEPTED for the derivation and the wiring (self-contained
-Python, verified against central differences — no `mgcv` involvement, so no
-tier question applies). The `SELECT_FREE_SP_MODEL_CLAIM` measurement table
-below is **TIER 1 ONLY** (R 4.3.3 / mgcv 1.9-1, local apt) at the time this
-entry was written. **Tier-3 dispatch was ATTEMPTED THREE TIMES this session
-and did not complete** — every attempt's R job succeeded, but the Python
-compare job stalled (once on the generic dependency-install step before
-reaching any of this session's code, once for 20+ minutes inside the
-PRE-EXISTING, unmodified slice 7c identifiability diagnostic — a step
-ADR-219's own session completed in under a minute), reading as CI/runner
-resource contention rather than a defect this session introduced. See
-`docs/DEV_SESSION_LOG_2026-09-03_mgcv_parity_slice7d_analytic_gradient.md`
-for the full timeline. **A future check-in must re-dispatch
-`mgcv-conformance.yml` on this branch/PR #225 and append the amendment
-below once it returns**, per this epic's own standing practice (ADR-219's
-identical two-step pattern) — until then this table is not citable as
-settled parity evidence outside this session log.
+**Status:** ACCEPTED, **tier 1 AND tier 3 both confirmed, identical in
+verdict, same session** (CI run
+[33766634959](https://github.com/jonathancrawford05/polaris-re/actions/runs/33766634959),
+oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+— build 8, R 4.6.1 / mgcv 1.9.4). The derivation and wiring are
+self-contained Python (verified against central differences, no `mgcv`
+involvement, so no tier question applies to those); the `mgcv`-comparison
+table was TIER 1 ONLY on the first three dispatch attempts (all three
+stalled on CI/runner contention, not a code defect — see amendment 1
+below for the timeline), and CONFIRMED on a fourth, successful dispatch
+the same session.
 **Implements:** `docs/PLAN_mgcv_parity_engine.md` slice 7d, registered by
 ADR-219 (slice 7c), carrying that slice's own withdrawn Part 1 forward with
 its target corrected: not the `log10(sp)` gate (ADR-219 Part 0 found it
@@ -20594,3 +20588,78 @@ term, remains future scope, unchanged from ADR-217/218.
 3. **Tier-3 confirmation owed** on the `SELECT_FREE_SP_MODEL_CLAIM` table
    above before it may be cited outside this session log or the ledger's
    own tier-1-labelled row.
+
+## ADR-220 amendment 1: tier-3 CONFIRMED, same session — a fourth dispatch attempt succeeded after the runner contention cleared
+
+**Date:** 2026-09-03 (same day). After the three stalled attempts recorded
+above, cancelling the two colliding `workflow_dispatch` runs let the
+`pull_request`-triggered run (33766634959, R 4.6.1 / mgcv 1.9.4, oracle
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+— build 8, the digest this epic has used throughout) run to completion
+in the normal few-minutes pattern once it had the runner to itself — every
+one of its 27 steps succeeded. **Every finding below IDENTICAL IN VERDICT
+to the tier-1 reading above, several tighter.**
+
+### `SELECT_FREE_SP_MODEL_CLAIM` — tier 3
+
+| search | nfev | `max abs eta diff` | `max abs log10(sp) diff` | `edf_total diff` | `max abs per-term edf diff` | at bound | converged | agrees |
+|---|---:|---:|---:|---:|---:|---|---|---|
+| single-start (default, FD) | 424 | 4.456e-01 | 4.6424 | +2.4728 | 2.4717 | False | True | False |
+| multistart(9), FD | 4384 | 5.388e-03 | 5.9517 | -0.3101 | 0.2329 | False | True | False |
+| single-start, `analytic_gradient=True` | 41 | 4.013e-02 | 1.7036 | +1.9610 | 2.1918 | True | True | False |
+| multistart(9), `analytic_gradient=True` | 462 | 5.460e-03 | 5.7950 | -0.2593 | 0.2390 | False | True | False |
+
+**The headline holds at tier 3, and the cost ratio is even slightly
+better than tier 1's:** `multistart(9)` with the analytic gradient
+reaches `max abs eta diff = 5.460e-03`, essentially IDENTICAL to the
+finite-difference default's own `5.388e-03` (tier 1: `0.0055` vs
+`0.0027` — same conclusion, tier 3's own two readings simply land closer
+to each other), at **9.5x fewer function evaluations** (462 vs 4384,
+against tier 1's 8.4x). `edf_total diff` likewise close (`-0.2593` vs
+`-0.3101`). Raw `log10(sp)` moves between tiers on the FD rows exactly as
+ADR-219's amendments already documented for this class of measurement
+(run-to-run non-reproducibility of the free-`sp` search, not a formula
+question) — expected, and not this slice's own success criterion.
+
+### `gam_reml_gradient_diagnostic.py` — tier 3
+
+`mgcv`'s own REML score at its selection: **`523.645331092`.**
+
+| search | total nfev | REML score | score gap vs `mgcv` | converged | true `\|grad\|` |
+|---|---:|---:|---:|---|---:|
+| blind, finite-difference (default) | 424 | 529.576515 | +5.931184 | True | 0.044045 |
+| blind, analytic gradient | 41 | 524.408084 | +0.762753 | True | **3.249347** |
+| multistart(9), finite-difference | 4384 | 523.668016 | +0.022685 | True | 0.133229 |
+| multistart(9), analytic gradient | 462 | 523.662692 | +0.017361 | True | 0.007641 |
+| warm-start at `mgcv`'s point, analytic gradient (TRANSPORT) | 23 | 523.645315 | **-0.000016** | True | 0.001461 |
+
+`MAX ABS (warm-start log10(sp) - mgcv's own log10(sp))`: **`0.001099`**
+— tier 1 read `0.0010`, identical to three significant figures. The
+warm-start score gap is now bit-adjacent (`-0.000016`, tighter than tier
+1's already-tight `-0.0002`) — **the tightest reading this entire epic
+has produced on this structure, confirmed at both tiers.**
+
+**The registered prediction's second clause is REFUTED at tier 3 too, by
+the identical mechanism.** The blind single-start analytic run reports
+`converged=True` (`message`: `CONVERGENCE: RELATIVE REDUCTION OF F <=
+FACTR*EPSMCH`, the same `ftol`-style rule tier 1 read) while its TRUE
+gradient has norm `3.249347` — matching tier 1's `3.067` to the same
+order of magnitude, on the same structural signature (blocks pinned at
+the search's upper bound). **Every other row's true gradient is small**
+(multistart(9) analytic: `0.007641`; warm-start: `0.001461`), so this is
+specifically a blind-single-start defect, confirmed reproducible across
+tiers — the finding is real, not a tier-1/BLAS artefact, and PLAN slice
+7f stands as registered.
+
+### What this settles
+
+`SELECT_FREE_SP_MODEL_CLAIM`'s analytic-gradient rows and the
+`gam_reml_gradient_diagnostic.py` table are now **CONFIRMED (parity /
+own-criterion measurement), tier 1 AND tier 3 identical in verdict** —
+citable outside this session log. The `ftol`-vs-exact-gradient finding
+(PLAN slice 7f) is likewise tier-3-confirmed. Required conformance levels
+1-3 also passed on this run (job 1 "mgcv reference (R)" and job 2
+"Compare against the Python reference" both green, all 27 steps
+`success`) — no regression from this session's changes.
+
+CI run: [33766634959](https://github.com/jonathancrawford05/polaris-re/actions/runs/33766634959).
