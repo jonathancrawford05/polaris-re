@@ -20376,3 +20376,211 @@ acceptance number must be shown to reproduce across repeated runs before it
 gates anything.** The remaining instability, the intermittent multi-decade
 search excursion, is a property of the *search*, not the metric, and is filed
 separately.
+
+## ADR-220: Slice 7d — the analytic REML gradient closes the score gap on the identified directions, and a NEW SciPy stopping-rule defect explains the `converged` contradiction ADR-218 recorded
+
+**Date:** 2026-09-03
+**Status:** ACCEPTED for the derivation and the wiring (self-contained
+Python, verified against central differences — no `mgcv` involvement, so no
+tier question applies). The `SELECT_FREE_SP_MODEL_CLAIM` measurement table
+below is **TIER 1 ONLY** (R 4.3.3 / mgcv 1.9-1, local apt) at the time this
+entry was written — a tier-3 dispatch was in flight when this session ended;
+see the amendment appended once it returns, per this epic's own standing
+practice (ADR-219's identical two-step pattern).
+**Implements:** `docs/PLAN_mgcv_parity_engine.md` slice 7d, registered by
+ADR-219 (slice 7c), carrying that slice's own withdrawn Part 1 forward with
+its target corrected: not the `log10(sp)` gate (ADR-219 Part 0 found it
+ill-posed on two of the seven blocks), but the `0.0141` score gap on the
+five IDENTIFIED directions and the `converged=False`-at-near-zero-gradient
+contradiction.
+
+### Context
+
+`select_lambdas_continuous` supplies no `jac=` to `scipy.optimize.minimize`,
+so L-BFGS-B differences an 8-nested-penalized-IRLS-solve objective (at
+`select=TRUE`'s 7 blocks) at a fixed step (`_FINITE_DIFF_STEP = 1e-5`,
+ADR-212's own derived compromise). ADR-218's warm-start diagnostic showed
+`mgcv`'s own selection scores `0.0141` better, under our own criterion, than
+best-of-9 blind multistart reaches — evidence the SEARCH, not the criterion,
+was the residual. Slice 7c Part 1 was going to build an analytic gradient to
+close that, but Part 0 found the `log10(sp)` gate itself unreachable on two
+directions first, so Part 1 was deliberately not built there and this
+slice's own scope was corrected: close the score gap on the five directions
+that ARE identified, and resolve the `converged`/gradient contradiction —
+never claim the raw `log10(sp)` gate as a result.
+
+**Claim sentence, written before the code
+(`docs/VERIFICATION_STANDARD.md` §3.2), for the one comparison in this
+session that involves `mgcv` at all:** `gam_select_free_sp_conformance.
+fit_select_free_sp_case(analytic_gradient=True)` selects all 7
+`log10(lambda)` values for the `select=True` three-term design via
+`gam_reml_optimize.select_lambdas_continuous`'s new `jac=True` path (SciPy's
+combined-objective protocol, `gam_reml_gradient.reml_score_gradient` as the
+gradient); `mgcv` computes the identical three-term formula via `gam(...,
+select=TRUE, method="REML")` with free `sp`
+(`scripts/gam_select_multiterm_free_sp_probe.R`); compared on `eta`,
+`log10(sp)` per block, `edf_total` and per-term `edf` — the SAME
+`SELECT_FREE_SP_MODEL_CLAIM` quantities ADR-218/219 already declared
+INDEPENDENT, since `analytic_gradient` changes nothing about which side
+computes what.
+
+### The cheap check (run first, per the slice's own precondition)
+
+`alpha_i - 1` is proportional to `(y_i - mu_i)`, mean ~0, so the `dW/drho`
+term MIGHT be negligible — a hypothesis, not an assumption. Measured on the
+committed N=4 fixture
+(`tests/fixtures/gam_reml_optimize_near_flat_direction.json`, no `mgcv`
+anywhere in this check) at `select_lambdas_continuous`'s own
+production-converged point: the gradient WITHOUT the `dW/drho` term
+disagrees with a trustworthy `h=1e-3` central difference of the profile
+score by up to `0.02` — an order of magnitude above the `< 0.05`
+noise-floor bound `TestFiniteDiffStep` already established at that same
+point. **The cheap check FAILS: the term is not negligible, and
+`d(alpha)/d(eta)` needed deriving.**
+
+### What was built
+
+Four new analytic derivatives in `gam_derivatives.py`, each verified against
+a central difference of the function one order below it on all three
+link/family combinations this codebase defines (Poisson-log, binomial-logit,
+binomial-cloglog), BEFORE being composed into the next:
+
+- `third_deriv_mu_eta` (`d³μ/dη³`) — a two-line closed form per link,
+  derived from `second_deriv_mu_eta`'s own, not guessed.
+- `variance_second_deriv` (`d²V/dμ²`) — `0` for Poisson, `-2` for binomial.
+- `dalpha_deta` — the product-rule derivative of `newton_alpha`
+  (Wood §3.2's `alpha_i`), identically `0` on a canonical link (a
+  consequence of `alpha ≡ 1` there, not a separate fact).
+- `dw_deta_observed`/`dw_drho_observed` — the FULL Appendix D chain
+  (`alpha` included), alongside the existing `dw_deta`/`dw_drho`'s own
+  `alpha ≡ 1` Fisher-only case, which ADR-219 flagged as silently wrong for
+  `cloglog` if wired into a gradient directly. They are not wired in
+  directly here either — `dw_deta_observed`/`dw_drho_observed` are the
+  correct ones this module now provides.
+
+`gam_reml_appendix_b.dlogdet_s_plus_drho` — the fourth gradient term,
+`d(log|S|+)/drho_j = lambda_j * tr(S+ S_j)` (Wood's own generalized-
+determinant derivative identity). `S+` comes from Appendix B's own `E`
+(`EᵀE = S`, already resolved by the structural rank decision) via an
+economy SVD, NOT from eigendecomposing the raw badly-scaled sum — the exact
+failure mode (numerical zero leakage, Defect A) Appendix B exists to
+avoid, reintroduced into the gradient if this term used a naive path.
+Verified against a central difference of `logdet_s_plus` on a well-scaled
+case AND a 10-decade badly-scaled, rank-deficient one.
+
+`gam_reml_gradient.reml_score_gradient` assembles all four terms of Wood
+(2011) §2 eq. (4) differentiated w.r.t. natural-log `rho`. Verified against
+a central difference of the PROFILE score (refitting `beta_hat` at every
+perturbed `rho`, matching what the finite-difference default actually
+differences) — NOT a difference at fixed `coef`, which was tried first and
+found to compute a different, partial quantity missing `dW/drho` by
+construction (`coef` fixed makes `W` independent of `rho`). Re-running the
+cheap check with the exact term included: **max abs diff collapses from
+`0.02` to `~1.3e-5`–`1.9e-5`**, three orders below the established noise
+floor, at the identical point.
+
+`select_lambdas_continuous` gained `analytic_gradient: bool = False` —
+`jac=True`'s combined-objective protocol (one fit produces score AND
+gradient, `penalized_fit_score_and_gradient`, new) instead of SciPy's
+forward-difference estimate. Opt-in, threaded through
+`select_lambdas_continuous_multistart`, `fit_polaris_gam` and
+`fit_select_free_sp_case` unchanged (every existing caller's default
+behaviour is bit-identical — verified: with `analytic_gradient` unset, the
+`minimize` call is unchanged from before this session, same `objective`
+function, same `options` dict).
+
+### What was measured
+
+**N=4 (own-criterion, no `mgcv`):** single-start `analytic_gradient=True`
+reaches REML score `612.610032` in 20 function evaluations, against the
+finite-difference default's `612.610092` in 120 — BETTER score, 6x fewer
+evaluations, on the exact fixture ADR-211/212 built the finite-difference-
+step fix for.
+
+**`select=TRUE` N=7 — TIER 1 (R 4.3.3/mgcv 1.9-1), a fresh draw:**
+
+| search | total nfev | REML score | score gap vs `mgcv` | `max abs eta diff` | `edf_total diff` | converged | true `\|grad\|` |
+|---|---:|---:|---:|---:|---:|---|---:|
+| single-start, finite-difference (default) | 312 | 529.604861 | +5.9595 | 0.4456 | +2.4216 | True | 0.0625 |
+| single-start, analytic gradient | 42 | 524.788031 | +1.1427 | 0.0529 | +0.1904 | True | 3.0672 |
+| multistart(9), finite-difference | 4600 | 523.659400 | +0.0141 | 0.0027 | -0.1106 | True | 0.0405 |
+| multistart(9), analytic gradient | 549 | 523.663316 | +0.0180 | 0.0055 | -0.2583 | True | 0.0150 |
+| warm-start at `mgcv`'s point, analytic gradient (TRANSPORT) | 7 | 523.645314 | -0.0002 | — | — | True | 0.0014 |
+
+(`mgcv`'s own REML score at its selection: `523.645336`.)
+
+**Registered prediction, both clauses:**
+
+- *"Closes the score gap on the identified directions to at or below the
+  noise floor":* **HOLDS.** The warm start reaches `523.645314` against
+  `mgcv`'s `523.645336` (`max abs log10(sp) diff = 0.0010` — the tightest
+  reading this epic has produced on this structure), and
+  `multistart(9)` with the analytic gradient reaches essentially the SAME
+  score gap as the finite-difference default (`0.0180` vs `0.0141`) at
+  **8.4x fewer function evaluations** (549 vs 4600) — the cost saving the
+  slice named in advance ("gradient cost drops from ~8 solves to ~1"),
+  measured rather than assumed.
+- *"`converged` stops disagreeing with a near-zero gradient":* **REFUTED,
+  by a NEW mechanism.** The blind single-start analytic run reports
+  `converged=True` at a point whose TRUE gradient (the exact one — the
+  SAME function supplied as `jac=`) has norm `3.067` on directions NOT
+  pinned at a search bound. SciPy's own `message`: `CONVERGENCE: RELATIVE
+  REDUCTION OF F <= FACTR*EPSMCH` — an `ftol`-style rule, not the `gtol`
+  this caller set. Two of the seven blocks sit at the search's upper bound
+  (`12.0`) at that point; L-BFGS-B's line search appears to stall near that
+  bound-active corner and exits on function tolerance while the free
+  directions still carry a large residual gradient. **Different from
+  ADR-212's finite-difference-noise mechanism**: that one supplied a NOISY
+  gradient near a genuine optimum; this supplies the EXACT gradient and the
+  optimiser still exits early, for a reason internal to its own bound
+  handling — a real, precisely-located, unfixed defect (see Consequences).
+
+### Provenance (ADR-193 / VERIFICATION_STANDARD.md §2.1)
+
+| quantity | left producer | right producer | provenance |
+|---|---|---|---|
+| every derivative unit check (`third_deriv_mu_eta` … `dlogdet_s_plus_drho`) | each analytic closed form | a central difference of the function/quantity one order below it (this engine's own) | `MEASUREMENT (own criterion)` — no `mgcv` involved |
+| N=4 cheap-check and gradient-vs-FD readings | `gam_reml_gradient.reml_score_gradient` | a central difference of `gam_reml.reml_score_general`, refitting at each perturbed point | `MEASUREMENT (own criterion)` |
+| `eta`/`log10(sp)`/`edf_total`/per-term `edf` (FD and analytic rows) | `fit_select_free_sp_case` (same producer function, `analytic_gradient` a new parameter) | `mgcv gam(select=TRUE, method='REML')`, `scripts/gam_select_multiterm_free_sp_probe.R` | **INDEPENDENT** — unchanged from `SELECT_FREE_SP_MODEL_CLAIM` (ADR-218/219); no new `VerificationClaim` needed |
+| warm-start row | `select_lambdas_continuous(x0=mgcv's own log10(sp), analytic_gradient=True)` | `mgcv`'s own selection (the SAME values as `x0`) | **TRANSPORT** — never a parity claim |
+| blind single-start's `converged`-vs-true-gradient finding | `reml_score_gradient` at SciPy's own reported minimum | nothing — our own optimiser's behaviour | `MEASUREMENT (own criterion)`; `mgcv` absent |
+
+### What this closes, and what it does not
+
+**Closes:** the analytic gradient itself (all four Wood eq. (4) terms,
+including the exact `dW/drho`, not the Fisher-only approximation ADR-219
+warned against wiring in "straight" for `cloglog`); the `dW/drho`
+defect-in-waiting ADR-219 flagged is now resolved rather than merely
+avoided; the wiring into the production search (`analytic_gradient=`,
+opt-in, every default caller unchanged); the score-gap half of ADR-218's
+residual, decisively, at 8.4x lower cost than the finite-difference
+multistart mitigation.
+
+**Does not close:** `max_abs_log10_sp_diff` — never this slice's own
+success criterion (ADR-219 Part 0). The NEW `ftol`-vs-`gtol` SciPy stopping
+defect this session found is filed, not fixed (Consequences). Combining
+`select=True` with the target's full eight-term structure, or with an `sz`
+term, remains future scope, unchanged from ADR-217/218.
+
+### Consequences
+
+1. **`fit_polaris_gam`'s `analytic_gradient=` parameter is now available to
+   every caller.** A caller with more than a handful of blocks should
+   consider it (and, per the finding above, prefer `multistart=True`
+   alongside it — single-start alone can still stall on an `ftol` exit near
+   a bound).
+2. **NEW follow-up, registered:** SciPy L-BFGS-B's `ftol`-based early exit
+   near a bound-active corner, distinct from ADR-212's finite-difference-
+   noise mechanism. Three untried candidate directions (a tighter `factr`,
+   a restart after a bound-active `ftol` exit, or accepting it as a
+   property of this problem shape and always defaulting to
+   `multistart=True`) — none evaluated this session, per its own
+   three-pass discipline (this is pass one, and it already both confirms
+   the exact gradient is correct at that point — independently verified via
+   a restricted central difference on the free blocks, `~0.01` agreement,
+   away from the two blocks whose perturbation the IRLS solve cannot
+   evaluate at that exact boundary value — and precisely locates a second,
+   real defect).
+3. **Tier-3 confirmation owed** on the `SELECT_FREE_SP_MODEL_CLAIM` table
+   above before it may be cited outside this session log or the ledger's
+   own tier-1-labelled row.

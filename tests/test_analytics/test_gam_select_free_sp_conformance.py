@@ -97,7 +97,7 @@ def test_fit_select_free_sp_case_signature_takes_no_r_fit_output() -> None:
     import typing
 
     params = set(inspect.signature(fit_select_free_sp_case).parameters)
-    assert params == {"r_case", "multistart", "n_starts"}
+    assert params == {"r_case", "multistart", "n_starts", "analytic_gradient"}
 
     hints = typing.get_type_hints(fit_select_free_sp_case)
     assert hints["r_case"] is RSelectFreeSpRecipe

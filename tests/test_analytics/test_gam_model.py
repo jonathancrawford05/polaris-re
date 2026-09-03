@@ -390,6 +390,42 @@ def test_fit_polaris_gam_multistart_matches_default_shape() -> None:
     assert multi.n_function_evals >= single.n_function_evals
 
 
+def test_fit_polaris_gam_analytic_gradient_matches_default_shape() -> None:
+    """PLAN slice 7d: ``analytic_gradient=True`` is an opt-in over
+    :func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`'s
+    own finite-difference default. R-free wiring check on the same
+    well-conditioned case ``test_fit_polaris_gam_multistart_matches_default_shape``
+    uses — the measured N=4/N=7 findings this parameter exists for are the
+    slice's own ADR."""
+    model = ModelSpec(
+        family="binomial",
+        link="cloglog",
+        terms=(
+            _cr_term(),
+            _cr_term(label="s(AttdAge,by=StudyYear_C)", by="StudyYear_C"),
+            _ti_term(),
+        ),
+        weights_column="ExposCnt",
+    )
+    data = _data(n=150)
+    rng = np.random.default_rng(7)
+    eta_true = (
+        -4.5
+        + 0.03 * data["AttdAge"]
+        - 0.02 * data["PolYear"]
+        + 0.01 * data["StudyYear_C"] * (data["AttdAge"] - 50) / 50
+    )
+    prob = 1.0 - np.exp(-np.exp(eta_true))
+    death = rng.binomial(data["ExposCnt"].astype(int), np.clip(prob, 0.0, 1.0))
+    y = death / data["ExposCnt"]
+
+    default = fit_polaris_gam(model, data, y, maxiter=60)
+    analytic = fit_polaris_gam(model, data, y, maxiter=60, analytic_gradient=True)
+    assert analytic.converged
+    assert analytic.log_lambda.shape == default.log_lambda.shape == (4,)
+    assert analytic.eta.shape == default.eta.shape == (150,)
+
+
 def test_fit_polaris_gam_rejects_x0_together_with_multistart() -> None:
     """PR #223 review [P2-1]: ``select_lambdas_continuous_multistart`` has
     no ``x0`` of its own (its first start is always the bounds-centre), so

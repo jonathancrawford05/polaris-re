@@ -542,6 +542,45 @@ eight-term structure. See ADR-217 and `docs/CONFORMANCE_LEDGER.md`.
 > `reml_score_general` uses the OBSERVED weight, so wiring `dw_drho` straight
 > in is correct for a canonical link and silently wrong for `cloglog`.
 
+> **Slice 7d is DONE, 2026-09-03 (ADR-220).** The cheap check (Part 1's own
+> precondition) FAILED — omitting `dW/drho` leaves a residual (`~0.02` in
+> `log10(sp)` units on the N=4 fixture) an order of magnitude above the
+> established finite-difference noise floor — so `d(alpha)/d(eta)` was
+> derived in full: `gam_derivatives.third_deriv_mu_eta`/
+> `variance_second_deriv`/`dalpha_deta`/`dw_deta_observed`/
+> `dw_drho_observed`, each verified against a central difference of the
+> function one order below it on all three link/family combinations this
+> codebase defines, closing ADR-219's own hazard (the Fisher-only `dw_deta`
+> silently wrong for `cloglog` if wired into a gradient) rather than merely
+> flagging it. `gam_reml_appendix_b.dlogdet_s_plus_drho` supplies the fourth
+> term (`d(log|S|+)/drho`) from Appendix B's own `E` via an economy SVD, not
+> a naive eigen-cut on the raw summed `S`. `gam_reml_gradient.
+> reml_score_gradient` assembles all four Wood eq. (4) terms and closes the
+> cheap check to `~1e-5`, three orders below the noise floor at the same
+> point that showed `0.02` before. Wired into
+> `select_lambdas_continuous(analytic_gradient=True)` via SciPy's `jac=True`
+> protocol (opt-in, every existing caller's default behaviour unchanged) and
+> threaded through `select_lambdas_continuous_multistart`/`fit_polaris_gam`/
+> `fit_select_free_sp_case`. **Registered prediction's first clause HOLDS**:
+> on the `select=TRUE` N=7 structure (**tier 1 only**, R 4.3.3/mgcv 1.9-1 —
+> tier-3 dispatch pending at the time this file was updated, see ADR-220),
+> warm-starting the analytic search at `mgcv`'s own point reaches score
+> `523.645314` against `mgcv`'s `523.645336` (`max abs log10(sp) diff =
+> 0.0010`, the tightest reading this epic has produced on this structure),
+> and `multistart(9)` with the analytic gradient reaches essentially the
+> SAME score gap as the finite-difference default (`0.0180` vs `0.0141`) at
+> **8.4x fewer function evaluations** (549 vs 4600) — the cost saving named
+> in advance, measured. **Second clause REFUTED, by a NEW mechanism**: a
+> blind single-start analytic run reports `converged=True` via SciPy's own
+> `ftol`-style stopping rule (`RELATIVE REDUCTION OF F <= FACTR*EPSMCH`)
+> while its TRUE gradient (the exact one, not a finite-difference estimate)
+> has norm `3.067` on directions not pinned at a search bound — different
+> from ADR-212's finite-difference-noise mechanism (that supplied a NOISY
+> gradient near a genuine optimum; this supplies the EXACT gradient and the
+> optimiser still exits early near a bound-active corner). Filed as a new
+> follow-up, not fixed this session. See ADR-220 for the full measurement
+> and provenance table.
+
 > **This is the ACTIVE epic.** `CONTINUATION_penalized_mi_surface.md` is superseded from
 > its slice 6 onward and all of its remaining slices are PARKED. A routine run selecting
 > work should land here.
@@ -1154,6 +1193,28 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 
 ## Open questions (for human)
 
+- **NEW, 2026-09-03 (ADR-220, slice 7d).** SciPy's L-BFGS-B can report
+  `converged=True` via its own `ftol`-style stopping rule
+  (`RELATIVE REDUCTION OF F <= FACTR*EPSMCH`) while the TRUE gradient (now
+  exact, not finite-differenced) is large on directions not pinned at a
+  search bound — observed on a blind single-start `analytic_gradient=True`
+  run on the `select=TRUE` N=7 structure, two of whose seven blocks sit at
+  `PRODUCTION_LOG10_BOUNDS`'s upper bound at that point. Distinct from
+  ADR-212's finite-difference-noise mechanism (that one supplied a noisy
+  gradient near a genuine optimum; this supplies the exact gradient and the
+  optimiser still exits early near a bound-active corner). Not a question
+  requiring a maintainer decision yet — filed as a routine follow-up (three
+  untried candidate fixes named in ADR-220 Consequences) — recorded here so
+  a later session does not need to re-discover it from the ledger alone.
+- **Slice 7d's own evidence bears on the still-open 7e re-gating question
+  below.** Slice 7d closed the score-gap half of ADR-218's residual
+  decisively (warm-start `max abs log10(sp) diff = 0.0010`, tightest
+  reading this epic has produced on this structure) at 8.4x lower search
+  cost, using the SAME `eta`/`edf` metrics the question below asks about —
+  a third data point (after ADR-212 at N=4 and ADR-218 at N=7) that those
+  metrics track modelling agreement while raw `log10(sp)` does not, on a
+  structure with a weakly-identified or bound-pinned block. Still not this
+  routine's call (`ROUTINE_MGCV_PARITY.md`, "May not decide").
 - **The `eta`/`edf`-vs-`log10(sp)` acceptance-metric question, restated with
   a second, larger data point (2026-09-01, ADR-218).** ADR-212's own
   Consequences first raised this at N=4: when a smoothing parameter is

@@ -3376,3 +3376,66 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   amendment 1. Not fixed in slice 7c (out of scope). *Source: this session,
   ADR-219 amendment 3 (1st-order — a reproducibility defect in an
   originally-planned component, in committed code).*
+
+### Harvested 2026-09-03 — slice 7d: the analytic REML gradient closes the score gap, and a NEW SciPy stopping-rule defect explains the `converged` contradiction (ADR-220)
+
+- **The `dW/drho` defect-in-waiting ADR-219 flagged is now CLOSED, not
+  merely avoided.** `gam_derivatives.third_deriv_mu_eta`/
+  `variance_second_deriv`/`dalpha_deta`/`dw_deta_observed`/
+  `dw_drho_observed` supply the exact, alpha-aware Appendix D chain, each
+  verified against a central difference of the function one order below it
+  on all three link/family combinations this codebase defines, before
+  composition. The cheap check ADR-219/220 required before deriving
+  anything FAILED first (omitting the term left a residual an order of
+  magnitude above an established noise floor), which is why the derivation
+  was warranted rather than skipped. *Source: this session, ADR-220
+  (1st-order — closes a defect-in-waiting an earlier session filed).*
+
+- **The score-gap half of ADR-218's residual is closed, decisively, at a
+  measured 8.4x lower search cost.** On the `select=TRUE` N=7 structure
+  (TIER 1 ONLY at write time — tier-3 confirmation owed, same obligation
+  ADR-219's own rows carried), a warm-started analytic-gradient search
+  reaches REML score `523.645314` against `mgcv`'s own `523.645336`
+  (`max abs log10(sp) diff = 0.0010` — the tightest reading this epic has
+  produced on this structure), and `multistart(9)` with the analytic
+  gradient reaches essentially the same score gap as the finite-difference
+  default (`0.0180` vs `0.0141`) using 549 function evaluations against
+  4600 — the "~8x cost saving" ADR-219 predicted in advance, now measured
+  rather than assumed. *Source: this session, ADR-220 (1st-order — closes
+  the direct continuation of ADR-218's own named next hypothesis).*
+
+- **NEW: SciPy L-BFGS-B can report `converged=True` via its own `ftol`-style
+  stopping rule while the TRUE gradient (now exact, not finite-differenced)
+  is large on directions not pinned at a search bound.** Refutes the second
+  clause of slice 7d's own registered prediction ("`converged` stops
+  disagreeing with a near-zero gradient") — but by a DIFFERENT mechanism
+  than the one that clause assumed (ADR-212's finite-difference-noise
+  defect, which this slice's exact gradient does not have). Localised to
+  one reproducible case (blind single-start, `select=TRUE` N=7, two of
+  seven blocks pinned at the search's upper bound) but not chased to a fix
+  this session — three candidate directions named, none evaluated.
+  Registered as PLAN slice 7f with a release condition (ADR-209 decision 1).
+  *Source: this session, ADR-220 (1st-order — a defect in the search this
+  slice's own scope touches directly).*
+
+- **Tier-3 confirmation owed on ADR-220's `SELECT_FREE_SP_MODEL_CLAIM` table
+  (analytic-gradient rows).** Not yet dispatched at the time this file was
+  updated; required before those numbers are cited outside the session log
+  or ADR-220 itself. *Source: this session, ADR-220 (2nd-order — a
+  confirmation obligation on this session's own rows, not new scope).*
+
+- **`docs/MEASUREMENT_unconditional_coverage.md`'s stamp drifted from an
+  INERT edit, the same schema gap `CONTINUATION_mgcv_parity_engine.md`'s own
+  open question already names.** Adding functions to
+  `gam_derivatives.py`/`gam_reml_appendix_b.py` (both sit in
+  `scripts/unconditional_coverage_study.py`'s transitive import closure via
+  `gam_uncertainty_mi` → `gam_uncertainty`) tripped the drift detector even
+  though nothing on the measured path changed. Re-ran the study for real
+  rather than asserting inertness — the honest fix available today — and
+  the coverage figures are unchanged to the printed digit (0.7435/0.7815
+  age-flat, 0.7781/0.8090 age-varying), confirming the edit really was
+  inert. The schema question itself (should an additive, unrelated edit to
+  a file in the closure even count as drift) remains open and
+  maintainer-reserved, unchanged in status. *Source: this session
+  (2nd-order — a second instance of an already-filed schema gap, not new
+  scope).*

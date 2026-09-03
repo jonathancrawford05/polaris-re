@@ -18,12 +18,17 @@ import pytest
 from polaris_re.analytics.gam_derivatives import (
     d_beta_d_rho,
     d_eta_d_rho,
+    dalpha_deta,
     dw_deta,
+    dw_deta_observed,
     dw_drho,
+    dw_drho_observed,
     newton_alpha,
     newton_working_weights,
     second_deriv_mu_eta,
+    third_deriv_mu_eta,
     variance_deriv,
+    variance_second_deriv,
 )
 from polaris_re.analytics.gam_family import (
     binomial_cloglog,
@@ -308,3 +313,168 @@ def test_d_beta_d_rho_refuses_mismatched_weights_or_coef() -> None:
         d_beta_d_rho(x, pen, np.ones(3), np.zeros(x.shape[1]), rho)
     with pytest.raises(PolarisValidationError, match="coef"):
         d_beta_d_rho(x, pen, np.ones(x.shape[0]), np.zeros(3), rho)
+
+
+# --- PLAN slice 7d: the observed-weight gradient chain -----------------------------
+
+
+@pytest.mark.parametrize(
+    "family", [poisson_log(), binomial_logit(), binomial_cloglog()], ids=lambda f: f.link.name
+)
+def test_third_deriv_mu_eta_matches_a_difference_of_second_deriv_mu_eta(family) -> None:
+    """``d³μ/dη³`` against a central difference of the already-verified
+    ``second_deriv_mu_eta`` — one order up the same ladder that test's own
+    docstring describes."""
+    eta = np.linspace(-1.2, 0.9, 9)
+
+    def m_prime_of(e: np.ndarray) -> np.ndarray:
+        return second_deriv_mu_eta(family.link.name, e, family.link.linkinv(e))
+
+    fd = (m_prime_of(eta + _FD) - m_prime_of(eta - _FD)) / (2 * _FD)
+    analytic = third_deriv_mu_eta(family.link.name, eta, family.link.linkinv(eta))
+    np.testing.assert_allclose(analytic, fd, atol=1e-7)
+
+
+def test_third_deriv_mu_eta_refuses_an_underived_link() -> None:
+    with pytest.raises(PolarisValidationError, match="no derivation recorded"):
+        third_deriv_mu_eta("probit", np.zeros(3), np.zeros(3))
+
+
+def test_variance_second_deriv_matches_a_difference_of_variance_deriv() -> None:
+    poisson = poisson_log()
+    mu = np.linspace(0.5, 3.0, 9)
+    fd = (variance_deriv(poisson.name, mu + _FD) - variance_deriv(poisson.name, mu - _FD)) / (
+        2 * _FD
+    )
+    np.testing.assert_allclose(variance_second_deriv(poisson.name, mu), fd, atol=1e-6)
+
+    binom = binomial_logit()
+    mu = np.linspace(0.15, 0.8, 9)
+    fd = (variance_deriv(binom.name, mu + _FD) - variance_deriv(binom.name, mu - _FD)) / (2 * _FD)
+    np.testing.assert_allclose(variance_second_deriv(binom.name, mu), fd, atol=1e-6)
+
+
+def test_variance_second_deriv_refuses_an_underived_family() -> None:
+    with pytest.raises(PolarisValidationError, match="no derivation recorded"):
+        variance_second_deriv("gaussian", np.zeros(3))
+
+
+@pytest.mark.parametrize(
+    "family",
+    [poisson_log(), binomial_logit(), binomial_cloglog()],
+    ids=lambda f: f.name + "-" + f.link.name,
+)
+def test_dalpha_deta_matches_a_difference_of_newton_alpha(family) -> None:
+    """PLAN slice 7d's own "cheap check" precondition, formalised: is
+    :func:`dalpha_deta` the true derivative of :func:`newton_alpha`? Verified
+    on all three link/family combinations before either was wired into
+    :func:`dw_deta_observed`/:func:`dw_drho_observed` or
+    :mod:`~polaris_re.analytics.gam_reml_gradient`."""
+    rng = np.random.default_rng(23)
+    eta = rng.normal(size=12) * 0.5
+    mu = family.link.linkinv(eta)
+    if family.name == "binomial":
+        y = np.clip(rng.uniform(0.0, 1.0, size=12), 1e-3, 1.0 - 1e-3)
+    else:
+        y = rng.poisson(np.maximum(mu, 0.1)).astype(float)
+
+    def alpha_of(e: np.ndarray) -> np.ndarray:
+        return newton_alpha(family, y, e, family.link.linkinv(e))
+
+    fd = (alpha_of(eta + _FD) - alpha_of(eta - _FD)) / (2 * _FD)
+    analytic = dalpha_deta(family, y, eta, mu)
+    np.testing.assert_allclose(analytic, fd, atol=1e-6)
+
+
+def test_dalpha_deta_is_zero_on_a_canonical_link() -> None:
+    """``alpha ≡ 1`` on a canonical link (``newton_alpha``'s own test), so its
+    derivative is identically 0 everywhere, not merely at the points sampled."""
+    family = poisson_log()
+    rng = np.random.default_rng(29)
+    eta = rng.normal(size=10) * 0.7
+    mu = family.link.linkinv(eta)
+    y = rng.poisson(np.maximum(mu, 0.1)).astype(float)
+    np.testing.assert_allclose(dalpha_deta(family, y, eta, mu), 0.0, atol=1e-12)
+
+
+@pytest.mark.parametrize(
+    "family",
+    [poisson_log(), binomial_logit(), binomial_cloglog()],
+    ids=lambda f: f.name + "-" + f.link.name,
+)
+def test_dw_deta_observed_matches_a_difference_of_newton_working_weights(family) -> None:
+    """The full Appendix D chain (alpha included), against a central
+    difference of :func:`newton_working_weights` itself — the OBSERVED
+    weight :func:`~polaris_re.analytics.gam_family.Family.observed_information_weight`
+    supplies, not the Fisher weight :func:`dw_deta` differentiates."""
+    rng = np.random.default_rng(31)
+    eta = rng.normal(size=12) * 0.5
+    mu = family.link.linkinv(eta)
+    omega = rng.uniform(0.5, 2.0, size=12)
+    if family.name == "binomial":
+        y = np.clip(rng.uniform(0.0, 1.0, size=12), 1e-3, 1.0 - 1e-3)
+    else:
+        y = rng.poisson(np.maximum(mu, 0.1)).astype(float)
+
+    def w_obs_of(e: np.ndarray) -> np.ndarray:
+        return newton_working_weights(family, y, e, family.link.linkinv(e), omega)
+
+    fd = (w_obs_of(eta + _FD) - w_obs_of(eta - _FD)) / (2 * _FD)
+    analytic = dw_deta_observed(family, y, eta, mu, omega)
+    np.testing.assert_allclose(analytic, fd, atol=1e-6)
+
+
+def test_dw_deta_observed_matches_dw_deta_on_a_canonical_link() -> None:
+    """``alpha ≡ 1`` there, so the observed and Fisher weights coincide and so
+    do their derivatives — a closed-form cross-check independent of any
+    finite difference."""
+    family = binomial_logit()
+    rng = np.random.default_rng(37)
+    eta = rng.normal(size=10) * 0.4
+    mu = family.link.linkinv(eta)
+    omega = np.full(10, 3.0)
+    y = np.clip(rng.uniform(0.0, 1.0, size=10), 1e-3, 1.0 - 1e-3)
+    np.testing.assert_allclose(
+        dw_deta_observed(family, y, eta, mu, omega),
+        dw_deta(family, eta, mu, omega),
+        rtol=1e-10,
+    )
+
+
+def test_dw_deta_observed_departs_from_dw_deta_on_a_non_canonical_link() -> None:
+    """Pins the reason :func:`dw_deta_observed` exists — if this ever agreed
+    with :func:`dw_deta`, PLAN slice 7d's own "cheap check" finding (omitting
+    the alpha term leaves a residual an order of magnitude above the FD noise
+    floor) would have evaporated."""
+    family = binomial_cloglog()
+    rng = np.random.default_rng(41)
+    eta = rng.normal(size=10) * 0.6
+    mu = family.link.linkinv(eta)
+    omega = np.full(10, 3.0)
+    y = np.clip(rng.uniform(0.0, 1.0, size=10), 1e-3, 1.0 - 1e-3)
+    fisher_based = dw_deta(family, eta, mu, omega)
+    observed_based = dw_deta_observed(family, y, eta, mu, omega)
+    assert np.max(np.abs(fisher_based - observed_based)) > 1e-3
+
+
+def test_dw_drho_observed_is_the_chain_rule_of_its_two_factors() -> None:
+    family = binomial_cloglog()
+    x = _design()
+    rng = np.random.default_rng(43)
+    eta = rng.normal(size=x.shape[0]) * 0.3
+    mu = family.link.linkinv(eta)
+    y = np.clip(rng.uniform(0.0, 1.0, size=x.shape[0]), 1e-3, 1.0 - 1e-3)
+    omega = np.full(x.shape[0], 10.0)
+    deta = rng.normal(size=(2, x.shape[0]))
+    expected = dw_deta_observed(family, y, eta, mu, omega)[None, :] * deta
+    np.testing.assert_allclose(
+        dw_drho_observed(family, y, eta, mu, deta, omega), expected, rtol=1e-12
+    )
+
+
+def test_dw_drho_observed_refuses_a_mismatched_deta_shape() -> None:
+    family = poisson_log()
+    eta = np.zeros(10)
+    y = np.zeros(10)
+    with pytest.raises(PolarisValidationError, match="expected"):
+        dw_drho_observed(family, y, eta, family.link.linkinv(eta), np.zeros((2, 9)))

@@ -78,12 +78,17 @@ from polaris_re.core.exceptions import PolarisComputationError, PolarisValidatio
 __all__ = [
     "d_beta_d_rho",
     "d_eta_d_rho",
+    "dalpha_deta",
     "dw_deta",
+    "dw_deta_observed",
     "dw_drho",
+    "dw_drho_observed",
     "newton_alpha",
     "newton_working_weights",
     "second_deriv_mu_eta",
+    "third_deriv_mu_eta",
     "variance_deriv",
+    "variance_second_deriv",
 ]
 
 
@@ -243,6 +248,66 @@ def variance_deriv(family_name: str, mu: np.ndarray) -> np.ndarray:
     )
 
 
+def third_deriv_mu_eta(link_name: str, eta: np.ndarray, mu: np.ndarray) -> np.ndarray:
+    """``d³μ/dη³`` — PLAN slice 7d's own missing ingredient for ``d(alpha)/d(eta)``
+    (``docs/PLAN_mgcv_parity_engine.md`` slice 7c Part 1: "``second_deriv_mu_eta``
+    and ``variance_deriv`` each stop one order short").
+
+    Derived by differentiating :func:`second_deriv_mu_eta`'s own closed form
+    once more in ``η``, using ``m ≡ dμ/dη`` throughout (never re-deriving
+    from ``μ``-space, the same discipline :func:`second_deriv_mu_eta` and
+    :func:`newton_alpha` already use) — verified against a central difference
+    of :func:`second_deriv_mu_eta` on all three links before being wired into
+    anything (``tests/test_analytics/test_gam_derivatives.py``).
+
+    - ``log``: ``m = m' = m'' = μ`` (every derivative of ``e^η`` is itself).
+    - ``logit``: ``m' = m(1-2μ)`` (:func:`second_deriv_mu_eta`, since
+      ``μ(1-μ) ≡ m``). Differentiating that product rule in ``η``:
+      ``m'' = d(m')/dη·(1-2μ) + m'·d(1-2μ)/dη = m'(1-2μ) - 2m²``, and
+      substituting ``m' = m(1-2μ)`` gives
+      ``m'' = m[(1-2μ)² - 2m]``.
+    - ``cloglog``: ``m' = m(1-g)`` with ``g = e^η`` (:func:`second_deriv_mu_eta`).
+      ``dg/dη = g``, so ``m'' = d(m')/dη·(1-g) + m'·(-g) = m'(1-g) - mg``,
+      and substituting ``m' = m(1-g)`` gives ``m'' = m[(1-g)² - g]``.
+    """
+    eta = np.asarray(eta, dtype=np.float64)
+    mu = np.asarray(mu, dtype=np.float64)
+    if link_name == "log":
+        return mu
+    if link_name == "logit":
+        m = mu * (1.0 - mu)
+        return np.asarray(m * ((1.0 - 2.0 * mu) ** 2 - 2.0 * m), dtype=np.float64)
+    if link_name == "cloglog":
+        g = np.exp(eta)
+        m = np.exp(eta - g)
+        return np.asarray(m * ((1.0 - g) ** 2 - g), dtype=np.float64)
+    raise PolarisValidationError(
+        f"gam_derivatives.third_deriv_mu_eta: no derivation recorded for link "
+        f"{link_name!r}. Add it from the link definition rather than differencing "
+        "numerically (CLAUDE.md: do not guess at a derivation)."
+    )
+
+
+def variance_second_deriv(family_name: str, mu: np.ndarray) -> np.ndarray:
+    """``d²V/dμ²`` — PLAN slice 7d's other missing ingredient for
+    ``d(alpha)/d(eta)``, alongside :func:`third_deriv_mu_eta`.
+
+    - ``poisson`` / ``quasipoisson``: ``V = μ`` is linear, so ``V'' = 0``.
+    - ``binomial``: ``V' = 1 - 2μ`` (:func:`variance_deriv`) is linear in
+      ``μ``, so ``V'' = -2`` — a constant, not evaluated pointwise, but
+      returned as an array shaped like ``mu`` so callers can combine it with
+      the other per-observation quantities without a special case.
+    """
+    mu = np.asarray(mu, dtype=np.float64)
+    if family_name in ("poisson", "quasipoisson"):
+        return np.zeros_like(mu)
+    if family_name == "binomial":
+        return np.full_like(mu, -2.0)
+    raise PolarisValidationError(
+        f"gam_derivatives.variance_second_deriv: no derivation recorded for family {family_name!r}."
+    )
+
+
 def newton_alpha(family: Family, y: np.ndarray, eta: np.ndarray, mu: np.ndarray) -> np.ndarray:
     """Wood (2011) §3.2's ``alphaᵢ`` — the factor turning a Fisher weight into a Newton one.
 
@@ -273,6 +338,51 @@ def newton_alpha(family: Family, y: np.ndarray, eta: np.ndarray, mu: np.ndarray)
     variance = family.variance(mu)
     v_prime = variance_deriv(family.name, mu)
     return np.asarray(1.0 + (y - mu) * (v_prime / variance - m_prime / m**2), dtype=np.float64)
+
+
+def dalpha_deta(family: Family, y: np.ndarray, eta: np.ndarray, mu: np.ndarray) -> np.ndarray:
+    """``d(alphaᵢ)/d(ηᵢ)`` — PLAN slice 7d's own missing ingredient, named but
+    not built by slice 7c (``docs/PLAN_mgcv_parity_engine.md``: "needing
+    ``d³μ/dη³`` and ``V''(μ)``; ``second_deriv_mu_eta`` and ``variance_deriv``
+    each stop one order short").
+
+    Differentiating :func:`newton_alpha`'s own closed form,
+    ``alphaᵢ = 1 + (yᵢ - μᵢ)·B(ηᵢ)`` with ``B = V'/V - m'/m²`` (``m ≡ dμ/dη``,
+    primes ``d/dη`` throughout — the same ``η``-parameterisation
+    :func:`newton_alpha` already uses rather than reconstructing ``μ``-space
+    derivatives), the product rule gives::
+
+        d(alpha)/dη = -m·B + (y - μ)·dB/dη
+
+        dB/dη = m·(V''·V - V'²)/V²  -  (m''·m - 2m'²)/m³
+
+    where ``m'' = d³μ/dη³`` (:func:`third_deriv_mu_eta`) and ``V'' = d²V/dμ²``
+    (:func:`variance_second_deriv`). Both closed forms were checked against a
+    central difference of :func:`newton_alpha` on all three links/families
+    this module defines before this function was wired into anything
+    (``tests/test_analytics/test_gam_derivatives.py``).
+
+    **Identically 0 for a canonical link** — a direct consequence of
+    :func:`newton_alpha` being identically 1 there (its own derivative is
+    then 0 everywhere, not merely at the evaluated points); verified as part
+    of the same test.
+    """
+    y = np.asarray(y, dtype=np.float64)
+    eta = np.asarray(eta, dtype=np.float64)
+    mu = np.asarray(mu, dtype=np.float64)
+    m = family.link.mu_eta(eta)
+    m_prime = second_deriv_mu_eta(family.link.name, eta, mu)
+    m_double_prime = third_deriv_mu_eta(family.link.name, eta, mu)
+    variance = family.variance(mu)
+    v_prime = variance_deriv(family.name, mu)
+    v_double_prime = variance_second_deriv(family.name, mu)
+
+    b = v_prime / variance - m_prime / m**2
+    db_deta = (
+        m * (v_double_prime * variance - v_prime**2) / variance**2
+        - (m_double_prime * m - 2.0 * m_prime**2) / m**3
+    )
+    return np.asarray(-m * b + (y - mu) * db_deta, dtype=np.float64)
 
 
 def newton_working_weights(
@@ -391,4 +501,97 @@ def dw_drho(
         )
     return np.asarray(
         dw_deta(family, eta, mu, prior_weights)[None, :] * deta_drho, dtype=np.float64
+    )
+
+
+def dw_deta_observed(
+    family: Family,
+    y: np.ndarray,
+    eta: np.ndarray,
+    mu: np.ndarray,
+    prior_weights: np.ndarray | None = None,
+) -> np.ndarray:
+    """``dwᵢ/dηᵢ`` for the **OBSERVED**-Hessian weight — Wood (2011) Appendix D
+    in full, ``alpha`` and its derivative included.
+
+    PLAN slice 7d's own closing of the gap :func:`dw_deta` deliberately left
+    open: that function drops the ``alphaᵢ'/alphaᵢ`` term entirely (its own
+    docstring — "setting alphaᵢ ≡ 1 ... recovers Fisher scoring"), correct
+    for the Fisher weight the IRLS recursion uses but not for
+    ``wᵢ^observed = alphaᵢ · wᵢ^Fisher``, the weight
+    :meth:`~polaris_re.analytics.gam_family.Family.observed_information_weight`
+    supplies and :func:`~polaris_re.analytics.gam_reml.reml_score_general`'s
+    ``log|XᵀWX + S|`` term is built on (PLAN slice 5c Defect B). By the
+    product rule::
+
+        dwᵢ^observed/dηᵢ = (d(alphaᵢ)/dηᵢ)·wᵢ^Fisher + alphaᵢ·(dwᵢ^Fisher/dηᵢ)
+
+    — :func:`dalpha_deta` for the first factor, :func:`dw_deta` for the
+    second, :func:`newton_working_weights`'s own ``alpha_i · fisher`` for
+    the base weight. Measured before this was wired into anything: on the
+    ``select=True`` N=7 fixture (PLAN slice 7c/7d), omitting this term
+    entirely from the REML gradient leaves a residual an order of magnitude
+    ABOVE a trustworthy central-difference reading; the Fisher-only
+    approximation (:func:`dw_drho` fed the OBSERVED-weight's base value but
+    not its own alpha-derivative) closes most but not all of it; this
+    function is what the ``docs/DECISIONS.md`` ADR for slice 7d records as
+    closing the remainder. **Identically equal to** :func:`dw_deta` **on a
+    canonical link** — ``alpha ≡ 1`` there so ``d(alpha)/dη ≡ 0``
+    (:func:`dalpha_deta`), leaving only the second term.
+    """
+    y = np.asarray(y, dtype=np.float64)
+    eta = np.asarray(eta, dtype=np.float64)
+    mu = np.asarray(mu, dtype=np.float64)
+    n = eta.shape[0]
+    prior_weights = (
+        np.ones(n, dtype=np.float64)
+        if prior_weights is None
+        else np.asarray(prior_weights, dtype=np.float64)
+    )
+    m = family.link.mu_eta(eta)
+    variance = family.variance(mu)
+    fisher = prior_weights * m**2 / variance
+    alpha = newton_alpha(family, y, eta, mu)
+    d_alpha = dalpha_deta(family, y, eta, mu)
+    d_fisher = dw_deta(family, eta, mu, prior_weights)
+    return np.asarray(d_alpha * fisher + alpha * d_fisher, dtype=np.float64)
+
+
+def dw_drho_observed(
+    family: Family,
+    y: np.ndarray,
+    eta: np.ndarray,
+    mu: np.ndarray,
+    deta_drho: np.ndarray,
+    prior_weights: np.ndarray | None = None,
+) -> np.ndarray:
+    """``dwᵢ^observed/drhoⱼ = (dwᵢ^observed/dηᵢ)(dηᵢ/drhoⱼ)`` — :func:`dw_drho`'s
+    counterpart for the OBSERVED weight, built on :func:`dw_deta_observed`
+    rather than :func:`dw_deta`. This is the exact ``dW/drho`` term
+    :func:`~polaris_re.analytics.gam_reml_gradient.reml_score_gradient` needs
+    (PLAN slice 7d) — see that module for where it is assembled into the
+    full REML-score gradient.
+
+    Args:
+        family: the fitted family.
+        y: response, ``(n,)``.
+        eta: linear predictor at the fit, ``(n,)``.
+        mu: fitted mean, ``(n,)``.
+        deta_drho: ``(M, n)`` from :func:`d_eta_d_rho`, computed with the
+            SAME observed weights this function's own base weight uses (see
+            :func:`newton_working_weights`).
+        prior_weights: ``ω``, ``(n,)``. Defaults to all-one.
+
+    Returns:
+        ``(M, n)`` — row ``j`` is ``dw^observed/drhoⱼ``.
+    """
+    deta_drho = np.asarray(deta_drho, dtype=np.float64)
+    if deta_drho.ndim != 2 or deta_drho.shape[1] != eta.shape[0]:
+        raise PolarisValidationError(
+            f"gam_derivatives.dw_drho_observed: deta_drho has shape {deta_drho.shape}, "
+            f"expected (M, {eta.shape[0]})."
+        )
+    return np.asarray(
+        dw_deta_observed(family, y, eta, mu, prior_weights)[None, :] * deta_drho,
+        dtype=np.float64,
     )

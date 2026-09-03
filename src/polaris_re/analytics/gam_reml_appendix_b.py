@@ -53,6 +53,7 @@ from polaris_re.core.exceptions import PolarisValidationError
 __all__ = [
     "AppendixBResult",
     "appendix_b_transform",
+    "dlogdet_s_plus_drho",
     "logdet_s_plus",
 ]
 
@@ -313,3 +314,55 @@ def logdet_s_plus(blocks: tuple[np.ndarray, ...], lambdas: np.ndarray) -> float:
     don't need ``E`` or the rank.
     """
     return appendix_b_transform(blocks, lambdas).logdet_s_plus
+
+
+def dlogdet_s_plus_drho(blocks: tuple[np.ndarray, ...], lambdas: np.ndarray) -> np.ndarray:
+    """``d(log|S|+)/drhoⱼ = λⱼ tr(S⁺Sⱼ)`` — PLAN slice 7d, the fourth term of
+    the analytic REML gradient (``docs/PLAN_mgcv_parity_engine.md``, "Part 1").
+
+    The standard generalized-determinant derivative identity (Wood 2011's own
+    statement, quoted in the PLAN slice), with ``S⁺`` the Moore-Penrose
+    pseudoinverse of ``S = Σⱼ λⱼblocks[j]`` restricted to its positive
+    eigenspace. **``S⁺`` is built from :func:`appendix_b_transform`'s own
+    ``e`` (``eᵀe = S``, already resolved by the structural rank decision),
+    never by eigendecomposing the raw summed ``S`` at a fixed tolerance** —
+    that eigen-cut is exactly Defect A (this module's own docstring), and
+    reintroducing it here for the derivative would carry the identical
+    numerical-zero-leakage failure into the gradient that Appendix B exists
+    to keep out of the score.
+
+    Economy SVD of ``e`` (``(rank, q)``, full row rank by construction):
+    ``e = UΣVᵀ`` gives ``S⁺ = VΣ⁻²Vᵀ`` directly (``V``'s columns are an
+    orthonormal basis of ``S``'s row/column space, ``Σ`` its nonzero
+    singular values) — so ``tr(S⁺Sⱼ) = Σᵢ σᵢ⁻² vᵢᵀSⱼvᵢ``, computed per block
+    without ever forming the ``(q, q)`` pseudoinverse explicitly.
+
+    Args:
+        blocks: as :func:`appendix_b_transform`.
+        lambdas: as :func:`appendix_b_transform`.
+
+    Returns:
+        ``(len(blocks),)`` — one ``d(log|S|+)/drhoⱼ`` per block, natural-log
+        ``rho`` (matching :mod:`~polaris_re.analytics.gam_derivatives`'s own
+        convention, ``rhoⱼ = log(λⱼ)``).
+    """
+    result = appendix_b_transform(blocks, lambdas)
+    e = result.e
+    n_blocks = len(blocks)
+    if e.shape[0] == 0:
+        # The model's positive eigenspace is empty (every block is exactly
+        # zero) — log|S|+ is identically 0 regardless of rho, so every
+        # derivative is 0.
+        return np.zeros(n_blocks, dtype=np.float64)
+
+    _u, sigma, vt = np.linalg.svd(e, full_matrices=False)
+    v = vt.T  # (q, rank), orthonormal columns spanning S's row/column space
+    inv_sigma_sq = 1.0 / (sigma**2)
+
+    grad = np.empty(n_blocks, dtype=np.float64)
+    for j, block in enumerate(blocks):
+        block_v = block @ v  # (q, rank)
+        diag_vals = np.einsum("qi,qi->i", v, block_v)  # v_i^T @ block @ v_i, one per column
+        trace_s_plus_block = float(np.sum(inv_sigma_sq * diag_vals))
+        grad[j] = lambdas[j] * trace_s_plus_block
+    return grad

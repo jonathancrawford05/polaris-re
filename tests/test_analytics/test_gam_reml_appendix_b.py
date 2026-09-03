@@ -21,6 +21,7 @@ from polaris_re.analytics.gam_model import assemble_model_design
 from polaris_re.analytics.gam_multiterm_conformance import _multiterm_model_spec
 from polaris_re.analytics.gam_reml_appendix_b import (
     appendix_b_transform,
+    dlogdet_s_plus_drho,
     logdet_s_plus,
 )
 from polaris_re.core.exceptions import PolarisValidationError
@@ -365,3 +366,68 @@ class TestValidation:
     def test_rejects_mismatched_block_shapes(self) -> None:
         with pytest.raises(PolarisValidationError, match="square and equal-sized"):
             appendix_b_transform((np.eye(3), np.eye(4)), np.array([1.0, 1.0]))
+
+
+class TestDlogdetSPlusDrho:
+    """PLAN slice 7d's fourth gradient term: ``d(log|S|+)/drhoⱼ = λⱼtr(S⁺Sⱼ)``,
+    Wood's own generalized-determinant derivative identity, computed from
+    Appendix B's own ``e`` rather than a naive eigen-cut on the raw summed
+    ``S`` (this module's own Defect A)."""
+
+    def test_matches_a_central_difference_on_well_scaled_full_rank_blocks(
+        self, rng: np.random.Generator
+    ) -> None:
+        p = 6
+        blocks = tuple((lambda a: a @ a.T)(rng.normal(size=(p, p))) + np.eye(p) for _ in range(3))
+        lambdas = np.array([1.5, 3.2, 0.7])
+
+        analytic = dlogdet_s_plus_drho(blocks, lambdas)
+
+        h = 1e-6
+        fd = np.zeros(3)
+        for j in range(3):
+            rho = np.log(lambdas)
+            up, down = rho.copy(), rho.copy()
+            up[j] += h
+            down[j] -= h
+            fd[j] = (logdet_s_plus(blocks, np.exp(up)) - logdet_s_plus(blocks, np.exp(down))) / (
+                2 * h
+            )
+        np.testing.assert_allclose(analytic, fd, atol=1e-6)
+
+    def test_matches_a_central_difference_on_badly_scaled_rank_deficient_blocks(
+        self, rng: np.random.Generator
+    ) -> None:
+        """The exact structure Appendix B exists for (Defect A's own
+        motivation): a rank-deficient second-difference block plus a
+        low-rank random block, at a 10-decade lambda spread."""
+        p = 8
+        s1 = _second_difference_penalty(p)
+        a = rng.normal(size=(p, 3))
+        s2 = a @ a.T
+        blocks = (s1, s2)
+        lambdas = np.array([1.0e6, 1.0e-4])
+
+        analytic = dlogdet_s_plus_drho(blocks, lambdas)
+
+        h = 1e-6
+        fd = np.zeros(2)
+        for j in range(2):
+            rho = np.log(lambdas)
+            up, down = rho.copy(), rho.copy()
+            up[j] += h
+            down[j] -= h
+            fd[j] = (logdet_s_plus(blocks, np.exp(up)) - logdet_s_plus(blocks, np.exp(down))) / (
+                2 * h
+            )
+        np.testing.assert_allclose(analytic, fd, atol=1e-5)
+
+    def test_zero_on_an_entirely_null_model(self) -> None:
+        """Every block identically zero: the positive eigenspace is empty,
+        ``log|S|+ == 0`` regardless of ``rho``, so every derivative is 0 —
+        the ``e.shape[0] == 0`` branch, exercised directly rather than only
+        implicitly through a coincidence of random blocks."""
+        p = 4
+        blocks = (np.zeros((p, p)), np.zeros((p, p)))
+        result = dlogdet_s_plus_drho(blocks, np.array([2.0, 3.0]))
+        np.testing.assert_array_equal(result, np.zeros(2))

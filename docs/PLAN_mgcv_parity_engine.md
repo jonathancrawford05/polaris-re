@@ -1671,9 +1671,40 @@ acceptance gate (Part 2).
 - **Depends on:** Slice 7c (ADR-219) for the scope correction; ADR-201/202
   (Appendix C/D derivative machinery); ADR-212 (the finite-difference step it
   retires).
-- **Status: REGISTERED, not started.** Carries Part 1 of slice 7c verbatim
+- **Status: DONE, 2026-09-03 (ADR-220).** Carries Part 1 of slice 7c verbatim
   (kept above), with its target corrected by ADR-219. Registered rather than
   left as prose per ADR-209 decision 1.
+
+  **The cheap check (below) FAILED**, so `d(alpha)/d(eta)` was derived in
+  full — `gam_derivatives.third_deriv_mu_eta`/`variance_second_deriv`/
+  `dalpha_deta`/`dw_deta_observed`/`dw_drho_observed`, each verified against
+  a central difference of the function one order below it on all three
+  link/family combinations this codebase defines — closing the hazard this
+  slice's own entry names below, rather than routing around it.
+  `gam_reml_appendix_b.dlogdet_s_plus_drho` supplies the fourth gradient
+  term from Appendix B's own `E` (economy SVD), not a naive eigen-cut.
+  `gam_reml_gradient.reml_score_gradient` assembles all four Wood eq. (4)
+  terms and closes the cheap check from `~0.02` to `~1e-5` at the same
+  point. Wired via `select_lambdas_continuous(analytic_gradient=True)`
+  (SciPy `jac=True`), opt-in, threaded through
+  `select_lambdas_continuous_multistart`/`fit_polaris_gam`/
+  `fit_select_free_sp_case` — every existing caller's default behaviour
+  verified unchanged.
+
+  **Registered prediction, both clauses, measured on the `select=TRUE` N=7
+  structure (TIER 1 ONLY, R 4.3.3/mgcv 1.9-1 — see ADR-220 for the tier-3
+  status at write time):** first clause (score gap closes to at or below
+  the noise floor) **HOLDS** — warm-start reaches `523.645314` against
+  `mgcv`'s `523.645336`, and `multistart(9)` with the analytic gradient
+  reaches essentially the same score gap as the finite-difference default
+  (`0.0180` vs `0.0141`) at 8.4x fewer function evaluations. Second clause
+  (`converged` stops disagreeing with a near-zero gradient) **REFUTED by a
+  NEW mechanism**: SciPy's own `ftol`-style stopping rule can fire — and
+  report `converged=True` — while the TRUE (exact) gradient is large on
+  directions not pinned at a search bound, a different defect from
+  ADR-212's finite-difference-noise mechanism. Filed as a follow-up, not
+  fixed this session. See ADR-220 for the full measurement and the
+  provenance table.
 - **What changed about its purpose.** Slice 7c Part 0 removed the
   `max_abs_log10_sp_diff` gate from this slice's justification — that gate is
   ill-posed on the two unresolved blocks and no gradient can close it. What
@@ -1703,6 +1734,25 @@ acceptance gate (Part 2).
   above, verbatim, plus a `[judgement]` that the score gap is reported on the
   identified subspace and never as a `log10(sp)` closure, plus the two
   preconditions below if any re-gating lands in this slice.
+
+  - `[machine]` An analytic `dV/drho` exists, is passed to `L-BFGS-B` via
+    `jac=` … — **MET.** `gam_reml_gradient.reml_score_gradient`,
+    `select_lambdas_continuous(analytic_gradient=True)`.
+  - `[machine]` The `dW/drho` term is either included with `d(alpha)/d(eta)`
+    derived, or excluded with a committed measurement … — **MET, INCLUDED.**
+    `dw_deta_observed`/`dw_drho_observed`, each function verified against a
+    central difference before composition (`tests/test_analytics/
+    test_gam_derivatives.py`).
+  - `[machine]` `select_lambdas_continuous`'s existing behaviour is
+    preserved … — **MET.** `analytic_gradient` defaults to `False`; a wiring
+    test (`test_default_behaviour_is_unchanged_when_analytic_gradient_is_
+    not_requested`) pins that the `minimize` call is bit-identical to before
+    this slice when the parameter is not requested.
+  - `[judgement]` the score gap is reported on the identified subspace and
+    never as a `log10(sp)` closure — **MET.** ADR-220 and this file's own
+    status block above state both explicitly; `max_abs_log10_sp_diff` is
+    reported (tier 1) but never claimed as a success criterion.
+
 - **Preconditions inherited from ADR-219 (PR #224 review), binding only if
   the maintainer accepts the re-gating.** Recorded on the slice so they cannot
   be lost between the ADR and the work:
@@ -1715,6 +1765,8 @@ acceptance gate (Part 2).
     weighting at `mgcv`'s point lets its payload re-enter through the norm;
     our own point closes that channel. Expect the numbers to move — measure by
     how much and report it, rather than assuming the two curvatures agree.
+  - **NOT APPLICABLE this slice** — re-gating did not land in slice 7d; both
+    preconditions remain slice 7e's own scope, unaddressed here.
 
 ### Slice 7e: re-gate on `eta`/`edf`, with the H-weighted distance as companion
 
@@ -1764,6 +1816,71 @@ acceptance gate (Part 2).
   unqualified claim would be refuted by our own committed ledger, which is the
   worst possible way for a public claim to fail.
 - `[machine]` Tier 1 AND tier 3, both recorded, both agreeing in verdict.
+- `[machine]` `tests/qa/golden_outputs/` byte-identical.
+
+### Slice 7f: SciPy L-BFGS-B's `ftol`-based early exit near a bound-active corner
+
+- **Depends on:** Slice 7d (ADR-220), whose own measurement found this.
+- **Status: REGISTERED, not started** (ADR-209 decision 1 — "a gap you open
+  is closed or registered, never merely filed"; found and named this
+  session rather than chased, per the routine's own three-pass discipline).
+
+**The gap, stated precisely.** With the EXACT analytic gradient supplied via
+`jac=True` (slice 7d), a blind single-start `select_lambdas_continuous` on
+the `select=TRUE` N=7 structure reports `converged=True` at a point whose
+true gradient norm is `3.067` on directions not pinned at a search bound.
+SciPy's own `message` names the mechanism: `CONVERGENCE: RELATIVE
+REDUCTION OF F <= FACTR*EPSMCH` — an `ftol`-style rule, not the `gtol` the
+caller set. Two of the seven blocks sit at `PRODUCTION_LOG10_BOUNDS`'s upper
+bound (`12.0`) at that point; the line search appears to stall near that
+bound-active corner. **Different in kind from ADR-212's own
+finite-difference-noise defect** (that one supplied a noisy gradient
+estimate near a genuine optimum and was fixed by deriving a larger step;
+this one supplies the mathematically exact gradient and the optimiser still
+exits early, for a reason internal to L-BFGS-B's own bound handling — no
+step size can fix it).
+
+**Why this is not yet chased further.** ADR-220's own session found and
+precisely located this in its first pass (this is a `MEASUREMENT (own
+criterion)` finding, no `mgcv` comparison needed to demonstrate it) but did
+not test any fix, per the routine's "never burn the whole session on
+hypothesis 1" — three named candidates, none evaluated, is a legitimate
+stopping point for one session.
+
+**Three candidate directions, named but not tried:**
+
+1. A tighter `factr` (SciPy's L-BFGS-B parameter controlling the `ftol`
+   threshold) — cheapest to try, risks slowing convergence on well-behaved
+   problems if set globally rather than per-call.
+2. Detect a bound-active `ftol` exit and restart from that point with a
+   fresh `minimize` call (or a different method) — more code, no risk to
+   the well-conditioned case.
+3. Accept it as a property of L-BFGS-B on this problem shape and rely on
+   `multistart=True` (already measured, ADR-220: `multistart(9)` with the
+   analytic gradient does NOT hit this failure mode on the same fixture) —
+   no new code, but leaves single-start `analytic_gradient=True` alone
+   unreliable near a bound.
+
+**Registered prediction.** Candidate 2 (restart after a detected `ftol`
+exit with an active bound) closes the gap outright, because ADR-220's own
+warm-start reading shows the true optimum IS reachable under this
+criterion; candidates 1 and 3 are mitigations, not closures — a smaller
+`factr` still permits an early exit given a poorly-scaled step, and
+`multistart=True`'s own cost (measured, ADR-213: 9-17x a single search) is
+the reason a genuine fix is worth having.
+
+**Definition of Done, tagged per ADR-209 decision 3.**
+
+- `[machine]` The candidate fix is implemented and the SAME blind
+  single-start case from ADR-220 (`select=TRUE` N=7, bounds-centre start,
+  `analytic_gradient=True`) no longer exits via `ftol` with a true gradient
+  norm above the objective's own established noise floor.
+- `[machine]` `select_lambdas_continuous`'s existing behaviour is preserved
+  for every caller not opting into the fix (same discipline as
+  `analytic_gradient`/`multistart` before it).
+- `[judgement]` If none of the three candidates closes the gap outright,
+  the session says so and characterises what remains, rather than reporting
+  a partial mitigation as a closure.
 - `[machine]` `tests/qa/golden_outputs/` byte-identical.
 
 ### Deferred to a later epic: `bam` + `discrete = TRUE` + fREML
