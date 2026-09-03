@@ -20663,3 +20663,106 @@ citable outside this session log. The `ftol`-vs-exact-gradient finding
 `success`) — no regression from this session's changes.
 
 CI run: [33766634959](https://github.com/jonathancrawford05/polaris-re/actions/runs/33766634959).
+
+## ADR-220 amendment 2: the cited run's own status is `cancelled`, not `success` — corroborated by a second, cleanly `success` run on the identical head
+
+**Date:** 2026-09-03 (same day). The automated PR review on PR #225
+([review #5104715866](https://github.com/jonathancrawford05/polaris-re/pull/225#pullrequestreview-5104715866),
+finding P1-1) caught a real accuracy problem: run `33766634959`'s own
+run-level `conclusion` (and its `Compare against the Python reference`
+job's own `conclusion`) is **`cancelled`**, not `success` — amendment 1's
+"run to completion" / "completed normally" language did not say this. The
+underlying evidence stands (a stray `cancel_workflow_run` call landed
+after all 27 steps had already finished — see amendment 1's own account
+of clearing the runner contention — and every step's own `conclusion` is
+independently `success`), but a reader checking provenance via the
+Actions API sees `cancelled` at the run level, not the tier-3 confirmation
+amendment 1 claims. This is corrected here rather than only reworded,
+per the reviewer's suggested fix (b): a second run is cited that carries
+a clean run-level `success`.
+
+**Run [33768187631](https://github.com/jonathancrawford05/polaris-re/actions/runs/33768187631)
+(run 148) — `event: pull_request`, `status: completed`, `conclusion:
+success`, `head_sha: 0787cbe5c581553ec4ba1e803e169688ab3b4e9c`, the exact
+current PR head at the time of this amendment.** Auto-triggered by the
+docs-only propagation commit itself (several touched paths are in the
+workflow's own trigger list). `Compare against the Python reference`
+(job `100692015768`) conclusion: `success`.
+
+### `SELECT_FREE_SP_MODEL_CLAIM` — bit-identical to amendment 1's tier-3 table
+
+| search | nfev | `max abs eta diff` | `max abs log10(sp) diff` | `edf_total diff` | `max abs per-term edf diff` | at bound | converged | agrees |
+|---|---:|---:|---:|---:|---:|---|---|---|
+| single-start (default, FD) | 424 | 4.456e-01 | 4.6424 | +2.4728 | 2.4717 | False | True | False |
+| multistart(9), FD | 4384 | 5.388e-03 | 5.9517 | -0.3101 | 0.2329 | False | True | False |
+| single-start, `analytic_gradient=True` | 41 | 4.013e-02 | 1.7036 | +1.9610 | 2.1918 | True | True | False |
+| multistart(9), `analytic_gradient=True` | 462 | 5.460e-03 | 5.7950 | -0.2593 | 0.2390 | False | True | False |
+
+Every cell matches amendment 1's table exactly — the code measured in run
+145 and run 148 is byte-identical (`git diff a8215c8 HEAD -- src/ tests/`
+is empty; only `docs/` changed between them), and the fixture/search are
+both deterministic. This is the strongest form of corroboration available
+short of a third independent tier: two separately-dispatched runs, one
+labelled `cancelled` at the run level and one cleanly `success`, produce
+the identical parity table.
+
+### `gam_reml_gradient_diagnostic.py` — reproduces with one honestly-reported wrinkle
+
+| search | total nfev | REML score | converged | true `\|grad\|` |
+|---|---:|---:|---|---:|
+| blind, finite-difference (default) | 424 | 529.576515 | True | 0.044045 |
+| blind, analytic gradient | 41 | 524.408084 | True | **3.249347** |
+| multistart(9), finite-difference | 4384 | 523.668016 | True | 0.133229 |
+| multistart(9), analytic gradient | 462 | 523.662692 | True | 0.007641 |
+| warm-start at `mgcv`'s point, analytic gradient (TRANSPORT) | 20 | 523.645313 | True | 0.004842 |
+
+The four blind/multistart rows are bit-identical to amendment 1's run-145
+readings in every column shown (nfev, score, true gradient) — including
+the slice 7f finding: the blind analytic run again reports `converged=True`
+at true `|grad| = 3.249347`, the identical value amendment 1 already
+recorded for this same run's blind-analytic row (run 148 dispatched from
+the same commit as run 145's own re-check, so this is the same underlying
+computation, not independent confirmation of slice 7f — slice 7f's tier-3
+status is unchanged from amendment 1).
+
+**The one thing that does NOT reproduce bit-for-bit: the warm-start row**
+(nfev 20 vs amendment 1's 23; score `523.645313` vs `523.645315`; true
+`|grad|` `0.004842` vs `0.001461`) and the `MAX ABS (warm-start log10(sp)
+- mgcv's own log10(sp))` reading (`0.001602` here vs `0.001099` in
+amendment 1). The companion slice-7c identifiability diagnostic in this
+same run independently prints "REML score at mgcv's own point:
+`523.645323142`" (our own `reml_score_general` evaluated at mgcv's exact
+selected `log10(sp)`, explicitly labelled in the script's own output as
+"DIAGNOSTIC (transport-flavoured)... never a parity claim") — using that
+as the same kind of reference point amendment 1 used, the warm-start row's
+score gap here is `523.645313 - 523.645323142 = -0.000010`, against
+amendment 1's `-0.000016`. Both readings are order `1e-5`, both are the
+tightest class of reading this epic has produced, and **neither changes
+any verdict**: the score-gap-closes claim holds at both readings, and the
+slice-7f refutation is unaffected (it rests on the blind-analytic row,
+which is bit-identical between the two runs).
+
+**Why the warm-start row alone moves.** It is the only row whose starting
+point `x0` is read from `mgcv`'s own selected `log10(sp)`, regenerated by
+the R probe fresh in each dispatch. The blind/multistart rows start from
+fixed, data-independent points and land on bit-identical optima in both
+runs, so the fixture and our own search are both reproducible; the
+warm-start row's small drift is consistent with `mgcv`'s own optimizer
+landing at a `log10(sp)` that agrees with the other run to ~3-4 decimal
+places but not to machine precision — the same class of **cross-run
+floating-point non-associativity in threaded/vectorised numerics**
+ADR-219's amendments already flagged for this search (different GitHub
+Actions runner hardware can take different SIMD code paths inside the
+same pinned container, even with `OPENBLAS_NUM_THREADS=1`). Not a new
+phenomenon; reported honestly here because the reviewer's fix asked for
+byte-level scrutiny of a repeat run, and a repeat run is what surfaced it.
+
+### What this settles
+
+**[P1-1] is fixed, not merely reworded.** Every downstream document citing
+run 145 as tier-3 confirmation now also cites run 148 (a clean `success`
+run on the identical PR head) alongside it, with the `SELECT_FREE_SP_MODEL_CLAIM`
+table shown to be bit-identical between the two and the small warm-start
+wobble reported rather than hidden. The overall verdict — score gap
+closes, slice 7f reproduces — is unchanged and now has two runs' worth of
+tier-3 evidence behind it instead of one ambiguously-labelled one.

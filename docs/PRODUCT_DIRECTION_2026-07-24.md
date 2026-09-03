@@ -3424,12 +3424,19 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   slice's own scope touches directly).*
 
 - **Tier-3 confirmation on ADR-220's `SELECT_FREE_SP_MODEL_CLAIM` table
-  (analytic-gradient rows) is now OBTAINED, same session (ADR-220 amendment
-  1).** A fourth dispatch (`33766634959`) succeeded after cancelling two
-  colliding `workflow_dispatch` runs freed the runner; all 27 steps
-  succeeded and every finding matched tier 1 in verdict, several tighter.
-  Both tables are citable outside the session log as of this confirmation.
-  *Source: this session, ADR-220 amendment 1 (2nd-order — discharges the
+  (analytic-gradient rows) is now OBTAINED, same session, by TWO
+  separately-dispatched runs (ADR-220 amendments 1-2).** A fourth dispatch
+  (`33766634959`) succeeded after cancelling two colliding
+  `workflow_dispatch` runs freed the runner — all 27 steps succeeded, but
+  an automated PR review caught that the run's own run-level `conclusion`
+  reads `cancelled` (a stray cancel call landed right as it finished), so
+  a second run (`33768187631`, clean `conclusion: success`, same PR head)
+  was cited alongside it — bit-identical on the parity table, one small
+  (`~1e-5`-`1e-3`) run-to-run wobble on the warm-start diagnostic row only,
+  attributed to cross-run floating-point non-associativity, not a defect.
+  Every finding matches tier 1 in verdict, several tighter. Both tables are
+  citable outside the session log as of this confirmation. *Source: this
+  session, ADR-220 amendments 1-2 (2nd-order — discharges the
   confirmation obligation this session's own rows carried, not new
   scope).*
 

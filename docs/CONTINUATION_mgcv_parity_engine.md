@@ -579,22 +579,29 @@ eight-term structure. See ADR-217 and `docs/CONFORMANCE_LEDGER.md`.
 > optimiser still exits early near a bound-active corner). Filed as a new
 > follow-up (PLAN slice 7f), not fixed this session.
 >
-> **TIER 3 CONFIRMED, same session (ADR-220 amendment 1).** After the three
+> **TIER 3 CONFIRMED, same session (ADR-220 amendment 1), by TWO
+> separately-dispatched runs (ADR-220 amendment 2).** After the three
 > stalled dispatch attempts above, a fourth run (`33766634959`, R 4.6.1 /
 > mgcv 1.9.4, pinned oracle digest
 > `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
-> build 8) completed all 27 steps successfully once the colliding
+> build 8) had all 27 of its steps succeed once the colliding
 > `workflow_dispatch` runs were cancelled and the runner contention
-> cleared. Every finding above is IDENTICAL IN VERDICT at tier 3, several
-> tighter: `multistart(9)` analytic reaches `max abs eta diff = 5.460e-03`
-> at **9.5x fewer function evaluations**; the warm-start score gap vs
-> `mgcv`'s own score `523.645331092` is `-0.000016` (tighter than tier 1's
-> `-0.0002`) — the tightest reading this epic has produced, confirmed at
-> both tiers. The `ftol`-vs-exact-gradient refutation (slice 7f) also
-> reproduces at tier 3 (true `|grad|` `3.249347`, same order of magnitude
-> and same structural signature as tier 1's `3.067`). Both tables are now
-> citable outside this session log. See ADR-220 for the full measurement
-> and provenance tables.
+> cleared — but its own run-level `conclusion` is `cancelled` (a stray
+> cancel call landed right as it finished), caught by an automated PR
+> review (finding P1-1). A second run, `33768187631`, auto-triggered
+> later on the identical PR head with a clean `status: completed,
+> conclusion: success`, reproduces the `SELECT_FREE_SP_MODEL_CLAIM` table
+> bit-identically. Every finding above is IDENTICAL IN VERDICT at tier 3,
+> several tighter: `multistart(9)` analytic reaches `max abs eta diff =
+> 5.460e-03` at **9.5x fewer function evaluations**; the warm-start score
+> gap vs `mgcv`'s own score is `-0.000016` (run 145) / `-0.000010` (run
+> 148) (tighter than tier 1's `-0.0002`) — the tightest reading this epic
+> has produced, confirmed at both tiers and reproduced (within `~1e-5`) on
+> a second tier-3 dispatch. The `ftol`-vs-exact-gradient refutation (slice
+> 7f) also reproduces at tier 3, bit-identically on both runs (true
+> `|grad|` `3.249347`). Both tables are now citable outside this session
+> log. See ADR-220 and its amendments 1-2 for the full measurement and
+> provenance tables.
 
 > **This is the ACTIVE epic.** `CONTINUATION_penalized_mi_surface.md` is superseded from
 > its slice 6 onward and all of its remaining slices are PARKED. A routine run selecting

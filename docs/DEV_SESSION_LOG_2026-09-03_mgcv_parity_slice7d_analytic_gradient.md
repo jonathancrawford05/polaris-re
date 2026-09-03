@@ -326,7 +326,7 @@ copy.
   plus the auto-triggered `pull_request` run racing for the same runner
   pool), not a defect introduced this session. Cancelling the two
   colliding `workflow_dispatch` runs (144, 146) freed run 145
-  (`33766634959`) to complete normally: all 27 steps `success`, R 4.6.1 /
+  (`33766634959`) to have all 27 of its steps succeed: R 4.6.1 /
   mgcv 1.9.4, oracle digest
   `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
   (build 8). **The `SELECT_FREE_SP_MODEL_CLAIM` table above is now
@@ -336,6 +336,18 @@ copy.
   score gap `-0.000016`, the tightest reading this epic has produced on
   this structure). Citable outside this session log as of this
   confirmation.
+
+  **Correction (post-review):** an automated PR review on #225 (finding
+  P1-1) caught that run 145's own run-level `conclusion` (and its
+  `Compare against the Python reference` job's own `conclusion`) is
+  `cancelled`, not `success` — a stray cancel call landed right after all
+  27 steps had finished, so "complete normally" above understated it. A
+  second run, [33768187631](https://github.com/jonathancrawford05/polaris-re/actions/runs/33768187631),
+  auto-triggered later on the identical PR head with a clean `status:
+  completed, conclusion: success`, reproduces the `SELECT_FREE_SP_MODEL_CLAIM`
+  table bit-identically (one small, non-verdict-changing wobble on the
+  warm-start diagnostic row only). See ADR-220 amendment 2 for the full
+  account.
 
 ## Perf history
 
