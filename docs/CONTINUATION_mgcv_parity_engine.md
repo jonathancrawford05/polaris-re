@@ -563,7 +563,9 @@ eight-term structure. See ADR-217 and `docs/CONFORMANCE_LEDGER.md`.
 > threaded through `select_lambdas_continuous_multistart`/`fit_polaris_gam`/
 > `fit_select_free_sp_case`. **Registered prediction's first clause HOLDS**:
 > on the `select=TRUE` N=7 structure (**tier 1 only**, R 4.3.3/mgcv 1.9-1 —
-> tier-3 dispatch pending at the time this file was updated, see ADR-220),
+> tier-3 dispatch ATTEMPTED THREE TIMES this session and did NOT complete,
+> CI/runner contention stalling the compare job rather than a code defect;
+> a future check-in must retry, see ADR-220),
 > warm-starting the analytic search at `mgcv`'s own point reaches score
 > `523.645314` against `mgcv`'s `523.645336` (`max abs log10(sp) diff =
 > 0.0010`, the tightest reading this epic has produced on this structure),

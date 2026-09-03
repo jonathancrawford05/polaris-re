@@ -304,7 +304,25 @@ copy).
 - `uv run pytest tests/qa/ -q --tb=short` — **85 passed, 9 skipped.**
   Byte-identical goldens (`git diff` on `tests/qa/golden_outputs/` empty):
   nothing in `products/`, `reinsurance/` or the CLI moved.
-- Conformance run — tier 3 dispatch pending; recorded once returned.
+- Conformance run — **attempted three times, did not complete.** Two
+  `workflow_dispatch` runs (144, 146) and the automatic `pull_request` run
+  (145, triggered by opening PR #225 — several touched paths are in the
+  workflow's own trigger list) all reached the R job successfully every
+  time (green, unaffected). The Python "Compare against the Python
+  reference" job stalled: run 144 hung on the generic "Install
+  dependencies" step for 15+ minutes without ever reaching this session's
+  own code; after cancelling it, run 145 progressed through most steps at
+  a normal pace (including this session's own extended slice 7b table) but
+  then stalled 20+ minutes inside the PRE-EXISTING, UNMODIFIED slice 7c
+  identifiability diagnostic step — a step ADR-219's own session completed
+  in well under a minute. All three runs cancelled after generous waits
+  rather than left running. Reads as CI/runner resource contention in this
+  environment on this day, not a defect introduced this session: the stall
+  occurred inside code this session does not touch. **The
+  `SELECT_FREE_SP_MODEL_CLAIM` table above is TIER 1 ONLY** and not yet
+  citable as settled parity evidence outside this session log/PR #225
+  until a future check-in successfully re-dispatches
+  `mgcv-conformance.yml` on this branch.
 
 ## Perf history
 

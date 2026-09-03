@@ -20384,9 +20384,19 @@ separately.
 Python, verified against central differences — no `mgcv` involvement, so no
 tier question applies). The `SELECT_FREE_SP_MODEL_CLAIM` measurement table
 below is **TIER 1 ONLY** (R 4.3.3 / mgcv 1.9-1, local apt) at the time this
-entry was written — a tier-3 dispatch was in flight when this session ended;
-see the amendment appended once it returns, per this epic's own standing
-practice (ADR-219's identical two-step pattern).
+entry was written. **Tier-3 dispatch was ATTEMPTED THREE TIMES this session
+and did not complete** — every attempt's R job succeeded, but the Python
+compare job stalled (once on the generic dependency-install step before
+reaching any of this session's code, once for 20+ minutes inside the
+PRE-EXISTING, unmodified slice 7c identifiability diagnostic — a step
+ADR-219's own session completed in under a minute), reading as CI/runner
+resource contention rather than a defect this session introduced. See
+`docs/DEV_SESSION_LOG_2026-09-03_mgcv_parity_slice7d_analytic_gradient.md`
+for the full timeline. **A future check-in must re-dispatch
+`mgcv-conformance.yml` on this branch/PR #225 and append the amendment
+below once it returns**, per this epic's own standing practice (ADR-219's
+identical two-step pattern) — until then this table is not citable as
+settled parity evidence outside this session log.
 **Implements:** `docs/PLAN_mgcv_parity_engine.md` slice 7d, registered by
 ADR-219 (slice 7c), carrying that slice's own withdrawn Part 1 forward with
 its target corrected: not the `log10(sp)` gate (ADR-219 Part 0 found it
