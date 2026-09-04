@@ -42,17 +42,32 @@ all? It runs three checks:
       others held fixed, and read what it costs. This is the check a reader
       can interpret without any reference to Hessians.
 
-WHAT SLICE 7E ADDS (ADR-219 amendment 1 decision 4, PLAN slice 7e)
---------------------------------------------------------------------
-Every H-weighted reading below (4) was, until this slice, weighted by the
-Hessian evaluated ONLY at `mgcv`'s own point. That is a real gap the DoD
-names explicitly: the weighting curvature could differ at OUR OWN converged
-point, and assuming it does not is exactly the kind of unmeasured assumption
-this epic does not let stand. Section (5) repeats checks (1)-(2) at each
-search's OWN converged point and re-reports the H-weighted distance weighted
-by THAT Hessian, so the shift is measured, not assumed negligible. Still
-`MEASUREMENT (own criterion)` throughout -- `mgcv`'s point enters only as
-where the DISPLACEMENT is measured TO, never as an operand.
+WHAT SLICE 7E ADDS (ADR-219 amendment 1 decision 4, PLAN slice 7e, ADR-221
+amendment 3)
+--------------------------------------------------------------------------
+The H-weighted distance printed below (4)/(5) is, UNLIKE (1)-(3), a genuine
+COMPARISON, not a `MEASUREMENT (own criterion)` -- an earlier revision of
+this script's own section (4) header mislabelled it, then over-corrected it
+to `MEASUREMENT (own criterion)`; both were wrong. Apply
+`VERIFICATION_STANDARD.md` Sec 2.1's own test: remove `mgcv`'s selection
+entirely and there is no displacement (`delta_rho`) left to weight, hence no
+number -- `mgcv`'s payload is an OPERAND here (one end of the displacement),
+not merely the point of evaluation the way it is in (1)-(3). Its provenance
+is **INDEPENDENT**: both operands (Python's own selected `log10(sp)` and
+`mgcv`'s own selected `log10(sp)`) are independently produced from the same
+recipe, and the H-weighted reading is a different NORM on that same
+already-independent pair, not a different comparison. It is formally
+declared on `SELECT_FREE_SP_MODEL_CLAIM.quantities` (ADR-221 amendment 3,
+`gam_select_free_sp_conformance.py`), reported and NEVER gated, exactly as
+ADR-219's own two preconditions required. **What remained genuinely
+undone until this slice** (and is real): every reading before it weighted
+the displacement by the Hessian evaluated ONLY at `mgcv`'s own point, which
+lets `mgcv`'s payload re-enter the metric a SECOND time, through the
+weighting, even though it is absent from the operands proper -- ADR-219's
+own "second channel" precondition. Section (5) repeats checks (1)-(2) at
+each search's OWN converged point and re-reports the H-weighted distance
+weighted by THAT Hessian, closing the channel; the production comparator
+(`compare_select_free_sp_case`) now does the same for the DECLARED number.
 
 Usage:
     Rscript scripts/gam_select_multiterm_free_sp_probe.R probe.json
@@ -221,16 +236,20 @@ def main(payload_path: str) -> None:
     print()
 
     print("(4) CANDIDATE ACCEPTANCE METRICS on this same case (PLAN slice 7c Part 2)")
-    print("    REPORTED, NEVER GATED as of THIS script -- slice 7e re-gates eta/edf in")
-    print("    production (gam_select_free_sp_conformance.py); this diagnostic stays a")
-    print("    MEASUREMENT and gates nothing itself.")
+    print("    Gated in PRODUCTION as of slice 7e (gam_select_free_sp_conformance.py):")
+    print("    eta/edf are the primary gate; the two columns below are DECLARED and")
+    print("    REPORTED but never gated there either. This script stays diagnostic-only.")
     print("    PROVENANCE DIFFERS BY COLUMN:")
     print("      max|dlog10 sp| : INDEPENDENT -- both sides selected their own sp.")
-    print("      H-weighted     : MEASUREMENT (own criterion), VERIFICATION_STANDARD.md")
-    print("                       Sec 2.1/ADR-219 amendment 1 decision 2 -- a norm on a")
-    print("                       displacement, weighted by OUR OWN criterion's curvature.")
-    print("                       Corrected here from an earlier 'INDEPENDENT' label this")
-    print("                       script printed before that ratification (slice 7e).")
+    print("      H-weighted     : INDEPENDENT (ADR-221 amendment 3) -- a norm on the")
+    print("                       SAME already-independent displacement, weighted by")
+    print("                       OUR OWN criterion's curvature. mgcv's payload is an")
+    print("                       operand (remove it and there is no displacement), so")
+    print("                       Sec 2.1's own MEASUREMENT test does not apply -- an")
+    print("                       earlier revision of this script mislabelled it that")
+    print("                       way. Formally declared on SELECT_FREE_SP_MODEL_CLAIM")
+    print("                       as of slice 7e, weighted at OUR OWN point there (this")
+    print("                       section still weights at mgcv's point, see (5)).")
     print("      score gap      : MEASUREMENT (own criterion) -- our criterion evaluated")
     print("                       AT mgcv's supplied point. Never a parity claim.")
     print()

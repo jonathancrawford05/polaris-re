@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from polaris_re.analytics.gam_sp_identifiability import (
+    derive_floor_from_step_stability,
     hessian_weighted_distance,
     identified_direction_count,
 )
@@ -149,3 +150,49 @@ def test_floor_zero_is_unstable_under_noise_which_is_why_it_is_required() -> Non
 
     assert max(at_zero) / min(at_zero) > 4.0, "floor=0 should be visibly unstable here"
     np.testing.assert_allclose(at_floor, at_floor[0], rtol=1e-9, atol=0.0)
+
+
+def test_derive_floor_from_step_stability_on_a_pure_quadratic_finds_no_flat_direction() -> None:
+    """Closed form: ``score(x) = 0.5 x^T A x`` has an EXACT, step-independent
+    second difference equal to ``A``'s own eigenvalues -- central differencing
+    is exact for a quadratic, so every direction is identified and the floor
+    is 0.0 (nothing to clip)."""
+    a = np.diag(np.array([2.0, 8.0], dtype=np.float64))
+
+    def score_at(x: np.ndarray) -> float:
+        return float(0.5 * x @ a @ x)
+
+    point = np.zeros(2, dtype=np.float64)
+    floor = derive_floor_from_step_stability(score_at, score_at(point), point, a)
+    assert floor == 0.0
+
+
+def test_derive_floor_from_step_stability_flags_a_direction_with_only_noise() -> None:
+    """One direction is a pure quadratic (real curvature, stable under
+    step-halving); the other is FLAT with additive noise that scales like
+    ``1/h^2`` when divided through -- exactly the signature ADR-212 used to
+    find the finite-difference-step defect elsewhere in this epic. The
+    derived floor must clip the flat direction's own (noisy) eigenvalue and
+    keep the real one."""
+    rng = np.random.default_rng(2026)
+    noise_amplitude = 1.0e-6
+
+    def score_at(x: np.ndarray) -> float:
+        quadratic = 3.0 * x[0] ** 2
+        # A fixed, small ABSOLUTE perturbation independent of x -- when
+        # divided by h^2 in the central difference this grows like 1/h^2,
+        # the noise signature, rather than staying flat like real curvature.
+        noise = noise_amplitude * float(rng.standard_normal())
+        return quadratic + noise
+
+    point = np.zeros(2, dtype=np.float64)
+    hessian = np.diag(np.array([6.0, 0.0], dtype=np.float64))
+    floor = derive_floor_from_step_stability(score_at, score_at(point), point, hessian)
+    # The flat direction's own eigenvalue (0.0) must be clipped: a
+    # displacement purely along it should then cost nothing.
+    distance_along_flat = hessian_weighted_distance(
+        np.array([0.0, 5.0], dtype=np.float64), hessian, floor=floor
+    )
+    assert distance_along_flat == 0.0
+    # The real direction must survive: floor sits at or below its eigenvalue.
+    assert floor <= 6.0

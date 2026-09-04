@@ -4,7 +4,7 @@
 **Epic:** `docs/CONTINUATION_mgcv_parity_engine.md` / `docs/PLAN_mgcv_parity_engine.md`
 **Slice:** 7e — re-gate `SELECT_FREE_SP_MODEL_CLAIM` on `eta`/`edf`, H-weighted
 distance as a companion (ADR-219 amendment 1 decision 4)
-**ADR:** ADR-221, amendments 1-2
+**ADR:** ADR-221, amendments 1-3
 
 ## Addendum — tier-3 dispatch, a real bug found and fixed, then confirmed
 
@@ -111,20 +111,27 @@ slice changes which tolerance is applied to already-correctly-declared
 quantities, not their provenance. No `ComparedQuantity` was added or
 reclassified.
 
-The new H-weighted-at-own-point companion measurement (section (5) of
-`scripts/gam_select_free_sp_identifiability_diagnostic.py`, new this
-session) is **`MEASUREMENT (own criterion)`**
-(`docs/VERIFICATION_STANDARD.md` §2.1) — a norm on a displacement between
-two INDEPENDENTLY-produced points, weighted by our own criterion's own
-curvature evaluated at either endpoint. Not a comparison; carries no
-`VerificationClaim`; gates nothing. `mgcv`'s point enters only as the other
-end of the displacement, never as an operand under comparison. This matches
-the classification already established for the same quantity evaluated at
-`mgcv`'s point in slice 7c (ADR-219), which this session's own read of
-`scripts/gam_select_free_sp_identifiability_diagnostic.py` found mislabelled
-`INDEPENDENT` in a stale print statement (pre-dating ADR-219 amendment 1
-decision 2's ratification of the `MEASUREMENT (own criterion)` category by
-one session) — corrected in the same pass, see ADR-221.
+**Corrected by the post-review addendum below (ADR-221 amendment 3) — this
+paragraph originally mislabelled the H-weighted companion and is kept,
+struck through in substance, for the record of what was claimed and how it
+was found wrong.** The H-weighted-at-own-point companion measurement
+(section (5) of `scripts/gam_select_free_sp_identifiability_diagnostic.py`)
+is a norm on a displacement between two INDEPENDENTLY-produced points
+(Python's own selected `log10(sp)`, `mgcv`'s own selected `log10(sp)`),
+weighted by our own criterion's curvature. Applying
+`VERIFICATION_STANDARD.md` §2.1's own mechanical test ("remove the
+reference entirely, is there still a number?") — remove `mgcv`'s selection
+and there is no displacement, hence no number, so `mgcv`'s payload is an
+OPERAND here, not merely the point of evaluation. Its provenance is
+**INDEPENDENT**, matching what `docs/PLAN_mgcv_parity_engine.md`'s own
+"Preconditions inherited from ADR-219" block and ADR-219's own body text
+already stated in prose. This session's original edit to the diagnostic
+script's print statement (`INDEPENDENT` → `MEASUREMENT (own criterion)`)
+was itself the mislabelling, not a correction of one — found by an
+automated PR review (P1-1) and fixed properly: the quantity is now formally
+declared on `SELECT_FREE_SP_MODEL_CLAIM.quantities`, weighted at OUR OWN
+point (never `mgcv`'s, per ADR-219's own "second channel" precondition).
+See the "Post-review addendum" section below for the full fix.
 
 **Claim sentence, written before the code**
 (`docs/VERIFICATION_STANDARD.md` §3.2), carried in code as
@@ -287,9 +294,122 @@ entry, untouched by this session) and named, not attempted, here:
 - `[judgement]` No unqualified "mgcv parity" claim anywhere — **MET**:
   checked across this PR's diff; level 4's standing DISAGREE is untouched
   and mentioned explicitly in ADR-221.
-- `[machine]` Tier 1 AND tier 3, both recorded, both agreeing — **PARTIAL,
-  NOT MET YET**: tier 1 recorded this session; tier 3 pending the next CI
-  dispatch on this PR (wired in, confirms "for free"). This PR is DRAFT
-  for exactly this reason — see the PR body's own DoD checklist.
+- `[machine]` Tier 1 AND tier 3, both recorded, both agreeing — **MET, as
+  of the post-review addendum below**: two independent tier-3 dispatches
+  (runs 33870429467 and 33871712927), bit-identical between them and
+  identical in verdict to tier 1, confirm the primary deliverable (the
+  `SELECT_FREE_SP_MODEL_CLAIM` re-gate table). Originally recorded PARTIAL
+  when this PR was still draft; the PR is no longer draft — see the "Post-review
+  addendum" section below, which is where this bullet was updated (found
+  stale by an automated PR review, P1-3).
 - `[machine]` `tests/qa/golden_outputs/` byte-identical — **MET**: verified
   above, `git status` confirms no changes under `tests/qa/`.
+
+## Perf history (ADR-177)
+
+`perf/history.jsonl` gained one row, commit-pinned to `82dd4f8` (the first
+commit of this session, before the docs-only and fix commits that
+followed — the row is appended once, on the initial PR open, per step 9b).
+Creep verdict (`scripts/perf_history.py`, run at commit time):
+`insufficient_data: false`, `n_rows: 41`, `peak_mib` baseline 33.0 → recent
+33.0 (`delta 0.0`), **no structural creep**; wall-time ratio 1.06
+(advisory, informs but does not gate); no config drift.
+
+## Branch
+
+`claude/intelligent-hamilton-a2qxnn` — the environment-designated branch
+for this session, PR #226.
+
+## Post-review addendum — automated PR review, findings addressed (ADR-221 amendment 3)
+
+An automated review of PR #226 (APPROVE verdict, zero P0s) found three P1s
+and three P2s. Per the babysit posture for a PR this session owns, all six
+are addressed here rather than deferred.
+
+**[P1-1] The H-weighted distance's provenance re-label was wrong.** This
+session's own ADR-221 had "corrected" the diagnostic script's
+`H-weighted : INDEPENDENT` label to `MEASUREMENT (own criterion)`, framing
+it as catching staleness. The review applied `VERIFICATION_STANDARD.md`
+§2.1's own mechanical test ("remove the reference entirely, is there still
+a number?") and found the opposite: `mgcv`'s selected `rho` is one OPERAND
+of the displacement `hessian_weighted_distance` weights, not merely a point
+of evaluation — remove it and there is no displacement, hence no number.
+**Confirmed against the actual prior source**, not just the review's
+paraphrase: `docs/PLAN_mgcv_parity_engine.md`'s own "Preconditions inherited
+from ADR-219" block (missed on the first read of that file — it sits just
+above the slice 7e section this session read from) and ADR-219's own body
+text both state, unambiguously, that the H-weighted column IS labelled
+INDEPENDENT and name TWO preconditions before it can gate anything: (1)
+formally declare it as a `ComparedQuantity` on `SELECT_FREE_SP_MODEL_CLAIM`,
+and (2) weight it at OUR OWN selected point, never `mgcv`'s, to close a
+"second channel" `mgcv`'s payload would otherwise re-enter through. This
+session's original "correction" satisfied neither precondition and actively
+mislabelled the category.
+
+**Fixed properly, not just re-labelled:**
+- `gam_sp_identifiability.py`'s own module docstring corrected — it had
+  ALSO conflated the two functions' provenance (a pre-existing inconsistency
+  predating this session, not introduced by it): `identified_direction_count`
+  genuinely is `MEASUREMENT (own criterion)`; `hessian_weighted_distance`
+  is a comparison on two independent operands, INDEPENDENT.
+- New `derive_floor_from_step_stability` (promoted from the diagnostic
+  script's own local `_step_stability`/`_derived_floor`, generalised and
+  unit-documented) added to `gam_sp_identifiability.py`, with two new
+  closed-form tests (`test_gam_sp_identifiability.py`).
+- `gam_select_free_sp_conformance.py`: a new `ComparedQuantity`
+  ("H-weighted rho distance (own-point weighting)", INDEPENDENT) added to
+  `SELECT_FREE_SP_MODEL_CLAIM.quantities` — satisfying precondition 1.
+  `SelectFreeSpCaseComparison` gained `h_weighted_rho_distance` and
+  `h_weighted_rho_distance_computable`, computed by a new
+  `_h_weighted_rho_distance_at_own_point` helper that builds the weighting
+  Hessian at OUR OWN selected point (never `mgcv`'s) — satisfying
+  precondition 2. Verified the computed value matches the diagnostic
+  script's own section (5) reading exactly (`0.312096` for the multistart
+  configuration on this session's tier-1 payload, both routes). Gracefully
+  returns `(nan, False)` on the same non-convergent-neighbour condition
+  ADR-221 amendment 2 found, rather than raising out of the primary
+  comparison.
+- The diagnostic script's own section (4) print text corrected back to
+  `INDEPENDENT`, with the real, narrower finding stated precisely: what
+  was genuinely missing was the own-point weighting, not the category.
+
+**[P1-2] "Bit-identical … to tier 1" overstated the cross-tier agreement.**
+This session's own tier-1 table (2 rows, FD gradient only) is NOT
+bit-identical to the tier-3 table (4 rows, FD + analytic gradient) — the
+multistart FD `eta` figure alone differs by ~2x (`0.00268` tier 1 vs
+`5.388e-03` tier 3), real search-path variability, not a formula gap. What
+holds across tiers is **identical in verdict** — every `agrees`/
+`agrees_log10_sp` cell matches, and the tier-3 FD figures match ADR-220's
+own already-committed tier-3 reading to the printed digit. Fixed in
+ADR-221 amendment 2's own prose, `docs/CONFORMANCE_LEDGER.md`'s
+corresponding row, and this PR's own body (which already used the correct
+"identical in verdict" language for the two-run tier-3 comparison, but the
+ADR needed a matching correction).
+
+**[P1-3] Stale post-amendment bookkeeping in four places** — ADR-221's own
+`Status:` line, this session log's final DoD bullet (both said "tier 3
+pending" after amendments 1-2 (same ADR) had already landed it),
+`CONTINUATION`'s open-question answer block, and the `PRODUCT_DIRECTION`
+entry. All four fixed to state tier 1 AND tier 3 confirmed. The PLAN and
+`CONTINUATION` status BLOCK (the top-of-file summary) were already correct
+— this was an incomplete propagation of the addendum into secondary
+locations, not a claim conflict.
+
+**[P2-1] Bare float `==` in the new tolerance-reporting test** — changed to
+`pytest.approx`, matching the convention the review itself confirmed the
+other new assertions in the same test already use.
+
+**[P2-2] No perf-history verdict recorded** — added above ("Perf history
+(ADR-177)" section), reproducing the review's own computed verdict (no
+structural creep, `peak_mib` 33.0 → 33.0).
+
+**[P2-3] No branch record** — added above ("Branch" section).
+
+**What was NOT changed:** the maintainer-facing questions the review
+flagged for human attention (whether `2e-2` on the cloglog linear predictor
+is the right pricing-relevant bar, whether promoting `_AGREEMENT_TOLERANCE_EDF`
+to a gate half is intended given `eta` is doing all the discriminating work)
+are exactly the kind of judgement call this routine may not make on its own
+(`docs/ROUTINE_MGCV_PARITY.md`, "May not decide" — "whether to relax an
+acceptance criterion"). Recorded here, not silently dropped, for the
+maintainer's own review.

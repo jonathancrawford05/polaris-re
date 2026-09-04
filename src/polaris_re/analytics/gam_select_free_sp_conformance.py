@@ -39,9 +39,20 @@ from typing import TypedDict
 
 import numpy as np
 
-from polaris_re.analytics.gam_model import PRODUCTION_LOG10_BOUNDS, PolarisGAMFit, fit_polaris_gam
+from polaris_re.analytics.gam_model import (
+    PRODUCTION_LOG10_BOUNDS,
+    PolarisGAMFit,
+    fit_polaris_gam,
+    resolve_family,
+)
 from polaris_re.analytics.gam_multiterm_conformance import _multiterm_model_spec
-from polaris_re.core.exceptions import PolarisValidationError
+from polaris_re.analytics.gam_reml_optimize import penalized_fit_and_score
+from polaris_re.analytics.gam_sp_identifiability import (
+    derive_floor_from_step_stability,
+    hessian_weighted_distance,
+)
+from polaris_re.analytics.gam_uncertainty_conformance import finite_difference_rho_hessian
+from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 from polaris_re.core.verification import (
     ComparedQuantity,
     ComparisonProvenance,
@@ -149,8 +160,11 @@ SELECT_FREE_SP_MODEL_CLAIM = VerificationClaim(
         "select=TRUE, method='REML') with free sp, selecting its own 7 "
         "smoothing parameters independently "
         "(scripts/gam_select_multiterm_free_sp_probe.R); compared on eta at "
-        "the training design, log10(sp) per block, edf_total and per-term "
-        "edf."
+        "the training design, log10(sp) per block, edf_total, per-term edf, "
+        "and the H-weighted rho distance between the two independently "
+        "selected log10(sp) vectors, weighted by our own REML criterion's "
+        "Hessian evaluated at OUR OWN selected point (PLAN slice 7e, "
+        "ADR-221 amendment 3 -- PR #224 review's own precondition 2)."
     ),
     quantities=(
         ComparedQuantity(
@@ -181,6 +195,12 @@ SELECT_FREE_SP_MODEL_CLAIM = VerificationClaim(
             ),
             provenance=ComparisonProvenance.INDEPENDENT,
         ),
+        ComparedQuantity(
+            quantity="H-weighted rho distance (own-point weighting)",
+            left_producer="gam_reml_optimize.select_lambdas_continuous's own log_lambda (7 blocks)",
+            right_producer="mgcv's own log10(m$sp) at its free-sp select=TRUE REML selection",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
     ),
 )
 """PLAN slice 7b's provenance declaration (ADR-193). Every quantity is
@@ -196,7 +216,22 @@ N=4 structure (ADR-208/210/211/212), so a disagreement here localises to
 lambda selection on the 7-block structure specifically — not to the bases,
 the null-space-penalty rule, the fitter or the criterion, all unchanged from
 ADR-217's fixed-``sp`` measurement (this slice's own registered
-prediction)."""
+prediction).
+
+**The "H-weighted rho distance" quantity (PLAN slice 7e / ADR-221 amendment
+3) is the SAME two operands as "log10(sp) per block" above** — Python's own
+selected ``log10(sp))`` and ``mgcv``'s own selected ``log10(sp)`` — re-normed
+by :func:`~polaris_re.analytics.gam_sp_identifiability.hessian_weighted_distance`
+using our own REML criterion's curvature, so it inherits the identical
+INDEPENDENT provenance rather than needing its own justification: it is a
+different NORM on an already-independent displacement, not a different pair
+of producers. **Declared here (not merely reported in prose) and NEVER
+GATED** — :attr:`SelectFreeSpCaseComparison.agrees` never reads it — per
+ADR-219's own precondition 1 (declare before it can gate anything) and
+ADR-219's own precondition 2 (the weighting Hessian MUST be evaluated at OUR
+OWN selected point, never ``mgcv``'s, to avoid ``mgcv``'s payload re-entering
+the metric a second time through the norm — see
+:func:`compare_select_free_sp_case`)."""
 
 
 def fit_select_free_sp_case(
@@ -265,9 +300,12 @@ SELECT_FREE_SP_REGATE_CLAIM_SENTENCE = (
     "quantity here, not a shared input); agreement is declared on whether "
     "the two selections produce the SAME FITTED SURFACE — max_abs_eta_diff "
     "< 2e-2 and abs(edf_total_diff) < 1.0 — not on whether they land at the "
-    "same log10(lambda), which is reported as a diagnostic alongside a "
-    "companion H-weighted rho-distance (MEASUREMENT (own criterion), never "
-    "a gate) rather than compared directly."
+    "same log10(lambda). The H-weighted rho-distance between the two "
+    "independently selected log10(lambda) vectors, weighted by our own "
+    "REML criterion's Hessian at OUR OWN selected point, is declared and "
+    "reported (INDEPENDENT, ADR-221 amendment 3) but never gated — a "
+    "different norm on the same already-independent operands, not a "
+    "softer comparison."
 )
 """**PLAN slice 7e (ADR-221), written before the code per
 ``docs/VERIFICATION_STANDARD.md`` §3.2.** Deliberately narrower than
@@ -318,6 +356,17 @@ class SelectFreeSpCaseComparison:
     eta_tolerance: float
     edf_tolerance: float
     log10_sp_tolerance: float
+    h_weighted_rho_distance: float
+    """``sqrt(delta_rho^T H+ delta_rho)`` between the two independently
+    selected ``log10(lambda)`` vectors, ``H`` our own REML criterion's
+    Hessian evaluated at OUR OWN selected point (ADR-219 precondition 2) with
+    a floor derived from that same point's own step-stability scan (Anchor
+    8). ``float('nan')`` when the finite-difference stencil needed to build
+    it does not converge near our own selected point — see
+    :attr:`h_weighted_rho_distance_computable`; this NEVER raises out of
+    :func:`compare_select_free_sp_case`, since a companion diagnostic's own
+    fragility must not break the primary comparison (ADR-221 amendment 2)."""
+    h_weighted_rho_distance_computable: bool
     evidence: VerificationClaim
 
 
@@ -377,6 +426,11 @@ def compare_select_free_sp_case(
     agrees = (
         both_converged and max_abs_eta_diff < eta_tolerance and abs(edf_total_diff) < edf_tolerance
     )
+
+    h_weighted_rho_distance, h_weighted_rho_distance_computable = (
+        _h_weighted_rho_distance_at_own_point(python_fit, r_case, r_log_sp)
+    )
+
     return SelectFreeSpCaseComparison(
         max_abs_eta_diff=max_abs_eta_diff,
         max_abs_log10_sp_diff=max_abs_log10_sp_diff,
@@ -389,5 +443,56 @@ def compare_select_free_sp_case(
         eta_tolerance=eta_tolerance,
         edf_tolerance=edf_tolerance,
         log10_sp_tolerance=tolerance,
+        h_weighted_rho_distance=h_weighted_rho_distance,
+        h_weighted_rho_distance_computable=h_weighted_rho_distance_computable,
         evidence=SELECT_FREE_SP_MODEL_CLAIM,
     )
+
+
+def _h_weighted_rho_distance_at_own_point(
+    python_fit: PolarisGAMFit,
+    r_case: RSelectFreeSpRecipe,
+    r_log_sp: np.ndarray,
+) -> tuple[float, bool]:
+    """The declared "H-weighted rho distance" quantity (ADR-221 amendment 3):
+    the same displacement ``max_abs_log10_sp_diff`` reduces with an
+    L-infinity norm, instead re-normed by our own REML criterion's Hessian
+    at OUR OWN selected point (ADR-219 precondition 2 — never ``mgcv``'s, to
+    avoid its payload re-entering the metric a second time through the
+    weighting).
+
+    Returns ``(distance, computable)``. ``computable=False`` (and
+    ``distance=nan``) when the finite-difference stencil needed to probe the
+    curvature near our own selected point does not converge — a real,
+    reproducible property of some converged points on this fixture (ADR-221
+    amendment 2), never silently substituted with a fallback value."""
+    ln10 = float(np.log(10.0))
+    x = python_fit.design["x"]
+    blocks = tuple(python_fit.design["penalty_blocks"])
+    family = resolve_family(python_fit.model.family, python_fit.model.link)
+    y = np.asarray(r_case["y"], dtype=np.float64)
+    weights = np.asarray(r_case["ExposCnt"], dtype=np.float64)
+    own_point = python_fit.log_lambda
+
+    def score_at(log10_lambda: np.ndarray) -> float:
+        return penalized_fit_and_score(
+            y, x, family, blocks, np.asarray(log10_lambda, dtype=np.float64), weights=weights
+        )[1]
+
+    try:
+        own_base = score_at(own_point)
+        own_hessian = finite_difference_rho_hessian(
+            x, y, blocks, family, weights, np.log(np.power(10.0, own_point))
+        )
+        own_floor = derive_floor_from_step_stability(
+            score_at,
+            own_base,
+            own_point,
+            own_hessian,
+            steps=tuple(s / ln10 for s in (0.2, 0.1, 0.05, 0.025)),
+        )
+    except PolarisComputationError:
+        return float("nan"), False
+
+    delta_rho = (own_point - r_log_sp) * ln10
+    return hessian_weighted_distance(delta_rho, own_hessian, floor=own_floor), True

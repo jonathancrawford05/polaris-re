@@ -237,9 +237,9 @@ def test_compare_select_free_sp_case_reports_derived_tolerances() -> None:
         "converged": True,
     }
     comparison = compare_select_free_sp_case(fit, payload, eta_tolerance=0.05, edf_tolerance=2.0)
-    assert comparison.eta_tolerance == 0.05
-    assert comparison.edf_tolerance == 2.0
-    assert comparison.log10_sp_tolerance == 1.0e-2
+    assert comparison.eta_tolerance == pytest.approx(0.05)
+    assert comparison.edf_tolerance == pytest.approx(2.0)
+    assert comparison.log10_sp_tolerance == pytest.approx(1.0e-2)
 
 
 @pytest.mark.skipif(not rscript_mgcv_available(), reason="R with mgcv is not installed here")

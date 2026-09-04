@@ -12,29 +12,133 @@ block). On such a direction ``max |Δ log10(sp)|`` measures the optimiser's
 arbitrary stopping place, not a modelling disagreement.
 
 This module provides the alternative this epic can compute from quantities it
-already has, and it is **reported, never gated**: nothing here edits
-``SELECT_FREE_SP_MODEL_CLAIM``'s or ``FREE_SP_MODEL_CLAIM``'s own acceptance
-criterion. Choosing to re-gate on it is a maintainer decision
-(``docs/ROUTINE_MGCV_PARITY.md``, "May not decide" -- "whether to relax an
-acceptance criterion"), which ADR-219 records as recommended-and-not-taken.
+already has, and it is **reported, never gated** by anything in this module
+itself: nothing here edits ``SELECT_FREE_SP_MODEL_CLAIM``'s or
+``FREE_SP_MODEL_CLAIM``'s own acceptance criterion. Choosing to re-gate on it
+is a maintainer decision (``docs/ROUTINE_MGCV_PARITY.md``, "May not decide" --
+"whether to relax an acceptance criterion"), which ADR-219 records as
+recommended-and-not-taken.
 
-**Provenance (ADR-193).** Nothing here is a comparison between two producers.
-:func:`hessian_weighted_distance` is a norm on a displacement, and the
-Hessian it weights by is our OWN criterion's curvature. It carries no
-``VerificationClaim`` because there is no second producer to name -- the
-``MEASUREMENT (own criterion)`` category, ``docs/VERIFICATION_STANDARD.md``
-§2.1. That category can never carry a parity claim: it says something about
-our own engine and nothing about agreement with ``mgcv``.
+**Provenance (ADR-193) -- corrected, PLAN slice 7e / ADR-221 amendment 3.**
+The TWO functions here have DIFFERENT provenance, and an earlier revision of
+this module's own docstring conflated them:
+
+- :func:`identified_direction_count` reads the curvature of OUR OWN criterion
+  at a SINGLE point. Remove the reference entirely and the eigenvalues are
+  unchanged -- the point of evaluation is an argument, not an operand. This
+  one is genuinely ``MEASUREMENT (own criterion)``
+  (``docs/VERIFICATION_STANDARD.md`` §2.1) and carries no
+  ``VerificationClaim``.
+- :func:`hessian_weighted_distance` is a norm on ``delta_rho``, and
+  ``delta_rho`` is a DISPLACEMENT BETWEEN TWO INDEPENDENTLY-PRODUCED POINTS
+  (our own selected ``rho`` and ``mgcv``'s own selected ``rho``). Remove the
+  reference and there is no displacement, hence no number -- by
+  §2.1's own mechanical test ("remove the reference entirely, is there still
+  a number?") this is a COMPARISON, not a bare measurement, and its
+  provenance is **INDEPENDENT**: both operands are independently produced,
+  from the same recipe (each side's own free-``sp`` REML selection). ADR-219
+  said so in prose ("the H-weighted column is labelled INDEPENDENT
+  correctly, but only in prose") and named the one caveat that qualifies
+  it, not its category: the WEIGHTING Hessian must be evaluated at OUR OWN
+  selected point, never at ``mgcv``'s -- weighting at ``mgcv``'s point lets
+  its payload re-enter the metric a second time, through the norm, even
+  though it is absent from both operands (a real seam, closed by using our
+  own point). A caller wiring this into a declared ``ComparedQuantity`` MUST
+  supply a Hessian built at ITS OWN selected point to keep that guarantee;
+  this module has no way to enforce it and does not try to.
 """
+
+from collections.abc import Callable
 
 import numpy as np
 
 from polaris_re.core.exceptions import PolarisValidationError
 
 __all__ = [
+    "derive_floor_from_step_stability",
     "hessian_weighted_distance",
     "identified_direction_count",
 ]
+
+_DEFAULT_STEP_SCAN = (0.2, 0.1, 0.05, 0.025)
+"""Spans a factor of 8, enough to separate a stable curvature from a
+``1/h^2`` noise signature (PLAN slice 7c Part 0). **In whatever units
+``point``/``score_at`` use.** This epic's own convention sizes a step scan
+in natural-log-rho units (matching
+``gam_uncertainty_conformance.finite_difference_rho_hessian``'s own
+Hessian); a caller whose ``score_at`` takes ``log10(lambda)`` instead
+converts EVERY step by dividing by ``ln(10)`` before passing ``steps`` in
+-- the same conversion it must already apply to build ``point`` and
+``hessian`` in consistent units. This module does not perform that
+conversion itself, so a caller passing raw natural-log-rho steps alongside
+a ``log10(lambda)``-valued ``score_at`` will silently scan the wrong
+distances; the diagnostic script and the production comparator both
+convert before calling, and a new caller must do the same."""
+
+
+def derive_floor_from_step_stability(
+    score_at: Callable[[np.ndarray], float],
+    base_score: float,
+    point: np.ndarray,
+    hessian: np.ndarray,
+    *,
+    steps: tuple[float, ...] = _DEFAULT_STEP_SCAN,
+    unstable_ratio: float = 4.0,
+) -> float:
+    """Derive :func:`hessian_weighted_distance`'s ``floor`` from the
+    criterion's OWN measured noise, rather than choosing a constant
+    (Anchor 8).
+
+    For each direction ``j``, the diagonal second difference
+    ``(score(point + h*e_j) - 2*score(point) + score(point - h*e_j)) / h^2``
+    is computed at each ``h`` in ``steps``. A REAL curvature is stable as
+    ``h`` shrinks; a value driven by a fixed absolute noise floor grows like
+    ``1/h^2`` (PLAN slice 7c / ADR-219's own discriminator, the same
+    discipline ADR-212 used to find a finite-difference-step defect
+    elsewhere in this epic). ``unstable_ratio`` is a deliberately generous
+    cut: the coarsest-to-finest ratio expected from noise alone is ``~64x``
+    over this module's own default 8x step range; flagging anything above
+    4x is conservative in the "call it flat" direction.
+
+    Args:
+        score_at: the criterion, as a function of ``point``'s own units
+            (e.g. ``log10(lambda)``).
+        base_score: ``score_at(point)``, passed in rather than recomputed.
+        point: the ``(M,)`` point to scan around, in ``score_at``'s units.
+        hessian: the ``(M, M)`` Hessian already computed at ``point``, in
+            the SAME units ``steps`` is given in (this epic's own
+            convention: natural-log-rho) -- used only to size the
+            flat-direction count against; not recomputed here.
+        steps: the step sizes to scan, in ``point``'s own units, coarsest
+            first -- see :data:`_DEFAULT_STEP_SCAN` for the unit-conversion
+            responsibility this places on the caller.
+        unstable_ratio: a direction is FLAT if its finest-step reading
+            exceeds ``unstable_ratio`` times its coarsest-step reading (or
+            ``1e-12``, whichever is larger, to avoid a division artefact
+            near an exact zero).
+
+    Returns:
+        The floor: the smallest RESOLVED eigenvalue of ``hessian`` (0.0 if
+        every direction is flat), i.e. exactly as many of the smallest
+        eigenvalues are clipped as the step-stability scan found flat --
+        never a chosen constant.
+    """
+    n = point.shape[0]
+    flat_count = 0
+    for j in range(n):
+        row = []
+        for h in steps:
+            up, dn = point.copy(), point.copy()
+            up[j] += h
+            dn[j] -= h
+            row.append((score_at(up) - 2.0 * base_score + score_at(dn)) / (h * h))
+        coarse, fine = abs(row[0]), abs(row[-1])
+        if fine > unstable_ratio * max(coarse, 1e-12):
+            flat_count += 1
+    if flat_count == 0:
+        return 0.0
+    sorted_evals = np.sort(np.linalg.eigvalsh(np.asarray(hessian, dtype=np.float64)))
+    return float(sorted_evals[flat_count])
 
 
 def _psd_part(hessian: np.ndarray, floor: float) -> tuple[np.ndarray, np.ndarray]:

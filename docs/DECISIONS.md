@@ -20771,10 +20771,11 @@ tier-3 evidence behind it instead of one ambiguously-labelled one.
 ## ADR-221: Slice 7e — re-gating `SELECT_FREE_SP_MODEL_CLAIM` on `eta`/`edf`, with the H-weighted distance measured at BOTH endpoints
 
 **Date:** 2026-09-04
-**Status:** ACCEPTED, tier 1 confirmed; tier 3 pending on this session's own
-CI dispatch (wired into `mgcv-conformance.yml`'s existing steps, so it
-confirms on the next scheduled run per ADR-219 amendment 1 decision 1's own
-precedent — "for free").
+**Status:** ACCEPTED, tier 1 AND tier 3 confirmed (amendments 1-2; two
+independent tier-3 dispatches, bit-identical between them, identical in
+verdict to tier 1). **Superseded in part by amendment 3**, which corrects
+this ADR's own H-weighted-distance provenance and adds the formal claim
+declaration ADR-219's own precondition required.
 **Depends on:** ADR-219 (+ amendments 1-4), ADR-220 — the maintainer's own
 authorization (ADR-219 amendment 1 decision 4: "`eta`/`edf` primary, the
 H-weighted distance as companion") and the marketing-benchmark constraint it
@@ -21087,8 +21088,8 @@ No traceback; the diagnostic completes and every later step in the run
 
 ### The `SELECT_FREE_SP_MODEL_CLAIM` table reproduces exactly
 
-Bit-identical to the pre-fix tier-3 run (33870429467) and to this session's
-own tier-1 reading:
+**Bit-identical to the pre-fix tier-3 run (33870429467)** — the two
+tier-3 runs share the same 4-row set and every printed digit:
 
 | search | `max_abs_eta_diff` | `edf_total_diff` | `agrees` (new) | `agrees_log10_sp` (old) |
 |---|---:|---:|---|---|
@@ -21097,6 +21098,17 @@ own tier-1 reading:
 | single-start, analytic gradient | 4.013e-02 | +1.9610 | False | False |
 | multistart(9), analytic gradient | 5.460e-03 | -0.2593 | **True** | False |
 
+**Corrected wording (P1-2, automated PR review on this same PR):** "bit-identical
+… to tier 1" here originally overstated the cross-tier agreement — this
+session's own tier-1 table (§"Gap After" above) carries only 2 rows (single-
+/multistart, FD gradient) and its own printed `eta` figures
+(`0.4457`/`0.00268`) are NOT bit-identical to this table's FD rows
+(`4.456e-01`/`5.388e-03`) — the multistart figure alone differs by ~2x, real
+run-to-run search-path variability (ADR-219 amendments 3-4), not a defect.
+What holds across tiers is **identical in verdict** (every `agrees`/
+`agrees_log10_sp` cell matches, and each tier-3 FD figure matches ADR-220's
+own already-committed tier-3 reading to the printed digit) — the correct,
+narrower claim, and the one this ADR's own "Gap After" section already used.
 **This slice's primary deliverable — the re-gate itself — is now confirmed
 by TWO separately-dispatched tier-3 runs, bit-identical between them, and
 identical in verdict to tier 1.** Nothing about the fix touched the

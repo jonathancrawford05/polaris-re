@@ -3457,7 +3457,7 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   scope).*
 
 - **PLAN slice 7e (re-gating `SELECT_FREE_SP_MODEL_CLAIM` on `eta`/`edf`)
-  is DONE, tier 1 confirmed; tier 3 pending the next CI dispatch (ADR-221).**
+  is DONE, tier 1 AND tier 3 both confirmed (ADR-221 + amendments 1-3).**
   Carries out the maintainer's own already-authorized decision (ADR-219
   amendment 1 decision 4). Both new tolerances derived, not tuned
   (`edf_tolerance` reuses an existing project constant verbatim;

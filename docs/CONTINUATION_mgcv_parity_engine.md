@@ -1297,9 +1297,12 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
   > default still fails the new gate by the same order it failed the old
   > one). `FREE_SP_MODEL_CLAIM` (the N=4, non-`select` structure) is left
   > untouched, PLAN slice 7e's own text treating that extension as
-  > optional. Tier 1 confirmed this session; tier 3 pending the next CI
-  > dispatch (wired into the existing workflow steps, "for free" per
-  > ADR-219 amendment 1 decision 1's own precedent).
+  > optional. **Tier 1 AND tier 3 both confirmed** (two independent tier-3
+  > dispatches, bit-identical between them, identical in verdict to tier 1
+  > — ADR-221 amendments 1-2). Amendment 3 also corrects the H-weighted
+  > distance's own provenance (INDEPENDENT, not `MEASUREMENT (own
+  > criterion)`) and formally declares it on the claim, per an automated
+  > review finding on this same PR.
 - **RESOLVED, same day (2026-08-29, ADR-212).** Slice 5c's third-branch escalation
   (below, filed the same day) was resolved by slice 5d before this file was next
   read: the optimiser defect was a specific, measured finite-difference-step bug
