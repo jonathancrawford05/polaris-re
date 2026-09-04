@@ -1779,9 +1779,35 @@ acceptance gate (Part 2).
 
 - **Depends on:** Slice 7c (ADR-219 + amendment 1) for the evidence and the
   decision; slice 7d only if the maintainer wants the score-gap column too.
-- **Status: REGISTERED, not started.** The maintainer accepted the re-gating
-  (ADR-219 amendment 1, decision 4) **with the metric changed from what ADR-219
+- **Status: DONE — primary re-gate CONFIRMED tier 1 AND tier 3, 2026-09-04
+  (ADR-221 + amendment 1).** The maintainer accepted the re-gating (ADR-219
+  amendment 1, decision 4) **with the metric changed from what ADR-219
   originally recommended**: not the H-weighted distance as primary.
+  `gam_select_free_sp_conformance.compare_select_free_sp_case`'s `agrees` is
+  now `eta`/`edf` (`< 2e-2`/`< 1.0`, both derived — see ADR-221); the old
+  `log10(sp)`-only gate is preserved as `agrees_log10_sp`, never deleted, so
+  every reading is legible under both. Discriminates a real choice: the
+  module's own single-start default still fails the new gate exactly as it
+  failed the old one; only `multistart=True` passes. Every prior committed
+  slice 7b/7d reading (8 rows, both tiers) re-stated under both gates:
+  `agrees_log10_sp` reads False on every row ever measured on this fixture;
+  `agrees` reads True on exactly the multistart rows, at both tiers —
+  **CI run 33870429467 confirmed the `SELECT_FREE_SP_MODEL_CLAIM` table
+  identical in verdict at tier 3.** The H-weighted companion (slice 7c) is
+  now ALSO measured at each search's own converged point, not only at
+  `mgcv`'s (the DoD's own precondition) — a real, non-negligible shift found
+  in both directions. **That same tier-3 dispatch found and fixed a real
+  robustness bug** in the new own-point companion code (an uncaught
+  `PolarisComputationError` on a finite-difference-perturbed point near
+  multistart's own converged rho, masked at the job level by an existing
+  `continue-on-error: true`); single-start's own-point reading is confirmed
+  at both tiers. **A second, independent tier-3 dispatch after the fix
+  (run 33871712927) confirmed the fix works and that multistart's own-point
+  non-convergence is a genuine, reproducible property of this fixture on
+  the pinned oracle** (bit-identical failure, `deviance 987.13`, on both
+  post-fix tier-3 runs) — not a code defect, and not chased further per the
+  routine's own discipline. See ADR-221 + amendments 1-2 and
+  `docs/CONFORMANCE_LEDGER.md`.
 - **What changes.** `SELECT_FREE_SP_MODEL_CLAIM`'s (and, if the maintainer
   extends it, `FREE_SP_MODEL_CLAIM`'s) acceptance gate moves from
   `max |Δ log10(sp)| < 1e-2` to a gate on **`eta` and `edf`**, with the

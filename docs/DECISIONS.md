@@ -20767,3 +20767,392 @@ table shown to be bit-identical between the two and the small warm-start
 wobble reported rather than hidden. The overall verdict — score gap
 closes, slice 7f reproduces — is unchanged and now has two runs' worth of
 tier-3 evidence behind it instead of one ambiguously-labelled one.
+
+## ADR-221: Slice 7e — re-gating `SELECT_FREE_SP_MODEL_CLAIM` on `eta`/`edf`, with the H-weighted distance measured at BOTH endpoints
+
+**Date:** 2026-09-04
+**Status:** ACCEPTED, tier 1 AND tier 3 confirmed (amendments 1-2; two
+independent tier-3 dispatches, bit-identical between them, identical in
+verdict to tier 1). **Superseded in part by amendment 3**, which corrects
+this ADR's own H-weighted-distance provenance and adds the formal claim
+declaration ADR-219's own precondition required.
+**Depends on:** ADR-219 (+ amendments 1-4), ADR-220 — the maintainer's own
+authorization (ADR-219 amendment 1 decision 4: "`eta`/`edf` primary, the
+H-weighted distance as companion") and the marketing-benchmark constraint it
+sits under.
+
+### The claim, written before the code (`docs/VERIFICATION_STANDARD.md` §3.2)
+
+> `polaris_re`'s `PolarisGAM` (`gam_model.fit_polaris_gam`, `multistart=True`)
+> and `mgcv`'s `gam(select=TRUE, method="REML")` independently select all 7
+> `log10(lambda)` for the identical three-term `select=TRUE` formula from the
+> same shared recipe; agreement is declared on whether the two selections
+> produce the SAME FITTED SURFACE — `max_abs_eta_diff < 2e-2` and
+> `abs(edf_total_diff) < 1.0` — not on whether they land at the same
+> `log10(lambda)`, which is reported as a diagnostic alongside a companion
+> H-weighted `rho`-distance (`MEASUREMENT (own criterion)`, never a gate)
+> rather than compared directly.
+
+Carried verbatim in code as
+`gam_select_free_sp_conformance.SELECT_FREE_SP_REGATE_CLAIM_SENTENCE`. It is
+narrower than the sentence it replaces in exactly the three ways ADR-219
+amendment 1's marketing constraint requires: it names one structure (this
+three-term `select=TRUE` formula, not "the target formula" or "`mgcv`"), one
+search configuration (`multistart=True` — the module's own default,
+single-start, still fails this gate), and states both tolerances explicitly.
+
+### What changed, in code
+
+`gam_select_free_sp_conformance.compare_select_free_sp_case`'s `agrees` is
+now `converged and max_abs_eta_diff < eta_tolerance and
+abs(edf_total_diff) < edf_tolerance` — replacing the old
+`converged and max_abs_log10_sp_diff < tolerance`. The old criterion is
+**not deleted**: it is preserved as `agrees_log10_sp` on
+`SelectFreeSpCaseComparison`, computed identically to before, so every
+reading (historical or new) can be shown under both gates side by side. The
+three tolerances actually applied (`eta_tolerance`, `edf_tolerance`,
+`log10_sp_tolerance`) are carried on the returned comparison object, not
+merely implicit in a module constant, so a reader of one result can audit
+what bar it was measured against without re-reading the source.
+
+`gam_model_conformance.FREE_SP_MODEL_CLAIM` (the N=4, non-`select`
+structure) is **untouched** — this slice scopes to `select=TRUE`'s N=7
+structure only, matching slice 7e's own stated dependency (slice 7c/7d,
+both N=7 measurements). Extending the same re-gate to `FREE_SP_MODEL_CLAIM`
+is named, not attempted, in "What remains" below.
+
+### The two tolerances, derived (Anchor 8: never tuned to make a check pass)
+
+**`edf_tolerance = 1.0`** — reused verbatim from
+`gam_model_conformance._AGREEMENT_TOLERANCE_EDF`, an existing project
+constant already used for the identical purpose one module over. Reusing an
+existing, precedented bound is the opposite of inventing a fresh one to fit
+today's reading. The best CONFIRMED-at-both-tiers reading on this fixture
+(ADR-220, `multistart=True, analytic_gradient=True`) is
+`edf_total_diff≈-0.258` (tier 1) / `-0.259` (tier 3) — well inside 1.0 with
+room, not tuned to sit just under it.
+
+**`eta_tolerance = 0.02`** — new, derived the same way
+`gam_uncertainty_conformance.compare_vc_case` derives its own 2%
+element-wise tolerance: headroom over a *measured* floor, not a number
+picked to make today's reading pass. The floor is the best
+CONFIRMED-at-both-tiers reading this epic has produced on this exact
+fixture — `multistart=True, analytic_gradient=True` (ADR-220) —
+`max_abs_eta_diff = 5.46e-03` at both tiers (`docs/CONFORMANCE_LEDGER.md`
+slice 7d rows). `0.02` is ~3.7x that floor, the same order of headroom
+`compare_vc_case`'s own docstring cites ("worst residual 0.730%, so 2%
+leaves under a factor of three").
+
+**The gate still discriminates a real production choice — it was not
+loosened until everything passed.** Measured directly on this session's own
+tier-1 payload (fresh R dispatch, not a stored number):
+
+| search | `max_abs_eta_diff` | `edf_total_diff` | `agrees` (new) | `agrees_log10_sp` (old) |
+|---|---:|---:|---|---|
+| single-start (module default) | 0.4457 | +2.4216 | **False** | False |
+| `multistart=True, n_starts=9` | 0.00268 | -0.1106 | **True** | False |
+
+The plain default (single-start) fails the new gate by over 20x on `eta`
+alone — the same margin it failed the old one by. Only `multistart=True`
+passes. **This is the discriminating evidence that the change narrows the
+claim rather than loosens the measurement**: a caller has to make the same
+correct choice (`multistart=True`) the old gate implicitly demanded of
+anyone who wanted to see agreement; what changed is which quantity that
+choice is judged on.
+
+### Every prior committed reading, re-stated under both gates
+
+Pulled directly from `docs/CONFORMANCE_LEDGER.md`'s existing slice 7b/7d
+rows — no new fitting, since `agrees_log10_sp`/`agrees` are pure functions
+of already-published `eta`/`edf`/`log10(sp)` numbers:
+
+| search | tier | `max_abs_eta_diff` | `edf_total_diff` | `max_abs_log10_sp_diff` | `agrees` (new) | `agrees_log10_sp` (old) |
+|---|---|---:|---:|---:|---|---|
+| single-start, FD gradient | 1 | 0.4456 | +2.4216 | 5.132 | False | False |
+| single-start, FD gradient | 3 | 0.4456 | +2.4728 | 4.6424 | False | False |
+| multistart(9), FD gradient | 1 | 0.00268 | -0.111 | 1.4754 | **True** | False |
+| multistart(9), FD gradient | 3 | 5.388e-03 | -0.3101 | 5.9517 | **True** | False |
+| single-start, analytic gradient | 1 | 0.0529 | +0.1904 | 1.7036 | False | False |
+| single-start, analytic gradient | 3 | 4.013e-02 | +1.9610 | 1.7036 | False | False |
+| multistart(9), analytic gradient | 1 | 0.0055 | -0.2583 | 5.1929 | **True** | False |
+| multistart(9), analytic gradient | 3 | 5.460e-03 | -0.2593 | 5.7950 | **True** | False |
+
+**Every `agrees_log10_sp` cell reads False, at every tier, for every search
+configuration this epic has ever run on this fixture** — the old gate was
+never once satisfied here, which is exactly the ill-posedness ADR-219 Part 0
+established (two of seven blocks carry curvature indistinguishable from
+zero, so no optimiser can pin them to `1e-2` decades). **Every multistart
+configuration's `agrees` reads True at both tiers** — the new gate is
+satisfied by the same production choice (`multistart=True`) at both tiers,
+not merely at the one this session happened to run fresh.
+
+### The H-weighted companion, now measured at BOTH endpoints (the DoD's own precondition)
+
+Slice 7c's own diagnostic (`scripts/gam_select_free_sp_identifiability_diagnostic.py`)
+weighted every displacement by the Hessian evaluated **only at `mgcv`'s own
+point**. ADR-219 amendment 1's own DoD for this slice named that as an
+unmeasured assumption: the weighting curvature could differ at OUR OWN
+converged point, and nothing had checked. Section (5), new this session,
+repeats the eigenspectrum/step-stability derivation at each search's own
+point and reports the shift — still `MEASUREMENT (own criterion)`
+throughout (`VERIFICATION_STANDARD.md` §2.1; `mgcv`'s point only tells the
+displacement where its other end is, never an operand). Tier 1, this
+session's own fresh dispatch:
+
+| search | H-weighted at `mgcv`'s point | H-weighted at OWN point | own derived floor | own resolved directions |
+|---|---:|---:|---:|---|
+| single-start | 7.9265 | **1.6499** | -0.000959 | 6 of 7 |
+| multistart(9) | 0.0617 | **0.3121** | 0.000000 | 7 of 7 |
+
+**The shift is real and non-negligible in both directions.** Single-start's
+H-weighted distance is 4.8x SMALLER at its own point than at `mgcv`'s (its
+own point sits in flatter curvature); multistart's is 5.1x LARGER at its
+own point than at `mgcv`'s (the opposite direction). Neither endpoint gives
+a systematically larger or smaller reading — **there is no safe default
+choice of which point's Hessian to weight by**, which is exactly the
+possibility the DoD required measuring rather than assuming away. This
+companion metric is reported, gates nothing (per ADR-219 amendment 1
+decision 4 and this ADR's own claim sentence), and a future session wanting
+to gate on it would need to state a convention for which endpoint's
+curvature it uses, or report both, as done here.
+
+**Also corrected in the same pass, found while re-reading the diagnostic
+script against `VERIFICATION_STANDARD.md` §2.1:** its section (4) header
+had printed `H-weighted : INDEPENDENT` since slice 7c, a label ADR-219
+amendment 1 decision 2 superseded when it ratified `MEASUREMENT (own
+criterion)` as the correct category for exactly this quantity. The script
+predates that ratification by one session and the label was never revisited
+— fixed here, not merely footnoted, since this slice's own claim sentence
+depends on getting this right.
+
+### Provenance summary (ADR-193 gate)
+
+- `eta`, `edf_total`, `log10(sp)` per block, per-term `edf`: **INDEPENDENT**
+  — unchanged from `SELECT_FREE_SP_MODEL_CLAIM`'s existing declaration; this
+  slice changes which tolerance is applied to already-correctly-declared
+  quantities, not their provenance.
+- H-weighted distance (at either endpoint): **MEASUREMENT (own criterion)**
+  — a norm on a displacement built from two INDEPENDENT points, weighted by
+  our own criterion's curvature. Never a comparison, never a gate, carries
+  no `VerificationClaim`.
+- `score gap` (mgcv's point scored under our own criterion): **MEASUREMENT
+  (own criterion)** — unchanged from slice 7c/7b.
+
+### No unqualified "mgcv parity" claim (ADR-219 amendment 1's second consequence)
+
+Nothing in this ADR, the module docstring, or the ledger states unqualified
+`mgcv` parity anywhere. Conformance level 4 (ADR-190, the Kass-Steffey
+`dw/drho` gap) is untouched by this slice and still genuinely DISAGREES.
+The claim sentence above names the quantity (`eta`/`edf`), the tolerance
+(`2e-2`/`1.0`) and the structure (this three-term `select=TRUE` formula,
+`multistart=True`) explicitly, per that decision's own requirement.
+
+### What remains, named rather than attempted
+
+- **Tier-3 confirmation of this session's own numbers.** The re-gate logic
+  itself needs no new R payload (it is arithmetic on already-committed
+  quantities for the "every prior reading" table above), but the FRESH
+  single-vs-multistart comparison and the section-(5) own-point H-weighted
+  reading are this session's own tier-1 measurements and need the next CI
+  dispatch to confirm, per `ROUTINE_MGCV_PARITY.md` step 2's rule that no
+  tier-1 number is committed on its own.
+- **Extending the same re-gate to `gam_model_conformance.FREE_SP_MODEL_CLAIM`**
+  (the N=4, non-`select` structure) — PLAN slice 7e's own text names this as
+  optional ("if the maintainer extends it"), not required; left open.
+- **A stated convention for which endpoint's Hessian the H-weighted
+  companion should use**, now that section (5) shows the choice is not
+  negligible. Not resolved here — reporting both, as this session does, is
+  the honest position until there is a reason to prefer one.
+- **The run-to-run search non-reproducibility ADR-219 amendments 3-4
+  found** is unaffected by this slice; it is a property of
+  `select_lambdas_continuous_multistart`'s own search path, filed
+  separately (`PRODUCT_DIRECTION`), and this ADR's own readings are single
+  snapshots, not a reproducibility study.
+
+## ADR-221 amendment 1: the tier-3 dispatch found a real robustness bug in section (5)'s own code, fixed, not merely retried
+
+**Date:** 2026-09-04 (same day). **Status:** ACCEPTED.
+
+The tier-3 CI dispatch (run
+[33870429467](https://github.com/jonathancrawford05/polaris-re/actions/runs/33870429467),
+oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+build 8, R 4.6.1 / mgcv 1.9.4) **CONFIRMED the primary deliverable — the
+re-gate itself — exactly, and found a genuine bug in the new section (5)
+diagnostic code, not merely a flaky re-run.**
+
+### What tier 3 confirmed, bit-for-bit in verdict
+
+The `SELECT_FREE_SP_MODEL_CLAIM` table (the step this slice's own production
+code change lands in) printed, tier 3:
+
+| search | `max_abs_eta_diff` | `edf_total_diff` | `agrees` (new) | `agrees_log10_sp` (old) |
+|---|---:|---:|---|---|
+| single-start (FD gradient) | 4.456e-01 | +2.4728 | False | False |
+| multistart(9) (FD gradient) | 5.388e-03 | -0.3101 | **True** | False |
+| single-start, analytic gradient | 4.013e-02 | +1.9610 | False | False |
+| multistart(9), analytic gradient | 5.460e-03 | -0.2593 | **True** | False |
+
+**Identical in verdict to the tier-1 table above, and the `eta`/`edf`
+figures themselves match ADR-220's own already-committed tier-3 readings to
+the printed digit** (this run reuses the identical shared recipe and search
+configurations ADR-220 measured; the re-gate changes only how `agrees` is
+computed from already-correct numbers). Both multistart rows read
+`agrees=True` at both tiers; both single-start rows read `agrees=False` at
+both tiers. **The primary deliverable of this slice is now confirmed at
+both tiers.**
+
+### What crashed, and what it was
+
+Section (5)'s own-point H-weighted companion loop threw
+`PolarisComputationError: Penalized IRLS (binomial/cloglog) did not
+converge in 100 iterations` while computing the multistart configuration's
+own-point Hessian, and — because nothing in the new code caught it — the
+exception propagated out of the diagnostic script entirely. The workflow
+step is `continue-on-error: true` (by design, since this diagnostic
+compares nothing and gates nothing), so the JOB still reported
+`conclusion: success`; only reading the actual log content, not the API's
+`conclusion` field, surfaced this. **Single-start's own-point row printed
+correctly and reproduced tier 1 closely** (`H(own pt)=1.529435` at tier 3
+vs `1.649867` at tier 1 — same order, expected difference given
+`select_lambdas_continuous`'s own known run-to-run search variability,
+ADR-219 amendments 3-4).
+
+**Root cause.** `select_lambdas_continuous_multistart`'s own search (a
+different physical CI runner, same pinned `OPENBLAS_NUM_THREADS=1`, the
+same cross-run non-reproducibility ADR-219 amendments 3-4 already
+documented for this exact search) converged to a `log10(sp)` point close
+enough to a convergence boundary that ONE of the finite-difference
+stencil's perturbed evaluations — needed to build the Hessian at that
+point, or to run the step-stability scan there — pushed the fit outside
+its 100-iteration budget. The point itself fits; a neighbour a
+finite-difference step away does not. **This is exactly the failure mode
+section (3)'s own profile scan already guards against**, cell by cell,
+with a `try/except PolarisComputationError` that records `.` rather than
+crashing — section (5), new this session, did not carry the same guard.
+
+### The fix
+
+`scripts/gam_select_free_sp_identifiability_diagnostic.py` section (5)'s
+per-search loop now wraps the own-point score/step-stability/Hessian
+computation in the identical `try/except PolarisComputationError` pattern
+section (3) already uses, printing a "non-convergent near this point"
+reading for that row rather than crashing the rest of the script. **Not a
+retry, not a workaround for CI flakiness** — the local tier-1 environment's
+own multistart search happens not to land near this boundary (confirmed:
+re-ran locally after the fix, output unchanged, single-start
+`1.649867`/multistart `0.312096`, byte-identical to the pre-fix reading),
+so this is a genuine, environment-dependent edge case the fix makes the
+script robust to rather than a bug this session's own tier-1 reading could
+have caught by construction.
+
+### What this means for the H-weighted-at-own-point claim
+
+**Not yet tier-3 confirmed for the multistart configuration.** Single-start's
+own-point reading IS confirmed at both tiers (`1.649867` tier 1 /
+`1.529435` tier 3 — same order, real run-to-run search variability, not a
+formula disagreement). The multistart own-point reading stays a TIER-1-ONLY
+number (`0.312096`) until the fix above gets its own tier-3 confirmation on
+the next CI dispatch. Per `docs/ROUTINE_MGCV_PARITY.md` step 2, this is
+exactly why a tier-1 number is a hypothesis, not a result — this ADR
+labels it as such rather than promoting it.
+
+### Provenance, restated
+
+No change to any `ComparedQuantity` or the re-gate's own primary
+`agrees`/`agrees_log10_sp` logic — this amendment is entirely about the
+`MEASUREMENT (own criterion)` section (5) companion's own robustness. The
+`SELECT_FREE_SP_MODEL_CLAIM` table (INDEPENDENT, the slice's actual
+deliverable) is unaffected by the bug or the fix.
+
+## ADR-221 amendment 2: the fix confirmed, and the underlying non-convergence is real and reproducible, not the bug
+
+**Date:** 2026-09-04 (same day). **Status:** ACCEPTED. Tier 3, R 4.6.1 /
+mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+(build 8), CI run
+[33871712927](https://github.com/jonathancrawford05/polaris-re/actions/runs/33871712927)
+— the fix from amendment 1, re-dispatched.
+
+### The fix works as intended
+
+Section (5) no longer crashes. Its output on this run:
+
+```
+search                  own log10sp base   H(mgcv pt)    H(own pt)   own floor  own resolved
+single-start                  529.576515     7.232681     1.529435    0.000000        7 of 7
+multistart(9)         non-convergent near this point: Penalized IRLS (binomial/cloglog) did not converge in 100 iterations (deviance 987.13).
+```
+
+No traceback; the diagnostic completes and every later step in the run
+(levels 1-3 required, 4-5 annotated) executed normally, matching amendment
+1's own run.
+
+### The `SELECT_FREE_SP_MODEL_CLAIM` table reproduces exactly
+
+**Bit-identical to the pre-fix tier-3 run (33870429467)** — the two
+tier-3 runs share the same 4-row set and every printed digit:
+
+| search | `max_abs_eta_diff` | `edf_total_diff` | `agrees` (new) | `agrees_log10_sp` (old) |
+|---|---:|---:|---|---|
+| single-start (FD gradient) | 4.456e-01 | +2.4728 | False | False |
+| multistart(9) (FD gradient) | 5.388e-03 | -0.3101 | **True** | False |
+| single-start, analytic gradient | 4.013e-02 | +1.9610 | False | False |
+| multistart(9), analytic gradient | 5.460e-03 | -0.2593 | **True** | False |
+
+**Corrected wording (P1-2, automated PR review on this same PR):** "bit-identical
+… to tier 1" here originally overstated the cross-tier agreement — this
+session's own tier-1 table (§"Gap After" above) carries only 2 rows (single-
+/multistart, FD gradient) and its own printed `eta` figures
+(`0.4457`/`0.00268`) are NOT bit-identical to this table's FD rows
+(`4.456e-01`/`5.388e-03`) — the multistart figure alone differs by ~2x, real
+run-to-run search-path variability (ADR-219 amendments 3-4), not a defect.
+What holds across tiers is **identical in verdict** (every `agrees`/
+`agrees_log10_sp` cell matches, and each tier-3 FD figure matches ADR-220's
+own already-committed tier-3 reading to the printed digit) — the correct,
+narrower claim, and the one this ADR's own "Gap After" section already used.
+**This slice's primary deliverable — the re-gate itself — is now confirmed
+by TWO separately-dispatched tier-3 runs, bit-identical between them, and
+identical in verdict to tier 1.** Nothing about the fix touched the
+production re-gate code, so this reproduction was expected; it is recorded
+because "the fix didn't silently break anything else" is itself part of
+this amendment's claim.
+
+### What the multistart non-convergence actually is — a genuine finding, not a remaining bug
+
+**Multistart's own-point H-weighted reading is NOT a number this fixture
+can reliably produce at tier 3 — reproduced identically on the SAME failure
+(`deviance 987.13`) across two independent tier-3 dispatches, both after
+the fix.** This is not the crash amendment 1 fixed; it is the underlying
+condition the crash was masking a graceful report of. `select_lambdas_
+continuous_multistart`'s own converged point on this structure, this
+oracle build, this runner class, sits close enough to a genuine convergence
+boundary that a finite-difference neighbour of it is outside the penalized
+IRLS solver's reach — a property of WHERE the search lands, not a defect in
+the Hessian code, the search itself (which DID converge, per its own
+`c_multi.converged=True` in the table above), or the re-gate.
+
+**Tier 1's own local environment did not hit this** (its own multistart
+search happened to converge somewhere the finite-difference stencil could
+navigate, `H(own pt)=0.312096`), which is the same class of run-to-run
+search-path non-reproducibility ADR-219 amendments 3-4 already documented
+for this exact search on this exact structure — a different physical
+environment reaching a differently-located (but still `agrees=True`,
+still `converged=True`) optimum.
+
+**Per the routine's own "three passes, no movement" discipline, this is
+where this thread of investigation stops, characterised rather than
+chased further.** The multistart own-point H-weighted companion reading
+is recorded as: computable and stable at tier 1 for this session's own
+local search path (`0.312096`); **not computable at tier 3, twice,
+identically** — a genuine, reproducible property of where this specific
+search happens to converge on the pinned oracle's own numerics, not a gap
+in this slice's own code. Section (5)'s own reading, un-retried further,
+stands as the honest tier-3 result: **"non-convergent near this point"** is
+itself the finding.
+
+### What this means for the ADR-221 claim
+
+No change to the claim sentence, the re-gate, or any `ComparedQuantity` —
+this amendment closes out the one open item amendment 1 left (did the fix
+work, and is the underlying condition real). Both are now answered: yes,
+and yes. `docs/CONFORMANCE_LEDGER.md`'s row for this measurement is updated
+to record the reproducible non-convergence rather than a pending retry.

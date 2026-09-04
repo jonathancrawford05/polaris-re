@@ -1524,17 +1524,24 @@ jobs:
           ]
           lines = [
               "",
-              "### Slice 7b/7d — free-sp selection under select=TRUE vs mgcv (INDEPENDENT on every quantity)",
+              "### Slice 7b/7d/7e — free-sp selection under select=TRUE vs mgcv (INDEPENDENT on every quantity)",
               "",
               evidence_markdown(SELECT_FREE_SP_MODEL_CLAIM),
               "",
-              "| search | n | p | nfev | max abs eta diff | max abs log10(sp) diff | edf_total diff | max abs per-term edf diff | at bound | converged | agrees |",
-              "|---|---:|---:|---:|---:|---:|---:|---:|---|---|---|",
+              "**PLAN slice 7e (ADR-221):** `agrees` below is now the eta/edf gate "
+              f"(`max_abs_eta_diff < {c_multi.eta_tolerance}`, "
+              f"`abs(edf_total_diff) < {c_multi.edf_tolerance}`) — "
+              "`agrees_log10_sp` is the OLD `log10(sp)`-only gate "
+              f"(`< {c_multi.log10_sp_tolerance}`), reported alongside so every "
+              "reading is legible under both.",
+              "",
+              "| search | n | p | nfev | max abs eta diff | max abs log10(sp) diff | edf_total diff | max abs per-term edf diff | at bound | converged | agrees (eta/edf) | agrees_log10_sp (old) |",
+              "|---|---:|---:|---:|---:|---:|---:|---:|---|---|---|---|",
           ] + [
               f"| {label} | {r_payload['n']} | {len(r_payload['coef'])} | {fit.n_function_evals} | "
               f"{cmp.max_abs_eta_diff:.3e} | {cmp.max_abs_log10_sp_diff:.4f} | "
               f"{cmp.edf_total_diff:+.4f} | {cmp.max_abs_term_edf_diff:.4f} | "
-              f"{cmp.at_bound} | {cmp.converged} | {cmp.agrees} |"
+              f"{cmp.at_bound} | {cmp.converged} | {cmp.agrees} | {cmp.agrees_log10_sp} |"
               for label, fit, cmp in rows
           ] + [
               "",
@@ -1557,7 +1564,17 @@ jobs:
               "this criterion at mgcv's own point); `eta`/`edf_total`/`nfev` are.",
           ]
           if not c_multi.agrees:
-              lines.insert(2, "**Disagreement on log10(sp) — see the table. This is a genuine finding.**")
+              lines.insert(
+                  2,
+                  "**Disagreement on the PRIMARY eta/edf gate (multistart) — see the "
+                  "table. This is a genuine finding.**",
+              )
+          elif not c_multi.agrees_log10_sp:
+              lines.insert(
+                  2,
+                  "Primary eta/edf gate AGREES (multistart); the OLD log10(sp)-only "
+                  "gate still does not — expected (ADR-221), reported for continuity.",
+              )
 
           report = "\n".join(lines) + "\n"
           with open("gam_select_multiterm_free_sp_probe_report.md", "w") as fh:
