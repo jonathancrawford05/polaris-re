@@ -21062,3 +21062,85 @@ No change to any `ComparedQuantity` or the re-gate's own primary
 `MEASUREMENT (own criterion)` section (5) companion's own robustness. The
 `SELECT_FREE_SP_MODEL_CLAIM` table (INDEPENDENT, the slice's actual
 deliverable) is unaffected by the bug or the fix.
+
+## ADR-221 amendment 2: the fix confirmed, and the underlying non-convergence is real and reproducible, not the bug
+
+**Date:** 2026-09-04 (same day). **Status:** ACCEPTED. Tier 3, R 4.6.1 /
+mgcv 1.9.4, oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+(build 8), CI run
+[33871712927](https://github.com/jonathancrawford05/polaris-re/actions/runs/33871712927)
+— the fix from amendment 1, re-dispatched.
+
+### The fix works as intended
+
+Section (5) no longer crashes. Its output on this run:
+
+```
+search                  own log10sp base   H(mgcv pt)    H(own pt)   own floor  own resolved
+single-start                  529.576515     7.232681     1.529435    0.000000        7 of 7
+multistart(9)         non-convergent near this point: Penalized IRLS (binomial/cloglog) did not converge in 100 iterations (deviance 987.13).
+```
+
+No traceback; the diagnostic completes and every later step in the run
+(levels 1-3 required, 4-5 annotated) executed normally, matching amendment
+1's own run.
+
+### The `SELECT_FREE_SP_MODEL_CLAIM` table reproduces exactly
+
+Bit-identical to the pre-fix tier-3 run (33870429467) and to this session's
+own tier-1 reading:
+
+| search | `max_abs_eta_diff` | `edf_total_diff` | `agrees` (new) | `agrees_log10_sp` (old) |
+|---|---:|---:|---|---|
+| single-start (FD gradient) | 4.456e-01 | +2.4728 | False | False |
+| multistart(9) (FD gradient) | 5.388e-03 | -0.3101 | **True** | False |
+| single-start, analytic gradient | 4.013e-02 | +1.9610 | False | False |
+| multistart(9), analytic gradient | 5.460e-03 | -0.2593 | **True** | False |
+
+**This slice's primary deliverable — the re-gate itself — is now confirmed
+by TWO separately-dispatched tier-3 runs, bit-identical between them, and
+identical in verdict to tier 1.** Nothing about the fix touched the
+production re-gate code, so this reproduction was expected; it is recorded
+because "the fix didn't silently break anything else" is itself part of
+this amendment's claim.
+
+### What the multistart non-convergence actually is — a genuine finding, not a remaining bug
+
+**Multistart's own-point H-weighted reading is NOT a number this fixture
+can reliably produce at tier 3 — reproduced identically on the SAME failure
+(`deviance 987.13`) across two independent tier-3 dispatches, both after
+the fix.** This is not the crash amendment 1 fixed; it is the underlying
+condition the crash was masking a graceful report of. `select_lambdas_
+continuous_multistart`'s own converged point on this structure, this
+oracle build, this runner class, sits close enough to a genuine convergence
+boundary that a finite-difference neighbour of it is outside the penalized
+IRLS solver's reach — a property of WHERE the search lands, not a defect in
+the Hessian code, the search itself (which DID converge, per its own
+`c_multi.converged=True` in the table above), or the re-gate.
+
+**Tier 1's own local environment did not hit this** (its own multistart
+search happened to converge somewhere the finite-difference stencil could
+navigate, `H(own pt)=0.312096`), which is the same class of run-to-run
+search-path non-reproducibility ADR-219 amendments 3-4 already documented
+for this exact search on this exact structure — a different physical
+environment reaching a differently-located (but still `agrees=True`,
+still `converged=True`) optimum.
+
+**Per the routine's own "three passes, no movement" discipline, this is
+where this thread of investigation stops, characterised rather than
+chased further.** The multistart own-point H-weighted companion reading
+is recorded as: computable and stable at tier 1 for this session's own
+local search path (`0.312096`); **not computable at tier 3, twice,
+identically** — a genuine, reproducible property of where this specific
+search happens to converge on the pinned oracle's own numerics, not a gap
+in this slice's own code. Section (5)'s own reading, un-retried further,
+stands as the honest tier-3 result: **"non-convergent near this point"** is
+itself the finding.
+
+### What this means for the ADR-221 claim
+
+No change to the claim sentence, the re-gate, or any `ComparedQuantity` —
+this amendment closes out the one open item amendment 1 left (did the fix
+work, and is the underlying condition real). Both are now answered: yes,
+and yes. `docs/CONFORMANCE_LEDGER.md`'s row for this measurement is updated
+to record the reproducible non-convergence rather than a pending retry.

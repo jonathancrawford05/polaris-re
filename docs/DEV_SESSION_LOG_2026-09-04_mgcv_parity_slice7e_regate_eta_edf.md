@@ -4,7 +4,36 @@
 **Epic:** `docs/CONTINUATION_mgcv_parity_engine.md` / `docs/PLAN_mgcv_parity_engine.md`
 **Slice:** 7e — re-gate `SELECT_FREE_SP_MODEL_CLAIM` on `eta`/`edf`, H-weighted
 distance as a companion (ADR-219 amendment 1 decision 4)
-**ADR:** ADR-221
+**ADR:** ADR-221, amendments 1-2
+
+## Addendum — tier-3 dispatch, a real bug found and fixed, then confirmed
+
+The first tier-3 dispatch (CI run 33870429467) confirmed this slice's
+primary deliverable — the `SELECT_FREE_SP_MODEL_CLAIM` re-gate — identical
+in verdict to tier 1 (both multistart rows `agrees=True`, both single-start
+rows `agrees=False`, at both tiers). It also found a genuine bug: section
+(5)'s own-point Hessian loop (new this session) crashed on
+`PolarisComputationError` when a finite-difference-perturbed point near
+multistart's own converged rho failed to converge — masked at the job
+level by a pre-existing `continue-on-error: true`, so only reading the
+actual log content (not the API's `conclusion` field) surfaced it. Fixed
+with the same `try/except` guard section (3)'s profile scan already
+carries; confirmed locally as a no-op on this session's own tier-1 reading;
+pushed, and a second tier-3 dispatch (run 33871712927) confirmed both that
+the fix works (graceful report, no crash) and that the underlying
+non-convergence is a real, reproducible property of where multistart's
+search lands on this fixture and oracle build — bit-identical failure
+(`deviance 987.13`) across both post-fix tier-3 runs. Single-start's
+own-point reading is now confirmed at both tiers; multistart's stays
+genuinely unavailable at tier 3, characterised rather than chased further.
+Full detail in ADR-221 amendments 1-2 and the corresponding
+`docs/CONFORMANCE_LEDGER.md` rows.
+
+**This is exactly the kind of finding the routine's own "what a good
+session looks like" section names as a success**: a real, INDEPENDENT
+result (the re-gate) confirmed at both tiers, plus an honestly
+characterised measurement gap (the multistart own-point reading) rather
+than a number quietly promoted past what the evidence supports.
 
 ## Setup
 

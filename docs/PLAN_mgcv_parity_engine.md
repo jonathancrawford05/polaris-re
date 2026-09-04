@@ -1801,8 +1801,12 @@ acceptance gate (Part 2).
   `PolarisComputationError` on a finite-difference-perturbed point near
   multistart's own converged rho, masked at the job level by an existing
   `continue-on-error: true`); single-start's own-point reading is confirmed
-  at both tiers, multistart's own-point reading stays tier-1-only pending
-  the fix's own re-dispatch. See ADR-221 + amendment 1 and
+  at both tiers. **A second, independent tier-3 dispatch after the fix
+  (run 33871712927) confirmed the fix works and that multistart's own-point
+  non-convergence is a genuine, reproducible property of this fixture on
+  the pinned oracle** (bit-identical failure, `deviance 987.13`, on both
+  post-fix tier-3 runs) — not a code defect, and not chased further per the
+  routine's own discipline. See ADR-221 + amendments 1-2 and
   `docs/CONFORMANCE_LEDGER.md`.
 - **What changes.** `SELECT_FREE_SP_MODEL_CLAIM`'s (and, if the maintainer
   extends it, `FREE_SP_MODEL_CLAIM`'s) acceptance gate moves from

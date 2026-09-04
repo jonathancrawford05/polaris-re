@@ -616,12 +616,18 @@ eight-term structure. See ADR-217 and `docs/CONFORMANCE_LEDGER.md`.
 > **that same tier-3 run found and fixed a genuine robustness bug** in the
 > new companion code (an uncaught non-convergence on a finite-difference
 > point near multistart's own converged rho, masked at the job level by a
-> pre-existing `continue-on-error: true`); single-start's own-point reading
-> confirmed at both tiers, multistart's stays tier-1-only pending the fix's
-> own re-dispatch. See ADR-221 + amendment 1 for the full measurement and
-> provenance table. **Next: slice 7f** (the SciPy `ftol`-based early exit
-> ADR-220 found and registered, REGISTERED not started) is the PLAN's next
-> unchecked slice.
+> pre-existing `continue-on-error: true`). Single-start's own-point reading
+> is confirmed at both tiers. **A second tier-3 dispatch after the fix
+> reproduced the fix working AND the underlying non-convergence
+> identically** — multistart's own converged point on this fixture, this
+> oracle build, sits close enough to a genuine convergence boundary that a
+> finite-difference neighbour of it is outside the solver's reach, a real
+> and reproducible property of the search path rather than a code defect
+> (tier 1's own different local search path did not hit it). Characterised,
+> not chased further, per the routine's own discipline. See ADR-221 +
+> amendments 1-2 for the full measurement and provenance table. **Next:
+> slice 7f** (the SciPy `ftol`-based early exit ADR-220 found and
+> registered, REGISTERED not started) is the PLAN's next unchecked slice.
 
 > **This is the ACTIVE epic.** `CONTINUATION_penalized_mi_surface.md` is superseded from
 > its slice 6 onward and all of its remaining slices are PARKED. A routine run selecting
