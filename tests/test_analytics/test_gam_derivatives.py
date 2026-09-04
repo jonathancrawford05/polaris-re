@@ -444,8 +444,8 @@ def test_dw_deta_observed_matches_dw_deta_on_a_canonical_link() -> None:
 def test_dw_deta_observed_departs_from_dw_deta_on_a_non_canonical_link() -> None:
     """Pins the reason :func:`dw_deta_observed` exists — if this ever agreed
     with :func:`dw_deta`, PLAN slice 7d's own "cheap check" finding (omitting
-    the alpha term leaves a residual an order of magnitude above the FD noise
-    floor) would have evaporated."""
+    the alpha term leaves a residual three orders of magnitude larger than
+    including it does) would have evaporated."""
     family = binomial_cloglog()
     rng = np.random.default_rng(41)
     eta = rng.normal(size=10) * 0.6

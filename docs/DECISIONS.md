@@ -20437,10 +20437,11 @@ committed N=4 fixture
 anywhere in this check) at `select_lambdas_continuous`'s own
 production-converged point: the gradient WITHOUT the `dW/drho` term
 disagrees with a trustworthy `h=1e-3` central difference of the profile
-score by up to `0.02` — an order of magnitude above the `< 0.05`
-noise-floor bound `TestFiniteDiffStep` already established at that same
-point. **The cheap check FAILS: the term is not negligible, and
-`d(alpha)/d(eta)` needed deriving.**
+score by up to `0.02`. Including the exact term collapses that
+disagreement to `~1.3e-5`-`1.9e-5` — a factor of ~1,500 — so the omitted
+term is three orders of magnitude larger than the residual that remains
+once it is included. **The cheap check FAILS: the term is not negligible,
+and `d(alpha)/d(eta)` needed deriving.**
 
 ### What was built
 

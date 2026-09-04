@@ -48,12 +48,12 @@ anything) at a point where finite differences are trustworthy. **Run on the
 N=4 ``tests/fixtures/gam_reml_optimize_near_flat_direction.json`` fixture at
 its own production-converged point** (``select_lambdas_continuous`` with the
 default, ADR-212-derived step): omitting term 3 entirely leaves a residual
-up to ``0.024`` in ``log10(lambda)`` units, an order of magnitude above the
-``h = 1e-3`` central difference's own established noise floor at that point
-(``< 0.05``, the bound ``tests/test_analytics/test_gam_reml_optimize.py``'s
-``TestFiniteDiffStep`` already pins) — refuting the "``alphaᵢ - 1``'s mean-0
-property makes this negligible" hypothesis outright, not merely leaving it
-untested. Approximating term 3 with the FISHER weight's own derivative
+up to ``0.02`` in ``log10(lambda)`` units. Including the exact term
+collapses that residual to ``~1.3e-5``-``1.9e-5`` — a factor of ~1,500 — so
+the omitted term is three orders of magnitude larger than the residual that
+remains once it is included, refuting the "``alphaᵢ - 1``'s mean-0 property
+makes this negligible" hypothesis outright, not merely leaving it untested.
+Approximating term 3 with the FISHER weight's own derivative
 (:func:`~polaris_re.analytics.gam_derivatives.dw_drho`, ``alpha ≡ 1``) closes
 most of the gap (residual ``~0.001``) but not all of it — the remainder is
 exactly the missing ``d(alpha)/d(eta)`` chain PLAN slice 7c flagged as new

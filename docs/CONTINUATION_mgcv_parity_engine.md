@@ -544,9 +544,9 @@ eight-term structure. See ADR-217 and `docs/CONFORMANCE_LEDGER.md`.
 
 > **Slice 7d is DONE, 2026-09-03 (ADR-220).** The cheap check (Part 1's own
 > precondition) FAILED — omitting `dW/drho` leaves a residual (`~0.02` in
-> `log10(sp)` units on the N=4 fixture) an order of magnitude above the
-> established finite-difference noise floor — so `d(alpha)/d(eta)` was
-> derived in full: `gam_derivatives.third_deriv_mu_eta`/
+> `log10(sp)` units on the N=4 fixture); including the exact term collapses
+> it to `~1.3e-5`-`1.9e-5`, three orders of magnitude smaller — so
+> `d(alpha)/d(eta)` was derived in full: `gam_derivatives.third_deriv_mu_eta`/
 > `variance_second_deriv`/`dalpha_deta`/`dw_deta_observed`/
 > `dw_drho_observed`, each verified against a central difference of the
 > function one order below it on all three link/family combinations this
