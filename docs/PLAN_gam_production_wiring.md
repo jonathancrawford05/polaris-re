@@ -83,9 +83,25 @@ From `docs/MEASUREMENT_unconditional_coverage.md` (200 replicates, nominal
 
 | estimator | overall | ages ≥80 | mean width |
 |---|---:|---:|---:|
-| unpenalized `TensorMIModel` — **what ships today** | **0.9586** | 0.9533 | 0.03044 |
+| unpenalized `TensorMIModel` — **what ships today** ‡ | **0.9586** (age-flat only) | 0.9533 | 0.03044 |
 | penalized, unconditional (Kass-Steffey) — the shipped penalized band | 0.7815 / 0.8090 | 0.6821 / 0.6823 | ~0.0062 / 0.0081 |
 | penalized, `wps2016` — the best correction measured | 0.8167 / 0.8354 | 0.7145 / 0.7165 | ~0.0070 / 0.0089 |
+
+Paired cells are *age-flat / age-varying* truth. **‡ Two caveats the source
+attaches to that first row, and they matter because it carries the whole
+argument for slice 4's default.** It is **age-flat truth only** — there is no
+age-varying counterpart anywhere, which is why it shows one value where the
+others show two — and it is **not re-measured by that study**: it is quoted
+from ADR-187, which ran `TensorMIModel(age_df=6, year_df=3)` over the identical
+truth and the identical replicate seeds (1000..1199).
+
+**The like-for-like comparison is therefore age-flat against age-flat: 0.9586
+against 0.7815**, and it is a same-seeds, same-truth comparison rather than a
+loose one. The conclusion survives the caveats, but state it in that shape and
+not as a bare 0.96-vs-0.78. Slice 4 should also treat the missing age-varying
+unpenalized figure as a gap to close before it recommends anything: on the
+age-varying truth we know what the penalized band does (0.8090) and do **not**
+know what today's shipped band does.
 
 The dashboard's *current* band covers correctly because it is wide. The
 penalized band under-covers, worst at the ages life reinsurance cares about
@@ -203,14 +219,24 @@ the finding is the deliverable.
 
 - **Depends on:** slice 3; `MEASUREMENT_unconditional_coverage.md`.
 - **The honest default outcome is to keep the old band**, and this slice should
-  be written expecting that. Blocker C's table is the reason: the shipped
-  unpenalized band covers at 0.9586; every penalized variant measured
-  under-covers, worst at ages ≥80 (0.68–0.72 against a nominal 0.95).
+  be written expecting that. Blocker C's table is the reason: on the age-flat
+  truth the shipped unpenalized band covers at 0.9586 against the penalized
+  band's 0.7815, and every penalized variant measured under-covers worst at
+  ages ≥80 (0.68–0.72 against a nominal 0.95).
+- **First, close blocker C's own gap.** The 0.9586 figure exists for the
+  age-flat truth only. Before recommending anything, measure the shipped
+  unpenalized estimator's coverage on the **age-varying** truth over the same
+  seeds (1000..1199) — otherwise the recommendation rests on a comparison that
+  exists on one truth and is assumed on the other, which is the shape of
+  reasoning this project's own standard exists to stop.
 - **What this slice actually decides:** whether the dashboard should draw a
   penalized band at all, and if not, whether pairing a validated surface with
   the old estimator's band is defensible or whether the page should draw no
   band until coverage is fixed.
 - **DoD:**
+  - `[machine]` Unpenalized coverage measured on the age-varying truth, same
+    seeds, committed — closing the gap above before any recommendation rests
+    on it.
   - `[judgement]` A written recommendation with the coverage table beside it,
     filed for the maintainer, **not taken** — re-pointing an interval is an
     Anchor-7-class change.
