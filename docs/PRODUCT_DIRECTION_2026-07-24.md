@@ -3488,3 +3488,73 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   only because this slice's own claim sentence depended on getting it
   right. *Source: this session (2nd-order — a documentation correction with
   no downstream consequence found).*
+
+### Harvested 2026-09-04 — the mgcv-parity evidence and the shipped dashboard are attached to two different implementations (`PLAN_gam_production_wiring.md`)
+
+- **EPIC REGISTERED: wire the validated engine to the production MI surface.**
+  Spec'd in **`docs/PLAN_gam_production_wiring.md`** — 5 slices, REGISTERED /
+  NOT STARTED, CONTINUATION deliberately not created so it cannot read as
+  active while `CONTINUATION_mgcv_parity_engine.md` is IN PROGRESS. The gate
+  it exists to pass is *"can the GAM on the dashboard be shown to an external
+  audience?"*, which is not the question the parity epic has been answering.
+  *Source: maintainer direction 2026-09-04, raised from the PR #225/#226
+  review conversation (1st-order — the surfacing step the parity epic's own
+  evidence was always for).* **IMPORTANT.**
+
+- **The measurement that motivated it: `gam_model.fit_polaris_gam` has ZERO
+  production consumers.** Import-graph audit at `40f14d8`: it is imported by
+  exactly five conformance modules and three test files, is absent from
+  `analytics/__init__.py` (which does export `ExperienceGAM` /
+  `TensorMIModel` / `BayesianTensorMIModel`), and neither it nor
+  `experience_gam_penalized` / `gam_uncertainty` / `gam_uncertainty_mi` is
+  referenced from any of `dashboard/`, `api/`, `cli.py`, `mcp/`, `services/`,
+  `pipeline.py`, `viz/`. The Experience Improvement page renders the
+  statsmodels-backed `experience_gam` path. **No slice downstream of 7e
+  changes this** — the parity epic could run to completion with the dashboard
+  still showing output that carries none of its evidence. *Source: this
+  session (1st-order — a gap between the evidence and the shipped surface,
+  found while assessing external-consumption readiness).* **IMPORTANT.**
+
+- **The by-amount basis cannot use the validated free-`sp` search at all.**
+  The amount basis is quasi-Poisson; `quasipoisson_log` sets
+  `dispersion_fixed=False` (`gam_family.py:264`) and `reml_score_general`
+  raises on exactly that (`gam_reml.py:167`), as does `reml_score_gradient`
+  (`gam_reml_gradient.py:126`). `mgcv` handles scale-estimated families with a
+  different criterion; supplying one is new numerical work, not wiring. Until
+  then the dashboard's amount toggle must stay on the old path — or the
+  maintainer decides the two toggles may run different engines and the UI says
+  so. *Source: this session, `PLAN_gam_production_wiring.md` blocker B
+  (1st-order — a capability gap blocking half the dashboard's own basis
+  toggle).* **IMPORTANT.**
+
+- **Re-pointing the uncertainty band would LOWER coverage, and there is a hole
+  in the evidence for saying so.** On the age-flat truth the shipped
+  unpenalized estimator covers at 0.9586 against the penalized band's 0.7815,
+  and every penalized variant under-covers worst at ages ≥80 (0.68–0.72
+  against nominal 0.95) — so the point estimate and the interval must be wired
+  in separate slices. **But the 0.9586 figure exists for the age-flat truth
+  only**, quoted from ADR-187 rather than re-measured: on the age-varying
+  truth we know what the penalized band does (0.8090) and do *not* know what
+  today's shipped band does. Closing that is now slice 4's first `[machine]`
+  criterion. *Source: this session, PR #227 review [P2-2] (1st-order — a gap
+  in the evidence base for a decision this epic has to make).*
+
+- **The coverage BLOCKER's nominal owner is dormant.**
+  `PLAN_gam_production_wiring.md` assigns the underlying coverage gap to
+  `PLAN_penalized_mi_surface.md`, whose CONTINUATION has slices 6–7 PARKED as
+  superseded by the parity epic. So the standing BLOCKER has no active path to
+  closure and blocker C above cannot be fixed by the epic that owns it.
+  *Source: PR #227 review, human-review item (1st-order — an ownership gap on
+  a standing BLOCKER).*
+
+- **Three maintainer decisions the epic cannot start without.** (1) Does
+  run-to-run reproducibility (ADR-219 amendment 3) gate the published UI
+  claim? Recommendation in the PLAN: it gates slice 5, not slices 1–3.
+  (2) Is a validated surface paired with the old estimator's band an
+  acceptable interim? Slice 3 produces exactly that pairing by construction,
+  and it is a judgement about what a reinsurer reads off a chart, not a
+  technical one. (3) Does this epic outrank the parity epic's remaining
+  slices (7f and beyond), which improve an engine no user can reach?
+  *Source: this session, `PLAN_gam_production_wiring.md` "Open questions"
+  (1st-order — registered rather than presumed, per
+  `ROUTINE_MGCV_PARITY.md`'s "May not decide").*
