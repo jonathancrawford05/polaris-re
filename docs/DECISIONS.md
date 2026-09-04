@@ -20967,3 +20967,98 @@ The claim sentence above names the quantity (`eta`/`edf`), the tolerance
   `select_lambdas_continuous_multistart`'s own search path, filed
   separately (`PRODUCT_DIRECTION`), and this ADR's own readings are single
   snapshots, not a reproducibility study.
+
+## ADR-221 amendment 1: the tier-3 dispatch found a real robustness bug in section (5)'s own code, fixed, not merely retried
+
+**Date:** 2026-09-04 (same day). **Status:** ACCEPTED.
+
+The tier-3 CI dispatch (run
+[33870429467](https://github.com/jonathancrawford05/polaris-re/actions/runs/33870429467),
+oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+build 8, R 4.6.1 / mgcv 1.9.4) **CONFIRMED the primary deliverable — the
+re-gate itself — exactly, and found a genuine bug in the new section (5)
+diagnostic code, not merely a flaky re-run.**
+
+### What tier 3 confirmed, bit-for-bit in verdict
+
+The `SELECT_FREE_SP_MODEL_CLAIM` table (the step this slice's own production
+code change lands in) printed, tier 3:
+
+| search | `max_abs_eta_diff` | `edf_total_diff` | `agrees` (new) | `agrees_log10_sp` (old) |
+|---|---:|---:|---|---|
+| single-start (FD gradient) | 4.456e-01 | +2.4728 | False | False |
+| multistart(9) (FD gradient) | 5.388e-03 | -0.3101 | **True** | False |
+| single-start, analytic gradient | 4.013e-02 | +1.9610 | False | False |
+| multistart(9), analytic gradient | 5.460e-03 | -0.2593 | **True** | False |
+
+**Identical in verdict to the tier-1 table above, and the `eta`/`edf`
+figures themselves match ADR-220's own already-committed tier-3 readings to
+the printed digit** (this run reuses the identical shared recipe and search
+configurations ADR-220 measured; the re-gate changes only how `agrees` is
+computed from already-correct numbers). Both multistart rows read
+`agrees=True` at both tiers; both single-start rows read `agrees=False` at
+both tiers. **The primary deliverable of this slice is now confirmed at
+both tiers.**
+
+### What crashed, and what it was
+
+Section (5)'s own-point H-weighted companion loop threw
+`PolarisComputationError: Penalized IRLS (binomial/cloglog) did not
+converge in 100 iterations` while computing the multistart configuration's
+own-point Hessian, and — because nothing in the new code caught it — the
+exception propagated out of the diagnostic script entirely. The workflow
+step is `continue-on-error: true` (by design, since this diagnostic
+compares nothing and gates nothing), so the JOB still reported
+`conclusion: success`; only reading the actual log content, not the API's
+`conclusion` field, surfaced this. **Single-start's own-point row printed
+correctly and reproduced tier 1 closely** (`H(own pt)=1.529435` at tier 3
+vs `1.649867` at tier 1 — same order, expected difference given
+`select_lambdas_continuous`'s own known run-to-run search variability,
+ADR-219 amendments 3-4).
+
+**Root cause.** `select_lambdas_continuous_multistart`'s own search (a
+different physical CI runner, same pinned `OPENBLAS_NUM_THREADS=1`, the
+same cross-run non-reproducibility ADR-219 amendments 3-4 already
+documented for this exact search) converged to a `log10(sp)` point close
+enough to a convergence boundary that ONE of the finite-difference
+stencil's perturbed evaluations — needed to build the Hessian at that
+point, or to run the step-stability scan there — pushed the fit outside
+its 100-iteration budget. The point itself fits; a neighbour a
+finite-difference step away does not. **This is exactly the failure mode
+section (3)'s own profile scan already guards against**, cell by cell,
+with a `try/except PolarisComputationError` that records `.` rather than
+crashing — section (5), new this session, did not carry the same guard.
+
+### The fix
+
+`scripts/gam_select_free_sp_identifiability_diagnostic.py` section (5)'s
+per-search loop now wraps the own-point score/step-stability/Hessian
+computation in the identical `try/except PolarisComputationError` pattern
+section (3) already uses, printing a "non-convergent near this point"
+reading for that row rather than crashing the rest of the script. **Not a
+retry, not a workaround for CI flakiness** — the local tier-1 environment's
+own multistart search happens not to land near this boundary (confirmed:
+re-ran locally after the fix, output unchanged, single-start
+`1.649867`/multistart `0.312096`, byte-identical to the pre-fix reading),
+so this is a genuine, environment-dependent edge case the fix makes the
+script robust to rather than a bug this session's own tier-1 reading could
+have caught by construction.
+
+### What this means for the H-weighted-at-own-point claim
+
+**Not yet tier-3 confirmed for the multistart configuration.** Single-start's
+own-point reading IS confirmed at both tiers (`1.649867` tier 1 /
+`1.529435` tier 3 — same order, real run-to-run search variability, not a
+formula disagreement). The multistart own-point reading stays a TIER-1-ONLY
+number (`0.312096`) until the fix above gets its own tier-3 confirmation on
+the next CI dispatch. Per `docs/ROUTINE_MGCV_PARITY.md` step 2, this is
+exactly why a tier-1 number is a hypothesis, not a result — this ADR
+labels it as such rather than promoting it.
+
+### Provenance, restated
+
+No change to any `ComparedQuantity` or the re-gate's own primary
+`agrees`/`agrees_log10_sp` logic — this amendment is entirely about the
+`MEASUREMENT (own criterion)` section (5) companion's own robustness. The
+`SELECT_FREE_SP_MODEL_CLAIM` table (INDEPENDENT, the slice's actual
+deliverable) is unaffected by the bug or the fix.

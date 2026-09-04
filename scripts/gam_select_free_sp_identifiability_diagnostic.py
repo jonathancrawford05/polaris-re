@@ -284,11 +284,26 @@ def main(payload_path: str) -> None:
     print(f"    {own_header}")
     for label, (fit, _comparison, d_rho) in searches.items():
         own_point = fit.log_lambda
-        own_base = score_at(own_point)
-        own_flat, _own_rows = _step_stability(score_at, own_base, own_point, len(blocks))
-        own_hessian = finite_difference_rho_hessian(
-            x, y, blocks, family, weights, np.log(np.power(10.0, own_point))
-        )
+        try:
+            own_base = score_at(own_point)
+            own_flat, _own_rows = _step_stability(score_at, own_base, own_point, len(blocks))
+            own_hessian = finite_difference_rho_hessian(
+                x, y, blocks, family, weights, np.log(np.power(10.0, own_point))
+            )
+        except PolarisComputationError as exc:
+            # A search's own converged point can sit close enough to a
+            # convergence boundary that ONE of the finite-difference stencil's
+            # perturbed evaluations (needed to build the Hessian or run the
+            # step-stability scan) does not converge, even though the point
+            # itself fits fine -- the identical failure mode section (3)'s
+            # profile scan already guards against, cell by cell. Reported as
+            # a reading, not swallowed and not left to crash the rest of this
+            # diagnostic (found the hard way: this exact exception killed the
+            # multistart row on a tier-3 CI run whose independently-converged
+            # point section (4)'s own single-mgcv-point Hessian never had to
+            # probe near).
+            print(f"    {label:<22}{'non-convergent near this point:':>18} {exc}")
+            continue
         own_floor = _derived_floor(own_hessian, own_flat)
         h_at_mgcv_pt = hessian_weighted_distance(d_rho, hessian, floor=noise_floor)
         h_at_own_pt = hessian_weighted_distance(d_rho, own_hessian, floor=own_floor)

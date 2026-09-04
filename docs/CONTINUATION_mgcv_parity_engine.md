@@ -603,18 +603,25 @@ eight-term structure. See ADR-217 and `docs/CONFORMANCE_LEDGER.md`.
 > log. See ADR-220 and its amendments 1-2 for the full measurement and
 > provenance tables.
 
-> **Slice 7e is DONE, tier 1 confirmed, 2026-09-04 (ADR-221); tier 3 pending
-> this session's own CI dispatch.** Re-gates `SELECT_FREE_SP_MODEL_CLAIM.agrees`
+> **Slice 7e is DONE, primary re-gate CONFIRMED tier 1 AND tier 3, 2026-09-04
+> (ADR-221 + amendment 1).** Re-gates `SELECT_FREE_SP_MODEL_CLAIM.agrees`
 > from raw `log10(sp)` to `eta`/`edf` (ADR-219 amendment 1 decision 4,
 > maintainer-authorized 2026-09-02) — both tolerances derived, not tuned; the
 > old gate preserved as `agrees_log10_sp` so every reading stays legible
 > under both. Discriminates correctly (the module's single-start default
-> still fails); the H-weighted companion is now also measured at each
-> search's own point, not only at `mgcv`'s, and the shift is real and
-> non-negligible in both directions. See ADR-221 for the full measurement
-> and provenance table. **Next: slice 7f** (the SciPy `ftol`-based early
-> exit ADR-220 found and registered, REGISTERED not started) is the PLAN's
-> next unchecked slice.
+> still fails, at both tiers); tier-3 CI run 33870429467 reproduced the
+> `SELECT_FREE_SP_MODEL_CLAIM` table identical in verdict to tier 1. The
+> H-weighted companion is now also measured at each search's own point, not
+> only at `mgcv`'s — a real, non-negligible shift in both directions — and
+> **that same tier-3 run found and fixed a genuine robustness bug** in the
+> new companion code (an uncaught non-convergence on a finite-difference
+> point near multistart's own converged rho, masked at the job level by a
+> pre-existing `continue-on-error: true`); single-start's own-point reading
+> confirmed at both tiers, multistart's stays tier-1-only pending the fix's
+> own re-dispatch. See ADR-221 + amendment 1 for the full measurement and
+> provenance table. **Next: slice 7f** (the SciPy `ftol`-based early exit
+> ADR-220 found and registered, REGISTERED not started) is the PLAN's next
+> unchecked slice.
 
 > **This is the ACTIVE epic.** `CONTINUATION_penalized_mi_surface.md` is superseded from
 > its slice 6 onward and all of its remaining slices are PARKED. A routine run selecting
