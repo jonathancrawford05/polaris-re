@@ -345,6 +345,7 @@ def fit_polaris_gam(
     strict: bool = False,
     multistart: bool = False,
     n_starts: int = 9,
+    analytic_gradient: bool = False,
 ) -> PolarisGAMFit:
     """Fit ``model`` to ``data``/``y``, selecting every smoothing parameter by
     continuous REML (:func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`,
@@ -412,6 +413,15 @@ def fit_polaris_gam(
         n_starts: passed through to
             :func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous_multistart`
             when ``multistart=True``; ignored otherwise.
+        analytic_gradient: passed through to whichever search runs (PLAN
+            slice 7d). Default ``False`` — every existing caller's behaviour
+            is unchanged. Measured on the N=4 fixture
+            (``tests/fixtures/gam_reml_optimize_near_flat_direction.json``):
+            a single-start search with ``analytic_gradient=True`` reaches a
+            REML score BETTER than the finite-difference default reaches
+            (``612.610032`` vs ``612.610092``) in 20 function evaluations
+            against 120 — see the slice 7d ADR for the full measurement,
+            including the ``select=True`` 7-block structure.
 
     Raises:
         PolarisValidationError: propagated from :func:`assemble_model_design`
@@ -469,6 +479,7 @@ def fit_polaris_gam(
             gtol=gtol,
             maxiter=maxiter,
             n_starts=n_starts,
+            analytic_gradient=analytic_gradient,
         )
         selection = multi.best
         n_function_evals = multi.total_function_evals
@@ -485,6 +496,7 @@ def fit_polaris_gam(
             bounds=bounds,
             gtol=gtol,
             maxiter=maxiter,
+            analytic_gradient=analytic_gradient,
         )
         n_function_evals = selection.n_function_evals
     if selection.at_bound:

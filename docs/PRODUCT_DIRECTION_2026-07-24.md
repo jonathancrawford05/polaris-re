@@ -3376,3 +3376,82 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   amendment 1. Not fixed in slice 7c (out of scope). *Source: this session,
   ADR-219 amendment 3 (1st-order — a reproducibility defect in an
   originally-planned component, in committed code).*
+
+### Harvested 2026-09-03 — slice 7d: the analytic REML gradient closes the score gap, and a NEW SciPy stopping-rule defect explains the `converged` contradiction (ADR-220)
+
+- **The `dW/drho` defect-in-waiting ADR-219 flagged is now CLOSED, not
+  merely avoided.** `gam_derivatives.third_deriv_mu_eta`/
+  `variance_second_deriv`/`dalpha_deta`/`dw_deta_observed`/
+  `dw_drho_observed` supply the exact, alpha-aware Appendix D chain, each
+  verified against a central difference of the function one order below it
+  on all three link/family combinations this codebase defines, before
+  composition. The cheap check ADR-219/220 required before deriving
+  anything FAILED first (omitting the term left a residual an order of
+  magnitude above an established noise floor), which is why the derivation
+  was warranted rather than skipped. *Source: this session, ADR-220
+  (1st-order — closes a defect-in-waiting an earlier session filed).*
+
+- **The score-gap half of ADR-218's residual is closed, decisively, at a
+  measured 8.4x-9.5x lower search cost — CONFIRMED at both tier 1 and tier
+  3.** On the `select=TRUE` N=7 structure, tier 1 (R 4.3.3/mgcv 1.9-1) and
+  tier 3 (R 4.6.1/mgcv 1.9.4, pinned oracle digest
+  `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+  CI run [33766634959](https://github.com/jonathancrawford05/polaris-re/actions/runs/33766634959))
+  agree identically in verdict: a warm-started analytic-gradient search
+  reaches REML score `523.645314` (tier 1) / `523.645315` (tier 3) against
+  `mgcv`'s own `523.645336` (tier 1) / `523.645331092` (tier 3) — tier 3's
+  gap of `-0.000016` is the tightest reading this epic has produced on this
+  structure — and `multistart(9)` with the analytic gradient reaches
+  essentially the same score gap as the finite-difference default using 549
+  (tier 1) / 462 (tier 3) function evaluations against 4600 / 4384 — the
+  "~8x cost saving" ADR-219 predicted in advance, now measured and
+  confirmed at both tiers rather than assumed. *Source: this session,
+  ADR-220 and its amendment 1 (1st-order — closes the direct continuation
+  of ADR-218's own named next hypothesis).*
+
+- **NEW: SciPy L-BFGS-B can report `converged=True` via its own `ftol`-style
+  stopping rule while the TRUE gradient (now exact, not finite-differenced)
+  is large on directions not pinned at a search bound.** Refutes the second
+  clause of slice 7d's own registered prediction ("`converged` stops
+  disagreeing with a near-zero gradient") — but by a DIFFERENT mechanism
+  than the one that clause assumed (ADR-212's finite-difference-noise
+  defect, which this slice's exact gradient does not have). Localised to
+  one reproducible case (blind single-start, `select=TRUE` N=7, two of
+  seven blocks pinned at the search's upper bound) but not chased to a fix
+  this session — three candidate directions named, none evaluated.
+  Registered as PLAN slice 7f with a release condition (ADR-209 decision 1).
+  *Source: this session, ADR-220 (1st-order — a defect in the search this
+  slice's own scope touches directly).*
+
+- **Tier-3 confirmation on ADR-220's `SELECT_FREE_SP_MODEL_CLAIM` table
+  (analytic-gradient rows) is now OBTAINED, same session, by TWO
+  separately-dispatched runs (ADR-220 amendments 1-2).** A fourth dispatch
+  (`33766634959`) succeeded after cancelling two colliding
+  `workflow_dispatch` runs freed the runner — all 27 steps succeeded, but
+  an automated PR review caught that the run's own run-level `conclusion`
+  reads `cancelled` (a stray cancel call landed right as it finished), so
+  a second run (`33768187631`, clean `conclusion: success`, same PR head)
+  was cited alongside it — bit-identical on the parity table, one small
+  (`~1e-5`-`1e-3`) run-to-run wobble on the warm-start diagnostic row only,
+  attributed to cross-run floating-point non-associativity, not a defect.
+  Every finding matches tier 1 in verdict, several tighter. Both tables are
+  citable outside the session log as of this confirmation. *Source: this
+  session, ADR-220 amendments 1-2 (2nd-order — discharges the
+  confirmation obligation this session's own rows carried, not new
+  scope).*
+
+- **`docs/MEASUREMENT_unconditional_coverage.md`'s stamp drifted from an
+  INERT edit, the same schema gap `CONTINUATION_mgcv_parity_engine.md`'s own
+  open question already names.** Adding functions to
+  `gam_derivatives.py`/`gam_reml_appendix_b.py` (both sit in
+  `scripts/unconditional_coverage_study.py`'s transitive import closure via
+  `gam_uncertainty_mi` → `gam_uncertainty`) tripped the drift detector even
+  though nothing on the measured path changed. Re-ran the study for real
+  rather than asserting inertness — the honest fix available today — and
+  the coverage figures are unchanged to the printed digit (0.7435/0.7815
+  age-flat, 0.7781/0.8090 age-varying), confirming the edit really was
+  inert. The schema question itself (should an additive, unrelated edit to
+  a file in the closure even count as drift) remains open and
+  maintainer-reserved, unchanged in status. *Source: this session
+  (2nd-order — a second instance of an already-filed schema gap, not new
+  scope).*

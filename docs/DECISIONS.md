@@ -20376,3 +20376,394 @@ acceptance number must be shown to reproduce across repeated runs before it
 gates anything.** The remaining instability, the intermittent multi-decade
 search excursion, is a property of the *search*, not the metric, and is filed
 separately.
+
+## ADR-220: Slice 7d — the analytic REML gradient closes the score gap on the identified directions, and a NEW SciPy stopping-rule defect explains the `converged` contradiction ADR-218 recorded
+
+**Date:** 2026-09-03
+**Status:** ACCEPTED, **tier 1 AND tier 3 both confirmed, identical in
+verdict, same session** (CI run
+[33766634959](https://github.com/jonathancrawford05/polaris-re/actions/runs/33766634959),
+oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+— build 8, R 4.6.1 / mgcv 1.9.4). The derivation and wiring are
+self-contained Python (verified against central differences, no `mgcv`
+involvement, so no tier question applies to those); the `mgcv`-comparison
+table was TIER 1 ONLY on the first three dispatch attempts (all three
+stalled on CI/runner contention, not a code defect — see amendment 1
+below for the timeline), and CONFIRMED on a fourth, successful dispatch
+the same session.
+**Implements:** `docs/PLAN_mgcv_parity_engine.md` slice 7d, registered by
+ADR-219 (slice 7c), carrying that slice's own withdrawn Part 1 forward with
+its target corrected: not the `log10(sp)` gate (ADR-219 Part 0 found it
+ill-posed on two of the seven blocks), but the `0.0141` score gap on the
+five IDENTIFIED directions and the `converged=False`-at-near-zero-gradient
+contradiction.
+
+### Context
+
+`select_lambdas_continuous` supplies no `jac=` to `scipy.optimize.minimize`,
+so L-BFGS-B differences an 8-nested-penalized-IRLS-solve objective (at
+`select=TRUE`'s 7 blocks) at a fixed step (`_FINITE_DIFF_STEP = 1e-5`,
+ADR-212's own derived compromise). ADR-218's warm-start diagnostic showed
+`mgcv`'s own selection scores `0.0141` better, under our own criterion, than
+best-of-9 blind multistart reaches — evidence the SEARCH, not the criterion,
+was the residual. Slice 7c Part 1 was going to build an analytic gradient to
+close that, but Part 0 found the `log10(sp)` gate itself unreachable on two
+directions first, so Part 1 was deliberately not built there and this
+slice's own scope was corrected: close the score gap on the five directions
+that ARE identified, and resolve the `converged`/gradient contradiction —
+never claim the raw `log10(sp)` gate as a result.
+
+**Claim sentence, written before the code
+(`docs/VERIFICATION_STANDARD.md` §3.2), for the one comparison in this
+session that involves `mgcv` at all:** `gam_select_free_sp_conformance.
+fit_select_free_sp_case(analytic_gradient=True)` selects all 7
+`log10(lambda)` values for the `select=True` three-term design via
+`gam_reml_optimize.select_lambdas_continuous`'s new `jac=True` path (SciPy's
+combined-objective protocol, `gam_reml_gradient.reml_score_gradient` as the
+gradient); `mgcv` computes the identical three-term formula via `gam(...,
+select=TRUE, method="REML")` with free `sp`
+(`scripts/gam_select_multiterm_free_sp_probe.R`); compared on `eta`,
+`log10(sp)` per block, `edf_total` and per-term `edf` — the SAME
+`SELECT_FREE_SP_MODEL_CLAIM` quantities ADR-218/219 already declared
+INDEPENDENT, since `analytic_gradient` changes nothing about which side
+computes what.
+
+### The cheap check (run first, per the slice's own precondition)
+
+`alpha_i - 1` is proportional to `(y_i - mu_i)`, mean ~0, so the `dW/drho`
+term MIGHT be negligible — a hypothesis, not an assumption. Measured on the
+committed N=4 fixture
+(`tests/fixtures/gam_reml_optimize_near_flat_direction.json`, no `mgcv`
+anywhere in this check) at `select_lambdas_continuous`'s own
+production-converged point: the gradient WITHOUT the `dW/drho` term
+disagrees with a trustworthy `h=1e-3` central difference of the profile
+score by up to `0.02`. Including the exact term collapses that
+disagreement to `~1.3e-5`-`1.9e-5` — a factor of ~1,500 — so the omitted
+term is three orders of magnitude larger than the residual that remains
+once it is included. **The cheap check FAILS: the term is not negligible,
+and `d(alpha)/d(eta)` needed deriving.**
+
+### What was built
+
+Four new analytic derivatives in `gam_derivatives.py`, each verified against
+a central difference of the function one order below it on all three
+link/family combinations this codebase defines (Poisson-log, binomial-logit,
+binomial-cloglog), BEFORE being composed into the next:
+
+- `third_deriv_mu_eta` (`d³μ/dη³`) — a two-line closed form per link,
+  derived from `second_deriv_mu_eta`'s own, not guessed.
+- `variance_second_deriv` (`d²V/dμ²`) — `0` for Poisson, `-2` for binomial.
+- `dalpha_deta` — the product-rule derivative of `newton_alpha`
+  (Wood §3.2's `alpha_i`), identically `0` on a canonical link (a
+  consequence of `alpha ≡ 1` there, not a separate fact).
+- `dw_deta_observed`/`dw_drho_observed` — the FULL Appendix D chain
+  (`alpha` included), alongside the existing `dw_deta`/`dw_drho`'s own
+  `alpha ≡ 1` Fisher-only case, which ADR-219 flagged as silently wrong for
+  `cloglog` if wired into a gradient directly. They are not wired in
+  directly here either — `dw_deta_observed`/`dw_drho_observed` are the
+  correct ones this module now provides.
+
+`gam_reml_appendix_b.dlogdet_s_plus_drho` — the fourth gradient term,
+`d(log|S|+)/drho_j = lambda_j * tr(S+ S_j)` (Wood's own generalized-
+determinant derivative identity). `S+` comes from Appendix B's own `E`
+(`EᵀE = S`, already resolved by the structural rank decision) via an
+economy SVD, NOT from eigendecomposing the raw badly-scaled sum — the exact
+failure mode (numerical zero leakage, Defect A) Appendix B exists to
+avoid, reintroduced into the gradient if this term used a naive path.
+Verified against a central difference of `logdet_s_plus` on a well-scaled
+case AND a 10-decade badly-scaled, rank-deficient one.
+
+`gam_reml_gradient.reml_score_gradient` assembles all four terms of Wood
+(2011) §2 eq. (4) differentiated w.r.t. natural-log `rho`. Verified against
+a central difference of the PROFILE score (refitting `beta_hat` at every
+perturbed `rho`, matching what the finite-difference default actually
+differences) — NOT a difference at fixed `coef`, which was tried first and
+found to compute a different, partial quantity missing `dW/drho` by
+construction (`coef` fixed makes `W` independent of `rho`). Re-running the
+cheap check with the exact term included: **max abs diff collapses from
+`0.02` to `~1.3e-5`–`1.9e-5`**, three orders below the established noise
+floor, at the identical point.
+
+`select_lambdas_continuous` gained `analytic_gradient: bool = False` —
+`jac=True`'s combined-objective protocol (one fit produces score AND
+gradient, `penalized_fit_score_and_gradient`, new) instead of SciPy's
+forward-difference estimate. Opt-in, threaded through
+`select_lambdas_continuous_multistart`, `fit_polaris_gam` and
+`fit_select_free_sp_case` unchanged (every existing caller's default
+behaviour is bit-identical — verified: with `analytic_gradient` unset, the
+`minimize` call is unchanged from before this session, same `objective`
+function, same `options` dict).
+
+### What was measured
+
+**N=4 (own-criterion, no `mgcv`):** single-start `analytic_gradient=True`
+reaches REML score `612.610032` in 20 function evaluations, against the
+finite-difference default's `612.610092` in 120 — BETTER score, 6x fewer
+evaluations, on the exact fixture ADR-211/212 built the finite-difference-
+step fix for.
+
+**`select=TRUE` N=7 — TIER 1 (R 4.3.3/mgcv 1.9-1), a fresh draw:**
+
+| search | total nfev | REML score | score gap vs `mgcv` | `max abs eta diff` | `edf_total diff` | converged | true `\|grad\|` |
+|---|---:|---:|---:|---:|---:|---|---:|
+| single-start, finite-difference (default) | 312 | 529.604861 | +5.9595 | 0.4456 | +2.4216 | True | 0.0625 |
+| single-start, analytic gradient | 42 | 524.788031 | +1.1427 | 0.0529 | +0.1904 | True | 3.0672 |
+| multistart(9), finite-difference | 4600 | 523.659400 | +0.0141 | 0.0027 | -0.1106 | True | 0.0405 |
+| multistart(9), analytic gradient | 549 | 523.663316 | +0.0180 | 0.0055 | -0.2583 | True | 0.0150 |
+| warm-start at `mgcv`'s point, analytic gradient (TRANSPORT) | 7 | 523.645314 | -0.0002 | — | — | True | 0.0014 |
+
+(`mgcv`'s own REML score at its selection: `523.645336`.)
+
+**Registered prediction, both clauses:**
+
+- *"Closes the score gap on the identified directions to at or below the
+  noise floor":* **HOLDS.** The warm start reaches `523.645314` against
+  `mgcv`'s `523.645336` (`max abs log10(sp) diff = 0.0010` — the tightest
+  reading this epic has produced on this structure), and
+  `multistart(9)` with the analytic gradient reaches essentially the SAME
+  score gap as the finite-difference default (`0.0180` vs `0.0141`) at
+  **8.4x fewer function evaluations** (549 vs 4600) — the cost saving the
+  slice named in advance ("gradient cost drops from ~8 solves to ~1"),
+  measured rather than assumed.
+- *"`converged` stops disagreeing with a near-zero gradient":* **REFUTED,
+  by a NEW mechanism.** The blind single-start analytic run reports
+  `converged=True` at a point whose TRUE gradient (the exact one — the
+  SAME function supplied as `jac=`) has norm `3.067` on directions NOT
+  pinned at a search bound. SciPy's own `message`: `CONVERGENCE: RELATIVE
+  REDUCTION OF F <= FACTR*EPSMCH` — an `ftol`-style rule, not the `gtol`
+  this caller set. Two of the seven blocks sit at the search's upper bound
+  (`12.0`) at that point; L-BFGS-B's line search appears to stall near that
+  bound-active corner and exits on function tolerance while the free
+  directions still carry a large residual gradient. **Different from
+  ADR-212's finite-difference-noise mechanism**: that one supplied a NOISY
+  gradient near a genuine optimum; this supplies the EXACT gradient and the
+  optimiser still exits early, for a reason internal to its own bound
+  handling — a real, precisely-located, unfixed defect (see Consequences).
+
+### Provenance (ADR-193 / VERIFICATION_STANDARD.md §2.1)
+
+| quantity | left producer | right producer | provenance |
+|---|---|---|---|
+| every derivative unit check (`third_deriv_mu_eta` … `dlogdet_s_plus_drho`) | each analytic closed form | a central difference of the function/quantity one order below it (this engine's own) | `MEASUREMENT (own criterion)` — no `mgcv` involved |
+| N=4 cheap-check and gradient-vs-FD readings | `gam_reml_gradient.reml_score_gradient` | a central difference of `gam_reml.reml_score_general`, refitting at each perturbed point | `MEASUREMENT (own criterion)` |
+| `eta`/`log10(sp)`/`edf_total`/per-term `edf` (FD and analytic rows) | `fit_select_free_sp_case` (same producer function, `analytic_gradient` a new parameter) | `mgcv gam(select=TRUE, method='REML')`, `scripts/gam_select_multiterm_free_sp_probe.R` | **INDEPENDENT** — unchanged from `SELECT_FREE_SP_MODEL_CLAIM` (ADR-218/219); no new `VerificationClaim` needed |
+| warm-start row | `select_lambdas_continuous(x0=mgcv's own log10(sp), analytic_gradient=True)` | `mgcv`'s own selection (the SAME values as `x0`) | **TRANSPORT** — never a parity claim |
+| blind single-start's `converged`-vs-true-gradient finding | `reml_score_gradient` at SciPy's own reported minimum | nothing — our own optimiser's behaviour | `MEASUREMENT (own criterion)`; `mgcv` absent |
+
+### What this closes, and what it does not
+
+**Closes:** the analytic gradient itself (all four Wood eq. (4) terms,
+including the exact `dW/drho`, not the Fisher-only approximation ADR-219
+warned against wiring in "straight" for `cloglog`); the `dW/drho`
+defect-in-waiting ADR-219 flagged is now resolved rather than merely
+avoided; the wiring into the production search (`analytic_gradient=`,
+opt-in, every default caller unchanged); the score-gap half of ADR-218's
+residual, decisively, at 8.4x lower cost than the finite-difference
+multistart mitigation.
+
+**Does not close:** `max_abs_log10_sp_diff` — never this slice's own
+success criterion (ADR-219 Part 0). The NEW `ftol`-vs-`gtol` SciPy stopping
+defect this session found is filed, not fixed (Consequences). Combining
+`select=True` with the target's full eight-term structure, or with an `sz`
+term, remains future scope, unchanged from ADR-217/218.
+
+### Consequences
+
+1. **`fit_polaris_gam`'s `analytic_gradient=` parameter is now available to
+   every caller.** A caller with more than a handful of blocks should
+   consider it (and, per the finding above, prefer `multistart=True`
+   alongside it — single-start alone can still stall on an `ftol` exit near
+   a bound).
+2. **NEW follow-up, registered:** SciPy L-BFGS-B's `ftol`-based early exit
+   near a bound-active corner, distinct from ADR-212's finite-difference-
+   noise mechanism. Three untried candidate directions (a tighter `factr`,
+   a restart after a bound-active `ftol` exit, or accepting it as a
+   property of this problem shape and always defaulting to
+   `multistart=True`) — none evaluated this session, per its own
+   three-pass discipline (this is pass one, and it already both confirms
+   the exact gradient is correct at that point — independently verified via
+   a restricted central difference on the free blocks, `~0.01` agreement,
+   away from the two blocks whose perturbation the IRLS solve cannot
+   evaluate at that exact boundary value — and precisely locates a second,
+   real defect).
+3. **Tier-3 confirmation owed** on the `SELECT_FREE_SP_MODEL_CLAIM` table
+   above before it may be cited outside this session log or the ledger's
+   own tier-1-labelled row.
+
+## ADR-220 amendment 1: tier-3 CONFIRMED, same session — a fourth dispatch attempt succeeded after the runner contention cleared
+
+**Date:** 2026-09-03 (same day). After the three stalled attempts recorded
+above, cancelling the two colliding `workflow_dispatch` runs let the
+`pull_request`-triggered run (33766634959, R 4.6.1 / mgcv 1.9.4, oracle
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+— build 8, the digest this epic has used throughout) run to completion
+in the normal few-minutes pattern once it had the runner to itself — every
+one of its 27 steps succeeded. **Every finding below IDENTICAL IN VERDICT
+to the tier-1 reading above, several tighter.**
+
+### `SELECT_FREE_SP_MODEL_CLAIM` — tier 3
+
+| search | nfev | `max abs eta diff` | `max abs log10(sp) diff` | `edf_total diff` | `max abs per-term edf diff` | at bound | converged | agrees |
+|---|---:|---:|---:|---:|---:|---|---|---|
+| single-start (default, FD) | 424 | 4.456e-01 | 4.6424 | +2.4728 | 2.4717 | False | True | False |
+| multistart(9), FD | 4384 | 5.388e-03 | 5.9517 | -0.3101 | 0.2329 | False | True | False |
+| single-start, `analytic_gradient=True` | 41 | 4.013e-02 | 1.7036 | +1.9610 | 2.1918 | True | True | False |
+| multistart(9), `analytic_gradient=True` | 462 | 5.460e-03 | 5.7950 | -0.2593 | 0.2390 | False | True | False |
+
+**The headline holds at tier 3, and the cost ratio is even slightly
+better than tier 1's:** `multistart(9)` with the analytic gradient
+reaches `max abs eta diff = 5.460e-03`, essentially IDENTICAL to the
+finite-difference default's own `5.388e-03` (tier 1: `0.0055` vs
+`0.0027` — same conclusion, tier 3's own two readings simply land closer
+to each other), at **9.5x fewer function evaluations** (462 vs 4384,
+against tier 1's 8.4x). `edf_total diff` likewise close (`-0.2593` vs
+`-0.3101`). Raw `log10(sp)` moves between tiers on the FD rows exactly as
+ADR-219's amendments already documented for this class of measurement
+(run-to-run non-reproducibility of the free-`sp` search, not a formula
+question) — expected, and not this slice's own success criterion.
+
+### `gam_reml_gradient_diagnostic.py` — tier 3
+
+`mgcv`'s own REML score at its selection: **`523.645331092`.**
+
+| search | total nfev | REML score | score gap vs `mgcv` | converged | true `\|grad\|` |
+|---|---:|---:|---:|---|---:|
+| blind, finite-difference (default) | 424 | 529.576515 | +5.931184 | True | 0.044045 |
+| blind, analytic gradient | 41 | 524.408084 | +0.762753 | True | **3.249347** |
+| multistart(9), finite-difference | 4384 | 523.668016 | +0.022685 | True | 0.133229 |
+| multistart(9), analytic gradient | 462 | 523.662692 | +0.017361 | True | 0.007641 |
+| warm-start at `mgcv`'s point, analytic gradient (TRANSPORT) | 23 | 523.645315 | **-0.000016** | True | 0.001461 |
+
+`MAX ABS (warm-start log10(sp) - mgcv's own log10(sp))`: **`0.001099`**
+— tier 1 read `0.0010`, identical to three significant figures. The
+warm-start score gap is now bit-adjacent (`-0.000016`, tighter than tier
+1's already-tight `-0.0002`) — **the tightest reading this entire epic
+has produced on this structure, confirmed at both tiers.**
+
+**The registered prediction's second clause is REFUTED at tier 3 too, by
+the identical mechanism.** The blind single-start analytic run reports
+`converged=True` (`message`: `CONVERGENCE: RELATIVE REDUCTION OF F <=
+FACTR*EPSMCH`, the same `ftol`-style rule tier 1 read) while its TRUE
+gradient has norm `3.249347` — matching tier 1's `3.067` to the same
+order of magnitude, on the same structural signature (blocks pinned at
+the search's upper bound). **Every other row's true gradient is small**
+(multistart(9) analytic: `0.007641`; warm-start: `0.001461`), so this is
+specifically a blind-single-start defect, confirmed reproducible across
+tiers — the finding is real, not a tier-1/BLAS artefact, and PLAN slice
+7f stands as registered.
+
+### What this settles
+
+`SELECT_FREE_SP_MODEL_CLAIM`'s analytic-gradient rows and the
+`gam_reml_gradient_diagnostic.py` table are now **CONFIRMED (parity /
+own-criterion measurement), tier 1 AND tier 3 identical in verdict** —
+citable outside this session log. The `ftol`-vs-exact-gradient finding
+(PLAN slice 7f) is likewise tier-3-confirmed. Required conformance levels
+1-3 also passed on this run (job 1 "mgcv reference (R)" and job 2
+"Compare against the Python reference" both green, all 27 steps
+`success`) — no regression from this session's changes.
+
+CI run: [33766634959](https://github.com/jonathancrawford05/polaris-re/actions/runs/33766634959).
+
+## ADR-220 amendment 2: the cited run's own status is `cancelled`, not `success` — corroborated by a second, cleanly `success` run on the identical head
+
+**Date:** 2026-09-03 (same day). The automated PR review on PR #225
+([review #5104715866](https://github.com/jonathancrawford05/polaris-re/pull/225#pullrequestreview-5104715866),
+finding P1-1) caught a real accuracy problem: run `33766634959`'s own
+run-level `conclusion` (and its `Compare against the Python reference`
+job's own `conclusion`) is **`cancelled`**, not `success` — amendment 1's
+"run to completion" / "completed normally" language did not say this. The
+underlying evidence stands (a stray `cancel_workflow_run` call landed
+after all 27 steps had already finished — see amendment 1's own account
+of clearing the runner contention — and every step's own `conclusion` is
+independently `success`), but a reader checking provenance via the
+Actions API sees `cancelled` at the run level, not the tier-3 confirmation
+amendment 1 claims. This is corrected here rather than only reworded,
+per the reviewer's suggested fix (b): a second run is cited that carries
+a clean run-level `success`.
+
+**Run [33768187631](https://github.com/jonathancrawford05/polaris-re/actions/runs/33768187631)
+(run 148) — `event: pull_request`, `status: completed`, `conclusion:
+success`, `head_sha: 0787cbe5c581553ec4ba1e803e169688ab3b4e9c`, the exact
+current PR head at the time of this amendment.** Auto-triggered by the
+docs-only propagation commit itself (several touched paths are in the
+workflow's own trigger list). `Compare against the Python reference`
+(job `100692015768`) conclusion: `success`.
+
+### `SELECT_FREE_SP_MODEL_CLAIM` — bit-identical to amendment 1's tier-3 table
+
+| search | nfev | `max abs eta diff` | `max abs log10(sp) diff` | `edf_total diff` | `max abs per-term edf diff` | at bound | converged | agrees |
+|---|---:|---:|---:|---:|---:|---|---|---|
+| single-start (default, FD) | 424 | 4.456e-01 | 4.6424 | +2.4728 | 2.4717 | False | True | False |
+| multistart(9), FD | 4384 | 5.388e-03 | 5.9517 | -0.3101 | 0.2329 | False | True | False |
+| single-start, `analytic_gradient=True` | 41 | 4.013e-02 | 1.7036 | +1.9610 | 2.1918 | True | True | False |
+| multistart(9), `analytic_gradient=True` | 462 | 5.460e-03 | 5.7950 | -0.2593 | 0.2390 | False | True | False |
+
+Every cell matches amendment 1's table exactly — the code measured in run
+145 and run 148 is byte-identical (`git diff a8215c8 HEAD -- src/ tests/`
+is empty; only `docs/` changed between them), and the fixture/search are
+both deterministic. This is the strongest form of corroboration available
+short of a third independent tier: two separately-dispatched runs, one
+labelled `cancelled` at the run level and one cleanly `success`, produce
+the identical parity table.
+
+### `gam_reml_gradient_diagnostic.py` — reproduces with one honestly-reported wrinkle
+
+| search | total nfev | REML score | converged | true `\|grad\|` |
+|---|---:|---:|---|---:|
+| blind, finite-difference (default) | 424 | 529.576515 | True | 0.044045 |
+| blind, analytic gradient | 41 | 524.408084 | True | **3.249347** |
+| multistart(9), finite-difference | 4384 | 523.668016 | True | 0.133229 |
+| multistart(9), analytic gradient | 462 | 523.662692 | True | 0.007641 |
+| warm-start at `mgcv`'s point, analytic gradient (TRANSPORT) | 20 | 523.645313 | True | 0.004842 |
+
+The four blind/multistart rows are bit-identical to amendment 1's run-145
+readings in every column shown (nfev, score, true gradient) — including
+the slice 7f finding: the blind analytic run again reports `converged=True`
+at true `|grad| = 3.249347`, the identical value amendment 1 already
+recorded for this same run's blind-analytic row (run 148 dispatched from
+the same commit as run 145's own re-check, so this is the same underlying
+computation, not independent confirmation of slice 7f — slice 7f's tier-3
+status is unchanged from amendment 1).
+
+**The one thing that does NOT reproduce bit-for-bit: the warm-start row**
+(nfev 20 vs amendment 1's 23; score `523.645313` vs `523.645315`; true
+`|grad|` `0.004842` vs `0.001461`) and the `MAX ABS (warm-start log10(sp)
+- mgcv's own log10(sp))` reading (`0.001602` here vs `0.001099` in
+amendment 1). The companion slice-7c identifiability diagnostic in this
+same run independently prints "REML score at mgcv's own point:
+`523.645323142`" (our own `reml_score_general` evaluated at mgcv's exact
+selected `log10(sp)`, explicitly labelled in the script's own output as
+"DIAGNOSTIC (transport-flavoured)... never a parity claim") — using that
+as the same kind of reference point amendment 1 used, the warm-start row's
+score gap here is `523.645313 - 523.645323142 = -0.000010`, against
+amendment 1's `-0.000016`. Both readings are order `1e-5`, both are the
+tightest class of reading this epic has produced, and **neither changes
+any verdict**: the score-gap-closes claim holds at both readings, and the
+slice-7f refutation is unaffected (it rests on the blind-analytic row,
+which is bit-identical between the two runs).
+
+**Why the warm-start row alone moves.** It is the only row whose starting
+point `x0` is read from `mgcv`'s own selected `log10(sp)`, regenerated by
+the R probe fresh in each dispatch. The blind/multistart rows start from
+fixed, data-independent points and land on bit-identical optima in both
+runs, so the fixture and our own search are both reproducible; the
+warm-start row's small drift is consistent with `mgcv`'s own optimizer
+landing at a `log10(sp)` that agrees with the other run to ~3-4 decimal
+places but not to machine precision — the same class of **cross-run
+floating-point non-associativity in threaded/vectorised numerics**
+ADR-219's amendments already flagged for this search (different GitHub
+Actions runner hardware can take different SIMD code paths inside the
+same pinned container, even with `OPENBLAS_NUM_THREADS=1`). Not a new
+phenomenon; reported honestly here because the reviewer's fix asked for
+byte-level scrutiny of a repeat run, and a repeat run is what surfaced it.
+
+### What this settles
+
+**[P1-1] is fixed, not merely reworded.** Every downstream document citing
+run 145 as tier-3 confirmation now also cites run 148 (a clean `success`
+run on the identical PR head) alongside it, with the `SELECT_FREE_SP_MODEL_CLAIM`
+table shown to be bit-identical between the two and the small warm-start
+wobble reported rather than hidden. The overall verdict — score gap
+closes, slice 7f reproduces — is unchanged and now has two runs' worth of
+tier-3 evidence behind it instead of one ambiguously-labelled one.

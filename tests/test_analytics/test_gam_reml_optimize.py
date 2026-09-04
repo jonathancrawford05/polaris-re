@@ -27,10 +27,12 @@ from polaris_re.analytics.gam_fit import penalized_irls_general
 from polaris_re.analytics.gam_model import assemble_model_design, resolve_family
 from polaris_re.analytics.gam_multiterm_conformance import _multiterm_model_spec
 from polaris_re.analytics.gam_reml import reml_score_general
+from polaris_re.analytics.gam_reml_gradient import reml_score_gradient
 from polaris_re.analytics.gam_reml_optimize import (
     _FINITE_DIFF_STEP,
     ContinuousLambdaSelection,
     penalized_fit_and_score,
+    penalized_fit_score_and_gradient,
     select_lambdas_continuous,
     select_lambdas_continuous_multistart,
 )
@@ -312,10 +314,10 @@ class TestFiniteDiffStep:
         with patch("polaris_re.analytics.gam_reml_optimize.minimize") as spy:
             from scipy.optimize import minimize as real_minimize
 
-            def call_with_default_eps(fn, x0, method, bounds, options):
+            def call_with_default_eps(fn, x0, method, bounds, options, jac=None):
                 options = dict(options)
                 options.pop("eps", None)  # SciPy's own default, pre-ADR-212
-                return real_minimize(fn, x0, method=method, bounds=bounds, options=options)
+                return real_minimize(fn, x0, method=method, bounds=bounds, options=options, jac=jac)
 
             spy.side_effect = call_with_default_eps
             with threadpool_limits(limits=1, user_api="blas"):
@@ -367,6 +369,128 @@ class TestFiniteDiffStep:
             ) / (2 * h)
 
         assert np.linalg.norm(grad) < 0.05
+
+
+class TestPenalizedFitScoreAndGradient:
+    """PLAN slice 7d — one fit produces both the score and the gradient."""
+
+    def test_score_matches_penalized_fit_and_score(self, rng: np.random.Generator) -> None:
+        n, p = 60, 5
+        x = _design(rng, n, p)
+        y = rng.poisson(5.0, size=n).astype(np.float64)
+        s = np.eye(p)
+        log_lambda = np.array([0.7])
+
+        coef_a, score_a = penalized_fit_and_score(y, x, poisson_log(), (s,), log_lambda)
+        coef_b, score_b, gradient = penalized_fit_score_and_gradient(
+            y, x, poisson_log(), (s,), log_lambda
+        )
+        np.testing.assert_allclose(coef_a, coef_b, rtol=1e-12)
+        assert score_a == pytest.approx(score_b, rel=1e-12)
+        assert gradient.shape == (1,)
+
+    def test_gradient_matches_a_direct_call_to_reml_score_gradient(
+        self, rng: np.random.Generator
+    ) -> None:
+        n, p = 60, 5
+        x = _design(rng, n, p)
+        y = rng.poisson(5.0, size=n).astype(np.float64)
+        s = np.eye(p)
+        log_lambda = np.array([0.7])
+
+        coef, _score, gradient = penalized_fit_score_and_gradient(
+            y, x, poisson_log(), (s,), log_lambda
+        )
+        expected_natural = reml_score_gradient(y, x, poisson_log(), coef, (s,), 10.0**log_lambda)
+        np.testing.assert_allclose(gradient, expected_natural * np.log(10.0), rtol=1e-12)
+
+
+class TestAnalyticGradient:
+    """PLAN slice 7d — ``select_lambdas_continuous(analytic_gradient=True)``
+    wires :func:`~polaris_re.analytics.gam_reml_gradient.reml_score_gradient`
+    into SciPy's own ``jac=True`` combined-objective protocol, instead of a
+    forward-difference estimate."""
+
+    def test_analytic_gradient_reaches_scipy_via_jac_true(self, rng: np.random.Generator) -> None:
+        """Wiring test, mirroring ``TestFiniteDiffStep``'s own
+        ``test_the_eps_option_reaches_scipy_minimize``: a future refactor
+        that stops passing ``jac=True``/drops the combined-objective
+        function must fail a test, not silently regress to a
+        finite-difference estimate."""
+        x = _design(rng, 30, 3)
+        y = rng.poisson(5.0, size=30).astype(np.float64)
+        s = np.eye(3)
+
+        with patch(
+            "polaris_re.analytics.gam_reml_optimize.minimize",
+            wraps=__import__("scipy.optimize", fromlist=["minimize"]).minimize,
+        ) as spy:
+            select_lambdas_continuous(y, x, poisson_log(), (s,), maxiter=5, analytic_gradient=True)
+
+        assert spy.call_count >= 1
+        assert spy.call_args.kwargs["jac"] is True
+        assert "eps" not in spy.call_args.kwargs["options"]
+
+    def test_default_behaviour_is_unchanged_when_analytic_gradient_is_not_requested(
+        self, rng: np.random.Generator
+    ) -> None:
+        x = _design(rng, 30, 3)
+        y = rng.poisson(5.0, size=30).astype(np.float64)
+        s = np.eye(3)
+
+        with patch(
+            "polaris_re.analytics.gam_reml_optimize.minimize",
+            wraps=__import__("scipy.optimize", fromlist=["minimize"]).minimize,
+        ) as spy:
+            select_lambdas_continuous(y, x, poisson_log(), (s,), maxiter=5)
+
+        assert spy.call_args.kwargs["jac"] is None
+        assert spy.call_args.kwargs["options"]["eps"] == _FINITE_DIFF_STEP
+
+    def test_reaches_the_same_region_as_the_finite_difference_default(
+        self, rng: np.random.Generator
+    ) -> None:
+        """Not a parity claim — a regression/sanity check that the analytic
+        path converges to a comparably-good REML score on an easy,
+        well-conditioned toy problem, mirroring
+        ``TestSelectLambdasContinuousOnAToyProblem``'s own framing."""
+        n, p = 200, 6
+        x = _design(rng, n, p)
+        beta_true = rng.normal(scale=0.3, size=p)
+        y = rng.poisson(np.exp(x @ beta_true)).astype(np.float64)
+        d = np.diff(np.eye(p), n=2, axis=0)
+        s = d.T @ d
+
+        fd_selection = select_lambdas_continuous(y, x, poisson_log(), (s,))
+        analytic_selection = select_lambdas_continuous(
+            y, x, poisson_log(), (s,), analytic_gradient=True
+        )
+        assert fd_selection.converged
+        assert analytic_selection.converged
+        # Same criterion, same design: the two searches should land at a
+        # comparably good score, not merely "both converged" — the toy
+        # problem here is well-conditioned (unlike PLAN slice 7d's own N=4/
+        # N=7 measurements), so a large gap would indicate a wiring defect
+        # rather than a genuine optimiser-convergence finding.
+        assert abs(fd_selection.reml_score - analytic_selection.reml_score) < 0.1
+
+    def test_select_lambdas_continuous_multistart_passes_analytic_gradient_through(
+        self, rng: np.random.Generator
+    ) -> None:
+        x = _design(rng, 60, 4)
+        y = rng.poisson(5.0, size=60).astype(np.float64)
+        s = np.eye(4)
+
+        with patch(
+            "polaris_re.analytics.gam_reml_optimize.minimize",
+            wraps=__import__("scipy.optimize", fromlist=["minimize"]).minimize,
+        ) as spy:
+            select_lambdas_continuous_multistart(
+                y, x, poisson_log(), (s,), n_starts=2, maxiter=5, analytic_gradient=True
+            )
+
+        assert spy.call_count >= 1
+        assert all(call.kwargs["jac"] is True for call in spy.call_args_list)
 
 
 class TestSelectLambdasContinuousMultistart:

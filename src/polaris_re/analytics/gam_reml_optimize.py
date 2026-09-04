@@ -51,12 +51,14 @@ from scipy.optimize import minimize
 from polaris_re.analytics.gam_family import Family
 from polaris_re.analytics.gam_fit import effective_degrees_of_freedom, penalized_irls_general
 from polaris_re.analytics.gam_reml import reml_score_general
+from polaris_re.analytics.gam_reml_gradient import reml_score_gradient
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 
 __all__ = [
     "ContinuousLambdaSelection",
     "MultiStartLambdaSelection",
     "penalized_fit_and_score",
+    "penalized_fit_score_and_gradient",
     "select_lambdas_continuous",
     "select_lambdas_continuous_multistart",
 ]
@@ -196,6 +198,49 @@ def penalized_fit_and_score(
     return fit.coef, score
 
 
+def penalized_fit_score_and_gradient(
+    y: np.ndarray,
+    x: np.ndarray,
+    family: Family,
+    penalty_blocks: tuple[np.ndarray, ...],
+    log_lambda: np.ndarray,
+    *,
+    offset: np.ndarray | None = None,
+    weights: np.ndarray | None = None,
+    gamma: float = 1.0,
+) -> tuple[np.ndarray, float, np.ndarray]:
+    """:func:`penalized_fit_and_score`, plus the analytic gradient of the
+    score in ``log10(lambda)`` units — PLAN slice 7d.
+
+    One penalized fit produces everything both the value and the gradient
+    need (:func:`~polaris_re.analytics.gam_reml_gradient.reml_score_gradient`
+    reuses the SAME converged ``coef``), so this costs one IRLS solve —
+    against the ``2 * len(penalty_blocks)`` extra solves SciPy's own
+    forward-difference gradient needs per trial point when no ``jac=`` is
+    supplied (``select_lambdas_continuous``'s own module docstring: "8 nested
+    penalized-IRLS solves per gradient" at ``select=True``'s 7 blocks).
+
+    Returns:
+        ``(coef, score, gradient)`` — ``gradient`` is ``(len(penalty_blocks),)``,
+        ``d(score)/d(log10(lambda)ⱼ)`` (scaled from
+        :func:`~polaris_re.analytics.gam_reml_gradient.reml_score_gradient`'s
+        own natural-log convention by ``ln(10)``, matching
+        ``select_lambdas_continuous``'s own search variable).
+
+    Raises:
+        PolarisComputationError: propagated from a non-converging penalized fit.
+    """
+    coef, score = penalized_fit_and_score(
+        y, x, family, penalty_blocks, log_lambda, offset=offset, weights=weights, gamma=gamma
+    )
+    lambdas = 10.0 ** np.asarray(log_lambda, dtype=np.float64)
+    gradient_natural = reml_score_gradient(
+        y, x, family, coef, penalty_blocks, lambdas, offset=offset, weights=weights, gamma=gamma
+    )
+    gradient = gradient_natural * float(np.log(10.0))
+    return coef, score, gradient
+
+
 @dataclass(frozen=True)
 class ContinuousLambdaSelection:
     """What :func:`select_lambdas_continuous` returns.
@@ -254,6 +299,7 @@ def select_lambdas_continuous(
     gtol: float = 1.0e-8,
     maxiter: int = 200,
     finite_diff_step: float = _FINITE_DIFF_STEP,
+    analytic_gradient: bool = False,
 ) -> ContinuousLambdaSelection:
     """Choose ``log10(lambda)`` for every penalty block by continuous REML
     minimisation (``scipy.optimize.minimize``, L-BFGS-B).
@@ -279,14 +325,31 @@ def select_lambdas_continuous(
         gtol: SciPy's projected-gradient convergence tolerance.
         maxiter: SciPy's iteration cap.
         finite_diff_step: SciPy's forward-difference step for L-BFGS-B's
-            internal gradient estimate (no analytic gradient is supplied).
-            Defaults to :data:`_FINITE_DIFF_STEP` — see that constant's
-            docstring for the trade-off (robust on this module's own
-            badly-conditioned target structure, less accurate than SciPy's
-            own default on an easy, well-conditioned problem). Achievable
-            ``gtol`` is bounded below by this value on a noisy objective, so
-            a caller both wanting a tighter ``gtol`` AND knowing their design
-            has no near-flat block may pass a smaller step.
+            internal gradient estimate — used only when ``analytic_gradient``
+            is ``False`` (the default). Defaults to :data:`_FINITE_DIFF_STEP`
+            — see that constant's docstring for the trade-off (robust on this
+            module's own badly-conditioned target structure, less accurate
+            than SciPy's own default on an easy, well-conditioned problem).
+            Achievable ``gtol`` is bounded below by this value on a noisy
+            objective, so a caller both wanting a tighter ``gtol`` AND
+            knowing their design has no near-flat block may pass a smaller
+            step.
+        analytic_gradient: when ``True``, use
+            :func:`~polaris_re.analytics.gam_reml_gradient.reml_score_gradient`
+            (PLAN slice 7d) via SciPy's ``jac=True`` combined-objective
+            protocol, instead of SciPy's own forward-difference estimate.
+            One penalized-IRLS solve per trial point rather than
+            ``1 + 2 * len(penalty_blocks)`` (the module docstring's own "8
+            nested solves" at ``select=True``'s 7 blocks), and ``gtol``
+            becomes a test of the TRUE gradient rather than a
+            finite-difference estimate that can sit inside this objective's
+            own noise floor (ADR-212's own finding, which motivated
+            :data:`_FINITE_DIFF_STEP` in the first place). Default ``False``:
+            every existing caller's behaviour is unchanged — this is new,
+            opt-in code, not a re-point of the finite-difference path (the
+            same discipline :func:`select_lambdas_continuous_multistart`'s
+            own ``multistart``/``n_starts`` parameters use for ADR-213).
+            ``finite_diff_step`` is ignored when this is ``True``.
 
     Returns:
         :class:`ContinuousLambdaSelection`.
@@ -318,6 +381,7 @@ def select_lambdas_continuous(
 
     tally = {"rejected": 0, "evaluated": 0}
     any_converged = {"flag": False}
+    _rejected_gradient = np.zeros(n_blocks, dtype=np.float64)
 
     def objective(log_lambda: np.ndarray) -> float:
         tally["evaluated"] += 1
@@ -341,12 +405,39 @@ def select_lambdas_continuous(
         any_converged["flag"] = True
         return score
 
+    def objective_and_gradient(log_lambda: np.ndarray) -> tuple[float, np.ndarray]:
+        tally["evaluated"] += 1
+        try:
+            _, score, gradient = penalized_fit_score_and_gradient(
+                y,
+                x,
+                family,
+                penalty_blocks,
+                log_lambda,
+                offset=offset,
+                weights=weights,
+                gamma=gamma,
+            )
+        except PolarisComputationError:
+            tally["rejected"] += 1
+            return _REJECTED_SCORE, _rejected_gradient
+        if not np.isfinite(score):
+            tally["rejected"] += 1
+            return _REJECTED_SCORE, _rejected_gradient
+        any_converged["flag"] = True
+        return score, gradient
+
     result = minimize(
-        objective,
+        objective_and_gradient if analytic_gradient else objective,
         start,
         method="L-BFGS-B",
+        jac=True if analytic_gradient else None,
         bounds=[bounds] * n_blocks,
-        options={"gtol": gtol, "maxiter": maxiter, "eps": finite_diff_step},
+        options=(
+            {"gtol": gtol, "maxiter": maxiter}
+            if analytic_gradient
+            else {"gtol": gtol, "maxiter": maxiter, "eps": finite_diff_step}
+        ),
     )
     if not any_converged["flag"]:
         raise PolarisComputationError(
@@ -446,6 +537,7 @@ def select_lambdas_continuous_multistart(
     finite_diff_step: float = _FINITE_DIFF_STEP,
     n_starts: int = 9,
     seed: int = _MULTISTART_SEED,
+    analytic_gradient: bool = False,
 ) -> MultiStartLambdaSelection:
     """Best-of-``n_starts`` :func:`select_lambdas_continuous`, candidate (1)
     of PLAN slice 5e (``docs/PLAN_mgcv_parity_engine.md``).
@@ -482,6 +574,9 @@ def select_lambdas_continuous_multistart(
             is derived from anything.
         seed: seeds the ``n_starts - 1`` random starts. Change only to
             explore a different draw — the default is pinned, not tuned.
+        analytic_gradient: passed through to every
+            :func:`select_lambdas_continuous` call unchanged (PLAN slice 7d).
+            Default ``False`` — existing callers are unaffected.
 
     Returns:
         :class:`MultiStartLambdaSelection`.
@@ -523,6 +618,7 @@ def select_lambdas_continuous_multistart(
                     gtol=gtol,
                     maxiter=maxiter,
                     finite_diff_step=finite_diff_step,
+                    analytic_gradient=analytic_gradient,
                 )
             )
         except PolarisComputationError:

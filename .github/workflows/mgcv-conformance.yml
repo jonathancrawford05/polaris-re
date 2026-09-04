@@ -126,6 +126,12 @@ on:
       # comparison; see VERIFICATION_STANDARD.md §2.1.
       - "src/polaris_re/analytics/gam_sp_identifiability.py"
       - "scripts/gam_select_free_sp_identifiability_diagnostic.py"
+      # PLAN slice 7d — the analytic REML gradient: a change to the gradient
+      # itself, its dW/drho ingredients, or its wiring into the outer search
+      # must re-run the comparison and the convergence-flag diagnostic above.
+      - "src/polaris_re/analytics/gam_reml_gradient.py"
+      - "src/polaris_re/analytics/gam_reml_appendix_b.py"
+      - "scripts/gam_reml_gradient_diagnostic.py"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -1493,23 +1499,44 @@ jobs:
           c_single = compare_select_free_sp_case(single, r_payload)
           multi = fit_select_free_sp_case(r_payload, multistart=True, n_starts=9)
           c_multi = compare_select_free_sp_case(multi, r_payload)
+          # PLAN slice 7d (ADR for the analytic gradient): the SAME INDEPENDENT
+          # comparator and claim, with analytic_gradient=True as a new
+          # configuration of the same already-independent producer — not a new
+          # VerificationClaim, since nothing about which side computes what
+          # changes (ADR-193's mechanical test is about the FUNCTION SIGNATURE,
+          # unaffected by this parameter).
+          single_an = fit_select_free_sp_case(r_payload, analytic_gradient=True)
+          c_single_an = compare_select_free_sp_case(single_an, r_payload)
+          multi_an = fit_select_free_sp_case(
+              r_payload, multistart=True, n_starts=9, analytic_gradient=True
+          )
+          c_multi_an = compare_select_free_sp_case(multi_an, r_payload)
 
+          rows = [
+              ("single-start (fit_polaris_gam default)", single, c_single),
+              ("multistart=True, n_starts=9 (ADR-213)", multi, c_multi),
+              ("single-start, analytic_gradient=True (slice 7d)", single_an, c_single_an),
+              (
+                  "multistart=True, n_starts=9, analytic_gradient=True (slice 7d)",
+                  multi_an,
+                  c_multi_an,
+              ),
+          ]
           lines = [
               "",
-              "### Slice 7b — free-sp selection under select=TRUE vs mgcv (INDEPENDENT on every quantity)",
+              "### Slice 7b/7d — free-sp selection under select=TRUE vs mgcv (INDEPENDENT on every quantity)",
               "",
               evidence_markdown(SELECT_FREE_SP_MODEL_CLAIM),
               "",
-              "| search | n | p | max abs eta diff | max abs log10(sp) diff | edf_total diff | max abs per-term edf diff | at bound | agrees |",
-              "|---|---:|---:|---:|---:|---:|---:|---|---|",
-              f"| single-start (fit_polaris_gam default) | {r_payload['n']} | {len(r_payload['coef'])} | "
-              f"{c_single.max_abs_eta_diff:.3e} | {c_single.max_abs_log10_sp_diff:.4f} | "
-              f"{c_single.edf_total_diff:+.4f} | {c_single.max_abs_term_edf_diff:.4f} | "
-              f"{c_single.at_bound} | {c_single.agrees} |",
-              f"| multistart=True, n_starts=9 (ADR-213) | {r_payload['n']} | {len(r_payload['coef'])} | "
-              f"{c_multi.max_abs_eta_diff:.3e} | {c_multi.max_abs_log10_sp_diff:.4f} | "
-              f"{c_multi.edf_total_diff:+.4f} | {c_multi.max_abs_term_edf_diff:.4f} | "
-              f"{c_multi.at_bound} | {c_multi.agrees} |",
+              "| search | n | p | nfev | max abs eta diff | max abs log10(sp) diff | edf_total diff | max abs per-term edf diff | at bound | converged | agrees |",
+              "|---|---:|---:|---:|---:|---:|---:|---:|---|---|---|",
+          ] + [
+              f"| {label} | {r_payload['n']} | {len(r_payload['coef'])} | {fit.n_function_evals} | "
+              f"{cmp.max_abs_eta_diff:.3e} | {cmp.max_abs_log10_sp_diff:.4f} | "
+              f"{cmp.edf_total_diff:+.4f} | {cmp.max_abs_term_edf_diff:.4f} | "
+              f"{cmp.at_bound} | {cmp.converged} | {cmp.agrees} |"
+              for label, fit, cmp in rows
+          ] + [
               "",
               "`sp` is a COMPARED QUANTITY here, not a shared input — both sides "
               "select all 7 smoothing parameters independently, from the same "
@@ -1520,7 +1547,14 @@ jobs:
               "characterised finding (see the warm-start diagnostic below), not "
               "evidence the bases, null-space-penalty rule, fitter or criterion "
               "are wrong — all are unchanged from ADR-217's fixed-sp measurement. "
-              "Coefficients are NOT compared (Anchor 2).",
+              "Coefficients are NOT compared (Anchor 2). The `analytic_gradient=True` "
+              "rows (PLAN slice 7d) use "
+              "`gam_reml_gradient.reml_score_gradient` (Wood 2011 eq. 4 "
+              "differentiated, `dW/drho` exact via `dw_drho_observed`) as SciPy's "
+              "`jac=`, instead of a forward-difference estimate — `max_abs_log10_sp_diff` "
+              "is NOT this slice's own success criterion (Part 0's own finding, "
+              "carried from slice 7c: two of the seven blocks are unidentified by "
+              "this criterion at mgcv's own point); `eta`/`edf_total`/`nfev` are.",
           ]
           if not c_multi.agrees:
               lines.insert(2, "**Disagreement on log10(sp) — see the table. This is a genuine finding.**")
@@ -1596,6 +1630,35 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "No gam_select_multiterm_free_sp_probe.json to read — the R probe did not produce one." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # PLAN slice 7d: does the analytic REML gradient (gam_reml_gradient,
+      # SciPy's own jac=True protocol) change select_lambdas_continuous's own
+      # behaviour on this 7-block select=TRUE structure, and is SciPy's
+      # converged flag trustworthy now that the gradient it receives is exact?
+      # The blind rows reuse the SAME INDEPENDENT comparator as
+      # SELECT_FREE_SP_MODEL_CLAIM (slice 7b's own step above already reports
+      # eta/edf/log10(sp) for them); this step adds the true-gradient-norm and
+      # SciPy-termination-message columns that comparator does not carry. The
+      # warm-start row is DIAGNOSTIC (x0 is mgcv's own selection, TRANSPORT).
+      - name: Does the analytic REML gradient change the search, and is converged trustworthy? (slice 7d)
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f gam_select_multiterm_free_sp_probe.json ]; then
+            OPENBLAS_NUM_THREADS=1 uv run python scripts/gam_reml_gradient_diagnostic.py \
+              gam_select_multiterm_free_sp_probe.json \
+              | tee gam_reml_gradient_diagnostic_output.txt
+            {
+              echo ""
+              echo "### Slice 7d — analytic gradient vs finite difference, and SciPy convergence-flag reliability"
+              echo '```'
+              cat gam_reml_gradient_diagnostic_output.txt
+              echo '```'
+              echo ""
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No gam_select_multiterm_free_sp_probe.json to diagnose — the R probe did not produce one." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       # PLAN slice 5b (docs/WORK_ORDER_multi_term_assembly.md): compares
