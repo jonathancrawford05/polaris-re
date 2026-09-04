@@ -42,6 +42,18 @@ all? It runs three checks:
       others held fixed, and read what it costs. This is the check a reader
       can interpret without any reference to Hessians.
 
+WHAT SLICE 7E ADDS (ADR-219 amendment 1 decision 4, PLAN slice 7e)
+--------------------------------------------------------------------
+Every H-weighted reading below (4) was, until this slice, weighted by the
+Hessian evaluated ONLY at `mgcv`'s own point. That is a real gap the DoD
+names explicitly: the weighting curvature could differ at OUR OWN converged
+point, and assuming it does not is exactly the kind of unmeasured assumption
+this epic does not let stand. Section (5) repeats checks (1)-(2) at each
+search's OWN converged point and re-reports the H-weighted distance weighted
+by THAT Hessian, so the shift is measured, not assumed negligible. Still
+`MEASUREMENT (own criterion)` throughout -- `mgcv`'s point enters only as
+where the DISPLACEMENT is measured TO, never as an operand.
+
 Usage:
     Rscript scripts/gam_select_multiterm_free_sp_probe.R probe.json
     uv run python scripts/gam_select_free_sp_identifiability_diagnostic.py probe.json
@@ -49,6 +61,7 @@ Usage:
 
 import json
 import sys
+from collections.abc import Callable
 from dataclasses import replace
 
 import numpy as np
@@ -86,6 +99,45 @@ _BLOCK_LABELS = (
 """Block order `assemble_model_design` produces under `select=True` (ADR-217:
 each smooth's own existing block(s) then its null-space block, concatenated in
 formula order). Labels only -- nothing here depends on them."""
+
+
+def _step_stability(
+    score_at: Callable[[np.ndarray], float],
+    base: float,
+    point: np.ndarray,
+    n_blocks: int,
+) -> tuple[list[int], list[list[float]]]:
+    """Check (2)'s scan, factored out so section (5) can run it at a NEW
+    point (a search's own converged selection) without duplicating the loop.
+    Returns the flat-block indices and the raw per-block, per-step table
+    (for printing) -- the same "1/h^2 growth means noise" discipline as the
+    original mgcv-point-only version, applied verbatim at whatever `point`
+    is passed."""
+    ln10 = float(np.log(10.0))
+    flat_blocks: list[int] = []
+    rows: list[list[float]] = []
+    for j in range(n_blocks):
+        row = []
+        for h in _STEP_SCAN:
+            up, dn = point.copy(), point.copy()
+            up[j] += h / ln10
+            dn[j] -= h / ln10
+            row.append((score_at(up) - 2.0 * base + score_at(dn)) / (h * h))
+        coarse, fine = abs(row[0]), abs(row[-1])
+        unstable = fine > 4.0 * max(coarse, 1e-12)
+        if unstable:
+            flat_blocks.append(j)
+        rows.append(row)
+    return flat_blocks, rows
+
+
+def _derived_floor(hessian: np.ndarray, flat_blocks: list[int]) -> float:
+    """Same derivation as the original script body: the floor is the
+    smallest RESOLVED eigenvalue, clipping exactly as many as the
+    step-stability scan called flat -- never a chosen constant (Anchor 8)."""
+    evals = np.linalg.eigvalsh(hessian)
+    sorted_evals = np.sort(evals)
+    return float(sorted_evals[len(flat_blocks)]) if flat_blocks else 0.0
 
 
 def _build(payload: dict) -> tuple:
@@ -138,24 +190,11 @@ def main(payload_path: str) -> None:
 
     print("(2) STEP-STABILITY of each diagonal second difference")
     print("    stable across h -> real curvature;  ~1/h^2 growth -> flat + noise")
-    ln10 = float(np.log(10.0))
     header = "".join(f"{f'h={h}':>13}" for h in _STEP_SCAN)
     print(f"{'block':>6}{header}   verdict")
-    flat_blocks: list[int] = []
-    for j in range(len(blocks)):
-        row = []
-        for h in _STEP_SCAN:
-            up, dn = log10_mgcv.copy(), log10_mgcv.copy()
-            up[j] += h / ln10
-            dn[j] -= h / ln10
-            row.append((score_at(up) - 2.0 * base + score_at(dn)) / (h * h))
-        coarse, fine = abs(row[0]), abs(row[-1])
-        # A real curvature barely moves; a noise floor divided by h^2 grows by
-        # ~64x across this 8x step range. 4x is a deliberately generous cut.
-        unstable = fine > 4.0 * max(coarse, 1e-12)
-        if unstable:
-            flat_blocks.append(j)
-        verdict = "FLAT (noise)" if unstable else "identified"
+    flat_blocks, stability_rows = _step_stability(score_at, base, log10_mgcv, len(blocks))
+    for j, row in enumerate(stability_rows):
+        verdict = "FLAT (noise)" if j in flat_blocks else "identified"
         print(f"{f'b{j + 1}':>6}" + "".join(f"{v:13.6f}" for v in row) + f"   {verdict}")
     print()
 
@@ -182,13 +221,18 @@ def main(payload_path: str) -> None:
     print()
 
     print("(4) CANDIDATE ACCEPTANCE METRICS on this same case (PLAN slice 7c Part 2)")
-    print("    REPORTED, NEVER GATED -- re-gating is a maintainer decision (ADR-219).")
-    print("    PROVENANCE DIFFERS BY COLUMN, and it is the reason for the recommendation:")
+    print("    REPORTED, NEVER GATED as of THIS script -- slice 7e re-gates eta/edf in")
+    print("    production (gam_select_free_sp_conformance.py); this diagnostic stays a")
+    print("    MEASUREMENT and gates nothing itself.")
+    print("    PROVENANCE DIFFERS BY COLUMN:")
     print("      max|dlog10 sp| : INDEPENDENT -- both sides selected their own sp.")
-    print("      H-weighted     : INDEPENDENT -- the SAME two operands, re-normed by")
-    print("                       our own criterion's curvature. Provenance preserved.")
-    print("      score gap      : DIAGNOSTIC (transport-flavoured) -- our criterion")
-    print("                       evaluated AT mgcv's supplied point. Never a parity claim.")
+    print("      H-weighted     : MEASUREMENT (own criterion), VERIFICATION_STANDARD.md")
+    print("                       Sec 2.1/ADR-219 amendment 1 decision 2 -- a norm on a")
+    print("                       displacement, weighted by OUR OWN criterion's curvature.")
+    print("                       Corrected here from an earlier 'INDEPENDENT' label this")
+    print("                       script printed before that ratification (slice 7e).")
+    print("      score gap      : MEASUREMENT (own criterion) -- our criterion evaluated")
+    print("                       AT mgcv's supplied point. Never a parity claim.")
     print()
     # Counted from the STEP-STABILITY verdict, not from eigenvalue signs. The
     # sign count is not stable across environments -- on this same fixture it
@@ -210,6 +254,8 @@ def main(payload_path: str) -> None:
         f"{'H (floored)':>13}{'score gap':>13}"
     )
     print(f"    {header}")
+    ln10 = float(np.log(10.0))
+    searches: dict[str, tuple] = {}
     for label, kwargs in (
         ("single-start", {}),
         ("multistart(9)", {"multistart": True, "n_starts": 9}),
@@ -217,12 +263,50 @@ def main(payload_path: str) -> None:
         fit = fit_select_free_sp_case(payload, **kwargs)
         comparison = compare_select_free_sp_case(fit, payload)
         d_rho = (fit.log_lambda - log10_mgcv) * ln10
+        searches[label] = (fit, comparison, d_rho)
         print(
             f"    {label:<22}{comparison.max_abs_log10_sp_diff:16.4f}"
             f"{hessian_weighted_distance(d_rho, hessian, floor=0.0):13.6f}"
             f"{hessian_weighted_distance(d_rho, hessian, floor=noise_floor):13.6f}"
             f"{fit.reml_score - base:13.6f}"
         )
+    print()
+
+    print("(5) H-WEIGHTED COMPANION RE-EVALUATED AT EACH SEARCH'S OWN POINT (PLAN slice 7e)")
+    print("    Section (4) weighted every displacement by the Hessian at MGCV's point only.")
+    print("    Repeating (1)-(2) at OUR OWN converged point measures whether that curvature")
+    print("    shift is negligible, rather than assuming it (ADR-219 amendment 1's own DoD).")
+    print()
+    own_header = (
+        f"{'search':<22}{'own log10sp base':>18}{'H(mgcv pt)':>13}"
+        f"{'H(own pt)':>13}{'own floor':>12}{'own resolved':>14}"
+    )
+    print(f"    {own_header}")
+    for label, (fit, _comparison, d_rho) in searches.items():
+        own_point = fit.log_lambda
+        own_base = score_at(own_point)
+        own_flat, _own_rows = _step_stability(score_at, own_base, own_point, len(blocks))
+        own_hessian = finite_difference_rho_hessian(
+            x, y, blocks, family, weights, np.log(np.power(10.0, own_point))
+        )
+        own_floor = _derived_floor(own_hessian, own_flat)
+        h_at_mgcv_pt = hessian_weighted_distance(d_rho, hessian, floor=noise_floor)
+        h_at_own_pt = hessian_weighted_distance(d_rho, own_hessian, floor=own_floor)
+        own_resolved = len(blocks) - len(own_flat)
+        print(
+            f"    {label:<22}{own_base:18.6f}{h_at_mgcv_pt:13.6f}{h_at_own_pt:13.6f}"
+            f"{own_floor:12.6f}{f'{own_resolved} of {len(blocks)}':>14}"
+        )
+    print()
+    print(
+        "    READING: if H(own pt) sits close to H(mgcv pt) for a given search, the\n"
+        "    curvature used to weight the displacement is not sensitive to WHICH end it is\n"
+        "    evaluated at, and either endpoint is an adequate choice. A large shift would\n"
+        "    mean the two points sit in geometrically different regions of the criterion's\n"
+        "    curvature and the companion metric needs a stated convention for which point's\n"
+        "    Hessian it uses -- this is exactly the possibility the DoD required measuring\n"
+        "    rather than assuming away."
+    )
     print()
 
     if flat_blocks:

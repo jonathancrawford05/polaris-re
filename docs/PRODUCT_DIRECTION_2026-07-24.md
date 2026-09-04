@@ -3455,3 +3455,36 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   maintainer-reserved, unchanged in status. *Source: this session
   (2nd-order — a second instance of an already-filed schema gap, not new
   scope).*
+
+- **PLAN slice 7e (re-gating `SELECT_FREE_SP_MODEL_CLAIM` on `eta`/`edf`)
+  is DONE, tier 1 confirmed; tier 3 pending the next CI dispatch (ADR-221).**
+  Carries out the maintainer's own already-authorized decision (ADR-219
+  amendment 1 decision 4). Both new tolerances derived, not tuned
+  (`edf_tolerance` reuses an existing project constant verbatim;
+  `eta_tolerance` derived with the same headroom-over-a-measured-floor
+  method `compare_vc_case` already uses); the change discriminates a real
+  production choice (the module's own single-start default still fails the
+  new gate) rather than loosening the measurement. *Source: this session
+  (1st-order — the epic's own next unchecked slice).*
+- **The H-weighted companion distance (slice 7c) is sensitive to WHICH
+  endpoint's Hessian weights it — not previously measured.** Evaluated at
+  each search's own converged point for the first time (ADR-221 §5):
+  single-start's reading is 4.8x smaller at its own point than at `mgcv`'s;
+  multistart's is 5.1x larger. No safe default endpoint exists. A stated
+  convention (or reporting both, as this session does) is needed before
+  this metric could ever gate anything. *Source: this session, ADR-221
+  (2nd-order — a measurement precondition for a future re-gating decision,
+  not itself blocking anything today).*
+- **A stale provenance label, found and fixed while re-checking
+  `docs/VERIFICATION_STANDARD.md` §2.1 compliance for this slice.**
+  `scripts/gam_select_free_sp_identifiability_diagnostic.py`'s own section
+  (4) header had printed `H-weighted : INDEPENDENT` since slice 7c
+  (2026-09-01) — a label ADR-219 amendment 1 decision 2 superseded the next
+  day when it ratified `MEASUREMENT (own criterion)` as the correct
+  category. Nothing downstream had cited the stale label as evidence
+  (`gam_sp_identifiability.py`'s own docstring was already correct), so no
+  retraction is needed — but it is exactly the kind of drift §1's own
+  warning describes ("a caveat in a paragraph does not travel"), caught
+  only because this slice's own claim sentence depended on getting it
+  right. *Source: this session (2nd-order — a documentation correction with
+  no downstream consequence found).*

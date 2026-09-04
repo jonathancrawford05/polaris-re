@@ -174,6 +174,74 @@ def test_compare_select_free_sp_case_rejects_sp_count_mismatch() -> None:
         compare_select_free_sp_case(fit, bad_payload)
 
 
+def test_compare_select_free_sp_case_agrees_is_now_eta_edf_not_log10_sp() -> None:
+    """PLAN slice 7e (ADR-221): ``agrees`` is the eta/edf gate;
+    ``agrees_log10_sp`` preserves the OLD ``log10(sp)``-only gate so a
+    reading can be shown under both. R-free -- built directly from
+    synthetic, hand-supplied R-shaped values rather than a live fit, so this
+    test exercises the gate arithmetic in isolation from the search."""
+    recipe = _small_recipe()
+    fit = fit_select_free_sp_case(recipe)
+    n_blocks = fit.log_lambda.shape[0]
+    n_terms = len(fit.edf_per_term)
+
+    # A payload whose eta/edf are close to Python's own (passes the new
+    # gate) but whose sp is deliberately far away (fails the old one) --
+    # the exact shape ADR-220's multistart(9) reading has on the real
+    # fixture.
+    close_payload: RSelectFreeSpPayload = {
+        **recipe,
+        "eta": (fit.eta + 1.0e-3).tolist(),
+        "coef": fit.coef.tolist(),
+        "sp": (10.0 ** (fit.log_lambda + 3.0)).tolist(),  # 3 decades away
+        "edf_total": fit.edf_total - 0.1,
+        "term_edf": [1.0] * n_terms,
+        "converged": True,
+    }
+    close = compare_select_free_sp_case(fit, close_payload)
+    assert close.agrees is True
+    assert close.agrees_log10_sp is False
+    assert close.max_abs_log10_sp_diff == pytest.approx(3.0, abs=1e-9)
+
+    # A payload whose sp matches exactly (passes the old gate) but whose
+    # eta is far off (fails the new one).
+    far_eta_payload: RSelectFreeSpPayload = {
+        **recipe,
+        "eta": (fit.eta + 5.0).tolist(),
+        "coef": fit.coef.tolist(),
+        "sp": (10.0**fit.log_lambda).tolist(),
+        "edf_total": fit.edf_total,
+        "term_edf": list(fit.edf_per_term.values()),
+        "converged": True,
+    }
+    far_eta = compare_select_free_sp_case(fit, far_eta_payload)
+    assert far_eta.agrees is False
+    assert far_eta.agrees_log10_sp is True
+    assert far_eta.max_abs_log10_sp_diff == pytest.approx(0.0, abs=1e-9)
+    assert n_blocks == 7  # sanity: still the select=True 7-block structure
+
+
+def test_compare_select_free_sp_case_reports_derived_tolerances() -> None:
+    """The tolerances actually applied are on the returned comparison, not
+    only implicit in module constants -- so a reader of one comparison
+    object can audit what bar it was read against (ADR-221 DoD)."""
+    recipe = _small_recipe()
+    fit = fit_select_free_sp_case(recipe)
+    payload: RSelectFreeSpPayload = {
+        **recipe,
+        "eta": fit.eta.tolist(),
+        "coef": fit.coef.tolist(),
+        "sp": (10.0**fit.log_lambda).tolist(),
+        "edf_total": fit.edf_total,
+        "term_edf": list(fit.edf_per_term.values()),
+        "converged": True,
+    }
+    comparison = compare_select_free_sp_case(fit, payload, eta_tolerance=0.05, edf_tolerance=2.0)
+    assert comparison.eta_tolerance == 0.05
+    assert comparison.edf_tolerance == 2.0
+    assert comparison.log10_sp_tolerance == 1.0e-2
+
+
 @pytest.mark.skipif(not rscript_mgcv_available(), reason="R with mgcv is not installed here")
 def test_the_r_probe_runs_end_to_end(tmp_path) -> None:  # pragma: no cover
     """The real conformance run, when R happens to be present.
@@ -205,3 +273,6 @@ def test_the_r_probe_runs_end_to_end(tmp_path) -> None:  # pragma: no cover
     comparison = compare_select_free_sp_case(fit, payload)
     assert comparison.converged
     assert np.isfinite(comparison.max_abs_log10_sp_diff)
+    assert np.isfinite(comparison.max_abs_eta_diff)
+    assert isinstance(comparison.agrees, bool)
+    assert isinstance(comparison.agrees_log10_sp, bool)

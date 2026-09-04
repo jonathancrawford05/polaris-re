@@ -1779,9 +1779,27 @@ acceptance gate (Part 2).
 
 - **Depends on:** Slice 7c (ADR-219 + amendment 1) for the evidence and the
   decision; slice 7d only if the maintainer wants the score-gap column too.
-- **Status: REGISTERED, not started.** The maintainer accepted the re-gating
+- **Status: DONE, tier 1 confirmed, 2026-09-04 (ADR-221); tier 3 pending on
+  this session's own CI dispatch** (wired into `mgcv-conformance.yml`'s
+  existing steps, confirms on the next run per ADR-219 amendment 1 decision
+  1's own "for free" precedent). The maintainer accepted the re-gating
   (ADR-219 amendment 1, decision 4) **with the metric changed from what ADR-219
   originally recommended**: not the H-weighted distance as primary.
+  `gam_select_free_sp_conformance.compare_select_free_sp_case`'s `agrees` is
+  now `eta`/`edf` (`< 2e-2`/`< 1.0`, both derived — see ADR-221); the old
+  `log10(sp)`-only gate is preserved as `agrees_log10_sp`, never deleted, so
+  every reading is legible under both. Discriminates a real choice: the
+  module's own single-start default still fails the new gate (`eta=0.4457`)
+  exactly as it failed the old one; only `multistart=True` passes
+  (`eta=0.00268`). Every prior committed slice 7b/7d reading (8 rows, both
+  tiers) re-stated under both gates: `agrees_log10_sp` reads False on every
+  row ever measured on this fixture; `agrees` reads True on exactly the
+  multistart rows, at both tiers. The H-weighted companion (slice 7c) is now
+  ALSO measured at each search's own converged point, not only at `mgcv`'s
+  (the DoD's own precondition) — a real, non-negligible shift found in both
+  directions (single-start 4.8x smaller at its own point; multistart 5.1x
+  larger), reported rather than assumed away. See ADR-221 and
+  `docs/CONFORMANCE_LEDGER.md`.
 - **What changes.** `SELECT_FREE_SP_MODEL_CLAIM`'s (and, if the maintainer
   extends it, `FREE_SP_MODEL_CLAIM`'s) acceptance gate moves from
   `max |Δ log10(sp)| < 1e-2` to a gate on **`eta` and `edf`**, with the

@@ -603,6 +603,19 @@ eight-term structure. See ADR-217 and `docs/CONFORMANCE_LEDGER.md`.
 > log. See ADR-220 and its amendments 1-2 for the full measurement and
 > provenance tables.
 
+> **Slice 7e is DONE, tier 1 confirmed, 2026-09-04 (ADR-221); tier 3 pending
+> this session's own CI dispatch.** Re-gates `SELECT_FREE_SP_MODEL_CLAIM.agrees`
+> from raw `log10(sp)` to `eta`/`edf` (ADR-219 amendment 1 decision 4,
+> maintainer-authorized 2026-09-02) — both tolerances derived, not tuned; the
+> old gate preserved as `agrees_log10_sp` so every reading stays legible
+> under both. Discriminates correctly (the module's single-start default
+> still fails); the H-weighted companion is now also measured at each
+> search's own point, not only at `mgcv`'s, and the shift is real and
+> non-negligible in both directions. See ADR-221 for the full measurement
+> and provenance table. **Next: slice 7f** (the SciPy `ftol`-based early
+> exit ADR-220 found and registered, REGISTERED not started) is the PLAN's
+> next unchecked slice.
+
 > **This is the ACTIVE epic.** `CONTINUATION_penalized_mi_surface.md` is superseded from
 > its slice 6 onward and all of its remaining slices are PARKED. A routine run selecting
 > work should land here.
@@ -1255,6 +1268,25 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
   structures where a block is weakly identified? Not decided here — the
   routine may measure and characterise, not redefine an acceptance
   criterion (`docs/ROUTINE_MGCV_PARITY.md`, "May not decide").
+
+  > **ANSWERED AND IMPLEMENTED, 2026-09-04 (ADR-221, PLAN slice 7e).** The
+  > maintainer's decision was already on record (ADR-219 amendment 1
+  > decision 4, 2026-09-02: "`eta`/`edf` primary, H-weighted distance a
+  > companion") — this session is the one that carried it into code.
+  > `compare_select_free_sp_case`'s `agrees` now means `eta`/`edf`
+  > (`max_abs_eta_diff<2e-2`, `abs(edf_total_diff)<1.0`, both derived, not
+  > tuned); the old `log10(sp)` gate survives as `agrees_log10_sp`, never
+  > deleted. Every one of this epic's own prior readings on this fixture
+  > (8 rows, both tiers, single/multistart × FD/analytic gradient)
+  > re-stated under both gates: the old gate passed NONE of them, ever; the
+  > new gate passes exactly the `multistart=True` rows, at both tiers — a
+  > real discrimination, not a loosening (the module's own single-start
+  > default still fails the new gate by the same order it failed the old
+  > one). `FREE_SP_MODEL_CLAIM` (the N=4, non-`select` structure) is left
+  > untouched, PLAN slice 7e's own text treating that extension as
+  > optional. Tier 1 confirmed this session; tier 3 pending the next CI
+  > dispatch (wired into the existing workflow steps, "for free" per
+  > ADR-219 amendment 1 decision 1's own precedent).
 - **RESOLVED, same day (2026-08-29, ADR-212).** Slice 5c's third-branch escalation
   (below, filed the same day) was resolved by slice 5d before this file was next
   read: the optimiser defect was a specific, measured finite-difference-step bug

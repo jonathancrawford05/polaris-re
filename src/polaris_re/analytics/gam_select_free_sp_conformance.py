@@ -27,6 +27,11 @@ ADR-218) — never reading the R script's own fit.
 Same asymmetry as
 :mod:`~polaris_re.analytics.gam_model_conformance` (ADR-208 §3): ``sp`` is a
 COMPARED quantity here, not a shared input.
+
+**PLAN slice 7e (ADR-221) re-gates ``agrees``** from a bare ``log10(sp)``
+threshold to ``eta``/``edf`` (ADR-219 amendment 1 decision 4) — see
+:data:`SELECT_FREE_SP_REGATE_CLAIM_SENTENCE` and
+:class:`SelectFreeSpCaseComparison`.
 """
 
 from dataclasses import dataclass, replace
@@ -45,6 +50,7 @@ from polaris_re.core.verification import (
 
 __all__ = [
     "SELECT_FREE_SP_MODEL_CLAIM",
+    "SELECT_FREE_SP_REGATE_CLAIM_SENTENCE",
     "RSelectFreeSpPayload",
     "RSelectFreeSpRecipe",
     "SelectFreeSpCaseComparison",
@@ -60,10 +66,40 @@ block, dimension 1). ``select=True`` changes nothing about how many EXISTING
 blocks a term carries."""
 
 _AGREEMENT_TOLERANCE_EDF = 1.0
-"""Same diagnostic tolerance :mod:`~polaris_re.analytics.gam_model_conformance`
-uses for its own ``edf_total`` reading — reported, not gated on its own (see
-that module's own note: a residual here is the finding, not a bar to tune,
-Anchor 8)."""
+"""Reused verbatim from
+:data:`~polaris_re.analytics.gam_model_conformance._AGREEMENT_TOLERANCE_EDF`
+(same order as slice 4 part B's own ``edf_total`` diagnostic tolerance) —
+**PLAN slice 7e (ADR-221) promotes this from reported-only to the ``edf``
+half of the primary gate**, per ADR-219 amendment 1 decision 4. Not
+re-derived for this slice: reusing an existing, already-precedented project
+constant is the opposite of tuning a fresh number to make a fresh check pass
+(Anchor 8). The best CONFIRMED-at-both-tiers reading this epic has produced
+on this exact fixture (ADR-220, ``multistart=True, analytic_gradient=True``)
+is ``edf_total_diff≈-0.258`` (tier 1) / ``-0.259`` (tier 3) — inside this
+bound with room, not tuned to sit just under it."""
+
+_AGREEMENT_TOLERANCE_ETA = 2.0e-2
+"""**New in PLAN slice 7e (ADR-221)** — the ``eta`` half of the primary
+acceptance gate ADR-219 amendment 1 decision 4 authorized
+(``eta``/``edf`` primary, H-weighted distance a reported companion never a
+gate). Derived the same way
+:func:`~polaris_re.analytics.gam_uncertainty_conformance.compare_vc_case`
+derives its own 2% element-wise tolerance: **headroom over a measured floor,
+not a number chosen to make today's reading pass.** The floor is the best
+CONFIRMED-at-both-tiers reading this epic has produced on this exact 7-block
+structure — ``multistart=True, analytic_gradient=True`` (ADR-220,
+:func:`~polaris_re.analytics.gam_model.fit_polaris_gam`'s own opt-in, best
+combination measured, not this module's default) — ``max_abs_eta_diff``
+``5.46e-03`` (tier 1) / ``5.46e-03`` (tier 3, `docs/CONFORMANCE_LEDGER.md`
+slice 7d rows). ``0.02`` is ~3.7x that floor, the same order of headroom
+:func:`~polaris_re.analytics.gam_uncertainty_conformance.compare_vc_case`'s
+own docstring uses ("worst residual 0.730%, so 2% leaves under a factor of
+three"). **This does not pass every search configuration** — a plain
+single-start call (the module default) reads ``max_abs_eta_diff=0.4456``,
+over 20x this bound, and still fails the new gate exactly as it failed the
+old one. The gate discriminates a real production choice
+(``multistart=True`` is required to pass it); it was not loosened until
+everything passed."""
 
 
 class RSelectFreeSpRecipe(TypedDict):
@@ -221,10 +257,49 @@ def fit_select_free_sp_case(
     return fit
 
 
+SELECT_FREE_SP_REGATE_CLAIM_SENTENCE = (
+    "polaris_re's PolarisGAM (gam_model.fit_polaris_gam, multistart=True) "
+    "and mgcv's gam(select=TRUE, method='REML') independently select all 7 "
+    "log10(lambda) for the identical three-term select=TRUE formula from "
+    "the same shared recipe (ADR-217/ADR-218 asymmetry: sp is a compared "
+    "quantity here, not a shared input); agreement is declared on whether "
+    "the two selections produce the SAME FITTED SURFACE — max_abs_eta_diff "
+    "< 2e-2 and abs(edf_total_diff) < 1.0 — not on whether they land at the "
+    "same log10(lambda), which is reported as a diagnostic alongside a "
+    "companion H-weighted rho-distance (MEASUREMENT (own criterion), never "
+    "a gate) rather than compared directly."
+)
+"""**PLAN slice 7e (ADR-221), written before the code per
+``docs/VERIFICATION_STANDARD.md`` §3.2.** Deliberately narrower than
+:data:`SELECT_FREE_SP_MODEL_CLAIM`'s own claim sentence in exactly the way
+ADR-219 amendment 1's marketing-constraint decision 1 requires: it names one
+structure (this three-term ``select=True`` formula), one search
+configuration (``multistart=True`` — the plain single-start default still
+fails this gate, see :data:`_AGREEMENT_TOLERANCE_ETA`), and states the two
+tolerances explicitly rather than leaving "agrees" undefined. It replaces
+the OLD implicit claim (bare ``max_abs_log10_sp_diff < 1e-2``, the
+:data:`SELECT_FREE_SP_MODEL_CLAIM` module's original ``agrees``) rather than
+adding to it — :func:`compare_select_free_sp_case`'s ``agrees`` now means
+this sentence, and the old criterion is reported under
+:attr:`SelectFreeSpCaseComparison.agrees_log10_sp` so every historical
+reading stays legible under both gates side by side
+(``docs/CONFORMANCE_LEDGER.md``). **No unqualified "mgcv parity" claim is
+made anywhere by this sentence or by the code below** — it names the
+quantity, the tolerance and the structure, per ADR-219 amendment 1's second
+consequence; conformance level 4 (ADR-190) still genuinely disagrees and
+this slice does nothing to it."""
+
+
 @dataclass(frozen=True)
 class SelectFreeSpCaseComparison:
     """One free-``sp`` ``select=True`` case's verdict, every quantity
-    :data:`SELECT_FREE_SP_MODEL_CLAIM` declares."""
+    :data:`SELECT_FREE_SP_MODEL_CLAIM` declares.
+
+    **PLAN slice 7e (ADR-221):** :attr:`agrees` is now driven by ``eta``/
+    ``edf`` (:data:`SELECT_FREE_SP_REGATE_CLAIM_SENTENCE`), replacing the
+    prior ``log10(sp)``-only gate. :attr:`agrees_log10_sp` preserves that
+    prior criterion, reported and never re-used to drive :attr:`agrees`, so
+    a caller (or the ledger) can read a result under both gates at once."""
 
     max_abs_eta_diff: float
     max_abs_log10_sp_diff: float
@@ -233,20 +308,41 @@ class SelectFreeSpCaseComparison:
     at_bound: bool
     converged: bool
     agrees: bool
+    """The PRIMARY gate as of ADR-221: ``converged and max_abs_eta_diff <
+    eta_tolerance and abs(edf_total_diff) < edf_tolerance``. Never driven by
+    ``log10(sp)`` — see :attr:`agrees_log10_sp` for that reading."""
+    agrees_log10_sp: bool
+    """The gate :attr:`agrees` replaced (``converged and
+    max_abs_log10_sp_diff < log10_sp_tolerance``) — kept, not deleted, so
+    every historical row can be read under both criteria (ADR-221 DoD)."""
+    eta_tolerance: float
+    edf_tolerance: float
+    log10_sp_tolerance: float
     evidence: VerificationClaim
 
 
 def compare_select_free_sp_case(
-    python_fit: PolarisGAMFit, r_case: RSelectFreeSpPayload, *, tolerance: float = 1.0e-2
+    python_fit: PolarisGAMFit,
+    r_case: RSelectFreeSpPayload,
+    *,
+    tolerance: float = 1.0e-2,
+    eta_tolerance: float = _AGREEMENT_TOLERANCE_ETA,
+    edf_tolerance: float = _AGREEMENT_TOLERANCE_EDF,
 ) -> SelectFreeSpCaseComparison:
     """Compare the independent Python free-``sp`` ``select=True`` fit against
     the R payload's own, on every quantity :data:`SELECT_FREE_SP_MODEL_CLAIM`
     declares.
 
-    ``tolerance`` gates ``max_abs_log10_sp_diff`` — same convention as
-    :func:`~polaris_re.analytics.gam_model_conformance.compare_free_sp_case`
-    (Anchor 8: never silently widen a tolerance to call a gap closed; kept a
-    parameter, not a baked-in module constant)."""
+    **PLAN slice 7e (ADR-221) re-gate.** ``agrees`` is now primary on
+    ``eta``/``edf`` (:data:`SELECT_FREE_SP_REGATE_CLAIM_SENTENCE`) — the
+    fitted surface, not the smoothing-parameter vector. ``tolerance`` (kept,
+    unrenamed, for backward compatibility with existing callers) still gates
+    the reported-only :attr:`SelectFreeSpCaseComparison.agrees_log10_sp`;
+    Anchor 8 forbids silently widening it, so it is kept a parameter rather
+    than folded away. ``eta_tolerance``/``edf_tolerance`` default to the
+    module's own derived constants
+    (:data:`_AGREEMENT_TOLERANCE_ETA`/:data:`_AGREEMENT_TOLERANCE_EDF`) and
+    are exposed the same way, for the same reason."""
     r_eta = np.asarray(r_case["eta"], dtype=np.float64)
     if r_eta.shape != python_fit.eta.shape:
         raise PolarisValidationError(
@@ -276,8 +372,10 @@ def compare_select_free_sp_case(
     edf_total_diff = float(python_fit.edf_total - r_case["edf_total"])
     max_abs_term_edf_diff = float(np.max(np.abs(python_term_edf - r_term_edf)))
 
+    both_converged = python_fit.converged and bool(r_case["converged"])
+    agrees_log10_sp = both_converged and max_abs_log10_sp_diff < tolerance
     agrees = (
-        python_fit.converged and bool(r_case["converged"]) and max_abs_log10_sp_diff < tolerance
+        both_converged and max_abs_eta_diff < eta_tolerance and abs(edf_total_diff) < edf_tolerance
     )
     return SelectFreeSpCaseComparison(
         max_abs_eta_diff=max_abs_eta_diff,
@@ -287,5 +385,9 @@ def compare_select_free_sp_case(
         at_bound=python_fit.at_bound,
         converged=python_fit.converged,
         agrees=agrees,
+        agrees_log10_sp=agrees_log10_sp,
+        eta_tolerance=eta_tolerance,
+        edf_tolerance=edf_tolerance,
+        log10_sp_tolerance=tolerance,
         evidence=SELECT_FREE_SP_MODEL_CLAIM,
     )
