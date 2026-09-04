@@ -534,7 +534,11 @@ eight-term structure. See ADR-217 and `docs/CONFORMANCE_LEDGER.md`.
 > closed 261x. Eigenvalue-sign count across the three readings: 5, 7, 6.
 > Step-stability: 5 of 7, every time.
 >
-> **NEXT: slice 7e** (the re-gating, decided and scoped) or **slice 7d** — the analytic REML gradient, re-aimed by ADR-219 at the
+> **NEXT: ~~slice 7e~~ / ~~slice 7d~~ — SUPERSEDED, both DONE (ADR-220, ADR-221).**
+> The live pointer is at the end of this file. Kept rather than rewritten so the
+> sequence this epic actually took stays legible. Original text: slice 7e (the
+> re-gating, decided and scoped) or slice 7d — the analytic REML gradient,
+> re-aimed by ADR-219 at the
 > `0.0141` score gap on the 5 identified directions, the
 > `converged=False`-at-near-zero-gradient defect, and the ~8x cost saving;
 > explicitly NOT at the `log10(sp)` gate. Carries a hazard ADR-219 found:
@@ -1430,3 +1434,43 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
   the constraint, and proposes four requirements a gate should carry. **It is PROPOSED and
   binds nothing.** Adopting it means an ADR (the `VERIFICATION_STANDARD.md` / ADR-193
   precedent) and, if adopted, re-reading the PLAN's other anchors against requirement 2.
+
+> **Slice 7f is DONE, 2026-09-05 (ADR-222) — and it did NOT close its gap,
+> which is the result, not a shortfall.** All three of ADR-220's candidates were
+> evaluated rather than one being chosen. **Candidate 1 (a tighter `factr`) is
+> REFUTED**: `1e7`, `1e2` and `1.0` — seven orders — give identical `nfev`,
+> identical score, and the identical `4.889e-01` residual, because the relative
+> reduction really is zero and SciPy's `ftol` message is an honest report.
+> **Candidate 2 (restart) is a real but PARTIAL mitigation**, shipped opt-in as
+> `select_lambdas_continuous(max_gtol_restarts=...)`: on the same N=7 case the
+> score falls `524.788031 → 523.677681` and the KKT residual `2.086 → 0.489`
+> for ~27 extra evaluations, then stops improving. **Candidate 3
+> (`multistart=True`) stands as the practical answer today.**
+>
+> **ADR-220's registered prediction is REFUTED, and finding 3 says why.** The
+> failure was never the stopping rule: at the stall, `penalized_irls_general`
+> does not converge at neighbouring trial points (`h = 1e-5`, `t = 1e-5`), so
+> `_REJECTED_SCORE`'s `1e10` sits exactly where the line search probes, against
+> a true score of `~523.7`. Descent measurably exists further out (`-1.591e-02`
+> at `t = 1e-1`) and L-BFGS-B cannot reach it. The warm start reaches the
+> optimum because it *starts* there.
+>
+> **`converged` was deliberately NOT redefined.** Making it mean "`gtol` met on
+> the true projected gradient" was built, measured and reverted: the
+> well-conditioned N=4 control plateaus at `2.040e-04`, so the flag would report
+> a fit optimal to `1e-6` as unconverged. `gtol = 1e-8` is below what this
+> objective resolves at all. `ContinuousLambdaSelection.max_abs_projected_gradient`
+> carries the measurement instead; what the flag *should* test is registered as
+> a maintainer decision (ADR-222), not taken by the routine.
+>
+> **NEXT: slice 7g** — the cause finding 3 located: the inner IRLS's
+> non-convergent neighbourhood and `_REJECTED_SCORE`'s cliff. Two directions
+> registered, neither tried (a more robust `penalized_irls_general`; or a
+> barrier that grows from the last good score instead of a flat `1e10`). It is a
+> different hypothesis from all three of ADR-220's, and it is the one the
+> measurement points at.
+>
+> **Also open for the maintainer (ADR-222):** what `converged` should test on
+> this objective. The two measured plateaus are `2.0e-04` (well-conditioned) and
+> `4.9e-01` (bound-active, IRLS-blocked); any threshold between them is an
+> acceptance criterion, so it is "May not decide".

@@ -29,10 +29,12 @@ from polaris_re.analytics.gam_multiterm_conformance import _multiterm_model_spec
 from polaris_re.analytics.gam_reml import reml_score_general
 from polaris_re.analytics.gam_reml_gradient import reml_score_gradient
 from polaris_re.analytics.gam_reml_optimize import (
+    _BOUND_ATOL,
     _FINITE_DIFF_STEP,
     ContinuousLambdaSelection,
     penalized_fit_and_score,
     penalized_fit_score_and_gradient,
+    projected_gradient,
     select_lambdas_continuous,
     select_lambdas_continuous_multistart,
 )
@@ -677,3 +679,153 @@ class TestSelectLambdasContinuousMultistart:
 
         assert multi.best.reml_score <= single.reml_score + 1e-6
         assert multi.any_converged
+
+
+class TestProjectedGradient:
+    """PLAN slice 7f (ADR-222) — the KKT residual under box bounds, verified
+    against the definition by hand rather than against another implementation
+    of itself. Every case is a closed form: for a minimisation under
+    ``lo <= x <= hi`` a bound-pinned component is stationary exactly when the
+    only feasible direction left to it would INCREASE the objective."""
+
+    def test_interior_components_pass_the_gradient_through_unchanged(self) -> None:
+        g = np.array([1.5, -2.5, 0.0], dtype=np.float64)
+        pt = np.array([0.0, 1.0, -1.0], dtype=np.float64)
+        np.testing.assert_allclose(projected_gradient(g, pt, (-2.0, 2.0)), g, rtol=0.0, atol=1e-15)
+
+    def test_at_the_lower_bound_only_a_negative_gradient_survives(self) -> None:
+        """At ``lo`` only ``dx >= 0`` is feasible, so a POSITIVE gradient (which
+        would only increase the objective going up) is stationary and clips to
+        zero, while a negative one is a real descent direction and survives."""
+        pt = np.array([-2.0, -2.0], dtype=np.float64)
+        g = np.array([3.0, -3.0], dtype=np.float64)
+        np.testing.assert_allclose(
+            projected_gradient(g, pt, (-2.0, 2.0)),
+            np.array([0.0, -3.0]),
+            rtol=0.0,
+            atol=1e-15,
+        )
+
+    def test_at_the_upper_bound_only_a_positive_gradient_survives(self) -> None:
+        """The mirror image: at ``hi`` only ``dx <= 0`` is feasible, so a
+        negative gradient is stationary and a positive one survives."""
+        pt = np.array([2.0, 2.0], dtype=np.float64)
+        g = np.array([3.0, -3.0], dtype=np.float64)
+        np.testing.assert_allclose(
+            projected_gradient(g, pt, (-2.0, 2.0)),
+            np.array([3.0, 0.0]),
+            rtol=0.0,
+            atol=1e-15,
+        )
+
+    def test_a_kkt_point_has_zero_residual_even_with_a_large_raw_gradient(self) -> None:
+        """The property the whole fix rests on: a large gradient at a pinned
+        bound is NOT evidence of an unconverged search. Using the raw norm here
+        would flag a correct answer as a defect."""
+        pt = np.array([-2.0, 2.0], dtype=np.float64)
+        g = np.array([50.0, -50.0], dtype=np.float64)
+        assert float(np.max(np.abs(projected_gradient(g, pt, (-2.0, 2.0))))) == 0.0
+
+    def test_a_component_within_the_bound_tolerance_counts_as_pinned(self) -> None:
+        """SciPy returns a bound-active component as the bound to within its own
+        rounding, not exactly. An equality test would read it as interior and
+        then report the bound's own restoring gradient as an unconverged
+        residual — the false positive ``_BOUND_ATOL`` exists to prevent."""
+        pt = np.array([-2.0 + _BOUND_ATOL / 2.0], dtype=np.float64)
+        g = np.array([7.0], dtype=np.float64)
+        np.testing.assert_allclose(
+            projected_gradient(g, pt, (-2.0, 2.0)), np.zeros(1), rtol=0.0, atol=1e-15
+        )
+
+    def test_rejects_a_shape_mismatch_and_inverted_bounds(self) -> None:
+        with pytest.raises(PolarisValidationError, match="same 1-D shape"):
+            projected_gradient(np.zeros(3), np.zeros(2), (-1.0, 1.0))
+        with pytest.raises(PolarisValidationError, match="not lo < hi"):
+            projected_gradient(np.zeros(2), np.zeros(2), (1.0, 1.0))
+
+
+class TestGtolRestart:
+    """PLAN slice 7f (ADR-222) — re-entering ``minimize`` when SciPy exits with
+    the caller's ``gtol`` unmet on the TRUE projected gradient.
+
+    The headline measurement (the N=7 ``select=True`` fixture, where the restart
+    takes the score from 524.788031 to 523.677681) needs R and lives in the
+    session log; these tests pin the wiring and the invariants, which do not."""
+
+    @staticmethod
+    def _toy() -> tuple:
+        rng = np.random.default_rng(20260905)
+        n = 240
+        xs = np.linspace(0.0, 1.0, n)
+        design = np.column_stack([np.ones(n), xs, xs**2, np.sin(3.0 * xs)])
+        blocks = (
+            np.diag(np.array([0.0, 1.0, 0.0, 0.0])),
+            np.diag(np.array([0.0, 0.0, 1.0, 1.0])),
+        )
+        eta = 0.4 + 1.1 * xs
+        y = rng.poisson(np.exp(eta)).astype(np.float64)
+        return y, design, poisson_log(), blocks
+
+    def test_a_negative_budget_is_rejected(self) -> None:
+        y, design, family, blocks = self._toy()
+        with pytest.raises(PolarisValidationError, match="max_gtol_restarts"):
+            select_lambdas_continuous(
+                y, design, family, blocks, analytic_gradient=True, max_gtol_restarts=-1
+            )
+
+    def test_the_default_is_off_and_reports_no_residual(self) -> None:
+        """``max_gtol_restarts=0`` must leave the pre-7f path exactly as it was:
+        no restarts, and no residual claimed that was never measured."""
+        y, design, family, blocks = self._toy()
+        sel = select_lambdas_continuous(y, design, family, blocks, analytic_gradient=True)
+        assert sel.n_gtol_restarts == 0
+        assert sel.max_abs_projected_gradient is None
+
+    def test_the_finite_difference_path_ignores_the_budget_entirely(self) -> None:
+        """Gated on ``analytic_gradient`` deliberately: a finite-differenced
+        gradient's own noise floor sits far above any sensible ``gtol``
+        (ADR-212), so testing it would spin the loop on noise. The result must
+        be identical with the budget set and unset — not merely close."""
+        y, design, family, blocks = self._toy()
+        without = select_lambdas_continuous(y, design, family, blocks)
+        with_budget = select_lambdas_continuous(y, design, family, blocks, max_gtol_restarts=8)
+        np.testing.assert_array_equal(without.log_lambda, with_budget.log_lambda)
+        assert without.reml_score == with_budget.reml_score
+        assert without.n_function_evals == with_budget.n_function_evals
+        assert with_budget.n_gtol_restarts == 0
+        assert with_budget.max_abs_projected_gradient is None
+
+    def test_enabling_restarts_measures_and_reports_the_residual(self) -> None:
+        y, design, family, blocks = self._toy()
+        sel = select_lambdas_continuous(
+            y, design, family, blocks, analytic_gradient=True, max_gtol_restarts=4
+        )
+        assert sel.max_abs_projected_gradient is not None
+        assert sel.max_abs_projected_gradient >= 0.0
+        assert 0 <= sel.n_gtol_restarts <= 4
+
+    def test_restarting_never_worsens_the_score(self) -> None:
+        """The loop keeps a restart only on STRICT improvement, so more budget
+        can never return a worse answer than less."""
+        y, design, family, blocks = self._toy()
+        none = select_lambdas_continuous(
+            y, design, family, blocks, analytic_gradient=True, max_gtol_restarts=0
+        )
+        some = select_lambdas_continuous(
+            y, design, family, blocks, analytic_gradient=True, max_gtol_restarts=6
+        )
+        assert some.reml_score <= none.reml_score + 1e-12
+
+    def test_the_budget_is_threaded_through_multistart_and_defaults_off(self) -> None:
+        y, design, family, blocks = self._toy()
+        multi = select_lambdas_continuous_multistart(
+            y,
+            design,
+            family,
+            blocks,
+            n_starts=2,
+            analytic_gradient=True,
+            max_gtol_restarts=2,
+        )
+        assert multi.any_converged
+        assert multi.best.max_abs_projected_gradient is not None

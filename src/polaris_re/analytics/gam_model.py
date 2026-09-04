@@ -346,6 +346,7 @@ def fit_polaris_gam(
     multistart: bool = False,
     n_starts: int = 9,
     analytic_gradient: bool = False,
+    max_gtol_restarts: int = 0,
 ) -> PolarisGAMFit:
     """Fit ``model`` to ``data``/``y``, selecting every smoothing parameter by
     continuous REML (:func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`,
@@ -480,6 +481,7 @@ def fit_polaris_gam(
             maxiter=maxiter,
             n_starts=n_starts,
             analytic_gradient=analytic_gradient,
+            max_gtol_restarts=max_gtol_restarts,
         )
         selection = multi.best
         n_function_evals = multi.total_function_evals
@@ -497,6 +499,7 @@ def fit_polaris_gam(
             gtol=gtol,
             maxiter=maxiter,
             analytic_gradient=analytic_gradient,
+            max_gtol_restarts=max_gtol_restarts,
         )
         n_function_evals = selection.n_function_evals
     if selection.at_bound:

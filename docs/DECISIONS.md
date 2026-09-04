@@ -21156,3 +21156,207 @@ this amendment closes out the one open item amendment 1 left (did the fix
 work, and is the underlying condition real). Both are now answered: yes,
 and yes. `docs/CONFORMANCE_LEDGER.md`'s row for this measurement is updated
 to record the reproducible non-convergence rather than a pending retry.
+
+## ADR-222: Slice 7f — the `ftol` exit is honest; the line search is blocked by the objective's own non-convergent neighbourhood, and neither the stopping rule nor a restart closes it
+
+**Date:** 2026-09-05
+**Status:** ACCEPTED. **Tier 1** (R 4.3.3 / mgcv 1.9-1, local apt) — but note
+that nothing in this ADR is a comparison against `mgcv`: every reading is
+`MEASUREMENT (own criterion)`, and `mgcv` enters only as the generator of the
+fixture's own recipe. A tier-3 confirmation is therefore not owed for the
+findings; the conformance CI job runs on this PR regardless.
+**Implements:** `docs/PLAN_mgcv_parity_engine.md` slice 7f, registered by
+ADR-220.
+
+### Context
+
+ADR-220 (slice 7d) found that a blind single-start `select_lambdas_continuous`
+with the EXACT analytic gradient reports `converged=True` on the `select=TRUE`
+N=7 structure at a point whose true gradient norm is `3.067`, and read SciPy's
+own message — `CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH` — as
+naming the mechanism: an `ftol`-style rule firing instead of the `gtol` the
+caller set. It named three candidate fixes and tried none, per the routine's
+three-pass discipline. This slice tried them.
+
+### Reproduced first, before anything was changed
+
+Same fixture recipe (`scripts/gam_select_multiterm_free_sp_probe.R`, seed
+`20260902`), R 4.3.3 / mgcv 1.9-1: blind single-start, `analytic_gradient=True`,
+`nfev=42`, score `524.788031`, `at_bound=True`, true `|grad| = 3.067233` —
+**bit-identical to ADR-220's recorded reading.**
+
+### Finding 1 — the residual is in FREE directions, which ADR-220 asserted and did not show
+
+A large gradient at a bound-pinned component is not evidence of anything: the
+bound is legitimately holding it. Only the KKT **projected** residual
+distinguishes "stopped early" from "stopped at a corner it should stop at", so
+that distinction was measured rather than assumed:
+
+| block | `log10(sp)` | at bound | grad | projected |
+|---|---:|---|---:|---:|
+| b1 | 12.0000 | UPPER | -0.001738 | 0.000000 |
+| b2 | -1.1520 | — | 0.009704 | 0.009704 |
+| b3 | 12.0000 | UPPER | -0.000242 | 0.000000 |
+| b4 | 5.5741 | — | 0.009853 | 0.009853 |
+| b5 | 3.6743 | — | 2.000544 | 2.000544 |
+| b6 | 2.1513 | — | -2.086049 | -2.086049 |
+| b7 | 0.2380 | — | 1.026619 | 1.026619 |
+
+`max|g^P| = 2.086049` against a `gtol` of `1e-8`. **The point is genuinely not
+KKT-optimal**, and the two bound-pinned blocks contribute nothing to that — the
+residual sits entirely on free blocks. ADR-220's characterisation survives
+being checked.
+
+### Finding 2 — candidate 1 (a tighter `factr`) is REFUTED, and not marginally
+
+Re-running `minimize` from the stalled point with `factr` at `1e7` (SciPy's
+default), `1e2` and `1.0` — seven orders of range:
+
+| `factr` | nfev | score change | `max|g^P|` | message |
+|---|---:|---:|---:|---|
+| 1e7 | 4 | +0.000e+00 | 4.889e-01 | RELATIVE REDUCTION OF F <= FACTR*EPSMCH |
+| 1e2 | 4 | +0.000e+00 | 4.889e-01 | RELATIVE REDUCTION OF F <= FACTR*EPSMCH |
+| 1.0 | 4 | +0.000e+00 | 4.889e-01 | RELATIVE REDUCTION OF F <= FACTR*EPSMCH |
+
+Identical in every column. Tightening the threshold does not change the
+outcome **at all**, because the relative reduction really is zero: the line
+search finds no improving point to reduce F by. **SciPy's message is honest.**
+ADR-220's framing — an `ftol` rule firing "instead of" `gtol` — described the
+symptom correctly but pointed at the wrong culprit. The stopping rule is
+reporting a true fact about what the line search achieved.
+
+### Finding 3 — the real cause: the objective is not computable in a neighbourhood of the stall
+
+Central differences of the profile score along the worst free direction (b6),
+against the analytic value `0.488915` at the restarted point:
+
+| h | central difference | vs analytic |
+|---:|---:|---:|
+| 1e-1 | 0.504087 | +0.015172 |
+| 1e-2 | 0.505886 | +0.016971 |
+| 1e-3 | 0.351933 | -0.136982 |
+| 1e-4 | 1.615256 | +1.126341 |
+| 1e-5 | **inner IRLS did not converge** | — |
+
+And a direct line probe along `-g^P`, which answers the question that matters —
+*is there descent available at all?*
+
+| step `t` | change in score |
+|---:|---|
+| 1e-1 | **-1.591e-02** |
+| 1e-2 | **-4.678e-03** |
+| 1e-3 | +5.217e-04 |
+| 1e-4 | +6.238e-04 |
+| 1e-5 | **inner IRLS did not converge** → scored `_REJECTED_SCORE` (1e10) |
+| 1e-6 | +3.457e-04 |
+
+**The gradient is real** — coarse central differences agree with it to ~3% —
+**and descent genuinely exists at `t = 1e-1`. But the objective rises at
+intermediate scales and is not computable at `1e-5`,** where
+`penalized_irls_general` fails and the point is scored `1e10` against a true
+score of `~523.7`. L-BFGS-B's line search, which probes exactly there, cannot
+find the descent that exists further out.
+
+So the failure is **not** a stopping-rule problem and **no `factr` can fix it**.
+It is the inner penalized IRLS's own convergence failure in a neighbourhood of
+the stall, converted into a `1e10` cliff by `_REJECTED_SCORE` — whose own
+docstring anticipated this class of problem ("a finite-difference gradient
+straddling an infinite objective value … stalls L-BFGS-B's line search") and
+chose a finite sentinel to soften it. Finite is not enough: `1e10` against
+`523.7` is still a cliff.
+
+### Finding 4 — candidate 2 (restart) is a real but PARTIAL mitigation, and the registered prediction is REFUTED
+
+`select_lambdas_continuous` gains `max_gtol_restarts: int = 0` — re-enter
+`minimize` from the reported point when the true projected residual exceeds the
+caller's `gtol`, stopping on budget exhaustion or on the first restart that
+fails to improve the score strictly. On the same N=7 case:
+
+| budget | nfev | restarts | score | `max|g^P|` |
+|---:|---:|---:|---:|---:|
+| 0 (default, unchanged) | 42 | 0 | 524.788031 | not measured |
+| 1 | 65 | 1 | **523.677681** | 4.889e-01 |
+| 4 | 69 | 2 | 523.677681 | 4.889e-01 |
+| 16 | 69 | 2 | 523.677681 | 4.889e-01 |
+
+A **score improvement of 1.110350** and a **4.3x reduction in the KKT
+residual** (2.086 → 0.489), for ~27 extra function evaluations — genuinely
+worth having, and it lands within `0.032` of `multistart(9)`'s own
+`523.645336`-adjacent result at a twelfth of the cost. But `4.889e-01` is not
+`gtol`, and the budget above 2 buys nothing because the restart stops moving.
+
+**ADR-220's registered prediction — "candidate 2 closes the gap outright,
+because the warm-start reading shows the true optimum IS reachable" — is
+REFUTED.** The warm start reaches the optimum because it *starts* there. That
+says nothing about whether a blind search can walk to it through a region where
+the objective cannot be evaluated, and finding 3 shows it cannot.
+
+**Per slice 7f's own `[judgement]` criterion, this is reported as a partial
+mitigation and not as a closure.**
+
+### Finding 5 — `gtol = 1e-8` is below what this objective can resolve, and that is why `converged` was NOT redefined
+
+The obvious move — make `converged` mean "`result.success` AND `gtol` met on
+the true projected gradient" — was implemented, measured, and **reverted**. On
+the well-conditioned N=4 control (ADR-212's own fixture, no bound-active block,
+no IRLS-failure neighbourhood) the restarted search reaches `max|g^P| =
+2.040e-04`: three orders better than the N=7 case's `4.889e-01`, and still four
+orders above `gtol = 1e-8`. Redefining the flag would therefore report a fit
+whose score is optimal to `1e-6` as **unconverged**.
+
+Choosing some threshold between `2e-04` and `4.9e-01` to make both cases read
+correctly is exactly "tuning a number to make a check pass", which Anchor 8 and
+`ROUTINE_MGCV_PARITY.md` forbid, and choosing an acceptance threshold is
+"May not decide" territory besides. So:
+
+- `converged` keeps its existing meaning (SciPy's own flag) on every path;
+- `ContinuousLambdaSelection.max_abs_projected_gradient` carries the honest
+  measurement, and its docstring says to read the two together;
+- **what the flag should test is registered as a maintainer decision below,
+  not taken here.**
+
+This is the same shape as slice 7c's result: a tolerance demanded of a quantity
+the machinery cannot resolve is ill-posed, and the useful move is to say so
+rather than to move the tolerance.
+
+### What changed in the code
+
+- `gam_reml_optimize.projected_gradient` — **new**, the KKT residual under box
+  bounds, with six closed-form tests (interior pass-through; each bound's
+  one-sided clip; a large raw gradient at a pinned bound projecting to exactly
+  zero; the `_BOUND_ATOL` tolerance; the two raising cases).
+- `gam_reml_optimize.select_lambdas_continuous` — `max_gtol_restarts: int = 0`,
+  gated on `analytic_gradient` (a finite-differenced gradient's own noise floor
+  sits far above any sensible `gtol`, ADR-212, so the loop would spin on noise).
+- `ContinuousLambdaSelection` gains `n_gtol_restarts` and
+  `max_abs_projected_gradient`, both additive with defaults.
+- Threaded through `select_lambdas_continuous_multistart` and
+  `fit_polaris_gam`, default off in both.
+
+**Default behaviour is unchanged and it was verified, not assumed:** with
+`max_gtol_restarts` set on the finite-difference path the selected
+`log10(lambda)`, score and `nfev` are all bit-identical to the same call
+without it. `tests/qa/golden_outputs/` untouched.
+
+### Consequences
+
+**Registered as slice 7g:** the real root cause — the inner penalized IRLS
+failing in a neighbourhood of the search path, and `_REJECTED_SCORE` turning
+that into a cliff. Two candidate directions, neither tried here: make
+`penalized_irls_general` more robust at these `lambda` (step-halving, a better
+start from the previous trial point's coefficients), or replace the constant
+`_REJECTED_SCORE` with a value that grows smoothly from the last good score so
+the line search is steered rather than walled. This is a different hypothesis
+from any of ADR-220's three candidates, and it is the one the measurement
+points at.
+
+**Registered for the maintainer:** what `converged` should test on this
+objective. `gtol = 1e-8` is unreachable; the two measured plateaus are
+`2.0e-04` (well-conditioned) and `4.9e-01` (bound-active, IRLS-blocked). Any
+threshold is an acceptance criterion, so it is not this routine's to set.
+
+**Candidate 3 stands as the practical answer today:** `multistart=True` does
+not hit this failure mode on this fixture (ADR-220), and slice 7d measured it
+at 8.4-9.5x fewer evaluations than the finite-difference default. Anyone using
+`analytic_gradient=True` blind and single-start should pass
+`max_gtol_restarts` as well, and still read `max_abs_projected_gradient`.

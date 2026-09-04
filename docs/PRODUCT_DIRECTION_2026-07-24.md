@@ -3488,3 +3488,56 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   only because this slice's own claim sentence depended on getting it
   right. *Source: this session (2nd-order — a documentation correction with
   no downstream consequence found).*
+
+### Harvested 2026-09-05 — slice 7f: the `ftol` exit was honest; the line search is walled by the objective's own non-convergent neighbourhood (ADR-222)
+
+- **ADR-220's diagnosis was pointing at the wrong culprit, and measuring all
+  three of its candidates is what found that.** The `ftol` message is a true
+  report: `factr` at `1e7`, `1e2` and `1.0` — seven orders — produces identical
+  `nfev`, identical score and the identical residual, because the relative
+  reduction really is zero. The line search finds nothing to improve because
+  `penalized_irls_general` fails to converge at neighbouring trial points
+  (`h = 1e-5`, `t = 1e-5`), and `_REJECTED_SCORE`'s flat `1e10` sits exactly
+  where it probes, against a true score of `~523.7` — while descent measurably
+  exists further out (`-1.591e-02` at `t = 1e-1`). *Source: this session,
+  ADR-222 (1st-order — it corrects the target of ADR-220's own named next
+  hypothesis, the same way ADR-219 corrected ADR-218's).*
+
+- **Slice 7g registered: the inner IRLS's non-convergent neighbourhood and
+  `_REJECTED_SCORE`'s cliff.** Two directions, neither tried — a more robust
+  `penalized_irls_general` (step-halving, or warm-starting each trial point
+  from the previous one's coefficients), or a barrier that grows from the last
+  good score rather than a flat `1e10`. Direction 2 is cheaper and better
+  contained; direction 1 touches ADR-195's verified fitter, so Anchor 7
+  applies. *Source: this session, ADR-222 (1st-order — the direct continuation
+  of slice 7f's own finding).*
+
+- **A partial mitigation shipped, and labelled partial.**
+  `select_lambdas_continuous(max_gtol_restarts=...)` takes the N=7 stall from
+  score `524.788031` to `523.677681` and its KKT residual from `2.086` to
+  `0.489` for ~27 extra evaluations — real, worth having, and not a closure.
+  Opt-in, default off, finite-difference path verified bit-identical.
+  `gam_reml_optimize.projected_gradient` is new and independently useful: the
+  KKT residual under box bounds, which is the only statistic that distinguishes
+  "the optimiser stopped early" from "it stopped at a corner it should stop
+  at". *Source: this session, ADR-222 (1st-order — a measured improvement to a
+  production search path, opt-in).*
+
+- **MAINTAINER DECISION OWED: what should `converged` test on this objective?**
+  `gtol = 1e-8` is below what it can resolve at all. Redefining the flag as
+  "`gtol` met on the true projected gradient" was built, measured and reverted,
+  because the well-conditioned N=4 control plateaus at `2.040e-04` and would be
+  reported as unconverged despite being optimal to `1e-6`. The two measured
+  plateaus are `2.0e-04` (well-conditioned) and `4.9e-01` (bound-active,
+  IRLS-blocked); any threshold between them is an acceptance criterion, so it
+  is `ROUTINE_MGCV_PARITY.md`'s "May not decide". Until it is decided,
+  `converged` keeps SciPy's own meaning and
+  `ContinuousLambdaSelection.max_abs_projected_gradient` carries the honest
+  number. *Source: this session, ADR-222 (1st-order — an acceptance-criterion
+  decision this slice deliberately did not take).* **IMPORTANT.**
+
+- **The same shape as slice 7c, twice in one epic.** A tolerance demanded of a
+  quantity the machinery cannot resolve is ill-posed, and the useful move is to
+  say so rather than to move the tolerance. Worth remembering as a pattern
+  rather than re-deriving it a third time. *Source: this session, ADR-222
+  (2nd-order — a methodological observation, not a work item).*

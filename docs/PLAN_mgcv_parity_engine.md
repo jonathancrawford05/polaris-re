@@ -1854,9 +1854,21 @@ acceptance gate (Part 2).
 ### Slice 7f: SciPy L-BFGS-B's `ftol`-based early exit near a bound-active corner
 
 - **Depends on:** Slice 7d (ADR-220), whose own measurement found this.
-- **Status: REGISTERED, not started** (ADR-209 decision 1 — "a gap you open
-  is closed or registered, never merely filed"; found and named this
-  session rather than chased, per the routine's own three-pass discipline).
+- **Status: DONE, 2026-09-05 (ADR-222) — and the gap is NOT closed, which is
+  the slice's reported result rather than a shortfall in it.** All three of
+  ADR-220's candidates were evaluated. Candidate 1 (a tighter `factr`) is
+  **REFUTED**: `1e7`, `1e2` and `1.0` give identical `nfev`, identical score
+  and the identical residual, because the relative reduction really is zero and
+  SciPy's message is honest. Candidate 2 (restart) is a **real but PARTIAL
+  mitigation**, shipped opt-in as `max_gtol_restarts`: score `524.788031` →
+  `523.677681`, KKT residual `2.086` → `0.489`, for ~27 extra evaluations.
+  Candidate 3 (`multistart=True`) stands as the practical answer today.
+  **ADR-220's registered prediction — that candidate 2 closes the gap outright
+  — is REFUTED**, and the reason is finding 3: the failure was never the
+  stopping rule. The inner penalized IRLS does not converge in a neighbourhood
+  of the stall, so `_REJECTED_SCORE` puts a `1e10` cliff where the line search
+  probes, and it cannot reach the descent that demonstrably exists further out
+  (`-1.59e-02` at `t = 1e-1`). Re-aimed at that cause as **slice 7g** below.
 
 **The gap, stated precisely.** With the EXACT analytic gradient supplied via
 `jac=True` (slice 7d), a blind single-start `select_lambdas_continuous` on
@@ -1914,7 +1926,69 @@ the reason a genuine fix is worth having.
 - `[judgement]` If none of the three candidates closes the gap outright,
   the session says so and characterises what remains, rather than reporting
   a partial mitigation as a closure.
-- `[machine]` `tests/qa/golden_outputs/` byte-identical.
+  **MET — and this is the criterion that applied.** ADR-222 reports candidate 1
+  refuted, candidate 2 partial, candidate 3 unchanged, and characterises what
+  remains (finding 3) rather than presenting the `2.086 → 0.489` improvement as
+  a closure.
+- `[machine]` `tests/qa/golden_outputs/` byte-identical. **MET** — `git diff` on
+  that path empty; no golden's path is touched.
+
+*(First `[machine]` criterion — "the same blind single-start case no longer
+exits via `ftol` with a true gradient norm above the objective's own
+established noise floor" — is **NOT MET**, deliberately and reportedly. The
+residual falls to `4.889e-01`, which is not below any noise floor. The
+`[judgement]` criterion above is what governs that outcome.)*
+
+### Slice 7g: the inner IRLS's non-convergent neighbourhood, and `_REJECTED_SCORE`'s cliff
+
+- **Depends on:** Slice 7f (ADR-222), whose measurement located this.
+- **Status: REGISTERED, not started** (ADR-209 decision 1).
+
+**The gap, stated precisely.** At the point where a restarted analytic search
+stalls on the `select=TRUE` N=7 structure, `penalized_irls_general` **fails to
+converge** at neighbouring trial points — measured at `h = 1e-5` in a central
+difference and at `t = 1e-5` along the descent direction. Those points are
+scored `_REJECTED_SCORE = 1e10` against a true score of `~523.7`, so L-BFGS-B's
+line search meets a `1e10` cliff exactly where it probes, and cannot reach the
+descent that measurably exists further out (`-1.591e-02` at `t = 1e-1`,
+`-4.678e-03` at `t = 1e-2`). This is **not** a stopping-rule problem: ADR-222
+refuted `factr` across seven orders, and SciPy's `ftol` message is a true
+report that the line search achieved no reduction.
+
+**Two candidate directions, named and not tried:**
+
+1. **Make the inner fit more robust at these `lambda`.** `penalized_irls_general`
+   gives up after 100 iterations; step-halving, or warm-starting each trial
+   point from the previous one's coefficients, may carry it through. Changes an
+   inner solver every caller shares — needs its own before/after on the
+   committed fixtures, and touches ADR-195's verified fitter, so Anchor 7
+   applies.
+2. **Replace the constant `_REJECTED_SCORE` with a barrier that grows from the
+   last good score** rather than a flat `1e10`. Steers the line search away
+   instead of walling it. Cheaper and better contained, but changes the
+   objective every search sees, so the N=4 and N=7 readings must both be
+   re-measured before/after.
+
+**Registered prediction.** Direction 2 alone moves the stall's residual
+materially below `4.889e-01` — because the descent already exists and only the
+cliff hides it — while direction 1 is what would let the search continue past
+the region entirely. If direction 2 does *not* move it, the non-convergence is
+not merely hiding the descent but sits on top of it, and direction 1 is
+mandatory rather than complementary.
+
+**Definition of Done, tagged per ADR-209 decision 3.**
+
+- `[machine]` The stall's KKT residual on the same N=7 case is re-measured
+  after the change, beside ADR-222's `4.889e-01`, with the direction taken
+  stated.
+- `[machine]` The N=4 control's own score and residual are re-measured
+  before/after; any movement there is reported, since this changes an
+  objective every caller shares.
+- `[machine]` `tests/qa/golden_outputs/` byte-identical, or the change is not
+  in scope for this slice.
+- `[judgement]` If the residual does not move materially, the registered
+  prediction is reported as refuted and direction 1 is characterised rather
+  than attempted in the same session.
 
 ### Deferred to a later epic: `bam` + `discrete = TRUE` + fREML
 

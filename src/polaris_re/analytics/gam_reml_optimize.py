@@ -46,7 +46,7 @@ disagreement toward its own convergence tolerance rather than leaving it near
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.optimize import minimize
+from scipy.optimize import OptimizeResult, minimize
 
 from polaris_re.analytics.gam_family import Family
 from polaris_re.analytics.gam_fit import effective_degrees_of_freedom, penalized_irls_general
@@ -59,6 +59,7 @@ __all__ = [
     "MultiStartLambdaSelection",
     "penalized_fit_and_score",
     "penalized_fit_score_and_gradient",
+    "projected_gradient",
     "select_lambdas_continuous",
     "select_lambdas_continuous_multistart",
 ]
@@ -79,6 +80,16 @@ returns ``nan`` and stalls L-BFGS-B's line search rather than steering it
 away from the bad region, so the rejection has to stay differentiable-adjacent:
 large enough that no converged point could ever compete with it, finite
 enough that SciPy's numerical gradient stays finite too."""
+
+_BOUND_ATOL = 1.0e-8
+"""How close to a bound counts as pinned TO it, in
+:func:`projected_gradient`. SciPy returns a bound-active component as the
+bound value to within its own rounding rather than exactly, so an equality
+test would misread a pinned component as interior and then treat the bound's
+own restoring gradient as an unconverged residual — the exact false positive
+PLAN slice 7f's fix must not manufacture. Absolute, because the bounds this
+module is called with (``PRODUCTION_LOG10_BOUNDS = (-2.0, 12.0)``) are O(1)
+to O(10) in ``log10(lambda)``."""
 
 _FINITE_DIFF_STEP = 1.0e-5
 """``scipy.optimize.minimize(method="L-BFGS-B")``'s own default forward-
@@ -241,6 +252,71 @@ def penalized_fit_score_and_gradient(
     return coef, score, gradient
 
 
+def projected_gradient(
+    gradient: np.ndarray, point: np.ndarray, bounds: tuple[float, float]
+) -> np.ndarray:
+    """The KKT residual of ``gradient`` at ``point`` under box ``bounds`` —
+    PLAN slice 7f (ADR-222).
+
+    For a MINIMISATION under ``lo <= x <= hi``, a component pinned at a bound
+    is stationary when the objective can only be *increased* by the one
+    feasible direction left to it. So the residual is the raw gradient in the
+    interior, and clipped at a bound:
+
+    - interior (``lo < x < hi``):  ``g``
+    - at ``lo`` (only ``dx >= 0`` is feasible):  ``min(g, 0)``
+    - at ``hi`` (only ``dx <= 0`` is feasible):  ``max(g, 0)``
+
+    **Why this and not the raw norm.** A large raw gradient at a bound-pinned
+    component is not evidence of an unconverged search — the bound is holding
+    it there legitimately, and reporting ``||g||`` would flag a correct answer
+    as a defect. Only the projected residual distinguishes "the optimiser
+    stopped early" from "the optimiser stopped at a corner it should stop at".
+    On PLAN slice 7f's own fixture the two happen to be nearly equal
+    (``3.067232`` against ``3.067233``, because the residual sits on the FREE
+    blocks and the two bound-pinned ones contribute ~0) — but that is a fact
+    about that fixture, established by measuring, not a licence to use the raw
+    norm in general.
+
+    This is the same quantity L-BFGS-B tests internally against its own
+    ``pgtol``; recomputing it here is what lets a caller check whether SciPy's
+    reported exit actually satisfied the tolerance it was given.
+
+    Args:
+        gradient: ``(M,)`` gradient in the SAME units as ``point`` (for
+            :func:`select_lambdas_continuous` that is ``log10(lambda)``, not
+            natural-log rho).
+        point: ``(M,)`` the point the gradient was evaluated at.
+        bounds: ``(lo, hi)``, applied to every component.
+
+    Returns:
+        ``(M,)`` projected gradient. Its ``max(abs(...))`` is ``0`` exactly at
+        a KKT point.
+
+    Raises:
+        PolarisValidationError: on a shape mismatch, or ``lo >= hi``.
+    """
+    gradient = np.asarray(gradient, dtype=np.float64)
+    point = np.asarray(point, dtype=np.float64)
+    if gradient.shape != point.shape or gradient.ndim != 1:
+        raise PolarisValidationError(
+            f"projected_gradient: gradient has shape {gradient.shape} and point "
+            f"{point.shape}; both must be the same 1-D shape."
+        )
+    lo, hi = float(bounds[0]), float(bounds[1])
+    if lo >= hi:
+        raise PolarisValidationError(f"projected_gradient: bounds {bounds} are not lo < hi.")
+    # Tolerance, not equality: SciPy returns a bound-pinned component as the
+    # bound to within rounding, and a float == comparison would silently treat
+    # a pinned component as interior.
+    at_lo = point <= lo + _BOUND_ATOL
+    at_hi = point >= hi - _BOUND_ATOL
+    out = gradient.copy()
+    out[at_lo] = np.minimum(gradient[at_lo], 0.0)
+    out[at_hi] = np.maximum(gradient[at_hi], 0.0)
+    return out
+
+
 @dataclass(frozen=True)
 class ContinuousLambdaSelection:
     """What :func:`select_lambdas_continuous` returns.
@@ -275,7 +351,14 @@ class ContinuousLambdaSelection:
     scored :data:`_REJECTED_SCORE` — mirrors ``LambdaSelection.n_rejected``,
     the grid selector's identical bookkeeping for the identical situation."""
     converged: bool
-    """SciPy's own convergence flag (``OptimizeResult.success``)."""
+    """SciPy's own convergence flag (``OptimizeResult.success``), on every
+    path. **Read it with :attr:`max_abs_projected_gradient` beside it, not
+    alone:** PLAN slice 7f (ADR-222) measured L-BFGS-B reporting ``True`` here
+    at a point whose true KKT residual is ``4.9e-01``. This field was
+    deliberately NOT redefined to fold in that residual — see ADR-222 and
+    :func:`select_lambdas_continuous`'s ``max_gtol_restarts``, which records
+    why choosing the threshold that would make it meaningful is a maintainer
+    decision rather than this slice's."""
     at_bound: bool
     """Whether any entry of ``log_lambda`` sits on ``bounds`` — the same
     caveat ``select_lambdas_reml``'s callers already read off
@@ -283,6 +366,19 @@ class ContinuousLambdaSelection:
     since ``mgcv``'s own optimiser is unbounded."""
     message: str
     """SciPy's own human-readable termination message."""
+    n_gtol_restarts: int = 0
+    """How many times the search was re-entered because SciPy exited with the
+    caller's ``gtol`` unmet (PLAN slice 7f). Always ``0`` on the default path
+    (``max_gtol_restarts=0``), which is byte-identical to the pre-7f
+    behaviour."""
+    max_abs_projected_gradient: float | None = None
+    """``max |g^P|`` at :attr:`log_lambda` — the KKT residual
+    (:func:`projected_gradient`) of the TRUE analytic gradient, the quantity
+    :attr:`converged` is tested against when ``max_gtol_restarts > 0``.
+    ``None`` when it was never computed (the finite-difference path, or
+    ``max_gtol_restarts=0``): a finite-differenced gradient carries its own
+    noise floor and testing it against a small ``gtol`` would be testing
+    noise — ADR-212's own finding."""
 
 
 def select_lambdas_continuous(
@@ -300,6 +396,7 @@ def select_lambdas_continuous(
     maxiter: int = 200,
     finite_diff_step: float = _FINITE_DIFF_STEP,
     analytic_gradient: bool = False,
+    max_gtol_restarts: int = 0,
 ) -> ContinuousLambdaSelection:
     """Choose ``log10(lambda)`` for every penalty block by continuous REML
     minimisation (``scipy.optimize.minimize``, L-BFGS-B).
@@ -350,6 +447,28 @@ def select_lambdas_continuous(
             same discipline :func:`select_lambdas_continuous_multistart`'s
             own ``multistart``/``n_starts`` parameters use for ADR-213).
             ``finite_diff_step`` is ignored when this is ``True``.
+        max_gtol_restarts: how many times to re-enter ``minimize`` from the
+            point SciPy reported when it exited with ``gtol`` **unmet** on the
+            true projected gradient (PLAN slice 7f, ADR-222). Default ``0`` —
+            off, and the default path is byte-identical to the pre-7f
+            behaviour. **Requires ``analytic_gradient=True``**; ignored
+            otherwise, because the test compares a gradient against a small
+            ``gtol`` and a finite-differenced gradient's own noise floor sits
+            far above it (ADR-212), so the loop would spin on noise. Raises if
+            negative.
+
+            **This is a measured PARTIAL mitigation, not a closure, and
+            ADR-222 says so.** On slice 7f's own N=7 fixture it takes the score
+            from ``524.788031`` to ``523.677681`` and the KKT residual from
+            ``2.09`` to ``4.9e-01`` — a real improvement, and still far from
+            ``gtol``. The remaining residual is not a stopping-rule problem:
+            the inner penalized IRLS stops converging at neighbouring points,
+            so the line search runs into :data:`_REJECTED_SCORE` and cannot
+            descend a direction the objective genuinely does decrease along.
+            :attr:`ContinuousLambdaSelection.max_abs_projected_gradient`
+            reports the residual actually reached, and
+            :attr:`ContinuousLambdaSelection.converged` is deliberately left as
+            SciPy's own flag.
 
     Returns:
         :class:`ContinuousLambdaSelection`.
@@ -377,6 +496,11 @@ def select_lambdas_continuous(
     if start.shape != (n_blocks,):
         raise PolarisValidationError(
             f"x0 has shape {start.shape}, but {n_blocks} penalty_blocks were supplied."
+        )
+    if max_gtol_restarts < 0:
+        raise PolarisValidationError(
+            f"select_lambdas_continuous: max_gtol_restarts={max_gtol_restarts} is negative. "
+            "Use 0 to disable the PLAN slice 7f restart, or a positive budget."
         )
 
     tally = {"rejected": 0, "evaluated": 0}
@@ -427,18 +551,89 @@ def select_lambdas_continuous(
         any_converged["flag"] = True
         return score, gradient
 
-    result = minimize(
-        objective_and_gradient if analytic_gradient else objective,
-        start,
-        method="L-BFGS-B",
-        jac=True if analytic_gradient else None,
-        bounds=[bounds] * n_blocks,
-        options=(
-            {"gtol": gtol, "maxiter": maxiter}
-            if analytic_gradient
-            else {"gtol": gtol, "maxiter": maxiter, "eps": finite_diff_step}
-        ),
-    )
+    def _run(x_start: np.ndarray) -> OptimizeResult:
+        return minimize(
+            objective_and_gradient if analytic_gradient else objective,
+            x_start,
+            method="L-BFGS-B",
+            jac=True if analytic_gradient else None,
+            bounds=[bounds] * n_blocks,
+            options=(
+                {"gtol": gtol, "maxiter": maxiter}
+                if analytic_gradient
+                else {"gtol": gtol, "maxiter": maxiter, "eps": finite_diff_step}
+            ),
+        )
+
+    result = _run(start)
+    total_nfev = int(result.nfev)
+    n_gtol_restarts = 0
+    max_abs_proj: float | None = None
+
+    # PLAN slice 7f (ADR-222). L-BFGS-B can exit via its own function-reduction
+    # rule ("RELATIVE REDUCTION OF F <= FACTR*EPSMCH") with the caller's `gtol`
+    # nowhere near met — measured on the select=True 7-block structure at a KKT
+    # residual of 2.09 against a gtol of 1e-8. Re-entering `minimize` from the
+    # reported point resets the limited-memory Hessian approximation and the
+    # line-search state, which is what lets it make progress again.
+    #
+    # Gated on `analytic_gradient` deliberately: the test compares a gradient
+    # against a small `gtol`, and a finite-differenced gradient carries its own
+    # noise floor well above it (ADR-212), so on that path the loop would spin
+    # on noise rather than on a real residual.
+    #
+    # TWO stopping conditions, and the second is what keeps this from burning
+    # the budget on an already-good answer: the residual test (`gtol` met), and
+    # a strict-improvement test. ADR-222 measured `gtol = 1e-8` to be BELOW this
+    # objective's own computability floor — the inner penalized IRLS stops
+    # converging at neighbouring points well before a KKT residual that small is
+    # reachable — so the residual test alone would essentially never fire and
+    # every run would spend its whole budget. Stopping as soon as a restart
+    # stops strictly improving the score needs no tolerance of its own.
+    if max_gtol_restarts > 0 and analytic_gradient:
+
+        def _residual_at(pt: np.ndarray) -> tuple[float, float] | None:
+            """``(score, max|g^P|)`` at ``pt``, or ``None`` if unevaluable."""
+            try:
+                _, sc, grad = penalized_fit_score_and_gradient(
+                    y,
+                    x,
+                    family,
+                    penalty_blocks,
+                    pt,
+                    offset=offset,
+                    weights=weights,
+                    gamma=gamma,
+                )
+            except PolarisComputationError:
+                return None
+            return sc, float(np.max(np.abs(projected_gradient(grad, pt, bounds))))
+
+        while True:
+            point = np.asarray(result.x, dtype=np.float64)
+            measured = _residual_at(point)
+            if measured is None:
+                # Cannot test the criterion here. Keep the point we have, and
+                # leave the residual unreported rather than publishing one that
+                # was never measured.
+                max_abs_proj = None
+                break
+            score_here, max_abs_proj = measured
+            if max_abs_proj <= gtol or n_gtol_restarts >= max_gtol_restarts:
+                break
+            restarted = _run(point)
+            total_nfev += int(restarted.nfev)
+            n_gtol_restarts += 1
+            new_point = np.asarray(restarted.x, dtype=np.float64)
+            new_measured = _residual_at(new_point)
+            if new_measured is None or not new_measured[0] < score_here:
+                # No strict improvement — L-BFGS-B has nothing further to
+                # extract from this point, so the remaining budget would only
+                # repeat this. Keep the BETTER of the two, which is the one we
+                # already had.
+                break
+            result = restarted
+
     if not any_converged["flag"]:
         raise PolarisComputationError(
             f"Continuous REML selection rejected every one of {tally['evaluated']} trial "
@@ -463,11 +658,25 @@ def select_lambdas_continuous(
         coef=coef,
         reml_score=float(score),
         edf_total=edf_total,
-        n_function_evals=int(result.nfev),
+        n_function_evals=total_nfev,
         n_rejected=tally["rejected"],
+        # Deliberately still SciPy's own flag, on every path. ADR-222 measured
+        # that redefining it as "gtol met on the true projected gradient" would
+        # report a perfectly good fit as unconverged: on the well-conditioned
+        # N=4 control the restarted search reaches a residual of 2.0e-04 — three
+        # orders better than the N=7 case's 4.9e-01, and still eight orders
+        # above `gtol = 1e-8`, because that gtol is below what this objective
+        # can resolve at all. Picking some threshold in between to make both
+        # cases read "converged" would be tuning a number to make a check pass.
+        # So the flag keeps its existing meaning and
+        # `max_abs_projected_gradient` carries the measurement; what the flag
+        # SHOULD test is a maintainer decision ADR-222 registers, not one this
+        # slice takes.
         converged=bool(result.success),
         at_bound=bool(np.any(np.isclose(log_lambda, lo)) or np.any(np.isclose(log_lambda, hi))),
         message=str(result.message),
+        n_gtol_restarts=n_gtol_restarts,
+        max_abs_projected_gradient=max_abs_proj,
     )
 
 
@@ -538,6 +747,7 @@ def select_lambdas_continuous_multistart(
     n_starts: int = 9,
     seed: int = _MULTISTART_SEED,
     analytic_gradient: bool = False,
+    max_gtol_restarts: int = 0,
 ) -> MultiStartLambdaSelection:
     """Best-of-``n_starts`` :func:`select_lambdas_continuous`, candidate (1)
     of PLAN slice 5e (``docs/PLAN_mgcv_parity_engine.md``).
@@ -577,6 +787,10 @@ def select_lambdas_continuous_multistart(
         analytic_gradient: passed through to every
             :func:`select_lambdas_continuous` call unchanged (PLAN slice 7d).
             Default ``False`` — existing callers are unaffected.
+        max_gtol_restarts: passed through to every
+            :func:`select_lambdas_continuous` call unchanged (PLAN slice 7f).
+            Default ``0`` — existing callers are unaffected. Applies per
+            start, so each start independently gets up to this many restarts.
 
     Returns:
         :class:`MultiStartLambdaSelection`.
@@ -619,6 +833,7 @@ def select_lambdas_continuous_multistart(
                     maxiter=maxiter,
                     finite_diff_step=finite_diff_step,
                     analytic_gradient=analytic_gradient,
+                    max_gtol_restarts=max_gtol_restarts,
                 )
             )
         except PolarisComputationError:
