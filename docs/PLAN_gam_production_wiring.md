@@ -43,9 +43,15 @@ active while `CONTINUATION_mgcv_parity_engine.md` is still IN PROGRESS
 > blocked by E's own consequence sentence**: they measure rather than wire, and
 > nothing they produce is rendered. But their readings are taken from the same
 > irreproducible engine, so a slice-2 baseline recorded before 7h may not
-> reproduce after it. Whether that makes 1-2 worth running in parallel with 7h
-> or worth deferring is **open question 3, and the maintainer's to rule on** —
-> this document must not answer it by implication.
+> reproduce after it — re-measure rather than trust a pre-7h baseline.
+>
+> **Open question 3 is now RESOLVED (maintainer, 2026-09-05) and it settles the
+> parallelism question in slice 1's favour.** The gate is *parity on the target
+> model specification* before anything wires to a client-facing surface (Anchor
+> W6). Slice 1 is the measurement that gate consumes, so it is on the critical
+> path rather than competing with 7h. **Slice 3 now waits on two independent
+> conditions** — Anchor W6's parity gate AND slice 7h — and neither implies the
+> other.
 >
 > Merged in that spirit: to make the findings discoverable, not to authorise the
 > plan.
@@ -187,6 +193,18 @@ new path arrives behind a flag that defaults to the old behaviour until slice 5.
 is already true and is not enough: the ledger is where evidence lives, the UI is
 where an external reader looks, and today nothing carries a claim to them.
 
+**Anchor W6 — nothing wires to a client-facing surface before the TARGET model
+specification reaches acceptable parity.** Maintainer, 2026-09-05 (open
+question 3): *"We have a targeted model specification that needs acceptable
+parity before we wire anything to the client facing dashboard (or other
+surfaces)."* Two things this anchor does that Anchor W1 does not. It gates on
+**parity against `mgcv` for the target spec**, where W1 gates only on an
+old-vs-new comparison between two Polaris paths — a slice-2 measurement can be
+perfect and this anchor still unmet. And it binds **every** external surface —
+the dashboard, the API, exports, any future client deliverable — so a later
+epic cannot satisfy it for the dashboard and treat another surface as
+unconstrained.
+
 **Anchor W5 — this epic may not widen a tolerance or re-gate anything.**
 Re-gating is `ROUTINE_MGCV_PARITY.md`'s maintainer-reserved territory and
 ADR-221 has just exercised it. If a measurement here fails a committed gate,
@@ -246,6 +264,9 @@ the finding is the deliverable.
 
 ## Slice 3 — wire the point estimate behind a flag, default off
 
+- **Also gated by Anchor W6** — acceptable parity on the target model
+  specification (maintainer, 2026-09-05). Independent of, and additional to,
+  the 7h dependency below: 7h buys reproducibility, W6 buys agreement.
 - **Depends on:** slices 1 and 2, **and parity slice 7h (blocker E) — a hard
   dependency, not a preference.** Until 7h lands, the surface this slice would
   wire is not reproducible across environments.
@@ -302,8 +323,61 @@ the finding is the deliverable.
     Anchor-7-class change.
   - `[machine]` If any band changes, coverage is re-measured on the same
     replicate seeds and committed before the change lands.
+  - `[judgement]` The recommendation records that the interim pairing is
+    **already accepted** (open question 2, maintainer 2026-09-05) subject to
+    its two conditions, and points at "The band: desired end state" — so this
+    slice decides whether to draw a band at all, not whether the pairing is
+    permissible.
 - **Out of scope:** fixing coverage. That is `PLAN_penalized_mi_surface.md`'s
   standing BLOCKER and is not this epic's to close.
+
+### The band: desired end state (discharges open question 2's condition (a))
+
+**This section exists so a future epic can pick the band up without
+re-deriving why it was left alone.** The maintainer accepted the interim
+pairing on 2026-09-05 on condition that the end state be written down and the
+old band be labelled a stop-gap. It is registered here, owned by no epic yet,
+and is NOT work this epic performs.
+
+**What "done" looks like.** One estimator produces both the surface and its
+interval, the interval covers at its nominal rate uniformly in age, and the UI
+claim traces to a committed ledger row for both. Concretely:
+
+1. **One producer, not two.** The interim state has the parity engine drawing
+   the surface while `TensorMIModel`'s band draws the interval — two
+   estimators on one chart, whose only guarantee of mutual coherence is that
+   nobody has measured the incoherence. The end state has the band derived
+   from the same fit as the surface.
+2. **Coverage uniform in age, at nominal.** The measured failure is not
+   average coverage; it is the age profile. Penalized variants hold near
+   nominal in the interior and fall to **0.68–0.72 at ages ≥80** against a
+   nominal 0.95 — worst exactly where a reinsurer reads mortality improvement
+   most carefully. Coverage within Monte-Carlo error of nominal across the age
+   range, on both the age-flat and age-varying truths, is the target.
+3. **Measured on both truths over the committed seeds** (1000..1199), so the
+   result is comparable to `MEASUREMENT_unconditional_coverage.md` rather than
+   starting a fresh incomparable series.
+4. **Reproducible under the convergence definition** the maintainer set on
+   2026-09-05 — a band computed from an irreproducible fit inherits its
+   irreproducibility.
+
+**Why it is not simply "switch the band on."** The intuitive move — re-point
+the interval to the penalized estimator alongside the surface — makes the page
+**worse**: it trades a 0.9586-covering band for one measured at 0.7815 on the
+same truth and seeds, and 0.68–0.72 at the ages that matter most. That
+inversion is the single least obvious finding in this document and the reason
+Anchor W2 exists.
+
+**Known dependency.** The underlying gap is `PLAN_penalized_mi_surface.md`'s
+standing BLOCKER, whose slices 6–7 are PARKED. **The maintainer declined to
+assign an owner on 2026-09-05 ("None for now")**, so this end state is
+registered as a target without a scheduled path to it — deliberately, and
+recorded so the absence is legible rather than looking like an oversight.
+
+**Stop-gap labelling (condition (b)).** Wherever the interim pairing appears —
+slice 3's flag documentation, slice 5's UI claim, and any surface that renders
+it — the old band is to be described as a **stop-gap pending a coverage-correct
+interval**, never as the intended design. Slice 5's DoD carries this.
 
 ## Slice 5 — what the surface may claim, in the UI
 
@@ -322,6 +396,15 @@ the finding is the deliverable.
   - `[machine]` Every number in the UI copy traces to a committed ledger row.
   - `[judgement]` A reader who follows the link can reconstruct the claim from
     the ledger without reading a session log.
+  - `[judgement]` **If the interim pairing is what ships, the UI describes the
+    band as a stop-gap pending a coverage-correct interval** — open question
+    2's condition (b), maintainer 2026-09-05. The wording says the interval is
+    not produced by the validated path AND that this is temporary by design,
+    pointing at "The band: desired end state". A reader must not be able to
+    infer the interval was chosen.
+  - `[judgement]` **The Anchor W6 gate is stated as met, with the evidence** —
+    the target spec's parity reading and its ledger row — or the claim does
+    not ship. This is a client-facing surface.
 
 ---
 
@@ -348,11 +431,34 @@ the finding is the deliverable.
    not only the smoothing parameters, so it bears directly on the WIRING. It
    now gates slice 3 via blocker E, and slice 5 as well. The original
    recommendation was wrong because it assumed a machinery-only defect.
-2. **Is a validated surface with an unvalidated band acceptable as an interim?**
-   Slice 3 produces exactly that pairing. It may be the right trade — the
-   surface improves, the band is no worse than today — but it is a judgement
-   about what a reinsurer reads off a chart, not a technical one.
-3. **Does this epic outrank the parity epic's remaining slices?** 7f and beyond
-   improve an engine no user can reach. Slices 1–3 here are what make any of it
-   visible. Sequencing is yours; the routine's one-active-epic rule means only
-   one of the two advances at a time.
+2. ~~**Is a validated surface with an unvalidated band acceptable as an interim?**~~
+   — **RESOLVED 2026-09-05, maintainer: YES, with two conditions.** The
+   pairing is accepted as an interim *provided* (a) **the desired end state is
+   documented for a future epic to pick up** — see "The band: desired end
+   state" below, which exists to discharge this — and (b) **the old band is
+   labelled a stop-gap wherever it appears**, not presented as the intended
+   design. Slice 4's DoD carries both as `[machine]`/`[judgement]` criteria.
+   The trade the maintainer accepted is narrow: the surface improves while the
+   interval stays exactly as good (or bad) as today's. It is NOT an acceptance
+   of the coverage gap, which remains a standing BLOCKER.
+3. ~~**Does this epic outrank the parity epic's remaining slices?**~~ —
+   **RESOLVED 2026-09-05, maintainer: PARITY FIRST, and the gate is stated on
+   the model rather than on the epic.** *"We have a targeted model
+   specification that needs acceptable parity before we wire anything to the
+   client facing dashboard (or other surfaces)."* Three consequences, and the
+   third is wider than this epic:
+   - **The gate is parity on the TARGET model specification**, not parity on
+     the engine in general. That is what slice 1 measures, so slice 1 is not
+     merely "permitted in parallel" — it is on the critical path to the gate
+     itself, and is the evidence the gate consumes.
+   - **Slice 3 waits on two independent conditions**, not one: acceptable
+     parity on the target spec (this decision) AND parity slice 7h (blocker E).
+     Neither implies the other — 7h buys reproducibility, this gate buys
+     agreement — and both must hold.
+   - **The gate binds every client-facing surface, not just the dashboard.**
+     Recorded as **Anchor W6** below so it cannot be read as a
+     dashboard-only constraint.
+
+   *Reading flagged for correction:* the decision states the gate, not the slice
+   ordering, so the ordering above is this plan's reading of it. If slice 1 was
+   meant to wait as well, say so and it will be re-gated.

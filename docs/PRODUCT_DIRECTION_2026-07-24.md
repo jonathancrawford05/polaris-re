@@ -3551,14 +3551,19 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   `PLAN_penalized_mi_surface.md`, whose CONTINUATION has slices 6–7 PARKED as
   superseded by the parity epic. So the standing BLOCKER has no active path to
   closure and blocker C above cannot be fixed by the epic that owns it.
-  *Source: PR #227 review, human-review item (1st-order — an ownership gap on
+  **MAINTAINER RULING 2026-09-05: no owner assigned, "none for now."** The gap
+  is therefore ACCEPTED AND OPEN, not closed — deliberately unowned rather
+  than overlooked, which is why the desired end state is now written down in
+  `PLAN_gam_production_wiring.md` ("The band: desired end state") so a future
+  epic can pick it up without re-deriving it. *Source: PR #227 review,
+  human-review item (1st-order — an ownership gap on
   a standing BLOCKER).* **BLOCKER for `PLAN_gam_production_wiring.md` slice
   4** — not for the epic as a whole, since slice 4 may legitimately end in
   "change nothing", but nothing can reach that decision while the gap has no
   owner.
 
-- **Three maintainer decisions the epic cannot start without — one now
-  RESOLVED, two still open.** (1) ~~Does run-to-run reproducibility (ADR-219
+- **Three maintainer decisions the epic cannot start without — ALL THREE NOW
+  RESOLVED (2026-09-05).** (1) ~~Does run-to-run reproducibility (ADR-219
   amendment 3) gate the published UI claim? Recommendation in the PLAN: it
   gates slice 5, not slices 1–3.~~ **RESOLVED 2026-09-05, and against that
   recommendation.** ADR-222 amendment 1 measured the instability reaching the
@@ -3566,11 +3571,20 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   bears on the WIRING and not merely the claim: it now gates **slice 3** via
   blocker E, and slice 5 as well. The recommendation was wrong because it
   assumed a machinery-only defect. Do not read it as live guidance.
-  (2) Is a validated surface paired with the old estimator's band an
-  acceptable interim? Slice 3 produces exactly that pairing by construction,
-  and it is a judgement about what a reinsurer reads off a chart, not a
-  technical one. (3) Does this epic outrank the parity epic's remaining
-  slices (7f and beyond), which improve an engine no user can reach?
+  (2) ~~Is a validated surface paired with the old estimator's band an
+  acceptable interim?~~ **RESOLVED 2026-09-05: YES, on two conditions** — the
+  desired end state is documented for a future epic to pick up (now a section
+  of the PLAN), and the old band is labelled a **stop-gap** wherever it
+  appears, never as the intended design. Not an acceptance of the coverage
+  gap, which stays a BLOCKER. (3) ~~Does this epic outrank the parity epic's
+  remaining slices?~~ **RESOLVED 2026-09-05: PARITY FIRST, and the gate is on
+  the MODEL, not the epic** — *"we have a targeted model specification that
+  needs acceptable parity before we wire anything to the client facing
+  dashboard (or other surfaces)."* Recorded as the PLAN's **Anchor W6**, which
+  binds every client-facing surface and not just the dashboard. Slice 3 now
+  waits on two independent conditions: Anchor W6 AND parity slice 7h. Slice 1
+  is the measurement the W6 gate consumes, so it is on the critical path
+  rather than competing with 7h.
   *Source: this session, `PLAN_gam_production_wiring.md` "Open questions"
   (1st-order — registered rather than presumed, per
   `ROUTINE_MGCV_PARITY.md`'s "May not decide").* **IMPORTANT — needs a

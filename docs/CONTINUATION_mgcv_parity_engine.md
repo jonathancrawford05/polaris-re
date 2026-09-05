@@ -1498,6 +1498,29 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > this objective. The two measured plateaus are `2.0e-04` (well-conditioned) and
 > `4.9e-01` (bound-active, IRLS-blocked); any threshold between them is an
 > acceptance criterion, so it is "May not decide".
+>
+> > **A SOLUTION IS NOW PROPOSED — `docs/PROPOSAL_convergence_certificate.md`
+> > (2026-09-05, maintainer-requested). PROPOSED, binds nothing; adopting it
+> > needs an ADR.** Its core claim is that the two plateaus are **not the same
+> > phenomenon**: `2.0e-04` is a flat direction (no optimum exists there) and
+> > `4.9e-01` is a blocked search (one exists and was not reached), so any
+> > single absolute threshold must misclassify one of them. It replaces the
+> > boolean with a certificate — noise floor `ε_f` MEASURED rather than chosen,
+> > stationarity tested **relatively and only on directions whose curvature
+> > exceeds `ε_f`**, plus second-order sufficiency on that subspace — and a
+> > four-valued verdict that can say `CONVERGED_ON_IDENTIFIED_SUBSPACE` instead
+> > of reporting `False` for a fit optimal to `1e-6`. Reuses
+> > `projected_gradient` (7f) and `gam_sp_identifiability` (7c, which already
+> > measured 5 identified directions of 7).
+> >
+> > **It does NOT deliver reproducibility, and says so** — that comes from a
+> > stable criterion (7h) and a deterministic solver (8). `mgcv` is
+> > bit-identical because it is deterministic, not because it tests for it.
+> >
+> > **Two numbers remain the maintainer's**, and the proposal recommends
+> > deciding neither yet: the relative tolerance and the curvature-to-noise
+> > ratio should be set against post-7h measurements, since `ε_f` moves nine
+> > orders and every derived threshold moves with it.
 
 > **CONVERGENCE IS NOW DEFINED, AND NO CONFIGURATION MEETS IT — 2026-09-05
 > (ADR-222 amendment 1).** The maintainer defined convergence as *a result
