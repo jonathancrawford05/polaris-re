@@ -3488,3 +3488,169 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   only because this slice's own claim sentence depended on getting it
   right. *Source: this session (2nd-order — a documentation correction with
   no downstream consequence found).*
+
+### Harvested 2026-09-05 — slice 7f: the `ftol` exit was honest; the line search is walled by the objective's own non-convergent neighbourhood (ADR-222)
+
+- **ADR-220's diagnosis was pointing at the wrong culprit, and measuring all
+  three of its candidates is what found that.** The `ftol` message is a true
+  report: at the stall ADR-220 named, `factr` at `1e7`, `1e2` and `1.0` — seven
+  orders — produces identical `nfev = 42`, score `524.788031` and residual
+  `2.086049`, so the threshold is not the binding constraint. A plain re-entry
+  at the SAME `factr` improves the score by `1.110350`, isolating L-BFGS-B's
+  accumulated state as what actually stops it. The line search finds nothing to improve because
+  `penalized_irls_general` fails to converge at neighbouring trial points
+  (`h = 1e-5`, `t = 1e-5`), and `_REJECTED_SCORE`'s flat `1e10` sits exactly
+  where it probes, against a true score of `~523.7` — while descent measurably
+  exists further out (`-1.591e-02` at `t = 1e-1`). *Source: this session,
+  ADR-222 (1st-order — it corrects the target of ADR-220's own named next
+  hypothesis, the same way ADR-219 corrected ADR-218's).*
+
+- **Slice 7g registered: the inner IRLS's non-convergent neighbourhood and
+  `_REJECTED_SCORE`'s cliff.** Two directions, neither tried — a more robust
+  `penalized_irls_general` (step-halving, or warm-starting each trial point
+  from the previous one's coefficients), or a barrier that grows from the last
+  good score rather than a flat `1e10`. Direction 2 is cheaper and better
+  contained; direction 1 touches ADR-195's verified fitter, so Anchor 7
+  applies. *Source: this session, ADR-222 (1st-order — the direct continuation
+  of slice 7f's own finding).*
+
+- **A partial mitigation shipped, and labelled partial.**
+  `select_lambdas_continuous(max_gtol_restarts=...)` takes the N=7 stall from
+  score `524.788031` to `523.677681` and its KKT residual from `2.086` to
+  `0.489` for ~27 extra evaluations — real, worth having, and not a closure.
+  Opt-in, default off, finite-difference path verified bit-identical.
+  `gam_reml_optimize.projected_gradient` is new and independently useful: the
+  KKT residual under box bounds, which is the only statistic that distinguishes
+  "the optimiser stopped early" from "it stopped at a corner it should stop
+  at". *Source: this session, ADR-222 (1st-order — a measured improvement to a
+  production search path, opt-in).*
+
+- **MAINTAINER DECISION OWED: what should `converged` test on this objective?**
+  `gtol = 1e-8` is below what it can resolve at all. Redefining the flag as
+  "`gtol` met on the true projected gradient" was built, measured and reverted,
+  because the well-conditioned N=4 control plateaus at `2.040e-04` and would be
+  reported as unconverged despite being optimal to `1e-6`. The two measured
+  plateaus are `2.0e-04` (well-conditioned) and `4.9e-01` (bound-active,
+  IRLS-blocked); any threshold between them is an acceptance criterion, so it
+  is `ROUTINE_MGCV_PARITY.md`'s "May not decide". Until it is decided,
+  `converged` keeps SciPy's own meaning and
+  `ContinuousLambdaSelection.max_abs_projected_gradient` carries the honest
+  number. *Source: this session, ADR-222 (1st-order — an acceptance-criterion
+  decision this slice deliberately did not take).* **IMPORTANT.**
+
+- **The same shape as slice 7c, twice in one epic.** A tolerance demanded of a
+  quantity the machinery cannot resolve is ill-posed, and the useful move is to
+  say so rather than to move the tolerance. Worth remembering as a pattern
+  rather than re-deriving it a third time. *Source: this session, ADR-222
+  (2nd-order — a methodological observation, not a work item).*
+
+### Harvested 2026-09-05b — convergence defined and measured: no configuration passes both axes, and `mgcv` is bit-identical (ADR-222 amendment 1)
+
+- **MAINTAINER DECISION TAKEN: convergence = a result reproducible within a
+  stated, contextually meaningful tolerance, on BOTH a cross-start and a
+  cross-environment axis**, with the tolerance TIGHTER than the
+  `mgcv`-agreement gate, and `converged` permitted to be expensive. This
+  closes the question ADR-222 registered. *Source: maintainer, PR #228
+  conversation 2026-09-05 (1st-order — an acceptance-criterion decision).*
+
+- **No shipped configuration meets it, and the failure inverts across the two
+  axes.** Single-start is not reproducible cross-start (`eta` spread `4.178`
+  FD / `0.447` analytic over 12 starts); `multistart(9)` IS reproducible
+  cross-seed (`6.3e-03` over 10 seeds) and is NOT cross-thread (`0.356`,
+  `edf_total` `10.0`), intermittently — 2 of 4 seeds immune, 2 moving the REML
+  score by `+34.34` and `+5.93`. Single-start FD passes threads and fails
+  starts. *Source: this session, ADR-222 amendment 1 (1st-order).* **BLOCKER
+  for any reliability claim.**
+
+- **`mgcv` on the same fixture is BIT-IDENTICAL across thread counts and
+  repeats** — `0.000000e+00` on `log10(sp)`, `eta` and `edf_total`. The target
+  is demonstrably achievable, which converts this from an open-ended worry into
+  a well-posed engineering goal. *Source: this session, ADR-222 amendment 1
+  (1st-order — it establishes the target).*
+
+- **The mechanism is located as a registered hypothesis: Wood (2011) Section
+  3.1's reparameterisation is implemented for `log|S|+` ONLY.** Wood names it
+  "the major difficulty" and says it is needed to avoid serious errors in
+  `beta_hat`, `|S|+`, `|X'WX+S|` *and their derivatives*;
+  `gam_reml_appendix_b`'s own docstring records that the fitter, the penalized
+  deviance and `log|X'WX+S|` are untouched. The prior justification
+  (`RECALIBRATION_…_2026-08-25` §1.2) addressed a RANK decision at fixed `sp`
+  and does not cover precision loss from scale disparity — which is what makes
+  a computation BLAS-order-sensitive. **Refutable:** apply the existing
+  transform, re-run the thread axis. *Source: this session, ADR-222 amendment 1
+  (1st-order — a located cause with its own refutation).* **IMPORTANT.**
+
+- **Slice 8 registered: the Wood-shaped outer solver.** Analytic Hessian,
+  Newton with step-length control and positive-definite perturbation, Section
+  3.1 carried through the fit and derivatives, a deterministic start, and
+  retiring random multistart. `mgcv` ships exactly this architecture
+  (`optimizer = c("outer","newton")`, `mgcv.half`, `irls.reg`) and has no
+  multistart at all. *Source: maintainer direction + this session, ADR-222
+  amendment 1 (1st-order).* **IMPORTANT.**
+
+- **Slice 7g re-scoped: direction 1 promoted, direction 2 demoted.** A robust
+  inner PIRLS is the analogue of `mgcv`'s `irls.reg`/`mgcv.half` and a
+  prerequisite for any outer method; the `_REJECTED_SCORE` barrier patches
+  L-BFGS-B's line search, which slice 8 replaces. *Source: this session,
+  ADR-222 amendment 1, against the maintainer's "as long as it objectively
+  moves us towards a prod-ready solver" condition (1st-order).*
+
+- **The convergence FLAG is not implementable yet, and was deliberately not
+  built.** No configuration passes both axes, so it would say "no" to nearly
+  everything. `ContinuousLambdaSelection.max_abs_projected_gradient` remains
+  the honest reading until slice 8. *Source: this session, ADR-222 amendment 1
+  (2nd-order — a deferral with a stated precondition, not new scope).*
+
+- **A methodological note, now earned three times over: on this fixture a
+  sample of two to four measures coincidence.** The cross-start study read
+  "reproducible" at n=5 (2 surviving fits) and "not reproducible" at n=12; the
+  cross-seed margin fell from 4.5x at n=4 to 2.0x at n=10. Both preliminary
+  readings reached the maintainer before being widened, and both had to be
+  corrected. *Source: this session (2nd-order — a methodological observation,
+  not a work item).*
+
+### Harvested 2026-09-05c — the mechanism closed: catastrophic cancellation in `beta' S beta`, and amendment 1 named the wrong term (ADR-222 amendment 2)
+
+- **The discriminating test was run and it CORRECTS the prior amendment.** The
+  regime is confirmed — scale disparity, Wood 3.1's subject, with a clean
+  dose-response (score spread `~1e-12` at decade-spread ≤2, `5.183e-05` at 11).
+  The TERM is not what amendment 1 named: **both determinants are thread-clean**
+  (`Δ log|X'WX+S|` and `Δ log|S|+` both `0.000e+00`), and the entire spread is
+  the penalized deviance's `beta' S beta`, with the accounting closing to 100%.
+  *Source: this session, ADR-222 amendment 2 (1st-order — it corrects the
+  mechanism the prior amendment published).*
+
+- **The chain is closed end to end.** Forming `S beta` sums intermediates of
+  `1.05e+12` to produce `174` — ten digits of cancellation — so `beta' S beta`
+  is wrong in the fifth decimal against `float128`. That error is deterministic
+  in `beta` but DISCONTINUOUS in it, and `beta` moves `~1e-15` with BLAS
+  summation order, so the score carries `~1e-5` of environment-dependent noise
+  and the optimiser lands in a different basin. Four candidate mechanisms were
+  eliminated on the way. *Source: this session, ADR-222 amendment 2
+  (1st-order).*
+
+- **SLICE 7h REGISTERED — the highest reproducibility-per-line change this epic
+  has found.** Evaluate the penalty term as `sum_j lambda_j ||L_j' beta||^2`, a
+  sum of squares with no cancellation: thread spread `1.037e-04 -> 1.954e-13`,
+  **nine orders**, contained to one expression. *Source: this session, ADR-222
+  amendment 2 (1st-order).* **IMPORTANT.**
+
+- **And the limitation that must travel with it: it is NOT more accurate** —
+  slightly worse against `float128` than the formed-`S` contraction. It makes
+  the criterion STABLE, not RIGHT. **Reproducibility and accuracy are different
+  properties with different fixes**, and the maintainer's convergence definition
+  targets the first. Anyone reporting 7h as an accuracy improvement would be
+  misstating it. *Source: this session, ADR-222 amendment 2 (1st-order — a
+  mislabelling risk on a shipped change).*
+
+- **`log|X'WX+S|` is INACCURATE but thread-DETERMINISTIC** — a random orthogonal
+  similarity moves it by `2.4e-06` at `cond(H) = 3.6e11`. Not a reproducibility
+  defect, so out of scope for 7h; recorded because it is a real accuracy gap
+  nobody had measured, and because "inaccurate" and "irreproducible" have been
+  conflated once already in this epic. *Source: this session, ADR-222 amendment
+  2 (2nd-order — a measured gap with no current consequence).*
+
+- **Slice 8 re-scoped onto its real justification:** accuracy (which 7h does not
+  fix) and determinism (which no criterion fix reaches). Its previous
+  justification — corrupted determinants — is measured false. *Source: this
+  session, ADR-222 amendment 2 (1st-order).*
