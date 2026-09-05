@@ -15,7 +15,8 @@ best mgcv parity candidate."* Raised from the PR #225/#226 review conversation.
 `PLAN_mi_dashboard.md` (the surface being re-pointed).
 **Total slices:** 5, of which slice 4 may legitimately end in "change nothing".
 **Estimated scope:** ~4–6 dev-days autonomous, plus tier-3 dispatches.
-**Status: REGISTERED, NOT STARTED, and BLOCKED — see blocker E.** Its
+**Status: REGISTERED, NOT STARTED, and BLOCKED FROM SLICE 3 ONWARD — see
+blocker E and the banner below.** Its
 `CONTINUATION_gam_production_wiring.md` is created by whichever session starts
 slice 1 — deliberately not created here, so this epic cannot be mistaken for
 active while `CONTINUATION_mgcv_parity_engine.md` is still IN PROGRESS
@@ -30,10 +31,21 @@ active while `CONTINUATION_mgcv_parity_engine.md` is still IN PROGRESS
 > - **"What was measured" and the blockers are durable** — they are facts about
 >   the codebase and the engine, established by audit and measurement, and they
 >   do not depend on when this epic runs.
-> - **Slices 1-5 are a provisional decomposition** for work that **cannot start
->   until parity slices 7h and 8 land** (blocker E). Their dependencies and
+> - **Slices 1-5 are a provisional decomposition.** Their dependencies and
 >   justifications have already drifted once in a day. Expect to revise them at
 >   the point of execution rather than treating them as ready-to-run.
+>
+> **What blocker E blocks, precisely** — the earlier wording here over-stated it
+> in both directions, so state it exactly: **slice 3 cannot start until parity
+> slice 7h lands**, and slices 4-5 inherit that through their dependency on
+> slice 3. **Slice 8 is not a dependency of anything in this epic** — it buys
+> accuracy, where blocker E is about reproducibility. **Slices 1-2 are not
+> blocked by E's own consequence sentence**: they measure rather than wire, and
+> nothing they produce is rendered. But their readings are taken from the same
+> irreproducible engine, so a slice-2 baseline recorded before 7h may not
+> reproduce after it. Whether that makes 1-2 worth running in parallel with 7h
+> or worth deferring is **open question 3, and the maintainer's to rule on** —
+> this document must not answer it by implication.
 >
 > Merged in that spirit: to make the findings discoverable, not to authorise the
 > plan.

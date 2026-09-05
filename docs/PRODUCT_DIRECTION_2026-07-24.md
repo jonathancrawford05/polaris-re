@@ -3493,10 +3493,14 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
 
 - **EPIC REGISTERED: wire the validated engine to the production MI surface.**
   Spec'd in **`docs/PLAN_gam_production_wiring.md`** — 5 slices, REGISTERED /
-  NOT STARTED **and BLOCKED on parity slices 7h/8 (amended 2026-09-05, blocker
-  E): the engine is not environment-reproducible, so slice 3 must not wire a
-  surface whose value depends on the reader's thread count. The plan's findings
-  are durable; its slice decomposition is provisional.** CONTINUATION deliberately not created so it cannot read as
+  NOT STARTED **and BLOCKED FROM SLICE 3 ONWARD on parity slice 7h (amended
+  2026-09-05, blocker E): the engine is not environment-reproducible, so slice
+  3 must not wire a surface whose value depends on the reader's thread count.
+  Slices 4-5 inherit that through slice 3; slices 1-2 measure rather than wire
+  and are not blocked by it, though whether they should run before 7h is the
+  maintainer's call (open question 3). Slice 8 is not a dependency of this
+  epic. The plan's findings are durable; its slice decomposition is
+  provisional.** CONTINUATION deliberately not created so it cannot read as
   active while `CONTINUATION_mgcv_parity_engine.md` is IN PROGRESS. The gate
   it exists to pass is *"can the GAM on the dashboard be shown to an external
   audience?"*, which is not the question the parity epic has been answering.
@@ -3540,7 +3544,7 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   truth we know what the penalized band does (0.8090) and do *not* know what
   today's shipped band does. Closing that is now slice 4's first `[machine]`
   criterion. *Source: this session, PR #227 review [P2-2] (1st-order — a gap
-  in the evidence base for a decision this epic has to make).*
+  in the evidence base for a decision this epic has to make).* **IMPORTANT.**
 
 - **The coverage BLOCKER's nominal owner is dormant.**
   `PLAN_gam_production_wiring.md` assigns the underlying coverage gap to
@@ -3548,11 +3552,20 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   superseded by the parity epic. So the standing BLOCKER has no active path to
   closure and blocker C above cannot be fixed by the epic that owns it.
   *Source: PR #227 review, human-review item (1st-order — an ownership gap on
-  a standing BLOCKER).*
+  a standing BLOCKER).* **BLOCKER for `PLAN_gam_production_wiring.md` slice
+  4** — not for the epic as a whole, since slice 4 may legitimately end in
+  "change nothing", but nothing can reach that decision while the gap has no
+  owner.
 
-- **Three maintainer decisions the epic cannot start without.** (1) Does
-  run-to-run reproducibility (ADR-219 amendment 3) gate the published UI
-  claim? Recommendation in the PLAN: it gates slice 5, not slices 1–3.
+- **Three maintainer decisions the epic cannot start without — one now
+  RESOLVED, two still open.** (1) ~~Does run-to-run reproducibility (ADR-219
+  amendment 3) gate the published UI claim? Recommendation in the PLAN: it
+  gates slice 5, not slices 1–3.~~ **RESOLVED 2026-09-05, and against that
+  recommendation.** ADR-222 amendment 1 measured the instability reaching the
+  fitted *surface* (`eta`, `edf`), not only the smoothing parameters, so it
+  bears on the WIRING and not merely the claim: it now gates **slice 3** via
+  blocker E, and slice 5 as well. The recommendation was wrong because it
+  assumed a machinery-only defect. Do not read it as live guidance.
   (2) Is a validated surface paired with the old estimator's band an
   acceptable interim? Slice 3 produces exactly that pairing by construction,
   and it is a judgement about what a reinsurer reads off a chart, not a
@@ -3560,7 +3573,8 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   slices (7f and beyond), which improve an engine no user can reach?
   *Source: this session, `PLAN_gam_production_wiring.md` "Open questions"
   (1st-order — registered rather than presumed, per
-  `ROUTINE_MGCV_PARITY.md`'s "May not decide").*
+  `ROUTINE_MGCV_PARITY.md`'s "May not decide").* **IMPORTANT — needs a
+  maintainer decision, not a routine one.**
 ### Harvested 2026-09-05 — slice 7f: the `ftol` exit was honest; the line search is walled by the objective's own non-convergent neighbourhood (ADR-222)
 
 - **ADR-220's diagnosis was pointing at the wrong culprit, and measuring all
