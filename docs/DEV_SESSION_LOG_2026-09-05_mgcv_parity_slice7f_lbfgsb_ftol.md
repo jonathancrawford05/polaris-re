@@ -247,3 +247,65 @@ The review also raised the appended row's `0.12005s` wall-time reading as a
 ~2x single-point excursion. It is runner noise on a probe this PR does not
 touch (`output_fingerprint` unchanged), and the detector's windowed medians
 agree — but the regenerated row supersedes that reading anyway.
+
+## Second addendum — the convergence definition, measured (ADR-222 amendment 1)
+
+Maintainer-directed follow-on within the same session, after ADR-222 registered
+"what should `converged` test?" as a decision it would not take.
+
+**The maintainer took it** (2026-09-05): convergence is a result reproducible
+within a stated, contextually meaningful tolerance, ideally guaranteed by
+algorithmic robustness rather than a chosen number; **both** axes required
+(cross-start and cross-environment); tolerance tighter than the `mgcv`-agreement
+gate; `converged` may be expensive.
+
+### What was measured, and in what order
+
+1. **Cross-start, single-start** — 12 pinned starts, both gradient paths.
+   Not reproducible: `eta` `4.178` (FD) / `0.447` (analytic).
+2. **Cross-seed, `multistart(9)`** — 10 seeds. Reproducible, `eta` `6.319e-03`,
+   `edf` `0.505` (3.2x / 2.0x margin).
+3. **Cross-thread** — `{1,2,4}` via `threadpool_limits` (the repo's own
+   mechanism; the env var does not reach an already-imported OpenBLAS).
+   `multistart(9)` FAILS (`eta` `0.356`, `edf` `10.002`); single-start FD
+   PASSES (`eta` `4.650e-03`). **The inversion is the finding.**
+4. **Thread failure confirmed across 4 seeds** rather than trusting one reading:
+   2 immune, 2 moving the score by `+34.34` and `+5.93`. Intermittent and
+   severe — the shape ADR-219 amendment 3 recorded.
+5. **`mgcv` under the same perturbation** — bit-identical, `0.000000e+00` on
+   every quantity. The target is achievable.
+6. **Wood (2011) read** (maintainer supplied the paper) — Section 3's four steps
+   per outer trial, Newton with step-length control and PD perturbation of the
+   Hessian, and Section 3.1 named as "the major difficulty". Cross-checked
+   against `mgcv`'s own documented controls (`optimizer=c("outer","newton")`,
+   `mgcv.half`, `irls.reg`).
+7. **What we implement, checked in our own source** — Section 3.1 for `log|S|+`
+   only; `gam_reml_appendix_b`'s docstring says the fitter, penalized deviance
+   and `log|X'WX+S|` are untouched, and `RECALIBRATION_…_2026-08-25` §1.2
+   records the justification (a rank decision, at fixed `sp`).
+
+### Verify-premise notes
+
+**The maintainer's premise was tested, not assumed.** "mgcv achieves this" was
+checked directly rather than taken on trust — and it holds more strongly than
+stated: not reproducible-within-tolerance but bit-identical.
+
+**Two preliminary readings were reported and then corrected.** The cross-start
+study read "reproducible" at n=5 (only 2 analytic fits survived, and they
+happened to land together) and inverted at n=12. The cross-seed margin fell from
+4.5x at n=4 to 2.0x at n=10. Both corrections were surfaced to the maintainer
+explicitly. **On this fixture a sample of two to four measures coincidence** —
+recorded in PRODUCT_DIRECTION as a methodological note.
+
+**One earlier claim of mine is retracted here.** I told the maintainer "the
+committed conformance claim is not affected", on the seed axis alone. The thread
+axis contradicts it: the claim holds under CI's pinned threads and is not
+established across environments. The qualification is now recorded in the ADR,
+the CONTINUATION and the ledger.
+
+### What was NOT done
+
+No code changed in this addendum — it is measurement and documentation only.
+The convergence flag was deliberately not built (no configuration passes both
+axes). The reparameterisation hypothesis was **not** tested; it is registered
+with its own refutation as the cheap next step, ahead of slice 8.

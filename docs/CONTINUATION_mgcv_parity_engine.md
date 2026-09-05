@@ -1467,14 +1467,62 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > carries the measurement instead; what the flag *should* test is registered as
 > a maintainer decision (ADR-222), not taken by the routine.
 >
-> **NEXT: slice 7g** — the cause finding 3 located: the inner IRLS's
-> non-convergent neighbourhood and `_REJECTED_SCORE`'s cliff. Two directions
-> registered, neither tried (a more robust `penalized_irls_general`; or a
-> barrier that grows from the last good score instead of a flat `1e10`). It is a
-> different hypothesis from all three of ADR-220's, and it is the one the
-> measurement points at.
+> **NEXT: the cheap discriminating test registered by ADR-222 amendment 1** —
+> apply `gam_reml_appendix_b`'s existing transform through the fit and the
+> derivatives, and re-run the thread axis. It either motivates slice 8 or
+> redirects it, and costs a fraction of building a Hessian. **Then slice 7g
+> direction 1** (a robust inner PIRLS — promoted, and a prerequisite for any
+> outer method), **then slice 8** (the Wood-shaped outer solver).
+> Slice 7g direction 2 (a growing barrier in place of `_REJECTED_SCORE`'s
+> cliff) is DEMOTED to a fallback: it patches L-BFGS-B's line search, and
+> L-BFGS-B is what slice 8 replaces.
 >
 > **Also open for the maintainer (ADR-222):** what `converged` should test on
 > this objective. The two measured plateaus are `2.0e-04` (well-conditioned) and
 > `4.9e-01` (bound-active, IRLS-blocked); any threshold between them is an
 > acceptance criterion, so it is "May not decide".
+
+> **CONVERGENCE IS NOW DEFINED, AND NO CONFIGURATION MEETS IT — 2026-09-05
+> (ADR-222 amendment 1).** The maintainer defined convergence as *a result
+> reproducible to within a stated, contextually meaningful tolerance*, ideally
+> guaranteed by the robustness of the algorithm rather than by a chosen number,
+> and required **both** axes: cross-start AND cross-environment. `eta`/`edf` is
+> the contextually meaningful quantity (consistent with ADR-221); the tolerance
+> must be TIGHTER than the `mgcv`-agreement gate; and `converged` may be
+> expensive.
+>
+> **Measured, and no configuration passes both axes.** Single-start (either
+> gradient) is not reproducible cross-start — `eta` spreads `4.178` (FD) and
+> `0.447` (analytic) over 12 starts. `multistart(9)` IS reproducible cross-seed
+> (`eta` `6.3e-03` over 10 seeds) and is NOT reproducible cross-thread
+> (`eta` `0.356`, `edf_total` `10.0`), intermittently: 2 of 4 seeds are immune,
+> 2 move the score by `+34.34` and `+5.93`. Single-start FD passes the thread
+> axis and fails the start axis. **The inversion is the finding.**
+>
+> **`mgcv` on the same fixture is BIT-IDENTICAL** across threads 1/2/4 and
+> repeats — `0.000000e+00` on `log10(sp)`, `eta` and `edf_total`. And our own
+> seed `20260907` reached `edf_total = 14.5613` against `mgcv`'s `14.5624`:
+> **the engine can reach the right answer, it cannot be relied on to.** A
+> reliability problem, not an accuracy one.
+>
+> **The mechanism is located, as a registered hypothesis with its refutation.**
+> Wood (2011) Section 3.1's adaptive reparameterisation — which Wood names "the
+> major difficulty" and says is needed to avoid serious errors in `beta_hat`,
+> `|S|+`, `|X'WX+S|` *and their derivatives* — is implemented here for
+> `log|S|+` **only**, and `gam_reml_appendix_b`'s own docstring says so. The
+> recorded justification (`RECALIBRATION_…_2026-08-25` §1.2) addressed a RANK
+> decision at fixed `sp`; it does not cover precision loss from scale disparity
+> in the fit and the derivatives, which is what makes a computation
+> BLAS-order-sensitive. On this fixture the selected `log10(sp)` span thirteen
+> decades. **Refutation:** apply the transform, re-run the thread axis; if the
+> spreads do not collapse, the cause is the discontinuity of best-of-N
+> selection instead.
+>
+> **The convergence flag is NOT implementable yet and was not built.** Shipping
+> it now would ship a correct signal that says "no" to nearly everything.
+> `ContinuousLambdaSelection.max_abs_projected_gradient` remains the honest
+> reading.
+>
+> **Qualification owed on the committed claim:** `SELECT_FREE_SP_MODEL_CLAIM`'s
+> passing reading is taken under CI's pinned `OPENBLAS_NUM_THREADS=1`. Sound for
+> that environment, not withdrawn — and **not** established across environments.

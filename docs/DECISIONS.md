@@ -21376,3 +21376,196 @@ not hit this failure mode on this fixture (ADR-220), and slice 7d measured it
 at 8.4-9.5x fewer evaluations than the finite-difference default. Anyone using
 `analytic_gradient=True` blind and single-start should pass
 `max_gtol_restarts` as well, and still read `max_abs_projected_gradient`.
+
+## ADR-222 amendment 1: convergence defined by the maintainer, measured on two axes — and the mechanism located in Wood (2011) Section 3.1
+
+**Date:** 2026-09-05. **Status:** ACCEPTED (maintainer, PR #228 conversation).
+**Tier 1** throughout (R 4.3.3 / mgcv 1.9-1, local apt). No reading here is a
+comparison of a Polaris quantity against an `mgcv` quantity **except** the
+final one, which is labelled where it appears.
+
+### The definition, and what it settles
+
+The maintainer's own words, 2026-09-05:
+
+> *Convergence is a property that leads to a result that is reproducible to
+> within a stated tolerance. The tolerance should be meaningful in context.
+> Ideally, convergence is guaranteed by the robustness of our algorithm to
+> identify minimum/maximum points on a well behaved manifold.*
+
+Three consequences, and the first two settle what ADR-222 left open:
+
+1. **The flag is not a threshold on a gradient.** SciPy's `success` reports on
+   the optimiser's internal stopping test, not on reproducibility of a result,
+   so no threshold on it could mean what this definition requires. ADR-222's
+   decision to leave `converged` as SciPy's own flag stands — but as a stopgap,
+   not an answer.
+2. **"Meaningful in context" fixes the quantity as `eta`/`edf`**, consistent
+   with ADR-219 amendment 1 decision 4 and ADR-221: the fitted surface is what a
+   pricing user reads; the smoothing parameters are machinery.
+3. **The tolerance must be TIGHTER than the `mgcv`-agreement gate** (maintainer,
+   same conversation). If the engine cannot reproduce itself better than it
+   matches `mgcv`, the agreement number is noise-limited.
+
+**Both axes are required** (maintainer): cross-start AND cross-environment. A
+flag that certifies one axis alone would certify something a user cannot rely
+on. `converged` **may become expensive** (maintainer) — a reproducibility test
+costs at least a second search.
+
+### What was measured
+
+Fixture: the `select=TRUE` N=7 structure, `scripts/gam_select_multiterm_free_sp_probe.R`
+seed `20260902`. Benchmark: ADR-221's own gate, `eta < 2e-2` and
+`|Δ edf_total| < 1.0` — used here as a *reference scale*, not as the eventual
+tolerance, which decision 3 above requires to be tighter.
+
+| axis | configuration | n | max Δ `log10(sp)` | max Δ `eta` | max Δ `edf_total` | verdict |
+|---|---|---|---:|---:|---:|---|
+| cross-start | single-start, finite-difference (the shipped default) | 9/12 fits | 12.764 | 4.178 | 40.181 | **NOT reproducible** |
+| cross-start | single-start, analytic + restarts (slice 7f) | 8/12 fits | 11.338 | 0.447 | 14.903 | **NOT reproducible** |
+| cross-seed | multistart(9), analytic + restarts | 10/10 | 7.320 | 6.319e-03 | 0.505 | reproducible (3.2x / 2.0x margin) |
+| cross-thread | multistart(9), analytic + restarts | 3/3 | 8.573 | 0.356 | 10.002 | **NOT reproducible** |
+| cross-thread | single-start, finite-difference | 3/3 | 0.569 | 4.650e-03 | 0.154 | reproducible (4.3x / 6.5x) |
+
+**No configuration passes both axes.** Multistart passes seeds and fails
+threads; single-start passes threads and fails starts. That inversion is the
+result.
+
+**The thread failure is intermittent and severe when it occurs** — confirmed
+across four seeds at 1 vs 4 threads rather than trusting a single reading (this
+session had already been burned twice by small samples, see "What a small sample
+cost" below):
+
+| seed | Δ `edf_total` (4thr − 1thr) | Δ REML score |
+|---|---:|---:|
+| 20260830 | **−9.9421** | **+34.3362** |
+| 20260902 | +0.0052 | −0.0010 |
+| 20260907 | −0.2498 | +0.0179 |
+| 20260910 | **+2.5070** | **+5.9278** |
+
+Two of four essentially immune, two badly hit. **That intermittency is the shape
+ADR-219 amendment 3 recorded** — one tier-3 run agreeing with tier 1 and another
+disagreeing wildly — and it is now shown to reach the fitted SURFACE, not only
+the smoothing parameters.
+
+### The reference point: `mgcv` is not reproducible within a tolerance, it is BIT-IDENTICAL
+
+The same probe, same data, run under `OPENBLAS_NUM_THREADS` of 1, 2 and 4, plus
+a repeat at 1:
+
+| run | `edf_total` | max Δ `log10(sp)` | max Δ `eta` | max Δ `edf_total` |
+|---|---:|---:|---:|---:|
+| threads 1 / 2 / 4 and a repeat | 14.5624 (all) | **0.000000e+00** | **0.000000e+00** | **0.000000e+00** |
+
+Zero, on every quantity, including the smoothing parameters themselves. **This
+is the one `mgcv` reading in this amendment, and it is not a parity comparison:**
+it compares `mgcv` against ITSELF across environments. Provenance
+`MEASUREMENT (external reference, self-consistency)` — it establishes that the
+target is achievable, and nothing about Polaris.
+
+Worth recording beside it: our own seed `20260907` reached `edf_total = 14.5613`
+at REML score `523.645058`, against `mgcv`'s own `523.645336` (ADR-220). **The
+engine can reach `mgcv`'s answer; it cannot be relied on to.** This is a solver
+RELIABILITY problem, not an accuracy one — which is a much better-posed problem
+than the epic has had before.
+
+### The mechanism, from Wood (2011) Section 3 — and what we did not implement
+
+Wood's method, read from the paper rather than recalled, takes four steps for
+**each trial `rho` proposed by the outer Newton iteration**:
+
+1. **Reparameterize** to avoid large-norm `lambda_j S_j` terms having effects
+   outside their range spaces (Section 3.1);
+2. estimate `beta_hat` by **Newton-based** PIRLS, zeroing what is unidentifiable
+   for any `rho` (3.2/3.3);
+3. obtain **first and second** derivatives of `beta_hat` w.r.t. `rho` by implicit
+   differentiation (3.4);
+4. evaluate the criterion and its derivatives (3.5),
+
+then take a Newton step "with the usual modifications that (i) some step length
+control will be used and (ii) **the Hessian will be perturbed to be positive
+definite, if it is not**". `mgcv`'s own defaults confirm the architecture:
+`optimizer = c("outer","newton")`, with `mgcv.half` (step-halving on a worsening
+step) and `irls.reg` (regularisation for exactly the inner-IRLS non-convergence
+ADR-222 finding 3 measured). **There is no random multistart anywhere in it.**
+
+Wood names step 1 as "the major difficulty", and states the consequence
+precisely: left uncorrected it "leads to serious errors in evaluation of
+`beta_hat`, `|S|+` and `|X^T W X + S|` **and their derivatives w.r.t. rho**".
+
+**We implement step 1 for `|S|+` only, and the code says so.**
+`gam_reml_appendix_b`'s own module docstring: *"It replaces the null-space cut
+ONLY — the fitter (`gam_fit`), the penalized deviance and the `log|X'WX+S|`
+term are untouched"*, with the justification recorded in
+`RECALIBRATION_mgcv_parity_2026-08-25.md` Section 1.2 that `X^T W X + S` is
+full rank and positive definite and so "has no null-space decision to get
+wrong".
+
+**That justification is sound for what it tested and does not cover what is now
+at issue.** It addressed a *rank decision* on the generalised determinant, at
+fixed `sp`. Wood's warning covers a second failure mode — precision loss in
+`beta_hat` and in the DERIVATIVES from scale disparity — which has no rank
+decision in it at all. On this fixture the selected `log10(sp)` span
+**−1.16 to 12.00, thirteen decades**: squarely the regime Wood describes. And
+precision loss from scale disparity is precisely the kind of computation whose
+result depends on BLAS summation order, hence on thread count.
+
+### Registered hypothesis, with the measurement that would refute it
+
+**The cross-thread irreproducibility is caused by the missing Wood Section 3.1
+reparameterisation on the fit / `|X^T W X + S|` / derivative path.** Predicted:
+applying the reparameterisation (`gam_reml_appendix_b` already builds the
+accumulated orthogonal transform and the stable square root `E`, both tested on
+their own terms and wired to nothing) and re-running the thread axis collapses
+the `4.9e-01`/`10.0` spreads toward the `1`-thread readings. **If it does not,
+the cause is elsewhere** — the next candidate being the discontinuity of
+best-of-N selection, since a small perturbation can change which of the 9 starts
+survives and wins, and single-start (which has no selection step) is the
+configuration that passes the thread axis.
+
+This ADR does not test either. Naming both, with the discriminating measurement,
+is what makes the next slice decidable on evidence.
+
+### What a small sample cost, twice, recorded so it is not repeated
+
+The cross-start study was first run at 5 starts: only 2 analytic fits survived,
+they happened to land next to each other, and the surface spread read
+`4.42e-03` — inside the gate. Widening to 12 starts moved it to `0.447`,
+**22x outside**. The cross-seed study was first run at 4 seeds (margin 4.5x) and
+at 10 seeds the margin fell to 2.0x on `edf`. Both preliminary readings were
+reported to the maintainer before being widened, and both had to be corrected.
+**On this fixture a sample of two to four measures coincidence.**
+
+### Consequences
+
+**Slice 7g is re-scoped and its two directions are no longer equal.** The
+maintainer raised its priority conditional on it "objectively moving us towards
+a prod-ready solver", and that condition separates them:
+
+- **Direction 1 (robust inner PIRLS) — ON the path, and promoted.** It is the
+  direct analogue of `irls.reg`/`mgcv.half`, and it is a prerequisite for any
+  outer method, Newton included.
+- **Direction 2 (a growing barrier in place of `_REJECTED_SCORE`'s cliff) —
+  DEMOTED to a fallback.** It patches L-BFGS-B's line search, which is the
+  component the target architecture replaces. Cheap, but it buys robustness for
+  a solver we would be retiring.
+
+**Slice 8 is registered: the Wood-shaped outer solver.** Analytic Hessian
+(the gradient exists, ADR-220), Newton with step-length control and
+positive-definite perturbation of the Hessian, the Section 3.1
+reparameterisation carried through the fit and the derivatives, a deterministic
+principled start, and **retiring random multistart**. That is what makes both
+reproducibility axes pass by construction rather than by tolerance — the
+maintainer's own third criterion.
+
+**The convergence flag is not implementable yet, and this ADR says so rather
+than shipping a weaker one.** No configuration passes both axes today. Building
+it now would ship a correct signal that says "no" to nearly everything, which is
+worse than the honest `max_abs_projected_gradient` already reported.
+
+**One qualification is owed on the committed claim.** `SELECT_FREE_SP_MODEL_CLAIM`'s
+passing reading is taken under CI's pinned `OPENBLAS_NUM_THREADS=1`. It is sound
+for that environment and is not withdrawn. But it is **not** established across
+environments, and a contributor at a default thread count can obtain a
+materially different fit from the same data and code. For a number intended as a
+marketing benchmark (ADR-219 amendment 1), that qualification belongs beside it.

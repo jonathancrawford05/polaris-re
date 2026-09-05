@@ -3543,3 +3543,68 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   say so rather than to move the tolerance. Worth remembering as a pattern
   rather than re-deriving it a third time. *Source: this session, ADR-222
   (2nd-order — a methodological observation, not a work item).*
+
+### Harvested 2026-09-05b — convergence defined and measured: no configuration passes both axes, and `mgcv` is bit-identical (ADR-222 amendment 1)
+
+- **MAINTAINER DECISION TAKEN: convergence = a result reproducible within a
+  stated, contextually meaningful tolerance, on BOTH a cross-start and a
+  cross-environment axis**, with the tolerance TIGHTER than the
+  `mgcv`-agreement gate, and `converged` permitted to be expensive. This
+  closes the question ADR-222 registered. *Source: maintainer, PR #228
+  conversation 2026-09-05 (1st-order — an acceptance-criterion decision).*
+
+- **No shipped configuration meets it, and the failure inverts across the two
+  axes.** Single-start is not reproducible cross-start (`eta` spread `4.178`
+  FD / `0.447` analytic over 12 starts); `multistart(9)` IS reproducible
+  cross-seed (`6.3e-03` over 10 seeds) and is NOT cross-thread (`0.356`,
+  `edf_total` `10.0`), intermittently — 2 of 4 seeds immune, 2 moving the REML
+  score by `+34.34` and `+5.93`. Single-start FD passes threads and fails
+  starts. *Source: this session, ADR-222 amendment 1 (1st-order).* **BLOCKER
+  for any reliability claim.**
+
+- **`mgcv` on the same fixture is BIT-IDENTICAL across thread counts and
+  repeats** — `0.000000e+00` on `log10(sp)`, `eta` and `edf_total`. The target
+  is demonstrably achievable, which converts this from an open-ended worry into
+  a well-posed engineering goal. *Source: this session, ADR-222 amendment 1
+  (1st-order — it establishes the target).*
+
+- **The mechanism is located as a registered hypothesis: Wood (2011) Section
+  3.1's reparameterisation is implemented for `log|S|+` ONLY.** Wood names it
+  "the major difficulty" and says it is needed to avoid serious errors in
+  `beta_hat`, `|S|+`, `|X'WX+S|` *and their derivatives*;
+  `gam_reml_appendix_b`'s own docstring records that the fitter, the penalized
+  deviance and `log|X'WX+S|` are untouched. The prior justification
+  (`RECALIBRATION_…_2026-08-25` §1.2) addressed a RANK decision at fixed `sp`
+  and does not cover precision loss from scale disparity — which is what makes
+  a computation BLAS-order-sensitive. **Refutable:** apply the existing
+  transform, re-run the thread axis. *Source: this session, ADR-222 amendment 1
+  (1st-order — a located cause with its own refutation).* **IMPORTANT.**
+
+- **Slice 8 registered: the Wood-shaped outer solver.** Analytic Hessian,
+  Newton with step-length control and positive-definite perturbation, Section
+  3.1 carried through the fit and derivatives, a deterministic start, and
+  retiring random multistart. `mgcv` ships exactly this architecture
+  (`optimizer = c("outer","newton")`, `mgcv.half`, `irls.reg`) and has no
+  multistart at all. *Source: maintainer direction + this session, ADR-222
+  amendment 1 (1st-order).* **IMPORTANT.**
+
+- **Slice 7g re-scoped: direction 1 promoted, direction 2 demoted.** A robust
+  inner PIRLS is the analogue of `mgcv`'s `irls.reg`/`mgcv.half` and a
+  prerequisite for any outer method; the `_REJECTED_SCORE` barrier patches
+  L-BFGS-B's line search, which slice 8 replaces. *Source: this session,
+  ADR-222 amendment 1, against the maintainer's "as long as it objectively
+  moves us towards a prod-ready solver" condition (1st-order).*
+
+- **The convergence FLAG is not implementable yet, and was deliberately not
+  built.** No configuration passes both axes, so it would say "no" to nearly
+  everything. `ContinuousLambdaSelection.max_abs_projected_gradient` remains
+  the honest reading until slice 8. *Source: this session, ADR-222 amendment 1
+  (2nd-order — a deferral with a stated precondition, not new scope).*
+
+- **A methodological note, now earned three times over: on this fixture a
+  sample of two to four measures coincidence.** The cross-start study read
+  "reproducible" at n=5 (2 surviving fits) and "not reproducible" at n=12; the
+  cross-seed margin fell from 4.5x at n=4 to 2.0x at n=10. Both preliminary
+  readings reached the maintainer before being widened, and both had to be
+  corrected. *Source: this session (2nd-order — a methodological observation,
+  not a work item).*

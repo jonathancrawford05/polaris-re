@@ -1959,19 +1959,24 @@ descent that measurably exists further out (`-1.591e-02` at `t = 1e-1`,
 refuted `factr` across seven orders, and SciPy's `ftol` message is a true
 report that the line search achieved no reduction.
 
-**Two candidate directions, named and not tried:**
+**RE-SCOPED 2026-09-05 (ADR-222 amendment 1), and the two directions are no
+longer equal.** The maintainer raised this slice's priority conditional on it
+"objectively moving us towards a prod-ready solver", and that condition
+separates them:
 
-1. **Make the inner fit more robust at these `lambda`.** `penalized_irls_general`
-   gives up after 100 iterations; step-halving, or warm-starting each trial
-   point from the previous one's coefficients, may carry it through. Changes an
-   inner solver every caller shares — needs its own before/after on the
-   committed fixtures, and touches ADR-195's verified fitter, so Anchor 7
-   applies.
-2. **Replace the constant `_REJECTED_SCORE` with a barrier that grows from the
-   last good score** rather than a flat `1e10`. Steers the line search away
-   instead of walling it. Cheaper and better contained, but changes the
-   objective every search sees, so the N=4 and N=7 readings must both be
-   re-measured before/after.
+1. **PROMOTED — make the inner fit more robust at these `lambda`.**
+   `penalized_irls_general` gives up after 100 iterations; step-halving, or
+   warm-starting each trial point from the previous one's coefficients, may
+   carry it through. **This is the direct analogue of `mgcv`'s own `irls.reg`
+   and `mgcv.half` controls, and it is a prerequisite for ANY outer method,
+   the slice-8 Newton included** — which is what earns it the priority. Changes
+   an inner solver every caller shares, touches ADR-195's verified fitter, so
+   Anchor 7 applies.
+2. **DEMOTED to a fallback — replace the constant `_REJECTED_SCORE` with a
+   barrier that grows from the last good score.** It steers L-BFGS-B's line
+   search instead of walling it — but L-BFGS-B is the component slice 8
+   REPLACES, so this buys robustness for a solver we would be retiring. Cheap
+   and better contained; take it only if slice 8 is deferred.
 
 **Registered prediction.** Direction 2 alone moves the stall's residual
 materially below `4.889e-01` — because the descent already exists and only the
@@ -1993,6 +1998,81 @@ mandatory rather than complementary.
 - `[judgement]` If the residual does not move materially, the registered
   prediction is reported as refuted and direction 1 is characterised rather
   than attempted in the same session.
+
+### Slice 8: the Wood-shaped outer solver — reproducibility by construction
+
+- **Depends on:** slice 7d (the analytic gradient); slice 7g direction 1 (a
+  robust inner PIRLS is a prerequisite); ADR-222 amendment 1 for the
+  measurement that motivates it.
+- **Status: REGISTERED, not started.** Raised by the maintainer, 2026-09-05:
+  *"we need a reliable solver (mgcv achieves this so a real and implementable
+  mechanism exists, we might want to understand better how we might emulate
+  this with python)."*
+
+**Why, in one measurement.** `mgcv` on this epic's own fixture is
+**bit-identical** across `OPENBLAS_NUM_THREADS` of 1, 2 and 4 and across repeat
+runs — `0.000000e+00` on `log10(sp)`, `eta` and `edf_total` alike. Our
+`multistart(9)` on the same fixture moves `edf_total` by `9.94` and the REML
+score by `34.34` between 1 and 4 threads, intermittently (2 of 4 seeds).
+Neither of our configurations passes both reproducibility axes (ADR-222
+amendment 1). The target is demonstrably achievable; we do not achieve it.
+
+**What Wood (2011) Section 3 actually prescribes**, per outer trial `rho`:
+(1) reparameterize so large-norm `lambda_j S_j` terms cannot act outside their
+range spaces; (2) Newton-based PIRLS for `beta_hat`; (3) first AND second
+derivatives of `beta_hat` w.r.t. `rho` by implicit differentiation; (4) evaluate
+criterion and derivatives — then a Newton step **with step-length control and
+the Hessian perturbed to positive definite if it is not**. `mgcv` ships exactly
+this (`optimizer = c("outer","newton")`, `mgcv.half`, `irls.reg`) and **has no
+random multistart at all**.
+
+**Scope.**
+
+- The **analytic Hessian** of the REML score w.r.t. `rho` (Wood Section 3.5 and
+  Appendix; the gradient already exists, ADR-220). Derive from the paper, do not
+  transcribe from `mgcv` — same licensing and verification footing as slice 7d.
+- **Newton with the two safeguards**: step-length control, and
+  positive-definite perturbation of the Hessian.
+- **Wood Section 3.1's reparameterisation carried through the fit and the
+  derivatives**, not only through `log|S|+`. `gam_reml_appendix_b` already
+  builds the accumulated orthogonal transform and the stable square root `E`,
+  both tested on their own terms and wired to nothing — this is what they were
+  built for.
+- **A deterministic, principled starting point**, and **retiring random
+  multistart** from the reliability story (it may stay as a diagnostic).
+
+**Registered prediction.** Reproducibility on BOTH axes follows by
+construction: with no random component and a well-conditioned computation, the
+cross-seed axis becomes vacuous and the cross-thread axis collapses to
+floating-point noise well inside any meaningful tolerance. **If the thread axis
+does NOT collapse once Section 3.1 is carried through**, the cause is not
+conditioning and ADR-222 amendment 1's second candidate — the discontinuity of
+best-of-N selection — becomes the live hypothesis instead.
+
+**Sequencing note.** ADR-222 amendment 1's registered hypothesis (that the
+missing Section 3.1 reparameterisation is what breaks the thread axis) is
+testable on its own, cheaply, BEFORE this slice is built: apply the existing
+transform and re-run the thread axis. **Do that first.** It either motivates the
+full slice or redirects it, and it costs a fraction of building the Hessian.
+
+**Definition of Done, tagged per ADR-209 decision 3.**
+
+- `[machine]` Both reproducibility axes re-measured on the same fixture and the
+  same protocol as ADR-222 amendment 1, reported beside its readings.
+- `[machine]` The analytic Hessian verified against a central difference of the
+  analytic GRADIENT on all three link/family combinations, before composition —
+  the same discipline slice 7d used one order below.
+- `[machine]` `SELECT_FREE_SP_MODEL_CLAIM` re-measured, tier 1 AND tier 3, with
+  the provenance unchanged (INDEPENDENT) and the reading stated under both the
+  old and new solver.
+- `[machine]` `tests/qa/golden_outputs/` byte-identical.
+- `[judgement]` The claim about reproducibility names the axes, the tolerance
+  and the structure measured — and does not become an unqualified "reliable".
+
+**Out of scope.** Re-pointing production at the new solver (Anchor 7 — a
+separate maintainer decision); `bam`/`discrete=TRUE`; and the convergence FLAG
+itself, which ADR-222 amendment 1 records as not implementable until a
+configuration passes both axes.
 
 ### Deferred to a later epic: `bam` + `discrete = TRUE` + fREML
 
