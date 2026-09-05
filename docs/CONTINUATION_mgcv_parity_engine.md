@@ -534,7 +534,11 @@ eight-term structure. See ADR-217 and `docs/CONFORMANCE_LEDGER.md`.
 > closed 261x. Eigenvalue-sign count across the three readings: 5, 7, 6.
 > Step-stability: 5 of 7, every time.
 >
-> **NEXT: slice 7e** (the re-gating, decided and scoped) or **slice 7d** — the analytic REML gradient, re-aimed by ADR-219 at the
+> **NEXT: ~~slice 7e~~ / ~~slice 7d~~ — SUPERSEDED, both DONE (ADR-220, ADR-221).**
+> The live pointer is at the end of this file. Kept rather than rewritten so the
+> sequence this epic actually took stays legible. Original text: slice 7e (the
+> re-gating, decided and scoped) or slice 7d — the analytic REML gradient,
+> re-aimed by ADR-219 at the
 > `0.0141` score gap on the 5 identified directions, the
 > `converged=False`-at-near-zero-gradient defect, and the ~8x cost saving;
 > explicitly NOT at the `log10(sp)` gate. Carries a hazard ADR-219 found:
@@ -1430,3 +1434,129 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
   the constraint, and proposes four requirements a gate should carry. **It is PROPOSED and
   binds nothing.** Adopting it means an ADR (the `VERIFICATION_STANDARD.md` / ADR-193
   precedent) and, if adopted, re-reading the PLAN's other anchors against requirement 2.
+
+> **Slice 7f is DONE, 2026-09-05 (ADR-222) — and it did NOT close its gap,
+> which is the result, not a shortfall.** All three of ADR-220's candidates were
+> evaluated rather than one being chosen. **Candidate 1 (a tighter `factr`) is
+> REFUTED at the stall ADR-220 named**: `1e7`, `1e2` and `1.0` — seven orders —
+> give identical `nfev = 42`, score `524.788031` and residual `2.086049`, so
+> the `ftol` test is not the binding constraint on that exit. A plain re-entry
+> from the same point at the SAME `factr` improves the score by `1.110350`:
+> **the exit is state-governed, not threshold-governed.** (First published from
+> the post-restart plateau; re-measured at the original stall after PR #228
+> review [P1-1], conclusion unchanged.)
+> **Candidate 2 (restart) is a real but PARTIAL mitigation**, shipped opt-in as
+> `select_lambdas_continuous(max_gtol_restarts=...)`: on the same N=7 case the
+> score falls `524.788031 → 523.677681` and the KKT residual `2.086 → 0.489`
+> for ~27 extra evaluations, then stops improving. **Candidate 3
+> (`multistart=True`) stands as the practical answer today.**
+>
+> **ADR-220's registered prediction is REFUTED, and finding 3 says why.** The
+> failure was never the stopping rule: at the stall, `penalized_irls_general`
+> does not converge at neighbouring trial points (`h = 1e-5`, `t = 1e-5`), so
+> `_REJECTED_SCORE`'s `1e10` sits exactly where the line search probes, against
+> a true score of `~523.7`. Descent measurably exists further out (`-1.591e-02`
+> at `t = 1e-1`) and L-BFGS-B cannot reach it. The warm start reaches the
+> optimum because it *starts* there.
+>
+> **`converged` was deliberately NOT redefined.** Making it mean "`gtol` met on
+> the true projected gradient" was built, measured and reverted: the
+> well-conditioned N=4 control plateaus at `2.040e-04`, so the flag would report
+> a fit optimal to `1e-6` as unconverged. `gtol = 1e-8` is below what this
+> objective resolves at all. `ContinuousLambdaSelection.max_abs_projected_gradient`
+> carries the measurement instead; what the flag *should* test is registered as
+> a maintainer decision (ADR-222), not taken by the routine.
+>
+> **NEXT: slice 7h** — the discriminating test is DONE (ADR-222 amendment 2)
+> and it named the fix. Evaluate the penalty quadratic form as a sum of squares
+> over per-block square roots: **nine orders of cross-thread reproducibility for
+> a few lines**, on the term that accounts for 100% of the criterion's spread.
+> **Then slice 7g direction 1** (a robust inner PIRLS — promoted, and a
+> prerequisite for any outer method), **then slice 8** (the Wood-shaped outer
+> solver, now justified on ACCURACY and DETERMINISM rather than on the
+> determinants, which measured clean).
+> Slice 7g direction 2 (a growing barrier in place of `_REJECTED_SCORE`'s
+> cliff) is DEMOTED to a fallback: it patches L-BFGS-B's line search, and
+> L-BFGS-B is what slice 8 replaces.
+>
+> **Also open for the maintainer (ADR-222):** what `converged` should test on
+> this objective. The two measured plateaus are `2.0e-04` (well-conditioned) and
+> `4.9e-01` (bound-active, IRLS-blocked); any threshold between them is an
+> acceptance criterion, so it is "May not decide".
+
+> **CONVERGENCE IS NOW DEFINED, AND NO CONFIGURATION MEETS IT — 2026-09-05
+> (ADR-222 amendment 1).** The maintainer defined convergence as *a result
+> reproducible to within a stated, contextually meaningful tolerance*, ideally
+> guaranteed by the robustness of the algorithm rather than by a chosen number,
+> and required **both** axes: cross-start AND cross-environment. `eta`/`edf` is
+> the contextually meaningful quantity (consistent with ADR-221); the tolerance
+> must be TIGHTER than the `mgcv`-agreement gate; and `converged` may be
+> expensive.
+>
+> **Measured, and no configuration passes both axes.** Single-start (either
+> gradient) is not reproducible cross-start — `eta` spreads `4.178` (FD) and
+> `0.447` (analytic) over 12 starts. `multistart(9)` IS reproducible cross-seed
+> (`eta` `6.3e-03` over 10 seeds) and is NOT reproducible cross-thread
+> (`eta` `0.356`, `edf_total` `10.0`), intermittently: 2 of 4 seeds are immune,
+> 2 move the score by `+34.34` and `+5.93`. Single-start FD passes the thread
+> axis and fails the start axis. **The inversion is the finding.**
+>
+> **`mgcv` on the same fixture is BIT-IDENTICAL** across threads 1/2/4 and
+> repeats — `0.000000e+00` on `log10(sp)`, `eta` and `edf_total`. And our own
+> seed `20260907` reached `edf_total = 14.5613` against `mgcv`'s `14.5624`:
+> **the engine can reach the right answer, it cannot be relied on to.** A
+> reliability problem, not an accuracy one.
+>
+> **The mechanism is located, as a registered hypothesis with its refutation.**
+> Wood (2011) Section 3.1's adaptive reparameterisation — which Wood names "the
+> major difficulty" and says is needed to avoid serious errors in `beta_hat`,
+> `|S|+`, `|X'WX+S|` *and their derivatives* — is implemented here for
+> `log|S|+` **only**, and `gam_reml_appendix_b`'s own docstring says so. The
+> recorded justification (`RECALIBRATION_…_2026-08-25` §1.2) addressed a RANK
+> decision at fixed `sp`; it does not cover precision loss from scale disparity
+> in the fit and the derivatives, which is what makes a computation
+> BLAS-order-sensitive. On this fixture the selected `log10(sp)` span thirteen
+> decades. **Refutation:** apply the transform, re-run the thread axis; if the
+> spreads do not collapse, the cause is the discontinuity of best-of-N
+> selection instead.
+>
+> **The convergence flag is NOT implementable yet and was not built.** Shipping
+> it now would ship a correct signal that says "no" to nearly everything.
+> `ContinuousLambdaSelection.max_abs_projected_gradient` remains the honest
+> reading.
+>
+> **Qualification owed on the committed claim:** `SELECT_FREE_SP_MODEL_CLAIM`'s
+> passing reading is taken under CI's pinned `OPENBLAS_NUM_THREADS=1`. Sound for
+> that environment, not withdrawn — and **not** established across environments.
+
+> **MECHANISM CLOSED — 2026-09-05 (ADR-222 amendment 2), and amendment 1 named
+> the wrong term.** The discriminating test amendment 1 registered was run. The
+> REGIME is confirmed — scale disparity, Wood Section 3.1's subject, with a
+> clean dose-response (score spread `~1e-12` at decade-spread ≤2, `5.2e-05` at
+> spread 11). **The TERM is not what amendment 1 said.** Both determinants are
+> thread-CLEAN (`Δ log|X'WX+S|` and `Δ log|S|+` are `0.000e+00`); the entire
+> spread is `beta' S beta`, and the accounting closes to 100%
+> (`0.5 x 1.037e-04 = 5.185e-05` against a measured `5.183e-05`).
+>
+> **The chain, closed.** Forming `S beta` sums intermediates of `1.05e+12` to
+> produce `174` — ten digits of cancellation — so `beta' S beta` is wrong in the
+> fifth decimal against `float128`. That error is deterministic in `beta` but
+> DISCONTINUOUS in it, so the `~1e-15` differences `beta` picks up from BLAS
+> summation order move the score by `~1e-5`, the optimiser's path diverges, and
+> it lands in a different basin. Four hypotheses were eliminated on the way
+> (β-perturbation first-order, between-block cancellation, per-block
+> contraction, and the determinants).
+>
+> **A cheap fix is measured and registered as slice 7h:**
+> `sum_j lambda_j ||L_j' beta||^2` — a sum of squares, no cancellation. Thread
+> spread `1.037e-04 -> 1.954e-13`. **Nine orders.**
+>
+> **With the limitation that must travel with it: it is NOT more accurate** —
+> slightly worse against `float128`. It makes the criterion STABLE, not RIGHT.
+> Accuracy still needs Section 3.1's reparameterisation. **Reproducibility and
+> accuracy are different properties with different fixes**, and the maintainer's
+> convergence definition targets the first.
+>
+> **Slice 8 re-scoped** onto (a) accuracy, which 7h does not fix, and (b)
+> determinism, which no criterion fix reaches. Its old justification — corrupted
+> determinants — is measured false.

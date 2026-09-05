@@ -346,6 +346,7 @@ def fit_polaris_gam(
     multistart: bool = False,
     n_starts: int = 9,
     analytic_gradient: bool = False,
+    max_gtol_restarts: int = 0,
 ) -> PolarisGAMFit:
     """Fit ``model`` to ``data``/``y``, selecting every smoothing parameter by
     continuous REML (:func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`,
@@ -422,6 +423,15 @@ def fit_polaris_gam(
             (``612.610032`` vs ``612.610092``) in 20 function evaluations
             against 120 — see the slice 7d ADR for the full measurement,
             including the ``select=True`` 7-block structure.
+        max_gtol_restarts: passed through to whichever search runs (PLAN
+            slice 7f, ADR-222). Default ``0`` — off, and the default path is
+            unchanged: at ``0`` the restart block is unreachable. **Requires
+            ``analytic_gradient=True`` and raises otherwise**, rather than
+            being a silent no-op. A measured PARTIAL mitigation, never a
+            closure: on slice 7f's own N=7 fixture it takes the KKT residual
+            from ``2.09`` to ``4.9e-01`` and stops there, because the
+            remaining obstruction is the inner IRLS's own non-convergent
+            neighbourhood rather than any stopping rule.
 
     Raises:
         PolarisValidationError: propagated from :func:`assemble_model_design`
@@ -480,6 +490,7 @@ def fit_polaris_gam(
             maxiter=maxiter,
             n_starts=n_starts,
             analytic_gradient=analytic_gradient,
+            max_gtol_restarts=max_gtol_restarts,
         )
         selection = multi.best
         n_function_evals = multi.total_function_evals
@@ -497,6 +508,7 @@ def fit_polaris_gam(
             gtol=gtol,
             maxiter=maxiter,
             analytic_gradient=analytic_gradient,
+            max_gtol_restarts=max_gtol_restarts,
         )
         n_function_evals = selection.n_function_evals
     if selection.at_bound:

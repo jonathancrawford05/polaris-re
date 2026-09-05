@@ -158,3 +158,41 @@ nothing was parked that a 1st-order reading would promote.
 **Not filed, because it belongs to the PR that owns it:** PR #225's [P1] (the
 cheap-check justification) is posted on that PR as an inline comment and is
 that PR's to fix, not this session's.
+
+## Pre-merge addendum — 2026-09-05, amended against measurements that post-date it
+
+PR #228 merged first, and it produced measurements that contradicted three
+statements in this plan. Rather than merge a plan known to be stale, it was
+amended in place before merge.
+
+- **Blocker E added, and it BLOCKS slice 3.** ADR-222 amendment 1 measured that
+  `multistart=True` — the configuration blocker D tells slice 3 to pin — is
+  reproducible cross-seed but NOT cross-thread (`Δ edf_total = 10.0`, score
+  `+34.34` on 2 of 4 seeds). Single-start is the mirror image. **No
+  configuration passes both axes.** Slice 3 is now gated on parity slice 7h.
+- **Open question 1 resolved, against this plan's own recommendation.** It had
+  recommended that reproducibility gate slice 5 but not slices 1-3. The
+  instability reaches the fitted SURFACE, not just the smoothing parameters, so
+  it gates the wiring too. Struck through with the correction rather than
+  edited away.
+- **Slice 3's `analytic_gradient` condition had no outcome to wait for.** It
+  read "only once slice 7f has resolved the `ftol` early-exit"; 7f is DONE and
+  did NOT resolve it. Restated around what 7f actually shipped.
+- **Provisional framing added at the top**, separating the durable findings
+  (the import-graph audit and blockers A-E) from the slice decomposition, which
+  cannot start until 7h/8 land and has already drifted once in a day.
+
+**Why merge at all**, asked and answered explicitly by the maintainer: roughly a
+quarter of this document is durable substance and the rest is provisional
+planning. The case rests on four findings that are non-obvious and recorded
+nowhere else — `fit_polaris_gam` having zero production consumers (which went
+unnoticed across ~20 ADRs precisely because nothing surfaces it), quasi-Poisson
+being unable to use the validated search at all, the coverage table showing the
+intuitive band "improvement" makes the page WORSE at ages ≥80, and the coverage
+BLOCKER's owner being dormant. Merging makes those discoverable on `main`; the
+decomposition is explicitly labelled provisional so nobody treats it as
+ready-to-run.
+
+`origin/main` merged in (one conflict, `PRODUCT_DIRECTION_2026-07-24.md`, pure
+append-vs-append between this epic's `Harvested 2026-09-04` and #228's
+`-05`/`-05b`/`-05c`; both kept, chronological).

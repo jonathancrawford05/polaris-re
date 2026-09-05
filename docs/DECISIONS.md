@@ -21156,3 +21156,584 @@ this amendment closes out the one open item amendment 1 left (did the fix
 work, and is the underlying condition real). Both are now answered: yes,
 and yes. `docs/CONFORMANCE_LEDGER.md`'s row for this measurement is updated
 to record the reproducible non-convergence rather than a pending retry.
+
+## ADR-222: Slice 7f — the `ftol` exit is honest; the line search is blocked by the objective's own non-convergent neighbourhood, and neither the stopping rule nor a restart closes it
+
+**Date:** 2026-09-05
+**Status:** ACCEPTED. **Tier 1** (R 4.3.3 / mgcv 1.9-1, local apt) — but note
+that nothing in this ADR is a comparison against `mgcv`: every reading is
+`MEASUREMENT (own criterion)`, and `mgcv` enters only as the generator of the
+fixture's own recipe. A tier-3 confirmation is therefore not owed for the
+findings; the conformance CI job runs on this PR regardless.
+**Implements:** `docs/PLAN_mgcv_parity_engine.md` slice 7f, registered by
+ADR-220.
+
+### Context
+
+ADR-220 (slice 7d) found that a blind single-start `select_lambdas_continuous`
+with the EXACT analytic gradient reports `converged=True` on the `select=TRUE`
+N=7 structure at a point whose true gradient norm is `3.067`, and read SciPy's
+own message — `CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH` — as
+naming the mechanism: an `ftol`-style rule firing instead of the `gtol` the
+caller set. It named three candidate fixes and tried none, per the routine's
+three-pass discipline. This slice tried them.
+
+### Reproduced first, before anything was changed
+
+Same fixture recipe (`scripts/gam_select_multiterm_free_sp_probe.R`, seed
+`20260902`), R 4.3.3 / mgcv 1.9-1: blind single-start, `analytic_gradient=True`,
+`nfev=42`, score `524.788031`, `at_bound=True`, true `|grad| = 3.067233` —
+**bit-identical to ADR-220's recorded reading.**
+
+### Finding 1 — the residual is in FREE directions, which ADR-220 asserted and did not show
+
+A large gradient at a bound-pinned component is not evidence of anything: the
+bound is legitimately holding it. Only the KKT **projected** residual
+distinguishes "stopped early" from "stopped at a corner it should stop at", so
+that distinction was measured rather than assumed:
+
+| block | `log10(sp)` | at bound | grad | projected |
+|---|---:|---|---:|---:|
+| b1 | 12.0000 | UPPER | -0.001738 | 0.000000 |
+| b2 | -1.1520 | — | 0.009704 | 0.009704 |
+| b3 | 12.0000 | UPPER | -0.000242 | 0.000000 |
+| b4 | 5.5741 | — | 0.009853 | 0.009853 |
+| b5 | 3.6743 | — | 2.000544 | 2.000544 |
+| b6 | 2.1513 | — | -2.086049 | -2.086049 |
+| b7 | 0.2380 | — | 1.026619 | 1.026619 |
+
+`max|g^P| = 2.086049` against a `gtol` of `1e-8`. **The point is genuinely not
+KKT-optimal**, and the two bound-pinned blocks contribute nothing to that — the
+residual sits entirely on free blocks. ADR-220's characterisation survives
+being checked.
+
+### Finding 2 — candidate 1 (a tighter `factr`) is REFUTED, at the point ADR-220 named
+
+**Measured at the reproduced ADR-220 stall itself** — the blind search from the
+bounds centre, same start, varying only `factr` across seven orders:
+
+| `factr` | nfev | score | `max|g^P|` | message |
+|---|---:|---:|---:|---|
+| 1e7 (default) | 42 | 524.788031 | 2.086049 | RELATIVE REDUCTION OF F <= FACTR*EPSMCH |
+| 1e2 | 42 | 524.788031 | 2.086049 | RELATIVE REDUCTION OF F <= FACTR*EPSMCH |
+| 1.0 | 42 | 524.788031 | 2.086049 | RELATIVE REDUCTION OF F <= FACTR*EPSMCH |
+
+**Identical in every column, down to the evaluation count.** A `1e7`-times
+tighter threshold does not buy even one additional iteration, so the `ftol`
+test is not the binding constraint on that exit at all.
+
+**And the contrast that isolates what is:** a plain re-entry of `minimize` from
+that same stalled point, at the SAME default `factr`, reaches `523.677681` in
+23 evaluations — an improvement of `1.110350`. Same threshold, same objective,
+same point; the only thing that changed is that L-BFGS-B's accumulated state
+(its limited-memory Hessian approximation and line-search history) was reset.
+
+**So the exit is state-governed, not threshold-governed.** ADR-220's framing —
+an `ftol` rule firing "instead of" the `gtol` the caller set — described the
+symptom correctly but pointed at the wrong culprit: no setting of that rule
+changes anything, while resetting the optimiser's state changes a great deal.
+
+> **Correction, PR #228 review [P1-1].** As first published, this finding's
+> sweep was run from the POST-RESTART plateau (`nfev = 4`, score change
+> `+0.000e+00`, residual `4.889e-01`) rather than from the stall ADR-220 named,
+> and the review caught that the claim was therefore broader than the
+> measurement. The sweep was re-run at the original stall; the table above is
+> that re-run, and the conclusion survives. The plateau readings stand as a
+> second, independent refutation at a second point.
+
+### Finding 3 — the real cause: the objective is not computable in a neighbourhood of the stall
+
+Central differences of the profile score along the worst free direction (b6),
+against the analytic value `0.488915` at the restarted point:
+
+| h | central difference | vs analytic |
+|---:|---:|---:|
+| 1e-1 | 0.504087 | +0.015172 |
+| 1e-2 | 0.505886 | +0.016971 |
+| 1e-3 | 0.351933 | -0.136982 |
+| 1e-4 | 1.615256 | +1.126341 |
+| 1e-5 | **inner IRLS did not converge** | — |
+
+And a direct line probe along `-g^P`, which answers the question that matters —
+*is there descent available at all?*
+
+| step `t` | change in score |
+|---:|---|
+| 1e-1 | **-1.591e-02** |
+| 1e-2 | **-4.678e-03** |
+| 1e-3 | +5.217e-04 |
+| 1e-4 | +6.238e-04 |
+| 1e-5 | **inner IRLS did not converge** → scored `_REJECTED_SCORE` (1e10) |
+| 1e-6 | +3.457e-04 |
+
+**The gradient is real** — coarse central differences agree with it to ~3% —
+**and descent genuinely exists at `t = 1e-1`. But the objective rises at
+intermediate scales and is not computable at `1e-5`,** where
+`penalized_irls_general` fails and the point is scored `1e10` against a true
+score of `~523.7`. L-BFGS-B's line search, which probes exactly there, cannot
+find the descent that exists further out.
+
+So the failure is **not** a stopping-rule problem and **no `factr` can fix it**.
+It is the inner penalized IRLS's own convergence failure in a neighbourhood of
+the stall, converted into a `1e10` cliff by `_REJECTED_SCORE` — whose own
+docstring anticipated this class of problem ("a finite-difference gradient
+straddling an infinite objective value … stalls L-BFGS-B's line search") and
+chose a finite sentinel to soften it. Finite is not enough: `1e10` against
+`523.7` is still a cliff.
+
+### Finding 4 — candidate 2 (restart) is a real but PARTIAL mitigation, and the registered prediction is REFUTED
+
+`select_lambdas_continuous` gains `max_gtol_restarts: int = 0` — re-enter
+`minimize` from the reported point when the true projected residual exceeds the
+caller's `gtol`, stopping on budget exhaustion or on the first restart that
+fails to improve the score strictly. On the same N=7 case:
+
+| budget | nfev | restarts | score | `max|g^P|` |
+|---:|---:|---:|---:|---:|
+| 0 (default, unchanged) | 42 | 0 | 524.788031 | not measured |
+| 1 | 65 | 1 | **523.677681** | 4.889e-01 |
+| 4 | 69 | 2 | 523.677681 | 4.889e-01 |
+| 16 | 69 | 2 | 523.677681 | 4.889e-01 |
+
+A **score improvement of 1.110350** and a **4.3x reduction in the KKT
+residual** (2.086 → 0.489), for ~27 extra function evaluations — genuinely
+worth having, and it lands within `0.032` of `multistart(9)`'s own
+`523.645336`-adjacent result at a twelfth of the cost. But `4.889e-01` is not
+`gtol`, and the budget above 2 buys nothing because the restart stops moving.
+
+**ADR-220's registered prediction — "candidate 2 closes the gap outright,
+because the warm-start reading shows the true optimum IS reachable" — is
+REFUTED.** The warm start reaches the optimum because it *starts* there. That
+says nothing about whether a blind search can walk to it through a region where
+the objective cannot be evaluated, and finding 3 shows it cannot.
+
+**Per slice 7f's own `[judgement]` criterion, this is reported as a partial
+mitigation and not as a closure.**
+
+### Finding 5 — `gtol = 1e-8` is below what this objective can resolve, and that is why `converged` was NOT redefined
+
+The obvious move — make `converged` mean "`result.success` AND `gtol` met on
+the true projected gradient" — was implemented, measured, and **reverted**. On
+the well-conditioned N=4 control (ADR-212's own fixture, no bound-active block,
+no IRLS-failure neighbourhood) the restarted search reaches `max|g^P| =
+2.040e-04`: three orders better than the N=7 case's `4.889e-01`, and still four
+orders above `gtol = 1e-8`. Redefining the flag would therefore report a fit
+whose score is optimal to `1e-6` as **unconverged**.
+
+Choosing some threshold between `2e-04` and `4.9e-01` to make both cases read
+correctly is exactly "tuning a number to make a check pass", which Anchor 8 and
+`ROUTINE_MGCV_PARITY.md` forbid, and choosing an acceptance threshold is
+"May not decide" territory besides. So:
+
+- `converged` keeps its existing meaning (SciPy's own flag) on every path;
+- `ContinuousLambdaSelection.max_abs_projected_gradient` carries the honest
+  measurement, and its docstring says to read the two together;
+- **what the flag should test is registered as a maintainer decision below,
+  not taken here.**
+
+This is the same shape as slice 7c's result: a tolerance demanded of a quantity
+the machinery cannot resolve is ill-posed, and the useful move is to say so
+rather than to move the tolerance.
+
+### What changed in the code
+
+- `gam_reml_optimize.projected_gradient` — **new**, the KKT residual under box
+  bounds, with six closed-form tests (interior pass-through; each bound's
+  one-sided clip; a large raw gradient at a pinned bound projecting to exactly
+  zero; the `_BOUND_ATOL` tolerance; the two raising cases).
+- `gam_reml_optimize.select_lambdas_continuous` — `max_gtol_restarts: int = 0`,
+  gated on `analytic_gradient` (a finite-differenced gradient's own noise floor
+  sits far above any sensible `gtol`, ADR-212, so the loop would spin on noise).
+- `ContinuousLambdaSelection` gains `n_gtol_restarts` and
+  `max_abs_projected_gradient`, both additive with defaults.
+- Threaded through `select_lambdas_continuous_multistart` and
+  `fit_polaris_gam`, default off in both.
+
+**Default behaviour is unchanged**, and the evidence for that is structural
+rather than experimental: at `max_gtol_restarts = 0` the restart block is
+unreachable, so every pre-7f call takes byte-for-byte the same path.
+
+> **Corrected, PR #228 review round 2 [P1-B].** This paragraph originally
+> claimed the property was "verified, not assumed" by setting
+> `max_gtol_restarts` on the finite-difference path and finding the result
+> bit-identical. That experiment **can no longer be run**: review round 1's
+> [P2-3] made an inapplicable budget RAISE rather than be silently ignored, so
+> the call under test now errors. The substance is unaffected — unreachable at
+> `0` is a stronger guarantee than a single bit-identical comparison — but the
+> stated evidence was stale and is replaced here rather than left standing.
+
+`tests/qa/golden_outputs/` untouched.
+
+### Consequences
+
+**Registered as slice 7g:** the real root cause — the inner penalized IRLS
+failing in a neighbourhood of the search path, and `_REJECTED_SCORE` turning
+that into a cliff. Two candidate directions, neither tried here: make
+`penalized_irls_general` more robust at these `lambda` (step-halving, a better
+start from the previous trial point's coefficients), or replace the constant
+`_REJECTED_SCORE` with a value that grows smoothly from the last good score so
+the line search is steered rather than walled. This is a different hypothesis
+from any of ADR-220's three candidates, and it is the one the measurement
+points at.
+
+**Registered for the maintainer:** what `converged` should test on this
+objective. `gtol = 1e-8` is unreachable; the two measured plateaus are
+`2.0e-04` (well-conditioned) and `4.9e-01` (bound-active, IRLS-blocked). Any
+threshold is an acceptance criterion, so it is not this routine's to set.
+
+**Candidate 3 stands as the practical answer today:** `multistart=True` does
+not hit this failure mode on this fixture (ADR-220), and slice 7d measured it
+at 8.4-9.5x fewer evaluations than the finite-difference default. Anyone using
+`analytic_gradient=True` blind and single-start should pass
+`max_gtol_restarts` as well, and still read `max_abs_projected_gradient`.
+
+## ADR-222 amendment 1: convergence defined by the maintainer, measured on two axes — and the mechanism located in Wood (2011) Section 3.1
+
+**Date:** 2026-09-05. **Status:** ACCEPTED (maintainer, PR #228 conversation).
+**Tier 1** throughout (R 4.3.3 / mgcv 1.9-1, local apt). Two readings involve
+`mgcv` and they are DIFFERENT things, each labelled where it appears: the
+threads table compares `mgcv` against ITSELF (`MEASUREMENT (external reference,
+self-consistency)` — no Polaris operand, and no evidence about Polaris), while
+the `edf_total` reading beside it is a genuine **INDEPENDENT** Polaris-vs-`mgcv`
+comparison. Everything else is `MEASUREMENT (own criterion)`.
+
+> **Corrected, PR #228 review round 2 [P1-D].** As first written this sentence
+> said the "final one" was the only Polaris-vs-`mgcv` reading and was labelled —
+> but the labelled one was the self-consistency table, and the actual
+> Polaris-vs-`mgcv` reading below it carried no class at all, inside a section
+> whose verdict said there was no Polaris operand. Both are now labelled
+> separately.
+
+### The definition, and what it settles
+
+The maintainer's own words, 2026-09-05:
+
+> *Convergence is a property that leads to a result that is reproducible to
+> within a stated tolerance. The tolerance should be meaningful in context.
+> Ideally, convergence is guaranteed by the robustness of our algorithm to
+> identify minimum/maximum points on a well behaved manifold.*
+
+Three consequences, and the first two settle what ADR-222 left open:
+
+1. **The flag is not a threshold on a gradient.** SciPy's `success` reports on
+   the optimiser's internal stopping test, not on reproducibility of a result,
+   so no threshold on it could mean what this definition requires. ADR-222's
+   decision to leave `converged` as SciPy's own flag stands — but as a stopgap,
+   not an answer.
+2. **"Meaningful in context" fixes the quantity as `eta`/`edf`**, consistent
+   with ADR-219 amendment 1 decision 4 and ADR-221: the fitted surface is what a
+   pricing user reads; the smoothing parameters are machinery.
+3. **The tolerance must be TIGHTER than the `mgcv`-agreement gate** (maintainer,
+   same conversation). If the engine cannot reproduce itself better than it
+   matches `mgcv`, the agreement number is noise-limited.
+
+**Both axes are required** (maintainer): cross-start AND cross-environment. A
+flag that certifies one axis alone would certify something a user cannot rely
+on. `converged` **may become expensive** (maintainer) — a reproducibility test
+costs at least a second search.
+
+### What was measured
+
+Fixture: the `select=TRUE` N=7 structure, `scripts/gam_select_multiterm_free_sp_probe.R`
+seed `20260902`. Benchmark: ADR-221's own gate, `eta < 2e-2` and
+`|Δ edf_total| < 1.0` — used here as a *reference scale*, not as the eventual
+tolerance, which decision 3 above requires to be tighter.
+
+| axis | configuration | n | max Δ `log10(sp)` | max Δ `eta` | max Δ `edf_total` | verdict |
+|---|---|---|---:|---:|---:|---|
+| cross-start | single-start, finite-difference (the shipped default) | 9/12 fits | 12.764 | 4.178 | 40.181 | **NOT reproducible** |
+| cross-start | single-start, analytic + restarts (slice 7f) | 8/12 fits | 11.338 | 0.447 | 14.903 | **NOT reproducible** |
+| cross-seed | multistart(9), analytic + restarts | 10/10 | 7.320 | 6.319e-03 | 0.505 | reproducible (3.2x / 2.0x margin) |
+| cross-thread | multistart(9), analytic + restarts | 3/3 | 8.573 | 0.356 | 10.002 | **NOT reproducible** |
+| cross-thread | single-start, finite-difference | 3/3 | 0.569 | 4.650e-03 | 0.154 | reproducible (4.3x / 6.5x) |
+
+**No configuration passes both axes.** Multistart passes seeds and fails
+threads; single-start passes threads and fails starts. That inversion is the
+result.
+
+**The thread failure is intermittent and severe when it occurs** — confirmed
+across four seeds at 1 vs 4 threads rather than trusting a single reading (this
+session had already been burned twice by small samples, see "What a small sample
+cost" below):
+
+| seed | Δ `edf_total` (4thr − 1thr) | Δ REML score |
+|---|---:|---:|
+| 20260830 | **−9.9421** | **+34.3362** |
+| 20260902 | +0.0052 | −0.0010 |
+| 20260907 | −0.2498 | +0.0179 |
+| 20260910 | **+2.5070** | **+5.9278** |
+
+Two of four essentially immune, two badly hit. **That intermittency is the shape
+ADR-219 amendment 3 recorded** — one tier-3 run agreeing with tier 1 and another
+disagreeing wildly — and it is now shown to reach the fitted SURFACE, not only
+the smoothing parameters.
+
+### The reference point: `mgcv` is not reproducible within a tolerance, it is BIT-IDENTICAL
+
+The same probe, same data, run under `OPENBLAS_NUM_THREADS` of 1, 2 and 4, plus
+a repeat at 1:
+
+| run | `edf_total` | max Δ `log10(sp)` | max Δ `eta` | max Δ `edf_total` |
+|---|---:|---:|---:|---:|
+| threads 1 / 2 / 4 and a repeat | 14.5624 (all) | **0.000000e+00** | **0.000000e+00** | **0.000000e+00** |
+
+Zero, on every quantity, including the smoothing parameters themselves. **This
+is the one `mgcv` reading in this amendment, and it is not a parity comparison:**
+it compares `mgcv` against ITSELF across environments. Provenance
+`MEASUREMENT (external reference, self-consistency)` — it establishes that the
+target is achievable, and nothing about Polaris.
+
+**A second, separate reading — and this one IS a Polaris-vs-`mgcv`
+comparison.** Our own seed `20260907` reached `edf_total = 14.5613` at REML
+score `523.645058`, against `mgcv`'s `14.5624` / `523.645336` (ADR-220).
+
+**Provenance: INDEPENDENT.** The mechanical test passes on the signature —
+Polaris's blind free-`sp` search (`fit_select_free_sp_case`, whose input type
+carries no `sp`/`eta`/`edf` key) does not read `mgcv`'s payload, and `mgcv`
+selects its own. So this is a genuine comparison of two independent producers,
+not a harness check. It carries no `VerificationClaim` of its own because it is
+a one-off diagnostic reading quoted from ADR-220's committed measurement rather
+than a new gated quantity; **it is reported, never gated**, and any use of it as
+acceptance evidence would need declaring first
+(`docs/VERIFICATION_STANDARD.md` §3.1).
+
+**The engine can reach `mgcv`'s answer; it cannot be relied on to.** That is a
+solver RELIABILITY problem, not an accuracy one — a much better-posed problem
+than the epic has had before.
+
+### The mechanism, from Wood (2011) Section 3 — and what we did not implement
+
+Wood's method, read from the paper rather than recalled, takes four steps for
+**each trial `rho` proposed by the outer Newton iteration**:
+
+1. **Reparameterize** to avoid large-norm `lambda_j S_j` terms having effects
+   outside their range spaces (Section 3.1);
+2. estimate `beta_hat` by **Newton-based** PIRLS, zeroing what is unidentifiable
+   for any `rho` (3.2/3.3);
+3. obtain **first and second** derivatives of `beta_hat` w.r.t. `rho` by implicit
+   differentiation (3.4);
+4. evaluate the criterion and its derivatives (3.5),
+
+then take a Newton step "with the usual modifications that (i) some step length
+control will be used and (ii) **the Hessian will be perturbed to be positive
+definite, if it is not**". `mgcv`'s own defaults confirm the architecture:
+`optimizer = c("outer","newton")`, with `mgcv.half` (step-halving on a worsening
+step) and `irls.reg` (regularisation for exactly the inner-IRLS non-convergence
+ADR-222 finding 3 measured). **There is no random multistart anywhere in it.**
+
+Wood names step 1 as "the major difficulty", and states the consequence
+precisely: left uncorrected it "leads to serious errors in evaluation of
+`beta_hat`, `|S|+` and `|X^T W X + S|` **and their derivatives w.r.t. rho**".
+
+**We implement step 1 for `|S|+` only, and the code says so.**
+`gam_reml_appendix_b`'s own module docstring: *"It replaces the null-space cut
+ONLY — the fitter (`gam_fit`), the penalized deviance and the `log|X'WX+S|`
+term are untouched"*, with the justification recorded in
+`RECALIBRATION_mgcv_parity_2026-08-25.md` Section 1.2 that `X^T W X + S` is
+full rank and positive definite and so "has no null-space decision to get
+wrong".
+
+**That justification is sound for what it tested and does not cover what is now
+at issue.** It addressed a *rank decision* on the generalised determinant, at
+fixed `sp`. Wood's warning covers a second failure mode — precision loss in
+`beta_hat` and in the DERIVATIVES from scale disparity — which has no rank
+decision in it at all. On this fixture the selected `log10(sp)` span
+**−1.16 to 12.00, thirteen decades**: squarely the regime Wood describes. And
+precision loss from scale disparity is precisely the kind of computation whose
+result depends on BLAS summation order, hence on thread count.
+
+### Registered hypothesis, with the measurement that would refute it
+
+**The cross-thread irreproducibility is caused by the missing Wood Section 3.1
+reparameterisation on the fit / `|X^T W X + S|` / derivative path.** Predicted:
+applying the reparameterisation (`gam_reml_appendix_b` already builds the
+accumulated orthogonal transform and the stable square root `E`, both tested on
+their own terms and wired to nothing) and re-running the thread axis collapses
+the `4.9e-01`/`10.0` spreads toward the `1`-thread readings. **If it does not,
+the cause is elsewhere** — the next candidate being the discontinuity of
+best-of-N selection, since a small perturbation can change which of the 9 starts
+survives and wins, and single-start (which has no selection step) is the
+configuration that passes the thread axis.
+
+This ADR does not test either. Naming both, with the discriminating measurement,
+is what makes the next slice decidable on evidence.
+
+### What a small sample cost, twice, recorded so it is not repeated
+
+The cross-start study was first run at 5 starts: only 2 analytic fits survived,
+they happened to land next to each other, and the surface spread read
+`4.42e-03` — inside the gate. Widening to 12 starts moved it to `0.447`,
+**22x outside**. The cross-seed study was first run at 4 seeds (margin 4.5x) and
+at 10 seeds the margin fell to 2.0x on `edf`. Both preliminary readings were
+reported to the maintainer before being widened, and both had to be corrected.
+**On this fixture a sample of two to four measures coincidence.**
+
+### Consequences
+
+**Slice 7g is re-scoped and its two directions are no longer equal.** The
+maintainer raised its priority conditional on it "objectively moving us towards
+a prod-ready solver", and that condition separates them:
+
+- **Direction 1 (robust inner PIRLS) — ON the path, and promoted.** It is the
+  direct analogue of `irls.reg`/`mgcv.half`, and it is a prerequisite for any
+  outer method, Newton included.
+- **Direction 2 (a growing barrier in place of `_REJECTED_SCORE`'s cliff) —
+  DEMOTED to a fallback.** It patches L-BFGS-B's line search, which is the
+  component the target architecture replaces. Cheap, but it buys robustness for
+  a solver we would be retiring.
+
+**Slice 8 is registered: the Wood-shaped outer solver.** Analytic Hessian
+(the gradient exists, ADR-220), Newton with step-length control and
+positive-definite perturbation of the Hessian, the Section 3.1
+reparameterisation carried through the fit and the derivatives, a deterministic
+principled start, and **retiring random multistart**. That is what makes both
+reproducibility axes pass by construction rather than by tolerance — the
+maintainer's own third criterion.
+
+**The convergence flag is not implementable yet, and this ADR says so rather
+than shipping a weaker one.** No configuration passes both axes today. Building
+it now would ship a correct signal that says "no" to nearly everything, which is
+worse than the honest `max_abs_projected_gradient` already reported.
+
+**One qualification is owed on the committed claim.** `SELECT_FREE_SP_MODEL_CLAIM`'s
+passing reading is taken under CI's pinned `OPENBLAS_NUM_THREADS=1`. It is sound
+for that environment and is not withdrawn. But it is **not** established across
+environments, and a contributor at a default thread count can obtain a
+materially different fit from the same data and code. For a number intended as a
+marketing benchmark (ADR-219 amendment 1), that qualification belongs beside it.
+
+## ADR-222 amendment 2: the mechanism, closed — it is catastrophic cancellation in `beta' S beta`, and amendment 1 named the wrong term
+
+**Date:** 2026-09-05. **Status:** ACCEPTED. **Tier 1** (R 4.3.3 / mgcv 1.9-1).
+**Provenance:** `MEASUREMENT (own criterion)` throughout — every reading is our
+own engine against itself under a perturbation, or against a higher-precision
+evaluation of its own formula. No `mgcv` quantity is an operand anywhere.
+
+### This corrects amendment 1
+
+Amendment 1 registered the hypothesis that cross-thread irreproducibility came
+from the missing Wood (2011) Section 3.1 reparameterisation **"on the fit /
+`|X'WX+S|` / derivative path"**. The *regime* was right — it is scale disparity,
+and it is Section 3.1's subject. **The term named was wrong**, and the
+discriminating test says so directly. Amendment 1's statement should be read as
+superseded by this one.
+
+### The measurements, in the order they eliminated things
+
+**1. The criterion is thread-sensitive at FIXED `sp`, and it tracks the spread.**
+
+| point | decade spread | max Δ score | max Δ ‖grad‖ |
+|---|---:|---:|---:|
+| flat / bounds centre / narrow | 0.0-2.0 | ~1e-12 | ~1e-12 |
+| moderate | 6.0 | 8.686e-11 | 6.115e-10 |
+| wide | 11.0 | **5.183e-05** | **8.635e-05** |
+| `mgcv`'s own point | 12.9 | **7.250e-06** | **1.677e-05** |
+
+Six orders of jump between spread 6 and spread 11 — a dose-response in exactly
+the variable Section 3.1 is about. **This alone also explains ADR-222 finding
+5**: the gradient is only reproducible to `8.6e-05`, four orders above the
+`gtol = 1e-8` it is tested against, so that tolerance was never reachable at
+these spreads for a second, independent reason.
+
+**2. Neither determinant carries it.** At the wide point,
+`Δ log|X'WX + S| = 0.000e+00` and `Δ log|S|+ = 0.000e+00`. The whole spread is
+in the penalized deviance, and within it in `beta' S beta`.
+`RECALIBRATION_mgcv_parity_2026-08-25` Section 1.2's judgement that naive
+`slogdet` is adequate is **not** contradicted on this axis. (`log|H|` is
+separately INACCURATE — a random orthogonal similarity moves it by `2.4e-06` at
+`cond(H) = 3.6e11` — but it is thread-DETERMINISTIC. Inaccurate and
+irreproducible are different defects, and only the second is at issue here.)
+
+**3. The arithmetic is innocent; the fit is not.** On ONE fixed `beta`,
+`beta' S beta` is bit-identical across thread counts (`27.850340837640`,
+max diff `0.000e+00`). Refit per thread and it moves in the fifth decimal.
+
+**4. Two intermediate hypotheses refuted.** Per-block contraction
+(`sum_j lambda_j beta' S_j beta`, never forming the mixed-scale matrix) is just
+as sensitive (`7.5e-05` against `1.04e-04`), and there is no large cancellation
+BETWEEN blocks — the largest single term is `1.43e+01` against a result of
+`27.85`. Nor is it first-order amplification of the `beta` perturbation: the
+identity `Δ(b'Sb) = 2b'S db + db'S db` is EXACT for symmetric `S`, and evaluates
+to `1.4e-13` against an exact difference of `2.9e-05`. **An exact identity
+failing by eight orders can only mean the EVALUATION is inaccurate.**
+
+**5. And it is — measured against `float128`.**
+
+| point | `float64` | `float128` | abs error | digits cancelled forming `S beta` |
+|---|---|---|---:|---:|
+| narrow (2.0) | 434.9311166040 | 434.9311166040 | 1.137e-13 | 2.4 |
+| wide (11.0) | 27.850**3408376** | 27.850**4090656** | **6.823e-05** | **9.8** |
+| `mgcv` point (12.9) | 13.5625**473320** | 13.5625**221273** | **2.520e-05** | **9.1** |
+
+Forming `S beta` sums intermediates of magnitude `1.05e+12` to produce a result
+of magnitude `174` — **ten digits of cancellation, leaving six of `float64`'s
+sixteen.** This is precisely what Wood Section 3.1 describes: "numerically the
+penalty can have marked effects in the subspace of the model parameter space
+for which, formally, `beta^T S_j beta = 0`".
+
+### The closed causal chain
+
+1. The `lambda` span thirteen decades, so forming `S beta` cancels ~10 digits
+   and `beta' S beta` carries **~1e-4 absolute error** in `float64`.
+2. That error is **deterministic in `beta`** (hence bit-identical on a fixed
+   one) but **discontinuous in it** — a `1e-15` change in `beta` changes the
+   rounding pattern and moves the computed value by ~`1e-5`.
+3. `beta` differs by ~`1e-15` between thread counts, from BLAS summation order
+   inside the inner PIRLS. That part is unavoidable and is not a defect.
+4. So the REML score behaves as a function carrying **~1e-5 of environment-
+   dependent noise**, and the accounting closes exactly:
+   `0.5 x 1.037e-04 = 5.185e-05` against the measured score spread of
+   `5.183e-05` — **`beta' S beta` accounts for 100% of it.**
+5. The optimiser's path diverges on that noise, and in a landscape with local
+   minima and non-convergent regions it lands in a different basin — `edf_total`
+   off by `9.94`, REML score off by `34.34`.
+
+### A candidate fix, tested — and it separates two properties that are NOT the same
+
+`beta' S_j beta = ||L_j' beta||^2` where `S_j = L_j L_j'`, so the penalty term
+can be evaluated as `sum_j lambda_j ||L_j' beta||^2` — **a sum of squares, with
+no cancellation anywhere and no `1e12` intermediates.**
+
+| point | thread spread, formed `S` | thread spread, sum-of-squares |
+|---|---:|---:|
+| wide (11.0) | 1.037e-04 | **1.954e-13** |
+| `mgcv` point (12.9) | 1.450e-05 | **1.137e-13** |
+
+**Nine orders of reproducibility, for a few lines.** But it must be reported
+with its limitation, which is the interesting part:
+
+| point | accuracy vs `float128`, formed `S` | accuracy, sum-of-squares |
+|---|---:|---:|
+| wide (11.0) | 6.823e-05 | 1.989e-04 |
+| `mgcv` point (12.9) | 2.520e-05 | 5.447e-05 |
+
+**The sum-of-squares form is no more accurate — slightly less.** It is
+*reproducible* because its error is a SMOOTH function of `beta` (sums of
+squares), where the formed-`S` contraction's error is discontinuous in `beta`.
+
+**Accuracy and reproducibility are different properties, they have different
+fixes, and the maintainer's definition of convergence targets the second.** A
+stable-but-biased objective has a well-defined minimiser an optimiser can find
+repeatably; a noisy one does not. Getting the criterion *right* at these spreads
+still needs Section 3.1's reparameterisation, and this ADR does not deliver it.
+
+### Consequences
+
+**Slice 7h registered (new, small, high-value):** evaluate the penalized
+deviance's penalty term as a sum of squares over per-block square roots. ~9
+orders of thread reproducibility on the dominant noise source, contained to one
+expression, with the accuracy limitation stated. It is NOT a substitute for
+slice 8.
+
+**Slice 8 is re-scoped on the real term.** Its justification is no longer "the
+determinants are corrupted" — they are not, on this axis. It is (a) the
+criterion is only accurate to ~1e-4 at these spreads and Section 3.1 is what
+fixes that, and (b) a deterministic Newton solver removes the random-start and
+best-of-N nondeterminism that remains after 7h.
+
+**Amendment 1's registered hypothesis is RESOLVED, and half of it was wrong.**
+Regime confirmed (scale disparity, Section 3.1's subject); term refuted (not the
+determinants, not the derivative path — the penalized deviance's quadratic
+form). The alternative it named — the discontinuity of best-of-N selection —
+was **not needed** to explain the fixed-point sensitivity and remains a separate
+possible contributor to search-level divergence, untested.

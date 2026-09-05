@@ -15,11 +15,28 @@ best mgcv parity candidate."* Raised from the PR #225/#226 review conversation.
 `PLAN_mi_dashboard.md` (the surface being re-pointed).
 **Total slices:** 5, of which slice 4 may legitimately end in "change nothing".
 **Estimated scope:** ~4–6 dev-days autonomous, plus tier-3 dispatches.
-**Status: REGISTERED, NOT STARTED.** Its `CONTINUATION_gam_production_wiring.md`
-is created by whichever session starts slice 1 — deliberately not created here,
-so this epic cannot be mistaken for active while
-`CONTINUATION_mgcv_parity_engine.md` is still IN PROGRESS (one-active-epic
-rule).
+**Status: REGISTERED, NOT STARTED, and BLOCKED — see blocker E.** Its
+`CONTINUATION_gam_production_wiring.md` is created by whichever session starts
+slice 1 — deliberately not created here, so this epic cannot be mistaken for
+active while `CONTINUATION_mgcv_parity_engine.md` is still IN PROGRESS
+(one-active-epic rule).
+
+> ## The slice decomposition below is PROVISIONAL. The findings are not.
+>
+> **Amended 2026-09-05, before merge, against measurements that landed after it
+> was written** (ADR-222 amendments 1-2, PR #228). Read this document in two
+> parts:
+>
+> - **"What was measured" and the blockers are durable** — they are facts about
+>   the codebase and the engine, established by audit and measurement, and they
+>   do not depend on when this epic runs.
+> - **Slices 1-5 are a provisional decomposition** for work that **cannot start
+>   until parity slices 7h and 8 land** (blocker E). Their dependencies and
+>   justifications have already drifted once in a day. Expect to revise them at
+>   the point of execution rather than treating them as ready-to-run.
+>
+> Merged in that spirit: to make the findings discoverable, not to authorise the
+> plan.
 
 ---
 
@@ -110,6 +127,27 @@ decisions and must be separate slices** — a naive re-point would trade a
 0.96-covering band for a 0.68-covering one at age 80+, on the page intended
 as a marketing surface.
 
+**E. The engine is not environment-reproducible, and this BLOCKS slice 3.**
+Measured after this plan was written (ADR-222 amendment 1): on the
+`select=TRUE` N=7 structure, `multistart=True` — the configuration blocker D
+tells slice 3 to pin — is reproducible across seeds but **NOT across thread
+counts**, moving `edf_total` by `10.0` and the REML score by `+34.34` on 2 of 4
+seeds between 1 and 4 threads. Single-start is the mirror image: reproducible
+across threads, not across starts. **No configuration passes both axes.**
+
+ADR-222 amendment 2 then closed the mechanism — catastrophic cancellation in
+`beta' S beta` when the `lambda` span many decades, accounting for 100% of the
+criterion's cross-thread spread — and registered **parity slice 7h** (a
+sum-of-squares evaluation, nine orders of reproducibility for one expression)
+and **slice 8** (the Wood-shaped outer solver).
+
+**Consequence for this epic: slice 3 must not proceed until slice 7h has
+landed.** Wiring a surface whose value depends on the reader's thread count
+onto a page a reinsurer reads is worse than wiring nothing — it would be
+undetectable in review and reproducible only by accident. `mgcv` on the same
+fixture is bit-identical across thread counts, so this is a defect of ours, not
+a property of the problem.
+
 **D. The default configuration is the one that fails the gate.** ADR-221's
 re-gate is passed only by `multistart=True`; a plain single-start
 `fit_polaris_gam` reads `max_abs_eta_diff = 0.4456` against the `2e-2` bound
@@ -196,15 +234,25 @@ the finding is the deliverable.
 
 ## Slice 3 — wire the point estimate behind a flag, default off
 
-- **Depends on:** slices 1 and 2.
+- **Depends on:** slices 1 and 2, **and parity slice 7h (blocker E) — a hard
+  dependency, not a preference.** Until 7h lands, the surface this slice would
+  wire is not reproducible across environments.
 - **Deliverable:** the Experience Improvement page can render its MI surface
   from the validated path, selected by an explicit flag, defaulting to the
   existing behaviour.
-- `multistart=True` pinned (blocker D). Consider `analytic_gradient=True` for
-  the ~9x cost saving, but only once slice 7f of the parity epic has resolved
-  the `ftol` early-exit — **a page that silently reports a non-converged fit is
-  worse than a slow one.** If 7f is unresolved, use `multistart=True` alone and
-  record the cost.
+- `multistart=True` pinned (blocker D) — but note blocker E: multistart is the
+  configuration that passes ADR-221's gate AND the one that fails the
+  cross-thread axis. Pinning it is necessary and not sufficient.
+- **On `analytic_gradient=True`:** this originally read "only once slice 7f has
+  resolved the `ftol` early-exit". **7f is DONE and did NOT resolve it**
+  (ADR-222): it shipped `max_gtol_restarts` as a measured partial mitigation
+  (KKT residual `2.09 -> 0.489`) and re-aimed the real fix at 7g/7h/8. So the
+  original condition has no outcome to wait for. Restated: take
+  `analytic_gradient=True` with `max_gtol_restarts` set, read
+  `max_abs_projected_gradient` rather than `converged`, and record both — **a
+  page that silently reports a non-converged fit is still worse than a slow
+  one**, and `converged` alone does not carry that information (ADR-222
+  finding 5).
 - **DoD:**
   - `[machine]` Flag exists, defaults to the old path, and a test pins that the
     default render is byte-identical to today's.
@@ -280,12 +328,14 @@ the finding is the deliverable.
 
 ## Open questions for the maintainer
 
-1. **Does reproducibility gate the UI claim?** ADR-219 amendment 3 measured a
-   four-decade swing on the multistart row between two identical tier-3 runs;
-   ADR-220's two runs then reproduced bit-identically. Unresolved. A dashboard
-   that re-fits per session could show one user two different numbers. **My
-   recommendation: it gates slice 5 (the published claim) but not slices 1–3
-   (the wiring).**
+1. ~~**Does reproducibility gate the UI claim?**~~ — **RESOLVED 2026-09-05,
+   and against the recommendation this plan originally made.** It was recorded
+   as unresolved, with a recommendation that reproducibility gate slice 5 (the
+   published claim) but not slices 1-3 (the wiring). ADR-222 amendment 1 then
+   measured it: the instability reaches the fitted **surface** (`eta`, `edf`),
+   not only the smoothing parameters, so it bears directly on the WIRING. It
+   now gates slice 3 via blocker E, and slice 5 as well. The original
+   recommendation was wrong because it assumed a machinery-only defect.
 2. **Is a validated surface with an unvalidated band acceptable as an interim?**
    Slice 3 produces exactly that pairing. It may be the right trade — the
    surface improves, the band is no worse than today — but it is a judgement
