@@ -169,6 +169,21 @@ and `4.9e-01`", which was the choice on offer before. **Recommendation:** do not
 decide them now. Both should be set against measurements taken *after* slice 7h,
 because `ε_f` moves nine orders and every derived threshold moves with it.
 
+**The deferral is made safe by a committed criterion, not by a note.** Slice 7h's
+DoD now requires `ε_f` be recorded before *and* after the fix
+(`PLAN_mgcv_parity_engine.md`), because 7h is the slice that moves it and
+therefore the only natural moment to capture it. Without that, this decision
+would be deferred a second time for want of a measurement, and someone would
+have to re-run 7h's own before/after to recover it. Both numbers are also
+carried in `PRODUCT_DIRECTION_2026-07-24.md` so they survive independently of
+this document.
+
+**The general method behind this section** — measure the noise floor, identify
+what carries signal above it, state the tolerance relatively on that subspace,
+and report unresolvability rather than widening — is written up separately as
+`docs/PATTERN_resolvable_tolerances.md` (PROPOSED), which records the two
+independent instances in this epic that produced it.
+
 ## 7. Verification provenance (ADR-193)
 
 This document publishes **no comparison**. The figures it cites (`2.040e-04`,

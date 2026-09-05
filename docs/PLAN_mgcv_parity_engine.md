@@ -2049,6 +2049,17 @@ targets the first.
 - `[machine]` `tests/qa/golden_outputs/` — expected byte-identical (no golden
   exercises this path), and verified rather than assumed.
 - `[judgement]` Reported as a REPRODUCIBILITY fix and never as an accuracy one.
+- `[machine]` **Record the criterion's noise floor `ε_f`, before AND after, and
+  commit both.** This slice is the ONLY natural moment to capture it: 7h is
+  what moves `ε_f` (measured `~1e-4` before, `~1e-13` after — nine orders), and
+  **both thresholds in `docs/PROPOSAL_convergence_certificate.md` §6 are derived
+  from it.** The maintainer deferred those two numbers (2026-09-05) explicitly
+  until a post-7h `ε_f` exists; if this slice ships without recording it, the
+  convergence decision is deferred again for want of a measurement, and someone
+  has to re-run 7h's own before/after to get it. `ε_f` is the spread of the
+  score under perturbations that are mathematically no-ops — the BLAS thread
+  count sweep this epic already uses, i.e.
+  `scripts/gam_penalty_sqrt_form_diagnostic.py`'s second table.
 
 **Out of scope.** The reparameterisation (slice 8); and `log|X'WX+S|`'s own
 inaccuracy (measured at `2.4e-06` under a random orthogonal similarity, and
@@ -2059,6 +2070,15 @@ thread-DETERMINISTIC, so not a reproducibility defect).
 - **Depends on:** slice 7d (the analytic gradient); slice 7g direction 1 (a
   robust inner PIRLS is a prerequisite); ADR-222 amendment 1 for the
   measurement that motivates it.
+- **Carries the convergence decision.**
+  `docs/PROPOSAL_convergence_certificate.md` (PROPOSED, binds nothing) is where
+  `converged` gets re-pointed, and it is staged to land here: this slice
+  computes the Hessian anyway for its Newton step, which makes the
+  certificate's second-order test exact and near-free instead of an `O(N²)`
+  finite-difference add-on. **Two maintainer numbers are owed before it can be
+  adopted** — the relative stationarity tolerance and the curvature-to-noise
+  ratio (proposal §6) — both derived from the `ε_f` that slice 7h's DoD now
+  requires be recorded.
 - **Status: REGISTERED, not started.** Raised by the maintainer, 2026-09-05:
   *"we need a reliable solver (mgcv achieves this so a real and implementable
   mechanism exists, we might want to understand better how we might emulate

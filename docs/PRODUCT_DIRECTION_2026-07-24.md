@@ -3638,11 +3638,62 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   number. *Source: this session, ADR-222 (1st-order — an acceptance-criterion
   decision this slice deliberately did not take).* **IMPORTANT.**
 
+  > **A SOLUTION IS PROPOSED, AND THE DECISION IS NOW TWO PORTABLE NUMBERS
+  > INSTEAD OF ONE ARBITRARY ONE (2026-09-05, maintainer-requested).**
+  > `docs/PROPOSAL_convergence_certificate.md` — **PROPOSED, binds nothing;
+  > adopting it needs an ADR.** Its finding is that the two plateaus above are
+  > *not the same phenomenon*: `2.0e-04` is a **flat direction** (no optimum
+  > exists there, so requiring a small gradient is a category error) and
+  > `4.9e-01` is a **blocked search** (one exists and was not reached). Any
+  > single absolute threshold must misclassify one of them — which is why no
+  > number between them was ever going to be principled. The certificate
+  > measures the noise floor `ε_f` rather than choosing it, tests stationarity
+  > *relatively* and only on directions whose curvature exceeds `ε_f`, adds a
+  > second-order test on that subspace, and returns a four-valued verdict so a
+  > fit optimal to `1e-6` reports `CONVERGED_ON_IDENTIFIED_SUBSPACE` rather
+  > than `False`.
+  >
+  > **THE TWO NUMBERS OWED, recorded here so they are not lost with the
+  > proposal:** (1) the **relative stationarity tolerance** `ε_rel` (e.g. `1e-6`
+  > relative), and (2) the **curvature-to-noise ratio** defining "identified".
+  > Both are acceptance criteria, so both stay "May not decide".
+  > **Deliberately deferred, not forgotten** — both derive from `ε_f`, which
+  > slice 7h moves by nine orders (`~1e-4 → ~1e-13`), so deciding them before
+  > 7h would set them against a noise floor that is about to vanish. **Slice
+  > 7h's DoD now requires `ε_f` be recorded before and after**, which is what
+  > makes the deferral safe rather than open-ended; slice 8 is where the
+  > certificate lands, because its Newton step computes the Hessian anyway.
+  >
+  > **The proposal explicitly does NOT deliver reproducibility** — that needs
+  > 7h (a stable criterion) and slice 8 (a deterministic solver). `mgcv` is
+  > bit-identical because it is deterministic, not because it tests for it.
+  > *Source: maintainer request 2026-09-05, PR #227 (1st-order — the
+  > acceptance-criterion decision above, made tractable).* **IMPORTANT —
+  > needs a maintainer decision, not a routine one.**
+
 - **The same shape as slice 7c, twice in one epic.** A tolerance demanded of a
   quantity the machinery cannot resolve is ill-posed, and the useful move is to
   say so rather than to move the tolerance. Worth remembering as a pattern
   rather than re-deriving it a third time. *Source: this session, ADR-222
   (2nd-order — a methodological observation, not a work item).*
+
+  > **PROMOTED AND WRITTEN DOWN, 2026-09-05, on maintainer endorsement**
+  > (*"this is a better approach to ground our development"*) — so it is no
+  > longer a 2nd-order observation but a method the maintainer has asked
+  > development to be grounded on. **`docs/PATTERN_resolvable_tolerances.md`,
+  > PROPOSED and binding nothing until an ADR adopts it.** Four steps: measure
+  > the quantity's noise floor `ε`; identify which components carry signal
+  > above it; state the tolerance RELATIVELY on that subspace; and when
+  > something is unresolvable, say so rather than widening the tolerance —
+  > which is *why* Anchor 8 / Anchor W5 forbid widening, not merely that they
+  > do. Adds a third verdict (`PASS_ON_RESOLVED_SUBSPACE`) because PASS/FAIL
+  > cannot express "optimal in every direction that has an optimum". Names one
+  > untested application: the coverage study's MC standard error of ≈1.54pp at
+  > 200 replicates means differences below ~3pp are not resolved by it —
+  > comfortable for slice 4's current readings, not necessarily for a narrower
+  > future one. *Source: maintainer endorsement 2026-09-05, PR #227 (1st-order
+  > — a method the maintainer has directed development be grounded on).*
+  > **IMPORTANT.**
 
 ### Harvested 2026-09-05b — convergence defined and measured: no configuration passes both axes, and `mgcv` is bit-identical (ADR-222 amendment 1)
 
