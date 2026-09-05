@@ -2004,6 +2004,17 @@ mandatory rather than complementary.
 - **Depends on:** ADR-222 amendment 2, which measured it.
 - **Status: REGISTERED, not started.** Small, contained, and the single
   highest reproducibility-per-line change this epic has found.
+- **START HERE:** `scripts/gam_penalty_sqrt_form_diagnostic.py` already
+  contains the reference `block_sqrt` (symmetric eigendecomposition, negative
+  eigenvalues clipped, relative rank cut at `1e-14`) and BOTH measurements
+  below — the accuracy comparison against `float128` and the thread-axis
+  spread. Re-run it first to reproduce the baseline, then port `block_sqrt`
+  into `src/`. The companion diagnostics
+  (`gam_reml_term_decomposition_diagnostic.py`,
+  `gam_penalty_cancellation_diagnostic.py`,
+  `gam_penalty_float128_precision_diagnostic.py`) re-measure the first
+  `[machine]` criterion directly. All take the payload from
+  `Rscript scripts/gam_select_multiterm_free_sp_probe.R probe7.json`.
 
 **The gap.** `reml_score_general` evaluates the penalized deviance's penalty
 term as `coef @ penalty @ coef`, forming `S = sum_j lambda_j S_j` first. At the

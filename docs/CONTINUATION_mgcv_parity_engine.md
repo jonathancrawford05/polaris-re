@@ -1467,7 +1467,22 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > carries the measurement instead; what the flag *should* test is registered as
 > a maintainer decision (ADR-222), not taken by the routine.
 >
-> **NEXT: slice 7h** — the discriminating test is DONE (ADR-222 amendment 2)
+> **NEXT: slice 7h — and every measurement behind it is now RE-RUNNABLE.**
+> The diagnostics that produced ADR-222 amendments 1 and 2 were promoted out of
+> the slice 7f session's scratchpad into `scripts/` (2026-09-05, PR #227), so
+> the next session starts by running them, not by rebuilding them from prose:
+> `gam_penalty_sqrt_form_diagnostic.py` (**7h's own candidate fix, with the
+> reference `block_sqrt`**), `gam_reml_term_decomposition_diagnostic.py`,
+> `gam_penalty_cancellation_diagnostic.py`,
+> `gam_penalty_float128_precision_diagnostic.py`,
+> `gam_penalty_amplification_diagnostic.py` (the refuted first-order chain) and
+> `gam_convergence_two_axis_diagnostic.py` (amendment 1's two-axis study).
+> Each takes the payload from
+> `Rscript scripts/gam_select_multiterm_free_sp_probe.R probe7.json`. All six
+> are single-producer `MEASUREMENT (own criterion)` readings under ADR-193 —
+> none may be cited as parity evidence.
+>
+> The discriminating test is DONE (ADR-222 amendment 2)
 > and it named the fix. Evaluate the penalty quadratic form as a sum of squares
 > over per-block square roots: **nine orders of cross-thread reproducibility for
 > a few lines**, on the term that accounts for 100% of the criterion's spread.
