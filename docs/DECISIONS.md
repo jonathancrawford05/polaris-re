@@ -21349,10 +21349,20 @@ rather than to move the tolerance.
 - Threaded through `select_lambdas_continuous_multistart` and
   `fit_polaris_gam`, default off in both.
 
-**Default behaviour is unchanged and it was verified, not assumed:** with
-`max_gtol_restarts` set on the finite-difference path the selected
-`log10(lambda)`, score and `nfev` are all bit-identical to the same call
-without it. `tests/qa/golden_outputs/` untouched.
+**Default behaviour is unchanged**, and the evidence for that is structural
+rather than experimental: at `max_gtol_restarts = 0` the restart block is
+unreachable, so every pre-7f call takes byte-for-byte the same path.
+
+> **Corrected, PR #228 review round 2 [P1-B].** This paragraph originally
+> claimed the property was "verified, not assumed" by setting
+> `max_gtol_restarts` on the finite-difference path and finding the result
+> bit-identical. That experiment **can no longer be run**: review round 1's
+> [P2-3] made an inapplicable budget RAISE rather than be silently ignored, so
+> the call under test now errors. The substance is unaffected — unreachable at
+> `0` is a stronger guarantee than a single bit-identical comparison — but the
+> stated evidence was stale and is replaced here rather than left standing.
+
+`tests/qa/golden_outputs/` untouched.
 
 ### Consequences
 
@@ -21380,9 +21390,19 @@ at 8.4-9.5x fewer evaluations than the finite-difference default. Anyone using
 ## ADR-222 amendment 1: convergence defined by the maintainer, measured on two axes — and the mechanism located in Wood (2011) Section 3.1
 
 **Date:** 2026-09-05. **Status:** ACCEPTED (maintainer, PR #228 conversation).
-**Tier 1** throughout (R 4.3.3 / mgcv 1.9-1, local apt). No reading here is a
-comparison of a Polaris quantity against an `mgcv` quantity **except** the
-final one, which is labelled where it appears.
+**Tier 1** throughout (R 4.3.3 / mgcv 1.9-1, local apt). Two readings involve
+`mgcv` and they are DIFFERENT things, each labelled where it appears: the
+threads table compares `mgcv` against ITSELF (`MEASUREMENT (external reference,
+self-consistency)` — no Polaris operand, and no evidence about Polaris), while
+the `edf_total` reading beside it is a genuine **INDEPENDENT** Polaris-vs-`mgcv`
+comparison. Everything else is `MEASUREMENT (own criterion)`.
+
+> **Corrected, PR #228 review round 2 [P1-D].** As first written this sentence
+> said the "final one" was the only Polaris-vs-`mgcv` reading and was labelled —
+> but the labelled one was the self-consistency table, and the actual
+> Polaris-vs-`mgcv` reading below it carried no class at all, inside a section
+> whose verdict said there was no Polaris operand. Both are now labelled
+> separately.
 
 ### The definition, and what it settles
 
@@ -21463,10 +21483,22 @@ it compares `mgcv` against ITSELF across environments. Provenance
 `MEASUREMENT (external reference, self-consistency)` — it establishes that the
 target is achievable, and nothing about Polaris.
 
-Worth recording beside it: our own seed `20260907` reached `edf_total = 14.5613`
-at REML score `523.645058`, against `mgcv`'s own `523.645336` (ADR-220). **The
-engine can reach `mgcv`'s answer; it cannot be relied on to.** This is a solver
-RELIABILITY problem, not an accuracy one — which is a much better-posed problem
+**A second, separate reading — and this one IS a Polaris-vs-`mgcv`
+comparison.** Our own seed `20260907` reached `edf_total = 14.5613` at REML
+score `523.645058`, against `mgcv`'s `14.5624` / `523.645336` (ADR-220).
+
+**Provenance: INDEPENDENT.** The mechanical test passes on the signature —
+Polaris's blind free-`sp` search (`fit_select_free_sp_case`, whose input type
+carries no `sp`/`eta`/`edf` key) does not read `mgcv`'s payload, and `mgcv`
+selects its own. So this is a genuine comparison of two independent producers,
+not a harness check. It carries no `VerificationClaim` of its own because it is
+a one-off diagnostic reading quoted from ADR-220's committed measurement rather
+than a new gated quantity; **it is reported, never gated**, and any use of it as
+acceptance evidence would need declaring first
+(`docs/VERIFICATION_STANDARD.md` §3.1).
+
+**The engine can reach `mgcv`'s answer; it cannot be relied on to.** That is a
+solver RELIABILITY problem, not an accuracy one — a much better-posed problem
 than the epic has had before.
 
 ### The mechanism, from Wood (2011) Section 3 — and what we did not implement

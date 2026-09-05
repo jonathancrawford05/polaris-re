@@ -816,6 +816,11 @@ def select_lambdas_continuous_multistart(
             :func:`select_lambdas_continuous` call unchanged (PLAN slice 7f).
             Default ``0`` — existing callers are unaffected. Applies per
             start, so each start independently gets up to this many restarts.
+            **A positive budget without ``analytic_gradient=True`` raises
+            ``PolarisValidationError`` from the first start** — this wrapper
+            catches only ``PolarisComputationError`` per start, so that raise
+            propagates rather than being absorbed as a failed start
+            (PR #228 review round 2 [P2-B]).
 
     Returns:
         :class:`MultiStartLambdaSelection`.

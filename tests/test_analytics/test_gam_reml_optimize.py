@@ -792,11 +792,15 @@ class TestGtolRestart:
         with pytest.raises(PolarisValidationError, match="analytic_gradient=True"):
             select_lambdas_continuous(y, design, family, blocks, max_gtol_restarts=8)
 
-    def test_the_finite_difference_path_is_untouched_when_the_budget_is_off(self) -> None:
-        """The pre-7f path must be identical, not merely close — so this pins
-        bit-identity with ``assert_array_equal`` on every field, matching this
-        file's own precedent in ``test_deterministic_starts_across_calls``
-        rather than a bare float ``==`` (PR #228 review [P2-4])."""
+    def test_passing_the_budget_explicitly_as_zero_changes_nothing(self) -> None:
+        """``max_gtol_restarts=0`` and the default take the same code path, so
+        this pins DETERMINISM — no hidden global state, no unseeded draw —
+        rather than equivalence to the pre-7f engine, which no in-repo test can
+        establish without a pre-7f reference (PR #228 review round 2 [P2-A]).
+        That the pre-7f path is unchanged is structural, not experimental: at
+        ``0`` the restart block is unreachable. Uses ``assert_array_equal``
+        throughout, matching this file's own ``test_deterministic_starts_across_calls``
+        rather than a bare float ``==`` (round 1 [P2-4])."""
         y, design, family, blocks = self._toy()
         without = select_lambdas_continuous(y, design, family, blocks)
         with_zero = select_lambdas_continuous(y, design, family, blocks, max_gtol_restarts=0)
