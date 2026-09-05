@@ -1438,9 +1438,13 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > **Slice 7f is DONE, 2026-09-05 (ADR-222) — and it did NOT close its gap,
 > which is the result, not a shortfall.** All three of ADR-220's candidates were
 > evaluated rather than one being chosen. **Candidate 1 (a tighter `factr`) is
-> REFUTED**: `1e7`, `1e2` and `1.0` — seven orders — give identical `nfev`,
-> identical score, and the identical `4.889e-01` residual, because the relative
-> reduction really is zero and SciPy's `ftol` message is an honest report.
+> REFUTED at the stall ADR-220 named**: `1e7`, `1e2` and `1.0` — seven orders —
+> give identical `nfev = 42`, score `524.788031` and residual `2.086049`, so
+> the `ftol` test is not the binding constraint on that exit. A plain re-entry
+> from the same point at the SAME `factr` improves the score by `1.110350`:
+> **the exit is state-governed, not threshold-governed.** (First published from
+> the post-restart plateau; re-measured at the original stall after PR #228
+> review [P1-1], conclusion unchanged.)
 > **Candidate 2 (restart) is a real but PARTIAL mitigation**, shipped opt-in as
 > `select_lambdas_continuous(max_gtol_restarts=...)`: on the same N=7 case the
 > score falls `524.788031 → 523.677681` and the KKT residual `2.086 → 0.489`

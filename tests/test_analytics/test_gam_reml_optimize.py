@@ -781,19 +781,30 @@ class TestGtolRestart:
         assert sel.n_gtol_restarts == 0
         assert sel.max_abs_projected_gradient is None
 
-    def test_the_finite_difference_path_ignores_the_budget_entirely(self) -> None:
+    def test_a_budget_without_the_analytic_gradient_raises(self) -> None:
         """Gated on ``analytic_gradient`` deliberately: a finite-differenced
         gradient's own noise floor sits far above any sensible ``gtol``
-        (ADR-212), so testing it would spin the loop on noise. The result must
-        be identical with the budget set and unset — not merely close."""
+        (ADR-212), so testing it would spin the loop on noise. It RAISES rather
+        than silently ignoring the budget — a negative budget already raises,
+        and a caller who sets an inapplicable one deserves the same signal
+        (PR #228 review [P2-3])."""
+        y, design, family, blocks = self._toy()
+        with pytest.raises(PolarisValidationError, match="analytic_gradient=True"):
+            select_lambdas_continuous(y, design, family, blocks, max_gtol_restarts=8)
+
+    def test_the_finite_difference_path_is_untouched_when_the_budget_is_off(self) -> None:
+        """The pre-7f path must be identical, not merely close — so this pins
+        bit-identity with ``assert_array_equal`` on every field, matching this
+        file's own precedent in ``test_deterministic_starts_across_calls``
+        rather than a bare float ``==`` (PR #228 review [P2-4])."""
         y, design, family, blocks = self._toy()
         without = select_lambdas_continuous(y, design, family, blocks)
-        with_budget = select_lambdas_continuous(y, design, family, blocks, max_gtol_restarts=8)
-        np.testing.assert_array_equal(without.log_lambda, with_budget.log_lambda)
-        assert without.reml_score == with_budget.reml_score
-        assert without.n_function_evals == with_budget.n_function_evals
-        assert with_budget.n_gtol_restarts == 0
-        assert with_budget.max_abs_projected_gradient is None
+        with_zero = select_lambdas_continuous(y, design, family, blocks, max_gtol_restarts=0)
+        np.testing.assert_array_equal(without.log_lambda, with_zero.log_lambda)
+        np.testing.assert_array_equal(without.reml_score, with_zero.reml_score)
+        np.testing.assert_array_equal(without.n_function_evals, with_zero.n_function_evals)
+        assert with_zero.n_gtol_restarts == 0
+        assert with_zero.max_abs_projected_gradient is None
 
     def test_enabling_restarts_measures_and_reports_the_residual(self) -> None:
         y, design, family, blocks = self._toy()

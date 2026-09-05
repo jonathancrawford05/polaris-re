@@ -21207,23 +21207,39 @@ KKT-optimal**, and the two bound-pinned blocks contribute nothing to that — th
 residual sits entirely on free blocks. ADR-220's characterisation survives
 being checked.
 
-### Finding 2 — candidate 1 (a tighter `factr`) is REFUTED, and not marginally
+### Finding 2 — candidate 1 (a tighter `factr`) is REFUTED, at the point ADR-220 named
 
-Re-running `minimize` from the stalled point with `factr` at `1e7` (SciPy's
-default), `1e2` and `1.0` — seven orders of range:
+**Measured at the reproduced ADR-220 stall itself** — the blind search from the
+bounds centre, same start, varying only `factr` across seven orders:
 
-| `factr` | nfev | score change | `max|g^P|` | message |
+| `factr` | nfev | score | `max|g^P|` | message |
 |---|---:|---:|---:|---|
-| 1e7 | 4 | +0.000e+00 | 4.889e-01 | RELATIVE REDUCTION OF F <= FACTR*EPSMCH |
-| 1e2 | 4 | +0.000e+00 | 4.889e-01 | RELATIVE REDUCTION OF F <= FACTR*EPSMCH |
-| 1.0 | 4 | +0.000e+00 | 4.889e-01 | RELATIVE REDUCTION OF F <= FACTR*EPSMCH |
+| 1e7 (default) | 42 | 524.788031 | 2.086049 | RELATIVE REDUCTION OF F <= FACTR*EPSMCH |
+| 1e2 | 42 | 524.788031 | 2.086049 | RELATIVE REDUCTION OF F <= FACTR*EPSMCH |
+| 1.0 | 42 | 524.788031 | 2.086049 | RELATIVE REDUCTION OF F <= FACTR*EPSMCH |
 
-Identical in every column. Tightening the threshold does not change the
-outcome **at all**, because the relative reduction really is zero: the line
-search finds no improving point to reduce F by. **SciPy's message is honest.**
-ADR-220's framing — an `ftol` rule firing "instead of" `gtol` — described the
-symptom correctly but pointed at the wrong culprit. The stopping rule is
-reporting a true fact about what the line search achieved.
+**Identical in every column, down to the evaluation count.** A `1e7`-times
+tighter threshold does not buy even one additional iteration, so the `ftol`
+test is not the binding constraint on that exit at all.
+
+**And the contrast that isolates what is:** a plain re-entry of `minimize` from
+that same stalled point, at the SAME default `factr`, reaches `523.677681` in
+23 evaluations — an improvement of `1.110350`. Same threshold, same objective,
+same point; the only thing that changed is that L-BFGS-B's accumulated state
+(its limited-memory Hessian approximation and line-search history) was reset.
+
+**So the exit is state-governed, not threshold-governed.** ADR-220's framing —
+an `ftol` rule firing "instead of" the `gtol` the caller set — described the
+symptom correctly but pointed at the wrong culprit: no setting of that rule
+changes anything, while resetting the optimiser's state changes a great deal.
+
+> **Correction, PR #228 review [P1-1].** As first published, this finding's
+> sweep was run from the POST-RESTART plateau (`nfev = 4`, score change
+> `+0.000e+00`, residual `4.889e-01`) rather than from the stall ADR-220 named,
+> and the review caught that the claim was therefore broader than the
+> measurement. The sweep was re-run at the original stall; the table above is
+> that re-run, and the conclusion survives. The plateau readings stand as a
+> second, independent refutation at a second point.
 
 ### Finding 3 — the real cause: the objective is not computable in a neighbourhood of the stall
 

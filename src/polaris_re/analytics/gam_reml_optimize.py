@@ -343,9 +343,16 @@ class ContinuousLambdaSelection:
     """``tr(F)`` at ``log_lambda`` — Anchor 4's EDF definition, via
     :func:`~polaris_re.analytics.gam_fit.effective_degrees_of_freedom`."""
     n_function_evals: int
-    """SciPy's own ``nfev`` — how many ``(fit, score)`` evaluations the
-    search cost, the continuous-search analogue of ``LambdaSelection``'s
-    ``n_evaluated``."""
+    """SciPy's own ``nfev``, summed across the initial search and any restarts
+    — how many ``(fit, score)`` evaluations the search cost, the
+    continuous-search analogue of ``LambdaSelection``'s ``n_evaluated``.
+
+    **Excludes the restart loop's own residual probes** (PR #228 review
+    [P2-2]): when ``max_gtol_restarts > 0``, each iteration also runs one
+    :func:`penalized_fit_score_and_gradient` to test the criterion, and those
+    are not SciPy evaluations so they are not counted here. Budget it as one
+    extra fit per restart plus one, and read this field as "what the optimiser
+    spent", not "what the call cost"."""
     n_rejected: int
     """Trial points whose own penalized IRLS did not converge and were
     scored :data:`_REJECTED_SCORE` — mirrors ``LambdaSelection.n_rejected``,
@@ -502,6 +509,16 @@ def select_lambdas_continuous(
             f"select_lambdas_continuous: max_gtol_restarts={max_gtol_restarts} is negative. "
             "Use 0 to disable the PLAN slice 7f restart, or a positive budget."
         )
+    if max_gtol_restarts > 0 and not analytic_gradient:
+        raise PolarisValidationError(
+            f"select_lambdas_continuous: max_gtol_restarts={max_gtol_restarts} needs "
+            "analytic_gradient=True. The restart tests a gradient against gtol, and a "
+            "finite-differenced gradient's own noise floor sits far above any sensible "
+            "gtol (ADR-212), so the loop would spin on noise. Raising rather than "
+            "silently ignoring the budget: a negative one already raises, and a caller "
+            "who sets an inapplicable one deserves the same signal (PR #228 review "
+            "[P2-3])."
+        )
 
     tally = {"rejected": 0, "evaluated": 0}
     any_converged = {"flag": False}
@@ -609,9 +626,16 @@ def select_lambdas_continuous(
                 return None
             return sc, float(np.max(np.abs(projected_gradient(grad, pt, bounds))))
 
+        # Carries the previous iteration's own measurement forward, so an
+        # improving restart does not pay for `_residual_at` twice at the same
+        # point (PR #228 review [P2-2]). Each such call is a full IRLS fit plus
+        # a gradient, and none are counted in `n_function_evals` — see that
+        # field's docstring.
+        measured: tuple[float, float] | None = None
         while True:
             point = np.asarray(result.x, dtype=np.float64)
-            measured = _residual_at(point)
+            if measured is None:
+                measured = _residual_at(point)
             if measured is None:
                 # Cannot test the criterion here. Keep the point we have, and
                 # leave the residual unreported rather than publishing one that
@@ -626,6 +650,7 @@ def select_lambdas_continuous(
             n_gtol_restarts += 1
             new_point = np.asarray(restarted.x, dtype=np.float64)
             new_measured = _residual_at(new_point)
+            measured = new_measured
             if new_measured is None or not new_measured[0] < score_here:
                 # No strict improvement — L-BFGS-B has nothing further to
                 # extract from this point, so the remaining budget would only
@@ -664,7 +689,7 @@ def select_lambdas_continuous(
         # that redefining it as "gtol met on the true projected gradient" would
         # report a perfectly good fit as unconverged: on the well-conditioned
         # N=4 control the restarted search reaches a residual of 2.0e-04 — three
-        # orders better than the N=7 case's 4.9e-01, and still eight orders
+        # orders better than the N=7 case's 4.9e-01, and still four orders
         # above `gtol = 1e-8`, because that gtol is below what this objective
         # can resolve at all. Picking some threshold in between to make both
         # cases read "converged" would be tuning a number to make a check pass.

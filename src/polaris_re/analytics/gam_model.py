@@ -415,6 +415,15 @@ def fit_polaris_gam(
             :func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous_multistart`
             when ``multistart=True``; ignored otherwise.
         analytic_gradient: passed through to whichever search runs (PLAN
+        max_gtol_restarts: passed through to whichever search runs (PLAN
+            slice 7f, ADR-222). Default ``0`` — off, and the default path is
+            byte-identical to the pre-7f behaviour. **Requires
+            ``analytic_gradient=True``** and raises otherwise, rather than
+            being a silent no-op. A measured PARTIAL mitigation, never a
+            closure: on slice 7f's own N=7 fixture it takes the KKT residual
+            from ``2.09`` to ``4.9e-01`` and stops there, because the
+            remaining obstruction is the inner IRLS's own non-convergent
+            neighbourhood rather than any stopping rule.
             slice 7d). Default ``False`` — every existing caller's behaviour
             is unchanged. Measured on the N=4 fixture
             (``tests/fixtures/gam_reml_optimize_near_flat_direction.json``):

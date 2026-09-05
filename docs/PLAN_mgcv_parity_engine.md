@@ -1857,9 +1857,13 @@ acceptance gate (Part 2).
 - **Status: DONE, 2026-09-05 (ADR-222) — and the gap is NOT closed, which is
   the slice's reported result rather than a shortfall in it.** All three of
   ADR-220's candidates were evaluated. Candidate 1 (a tighter `factr`) is
-  **REFUTED**: `1e7`, `1e2` and `1.0` give identical `nfev`, identical score
-  and the identical residual, because the relative reduction really is zero and
-  SciPy's message is honest. Candidate 2 (restart) is a **real but PARTIAL
+  **REFUTED at the stall ADR-220 named**: `1e7`, `1e2` and `1.0` give identical
+  `nfev = 42`, identical score `524.788031` and the identical residual
+  `2.086049` — a `1e7`-times tighter threshold buys not one extra iteration, so
+  the `ftol` test is not the binding constraint. The contrast that isolates
+  what is: a plain re-entry from that same point at the SAME `factr` improves
+  the score by `1.110350`. **The exit is state-governed, not
+  threshold-governed.** Candidate 2 (restart) is a **real but PARTIAL
   mitigation**, shipped opt-in as `max_gtol_restarts`: score `524.788031` →
   `523.677681`, KKT residual `2.086` → `0.489`, for ~27 extra evaluations.
   Candidate 3 (`multistart=True`) stands as the practical answer today.

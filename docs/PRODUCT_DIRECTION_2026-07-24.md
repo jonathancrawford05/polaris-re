@@ -3493,9 +3493,11 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
 
 - **ADR-220's diagnosis was pointing at the wrong culprit, and measuring all
   three of its candidates is what found that.** The `ftol` message is a true
-  report: `factr` at `1e7`, `1e2` and `1.0` — seven orders — produces identical
-  `nfev`, identical score and the identical residual, because the relative
-  reduction really is zero. The line search finds nothing to improve because
+  report: at the stall ADR-220 named, `factr` at `1e7`, `1e2` and `1.0` — seven
+  orders — produces identical `nfev = 42`, score `524.788031` and residual
+  `2.086049`, so the threshold is not the binding constraint. A plain re-entry
+  at the SAME `factr` improves the score by `1.110350`, isolating L-BFGS-B's
+  accumulated state as what actually stops it. The line search finds nothing to improve because
   `penalized_irls_general` fails to converge at neighbouring trial points
   (`h = 1e-5`, `t = 1e-5`), and `_REJECTED_SCORE`'s flat `1e10` sits exactly
   where it probes, against a true score of `~523.7` — while descent measurably

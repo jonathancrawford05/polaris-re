@@ -74,15 +74,29 @@ blocks, and the bound-pinned ones contribute exactly zero.
 
 ### Pass 2 — candidate 1, a tighter `factr`
 
-| `factr` | nfev | score change | `max|g^P|` |
-|---|---:|---:|---:|
-| 1e7 (default) | 4 | +0.000e+00 | 4.889e-01 |
-| 1e2 | 4 | +0.000e+00 | 4.889e-01 |
-| 1.0 | 4 | +0.000e+00 | 4.889e-01 |
+At the reproduced ADR-220 stall, same start, varying only `factr`:
 
-**Verdict: REFUTED, and not marginally — identical in every column across seven
-orders.** The relative reduction really is zero, so SciPy's message is honest
-and the stopping rule is not the culprit. This is what redirected the slice.
+| `factr` | nfev | score | `max|g^P|` |
+|---|---:|---:|---:|
+| 1e7 (default) | 42 | 524.788031 | 2.086049 |
+| 1e2 | 42 | 524.788031 | 2.086049 |
+| 1.0 | 42 | 524.788031 | 2.086049 |
+
+**Verdict: REFUTED — identical in every column across seven orders, down to the
+evaluation count.** A `1e7`-times tighter threshold buys not one extra
+iteration, so the `ftol` test is not the binding constraint on that exit.
+
+**The contrast that isolates what is:** a plain re-entry from the same point at
+the SAME default `factr` reaches `523.677681` in 23 evaluations. Same
+threshold, same objective, same point — only L-BFGS-B's accumulated state was
+reset. **The exit is state-governed, not threshold-governed.** This is what
+redirected the slice.
+
+> **Corrected after PR #228 review [P1-1].** As first written this pass swept
+> `factr` from the POST-RESTART plateau, not from the stall ADR-220 named, and
+> the review was right that the claim was broader than the measurement. Re-run
+> at the original stall — table above. The plateau readings (`nfev = 4`, zero
+> score change, `4.889e-01`) stand as an independent second refutation.
 
 ### Pass 3 — candidate 2, restart; and what the plateau actually is
 
@@ -188,3 +202,48 @@ remains, rather than reporting a partial mitigation as a closure") is MET.
 
 All are in `PRODUCT_DIRECTION_2026-07-24.md` under `Harvested 2026-09-05`,
 order-tagged. Nothing 3rd-order or deeper was promoted.
+
+## Post-review addendum — PR #228's automated review
+
+Approved, zero P0s, six findings. All verified before acting; five fixed, one
+answered with a measurement that changed the finding it addressed.
+
+- **[P1-1] the `factr` sweep was run at the wrong point — FIXED, and the
+  finding is now stronger.** The review was right: the sweep ran from the
+  post-restart plateau, while ADR-220 proposed candidate 1 against the original
+  exit, and at that exit a plain re-entry demonstrably *does* improve the score
+  by `1.110350` — so "the relative reduction really is zero" was established at
+  one point and assumed at another. **Re-measured at the original stall.**
+  `factr` at `1e7`/`1e2`/`1.0` gives identical `nfev = 42`, score `524.788031`
+  and residual `2.086049`: a `1e7`-times tighter threshold buys not one extra
+  iteration. **The refutation survives, and the re-entry contrast now isolates
+  the mechanism properly — the exit is state-governed, not threshold-governed.**
+  The review's own hypothesis (that a tighter `factr` "would have contested"
+  that exit) is refuted by the same measurement. Corrected in all five places
+  it had propagated.
+- **[P1-2] `fit_polaris_gam`'s `max_gtol_restarts` had no `Args:` entry —
+  FIXED.**
+- **[P2-1] "eight orders" should read "four orders" — FIXED.** `2.04e-4 / 1e-8
+  ≈ 2e4`. ADR-222's Finding 5 had it right; the source comment was the copy
+  that drifted, and it is the in-code justification for not redefining the
+  flag.
+- **[P2-2] the restart loop recomputed a residual it already held — FIXED** by
+  carrying `measured` across the iteration. The exclusion of probe fits from
+  `n_function_evals` is now documented on that field rather than left implicit.
+- **[P2-3] an inapplicable budget was a silent no-op — FIXED.**
+  `max_gtol_restarts > 0` without `analytic_gradient=True` now raises. The
+  review's argument was the decisive one: a *negative* budget already raised,
+  so silently ignoring an *inapplicable* one was the inconsistency.
+- **[P2-4] bare float `==` for a bit-identity assertion — FIXED** to
+  `assert_array_equal` on every field, matching this file's own precedent.
+- **[P2-5] the perf row pinned an unreachable commit — FIXED.** The review's
+  `git cat-file` failed where mine succeeded, which is exactly the point: the
+  object existed in my local store as a dangling `reset --soft` artifact but was
+  **not reachable from HEAD**, so it did not exist for anyone else. The row was
+  regenerated against a reachable commit. Confirmed with
+  `git merge-base --is-ancestor`.
+
+The review also raised the appended row's `0.12005s` wall-time reading as a
+~2x single-point excursion. It is runner noise on a probe this PR does not
+touch (`output_fingerprint` unchanged), and the detector's windowed medians
+agree — but the regenerated row supersedes that reading anyway.
