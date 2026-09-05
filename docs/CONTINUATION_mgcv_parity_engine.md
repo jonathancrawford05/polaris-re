@@ -1467,12 +1467,14 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > carries the measurement instead; what the flag *should* test is registered as
 > a maintainer decision (ADR-222), not taken by the routine.
 >
-> **NEXT: the cheap discriminating test registered by ADR-222 amendment 1** —
-> apply `gam_reml_appendix_b`'s existing transform through the fit and the
-> derivatives, and re-run the thread axis. It either motivates slice 8 or
-> redirects it, and costs a fraction of building a Hessian. **Then slice 7g
-> direction 1** (a robust inner PIRLS — promoted, and a prerequisite for any
-> outer method), **then slice 8** (the Wood-shaped outer solver).
+> **NEXT: slice 7h** — the discriminating test is DONE (ADR-222 amendment 2)
+> and it named the fix. Evaluate the penalty quadratic form as a sum of squares
+> over per-block square roots: **nine orders of cross-thread reproducibility for
+> a few lines**, on the term that accounts for 100% of the criterion's spread.
+> **Then slice 7g direction 1** (a robust inner PIRLS — promoted, and a
+> prerequisite for any outer method), **then slice 8** (the Wood-shaped outer
+> solver, now justified on ACCURACY and DETERMINISM rather than on the
+> determinants, which measured clean).
 > Slice 7g direction 2 (a growing barrier in place of `_REJECTED_SCORE`'s
 > cliff) is DEMOTED to a fallback: it patches L-BFGS-B's line search, and
 > L-BFGS-B is what slice 8 replaces.
@@ -1526,3 +1528,35 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > **Qualification owed on the committed claim:** `SELECT_FREE_SP_MODEL_CLAIM`'s
 > passing reading is taken under CI's pinned `OPENBLAS_NUM_THREADS=1`. Sound for
 > that environment, not withdrawn — and **not** established across environments.
+
+> **MECHANISM CLOSED — 2026-09-05 (ADR-222 amendment 2), and amendment 1 named
+> the wrong term.** The discriminating test amendment 1 registered was run. The
+> REGIME is confirmed — scale disparity, Wood Section 3.1's subject, with a
+> clean dose-response (score spread `~1e-12` at decade-spread ≤2, `5.2e-05` at
+> spread 11). **The TERM is not what amendment 1 said.** Both determinants are
+> thread-CLEAN (`Δ log|X'WX+S|` and `Δ log|S|+` are `0.000e+00`); the entire
+> spread is `beta' S beta`, and the accounting closes to 100%
+> (`0.5 x 1.037e-04 = 5.185e-05` against a measured `5.183e-05`).
+>
+> **The chain, closed.** Forming `S beta` sums intermediates of `1.05e+12` to
+> produce `174` — ten digits of cancellation — so `beta' S beta` is wrong in the
+> fifth decimal against `float128`. That error is deterministic in `beta` but
+> DISCONTINUOUS in it, so the `~1e-15` differences `beta` picks up from BLAS
+> summation order move the score by `~1e-5`, the optimiser's path diverges, and
+> it lands in a different basin. Four hypotheses were eliminated on the way
+> (β-perturbation first-order, between-block cancellation, per-block
+> contraction, and the determinants).
+>
+> **A cheap fix is measured and registered as slice 7h:**
+> `sum_j lambda_j ||L_j' beta||^2` — a sum of squares, no cancellation. Thread
+> spread `1.037e-04 -> 1.954e-13`. **Nine orders.**
+>
+> **With the limitation that must travel with it: it is NOT more accurate** —
+> slightly worse against `float128`. It makes the criterion STABLE, not RIGHT.
+> Accuracy still needs Section 3.1's reparameterisation. **Reproducibility and
+> accuracy are different properties with different fixes**, and the maintainer's
+> convergence definition targets the first.
+>
+> **Slice 8 re-scoped** onto (a) accuracy, which 7h does not fix, and (b)
+> determinism, which no criterion fix reaches. Its old justification — corrupted
+> determinants — is measured false.

@@ -3608,3 +3608,49 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   readings reached the maintainer before being widened, and both had to be
   corrected. *Source: this session (2nd-order — a methodological observation,
   not a work item).*
+
+### Harvested 2026-09-05c — the mechanism closed: catastrophic cancellation in `beta' S beta`, and amendment 1 named the wrong term (ADR-222 amendment 2)
+
+- **The discriminating test was run and it CORRECTS the prior amendment.** The
+  regime is confirmed — scale disparity, Wood 3.1's subject, with a clean
+  dose-response (score spread `~1e-12` at decade-spread ≤2, `5.183e-05` at 11).
+  The TERM is not what amendment 1 named: **both determinants are thread-clean**
+  (`Δ log|X'WX+S|` and `Δ log|S|+` both `0.000e+00`), and the entire spread is
+  the penalized deviance's `beta' S beta`, with the accounting closing to 100%.
+  *Source: this session, ADR-222 amendment 2 (1st-order — it corrects the
+  mechanism the prior amendment published).*
+
+- **The chain is closed end to end.** Forming `S beta` sums intermediates of
+  `1.05e+12` to produce `174` — ten digits of cancellation — so `beta' S beta`
+  is wrong in the fifth decimal against `float128`. That error is deterministic
+  in `beta` but DISCONTINUOUS in it, and `beta` moves `~1e-15` with BLAS
+  summation order, so the score carries `~1e-5` of environment-dependent noise
+  and the optimiser lands in a different basin. Four candidate mechanisms were
+  eliminated on the way. *Source: this session, ADR-222 amendment 2
+  (1st-order).*
+
+- **SLICE 7h REGISTERED — the highest reproducibility-per-line change this epic
+  has found.** Evaluate the penalty term as `sum_j lambda_j ||L_j' beta||^2`, a
+  sum of squares with no cancellation: thread spread `1.037e-04 -> 1.954e-13`,
+  **nine orders**, contained to one expression. *Source: this session, ADR-222
+  amendment 2 (1st-order).* **IMPORTANT.**
+
+- **And the limitation that must travel with it: it is NOT more accurate** —
+  slightly worse against `float128` than the formed-`S` contraction. It makes
+  the criterion STABLE, not RIGHT. **Reproducibility and accuracy are different
+  properties with different fixes**, and the maintainer's convergence definition
+  targets the first. Anyone reporting 7h as an accuracy improvement would be
+  misstating it. *Source: this session, ADR-222 amendment 2 (1st-order — a
+  mislabelling risk on a shipped change).*
+
+- **`log|X'WX+S|` is INACCURATE but thread-DETERMINISTIC** — a random orthogonal
+  similarity moves it by `2.4e-06` at `cond(H) = 3.6e11`. Not a reproducibility
+  defect, so out of scope for 7h; recorded because it is a real accuracy gap
+  nobody had measured, and because "inaccurate" and "irreproducible" have been
+  conflated once already in this epic. *Source: this session, ADR-222 amendment
+  2 (2nd-order — a measured gap with no current consequence).*
+
+- **Slice 8 re-scoped onto its real justification:** accuracy (which 7h does not
+  fix) and determinism (which no criterion fix reaches). Its previous
+  justification — corrupted determinants — is measured false. *Source: this
+  session, ADR-222 amendment 2 (1st-order).*

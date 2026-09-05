@@ -309,3 +309,54 @@ No code changed in this addendum — it is measurement and documentation only.
 The convergence flag was deliberately not built (no configuration passes both
 axes). The reparameterisation hypothesis was **not** tested; it is registered
 with its own refutation as the cheap next step, ahead of slice 8.
+
+## Third addendum — the discriminating test, run (ADR-222 amendment 2)
+
+Maintainer-directed: *"Close the reconciliation gap first."*
+
+### Hypotheses eliminated, in order
+
+1. **Wood 3.1 missing on the determinant path** (amendment 1's own statement) —
+   **REFUTED.** `Δ log|X'WX+S|` and `Δ log|S|+` are both `0.000e+00` across
+   thread counts at the wide point. The prior `RECALIBRATION` §1.2 judgement
+   that naive `slogdet` suffices is not contradicted on this axis.
+2. **First-order amplification of the `beta` perturbation** — **REFUTED.** The
+   identity `Δ(b'Sb) = 2b'S db + db'S db` is EXACT for symmetric `S` and
+   evaluates to `1.4e-13` against an exact difference of `2.9e-05`. An exact
+   identity failing by eight orders localises the fault to the EVALUATION.
+3. **Cancellation BETWEEN penalty blocks** — **REFUTED.** Per-block contraction
+   is as sensitive as formed-`S` (`7.5e-05` vs `1.04e-04`), and the largest
+   single term (`1.43e+01`) is comparable to the result (`27.85`).
+4. **Thread-dependent arithmetic** — **REFUTED.** On one FIXED `beta`,
+   `beta' S beta` is bit-identical across thread counts.
+
+### What it is
+
+Forming `S beta` sums intermediates of `1.05e+12` to produce `174` — **ten
+digits of cancellation** — so `beta' S beta` is wrong in the fifth decimal
+against `float128` (`6.823e-05`). The error is deterministic in `beta` but
+DISCONTINUOUS in it; `beta` moves `~1e-15` with BLAS summation order; the score
+inherits `~1e-5` of environment noise. **The accounting closes to 100%.**
+
+### The fix, and the distinction it forced
+
+`sum_j lambda_j ||L_j' beta||^2` — thread spread `1.037e-04 -> 1.954e-13`, nine
+orders. **But no more accurate — slightly worse.** That separation between
+REPRODUCIBILITY and ACCURACY is the conceptual result of this addendum, and it
+is why slice 7h and slice 8 are now two slices rather than one.
+
+### Method note
+
+Every step of this addendum refuted its own predecessor's hypothesis, including
+two of my own published in amendment 1 hours earlier. The measurements were
+cheap; the wrong mechanism, had it been built against, would not have been. The
+sequence is recorded above because "the discriminating test" was worth more than
+the slice it was discriminating for.
+
+### What was NOT done
+
+No production code changed. The sum-of-squares evaluation was prototyped in
+scratch only and is registered as slice 7h with its own DoD — including a
+`[machine]` requirement to re-measure `SELECT_FREE_SP_MODEL_CLAIM` at both
+tiers, because it moves the criterion at the `1e-4` level and every committed
+reading on a wide-spread structure would shift.

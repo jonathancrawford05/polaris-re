@@ -21569,3 +21569,139 @@ for that environment and is not withdrawn. But it is **not** established across
 environments, and a contributor at a default thread count can obtain a
 materially different fit from the same data and code. For a number intended as a
 marketing benchmark (ADR-219 amendment 1), that qualification belongs beside it.
+
+## ADR-222 amendment 2: the mechanism, closed — it is catastrophic cancellation in `beta' S beta`, and amendment 1 named the wrong term
+
+**Date:** 2026-09-05. **Status:** ACCEPTED. **Tier 1** (R 4.3.3 / mgcv 1.9-1).
+**Provenance:** `MEASUREMENT (own criterion)` throughout — every reading is our
+own engine against itself under a perturbation, or against a higher-precision
+evaluation of its own formula. No `mgcv` quantity is an operand anywhere.
+
+### This corrects amendment 1
+
+Amendment 1 registered the hypothesis that cross-thread irreproducibility came
+from the missing Wood (2011) Section 3.1 reparameterisation **"on the fit /
+`|X'WX+S|` / derivative path"**. The *regime* was right — it is scale disparity,
+and it is Section 3.1's subject. **The term named was wrong**, and the
+discriminating test says so directly. Amendment 1's statement should be read as
+superseded by this one.
+
+### The measurements, in the order they eliminated things
+
+**1. The criterion is thread-sensitive at FIXED `sp`, and it tracks the spread.**
+
+| point | decade spread | max Δ score | max Δ ‖grad‖ |
+|---|---:|---:|---:|
+| flat / bounds centre / narrow | 0.0-2.0 | ~1e-12 | ~1e-12 |
+| moderate | 6.0 | 8.686e-11 | 6.115e-10 |
+| wide | 11.0 | **5.183e-05** | **8.635e-05** |
+| `mgcv`'s own point | 12.9 | **7.250e-06** | **1.677e-05** |
+
+Six orders of jump between spread 6 and spread 11 — a dose-response in exactly
+the variable Section 3.1 is about. **This alone also explains ADR-222 finding
+5**: the gradient is only reproducible to `8.6e-05`, four orders above the
+`gtol = 1e-8` it is tested against, so that tolerance was never reachable at
+these spreads for a second, independent reason.
+
+**2. Neither determinant carries it.** At the wide point,
+`Δ log|X'WX + S| = 0.000e+00` and `Δ log|S|+ = 0.000e+00`. The whole spread is
+in the penalized deviance, and within it in `beta' S beta`.
+`RECALIBRATION_mgcv_parity_2026-08-25` Section 1.2's judgement that naive
+`slogdet` is adequate is **not** contradicted on this axis. (`log|H|` is
+separately INACCURATE — a random orthogonal similarity moves it by `2.4e-06` at
+`cond(H) = 3.6e11` — but it is thread-DETERMINISTIC. Inaccurate and
+irreproducible are different defects, and only the second is at issue here.)
+
+**3. The arithmetic is innocent; the fit is not.** On ONE fixed `beta`,
+`beta' S beta` is bit-identical across thread counts (`27.850340837640`,
+max diff `0.000e+00`). Refit per thread and it moves in the fifth decimal.
+
+**4. Two intermediate hypotheses refuted.** Per-block contraction
+(`sum_j lambda_j beta' S_j beta`, never forming the mixed-scale matrix) is just
+as sensitive (`7.5e-05` against `1.04e-04`), and there is no large cancellation
+BETWEEN blocks — the largest single term is `1.43e+01` against a result of
+`27.85`. Nor is it first-order amplification of the `beta` perturbation: the
+identity `Δ(b'Sb) = 2b'S db + db'S db` is EXACT for symmetric `S`, and evaluates
+to `1.4e-13` against an exact difference of `2.9e-05`. **An exact identity
+failing by eight orders can only mean the EVALUATION is inaccurate.**
+
+**5. And it is — measured against `float128`.**
+
+| point | `float64` | `float128` | abs error | digits cancelled forming `S beta` |
+|---|---|---|---:|---:|
+| narrow (2.0) | 434.9311166040 | 434.9311166040 | 1.137e-13 | 2.4 |
+| wide (11.0) | 27.850**3408376** | 27.850**4090656** | **6.823e-05** | **9.8** |
+| `mgcv` point (12.9) | 13.5625**473320** | 13.5625**221273** | **2.520e-05** | **9.1** |
+
+Forming `S beta` sums intermediates of magnitude `1.05e+12` to produce a result
+of magnitude `174` — **ten digits of cancellation, leaving six of `float64`'s
+sixteen.** This is precisely what Wood Section 3.1 describes: "numerically the
+penalty can have marked effects in the subspace of the model parameter space
+for which, formally, `beta^T S_j beta = 0`".
+
+### The closed causal chain
+
+1. The `lambda` span thirteen decades, so forming `S beta` cancels ~10 digits
+   and `beta' S beta` carries **~1e-4 absolute error** in `float64`.
+2. That error is **deterministic in `beta`** (hence bit-identical on a fixed
+   one) but **discontinuous in it** — a `1e-15` change in `beta` changes the
+   rounding pattern and moves the computed value by ~`1e-5`.
+3. `beta` differs by ~`1e-15` between thread counts, from BLAS summation order
+   inside the inner PIRLS. That part is unavoidable and is not a defect.
+4. So the REML score behaves as a function carrying **~1e-5 of environment-
+   dependent noise**, and the accounting closes exactly:
+   `0.5 x 1.037e-04 = 5.185e-05` against the measured score spread of
+   `5.183e-05` — **`beta' S beta` accounts for 100% of it.**
+5. The optimiser's path diverges on that noise, and in a landscape with local
+   minima and non-convergent regions it lands in a different basin — `edf_total`
+   off by `9.94`, REML score off by `34.34`.
+
+### A candidate fix, tested — and it separates two properties that are NOT the same
+
+`beta' S_j beta = ||L_j' beta||^2` where `S_j = L_j L_j'`, so the penalty term
+can be evaluated as `sum_j lambda_j ||L_j' beta||^2` — **a sum of squares, with
+no cancellation anywhere and no `1e12` intermediates.**
+
+| point | thread spread, formed `S` | thread spread, sum-of-squares |
+|---|---:|---:|
+| wide (11.0) | 1.037e-04 | **1.954e-13** |
+| `mgcv` point (12.9) | 1.450e-05 | **1.137e-13** |
+
+**Nine orders of reproducibility, for a few lines.** But it must be reported
+with its limitation, which is the interesting part:
+
+| point | accuracy vs `float128`, formed `S` | accuracy, sum-of-squares |
+|---|---:|---:|
+| wide (11.0) | 6.823e-05 | 1.989e-04 |
+| `mgcv` point (12.9) | 2.520e-05 | 5.447e-05 |
+
+**The sum-of-squares form is no more accurate — slightly less.** It is
+*reproducible* because its error is a SMOOTH function of `beta` (sums of
+squares), where the formed-`S` contraction's error is discontinuous in `beta`.
+
+**Accuracy and reproducibility are different properties, they have different
+fixes, and the maintainer's definition of convergence targets the second.** A
+stable-but-biased objective has a well-defined minimiser an optimiser can find
+repeatably; a noisy one does not. Getting the criterion *right* at these spreads
+still needs Section 3.1's reparameterisation, and this ADR does not deliver it.
+
+### Consequences
+
+**Slice 7h registered (new, small, high-value):** evaluate the penalized
+deviance's penalty term as a sum of squares over per-block square roots. ~9
+orders of thread reproducibility on the dominant noise source, contained to one
+expression, with the accuracy limitation stated. It is NOT a substitute for
+slice 8.
+
+**Slice 8 is re-scoped on the real term.** Its justification is no longer "the
+determinants are corrupted" — they are not, on this axis. It is (a) the
+criterion is only accurate to ~1e-4 at these spreads and Section 3.1 is what
+fixes that, and (b) a deterministic Newton solver removes the random-start and
+best-of-N nondeterminism that remains after 7h.
+
+**Amendment 1's registered hypothesis is RESOLVED, and half of it was wrong.**
+Regime confirmed (scale disparity, Section 3.1's subject); term refuted (not the
+determinants, not the derivative path — the penalized deviance's quadratic
+form). The alternative it named — the discontinuity of best-of-N selection —
+was **not needed** to explain the fixed-point sensitivity and remains a separate
+possible contributor to search-level divergence, untested.

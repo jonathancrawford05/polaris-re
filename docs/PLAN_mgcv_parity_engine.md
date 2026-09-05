@@ -1999,6 +1999,50 @@ mandatory rather than complementary.
   prediction is reported as refuted and direction 1 is characterised rather
   than attempted in the same session.
 
+### Slice 7h: evaluate the penalty quadratic form as a sum of squares
+
+- **Depends on:** ADR-222 amendment 2, which measured it.
+- **Status: REGISTERED, not started.** Small, contained, and the single
+  highest reproducibility-per-line change this epic has found.
+
+**The gap.** `reml_score_general` evaluates the penalized deviance's penalty
+term as `coef @ penalty @ coef`, forming `S = sum_j lambda_j S_j` first. At the
+`lambda` spreads this structure selects (thirteen decades), forming `S beta`
+sums intermediates of magnitude `1.05e+12` to produce a result of magnitude
+`174` — **ten digits of cancellation.** The resulting `~1e-4` error is
+deterministic in `beta` but DISCONTINUOUS in it, so the `~1e-15` differences
+`beta` acquires from BLAS summation order move the score by `~1e-5`. That is
+**100% of the criterion's measured cross-thread spread** (ADR-222 amendment 2).
+
+**The change.** `beta' S_j beta = ||L_j' beta||^2` for `S_j = L_j L_j'`, so
+evaluate `sum_j lambda_j ||L_j' beta||^2` — a sum of squares, no cancellation,
+no large intermediates. Measured: thread spread `1.037e-04 -> 1.954e-13` at
+spread 11, and `1.450e-05 -> 1.137e-13` at `mgcv`'s own point. **Nine orders.**
+
+**The limitation, which must be stated wherever this is reported.** It is **not
+more accurate** — against `float128` it is slightly WORSE (`1.989e-04` against
+`6.823e-05` at spread 11). It makes the criterion STABLE, not RIGHT. Accuracy
+needs slice 8's reparameterisation. Reproducibility and accuracy are different
+properties with different fixes, and the maintainer's convergence definition
+targets the first.
+
+**Definition of Done, tagged per ADR-209 decision 3.**
+
+- `[machine]` The score's cross-thread spread re-measured at all four spreads of
+  ADR-222 amendment 2's table, before and after.
+- `[machine]` The per-block square roots are computed once per fit, not per
+  evaluation, and the cost change is measured and reported.
+- `[machine]` `SELECT_FREE_SP_MODEL_CLAIM` re-measured tier 1 AND tier 3 — this
+  changes the criterion's value at the `1e-4` level, so every committed reading
+  on a wide-spread structure moves and must be RE-STATED, not assumed stable.
+- `[machine]` `tests/qa/golden_outputs/` — expected byte-identical (no golden
+  exercises this path), and verified rather than assumed.
+- `[judgement]` Reported as a REPRODUCIBILITY fix and never as an accuracy one.
+
+**Out of scope.** The reparameterisation (slice 8); and `log|X'WX+S|`'s own
+inaccuracy (measured at `2.4e-06` under a random orthogonal similarity, and
+thread-DETERMINISTIC, so not a reproducibility defect).
+
 ### Slice 8: the Wood-shaped outer solver — reproducibility by construction
 
 - **Depends on:** slice 7d (the analytic gradient); slice 7g direction 1 (a
@@ -2016,6 +2060,22 @@ runs — `0.000000e+00` on `log10(sp)`, `eta` and `edf_total` alike. Our
 score by `34.34` between 1 and 4 threads, intermittently (2 of 4 seeds).
 Neither of our configurations passes both reproducibility axes (ADR-222
 amendment 1). The target is demonstrably achievable; we do not achieve it.
+
+**RE-SCOPED by ADR-222 amendment 2, which closed the mechanism.** The
+justification is NOT "the determinants are corrupted" — measured, they are not:
+`Δ log|X'WX+S|` and `Δ log|S|+` are both `0.000e+00` across thread counts, and
+the whole score spread is `beta' S beta` (the accounting closes to 100%). Slice
+7h fixes that term's REPRODUCIBILITY cheaply. What remains for this slice is
+narrower and still real:
+
+- **(a) ACCURACY.** `beta' S beta` is wrong in the fifth decimal against
+  `float128` (`6.8e-05` at spread 11) because forming `S beta` cancels ten
+  digits — and slice 7h does NOT improve that (it is slightly less accurate).
+  Section 3.1's reparameterisation is what makes the criterion *right* at these
+  spreads, as opposed to merely *stable*.
+- **(b) DETERMINISM.** Even with a stable criterion, random starts and
+  best-of-N selection remain sources of environment-dependent nondeterminism.
+  A deterministic Newton solver removes them by construction.
 
 **What Wood (2011) Section 3 actually prescribes**, per outer trial `rho`:
 (1) reparameterize so large-norm `lambda_j S_j` terms cannot act outside their
