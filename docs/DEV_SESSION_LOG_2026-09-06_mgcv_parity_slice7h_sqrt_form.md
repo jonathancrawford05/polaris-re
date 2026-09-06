@@ -174,6 +174,41 @@ level. A single-start search on this structure runs ~300-350 evaluations, so
 caching saves on the order of a second of wall clock per search — a minor
 win, reported because the DoD asks for it, not the slice's point.
 
+### Pass 5 — tier-3 confirmation (after commit and push)
+
+Pushed to `claude/intelligent-hamilton-lo5adm`, dispatched
+`mgcv-conformance.yml` via `workflow_dispatch`
+([run 34034428064](https://github.com/jonathancrawford05/polaris-re/actions/runs/34034428064)).
+Both jobs green (`mgcv reference (R)`: 41 steps, all success, ~40s;
+`Compare against the Python reference`: ~6 minutes, dominated by the
+free-`sp` searches slices 7b-7d already run). Required conformance levels
+1-3 AGREE, level 5 AGREES, level 4 DISAGREES (unchanged, ADR-190) — no
+regression on the gate. `SELECT_FREE_SP_MODEL_CLAIM` tier-3 table:
+
+| search | nfev | max abs eta diff | log10(sp) diff | edf_total diff | agrees |
+|---|---:|---:|---:|---:|---|
+| single-start | 224 | 4.458e-01 | 4.4393 | +2.5309 | False |
+| multistart=9 | 3440 | 5.428e-03 | 5.7851 | -0.2469 | **True** |
+| single-start, analytic gradient | 61 | 5.803e-03 | 1.6363 | -0.3393 | **True** |
+| multistart=9, analytic gradient | 525 | 5.444e-03 | 5.7950 | -0.2542 | **True** |
+
+Production-recommended configurations agree at both tiers; single-start
+disagrees at both. `multistart=9, analytic gradient`'s `5.444e-03` matches
+ADR-220 amendment 2's own prior tier-3 reading of the identical cell
+(`5.460e-03`) to within noise — a genuine "unmoved" reading, not a
+coincidence. **`single-start, analytic gradient` flips verdict between
+tiers** (tier 1: `False`, `eta=0.0632`; tier 3: `True`, `eta=0.00580`) —
+checked against the epic's own prior findings rather than treated as new:
+this is a single-start configuration on the by-term's weakly-identified
+direction, and ADR-211/212/222 already established that single-start
+searches on this class of surface are sensitive to environment (BLAS
+threads there; here, the `mgcv` release that generated the fixture's own
+reference fit — 1.9.1 tier 1 vs 1.9.4 tier 3, which can select a measurably
+different `sp` on identical data even before any Python code runs). Not
+chased further: the production-recommended path is unaffected, and
+single-start was never this epic's own passing configuration at either
+tier before or after this fix.
+
 ## Two pre-existing tests, and why changing them was the correct call
 
 **`tests/test_analytics/test_gam_reml_optimize.py::TestFiniteDiffStep`.**
@@ -237,9 +272,16 @@ verifies — both are documented, root-caused, and reproducible.
   tests/test_analytics/test_gam_uncertainty.py
   tests/test_analytics/test_gam_select_free_sp_conformance.py` — **153
   passed**, R-gated end-to-end tests included and passing live.
-- Full suite, `-m "not slow"`, `OPENBLAS_NUM_THREADS=1`: **[PENDING —
-  running as this log is written; see addendum below for final counts.]**
-- `tests/qa/` (golden gate): **[PENDING — see addendum.]**
+- Full suite, `-m "not slow"`, `OPENBLAS_NUM_THREADS=1`: **3637 passed, 3
+  skipped, 126 deselected, 0 failed** (527s). Reconciles against the
+  session's own baseline (3604 passed / 22 skipped / 7 failed, before
+  mortality tables and this change): the 4 mortality-table failures resolved
+  by the one-time environment step, the 3 remaining failures resolved by the
+  documented, root-caused test updates above, and the new tests this session
+  added are included and passing. **No new or changed failure.**
+- `tests/qa/` (golden gate): byte-identical — included in the full-suite run
+  above (`tests/qa/test_pipeline_golden.py` passed with the rest); `git
+  status` on `tests/qa/golden_outputs/` empty.
 
 ## Definition of done
 
@@ -251,12 +293,24 @@ Recorded inline against `PLAN_mgcv_parity_engine.md` slice 7h:
 - `[machine]` Square roots computed once per fit, not per evaluation —
   **MET** (wired in `select_lambdas_continuous`; cost measured, Pass 4).
 - `[machine]` `SELECT_FREE_SP_MODEL_CLAIM` re-measured tier 1 AND tier 3 —
-  **TIER 1 MET** (Pass 3). **TIER 3 NOT YET RUN** — registered as this
-  session's own follow-up (see below); per `ROUTINE_MGCV_PARITY.md` the
-  tier-1 table above is a hypothesis, not a committable number, until
-  confirmed on the pinned digest.
-- `[machine]` `tests/qa/golden_outputs/` byte-identical — **[PENDING, see
-  addendum]**.
+  **MET, both tiers.** Tier 1: Pass 3 above. **Tier 3 (Pass 5, below):** CI
+  run
+  [34034428064](https://github.com/jonathancrawford05/polaris-re/actions/runs/34034428064),
+  R 4.6.1 / mgcv 1.9.4, pinned oracle digest
+  `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`.
+  Required conformance levels 1-3 AGREE (no regression), level 5 AGREES,
+  level 4 DISAGREES (unchanged, permanently expected). Production-recommended
+  configurations (`multistart=9`, with/without analytic gradient) agree at
+  tier 3 too, matching this epic's last tier-3 reading of the identical cell
+  before this fix (`5.460e-03` then, `5.444e-03` now). Single-start alone
+  disagrees at both tiers, unchanged. One cell (single-start + analytic
+  gradient) reads a DIFFERENT verdict between tiers (`False` tier 1,
+  `True` tier 3) — a pre-existing single-start cross-`mgcv`-release
+  instability (ADR-211/212/222's own documented class), not a defect in this
+  fix; the production path is unaffected. See ADR-223 amendment 1 for the
+  full table.
+- `[machine]` `tests/qa/golden_outputs/` byte-identical — **MET** (Quality
+  gate section above).
 - `[judgement]` Reported as a REPRODUCIBILITY fix, never an accuracy one —
   **MET** (stated in the module docstring, the ADR, and here; the
   `float128` accuracy table is unchanged and slightly worse for the new
@@ -287,15 +341,16 @@ internal criterion.
 ## Oracle version
 
 Tier 1: R 4.3.3 / mgcv 1.9.1 (local apt, this session's own install — no
-drift from the routine's expected apt versions). Tier 3: **not yet
-dispatched** — registered as a follow-up below.
+drift from the routine's expected apt versions). Tier 3: R 4.6.1 / mgcv
+1.9.4, oracle
+`sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+(build 8, the same digest this epic has used throughout), CI run
+[34034428064](https://github.com/jonathancrawford05/polaris-re/actions/runs/34034428064) — **CONFIRMED, both jobs green.**
 
 ## Follow-ups filed
 
-- **Tier-3 confirmation of `SELECT_FREE_SP_MODEL_CLAIM`'s post-7h table** —
-  dispatch `mgcv-conformance.yml` on this branch/PR and read the job
-  summary. *1st-order, should run before this PR leaves draft if the CI
-  round trip is available in this session.*
+- ~~**Tier-3 confirmation of `SELECT_FREE_SP_MODEL_CLAIM`'s post-7h table**~~
+  — **DONE, same session, Pass 5 above.**
 - **The `_FINITE_DIFF_STEP` noise-floor interaction** (this slice's
   incidental finding: the ADR-212 defect no longer reproduces on its own
   fixture post-7h) — named, not chased. Revisiting the production default

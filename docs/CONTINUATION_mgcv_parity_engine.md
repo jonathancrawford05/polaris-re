@@ -1599,7 +1599,10 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > determinism, which no criterion fix reaches. Its old justification — corrupted
 > determinants — is measured false.
 
-> **Slice 7h is DONE FOR TIER 1, 2026-09-06 (ADR-223).** ADR-222 amendment 2's
+> **Slice 7h is DONE, TIER 1 AND TIER 3 BOTH CONFIRMED, 2026-09-06 (ADR-223 +
+> amendment 1, CI run
+> [34034428064](https://github.com/jonathancrawford05/polaris-re/actions/runs/34034428064)).**
+> ADR-222 amendment 2's
 > candidate fix (`beta^T S beta` via per-block square roots, `sum_j lambda_j
 > ||L_j^T beta||^2`, no cancellation) is now in the ACTUAL production
 > `gam_reml.reml_score_general` — not only `scripts/gam_penalty_sqrt_form_diagnostic.py`'s
@@ -1632,11 +1635,21 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > `_FINITE_DIFF_STEP` is unchanged (a separate, well-conditioned fixture
 > still needs it, per PR #216's own review).
 >
-> **Registered follow-up, not yet run: tier-3 confirmation of the
-> `SELECT_FREE_SP_MODEL_CLAIM` table above.** Per `ROUTINE_MGCV_PARITY.md`,
-> this file may state only a tier-3 number as settled — the tier-1 table
-> above is a hypothesis until that dispatch lands. See ADR-223 for every
-> number and the full provenance table.
+> **Tier 3 CONFIRMED, same session (ADR-223 amendment 1).** Required
+> conformance levels 1-3 AGREE (no regression), level 5 AGREES, level 4
+> DISAGREES (unchanged, permanently expected, ADR-190). The
+> production-recommended `SELECT_FREE_SP_MODEL_CLAIM` configurations
+> (`multistart=9`, with or without the analytic gradient) agree at tier 3,
+> matching this epic's last tier-3 reading of the identical cell before this
+> fix (`5.460e-03` then, `5.444e-03` now — effectively unmoved). Single-start
+> alone disagrees at both tiers, unchanged. **One cell's verdict IS
+> tier-sensitive** — single-start with the analytic gradient reads
+> `agrees=False` at tier 1 and `agrees=True` at tier 3 — the same
+> pre-existing single-start instability class ADR-211/212/222 already
+> documented (this fixture's own `mgcv`-release sensitivity, not a defect in
+> this ADR's arithmetic); the production path (`multistart=True`) is stable
+> across both readings. See ADR-223 amendment 1 for the full tier-3 table
+> and provenance.
 >
 > **NEXT: slice 7g direction 1** (a robust inner PIRLS — promoted by ADR-222,
 > a prerequisite for any outer method), **then slice 8** (the Wood-shaped

@@ -21924,3 +21924,57 @@ random-start/best-of-N nondeterminism 7h does not reach.
 confirm the `SELECT_FREE_SP_MODEL_CLAIM` table above at tier 3 (R 4.6.1 /
 mgcv 1.9.4, pinned digest), per `ROUTINE_MGCV_PARITY.md`'s rule that only a
 tier-3 reading may be cited in a CONTINUATION or a docstring as settled.
+
+## ADR-223 amendment 1: tier-3 CONFIRMED, same session — required levels unaffected, three of four configurations agree, and one configuration's verdict is tier-sensitive in the direction the epic already expects
+
+**Date:** 2026-09-06. **Status:** ACCEPTED. **Tier 3** — CI run
+[34034428064](https://github.com/jonathancrawford05/polaris-re/actions/runs/34034428064),
+R 4.6.1 / mgcv 1.9.4, oracle
+`ghcr.io/jonathancrawford05/r-gam-base@sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`
+(the same digest this epic has used throughout, build 8). Both jobs green,
+run conclusion `success`.
+
+**Required conformance levels 1-3 AGREE — no regression from this change.**
+Level 5 (Wood's `gamma`) also AGREES. Level 4 DISAGREES, unchanged and
+permanently expected (ADR-190, the shipped legacy engine's own, separate,
+already-tracked gap — see `CONTINUATION_mgcv_parity_engine.md`).
+
+**`SELECT_FREE_SP_MODEL_CLAIM`, tier 3, freshly regenerated fixture (same
+pinned seed as tier 1, but a DIFFERENT mgcv release fitting it — 1.9.4
+against tier 1's 1.9.1 — so this is not expected to be bit-identical to the
+tier-1 table, only identical in the verdicts that matter):**
+
+| search | nfev | max abs eta diff | log10(sp) diff | edf_total diff | at bound | converged | agrees (eta/edf) |
+|---|---:|---:|---:|---:|---|---|---|
+| single-start | 224 | 4.458e-01 | 4.4393 | +2.5309 | False | True | **False** |
+| multistart=9 | 3440 | 5.428e-03 | 5.7851 | -0.2469 | False | True | **True** |
+| single-start, analytic gradient | 61 | 5.803e-03 | 1.6363 | -0.3393 | True | True | **True** |
+| multistart=9, analytic gradient | 525 | 5.444e-03 | 5.7950 | -0.2542 | True | True | **True** |
+
+**The two production-recommended configurations (multistart, with or
+without the analytic gradient) agree at tier 3, matching tier 1 and this
+epic's last tier-3 reading of the same cell before this fix**
+(`multistart=9, analytic_gradient` reached `max_abs_eta_diff = 5.460e-03` in
+ADR-220 amendment 2's own tier-3 run; this run reads `5.444e-03` —
+effectively unmoved, well inside the noise this fix itself operates at).
+Single-start alone still does not agree, at both tiers, for the reason this
+epic has documented since ADR-211/212 (a weakly-identified `lambda`
+direction).
+
+**One cell's verdict is tier-sensitive, and it is worth stating plainly
+rather than only in a table: single-start with the analytic gradient reads
+`agrees=False` at tier 1 (this session's own reading, `max_abs_eta_diff =
+0.0632`) and `agrees=True` at tier 3 (`0.005803`).** This is a single-start
+configuration on a `by`-term-dominated, weakly-identified surface — exactly
+the class ADR-211/212/222 already measured as sensitive to BLAS thread
+count and, separately, to which `mgcv` release generated the fixture's own
+reference fit. It is not evidence this ADR's fix behaves differently across
+tiers: the PRODUCTION-RECOMMENDED path (`multistart=True`) is stable across
+both readings, and single-start's own instability is a pre-existing,
+independently-documented property of the search, not of the sum-of-squares
+change this ADR makes to the criterion's arithmetic.
+
+**Conclusion: the DoD's tier-3 requirement is met.** No committed claim
+moved in a way that was not anticipated; the epic's standing guidance not to
+rely on single-start for a parity claim is, if anything, reinforced rather
+than undermined.

@@ -2002,20 +2002,30 @@ mandatory rather than complementary.
 ### Slice 7h: evaluate the penalty quadratic form as a sum of squares
 
 - **Depends on:** ADR-222 amendment 2, which measured it.
-- **Status: DONE FOR TIER 1, 2026-09-06 (ADR-223).** `gam_reml.reml_score_general`
-  now evaluates the penalized deviance's quadratic form via
-  `penalty_block_square_roots`, threaded through `gam_reml_optimize`'s search
-  loop (computed once per search, not per evaluation). Reproduces
-  ADR-222 amendment 2's own diagnostic numbers on the actual production path
-  (score thread-spread at `mgcv`'s own point: `7.250e-06 -> 4.775e-12`;
-  ADR-222 amendment 2's own diagnostic-replica numbers unchanged, since that
-  script re-implements both forms and never called the production function).
-  `SELECT_FREE_SP_MODEL_CLAIM` re-measured tier 1: every configuration's
-  `agrees` verdict is unchanged (`multistart=9`, with or without the analytic
-  gradient, still agrees; single-start still does not) — readings moved at
-  the level ADR-222 amendment 2 predicts, nothing reversed. **Tier-3
-  confirmation registered as a follow-up, not yet dispatched as of ADR-223.**
-  See ADR-223 for every number, including an incidental finding (this fix
+- **Status: DONE, tier 1 AND tier 3 both confirmed, 2026-09-06 (ADR-223 +
+  amendment 1, CI run
+  [34034428064](https://github.com/jonathancrawford05/polaris-re/actions/runs/34034428064)).**
+  `gam_reml.reml_score_general` now evaluates the penalized deviance's
+  quadratic form via `penalty_block_square_roots`, threaded through
+  `gam_reml_optimize`'s search loop (computed once per search, not per
+  evaluation). Reproduces ADR-222 amendment 2's own diagnostic numbers on
+  the actual production path (score thread-spread at `mgcv`'s own point:
+  `7.250e-06 -> 4.775e-12`; ADR-222 amendment 2's own diagnostic-replica
+  numbers unchanged, since that script re-implements both forms and never
+  called the production function). **Required conformance levels 1-3 AGREE
+  at tier 3 — no regression**; level 5 AGREES; level 4 DISAGREES, unchanged
+  and permanently expected (ADR-190). `SELECT_FREE_SP_MODEL_CLAIM`
+  re-measured at both tiers: the production-recommended configurations
+  (`multistart=9`, with or without the analytic gradient) agree at both
+  tiers, matching this epic's last tier-3 reading of the identical cell
+  before this fix (`5.460e-03` then, `5.444e-03` now — effectively
+  unmoved). Single-start alone disagrees at both tiers, as before. One cell
+  (single-start + analytic gradient) reads a DIFFERENT verdict between tiers
+  (`False` at tier 1, `True` at tier 3) — a tier-sensitive single-start
+  reading, the same pre-existing instability class ADR-211/212/222 already
+  documented, not evidence of a defect in this fix; the production path
+  (`multistart=True`) is stable across both readings. See ADR-223 +
+  amendment 1 for every number, including an incidental finding (this fix
   appears to also resolve, on one fixture, the noise-floor defect
   `_FINITE_DIFF_STEP` was sized against — not investigated further, no
   production default changed).
