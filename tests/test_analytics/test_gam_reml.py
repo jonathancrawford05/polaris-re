@@ -18,7 +18,7 @@ from polaris_re.analytics.gam_family import (
     poisson_log,
     quasipoisson_log,
 )
-from polaris_re.analytics.gam_reml import reml_score_general
+from polaris_re.analytics.gam_reml import penalty_block_square_roots, reml_score_general
 from polaris_re.core.exceptions import PolarisValidationError
 
 
@@ -337,6 +337,100 @@ class TestGeneralizesBeyondPoisson:
         score_b = reml_score_general(y, x, poisson_log(), beta_true, blocks, lambdas)
         assert score_a == score_b
         assert np.isfinite(score_a)
+
+
+class TestPenaltyBlockSquareRoots:
+    """PLAN slice 7h (ADR-223): ``penalty_block_square_roots`` and the
+    ``penalty_sqrt_blocks`` parameter it feeds ``reml_score_general``."""
+
+    def test_reconstructs_a_full_rank_block_exactly(self, rng: np.random.Generator) -> None:
+        """``L @ L.T == S`` (to float precision) for a well-conditioned,
+        full-rank block — closed form via a random SPD matrix built by hand
+        (`A.T @ A` for a full-rank `A`, never via the function under test)."""
+        p = 6
+        a = rng.normal(size=(p, p))
+        block = a.T @ a  # SPD by construction, full rank almost surely
+
+        (root,) = penalty_block_square_roots((block,))
+        assert root.shape == (p, p)  # no rank deficiency to drop
+        np.testing.assert_allclose(root @ root.T, block, atol=1e-10, rtol=1e-10)
+
+    def test_reconstructs_a_rank_deficient_block_on_its_own_row_space(self) -> None:
+        """A second-difference penalty (``D.T @ D`` for ``D = diff(I_p, n=2)``)
+        has an EXACTLY known null space — degree-1 polynomials, dimension 2 —
+        so its rank is ``p - 2`` by construction, independent of anything the
+        function under test computes."""
+        p = 8
+        d = np.diff(np.eye(p), n=2, axis=0)
+        block = d.T @ d
+        expected_rank = p - 2  # closed form: the null space of a 2nd-order
+
+        # difference penalty is exactly {1, x} (dimension 2), for any p >= 3.
+        (root,) = penalty_block_square_roots((block,))
+        assert root.shape == (p, expected_rank)
+        np.testing.assert_allclose(root @ root.T, block, atol=1e-10, rtol=1e-10)
+
+    def test_quadratic_form_matches_the_naive_contraction_when_well_conditioned(
+        self, rng: np.random.Generator
+    ) -> None:
+        """``sum_j lambda_j ||L_j^T v||^2 == v^T (sum_j lambda_j S_j) v`` —
+        the algebraic identity slice 7h relies on, checked directly (not
+        through ``reml_score_general``'s own scaffolding) on blocks small
+        and well-scaled enough that BOTH forms should agree tightly."""
+        p = 5
+        blocks = tuple(rng.normal(size=(p, p)) for _ in range(3))
+        blocks = tuple(a.T @ a for a in blocks)
+        lambdas = np.array([2.0, 0.5, 10.0])
+        v = rng.normal(size=p)
+
+        roots = penalty_block_square_roots(blocks)
+        sum_of_squares = sum(
+            lam * float(np.sum((root.T @ v) ** 2)) for lam, root in zip(lambdas, roots, strict=True)
+        )
+        s = sum(lam * block for lam, block in zip(lambdas, blocks, strict=True))
+        naive = float(v @ s @ v)
+        assert sum_of_squares == pytest.approx(naive, abs=1e-9, rel=1e-9)
+
+    def test_reml_score_general_is_unaffected_by_passing_the_precomputed_roots(
+        self, rng: np.random.Generator
+    ) -> None:
+        """The optional ``penalty_sqrt_blocks`` is a caching hint, not a
+        different code path with different behaviour: passing it explicitly
+        must reproduce exactly what letting the function compute it
+        internally already gives."""
+        n, p = 100, 5
+        x = _design(rng, n, p)
+        beta_true = rng.normal(scale=0.3, size=p)
+        mu_true = np.exp(x @ beta_true)
+        y = rng.poisson(mu_true).astype(np.float64)
+        d = np.diff(np.eye(p), n=2, axis=0)
+        blocks = (d.T @ d,)
+        lambdas = np.array([4.0])
+        family = poisson_log()
+
+        without = reml_score_general(y, x, family, beta_true, blocks, lambdas)
+        precomputed = penalty_block_square_roots(blocks)
+        with_precomputed = reml_score_general(
+            y, x, family, beta_true, blocks, lambdas, penalty_sqrt_blocks=precomputed
+        )
+        assert with_precomputed == without
+
+    def test_rejects_a_penalty_sqrt_blocks_length_mismatch(self, rng: np.random.Generator) -> None:
+        n, p = 50, 3
+        x = _design(rng, n, p)
+        y = rng.poisson(5.0, size=n).astype(np.float64)
+        block = np.eye(p)
+
+        with pytest.raises(PolarisValidationError, match="penalty_sqrt_blocks"):
+            reml_score_general(
+                y,
+                x,
+                poisson_log(),
+                np.zeros(p),
+                (block,),
+                np.array([1.0]),
+                penalty_sqrt_blocks=(np.eye(p), np.eye(p)),
+            )
 
 
 class TestRejectsWhatItMustReject:

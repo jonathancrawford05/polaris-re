@@ -2002,8 +2002,23 @@ mandatory rather than complementary.
 ### Slice 7h: evaluate the penalty quadratic form as a sum of squares
 
 - **Depends on:** ADR-222 amendment 2, which measured it.
-- **Status: REGISTERED, not started.** Small, contained, and the single
-  highest reproducibility-per-line change this epic has found.
+- **Status: DONE FOR TIER 1, 2026-09-06 (ADR-223).** `gam_reml.reml_score_general`
+  now evaluates the penalized deviance's quadratic form via
+  `penalty_block_square_roots`, threaded through `gam_reml_optimize`'s search
+  loop (computed once per search, not per evaluation). Reproduces
+  ADR-222 amendment 2's own diagnostic numbers on the actual production path
+  (score thread-spread at `mgcv`'s own point: `7.250e-06 -> 4.775e-12`;
+  ADR-222 amendment 2's own diagnostic-replica numbers unchanged, since that
+  script re-implements both forms and never called the production function).
+  `SELECT_FREE_SP_MODEL_CLAIM` re-measured tier 1: every configuration's
+  `agrees` verdict is unchanged (`multistart=9`, with or without the analytic
+  gradient, still agrees; single-start still does not) — readings moved at
+  the level ADR-222 amendment 2 predicts, nothing reversed. **Tier-3
+  confirmation registered as a follow-up, not yet dispatched as of ADR-223.**
+  See ADR-223 for every number, including an incidental finding (this fix
+  appears to also resolve, on one fixture, the noise-floor defect
+  `_FINITE_DIFF_STEP` was sized against — not investigated further, no
+  production default changed).
 - **START HERE:** `scripts/gam_penalty_sqrt_form_diagnostic.py` already
   contains the reference `block_sqrt` (symmetric eigendecomposition, negative
   eigenvalues clipped, relative rank cut at `1e-14`) and BOTH measurements

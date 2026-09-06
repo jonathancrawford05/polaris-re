@@ -1598,3 +1598,48 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > **Slice 8 re-scoped** onto (a) accuracy, which 7h does not fix, and (b)
 > determinism, which no criterion fix reaches. Its old justification — corrupted
 > determinants — is measured false.
+
+> **Slice 7h is DONE FOR TIER 1, 2026-09-06 (ADR-223).** ADR-222 amendment 2's
+> candidate fix (`beta^T S beta` via per-block square roots, `sum_j lambda_j
+> ||L_j^T beta||^2`, no cancellation) is now in the ACTUAL production
+> `gam_reml.reml_score_general` — not only `scripts/gam_penalty_sqrt_form_diagnostic.py`'s
+> standalone replica — via a new `penalty_block_square_roots` helper and an
+> optional `penalty_sqrt_blocks` keyword that `gam_reml_optimize.select_lambdas_continuous`
+> computes ONCE per search and threads through every trial-point evaluation
+> (PLAN slice 7h's own Definition of Done: computed once per fit, not per
+> evaluation). Measured on the actual production score, not just the isolated
+> formula: thread spread at `mgcv`'s own selected point collapses
+> `7.250e-06 -> 4.775e-12` (~1,500x), at the wide (11-decade) point
+> `5.183e-05 -> 6.821e-13` (~76,000x) — reproducing ADR-222 amendment 2's own
+> nine-order reading in the code that ships. **`SELECT_FREE_SP_MODEL_CLAIM`
+> re-measured, tier 1: every configuration's `agrees` verdict is UNCHANGED**
+> (`multistart=9`, with or without the analytic gradient, still agrees;
+> single-start still does not, same weakly-identified-`lambda` reason as
+> before) — individual readings moved at the level the fix predicts, nothing
+> reversed. **Still a reproducibility fix, not an accuracy one** — against
+> `float128` the sum-of-squares form is slightly LESS accurate than the
+> formed-`S` contraction it replaces; accuracy at these spreads still needs
+> Wood Section 3.1's reparameterisation (slice 8), unattempted here.
+>
+> **An incidental finding, reported because it was measured, not sought:**
+> `TestFiniteDiffStep`'s own pre-ADR-212 defect demonstration — SciPy's
+> un-derived default finite-difference step landing in a noise-corrupted
+> region on this module's near-flat fixture — no longer reproduces after this
+> fix (central-difference gradient at the default step's reported minimum:
+> `~8.5e-3`, deterministic across repeated runs, against ADR-212's own
+> `>0.1`). Consistent with ADR-212's own mechanism being, in part, the same
+> cancellation this ADR removes — not investigated further, and
+> `_FINITE_DIFF_STEP` is unchanged (a separate, well-conditioned fixture
+> still needs it, per PR #216's own review).
+>
+> **Registered follow-up, not yet run: tier-3 confirmation of the
+> `SELECT_FREE_SP_MODEL_CLAIM` table above.** Per `ROUTINE_MGCV_PARITY.md`,
+> this file may state only a tier-3 number as settled — the tier-1 table
+> above is a hypothesis until that dispatch lands. See ADR-223 for every
+> number and the full provenance table.
+>
+> **NEXT: slice 7g direction 1** (a robust inner PIRLS — promoted by ADR-222,
+> a prerequisite for any outer method), **then slice 8** (the Wood-shaped
+> outer solver, accuracy and determinism). Slice 7g direction 2 (a growing
+> barrier in place of `_REJECTED_SCORE`'s cliff) stays demoted to a fallback,
+> per ADR-222.

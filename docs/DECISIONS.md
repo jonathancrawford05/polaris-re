@@ -21737,3 +21737,190 @@ determinants, not the derivative path — the penalized deviance's quadratic
 form). The alternative it named — the discontinuity of best-of-N selection —
 was **not needed** to explain the fixed-point sensitivity and remains a separate
 possible contributor to search-level divergence, untested.
+
+## ADR-223: Slice 7h — the penalized deviance's quadratic form ships as a sum of squares, in production, not only the diagnostic
+
+**Date:** 2026-09-06. **Status:** ACCEPTED. **Tier 1** (R 4.3.3 / mgcv 1.9-1,
+local apt — see Consequences for the tier-3 dispatch). **Provenance:**
+`MEASUREMENT (own criterion)` throughout, per ADR-222 amendment 2's own
+classification — every reading below is Polaris measured against itself
+(across BLAS thread counts, or against `float128` on the same expression), or
+Polaris's own free-`sp` search compared to itself before/after this change. No
+`mgcv` quantity is an operand in the reproducibility measurements. The
+`SELECT_FREE_SP_MODEL_CLAIM` re-measurement in Consequences is the pre-existing
+INDEPENDENT comparison this change necessarily perturbs, re-run rather than
+assumed stable, per `ROUTINE_MGCV_PARITY.md`'s own instruction for this slice.
+
+### What shipped
+
+`gam_reml.reml_score_general` evaluated the penalized deviance's quadratic
+term as `coef @ (Σⱼ λⱼSⱼ) @ coef` — forming the `lambda`-weighted sum first,
+then contracting. ADR-222 amendment 2 measured that at this criterion's own
+selected `lambda` spreads (thirteen decades on the target formula's own N=7
+`select=TRUE` structure) this cancels ~10 digits of `float64` precision and
+carries `~1e-4` of environment-dependent noise, and that a per-block
+**square-root** evaluation — `βᵀSⱼβ = ‖Lⱼᵀβ‖²` for `Sⱼ = LⱼLⱼᵀ`, summed as
+`Σⱼ λⱼ‖Lⱼᵀβ‖²` — removes it (measured in a standalone diagnostic script,
+`scripts/gam_penalty_sqrt_form_diagnostic.py`, never wired into
+`src/`). This ADR ports that fix into the actual production function.
+
+`gam_reml.penalty_block_square_roots(penalty_blocks)` factors each
+**individual, unscaled** block once (symmetric eigendecomposition, negative
+eigenvalues clipped to zero — numerical noise on a PSD-by-construction
+matrix — eigenvectors below `1e-14` relative to the block's own largest
+eigenvalue dropped as that block's own structural null space). `S =
+Σⱼ λⱼSⱼ` is still formed and used for `log|X'WX+S|` (Wood eq. (4)'s other
+determinant term, unaffected — ADR-222 amendment 2 measured this term
+thread-CLEAN already, `Δ log|X'WX+S| = 0.000e+00`); only the penalized
+deviance's quadratic term is re-routed through the per-block square roots.
+
+**Depends only on `penalty_blocks`, not on `lambdas` or `coef`.** An outer
+search (`gam_reml_optimize.select_lambdas_continuous`) holds `penalty_blocks`
+fixed across every trial point, so `reml_score_general` gained an optional
+`penalty_sqrt_blocks` keyword (default `None`, computed fresh — correct but
+wasteful for a repeated caller) and `select_lambdas_continuous` computes it
+**once**, before the search loop, threading it through every
+`penalized_fit_and_score`/`penalized_fit_score_and_gradient` call the
+objective, the analytic-gradient objective, the `max_gtol_restarts` residual
+probe, and the final re-fit at the reported minimum all make — not
+recomputed at every trial point (PLAN slice 7h's own Definition of Done).
+Every other caller of `reml_score_general` (`gam_reml_conformance`,
+`gam_reml_optimize_conformance`, `gam_reml_production_check`,
+`gam_uncertainty_conformance`) is unchanged code that now gets the corrected
+formula automatically through the `None` default — this is a strict
+generalization, not a new opt-in behaviour.
+
+### Measured: the fix reproduces on the actual production path, not only the diagnostic replica
+
+`scripts/gam_penalty_sqrt_form_diagnostic.py` re-run against a freshly
+regenerated `probe7.json` (`Rscript scripts/gam_select_multiterm_free_sp_probe.R`,
+same recipe, tier 1) reproduces ADR-222 amendment 2's own numbers exactly —
+it is unaffected by this change, since it re-implements both forms itself
+rather than calling `reml_score_general`:
+
+| point | formed-`S` accuracy vs `float128` | sum-of-squares accuracy | formed-`S` thread spread | sum-of-squares thread spread |
+|---|---:|---:|---:|---:|
+| narrow (2.0) | 1.137e-13 | 5.627e-12 | — | — |
+| wide (11.0) | 6.823e-05 | 1.989e-04 | 1.037e-04 | **1.954e-13** |
+| `mgcv` point (12.9) | 2.520e-05 | 5.447e-05 | 1.450e-05 | **1.137e-13** |
+
+The number that matters for this ADR is a **new** measurement: the actual
+production `reml_score_general` call's own score, across thread counts,
+before and after this change (`penalized_fit_and_score` at fixed `log_lambda`,
+same `probe7.json`, `threadpool_limits` over 1/2/4 BLAS threads):
+
+| point | before (formed-`S`), max spread | after (sum-of-squares), max spread | improvement |
+|---|---:|---:|---:|
+| narrow (spread 2.0) | 1.364e-12 | 2.274e-13 | ~6x |
+| wide (spread 11.0) | **5.183e-05** | **6.821e-13** | ~76,000x |
+| `mgcv`'s own point (spread 12.9) | **7.250e-06** | **4.775e-12** | ~1,500x |
+
+Both readings on the identical trial points, identical `coef` per thread
+count (the IRLS fit does not depend on which score formula is used — only the
+score's own arithmetic differs), confirming ADR-222 amendment 2's diagnosis
+holds in the code that actually ships, not only in the standalone replica
+that discovered it.
+
+**The noise floor `ε_f`, before and after, per PLAN slice 7h's Definition of
+Done** (the spread of the score under a perturbation that is mathematically
+a no-op — the BLAS thread sweep above, at this criterion's own selected
+spreads): **before, `~5.2e-05`** (wide spread, the worst reading measured);
+**after, `~6.8e-13`** — nine orders, matching ADR-222 amendment 2's own
+component-level reading. `docs/PROPOSAL_convergence_certificate.md` §6's two
+owed thresholds (relative stationarity tolerance, curvature-to-noise ratio)
+are derived from this pair, not decided here — a maintainer call, per that
+proposal and ADR-222 amendment 1.
+
+**Cost.** Precomputing `penalty_block_square_roots` once and threading it
+through, versus letting every call recompute it (`penalty_sqrt_blocks=None`
+on every call): 200 repeated evaluations of `penalized_fit_and_score` on the
+N=7 structure, 1 BLAS thread — cached `12.95 ms/eval`, uncached
+`15.20 ms/eval`, `~2.24 ms/eval` (`~15%`) avoided by computing once per
+search rather than once per evaluation. A single-start search on this
+structure costs on the order of 300-350 evaluations, so caching saves on the
+order of one second of wall clock per search — not the point of the slice
+(reproducibility is), but free and worth recording since the Definition of
+Done asks for it.
+
+### This is a reproducibility fix, not an accuracy one — restated, because it is the one fact most likely to be misquoted
+
+Against `float128` truth the sum-of-squares form is **slightly less
+accurate** than the formed-`S` contraction it replaces (table above,
+repeated from ADR-222 amendment 2 unchanged by this ADR). It makes the
+criterion **stable** — the same wrong answer, reliably, rather than a
+BLAS-order-dependent wrong answer — which is exactly what an outer optimiser
+needs to converge to a repeatable point. **Accuracy at these `lambda`
+spreads still needs Wood (2011) Section 3.1's reparameterisation carried
+through the fit and its derivatives (slice 8), which this ADR does not
+attempt and does not narrow.**
+
+### Consequences
+
+**`SELECT_FREE_SP_MODEL_CLAIM` re-measured, tier 1, per the routine's own
+instruction that a criterion change invalidates every prior reading on a
+wide-spread structure.** Freshly generated `probe7.json` (same R script, same
+target-formula knots, independent draw — not the committed
+`gam_select_multiterm_free_sp_probe.json` fixture, which needs a live R CI
+job to regenerate), all four configurations `fit_select_free_sp_case` /
+`compare_select_free_sp_case` exercise:
+
+| configuration | before: converged / agrees / max\|η\| / edf_diff | after: converged / agrees / max\|η\| / edf_diff |
+|---|---|---|
+| single-start | True / **False** / 0.4457 / 2.42 | **False** / **False** / 0.4461 / 2.51 |
+| multistart=9 | True / **True** / 0.00268 / -0.111 | True / **True** / 0.00547 / -0.261 |
+| single-start, analytic gradient | True / **False** / 0.0529 / 0.190 | True / **False** / 0.0632 / 1.375 |
+| multistart=9, analytic gradient | True / **True** / 0.00549 / -0.258 | True / **True** / 0.00545 / -0.255 |
+
+**The verdict every configuration reports is UNCHANGED** — the two
+production-recommended configurations (`multistart=9`, with or without the
+analytic gradient) still `agrees` (eta/edf gate, ADR-221), single-start still
+does not, in both cases for the same reason as before (a weakly-identified
+`lambda` direction, ADR-211/212/218). Readings moved at the level ADR-222
+amendment 2 predicts (`eta` moved by up to ~2x within the same tolerance
+band, `log10(sp)` moved by whole decades on the already-known-unreliable
+weak direction) — exactly "every committed reading… moves and must be
+RE-STATED, not assumed stable," with the stronger fact that nothing this
+epic currently relies on for its `agrees` claim actually reversed.
+Single-start's own `converged` flag flipping True→False on this specific
+recipe is the SAME class of environment/path-sensitive SciPy bookkeeping
+ADR-211/212/222 already documented (a flag downstream of the search path,
+not of fit quality), now triggered by an unrelated, correct formula change
+rather than a thread-count change — not a new defect. **Tier 3
+confirmation of this table is registered as this ADR's own follow-up, not
+yet dispatched as of this writing** — see the session log for the CI run
+once it lands; per `ROUTINE_MGCV_PARITY.md` this tier-1 reading is a
+hypothesis, not a committable number, until confirmed.
+
+**A second, incidental finding, reported because the routine requires
+reporting what a session actually measures, not only what it went looking
+for:** re-running `tests/test_analytics/test_gam_reml_optimize.py`'s own
+`TestFiniteDiffStep` class after this change found that SciPy's *default*
+(un-derived) finite-difference step — the one `_FINITE_DIFF_STEP = 1e-5`
+exists specifically to avoid, because ADR-212 measured it landing inside
+this objective's noise floor on the module's own near-flat fixture — no
+longer reproduces that defect on that fixture post-7h
+(`gam_reml_optimize_near_flat_direction.json`; central-difference gradient
+at the default step's reported minimum: `~8.5e-3`, deterministic across
+repeated runs, against ADR-212's own `>0.1` reading). This is consistent
+with ADR-212's own mechanism being (in part) the same cancellation this ADR
+removes, on that fixture — the noise floor `_FINITE_DIFF_STEP` was sized
+against is measurably smaller now. **Not investigated further and no
+production default changed**: PR #216's review already found
+`_FINITE_DIFF_STEP=1e-5` costs a digit of accuracy on well-conditioned
+problems (a separate fixture), so revisiting the default needs its own
+across-fixture measurement, which is out of this slice's scope. The test
+(`TestFiniteDiffStep::test_default_step_no_longer_needed_on_the_near_flat_fixture`,
+renamed from `..._reports_spurious_convergence_on_...`) is updated to state
+the new, measured reading rather than the superseded one, with the
+mechanism cited in its docstring — the same treatment ADR-197 gave a
+baseline that moved for a derived reason, not a widened tolerance.
+
+**Slice 8 is unaffected in scope** — still (a) Section 3.1's
+reparameterisation for accuracy at these spreads, which this ADR explicitly
+does not deliver, and (b) a deterministic Newton solver for the
+random-start/best-of-N nondeterminism 7h does not reach.
+
+**Registered follow-up:** dispatch `mgcv-conformance.yml` on this branch and
+confirm the `SELECT_FREE_SP_MODEL_CLAIM` table above at tier 3 (R 4.6.1 /
+mgcv 1.9.4, pinned digest), per `ROUTINE_MGCV_PARITY.md`'s rule that only a
+tier-3 reading may be cited in a CONTINUATION or a docstring as settled.
