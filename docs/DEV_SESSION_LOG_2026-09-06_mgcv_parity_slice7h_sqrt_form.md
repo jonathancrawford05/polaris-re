@@ -428,3 +428,58 @@ verdict matches the reviewer's own independent computation exactly.
 clean on every touched file; `pytest tests/test_analytics/test_gam_reml.py
 tests/test_analytics/test_gam_reml_optimize.py` — all passing including the
 3 new guard/edge-case tests.
+
+## Post-review addendum 2 — a second, independent automated review ("from the #227 side")
+
+A second reviewer verified `ε_f` (`~5.2e-05 -> ~6.8e-13`, correctly located
+at half the pre-fix `beta'Sbeta` thread spread), confirmed `agrees` is
+unchanged at every configuration and both tiers, and confirmed the caching
+is a net cost saving. No blocking findings, but two real gaps and one
+forward-looking concern.
+
+**[P1-1] `PROPOSAL_convergence_certificate.md` §6 still told a reader to
+wait for a measurement this PR just produced — FIXED.** Slice 7h's own
+DoD required recording `ε_f` before/after specifically so this document's
+own deferral could be closed; the number existed in ADR-223 but the
+document itself was never told. Amended §6 to state the post-fix `ε_f`
+(`~6.8e-13`) directly and point at ADR-223/the ledger for the full
+before/after table. The two thresholds `ε_rel` and the curvature-to-noise
+ratio remain explicitly the maintainer's to set — this only removes the
+document's own staleness about whether the measurement it was waiting for
+exists.
+
+**[P1-2] The `converged` flip is independent evidence for the convergence
+proposal's OWN central claim, arriving from an unanticipated axis — added
+as a third instance, not left as only a test-decoupling note.** The
+reviewer's framing is sharper than the original session log's: a
+formula-only fix (no search change, no thread-count change) flipping
+`converged` on a fit that itself barely moved is a clean demonstration
+that the flag tracks the optimiser's internal path, not fit quality —
+alongside slice 7c's flat-direction reading and slice 7f's `ftol`
+state-governed exit, both already in
+`docs/PATTERN_resolvable_tolerances.md` §1. Added as Instance 3 there (with
+the specific eta/edf/score deltas), and a short paragraph in
+`PROPOSAL_convergence_certificate.md` §1 citing it as a third, unplanned
+confirmation of the same diagnosis.
+
+**[P2-1] The forced `converged=True` as a latent trap if the certificate is
+later adopted — considered, NOT implemented as suggested, with reasons.**
+The reviewer offered two remedies: build the fit synthetically instead of
+running the live search, or pin the flip in its own small test. Attempted
+the second first — and it would have been WRONG to ship: the reviewer's
+own review already reports that the IDENTICAL live call on their machine
+returned `converged=True` where this session's own environment returns
+`False` for the SAME recipe. Asserting either specific value would make
+the test pass or fail depending on which machine runs it — reintroducing,
+inside a brand-new test, the exact environment-dependent-flag problem
+ADR-211/212/218/222 spent four ADRs establishing must never be asserted on
+directly. **Not fixed in this PR** — the documentation-only response in
+ADR-223 amendment 2 (stating plainly that only the R-gated path still
+covers live convergence here) is left as the answer; building the fit
+synthetically (the reviewer's FIRST offered remedy, not attempted this
+session) remains open if a future session wants gate-arithmetic tests that
+never touch the live search at all.
+
+**Re-verification:** `tests/test_analytics/test_gam_select_free_sp_conformance.py`
+— 9 passed (unchanged count — no new test added, per the P2-1 finding
+above), including the live R-gated round trip.

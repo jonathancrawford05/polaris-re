@@ -41,6 +41,20 @@ optimum exists to find), the other is a **blocked search** (an optimum exists
 and was not reached). A test that cannot tell them apart will misclassify one of
 them at every threshold.
 
+**A third, independent demonstration arrived from slice 7h (ADR-223, PR
+#229), unprompted and from a direction this section did not anticipate.**
+Slice 7h changed nothing about the search, the data, or the thread count —
+only the REML score's own arithmetic, fixing a real cancellation bug. On a
+fixed recipe (`_small_recipe()`), that arithmetic-only fix flipped SciPy's
+`success` flag from `True` to `False` while the fitted model itself barely
+moved (`eta` by `0.0005`, `edf_total` by `0.1`, the score by `0.0045`) — see
+`docs/PATTERN_resolvable_tolerances.md` §1, instance 3, for the full
+reading. A flag sensitive to which mathematically-equivalent formula
+computed its input is reporting something about that computation's own
+numerical path, not about whether the fitted model is any good — the same
+conclusion §1's two engineered demonstrations reach, now confirmed by an
+unplanned third occurrence.
+
 ## 2. What is well established
 
 Four standard practices, each addressing one of the failures above.
@@ -165,18 +179,33 @@ and both are acceptance criteria:
 2. **The curvature-to-noise ratio** that defines "identified".
 
 These are portable, defensible quantities — unlike "a number between `2.0e-04`
-and `4.9e-01`", which was the choice on offer before. **Recommendation:** do not
-decide them now. Both should be set against measurements taken *after* slice 7h,
-because `ε_f` moves nine orders and every derived threshold moves with it.
+and `4.9e-01`", which was the choice on offer before. The original
+recommendation was to defer both until a POST-slice-7h `ε_f` existed, because
+`ε_f` moves nine orders and every derived threshold moves with it.
 
-**The deferral is made safe by a committed criterion, not by a note.** Slice 7h's
-DoD now requires `ε_f` be recorded before *and* after the fix
+**Slice 7h has now happened (ADR-223, 2026-09-06), and the measurement this
+section was waiting on exists.** `ε_f` — the score's own spread under a
+mathematically no-op perturbation (the BLAS thread sweep) — moved from
+`~5.2e-05` (the worst pre-fix reading, at this criterion's own selected
+`lambda` spreads) to `~6.8e-13` post-fix, the nine-order collapse this
+document's own deferral was written against. **Both numbers remain the
+maintainer's to set, not this document's or any routine's** — the point of
+the deferral was never that no number could be picked, only that picking one
+before `ε_f` existed would have been picking it against the wrong scale.
+That obstacle is now cleared: `ε_rel` and the curvature-to-noise ratio may be
+derived from `~6.8e-13` (and, for context, cross-checked against the
+pre-fix `~5.2e-05` to see how much margin either choice has against the
+defect slice 7h closed).
+
+**The deferral is made safe by a committed criterion, not by a note.** Slice
+7h's DoD required `ε_f` be recorded before *and* after the fix
 (`PLAN_mgcv_parity_engine.md`), because 7h is the slice that moves it and
-therefore the only natural moment to capture it. Without that, this decision
-would be deferred a second time for want of a measurement, and someone would
-have to re-run 7h's own before/after to recover it. Both numbers are also
-carried in `PRODUCT_DIRECTION_2026-07-24.md` so they survive independently of
-this document.
+therefore the only natural moment to capture it. That requirement was met —
+see ADR-223 and `docs/CONFORMANCE_LEDGER.md`'s slice-7h row for the full
+before/after table, including the per-spread breakdown the single number
+above summarises. Both numbers are also carried in
+`PRODUCT_DIRECTION_2026-07-24.md` so they survive independently of this
+document.
 
 **The general method behind this section** — measure the noise floor, identify
 what carries signal above it, state the tolerance relatively on that subspace,
