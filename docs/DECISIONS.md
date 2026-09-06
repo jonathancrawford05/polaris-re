@@ -21978,3 +21978,85 @@ change this ADR makes to the criterion's arithmetic.
 moved in a way that was not anticipated; the epic's standing guidance not to
 rely on single-start for a parity claim is, if anything, reinforced rather
 than undermined.
+
+## ADR-223 amendment 2: PR #229 automated review response — a guard fixed, one gap re-scoped, one gap documented rather than covered
+
+**Date:** 2026-09-06. **Status:** ACCEPTED.
+
+PR #229's automated review verified every number in ADR-223 and amendment 1
+independently (bit-for-bit reproduction of the near-flat-fixture gradient,
+the full-suite reconciliation, and the perf-history creep verdict) and
+withheld automated approval on one governance guardrail plus two coverage
+consequences of this slice's own test changes. This amendment records the
+disposition of each.
+
+**[P0] Two pre-existing test changes — withheld pending the maintainer,
+not resolved here.** The review's standing rule withholds automated
+approval, unconditionally, from a PR that changes an existing test's
+assertion. Both changes this slice makes are named in the PR body,
+root-caused in the session log, and reproduced independently by the
+reviewer as correct and derived, not a widened tolerance — but "an existing
+test now asserts the opposite of what it was written to assert" is, by the
+review's own standing rule, a maintainer decision. Nothing reverted;
+nothing forced through.
+
+**[P1] `TestFiniteDiffStep` no longer discriminates `_FINITE_DIFF_STEP` —
+re-scoped, not fixed in this PR.** Correct finding: after this slice, the
+class's two tests assert the identical property
+(`norm(grad) < 0.05`) on the identical fixture, differing only in which
+`eps` SciPy uses — so the production override
+(`gam_reml_optimize._FINITE_DIFF_STEP = 1.0e-5`) now ships with no test in
+which it changes any outcome. The originating session log tagged this
+2nd-order ("a methodological note"); the review correctly named it
+1st-order — a direct consequence of this slice's own measurement, not a
+general observation — and that mistagging is exactly what would have let
+an now-unjustified production constant sit unexamined. **Registered as PLAN
+slice 7i**, with the review's own two remedies (re-point the historical
+test at a fixture where the defect still reproduces, or re-derive the
+constant from an across-fixture measurement) as its Definition of Done.
+
+**[P1] Live single-start convergence coverage — documented here, not
+built.** `test_compare_select_free_sp_case_agrees_is_now_eta_edf_not_log10_sp`'s
+`dataclasses.replace(fit, converged=True)` is correctly scoped (confirmed
+by the review: the sibling tests at other call sites don't read `agrees`,
+so none needed an equivalent change) but permanent, in every environment —
+including one where the search genuinely fails to converge. **Stated
+explicitly, as the review's own second offered remedy:** the ONLY test
+remaining in this repository that asserts genuine, live convergence of
+`fit_select_free_sp_case`'s single-start default is
+`test_the_r_probe_runs_end_to_end`, gated on `rscript_mgcv_available()` —
+it is SKIPPED wherever R is absent, including this session's own CI
+baseline environment and any contributor's default checkout. A reader
+relying on the R-free suite alone for evidence that this search still
+converges on `_small_recipe()` has no such evidence after this slice; only
+the R-gated path carries it, and only when R happens to be installed.
+
+**[P2] `penalty_block_square_roots` clipped a genuinely indefinite block
+silently — fixed.** `np.clip(eigenvalues, 0.0, None)` ran unconditionally,
+so a block that was NOT actually PSD (an upstream defect this function has
+no way to have caused, since every current caller does construct PSD
+blocks) would have its negative contribution to `βᵀSβ` silently dropped
+rather than surfaced. Now raises `PolarisValidationError` when an
+eigenvalue is negative beyond `_SQRT_RANK_RELTOL` relative to the block's
+own largest one, before clipping. Verified the boundary in both directions:
+an exactly-zero block (both bounds exactly `0.0`, no rounding noise from
+`eigh` on an exact-zero input) still yields a `(q, 0)` root without
+raising; a noise-scale negative eigenvalue (`-1e-16` against a `1.0` block)
+is still clipped, not rejected; a genuinely indefinite block
+(`diag([1, -1, 2])`) now raises.
+
+**[P2] Exact float `==` in two new assertions — fixed**, switched to
+`np.testing.assert_array_equal` per the repo's own bit-identity convention
+the review cited.
+
+**[P2] Missing Perf History section / creep verdict — fixed**, added to
+the session log; the computed verdict (`insufficient_data: false`,
+`peak_mib_delta 0.0`, `wall_time_ratio 1.119` inside the `1.25` band, no
+config drift — no structural creep) matches the reviewer's own independent
+computation exactly.
+
+**What did not change:** the criterion itself (`gam_reml.py`'s
+sum-of-squares evaluation), the `SELECT_FREE_SP_MODEL_CLAIM` measurements,
+and the tier-1/tier-3 verdicts in ADR-223/amendment 1 — none of the
+review's findings touch the fix's own correctness, only its test coverage
+and one defensive-programming gap.

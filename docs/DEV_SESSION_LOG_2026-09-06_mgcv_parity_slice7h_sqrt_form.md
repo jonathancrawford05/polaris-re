@@ -351,16 +351,80 @@ drift from the routine's expected apt versions). Tier 3: R 4.6.1 / mgcv
 
 - ~~**Tier-3 confirmation of `SELECT_FREE_SP_MODEL_CLAIM`'s post-7h table**~~
   — **DONE, same session, Pass 5 above.**
-- **The `_FINITE_DIFF_STEP` noise-floor interaction** (this slice's
-  incidental finding: the ADR-212 defect no longer reproduces on its own
-  fixture post-7h) — named, not chased. Revisiting the production default
-  needs its own across-fixture measurement (PR #216's own review already
-  found the opposite trade-off on a different, well-conditioned fixture).
-  *2nd-order — a methodological note, not a work item; explicitly not
-  registered as a slice, since no acceptance criterion or production
-  default is proposed to change.*
+- ~~**The `_FINITE_DIFF_STEP` noise-floor interaction**~~ — **RE-TAGGED
+  1st-order and REGISTERED as PLAN slice 7i**, per PR #229's automated
+  review [P1] (see Post-review addendum below): this session's own original
+  2nd-order tag was wrong — `TestFiniteDiffStep`'s two tests now assert the
+  identical property on the identical fixture, so the production override
+  ships with no test in which it changes any outcome, which is a direct,
+  1st-order consequence of this slice's own measurement, not a general
+  methodological note.
 - **Slice 7g direction 1** (a robust inner PIRLS) is next per the PLAN's own
   sequencing note, unaffected by this slice's own scope.
 
 Harvested into the latest `PRODUCT_DIRECTION` under this session's date,
 order-tagged, per daily-dev's own convention.
+
+## Perf History
+
+`scripts/perf_history.py` run against this PR's HEAD (idempotent, per-commit
+append). One row appended, no prior row edited or removed. Creep verdict:
+`insufficient_data: false`, `peak_mib_delta 0.0`, `wall_time_ratio 1.119`
+(inside the `1.25` band), no config drift — **no structural creep.**
+
+## Post-review addendum — PR #229's automated review
+
+Comment review (changes requested; the automation's own GitHub identity is
+this PR's author, so a formal `REQUEST_CHANGES` event was not available to
+it). Verified every reproduced number before acting — all matched
+(`norm(grad) = 0.008491` against this log's `~8.5e-3`; the suite
+reconciliation; the creep verdict).
+
+**[P0] Withheld pending maintainer sign-off — not something this session
+resolves.** The review's own standing guardrail withholds automated
+approval, unconditionally, from any PR that changes an existing test's
+assertion — documented or not. Both changes here (`TestFiniteDiffStep`'s
+renamed/flipped test, `test_compare_select_free_sp_case_agrees_is_now_eta_edf_not_log10_sp`'s
+forced `converged=True`) are named in the PR body, root-caused in this log,
+and independently reproduced by the reviewer — the review says so
+explicitly. Left as-is, awaiting the maintainer's own decision; not mine to
+override by reverting a correctly-diagnosed test change back to asserting a
+now-false premise.
+
+**[P1] `_FINITE_DIFF_STEP` no longer discriminated by any test — FIXED,
+by re-scoping.** Addressed above: re-tagged 1st-order, registered as PLAN
+slice 7i with its own Definition of Done (a committed fixture where the
+step still changes an outcome, or a re-derived value).
+
+**[P1] No R-free test covers live convergence of `fit_select_free_sp_case`
+— ACKNOWLEDGED, documented rather than built.** The review confirmed the
+override is correctly scoped (the sibling tests don't read `agrees`, so
+needed no change) and offered two remedies: a non-gating reported
+observation, or stating the coverage gap explicitly in ADR-223. Took the
+second — ADR-223 amendment 2 now states plainly that live single-start
+convergence on `_small_recipe()` is environment-dependent (`False` in this
+session, `True` in the reviewer's) and is no longer exercised outside the
+R-gated `test_the_r_probe_runs_end_to_end` path.
+
+**[P2] `penalty_block_square_roots` silently clipped a genuinely indefinite
+block — FIXED.** Added the suggested magnitude guard (raises
+`PolarisValidationError` when an eigenvalue is negative beyond
+`_SQRT_RANK_RELTOL` relative to the block's own largest one) plus three new
+tests: an all-zero block still yields a `(q, 0)` root without raising
+(verified this doesn't collide with the new guard — an exact zero matrix
+has no rounding noise in `eigh`, so both bounds are exactly `0.0`), a
+genuinely indefinite block raises, and a noise-scale negative eigenvalue
+(`-1e-16` against a `1.0` scale) is still clipped, not rejected.
+
+**[P2] Exact float `==` in two new assertions — FIXED.** Both switched to
+`np.testing.assert_array_equal`, matching the repo's existing bit-identity
+convention the review cited (not treated as the tolerance-style P0
+`REVIEW.md` names, correctly — the intent here is deliberate bit-identity).
+
+**[P2] Missing Perf History section / creep verdict — FIXED.** Added above;
+verdict matches the reviewer's own independent computation exactly.
+
+**Re-verification after these fixes:** `uv run ruff format` / `ruff check`
+clean on every touched file; `pytest tests/test_analytics/test_gam_reml.py
+tests/test_analytics/test_gam_reml_optimize.py` — all passing including the
+3 new guard/edge-case tests.

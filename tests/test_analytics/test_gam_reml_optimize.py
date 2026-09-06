@@ -113,7 +113,7 @@ class TestPenalizedFitAndScore:
             y, x, family, (s,), np.array([1.5]), penalty_sqrt_blocks=roots
         )
         np.testing.assert_array_equal(without[0], with_roots[0])
-        assert without[1] == with_roots[1]
+        np.testing.assert_array_equal(without[1], with_roots[1])
 
     def test_rejects_a_log_lambda_length_mismatch(self, rng: np.random.Generator) -> None:
         x = _design(rng, 20, 3)

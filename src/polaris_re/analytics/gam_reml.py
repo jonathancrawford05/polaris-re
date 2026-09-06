@@ -149,12 +149,28 @@ def penalty_block_square_roots(
 
     Returns:
         One ``(q, kⱼ)`` array per block, same order as ``penalty_blocks``.
+
+    Raises:
+        PolarisValidationError: if a block has an eigenvalue negative beyond
+            :data:`_SQRT_RANK_RELTOL` relative to its own largest one — a
+            genuinely indefinite block, which no PSD-by-construction penalty
+            should ever be (PR #229 review [P2]: the prior revision clipped
+            silently, which would absorb rather than surface an upstream
+            defect that produced one).
     """
     roots = []
     for block in penalty_blocks:
         eigenvalues, eigenvectors = np.linalg.eigh(block)
-        eigenvalues = np.clip(eigenvalues, 0.0, None)
         largest = float(eigenvalues.max()) if eigenvalues.size else 0.0
+        smallest = float(eigenvalues.min()) if eigenvalues.size else 0.0
+        if smallest < -largest * _SQRT_RANK_RELTOL:
+            raise PolarisValidationError(
+                "penalty_block_square_roots: a penalty block has eigenvalue "
+                f"{smallest:.3e}, negative beyond numerical noise relative to "
+                f"its own largest eigenvalue {largest:.3e} — every penalty "
+                "block must be positive semi-definite by construction."
+            )
+        eigenvalues = np.clip(eigenvalues, 0.0, None)
         keep = eigenvalues > largest * _SQRT_RANK_RELTOL
         roots.append(eigenvectors[:, keep] * np.sqrt(eigenvalues[keep]))
     return tuple(roots)

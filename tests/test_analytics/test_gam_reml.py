@@ -343,6 +343,37 @@ class TestPenaltyBlockSquareRoots:
     """PLAN slice 7h (ADR-223): ``penalty_block_square_roots`` and the
     ``penalty_sqrt_blocks`` parameter it feeds ``reml_score_general``."""
 
+    def test_an_all_zero_block_yields_an_empty_root_without_raising(self) -> None:
+        """The clip/guard path's own edge case (PR #229 review [P2]): a
+        block that is exactly zero has no eigenvalue negative beyond noise
+        (both its largest and smallest eigenvalue are exactly ``0.0``, no
+        rounding involved), so it must NOT raise — and the root correctly
+        has zero columns, contributing nothing to the quadratic form."""
+        p = 4
+        block = np.zeros((p, p))
+
+        (root,) = penalty_block_square_roots((block,))
+        assert root.shape == (p, 0)
+
+    def test_rejects_a_genuinely_indefinite_block(self) -> None:
+        """PR #229 review [P2]: an eigenvalue negative FAR beyond numerical
+        noise (not a PSD-by-construction block at all) must raise rather
+        than be silently clipped away, which would absorb an upstream
+        defect instead of surfacing it."""
+        block = np.diag([1.0, -1.0, 2.0])
+
+        with pytest.raises(PolarisValidationError, match="positive semi-definite"):
+            penalty_block_square_roots((block,))
+
+    def test_genuine_numerical_noise_is_still_clipped_not_rejected(self) -> None:
+        """The guard's own threshold, from the other side: an eigenvalue
+        negative by a tiny amount RELATIVE to the block's own scale (exactly
+        the noise the clip exists to absorb) must not raise."""
+        block = np.diag([1.0, -1e-16])
+
+        (root,) = penalty_block_square_roots((block,))
+        assert root.shape == (2, 1)  # the noise eigenvalue is dropped, not kept
+
     def test_reconstructs_a_full_rank_block_exactly(self, rng: np.random.Generator) -> None:
         """``L @ L.T == S`` (to float precision) for a well-conditioned,
         full-rank block — closed form via a random SPD matrix built by hand
@@ -413,7 +444,7 @@ class TestPenaltyBlockSquareRoots:
         with_precomputed = reml_score_general(
             y, x, family, beta_true, blocks, lambdas, penalty_sqrt_blocks=precomputed
         )
-        assert with_precomputed == without
+        np.testing.assert_array_equal(with_precomputed, without)
 
     def test_rejects_a_penalty_sqrt_blocks_length_mismatch(self, rng: np.random.Generator) -> None:
         n, p = 50, 3

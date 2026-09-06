@@ -3838,18 +3838,21 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   was never a passing configuration at either tier before or after this
   fix).*
 
-- **Incidental finding: this fix appears to also (partially) resolve, on one
-  fixture, the noise-floor defect `_FINITE_DIFF_STEP` was sized against**
-  (ADR-212). `TestFiniteDiffStep`'s own pre-ADR-212 defect demonstration no
-  longer reproduces post-7h on its own fixture (central-difference gradient
-  at SciPy's un-derived default step's reported minimum: `~8.5e-3`,
-  deterministic, against ADR-212's own `>0.1`). **Not investigated further,
-  no production default changed** — PR #216's own review already found the
-  opposite trade-off (a digit of accuracy lost) on a separate, well-
-  conditioned fixture, so revisiting `_FINITE_DIFF_STEP` needs its own
-  across-fixture measurement. *Source: this session, ADR-223 (2nd-order — a
-  methodological note naming a possible future measurement, not itself a
-  work item).*
+- **Incidental finding, RE-TAGGED 1st-order and REGISTERED as PLAN slice
+  7i (PR #229 review [P1], corrected from this session's own original
+  2nd-order tag): this fix removed the noise floor `TestFiniteDiffStep`
+  existed to demonstrate, and now no test in the repository discriminates
+  `_FINITE_DIFF_STEP` at all.** `TestFiniteDiffStep`'s two tests now assert
+  the identical property (`norm(grad) < 0.05`) on the identical fixture,
+  differing only in which `eps` SciPy uses — so the production override
+  (`gam_reml_optimize._FINITE_DIFF_STEP = 1.0e-5`) ships with no committed
+  test in which changing it changes any outcome. PLAN slice 7i registers
+  the fix: a committed fixture where the step still matters, or a
+  re-derived value, per the same "derived, not tuned" discipline ADR-212
+  used. *Source: PR #229's automated review (1st-order — a direct
+  consequence of this slice's own measurement, not a general
+  methodological note; the review named the original 2nd-order tag as
+  itself part of the risk).*
 
 - **Slice 7g direction 1 (a robust inner PIRLS) is next**, per the PLAN's
   own sequencing note — unaffected by this slice's scope. *Source: PLAN
