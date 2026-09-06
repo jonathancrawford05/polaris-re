@@ -3489,6 +3489,106 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   right. *Source: this session (2nd-order — a documentation correction with
   no downstream consequence found).*
 
+### Harvested 2026-09-04 — the mgcv-parity evidence and the shipped dashboard are attached to two different implementations (`PLAN_gam_production_wiring.md`)
+
+- **EPIC REGISTERED: wire the validated engine to the production MI surface.**
+  Spec'd in **`docs/PLAN_gam_production_wiring.md`** — 5 slices, REGISTERED /
+  NOT STARTED **and BLOCKED FROM SLICE 3 ONWARD on parity slice 7h (amended
+  2026-09-05, blocker E): the engine is not environment-reproducible, so slice
+  3 must not wire a surface whose value depends on the reader's thread count.
+  Slices 4-5 inherit that through slice 3; slices 1-2 measure rather than wire
+  and are not blocked by it, though whether they should run before 7h is the
+  maintainer's call (open question 3). Slice 8 is not a dependency of this
+  epic. The plan's findings are durable; its slice decomposition is
+  provisional.** CONTINUATION deliberately not created so it cannot read as
+  active while `CONTINUATION_mgcv_parity_engine.md` is IN PROGRESS. The gate
+  it exists to pass is *"can the GAM on the dashboard be shown to an external
+  audience?"*, which is not the question the parity epic has been answering.
+  *Source: maintainer direction 2026-09-04, raised from the PR #225/#226
+  review conversation (1st-order — the surfacing step the parity epic's own
+  evidence was always for).* **IMPORTANT.**
+
+- **The measurement that motivated it: `gam_model.fit_polaris_gam` has ZERO
+  production consumers.** Import-graph audit at `40f14d8`: it is imported by
+  exactly five conformance modules and three test files, is absent from
+  `analytics/__init__.py` (which does export `ExperienceGAM` /
+  `TensorMIModel` / `BayesianTensorMIModel`), and neither it nor
+  `experience_gam_penalized` / `gam_uncertainty` / `gam_uncertainty_mi` is
+  referenced from any of `dashboard/`, `api/`, `cli.py`, `mcp/`, `services/`,
+  `pipeline.py`, `viz/`. The Experience Improvement page renders the
+  statsmodels-backed `experience_gam` path. **No slice downstream of 7e
+  changes this** — the parity epic could run to completion with the dashboard
+  still showing output that carries none of its evidence. *Source: this
+  session (1st-order — a gap between the evidence and the shipped surface,
+  found while assessing external-consumption readiness).* **IMPORTANT.**
+
+- **The by-amount basis cannot use the validated free-`sp` search at all.**
+  The amount basis is quasi-Poisson; `quasipoisson_log` sets
+  `dispersion_fixed=False` (`gam_family.py:264`) and `reml_score_general`
+  raises on exactly that (`gam_reml.py:167`), as does `reml_score_gradient`
+  (`gam_reml_gradient.py:126`). `mgcv` handles scale-estimated families with a
+  different criterion; supplying one is new numerical work, not wiring. Until
+  then the dashboard's amount toggle must stay on the old path — or the
+  maintainer decides the two toggles may run different engines and the UI says
+  so. *Source: this session, `PLAN_gam_production_wiring.md` blocker B
+  (1st-order — a capability gap blocking half the dashboard's own basis
+  toggle).* **IMPORTANT.**
+
+- **Re-pointing the uncertainty band would LOWER coverage, and there is a hole
+  in the evidence for saying so.** On the age-flat truth the shipped
+  unpenalized estimator covers at 0.9586 against the penalized band's 0.7815,
+  and every penalized variant under-covers worst at ages ≥80 (0.68–0.72
+  against nominal 0.95) — so the point estimate and the interval must be wired
+  in separate slices. **But the 0.9586 figure exists for the age-flat truth
+  only**, quoted from ADR-187 rather than re-measured: on the age-varying
+  truth we know what the penalized band does (0.8090) and do *not* know what
+  today's shipped band does. Closing that is now slice 4's first `[machine]`
+  criterion. *Source: this session, PR #227 review [P2-2] (1st-order — a gap
+  in the evidence base for a decision this epic has to make).* **IMPORTANT.**
+
+- **The coverage BLOCKER's nominal owner is dormant.**
+  `PLAN_gam_production_wiring.md` assigns the underlying coverage gap to
+  `PLAN_penalized_mi_surface.md`, whose CONTINUATION has slices 6–7 PARKED as
+  superseded by the parity epic. So the standing BLOCKER has no active path to
+  closure and blocker C above cannot be fixed by the epic that owns it.
+  **MAINTAINER RULING 2026-09-05: no owner assigned, "none for now."** The gap
+  is therefore ACCEPTED AND OPEN, not closed — deliberately unowned rather
+  than overlooked, which is why the desired end state is now written down in
+  `PLAN_gam_production_wiring.md` ("The band: desired end state") so a future
+  epic can pick it up without re-deriving it. *Source: PR #227 review,
+  human-review item (1st-order — an ownership gap on
+  a standing BLOCKER).* **BLOCKER for `PLAN_gam_production_wiring.md` slice
+  4** — not for the epic as a whole, since slice 4 may legitimately end in
+  "change nothing", but nothing can reach that decision while the gap has no
+  owner.
+
+- **Three maintainer decisions the epic cannot start without — ALL THREE NOW
+  RESOLVED (2026-09-05).** (1) ~~Does run-to-run reproducibility (ADR-219
+  amendment 3) gate the published UI claim? Recommendation in the PLAN: it
+  gates slice 5, not slices 1–3.~~ **RESOLVED 2026-09-05, and against that
+  recommendation.** ADR-222 amendment 1 measured the instability reaching the
+  fitted *surface* (`eta`, `edf`), not only the smoothing parameters, so it
+  bears on the WIRING and not merely the claim: it now gates **slice 3** via
+  blocker E, and slice 5 as well. The recommendation was wrong because it
+  assumed a machinery-only defect. Do not read it as live guidance.
+  (2) ~~Is a validated surface paired with the old estimator's band an
+  acceptable interim?~~ **RESOLVED 2026-09-05: YES, on two conditions** — the
+  desired end state is documented for a future epic to pick up (now a section
+  of the PLAN), and the old band is labelled a **stop-gap** wherever it
+  appears, never as the intended design. Not an acceptance of the coverage
+  gap, which stays a BLOCKER. (3) ~~Does this epic outrank the parity epic's
+  remaining slices?~~ **RESOLVED 2026-09-05: PARITY FIRST, and the gate is on
+  the MODEL, not the epic** — *"we have a targeted model specification that
+  needs acceptable parity before we wire anything to the client facing
+  dashboard (or other surfaces)."* Recorded as the PLAN's **Anchor W6**, which
+  binds every client-facing surface and not just the dashboard. Slice 3 now
+  waits on two independent conditions: Anchor W6 AND parity slice 7h. Slice 1
+  is the measurement the W6 gate consumes, so it is on the critical path
+  rather than competing with 7h.
+  *Source: this session, `PLAN_gam_production_wiring.md` "Open questions"
+  (1st-order — registered rather than presumed, per
+  `ROUTINE_MGCV_PARITY.md`'s "May not decide").* **IMPORTANT — needs a
+  maintainer decision, not a routine one.**
 ### Harvested 2026-09-05 — slice 7f: the `ftol` exit was honest; the line search is walled by the objective's own non-convergent neighbourhood (ADR-222)
 
 - **ADR-220's diagnosis was pointing at the wrong culprit, and measuring all
@@ -3538,11 +3638,62 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   number. *Source: this session, ADR-222 (1st-order — an acceptance-criterion
   decision this slice deliberately did not take).* **IMPORTANT.**
 
+  > **A SOLUTION IS PROPOSED, AND THE DECISION IS NOW TWO PORTABLE NUMBERS
+  > INSTEAD OF ONE ARBITRARY ONE (2026-09-05, maintainer-requested).**
+  > `docs/PROPOSAL_convergence_certificate.md` — **PROPOSED, binds nothing;
+  > adopting it needs an ADR.** Its finding is that the two plateaus above are
+  > *not the same phenomenon*: `2.0e-04` is a **flat direction** (no optimum
+  > exists there, so requiring a small gradient is a category error) and
+  > `4.9e-01` is a **blocked search** (one exists and was not reached). Any
+  > single absolute threshold must misclassify one of them — which is why no
+  > number between them was ever going to be principled. The certificate
+  > measures the noise floor `ε_f` rather than choosing it, tests stationarity
+  > *relatively* and only on directions whose curvature exceeds `ε_f`, adds a
+  > second-order test on that subspace, and returns a four-valued verdict so a
+  > fit optimal to `1e-6` reports `CONVERGED_ON_IDENTIFIED_SUBSPACE` rather
+  > than `False`.
+  >
+  > **THE TWO NUMBERS OWED, recorded here so they are not lost with the
+  > proposal:** (1) the **relative stationarity tolerance** `ε_rel` (e.g. `1e-6`
+  > relative), and (2) the **curvature-to-noise ratio** defining "identified".
+  > Both are acceptance criteria, so both stay "May not decide".
+  > **Deliberately deferred, not forgotten** — both derive from `ε_f`, which
+  > slice 7h moves by nine orders (`~1e-4 → ~1e-13`), so deciding them before
+  > 7h would set them against a noise floor that is about to vanish. **Slice
+  > 7h's DoD now requires `ε_f` be recorded before and after**, which is what
+  > makes the deferral safe rather than open-ended; slice 8 is where the
+  > certificate lands, because its Newton step computes the Hessian anyway.
+  >
+  > **The proposal explicitly does NOT deliver reproducibility** — that needs
+  > 7h (a stable criterion) and slice 8 (a deterministic solver). `mgcv` is
+  > bit-identical because it is deterministic, not because it tests for it.
+  > *Source: maintainer request 2026-09-05, PR #227 (1st-order — the
+  > acceptance-criterion decision above, made tractable).* **IMPORTANT —
+  > needs a maintainer decision, not a routine one.**
+
 - **The same shape as slice 7c, twice in one epic.** A tolerance demanded of a
   quantity the machinery cannot resolve is ill-posed, and the useful move is to
   say so rather than to move the tolerance. Worth remembering as a pattern
   rather than re-deriving it a third time. *Source: this session, ADR-222
   (2nd-order — a methodological observation, not a work item).*
+
+  > **PROMOTED AND WRITTEN DOWN, 2026-09-05, on maintainer endorsement**
+  > (*"this is a better approach to ground our development"*) — so it is no
+  > longer a 2nd-order observation but a method the maintainer has asked
+  > development to be grounded on. **`docs/PATTERN_resolvable_tolerances.md`,
+  > PROPOSED and binding nothing until an ADR adopts it.** Four steps: measure
+  > the quantity's noise floor `ε`; identify which components carry signal
+  > above it; state the tolerance RELATIVELY on that subspace; and when
+  > something is unresolvable, say so rather than widening the tolerance —
+  > which is *why* Anchor 8 / Anchor W5 forbid widening, not merely that they
+  > do. Adds a third verdict (`PASS_ON_RESOLVED_SUBSPACE`) because PASS/FAIL
+  > cannot express "optimal in every direction that has an optimum". Names one
+  > untested application: the coverage study's MC standard error of ≈1.54pp at
+  > 200 replicates means differences below ~3pp are not resolved by it —
+  > comfortable for slice 4's current readings, not necessarily for a narrower
+  > future one. *Source: maintainer endorsement 2026-09-05, PR #227 (1st-order
+  > — a method the maintainer has directed development be grounded on).*
+  > **IMPORTANT.**
 
 ### Harvested 2026-09-05b — convergence defined and measured: no configuration passes both axes, and `mgcv` is bit-identical (ADR-222 amendment 1)
 
