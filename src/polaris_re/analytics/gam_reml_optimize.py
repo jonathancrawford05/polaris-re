@@ -50,7 +50,7 @@ from scipy.optimize import OptimizeResult, minimize
 
 from polaris_re.analytics.gam_family import Family
 from polaris_re.analytics.gam_fit import effective_degrees_of_freedom, penalized_irls_general
-from polaris_re.analytics.gam_reml import reml_score_general
+from polaris_re.analytics.gam_reml import penalty_block_square_roots, reml_score_general
 from polaris_re.analytics.gam_reml_gradient import reml_score_gradient
 from polaris_re.core.exceptions import PolarisComputationError, PolarisValidationError
 
@@ -147,6 +147,7 @@ def penalized_fit_and_score(
     offset: np.ndarray | None = None,
     weights: np.ndarray | None = None,
     gamma: float = 1.0,
+    penalty_sqrt_blocks: tuple[np.ndarray, ...] | None = None,
 ) -> tuple[np.ndarray, float]:
     """One penalized fit and its REML score at ``log10(lambda) = log_lambda``.
 
@@ -174,6 +175,13 @@ def penalized_fit_and_score(
         weights: prior weights, ``(n,)``. Defaults to all-one.
         gamma: Wood's smoothness multiplier — passed through to
             ``reml_score_general`` unchanged.
+        penalty_sqrt_blocks: precomputed
+            :func:`~polaris_re.analytics.gam_reml.penalty_block_square_roots`
+            output, passed through to ``reml_score_general`` unchanged
+            (PLAN slice 7h). Defaults to ``None`` (computed fresh inside
+            ``reml_score_general``); a caller evaluating this function many
+            times at the same ``penalty_blocks`` — every search loop in this
+            module — should compute it once and pass it here.
 
     Returns:
         ``(coef, score)`` — the converged coefficients and the REML score at
@@ -205,6 +213,7 @@ def penalized_fit_and_score(
         offset=offset,
         weights=weights,
         gamma=gamma,
+        penalty_sqrt_blocks=penalty_sqrt_blocks,
     )
     return fit.coef, score
 
@@ -219,6 +228,7 @@ def penalized_fit_score_and_gradient(
     offset: np.ndarray | None = None,
     weights: np.ndarray | None = None,
     gamma: float = 1.0,
+    penalty_sqrt_blocks: tuple[np.ndarray, ...] | None = None,
 ) -> tuple[np.ndarray, float, np.ndarray]:
     """:func:`penalized_fit_and_score`, plus the analytic gradient of the
     score in ``log10(lambda)`` units — PLAN slice 7d.
@@ -231,6 +241,12 @@ def penalized_fit_score_and_gradient(
     supplied (``select_lambdas_continuous``'s own module docstring: "8 nested
     penalized-IRLS solves per gradient" at ``select=True``'s 7 blocks).
 
+    ``penalty_sqrt_blocks``: as :func:`penalized_fit_and_score`, passed
+    through to the score evaluation only (PLAN slice 7h; the gradient's own
+    ``coef @ block @ coef`` term is per-INDIVIDUAL-block already, never the
+    lambda-summed ``S``, so it does not carry the cancellation this argument
+    exists to avoid).
+
     Returns:
         ``(coef, score, gradient)`` — ``gradient`` is ``(len(penalty_blocks),)``,
         ``d(score)/d(log10(lambda)ⱼ)`` (scaled from
@@ -242,7 +258,15 @@ def penalized_fit_score_and_gradient(
         PolarisComputationError: propagated from a non-converging penalized fit.
     """
     coef, score = penalized_fit_and_score(
-        y, x, family, penalty_blocks, log_lambda, offset=offset, weights=weights, gamma=gamma
+        y,
+        x,
+        family,
+        penalty_blocks,
+        log_lambda,
+        offset=offset,
+        weights=weights,
+        gamma=gamma,
+        penalty_sqrt_blocks=penalty_sqrt_blocks,
     )
     lambdas = 10.0 ** np.asarray(log_lambda, dtype=np.float64)
     gradient_natural = reml_score_gradient(
@@ -494,6 +518,11 @@ def select_lambdas_continuous(
     n_blocks = len(penalty_blocks)
     if n_blocks == 0:
         raise PolarisValidationError("select_lambdas_continuous needs at least one penalty block.")
+    # PLAN slice 7h: penalty_blocks is fixed for the whole search below, so its
+    # square roots are computed ONCE here and threaded through every
+    # (fit, score) evaluation — not recomputed inside reml_score_general at
+    # every trial point the line search visits.
+    penalty_sqrt_blocks = penalty_block_square_roots(penalty_blocks)
     lo, hi = bounds
     start = (
         np.full(n_blocks, (lo + hi) / 2.0, dtype=np.float64)
@@ -536,6 +565,7 @@ def select_lambdas_continuous(
                 offset=offset,
                 weights=weights,
                 gamma=gamma,
+                penalty_sqrt_blocks=penalty_sqrt_blocks,
             )
         except PolarisComputationError:
             tally["rejected"] += 1
@@ -558,6 +588,7 @@ def select_lambdas_continuous(
                 offset=offset,
                 weights=weights,
                 gamma=gamma,
+                penalty_sqrt_blocks=penalty_sqrt_blocks,
             )
         except PolarisComputationError:
             tally["rejected"] += 1
@@ -621,6 +652,7 @@ def select_lambdas_continuous(
                     offset=offset,
                     weights=weights,
                     gamma=gamma,
+                    penalty_sqrt_blocks=penalty_sqrt_blocks,
                 )
             except PolarisComputationError:
                 return None
@@ -668,7 +700,15 @@ def select_lambdas_continuous(
 
     log_lambda = np.asarray(result.x, dtype=np.float64)
     coef, score = penalized_fit_and_score(
-        y, x, family, penalty_blocks, log_lambda, offset=offset, weights=weights, gamma=gamma
+        y,
+        x,
+        family,
+        penalty_blocks,
+        log_lambda,
+        offset=offset,
+        weights=weights,
+        gamma=gamma,
+        penalty_sqrt_blocks=penalty_sqrt_blocks,
     )
     penalty = np.zeros_like(penalty_blocks[0])
     for log_lam, block in zip(log_lambda, penalty_blocks, strict=True):

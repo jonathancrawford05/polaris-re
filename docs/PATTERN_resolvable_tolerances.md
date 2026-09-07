@@ -12,7 +12,7 @@
 
 ---
 
-## 1. The observation, from two independent instances
+## 1. The observation, from three independent instances
 
 **Instance 1 — slice 7c (ADR-219).** `SELECT_FREE_SP_MODEL_CLAIM` gated on raw
 `log10(sp)` agreement at `1e-2`. On the `select=TRUE` structure the residual sat
@@ -28,10 +28,28 @@ at `2.040e-04` while being optimal to `1e-6`; the bound-active N=7 case plateaus
 at `4.9e-01`. `gtol = 1e-8` is below what the objective resolves at all. Any
 absolute threshold between the two plateaus is arbitrary.
 
-**Same shape, twice, in one epic.** In both cases a real number was demanded of
-a quantity that does not carry that many digits of information — and in both, the
-tempting fix (move the threshold) would have hidden the finding instead of
-recording it.
+**Instance 3 — slice 7h (ADR-223, PR #229).** Not a tolerance reading this
+time but the same flag failing from a direction neither instance above
+anticipated. `select_lambdas_continuous`'s single-start default on a fixed
+recipe (`_small_recipe()`, PLAN slice 7b's own fixture) reported
+`converged=True` before slice 7h's reproducibility fix and `converged=False`
+after — from a change that touched only the score's *arithmetic*
+(`beta^T S beta` evaluated as a sum of squares instead of formed-and-
+contracted), not the search, the data, the starting point, or the thread
+count. The fit itself barely moved: `eta` by `0.00051`, `edf_total` by
+`0.1`, the score by `0.0045`. **A correct, formula-only change that improved
+numerical reproducibility elsewhere flipped this flag on a fit that did not
+meaningfully change** — independent evidence, from a third and previously
+untested axis, that `converged` tracks something about the optimiser's
+internal state rather than about fit quality (see
+`PROPOSAL_convergence_certificate.md` §1, instances 1-2, for the same
+conclusion reached via `ftol` state and a `gtol` plateau).
+
+**Same shape, three times, in one epic.** In every case a real number (or a
+boolean gated on one) was demanded of a quantity that does not carry that
+information, or is sensitive to an axis the criterion was never meant to
+track — and in every case, the tempting fix (move the threshold, or accept
+the flag) would have hidden the finding instead of recording it.
 
 ## 2. The failure mode, named
 

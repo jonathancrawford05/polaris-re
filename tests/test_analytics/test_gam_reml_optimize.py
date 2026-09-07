@@ -92,6 +92,29 @@ class TestPenalizedFitAndScore:
         np.testing.assert_allclose(coef, direct_fit.coef, rtol=1e-12)
         assert score == pytest.approx(direct_score, rel=1e-12)
 
+    def test_penalty_sqrt_blocks_is_passed_through_unchanged(
+        self, rng: np.random.Generator
+    ) -> None:
+        """PLAN slice 7h (ADR-223): the optional caching hint reaches
+        ``reml_score_general`` unchanged and does not alter the result —
+        checked here at the wrapper level (``gam_reml.py``'s own tests cover
+        the formula identity itself)."""
+        from polaris_re.analytics.gam_reml import penalty_block_square_roots
+
+        n, p = 60, 5
+        x = _design(rng, n, p)
+        y = rng.poisson(5.0, size=n).astype(np.float64)
+        s = np.eye(p)
+        family = poisson_log()
+
+        without = penalized_fit_and_score(y, x, family, (s,), np.array([1.5]))
+        roots = penalty_block_square_roots((s,))
+        with_roots = penalized_fit_and_score(
+            y, x, family, (s,), np.array([1.5]), penalty_sqrt_blocks=roots
+        )
+        np.testing.assert_array_equal(without[0], with_roots[0])
+        np.testing.assert_array_equal(without[1], with_roots[1])
+
     def test_rejects_a_log_lambda_length_mismatch(self, rng: np.random.Generator) -> None:
         x = _design(rng, 20, 3)
         y = rng.poisson(5.0, size=20).astype(np.float64)
@@ -139,6 +162,34 @@ class TestSelectLambdasContinuousValidation:
             pytest.raises(PolarisComputationError, match="rejected every one"),
         ):
             select_lambdas_continuous(y, x, poisson_log(), (s,), maxiter=5)
+
+
+class TestPenaltySqrtBlocksCaching:
+    """PLAN slice 7h (ADR-223): ``select_lambdas_continuous`` computes
+    ``penalty_block_square_roots`` ONCE per search, not once per trial
+    point — the module's own Definition of Done."""
+
+    def test_computes_the_square_roots_exactly_once_per_search(
+        self, rng: np.random.Generator
+    ) -> None:
+        x = _design(rng, 60, 4)
+        y = rng.poisson(5.0, size=60).astype(np.float64)
+        s = np.eye(4)
+
+        with patch(
+            "polaris_re.analytics.gam_reml_optimize.penalty_block_square_roots",
+            wraps=__import__(
+                "polaris_re.analytics.gam_reml", fromlist=["penalty_block_square_roots"]
+            ).penalty_block_square_roots,
+        ) as spy:
+            selection = select_lambdas_continuous(y, x, poisson_log(), (s,), maxiter=25)
+
+        # A converged search visits several trial points (finite-difference
+        # gradients alone cost 1 + 2*n_blocks IRLS solves per iteration) —
+        # exactly one call proves the roots are cached across all of them,
+        # not recomputed inside the objective.
+        assert spy.call_count == 1
+        assert selection.n_function_evals > 1
 
 
 class TestSelectLambdasContinuousOnAToyProblem:
@@ -293,11 +344,30 @@ class TestFiniteDiffStep:
 
         assert spy.call_args.kwargs["options"]["eps"] == 1e-3
 
-    def test_default_step_reports_spurious_convergence_on_the_near_flat_fixture(self) -> None:
-        """SciPy's own default step (bypassed here by monkeypatching the
-        option away, reproducing pre-ADR-212 behaviour) lands at a point
-        whose independently-measured central-difference gradient is large —
-        the exact defect ADR-212 measured and this class pins.
+    def test_default_step_no_longer_needed_on_the_near_flat_fixture(self) -> None:
+        """Historical: this test used to pin ADR-212's defect (SciPy's own
+        default step, monkeypatched back in here, reproducing pre-ADR-212
+        behaviour, landed at a point whose independently-measured
+        central-difference gradient was large — ``norm(grad) > 0.1``).
+
+        **PLAN slice 7h changed the measured outcome, and this is the
+        derived, expected consequence, not a regression.** ADR-212's own
+        root cause was noise in the penalized deviance's quadratic form
+        (``beta^T S beta``, formed by summing badly-scaled blocks then
+        contracting) leaking into ``coef`` and, through it, into the score —
+        exactly the cancellation slice 7h's sum-of-squares evaluation
+        removes (measured nine orders of cross-thread reproducibility,
+        ADR-222 amendment 2). On THIS fixture the noise floor that made
+        SciPy's default step land in a broken region is gone: re-measured
+        after the fix, the default step now reaches a point whose true
+        gradient is small (``~8.5e-3``, deterministic — re-run twice,
+        bit-identical), the same shape as
+        :func:`test_finite_diff_step_default_avoids_the_spurious_convergence`
+        below already asserts for the production default step. The
+        production ``_FINITE_DIFF_STEP`` safety margin is untouched (out of
+        scope for slice 7h — it protects OTHER, not-yet-measured fixtures);
+        this test only reports that the specific defect it pinned no longer
+        reproduces on the specific fixture it used.
 
         Deliberately does NOT assert ``selection.converged`` either way: CI
         first caught this test asserting ``converged is True`` (a specific
@@ -308,8 +378,7 @@ class TestFiniteDiffStep:
         noise this test exists to demonstrate, so treating it as load-bearing
         makes the test as unstable as the bug. Whether SciPy calls it success
         or failure, the gradient at wherever the default step actually lands
-        is what the fix (below) needs to be small; that is the only portable
-        claim."""
+        is what matters; that is the only portable claim."""
         y, x, family, blocks, weights = self._load_fixture()
         center = np.full(4, 4.5)
 
@@ -340,9 +409,10 @@ class TestFiniteDiffStep:
                 score_at(selection.log_lambda + step) - score_at(selection.log_lambda - step)
             ) / (2 * h)
 
-        # SciPy's own gtol=1e-8 implies a near-zero gradient at a reported
-        # minimum; the true gradient there is nowhere close.
-        assert np.linalg.norm(grad) > 0.1
+        # Pre-slice-7h this was `> 0.1` (ADR-212's defect). Post-7h the
+        # default step's own gradient estimate is no longer noise-corrupted
+        # on this fixture — see the docstring for the derivation.
+        assert np.linalg.norm(grad) < 0.05
 
     def test_finite_diff_step_default_avoids_the_spurious_convergence(self) -> None:
         """The same fixture and starting point, through the production

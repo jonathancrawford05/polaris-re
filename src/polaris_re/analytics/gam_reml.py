@@ -45,6 +45,28 @@ for whether the SAME omission is present in the already-shipped
 ``experience_gam_penalized.reml_score`` this module was generalized from
 (that module is untouched here — PLAN Anchor 7).
 
+**PLAN slice 7h: the penalized deviance's quadratic form, evaluated as a sum
+of per-block squares — a reproducibility fix, not an accuracy one.** The
+penalized deviance term ``β̂ᵀSβ̂`` was formed by summing ``S = Σⱼ λⱼSⱼ`` first
+and then contracting with ``coef`` (Wood eq. (4), ``Dₚ = D(β̂) + β̂ᵀSβ̂``). At
+the ``lambda`` spreads this criterion's own outer search selects (thirteen
+decades on the target formula's own N=7/``select=TRUE`` structure), forming
+``S @ coef`` sums intermediates of magnitude ``~1e12`` to produce a result of
+magnitude ``~174`` — ten digits of cancellation — so the ``~1e-15``
+differences ``coef`` acquires from BLAS summation order (thread count, matrix
+layout) move the score by ``~1e-4``, discontinuously, and the outer
+optimiser's converged point becomes environment-dependent (ADR-222 amendment
+2). ``β̂ᵀS_jβ̂ = ‖L_jᵀβ̂‖²`` for any ``S_j = L_jL_jᵀ``, so
+:func:`penalty_block_square_roots` factors each **individual, unscaled**
+block once — no cancellation, because a sum of squares is never negative and
+no ``lambda``-scaled cross terms are ever formed — and the criterion sums
+``Σⱼ λⱼ‖L_jᵀβ̂‖²`` instead. Measured: thread spread ``1.037e-04 -> 1.954e-13``
+at a 13-decade spread. **This makes the criterion STABLE, not RIGHT** —
+against ``float128`` truth it is slightly less accurate than the naive form
+— accuracy is slice 8's Section 3.1 reparameterisation, a separate property
+with a separate fix. See ``scripts/gam_penalty_sqrt_form_diagnostic.py``
+(the diagnostic this ports) and ``docs/PLAN_mgcv_parity_engine.md`` slice 7h.
+
 **PLAN slice 5c, Defects A and B: two more terms of this SAME formula, found
 on the N=4/``ti()``-sharing-a-span structure ADR-208's amendment localised an
 ``sp``-dependent criterion discrepancy to.**
@@ -85,7 +107,73 @@ from polaris_re.analytics.gam_family import Family
 from polaris_re.analytics.gam_reml_appendix_b import appendix_b_transform
 from polaris_re.core.exceptions import PolarisValidationError
 
-__all__ = ["reml_score_general"]
+__all__ = ["penalty_block_square_roots", "reml_score_general"]
+
+_SQRT_RANK_RELTOL = 1.0e-14
+"""Relative eigenvalue floor for :func:`penalty_block_square_roots`'s own
+rank cut on a SINGLE, individual penalty block. Not the same decision as
+Appendix B's structural rank of the SUMMED ``S`` (:mod:`gam_reml_appendix_b`,
+PLAN slice 5c Defect A) — this cut is per-block, on an unscaled matrix, and
+only separates a block's own true zero eigenvalues (its structural null
+space, e.g. a difference penalty's polynomial null space) from numerical
+noise at machine precision. Matches
+``scripts/gam_penalty_sqrt_form_diagnostic.py``'s own ``block_sqrt``, the
+diagnostic that measured this fix (ADR-222 amendment 2, PLAN slice 7h)."""
+
+
+def penalty_block_square_roots(
+    penalty_blocks: tuple[np.ndarray, ...],
+) -> tuple[np.ndarray, ...]:
+    """One stable square root ``L_j`` per block, ``S_j = L_j @ L_j.T``.
+
+    Symmetric eigendecomposition of each **individual, unscaled** block —
+    never the ``lambda``-weighted sum ``S = Σⱼ λⱼSⱼ`` (that summation, then
+    contracted with ``coef``, is exactly the cancellation PLAN slice 7h
+    replaces). Negative eigenvalues (numerical noise on a PSD-by-construction
+    matrix) are clipped to zero; eigenvectors below :data:`_SQRT_RANK_RELTOL`
+    relative to the block's own largest eigenvalue are dropped, so ``L_j``
+    has shape ``(q, kⱼ)`` with ``kⱼ`` the block's own numerical rank rather
+    than the full ``q``.
+
+    Depends only on ``penalty_blocks``, not on ``lambdas`` or ``coef`` — a
+    caller running an outer search that holds ``penalty_blocks`` fixed across
+    many trial points (:mod:`gam_reml_optimize`) should call this ONCE per
+    search and pass the result to every :func:`reml_score_general` call via
+    ``penalty_sqrt_blocks``, rather than let each call recompute it (PLAN
+    slice 7h's own Definition of Done: "computed once per fit, not per
+    evaluation").
+
+    Args:
+        penalty_blocks: one ``(q, q)`` symmetric PSD penalty block per
+            smoothing parameter.
+
+    Returns:
+        One ``(q, kⱼ)`` array per block, same order as ``penalty_blocks``.
+
+    Raises:
+        PolarisValidationError: if a block has an eigenvalue negative beyond
+            :data:`_SQRT_RANK_RELTOL` relative to its own largest one — a
+            genuinely indefinite block, which no PSD-by-construction penalty
+            should ever be (PR #229 review [P2]: the prior revision clipped
+            silently, which would absorb rather than surface an upstream
+            defect that produced one).
+    """
+    roots = []
+    for block in penalty_blocks:
+        eigenvalues, eigenvectors = np.linalg.eigh(block)
+        largest = float(eigenvalues.max()) if eigenvalues.size else 0.0
+        smallest = float(eigenvalues.min()) if eigenvalues.size else 0.0
+        if smallest < -largest * _SQRT_RANK_RELTOL:
+            raise PolarisValidationError(
+                "penalty_block_square_roots: a penalty block has eigenvalue "
+                f"{smallest:.3e}, negative beyond numerical noise relative to "
+                f"its own largest eigenvalue {largest:.3e} — every penalty "
+                "block must be positive semi-definite by construction."
+            )
+        eigenvalues = np.clip(eigenvalues, 0.0, None)
+        keep = eigenvalues > largest * _SQRT_RANK_RELTOL
+        roots.append(eigenvectors[:, keep] * np.sqrt(eigenvalues[keep]))
+    return tuple(roots)
 
 
 def reml_score_general(
@@ -99,6 +187,7 @@ def reml_score_general(
     offset: np.ndarray | None = None,
     weights: np.ndarray | None = None,
     gamma: float = 1.0,
+    penalty_sqrt_blocks: tuple[np.ndarray, ...] | None = None,
 ) -> float:
     """Laplace-approximate REML for a penalized known-scale GLM (lower is better).
 
@@ -150,6 +239,13 @@ def reml_score_general(
             derivation of what it does to the criterion. Same default (1.0,
             a no-op) and same status (adopted from ``mgcv``, unsettled —
             ADR-189 amendment 1).
+        penalty_sqrt_blocks: precomputed :func:`penalty_block_square_roots`
+            output, one per ``penalty_blocks`` entry. Defaults to ``None``,
+            which computes it fresh on every call — correct, but wasteful for
+            a caller that evaluates this function many times at the SAME
+            ``penalty_blocks`` (an outer lambda search): pass the precomputed
+            tuple to avoid re-eigendecomposing every block at every trial
+            point (PLAN slice 7h).
 
     Returns:
         The REML score, lower is better.
@@ -181,6 +277,12 @@ def reml_score_general(
             f"{len(penalty_blocks)} penalty_blocks were supplied — one lambda "
             "per block."
         )
+    if penalty_sqrt_blocks is not None and len(penalty_sqrt_blocks) != len(penalty_blocks):
+        raise PolarisValidationError(
+            f"reml_score_general: penalty_sqrt_blocks has {len(penalty_sqrt_blocks)} "
+            f"entries, but {len(penalty_blocks)} penalty_blocks were supplied — one "
+            "precomputed square root per block."
+        )
 
     n = y.shape[0]
     offset = np.zeros(n, dtype=np.float64) if offset is None else np.asarray(offset)
@@ -199,7 +301,21 @@ def reml_score_general(
     # generalization (and, per experience_gam_penalized.reml_score's own
     # formula, is absent there too); adding it is the derived fix, not a
     # tuned constant — see the module docstring's citation.
-    penalized_deviance = deviance + float(coef @ penalty @ coef)
+    #
+    # PLAN slice 7h: beta^T S beta is evaluated as a SUM OF SQUARES over each
+    # block's own square root, never by forming S = sum_j lambda_j S_j and
+    # contracting with coef — see the module docstring for the cancellation
+    # that formed-S evaluation carries at a badly-scaled lambda spread.
+    sqrt_blocks = (
+        penalty_sqrt_blocks
+        if penalty_sqrt_blocks is not None
+        else penalty_block_square_roots(penalty_blocks)
+    )
+    penalty_quadratic_form = sum(
+        lam * float(np.sum((root.T @ coef) ** 2))
+        for lam, root in zip(lambdas, sqrt_blocks, strict=True)
+    )
+    penalized_deviance = deviance + penalty_quadratic_form
 
     # Defect B: the OBSERVED Hessian, not the expected/Fisher one — see the
     # module docstring. Identical to the Fisher weight for a canonical link

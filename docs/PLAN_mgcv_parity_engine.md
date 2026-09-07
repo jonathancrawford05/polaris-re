@@ -2002,8 +2002,33 @@ mandatory rather than complementary.
 ### Slice 7h: evaluate the penalty quadratic form as a sum of squares
 
 - **Depends on:** ADR-222 amendment 2, which measured it.
-- **Status: REGISTERED, not started.** Small, contained, and the single
-  highest reproducibility-per-line change this epic has found.
+- **Status: DONE, tier 1 AND tier 3 both confirmed, 2026-09-06 (ADR-223 +
+  amendment 1, CI run
+  [34034428064](https://github.com/jonathancrawford05/polaris-re/actions/runs/34034428064)).**
+  `gam_reml.reml_score_general` now evaluates the penalized deviance's
+  quadratic form via `penalty_block_square_roots`, threaded through
+  `gam_reml_optimize`'s search loop (computed once per search, not per
+  evaluation). Reproduces ADR-222 amendment 2's own diagnostic numbers on
+  the actual production path (score thread-spread at `mgcv`'s own point:
+  `7.250e-06 -> 4.775e-12`; ADR-222 amendment 2's own diagnostic-replica
+  numbers unchanged, since that script re-implements both forms and never
+  called the production function). **Required conformance levels 1-3 AGREE
+  at tier 3 — no regression**; level 5 AGREES; level 4 DISAGREES, unchanged
+  and permanently expected (ADR-190). `SELECT_FREE_SP_MODEL_CLAIM`
+  re-measured at both tiers: the production-recommended configurations
+  (`multistart=9`, with or without the analytic gradient) agree at both
+  tiers, matching this epic's last tier-3 reading of the identical cell
+  before this fix (`5.460e-03` then, `5.444e-03` now — effectively
+  unmoved). Single-start alone disagrees at both tiers, as before. One cell
+  (single-start + analytic gradient) reads a DIFFERENT verdict between tiers
+  (`False` at tier 1, `True` at tier 3) — a tier-sensitive single-start
+  reading, the same pre-existing instability class ADR-211/212/222 already
+  documented, not evidence of a defect in this fix; the production path
+  (`multistart=True`) is stable across both readings. See ADR-223 +
+  amendment 1 for every number, including an incidental finding (this fix
+  appears to also resolve, on one fixture, the noise-floor defect
+  `_FINITE_DIFF_STEP` was sized against — not investigated further, no
+  production default changed).
 - **START HERE:** `scripts/gam_penalty_sqrt_form_diagnostic.py` already
   contains the reference `block_sqrt` (symmetric eigendecomposition, negative
   eigenvalues clipped, relative rank cut at `1e-14`) and BOTH measurements
@@ -2064,6 +2089,64 @@ targets the first.
 **Out of scope.** The reparameterisation (slice 8); and `log|X'WX+S|`'s own
 inaccuracy (measured at `2.4e-06` under a random orthogonal similarity, and
 thread-DETERMINISTIC, so not a reproducibility defect).
+
+### Slice 7i: re-justify `_FINITE_DIFF_STEP`, or retire it — registered by PR #229's automated review
+
+- **Depends on:** slice 7h (ADR-223), which is what created this gap.
+- **Status: REGISTERED, not started.** Raised by PR #229's automated review
+  [P1]: slice 7h's own fix removed the noise floor
+  `TestFiniteDiffStep::test_default_step_reports_spurious_convergence_on_the_near_flat_fixture`
+  existed to demonstrate — post-fix, that test and
+  `test_finite_diff_step_default_avoids_the_spurious_convergence` now assert
+  the IDENTICAL property (`norm(grad) < 0.05`) on the IDENTICAL fixture from
+  the IDENTICAL starting point, differing only in `eps`. **The
+  `_FINITE_DIFF_STEP = 1.0e-5` production override in
+  `gam_reml_optimize.py` now ships with no test in this repository in which
+  it changes any outcome** — its only surviving justification is PR #216's
+  own review note about a *different*, uncommitted, well-conditioned
+  fixture where it was measured to cost a digit of accuracy, which is not
+  pinned by any committed test either.
+- **The registered ask, verbatim from the review:** "either re-point the
+  historical test at a fixture where the ADR-212 defect still reproduces
+  (restoring the discrimination), or delete it as superseded and register
+  `_FINITE_DIFF_STEP` re-justification as a 1st-order follow-up carrying the
+  across-fixture measurement ADR-223 says it needs." This slice is that
+  registration — explicitly 1st-order (a direct follow-up of slice 7h's own
+  measurement, not a general methodological note), correcting the
+  originating session log's own 2nd-order tag, which the review named as
+  the mechanism letting an unexamined production default sit unexamined.
+
+**Scope.** A committed fixture (or a small family of them) spanning the
+`lambda`-spread regimes this module's own callers actually reach in
+production (the target formula's N=4/N=7 structures at minimum), measuring
+`_FINITE_DIFF_STEP`'s own effect on gradient accuracy and search outcome at
+each — not a single point, since PR #216's own finding was that the
+trade-off runs in OPPOSITE directions on different fixtures (protective on
+a badly-conditioned one, costly on a well-conditioned one). **Registered
+prediction:** post-slice-7h's own noise-floor reduction, at least one
+previously-badly-conditioned fixture no longer needs the wider step at all
+— test this directly rather than assume the pre-7h trade-off still holds
+unchanged.
+
+**Definition of Done.**
+
+- `[machine]` At least one committed fixture where varying `finite_diff_step`
+  changes a measured outcome (gradient accuracy, or search convergence),
+  demonstrating `_FINITE_DIFF_STEP`'s own production value is doing
+  something on SOME committed test, not zero.
+- `[machine]` The N=4/N=7 structures' own post-7h noise floor measured
+  directly (re-run `scripts/gam_penalty_sqrt_form_diagnostic.py`'s own
+  thread-sweep methodology at each), and `_FINITE_DIFF_STEP` re-derived from
+  that measurement if it changes, per the same "derived, not tuned"
+  discipline ADR-212 originally used.
+- `[judgement]` Either the current value is re-confirmed with a citing test,
+  or a new value is derived and the production default changes with its own
+  before/after measurement — never silently left as a now-uncited magic
+  number.
+
+**Out of scope.** Building a general-purpose adaptive step-size selector;
+revisiting `analytic_gradient`'s own default (unaffected — it needs no
+finite-difference step at all).
 
 ### Slice 8: the Wood-shaped outer solver — reproducibility by construction
 

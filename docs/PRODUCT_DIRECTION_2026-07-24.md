@@ -3805,3 +3805,55 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   fix) and determinism (which no criterion fix reaches). Its previous
   justification — corrupted determinants — is measured false. *Source: this
   session, ADR-222 amendment 2 (1st-order).*
+
+### Harvested 2026-09-06 — slice 7h shipped in production, tier 1 AND tier 3 confirmed (ADR-223 + amendment 1)
+
+- **The penalized deviance's quadratic form ships as a sum of squares in the
+  ACTUAL production `reml_score_general`**, not only the diagnostic replica
+  that discovered it — `gam_reml.penalty_block_square_roots`, cached once per
+  search in `gam_reml_optimize.select_lambdas_continuous`. Measured on the
+  production score itself: thread spread at `mgcv`'s own point
+  `7.250e-06 -> 4.775e-12` (~1,500x), at a 13-decade spread
+  `5.183e-05 -> 6.821e-13` (~76,000x). *Source: this session, ADR-223
+  (1st-order — closes the slice ADR-222 amendment 2 registered).*
+
+- **`SELECT_FREE_SP_MODEL_CLAIM` re-measured at BOTH tiers: the
+  production-recommended configurations are unaffected.** `multistart=9`
+  (with or without the analytic gradient) still agrees at tier 1 AND tier 3,
+  matching this epic's last tier-3 reading of the identical
+  `multistart+analytic` cell before this fix (`5.460e-03` then, `5.444e-03`
+  now — effectively unmoved). Required conformance levels 1-3 AGREE at tier
+  3 (no regression), level 5 AGREES, level 4 DISAGREES (unchanged,
+  permanently expected, ADR-190). *Source: this session, ADR-223 + amendment
+  1 (1st-order — the DoD's own re-measurement requirement, met).*
+
+- **One cell's verdict is tier-sensitive, reported rather than smoothed
+  over: single-start with the analytic gradient reads `agrees=False` at
+  tier 1 and `agrees=True` at tier 3.** Consistent with the ALREADY-KNOWN
+  single-start instability class (ADR-211/212/222) — here triggered by
+  which `mgcv` release generated the fixture's own reference fit (1.9.1 vs
+  1.9.4) rather than by BLAS thread count — not a new defect, and it does
+  not touch the production-recommended path. *Source: this session, ADR-223
+  amendment 1 (2nd-order — a characterisation, not a work item; single-start
+  was never a passing configuration at either tier before or after this
+  fix).*
+
+- **Incidental finding, RE-TAGGED 1st-order and REGISTERED as PLAN slice
+  7i (PR #229 review [P1], corrected from this session's own original
+  2nd-order tag): this fix removed the noise floor `TestFiniteDiffStep`
+  existed to demonstrate, and now no test in the repository discriminates
+  `_FINITE_DIFF_STEP` at all.** `TestFiniteDiffStep`'s two tests now assert
+  the identical property (`norm(grad) < 0.05`) on the identical fixture,
+  differing only in which `eps` SciPy uses — so the production override
+  (`gam_reml_optimize._FINITE_DIFF_STEP = 1.0e-5`) ships with no committed
+  test in which changing it changes any outcome. PLAN slice 7i registers
+  the fix: a committed fixture where the step still matters, or a
+  re-derived value, per the same "derived, not tuned" discipline ADR-212
+  used. *Source: PR #229's automated review (1st-order — a direct
+  consequence of this slice's own measurement, not a general
+  methodological note; the review named the original 2nd-order tag as
+  itself part of the risk).*
+
+- **Slice 7g direction 1 (a robust inner PIRLS) is next**, per the PLAN's
+  own sequencing note — unaffected by this slice's scope. *Source: PLAN
+  `docs/PLAN_mgcv_parity_engine.md`, unchanged by this session.*
