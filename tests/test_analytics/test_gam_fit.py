@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from threadpoolctl import threadpool_limits
 
 from polaris_re.analytics.gam_family import binomial_logit, poisson_log
 from polaris_re.analytics.gam_fit import (
@@ -131,6 +132,15 @@ class TestStepHalvingOnAnExtremeLambdaSpread:
     ``penalized_irls_general`` raising ``PolarisComputationError`` —
     confirmed still failing by default, and converging only with
     ``step_halving=True``.
+
+    Every call pins ``threadpool_limits(1, "blas")`` — the same convention
+    ``test_gam_reml_optimize.py``'s own near-flat-direction tests use, and
+    for the identical reason (ADR-211/212/222): this fixture's own
+    convergence behaviour moves with BLAS thread count alone, and CI's main
+    test matrix (unlike ``mgcv-conformance.yml``) does not pin
+    ``OPENBLAS_NUM_THREADS`` — caught by a genuine CI failure on Python 3.13
+    (multi-threaded BLAS there converged the ``still_fails_by_default``
+    point this pin was missing on), not merely anticipated.
     """
 
     @staticmethod
@@ -172,7 +182,7 @@ class TestStepHalvingOnAnExtremeLambdaSpread:
         log_lambda[6] += delta
         penalty = self._penalty_at(log_lambda, blocks)
 
-        with pytest.raises(PolarisComputationError):
+        with threadpool_limits(limits=1, user_api="blas"), pytest.raises(PolarisComputationError):
             penalized_irls_general(x, y, family=family, penalty=penalty, weights=weights)
 
     @pytest.mark.parametrize("delta", [0.1, -1.0e-5])
@@ -184,9 +194,10 @@ class TestStepHalvingOnAnExtremeLambdaSpread:
         log_lambda[6] += delta
         penalty = self._penalty_at(log_lambda, blocks)
 
-        fit = penalized_irls_general(
-            x, y, family=family, penalty=penalty, weights=weights, step_halving=True
-        )
+        with threadpool_limits(limits=1, user_api="blas"):
+            fit = penalized_irls_general(
+                x, y, family=family, penalty=penalty, weights=weights, step_halving=True
+            )
 
         assert np.all(np.isfinite(fit.coef))
         assert np.all(np.isfinite(fit.eta))
@@ -198,9 +209,10 @@ class TestStepHalvingOnAnExtremeLambdaSpread:
         y, x, family, blocks, weights = self._design_and_family()
         penalty = self._penalty_at(self._BASE_LOG_LAMBDA, blocks)
 
-        fit = penalized_irls_general(
-            x, y, family=family, penalty=penalty, weights=weights, step_halving=True
-        )
+        with threadpool_limits(limits=1, user_api="blas"):
+            fit = penalized_irls_general(
+                x, y, family=family, penalty=penalty, weights=weights, step_halving=True
+            )
 
         assert np.all(np.isfinite(fit.coef))
 
