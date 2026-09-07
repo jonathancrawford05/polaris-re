@@ -163,6 +163,21 @@ Two distinct claims this session reports, kept separate rather than averaged:
   call — verdict for multistart UNCHANGED (still agrees); verdict for
   single-start UNCHANGED (still does not agree) but the margin WORSENED.
 
+## Tier-3 confirmation (post-push)
+
+Dispatched `mgcv-conformance.yml` on this branch after pushing
+(`https://github.com/jonathancrawford05/polaris-re/actions/runs/34148140463`,
+oracle `sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+R 4.6.1 / mgcv 1.9.4). Both jobs completed with `conclusion: success` — the
+comparator's own gate on required levels 1-3 exits non-zero on any
+disagreement, so a green job confirms no regression there at tier 3,
+matching the tier-1 reading exactly (levels 1-3 AGREE, level 5 AGREES,
+level 4 DISAGREES as ADR-190 permanently expects). The CI dispatch does not
+exercise `step_halving=True` anywhere (the workflow never sets it), so this
+confirms the UNCHANGED default path only — the `SELECT_FREE_SP_MODEL_CLAIM`
+table with `step_halving=True` remains a tier-1-only reading, as stated
+above; its own tier-3 confirmation is still the registered follow-up.
+
 ## Oracle version
 
 Tier 1 only: R 4.3.3 / mgcv 1.9-1 (local apt). **Tier 3 not owed for the
