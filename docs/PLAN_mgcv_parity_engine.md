@@ -1946,7 +1946,32 @@ residual falls to `4.889e-01`, which is not below any noise floor. The
 ### Slice 7g: the inner IRLS's non-convergent neighbourhood, and `_REJECTED_SCORE`'s cliff
 
 - **Depends on:** Slice 7f (ADR-222), whose measurement located this.
-- **Status: REGISTERED, not started** (ADR-209 decision 1).
+- **Status: DONE for direction 1, tier 1, 2026-09-07 (ADR-224) — and it is a
+  MIXED result, reported as such rather than oversold.**
+  `penalized_irls_general` gains an opt-in `step_halving` parameter
+  (default `False`, every existing caller unaffected — see the ADR for why
+  opt-in, not default-on, is the correct scope). **What it fixes, exactly
+  as registered:** on the ACTUAL `select=TRUE` N=7 fixture, the
+  central-difference probe's own non-convergent neighbours (`h=1e-1` and
+  `h=1e-5` around the restart plateau) now converge, and the restart
+  plateau's own KKT residual collapses `0.049335 -> 0.001125` (~44x) — the
+  mechanism ADR-222 located (`penalized_irls_general` failing at
+  neighbouring trial points, walling the line search behind
+  `_REJECTED_SCORE`) is closed. **What it does NOT do:** on
+  `SELECT_FREE_SP_MODEL_CLAIM`'s own eta/edf-vs-`mgcv` gate (ADR-221), the
+  single-start configurations' agreement gets WORSE with `step_halving=True`
+  (`max_abs_eta_diff` `0.0632 -> 0.4460` with the analytic gradient), not
+  better — `step_halving` reaches a genuine KKT stationary point reliably,
+  but on this non-convex, multi-modal criterion that point is not
+  necessarily the one closest to `mgcv`'s own selection. Multistart
+  configurations (already the production recommendation) are unaffected
+  either way (`eta` diff unchanged at the `1e-4` level). **A real finding
+  about a real hazard, not a regression in this slice's own scope**: the
+  KKT-residual claim (`MEASUREMENT (own criterion)`, ADR-193/VERIFICATION_
+  STANDARD.md §2.1) and the eta/edf-vs-`mgcv` claim (INDEPENDENT) are two
+  different axes, and this slice closes the first without closing — and for
+  single-start, worsening — the second. See ADR-224 for the full measurement
+  and `docs/DEV_SESSION_LOG_2026-09-07_mgcv_parity_slice7g_step_halving.md`.
 
 **The gap, stated precisely.** At the point where a restarted analytic search
 stalls on the `select=TRUE` N=7 structure, `penalized_irls_general` **fails to
@@ -1978,26 +2003,34 @@ separates them:
    REPLACES, so this buys robustness for a solver we would be retiring. Cheap
    and better contained; take it only if slice 8 is deferred.
 
-**Registered prediction.** Direction 2 alone moves the stall's residual
-materially below `4.889e-01` — because the descent already exists and only the
-cliff hides it — while direction 1 is what would let the search continue past
-the region entirely. If direction 2 does *not* move it, the non-convergence is
-not merely hiding the descent but sits on top of it, and direction 1 is
-mandatory rather than complementary.
+**Registered prediction (superseded by ADR-222 amendment 1's re-scoping,
+kept for the record).** This text predates the re-scoping that promoted
+direction 1 and demoted direction 2 to a fallback (see above) — it was
+written when the two directions were still equally weighted, and it is
+about direction 2, which was NOT attempted this session (direction 1 alone
+already met the Definition of Done below; direction 2 stays a fallback for
+if slice 8 is deferred, per its own text above).
 
-**Definition of Done, tagged per ADR-209 decision 3.**
+**Definition of Done, tagged per ADR-209 decision 3 — direction 1, ADR-224.**
 
-- `[machine]` The stall's KKT residual on the same N=7 case is re-measured
-  after the change, beside ADR-222's `4.889e-01`, with the direction taken
-  stated.
-- `[machine]` The N=4 control's own score and residual are re-measured
-  before/after; any movement there is reported, since this changes an
-  objective every caller shares.
-- `[machine]` `tests/qa/golden_outputs/` byte-identical, or the change is not
-  in scope for this slice.
-- `[judgement]` If the residual does not move materially, the registered
-  prediction is reported as refuted and direction 1 is characterised rather
-  than attempted in the same session.
+- `[machine]` MET. The stall's KKT residual on the same N=7 case, re-measured
+  after the change: the restart plateau's own `max|g^P|` collapses
+  `0.049335 -> 0.001125` (~44x); direction 1 (`step_halving=True`) is the
+  change taken.
+- `[machine]` MET. The N=4 control's own score and residual are re-measured
+  before/after: score moves `612.6100526 -> 612.6132599` (`+0.0032`),
+  `max_abs_eta_diff` (vs `mgcv`) `8.444e-04 -> 2.306e-03` — both tiny,
+  reported rather than hidden; consistent with this block's own
+  already-established weak identifiability (ADR-212), not a new defect.
+- `[machine]` MET. `tests/qa/golden_outputs/` byte-identical (`git diff`
+  empty) — expected, since no golden exercises `step_halving=True`.
+- `[judgement]` MET, restated for what was actually found: the residual
+  DID move materially (the `[machine]` criterion above), so the session did
+  not stop at "characterise, don't attempt". But the mixed result on
+  `SELECT_FREE_SP_MODEL_CLAIM` (reported in the STATUS above) means this is
+  reported as a real, narrow fix with a real, named limitation — not as a
+  step towards closing the eta/edf-vs-`mgcv` gap, which needed its own
+  separate characterisation rather than being assumed to follow.
 
 ### Slice 7h: evaluate the penalty quadratic form as a sum of squares
 

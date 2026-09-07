@@ -240,6 +240,7 @@ def fit_select_free_sp_case(
     multistart: bool = False,
     n_starts: int = 9,
     analytic_gradient: bool = False,
+    step_halving: bool = False,
 ) -> PolarisGAMFit:
     """The independent Python producer: assemble the ``select=True`` design,
     select its own 7 lambdas, and fit — never reading ``mgcv``'s ``eta``/
@@ -264,6 +265,10 @@ def fit_select_free_sp_case(
         analytic_gradient: passed through to
             :func:`~polaris_re.analytics.gam_model.fit_polaris_gam` (PLAN
             slice 7d). Default ``False`` — every existing caller unaffected.
+        step_halving: passed through to
+            :func:`~polaris_re.analytics.gam_model.fit_polaris_gam` (PLAN
+            slice 7g direction 1, ADR-222). Default ``False`` — every
+            existing caller unaffected.
     """
     age_knots = tuple(float(v) for v in r_case["age_knots"])
     year_knots = tuple(float(v) for v in r_case["year_knots"])
@@ -283,6 +288,7 @@ def fit_select_free_sp_case(
         multistart=multistart,
         n_starts=n_starts,
         analytic_gradient=analytic_gradient,
+        step_halving=step_halving,
     )
     if len(fit.design["penalty_blocks"]) != _N_BLOCKS:
         raise PolarisValidationError(

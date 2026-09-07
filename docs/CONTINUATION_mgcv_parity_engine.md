@@ -1656,3 +1656,44 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > outer solver, accuracy and determinism). Slice 7g direction 2 (a growing
 > barrier in place of `_REJECTED_SCORE`'s cliff) stays demoted to a fallback,
 > per ADR-222.
+
+> **Slice 7g direction 1 is DONE, tier 1, 2026-09-07 (ADR-224) — a MIXED
+> result, reported as such.** `penalized_irls_general` gains an opt-in
+> `step_halving` parameter (default `False`, every existing caller
+> unaffected). **What it fixes, exactly as registered:** on the ACTUAL
+> `select=TRUE` N=7 fixture, both central-difference neighbours a probe
+> found `penalized_irls_general` raising `PolarisComputationError` on now
+> converge, and the restart plateau's own KKT residual collapses
+> `0.049335 -> 0.001125` (~44x) — the non-convergent-neighbourhood
+> mechanism ADR-222 located is closed. **What it does NOT do, and this is
+> the session's own most important finding:** `SELECT_FREE_SP_MODEL_CLAIM`'s
+> eta/edf-vs-`mgcv` gate does not improve, and single-start configurations
+> measurably WORSEN (`max_abs_eta_diff` `0.0632 -> 0.4460` with the
+> analytic gradient) — `step_halving` reliably reaches A genuine KKT
+> stationary point, but on this non-convex, multi-modal criterion
+> (`select=TRUE`'s null-space penalty is exactly this kind of structure)
+> that is not necessarily the point nearest `mgcv`'s own selection.
+> Multistart (the production recommendation, ADR-218) is unaffected either
+> way. **Two wrong versions were built and rejected first** (gate on
+> deviance alone; gate on the penalized objective but exit the halving
+> loop at the outer convergence tolerance) — both silently landed
+> `0.0089` off a well-conditioned closed-form fixture's true minimum, by
+> two different mechanisms, each confirmed independently via
+> `scipy.optimize.minimize`; the ledger's own purpose is exactly to stop
+> a later session re-deriving them. **Shipped opt-in, not default-on**,
+> because even the correct version measurably perturbs several
+> already-verified closed-form/finite-difference tests elsewhere in this
+> repo's own suite whenever it engages at all — `make test` and
+> `tests/qa/golden_outputs/` both confirm zero regression on the default
+> (unchanged) path. See ADR-224 and `docs/CONFORMANCE_LEDGER.md`.
+> **Direction 2 not attempted** — direction 1 alone met the PLAN's own
+> Definition of Done, and direction 2's own text reserves it for "if
+> slice 8 is deferred." **NEXT: slice 8** (the Wood-shaped outer solver),
+> carrying this slice's own finding as a design input — reliable
+> convergence and convergence-to-`mgcv`'s-own-basin are different
+> properties on this criterion, not automatically the same problem.
+> Tier-3 confirmation of the `SELECT_FREE_SP_MODEL_CLAIM`/
+> `FREE_SP_MODEL_CLAIM` re-measurement tables is registered as a
+> follow-up dispatch, not yet run as of this entry. Slice 7i
+> (`_FINITE_DIFF_STEP` re-justification, PR #229's review) remains open,
+> unaffected by this slice.
