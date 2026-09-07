@@ -20,7 +20,6 @@ from polaris_re.analytics.gam_fit import (
 )
 from polaris_re.analytics.gam_model import assemble_model_design, resolve_family
 from polaris_re.analytics.gam_multiterm_conformance import _multiterm_model_spec
-from polaris_re.core.exceptions import PolarisComputationError
 
 _FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
 
@@ -129,18 +128,18 @@ class TestStepHalvingOnAnExtremeLambdaSpread:
     against them — a pure Python regression, not a parity claim). The two
     ``log10(lambda)`` points below are the exact neighbours of ADR-222's own
     restart plateau where a central-difference probe found
-    ``penalized_irls_general`` raising ``PolarisComputationError`` —
-    confirmed still failing by default, and converging only with
-    ``step_halving=True``.
-
-    Every call pins ``threadpool_limits(1, "blas")`` — the same convention
-    ``test_gam_reml_optimize.py``'s own near-flat-direction tests use, and
-    for the identical reason (ADR-211/212/222): this fixture's own
-    convergence behaviour moves with BLAS thread count alone, and CI's main
-    test matrix (unlike ``mgcv-conformance.yml``) does not pin
-    ``OPENBLAS_NUM_THREADS`` — caught by a genuine CI failure on Python 3.13
-    (multi-threaded BLAS there converged the ``still_fails_by_default``
-    point this pin was missing on), not merely anticipated.
+    ``penalized_irls_general`` raising ``PolarisComputationError`` on this
+    session's own development environment. That specific default-path
+    failure is NOT pinned as a test here — a genuine CI failure on Python
+    3.13 showed it does not reproduce reliably across environments even
+    with ``threadpool_limits(1, "blas")`` pinned (a second, still
+    unidentified source of numerical divergence beyond BLAS thread count —
+    see ADR-224's own honesty about this rather than a further guess at
+    pinning it). What IS pinned, and is true regardless of environment: with
+    ``step_halving=True`` the point converges. Every call still pins
+    ``threadpool_limits(1, "blas")`` for the OTHER reason this convention
+    exists elsewhere in this test suite (ADR-211/212/222) — the CONVERGED
+    RESULT's own reproducibility, not this test's pass/fail boundary.
     """
 
     @staticmethod
@@ -171,19 +170,6 @@ class TestStepHalvingOnAnExtremeLambdaSpread:
         for lam, block in zip(10.0**log_lambda, blocks, strict=True):
             penalty = penalty + lam * block
         return penalty
-
-    @pytest.mark.parametrize("delta", [0.1, -1.0e-5])
-    def test_previously_non_convergent_neighbour_still_fails_by_default(self, delta: float) -> None:
-        """Pins the opt-in default (``step_halving=False``): every existing
-        caller of this function is unaffected by this slice unless it asks
-        for the new behaviour — see the next test for the opt-in case."""
-        y, x, family, blocks, weights = self._design_and_family()
-        log_lambda = self._BASE_LOG_LAMBDA.copy()
-        log_lambda[6] += delta
-        penalty = self._penalty_at(log_lambda, blocks)
-
-        with threadpool_limits(limits=1, user_api="blas"), pytest.raises(PolarisComputationError):
-            penalized_irls_general(x, y, family=family, penalty=penalty, weights=weights)
 
     @pytest.mark.parametrize("delta", [0.1, -1.0e-5])
     def test_previously_non_convergent_neighbour_converges_with_step_halving(
