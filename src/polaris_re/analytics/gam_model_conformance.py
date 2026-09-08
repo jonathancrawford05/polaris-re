@@ -158,12 +158,20 @@ the criterion, all of which are unchanged from ADR-206's fixed-sp
 measurement (the work order's registered prediction, §4)."""
 
 
-def fit_free_sp_case(r_case: RFreeSpRecipe) -> PolarisGAMFit:
+def fit_free_sp_case(r_case: RFreeSpRecipe, *, step_halving: bool = False) -> PolarisGAMFit:
     """The independent Python producer: assemble the design, select its own
     lambda, and fit — never reading ``mgcv``'s ``eta``/``coef``/``sp``/``edf``
     (:class:`RFreeSpRecipe` has none of these keys; a caller passing a wider
     payload still cannot make this function see them, the ADR-193 mechanical
-    test enforced structurally)."""
+    test enforced structurally).
+
+    Args:
+        r_case: the shared recipe.
+        step_halving: passed through to
+            :func:`~polaris_re.analytics.gam_model.fit_polaris_gam` (PLAN
+            slice 7g direction 1, ADR-222). Default ``False`` — every
+            existing caller unaffected.
+    """
     age_knots = tuple(float(v) for v in r_case["age_knots"])
     year_knots = tuple(float(v) for v in r_case["year_knots"])
     model = _multiterm_model_spec(age_knots, year_knots)
@@ -174,7 +182,7 @@ def fit_free_sp_case(r_case: RFreeSpRecipe) -> PolarisGAMFit:
         "ExposCnt": np.asarray(r_case["ExposCnt"], dtype=np.float64),
     }
     y = np.asarray(r_case["y"], dtype=np.float64)
-    return fit_polaris_gam(model, data, y, bounds=_SEARCH_BOUNDS)
+    return fit_polaris_gam(model, data, y, bounds=_SEARCH_BOUNDS, step_halving=step_halving)
 
 
 @dataclass(frozen=True)

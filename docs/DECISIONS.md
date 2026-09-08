@@ -22060,3 +22060,194 @@ sum-of-squares evaluation), the `SELECT_FREE_SP_MODEL_CLAIM` measurements,
 and the tier-1/tier-3 verdicts in ADR-223/amendment 1 — none of the
 review's findings touch the fix's own correctness, only its test coverage
 and one defensive-programming gap.
+
+## ADR-224: Slice 7g direction 1 — step-halving fixes `penalized_irls_general`'s non-convergent neighbourhood, opt-in, and it does not close the eta/edf-vs-`mgcv` gap
+
+**Date:** 2026-09-07. **Status:** ACCEPTED. **Tier 1** (R 4.3.3 / mgcv 1.9-1,
+local apt). **Provenance:** two distinct claims, kept separate rather than
+averaged (`docs/VERIFICATION_STANDARD.md`):
+- The KKT-residual and non-convergent-neighbourhood readings are
+  `MEASUREMENT (own criterion)` (ADR-193/ADR-219 amendment 1's ratified
+  category) — every number is Polaris's own criterion, own optimiser and
+  own inner fitter, measured against itself before/after this change. No
+  `mgcv` quantity is an operand.
+- The `SELECT_FREE_SP_MODEL_CLAIM`/`FREE_SP_MODEL_CLAIM` re-measurements are
+  the pre-existing INDEPENDENT comparisons against `mgcv` this change
+  necessarily perturbs (it changes an inner solver both claims' producers
+  call), re-run rather than assumed stable, per `ROUTINE_MGCV_PARITY.md`'s
+  own instruction for a slice that touches a shared component.
+
+### What this slice is
+
+PLAN slice 7g direction 1 (registered by ADR-222, re-scoped and promoted by
+ADR-222 amendment 1): make `penalized_irls_general` more robust at the
+`lambda` spreads this criterion actually selects, the direct analogue of
+`mgcv`'s own `gam.control(mgcv.half=...)`. ADR-222's own diagnosis: at the
+point a restarted analytic search stalls on the `select=TRUE` N=7
+structure, `penalized_irls_general` fails to converge at *neighbouring*
+trial points, so `_REJECTED_SCORE`'s flat `1e10` walls the line search off
+from descent that measurably exists further out.
+
+### What shipped
+
+`penalized_irls_general` gains an opt-in `step_halving: bool = False`
+parameter. When `True`, a Newton/IRLS step that would leave the
+**penalized objective** (`deviance + coef'Scoef` — what this solver
+actually descends on, not deviance alone) worse or non-finite is halved,
+up to `_MAX_STEP_HALVINGS = 30` times, before being accepted — mirroring
+`glm.fit`'s own `(dev - devold)/(0.1+abs(dev)) >= epsilon` halving trigger
+and its own `while` loop that continues only until the step stops making
+things worse (not until the step becomes negligible — that distinction is
+the second correction below, and it is load-bearing).
+
+Threaded through, all opt-in, all default `False`: `penalized_fit_and_score`,
+`penalized_fit_score_and_gradient`, `select_lambdas_continuous`,
+`select_lambdas_continuous_multistart`, `fit_polaris_gam`,
+`fit_select_free_sp_case`, `fit_free_sp_case`.
+
+### Two wrong versions were built, measured, and rejected before this one — recorded because the ledger's whole purpose is stopping a later session from re-deriving them
+
+**Version 1 — gate on raw deviance.** The natural first reading of `mgcv.half`
+("halve if deviance gets worse") gates the halving loop on `new_deviance >
+previous_deviance`. Measured: fixes the N=7 pathological case cleanly (a
+central-difference probe's own non-convergent neighbours converge), but
+**silently corrupts a well-conditioned, already-verified closed-form fixture**
+(`TestPoissonReducesToTheVerifiedRecursion.test_matches_experience_gam_penalized_with_a_real_penalty`)
+— coefficients land `0.0089` from the true minimum. Root cause, confirmed
+independently via `scipy.optimize.minimize` on `deviance + coef'Scoef`: a
+plain Newton step can trade a *small increase in the penalty term* for a
+*larger decrease in deviance*, net-improving the actual penalized objective
+while raw deviance goes up. Version 1's halving fights that legitimate
+trade-off, forcing deviance down at the objective's expense, and lands on a
+worse point that is nonetheless "stable" under its own (wrong) criterion.
+
+**Version 2 — gate on the penalized objective, but exit the halving loop
+using the SAME tight convergence tolerance as the outer loop.** Fixes
+version 1's defect, but on the SAME N=7 fixture the halving loop **collapses
+to a no-op**: repeated halving shrinks the step towards zero, and a step
+that changes nothing trivially satisfies a tight absolute tolerance —
+`_MAX_STEP_HALVINGS` (30) halvings later, the loop "converges" at a point
+`0.0089`-scale away from the true fixed point (yes, the identical symptom as
+version 1, from a different mechanism: an artificially-shrunk step
+satisfying a criterion meant to certify a *real* fixed point). The fix,
+matching `glm.fit`'s own structure exactly once looked at again: the
+halving loop's own exit test must be "not worse than where this iteration
+started" (a real, not infinitesimal, improvement threshold), decoupled
+from the separate, much tighter test that decides whether the WHOLE outer
+iteration has converged. **Version 3 (shipped) restores this separation.**
+
+### Measured: the mechanism ADR-222 named is closed
+
+On the actual `select=TRUE` N=7 fixture
+(`tests/fixtures/gam_fit_select7_penalty_spread.json`, the recipe
+`scripts/gam_select_multiterm_free_sp_probe.R` generates, `mgcv`'s own
+outputs stripped): the two central-difference neighbours a probe found
+raising `PolarisComputationError` before this slice (`log10(sp)` block 6 at
+`+0.1` and `-1e-5` around the restart plateau) now converge in 8-9
+iterations with `step_halving=True`, and still fail (as they should — this
+is the opt-in default, unchanged) without it. The restart plateau's own KKT
+residual (`ContinuousLambdaSelection.max_abs_projected_gradient`, PLAN slice
+7f) collapses `0.049335 -> 0.001125` (~44x) with `step_halving=True` and
+`max_gtol_restarts=4`. Measured post-ADR-223 (slice 7h's sum-of-squares
+fix already shipped), so these numbers are not directly comparable to
+ADR-222's own pre-7h `4.889e-01` reading — a fresh baseline, not a quoted
+one, per `ROUTINE_MGCV_PARITY.md`'s "measure first" step.
+
+### Measured: this does NOT close, and for single-start WORSENS, the eta/edf-vs-`mgcv` gate — the session's own most important finding
+
+`SELECT_FREE_SP_MODEL_CLAIM` (N=7, `select=TRUE`), re-measured at every
+combination of `{single-start, multistart} x {finite-difference, analytic}
+x {step_halving off, on}`:
+
+| search | step_halving | nfev | max abs eta diff | agrees (eta/edf) |
+|---|---|---:|---:|---|
+| single-start, FD | off | 352 | 4.461e-01 | False |
+| single-start, FD | **on** | 312 | **5.678e-01** | False |
+| single-start, analytic | off | 43 | 6.319e-02 | False |
+| single-start, analytic | **on** | 31 | **4.460e-01** | False |
+| multistart(9), FD | off | 3424 | 5.470e-03 | True |
+| multistart(9), FD | **on** | 6056 | 5.228e-03 | True |
+| multistart(9), analytic | off | 481 | 5.449e-03 | True |
+| multistart(9), analytic | **on** | 552 | 5.446e-03 | True |
+
+**Single-start gets measurably WORSE with `step_halving=True`, on both
+gradient paths.** `step_halving` reliably reaches a genuine KKT stationary
+point (the `MEASUREMENT (own criterion)` finding above), but on this
+non-convex, multi-modal criterion (a `select=TRUE` null-space penalty adds
+exactly this kind of structure) reaching *some* stationary point reliably
+is not the same as reaching the one closest to `mgcv`'s own selection —
+the un-halved single-start path's own early, non-monotone wandering
+apparently sometimes lands nearer that point by luck, precisely because it
+is NOT cleanly converging. **Multistart (the production recommendation)
+is unaffected either way** — `eta` agreement unchanged at the `1e-4` level,
+cost roughly doubled on the FD path for no measurable benefit, unchanged on
+the analytic path. `FREE_SP_MODEL_CLAIM` (N=4, non-`select`) moves similarly
+little (`max_abs_eta_diff` `8.444e-04 -> 2.306e-03`, `edf_total_diff`
+`-0.0171 -> 0.0627`) — both readings tiny, consistent with this block's
+own already-established weak identifiability (ADR-212), not a new defect.
+
+**Why this is reported as a finding, not softened.** `docs/ROUTINE_MGCV_PARITY.md`:
+*"An INDEPENDENT comparison that DISAGREES is a SUCCESS... A table of
+zeros... is NOT progress toward parity, however green it looks."* The
+inverse holds too: a `MEASUREMENT (own criterion)` success (the KKT
+residual collapsing 44x) is not itself progress toward `mgcv` parity, and
+claiming so — because the two readings happen to share a slice — would be
+exactly the mislabelling ADR-193 exists to stop.
+
+### Why opt-in, not default-on, even though the PLAN's own Definition of Done implied a shared-component change
+
+The PLAN text ("changes an inner solver every caller shares, touches
+ADR-195's verified fitter, so Anchor 7 applies") anticipated a default-on
+change with re-verification, not an opt-in escape hatch. Measured reason
+for the narrower scope: **even Version 3 (the correct, objective-gated
+halving), enabled unconditionally, perturbs several already-verified
+closed-form/finite-difference fixtures elsewhere in this codebase's own
+test suite**, at the `1e-6` to `1e-8` level —
+`test_gam_derivatives.py::test_analytic_deta_drho_matches_a_difference_of_our_own_refits`,
+`test_fisher_weights_are_wrong_for_the_derivative_on_a_non_canonical_link`,
+`test_gam_reml_optimize.py::TestFiniteDiffStep::test_default_step_no_longer_needed_on_the_near_flat_fixture`.
+The mechanism: whenever a plain Newton step transiently increases the
+objective — a normal, self-correcting property of full-step Newton/IRLS
+near a well-conditioned optimum, not a defect on its own — halving takes a
+*different* (still correct) number of iterations to reach the identical
+fixed point, and several of this repo's own tests resolve the fitted
+surface finely enough (an analytic derivative against a central difference
+at `h=1e-4`, expecting agreement to `1e-8`) to be sensitive to the PATH,
+not only the destination. CLAUDE.md's own rule — *"NEVER change an existing
+test assertion to make it pass"* — rules out loosening those tolerances to
+accommodate a default-on change; the opt-in scope keeps them exactly as
+they were (confirmed: `make test` reproduces the pre-existing 3646 passed /
+3 skipped / 0 failed baseline unchanged, and `tests/qa/golden_outputs/` is
+byte-identical, `git diff` empty).
+
+### Consequences
+
+1. `_MAX_STEP_HALVINGS = 30` is an engineering cap, not a quantity derived
+   from or tuned against `mgcv` — Anchor 8 does not apply to it the way it
+   would to a tolerance chosen to make a parity check pass.
+2. Every caller's default behaviour is provably unchanged: the `if
+   step_halving:` branch is skipped entirely when the parameter is
+   `False`, and the accepted-path arithmetic outside that branch is
+   unchanged from before this ADR — confirmed by the full test suite and
+   golden-output re-run, not merely argued.
+3. **Not adopted as the production default anywhere.** `fit_polaris_gam`'s
+   own recommended configuration remains `multistart=True` (ADR-218),
+   unaffected by this option either way.
+4. **Registered as PLAN slice 7g direction 1 = DONE, with a named
+   consequence for slice 8**: any future outer solver (the Newton-based
+   replacement slice 8 already anticipates) will face the SAME choice
+   between "converge reliably" and "converge to mgcv's own basin" on this
+   multi-modal criterion — this ADR's finding is evidence that the two are
+   not automatically the same problem, worth carrying into that slice's own
+   design rather than re-discovering.
+5. Direction 2 (`_REJECTED_SCORE` as a growing barrier) remains a
+   fallback, not attempted this session — direction 1 alone met the PLAN's
+   own Definition of Done, and per the PLAN's own text, direction 2 is
+   only warranted "if slice 8 is deferred."
+6. Test fixture added: `tests/fixtures/gam_fit_select7_penalty_spread.json`
+   (recipe only — `mgcv`'s own `eta`/`coef`/`sp`/`edf` stripped — the same
+   discipline `gam_reml_optimize_near_flat_direction.json` already
+   established), and `TestStepHalvingOnAnExtremeLambdaSpread` in
+   `test_gam_fit.py` pins both the opt-in default (still fails) and the
+   opt-in behaviour (now converges) on the exact points a central-difference
+   probe found failing.

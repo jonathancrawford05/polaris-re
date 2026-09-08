@@ -347,6 +347,7 @@ def fit_polaris_gam(
     n_starts: int = 9,
     analytic_gradient: bool = False,
     max_gtol_restarts: int = 0,
+    step_halving: bool = False,
 ) -> PolarisGAMFit:
     """Fit ``model`` to ``data``/``y``, selecting every smoothing parameter by
     continuous REML (:func:`~polaris_re.analytics.gam_reml_optimize.select_lambdas_continuous`,
@@ -432,6 +433,13 @@ def fit_polaris_gam(
             from ``2.09`` to ``4.9e-01`` and stops there, because the
             remaining obstruction is the inner IRLS's own non-convergent
             neighbourhood rather than any stopping rule.
+        step_halving: passed through to whichever search runs (PLAN slice 7g
+            direction 1, ADR-222). Default ``False`` — every existing
+            caller's behaviour is unchanged. Directly targets the
+            non-convergent neighbourhood ``max_gtol_restarts`` above was
+            working around: on the same ``select=True`` N=7 fixture, closes
+            the restart plateau's own KKT residual ``0.049335 -> 0.001125``
+            (~44x) and removes the non-convergent neighbourhood entirely.
 
     Raises:
         PolarisValidationError: propagated from :func:`assemble_model_design`
@@ -491,6 +499,7 @@ def fit_polaris_gam(
             n_starts=n_starts,
             analytic_gradient=analytic_gradient,
             max_gtol_restarts=max_gtol_restarts,
+            step_halving=step_halving,
         )
         selection = multi.best
         n_function_evals = multi.total_function_evals
@@ -509,6 +518,7 @@ def fit_polaris_gam(
             maxiter=maxiter,
             analytic_gradient=analytic_gradient,
             max_gtol_restarts=max_gtol_restarts,
+            step_halving=step_halving,
         )
         n_function_evals = selection.n_function_evals
     if selection.at_bound:

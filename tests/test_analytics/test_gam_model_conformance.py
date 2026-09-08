@@ -99,7 +99,7 @@ def test_fit_free_sp_case_signature_takes_no_r_fit_output() -> None:
     import typing
 
     params = set(inspect.signature(fit_free_sp_case).parameters)
-    assert params == {"r_case"}
+    assert params == {"r_case", "step_halving"}
 
     hints = typing.get_type_hints(fit_free_sp_case)
     assert hints["r_case"] is RFreeSpRecipe

@@ -3857,3 +3857,66 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
 - **Slice 7g direction 1 (a robust inner PIRLS) is next**, per the PLAN's
   own sequencing note — unaffected by this slice's scope. *Source: PLAN
   `docs/PLAN_mgcv_parity_engine.md`, unchanged by this session.*
+
+### Harvested 2026-09-07 — slice 7g direction 1 shipped, opt-in: the mechanism is closed, and it does not close (worsens for single-start) the eta/edf-vs-`mgcv` gap (ADR-224)
+
+- **`penalized_irls_general` gains an opt-in `step_halving` parameter that
+  closes ADR-222's own non-convergent-neighbourhood mechanism.** On the
+  ACTUAL `select=TRUE` N=7 fixture, both central-difference neighbours a
+  probe found raising `PolarisComputationError` now converge, and the
+  restart plateau's own KKT residual collapses `0.049335 -> 0.001125`
+  (~44x). Two wrong versions (gate on deviance alone; gate on the
+  penalized objective but exit the halving loop at the outer convergence
+  tolerance) were built, measured, and rejected first — both landed
+  `0.0089` off a well-conditioned closed-form fixture's true minimum, by
+  two different mechanisms, each confirmed independently via
+  `scipy.optimize.minimize`. *Source: this session, ADR-224 (1st-order —
+  the slice's own registered Definition of Done, met).*
+
+- **The eta/edf-vs-`mgcv` gate does NOT improve, and single-start
+  measurably WORSENS — the session's own most important finding.**
+  `SELECT_FREE_SP_MODEL_CLAIM`'s single-start rows both get worse with
+  `step_halving=True` (FD: `eta` diff `0.446 -> 0.568`; analytic: `0.063 ->
+  0.446`); multistart rows (the production recommendation, ADR-218) are
+  unaffected either way. Interpretation: `step_halving` reliably reaches
+  A stationary point, but on this non-convex, multi-modal criterion that
+  is not necessarily the one nearest `mgcv`'s own selection — reliable
+  convergence and convergence-to-the-right-basin are different properties.
+  *Source: this session, ADR-224 (1st-order — a real finding about a real
+  hazard, not a regression in this slice's own registered scope).*
+
+- **Shipped opt-in (default `False`), not default-on, because even the
+  correct version measurably perturbs several already-verified
+  closed-form/finite-difference tests elsewhere in this repo's own suite
+  at the `1e-6` to `1e-8` level whenever it engages at all** — a plain
+  Newton step transiently increasing the objective near a well-conditioned
+  optimum is normal and self-correcting, but halving reaches the identical
+  fixed point via a different iteration count, and a few tests resolve the
+  fitted surface finely enough to be sensitive to that path. CLAUDE.md's
+  own rule against loosening an existing test's tolerance to make a change
+  pass ruled out the alternative. *Source: this session, ADR-224 (1st-order
+  — a derived scope decision, not a general caution).*
+
+- **Slice 8's own design should account for this session's finding.**
+  Any future outer solver (the Wood-shaped Newton replacement slice 8
+  already anticipates) faces the same choice between "converge reliably"
+  and "converge to `mgcv`'s own basin" on this multi-modal criterion — a
+  direct input to that slice's design, not a separately-scoped item.
+  *Source: this session (1st-order — direct input to an already-planned
+  slice, not a new one).*
+
+- **Whether `step_halving` is worth combining with `multistart` in
+  production** — measured no benefit and ~2x cost on the finite-difference
+  path; not recommended as currently configured. *Source: this session
+  (3rd-order — parked; revisit only if slice 8 changes the underlying
+  trade-off).*
+
+- **Tier-3 confirmation of the `SELECT_FREE_SP_MODEL_CLAIM`/
+  `FREE_SP_MODEL_CLAIM` re-measurement tables** — registered as a follow-up
+  dispatch, affordable per the routine's own budget (~1 minute). *Source:
+  this session (1st-order — direct follow-through on this slice's own
+  claim).*
+
+- **Slice 7i (`_FINITE_DIFF_STEP` re-justification, registered by PR #229's
+  review) remains open and is unaffected by this slice** — carried forward,
+  not re-scoped. *Source: PLAN's own sequencing, restated.*

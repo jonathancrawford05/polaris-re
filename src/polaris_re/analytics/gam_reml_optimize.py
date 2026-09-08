@@ -148,6 +148,7 @@ def penalized_fit_and_score(
     weights: np.ndarray | None = None,
     gamma: float = 1.0,
     penalty_sqrt_blocks: tuple[np.ndarray, ...] | None = None,
+    step_halving: bool = False,
 ) -> tuple[np.ndarray, float]:
     """One penalized fit and its REML score at ``log10(lambda) = log_lambda``.
 
@@ -182,6 +183,10 @@ def penalized_fit_and_score(
             ``reml_score_general``); a caller evaluating this function many
             times at the same ``penalty_blocks`` — every search loop in this
             module — should compute it once and pass it here.
+        step_halving: passed through to
+            :func:`~polaris_re.analytics.gam_fit.penalized_irls_general`
+            unchanged (PLAN slice 7g direction 1, ADR-222). Default
+            ``False`` — every existing caller's behaviour is unchanged.
 
     Returns:
         ``(coef, score)`` — the converged coefficients and the REML score at
@@ -201,7 +206,13 @@ def penalized_fit_and_score(
     for lam, block in zip(lambdas, penalty_blocks, strict=True):
         penalty = penalty + lam * block
     fit = penalized_irls_general(
-        x, y, family=family, penalty=penalty, offset=offset, weights=weights
+        x,
+        y,
+        family=family,
+        penalty=penalty,
+        offset=offset,
+        weights=weights,
+        step_halving=step_halving,
     )
     score = reml_score_general(
         y,
@@ -229,6 +240,7 @@ def penalized_fit_score_and_gradient(
     weights: np.ndarray | None = None,
     gamma: float = 1.0,
     penalty_sqrt_blocks: tuple[np.ndarray, ...] | None = None,
+    step_halving: bool = False,
 ) -> tuple[np.ndarray, float, np.ndarray]:
     """:func:`penalized_fit_and_score`, plus the analytic gradient of the
     score in ``log10(lambda)`` units — PLAN slice 7d.
@@ -246,6 +258,12 @@ def penalized_fit_score_and_gradient(
     ``coef @ block @ coef`` term is per-INDIVIDUAL-block already, never the
     lambda-summed ``S``, so it does not carry the cancellation this argument
     exists to avoid).
+
+    ``step_halving``: passed through to :func:`penalized_fit_and_score`
+    unchanged (PLAN slice 7g direction 1). The gradient formula only needs
+    ``coef`` to satisfy the converged normal equations, which any successful
+    convergence does regardless of whether step-halving was needed to reach
+    it — so this option is safe to combine with the analytic gradient.
 
     Returns:
         ``(coef, score, gradient)`` — ``gradient`` is ``(len(penalty_blocks),)``,
@@ -267,6 +285,7 @@ def penalized_fit_score_and_gradient(
         weights=weights,
         gamma=gamma,
         penalty_sqrt_blocks=penalty_sqrt_blocks,
+        step_halving=step_halving,
     )
     lambdas = 10.0 ** np.asarray(log_lambda, dtype=np.float64)
     gradient_natural = reml_score_gradient(
@@ -428,6 +447,7 @@ def select_lambdas_continuous(
     finite_diff_step: float = _FINITE_DIFF_STEP,
     analytic_gradient: bool = False,
     max_gtol_restarts: int = 0,
+    step_halving: bool = False,
 ) -> ContinuousLambdaSelection:
     """Choose ``log10(lambda)`` for every penalty block by continuous REML
     minimisation (``scipy.optimize.minimize``, L-BFGS-B).
@@ -500,6 +520,16 @@ def select_lambdas_continuous(
             reports the residual actually reached, and
             :attr:`ContinuousLambdaSelection.converged` is deliberately left as
             SciPy's own flag.
+        step_halving: passed through to
+            :func:`~polaris_re.analytics.gam_fit.penalized_irls_general` at
+            every trial point (PLAN slice 7g direction 1, ADR-222). Default
+            ``False`` — every existing caller's behaviour is unchanged.
+            Measured on the ACTUAL ``select=TRUE`` N=7 structure this
+            module's own restart plateau (``max_gtol_restarts``) was
+            measured on: closes the KKT residual there ``0.049335 ->
+            0.001125`` (~44x) and removes the non-convergent neighbourhood
+            the restart loop was working around (`docs/DEV_SESSION_LOG_
+            2026-09-07_mgcv_parity_slice7g_step_halving.md`).
 
     Returns:
         :class:`ContinuousLambdaSelection`.
@@ -566,6 +596,7 @@ def select_lambdas_continuous(
                 weights=weights,
                 gamma=gamma,
                 penalty_sqrt_blocks=penalty_sqrt_blocks,
+                step_halving=step_halving,
             )
         except PolarisComputationError:
             tally["rejected"] += 1
@@ -589,6 +620,7 @@ def select_lambdas_continuous(
                 weights=weights,
                 gamma=gamma,
                 penalty_sqrt_blocks=penalty_sqrt_blocks,
+                step_halving=step_halving,
             )
         except PolarisComputationError:
             tally["rejected"] += 1
@@ -653,6 +685,7 @@ def select_lambdas_continuous(
                     weights=weights,
                     gamma=gamma,
                     penalty_sqrt_blocks=penalty_sqrt_blocks,
+                    step_halving=step_halving,
                 )
             except PolarisComputationError:
                 return None
@@ -709,6 +742,7 @@ def select_lambdas_continuous(
         weights=weights,
         gamma=gamma,
         penalty_sqrt_blocks=penalty_sqrt_blocks,
+        step_halving=step_halving,
     )
     penalty = np.zeros_like(penalty_blocks[0])
     for log_lam, block in zip(log_lambda, penalty_blocks, strict=True):
@@ -813,6 +847,7 @@ def select_lambdas_continuous_multistart(
     seed: int = _MULTISTART_SEED,
     analytic_gradient: bool = False,
     max_gtol_restarts: int = 0,
+    step_halving: bool = False,
 ) -> MultiStartLambdaSelection:
     """Best-of-``n_starts`` :func:`select_lambdas_continuous`, candidate (1)
     of PLAN slice 5e (``docs/PLAN_mgcv_parity_engine.md``).
@@ -861,6 +896,10 @@ def select_lambdas_continuous_multistart(
             catches only ``PolarisComputationError`` per start, so that raise
             propagates rather than being absorbed as a failed start
             (PR #228 review round 2 [P2-B]).
+        step_halving: passed through to every
+            :func:`select_lambdas_continuous` call unchanged (PLAN slice 7g
+            direction 1). Default ``False`` — existing callers are
+            unaffected.
 
     Returns:
         :class:`MultiStartLambdaSelection`.
@@ -904,6 +943,7 @@ def select_lambdas_continuous_multistart(
                     finite_diff_step=finite_diff_step,
                     analytic_gradient=analytic_gradient,
                     max_gtol_restarts=max_gtol_restarts,
+                    step_halving=step_halving,
                 )
             )
         except PolarisComputationError:

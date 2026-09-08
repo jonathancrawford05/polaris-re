@@ -40,6 +40,13 @@ _IRLS_TOL = 1e-10
 """Matches ``experience_gam_penalized``'s own constants — same convergence
 regime, no reason for this generalisation to be looser or tighter."""
 
+_MAX_STEP_HALVINGS = 30
+"""PLAN slice 7g direction 1 (ADR-222's own registered follow-up): ``mgcv``'s
+``gam.control(mgcv.half=...)`` exists for the identical failure mode — a
+Newton/IRLS step that makes the PENALIZED OBJECTIVE (deviance + coef'Scoef,
+not deviance alone — see :func:`penalized_irls_general`'s ``step_halving``
+docstring) worse or non-finite — and this is this module's analogue."""
+
 
 class GeneralIRLSFit:
     """The result of :func:`penalized_irls_general`."""
@@ -61,6 +68,7 @@ def penalized_irls_general(
     penalty: np.ndarray,
     offset: np.ndarray | None = None,
     weights: np.ndarray | None = None,
+    step_halving: bool = False,
 ) -> GeneralIRLSFit:
     """Penalized IRLS at a fixed penalty, for an arbitrary :class:`Family`.
 
@@ -80,6 +88,45 @@ def penalized_irls_general(
             all-zero. Orthogonal to ``weights`` (PLAN Anchor 5) — both may be
             supplied at once.
         weights: prior weights, ``(n,)``, non-negative. Defaults to all-one.
+        step_halving: PLAN slice 7g direction 1 (ADR-222's own registered
+            follow-up). When ``True``, a Newton step that would otherwise
+            leave the PENALIZED OBJECTIVE (``deviance + coef'Scoef`` — what
+            this solver actually descends on, not deviance alone) worse or
+            non-finite is halved (mirrors ``mgcv``'s own
+            ``gam.control(mgcv.half=...)``), up to :data:`_MAX_STEP_HALVINGS`
+            times, before being accepted. Measured on the ACTUAL
+            ``select=TRUE`` N=7 structure ADR-222 found non-convergent
+            neighbours on: closes the KKT residual at the search's own
+            restart plateau ``0.049335 -> 0.001125`` (~44x) and removes the
+            non-convergent neighbourhood entirely — every point a central-
+            difference probe found raising :class:`PolarisComputationError`
+            before this option converges after (`docs/DEV_SESSION_LOG_
+            2026-09-07_mgcv_parity_slice7g_step_halving.md`).
+
+            **Default `False` — every existing caller's behaviour is
+            unchanged, and this is deliberate, not merely cautious (PLAN
+            Anchor 7).** Gating the halving on the penalized OBJECTIVE
+            rather than raw deviance is itself load-bearing (an earlier
+            version gated on deviance alone and landed a well-conditioned
+            closed-form fixture, `TestPoissonReducesToTheVerifiedRecursion`,
+            on a DIFFERENT stationary point 0.0089 away from the true
+            minimum — confirmed off the true optimum independently via
+            `scipy.optimize.minimize` on `deviance + coef'Scoef`) — but even
+            with that fixed, enabling this unconditionally still perturbs
+            several already-verified closed-form/finite-difference tests at
+            the ``1e-6`` to ``1e-8`` level (`test_gam_derivatives.py`,
+            `TestFiniteDiffStep`): whenever a plain Newton step transiently
+            increases the objective — a normal, self-correcting property of
+            full-step Newton/IRLS near a well-conditioned optimum, not a
+            defect — halving takes a different (still correct) path to the
+            same fixed point, and that changes exactly how many iterations
+            it takes to get there. A handful of this repo's own tests
+            resolve the fitted surface finely enough (comparing an analytic
+            derivative against a central difference at `h=1e-4`, expecting
+            agreement to `1e-8`) to be sensitive to that path, not just the
+            destination. So this stays opt-in: :mod:`gam_reml_optimize`'s
+            own search functions thread it through as their own
+            ``step_halving`` parameter, defaulting to ``False`` there too.
 
     Returns:
         :class:`GeneralIRLSFit` with the converged coefficients, linear
@@ -98,6 +145,7 @@ def penalized_irls_general(
     link = family.link
     coef = np.zeros(p, dtype=np.float64)
     previous_deviance = np.inf
+    previous_objective = np.inf
     eta = offset.copy()
     mu = link.linkinv(eta)
     for iteration in range(1, _MAX_IRLS_ITER + 1):
@@ -110,13 +158,39 @@ def penalized_irls_general(
         lhs = x.T @ (irls_weights[:, None] * x) + penalty
         rhs = x.T @ (irls_weights * z)
         try:
-            coef = cho_solve(cho_factor(lhs, lower=True), rhs)
+            candidate = cho_solve(cho_factor(lhs, lower=True), rhs)
         except (SciPyLinAlgError, np.linalg.LinAlgError):
-            coef, *_ = np.linalg.lstsq(lhs, rhs, rcond=None)
+            candidate, *_ = np.linalg.lstsq(lhs, rhs, rcond=None)
 
-        eta = offset + x @ coef
-        mu = link.linkinv(eta)
-        deviance = family.deviance(y, mu, weights)
+        new_coef = candidate
+        new_eta = offset + x @ new_coef
+        new_mu = link.linkinv(new_eta)
+        new_deviance = family.deviance(y, new_mu, weights)
+
+        if step_halving:
+            # Halve the distance from `coef` (the previous accepted point)
+            # towards `candidate` (the full Newton step) until the PENALIZED
+            # OBJECTIVE — not deviance alone, see this function's own
+            # ``step_halving`` docstring for why — stops getting worse.
+            step = candidate - coef
+            new_objective = new_deviance + float(new_coef @ penalty @ new_coef)
+            halvings = 0
+            while (
+                not np.isfinite(new_objective) or new_objective > previous_objective
+            ) and halvings < _MAX_STEP_HALVINGS:
+                halvings += 1
+                step = step * 0.5
+                new_coef = coef + step
+                new_eta = offset + x @ new_coef
+                new_mu = link.linkinv(new_eta)
+                new_deviance = family.deviance(y, new_mu, weights)
+                new_objective = new_deviance + float(new_coef @ penalty @ new_coef)
+            previous_objective = new_objective
+
+        coef = new_coef
+        eta = new_eta
+        mu = new_mu
+        deviance = new_deviance
         if abs(deviance - previous_deviance) < _IRLS_TOL * (abs(deviance) + 0.1):
             return GeneralIRLSFit(coef=coef, eta=eta, mu=mu, n_iter=iteration)
         previous_deviance = deviance
