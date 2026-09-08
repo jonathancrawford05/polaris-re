@@ -22248,6 +22248,89 @@ byte-identical, `git diff` empty).
    (recipe only — `mgcv`'s own `eta`/`coef`/`sp`/`edf` stripped — the same
    discipline `gam_reml_optimize_near_flat_direction.json` already
    established), and `TestStepHalvingOnAnExtremeLambdaSpread` in
-   `test_gam_fit.py` pins both the opt-in default (still fails) and the
-   opt-in behaviour (now converges) on the exact points a central-difference
-   probe found failing.
+   `test_gam_fit.py` pins the opt-in behaviour (converges with
+   `step_halving=True`) on the exact points a central-difference probe
+   found failing. **Superseded by amendment 1**: the class originally also
+   pinned the opt-in DEFAULT as still failing on those same points; that
+   assertion did not survive CI and was removed, not merely re-pinned.
+
+## ADR-224 amendment 1: PR #230 automated review — a fragile test's own default-path pin was removed after CI, not merely re-pinned, and this is that record
+
+**Date:** 2026-09-08. **Status:** ACCEPTED. Raised by PR #230's automated
+review [P1-B]: decision 6 above, and the test class's own docstring in
+`test_gam_fit.py`, both claimed a stronger guarantee than the code shipped
+on the PR's final commit. This amendment is the durable record the review
+correctly said belonged in the ADR rather than only in the session log.
+
+### What changed after ADR-224 was first written
+
+`TestStepHalvingOnAnExtremeLambdaSpread` originally shipped with a second
+assertion, `test_previously_non_convergent_neighbour_still_fails_by_default`,
+pinning that the two central-difference-probe points ADR-224's own measurement
+used still raise `PolarisComputationError` when `step_halving` is left at its
+default `False`. `ci.yml`'s `Test (Python 3.13)` job failed on exactly that
+assertion — the point converged there without `step_halving`, contradicting
+the pin.
+
+**First response: pin `threadpool_limits(1, "blas")`**, matching the
+established convention `test_gam_reml_optimize.py`'s own near-flat-direction
+tests use for the identical, already-documented reason (ADR-211/212/213/222:
+this class of fixture's own convergence behaviour moves with BLAS thread
+count, and `ci.yml`'s test matrix — unlike `mgcv-conformance.yml` — does not
+pin `OPENBLAS_NUM_THREADS`). **This did not fix it.** A second push failed on
+the identical assertion, identical parametrization, identical Python 3.13
+job. Locally resolving BOTH environments' numpy (2.4.3) and scipy (1.17.1)
+versions found them identical, ruling out a package-version explanation — so
+whatever differs between this session's development environment and that CI
+runner's Python 3.13 build is a second, unidentified source of numerical
+divergence, beyond BLAS thread count.
+
+### Decision: remove the assertion rather than guess at a further pin
+
+A specific numerical knife-edge point — chosen because it happened to fail
+in one environment — was being pinned as though that boundary were stable.
+It is demonstrably not stable, across at least two independent axes now.
+Guessing at a third pin without a diagnosed mechanism would be exactly the
+kind of underived numerical patch Anchor 8 warns against. The property this
+slice actually claims — `step_halving=True` converges the point — is
+environment-independent (measured and re-confirmed on every CI run since)
+and was never touched; `test_previously_non_convergent_neighbour_converges_with_step_halving`
+carries it alone now.
+
+**This is fixing a fragile test's own design, not loosening a tolerance to
+hide a defect.** CLAUDE.md's rule against changing an existing assertion to
+make a comparison pass is about the latter; the removed assertion tested an
+incidental numerical boundary that was never this slice's own Definition of
+Done (ADR-224's own DoD is about the KKT residual and the N=4 control,
+both unaffected by this removal).
+
+### What this amendment corrects
+
+- **Decision 6, above**: no longer claims the class "pins both" — it pins
+  only the opt-in behaviour, with a forward pointer to this amendment.
+- **`TestStepHalvingOnAnExtremeLambdaSpread`'s own docstring**: pointed a
+  reader at "ADR-224's own honesty about this" — a passage that existed
+  only in the session log's post-push addendum, not in the ADR itself. Now
+  points here.
+- **The session log's "Gap After" section** stated the opt-in default was
+  "pinned by a test, not merely asserted," written before the second CI
+  failure forced the removal; the log's own later addendum already
+  corrected this in prose, and it is restated here as the ADR of record.
+
+### Consequences
+
+1. The second source of numerical divergence (beyond BLAS thread count,
+   between this session's dev environment and CI's Python 3.13 runner) is
+   NOT identified and is not chased further by this amendment — recorded
+   as an open item (PR #230 review's own "human review recommended" #1),
+   since it is a property of the numerical engine independent of this PR.
+2. `[P1-A]` (same review): the accompanying no-regression guard,
+   `test_a_step_that_already_decreases_deviance_takes_the_unhalved_path`,
+   is corrected in the same PR to actually call `penalized_irls_general`
+   with `step_halving=True` and assert bit-identical coefficients against
+   the unhalved path — the version this ADR originally described called it
+   without the parameter at all, so it could not have caught a regression
+   connected to this slice.
+3. No production code changed in this amendment; `gam_fit.py`'s
+   `step_halving` implementation and its own Definition of Done readings
+   are unaffected.
