@@ -219,7 +219,11 @@ by this slice, which makes no such comparison.
 
 ## Perf history
 
-Not applicable — `perf/history.jsonl` rows are appended on the initial open
-of a PR (ADR-177); this slice makes no change to any code path
-`perf_harness` measures (no fitter, no basis, no assembly change), and no PR
-has been opened yet as of this log.
+`docs/DECISIONS.md` ADR-177 amendment 1 exempts a PR that modifies nothing
+under `src/polaris_re/` — this PR does (a docstring update in
+`gam_reml_optimize.py`), so a row was appended per the standing rule, even
+though no fitter/basis/assembly path changed:
+`uv run python scripts/perf_history.py` — **no structural creep**
+(`peak_mib` unchanged, `33 -> 33`); wall-time recent/baseline ratio `1.258x`,
+marginally above the `1.25` advisory band — informational only, does not
+gate (ADR-177). Committed as a separate follow-up commit, per convention.
