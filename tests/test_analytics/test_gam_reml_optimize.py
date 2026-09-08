@@ -286,7 +286,7 @@ class TestFiniteDiffStep:
     the real fixture is used rather than a synthetic approximation that
     might not exhibit the property it is meant to test.
 
-    Both fixture-based tests below pin ``threadpool_limits(1, "blas")``: PR
+    Every fixture-based test below pins ``threadpool_limits(1, "blas")``: PR
     #217 (concurrent with this one) found this exact free-``sp`` selection
     moves with ``OPENBLAS_NUM_THREADS`` alone, and CI first caught this
     class doing exactly that — ``test_finite_diff_step_default_...`` reported
@@ -458,7 +458,12 @@ class TestFiniteDiffStep:
         smaller steps are more accurate until floating-point noise takes
         over. SciPy's un-derived default (``1.49e-8``) sits close to that
         optimum here; the production ``1e-5`` safety margin costs real
-        accuracy on exactly this kind of problem — measured, not assumed."""
+        accuracy on exactly this kind of problem — measured, not assumed.
+
+        Pins ``threadpool_limits(1, "blas")`` per the class's own stated
+        convention, though this problem's own headroom (~11x, against a
+        ``> 5x`` assertion) is wider than the sibling wide-spread test's —
+        insurance, not a response to an observed failure here."""
         n, p = 200, 6
         x = _design(rng, n, p)
         beta_true = rng.normal(scale=0.3, size=p)
@@ -467,11 +472,15 @@ class TestFiniteDiffStep:
         s = d.T @ d
         point = np.array([0.7])
 
-        coef, _ = penalized_fit_and_score(y, x, poisson_log(), (s,), point)
-        analytic = reml_score_gradient(y, x, poisson_log(), coef, (s,), 10.0**point) * np.log(10.0)
+        with threadpool_limits(limits=1, user_api="blas"):
+            coef, _ = penalized_fit_and_score(y, x, poisson_log(), (s,), point)
+            analytic = reml_score_gradient(y, x, poisson_log(), coef, (s,), 10.0**point) * np.log(
+                10.0
+            )
 
         def score_at(p_: np.ndarray) -> float:
-            _, sc = penalized_fit_and_score(y, x, poisson_log(), (s,), p_)
+            with threadpool_limits(limits=1, user_api="blas"):
+                _, sc = penalized_fit_and_score(y, x, poisson_log(), (s,), p_)
             return sc
 
         base = score_at(point)

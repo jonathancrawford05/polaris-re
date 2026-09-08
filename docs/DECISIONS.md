@@ -22327,9 +22327,13 @@ analytic value (never against `mgcv`) at eight step sizes (`1e-3` to
   catastrophic (`5.61`, 1600x the true gradient's own magnitude).
 - **(b2) a wide (11-decade) synthetic `log10(lambda)` spread on the SAME N=4
   fixture** (the regime `select=TRUE` callers actually reach, ADR-217/218):
-  true gradient norm `14.14`. SciPy's default step's own error is `31.1` —
-  **exceeding the signal it is trying to measure**, direction-destroying.
-  `1e-5`'s error is `4.73e-2`, under `0.4%` of the signal.
+  true gradient norm `14.14`. SciPy's default step's own error is `31.1` in
+  this session's own container — **exceeding the signal it is trying to
+  measure**, direction-destroying either way, though CI's own runner later
+  read `13.50` (95% of the signal, not quite exceeding — see the amendment
+  below: this ratio is not bit-portable across CPU/BLAS builds even with
+  threads pinned). `1e-5`'s error is `4.73e-2`, under `0.4%` of the signal,
+  stable across both readings.
 
 ### Verdict — RE-CONFIRMED, not re-derived (DoD item 3)
 

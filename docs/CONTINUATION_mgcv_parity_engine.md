@@ -1712,8 +1712,12 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > (`gam_reml_optimize_near_flat_direction.json`), at a wide (11-decade)
 > synthetic `log10(lambda)` spread — the regime `select=TRUE` callers
 > actually reach (ADR-217/218) — shows SciPy's default step's own gradient
-> error EXCEEDING the true gradient's magnitude (direction-destroying),
-> while the production step stays under 0.4% of it. **The registered
+> error reaching at least half, and on the authoring session's own container
+> EXCEEDING, the true gradient's magnitude (direction-destroying either
+> way — the exact ratio is not bit-portable across CPU/BLAS builds even
+> with threads pinned; CI's own runner read 95%, not quite exceeding, per
+> ADR-225's same-day amendment), while the production step stays under
+> 0.4% of it. **The registered
 > prediction is REFUTED, tested directly as its own text required**: a
 > forward-difference step scan at the production search's own converged
 > point on the same fixture shows the stable region NARROWED post-7h, not

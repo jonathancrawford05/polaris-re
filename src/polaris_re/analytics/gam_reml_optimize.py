@@ -155,8 +155,13 @@ slice 7d) rather than only a central-difference cross-check, on two regimes:
 - **A wide (11-decade) synthetic ``log10(lambda)`` spread on the SAME N=4
   fixture** this constant was derived on (a spread this module's own
   ``select=TRUE`` callers routinely select, ADR-217/218): SciPy's default
-  step's own gradient error EXCEEDS the true gradient's magnitude (direction-
-  destroying), while ``1e-5``'s error stays under 5% of it.
+  step's own gradient error reaches at least half, and on the authoring
+  session's own container EXCEEDS, the true gradient's magnitude (direction-
+  destroying either way), while ``1e-5``'s error stays under 5% of it. The
+  exact ratio is NOT bit-portable across CPU/BLAS builds even with threads
+  pinned — CI's own runner read ``13.50`` against a ``true_norm`` of
+  ``14.14`` (95%, not quite exceeding); see ``docs/DECISIONS.md`` ADR-225's
+  same-day amendment for the full cross-environment reading.
 
 **The trade-off is real in both directions, still, after the fix** — this
 constant is RE-CONFIRMED, not re-derived to a different value. Moving it
