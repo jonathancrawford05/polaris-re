@@ -442,6 +442,105 @@ class TestFiniteDiffStep:
 
         assert np.linalg.norm(grad) < 0.05
 
+    def test_scipy_default_step_is_less_accurate_than_production_on_a_well_conditioned_toy(
+        self, rng: np.random.Generator
+    ) -> None:
+        """PLAN slice 7i (registered by PR #229 review, ADR-223 amendment 2):
+        re-justify ``_FINITE_DIFF_STEP``, since post-slice-7h it shipped with
+        no committed test in which it changed any outcome.
+
+        This is the committed version of PR #216 review [P1-2]'s own,
+        previously uncommitted, finding — a well-conditioned single-block toy
+        problem (no near-flat direction, no badly-scaled lambda spread) where
+        the forward-difference gradient's OWN accuracy against the
+        independently-derived analytic gradient (:func:`reml_score_gradient`,
+        PLAN slice 7d) is a plain truncation-error-vs-noise-floor trade-off:
+        smaller steps are more accurate until floating-point noise takes
+        over. SciPy's un-derived default (``1.49e-8``) sits close to that
+        optimum here; the production ``1e-5`` safety margin costs real
+        accuracy on exactly this kind of problem — measured, not assumed."""
+        n, p = 200, 6
+        x = _design(rng, n, p)
+        beta_true = rng.normal(scale=0.3, size=p)
+        y = rng.poisson(np.exp(x @ beta_true)).astype(np.float64)
+        d = np.diff(np.eye(p), n=2, axis=0)
+        s = d.T @ d
+        point = np.array([0.7])
+
+        coef, _ = penalized_fit_and_score(y, x, poisson_log(), (s,), point)
+        analytic = reml_score_gradient(y, x, poisson_log(), coef, (s,), 10.0**point) * np.log(10.0)
+
+        def score_at(p_: np.ndarray) -> float:
+            _, sc = penalized_fit_and_score(y, x, poisson_log(), (s,), p_)
+            return sc
+
+        base = score_at(point)
+
+        def fd_error(h: float) -> float:
+            fd = (score_at(point + np.array([h])) - base) / h
+            return abs(fd - analytic[0])
+
+        scipy_default_err = fd_error(1.49e-8)
+        production_err = fd_error(_FINITE_DIFF_STEP)
+
+        # Measured: ~10x (this repo's own PR #216 review reading); assert a
+        # conservative fraction of that so the test is not brittle to noise.
+        assert production_err > 5.0 * scipy_default_err
+
+    def test_scipy_default_step_is_catastrophically_wrong_on_a_wide_lambda_spread(self) -> None:
+        """The other half of the trade-off, on the SAME committed N=4
+        near-flat fixture ``_FINITE_DIFF_STEP`` was originally derived on
+        (ADR-212): at a wide (11-decade) synthetic ``log10(lambda)`` spread —
+        the badly-conditioned regime this module's own production callers
+        actually reach (PLAN slice 7's ``select=TRUE`` structure routinely
+        selects spreads this wide, ADR-217/218) — SciPy's un-derived default
+        step produces a finite-difference gradient estimate whose OWN error
+        against the analytic gradient (:func:`reml_score_gradient`) EXCEEDS
+        the true gradient's magnitude: not merely less accurate, but
+        direction-destroying. The production ``_FINITE_DIFF_STEP`` stays a
+        small fraction of the true gradient's own magnitude at the same
+        point. This is what makes ``1e-5`` still the right default post-7h,
+        not merely a leftover from before it.
+
+        Pins ``threadpool_limits(1, "blas")`` for every BLAS-heavy call, the
+        same discipline the class docstring states: PR #217 found this exact
+        structure's own numerics move with ``OPENBLAS_NUM_THREADS`` alone, and
+        the env var by itself does not reliably reach an already-imported
+        OpenBLAS inside a running test process."""
+        y, x, family, blocks, weights = self._load_fixture()
+        wide_point = np.array([11.0, 0.0, 6.0, 2.0])
+
+        with threadpool_limits(limits=1, user_api="blas"):
+            coef, _ = penalized_fit_and_score(y, x, family, blocks, wide_point, weights=weights)
+            analytic = reml_score_gradient(
+                y, x, family, coef, blocks, 10.0**wide_point, weights=weights
+            ) * np.log(10.0)
+        true_norm = np.linalg.norm(analytic)
+
+        def score_at(p: np.ndarray) -> float:
+            with threadpool_limits(limits=1, user_api="blas"):
+                _, s = penalized_fit_and_score(y, x, family, blocks, p, weights=weights)
+            return s
+
+        base = score_at(wide_point)
+
+        def fd_error_norm(h: float) -> float:
+            fd = np.zeros(4)
+            for i in range(4):
+                d = np.zeros(4)
+                d[i] = h
+                fd[i] = (score_at(wide_point + d) - base) / h
+            return float(np.linalg.norm(fd - analytic))
+
+        scipy_default_err = fd_error_norm(1.49e-8)
+        production_err = fd_error_norm(_FINITE_DIFF_STEP)
+
+        # SciPy's default corrupts the gradient estimate beyond recognition
+        # (its own error exceeds the signal it is trying to measure).
+        assert scipy_default_err > true_norm
+        # The production step's error stays a small fraction of the signal.
+        assert production_err < 0.05 * true_norm
+
 
 class TestPenalizedFitScoreAndGradient:
     """PLAN slice 7d — one fit produces both the score and the gradient."""
