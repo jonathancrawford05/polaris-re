@@ -117,9 +117,14 @@ change an existing test assertion to make it pass").
 
 **The mechanism ADR-222 named is closed.** Both previously-failing
 central-difference neighbours converge with `step_halving=True` (8-9 IRLS
-iterations), and still fail without it (confirmed — the opt-in default is pinned
-by a test, not merely asserted). Restart plateau's own KKT residual:
-`0.049335 -> 0.001125` (~44x), with `n_gtol_restarts` unchanged at 4.
+iterations) — confirmed and pinned by a test, and true regardless of
+environment. Whether they still fail without `step_halving` turned out to be
+environment-dependent (a genuine CI failure on Python 3.13, not fixed by
+pinning BLAS threads either — see the "Post-push CI addendum" below and
+ADR-224 amendment 1), so that half is reported as this session's own
+development-environment reading, not pinned as a test. Restart plateau's own
+KKT residual: `0.049335 -> 0.001125` (~44x), with `n_gtol_restarts` unchanged
+at 4.
 
 **The eta/edf-vs-`mgcv` gate (`SELECT_FREE_SP_MODEL_CLAIM`) does NOT improve, and
 for single-start WORSENS** — the session's own most important finding, reported
@@ -204,6 +209,17 @@ round trip, ~1 minute, per the routine's own budget).
   never sets the new opt-in parameter, so this is the expected null result,
   confirmed rather than assumed.
 
+## Perf History
+
+`scripts/perf_history.py` run against this PR's HEAD (idempotent, per-commit
+append). One row appended (commit `2d06077`), no prior row edited or removed
+(PR #230 review: verified append-only). Creep verdict: `has_structural_creep:
+false` (peak MiB `33 -> 33`, Δ0.0), `has_wall_time_creep: true` at `1.258x`
+against the `1.25` advisory band — non-gating by the script's own design
+(exit 0) and a series-wide signal (this slice touches no pricing-engine code
+the `project` probe exercises), flagged per PR #230 review [P2-D] rather than
+silently omitted.
+
 ## Definition of Done (PLAN slice 7g direction 1, verbatim, per ADR-209 decision 3)
 
 - `[machine]` MET. Stall's KKT residual on the same N=7 case, re-measured:
@@ -232,23 +248,39 @@ round trip, ~1 minute, per the routine's own budget).
 
 ## Follow-ups filed
 
+- **`step_halving` accepts a still-worsening step silently on cap exhaustion**
+  (PR #230 review [P2-A]) — `mgcv`'s own `gam.control(mgcv.half=)` analogue
+  warns or errors there; this implementation does not. Not a defect on any
+  fixture measured (8-9 iterations against a cap of 30), and the outer loop
+  still ends in convergence or `PolarisComputationError`, but a raise or a
+  recorded halving count on exhaustion would close the gap with the
+  analogue. *2nd-order — NICE-TO-HAVE, not blocking.*
 - **Slice 8's own design should account for this session's finding**: a robust
   inner/outer solver reaching SOME stationary point reliably is not the same
   problem as reaching the one nearest `mgcv`'s own selection on a multi-modal
   criterion. *1st-order — direct input to an already-planned slice.*
-- **Whether `step_halving` is worth combining with multistart in production**:
-  measured no benefit and roughly 2x cost on the FD path; not recommended as
-  currently configured, but not filed as a blocking decision since
-  `multistart=True` alone already meets the gate. *3rd-order — parked, revisit
-  only if slice 8 changes the underlying trade-off.*
 - **Tier-3 confirmation of the `SELECT_FREE_SP_MODEL_CLAIM`/`FREE_SP_MODEL_CLAIM`
   re-measurement tables** — registered, not yet dispatched as of this log; a
   CI round trip is affordable per the routine's own budget. *1st-order,
   direct follow-through on this slice's own claim.*
 
-Harvested into `docs/PRODUCT_DIRECTION_2026-07-24.md`, order-tagged as above.
+Harvested into `docs/PRODUCT_DIRECTION_2026-07-24.md`, order-tagged as above
+(1st-order items only — the routine's own order-cap keeps 3rd-order items out
+of PRODUCT_DIRECTION and in this log's own Parked Polish section below; PR
+#230 review [P2-B] found the harvest had misplaced one there).
+
+## Parked Polish
+
+- **Whether `step_halving` is worth combining with `multistart` in
+  production**: measured no benefit and roughly 2x cost on the FD path; not
+  recommended as currently configured. 3rd-order — parked here rather than
+  harvested, per the routine's own order-cap; revisit only if slice 8 changes
+  the underlying trade-off.
 
 ## Post-push CI addendum — a second, still-unidentified source of numerical divergence
+
+**Recorded durably as ADR-224 amendment 1** (PR #230 review [P1-B] was right
+that this belonged in the ADR, not only here).
 
 PR #230's real CI (`ci.yml`, distinct from the `mgcv-conformance.yml` dispatch
 above) caught something this session's own local testing did not: `Test

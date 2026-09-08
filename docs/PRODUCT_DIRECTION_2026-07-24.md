@@ -3860,6 +3860,12 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
 
 ### Harvested 2026-09-07 — slice 7g direction 1 shipped, opt-in: the mechanism is closed, and it does not close (worsens for single-start) the eta/edf-vs-`mgcv` gap (ADR-224)
 
+**Corrected same day (PR #230 review [P2-B]):** one item originally harvested
+here (whether `step_halving` is worth combining with `multistart`) is
+3rd-order, which the routine's own order-cap parks in the session log rather
+than promoting into this file — moved to that log's own Parked Polish
+section, not harvested.
+
 - **`penalized_irls_general` gains an opt-in `step_halving` parameter that
   closes ADR-222's own non-convergent-neighbourhood mechanism.** On the
   ACTUAL `select=TRUE` N=7 fixture, both central-difference neighbours a
@@ -3897,6 +3903,14 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   pass ruled out the alternative. *Source: this session, ADR-224 (1st-order
   — a derived scope decision, not a general caution).*
 
+- **`step_halving` accepts a still-worsening step silently on cap
+  exhaustion** (PR #230 review [P2-A]) — `mgcv`'s own
+  `gam.control(mgcv.half=)` analogue warns or errors there; this
+  implementation does not. Not a defect on any fixture measured (8-9
+  iterations against a cap of 30); a raise or a recorded halving count on
+  exhaustion would close the gap. *Source: this session (2nd-order —
+  NICE-TO-HAVE, not blocking).*
+
 - **Slice 8's own design should account for this session's finding.**
   Any future outer solver (the Wood-shaped Newton replacement slice 8
   already anticipates) faces the same choice between "converge reliably"
@@ -3904,12 +3918,6 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
   direct input to that slice's design, not a separately-scoped item.
   *Source: this session (1st-order — direct input to an already-planned
   slice, not a new one).*
-
-- **Whether `step_halving` is worth combining with `multistart` in
-  production** — measured no benefit and ~2x cost on the finite-difference
-  path; not recommended as currently configured. *Source: this session
-  (3rd-order — parked; revisit only if slice 8 changes the underlying
-  trade-off).*
 
 - **Tier-3 confirmation of the `SELECT_FREE_SP_MODEL_CLAIM`/
   `FREE_SP_MODEL_CLAIM` re-measurement tables** — registered as a follow-up
