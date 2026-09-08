@@ -22409,3 +22409,31 @@ None registered — this slice's own DoD is fully met by re-confirmation, and
 no new gap is opened. `docs/PLAN_mgcv_parity_engine.md` slice 7i is marked
 DONE. Slice 8 (the Wood-shaped outer solver) is next, unaffected by this
 slice's own scope.
+
+### Amendment — CI caught the new test's own threshold was too tight, same day
+
+PR #232's CI (`Test (Python 3.13)`, a different host from this session's own
+container) FAILED
+`test_scipy_default_step_is_catastrophically_wrong_on_a_wide_lambda_spread`:
+`scipy_default_err=13.50` against `true_norm=14.14` — comfortably past half
+but under the `> true_norm` bound the first draft asserted. This is the
+SAME cross-environment sensitivity this epic has documented repeatedly
+(ADR-211/222): `true_norm` (the analytic gradient) is bit-stable across the
+two environments (`14.138284457289732` identical to every printed digit),
+but `scipy_default_err` (a forward difference at `h=1.49e-8`, exactly the
+catastrophic-cancellation-adjacent regime this test exists to demonstrate)
+is not — `13.50` on CI's runner against `31.06` in this session's own
+container, both with `OPENBLAS_NUM_THREADS`/`threadpool_limits` pinned to 1.
+Pinning thread COUNT removes one axis of nondeterminism, not the
+CPU/BLAS-build axis.
+
+**Fixed by widening the assertion's own margin, not by chasing the exact
+boundary**: `scipy_default_err > true_norm` (razor-thin, exactly what this
+epic's own routine warns against) becomes `scipy_default_err > 0.5 *
+true_norm` — still supports the qualitative claim (the estimate is
+comparable to or larger than the signal, not merely less accurate) with
+real headroom on every reading taken so far (`13.50` and `31.06`, both
+comfortably above `7.07`). `production_err < 0.05 * true_norm` was not
+touched — that side's readings (`4.73e-2` locally) have ~15x headroom
+against its own bound and showed no cross-environment sensitivity in either
+run. Verified: re-ran the file 3x pinned and 3x unpinned, stable throughout.
