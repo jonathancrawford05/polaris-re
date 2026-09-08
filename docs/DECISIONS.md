@@ -22251,3 +22251,193 @@ byte-identical, `git diff` empty).
    `test_gam_fit.py` pins both the opt-in default (still fails) and the
    opt-in behaviour (now converges) on the exact points a central-difference
    probe found failing.
+
+## ADR-225: Slice 7i — `_FINITE_DIFF_STEP` re-justified against the analytic gradient, post-slice-7h; RE-CONFIRMED, not changed
+
+**Date:** 2026-09-08. **Status:** ACCEPTED. **Tier 1** (R 4.3.3 / mgcv 1.9-1,
+local apt — R used only to generate synthetic covariates for the pre-existing
+committed fixture; no `mgcv` quantity appears as an operand anywhere in this
+slice). **Provenance:** every comparison in this ADR is
+`MEASUREMENT (own criterion)` (`docs/VERIFICATION_STANDARD.md` §2.1,
+ADR-193/ADR-219 amendment 1) — a finite-difference estimate of Polaris's own
+REML score, measured against Polaris's own analytic gradient
+(`gam_reml_gradient.reml_score_gradient`, PLAN slice 7d) at the same point.
+Removing `mgcv` from every script below leaves every number unchanged; there
+is no second producer, so no `VerificationClaim` applies and nothing here may
+be read as `mgcv` parity or agreement evidence.
+
+### What this slice is
+
+PLAN slice 7i, registered by PR #229's automated review ([P1], ADR-223
+amendment 2): slice 7h's sum-of-squares penalty evaluation removed the exact
+cancellation `_FINITE_DIFF_STEP = 1e-5` (ADR-212) was originally measured
+against, so `TestFiniteDiffStep`'s two historical tests now assert the
+identical property on the identical fixture, differing only in `eps` — the
+production override shipped with no committed test in which it changed any
+outcome. The registered remedy: either re-point the historical test at a
+fixture where the defect still reproduces, or re-derive the constant from an
+across-fixture measurement.
+
+### Measurement 1 — the N=4/N=7 post-7h noise floor, re-run directly (DoD item 1)
+
+`scripts/gam_penalty_sqrt_form_diagnostic_n4.py` re-runs ADR-223's own
+thread-sweep methodology (`gam_penalty_sqrt_form_diagnostic.py`, N=7
+`select=TRUE`) on the N=4 (non-`select`) structure `_FINITE_DIFF_STEP` was
+actually derived on. **The sum-of-squares fix reproduces at N=4 too, not only
+N=7**: thread-axis spread at the wide (11-decade) point collapses
+`1.475e-04 -> 1.099e-12` (~134,000x), at a fresh `mgcv`-selected point
+`3.092e-09 -> 3.434e-12` (~900x), matching ADR-223's own order of magnitude on
+a different structure.
+
+A direct forward-difference step scan at the production search's own
+converged point on the committed near-flat fixture
+(`tests/fixtures/gam_reml_optimize_near_flat_direction.json`) — the same
+methodology ADR-212 used to derive `1e-5` in the first place, re-run post-7h
+— shows the stable region has **narrowed, not widened**: ADR-212 found
+stability from `h=1e-1` to `1e-6`, breaking by `h=1e-9`. Post-7h, at this
+specific (now much better-converged, true-gradient-norm `0.0035`) point, the
+forward estimate starts drifting by `h=1e-6` and is clearly broken by
+`h=1e-7`. **The registered prediction — "at least one previously
+badly-conditioned fixture no longer needs the wider step at all" — does not
+hold on this family of fixtures**: post-7h, the fixture needs comparable or
+more protection at large `log10(lambda)` spreads, not less. The sum-of-squares
+fix closed the *thread-reproducibility* defect (ADR-223's own claim); it did
+not remove the *forward-difference noise floor* `_FINITE_DIFF_STEP` guards
+against — a different property of the same objective, consistent with
+ADR-223's own "reproducibility fix, not an accuracy one" framing.
+
+### Measurement 2 — gradient accuracy against the analytic gradient, both regimes (DoD items 1 and 3)
+
+`scripts/gam_finite_diff_step_tradeoff_diagnostic.py` measures the
+forward-difference gradient's own error against `reml_score_gradient`'s
+analytic value (never against `mgcv`) at eight step sizes (`1e-3` to
+`1e-10`), on:
+
+- **(a) a well-conditioned toy problem** (single penalty block, `n=200`,
+  `p=6`, no near-flat direction — the class of fixture PR #216's review used,
+  previously uncommitted): SciPy's un-derived default (`1.49e-8`) has error
+  `1.33e-6`; the production `1e-5` has error `1.45e-5` — **~11x worse**,
+  quantitatively reproducing PR #216's own reading, now on a committed,
+  reproducible fixture. A second point (`log10(lambda)=3.0`) reproduces the
+  same shape (`4.83e-7` vs `1.81e-5`, ~37x).
+- **(b1) the N=4 fixture's own production-converged point**: minimum error is
+  actually at `h=1e-4` (`6.23e-4`); `1e-5` is close behind (`6.51e-3`, ~10x
+  worse than optimal but still far below the true gradient's own norm,
+  `3.49e-3`, at this near-stationary point); SciPy's default is
+  catastrophic (`5.61`, 1600x the true gradient's own magnitude).
+- **(b2) a wide (11-decade) synthetic `log10(lambda)` spread on the SAME N=4
+  fixture** (the regime `select=TRUE` callers actually reach, ADR-217/218):
+  true gradient norm `14.14`. SciPy's default step's own error is `31.1` in
+  this session's own container — **exceeding the signal it is trying to
+  measure**, direction-destroying either way, though CI's own runner later
+  read `13.50` (95% of the signal, not quite exceeding — see the amendment
+  below: this ratio is not bit-portable across CPU/BLAS builds even with
+  threads pinned). `1e-5`'s error is `4.73e-2`, under `0.4%` of the signal,
+  stable across both readings.
+
+### Verdict — RE-CONFIRMED, not re-derived (DoD item 3)
+
+The trade-off PR #216 found is real in both directions, still, after
+slice 7h: `_FINITE_DIFF_STEP=1e-5` costs real accuracy on well-conditioned
+problems (measurement 2a) and remains necessary — not merely a leftover — on
+badly-scaled ones (measurement 2b2, where SciPy's own default is unusable).
+Moving the constant toward SciPy's default would reopen ADR-212's original
+spurious-convergence failure mode; moving it further away (e.g. to `1e-4`,
+which measurement 2 shows is marginally more accurate at both N=4 points)
+would cost **another** order of magnitude on well-conditioned problems
+(measurement 2a) for a gain this module's own search robustness
+(`multistart`, `step_halving`, ADR-213/224) already covers more directly than
+a single global constant can. **`_FINITE_DIFF_STEP=1e-5` is re-confirmed
+unchanged**, with the derivation's own docstring
+(`gam_reml_optimize.py`) updated to record this post-7h re-measurement rather
+than leaving the pre-7h derivation looking unexamined.
+
+### What shipped
+
+- `scripts/gam_penalty_sqrt_form_diagnostic_n4.py` — measurement 1, new,
+  promoted for the same reason ADR-223's own N=7 script was: the next session
+  re-runs it rather than reconstructing it from prose.
+- `scripts/gam_finite_diff_step_tradeoff_diagnostic.py` — measurement 2, new.
+- Two new tests in `TestFiniteDiffStep`
+  (`test_gam_reml_optimize.py`): `test_scipy_default_step_is_less_accurate_than_production_on_a_well_conditioned_toy`
+  and `test_scipy_default_step_is_catastrophically_wrong_on_a_wide_lambda_spread`
+  — the committed, discriminating fixture DoD item 1 asked for, in both
+  directions of the trade-off, referenced against the analytic gradient
+  rather than only a central-difference cross-check (so a future change to
+  either the score or the gradient that breaks the relationship fails a
+  test, not just this ADR's own prose). Both deterministic (fixed seeds,
+  fixed fixture, fixed synthetic point) and run repeatedly to confirm no
+  flake. **Caught during authoring, not after**: the wide-spread test's first
+  draft did not pin `threadpool_limits(1, "blas")` around its BLAS-heavy
+  calls, unlike every other test in this class — under an unpinned,
+  multi-threaded BLAS it read `scipy_default_err=13.55 < true_norm=14.14`,
+  failing the very assertion it exists to make (the exact
+  env-var-does-not-reliably-reach-an-already-imported-OpenBLAS mechanism
+  PR #217/ADR-211 already documented for this class). Fixed by pinning, per
+  the class's own stated convention; re-run repeatedly, pinned and unpinned,
+  now stable.
+- `_FINITE_DIFF_STEP`'s own docstring in `gam_reml_optimize.py` extended with
+  this measurement; the constant itself is unchanged.
+- The two historical tests PR #229's review found non-discriminating
+  (`test_default_step_no_longer_needed_on_the_near_flat_fixture`,
+  `test_finite_diff_step_default_avoids_the_spurious_convergence`) are left
+  as-is — they still correctly assert the post-7h behaviour they were
+  updated to state in ADR-223; the discrimination lost there is restored by
+  the two new tests above, not by resurrecting the old ones.
+
+### What did not change
+
+The production `_FINITE_DIFF_STEP` value; `select_lambdas_continuous`'s
+default behaviour for every existing caller; any basis, fitter or score
+formula; the ten-cell conformance suite (re-run this session: levels 1-3
+AGREE, level 4 DISAGREES — ADR-190, permanently expected — level 5 AGREES,
+identical to the pre-slice baseline, as expected for a change with no `mgcv`
+comparison anywhere in its own scope).
+
+### Registered predictions from PLAN slice 7i, scored
+
+- *"Post-slice-7h's own noise-floor reduction, at least one
+  previously-badly-conditioned fixture no longer needs the wider step at all
+  — test this directly rather than assume the pre-7h trade-off still holds
+  unchanged."* **REFUTED, tested directly as instructed.** The sum-of-squares
+  fix closes thread-reproducibility (measurement 1's first paragraph) but
+  does not widen the forward-difference-stable region at large `lambda`
+  spreads — if anything it narrows at the specific near-flat point measured
+  (a different point from the one ADR-212 used, since post-fix the search
+  converges to a much better point; not a like-for-like regression, but not
+  the predicted improvement either).
+
+### Follow-ups
+
+None registered — this slice's own DoD is fully met by re-confirmation, and
+no new gap is opened. `docs/PLAN_mgcv_parity_engine.md` slice 7i is marked
+DONE. Slice 8 (the Wood-shaped outer solver) is next, unaffected by this
+slice's own scope.
+
+### Amendment — CI caught the new test's own threshold was too tight, same day
+
+PR #232's CI (`Test (Python 3.13)`, a different host from this session's own
+container) FAILED
+`test_scipy_default_step_is_catastrophically_wrong_on_a_wide_lambda_spread`:
+`scipy_default_err=13.50` against `true_norm=14.14` — comfortably past half
+but under the `> true_norm` bound the first draft asserted. This is the
+SAME cross-environment sensitivity this epic has documented repeatedly
+(ADR-211/222): `true_norm` (the analytic gradient) is bit-stable across the
+two environments (`14.138284457289732` identical to every printed digit),
+but `scipy_default_err` (a forward difference at `h=1.49e-8`, exactly the
+catastrophic-cancellation-adjacent regime this test exists to demonstrate)
+is not — `13.50` on CI's runner against `31.06` in this session's own
+container, both with `OPENBLAS_NUM_THREADS`/`threadpool_limits` pinned to 1.
+Pinning thread COUNT removes one axis of nondeterminism, not the
+CPU/BLAS-build axis.
+
+**Fixed by widening the assertion's own margin, not by chasing the exact
+boundary**: `scipy_default_err > true_norm` (razor-thin, exactly what this
+epic's own routine warns against) becomes `scipy_default_err > 0.5 *
+true_norm` — still supports the qualitative claim (the estimate is
+comparable to or larger than the signal, not merely less accurate) with
+real headroom on every reading taken so far (`13.50` and `31.06`, both
+comfortably above `7.07`). `production_err < 0.05 * true_norm` was not
+touched — that side's readings (`4.73e-2` locally) have ~15x headroom
+against its own bound and showed no cross-environment sensitivity in either
+run. Verified: re-ran the file 3x pinned and 3x unpinned, stable throughout.

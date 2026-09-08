@@ -1697,3 +1697,47 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > follow-up dispatch, not yet run as of this entry. Slice 7i
 > (`_FINITE_DIFF_STEP` re-justification, PR #229's review) remains open,
 > unaffected by this slice.
+
+> **Slice 7i is DONE, 2026-09-08 (ADR-225).** `_FINITE_DIFF_STEP` re-measured
+> directly against the ANALYTIC gradient (`gam_reml_gradient.reml_score_gradient`,
+> slice 7d) rather than only a central-difference cross-check — the
+> re-justification PR #229's review registered after slice 7h's fix left the
+> historical `TestFiniteDiffStep` tests non-discriminating. Two regimes,
+> both new, both `MEASUREMENT (own criterion)` (ADR-193 — no `mgcv` quantity
+> is an operand anywhere in this slice): **(a)** a committed well-conditioned
+> toy problem reproduces PR #216's previously-uncommitted finding
+> quantitatively — SciPy's un-derived default step is ~11x more accurate
+> than the production `1e-5` there; **(b)** the SAME N=4 fixture
+> `_FINITE_DIFF_STEP` was originally derived on
+> (`gam_reml_optimize_near_flat_direction.json`), at a wide (11-decade)
+> synthetic `log10(lambda)` spread — the regime `select=TRUE` callers
+> actually reach (ADR-217/218) — shows SciPy's default step's own gradient
+> error reaching at least half, and on the authoring session's own container
+> EXCEEDING, the true gradient's magnitude (direction-destroying either
+> way — the exact ratio is not bit-portable across CPU/BLAS builds even
+> with threads pinned; CI's own runner read 95%, not quite exceeding, per
+> ADR-225's same-day amendment), while the production step stays under
+> 0.4% of it. **The registered
+> prediction is REFUTED, tested directly as its own text required**: a
+> forward-difference step scan at the production search's own converged
+> point on the same fixture shows the stable region NARROWED post-7h, not
+> widened — slice 7h fixed the score's cross-thread REPRODUCIBILITY
+> (ADR-223's own claim), a different property from the forward-difference
+> NOISE FLOOR this constant guards against, and the two do not move
+> together. `_FINITE_DIFF_STEP=1e-5` is **RE-CONFIRMED, not changed** —
+> moving it toward SciPy's default reopens ADR-212's original
+> spurious-convergence failure mode; moving it further away costs another
+> order of magnitude on well-conditioned problems for a marginal gain.
+> `scripts/gam_penalty_sqrt_form_diagnostic_n4.py` (new) also confirms
+> ADR-223's own thread-reproducibility fix generalises to the N=4 structure
+> (~134,000x at the wide point), which slice 7h's own session measured only
+> at N=7. No new gap opened; no production default changed except the
+> docstring recording this measurement. Ten-cell suite re-run: levels 1-3
+> AGREE, level 4 DISAGREES (ADR-190, unchanged), level 5 AGREES — no
+> regression, as expected for a slice with no `mgcv` comparison in its own
+> scope. See ADR-225 and `docs/CONFORMANCE_LEDGER.md`. **NEXT: slice 8**
+> (the Wood-shaped outer solver), unaffected by this slice — and the
+> tier-3 confirmation of the `SELECT_FREE_SP_MODEL_CLAIM`/`FREE_SP_MODEL_CLAIM`
+> re-measurement tables ADR-224 registered as a follow-up dispatch remains
+> open, not run by this slice either (out of this slice's own scope, which
+> touches no `mgcv` comparison).
