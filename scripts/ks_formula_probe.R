@@ -107,6 +107,25 @@ for (spec in manifest$cells) {
   delta_formula <- mean(diag(jac %*% v_rho %*% t(jac)))
   base <- mean(diag(m$Vp))
 
+  # mgcv's OWN exact inputs, per the derivation in
+  # docs/DERIVATION_unconditional_covariance.md: J = db.drho (analytically
+  # -Vb lambda_j S_j beta, not differenced) and V_rho = sp.vcov(). Recorded so the
+  # delta-method term is evaluated with nothing approximated anywhere -- if `Vc - Vp` were
+  # that term, THIS is the column that would land on 1.0.
+  j_exact <- m$db.drho
+  v_rho_spv <- tryCatch(
+    { v <- mgcv::sp.vcov(m); dimnames(v) <- NULL; v }, error = function(e) NULL
+  )
+  delta_exact <- NA_real_
+  if (!is.null(j_exact) && !is.null(v_rho_spv)) {
+    k <- length(sp)
+    je <- j_exact[, seq_len(k), drop = FALSE]
+    delta_exact <- mean(diag(je %*% v_rho_spv[seq_len(k), seq_len(k), drop = FALSE] %*% t(je)))
+  }
+  # How far our central-difference Jacobian is from mgcv's analytic one.
+  max_abs_j_diff <- if (is.null(j_exact)) NA_real_ else
+    max(abs(j_exact[, seq_len(length(sp)), drop = FALSE] - jac))
+
   # Recorded so a later fixture cannot silently change what is being compared. Our
   # smoothing_uncertainty() floors eigenvalues at 1/half_width^2 (7.5e-03 for the standard
   # bounds); this probe deliberately does NOT floor, which keeps it free of our code. The
@@ -137,12 +156,15 @@ for (spec in manifest$cells) {
     mean_diag_vc_minus_vp = delta_actual,
     mean_diag_j_vrho_jt = delta_formula,
     ratio_actual_over_formula = delta_actual / delta_formula,
+    mean_diag_j_vrho_jt_exact = delta_exact,
+    ratio_actual_over_formula_exact = delta_actual / delta_exact,
+    max_abs_db_drho_minus_central_difference = max_abs_j_diff,
     inflation_reported = mean(diag(m$Vc)) / base,
     inflation_from_formula = 1 + delta_formula / base
   )
   cat(sprintf(
-    "%-22s ratio %.4f | inflation from J V_rho J' %.4f vs mgcv reported %.4f\n",
-    spec$name, delta_actual / delta_formula,
+    "%-22s ratio %.4f | ratio with mgcv's OWN db.drho + sp.vcov %.4f | inflation %.4f vs mgcv %.4f\n",
+    spec$name, delta_actual / delta_formula, delta_actual / delta_exact,
     1 + delta_formula / base, mean(diag(m$Vc)) / base
   ))
 }
