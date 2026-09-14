@@ -134,7 +134,44 @@ measured above. :func:`select_lambdas_continuous` exposes ``finite_diff_step``
 so a caller who knows their own problem is well-conditioned (no near-flat
 block, no badly-scaled lambda spread) may pass a smaller value; this module's
 default stays conservative because the target multi-term formula's own N=4
-structure is exactly the badly-conditioned case, not the easy one."""
+structure is exactly the badly-conditioned case, not the easy one.
+
+**Re-justified, not changed, post-slice-7h (PLAN slice 7i, registered by PR
+#229 review [P1] / ADR-223 amendment 2).** Slice 7h's sum-of-squares penalty
+evaluation removed the specific cancellation this constant was ORIGINALLY
+measured against, so the historical discriminating tests
+(``tests/test_analytics/test_gam_reml_optimize.py::TestFiniteDiffStep``) no
+longer show a difference between SciPy's default step and this one on the
+fixture they use — which left this constant shipping with no committed test
+in which it changed any outcome. Re-measured directly, against the
+independently-derived analytic gradient
+(:func:`~polaris_re.analytics.gam_reml_gradient.reml_score_gradient`, PLAN
+slice 7d) rather than only a central-difference cross-check, on two regimes:
+
+- **A well-conditioned toy problem** (single block, no near-flat direction):
+  SciPy's default step is still the MORE accurate choice — measured ~10x
+  better than ``1e-5`` here, confirming PR #216's own reading on a fixture
+  that is now committed rather than described in a review comment.
+- **A wide (11-decade) synthetic ``log10(lambda)`` spread on the SAME N=4
+  fixture** this constant was derived on (a spread this module's own
+  ``select=TRUE`` callers routinely select, ADR-217/218): SciPy's default
+  step's own gradient error reaches at least half, and on the authoring
+  session's own container EXCEEDS, the true gradient's magnitude (direction-
+  destroying either way), while ``1e-5``'s error stays under 5% of it. The
+  exact ratio is NOT bit-portable across CPU/BLAS builds even with threads
+  pinned — CI's own runner read ``13.50`` against a ``true_norm`` of
+  ``14.14`` (95%, not quite exceeding); see ``docs/DECISIONS.md`` ADR-225's
+  same-day amendment for the full cross-environment reading.
+
+**The trade-off is real in both directions, still, after the fix** — this
+constant is RE-CONFIRMED, not re-derived to a different value. Moving it
+toward SciPy's default would restore the original spurious-convergence
+failure mode on badly-scaled points; moving it further from SciPy's default
+(e.g. to ``1e-4``, which the wide-spread point above tolerates marginally
+better) would cost another order of magnitude of accuracy on well-
+conditioned problems for a gain this module's own bounds and search
+robustness (multistart, step-halving) already cover more directly. See
+``docs/DECISIONS.md`` for the full post-7h measurement (PLAN slice 7i)."""
 
 
 def penalized_fit_and_score(

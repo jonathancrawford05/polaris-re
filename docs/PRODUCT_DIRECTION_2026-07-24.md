@@ -3860,11 +3860,14 @@ that doesn't hold, and raised a work order splitting it out as **slice 1b**, gat
 
 ### Harvested 2026-09-07 — slice 7g direction 1 shipped, opt-in: the mechanism is closed, and it does not close (worsens for single-start) the eta/edf-vs-`mgcv` gap (ADR-224)
 
-**Corrected same day (PR #230 review [P2-B]):** one item originally harvested
-here (whether `step_halving` is worth combining with `multistart`) is
-3rd-order, which the routine's own order-cap parks in the session log rather
-than promoting into this file — moved to that log's own Parked Polish
-section, not harvested.
+~~Whether `step_halving` is worth combining with `multistart` in
+production.~~ — **RETRACTED same day (PR #230 review [P2-B], style nit fixed
+per PR #231 review [P2-1]).** This item is 3rd-order, which the routine's
+own order-cap parks in the session log rather than promoting into this
+file; it was mis-harvested here and is moved to
+`docs/DEV_SESSION_LOG_2026-09-07_mgcv_parity_slice7g_step_halving.md`'s own
+Parked Polish section, where its full text (measured no benefit, ~2x cost
+on the FD path) lives now.
 
 - **`penalized_irls_general` gains an opt-in `step_halving` parameter that
   closes ADR-222's own non-convergent-neighbourhood mechanism.** On the

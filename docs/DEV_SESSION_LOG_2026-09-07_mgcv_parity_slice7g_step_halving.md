@@ -319,3 +319,30 @@ not about the default path's fragility at one specific point.
 still the right convention for the CONVERGED RESULT's own reproducibility,
 the same reason it exists elsewhere in this suite, independent of whether it
 also happens to stabilize this one boundary's pass/fail status.
+
+## PR #231 review — a P0 merge conflict and two smaller findings, addressed
+
+PR #231 (the PR carrying this session's own response to #230's review) sat
+long enough that #232 (ADR-225, slice 7i) landed immediately after ADR-224
+decision 6 in `docs/DECISIONS.md` — the exact lines #230's [P1-B] rewrites —
+producing a real content conflict, not incidental whitespace. Resolved by
+merging `origin/main` into the branch (merge, not rebase — already pushed)
+and re-siting `## ADR-224 amendment 1` before `## ADR-225` so the file stays
+in ADR order; both the corrected decision 6 and ADR-225 are preserved intact.
+
+Two smaller findings, both fixed in the same commit:
+
+- **[P1-1]:** `test_a_step_that_already_decreases_deviance_takes_the_unhalved_path`
+  asserted bit-exact equality (`assert_array_equal`) on a fixture whose own
+  final IRLS step improves the objective by only ~19x machine epsilon —
+  the exact class of knife-edge pin ADR-224 amendment 1 already warns
+  against. Changed to `assert_allclose(..., rtol=1e-9)`, four orders of
+  magnitude tighter than a fired halving's measured `~1.1e-5` relative
+  move, so the guard's discriminating power is unchanged; also wrapped the
+  two fits in `threadpool_limits(limits=1, user_api="blas")` to match this
+  class's own stated convention, which this one test alone had omitted.
+- **[P2-1]:** the retracted `PRODUCT_DIRECTION` harvest item ([P2-B] above)
+  had been deleted rather than struck through, against this repo's own
+  `~~entry~~` convention for retractions. Replaced with a struck-through
+  stub pointing at this log's Parked Polish section, where the item's full
+  text already lived.

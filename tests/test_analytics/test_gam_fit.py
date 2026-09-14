@@ -207,12 +207,22 @@ class TestStepHalvingOnAnExtremeLambdaSpread:
         """No-regression guard for every previously-verified fixture in this
         module (Anchor 7): a well-conditioned, lightly-penalized problem
         never needs a halved step, so passing ``step_halving=True`` here
-        must be a no-op — checked by fitting BOTH ways and requiring
-        bit-identical coefficients, not merely by fitting once with the
+        must be a no-op — checked by fitting BOTH ways and requiring the
+        coefficients agree to nine orders of magnitude tighter than a fired
+        halving would ever produce, not merely by fitting once with the
         default and trusting that halving would have been inert (PR #230
         review [P1-A]: an earlier version of this test called
         ``penalized_irls_general`` without ``step_halving`` at all, so it
-        could not have caught a regression connected to this slice)."""
+        could not have caught a regression connected to this slice).
+
+        ``rtol=1e-9``, not bit-exact equality (PR #231 review [P1-1]): this
+        fixture's own final IRLS step improves the objective by only ~19x
+        machine epsilon, so the two paths agreeing to the bit depends on
+        that improvement's sign surviving incidental changes to summation
+        order — a knife-edge this repo's own ADR-224 amendment 1 already
+        warns against pinning. A fired halving moves the coefficients by
+        ``~1.1e-5`` relative (measured), four orders of magnitude above this
+        tolerance, so the guard's discriminating power is unchanged."""
         n, p = 300, 5
         x = np.column_stack([np.ones(n), rng.normal(size=(n, p - 1))])
         beta_true = rng.normal(scale=0.3, size=p)
@@ -220,11 +230,12 @@ class TestStepHalvingOnAnExtremeLambdaSpread:
         penalty = np.zeros((p, p))
         family = poisson_log()
 
-        fit = penalized_irls_general(x, y, family=family, penalty=penalty)
-        fit_halving = penalized_irls_general(
-            x, y, family=family, penalty=penalty, step_halving=True
-        )
-        np.testing.assert_array_equal(fit.coef, fit_halving.coef)
+        with threadpool_limits(limits=1, user_api="blas"):
+            fit = penalized_irls_general(x, y, family=family, penalty=penalty)
+            fit_halving = penalized_irls_general(
+                x, y, family=family, penalty=penalty, step_halving=True
+            )
+        np.testing.assert_allclose(fit.coef, fit_halving.coef, rtol=1e-9)
         assert fit.n_iter == fit_halving.n_iter
 
         edf = effective_degrees_of_freedom(x, family, fit.eta, fit.mu, penalty)

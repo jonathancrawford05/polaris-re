@@ -2125,6 +2125,22 @@ thread-DETERMINISTIC, so not a reproducibility defect).
 
 ### Slice 7i: re-justify `_FINITE_DIFF_STEP`, or retire it — registered by PR #229's automated review
 
+> **DONE, 2026-09-08 (ADR-225).** Re-measured directly against the analytic
+> gradient (slice 7d's `reml_score_gradient`), not only a central-difference
+> cross-check, on both regimes the scope below names: a committed
+> well-conditioned toy problem (SciPy's un-derived default ~11x more accurate
+> there, reproducing PR #216's previously uncommitted finding) and the SAME
+> N=4 fixture `_FINITE_DIFF_STEP` was derived on, at a wide (11-decade)
+> synthetic spread (SciPy's default's own error EXCEEDS the true gradient's
+> magnitude there; `1e-5` stays under 0.4% of it). **Re-confirmed, not
+> changed**: moving the constant either direction costs more than it gains.
+> The registered prediction ("post-7h, some fixture no longer needs the
+> wider step") is REFUTED — the forward-difference-stable region at large
+> `lambda` spreads narrowed, not widened, post-7h; slice 7h fixed
+> thread-reproducibility, a different property from the noise floor this
+> constant guards against. Two new committed, deterministic tests restore
+> the lost discrimination. See ADR-225 for the full measurement.
+
 - **Depends on:** slice 7h (ADR-223), which is what created this gap.
 - **Status: REGISTERED, not started.** Raised by PR #229's automated review
   [P1]: slice 7h's own fix removed the noise floor
@@ -2161,21 +2177,33 @@ previously-badly-conditioned fixture no longer needs the wider step at all
 — test this directly rather than assume the pre-7h trade-off still holds
 unchanged.
 
-**Definition of Done.**
+**Definition of Done, tagged per ADR-209 decision 3 — DONE, ADR-225.**
 
-- `[machine]` At least one committed fixture where varying `finite_diff_step`
+- `[x machine]` At least one committed fixture where varying `finite_diff_step`
   changes a measured outcome (gradient accuracy, or search convergence),
   demonstrating `_FINITE_DIFF_STEP`'s own production value is doing
-  something on SOME committed test, not zero.
-- `[machine]` The N=4/N=7 structures' own post-7h noise floor measured
+  something on SOME committed test, not zero. **Met:** two new
+  `TestFiniteDiffStep` tests (`test_gam_reml_optimize.py`), both referenced
+  against the analytic gradient — a well-conditioned toy (SciPy default
+  ~11x more accurate) and the N=4 fixture's own wide-spread point (SciPy
+  default's error exceeds the true gradient's magnitude; production stays
+  under 0.4%).
+- `[x machine]` The N=4/N=7 structures' own post-7h noise floor measured
   directly (re-run `scripts/gam_penalty_sqrt_form_diagnostic.py`'s own
   thread-sweep methodology at each), and `_FINITE_DIFF_STEP` re-derived from
   that measurement if it changes, per the same "derived, not tuned"
-  discipline ADR-212 originally used.
-- `[judgement]` Either the current value is re-confirmed with a citing test,
+  discipline ADR-212 originally used. **Met:**
+  `scripts/gam_penalty_sqrt_form_diagnostic_n4.py` (new) reproduces ADR-223's
+  thread-reproducibility gain at N=4 (~134,000x at the wide point); a direct
+  forward-difference step scan at the production search's own converged
+  point shows the stable region NARROWED post-7h, not widened — a different
+  property (noise floor) from what slice 7h fixed (thread reproducibility).
+- `[x judgement]` Either the current value is re-confirmed with a citing test,
   or a new value is derived and the production default changes with its own
   before/after measurement — never silently left as a now-uncited magic
-  number.
+  number. **Met:** re-confirmed, unchanged — moving the constant either
+  direction costs more than it gains (docstring in `gam_reml_optimize.py`
+  extended with the derivation).
 
 **Out of scope.** Building a general-purpose adaptive step-size selector;
 revisiting `analytic_gradient`'s own default (unaffected — it needs no
