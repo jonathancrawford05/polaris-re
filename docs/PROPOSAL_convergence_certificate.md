@@ -207,10 +207,51 @@ above summarises. Both numbers are also carried in
 `PRODUCT_DIRECTION_2026-07-24.md` so they survive independently of this
 document.
 
+### MAINTAINER DECISION, 2026-09-14: both thresholds are PENDING MEASUREMENT
+
+**Decided: record provisional values, do not ratify them yet.** The reason is
+that `ε_f` was necessary but **not sufficient**, and the paragraphs above
+overstate how close this section is to decidable. Setting these thresholds
+needs **two** inputs:
+
+1. **The noise floor `ε_f`.** ✅ Measured — `~6.8e-13` (ADR-223).
+2. **The plateau the RESTRICTED projected gradient actually reaches**, under
+   the post-7h criterion. ❌ **Not measured.** The `2.040e-04` (N=4) and
+   `4.9e-01` (N=7) readings §1 quotes were taken in slice **7f** — *before*
+   slice 7h changed the criterion — and on the **unrestricted** gradient rather
+   than the identified subspace of §3 Part 2. Both of those differences move
+   the number, so neither plateau can be used to calibrate a threshold for the
+   test this document actually proposes.
+
+**Provisional values, explicitly not ratified:**
+
+- **`ε_rel`** — form `‖P g|ᵢd‖∞ / (1 + |score|)`. The noise-implied floor is
+  `ε_f / (1 + |score|) ≈ 6.8e-13 / 524.65 ≈ 1.3e-15`, and a usable tolerance
+  sits well above it so the test does not chase noise. **Provisional: `1e-8`
+  relative.** To be ratified against the re-measured plateau, not adopted from
+  this line.
+- **The curvature-to-noise ratio** — **do NOT derive this from `ε_f`.** The
+  first-principles floor lands near machine epsilon and would classify almost
+  every direction as identified, which is the opposite of the failure §1
+  describes. **Calibrate it instead so it reproduces slice 7c's committed
+  `5 identified directions of 7`** on the structure where the answer is already
+  known (ADR-219). That anchors the ratio on a measurement rather than on
+  taste, which is this document's whole premise applied to itself.
+
+**Where the missing measurement belongs: slice 8's first task.** It is small —
+re-run the projected-gradient plateau on the post-7h criterion, restricted to
+the identified subspace, on both the N=4 control and the N=7 structure — and
+slice 8 computes the Hessian anyway, so the restriction is nearly free there.
+Registered in `PLAN_mgcv_parity_engine.md` slice 8 rather than left here.
+
+**Until then `converged` keeps SciPy's own meaning**, and
+`ContinuousLambdaSelection.max_abs_projected_gradient` carries the honest
+number, exactly as before. Nothing in this decision changes behaviour.
+
 **The general method behind this section** — measure the noise floor, identify
 what carries signal above it, state the tolerance relatively on that subspace,
 and report unresolvability rather than widening — is written up separately as
-`docs/PATTERN_resolvable_tolerances.md` (PROPOSED), which records the two
+`docs/PATTERN_resolvable_tolerances.md` (PROPOSED), which records the
 independent instances in this epic that produced it.
 
 ## 7. Verification provenance (ADR-193)

@@ -15,8 +15,12 @@ best mgcv parity candidate."* Raised from the PR #225/#226 review conversation.
 `PLAN_mi_dashboard.md` (the surface being re-pointed).
 **Total slices:** 5, of which slice 4 may legitimately end in "change nothing".
 **Estimated scope:** ~4–6 dev-days autonomous, plus tier-3 dispatches.
-**Status: REGISTERED, NOT STARTED, and BLOCKED FROM SLICE 3 ONWARD — see
-blocker E and the banner below.** Its
+**Status 2026-09-14: SLICE 1 IS THE NEXT WORK** (maintainer sequencing
+decision — the parity epic yields the slot; blocker E is CLOSED and Anchor W6
+alone now gates slice 3). Slices 2-5 remain NOT STARTED; slice 3 onward is
+still blocked, on W6 rather than on 7h — see blocker E and the banner below.
+
+Its
 `CONTINUATION_gam_production_wiring.md` is created by whichever session starts
 slice 1 — deliberately not created here, so this epic cannot be mistaken for
 active while `CONTINUATION_mgcv_parity_engine.md` is still IN PROGRESS
@@ -238,6 +242,19 @@ the finding is the deliverable.
 
 ## Slice 1 — express the dashboard's MI formula as a `ModelSpec`, and measure it
 
+- **THIS IS THE NEXT WORK. Maintainer sequencing decision, 2026-09-14:** the
+  parity epic yields the one-active-epic slot to this slice. Blocker E is
+  closed (ADR-226), so **Anchor W6 alone gates slice 3** — and this slice
+  produces the measurement W6 consumes, making it the only remaining gate that
+  can be *retired* rather than merely improved. The session that starts it
+  creates `CONTINUATION_gam_production_wiring.md` (it is deliberately not
+  created before that, per the one-active-epic rule).
+- **Expect this slice to test blocker A rather than assume it.** `te()` is not
+  available and `te(x,z) ≡ s(x)+s(z)+ti(x,z)` is a **hypothesis, not an
+  identity** — the ANOVA decomposition spans the same space under a different
+  penalty, so it is a different fit. If that equivalence fails, it is a finding
+  about the target spec, not a defect in this slice, and it lands before any
+  solver work is spent on an engine that cannot render the production formula.
 - **Depends on:** ADR-217 (`select=TRUE` block structure), ADR-221 (the gate).
 - **Deliverable:** the dashboard's own model form, built through
   `assemble_model_design`, measured against `mgcv` on the same recipe.

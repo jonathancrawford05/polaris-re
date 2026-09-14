@@ -4009,3 +4009,41 @@ on the FD path) lives now.
   routine one, and the honest options include leaving it as discretion. *Source:
   PR #233 review [P2-2] (2nd-order — a process convention, raised rather than
   taken).* **NICE-TO-HAVE.**
+
+### Harvested 2026-09-14b — two maintainer decisions: slice 1 next, thresholds pending measurement
+
+- **SEQUENCING DECIDED: the parity epic yields the one-active-epic slot to
+  `PLAN_gam_production_wiring.md` SLICE 1.** Blocker E's closure (ADR-226)
+  left wiring slice 3 gated on **Anchor W6 alone** — parity on the TARGET model
+  specification — and slice 1 is the measurement W6 consumes. Two reasons on
+  record so it is not re-litigated: slice 1 can **retire** a gate where slice 8
+  can only improve an engine; and it is the cheaper information, because it
+  tests **blocker A** (`te()` vs `s()+s()+ti()` — a hypothesis, not an
+  identity) before solver effort is spent on an engine that may not be able to
+  render the production formula at all. **The parity epic is NOT parked**;
+  `NEXT: slice 8` stands for when it resumes. *Counter-argument recorded
+  rather than buried:* ADR-226 decision 2 means the engine reproducibly settles
+  in a worse basin and slice 8 is what fixes that — but it PASSES ADR-221's
+  gate (`0.173` against `1.0`), so it is headroom, not a blocker. Worth
+  revisiting if slice 1 satisfies W6 quickly. *Source: maintainer decision
+  2026-09-14 (1st-order — it sets which epic advances).* **IMPORTANT.**
+
+- **CONVERGENCE THRESHOLDS: recorded as PENDING MEASUREMENT, deliberately not
+  ratified — because `ε_f` was necessary but NOT sufficient.** The deferral was
+  written as "wait for a post-7h `ε_f`"; that now exists (`~6.8e-13`, ADR-223),
+  and the thresholds are still not ratifiable. Setting them needs a **second**
+  input nobody has measured: **the plateau the RESTRICTED projected gradient
+  reaches under the POST-7h criterion.** Slice 7f's `2.040e-04` (N=4) and
+  `4.9e-01` (N=7) readings predate 7h's change to the criterion *and* were
+  taken on the **unrestricted** gradient, so neither calibrates the test the
+  proposal specifies. **Provisional, explicitly NOT adopted:** `ε_rel = 1e-8`
+  relative (noise-implied floor `≈1.3e-15`, so the value sits well clear of
+  noise); and the curvature-to-noise ratio to be set by **calibrating against
+  slice 7c's committed `5 identified directions of 7`** (ADR-219) rather than
+  derived from `ε_f`, whose first-principles floor lands near machine epsilon
+  and would call almost everything identified. **Registered as slice 8's first
+  task**, where the Hessian is computed anyway so the restriction is nearly
+  free. `converged` keeps SciPy's meaning until then; no behaviour changes.
+  *Source: maintainer decision 2026-09-14 (1st-order — an acceptance criterion,
+  scheduled rather than taken).* **IMPORTANT — needs a maintainer decision, not
+  a routine one.**

@@ -2223,6 +2223,26 @@ finite-difference step at all).
   adopted** — the relative stationarity tolerance and the curvature-to-noise
   ratio (proposal §6) — both derived from the `ε_f` that slice 7h's DoD now
   requires be recorded.
+- **SLICE 8'S FIRST TASK, added by maintainer decision 2026-09-14: re-measure
+  the projected-gradient plateau.** The thresholds above were deferred until
+  `ε_f` existed; it now does (`~6.8e-13`, ADR-223) and they are STILL not
+  ratifiable, because `ε_f` was necessary but not sufficient. The second input
+  — the plateau the **restricted** projected gradient actually reaches under
+  the **post-7h** criterion — has never been measured: slice 7f's `2.040e-04`
+  (N=4) and `4.9e-01` (N=7) readings predate 7h's change to the criterion AND
+  were taken on the unrestricted gradient, so neither calibrates the test the
+  proposal actually specifies.
+  - `[machine]` Re-run the plateau on the post-7h criterion, **restricted to
+    the identified subspace** (§3 Part 2), on the N=4 control AND the N=7
+    structure. Cheap here specifically: this slice computes the Hessian for its
+    Newton step, so the restriction is nearly free.
+  - `[judgement]` Ratify `ε_rel` against that reading. Proposal §6's
+    **provisional `1e-8` relative is NOT adopted** — it is a starting point
+    with a stated derivation, and the measurement decides.
+  - `[judgement]` Set the curvature-to-noise ratio by **calibrating it to
+    reproduce slice 7c's committed `5 identified directions of 7`** (ADR-219),
+    NOT from `ε_f` — the first-principles floor lands near machine epsilon and
+    would call almost everything identified.
 - **Status: REGISTERED, not started.** Raised by the maintainer, 2026-09-05:
   *"we need a reliable solver (mgcv achieves this so a real and implementable
   mechanism exists, we might want to understand better how we might emulate
