@@ -139,12 +139,39 @@ one — no re-gating, consistent with Anchor 8 and Anchor W5.
 - Small samples have misled this epic before — ADR-222's own cross-start
   reading moved between `n=5` and `n=12`.
 
-## Perf history
+## Perf history — row DECLINED, and this time there is a measurement behind it
 
-One row appended per ADR-177. This PR changes no engine code, so the row is
-expected to duplicate `main`'s reading; it is appended rather than declined
-because the absence drew a review finding on #227 ([P2-1]) and the series is
-meant to be per-PR.
+**No `perf/history.jsonl` row is appended.** I intended to append one, ran
+`scripts/perf_history.py`, and the result argued the other way — so the
+intention is recorded here along with what changed it.
+
+**What the run showed.** Appending this commit's row moves the series' own
+wall-time creep ratio from **`1.258x` to `1.339x`** against a band of `1.25`.
+I verified the direction by removing the row and re-running `--check-only`:
+`main` as it stands already reads `1.258x`, and my docs-only row pushes it
+further.
+
+That is the #227 [P2-1] argument — *"a row on a zero-code commit duplicates
+`main`'s reading and adds a noise point to the series the creep detector
+reads"* — no longer as reasoning but as a measured effect. This branch changes
+no engine code, so the row carries no signal about the engine and measurable
+noise about the container.
+
+**A correction to my own earlier note in this session:** I had said declining
+drew a review finding on #227. That is wrong. It drew the finding in round 1,
+and the **decline was explicitly accepted in round 2** (*"P2-1 declined.
+Sound… The log's added reasoning holds independently"*). Recorded because the
+mistaken version was the reason I was going to append.
+
+**A pre-existing finding, surfaced rather than left in a scratch buffer:**
+`has_wall_time_creep` is **already `true` on `main`** at `1.258x` against the
+`1.25` band, with 46 rows in the series. `has_structural_creep` is **`false`**
+and `peak_mib` is flat at `33 → 33` (Δ0), so memory is clean and this is
+wall-time only — which is container-dependent and may well be benign
+(`perf_history.py --check-only` exits `0`; it is not a hard gate). **Not
+investigated further: out of this session's scope, and diagnosing a
+multi-month wall-time series is not something a docs branch should start.**
+Registered here so it is visible rather than discovered later.
 
 ## Scope
 
@@ -154,8 +181,13 @@ slice 8's job, and taking it here would be scope this session was not asked for.
 
 ## Baseline result
 
-`uv run pytest tests/ -m "not slow"` on this branch: **run in flight at the
-time of this commit; the reading is appended in this branch's follow-up commit
-rather than guessed here.** This session changes no Python, so the expectation
-is that it matches `main`'s own reading at `098a06a`; if it does not, that is
-itself the finding and will be recorded as such.
+`uv run pytest tests/ -m "not slow"` on this branch:
+**3646 passed, 3 skipped, 126 deselected, 5 warnings, 0 failed (646.85s).**
+
+The expectation recorded before the run held: this session changes no Python,
+and there are no failures. For whoever diffs against this — the figure is **+9
+on PR #229's own `3637 passed, 3 skipped, 126 deselected`**, and the nine are
+the tests slices 7g and 7i added between that session and this one, not
+anything this branch introduces (it adds no tests). R **is** installed in this
+container, so the R-gated conformance tests run here and are inside the 3646
+rather than inside the 3 skips.
