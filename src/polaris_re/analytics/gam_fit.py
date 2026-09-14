@@ -185,6 +185,12 @@ def penalized_irls_general(
                 new_mu = link.linkinv(new_eta)
                 new_deviance = family.deviance(y, new_mu, weights)
                 new_objective = new_deviance + float(new_coef @ penalty @ new_coef)
+            # PR #230 review [P2-A]: if the cap above is exhausted, the
+            # still-worsened point is accepted here rather than raised —
+            # `mgcv`'s own `mgcv.half` warns/errors on halving exhaustion,
+            # which this does not. Not a defect on any fixture measured
+            # (8-9 iterations against a cap of 30); left as a documented,
+            # not-yet-closed gap rather than an untested behaviour change.
             previous_objective = new_objective
 
         coef = new_coef

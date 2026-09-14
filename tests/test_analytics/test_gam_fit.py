@@ -134,9 +134,10 @@ class TestStepHalvingOnAnExtremeLambdaSpread:
     3.13 showed it does not reproduce reliably across environments even
     with ``threadpool_limits(1, "blas")`` pinned (a second, still
     unidentified source of numerical divergence beyond BLAS thread count —
-    see ADR-224's own honesty about this rather than a further guess at
-    pinning it). What IS pinned, and is true regardless of environment: with
-    ``step_halving=True`` the point converges. Every call still pins
+    see ADR-224 amendment 1 for the removal and why a further pin was not
+    the right response). What IS pinned, and is true regardless of
+    environment: with ``step_halving=True`` the point converges. Every call
+    still pins
     ``threadpool_limits(1, "blas")`` for the OTHER reason this convention
     exists elsewhere in this test suite (ADR-211/212/222) — the CONVERGED
     RESULT's own reproducibility, not this test's pass/fail boundary.
@@ -205,9 +206,23 @@ class TestStepHalvingOnAnExtremeLambdaSpread:
     def test_a_step_that_already_decreases_deviance_takes_the_unhalved_path(self, rng) -> None:
         """No-regression guard for every previously-verified fixture in this
         module (Anchor 7): a well-conditioned, lightly-penalized problem
-        never needs a halved step, so its converged coefficients are
-        unaffected by this slice's change — checked here against the
-        closed-form unpenalized case this file already trusts."""
+        never needs a halved step, so passing ``step_halving=True`` here
+        must be a no-op — checked by fitting BOTH ways and requiring the
+        coefficients agree to nine orders of magnitude tighter than a fired
+        halving would ever produce, not merely by fitting once with the
+        default and trusting that halving would have been inert (PR #230
+        review [P1-A]: an earlier version of this test called
+        ``penalized_irls_general`` without ``step_halving`` at all, so it
+        could not have caught a regression connected to this slice).
+
+        ``rtol=1e-9``, not bit-exact equality (PR #231 review [P1-1]): this
+        fixture's own final IRLS step improves the objective by only ~19x
+        machine epsilon, so the two paths agreeing to the bit depends on
+        that improvement's sign surviving incidental changes to summation
+        order — a knife-edge this repo's own ADR-224 amendment 1 already
+        warns against pinning. A fired halving moves the coefficients by
+        ``~1.1e-5`` relative (measured), four orders of magnitude above this
+        tolerance, so the guard's discriminating power is unchanged."""
         n, p = 300, 5
         x = np.column_stack([np.ones(n), rng.normal(size=(n, p - 1))])
         beta_true = rng.normal(scale=0.3, size=p)
@@ -215,6 +230,13 @@ class TestStepHalvingOnAnExtremeLambdaSpread:
         penalty = np.zeros((p, p))
         family = poisson_log()
 
-        fit = penalized_irls_general(x, y, family=family, penalty=penalty)
+        with threadpool_limits(limits=1, user_api="blas"):
+            fit = penalized_irls_general(x, y, family=family, penalty=penalty)
+            fit_halving = penalized_irls_general(
+                x, y, family=family, penalty=penalty, step_halving=True
+            )
+        np.testing.assert_allclose(fit.coef, fit_halving.coef, rtol=1e-9)
+        assert fit.n_iter == fit_halving.n_iter
+
         edf = effective_degrees_of_freedom(x, family, fit.eta, fit.mu, penalty)
         assert edf == pytest.approx(p, abs=1e-8)
