@@ -3931,3 +3931,47 @@ on the FD path) lives now.
 - **Slice 7i (`_FINITE_DIFF_STEP` re-justification, registered by PR #229's
   review) remains open and is unaffected by this slice** — carried forward,
   not re-scoped. *Source: PLAN's own sequencing, restated.*
+
+### Harvested 2026-09-14 — blocker E closed by measurement, and the search reproducibly prefers the wrong basin (ADR-226)
+
+- **BLOCKER E IS CLOSED, and it had been carried as open on a pre-7h reading.**
+  Slice 7h (ADR-223) fixed the REML criterion's cross-thread noise floor and
+  measured that fix at the criterion level; it never re-ran the end-to-end
+  two-axis study, and said so. Re-run on `098a06a`: `multistart(9)` now passes
+  **both** reproducibility axes — cross-thread `eta` `0.356 → 1.554e-03`,
+  `edf_total` `10.0 → 0.0816` (~229x / ~123x), `12.9x` and `12.3x` margin on
+  ADR-221's own gate — **the first configuration ever to pass both**, and
+  satisfying the maintainer's requirement that self-reproducibility be held
+  tighter than the `mgcv` gate *with margin*. Run twice on two commits,
+  bit-identical. **Wiring slice 3's 7h dependency is discharged; Anchor W6
+  (parity on the target model spec) still stands and is untouched.** *Source:
+  this session, ADR-226 (1st-order — it discharges a standing BLOCKER on the
+  production-wiring epic).* **IMPORTANT.**
+
+- **NEW: the search now reproducibly prefers a basin that is worse by our own
+  criterion and further from `mgcv`.** Ten seeds land in two basins:
+  `edf_total 14.3896` / score `523.656922` on **7 of 10**, and `~14.5609` /
+  `523.644997` on **3 of 10**. `mgcv`'s own answer is `14.5624`, so the
+  MINORITY basin is both nearer the reference and **better by the REML
+  criterion we are optimising** (lower by `0.0119`). **This PASSES ADR-221's
+  gate** (`|d edf_total| = 0.173` against a bound of `1.0`) — headroom left on
+  the table, not a regression, and it must not be reported as one. But it is
+  the sharpest statement yet of slice 7g's own registered distinction
+  (ADR-224): reliable convergence and convergence to `mgcv`'s basin are
+  different properties. **For a client-facing surface, reproducibly wrong is a
+  worse failure mode than visibly unstable, because it looks trustworthy.**
+  Slice 8's justification moves from abstract ("accuracy, determinism") to a
+  quantified target: reach `523.645` by construction, where best-of-9 reaches
+  it 3 times in 10 by lottery. *Source: this session, ADR-226 decision 2
+  (1st-order — a new, unregistered property of the production search path).*
+  **IMPORTANT.**
+
+- **The closure's limits, so they are not lost with the headline.** One
+  structure, one container, one BLAS build, `n=3` thread counts and `n=10`
+  seeds. **The thread sweep is a LOCAL PROXY for the cross-runner axis, not
+  that axis** — so `SELECT_FREE_SP_MODEL_CLAIM`'s environment qualification is
+  **NOT lifted**, and ADR-224's registered tier-3 dispatch (still unrun)
+  remains the right instrument. Small samples have misled this epic before
+  (ADR-222's own cross-start reading moved between `n=5` and `n=12`). *Source:
+  this session, ADR-226 scope section (1st-order — a qualification that must
+  travel with a closed BLOCKER).* **IMPORTANT.**
