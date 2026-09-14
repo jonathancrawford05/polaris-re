@@ -165,7 +165,11 @@ mistaken version was the reason I was going to append.
 
 **A pre-existing finding, surfaced rather than left in a scratch buffer:**
 `has_wall_time_creep` is **already `true` on `main`** at `1.258x` against the
-`1.25` band, with 46 rows in the series. `has_structural_creep` is **`false`**
+`1.25` band, with **45** rows in the series (PR #233 review [P2-1]: this had
+read `46`, which was the count *including* the candidate row from the
+experiment above, attached to the wrong sentence — `main` has 45, confirmed by
+`wc -l` and by `--check-only`'s own `n_rows`). `has_structural_creep` is
+**`false`**
 and `peak_mib` is flat at `33 → 33` (Δ0), so memory is clean and this is
 wall-time only — which is container-dependent and may well be benign
 (`perf_history.py --check-only` exits `0`; it is not a hard gate). **Not

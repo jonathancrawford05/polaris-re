@@ -3975,3 +3975,37 @@ on the FD path) lives now.
   (ADR-222's own cross-start reading moved between `n=5` and `n=12`). *Source:
   this session, ADR-226 scope section (1st-order — a qualification that must
   travel with a closed BLOCKER).* **IMPORTANT.**
+
+- **`has_wall_time_creep` is already `true` on `main`, and it is very likely
+  benign — filed so it is visible, not because it needs action.**
+  `scripts/perf_history.py --check-only` on `main` reads ratio **`1.2576x`**
+  against a band of `1.25`, over **45** rows. Crucially, the *structural*
+  signal is clean: `has_structural_creep` is **`false`** and `peak_mib` is flat
+  at `33 → 33` (Δ0), so memory shows nothing. It is wall-time only, and
+  `--check-only` exits `0` — **not a hard gate**.
+  **This is consistent with, and largely explained by, the maintainer's own
+  standing design rule** (2026-07-12, this file): *"deterministic /
+  noise-normalized metrics may gate or alert; raw wall-time only informs.
+  GitHub runners vary 2-3x run-to-run."* A `1.2576x` ratio sits comfortably
+  inside a 2-3x run-to-run envelope, so the most likely reading is runner
+  variance rather than engine creep — which is precisely why the rule says
+  wall-time may not gate. Filed as **NICE-TO-HAVE** on that basis rather than
+  as a defect. If anyone does look at it, the question worth answering is
+  whether the series should record a noise-normalized time at all, since the
+  raw one is structurally incapable of supporting the creep verdict it
+  currently produces. *Source: PR #233 review [P1-1] (2nd-order — an
+  observation about an advisory signal, promoted only because a dated session
+  log is not where a future session looks).* **NICE-TO-HAVE.**
+
+- **MAINTAINER DECISION OWED (small): should the perf series skip
+  zero-engine-code commits by rule rather than by per-session judgement?**
+  The row has now been declined twice on this branch (#227 [P2-1], accepted in
+  review; #233) on grounds that are general rather than situational — a
+  docs-only commit contributes no signal about the engine and measurable noise
+  about the container, demonstrated at `1.258x → 1.339x` in #233. ADR-177
+  nominally expects one row per initial routine PR, so the two are in tension
+  and it is currently resolved by discretion each time. **Not decided here:**
+  changing what the series samples is a policy call about an instrument, not a
+  routine one, and the honest options include leaving it as discretion. *Source:
+  PR #233 review [P2-2] (2nd-order — a process convention, raised rather than
+  taken).* **NICE-TO-HAVE.**
