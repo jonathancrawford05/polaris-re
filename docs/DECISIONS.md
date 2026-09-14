@@ -22524,3 +22524,123 @@ comfortably above `7.07`). `production_err < 0.05 * true_norm` was not
 touched — that side's readings (`4.73e-2` locally) have ~15x headroom
 against its own bound and showed no cross-environment sensitivity in either
 run. Verified: re-ran the file 3x pinned and 3x unpinned, stable throughout.
+
+---
+
+## ADR-226: Blocker E is CLOSED — `multistart(9)` now passes both reproducibility axes; and the search reproducibly prefers the wrong basin
+
+**Date:** 2026-09-14. **Status:** ACCEPTED. **Tier 1** (local container, R
+4.3.3 / mgcv 1.9-1 used only to regenerate the committed `select=TRUE`
+multiterm fixture). **Provenance:** the reproducibility readings are
+`MEASUREMENT (own criterion)` (`docs/VERIFICATION_STANDARD.md` §2.1) — Polaris
+measured against ITSELF across BLAS thread counts and across multistart seeds.
+There is no second producer on those axes, so they carry **no
+`VerificationClaim` and are not parity evidence**. §3's basin finding does
+place our `edf_total` beside `mgcv`'s own, which IS a two-producer comparison
+and is reported as such, gated by ADR-221's committed `eta`/`edf` criterion
+rather than by a new one.
+
+### Context
+
+ADR-222 amendment 1 measured that **no configuration of the engine passed both
+reproducibility axes.** `multistart(9)` was reproducible across seeds and not
+across thread counts (`eta` `0.356`, `edf_total` `10.0`, REML score `+34.34` on
+2 of 4 seeds); single-start was the mirror image. That finding became **blocker
+E** in `PLAN_gam_production_wiring.md` and is the stated hard dependency
+gating wiring slice 3.
+
+ADR-223 (slice 7h) then fixed the mechanism — `beta' S beta` as a sum of
+squares — and measured the *criterion's* noise floor falling from `~5.2e-05` to
+`~6.8e-13`. **It did not re-run the end-to-end two-axis study**, and said so:
+ADR-223 explicitly leaves "the random-start/best-of-N nondeterminism 7h does not
+reach" to slice 8. Nothing since has re-measured it, so blocker E has been
+carried as open on the strength of a pre-7h reading.
+
+This ADR closes that gap by measurement rather than by inference. The
+distinction matters: best-of-N selection compares scores, and selection is a
+**discontinuous** function of them, so a stable criterion makes a stable landing
+point likely but does not demonstrate one.
+
+### Decision 1 — blocker E is CLOSED, measured on `098a06a`
+
+`scripts/gam_convergence_two_axis_diagnostic.py` (committed in PR #227), on the
+`select=TRUE` N=7 multiterm fixture:
+
+| axis | pre-7h (ADR-222 am. 1) | post-7h (this ADR) | factor | verdict |
+|---|---|---|---|---|
+| A — 10 seeds, `multistart(9)` | `eta 6.3e-03` | `eta 4.417e-03`, `edf 0.1717` | — | REPRODUCIBLE (unchanged) |
+| **B — threads 1/2/4, `multistart(9)`** | **`eta 0.356`, `edf 10.0`** | **`eta 1.554e-03`, `edf 0.0816`** | **~229x / ~123x** | **REPRODUCIBLE (was NOT)** |
+| B' — threads 1/2/4, single-start FD | reproducible | `eta 1.989e-03`, `edf 0.0978` | — | REPRODUCIBLE (unchanged) |
+
+**`multistart(9)` passes BOTH axes** — the first configuration ever to do so —
+with `12.9x` margin on `eta` and `12.3x` on `edf_total` against ADR-221's own
+gate (`eta < 2e-2`, `|d edf_total| < 1.0`). That satisfies the maintainer's
+2026-09-05 requirement that self-reproducibility be held TIGHTER than the
+`mgcv`-agreement gate, with margin rather than by a hair.
+
+**The run is itself reproducible.** The study was executed twice, on `fc25053`
+and again on `098a06a` after #231 touched `gam_fit.py`, and the two outputs are
+**bit-identical on every seed, basin and spread** — which also confirms #231's
+`gam_fit` change (a comment) was behaviourally inert.
+
+`log10(sp)` still moves substantially (`5.03` across threads). That is expected
+and is not a defect: ADR-221 re-gated onto `eta`/`edf` precisely because
+`log10(sp)` is not identified in every direction on this structure
+(`docs/PATTERN_resolvable_tolerances.md` instance 1).
+
+### Decision 2 — a NEW finding: the search reproducibly prefers the worse basin
+
+Axis A did not merely spread; it landed in **two distinct basins**:
+
+| basin | `edf_total` | REML score | seeds |
+|---|---|---|---|
+| majority | `14.3896` | `523.656922` | **7 of 10** |
+| minority | `~14.5609` | `523.644997` | **3 of 10** |
+
+`mgcv`'s own answer on this fixture is **`edf_total = 14.5624`**.
+
+The minority basin is both **closer to `mgcv`** and **better by our own REML
+criterion** (lower by `0.0119`). So best-of-9 multistart lands, seven times in
+ten, in a basin that is worse by the criterion it is optimising *and* further
+from the reference — and after slice 7h it does so **reproducibly**.
+
+**This is NOT a gate failure and must not be reported as one.** The majority
+basin's `|d edf_total|` against `mgcv` is `0.173`, against ADR-221's bound of
+`1.0`. The engine passes. This is headroom left on the table, not a regression.
+
+**It is, however, the sharpest available statement of the distinction slice 7g
+already registered** (ADR-224): reliable convergence and convergence to
+`mgcv`'s own basin are different properties on this criterion. Slice 7h bought
+the first. It did not buy the second, and could not have.
+
+**Consequence for slice 8.** Its justification was previously "(a) accuracy,
+(b) determinism" in the abstract. It now has a quantified target: a
+deterministic Newton solver should reach the `523.645` basin *by construction*,
+where best-of-9 reaches it 3 times in 10 by lottery. **Reproducibly wrong is,
+for a user-facing surface, a worse failure mode than visibly unstable** — it
+looks trustworthy. That is an argument for slice 8 that did not exist before
+this measurement.
+
+### Scope and limits, stated
+
+- **One structure, one container, one BLAS build.** `n=3` thread counts, `n=10`
+  seeds. Small samples have misled this epic before (ADR-222's own cross-start
+  reading moved between `n=5` and `n=12`).
+- **The thread sweep is a LOCAL PROXY for the cross-runner axis**, not the same
+  thing — the diagnostic's own docstring says so. ADR-219 amendment 3's
+  cross-runner axis is not discharged by this ADR.
+- **Therefore `SELECT_FREE_SP_MODEL_CLAIM`'s environment qualification is NOT
+  lifted here.** ADR-224's registered tier-3 dispatch remains open and is the
+  right instrument for that.
+- Nothing in `src/` changed in this ADR. No gate, tolerance or default moved.
+
+### Consequences
+
+1. **Blocker E is closed in `PLAN_gam_production_wiring.md`**, whose text still
+   read as open. Wiring slice 3's 7h dependency is discharged; **Anchor W6
+   (parity on the target model specification) still stands and is untouched by
+   this ADR**, so slice 3 remains blocked on W6 alone.
+2. Wiring **slice 1** — measure the target spec against `mgcv` — is the
+   measurement W6 consumes and is now the highest-value next work on that track.
+3. Slice 8 gains decision 2 as quantified justification.
+4. The basin finding is registered, not actioned. It is slice 8's to close.

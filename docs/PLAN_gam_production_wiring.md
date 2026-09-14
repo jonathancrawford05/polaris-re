@@ -145,7 +145,31 @@ decisions and must be separate slices** — a naive re-point would trade a
 0.96-covering band for a 0.68-covering one at age 80+, on the page intended
 as a marketing surface.
 
-**E. The engine is not environment-reproducible, and this BLOCKS slice 3.**
+**E. ~~The engine is not environment-reproducible, and this BLOCKS slice 3.~~
+CLOSED 2026-09-14 by measurement (ADR-226).** Slice 7h's fix was verified
+end-to-end on the two-axis study, not merely at the criterion level:
+`multistart(9)` now passes **both** axes — cross-thread `eta` `0.356 → 1.554e-03`
+and `edf_total` `10.0 → 0.0816` (~229x and ~123x), with `12.9x`/`12.3x` margin
+against ADR-221's gate — the first configuration ever to pass both. The reading
+is itself reproducible (run twice, on `fc25053` and `098a06a`, bit-identical).
+
+**Slice 3's 7h dependency is therefore discharged. Slice 3 remains blocked on
+Anchor W6 alone** (parity on the target model specification), which this
+measurement does not touch.
+
+**Two limits travel with the closure.** It is one structure, one container, one
+BLAS build, `n=3` thread counts — **a local proxy for the cross-runner axis,
+not the cross-runner axis itself**, so `SELECT_FREE_SP_MODEL_CLAIM`'s
+environment qualification is NOT lifted and ADR-224's registered tier-3
+dispatch remains the right instrument. And ADR-226 decision 2 found something
+new that this closure does not cover: the search now **reproducibly** prefers a
+basin that is worse by our own REML criterion and further from `mgcv` than the
+one it finds 3 times in 10. That passes ADR-221's gate (`0.173` against `1.0`)
+and is slice 8's to close — but *reproducibly wrong* is the failure mode a
+client-facing surface should worry about most, because it looks trustworthy.
+
+The original finding, preserved:
+
 Measured after this plan was written (ADR-222 amendment 1): on the
 `select=TRUE` N=7 structure, `multistart=True` — the configuration blocker D
 tells slice 3 to pin — is reproducible across seeds but **NOT across thread

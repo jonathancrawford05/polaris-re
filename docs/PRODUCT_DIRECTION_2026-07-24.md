@@ -3931,3 +3931,81 @@ on the FD path) lives now.
 - **Slice 7i (`_FINITE_DIFF_STEP` re-justification, registered by PR #229's
   review) remains open and is unaffected by this slice** — carried forward,
   not re-scoped. *Source: PLAN's own sequencing, restated.*
+
+### Harvested 2026-09-14 — blocker E closed by measurement, and the search reproducibly prefers the wrong basin (ADR-226)
+
+- **BLOCKER E IS CLOSED, and it had been carried as open on a pre-7h reading.**
+  Slice 7h (ADR-223) fixed the REML criterion's cross-thread noise floor and
+  measured that fix at the criterion level; it never re-ran the end-to-end
+  two-axis study, and said so. Re-run on `098a06a`: `multistart(9)` now passes
+  **both** reproducibility axes — cross-thread `eta` `0.356 → 1.554e-03`,
+  `edf_total` `10.0 → 0.0816` (~229x / ~123x), `12.9x` and `12.3x` margin on
+  ADR-221's own gate — **the first configuration ever to pass both**, and
+  satisfying the maintainer's requirement that self-reproducibility be held
+  tighter than the `mgcv` gate *with margin*. Run twice on two commits,
+  bit-identical. **Wiring slice 3's 7h dependency is discharged; Anchor W6
+  (parity on the target model spec) still stands and is untouched.** *Source:
+  this session, ADR-226 (1st-order — it discharges a standing BLOCKER on the
+  production-wiring epic).* **IMPORTANT.**
+
+- **NEW: the search now reproducibly prefers a basin that is worse by our own
+  criterion and further from `mgcv`.** Ten seeds land in two basins:
+  `edf_total 14.3896` / score `523.656922` on **7 of 10**, and `~14.5609` /
+  `523.644997` on **3 of 10**. `mgcv`'s own answer is `14.5624`, so the
+  MINORITY basin is both nearer the reference and **better by the REML
+  criterion we are optimising** (lower by `0.0119`). **This PASSES ADR-221's
+  gate** (`|d edf_total| = 0.173` against a bound of `1.0`) — headroom left on
+  the table, not a regression, and it must not be reported as one. But it is
+  the sharpest statement yet of slice 7g's own registered distinction
+  (ADR-224): reliable convergence and convergence to `mgcv`'s basin are
+  different properties. **For a client-facing surface, reproducibly wrong is a
+  worse failure mode than visibly unstable, because it looks trustworthy.**
+  Slice 8's justification moves from abstract ("accuracy, determinism") to a
+  quantified target: reach `523.645` by construction, where best-of-9 reaches
+  it 3 times in 10 by lottery. *Source: this session, ADR-226 decision 2
+  (1st-order — a new, unregistered property of the production search path).*
+  **IMPORTANT.**
+
+- **The closure's limits, so they are not lost with the headline.** One
+  structure, one container, one BLAS build, `n=3` thread counts and `n=10`
+  seeds. **The thread sweep is a LOCAL PROXY for the cross-runner axis, not
+  that axis** — so `SELECT_FREE_SP_MODEL_CLAIM`'s environment qualification is
+  **NOT lifted**, and ADR-224's registered tier-3 dispatch (still unrun)
+  remains the right instrument. Small samples have misled this epic before
+  (ADR-222's own cross-start reading moved between `n=5` and `n=12`). *Source:
+  this session, ADR-226 scope section (1st-order — a qualification that must
+  travel with a closed BLOCKER).* **IMPORTANT.**
+
+- **`has_wall_time_creep` is already `true` on `main`, and it is very likely
+  benign — filed so it is visible, not because it needs action.**
+  `scripts/perf_history.py --check-only` on `main` reads ratio **`1.2576x`**
+  against a band of `1.25`, over **45** rows. Crucially, the *structural*
+  signal is clean: `has_structural_creep` is **`false`** and `peak_mib` is flat
+  at `33 → 33` (Δ0), so memory shows nothing. It is wall-time only, and
+  `--check-only` exits `0` — **not a hard gate**.
+  **This is consistent with, and largely explained by, the maintainer's own
+  standing design rule** (2026-07-12, this file): *"deterministic /
+  noise-normalized metrics may gate or alert; raw wall-time only informs.
+  GitHub runners vary 2-3x run-to-run."* A `1.2576x` ratio sits comfortably
+  inside a 2-3x run-to-run envelope, so the most likely reading is runner
+  variance rather than engine creep — which is precisely why the rule says
+  wall-time may not gate. Filed as **NICE-TO-HAVE** on that basis rather than
+  as a defect. If anyone does look at it, the question worth answering is
+  whether the series should record a noise-normalized time at all, since the
+  raw one is structurally incapable of supporting the creep verdict it
+  currently produces. *Source: PR #233 review [P1-1] (2nd-order — an
+  observation about an advisory signal, promoted only because a dated session
+  log is not where a future session looks).* **NICE-TO-HAVE.**
+
+- **MAINTAINER DECISION OWED (small): should the perf series skip
+  zero-engine-code commits by rule rather than by per-session judgement?**
+  The row has now been declined twice on this branch (#227 [P2-1], accepted in
+  review; #233) on grounds that are general rather than situational — a
+  docs-only commit contributes no signal about the engine and measurable noise
+  about the container, demonstrated at `1.258x → 1.339x` in #233. ADR-177
+  nominally expects one row per initial routine PR, so the two are in tension
+  and it is currently resolved by discretion each time. **Not decided here:**
+  changing what the series samples is a policy call about an instrument, not a
+  routine one, and the honest options include leaving it as discretion. *Source:
+  PR #233 review [P2-2] (2nd-order — a process convention, raised rather than
+  taken).* **NICE-TO-HAVE.**

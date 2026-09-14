@@ -1741,3 +1741,42 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > re-measurement tables ADR-224 registered as a follow-up dispatch remains
 > open, not run by this slice either (out of this slice's own scope, which
 > touches no `mgcv` comparison).
+
+> **BLOCKER E IS CLOSED, 2026-09-14 (ADR-226) — and it was being carried as
+> open on a PRE-7h reading.** Slice 7h fixed the criterion's noise floor and
+> measured it there; it never re-ran the end-to-end two-axis study and said so
+> (ADR-223 leaves best-of-N nondeterminism to slice 8). 7g and 7i did not touch
+> it. So the production-wiring epic's gating blocker rested on a measurement
+> taken *before* the fix meant to close it. Re-run of the committed
+> `scripts/gam_convergence_two_axis_diagnostic.py` on `098a06a`:
+> **`multistart(9)` passes BOTH axes — the first configuration ever to.**
+> Cross-thread `eta` `0.356 → 1.554e-03` and `edf_total` `10.0 → 0.0816`
+> (~229x / ~123x), margins `12.9x`/`12.3x` on ADR-221's gate; seeds axis
+> `eta 4.417e-03`; single-start FD `eta 1.989e-03`. Run twice (`fc25053`,
+> `098a06a`) — **bit-identical**, which also confirms #231's `gam_fit` change
+> was behaviourally inert. `MEASUREMENT (own criterion)`, no `VerificationClaim`,
+> never parity evidence.
+>
+> **NEW FINDING, and it is the more important half — the search now
+> REPRODUCIBLY prefers the worse basin.** Ten seeds split two ways:
+> `edf_total 14.3896` / score `523.656922` on **7 of 10**, `~14.5609` /
+> `523.644997` on **3 of 10**. `mgcv`'s own is `14.5624`, so the MINORITY basin
+> is both nearer `mgcv` and **better by the criterion we are optimising**
+> (lower by `0.0119`). **It PASSES ADR-221's gate** (`0.173` against `1.0`) —
+> headroom, not a regression, and not to be reported as one. But it is the
+> sharpest form of slice 7g's own registered distinction (ADR-224): reliable
+> convergence and convergence to `mgcv`'s basin are different properties.
+> **Slice 8's justification is now quantified** — reach `523.645` by
+> construction, where best-of-9 reaches it 3 times in 10 by lottery; and
+> *reproducibly wrong* is the worst failure mode for a client-facing surface
+> because it looks trustworthy.
+>
+> **NOT discharged by this entry:** the cross-runner axis (the thread sweep is a
+> local proxy), so `SELECT_FREE_SP_MODEL_CLAIM`'s environment qualification
+> stands and **ADR-224's registered tier-3 dispatch remains open and unrun** —
+> still the right instrument for it. One structure, one container, `n=3`/`n=10`.
+>
+> **NEXT: slice 8** (unchanged), now with decision 2 as its concrete target. On
+> the wiring epic, slice 3's 7h dependency is discharged and **Anchor W6 alone
+> blocks it**, making wiring **slice 1** (target-spec parity, the measurement W6
+> consumes) the highest-value work on that track.
