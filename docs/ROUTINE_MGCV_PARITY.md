@@ -356,6 +356,18 @@ target model form, or to characterise precisely why it cannot move.
 9. Conventional commit, then:
    - append ONE `perf/history.jsonl` row on the INITIAL open of a PR only (ADR-177,
      step 14b of daily-dev — same rules, including the skip on review-feedback updates)
+     — **and NO row at all when the PR modifies nothing under `src/polaris_re/`**
+     (ADR-177 **amendment 1**, 2026-08-11). A docs-only PR appends nothing. This
+     is not discretion and does not need re-deriving: the row's job is to detect
+     cumulative drift *in the engine*, and a row for a PR that could not have
+     moved the engine "is worse than absent — the analyser medians over a
+     window, so padding the series with no-op rows dilutes the window and makes
+     a real step harder to see" (amendment 1's own words).
+     *This line was added 2026-09-15 because the exemption lived only in the
+     ADR's amendment, and three PRs (#227, #233, #234) plus four review rounds
+     re-argued it from first principles — reasoning it out, measuring it, and
+     being told it was "in tension with ADR-177" each time. The operational text
+     is where a session actually looks.*
    - push to the environment-designated branch and open a DRAFT PR. **Title the PR for
      what it actually establishes:** `feat(mgcv-parity): slice N — …` only when the
      slice lands an INDEPENDENT comparison; `harness(mgcv-parity): …` when it lands

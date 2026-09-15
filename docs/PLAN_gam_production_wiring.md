@@ -15,8 +15,12 @@ best mgcv parity candidate."* Raised from the PR #225/#226 review conversation.
 `PLAN_mi_dashboard.md` (the surface being re-pointed).
 **Total slices:** 5, of which slice 4 may legitimately end in "change nothing".
 **Estimated scope:** ~4–6 dev-days autonomous, plus tier-3 dispatches.
-**Status: REGISTERED, NOT STARTED, and BLOCKED FROM SLICE 3 ONWARD — see
-blocker E and the banner below.** Its
+**Status 2026-09-14: SLICE 1 IS THE NEXT WORK** (maintainer sequencing
+decision — the parity epic yields the slot; blocker E is CLOSED and Anchor W6
+alone now gates slice 3). Slices 2-5 remain NOT STARTED; slice 3 onward is
+still blocked, on W6 rather than on 7h — see blocker E and the banner below.
+
+Its
 `CONTINUATION_gam_production_wiring.md` is created by whichever session starts
 slice 1 — deliberately not created here, so this epic cannot be mistaken for
 active while `CONTINUATION_mgcv_parity_engine.md` is still IN PROGRESS
@@ -36,9 +40,12 @@ active while `CONTINUATION_mgcv_parity_engine.md` is still IN PROGRESS
 >   the point of execution rather than treating them as ready-to-run.
 >
 > **What blocker E blocks, precisely** — the earlier wording here over-stated it
-> in both directions, so state it exactly: **slice 3 cannot start until parity
+> in both directions, so state it exactly: ~~**slice 3 cannot start until parity
 > slice 7h lands**, and slices 4-5 inherit that through their dependency on
-> slice 3. **Slice 8 is not a dependency of anything in this epic** — it buys
+> slice 3.~~ **UPDATE 2026-09-14 (ADR-226): 7h has landed and the two-axis
+> study measured `multistart(9)` passing BOTH reproducibility axes, so this
+> condition is MET. Blocker E no longer blocks anything; Anchor W6 alone gates
+> slice 3.** **Slice 8 is not a dependency of anything in this epic** — it buys
 > accuracy, where blocker E is about reproducibility. **Slices 1-2 are not
 > blocked by E's own consequence sentence**: they measure rather than wire, and
 > nothing they produce is rendered. But their readings are taken from the same
@@ -49,9 +56,11 @@ active while `CONTINUATION_mgcv_parity_engine.md` is still IN PROGRESS
 > parallelism question in slice 1's favour.** The gate is *parity on the target
 > model specification* before anything wires to a client-facing surface (Anchor
 > W6). Slice 1 is the measurement that gate consumes, so it is on the critical
-> path rather than competing with 7h. **Slice 3 now waits on two independent
+> path rather than competing with 7h. ~~**Slice 3 now waits on two independent
 > conditions** — Anchor W6's parity gate AND slice 7h — and neither implies the
-> other.
+> other.~~ **UPDATE 2026-09-14 (ADR-226): the 7h condition is MET, so slice 3
+> is down to Anchor W6 alone.** (Corrected here as well as at the identical
+> sentence ~450 lines below — PR #234 review round 2 [P1-1].)
 >
 > Merged in that spirit: to make the findings discoverable, not to authorise the
 > plan.
@@ -238,6 +247,19 @@ the finding is the deliverable.
 
 ## Slice 1 — express the dashboard's MI formula as a `ModelSpec`, and measure it
 
+- **THIS IS THE NEXT WORK. Maintainer sequencing decision, 2026-09-14:** the
+  parity epic yields the one-active-epic slot to this slice. Blocker E is
+  closed (ADR-226), so **Anchor W6 alone gates slice 3** — and this slice
+  produces the measurement W6 consumes, making it the only remaining gate that
+  can be *retired* rather than merely improved. The session that starts it
+  creates `CONTINUATION_gam_production_wiring.md` (it is deliberately not
+  created before that, per the one-active-epic rule).
+- **Expect this slice to test blocker A rather than assume it.** `te()` is not
+  available and `te(x,z) ≡ s(x)+s(z)+ti(x,z)` is a **hypothesis, not an
+  identity** — the ANOVA decomposition spans the same space under a different
+  penalty, so it is a different fit. If that equivalence fails, it is a finding
+  about the target spec, not a defect in this slice, and it lands before any
+  solver work is spent on an engine that cannot render the production formula.
 - **Depends on:** ADR-217 (`select=TRUE` block structure), ADR-221 (the gate).
 - **Deliverable:** the dashboard's own model form, built through
   `assemble_model_design`, measured against `mgcv` on the same recipe.
@@ -291,15 +313,25 @@ the finding is the deliverable.
 - **Also gated by Anchor W6** — acceptable parity on the target model
   specification (maintainer, 2026-09-05). Independent of, and additional to,
   the 7h dependency below: 7h buys reproducibility, W6 buys agreement.
-- **Depends on:** slices 1 and 2, **and parity slice 7h (blocker E) — a hard
+- **Depends on:** slices 1 and 2. ~~**and parity slice 7h (blocker E) — a hard
   dependency, not a preference.** Until 7h lands, the surface this slice would
-  wire is not reproducible across environments.
+  wire is not reproducible across environments.~~ **The 7h dependency is
+  DISCHARGED (2026-09-14, ADR-226): 7h landed and the two-axis study measured
+  `multistart(9)` passing BOTH reproducibility axes.** What remains is
+  **Anchor W6 alone** — acceptable parity on the target model specification,
+  which slice 1 measures.
 - **Deliverable:** the Experience Improvement page can render its MI surface
   from the validated path, selected by an explicit flag, defaulting to the
   existing behaviour.
-- `multistart=True` pinned (blocker D) — but note blocker E: multistart is the
+- `multistart=True` pinned (blocker D). ~~but note blocker E: multistart is the
   configuration that passes ADR-221's gate AND the one that fails the
-  cross-thread axis. Pinning it is necessary and not sufficient.
+  cross-thread axis. Pinning it is necessary and not sufficient.~~
+  **CORRECTED 2026-09-14 (ADR-226 decision 1): that sentence is now factually
+  wrong.** Post-7h, `multistart(9)` passes the cross-thread axis too — `eta`
+  `0.356 → 1.554e-03`, `edf_total` `10.0 → 0.0816` (~229x / ~123x), with
+  `12.9x`/`12.3x` margin on ADR-221's gate. It is the configuration that passes
+  **both** axes, and the first ever to. Pinning it remains necessary; what makes
+  it not sufficient is now **Anchor W6**, not blocker E.
 - **On `analytic_gradient=True`:** this originally read "only once slice 7f has
   resolved the `ftol` early-exit". **7f is DONE and did NOT resolve it**
   (ADR-222): it shipped `max_gtol_restarts` as a measured partial mitigation
@@ -455,6 +487,10 @@ interval**, never as the intended design. Slice 5's DoD carries this.
    not only the smoothing parameters, so it bears directly on the WIRING. It
    now gates slice 3 via blocker E, and slice 5 as well. The original
    recommendation was wrong because it assumed a machinery-only defect.
+   **Status 2026-09-14: that gate is SATISFIED, not withdrawn.** ADR-226
+   measured the reproducibility this question demanded — `multistart(9)` passes
+   both axes — so blocker E no longer holds slice 3. The *principle* stands:
+   reproducibility does gate the wiring, and it is now met rather than waived.
 2. ~~**Is a validated surface with an unvalidated band acceptable as an interim?**~~
    — **RESOLVED 2026-09-05, maintainer: YES, with two conditions.** The
    pairing is accepted as an interim *provided* (a) **the desired end state is
@@ -478,7 +514,8 @@ interval**, never as the intended design. Slice 5's DoD carries this.
    - **Slice 3 waits on two independent conditions**, not one: acceptable
      parity on the target spec (this decision) AND parity slice 7h (blocker E).
      Neither implies the other — 7h buys reproducibility, this gate buys
-     agreement — and both must hold.
+     agreement — and both must hold. **UPDATE 2026-09-14: the 7h condition is
+     now MET (ADR-226), so this gate is down to the first alone.**
    - **The gate binds every client-facing surface, not just the dashboard.**
      Recorded as **Anchor W6** below so it cannot be read as a
      dashboard-only constraint.

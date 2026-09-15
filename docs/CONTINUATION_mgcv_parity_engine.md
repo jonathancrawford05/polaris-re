@@ -5,7 +5,10 @@
 **Routine:** `docs/ROUTINE_MGCV_PARITY.md` — a convergence loop, not a backlog walk.
 **Predecessors:** ADR-189 + amendment 1 (the conformance suite and its first run),
 ADR-185 through ADR-188 (the penalized fitter this epic reuses).
-**Status:** **IN PROGRESS** — slice 1 is **DONE (raw path only)** (2026-08-15b); slice
+**Status:** **IN PROGRESS — but YIELDING THE ACTIVE SLOT to
+`PLAN_gam_production_wiring.md` slice 1 (maintainer, 2026-09-14; see the
+banner at the end of this file). Not parked; `NEXT: slice 8` when it resumes.**
+— slice 1 is **DONE (raw path only)** (2026-08-15b); slice
 1b (mgcv-native extraction) is **DONE** (2026-08-16, tier 1 and tier 3 both confirmed);
 slice 2 (`bs = "cr"`) is **DONE** (2026-08-17, tier 1 and tier 3 both confirmed — ADR-194)
 — the epic's first INDEPENDENT Stage-A parity result. Slice 3 (families/links/weights)
@@ -1510,8 +1513,11 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > > exceeds `ε_f`**, plus second-order sufficiency on that subspace — and a
 > > four-valued verdict that can say `CONVERGED_ON_IDENTIFIED_SUBSPACE` instead
 > > of reporting `False` for a fit optimal to `1e-6`. Reuses
-> > `projected_gradient` (7f) and `gam_sp_identifiability` (7c, which already
-> > measured 5 identified directions of 7).
+> > `projected_gradient` (7f) and `gam_sp_identifiability` (7c, whose
+> > **step-stability** reading is 2 of 7 directions unresolvable — 5 of 7
+> > identified — held across all four readings. *Corrected 2026-09-15, PR #234
+> > review [P0-1]: this line originally cited the eigenvalue-SIGN count of the
+> > same digits, which ADR-219 amendment 2 RETRACTED.*).
 > >
 > > **It does NOT deliver reproducibility, and says so** — that comes from a
 > > stable criterion (7h) and a deterministic solver (8). `mgcv` is
@@ -1780,3 +1786,34 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > the wiring epic, slice 3's 7h dependency is discharged and **Anchor W6 alone
 > blocks it**, making wiring **slice 1** (target-spec parity, the measurement W6
 > consumes) the highest-value work on that track.
+
+> **SEQUENCING DECISION, 2026-09-14 (maintainer): THIS EPIC YIELDS THE SLOT TO
+> `PLAN_gam_production_wiring.md` SLICE 1.** Blocker E's closure (ADR-226) left
+> wiring slice 3 gated on Anchor W6 alone — parity on the TARGET model
+> specification — and wiring slice 1 is the measurement that gate consumes.
+> Two reasons recorded, so a later session does not re-litigate:
+>
+> 1. **Slice 1 can RETIRE a gate; slice 8 can only improve an engine.** W6 is
+>    the last gate standing between the parity work and a surface anyone can
+>    see. Slice 8 is open-ended solver work and moves nothing closer to that.
+> 2. **Slice 1 is the cheaper information.** It may surface blocker A (`te()`
+>    vs `s()+s()+ti()`) as a real obstacle rather than a hypothesis — and if
+>    the target spec cannot be expressed, a better solver improves an engine
+>    that still cannot render the production formula.
+>
+> **This epic is NOT parked and nothing here is superseded.** `NEXT: slice 8`
+> stands as the next work *when this epic resumes*, now carrying ADR-226
+> decision 2 as its quantified target (reach the `523.645` basin by
+> construction, where best-of-9 reaches it 3 of 10 times) plus the
+> plateau re-measurement the convergence thresholds now wait on.
+>
+> **The counter-argument, recorded rather than buried:** ADR-226 decision 2
+> means the engine reproducibly settles in a basin that is worse by its own
+> criterion and further from `mgcv`, and slice 8 is what fixes that. It
+> **passes** ADR-221's gate (`0.173` against `1.0`), so it is headroom and not
+> a blocker — which is why it yields. If slice 1 finds W6 satisfiable quickly,
+> that balance is worth revisiting.
+>
+> **Also still open and NOT discharged by anything above:** ADR-224's
+> registered tier-3 dispatch (the cross-runner axis), which remains the right
+> instrument for `SELECT_FREE_SP_MODEL_CLAIM`'s environment qualification.
