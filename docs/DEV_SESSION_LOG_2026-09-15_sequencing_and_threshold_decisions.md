@@ -127,9 +127,21 @@ a `MEASUREMENT (own criterion)` reading; nothing here is parity evidence.
 
 ## Baseline result
 
-`uv run pytest tests/ -m "not slow"`: **run in flight at the time of this
-commit; the reading is appended in this branch's follow-up commit rather than
-guessed here.** This session changes no Python, so the expectation is that it
-matches #233's `3646 passed, 3 skipped, 126 deselected, 0 failed` shape (this
-container has R). If it does not, that is the finding and will be recorded as
-such.
+`uv run pytest tests/ -m "not slow"`:
+**3646 passed, 3 skipped, 126 deselected, 5 warnings, 0 failed (647.59s).**
+
+The expectation recorded before the run held exactly: identical to #233's
+`3646 / 3 / 126 / 0`, this container having R. No Python changed and no
+failures.
+
+**Reconciliation for whoever diffs against this**, since three different
+figures now exist for the same suite and they are all consistent:
+
+| run | passed | skipped | R present? |
+|---|---|---|---|
+| #233's baseline, and this one | 3646 | 3 | yes |
+| #234's reviewer | 3632 | 17 | no |
+
+Collected total is `3649` in every case, and the 14-test difference is exactly
+the mgcv-dispatch set moving between passed and skipped. Deselected is `126`
+throughout.
