@@ -1817,3 +1817,38 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > **Also still open and NOT discharged by anything above:** ADR-224's
 > registered tier-3 dispatch (the cross-runner axis), which remains the right
 > instrument for `SELECT_FREE_SP_MODEL_CLAIM`'s environment qualification.
+
+> **UPDATE 2026-09-15 — the wiring slice this epic yielded the slot to has
+> REPORTED, and its result changes what "slice 8" is worth.** Wiring slice 1
+> (ADR-227) measured the shipped dashboard's MI form against `mgcv` for the
+> first time. Two findings bear directly on this epic:
+>
+> 1. **The engine is in excellent shape on the production formula's own
+>    structure.** `fit_polaris_gam(multistart=True)` against `mgcv`'s own fit of
+>    the same 4-term spec reads `max_abs_eta_diff` **3.1764e-05** (tier 3)
+>    against ADR-221's `2e-2` — a 629x margin, two orders better than this
+>    epic's previous best free-`sp` reading (`5.46e-03`, ADR-220). Single-start
+>    reads `3.3773e-05`, so **blocker D's ~20x single-start penalty does not
+>    appear on this 5-block non-`select` structure** — that penalty is a
+>    property of the `select=TRUE` N=7 structure, not of the search generally.
+> 2. **But Anchor W6 is NOT satisfied, and not for a reason slice 8 can reach.**
+>    `te(x,z) != s(x)+s(z)+ti(x,z)` — refuted under ADR-221's own criterion,
+>    with `mgcv` on BOTH sides of the deciding comparison. The target spec is
+>    **inexpressible** today, so a better outer solver improves an engine that
+>    still cannot render the production formula.
+>
+> **The sequencing counter-argument recorded above ("If slice 1 finds W6
+> satisfiable quickly, that balance is worth revisiting") resolves the other
+> way:** W6 was NOT quickly satisfiable, and the obstacle is expressibility
+> rather than accuracy. Registered as wiring slices **1b** (a `te` basis
+> producer) and **1c** (unpenalized parametric columns). Whether 1b or a
+> re-pointing of the shipped model form is the right route is a **maintainer**
+> decision.
+>
+> **Nothing here supersedes `NEXT: slice 8` for THIS epic** — ADR-226 decision
+> 2's reproducibly-worse basin is still real and still slice 8's to close. But a
+> reader choosing between the two tracks should know that the wiring track's
+> blocker is now a missing basis producer, not solver accuracy.
+>
+> **Also unchanged and still open:** ADR-224's registered tier-3 cross-runner
+> dispatch.

@@ -13,12 +13,41 @@ best mgcv parity candidate."* Raised from the PR #225/#226 review conversation.
 **Predecessors:** `PLAN_mgcv_parity_engine.md` (the engine and its evidence);
 `PLAN_penalized_mi_surface.md` (the band and its coverage gate);
 `PLAN_mi_dashboard.md` (the surface being re-pointed).
-**Total slices:** 5, of which slice 4 may legitimately end in "change nothing".
+**Total slices:** 5, of which slice 4 may legitimately end in "change nothing",
+plus slices 1b and 1c registered by slice 1's own finding.
 **Estimated scope:** ~4–6 dev-days autonomous, plus tier-3 dispatches.
-**Status 2026-09-14: SLICE 1 IS THE NEXT WORK** (maintainer sequencing
-decision — the parity epic yields the slot; blocker E is CLOSED and Anchor W6
-alone now gates slice 3). Slices 2-5 remain NOT STARTED; slice 3 onward is
-still blocked, on W6 rather than on 7h — see blocker E and the banner below.
+
+> ## STATUS 2026-09-15: SLICE 1 IS DONE, AND IT REFUTED THE HYPOTHESIS SLICES 2-5 REST ON (ADR-227)
+>
+> **`te(x,z)` is NOT `s(x)+s(z)+ti(x,z)`.** Measured at tier 1 and tier 3, on
+> the dashboard's own count-basis MI form. **Anchor W6 is NOT satisfied**, and
+> not for a reason any solver work can reach:
+>
+> | axis | what it asks | `max_abs_eta_diff` | verdict |
+> |---|---|---:|---|
+> | Polaris vs `mgcv` `s+s+ti` | does our engine reproduce the spec we CAN express? | **3.18e-05** | **AGREES** (629x margin on ADR-221's `2e-2`) |
+> | Polaris vs `mgcv` `te()` | does that reproduce the TARGET? (**W6**) | **3.72e-02** | **FAILS**, 1.86x over |
+> | `mgcv` `te()` vs `mgcv` `s+s+ti` | are the two forms the same fit at all? | **3.72e-02** | **NOT equivalent** |
+>
+> **Our engine contributes 0.086% of the target-form gap; the re-expression
+> contributes 100.03%.** The third axis has `mgcv` on both sides, so it is
+> evidence about `mgcv` and none about Polaris — which is exactly what makes it
+> the localiser. Structural, not one cell: **6 of 8 Poisson draws fail**, and a
+> failing gap is flat across `p = 24…70`, so it is not a basis-size artefact.
+> `s(duration_years)` — structurally identical in both forms — agrees to
+> `≤ 4.5e-03` throughout, so the disagreement is confined to the re-expressed
+> term.
+>
+> **Slices 2-5 are NOT STARTED and slice 2 should NOT start yet.** It measures
+> old-vs-new on the Polaris side, and *which "new"* it should measure is
+> precisely what is now undecided. The decision owed is a **maintainer** one
+> (`ROUTINE_MGCV_PARITY.md` reserves "whether a term belongs in the target model
+> form"): **slice 1b** (build a `te` basis producer, keeping the shipped model
+> form) or **re-point the dashboard onto `s+s+ti`** (cheaper, satisfies W6
+> immediately, but changes the shipped model).
+>
+> **Do not read axis (1) as permission to wire.** It says the engine is sound on
+> this structure; W6 gates on the *target spec*, which is axis (2).
 
 Its
 `CONTINUATION_gam_production_wiring.md` is created by whichever session starts
@@ -286,6 +315,57 @@ the finding is the deliverable.
   the same span under a penalty this engine already assembles per-margin. If it
   does not, the difference localises to the penalty construction, not the basis.
 - **Out of scope:** the amount basis; any band; any dashboard edit.
+
+## Slice 1b — a `te` basis producer (REGISTERED by slice 1's finding, ADR-227)
+
+- **Registered 2026-09-15**, per `ROUTINE_MGCV_PARITY.md` step 10: a gap this
+  epic opens is **closed or registered as a slice with a release condition**,
+  never merely noted in a CONTINUATION (the work-selection rule cannot reach a
+  note — the assembler was named as a blocker by three ADRs and built zero
+  times for exactly this reason).
+- **Why:** slice 1 measured `te(x,z) != s(x)+s(z)+ti(x,z)` under ADR-221's
+  committed criterion. Branch (a) of slice 1's "the `te` decision is the
+  substance" is therefore **closed as refuted**, leaving branch (b): build the
+  basis producer, so the dashboard's model form can be expressed without
+  changing it.
+- **What it is, concretely:** `te`'s penalty is the Kronecker-padded marginal
+  penalty over the **full** tensor (one smoothing parameter per margin, 2 here),
+  not the ANOVA decomposition's per-block set (5 here). The **span is already
+  correct** — slice 1 measured equal column counts on both sides in every cell
+  — so this is penalty construction, not basis construction. That is a smaller
+  job than "a new basis", and slice 1's evidence is what makes it smaller.
+- **Release condition:** a `basis="te"` term assembles through
+  `assemble_model_design`, and `fit_polaris_gam` on the dashboard's own form
+  reaches ADR-221's committed `eta`/`edf` criterion against `mgcv`'s native
+  `te()` fit, at tier 1 AND tier 3, with a ledger row and a declared
+  `VerificationClaim`. **That, and only that, retires Anchor W6.**
+- **Alternative this slice competes with, and the maintainer decides between
+  them:** re-point the shipped dashboard form onto `s+s+ti`. Cheaper and it
+  satisfies W6 immediately, but it changes the model a client sees, which
+  `ROUTINE_MGCV_PARITY.md` reserves to the maintainer. It would also make
+  slice 2's old-vs-new measurement carry a real modelling change rather than an
+  implementation change.
+- **Out of scope:** the amount basis; anything about `select=TRUE`.
+
+## Slice 1c — unpenalized parametric columns (the `Σ factors` block)
+
+- **Registered 2026-09-15** by slice 1's second finding (ADR-227 decision 6),
+  under the same step-10 rule.
+- **Why:** `assemble_model_design` builds an unpenalized intercept and then
+  penalized `cr`/`ti`/`sz` terms. It has **no route for unpenalized parametric
+  columns**, so the dashboard's `Σ factors` block (`sex`, `smoker`, `band`,
+  `uw_class`, `channel`, `segment`, `underwriting_era`) cannot be expressed.
+  Slice 1 did not measure this — its recipe carries no factor column, which is
+  what the page fits when its candidate factors are single-level — but **any
+  real cedant frame has these columns**, so the gap blocks the epic's actual
+  use case even once slice 1b lands.
+- **Release condition:** a parametric factor block assembles into the design
+  with no penalty block of its own, and the dashboard's form *with* factors
+  reaches ADR-221's criterion against `mgcv` fitting the same formula, at tier
+  1 AND tier 3, with a ledger row.
+- **Depends on:** nothing in this epic — it is independent of slice 1b and could
+  run first or in parallel. It is NOT a dependency of slice 1b, and slice 1b is
+  not a dependency of it.
 
 ## Slice 2 — old vs new on the same input (Anchor 7's precondition)
 

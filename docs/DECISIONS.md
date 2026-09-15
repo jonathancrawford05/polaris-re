@@ -22644,3 +22644,218 @@ this measurement.
    measurement W6 consumes and is now the highest-value next work on that track.
 3. Slice 8 gains decision 2 as quantified justification.
 4. The basin finding is registered, not actioned. It is slice 8's to close.
+
+## ADR-227: Production wiring slice 1 — `te(x,z)` is NOT `s(x)+s(z)+ti(x,z)`, the target spec is therefore inexpressible today, and Anchor W6 is NOT satisfied
+
+**Date:** 2026-09-15
+**Status:** ACCEPTED. **Tier 1 AND tier 3** — see "Oracle versions" below.
+**Implements:** `docs/PLAN_gam_production_wiring.md` slice 1, registered by the
+maintainer's sequencing decision of 2026-09-14 (PR #234), which had the parity
+epic yield the one-active-epic slot to this slice.
+**Depends on:** ADR-221 (the committed `eta`/`edf` gate, reused verbatim),
+ADR-217 (block structure), ADR-226 (why `multistart` is the pinned
+configuration), ADR-205 decision 2 (`ti` contributes two penalty blocks).
+
+### Why this slice existed
+
+In seven weeks of `mgcv`-parity work, **the production formula had never been
+measured against `mgcv`.** Every parity result to date is on structures the
+parity epic invented. Anchor W6 — *"nothing wires to a client-facing surface
+before the TARGET model specification reaches acceptable parity"* — gates wiring
+slice 3, and this slice produces the measurement that gate consumes. It is the
+only remaining gate on that track that could be **retired** rather than merely
+improved.
+
+### The claim, written before the code (`docs/VERIFICATION_STANDARD.md` §3.2)
+
+Carried verbatim in code as
+`gam_production_mi_conformance.PRODUCTION_MI_CLAIM_SENTENCE`. In brief:
+`fit_polaris_gam(multistart=True)` assembles the dashboard's own count-basis MI
+form — `deaths ~ offset(log(exposure*q_base)) + te(attained_age, calendar_year)
++ s(duration_years)`, `poisson(log)` — re-expressed through
+`assemble_model_design` as `s(age) + s(year) + ti(age, year) + s(duration)`,
+selecting all 5 `log10(lambda)` itself and never reading `mgcv`'s output;
+`mgcv` fits **both** forms natively at free `sp`; compared on `eta` and
+`edf_total` against **ADR-221's committed criterion**, `max_abs_eta_diff < 2e-2`
+and `abs(edf_total_diff) < 1.0`.
+
+**This is a genuine two-producer comparison** — unlike the several slices before
+it, which were correctly classed `MEASUREMENT (own criterion)`. The ADR-193
+mechanical test applied to the producing function's signature:
+`fit_production_mi_case(r_case: RProductionMIRecipe, ...)`, and
+`RProductionMIRecipe` structurally has no `te` or `anova` key, so it cannot read
+either of `mgcv`'s fits even when handed the wider payload. Provenance is
+**INDEPENDENT** on every declared quantity.
+
+### Three axes, deliberately, because one would conflate two questions
+
+| axis | what it asks | provenance |
+|---|---|---|
+| (1) Polaris vs `mgcv` `s+s+ti` | does our engine reproduce the spec we CAN express? | INDEPENDENT, about Polaris |
+| (2) Polaris vs `mgcv` `te()` | does that reproduce the TARGET? — **Anchor W6's own question** | INDEPENDENT, about Polaris |
+| (3) `mgcv` `te()` vs `mgcv` `s+s+ti` | are the two forms the same fit at all? | INDEPENDENT, **entirely inside R** |
+
+Axis (3) has `mgcv` on both sides. It is real evidence about `mgcv` and **none
+about this engine** — the same category `docs/VERIFICATION_STANDARD.md` §5
+already records for the R-side `smoothCon`/`lpmatrix` guard — and it must never
+be read as parity evidence for Polaris. It is included because it carries the
+localisation the other two cannot.
+
+### Decision 1 — the engine reproduces the spec it can express, with the largest margin this epic has recorded
+
+Axis (1), headline recipe (`n = 1260`, a full age × calendar-year × duration
+grid at production grain):
+
+| search | tier | `max_abs_eta_diff` | `edf_total` diff | nfev | converged | at bound | agrees |
+|---|---|---:|---:|---:|---|---|---|
+| `multistart=True, n_starts=9` (PINNED) | 1 | 3.1824e-05 | −0.0029 | 1326 | yes | no | **yes** |
+| `multistart=True, n_starts=9` (PINNED) | **3** | **3.1764e-05** | **−0.0027** | 1392 | yes | no | **yes** |
+| single-start (blocker D, recorded beside) | 1 | 3.2520e-05 | −0.0023 | 102 | yes | no | yes |
+| single-start (blocker D, recorded beside) | **3** | **3.3773e-05** | **−0.0023** | 102 | yes | no | yes |
+
+`3.18e-05` against ADR-221's `2e-2` is a **629x margin**; `edf_total` is ~370x
+inside its own bound. For comparison, the best CONFIRMED-at-both-tiers reading
+this epic had previously produced on a free-`sp` structure was `5.46e-03`
+(ADR-220) — this is two orders better, on the production formula.
+
+The two tiers differ only in the last figures of the Polaris-side numbers
+(different BLAS, so a different search path), and agree on every verdict.
+
+### Decision 2 — but the spec it can express is NOT the target spec, and this is the finding
+
+Axis (2): `max_abs_eta_diff` **3.7214e-02** (tier 3; `3.7201e-02` at tier 1)
+against the same `2e-2` bound — **1.86x over**. `edf_total` diff `+0.5203`
+passes its half; `eta` does not. **Anchor W6 is NOT satisfied.**
+
+Axis (3) explains why, and it removes Polaris from the question entirely:
+`mgcv`'s own `te()` and `mgcv`'s own `s+s+ti` differ by **3.7213e-02** on the
+same recipe — essentially the whole of axis (2)'s gap. (This row is
+**bit-identical between tiers 1 and 3**: it is deterministic in R given the
+pinned seed, with no Polaris search in it.)
+
+**Attribution (tier 3, multistart): our engine contributes 0.085% of the
+target-form gap; the `te` → `s+s+ti` re-expression contributes 99.999%.**
+
+`te(x,z) == s(x)+s(z)+ti(x,z)` is **refuted as an identity**. The plan said it
+was a hypothesis and not an identity; it is now measured, not assumed.
+
+### Decision 3 — the refutation is structural, not one unlucky cell
+
+Swept entirely inside R (axis (3) repeated across variants):
+
+- **Draw axis** — 8 Poisson draws at the headline `k`: **6 of 8 FAIL** ADR-221's
+  criterion. Median `2.8968e-02`; range `6.0034e-06` … `5.5133e-02`. The two
+  forms coincide on *some* draws and not others. **That is worse than a
+  consistent bias for a client-facing surface, because a single fit gives no way
+  to tell which case you are in** — the same shape of concern ADR-226 decision 2
+  raised about *reproducibly wrong* looking trustworthy.
+- **k axis** — 4 basis dimensions, anchored on a draw that *disagrees* at the
+  headline `k` (anchoring it on an agreeing draw would have proved nothing):
+  `5.0590e-02` … `5.5722e-02` across `p = 24` … `70`. The gap does not shrink as
+  the basis grows. **Not a basis-size artefact.**
+- **Internal control** — `s(duration_years)` is structurally identical in both
+  formulas; it is not part of what `te` decomposes. Its own `edf` agrees to
+  `≤ 4.52e-03` in every cell while the decomposed age×year block does not. **The
+  disagreement is confined exactly to the re-expressed term.**
+
+The whole sweep is **bit-identical between tiers 1 and 3** except for one
+`duration_edf_diff` cell at the 15th significant figure (`−6.88e-15` against
+`−5.11e-15`) — a last-bit BLAS difference, and incidentally a confirmation that
+the two tiers really are different environments.
+
+### Why it happens, and why the mechanism was predicted correctly while the conclusion was not
+
+Column counts are equal on both sides in every cell (`p = 39` at the headline
+`k`; `te(k=c(7,5))` gives `7·5 − 1 = 34` tensor columns, and `6 + 4 + 24 = 34`
+for the decomposition). **But equal counts do not establish equal span** — two
+39-column bases can span different 39-dimensional subspaces — so the span is
+**measured** rather than inferred: projecting each design's columns onto the
+other's column space, both ways, leaves residuals of **2.953e-13** and
+**2.949e-13**, with `rank(X_te) = rank(X_anova) = rank([X_te X_anova]) = 39`.
+That is mutual containment to machine precision. **The span is identical, on
+evidence.**
+
+What is not identical is the penalty: `te` carries **3** smoothing parameters
+(two tensor margins plus duration) where the decomposition carries **5** (`s` 1,
+`s` 1, `ti` 2, `s` 1). Same space, different penalty geometry, therefore a
+different maximiser of the penalized likelihood.
+
+PLAN slice 1's registered prediction was: *"the re-expression reproduces
+`mgcv`'s `te()` on `eta` within ADR-221's `2e-2` … If it does not, the
+difference localises to the penalty construction, not the basis."* **The
+conclusion was wrong and the fallback was right** — recorded that way rather
+than quietly dropped.
+
+### Decision 4 — stop here rather than widen scope
+
+Slice 1's own DoD: *"If the `te` ≡ `s+s+ti` re-expression does not reproduce
+`mgcv`'s `te()` within ADR-221's tolerances, that is the slice's result and it
+stops here rather than proceeding to slice 2."* It does not, so it stopped. **No
+tolerance was widened and nothing was re-gated** (Anchor W5): ADR-221's bounds
+are *imported* into `gam_production_mi_conformance` rather than redeclared, so
+they cannot drift from the constants ADR-221 derived.
+
+Two follow-ons are **registered as slices, not filed as notes**
+(`ROUTINE_MGCV_PARITY.md` step 10): **slice 1b** (a `te` basis producer) and
+**slice 1c** (unpenalized parametric columns — see decision 6). The choice
+between 1b and re-pointing the shipped model form onto `s+s+ti` is a
+**maintainer decision**, because "whether a term belongs in the target model
+form" is explicitly reserved to the maintainer by that routine.
+
+### Decision 5 — a probe-level trap, caught before it produced a false finding
+
+`eta` from `mgcv` must be read as **`m$linear.predictors`, never
+`predict(m, type="link")`**: the latter does not add back an offset supplied
+through `gam()`'s `offset=` argument. Using it made `max_abs_eta_diff` read
+**1.9751** against a `2e-2` bound — a spurious 99x "failure" that was entirely
+`max(log(exposure · q_base))`, and which would have been reported as a
+catastrophic parity failure of the production formula.
+
+**No earlier probe in the parity epic could have hit this**: the parity target
+formula uses *weights and no offset* (PLAN Anchor 5's table), so the dashboard's
+Poisson-offset form is the first place it appears. `gam_production_mi_probe.R`
+now carries a tripwire exporting
+`m$linear.predictors − (predict(type="link") + offset)` (machine epsilon at both
+tiers), so a future `mgcv` changing this behaviour announces itself rather than
+moving a number silently.
+
+### Decision 6 — a second expressibility gap, found on the way and named
+
+`assemble_model_design` builds an unpenalized intercept and then penalized
+`cr`/`ti`/`sz` terms. It has **no route for unpenalized parametric columns**, so
+the dashboard's `Σ factors` block (`sex`, `smoker`, `band`, `uw_class`, …)
+**cannot be expressed either**. It is not measured here — the recipe carries no
+factor column, which is what the page fits when its candidate factors are
+single-level — but it blocks any real cedant frame. Registered as slice 1c.
+
+### Decision 7 — blocker D measured on this structure rather than inherited
+
+`multistart=True, n_starts=9` is pinned (`fit_production_mi_case` defaults it on,
+unlike `fit_polaris_gam`). **But on this 5-block non-`select` structure,
+single-start agrees with it to ~1e-5** (`3.18e-05` vs `3.25e-05` on axis (1);
+both converged, neither at a bound). The ~20x single-start penalty ADR-221
+measured on the `select=TRUE` N=7 structure **does not appear here**. Pinning
+multistart remains correct — ADR-226's argument for it is about *reproducibility
+across threads*, not about this structure's search difficulty — but slice 3
+should not carry over the expectation that single-start is the risk it was at
+N=7.
+
+### What this does NOT establish
+
+- **Nothing about the amount basis.** Quasi-Poisson; `reml_score_general` raises
+  on `dispersion_fixed=False` (blocker B). Untouched.
+- **Nothing about any band.** Anchor W2; blocker C's coverage finding stands.
+- **Nothing about conformance level 4's standing disagreement** (ADR-190).
+- **No unqualified "mgcv parity" claim.** The claim sentence names one
+  structure, one search configuration and both tolerances (ADR-219 amendment 1's
+  marketing constraint), and a test asserts it does not contain the phrase.
+- **Axis (1) is not permission to wire.** It says the engine is sound on this
+  structure. Anchor W6 gates on the *target spec*, and axis (2) answers that.
+
+### Oracle versions
+
+- **Tier 1** — R 4.3.3 / mgcv 1.9.1 (local apt), `OPENBLAS_NUM_THREADS=1`.
+- **Tier 3** — the pinned digest
+  `ghcr.io/jonathancrawford05/r-gam-base@sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
+  run 34968814955 on `2ff1a2a`. See `docs/CONFORMANCE_LEDGER.md` for the
+  per-tier readings side by side.
