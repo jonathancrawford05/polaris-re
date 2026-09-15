@@ -3997,18 +3997,33 @@ on the FD path) lives now.
   observation about an advisory signal, promoted only because a dated session
   log is not where a future session looks).* **NICE-TO-HAVE.**
 
-- **MAINTAINER DECISION OWED (small): should the perf series skip
-  zero-engine-code commits by rule rather than by per-session judgement?**
-  The row has now been declined twice on this branch (#227 [P2-1], accepted in
-  review; #233) on grounds that are general rather than situational — a
-  docs-only commit contributes no signal about the engine and measurable noise
-  about the container, demonstrated at `1.258x → 1.339x` in #233. ADR-177
-  nominally expects one row per initial routine PR, so the two are in tension
-  and it is currently resolved by discretion each time. **Not decided here:**
-  changing what the series samples is a policy call about an instrument, not a
-  routine one, and the honest options include leaving it as discretion. *Source:
-  PR #233 review [P2-2] (2nd-order — a process convention, raised rather than
-  taken).* **NICE-TO-HAVE.**
+- ~~**MAINTAINER DECISION OWED (small): should the perf series skip
+  zero-engine-code commits by rule rather than by per-session judgement?**~~
+  **NOT OWED — ALREADY DECIDED, 2026-08-11, and this entry should never have
+  been written.** `ADR-177 amendment 1` codifies exactly this exemption, in
+  these words: *"a PR that modifies nothing under `src/polaris_re/` appends no
+  `perf/history.jsonl` row."* It gives the same reason later sessions kept
+  re-deriving — a row that could not have moved the engine "is worse than
+  absent: the analyser medians over a window, so padding the series with no-op
+  rows dilutes the window and makes a real step harder to see" — and it was
+  itself written after PR #194 hit the identical situation.
+
+  **Why this is worth recording rather than quietly deleting.** Three PRs
+  (#227, #233, #234) and four review rounds re-argued this from first
+  principles. Each time the decline was reasoned out, measured
+  (`1.258x → 1.339x` in #233), defended, and flagged by review as "in tension
+  with ADR-177, which nominally expects one row per PR" — when ADR-177's own
+  amendment says the opposite. **Nobody, this session included, read past the
+  ADR's headline to its amendment.** The cost was several cycles spent
+  producing an answer the repository already had.
+
+  **The generalisable point:** this repo amends ADRs in place, so an ADR's
+  headline can be superseded by its own amendment while still reading as
+  current. Check amendments before treating a rule as unsettled — the same
+  failure mode as PR #234's [P0-1], where a *retracted* number still read as
+  live. *Source: maintainer direction 2026-09-15, which asked for the rule to
+  be written and found it already was (1st-order — a decided rule being
+  re-litigated is a direct, measurable process cost).* **IMPORTANT.**
 
 ### Harvested 2026-09-14b — two maintainer decisions: slice 1 next, thresholds pending measurement
 
@@ -4055,3 +4070,16 @@ on the FD path) lives now.
   *Source: maintainer decision 2026-09-14 (1st-order — an acceptance criterion,
   scheduled rather than taken).* **IMPORTANT — needs a maintainer decision, not
   a routine one.**
+
+- **Maintainer-raised 2026-09-15, deliberately NOT tackled yet: two process
+  changes aimed at throughput.** (1) **A separate, lighter PR-review routine
+  for docs-only work** — the current routine is sized for behaviour changes and
+  runs the full protocol on PRs that ship none (PR #234: two review rounds, six
+  findings, four commits, zero code). (2) **A deliberate effort to cut docs
+  bloat** — every finding is currently recorded in up to five places (ADR,
+  session log, ledger row, PLAN/CONTINUATION, this file), and the duplication
+  is itself a source of the staleness the reviews keep catching. Raised in the
+  context of parity progress feeling slow; the maintainer's own read is that
+  process weight, not mathematics, is the drag. *Source: maintainer direction
+  2026-09-15 (1st-order — a throughput constraint on every future slice).*
+  **IMPORTANT.**
