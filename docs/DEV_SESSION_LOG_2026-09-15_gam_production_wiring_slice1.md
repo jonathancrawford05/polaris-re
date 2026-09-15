@@ -171,7 +171,9 @@ is not the target form*.
 
 ## Test baseline
 
-See "Baseline result" below.
+See "Baseline result" below. **Reconciled against the previous parity session's
+stated baseline rather than eyeballed**, because the absolute counts move
+whenever a test lands.
 
 ## What I did NOT do, deliberately
 
@@ -196,4 +198,35 @@ See "Baseline result" below.
 
 ## Baseline result
 
-To be completed below from this session's own run.
+`uv run pytest tests/ -m "not slow"`, R present, `OPENBLAS_NUM_THREADS=1`:
+
+**3660 passed, 3 skipped, 127 deselected, 5 warnings, 0 failed (778.30s).**
+
+**Reconciled exactly against the last parity session's recorded baseline** (3646
+passed / 3 skipped / 126 deselected / 0 failed, with R — `DEV_SESSION_LOG_
+2026-09-15_sequencing_and_threshold_decisions.md`), rather than compared by eye:
+
+| | non-slow collected | deselected |
+|---|---:|---:|
+| this branch | 3663 | 127 |
+| this branch, ignoring only the new test file | 3649 | 126 |
+| **this file's contribution** | **+14** | **+1** |
+
+3649 collected with 3 skips is 3646 passing — **the previous baseline exactly**
+— and this branch adds precisely the 14 non-slow tests plus the one
+`@pytest.mark.slow` end-to-end test (deselected). 3646 + 14 = **3660**. ✅
+
+**One environmental failure had to be cleared first, and it was not a
+regression.** On a clean checkout, `test_loaded_ilec_feeds_tensor_mi_surface`
+failed on `FileNotFoundError: data/mortality_tables/soa_vbt_2015_male_smoker.csv`
+— the documented "tables are GENERATED, not committed" case, whose own error
+message says so. `uv run python scripts/convert_soa_tables.py --source pymort`
+cleared it and 19 further skips. Recorded here because a future session diffing
+against this log needs to know the count was taken *with* the tables present.
+
+**QA goldens:** `uv run pytest tests/qa/` — **94 passed**, byte-identical
+(Anchor W3). Nothing was re-pointed; this branch adds a conformance module that
+no engine path imports.
+
+**Lint/format/type:** `ruff format` (no changes), `ruff check src/ tests/` (all
+checks passed), `mypy` on the new module (no issues).
