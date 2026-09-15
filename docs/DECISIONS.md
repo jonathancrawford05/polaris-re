@@ -22709,23 +22709,31 @@ grid at production grain):
 | search | tier | `max_abs_eta_diff` | `edf_total` diff | nfev | converged | at bound | agrees |
 |---|---|---:|---:|---:|---|---|---|
 | `multistart=True, n_starts=9` (PINNED) | 1 | 3.1824e-05 | −0.0029 | 1326 | yes | no | **yes** |
-| `multistart=True, n_starts=9` (PINNED) | **3** | **3.1764e-05** | **−0.0027** | 1392 | yes | no | **yes** |
+| `multistart=True, n_starts=9` (PINNED) | **3**, run 1 | **3.1764e-05** | **−0.0027** | 1392 | yes | no | **yes** |
+| `multistart=True, n_starts=9` (PINNED) | **3**, run 2 | **3.1824e-05** | **−0.0029** | 1326 | yes | no | **yes** |
 | single-start (blocker D, recorded beside) | 1 | 3.2520e-05 | −0.0023 | 102 | yes | no | yes |
-| single-start (blocker D, recorded beside) | **3** | **3.3773e-05** | **−0.0023** | 102 | yes | no | yes |
+| single-start (blocker D, recorded beside) | **3**, run 1 | **3.3773e-05** | **−0.0023** | 102 | yes | no | yes |
+| single-start (blocker D, recorded beside) | **3**, run 2 | **3.2520e-05** | **−0.0023** | 102 | yes | no | yes |
 
 `3.18e-05` against ADR-221's `2e-2` is a **629x margin**; `edf_total` is ~370x
 inside its own bound. For comparison, the best CONFIRMED-at-both-tiers reading
 this epic had previously produced on a free-`sp` structure was `5.46e-03`
 (ADR-220) — this is two orders better, on the production formula.
 
-The two tiers differ only in the last figures of the Polaris-side numbers
-(different BLAS, so a different search path), and agree on every verdict.
+Two independent tier-3 runs were dispatched (the second after the span
+measurement was added). The Polaris-side `eta` readings across all three
+measurements span `3.1764e-05`–`3.1824e-05` — a spread three orders below the
+bound they are measured against — and **every verdict is identical at both
+tiers and across both tier-3 runs.** Run 2 reproduces tier 1's numbers exactly;
+run 1 differs in the last two figures, which is the expected BLAS/search-path
+variation between independently-provisioned runners.
 
 ### Decision 2 — but the spec it can express is NOT the target spec, and this is the finding
 
-Axis (2): `max_abs_eta_diff` **3.7214e-02** (tier 3; `3.7201e-02` at tier 1)
-against the same `2e-2` bound — **1.86x over**. `edf_total` diff `+0.5203`
-passes its half; `eta` does not. **Anchor W6 is NOT satisfied.**
+Axis (2): `max_abs_eta_diff` **3.7214e-02** (tier-3 run 1) / **3.7201e-02**
+(tier-3 run 2, and tier 1) against the same `2e-2` bound — **1.86x over** either
+way. `edf_total` diff `+0.5203` / `+0.5200` passes its half; `eta` does not.
+**Anchor W6 is NOT satisfied.**
 
 Axis (3) explains why, and it removes Polaris from the question entirely:
 `mgcv`'s own `te()` and `mgcv`'s own `s+s+ti` differ by **3.7213e-02** on the
@@ -22733,8 +22741,14 @@ same recipe — essentially the whole of axis (2)'s gap. (This row is
 **bit-identical between tiers 1 and 3**: it is deterministic in R given the
 pinned seed, with no Polaris search in it.)
 
-**Attribution (tier 3, multistart): our engine contributes 0.085% of the
-target-form gap; the `te` → `s+s+ti` re-expression contributes 99.999%.**
+**Attribution (multistart): our engine contributes 0.085% (tier-3 run 1) /
+0.086% (tier-3 run 2, tier 1) of the target-form gap; the `te` → `s+s+ti`
+re-expression contributes 99.999% / 100.032%.** (A hair over 100% simply means
+the two contributions are not additive in a `max`-norm — the re-expression's own
+gap slightly exceeds the total, because our engine's `3.2e-05` displacement
+happens to reduce the worst cell rather than add to it. It is not a
+double-count; the reading to take from it is that the engine's share is
+indistinguishable from zero at this scale.)
 
 `te(x,z) == s(x)+s(z)+ti(x,z)` is **refuted as an identity**. The plan said it
 was a hypothesis and not an identity; it is now measured, not assumed.
@@ -22763,6 +22777,22 @@ The whole sweep is **bit-identical between tiers 1 and 3** except for one
 `−5.11e-15`) — a last-bit BLAS difference, and incidentally a confirmation that
 the two tiers really are different environments.
 
+**And it is not an artefact of how the decomposition is spelled.** `mgcv`'s own
+`?ti` writes it as `ti(x) + ti(z) + ti(x,z)` — not `s(x) + s(z) + ti(x,z)` as
+blocker A proposes — and demonstrates it beside `te(x,z)` as a *different* model
+("tensor product" vs "tensor anova"). That is the first challenge any reader
+will raise, so it was measured rather than argued:
+
+| comparison | `max_abs_eta_diff` | `edf_total` diff | verdict |
+|---|---:|---:|---|
+| `s+s+ti` vs `ti+ti+ti` | **8.8818e-16** | **+0.0000** | **the same fit** |
+| `te()` vs `ti+ti+ti` (mgcv's own spelling) | **3.7213e-02** | +0.5230 | **fails ADR-221 too** |
+
+The two spellings are one fit to machine precision, and **mgcv's own documented
+decomposition misses `te()` by exactly the amount ours does.** Neither is
+expressible here in any case — a one-margin `ti` is rejected by `TermSpec`,
+which requires ≥ 2 variables for `basis="ti"`.
+
 ### Why it happens, and why the mechanism was predicted correctly while the conclusion was not
 
 Column counts are equal on both sides in every cell (`p = 39` at the headline
@@ -22770,10 +22800,10 @@ Column counts are equal on both sides in every cell (`p = 39` at the headline
 for the decomposition). **But equal counts do not establish equal span** — two
 39-column bases can span different 39-dimensional subspaces — so the span is
 **measured** rather than inferred: projecting each design's columns onto the
-other's column space, both ways, leaves residuals of **2.953e-13** and
-**2.949e-13**, with `rank(X_te) = rank(X_anova) = rank([X_te X_anova]) = 39`.
-That is mutual containment to machine precision. **The span is identical, on
-evidence.**
+other's column space, both ways, leaves residuals of **2.953e-13** / **2.949e-13**
+(tier 1) and **1.021e-14** (tier 3, the worse of the two directions), with
+`rank(X_te) = rank(X_anova) = rank([X_te X_anova]) = 39` at both tiers. That is
+mutual containment to machine precision. **The span is identical, on evidence.**
 
 What is not identical is the penalty: `te` carries **3** smoothing parameters
 (two tensor margins plus duration) where the decomposition carries **5** (`s` 1,

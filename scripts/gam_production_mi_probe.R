@@ -57,6 +57,15 @@
 # amount, the finding is about the RE-EXPRESSION, not about our engine -- and
 # that is a fact about mgcv that no amount of Polaris solver work would change.
 #
+# A THIRD FIT, TO CLOSE THE OBVIOUS OBJECTION TO (3)
+# --------------------------------------------------
+# mgcv's OWN ?ti documentation spells the decomposition `ti(x) + ti(z) +
+# ti(x,z)`, not `s(x) + s(z) + ti(x,z)`, and demonstrates it beside `te(x,z)`
+# as a DIFFERENT model ("tensor product" vs "tensor anova"). So the first
+# challenge to a refutation of blocker A is "you tested the wrong
+# decomposition". `m_ti_anova` below settles that by measurement rather than
+# by argument -- see the `anova_spelling` block.
+#
 # THE k MAPPING IS DERIVED, NOT CHOSEN (PLAN Anchor 4: k is an input)
 # -------------------------------------------------------------------
 # The dashboard's margins are patsy `bs(col, df=D)` -- D columns, no intercept.
@@ -259,6 +268,40 @@ main <- function(argv) {
     eta_anova - (as.numeric(predict(m_anova, type = "link")) + log_offset)
   ))
 
+  # ------------------------------------------------------------------------
+  # DOES THE SPELLING OF THE ANOVA DECOMPOSITION MATTER?
+  #
+  # The plan's blocker A proposes `s(x) + s(z) + ti(x,z)`. mgcv's OWN ?ti
+  # documentation writes the decomposition as `ti(x) + ti(z) + ti(x,z)` and
+  # demonstrates it beside `te(x,z)` as a DIFFERENT model ("tensor product"
+  # vs "tensor anova"), not as an equivalent one.
+  #
+  # That difference in spelling is the most obvious challenge to a refutation
+  # of blocker A -- "you tested the wrong decomposition" -- so it is measured
+  # rather than argued. Purely R-internal: no Polaris side, and nothing here
+  # is expressible through `assemble_model_design` anyway (a one-margin `ti`
+  # is rejected by TermSpec, which requires >= 2 variables for basis="ti").
+  # ------------------------------------------------------------------------
+  m_ti_anova <- mgcv::gam(
+    deaths ~ ti(attained_age, bs = "cr", k = 7) +
+      ti(calendar_year, bs = "cr", k = 5) +
+      ti(attained_age, calendar_year, bs = "cr", k = c(7, 5)) +
+      s(duration_years, bs = "cr", k = 5),
+    data = df, family = poisson(link = "log"), offset = log_offset,
+    knots = knots_arg, method = "REML"
+  )
+  eta_ti_anova <- as.numeric(m_ti_anova$linear.predictors)
+  spelling <- list(
+    # Does the s()-spelled decomposition equal the ti()-spelled one?
+    s_vs_ti_max_abs_eta_diff = max(abs(eta_anova - eta_ti_anova)),
+    s_vs_ti_edf_total_diff = sum(m_ti_anova$edf) - sum(m_anova$edf),
+    # Does mgcv's OWN spelling fare any better against te() than ours does?
+    te_vs_ti_anova_max_abs_eta_diff = max(abs(eta_te - eta_ti_anova)),
+    te_vs_ti_anova_edf_total_diff = sum(m_ti_anova$edf) - sum(m_te$edf),
+    n_coef_ti_anova = length(coef(m_ti_anova)),
+    n_sp_ti_anova = length(m_ti_anova$sp)
+  )
+
   # --- R-INTERNAL SENSITIVITY: is the te-vs-anova gap structural? -----------
   # The headline reading is one recipe, and this routine's own ledger exists
   # because a single cell can agree BY ACCIDENT -- which applies just as much
@@ -394,6 +437,8 @@ main <- function(argv) {
       converged = isTRUE(m_anova$converged),
       reml = as.numeric(m_anova$gcv.ubre)
     ),
+    # ---- Does the ANOVA decomposition's SPELLING matter? (R-internal) --------
+    anova_spelling = spelling,
     # ---- R-internal robustness sweep of the te-vs-anova gap ------------------
     sensitivity = sensitivity
   )
@@ -409,7 +454,8 @@ main <- function(argv) {
       "  R-internal te vs s+s+ti: max|d eta|=%.6e, d edf_total=%+.4f\n",
       "  offset tripwire (expect 0): te=%.3e, anova=%.3e\n",
       "  span residuals (expect ~0): anova-in-te=%.3e, te-in-anova=%.3e",
-      " [ranks %d/%d/%d combined]\n"
+      " [ranks %d/%d/%d combined]\n",
+      "  spelling: s+s+ti vs ti+ti+ti max|d eta|=%.3e; te vs ti+ti+ti max|d eta|=%.4e\n"
     ),
     out_path, n, as.character(packageVersion("mgcv")),
     length(coef(m_te)), sum(m_te$edf), length(m_te$sp),
@@ -417,7 +463,8 @@ main <- function(argv) {
     max(abs(eta_te - eta_anova)), sum(m_anova$edf) - sum(m_te$edf),
     offset_gap_te, offset_gap_anova,
     span_residual_anova_in_te, span_residual_te_in_anova,
-    rank_te, rank_anova, rank_combined
+    rank_te, rank_anova, rank_combined,
+    spelling$s_vs_ti_max_abs_eta_diff, spelling$te_vs_ti_anova_max_abs_eta_diff
   ))
   invisible(NULL)
 }

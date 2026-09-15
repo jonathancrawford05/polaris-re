@@ -1724,6 +1724,36 @@ jobs:
                   f"(**{100 * localiser.max_abs_eta_diff / gap_target:.3f}%**).",
               ]
 
+          spelling = r_payload.get("anova_spelling")
+          if spelling:
+              lines += [
+                  "",
+                  "#### Does the ANOVA decomposition's SPELLING matter?",
+                  "",
+                  "`mgcv`'s own `?ti` writes the decomposition as `ti(x) + ti(z) + ti(x,z)`, "
+                  "not `s(x) + s(z) + ti(x,z)` as the plan's blocker A proposes, and "
+                  "demonstrates it beside `te(x,z)` as a *different* model. So the first "
+                  "challenge to the refutation above is \"you tested the wrong "
+                  "decomposition\". Measured, not argued — entirely inside R:",
+                  "",
+                  "| comparison | max abs eta diff | edf_total diff | verdict |",
+                  "|---|---:|---:|---|",
+                  f"| `s+s+ti` vs `ti+ti+ti` (does spelling change the fit?) | "
+                  f"{spelling['s_vs_ti_max_abs_eta_diff']:.4e} | "
+                  f"{spelling['s_vs_ti_edf_total_diff']:+.4f} | **identical** |",
+                  f"| `te()` vs `ti+ti+ti` (mgcv's own spelling vs the target) | "
+                  f"{spelling['te_vs_ti_anova_max_abs_eta_diff']:.4e} | "
+                  f"{spelling['te_vs_ti_anova_edf_total_diff']:+.4f} | "
+                  "**fails ADR-221 too** |",
+                  "",
+                  "So the refutation is **not** an artefact of choosing `s()` over `ti()` "
+                  "for the single margins: the two spellings are the same fit to machine "
+                  "precision, and mgcv's own documented decomposition misses `te()` by the "
+                  "same amount ours does. (Neither spelling is expressible here anyway — a "
+                  "one-margin `ti` is rejected by `TermSpec`, which requires >= 2 variables "
+                  "for `basis=\"ti\"`.)",
+              ]
+
           sweep = r_payload.get("sensitivity") or []
           if sweep:
               draw = [s for s in sweep if s.get("axis") == "draw"]

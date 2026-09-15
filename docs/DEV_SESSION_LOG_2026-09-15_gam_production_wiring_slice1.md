@@ -107,9 +107,34 @@ machine epsilon at both tiers and will announce a future `mgcv` changing this.
 - **Tier 1** — R 4.3.3 / mgcv 1.9.1 (local apt, the expected versions),
   `OPENBLAS_NUM_THREADS=1`. Iteration only.
 - **Tier 3** — pinned digest
-  `ghcr.io/jonathancrawford05/r-gam-base@sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`,
-  run 34968814955 on `2ff1a2a`. **Every number above is confirmed at tier 3**;
-  see the ledger row for the two tiers side by side.
+  `ghcr.io/jonathancrawford05/r-gam-base@sha256:0d54c192e23c62bdc614eb5b534e04482f6cf92290e76cacb7956022cd806fd8`.
+  **Two runs**: 34968814955 (`2ff1a2a`) and 34969745829 (`480cc98`, adding the
+  span measurement). **Every number above is confirmed at tier 3.**
+
+The Polaris-side `eta` reading across tier 1 and both tier-3 runs spans
+`3.1764e-05`–`3.1824e-05` — three orders below the bound it is measured against
+— and **every verdict is identical at both tiers and across both tier-3 runs**.
+Tier-3 run 2 reproduces tier 1 exactly; run 1 differs in the last two figures
+(expected BLAS/search-path variation between independently-provisioned runners).
+The R-internal sweep is bit-identical between tiers except one
+`duration_edf_diff` cell at the 15th significant figure (`−6.88e-15` against
+`−5.11e-15`), which is itself a confirmation that the two tiers are genuinely
+different environments.
+
+## One claim I had to go back and actually measure
+
+I first wrote `spans_match` as `n_coef_te == n_coef_anova` and the ADR text as
+"column counts are equal, therefore the span is identical". **That does not
+follow** — two 39-column bases can span different 39-dimensional subspaces — and
+the whole localisation ("same span, DIFFERENT penalty") rests on it. So it is
+now measured: project each design's columns onto the other's column space, both
+ways, and report the worst residual alongside
+`rank(X_te)`, `rank(X_anova)` and `rank([X_te X_anova])`.
+
+Readings: `2.953e-13` / `2.949e-13` (tier 1), `1.021e-14` (tier 3), ranks
+39/39/39 at both. Mutual containment to machine precision, so the claim stands —
+but it now stands on evidence rather than on an inference that did not hold.
+Two tests cover the cases the column-count version would have missed.
 
 ## Provenance (ADR-193)
 

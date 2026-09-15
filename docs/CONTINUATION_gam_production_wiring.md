@@ -14,10 +14,10 @@ decision below is taken.
 
 The dashboard's MI form was expressed as a `ModelSpec` and measured against
 `mgcv` for the first time. **Our engine reproduces the spec it can express
-essentially exactly** — `max_abs_eta_diff 3.18e-05` against ADR-221's `2e-2`
+essentially exactly** — `max_abs_eta_diff 3.1824e-05` against ADR-221's `2e-2`
 bound, the largest margin this epic has ever recorded. **But the spec it can
 express is not the target spec.** `te(x,z)` and `s(x)+s(z)+ti(x,z)` are not the
-same fit, and the gap between them (`3.72e-02`) is nearly **1.9x ADR-221's own
+same fit, and the gap between them (`3.7213e-02`) is nearly **1.9x ADR-221's own
 bound** — so **Anchor W6 is NOT satisfied**, and it is not satisfied for a
 reason no solver work can reach.
 
@@ -25,9 +25,9 @@ reason no solver work can reach.
 
 | axis | what it asks | `max_abs_eta_diff` | `edf_total` diff | verdict |
 |---|---|---:|---:|---|
-| (1) Polaris vs `mgcv` `s+s+ti` | does our engine reproduce the spec we CAN express? | **3.18e-05** | −0.0029 | **AGREES**, 629x margin |
-| (2) Polaris vs `mgcv` `te()` | does that reproduce the TARGET? (**Anchor W6**) | **3.72e-02** | +0.5200 | **FAILS**, 1.86x over |
-| (3) `mgcv` `te()` vs `mgcv` `s+s+ti` | are the two forms the same fit at all? | **3.72e-02** | +0.5230 | **NOT equivalent** |
+| (1) Polaris vs `mgcv` `s+s+ti` | does our engine reproduce the spec we CAN express? | **3.1824e-05** | −0.0029 | **AGREES**, 629x margin |
+| (2) Polaris vs `mgcv` `te()` | does that reproduce the TARGET? (**Anchor W6**) | **3.7201e-02** | +0.5200 | **FAILS**, 1.86x over |
+| (3) `mgcv` `te()` vs `mgcv` `s+s+ti` | are the two forms the same fit at all? | **3.7213e-02** | +0.5230 | **NOT equivalent** |
 
 **Attribution: our engine contributes 0.086% of the target-form gap; the
 re-expression contributes 100.03%.** Axis (3) has `mgcv` on **both** sides —
@@ -51,12 +51,26 @@ Swept entirely inside R:
   `≤ 4.5e-03` throughout, while the decomposed age×year block does not. **The
   disagreement is confined exactly to the re-expressed term.**
 
-Spans match in every cell (`p` equal on both sides), and the smoothing-parameter
-count never does (3 for `te`, 5 for the decomposition). Same span, different
-penalty — which is precisely the mechanism PLAN slice 1's registered prediction
-said the difference would localise to if the equivalence failed. **The
-prediction's direction was right and its conclusion was wrong:** it predicted
-agreement within `2e-2`.
+Spans match in every cell — and **measured, not inferred from equal column
+counts**: the two-way projection residual between the two designs' column spaces
+is `2.953e-13`/`2.949e-13` (tier 1) and `1.021e-14` (tier 3), with
+`rank(X_te) = rank(X_anova) = rank([X_te X_anova]) = 39`. The
+smoothing-parameter count, by contrast, never matches: 3 for `te`, 5 for the
+decomposition.
+
+**Same span, different penalty** — which is precisely the mechanism PLAN slice
+1's registered prediction said the difference would localise to if the
+equivalence failed. **Its fallback was right and its conclusion was wrong:** it
+predicted agreement within `2e-2`.
+
+**It is also not an artefact of how the decomposition is spelled** — the first
+thing anyone will ask, because `mgcv`'s own `?ti` writes it as
+`ti(x) + ti(z) + ti(x,z)` rather than the plan's `s(x) + s(z) + ti(x,z)`, and
+demonstrates it beside `te(x,z)` as a *different* model. Measured: the two
+spellings are **the same fit to `8.8818e-16`** (`edf_total` diff exactly `0`),
+and **mgcv's own spelling misses `te()` by the same `3.7213e-02`**. Neither is
+expressible here anyway — a one-margin `ti` is rejected by `TermSpec`, which
+requires ≥ 2 variables for `basis="ti"`.
 
 ## What this means for the rest of the epic
 
