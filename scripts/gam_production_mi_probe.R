@@ -226,6 +226,29 @@ main <- function(argv) {
   eta_te <- as.numeric(m_te$linear.predictors)
   eta_anova <- as.numeric(m_anova$linear.predictors)
 
+  # ------------------------------------------------------------------------
+  # SPAN EQUIVALENCE, MEASURED RATHER THAN INFERRED FROM COLUMN COUNTS.
+  #
+  # The whole localisation this probe supports is "same span, DIFFERENT
+  # penalty". Equal column counts are NECESSARY for that and nowhere near
+  # SUFFICIENT -- two 39-column bases can span different 39-dimensional
+  # subspaces. So test containment both ways directly: project each design's
+  # columns onto the other's column space and report the worst residual. Zero
+  # (to machine precision) in both directions IS mutual containment, i.e. the
+  # two column spaces are the same subspace.
+  #
+  # If these ever read non-zero, the finding changes shape entirely: the forms
+  # would differ in BASIS as well as penalty, and "the difference localises to
+  # the penalty construction" would be wrong.
+  # ------------------------------------------------------------------------
+  x_te <- predict(m_te, type = "lpmatrix")
+  x_anova <- predict(m_anova, type = "lpmatrix")
+  span_residual_anova_in_te <- max(abs(x_anova - qr.fitted(qr(x_te), x_anova)))
+  span_residual_te_in_anova <- max(abs(x_te - qr.fitted(qr(x_anova), x_te)))
+  rank_te <- qr(x_te)$rank
+  rank_anova <- qr(x_anova)$rank
+  rank_combined <- qr(cbind(x_te, x_anova))$rank
+
   # Guard the paragraph above rather than trusting it: if a future mgcv makes
   # predict(type="link") include the argument-offset, this stops being a
   # silent no-op and says so.
@@ -341,6 +364,14 @@ main <- function(argv) {
     # to exclude an argument-supplied offset. Reported, not gated.
     offset_gap_te = offset_gap_te,
     offset_gap_anova = offset_gap_anova,
+    # Span equivalence, measured both ways (see the block that computes these).
+    # Machine-precision zeros here are what license "same span, different
+    # penalty"; anything larger would refute it.
+    span_residual_anova_in_te = span_residual_anova_in_te,
+    span_residual_te_in_anova = span_residual_te_in_anova,
+    rank_te = rank_te,
+    rank_anova = rank_anova,
+    rank_combined = rank_combined,
     # ---- mgcv's own fit of the TARGET form ----------------------------------
     te = list(
       eta = eta_te,
@@ -376,13 +407,17 @@ main <- function(argv) {
       "  te():        p=%d, edf_total=%.4f, n(sp)=%d\n",
       "  s()+s()+ti(): p=%d, edf_total=%.4f, n(sp)=%d\n",
       "  R-internal te vs s+s+ti: max|d eta|=%.6e, d edf_total=%+.4f\n",
-      "  offset tripwire (expect 0): te=%.3e, anova=%.3e\n"
+      "  offset tripwire (expect 0): te=%.3e, anova=%.3e\n",
+      "  span residuals (expect ~0): anova-in-te=%.3e, te-in-anova=%.3e",
+      " [ranks %d/%d/%d combined]\n"
     ),
     out_path, n, as.character(packageVersion("mgcv")),
     length(coef(m_te)), sum(m_te$edf), length(m_te$sp),
     length(coef(m_anova)), sum(m_anova$edf), length(m_anova$sp),
     max(abs(eta_te - eta_anova)), sum(m_anova$edf) - sum(m_te$edf),
-    offset_gap_te, offset_gap_anova
+    offset_gap_te, offset_gap_anova,
+    span_residual_anova_in_te, span_residual_te_in_anova,
+    rank_te, rank_anova, rank_combined
   ))
   invisible(NULL)
 }

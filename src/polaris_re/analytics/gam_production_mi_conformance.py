@@ -138,6 +138,19 @@ _N_PENALTY_BLOCKS = 5
 ``te()`` fit of the same span carries **3** (two tensor margins plus duration)
 — that difference in penalty count *is* blocker A, made countable."""
 
+_SPAN_RESIDUAL_TOLERANCE = 1.0e-9
+"""How small a two-way projection residual counts as "the same column space"
+(:attr:`RInternalFormComparison.max_span_residual`).
+
+**Not a parity tolerance and not gated on** — it decides a STRUCTURAL question
+(do these two designs span the same subspace?) whose honest answer is
+0-or-not-0, so it needs only to sit far above floating-point noise and far below
+anything meaningful. A QR-based projection over a 39-column design at `n=1260`
+lands at ~3e-13 when the spans genuinely coincide; `1e-9` is ~3000x that and
+still ~7 orders below any difference that would indicate a real basis mismatch.
+Anchor W5 is untouched: this gates nothing ADR-221 gates, and the ``eta``/``edf``
+bounds are imported (see :data:`_ETA_TOLERANCE`)."""
+
 _AGE_LABEL = "s(attained_age)"
 _YEAR_LABEL = "s(calendar_year)"
 _TI_LABEL = "ti(attained_age,calendar_year)"
@@ -208,6 +221,16 @@ class RProductionMIPayload(RProductionMIRecipe):
     could hit the trap: the parity epic's target formula uses *weights* and no
     offset (PLAN Anchor 5's table), which is why the dashboard's own
     Poisson-offset form is where it first appears."""
+    span_residual_anova_in_te: float
+    span_residual_te_in_anova: float
+    """Two-way projection residuals between the two designs' column spaces,
+    computed in R from ``predict(m, type="lpmatrix")``. See
+    :attr:`RInternalFormComparison.max_span_residual` — these are what
+    establish "same span, different penalty", instead of inferring it from
+    equal column counts, which would not establish it at all."""
+    rank_te: int
+    rank_anova: int
+    rank_combined: int
 
 
 PRODUCTION_MI_CLAIM_SENTENCE = (
@@ -560,11 +583,28 @@ class RInternalFormComparison:
     n_sp_anova: int
     n_coef_te: int
     n_coef_anova: int
-    """Equal column counts are what make the two forms *span-equivalent*; the
-    ``eta`` difference beside them is therefore attributable to the PENALTY and
-    not to the basis — which is precisely what PLAN slice 1's registered
-    prediction says to look for."""
+    max_span_residual: float
+    """The worst two-way projection residual between the two designs' column
+    spaces: ``max`` over ``|X_anova - proj_{col(X_te)} X_anova|`` and
+    ``|X_te - proj_{col(X_anova)} X_te|``, computed in R by the probe.
+
+    **Equal column counts do NOT establish equal span** — two 39-column bases
+    can span different 39-dimensional subspaces — so the earlier version of this
+    dataclass, which inferred ``spans_match`` from the counts alone, was
+    asserting more than it had measured. Mutual containment to machine precision
+    is what actually licenses "same span, DIFFERENT penalty", and it is what
+    makes the ``eta`` difference attributable to the PENALTY rather than to the
+    basis (PLAN slice 1's registered prediction's own fallback)."""
+    rank_te: int
+    rank_anova: int
+    rank_combined: int
+    """``rank([X_te X_anova])``. Equal to both individual ranks iff neither
+    design adds a direction the other lacks — the same fact
+    :attr:`max_span_residual` establishes, by an independent route, so a
+    disagreement between the two readings is itself informative."""
     spans_match: bool
+    """**Measured, not inferred from column counts.** True iff the two-way
+    projection residual is at machine precision AND the three ranks agree."""
     equivalent_within_adr221: bool
     """Whether the two ``mgcv`` fits agree with each other under ADR-221's own
     committed criterion. **False means the ``te == s+s+ti`` hypothesis is
@@ -599,6 +639,13 @@ def compare_r_internal_forms(
     edf_total_diff = float(r_case["anova"]["edf_total"] - r_case["te"]["edf_total"])
     n_coef_te = int(r_case["te"]["n_coef"])
     n_coef_anova = int(r_case["anova"]["n_coef"])
+    max_span_residual = max(
+        float(r_case["span_residual_anova_in_te"]),
+        float(r_case["span_residual_te_in_anova"]),
+    )
+    rank_te = int(r_case["rank_te"])
+    rank_anova = int(r_case["rank_anova"])
+    rank_combined = int(r_case["rank_combined"])
     return RInternalFormComparison(
         max_abs_eta_diff=max_abs_eta_diff,
         edf_total_diff=edf_total_diff,
@@ -606,7 +653,13 @@ def compare_r_internal_forms(
         n_sp_anova=len(r_case["anova"]["sp"]),
         n_coef_te=n_coef_te,
         n_coef_anova=n_coef_anova,
-        spans_match=n_coef_te == n_coef_anova,
+        max_span_residual=max_span_residual,
+        rank_te=rank_te,
+        rank_anova=rank_anova,
+        rank_combined=rank_combined,
+        spans_match=(
+            max_span_residual < _SPAN_RESIDUAL_TOLERANCE and rank_te == rank_anova == rank_combined
+        ),
         equivalent_within_adr221=(
             max_abs_eta_diff < eta_tolerance and abs(edf_total_diff) < edf_tolerance
         ),

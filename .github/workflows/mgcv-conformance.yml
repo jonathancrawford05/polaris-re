@@ -1690,12 +1690,24 @@ jobs:
               "`smoothCon`/`lpmatrix` guard). It is what separates *our engine is wrong* "
               "from *the re-expression is not the target form*.",
               "",
-              "| max abs eta diff | edf_total diff | p (te) | p (s+s+ti) | spans match | n sp | equivalent under ADR-221 |",
-              "|---:|---:|---:|---:|---|---|---|",
+              "| max abs eta diff | edf_total diff | p (te) | p (s+s+ti) | n sp | max span residual | ranks (te/anova/combined) | spans match | equivalent under ADR-221 |",
+              "|---:|---:|---:|---:|---|---:|---|---|---|",
               f"| {localiser.max_abs_eta_diff:.4e} | {localiser.edf_total_diff:+.4f} | "
-              f"{localiser.n_coef_te} | {localiser.n_coef_anova} | {localiser.spans_match} | "
+              f"{localiser.n_coef_te} | {localiser.n_coef_anova} | "
               f"{localiser.n_sp_te} vs {localiser.n_sp_anova} | "
+              f"{localiser.max_span_residual:.3e} | "
+              f"{localiser.rank_te}/{localiser.rank_anova}/{localiser.rank_combined} | "
+              f"**{localiser.spans_match}** | "
               f"**{localiser.equivalent_within_adr221}** |",
+              "",
+              "`spans match` is **measured, not inferred from equal column counts** — two "
+              "39-column bases can span different 39-dimensional subspaces. `max span "
+              "residual` is the worse of the two-way projections "
+              "`|X_anova - proj_col(X_te) X_anova|` and `|X_te - proj_col(X_anova) X_te|`; "
+              "machine-precision zeros in both directions ARE mutual containment. That, "
+              "plus three agreeing ranks, is what licenses **same span, DIFFERENT "
+              "penalty** — and so what makes the `eta` gap attributable to the penalty "
+              "rather than to the basis.",
           ]
 
           # The attribution that makes the finding actionable: how much of the

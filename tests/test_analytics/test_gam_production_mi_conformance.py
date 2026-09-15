@@ -95,10 +95,24 @@ def _small_recipe() -> RProductionMIRecipe:
     )
 
 
-def _payload_from(recipe: RProductionMIRecipe, **fits: object) -> RProductionMIPayload:
+def _payload_from(
+    recipe: RProductionMIRecipe, *, span_residual: float = 3.0e-13, **fits: object
+) -> RProductionMIPayload:
     """Build a full payload from a recipe plus hand-supplied ``mgcv``-shaped
-    fits, so the comparator's arithmetic can be exercised without R."""
-    return typing.cast(RProductionMIPayload, {**recipe, **fits})
+    fits, so the comparator's arithmetic can be exercised without R.
+
+    ``span_residual`` defaults to the magnitude a genuine two-way projection
+    residual lands at on this design (~3e-13), so the default payload describes
+    two forms that DO span the same space — which is the case the finding rests
+    on. Pass a larger value to exercise the opposite."""
+    span = {
+        "span_residual_anova_in_te": span_residual,
+        "span_residual_te_in_anova": span_residual,
+        "rank_te": 39,
+        "rank_anova": 39,
+        "rank_combined": 39,
+    }
+    return typing.cast(RProductionMIPayload, {**recipe, **span, **fits})
 
 
 def _synthetic_fit(
@@ -306,11 +320,46 @@ def test_r_internal_localiser_reads_mgcv_against_mgcv_only() -> None:
     assert localiser.edf_total_diff == pytest.approx(-0.25)
     assert localiser.n_sp_te == 3
     assert localiser.n_sp_anova == 5
-    # Equal column counts are what make the two forms span-equivalent, so an
-    # eta difference beside them is attributable to the PENALTY, not the basis.
+    # Span equivalence is MEASURED (two-way projection residual + agreeing
+    # ranks), not inferred from equal column counts — so an eta difference
+    # beside it is attributable to the PENALTY, not the basis.
     assert localiser.spans_match
+    assert localiser.max_span_residual == pytest.approx(3.0e-13)
     # 4e-2 is outside ADR-221's 2e-2, so the equivalence is refuted here.
     assert not localiser.equivalent_within_adr221
+
+
+def test_spans_match_is_measured_not_inferred_from_column_counts() -> None:
+    """Equal column counts do NOT establish equal span — two 39-column bases
+    can span different 39-dimensional subspaces. ``spans_match`` must read
+    False on a payload whose counts agree but whose projection residual says
+    the column spaces differ."""
+    recipe = _small_recipe()
+    eta = np.linspace(-3.0, 1.0, recipe["n"])
+    payload = _payload_from(
+        recipe,
+        span_residual=1.0e-3,  # counts still agree; the SPACES do not
+        te=_synthetic_fit(eta.tolist(), edf_total=7.3, n_sp=3, n_coef=39),
+        anova=_synthetic_fit(eta.tolist(), edf_total=7.3, n_sp=5, n_coef=39),
+    )
+    localiser = compare_r_internal_forms(payload)
+    assert localiser.n_coef_te == localiser.n_coef_anova == 39
+    assert not localiser.spans_match
+
+
+def test_spans_match_is_false_when_the_ranks_disagree() -> None:
+    """The second, independent route to the same structural fact:
+    ``rank([X_te X_anova])`` exceeding either individual rank means one design
+    carries a direction the other lacks."""
+    recipe = _small_recipe()
+    eta = np.linspace(-3.0, 1.0, recipe["n"])
+    payload = _payload_from(
+        recipe,
+        te=_synthetic_fit(eta.tolist(), edf_total=7.3, n_sp=3, n_coef=39),
+        anova=_synthetic_fit(eta.tolist(), edf_total=7.3, n_sp=5, n_coef=39),
+    )
+    payload["rank_combined"] = 40
+    assert not compare_r_internal_forms(payload).spans_match
 
 
 def test_r_internal_localiser_reports_equivalence_when_the_two_forms_coincide() -> None:
@@ -367,9 +416,13 @@ def test_the_production_mi_probe_runs_end_to_end(tmp_path: Path) -> None:
     assert abs(payload["offset_gap_te"]) < 1e-12
     assert abs(payload["offset_gap_anova"]) < 1e-12
 
-    # Span equivalence is the structural precondition for the whole question.
+    # Span equivalence is the structural precondition for the whole question,
+    # and it is MEASURED here rather than assumed: mutual containment of the
+    # two column spaces to machine precision, plus agreeing ranks.
     localiser = compare_r_internal_forms(payload)
     assert localiser.spans_match
+    assert localiser.max_span_residual < 1e-9
+    assert localiser.rank_te == localiser.rank_anova == localiser.rank_combined
     assert (localiser.n_sp_te, localiser.n_sp_anova) == (3, 5)
 
     fit = fit_production_mi_case(payload, multistart=True, n_starts=9)
