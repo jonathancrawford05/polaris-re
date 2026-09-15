@@ -145,9 +145,16 @@ _SPAN_RESIDUAL_TOLERANCE = 1.0e-9
 **Not a parity tolerance and not gated on** — it decides a STRUCTURAL question
 (do these two designs span the same subspace?) whose honest answer is
 0-or-not-0, so it needs only to sit far above floating-point noise and far below
-anything meaningful. A QR-based projection over a 39-column design at `n=1260`
-lands at ~3e-13 when the spans genuinely coincide; `1e-9` is ~3000x that and
-still ~7 orders below any difference that would indicate a real basis mismatch.
+anything meaningful.
+
+**Measured floor** (a QR-based two-way projection over the 39-column design at
+`n = 1260`, where the spans genuinely coincide): `6.88e-15` to `1.02e-14` on the
+pinned digest across two runs, `2.95e-13` on local apt R. The figures differ by
+an order of magnitude between BLAS implementations, which is exactly why the
+bound is set well clear of both rather than snugly above either: `1e-9` is ~4
+orders above the loosest observed floor and still ~7 orders below any difference
+that would indicate a real basis mismatch.
+
 Anchor W5 is untouched: this gates nothing ADR-221 gates, and the ``eta``/``edf``
 bounds are imported (see :data:`_ETA_TOLERANCE`)."""
 
