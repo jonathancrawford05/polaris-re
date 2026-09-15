@@ -40,9 +40,12 @@ active while `CONTINUATION_mgcv_parity_engine.md` is still IN PROGRESS
 >   the point of execution rather than treating them as ready-to-run.
 >
 > **What blocker E blocks, precisely** — the earlier wording here over-stated it
-> in both directions, so state it exactly: **slice 3 cannot start until parity
+> in both directions, so state it exactly: ~~**slice 3 cannot start until parity
 > slice 7h lands**, and slices 4-5 inherit that through their dependency on
-> slice 3. **Slice 8 is not a dependency of anything in this epic** — it buys
+> slice 3.~~ **UPDATE 2026-09-14 (ADR-226): 7h has landed and the two-axis
+> study measured `multistart(9)` passing BOTH reproducibility axes, so this
+> condition is MET. Blocker E no longer blocks anything; Anchor W6 alone gates
+> slice 3.** **Slice 8 is not a dependency of anything in this epic** — it buys
 > accuracy, where blocker E is about reproducibility. **Slices 1-2 are not
 > blocked by E's own consequence sentence**: they measure rather than wire, and
 > nothing they produce is rendered. But their readings are taken from the same
@@ -53,9 +56,11 @@ active while `CONTINUATION_mgcv_parity_engine.md` is still IN PROGRESS
 > parallelism question in slice 1's favour.** The gate is *parity on the target
 > model specification* before anything wires to a client-facing surface (Anchor
 > W6). Slice 1 is the measurement that gate consumes, so it is on the critical
-> path rather than competing with 7h. **Slice 3 now waits on two independent
+> path rather than competing with 7h. ~~**Slice 3 now waits on two independent
 > conditions** — Anchor W6's parity gate AND slice 7h — and neither implies the
-> other.
+> other.~~ **UPDATE 2026-09-14 (ADR-226): the 7h condition is MET, so slice 3
+> is down to Anchor W6 alone.** (Corrected here as well as at the identical
+> sentence ~450 lines below — PR #234 review round 2 [P1-1].)
 >
 > Merged in that spirit: to make the findings discoverable, not to authorise the
 > plan.

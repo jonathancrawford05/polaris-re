@@ -18,8 +18,10 @@
 `log10(sp)` agreement at `1e-2`. On the `select=TRUE` structure the residual sat
 at `1.48` — two orders outside — while `eta` agreed to `0.0027` and `edf_total`
 to `0.11`. The diagnosis was not a worse fit: **5 of 7 directions were
-identified**, and in the other two the criterion is flat, so `log10(sp)` there is
-not determined by the data at all. The gate demanded precision from a quantity
+identified** *(the STEP-STABILITY verdict, which held across all four readings —
+not the eigenvalue-sign count of the same digits, RETRACTED by ADR-219
+amendment 2)*, and in the other two the criterion is flat, so `log10(sp)` there
+is not determined by the data at all. The gate demanded precision from a quantity
 the machinery cannot resolve.
 
 **Instance 2 — slice 7f (ADR-222).** `converged` was to be re-pointed at a
