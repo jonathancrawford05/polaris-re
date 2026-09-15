@@ -53,7 +53,7 @@ Swept entirely inside R:
 
 Spans match in every cell — and **measured, not inferred from equal column
 counts**: the two-way projection residual between the two designs' column spaces
-is `2.953e-13`/`2.949e-13` (tier 1) and `1.021e-14` (tier 3), with
+is `2.953e-13`/`2.949e-13` (tier 1) and `6.88e-15`-`1.02e-14` (tier 3, two runs), with
 `rank(X_te) = rank(X_anova) = rank([X_te X_anova]) = 39`. The
 smoothing-parameter count, by contrast, never matches: 3 for `te`, 5 for the
 decomposition.
@@ -67,7 +67,7 @@ predicted agreement within `2e-2`.
 thing anyone will ask, because `mgcv`'s own `?ti` writes it as
 `ti(x) + ti(z) + ti(x,z)` rather than the plan's `s(x) + s(z) + ti(x,z)`, and
 demonstrates it beside `te(x,z)` as a *different* model. Measured: the two
-spellings are **the same fit to `8.8818e-16`** (`edf_total` diff exactly `0`),
+spellings are **the same fit to `1.1102e-15`** at tier 3 (`8.8818e-16` at tier 1; `edf_total` diff exactly `0` at both),
 and **mgcv's own spelling misses `te()` by the same `3.7213e-02`**. Neither is
 expressible here anyway — a one-margin `ti` is rejected by `TermSpec`, which
 requires ≥ 2 variables for `basis="ti"`.

@@ -22785,7 +22785,7 @@ will raise, so it was measured rather than argued:
 
 | comparison | `max_abs_eta_diff` | `edf_total` diff | verdict |
 |---|---:|---:|---|
-| `s+s+ti` vs `ti+ti+ti` | **8.8818e-16** | **+0.0000** | **the same fit** |
+| `s+s+ti` vs `ti+ti+ti` | **1.1102e-15** (tier 3); `8.8818e-16` (tier 1) | **+0.0000** | **the same fit** |
 | `te()` vs `ti+ti+ti` (mgcv's own spelling) | **3.7213e-02** | +0.5230 | **fails ADR-221 too** |
 
 The two spellings are one fit to machine precision, and **mgcv's own documented
@@ -22801,7 +22801,8 @@ for the decomposition). **But equal counts do not establish equal span** — two
 39-column bases can span different 39-dimensional subspaces — so the span is
 **measured** rather than inferred: projecting each design's columns onto the
 other's column space, both ways, leaves residuals of **2.953e-13** / **2.949e-13**
-(tier 1) and **1.021e-14** (tier 3, the worse of the two directions), with
+(tier 1) and **6.88e-15**–**1.02e-14** (tier 3, worst direction, across two
+runs), with
 `rank(X_te) = rank(X_anova) = rank([X_te X_anova]) = 39` at both tiers. That is
 mutual containment to machine precision. **The span is identical, on evidence.**
 
