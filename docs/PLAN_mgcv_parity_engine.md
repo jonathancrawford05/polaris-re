@@ -2240,9 +2240,19 @@ finite-difference step at all).
     **provisional `1e-8` relative is NOT adopted** — it is a starting point
     with a stated derivation, and the measurement decides.
   - `[judgement]` Set the curvature-to-noise ratio by **calibrating it to
-    reproduce slice 7c's committed `5 identified directions of 7`** (ADR-219),
-    NOT from `ε_f` — the first-principles floor lands near machine epsilon and
-    would call almost everything identified.
+    reproduce the STEP-STABILITY verdict on the slice 7c fixture — "2 of 7
+    directions carry no resolvable curvature", i.e. 5 of 7 identified** — which
+    read identically across all four readings (ADR-219 amendments 2-4). NOT
+    from `ε_f`: the first-principles floor lands near machine epsilon and would
+    call almost everything identified.
+    **Do NOT calibrate against the eigenvalue-SIGN count.** *"5 identified
+    directions of 7"* was **RETRACTED** by ADR-219 amendment 2 — it read
+    `5 / 7 / 6 / 5` across four readings of the same fixture. The step-stability
+    verdict is a different quantity with the same digits (amendment 3's warning
+    box). `identified_direction_count` makes `floor` **required** so a sign
+    count cannot be obtained by accident; choosing `floor` to make the sign
+    count read 5 would defeat that guard on purpose. (An earlier draft of this
+    criterion asked for precisely that — caught in PR #234 review.)
 - **Status: REGISTERED, not started.** Raised by the maintainer, 2026-09-05:
   *"we need a reliable solver (mgcv achieves this so a real and implementable
   mechanism exists, we might want to understand better how we might emulate

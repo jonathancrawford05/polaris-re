@@ -115,8 +115,11 @@ is scaled by this number, so the certificate reports it rather than assuming it.
   can be measured, so *every* point is optimal and demanding a small gradient
   component is a category error. Machinery already exists:
   `gam_sp_identifiability` (slice 7c) and
-  `gam_uncertainty_conformance.finite_difference_rho_hessian` — slice 7c already
-  measured **5 identified directions of 7** on this structure.
+  `gam_uncertainty_conformance.finite_difference_rho_hessian` — slice 7c's
+  **step-stability** reading on this structure is **2 of 7 directions carrying
+  no resolvable curvature (5 of 7 identified)**, and that reading held across
+  all four readings of the fixture. *Not* the eigenvalue-sign count of the same
+  digits, which ADR-219 amendment 2 RETRACTED.
 - Test the restricted residual **relatively**: `||P g|ᵢd||∞ / (1 + |score|)`.
 
 **This is what dissolves §1's arbitrary threshold.** The N=4 plateau at
@@ -233,10 +236,28 @@ needs **two** inputs:
 - **The curvature-to-noise ratio** — **do NOT derive this from `ε_f`.** The
   first-principles floor lands near machine epsilon and would classify almost
   every direction as identified, which is the opposite of the failure §1
-  describes. **Calibrate it instead so it reproduces slice 7c's committed
-  `5 identified directions of 7`** on the structure where the answer is already
-  known (ADR-219). That anchors the ratio on a measurement rather than on
-  taste, which is this document's whole premise applied to itself.
+  describes. **Calibrate it instead so it reproduces the STEP-STABILITY
+  verdict on the slice 7c fixture — "2 of 7 directions carry no resolvable
+  curvature", i.e. 5 of 7 identified** — which read identically across all four
+  readings of that fixture (ADR-219 amendments 2-4). That anchors the ratio on
+  a measurement rather than on taste, which is this document's whole premise
+  applied to itself.
+
+  > **The digit coincidence is named deliberately, because getting this wrong
+  > is exactly the error this document exists to prevent.** This is **NOT** the
+  > retracted *"5 identified directions of 7"*. That number counted eigenvalue
+  > **signs**, read `5 / 7 / 6 / 5` across four readings of one fixture, and was
+  > formally **RETRACTED** by ADR-219 amendment 2 as "not a robust number".
+  > The step-stability verdict is a different quantity that happens to land on
+  > the same digits and lands there *everywhere* (ADR-219 amendment 3's own
+  > warning box says so). **Same digits, different quantity, different
+  > epistemic status.**
+  >
+  > `gam_sp_identifiability.identified_direction_count` makes `floor` a
+  > **required** argument precisely so a sign count cannot be obtained by
+  > accident. Calibrating `floor` to make the sign count read 5 would defeat
+  > that guard deliberately — an earlier draft of this section asked for
+  > exactly that, and PR #234's review caught it.
 
 **Where the missing measurement belongs: slice 8's first task.** It is small —
 re-run the projected-gradient plateau on the post-7h criterion, restricted to
@@ -251,13 +272,15 @@ number, exactly as before. Nothing in this decision changes behaviour.
 **The general method behind this section** — measure the noise floor, identify
 what carries signal above it, state the tolerance relatively on that subspace,
 and report unresolvability rather than widening — is written up separately as
-`docs/PATTERN_resolvable_tolerances.md` (PROPOSED), which records the
+`docs/PATTERN_resolvable_tolerances.md` (PROPOSED), which records the **three**
 independent instances in this epic that produced it.
 
 ## 7. Verification provenance (ADR-193)
 
 This document publishes **no comparison**. The figures it cites (`2.040e-04`,
-`4.9e-01`, `1.037e-04 → 1.954e-13`, "5 identified directions of 7") are quoted
+`4.9e-01`, `1.037e-04 → 1.954e-13`, and the step-stability "5 of 7 identified"
+— **not** the eigenvalue-sign count of the same digits, RETRACTED by ADR-219
+amendment 2) are quoted
 from committed ADR-222 and ADR-219 rows, all of them single-producer
 `MEASUREMENT (own criterion)` readings. The `mgcv` references in §2(d) describe
 *its published algorithm* and its self-consistency across environments — which

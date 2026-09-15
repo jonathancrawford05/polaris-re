@@ -308,15 +308,25 @@ the finding is the deliverable.
 - **Also gated by Anchor W6** — acceptable parity on the target model
   specification (maintainer, 2026-09-05). Independent of, and additional to,
   the 7h dependency below: 7h buys reproducibility, W6 buys agreement.
-- **Depends on:** slices 1 and 2, **and parity slice 7h (blocker E) — a hard
+- **Depends on:** slices 1 and 2. ~~**and parity slice 7h (blocker E) — a hard
   dependency, not a preference.** Until 7h lands, the surface this slice would
-  wire is not reproducible across environments.
+  wire is not reproducible across environments.~~ **The 7h dependency is
+  DISCHARGED (2026-09-14, ADR-226): 7h landed and the two-axis study measured
+  `multistart(9)` passing BOTH reproducibility axes.** What remains is
+  **Anchor W6 alone** — acceptable parity on the target model specification,
+  which slice 1 measures.
 - **Deliverable:** the Experience Improvement page can render its MI surface
   from the validated path, selected by an explicit flag, defaulting to the
   existing behaviour.
-- `multistart=True` pinned (blocker D) — but note blocker E: multistart is the
+- `multistart=True` pinned (blocker D). ~~but note blocker E: multistart is the
   configuration that passes ADR-221's gate AND the one that fails the
-  cross-thread axis. Pinning it is necessary and not sufficient.
+  cross-thread axis. Pinning it is necessary and not sufficient.~~
+  **CORRECTED 2026-09-14 (ADR-226 decision 1): that sentence is now factually
+  wrong.** Post-7h, `multistart(9)` passes the cross-thread axis too — `eta`
+  `0.356 → 1.554e-03`, `edf_total` `10.0 → 0.0816` (~229x / ~123x), with
+  `12.9x`/`12.3x` margin on ADR-221's gate. It is the configuration that passes
+  **both** axes, and the first ever to. Pinning it remains necessary; what makes
+  it not sufficient is now **Anchor W6**, not blocker E.
 - **On `analytic_gradient=True`:** this originally read "only once slice 7f has
   resolved the `ftol` early-exit". **7f is DONE and did NOT resolve it**
   (ADR-222): it shipped `max_gtol_restarts` as a measured partial mitigation
@@ -472,6 +482,10 @@ interval**, never as the intended design. Slice 5's DoD carries this.
    not only the smoothing parameters, so it bears directly on the WIRING. It
    now gates slice 3 via blocker E, and slice 5 as well. The original
    recommendation was wrong because it assumed a machinery-only defect.
+   **Status 2026-09-14: that gate is SATISFIED, not withdrawn.** ADR-226
+   measured the reproducibility this question demanded — `multistart(9)` passes
+   both axes — so blocker E no longer holds slice 3. The *principle* stands:
+   reproducibility does gate the wiring, and it is now met rather than waived.
 2. ~~**Is a validated surface with an unvalidated band acceptable as an interim?**~~
    — **RESOLVED 2026-09-05, maintainer: YES, with two conditions.** The
    pairing is accepted as an interim *provided* (a) **the desired end state is
@@ -495,7 +509,8 @@ interval**, never as the intended design. Slice 5's DoD carries this.
    - **Slice 3 waits on two independent conditions**, not one: acceptable
      parity on the target spec (this decision) AND parity slice 7h (blocker E).
      Neither implies the other — 7h buys reproducibility, this gate buys
-     agreement — and both must hold.
+     agreement — and both must hold. **UPDATE 2026-09-14: the 7h condition is
+     now MET (ADR-226), so this gate is down to the first alone.**
    - **The gate binds every client-facing surface, not just the dashboard.**
      Recorded as **Anchor W6** below so it cannot be read as a
      dashboard-only constraint.

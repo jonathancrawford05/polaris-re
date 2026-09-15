@@ -5,7 +5,10 @@
 **Routine:** `docs/ROUTINE_MGCV_PARITY.md` — a convergence loop, not a backlog walk.
 **Predecessors:** ADR-189 + amendment 1 (the conformance suite and its first run),
 ADR-185 through ADR-188 (the penalized fitter this epic reuses).
-**Status:** **IN PROGRESS** — slice 1 is **DONE (raw path only)** (2026-08-15b); slice
+**Status:** **IN PROGRESS — but YIELDING THE ACTIVE SLOT to
+`PLAN_gam_production_wiring.md` slice 1 (maintainer, 2026-09-14; see the
+banner at the end of this file). Not parked; `NEXT: slice 8` when it resumes.**
+— slice 1 is **DONE (raw path only)** (2026-08-15b); slice
 1b (mgcv-native extraction) is **DONE** (2026-08-16, tier 1 and tier 3 both confirmed);
 slice 2 (`bs = "cr"`) is **DONE** (2026-08-17, tier 1 and tier 3 both confirmed — ADR-194)
 — the epic's first INDEPENDENT Stage-A parity result. Slice 3 (families/links/weights)
@@ -1510,8 +1513,11 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 > > exceeds `ε_f`**, plus second-order sufficiency on that subspace — and a
 > > four-valued verdict that can say `CONVERGED_ON_IDENTIFIED_SUBSPACE` instead
 > > of reporting `False` for a fit optimal to `1e-6`. Reuses
-> > `projected_gradient` (7f) and `gam_sp_identifiability` (7c, which already
-> > measured 5 identified directions of 7).
+> > `projected_gradient` (7f) and `gam_sp_identifiability` (7c, whose
+> > **step-stability** reading is 2 of 7 directions unresolvable — 5 of 7
+> > identified — held across all four readings. *Corrected 2026-09-15, PR #234
+> > review [P0-1]: this line originally cited the eigenvalue-SIGN count of the
+> > same digits, which ADR-219 amendment 2 RETRACTED.*).
 > >
 > > **It does NOT deliver reproducibility, and says so** — that comes from a
 > > stable criterion (7h) and a deterministic solver (8). `mgcv` is

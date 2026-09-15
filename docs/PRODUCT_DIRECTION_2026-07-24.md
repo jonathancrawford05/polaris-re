@@ -4039,9 +4039,17 @@ on the FD path) lives now.
   proposal specifies. **Provisional, explicitly NOT adopted:** `ε_rel = 1e-8`
   relative (noise-implied floor `≈1.3e-15`, so the value sits well clear of
   noise); and the curvature-to-noise ratio to be set by **calibrating against
-  slice 7c's committed `5 identified directions of 7`** (ADR-219) rather than
+  the STEP-STABILITY verdict on the slice 7c fixture — "2 of 7 directions carry
+  no resolvable curvature", i.e. 5 of 7 identified** — which read identically
+  across all four readings (ADR-219 amendments 2-4), rather than
   derived from `ε_f`, whose first-principles floor lands near machine epsilon
-  and would call almost everything identified. **Registered as slice 8's first
+  and would call almost everything identified. **NOT the eigenvalue-SIGN
+  count:** *"5 identified directions of 7"* was **RETRACTED** by ADR-219
+  amendment 2 (it read `5 / 7 / 6 / 5` across four readings of one fixture);
+  the step-stability verdict is a different quantity with the same digits, and
+  `identified_direction_count` makes `floor` **required** so the sign count
+  cannot be obtained by accident. *(This entry cited the retracted number when
+  first written; corrected after PR #234 review [P0-1].)* **Registered as slice 8's first
   task**, where the Hessian is computed anyway so the restriction is nearly
   free. `converged` keeps SciPy's meaning until then; no behaviour changes.
   *Source: maintainer decision 2026-09-14 (1st-order — an acceptance criterion,
