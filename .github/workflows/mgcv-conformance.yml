@@ -132,6 +132,13 @@ on:
       - "src/polaris_re/analytics/gam_reml_gradient.py"
       - "src/polaris_re/analytics/gam_reml_appendix_b.py"
       - "scripts/gam_reml_gradient_diagnostic.py"
+      # PRODUCTION WIRING slice 1 (docs/PLAN_gam_production_wiring.md) — the
+      # SHIPPED dashboard's own MI model form measured against mgcv. This is
+      # the measurement Anchor W6 consumes, and it is the first time the
+      # production formula goes through the engine at all, so a change to
+      # either side of it must re-run on the pinned digest.
+      - "src/polaris_re/analytics/gam_production_mi_conformance.py"
+      - "scripts/gam_production_mi_probe.R"
       - "data/mgcv_exchange/**"
       - ".github/workflows/mgcv-conformance.yml"
 
@@ -463,6 +470,21 @@ jobs:
             Rscript scripts/gam_select_multiterm_free_sp_probe.R \
               gam_select_multiterm_free_sp_probe.json
 
+      # PRODUCTION WIRING slice 1 (docs/PLAN_gam_production_wiring.md): the
+      # SHIPPED dashboard's own MI model form -- the first time it is fitted
+      # by mgcv at all. Fits BOTH the target te() form and the s()+s()+ti()
+      # re-expression assemble_model_design can actually build, natively and
+      # at free sp, plus an R-internal sensitivity sweep of the gap between
+      # them. Same DIAGNOSTIC contract as the probes above; the comparison
+      # against PolarisGAM's own fit happens in the `compare` job below.
+      - name: Fit the SHIPPED dashboard's MI form, te() and s+s+ti (wiring slice 1)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/work" -w /work "$ORACLE_IMAGE" \
+            Rscript scripts/gam_production_mi_probe.R \
+              gam_production_mi_probe.json
+
       # PLAN slice 5b (docs/WORK_ORDER_multi_term_assembly.md): the SAME
       # three-term formula at FREE sp — mgcv chooses its own smoothing
       # parameters via method="REML". Same DIAGNOSTIC contract as the probes
@@ -541,6 +563,7 @@ jobs:
             gam_select_penalty_probe.json
             gam_select_multiterm_probe.json
             gam_select_multiterm_free_sp_probe.json
+            gam_production_mi_probe.json
 
   # ---------------------------------------------------------------------------
   # Job 2: the comparison — Python, no R
@@ -1583,6 +1606,188 @@ jobs:
           PY
           if [ -f gam_select_multiterm_free_sp_probe_report.md ]; then
             cat gam_select_multiterm_free_sp_probe_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # PRODUCTION WIRING slice 1 (docs/PLAN_gam_production_wiring.md): the
+      # SHIPPED dashboard's MI form, expressed as a ModelSpec and compared
+      # against mgcv on THREE axes — see the module docstring for why one
+      # axis would conflate "our engine is wrong" with "the re-expression is
+      # not the target form". The gate is ADR-221's committed eta/edf
+      # criterion, imported rather than redeclared (Anchor W5 forbids this
+      # epic re-gating anything). DIAGNOSTIC ONLY: a disagreement here is a
+      # finding about the TARGET SPEC, which is precisely what Anchor W6
+      # exists to consume, and must not turn the build red.
+      - name: Compare the SHIPPED dashboard's MI form against mgcv (wiring slice 1)
+        if: always()
+        continue-on-error: true
+        run: |
+          uv run python3 - <<'PY'
+          import json
+          import statistics
+          import sys
+
+          try:
+              r_payload = json.load(open("gam_production_mi_probe.json"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"No gam_production_mi_probe.json to compare ({exc}) — "
+                    "the R probe above did not produce one.")
+              sys.exit(0)
+
+          from polaris_re.analytics.gam_production_mi_conformance import (
+              PRODUCTION_MI_MODEL_CLAIM, compare_production_mi_case,
+              compare_r_internal_forms, fit_production_mi_case,
+          )
+          from polaris_re.core.verification import evidence_markdown
+
+          localiser = compare_r_internal_forms(r_payload)
+          multi = fit_production_mi_case(r_payload, multistart=True, n_starts=9)
+          single = fit_production_mi_case(r_payload, multistart=False)
+          rows = [
+              ("multistart=True, n_starts=9 (PINNED — blocker D)", multi),
+              ("single-start (recorded beside it — blocker D)", single),
+          ]
+          # Read the bounds off a real comparison rather than restating them,
+          # so the summary cannot drift from what was actually applied.
+          bounds = compare_production_mi_case(multi, r_payload, target="te")
+
+          lines = [
+              "",
+              "### Production wiring slice 1 — the SHIPPED dashboard's MI form vs mgcv",
+              "",
+              evidence_markdown(PRODUCTION_MI_MODEL_CLAIM),
+              "",
+              "**The gate is ADR-221's committed criterion** — "
+              f"`max_abs_eta_diff < {bounds.eta_tolerance}`, "
+              f"`abs(edf_total_diff) < {bounds.edf_tolerance}` — imported, not redeclared "
+              "(Anchor W5). `log10(sp)` is NOT gated and NOT differenced: "
+              f"`te` carries {localiser.n_sp_te} smoothing parameters where the "
+              f"re-expression carries {localiser.n_sp_anova}.",
+              "",
+              "#### Axes (1) and (2) — Polaris against each mgcv fit",
+              "",
+              "| search | vs mgcv fit | max abs eta diff | edf_total diff | nfev | converged | at bound | agrees (ADR-221) |",
+              "|---|---|---:|---:|---:|---|---|---|",
+          ]
+          results = {}
+          for label, fit in rows:
+              for target, what in (("anova", "s+s+ti (the spec we CAN express)"),
+                                   ("te", "te() (the TARGET form — Anchor W6)")):
+                  c = compare_production_mi_case(fit, r_payload, target=target)
+                  results[(label, target)] = c
+                  lines.append(
+                      f"| {label} | {what} | {c.max_abs_eta_diff:.4e} | "
+                      f"{c.edf_total_diff:+.4f} | {fit.n_function_evals} | "
+                      f"{c.converged} | {c.at_bound} | {c.agrees} |"
+                  )
+
+          lines += [
+              "",
+              "#### Axis (3) — the localiser: mgcv's `te()` against mgcv's own `s+s+ti`",
+              "",
+              "Both producers are `mgcv`. **Polaris appears nowhere in this row**, so it is "
+              "real evidence about `mgcv` and none about this engine "
+              "(`docs/VERIFICATION_STANDARD.md` §5's own category for the R-side "
+              "`smoothCon`/`lpmatrix` guard). It is what separates *our engine is wrong* "
+              "from *the re-expression is not the target form*.",
+              "",
+              "| max abs eta diff | edf_total diff | p (te) | p (s+s+ti) | spans match | n sp | equivalent under ADR-221 |",
+              "|---:|---:|---:|---:|---|---|---|",
+              f"| {localiser.max_abs_eta_diff:.4e} | {localiser.edf_total_diff:+.4f} | "
+              f"{localiser.n_coef_te} | {localiser.n_coef_anova} | {localiser.spans_match} | "
+              f"{localiser.n_sp_te} vs {localiser.n_sp_anova} | "
+              f"**{localiser.equivalent_within_adr221}** |",
+          ]
+
+          # The attribution that makes the finding actionable: how much of the
+          # target-form gap is OURS, and how much is the re-expression's?
+          gap_target = results[(rows[0][0], "te")].max_abs_eta_diff
+          gap_engine = results[(rows[0][0], "anova")].max_abs_eta_diff
+          if gap_target > 0:
+              lines += [
+                  "",
+                  f"**Attribution (multistart):** of the `{gap_target:.4e}` total gap against "
+                  f"the TARGET `te()` form, our engine contributes `{gap_engine:.4e}` "
+                  f"(**{100 * gap_engine / gap_target:.3f}%**) and the `te` -> `s+s+ti` "
+                  f"re-expression contributes `{localiser.max_abs_eta_diff:.4e}` "
+                  f"(**{100 * localiser.max_abs_eta_diff / gap_target:.3f}%**).",
+              ]
+
+          sweep = r_payload.get("sensitivity") or []
+          if sweep:
+              draw = [s for s in sweep if s.get("axis") == "draw"]
+              kaxis = [s for s in sweep if s.get("axis") == "k"]
+              lines += [
+                  "",
+                  "#### Axis (3), swept — is the gap structural or one unlucky cell?",
+                  "",
+                  "Entirely inside R. The **draw** axis varies the Poisson draw at the "
+                  "headline `k`; the **k** axis varies basis dimension at one draw. The "
+                  "`d dur_edf` column is the internal control: `s(duration_years)` is "
+                  "STRUCTURALLY IDENTICAL in both formulas (it is not part of what `te` "
+                  "decomposes), so it must stay ~0 while the age x year block does not.",
+                  "",
+                  "| axis | seed | k(age,year) | p | max abs eta diff | edf_total diff | d dur_edf | equivalent under ADR-221 |",
+                  "|---|---:|---|---:|---:|---:|---:|---|",
+              ]
+              for s in sweep:
+                  eq = s["max_abs_eta_diff"] < 2e-2 and abs(s["edf_total_diff"]) < 1.0
+                  lines.append(
+                      f"| {s.get('axis', '?')} | {s['seed']} | "
+                      f"({s['age_k']},{s['year_k']}) | {s['n_coef_te']} | "
+                      f"{s['max_abs_eta_diff']:.4e} | {s['edf_total_diff']:+.4f} | "
+                      f"{s['duration_edf_diff']:+.2e} | {eq} |"
+                  )
+              if draw:
+                  fails = sum(
+                      1 for s in draw
+                      if not (s["max_abs_eta_diff"] < 2e-2 and abs(s["edf_total_diff"]) < 1.0)
+                  )
+                  med = statistics.median(s["max_abs_eta_diff"] for s in draw)
+                  lines += [
+                      "",
+                      f"**Draw axis: {fails} of {len(draw)} draws FAIL ADR-221's criterion**, "
+                      f"median `max_abs_eta_diff` `{med:.4e}`. So the two forms agree on "
+                      "SOME draws and not others — which is worse than a consistent bias, "
+                      "because a single fit gives no way to tell which case you are in.",
+                  ]
+              if kaxis:
+                  # Deliberately a SPREAD, not a pass count: this axis sits at
+                  # ONE draw, so counting passes there would say more about
+                  # that draw than about k.
+                  lo = min(s["max_abs_eta_diff"] for s in kaxis)
+                  hi = max(s["max_abs_eta_diff"] for s in kaxis)
+                  p_lo = min(s["n_coef_te"] for s in kaxis)
+                  p_hi = max(s["n_coef_te"] for s in kaxis)
+                  lines += [
+                      f"**k axis** (anchored on one draw that DISAGREES at the headline "
+                      f"`k`): `max_abs_eta_diff` spans `{lo:.4e}`–`{hi:.4e}` across "
+                      f"`p = {p_lo}`–`{p_hi}`. The gap does not shrink as the basis grows, "
+                      "so it is **not a basis-size artefact** — which is what this axis, "
+                      "and only this axis, establishes.",
+                  ]
+
+          lines += [
+              "",
+              f"**Offset tripwire** (reported, never gated): `te` "
+              f"{r_payload.get('offset_gap_te', float('nan')):.3e}, `anova` "
+              f"{r_payload.get('offset_gap_anova', float('nan')):.3e}. `eta` is "
+              "`m$linear.predictors`, NOT `predict(type='link')` — the latter excludes "
+              "an offset supplied through `gam()`'s `offset=` argument, and using it "
+              "made `max_abs_eta_diff` read `1.9751` on this recipe against a `2e-2` "
+              "bound, a spurious failure that was entirely `max(log(exposure*q_base))`.",
+              "",
+              "Coefficients are NOT compared (PLAN Anchor 2). The amount basis "
+              "(quasi-Poisson — blocker B) and the parametric factor block are out of "
+              "scope and are NOT measured by anything above.",
+          ]
+
+          report = "\n".join(lines) + "\n"
+          with open("gam_production_mi_probe_report.md", "w") as fh:
+              fh.write(report)
+          print(report)
+          PY
+          if [ -f gam_production_mi_probe_report.md ]; then
+            cat gam_production_mi_probe_report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
       # PLAN slice 7b (ADR-218): does mgcv's OWN free-sp select=TRUE point
