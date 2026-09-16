@@ -24,8 +24,8 @@ Two consequences, either fatal to the original framing:
    — patsy's main-effects form."*
 2. The fit is **unpenalized**, so "a different penalty structure" described a
    property the shipped model does not have. Measured with ``fx=TRUE``:
-   unpenalized, ``te`` and ``s+s+ti`` agree to ``8.88e-16` (tier 3; `2.14e-15` tier 1)`. **100% of the
-   penalized gap is a penalty artefact.**
+   unpenalized, ``te`` and ``s+s+ti`` agree to ``8.88e-16`` (tier 3;
+   ``2.14e-15`` tier 1). **100% of the penalized gap is a penalty artefact.**
 
 **The dashboard is a placeholder, not the parity target** (maintainer,
 2026-09-16). The objective is parity across a suite of mgcv model forms —
