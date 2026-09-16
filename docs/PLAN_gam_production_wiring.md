@@ -44,7 +44,7 @@ banner and ADR-227 amendment 1.)
 > 3. The fit is **unpenalized** (`sm.GLM`), so "a different penalty structure"
 >    describes a property the shipped model does not have.
 >
-> Measured with `fx=TRUE`: unpenalized, `te` and `s+s+ti` agree to **`2.14e-15`**.
+> Measured with `fx=TRUE`: unpenalized, `te` and `s+s+ti` agree to **`8.88e-16`** (tier 3; `2.14e-15` tier 1).
 > **100% of slice 1's headline gap is a penalty artefact.** And the target
 > formula at `PLAN_mgcv_parity_engine.md` §1 contains no `te` either.
 >
@@ -133,7 +133,7 @@ for `bs(duration_years, df=4)`). The code builds
 interaction, the **ANOVA shape** — and fits it with `sm.GLM(...)`, **entirely
 unpenalized**. So "carries a different penalty structure" describes a property
 the shipped model does not have. Measured with `fx=TRUE`: unpenalized, the two
-forms agree to **`2.14e-15`**, so 100% of the measured gap is a penalty
+forms agree to **`8.88e-16`** (tier 3; `2.14e-15` tier 1), so 100% of the measured gap is a penalty
 artefact. `experience_gam_penalized`'s own docstring already said the shipped
 model is *"patsy's main-effects form"*.
 

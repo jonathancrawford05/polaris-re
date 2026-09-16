@@ -19,7 +19,7 @@ RETRACTED, and this epic is not the project's next work.**
 `TensorMIModel`'s docstring prose, the code builds
 `bs(age) + bs(year) + bs(age):bs(year)` (the ANOVA shape), and it is fitted
 **unpenalized** by `sm.GLM`. Measured with `fx=TRUE`, `te` and `s+s+ti` agree to
-**`2.14e-15`**; the `3.72e-02` gap slice 1 headlined is generated entirely by a
+**`8.88e-16`** (tier 3; `2.14e-15` tier 1); the `3.72e-02` gap slice 1 headlined is generated entirely by a
 penalty the shipped model does not have. Full account: ADR-227 amendment 1.
 
 ## What slice 1 actually delivered, correctly classified

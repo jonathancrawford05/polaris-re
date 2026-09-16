@@ -24,7 +24,7 @@ Two consequences, either fatal to the original framing:
    — patsy's main-effects form."*
 2. The fit is **unpenalized**, so "a different penalty structure" described a
    property the shipped model does not have. Measured with ``fx=TRUE``:
-   unpenalized, ``te`` and ``s+s+ti`` agree to ``2.14e-15``. **100% of the
+   unpenalized, ``te`` and ``s+s+ti`` agree to ``8.88e-16` (tier 3; `2.14e-15` tier 1)`. **100% of the
    penalized gap is a penalty artefact.**
 
 **The dashboard is a placeholder, not the parity target** (maintainer,
@@ -237,7 +237,7 @@ class RProductionMIPayload(RProductionMIRecipe):
     blocker A asserts the dashboard fits te(...); it does not. It builds
     bs(age) + bs(year) + bs(age):bs(year) (the ANOVA shape) and fits it with
     an **unpenalized** sm.GLM. Since the two forms span the same space,
-    removing the penalty must make them coincide — and it does, to ~2e-15. So
+    removing the penalty must make them coincide — and it does, to ~1e-15. So
     the whole penalized gap is an artefact of a penalty the shipped model does
     not have."""
     anova_spelling: dict[str, float]
