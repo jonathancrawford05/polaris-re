@@ -1,0 +1,235 @@
+# mgcv feature coverage — what the engine can express, and what is verified
+
+> **This file exists because a docstring's prose became a load-bearing target
+> for two weeks and nothing in the repo could contradict it.**
+> `CONFORMANCE_LEDGER.md` is a hypothesis log — one row per thing tried. It
+> cannot answer *"can we express `s(x, bs='re')` yet?"*, and that is the question
+> the objective turns on. This file answers it, in one table, and is updated by
+> the slice that changes the answer.
+
+**Created 2026-09-16**, from the maintainer's own statement of the objective.
+
+---
+
+## 1. The objective, in the maintainer's words
+
+> 1. **mgcv parity for a suite of model forms**, including `ti`, `s(..., bs='re')`, etc.
+> 2. **`fREML` and `discrete=TRUE` as well as `bam`** are also desirable for efficient fitting.
+> 3. **`select=TRUE`** helps to incorporate credibility into parameter estimates automatically.
+>
+> *"All of these and other core mgcv features are the target … really any
+> hierarchical gam (or bam) specification in mgcv."*
+
+**The dashboard is NOT the target.** It was spun up as a placeholder given what
+is available in Python, and it is not a parity target except insofar as it falls
+out of the capability ladder below. `docs/PLAN_gam_production_wiring.md` slice 1
+learned this the expensive way — see §5.
+
+**The concrete reference point** is `PLAN_mgcv_parity_engine.md` §1's
+`hgam_formula`, a `bam(..., discrete = TRUE, select = TRUE)` call. Note what it
+contains and what it does not:
+
+```r
+FaceSize + Smoke + FaceSize:Smoke +                              # parametric
+s(AttdAge, k = 13, bs = "cr") +                                  # reference age
+s(PolYear, k = 6,  bs = "cr") +                                  # reference duration
+ti(AttdAge, PolYear, k = c(13, 6), bs = "cr") +                  # age x duration
+s(FaceSize, AttdAge, bs = "sz", k = 13, xt = list(bs = "cr")) +  # level deviations
+s(Smoke,    AttdAge, bs = "sz", k = 13, xt = list(bs = "cr")) +
+s(FaceSize, PolYear, bs = "sz", k = 6,  xt = list(bs = "cr")) +
+s(Smoke,    PolYear, bs = "sz", k = 6,  xt = list(bs = "cr")) +
+s(AttdAge, by = StudyYear_C, k = 13, bs = "cr")                  # the MI term
+```
+
+It is the **ANOVA decomposition** (`s + s + ti`), it carries a **parametric
+block**, and **there is no `te` anywhere in it.**
+
+---
+
+## 2. Coverage today
+
+**Stage A** = the basis/penalty matrices compared against `mgcv`'s own, term in
+isolation. **Stage B** = a fitted model compared on `eta`/`edf`. **Tier 3** =
+confirmed on the pinned oracle digest, per `ROUTINE_MGCV_PARITY.md`.
+
+### 2.1 Smooth bases
+
+| `bs=` | what it is | expressible? | Stage A | Stage B | notes |
+|---|---|---|---|---|---|
+| `cr` | Wood's cubic regression spline | **yes** | ✅ tier 3 (ADR-194) | ✅ tier 3 | the workhorse; supplied + default knots |
+| `cr` + numeric `by` | varying-coefficient smooth | **yes** | ✅ tier 3 (ADR-200) | ✅ tier 3 | the MI term's own form |
+| `ti` | tensor interaction, margins constrained out | **yes** | ✅ tier 3 (ADR-205) | ✅ tier 3 fixed + free `sp` | best-verified after `cr` |
+| `sz` | sum-to-zero factor-smooth interaction | **yes** | ✅ tier 3 (ADR-215) | ✅ fixed `sp` only (ADR-217) | **free-`sp` search never exercised on `sz` block shape** |
+| `raw` | caller supplies design + penalty | n/a | n/a | n/a | not an mgcv basis; the `paraPen` escape hatch |
+| **`re`** | **random effect (identity penalty)** | **NO** | — | — | **named in the objective; the backbone of HGAMs** |
+| **`tp`** | **thin-plate regression spline** | **NO** | — | — | **mgcv's DEFAULT — a bare `s(x)` is inexpressible** |
+| `te` | full tensor product | **NO** | — | — | shares `ti`'s machinery minus the `mc` constraint |
+| `t2` | alternative tensor decomposition | **NO** | — | — | genuinely different penalty decomposition |
+| `fs` | factor-smooth interaction | **NO** | — | — | superseded by `sz` in the target form (PLAN §4) |
+| `cc` | cyclic cubic | **NO** | — | — | not in the target form |
+| `ps` / `cp` | P-splines | **NO** | — | — | `experience_gam_penalized` has its own, unrelated to this engine |
+| `gp`, `mrf`, `sos`, `ds`, `so` | Gaussian-process, Markov-random-field, sphere, Duchon, soap | **NO** | — | — | not in the target form |
+
+**Also missing on the `by` axis:** factor-`by` (`s(x, by = fac)`). Only numeric
+`by` exists. `TermSpec` has a `factor` flag but `assemble_model_design` has no
+branch for it.
+
+### 2.2 Families and links
+
+| family / link | expressible? | Stage B | notes |
+|---|---|---|---|
+| `poisson(log)` | **yes** | ✅ tier 3 (ADR-195) | |
+| `quasipoisson(log)` | **yes** | ⚠️ partial | `reml_score_general` **raises** on `dispersion_fixed=False` — see §2.3 |
+| `binomial(logit)` | **yes** | ✅ tier 3 (ADR-195) | |
+| `binomial(cloglog)` | **yes** | ✅ tier 3 (ADR-195) | the target formula's own family |
+| **`gaussian(identity)`** | **NO** | — | **the simplest case, and absent** |
+| `Gamma`, `inverse.gaussian` | **NO** | — | |
+| `nb` / `negbin` | **NO** | — | |
+| `tw` (Tweedie) | **NO** | — | |
+| `ocat`, `scat`, `betar`, `ziP` | **NO** | — | extended families |
+| location-scale (`gaulss`, `gammals`, …) | **NO** | — | multi-linear-predictor |
+
+`_FAMILY_LINKS` in `gam_model.py` is a four-entry dict, deliberately with no
+fallback — an unrecognised pair raises rather than guessing.
+
+### 2.3 Fitting machinery
+
+| feature | status | notes |
+|---|---|---|
+| Penalized IRLS at fixed `sp` | ✅ tier 3 | `gam_fit.penalized_irls_general` (ADR-195) |
+| REML criterion (`gam`'s) | ✅ tier 3 | `gam_reml.reml_score_general` (ADR-197, ADR-210) |
+| Continuous outer `sp` search | ✅ | `gam_reml_optimize`; see §3 for its caveats |
+| Analytic REML gradient | ✅ | Wood (2011), ADR-220 |
+| `select = TRUE` | ✅ tier 3 | null-space double penalty (ADR-217); **objective item 3, DONE** |
+| **Scale-estimated REML** | **NO** | blocks quasi-Poisson, Gaussian, Gamma, Tweedie — everything with a free scale |
+| **`fREML`** | **NO** | `bam`'s criterion; a *different* criterion, not a faster REML |
+| **`bam`** | **NO** | **objective item 2**; deferred 2026-08-10 (PLAN §3) |
+| **`discrete = TRUE`** | **NO** | **objective item 2**; a different algorithm (Wood/Li/Shaddick/Augustin) |
+| **Unpenalized parametric block** | **NO** | `assemble_model_design` builds an intercept then penalized terms only — no route for parametric *columns*. The target formula has `FaceSize + Smoke + FaceSize:Smoke` |
+| `gamm` / `lme4` route | **NO** | out of scope unless the objective changes |
+| Unconditional covariance (Kass-Steffey / WPS) | ⚠️ known-defective | standing BLOCKER, ADR-190 / ADR-202 |
+
+### 2.4 Scorecard against the stated objective
+
+| objective item | status |
+|---|---|
+| 1. A suite of model forms, incl. `ti`, `bs="re"` | **partial** — 3 bases of ~14; `ti` ✅, **`re` ✗**, and mgcv's default `tp` ✗ |
+| 2. `fREML`, `discrete=TRUE`, `bam` | **not started** — explicitly deferred |
+| 3. `select=TRUE` | **done** ✅ |
+
+---
+
+## 3. The honest read on trajectory (2026-09-16)
+
+Sorting the parity epic's registered slices by what they buy:
+
+| | slices | last landed |
+|---|---|---|
+| **Capability** (harness, `cr`, families, `ti`, `sz`, `select=TRUE`, the `ModelSpec` path) | 1, 1b, 2, 3, 5, 5b, 5c, 6, 6b, 7 | **~2026-09-01** |
+| **Outer-optimiser convergence** | 4, 5d, 5e, 5f, 7b, 7c, 7d, 7e, 7f, 7g, 7h, 7i, 8 | ongoing |
+
+**The last nine registered slices — 7b through 8 — are all outer-optimiser work
+on one N=7 structure.** Feature coverage has not moved in roughly two weeks.
+
+**And that solver work has not been aimed at the target's scale.** It is tuned at
+N=4 and N=7 blocks. PLAN §1 puts the target formula at **13–21 blocks**, which
+`select=TRUE` then doubles. The convergence properties being polished to the
+fourth significant figure belong to a structure roughly a third of the size of
+the one the objective requires.
+
+This is **not** an argument that the solver work is wasted. A 21-to-42-parameter
+outer optimisation genuinely has to be robust, and slices 7f–7h closed real
+defects. It is an argument about **proportion** and about **which structure the
+robustness is being demonstrated on**.
+
+---
+
+## 4. The capability ladder
+
+Ordered so that each rung is verifiable against `mgcv` with the rungs below it
+already trusted — the maintainer's own instruction: *"a rigorous plan that
+tackles simpler mgcv features first."*
+
+| # | rung | why here | rough size |
+|---|---|---|---|
+| **L1** | **`gaussian(identity)`** | The simplest family. Decouples every later basis check from IRLS confounds: at Gaussian identity the penalized fit is a single linear solve, so a basis disagreement cannot hide behind IRLS convergence. Also what every mgcv textbook check uses. | small |
+| **L2** | **`bs="re"`** | Named in the objective. The **cheapest basis in mgcv** — model matrix is the level indicators, penalty is the identity — and the backbone of hierarchical structure. Highest value-to-effort on the board. | small |
+| **L3** | **factor-`by`** (`s(x, by = fac)`) | Completes the `by` axis (numeric `by` already done). Common in HGAMs, and `TermSpec` already carries the `factor` flag. | small–medium |
+| **L4** | **Unpenalized parametric block** | The target formula opens with `FaceSize + Smoke + FaceSize:Smoke`. Today `assemble_model_design` cannot carry unpenalized columns at all, so the target formula is inexpressible for this reason *as well*. (Was registered as wiring slice 1c; it belongs here.) | small |
+| **L5** | **Scale-estimated REML** | Unblocks quasi-Poisson (the dashboard's amount basis), Gaussian, Gamma, Tweedie — everything with a free scale. `reml_score_general` currently *raises* on `dispersion_fixed=False`. Gates L1's usefulness at free `sp`. | medium |
+| **L6** | **`bs="tp"`** | mgcv's **default** basis. Until it exists, a user writing a bare `s(x)` gets something this engine cannot express. Harder — eigen-decomposition of the thin-plate penalty — which is why it sits above the cheap rungs, not below. | medium–large |
+| **L7** | **`te` + `t2`**, checked jointly with `ti` | Completes the tensor family. `te` is largely "the `ti` machinery without the `mc` constraint", so it is cheap given `ti`; `t2` is the genuinely different one (an alternative penalty decomposition). **`ti` needs no rework** — it is verified at Stage A and Stage B, fixed and free `sp`. The value of grouping is the **joint check**: once all three exist, their relationships on one recipe are what catch construction errors. §5 is the live demonstration of why that matters. | medium |
+| **L8** | **`sz` free-`sp` search** | `sz` is Stage-B verified at *fixed* `sp` only. The outer search has never run on an `sz` block shape (one `sp` per factor level). The target formula has **four** `sz` terms, so this is on the critical path and is currently an unmeasured assumption. | medium |
+| **L9** | **`fREML`** | `bam`'s criterion. A different criterion, not a faster REML. | large |
+| **L10** | **`bam` + `discrete = TRUE`** | Objective item 2. A different algorithm (Wood/Li/Shaddick/Augustin), not a faster `gam`. Its own epic, as PLAN §3 says — but **scheduled**, not deferred indefinitely. | large |
+
+**Solver work re-aims** at the target's real block count (13–21, doubled under
+`select=TRUE`) rather than N=7, and is sequenced against these rungs rather than
+run open-endedly between them.
+
+### What the ladder deliberately does not include
+
+- **The dashboard.** Not a target (§1). It may be re-pointed once the engine can
+  express what it needs, as a *consequence* of the ladder, never as a driver.
+- **`bs="fs"`** — superseded by `sz` in the target form (PLAN §4).
+- **`gamboost`, `gamm`, soap films, MRF** — out of scope unless the objective moves.
+
+---
+
+## 5. Why this file exists — the two-week detour, recorded so it is not repeated
+
+`PLAN_gam_production_wiring.md` blocker A asserted:
+
+> The dashboard fits `deaths ~ offset(...) + te(attained_age, calendar_year) + s(duration_years) + Σ factors`.
+
+and built a gating argument on `te`-vs-`ti` penalty semantics. **Every part of
+that premise was wrong**, and it took a slice to find out:
+
+1. **The `te(...)` came from a docstring's prose.** `TensorMIModel`'s docstring
+   says *"… `te(attained_age, calendar_year)` … **where `te(attained_age,
+   calendar_year)` is a tensor-product B-spline surface**"* — the same sentence
+   glosses it. It also writes `s(duration_years)` for what is really
+   `bs(duration_years, df=4)`. It is descriptive English, not an mgcv formula.
+2. **The design is ANOVA-shaped, not tensor-shaped.** The code builds
+   `bs(age) + bs(year) + bs(age):bs(year)` — main effect + main effect +
+   interaction. `experience_gam_penalized`'s own docstring **already said so**:
+   *"`TensorMIModel` builds `1 + bs(age) + bs(year) + interaction` — patsy's
+   main-effects form."* The blocker contradicted a statement already in the
+   codebase.
+3. **The fit is unpenalized.** `sm.GLM(deaths, x, family=Poisson(), offset=...)`.
+   No smoothing parameters exist, so "a different penalty structure" describes a
+   property the shipped model does not have.
+4. **Measured, `fx=TRUE`:** unpenalized, `te` and `s+s+ti` agree to **`2.14e-15`**.
+   Penalized, they differ by `3.72e-02`. **100% of the gap is generated by a
+   penalty the dashboard does not have.**
+5. **The target formula has no `te` in it either** (§1).
+
+**Three lessons, and they are why this file is structured as it is:**
+
+- **A docstring is not a specification.** If a plan quotes source prose as a
+  formula, the plan owes a citation to the *code*.
+- **A coverage question needs a coverage artifact.** The ledger could not answer
+  "is `te` the dashboard's model?" because it is not that kind of document.
+- **State the fitting regime, not just the formula.** "Penalized or not" changed
+  the answer completely here, and no version of blocker A mentioned it.
+
+**What slice 1 is worth, correctly classified:** it measured our engine against
+`mgcv` on a four-term penalized ANOVA-shaped HGAM (two main effects, a tensor
+interaction, a third main effect; Poisson-log with offset; free-`sp` REML) at
+`max_abs_eta_diff = 3.18e-05`, tier-3 confirmed — the best free-`sp` agreement
+this epic has produced. That is a **capability data point on rung L7's
+neighbourhood**, not a gate verdict. It is recorded as such in ADR-227.
+
+---
+
+## 6. Keeping this file true
+
+- **The slice that changes the answer updates the table**, in the same PR. A rung
+  that lands without its row moving has not landed.
+- **Every ✅ names its tier.** A tier-1 reading is a hypothesis
+  (`ROUTINE_MGCV_PARITY.md`); only tier 3 may appear here unqualified.
+- **`expressible?` means `assemble_model_design` builds it**, not that a probe
+  exists. Those are different claims and the column means the first.
+- **No row is marked done on a Stage-A result alone.** `sz` is the standing
+  example: Stage A verified, Stage B fixed-`sp` only, free-`sp` unexercised — and
+  the table says so rather than showing a tick.

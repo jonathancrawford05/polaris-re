@@ -1,82 +1,86 @@
-"""The SHIPPED dashboard's MI model form, expressed as a ``ModelSpec`` and
-measured against ``mgcv`` — production wiring epic, PLAN slice 1
-(``docs/PLAN_gam_production_wiring.md``).
+"""A four-term penalized ANOVA-shaped HGAM, measured against ``mgcv`` — the
+production wiring epic's slice 1 (``docs/PLAN_gam_production_wiring.md``).
 
-**What makes this module different from every other conformance module here.**
-The rest of them measure structures the parity epic invented. This one measures
-the model form a user can actually reach: ``analytics/experience_gam``'s
-``TensorMIModel``, rendered by ``dashboard/views/experience_improvement.py``:
+**READ THIS FIRST: the premise this module was built on was false, and the
+correction is the durable finding.** ADR-227 amendment 1, 2026-09-16.
+
+This module was written to measure "the shipped dashboard's ``te()`` model form"
+because ``PLAN_gam_production_wiring.md`` blocker A said that is what the
+dashboard fits. **It is not.** The ``te(...)`` came from ``TensorMIModel``'s
+docstring, whose same sentence glosses it as *"a tensor-product B-spline
+surface"* — prose, not an ``mgcv`` formula. What the dashboard actually does:
 
 .. code-block:: text
 
-    deaths ~ offset(log(exposure * q_base))
-           + te(attained_age, calendar_year)     # the MI surface
-           + s(duration_years)                   # residual duration smooth
-           + SUM factors                         # parametric -- see LIMITS
-    family = poisson(link = "log")               # the COUNT basis
+    bs(age, df=6) + bs(year, df=4) + bs(age):bs(year) + bs(duration, df=4)
+    fitted by sm.GLM(..., family=Poisson(), offset=...)      # NO PENALTY
 
-In seven weeks of parity work that formula had never been put through the
-engine. Anchor W6 — *"nothing wires to a client-facing surface before the
-TARGET model specification reaches acceptable parity"* — is the gate this
-measurement feeds, and PLAN slice 1 exists to produce it.
+Two consequences, either fatal to the original framing:
 
-**Blocker A is tested here, not assumed.**
-:func:`~polaris_re.analytics.gam_model.assemble_model_design`
-dispatches ``"cr"``/``"ti"``/``"sz"`` and raises otherwise — there is **no**
-``te``. The plan proposes re-expressing ``te(x, z) == s(x) + s(z) + ti(x, z)``
-and is explicit that this is a **hypothesis, not an identity**: the ANOVA
-decomposition spans the same space, but ``te`` carries one penalty per margin
-over the whole tensor while the decomposition carries a separate smoothing
-parameter for each of ``s(x)``, ``s(z)`` and (two for) ``ti(x, z)``. Same span,
-different penalty, therefore a different fit in general.
+1. The design is **main effect + main effect + interaction** — the ANOVA shape,
+   i.e. ``s+s+ti``-shaped, not ``te``-shaped.
+   :mod:`~polaris_re.analytics.experience_gam_penalized`'s own docstring already
+   said so: *"``TensorMIModel`` builds ``1 + bs(age) + bs(year) + interaction``
+   — patsy's main-effects form."*
+2. The fit is **unpenalized**, so "a different penalty structure" described a
+   property the shipped model does not have. Measured with ``fx=TRUE``:
+   unpenalized, ``te`` and ``s+s+ti`` agree to ``2.14e-15``. **100% of the
+   penalized gap is a penalty artefact.**
 
-So ``scripts/gam_production_mi_probe.R`` fits **both** forms natively and this
-module compares on **three** axes, which is the whole point of its shape:
+**The dashboard is a placeholder, not the parity target** (maintainer,
+2026-09-16). The objective is parity across a suite of mgcv model forms —
+see ``docs/MGCV_FEATURE_COVERAGE.md``, which carries the coverage table and the
+capability ladder this work is now sequenced behind.
+
+**What this module is still good for, and it is not nothing.** It measures
+:func:`~polaris_re.analytics.gam_model.fit_polaris_gam` against ``mgcv`` on a
+genuinely production-shaped four-term penalized HGAM —
+``s(age) + s(year) + ti(age, year) + s(duration)``, Poisson-log with an offset,
+free ``sp`` REML — and reads ``max_abs_eta_diff = 3.18e-05`` against ADR-221's
+``2e-2``, tier-3 confirmed. **A capability data point, not a gate verdict.**
+
+``scripts/gam_production_mi_probe.R`` fits both forms natively, so the
+comparison separates three questions:
 
 ===  ==========================  ===================================  ==============================
 #    comparison                  what it answers                      provenance
 ===  ==========================  ===================================  ==============================
-(1)  Polaris vs mgcv ``anova``   does our engine reproduce the spec   INDEPENDENT (about Polaris)
-                                 we CAN express?
-(2)  Polaris vs mgcv ``te``      does what we can express reproduce   INDEPENDENT (about Polaris)
-                                 the TARGET form? — Anchor W6's own
-                                 question
-(3)  mgcv ``anova`` vs ``te``    are the two forms the same fit AT    INDEPENDENT, but entirely
-                                 ALL?                                 inside R — real evidence
+(1)  Polaris vs mgcv ``anova``   does our engine reproduce this       INDEPENDENT (about Polaris)
+                                 4-term penalized HGAM?
+(2)  Polaris vs mgcv ``te``      does the decomposition reproduce a   INDEPENDENT (about Polaris)
+                                 full tensor, under penalty?
+(3)  mgcv ``anova`` vs ``te``    are the two penalized forms the      INDEPENDENT, but entirely
+                                 same fit?                            inside R — real evidence
                                                                       about ``mgcv``, **none**
                                                                       about Polaris
 ===  ==========================  ===================================  ==============================
 
-(3) is the localiser. If (2) fails while (1) passes and (3) fails comparably,
-the finding is about the **re-expression**, not about our engine — a fact about
-``mgcv`` that no amount of Polaris solver work would change. Its own class of
-evidence has precedent: ``docs/VERIFICATION_STANDARD.md`` §5 already lists the
-R-side ``smoothCon``/``lpmatrix`` guard as "INDEPENDENT, entirely inside R —
-real evidence about mgcv, none about Polaris".
+(3) is the localiser — it separates "our engine is wrong" from "these are two
+different models" — and read against the probe's ``unpenalized`` block it is
+also what shows the difference to be purely a penalty effect. Its evidence class
+has precedent: ``docs/VERIFICATION_STANDARD.md`` §5 lists the R-side
+``smoothCon``/``lpmatrix`` guard the same way.
 
 **The gate is ADR-221's, reused verbatim and never re-derived.** Anchor W5
-forbids this epic widening a tolerance or re-gating anything, so
-:data:`_ETA_TOLERANCE` / :data:`_EDF_TOLERANCE` are *imported* from
+forbids this epic widening a tolerance, so :data:`_ETA_TOLERANCE` /
+:data:`_EDF_TOLERANCE` are *imported* from
 :mod:`~polaris_re.analytics.gam_select_free_sp_conformance` rather than
 redeclared — a copied constant can drift, an imported one cannot. ``log10(sp)``
-is reported and **never gated**: ADR-221 moved the criterion off it
-deliberately, and the two forms do not even carry the same number of smoothing
-parameters (3 against 5), so a ``log10(sp)`` comparison between them is not
-merely loose, it is undefined.
+is reported and **never gated**: the two forms do not carry the same number of
+smoothing parameters (3 against 5), so it is undefined between them.
 
 **LIMITS, stated up front rather than discovered downstream.**
 
 * **The amount basis is out of scope** — quasi-Poisson, and
   ``gam_reml.reml_score_general`` raises on ``dispersion_fixed=False`` (the
   plan's blocker B). PLAN slice 1's own stated scope is the count basis.
-* **The parametric factor block (``SUM factors``) is not expressible either.**
+* **Unpenalized parametric columns are not expressible.**
   :func:`~polaris_re.analytics.gam_model.assemble_model_design` builds an
   unpenalized intercept and then penalized ``cr``/``ti``/``sz`` terms; it has no
-  route for unpenalized parametric *columns*. The recipe therefore carries no
-  factor column, and the measured form is the dashboard's formula with an empty
-  factor block — exactly what the page fits when its frame's candidate factors
-  are single-level. This is a **second expressibility gap beside blocker A**,
-  named here rather than papered over.
+  route for parametric *columns*. The recipe therefore carries none. This is a
+  real gap, and it blocks the **target formula** (whose parametric block is
+  ``FaceSize + Smoke + FaceSize:Smoke``), not merely the dashboard — registered
+  as rung **L4** of ``docs/MGCV_FEATURE_COVERAGE.md``.
 * **No band.** Anchor W2 — the point estimate and the interval are wired in
   separate slices, never the same one.
 * **Coefficients are never compared** (PLAN Anchor 2): ``mgcv``

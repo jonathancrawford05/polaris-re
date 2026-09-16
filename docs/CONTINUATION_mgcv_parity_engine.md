@@ -1831,11 +1831,13 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 >    reads `3.3773e-05`, so **blocker D's ~20x single-start penalty does not
 >    appear on this 5-block non-`select` structure** — that penalty is a
 >    property of the `select=TRUE` N=7 structure, not of the search generally.
-> 2. **But Anchor W6 is NOT satisfied, and not for a reason slice 8 can reach.**
->    `te(x,z) != s(x)+s(z)+ti(x,z)` — refuted under ADR-221's own criterion,
->    with `mgcv` on BOTH sides of the deciding comparison. The target spec is
->    **inexpressible** today, so a better outer solver improves an engine that
->    still cannot render the production formula.
+> 2. ~~**But Anchor W6 is NOT satisfied, and not for a reason slice 8 can
+>    reach.** `te(x,z) != s(x)+s(z)+ti(x,z)` — refuted under ADR-221's own
+>    criterion. The target spec is **inexpressible** today.~~ **RETRACTED
+>    2026-09-16 (ADR-227 amendment 1) — see the CORRECTION at the end of this
+>    file.** The dashboard never fitted `te()` and is not penalized, so this
+>    point rested on a false premise. `te != s+s+ti` remains true *under
+>    penalization* and says nothing about the dashboard.
 >
 > **The sequencing counter-argument recorded above ("If slice 1 finds W6
 > satisfiable quickly, that balance is worth revisiting") resolves the other
@@ -1852,3 +1854,30 @@ Both raised by PR #204's round-2 review (ADR-198); both hold as the working defa
 >
 > **Also unchanged and still open:** ADR-224's registered tier-3 cross-runner
 > dispatch.
+
+> **CORRECTION 2026-09-16 — the note immediately above is superseded in its
+> conclusion, though not in its numbers.** Wiring slice 1's "the target spec is
+> inexpressible / `te` must be built" reading was **retracted** (ADR-227
+> amendment 1): the dashboard never fitted `te()`, and is not penalized, so the
+> `te`-vs-`s+s+ti` question does not bear on it. What stands from that note is
+> point 1 — the engine reads `3.18e-05` against `mgcv` on a four-term penalized
+> ANOVA-shaped HGAM, and blocker D's single-start penalty does not appear on a
+> 5-block non-`select` structure.
+>
+> **More importantly, the maintainer has restated the objective (2026-09-16) and
+> it is wider than this epic's slice list.** Parity across a suite of model forms
+> (`ti`, `bs="re"`, …), `fREML` / `discrete=TRUE` / `bam`, and `select=TRUE` —
+> *"really any hierarchical gam (or bam) specification"*. The dashboard is a
+> placeholder and not a parity target.
+>
+> **`docs/MGCV_FEATURE_COVERAGE.md` is now the map**, and its §3 records the
+> uncomfortable read this epic should act on: the last nine registered slices
+> (7b-8) are all outer-optimiser work on **one N=7 structure**, while the target
+> formula carries **13-21 blocks** (doubled under `select=TRUE`) and feature
+> coverage has not moved since ~2026-09-01. Slice 8 is not wrong, but it is
+> being demonstrated on a structure a third of the target's size, and `bs="re"`,
+> `gaussian(identity)`, factor-`by`, scale-estimated REML and `bs="tp"` are all
+> absent.
+>
+> **NEXT is the capability ladder** (`MGCV_FEATURE_COVERAGE.md` §4), with solver
+> work re-aimed at the target's real block count rather than N=7.

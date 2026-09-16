@@ -13,86 +13,67 @@ best mgcv parity candidate."* Raised from the PR #225/#226 review conversation.
 **Predecessors:** `PLAN_mgcv_parity_engine.md` (the engine and its evidence);
 `PLAN_penalized_mi_surface.md` (the band and its coverage gate);
 `PLAN_mi_dashboard.md` (the surface being re-pointed).
-**Total slices:** 5, of which slice 4 may legitimately end in "change nothing",
-plus slices 1b and 1c registered by slice 1's own finding.
+**Total slices:** 5, of which slice 4 may legitimately end in "change nothing".
+(Slices 1b and 1c were registered by slice 1 and are WITHDRAWN — see the status
+banner and ADR-227 amendment 1.)
 **Estimated scope:** ~4–6 dev-days autonomous, plus tier-3 dispatches.
 
-> ## STATUS 2026-09-15: SLICE 1 IS DONE, AND IT REFUTED THE HYPOTHESIS SLICES 2-5 REST ON (ADR-227)
+> ## STATUS 2026-09-16: THIS EPIC IS DEMOTED. ITS BLOCKER A WAS FALSE, AND THE DASHBOARD IS NOT THE PARITY TARGET.
 >
-> **`te(x,z)` is NOT `s(x)+s(z)+ti(x,z)`.** Measured at tier 1 and tier 3, on
-> the dashboard's own count-basis MI form. **Anchor W6 is NOT satisfied**, and
-> not for a reason any solver work can reach:
+> **Maintainer, 2026-09-16:** *"The dashboard was 'spun up' as a placeholder
+> given what is available in Python before we reach our objective, and should
+> not be the target of parity unless it is part of a rigorous plan that tackles
+> simpler mgcv features first."*
 >
-> | axis | what it asks | `max_abs_eta_diff` | verdict |
-> |---|---|---:|---|
-> | Polaris vs `mgcv` `s+s+ti` | does our engine reproduce the spec we CAN express? | **3.18e-05** | **AGREES** (629x margin on ADR-221's `2e-2`) |
-> | Polaris vs `mgcv` `te()` | does that reproduce the TARGET? (**W6**) | **3.72e-02** | **FAILS**, 1.86x over |
-> | `mgcv` `te()` vs `mgcv` `s+s+ti` | are the two forms the same fit at all? | **3.72e-02** | **NOT equivalent** |
+> The objective is **mgcv parity across a suite of model forms** (`ti`,
+> `bs="re"`, …), **`fREML` / `discrete=TRUE` / `bam`**, and **`select=TRUE`** —
+> *"really any hierarchical gam (or bam) specification in mgcv"*. That is now
+> tracked in **`docs/MGCV_FEATURE_COVERAGE.md`**, which carries the capability
+> ladder this epic's remaining work is sequenced behind.
 >
-> **Our engine contributes 0.086% of the target-form gap; the re-expression
-> contributes 100.03%.** The third axis has `mgcv` on both sides, so it is
-> evidence about `mgcv` and none about Polaris — which is exactly what makes it
-> the localiser. Structural, not one cell: **6 of 8 Poisson draws fail**, and a
-> failing gap is flat across `p = 24…70`, so it is not a basis-size artefact.
-> `s(duration_years)` — structurally identical in both forms — agrees to
-> `≤ 4.5e-03` throughout, so the disagreement is confined to the re-expressed
-> term.
+> ### Blocker A was false (ADR-227 amendment 1)
 >
-> **Slices 2-5 are NOT STARTED and slice 2 should NOT start yet.** It measures
-> old-vs-new on the Polaris side, and *which "new"* it should measure is
-> precisely what is now undecided. The decision owed is a **maintainer** one
-> (`ROUTINE_MGCV_PARITY.md` reserves "whether a term belongs in the target model
-> form"): **slice 1b** (build a `te` basis producer, keeping the shipped model
-> form) or **re-point the dashboard onto `s+s+ti`** (cheaper, satisfies W6
-> immediately, but changes the shipped model).
+> This plan asserted the dashboard "fits `te(attained_age, calendar_year)`". It
+> does not, on three counts:
 >
-> **Do not read axis (1) as permission to wire.** It says the engine is sound on
-> this structure; W6 gates on the *target spec*, which is axis (2).
-
-Its
-`CONTINUATION_gam_production_wiring.md` is created by whichever session starts
-slice 1 — deliberately not created here, so this epic cannot be mistaken for
-active while `CONTINUATION_mgcv_parity_engine.md` is still IN PROGRESS
-(one-active-epic rule).
-
-> ## The slice decomposition below is PROVISIONAL. The findings are not.
+> 1. The `te(...)` came from `TensorMIModel`'s **docstring prose**, whose same
+>    sentence glosses it as "a tensor-product B-spline surface".
+> 2. The code builds `bs(age) + bs(year) + bs(age):bs(year)` — main effect +
+>    main effect + interaction, the **ANOVA shape**. `experience_gam_penalized`'s
+>    own docstring already said so.
+> 3. The fit is **unpenalized** (`sm.GLM`), so "a different penalty structure"
+>    describes a property the shipped model does not have.
 >
-> **Amended 2026-09-05, before merge, against measurements that landed after it
-> was written** (ADR-222 amendments 1-2, PR #228). Read this document in two
-> parts:
+> Measured with `fx=TRUE`: unpenalized, `te` and `s+s+ti` agree to **`2.14e-15`**.
+> **100% of slice 1's headline gap is a penalty artefact.** And the target
+> formula at `PLAN_mgcv_parity_engine.md` §1 contains no `te` either.
 >
-> - **"What was measured" and the blockers are durable** — they are facts about
->   the codebase and the engine, established by audit and measurement, and they
->   do not depend on when this epic runs.
-> - **Slices 1-5 are a provisional decomposition.** Their dependencies and
->   justifications have already drifted once in a day. Expect to revise them at
->   the point of execution rather than treating them as ready-to-run.
+> ### What slice 1 is actually worth
 >
-> **What blocker E blocks, precisely** — the earlier wording here over-stated it
-> in both directions, so state it exactly: ~~**slice 3 cannot start until parity
-> slice 7h lands**, and slices 4-5 inherit that through their dependency on
-> slice 3.~~ **UPDATE 2026-09-14 (ADR-226): 7h has landed and the two-axis
-> study measured `multistart(9)` passing BOTH reproducibility axes, so this
-> condition is MET. Blocker E no longer blocks anything; Anchor W6 alone gates
-> slice 3.** **Slice 8 is not a dependency of anything in this epic** — it buys
-> accuracy, where blocker E is about reproducibility. **Slices 1-2 are not
-> blocked by E's own consequence sentence**: they measure rather than wire, and
-> nothing they produce is rendered. But their readings are taken from the same
-> irreproducible engine, so a slice-2 baseline recorded before 7h may not
-> reproduce after it — re-measure rather than trust a pre-7h baseline.
+> `fit_polaris_gam` against `mgcv` on a four-term penalized ANOVA-shaped HGAM:
+> **`max_abs_eta_diff = 3.18e-05`**, tier-3 confirmed — the best free-`sp`
+> agreement this epic has produced. **A capability data point, not a gate
+> verdict.** Recorded in `MGCV_FEATURE_COVERAGE.md` §5.
 >
-> **Open question 3 is now RESOLVED (maintainer, 2026-09-05) and it settles the
-> parallelism question in slice 1's favour.** The gate is *parity on the target
-> model specification* before anything wires to a client-facing surface (Anchor
-> W6). Slice 1 is the measurement that gate consumes, so it is on the critical
-> path rather than competing with 7h. ~~**Slice 3 now waits on two independent
-> conditions** — Anchor W6's parity gate AND slice 7h — and neither implies the
-> other.~~ **UPDATE 2026-09-14 (ADR-226): the 7h condition is MET, so slice 3
-> is down to Anchor W6 alone.** (Corrected here as well as at the identical
-> sentence ~450 lines below — PR #234 review round 2 [P1-1].)
+> ### Anchor W6 was right; slice 1 measured the wrong spec against it
 >
-> Merged in that spirit: to make the findings discoverable, not to authorise the
-> plan.
+> W6 gates on *"the TARGET model specification"*. The target is the HGAM/BAM
+> suite, not the placeholder dashboard — so **W6 remains unmet**, not because
+> `te` is inexpressible but because the ladder is unfinished. Nothing here wires
+> to a client-facing surface.
+>
+> ### Slice status
+>
+> - **Slice 1 — DONE**, measurement retained, conclusion retracted.
+> - **Slice 1b (a `te` basis producer) — DROPPED.** Its entire justification was
+>   blocker A. `te` is still wanted for general coverage, as rung **L7** of
+>   `MGCV_FEATURE_COVERAGE.md` beside `t2`, checked jointly with the already-done
+>   `ti` — not as a dashboard gate.
+> - **Slice 1c — RE-HOMED as rung L4.** Unpenalized parametric columns are a real
+>   gap and they block the *target formula* (`FaceSize + Smoke + FaceSize:Smoke`),
+>   not merely the dashboard. It belongs on the capability ladder.
+> - **Slices 2-5 — NOT STARTED and correctly blocked**, now behind the ladder
+>   rather than behind a `te` producer.
 
 ---
 
@@ -132,15 +113,34 @@ Not asserted — read off the source tree at `40f14d8`:
 
 ### Four substantive blockers, not one wiring job
 
-**A. The formula gap is real, not cosmetic.** The dashboard fits
-`deaths ~ offset(log[exposure * q_base]) + te(attained_age, calendar_year) +
-s(duration_years) + Σ factors`. `assemble_model_design` accepts `basis` in
-`{"cr", "ti", "sz"}` and **raises on anything else — there is no `te`**. `te`
-is not `ti`: `ti` is the interaction-only tensor, `te` is the full tensor
-including margins. The standard equivalent is
-`s(age) + s(year) + ti(age, year)`, which spans the same space but carries a
-*different penalty structure*, so it is a different fit and needs its own
-measurement rather than an assumed equivalence.
+**A. ~~The formula gap is real, not cosmetic.~~ FALSE — RETRACTED 2026-09-16
+(ADR-227 amendment 1). Struck in place rather than deleted, because this
+paragraph drove a whole slice and a later reader needs to see what was wrong.**
+
+~~The dashboard fits `deaths ~ offset(log[exposure * q_base]) +
+te(attained_age, calendar_year) + s(duration_years) + Σ factors`. `te` is not
+`ti`: `ti` is the interaction-only tensor, `te` is the full tensor including
+margins. The standard equivalent is `s(age) + s(year) + ti(age, year)`, which
+spans the same space but carries a *different penalty structure*, so it is a
+different fit and needs its own measurement rather than an assumed
+equivalence.~~
+
+**Why it is false.** The `te(...)` was lifted from `TensorMIModel`'s
+**docstring**, whose same sentence glosses it as *"a tensor-product B-spline
+surface"* — prose, not an `mgcv` formula (it likewise writes `s(duration_years)`
+for `bs(duration_years, df=4)`). The code builds
+`bs(age) + bs(year) + bs(age):bs(year)` — main effect + main effect +
+interaction, the **ANOVA shape** — and fits it with `sm.GLM(...)`, **entirely
+unpenalized**. So "carries a different penalty structure" describes a property
+the shipped model does not have. Measured with `fx=TRUE`: unpenalized, the two
+forms agree to **`2.14e-15`**, so 100% of the measured gap is a penalty
+artefact. `experience_gam_penalized`'s own docstring already said the shipped
+model is *"patsy's main-effects form"*.
+
+**What remains true from it:** `assemble_model_design` does accept only
+`{"cr", "ti", "sz"}` and raises otherwise, so `te` is genuinely inexpressible —
+that is a real coverage gap (rung **L7** of `docs/MGCV_FEATURE_COVERAGE.md`),
+just not one the dashboard was ever blocked by.
 
 **B. The by-amount basis cannot use the validated selection at all today.**
 The amount basis is quasi-Poisson. `quasipoisson_log()` sets
@@ -316,56 +316,20 @@ the finding is the deliverable.
   does not, the difference localises to the penalty construction, not the basis.
 - **Out of scope:** the amount basis; any band; any dashboard edit.
 
-## Slice 1b — a `te` basis producer (REGISTERED by slice 1's finding, ADR-227)
+## Slices 1b and 1c — WITHDRAWN from this epic (2026-09-16)
 
-- **Registered 2026-09-15**, per `ROUTINE_MGCV_PARITY.md` step 10: a gap this
-  epic opens is **closed or registered as a slice with a release condition**,
-  never merely noted in a CONTINUATION (the work-selection rule cannot reach a
-  note — the assembler was named as a blocker by three ADRs and built zero
-  times for exactly this reason).
-- **Why:** slice 1 measured `te(x,z) != s(x)+s(z)+ti(x,z)` under ADR-221's
-  committed criterion. Branch (a) of slice 1's "the `te` decision is the
-  substance" is therefore **closed as refuted**, leaving branch (b): build the
-  basis producer, so the dashboard's model form can be expressed without
-  changing it.
-- **What it is, concretely:** `te`'s penalty is the Kronecker-padded marginal
-  penalty over the **full** tensor (one smoothing parameter per margin, 2 here),
-  not the ANOVA decomposition's per-block set (5 here). The **span is already
-  correct** — slice 1 measured equal column counts on both sides in every cell
-  — so this is penalty construction, not basis construction. That is a smaller
-  job than "a new basis", and slice 1's evidence is what makes it smaller.
-- **Release condition:** a `basis="te"` term assembles through
-  `assemble_model_design`, and `fit_polaris_gam` on the dashboard's own form
-  reaches ADR-221's committed `eta`/`edf` criterion against `mgcv`'s native
-  `te()` fit, at tier 1 AND tier 3, with a ledger row and a declared
-  `VerificationClaim`. **That, and only that, retires Anchor W6.**
-- **Alternative this slice competes with, and the maintainer decides between
-  them:** re-point the shipped dashboard form onto `s+s+ti`. Cheaper and it
-  satisfies W6 immediately, but it changes the model a client sees, which
-  `ROUTINE_MGCV_PARITY.md` reserves to the maintainer. It would also make
-  slice 2's old-vs-new measurement carry a real modelling change rather than an
-  implementation change.
-- **Out of scope:** the amount basis; anything about `select=TRUE`.
+Both were registered by slice 1 under blocker A's false premise (ADR-227
+amendment 1). Neither belongs in a dashboard-wiring epic.
 
-## Slice 1c — unpenalized parametric columns (the `Σ factors` block)
-
-- **Registered 2026-09-15** by slice 1's second finding (ADR-227 decision 6),
-  under the same step-10 rule.
-- **Why:** `assemble_model_design` builds an unpenalized intercept and then
-  penalized `cr`/`ti`/`sz` terms. It has **no route for unpenalized parametric
-  columns**, so the dashboard's `Σ factors` block (`sex`, `smoker`, `band`,
-  `uw_class`, `channel`, `segment`, `underwriting_era`) cannot be expressed.
-  Slice 1 did not measure this — its recipe carries no factor column, which is
-  what the page fits when its candidate factors are single-level — but **any
-  real cedant frame has these columns**, so the gap blocks the epic's actual
-  use case even once slice 1b lands.
-- **Release condition:** a parametric factor block assembles into the design
-  with no penalty block of its own, and the dashboard's form *with* factors
-  reaches ADR-221's criterion against `mgcv` fitting the same formula, at tier
-  1 AND tier 3, with a ledger row.
-- **Depends on:** nothing in this epic — it is independent of slice 1b and could
-  run first or in parallel. It is NOT a dependency of slice 1b, and slice 1b is
-  not a dependency of it.
+- **Slice 1b — a `te` basis producer — DROPPED.** Its justification was entirely
+  "the dashboard fits `te()`", which is false. `te` is still wanted for general
+  mgcv coverage and is **rung L7** of `docs/MGCV_FEATURE_COVERAGE.md`, grouped
+  with `t2` and checked jointly against the already-verified `ti`.
+- **Slice 1c — unpenalized parametric columns — RE-HOMED as rung L4.** A real
+  gap: `assemble_model_design` builds an intercept then penalized terms only, so
+  it cannot carry parametric columns. That blocks the **target formula**
+  (`FaceSize + Smoke + FaceSize:Smoke`), which is why it belongs on the
+  capability ladder and not here.
 
 ## Slice 2 — old vs new on the same input (Anchor 7's precondition)
 
