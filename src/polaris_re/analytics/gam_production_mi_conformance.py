@@ -228,6 +228,15 @@ class RProductionMIPayload(RProductionMIRecipe):
     could hit the trap: the parity epic's target formula uses *weights* and no
     offset (PLAN Anchor 5's table), which is why the dashboard's own
     Poisson-offset form is where it first appears."""
+    unpenalized: dict[str, float]
+    """The fx=TRUE fits of both forms — **the decisive block**. The plan's
+    blocker A asserts the dashboard fits te(...); it does not. It builds
+    bs(age) + bs(year) + bs(age):bs(year) (the ANOVA shape) and fits it with
+    an **unpenalized** sm.GLM. Since the two forms span the same space,
+    removing the penalty must make them coincide — and it does, to ~2e-15. So
+    the whole penalized gap is an artefact of a penalty the shipped model does
+    not have."""
+    anova_spelling: dict[str, float]
     span_residual_anova_in_te: float
     span_residual_te_in_anova: float
     """Two-way projection residuals between the two designs' column spaces,
