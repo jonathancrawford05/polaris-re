@@ -14,56 +14,66 @@ best mgcv parity candidate."* Raised from the PR #225/#226 review conversation.
 `PLAN_penalized_mi_surface.md` (the band and its coverage gate);
 `PLAN_mi_dashboard.md` (the surface being re-pointed).
 **Total slices:** 5, of which slice 4 may legitimately end in "change nothing".
+(Slices 1b and 1c were registered by slice 1 and are WITHDRAWN — see the status
+banner and ADR-227 amendment 1.)
 **Estimated scope:** ~4–6 dev-days autonomous, plus tier-3 dispatches.
-**Status 2026-09-14: SLICE 1 IS THE NEXT WORK** (maintainer sequencing
-decision — the parity epic yields the slot; blocker E is CLOSED and Anchor W6
-alone now gates slice 3). Slices 2-5 remain NOT STARTED; slice 3 onward is
-still blocked, on W6 rather than on 7h — see blocker E and the banner below.
 
-Its
-`CONTINUATION_gam_production_wiring.md` is created by whichever session starts
-slice 1 — deliberately not created here, so this epic cannot be mistaken for
-active while `CONTINUATION_mgcv_parity_engine.md` is still IN PROGRESS
-(one-active-epic rule).
-
-> ## The slice decomposition below is PROVISIONAL. The findings are not.
+> ## STATUS 2026-09-16: THIS EPIC IS DEMOTED. ITS BLOCKER A WAS FALSE, AND THE DASHBOARD IS NOT THE PARITY TARGET.
 >
-> **Amended 2026-09-05, before merge, against measurements that landed after it
-> was written** (ADR-222 amendments 1-2, PR #228). Read this document in two
-> parts:
+> **Maintainer, 2026-09-16:** *"The dashboard was 'spun up' as a placeholder
+> given what is available in Python before we reach our objective, and should
+> not be the target of parity unless it is part of a rigorous plan that tackles
+> simpler mgcv features first."*
 >
-> - **"What was measured" and the blockers are durable** — they are facts about
->   the codebase and the engine, established by audit and measurement, and they
->   do not depend on when this epic runs.
-> - **Slices 1-5 are a provisional decomposition.** Their dependencies and
->   justifications have already drifted once in a day. Expect to revise them at
->   the point of execution rather than treating them as ready-to-run.
+> The objective is **mgcv parity across a suite of model forms** (`ti`,
+> `bs="re"`, …), **`fREML` / `discrete=TRUE` / `bam`**, and **`select=TRUE`** —
+> *"really any hierarchical gam (or bam) specification in mgcv"*. That is now
+> tracked in **`docs/MGCV_FEATURE_COVERAGE.md`**, which carries the capability
+> ladder this epic's remaining work is sequenced behind.
 >
-> **What blocker E blocks, precisely** — the earlier wording here over-stated it
-> in both directions, so state it exactly: ~~**slice 3 cannot start until parity
-> slice 7h lands**, and slices 4-5 inherit that through their dependency on
-> slice 3.~~ **UPDATE 2026-09-14 (ADR-226): 7h has landed and the two-axis
-> study measured `multistart(9)` passing BOTH reproducibility axes, so this
-> condition is MET. Blocker E no longer blocks anything; Anchor W6 alone gates
-> slice 3.** **Slice 8 is not a dependency of anything in this epic** — it buys
-> accuracy, where blocker E is about reproducibility. **Slices 1-2 are not
-> blocked by E's own consequence sentence**: they measure rather than wire, and
-> nothing they produce is rendered. But their readings are taken from the same
-> irreproducible engine, so a slice-2 baseline recorded before 7h may not
-> reproduce after it — re-measure rather than trust a pre-7h baseline.
+> ### Blocker A was false (ADR-227 amendment 1)
 >
-> **Open question 3 is now RESOLVED (maintainer, 2026-09-05) and it settles the
-> parallelism question in slice 1's favour.** The gate is *parity on the target
-> model specification* before anything wires to a client-facing surface (Anchor
-> W6). Slice 1 is the measurement that gate consumes, so it is on the critical
-> path rather than competing with 7h. ~~**Slice 3 now waits on two independent
-> conditions** — Anchor W6's parity gate AND slice 7h — and neither implies the
-> other.~~ **UPDATE 2026-09-14 (ADR-226): the 7h condition is MET, so slice 3
-> is down to Anchor W6 alone.** (Corrected here as well as at the identical
-> sentence ~450 lines below — PR #234 review round 2 [P1-1].)
+> This plan asserted the dashboard "fits `te(attained_age, calendar_year)`". It
+> does not, on three counts:
 >
-> Merged in that spirit: to make the findings discoverable, not to authorise the
-> plan.
+> 1. The `te(...)` came from `TensorMIModel`'s **docstring prose**, whose same
+>    sentence glosses it as "a tensor-product B-spline surface".
+> 2. The code builds `bs(age) + bs(year) + bs(age):bs(year)` — main effect +
+>    main effect + interaction, the **ANOVA shape**. `experience_gam_penalized`'s
+>    own docstring already said so.
+> 3. The fit is **unpenalized** (`sm.GLM`), so "a different penalty structure"
+>    describes a property the shipped model does not have.
+>
+> Measured with `fx=TRUE`: unpenalized, `te` and `s+s+ti` agree to **`8.88e-16`** (tier 3; `2.14e-15` tier 1).
+> **100% of slice 1's headline gap is a penalty artefact.** And the target
+> formula at `PLAN_mgcv_parity_engine.md` §1 contains no `te` either.
+>
+> ### What slice 1 is actually worth
+>
+> `fit_polaris_gam` against `mgcv` on a four-term penalized ANOVA-shaped HGAM:
+> **`max_abs_eta_diff = 3.18e-05`**, tier-3 confirmed — the best free-`sp`
+> agreement this epic has produced. **A capability data point, not a gate
+> verdict.** Recorded in `MGCV_FEATURE_COVERAGE.md` §5.
+>
+> ### Anchor W6 was right; slice 1 measured the wrong spec against it
+>
+> W6 gates on *"the TARGET model specification"*. The target is the HGAM/BAM
+> suite, not the placeholder dashboard — so **W6 remains unmet**, not because
+> `te` is inexpressible but because the ladder is unfinished. Nothing here wires
+> to a client-facing surface.
+>
+> ### Slice status
+>
+> - **Slice 1 — DONE**, measurement retained, conclusion retracted.
+> - **Slice 1b (a `te` basis producer) — DROPPED.** Its entire justification was
+>   blocker A. `te` is still wanted for general coverage, as rung **L7** of
+>   `MGCV_FEATURE_COVERAGE.md` beside `t2`, checked jointly with the already-done
+>   `ti` — not as a dashboard gate.
+> - **Slice 1c — RE-HOMED as rung L4.** Unpenalized parametric columns are a real
+>   gap and they block the *target formula* (`FaceSize + Smoke + FaceSize:Smoke`),
+>   not merely the dashboard. It belongs on the capability ladder.
+> - **Slices 2-5 — NOT STARTED and correctly blocked**, now behind the ladder
+>   rather than behind a `te` producer.
 
 ---
 
@@ -103,15 +113,34 @@ Not asserted — read off the source tree at `40f14d8`:
 
 ### Four substantive blockers, not one wiring job
 
-**A. The formula gap is real, not cosmetic.** The dashboard fits
-`deaths ~ offset(log[exposure * q_base]) + te(attained_age, calendar_year) +
-s(duration_years) + Σ factors`. `assemble_model_design` accepts `basis` in
-`{"cr", "ti", "sz"}` and **raises on anything else — there is no `te`**. `te`
-is not `ti`: `ti` is the interaction-only tensor, `te` is the full tensor
-including margins. The standard equivalent is
-`s(age) + s(year) + ti(age, year)`, which spans the same space but carries a
-*different penalty structure*, so it is a different fit and needs its own
-measurement rather than an assumed equivalence.
+**A. ~~The formula gap is real, not cosmetic.~~ FALSE — RETRACTED 2026-09-16
+(ADR-227 amendment 1). Struck in place rather than deleted, because this
+paragraph drove a whole slice and a later reader needs to see what was wrong.**
+
+~~The dashboard fits `deaths ~ offset(log[exposure * q_base]) +
+te(attained_age, calendar_year) + s(duration_years) + Σ factors`. `te` is not
+`ti`: `ti` is the interaction-only tensor, `te` is the full tensor including
+margins. The standard equivalent is `s(age) + s(year) + ti(age, year)`, which
+spans the same space but carries a *different penalty structure*, so it is a
+different fit and needs its own measurement rather than an assumed
+equivalence.~~
+
+**Why it is false.** The `te(...)` was lifted from `TensorMIModel`'s
+**docstring**, whose same sentence glosses it as *"a tensor-product B-spline
+surface"* — prose, not an `mgcv` formula (it likewise writes `s(duration_years)`
+for `bs(duration_years, df=4)`). The code builds
+`bs(age) + bs(year) + bs(age):bs(year)` — main effect + main effect +
+interaction, the **ANOVA shape** — and fits it with `sm.GLM(...)`, **entirely
+unpenalized**. So "carries a different penalty structure" describes a property
+the shipped model does not have. Measured with `fx=TRUE`: unpenalized, the two
+forms agree to **`8.88e-16`** (tier 3; `2.14e-15` tier 1), so 100% of the measured gap is a penalty
+artefact. `experience_gam_penalized`'s own docstring already said the shipped
+model is *"patsy's main-effects form"*.
+
+**What remains true from it:** `assemble_model_design` does accept only
+`{"cr", "ti", "sz"}` and raises otherwise, so `te` is genuinely inexpressible —
+that is a real coverage gap (rung **L7** of `docs/MGCV_FEATURE_COVERAGE.md`),
+just not one the dashboard was ever blocked by.
 
 **B. The by-amount basis cannot use the validated selection at all today.**
 The amount basis is quasi-Poisson. `quasipoisson_log()` sets
@@ -286,6 +315,21 @@ the finding is the deliverable.
   the same span under a penalty this engine already assembles per-margin. If it
   does not, the difference localises to the penalty construction, not the basis.
 - **Out of scope:** the amount basis; any band; any dashboard edit.
+
+## Slices 1b and 1c — WITHDRAWN from this epic (2026-09-16)
+
+Both were registered by slice 1 under blocker A's false premise (ADR-227
+amendment 1). Neither belongs in a dashboard-wiring epic.
+
+- **Slice 1b — a `te` basis producer — DROPPED.** Its justification was entirely
+  "the dashboard fits `te()`", which is false. `te` is still wanted for general
+  mgcv coverage and is **rung L7** of `docs/MGCV_FEATURE_COVERAGE.md`, grouped
+  with `t2` and checked jointly against the already-verified `ti`.
+- **Slice 1c — unpenalized parametric columns — RE-HOMED as rung L4.** A real
+  gap: `assemble_model_design` builds an intercept then penalized terms only, so
+  it cannot carry parametric columns. That blocks the **target formula**
+  (`FaceSize + Smoke + FaceSize:Smoke`), which is why it belongs on the
+  capability ladder and not here.
 
 ## Slice 2 — old vs new on the same input (Anchor 7's precondition)
 
