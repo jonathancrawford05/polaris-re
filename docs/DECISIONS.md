@@ -14750,6 +14750,95 @@ now says where each tier may appear: tier 1 in the ledger and session log, label
 hypothesis; **tier 3 only in `DECISIONS.md` and `PRODUCT_DIRECTION`**, because those are the
 permanent claims everything downstream treats as settled.
 
+### Amendment 1 (2026-08-15) — retested with `mgcv`'s exact inputs; the conclusion holds
+
+**Oracle: TIER 3** — build 8 `sha256:0d54c192…` (R 4.6.1 / mgcv 1.9.4), CI run
+**31914818812**, via the extended `scripts/ks_formula_probe.R`. Tier 1 (mgcv 1.9.1) agrees
+at every digit printed.
+
+The maintainer supplied the Wood derivation (`docs/DERIVATION_unconditional_covariance.md`),
+and its `mgcv` mapping is a direct test of this ADR: it names `J` as `fit$db.drho` — an
+exact analytic matrix — and `V_rho` as `sp.vcov(fit)`, where the decisive measurement above
+used a **central-difference** `J` and `solve(outer.info$hess)`. If either substitution had
+closed the gap, decision 1 would have been wrong.
+
+Neither does.
+
+| quantity | ours (as used above) | `mgcv`'s exact | agreement |
+|---|---|---|---|
+| `J` | central difference, step `KS_LOG_STEP` | `db.drho` | max abs diff **2.8e-04 - 3.9e-04** |
+| `V_rho` | `solve(outer.info$hess)` | `sp.vcov()` | 0.5-7% element-wise |
+
+| cell | ratio, as first measured | ratio, **`mgcv`'s own `db.drho` + `sp.vcov`** |
+|---|---:|---:|
+| `l2-free-sp` | 4.0719 | **3.9661** |
+| `l2-free-sp-factors` | 3.1601 | **3.0855** |
+| `l2-free-sp-kb` | 3.5518 | **3.5185** |
+
+Exact inputs move the ratio by about 2%. **The delta-method term accounts for 28-32% of
+`Vc - Vp`**, and decision 1 stands on stronger evidence than it was written with: the gap
+survives every input being `mgcv`'s own, computed by `mgcv`'s own code.
+
+**Two things the derivation settles that were previously unverified.** The closed form
+`J[,j] = -V_beta (lambda_j S_j beta_hat)` reproduces `db.drho` to **1.5e-15**, so §2.2 of
+the derivation is exactly `mgcv`'s Jacobian; and `V_rho` is confirmed as the inverse outer
+Hessian. Neither was in doubt, but neither had been measured.
+
+**The remainder is localised further, still without guessing.** The derivation's §2.2
+assumes `W` and `z` do not depend on `rho`; `mgcv`'s correction routine takes `dw` as an
+argument. A routine needing only the delta-method term would not ask for it. That is the
+one place to look, and it is where the derivation now stops.
+
+**A shippable consequence that is not the fix:** our `J` should be the closed form rather
+than a central difference — exact, and it removes four of nine penalized fits. Registered in
+`PRODUCT_DIRECTION` as IMPORTANT and deliberately kept out of the eventual Wood
+implementation, so an exactness improvement and a formula change cannot be confused for one
+another.
+
+### Amendment 2 (2026-08-15) — a rank argument closes the whole `J V_rho J'` family
+
+Two successive proposals arrived for closing the level-4 gap by adjusting `V_rho`: use
+`fit$V.sp` rather than `sp.vcov()`, on the theory that `sp.vcov()` returns a lambda-scale
+covariance and the 3.1-4.0x shortfall is a `lambda_j^2` parameterisation error. Both were
+measured. Both are wrong, and **a rank argument refutes the entire class they belong to.**
+
+**`Vc - Vp` is full rank; `J V_rho J'` cannot be.** `J` has one column per smoothing
+parameter — two on these cells — so `J V_rho J'` has rank at most 2 for **any** `V_rho`.
+The measured numerical rank of `Vc - Vp` is **42 / 42 / 50**. Fitting the best possible 2x2
+`V_rho` by least squares leaves a relative residual of **0.6772 / 0.4533 / 0.6532**.
+
+**No rescaling can fix a rank deficiency.** So `V.sp` vs `sp.vcov()` vs
+`solve(outer.info$hess)`, and any `lambda^2` correction between them, are all refuted at
+once and permanently. Measured anyway, since they were named:
+
+| variant | ratio (actual / candidate) |
+|---|---|
+| `J solve(outer.info$hess) J'` | 3.9521 / 3.0825 / 3.5051 |
+| `J sp.vcov(fit) J'` | 3.9661 / 3.0855 / 3.5185 |
+| `J V.sp J'` | 5.1642 / 3.6276 / 4.6205 — **worse** |
+
+The proposal's own falsifiable claim was that `Vp + db.drho %*% V.sp %*% t(db.drho)` matches
+`Vc` "to machine precision". It differs by **1.24e-03** against `max|Vc|` of 2.81e-03 — 44%
+of the matrix scale.
+
+**Two factual claims corrected by measurement.** `sp.vcov()` is not lambda-scaled: it
+returns 4.74094 where `solve(hess)` returns 4.76223, on a cell with `lambda = 6524` — a
+delta-method transform would differ by ~10^7. And the observed ratio is not `lambda_j^2` for
+`lambda_j` near 1.8-2.0: the fitted smoothing parameters here range **226 to 27,052**. The
+numbers were chosen to match the discrepancy rather than derived from the fit.
+
+**Decision 6: a candidate correction is measured before it is written up, not after.** The
+rank test costs about a minute using quantities `ks_formula_probe.R` already extracts, and
+it refutes or confirms any proposed assembly outright. This ADR's own history is the
+argument: three plausible explanations have now been offered for this gap, and measurement
+has disposed of all three faster than reading would have.
+
+**What survives.** Decision 1 is unchanged and strengthened again: `Vc` is not
+`Vb + J V_rho J'`. The rank result adds *why* no variant of that shape can be — the
+correction must carry structure outside `J`'s column space, which is where a bias or
+mean-shift term would live, consistent with `Vc` being motivated by across-the-function
+coverage. That is an inference about shape, and it is not a derivation.
+
 ### What did not change
 
 No tolerance was widened, no constant tuned, no committed reference edited. Level 4 still
