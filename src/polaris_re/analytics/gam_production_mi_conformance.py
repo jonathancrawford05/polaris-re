@@ -212,7 +212,9 @@ class RProductionMIRecipe(TypedDict):
 
 class RProductionMIPayload(RProductionMIRecipe):
     """The recipe plus ``mgcv``'s own free-``sp`` REML fits of **both** forms:
-    :attr:`te` (the target) and :attr:`anova` (the re-expression)."""
+    :attr:`te` (a penalized full tensor) and :attr:`anova` (the four-term
+    ANOVA-shaped HGAM this module's Polaris side builds). **Neither is the
+    shipped dashboard's model**, which is unpenalized — ADR-227 amendment 1."""
 
     te: RProductionMIFit
     anova: RProductionMIFit
@@ -237,7 +239,8 @@ class RProductionMIPayload(RProductionMIRecipe):
     blocker A asserts the dashboard fits te(...); it does not. It builds
     bs(age) + bs(year) + bs(age):bs(year) (the ANOVA shape) and fits it with
     an **unpenalized** sm.GLM. Since the two forms span the same space,
-    removing the penalty must make them coincide — and it does, to ~1e-15. So
+    removing the penalty must make them coincide — and it does, to ``8.88e-16``
+    (tier 3) / ``2.14e-15`` (tier 1). So
     the whole penalized gap is an artefact of a penalty the shipped model does
     not have."""
     anova_spelling: dict[str, float]
@@ -255,40 +258,53 @@ class RProductionMIPayload(RProductionMIRecipe):
 
 PRODUCTION_MI_CLAIM_SENTENCE = (
     "polaris_re's PolarisGAM (gam_model.fit_polaris_gam, multistart=True) "
-    "assembles the SHIPPED dashboard's own count-basis MI model form — "
-    "deaths ~ offset(log(exposure*q_base)) + te(attained_age, calendar_year) + "
-    "s(duration_years) under poisson(link='log') — re-expressed through "
-    "assemble_model_design as s(attained_age) + s(calendar_year) + "
-    "ti(attained_age, calendar_year) + s(duration_years), because "
-    "assemble_model_design dispatches cr/ti/sz and has no te; it builds that "
-    "design from the shared recipe (covariates, exposure, q_base, deaths, the "
-    "supplied knot vectors and k) via the already-independently-verified cr/ti "
-    "basis producers, then selects all 5 log10(lambda) by minimizing "
-    "gam_reml.reml_score_general via "
+    "assembles a four-term penalized ANOVA-shaped HGAM — s(attained_age) + "
+    "s(calendar_year) + ti(attained_age, calendar_year) + s(duration_years), "
+    "poisson(link='log') with offset(log(exposure*q_base)) — through "
+    "assemble_model_design, from the shared recipe (covariates, exposure, "
+    "q_base, deaths, the supplied knot vectors and k) via the "
+    "already-independently-verified cr/ti basis producers, then selects all 5 "
+    "log10(lambda) by minimizing gam_reml.reml_score_general via "
     "gam_reml_optimize.select_lambdas_continuous_multistart — never reading "
-    "mgcv's own eta, coef, sp or edf. mgcv computes BOTH forms natively via "
+    "mgcv's own eta, coef, sp or edf. mgcv computes the same form natively via "
     "gam(family=poisson(link='log'), offset=log_offset, knots=<the same "
     "vectors>, method='REML') with free sp "
     "(scripts/gam_production_mi_probe.R). Compared on eta at the training "
     "design and edf_total, against ADR-221's committed criterion "
-    "(max_abs_eta_diff < 2e-2 and abs(edf_total_diff) < 1.0), on TWO axes: "
-    "against mgcv's own fit of the re-expression (does our engine reproduce "
-    "the spec we can express?) and against mgcv's own fit of the TARGET te() "
-    "form (does the re-expression reproduce the target? — Anchor W6's own "
-    "question). log10(sp) is NOT gated: ADR-221 moved the criterion off it, "
-    "Anchor W5 forbids re-gating, and the two forms do not carry the same "
-    "number of smoothing parameters (3 against 5) so the comparison is "
-    "undefined between them. Coefficients are never compared (PLAN Anchor 2)."
+    "(max_abs_eta_diff < 2e-2 and abs(edf_total_diff) < 1.0). A SECOND axis "
+    "compares the same Polaris fit against mgcv's own fit of a full tensor, "
+    "te(attained_age, calendar_year) + s(duration_years) — a DIFFERENT "
+    "penalized model (3 smoothing parameters against 5), NOT the shipped "
+    "dashboard's form and NOT Anchor W6's target specification; it measures "
+    "how far a penalized ANOVA decomposition sits from a penalized full "
+    "tensor, nothing more. R-INTERNAL quantities (mgcv on BOTH sides, Polaris "
+    "absent) are declared separately and are evidence about mgcv only. "
+    "log10(sp) is NOT gated: ADR-221 moved the criterion off it, Anchor W5 "
+    "forbids re-gating, and the two forms do not carry the same number of "
+    "smoothing parameters so the comparison is undefined between them. "
+    "Coefficients are never compared (PLAN Anchor 2)."
 )
-"""**Written before the code**, per ``docs/VERIFICATION_STANDARD.md`` §3.2.
+"""**Written before the code**, per ``docs/VERIFICATION_STANDARD.md`` §3.2, and
+**AMENDED 2026-09-18** (PR #235 review [P0-2]).
+
+The original sentence called this "the SHIPPED dashboard's own count-basis MI
+model form" and called ``te()`` "the TARGET form … Anchor W6's own question".
+**Both were false** — the dashboard fits an *unpenalized* patsy
+``bs(age)+bs(year)+bs(age):bs(year)`` design, and the target specification is
+the HGAM/BAM suite, not this form (ADR-227 amendment 1). That mattered beyond
+the prose: :func:`~polaris_re.core.verification.evidence_markdown` prints this
+sentence **verbatim** into the CI job summary, so every run was publishing a
+premise the author no longer believed, in the same summary that elsewhere said
+it was void. ``VERIFICATION_STANDARD.md`` §3.3 makes the derived headline
+load-bearing precisely to prevent that.
 
 Narrow in the three ways ADR-219 amendment 1's marketing constraint requires:
-it names one structure (the dashboard's own count-basis MI form, on this
-recipe), one search configuration (``multistart=True`` — blocker D; the
-single-start reading is recorded beside it and is not what the claim rests on),
-and states both tolerances explicitly rather than leaving "agrees" undefined.
-**No unqualified "mgcv parity" claim is made anywhere by this sentence**, and
-nothing here touches conformance level 4's standing disagreement (ADR-190)."""
+it names one structure (this four-term penalized HGAM, on this recipe), one
+search configuration (``multistart=True`` — blocker D; the single-start reading
+is recorded beside it and is not what the claim rests on), and states both
+tolerances explicitly rather than leaving "agrees" undefined. **No unqualified
+"mgcv parity" claim is made anywhere by this sentence**, and nothing here
+touches conformance level 4's standing disagreement (ADR-190)."""
 
 
 PRODUCTION_MI_MODEL_CLAIM = VerificationClaim(
@@ -313,7 +329,7 @@ PRODUCTION_MI_MODEL_CLAIM = VerificationClaim(
             provenance=ComparisonProvenance.INDEPENDENT,
         ),
         ComparedQuantity(
-            quantity="eta (Polaris s+s+ti vs mgcv te — the TARGET form)",
+            quantity="eta (Polaris s+s+ti vs mgcv te — a penalized full tensor, NOT the target)",
             left_producer=(
                 "gam_model.fit_polaris_gam at its own multistart-selected log_lambda "
                 "(5 blocks), design from assemble_model_design"
@@ -325,7 +341,9 @@ PRODUCTION_MI_MODEL_CLAIM = VerificationClaim(
             provenance=ComparisonProvenance.INDEPENDENT,
         ),
         ComparedQuantity(
-            quantity="edf_total (Polaris s+s+ti vs mgcv te — the TARGET form)",
+            quantity=(
+                "edf_total (Polaris s+s+ti vs mgcv te — a penalized full tensor, NOT the target)"
+            ),
             left_producer="PolarisGAMFit.edf_total at the selected log_lambda",
             right_producer="mgcv's own sum(m$edf) at its free-sp REML fit of the te() form",
             provenance=ComparisonProvenance.INDEPENDENT,
@@ -334,6 +352,27 @@ PRODUCTION_MI_MODEL_CLAIM = VerificationClaim(
             quantity="eta / edf_total (mgcv te vs mgcv s+s+ti — the R-internal localiser)",
             left_producer="mgcv gam(te(...)+s(duration_years), method='REML')",
             right_producer="mgcv gam(s(...)+s(...)+ti(...)+s(duration_years), method='REML')",
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity=(
+                "eta / edf_total UNPENALIZED (mgcv te fx=TRUE vs mgcv s+s+ti fx=TRUE) "
+                "— R-INTERNAL, Polaris absent"
+            ),
+            left_producer="mgcv gam(te(..., fx=TRUE)+s(..., fx=TRUE), method='REML')",
+            right_producer=(
+                "mgcv gam(s(...,fx=TRUE)+s(...,fx=TRUE)+ti(...,fx=TRUE)+s(...,fx=TRUE), "
+                "method='REML')"
+            ),
+            provenance=ComparisonProvenance.INDEPENDENT,
+        ),
+        ComparedQuantity(
+            quantity=(
+                "eta / edf_total SPELLING (mgcv s+s+ti vs mgcv ti+ti+ti) "
+                "— R-INTERNAL, Polaris absent"
+            ),
+            left_producer="mgcv gam(s(...)+s(...)+ti(...)+s(...), method='REML')",
+            right_producer="mgcv gam(ti(...)+ti(...)+ti(...)+s(...), method='REML')",
             provenance=ComparisonProvenance.INDEPENDENT,
         ),
     ),
@@ -350,12 +389,21 @@ which structurally has no ``te``/``anova`` key, so it cannot read either of
 ``mgcv``'s fits — a caller passing the wider :class:`RProductionMIPayload`
 still cannot make it see them.
 
-**The last quantity is INDEPENDENT but says nothing about Polaris.** Both
-producers are ``mgcv``; it is evidence about ``mgcv``'s own two formula forms,
-the same class ``docs/VERIFICATION_STANDARD.md`` §5 already records for the
-R-side ``smoothCon``/``lpmatrix`` guard. It is declared here (rather than left
-as prose) because it carries the localisation the other four cannot, and it
-must not be read as parity evidence for this engine."""
+**The last THREE quantities are INDEPENDENT but say nothing about Polaris.**
+Both producers are ``mgcv`` in each; they are evidence about ``mgcv``'s own
+formula forms, the same class ``docs/VERIFICATION_STANDARD.md`` §5 already
+records for the R-side ``smoothCon``/``lpmatrix`` guard. They must never be
+read as parity evidence for this engine.
+
+**The ``UNPENALIZED`` row was added 2026-09-18 (PR #235 review [P1-1]) and it
+carries the whole retraction.** Its ``8.88e-16`` is the measurement that voided
+blocker A, and it is published in the PR body, ADR-227 amendment 1, the ledger
+row, the CI job summary and ``MGCV_NOTATION_PRIMER.md`` — but it shipped with
+no declared ``VerificationClaim``, which ``VERIFICATION_STANDARD.md`` §4.4
+makes a [P1]. The risk is concrete rather than procedural: a
+machine-precision zero published under a table headed only ``| regime |``
+reads at a glance as *Polaris* agreeing with ``mgcv``, when Polaris appears
+nowhere in it. The ``SPELLING`` row (``1.11e-15``) had the same gap."""
 
 
 def production_mi_model_spec(
@@ -504,9 +552,10 @@ class ProductionMICaseComparison:
     ``log10(sp)`` verdict here — see the module docstring."""
 
     target: str
-    """Which ``mgcv`` fit this reading is against: ``"anova"`` (the
-    re-expression, so the comparison is about our engine) or ``"te"`` (the
-    TARGET form, so the comparison is Anchor W6's own question)."""
+    """Which ``mgcv`` fit this reading is against: ``"anova"`` (the same
+    four-term ANOVA-shaped HGAM, so the comparison is about our engine) or
+    ``"te"`` (a penalized full tensor — a DIFFERENT model, neither the
+    dashboard's form nor Anchor W6's target spec; see the module docstring)."""
     max_abs_eta_diff: float
     edf_total_diff: float
     n_sp_python: int
@@ -546,10 +595,11 @@ def compare_production_mi_case(
         python_fit: the independent Polaris producer's result, from
             :func:`fit_production_mi_case`.
         r_case: the full payload (recipe **and** both ``mgcv`` fits).
-        target: ``"anova"`` — against ``mgcv``'s own fit of the re-expression,
-            which asks whether our engine reproduces the spec we can express;
-            or ``"te"`` — against ``mgcv``'s own fit of the dashboard's own
-            form, which is the question Anchor W6 gates on.
+        target: ``"anova"`` — against ``mgcv``'s own fit of the same four-term
+            ANOVA-shaped HGAM, which asks whether our engine reproduces it;
+            or ``"te"`` — against ``mgcv``'s own fit of a penalized full
+            tensor, a DIFFERENT model that is neither the dashboard's form nor
+            Anchor W6's target specification (ADR-227 amendment 1).
         eta_tolerance, edf_tolerance: ADR-221's committed bounds. Exposed as
             parameters the same way
             :func:`~polaris_re.analytics.gam_select_free_sp_conformance.compare_select_free_sp_case`

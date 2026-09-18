@@ -5,6 +5,20 @@ this document was measured**, on R 4.3.3 / mgcv 1.9.1, not recalled — the
 counting rules in §3 and §4 in particular are stated as predictions and then
 checked against `mgcv` at the bottom of each section.
 
+> **The measurements in §1, §3 and §4 are reproducible**:
+> `Rscript scripts/mgcv_penalty_count_probe.R`. That script does not print the
+> readings, it **asserts** them and exits non-zero on the first disagreement, so
+> an mgcv release that changes a construction fails the probe rather than
+> silently falsifying this file. A local run is **tier 1**
+> (`docs/ROUTINE_MGCV_PARITY.md`); the pinned-image run in `mgcv-conformance.yml`
+> is tier 3. **The readings below are tier 1 as written** — they were taken on a
+> local R 4.3.3 / mgcv 1.9.1 — and are promoted only once that workflow has run
+> the probe on the pinned digest.
+>
+> Both sides of that probe are `mgcv`. It is a **reference-behaviour
+> measurement, not parity evidence** — Polaris is absent from it, so under
+> ADR-193 nothing here may be cited as agreement between two producers.
+
 > **Why it exists.** This project spent two weeks treating a docstring's phrase
 > `te(attained_age, calendar_year)` as an `mgcv` formula when the code was
 > fitting an unpenalized `bs(age) + bs(year) + bs(age):bs(year)` patsy design.
@@ -46,6 +60,9 @@ regression spline, verified:
 bare s(x) gives class: tprs.smooth      formals(mgcv::s)$bs = "tp"
 ```
 
+(Both readings, and the three accepted `sz` margins above, are asserted in
+`scripts/mgcv_penalty_count_probe.R`, §1 block.)
+
 ---
 
 ## 2. Reading a term
@@ -78,7 +95,8 @@ s( AttdAge , by = StudyYear_C , k = 13 , bs = "cr" , m = 2 , xt = list(bs = "cr"
 ## 3. How many smoothing parameters does a term have?
 
 This is the question that tells you how hard a model is to *fit*, because the
-outer optimisation searches one dimension per smoothing parameter. **Measured:**
+outer optimisation searches one dimension per smoothing parameter. **Measured**
+(`scripts/mgcv_penalty_count_probe.R`, §3 block):
 
 | term | smoothing parameters | coefficients | rule |
 |---|---:|---:|---|
@@ -130,7 +148,8 @@ not stylistic variants.
 | `s(f, x, bs="sz")` | each level gets a **sum-to-zero deviation** from a main effect | **one per level** | grows with levels |
 | `s(x, by=f)` | each level gets a **completely separate, independent** smooth | **one per level** (as separate *terms*) | `k` × levels |
 
-Measured, for a `cr` margin at `k=10`:
+Measured, for a `cr` margin at `k=10`
+(`scripts/mgcv_penalty_count_probe.R`, §4 block):
 
 ```
 levels=2   fs: n_pen=3 ncoef=20  |  sz: n_pen=2 ncoef=10  |  re: n_pen=1 ncoef=2
@@ -175,7 +194,7 @@ space is {constant, linear} → `M = 2` → **3 penalties**. That is the answer 
 
 **Tested as a prediction, by stepping the margin's penalty order** (a P-spline
 with difference-penalty order `m`, whose null space is polynomials of degree
-`m−1`, so `M = m`):
+`m−1`, so `M = m`) — `scripts/mgcv_penalty_count_probe.R`, §4b block:
 
 ```
 fs over ps margin, m=1  ->  predicted M=1, predicted n_pen=2, ACTUAL n_pen=2

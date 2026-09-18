@@ -56,7 +56,7 @@ either direction.
 | slice | status |
 |---|---|
 | 1 | **DONE** — measurement kept, conclusion retracted |
-| 1b (`te` basis producer) | **DROPPED** — justification was blocker A. `te` lives on as ladder rung **L7**, with `t2`, checked jointly against the already-verified `ti` |
+| 1b (`te` basis producer) | **DROPPED** — justification was blocker A. `te` lives on as ladder rung **L8**, with `t2`, checked jointly against the already-verified `ti` |
 | 1c (parametric columns) | **RE-HOMED** as ladder rung **L4** — it blocks the *target formula* (`FaceSize + Smoke + FaceSize:Smoke`), not just the dashboard |
 | 2-5 | **NOT STARTED**, correctly blocked — now behind the ladder |
 

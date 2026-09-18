@@ -66,7 +66,7 @@ banner and ADR-227 amendment 1.)
 >
 > - **Slice 1 — DONE**, measurement retained, conclusion retracted.
 > - **Slice 1b (a `te` basis producer) — DROPPED.** Its entire justification was
->   blocker A. `te` is still wanted for general coverage, as rung **L7** of
+>   blocker A. `te` is still wanted for general coverage, as rung **L8** of
 >   `MGCV_FEATURE_COVERAGE.md` beside `t2`, checked jointly with the already-done
 >   `ti` — not as a dashboard gate.
 > - **Slice 1c — RE-HOMED as rung L4.** Unpenalized parametric columns are a real
@@ -139,7 +139,7 @@ model is *"patsy's main-effects form"*.
 
 **What remains true from it:** `assemble_model_design` does accept only
 `{"cr", "ti", "sz"}` and raises otherwise, so `te` is genuinely inexpressible —
-that is a real coverage gap (rung **L7** of `docs/MGCV_FEATURE_COVERAGE.md`),
+that is a real coverage gap (rung **L8** of `docs/MGCV_FEATURE_COVERAGE.md`),
 just not one the dashboard was ever blocked by.
 
 **B. The by-amount basis cannot use the validated selection at all today.**
@@ -323,7 +323,7 @@ amendment 1). Neither belongs in a dashboard-wiring epic.
 
 - **Slice 1b — a `te` basis producer — DROPPED.** Its justification was entirely
   "the dashboard fits `te()`", which is false. `te` is still wanted for general
-  mgcv coverage and is **rung L7** of `docs/MGCV_FEATURE_COVERAGE.md`, grouped
+  mgcv coverage and is **rung L8** of `docs/MGCV_FEATURE_COVERAGE.md`, grouped
   with `t2` and checked jointly against the already-verified `ti`.
 - **Slice 1c — unpenalized parametric columns — RE-HOMED as rung L4.** A real
   gap: `assemble_model_design` builds an intercept then penalized terms only, so

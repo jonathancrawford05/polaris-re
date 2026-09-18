@@ -157,12 +157,12 @@ tackles simpler mgcv features first."*
 | **L3** | **factor-`by`** (`s(x, by = fac)`) | Completes the `by` axis (numeric `by` already done). **Note it is not a term parameter but a term multiplier**: `s(x, by = f)` on a 3-level factor produces *three separate smooths*, each with its own `sp` (measured). | small–medium |
 | **L4** | **Unpenalized parametric block** | The target formula opens with `FaceSize + Smoke + FaceSize:Smoke`. Today `assemble_model_design` cannot carry unpenalized columns at all, so the target formula is inexpressible for this reason *as well*. (Was wiring slice 1c.) | small |
 | **L5** | **Scale-estimated REML** | Unblocks quasi-Poisson, Gaussian, Gamma, Tweedie — everything with a free scale. `reml_score_general` currently *raises* on `dispersion_fixed=False`. Gates L1's usefulness at free `sp`. | medium |
-| **L6** | **`bs="fs"`** — factor-smooth interaction | **Maintainer-requested, 2026-09-16.** The "random smooths" idiom: a separate curve per level, all shrunk toward a common shape. Together with L2 it covers the HGAM taxonomy's group-level models (`docs/MGCV_NOTATION_PRIMER.md` §5). **Its penalty count is `1 + M` (M = the margin's unconstrained null-space dimension) and does NOT grow with factor levels** — measured 3 penalties at 2, 4 and 6 levels — so unlike `sz` it does not inflate the outer search. | medium |
+| **L6** | **`bs="fs"`** — factor-smooth interaction | **Maintainer-requested, 2026-09-16.** The "random smooths" idiom: a separate curve per level, all shrunk toward a common shape. Together with L2 it covers the HGAM taxonomy's group-level models (`docs/MGCV_NOTATION_PRIMER.md` §5). **Its penalty count is `1 + M` (M = the margin's unconstrained null-space dimension) and does NOT grow with factor levels** — measured 3 penalties at 2, 4 and 6 levels (`scripts/mgcv_penalty_count_probe.R`, **tier 1**) — so unlike `sz` it does not inflate the outer search. | medium |
 | **L7** | **`bs="tp"`** | mgcv's **default** basis. Until it exists, a user writing a bare `s(x)` gets something this engine cannot express. Harder — eigen-decomposition of the thin-plate penalty — which is why it sits above the cheap rungs. | medium–large |
-| **L8** | **`te` + `t2`**, checked jointly with `ti` | Completes the tensor family. `te` is largely "the `ti` machinery without the `mc` constraint", so it is cheap given `ti`; `t2` is the genuinely different one (an alternative decomposition, and note its penalty count is `2^d - 1` — measured 7 for three margins, against `te`'s 3). **`ti` needs no rework.** The value of grouping is the **joint check**: their relationships on one recipe are what catch construction errors, and §5 is the live demonstration. | medium |
+| **L8** | **`te` + `t2`**, checked jointly with `ti` | Completes the tensor family. `te` is largely "the `ti` machinery without the `mc` constraint", so it is cheap given `ti`; `t2` is the genuinely different one (an alternative decomposition, and note its penalty count is `2^d - 1` — measured 7 for three margins, against `te`'s 3 (`scripts/mgcv_penalty_count_probe.R`, **tier 1**)). **`ti` needs no rework.** The value of grouping is the **joint check**: their relationships on one recipe are what catch construction errors, and §5 is the live demonstration. | medium |
 | **L9** | **`fREML`** | `bam`'s criterion. A different criterion, not a faster REML. | large |
 | **L10** | **`bam` + `discrete = TRUE`** | Objective item 2. A different algorithm (Wood/Li/Shaddick/Augustin), not a faster `gam`. Its own epic, as PLAN §3 says — but **scheduled**, not deferred indefinitely. | large |
-| **L11** | **`sz` free-`sp` search** | **DEPRIORITISED here 2026-09-16** (maintainer: `sz` "is not absolutely necessary… we come back for it"). `sz` assembles and fits at *fixed* `sp` already (ADR-215/217); what is unexercised is the outer search on its block shape. It sits last because **its penalty count grows one-per-factor-level** (measured: 2/4/6 penalties at 2/4/6 levels), so it is the single largest contributor to the target formula's block count — and `fs` at L6 covers much of the same modelling intent at a constant 3. | medium |
+| **L11** | **`sz` free-`sp` search** | **DEPRIORITISED here 2026-09-16** (maintainer: `sz` "is not absolutely necessary… we come back for it"). `sz` assembles and fits at *fixed* `sp` already (ADR-215/217); what is unexercised is the outer search on its block shape. It sits last because **its penalty count grows one-per-factor-level** (measured: 2/4/6 penalties at 2/4/6 levels, `scripts/mgcv_penalty_count_probe.R`, **tier 1**), so it is the single largest contributor to the target formula's block count — and `fs` at L6 covers much of the same modelling intent at a constant 3. | medium |
 
 **Two axes, not one list.** `cr`/`tp`/`ps`/`cc` are **marginal bases** — the slot a smooth of a continuous covariate fills. `te`/`ti`/`t2`/`sz`/`fs` are **constructions that consume a marginal basis** (via `xt = list(bs = …)`), and `re` is neither — it is a ridge penalty over factor levels with no smoothing. So `sz` is *downstream* of `cr`/`tp`, never an alternative to them, and our own `build_python_sz_term` is welded to a `cr` margin (`gam_basis_cr.sz_basis`, no `xt` on `TermSpec`). Advance the marginal axis first; constructions inherit from it. Full treatment: `docs/MGCV_NOTATION_PRIMER.md`.
 
@@ -174,8 +174,12 @@ run open-endedly between them.
 
 - **The dashboard.** Not a target (§1). It may be re-pointed once the engine can
   express what it needs, as a *consequence* of the ladder, never as a driver.
-- **`bs="fs"`** — superseded by `sz` in the target form (PLAN §4).
 - **`gamboost`, `gamm`, soap films, MRF** — out of scope unless the objective moves.
+
+> **`bs="fs"` was on this list until 2026-09-16**, on the reasoning that `sz`
+> superseded it in the dashboard's target form (PLAN §4). That reasoning fell
+> with the target: the dashboard is not a target (§1), and the maintainer asked
+> for `fs` directly. It is now rung **L6**, and `sz` is **L11**.
 
 ---
 
@@ -220,7 +224,7 @@ that premise was wrong**, and it took a slice to find out:
 `mgcv` on a four-term penalized ANOVA-shaped HGAM (two main effects, a tensor
 interaction, a third main effect; Poisson-log with offset; free-`sp` REML) at
 `max_abs_eta_diff = 3.18e-05`, tier-3 confirmed — the best free-`sp` agreement
-this epic has produced. That is a **capability data point on rung L7's
+this epic has produced. That is a **capability data point on rung L8's
 neighbourhood**, not a gate verdict. It is recorded as such in ADR-227.
 
 ---

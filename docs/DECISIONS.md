@@ -8472,7 +8472,7 @@ This ADR is that epic's Slice 1.
 
 - *Exact cases assert to machine precision; the textbook case documents its convention gap.* The two
   discrete closed forms are the closed form of the engine's own monthly recursion, so they match to
-  `rtol=1e-9` (measured ~1e-15). The continuous identity differs from the engine's monthly-discrete
+  `rtol=1e-9` (measured ~2e-15). The continuous identity differs from the engine's monthly-discrete
   projection by a small, bounded amount (measured ~0.2%), captured as `rtol=5e-3` with an explicit
   `tolerance_rationale`. Encoding the tolerance *and its rationale* on every case is the mechanism
   that keeps modelling-convention gaps documented rather than hidden.
@@ -22965,8 +22965,12 @@ not have.** Measured at tier 1 and carried in
   against W6, so it does not bear on W6 in either direction.
 - ADR-227 decision 2's framing, and decision 4's registration of **slice 1b** (a
   `te` basis producer). **Slice 1b is DROPPED**; its justification was entirely
-  blocker A. `te` remains wanted for *general* mgcv coverage — as rung **L7** of
+  blocker A. `te` remains wanted for *general* mgcv coverage — as rung **L8** of
   `docs/MGCV_FEATURE_COVERAGE.md`, alongside `t2` — but not as a dashboard gate.
+  (This amendment first wrote **L7**; the ladder gained `bs="fs"` at L6 on
+  2026-09-16 at maintainer request, shifting `te`+`t2` down one. The rung number
+  is corrected here rather than left to rot — the **name** of the rung, `te`+`t2`
+  checked jointly with `ti`, is what the amendment turns on.)
 - Decision 6's **slice 1c** is not retracted but is **re-homed**: unpenalized
   parametric columns are a real gap in `assemble_model_design`, and they block
   the *target formula* (`FaceSize + Smoke + FaceSize:Smoke`), not merely the
