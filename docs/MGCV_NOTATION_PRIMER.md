@@ -11,9 +11,15 @@ checked against `mgcv` at the bottom of each section.
 > an mgcv release that changes a construction fails the probe rather than
 > silently falsifying this file. A local run is **tier 1**
 > (`docs/ROUTINE_MGCV_PARITY.md`); the pinned-image run in `mgcv-conformance.yml`
-> is tier 3. **The readings below are tier 1 as written** — they were taken on a
-> local R 4.3.3 / mgcv 1.9.1 — and are promoted only once that workflow has run
-> the probe on the pinned digest.
+> is tier 3.
+>
+> **Status: tier 3, and on two mgcv versions.** The probe passes locally on
+> **mgcv 1.9.1** (where these numbers were first taken) and on the pinned oracle
+> digest, which runs **mgcv 1.9.4** — run `35346285484`, step *"Assert the
+> notation primer's penalty counts against the pinned mgcv"*. Every counting rule
+> in §3 and §4 is therefore stable across both, which is more than the tier alone
+> would tell you: a rule that held on one version could have been an artifact of
+> it.
 >
 > Both sides of that probe are `mgcv`. It is a **reference-behaviour
 > measurement, not parity evidence** — Polaris is absent from it, so under
