@@ -71,8 +71,18 @@ confirmed on the pinned oracle digest, per `ROUTINE_MGCV_PARITY.md`.
 | `gp`, `mrf`, `sos`, `ds`, `so` | Gaussian-process, Markov-random-field, sphere, Duchon, soap | **NO** | — | — | not in the target form |
 
 **Also missing on the `by` axis:** factor-`by` (`s(x, by = fac)`). Only numeric
-`by` exists. `TermSpec` has a `factor` flag but `assemble_model_design` has no
-branch for it.
+`by` exists, and there is **no partial route to it** — `TermSpec.by` is
+documented as *numeric*, and `TermSpec.factor` is **not** a factor-`by` flag: it
+marks the `sz`/`fs` construction, is explicitly *mutually exclusive* with `by`,
+and `sz` already has its branch. So L3 needs a representation decision (widen
+`by`, or add a field), not just a missing `elif`.
+
+> **Corrected 2026-09-18.** This paragraph previously read *"`TermSpec` has a
+> `factor` flag but `assemble_model_design` has no branch for it"*, which implied
+> the flag was a half-built factor-`by` route. `gam_term_spec.py:78-79` says
+> otherwise. Caught while sizing the rung in `PLAN_mgcv_capability_ladder.md` —
+> by reading the code rather than this file, which is the §5 lesson applied to
+> §5's own document.
 
 ### 2.2 Families and links
 
@@ -150,6 +160,13 @@ Ordered so that each rung is verifiable against `mgcv` with the rungs below it
 already trusted — the maintainer's own instruction: *"a rigorous plan that
 tackles simpler mgcv features first."*
 
+> **L1–L5 are the ACTIVE EPIC as of 2026-09-18** (maintainer direction):
+> **`docs/PLAN_mgcv_capability_ladder.md`**. That plan sequences these rungs into
+> five slices; it does **not** renumber them. Note its one reordering — L5 is
+> pulled forward to slice 3, because `reml_score_general` raising on
+> `dispersion_fixed=False` blocks **L1 at free `sp`**, and a gap left open across
+> three slices is a gap that gets forgotten.
+
 | # | rung | why here | rough size |
 |---|---|---|---|
 | **L1** | **`gaussian(identity)`** | The simplest family. Decouples every later basis check from IRLS confounds: at Gaussian identity the penalized fit is a single linear solve, so a basis disagreement cannot hide behind IRLS convergence. Also what every mgcv textbook check uses. | small |
@@ -169,6 +186,11 @@ tackles simpler mgcv features first."*
 **Solver work re-aims** at the target's real block count (13–21, doubled under
 `select=TRUE`) rather than N=7, and is sequenced against these rungs rather than
 run open-endedly between them.
+
+**This is no longer a map with nothing behind it.** The ladder's first five rungs
+are registered as an epic with slices, acceptance criteria and a named blocker:
+`docs/PLAN_mgcv_capability_ladder.md` (2026-09-18). A successor epic for L6–L8 is
+expected but deliberately unregistered until it is sized.
 
 ### What the ladder deliberately does not include
 
