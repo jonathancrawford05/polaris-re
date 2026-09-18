@@ -163,9 +163,11 @@ tackles simpler mgcv features first."*
 > **L1–L5 are the ACTIVE EPIC as of 2026-09-18** (maintainer direction):
 > **`docs/PLAN_mgcv_capability_ladder.md`**. That plan sequences these rungs into
 > five slices; it does **not** renumber them. Note its one reordering — L5 is
-> pulled forward to slice 3, because `reml_score_general` raising on
-> `dispersion_fixed=False` blocks **L1 at free `sp`**, and a gap left open across
-> three slices is a gap that gets forgotten.
+> pulled forward to slice 3 — because it is on the **critical path to L9/L10**
+> (`fREML` needs free-scale handling) while being the epic's least-measured
+> estimate, and because it closes a **live** hole: `quasipoisson` is marked
+> expressible above and raises at free `sp` today. `PLAN_…ladder.md` §2.1 gives
+> the argument in full, including the case against it.
 
 | # | rung | why here | rough size |
 |---|---|---|---|

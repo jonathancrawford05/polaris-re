@@ -41,18 +41,19 @@ confusion already cost.
 
 ---
 
-## 2. Rung order versus slice order — and the one dependency that separates them
+## 2. Rung order versus slice order — why L5 runs third
 
 The ladder numbers rungs by **capability dependency**: each rung is verifiable
-with the rungs below it already trusted. Slice order adds a second
-consideration — **what unblocks what soonest** — so the two are not identical
-here, and that is deliberate rather than an oversight:
+with the rungs below it already trusted. Slice order here departs from it in one
+place — **L5 runs third, ahead of L3 and L4** — and the reasoning is set out in
+full below, including the argument against, because a sequencing choice stated as
+if it were a derivation is the failure mode this epic's predecessor died of.
 
-| slice | rung | why here rather than in rung order |
+| slice | rung | |
 |---|---|---|
 | 1 | **L1** `gaussian(identity)` | first, as the ladder has it — but **fixed `sp` only**, see the blocker below |
 | 2 | **L2** `bs="re"` | unchanged; its free-`sp` search runs under an already-supported fixed-dispersion family, so it does **not** wait on slice 3 |
-| 3 | **L5** Scale-estimated REML | **pulled forward from rung 5.** It is what closes slice 1's own gap, and leaving that gap open across three more slices is how a known limitation becomes a forgotten one |
+| 3 | **L5** Scale-estimated REML | **pulled forward from rung 5** — see §2.1 |
 | 4 | **L3** factor-`by` | unchanged in substance, just later in the running order |
 | 5 | **L4** Unpenalized parametric block | last because it is the one rung whose value is entirely about the *target formula*, not about the basis suite |
 
@@ -60,7 +61,60 @@ here, and that is deliberate rather than an oversight:
 as written; PR #235 spent a finding on six cross-references left pointing at a
 renumbered rung, and the cure is to not renumber.
 
-### The blocker, stated before it is discovered the expensive way
+### 2.1 Why L5 runs third
+
+> **What this argument is NOT.** An earlier revision of this plan justified the
+> position by the L1 dependency alone — *"L5 closes slice 1's gap, and a gap left
+> open across three slices gets forgotten."* **That argument does not hold**, and
+> it is recorded here rather than quietly replaced. The blocker below is real,
+> but it only establishes *L5 after L1*, which every candidate ordering satisfies.
+> Nothing in slices 2, 4 or 5 needs Gaussian free-`sp`: L2, L3 and L4 all take
+> their free-`sp` exercise under Poisson or binomial, both fixed-dispersion and
+> both already working. The dependency does not order L5 against L3/L4 at all.
+> It was a preference dressed as a derivation.
+
+**The two reasons that do hold:**
+
+1. **L5 is on the critical path to L9/L10, not a leaf.** `fREML` is `bam`'s
+   criterion and free-scale handling is intrinsic to it, so **objective item 2
+   sits behind this rung.** §6 flags L5 as the one item in this epic sized by
+   inspection rather than measurement — the estimate could be wrong by a
+   multiple. An unmeasured estimate on the critical path is what you want to hit
+   **early**: blowing up at slice 3 means replanning with two rungs banked
+   instead of four.
+
+2. **It closes a live hole, not a hypothetical one.** `quasipoisson` is the only
+   registered family with `dispersion_fixed=False` (`gam_family.py:264`; the
+   other three are `True`). It is marked **expressible** in the coverage table
+   and it **raises** at free `sp` today — the standing ⚠️ in
+   `MGCV_FEATURE_COVERAGE.md` §2.2/§2.3. L5 earns its slot independently of
+   Gaussian.
+
+Supporting this, on the repo's own record rather than on assertion: **`sz` is
+what a fixed-`sp` qualifier looks like when it lingers.** Stage A verified,
+Stage B fixed-`sp` only since ADR-215/217, free-`sp` never exercised — and it has
+now been deprioritised to L11. That is the demonstrated failure mode, not a
+worry about one.
+
+**The argument against, stated fairly.** L3 and L4 are **coverage** rungs —
+objective item 1, the thing this epic exists for. L5 is **fitting machinery** and
+adds no basis. This epic's whole premise (`MGCV_FEATURE_COVERAGE.md` §3) is that
+coverage has not moved in two weeks, so a machinery slice at position 3 partly
+reproduces the complaint. Someone weighting steady visible coverage over
+de-risking should run plain rung order and put L5 last; the ladder itself does
+not change either way.
+
+**The call, and it is a judgement not a derivation:** L5 stays at slice 3.
+Fail-fast on an unmeasured critical-path item beats banking cheap certain wins,
+and reason 2 means the slice pays for itself even if Gaussian never needed it.
+The counter-argument is mitigated but not answered — L1 and L2 land first, and L2
+is the highest value-to-effort rung on the board, so coverage does move before
+the machinery slice.
+
+*(Maintainer-reviewed 2026-09-18: order confirmed, justification rewritten.
+PR #235 review round 2 flagged this sequencing for human review.)*
+
+### 2.2 The blocker, stated before it is discovered the expensive way
 
 `gam_reml.reml_score_general` **raises** when `family.dispersion_fixed` is
 `False` (`gam_reml.py:263`). Gaussian has an unknown scale. Therefore:
@@ -73,6 +127,10 @@ This is written here, at the top, on purpose. Blocker A of the wiring epic was a
 premise nobody tested for two weeks; the antidote is to state a dependency where
 the plan is read, and to have already checked it in the code rather than recalled
 it. The citation above is the check.
+
+**Note what it does and does not license.** It constrains slice 1's acceptance
+criteria — that is its whole job here. It is **not** the reason L5 runs third;
+§2.1 says why that is, and says why this was the wrong argument for it.
 
 ---
 
@@ -138,10 +196,16 @@ wait on slice 3.
 
 ### Slice 3 — L5 Scale-estimated REML
 
-**Why pulled forward.** It closes slice 1's own gap, and it unblocks four
-families at once — Gaussian, quasi-Poisson, Gamma, Tweedie. `quasipoisson_log`
-is already registered and already unusable at free `sp` for this reason, which is
-why the coverage table has carried a ⚠️ against it rather than a tick.
+**Why pulled forward — §2.1 in one line:** it is on the critical path to L9/L10
+and it is the epic's least-measured estimate, so it is the one to hit early; and
+it closes a live hole rather than only Gaussian's. `quasipoisson` is the sole
+registered family with `dispersion_fixed=False` (`gam_family.py:264`), is marked
+expressible, and raises at free `sp` **today** — the standing ⚠️ in §2.2/§2.3 of
+the coverage file. Closing slice 1's own gap is a *consequence* of this slice,
+not the argument for its position.
+
+It unblocks four families at once — Gaussian, quasi-Poisson, Gamma, Tweedie —
+though only the first two are registered today.
 
 **Build:** the free-scale REML criterion, replacing the raise at
 `gam_reml.py:263`.
@@ -234,9 +298,12 @@ here, because registering slices nobody has sized is how slice 1b happened.
 
 1. **L5 is sized "medium" on inspection, not on measurement.** The free-scale
    REML criterion is the one place in this epic where the estimate could be wrong
-   by a multiple. If slice 3 runs long, slices 4 and 5 are independent of it and
-   can proceed — but slice 1's coverage row stays qualified until it lands, and
-   that qualifier must not quietly disappear.
+   by a multiple — which is §2.1's first reason for running it third rather than
+   last. If slice 3 runs long, slices 4 and 5 are independent of it and can
+   proceed — but slice 1's coverage row stays qualified until it lands, and that
+   qualifier must not quietly disappear. **If it runs long enough to stall the
+   epic, that is the signal to re-plan with two rungs banked**, which is the
+   whole point of taking the risk early; it is not a reason to widen slice 3.
 2. **Solver convergence may resurface on new block shapes.** Every convergence
    finding this project has (ADR-212 through ADR-220) was measured on `cr`/`ti`
    structures. `re` blocks are differently conditioned. A convergence failure on
