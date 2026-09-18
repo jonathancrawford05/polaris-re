@@ -307,6 +307,26 @@ tolerances explicitly rather than leaving "agrees" undefined. **No unqualified
 touches conformance level 4's standing disagreement (ADR-190)."""
 
 
+# KNOWN GAP, registered by PR #235 review round 2 [P1-4]. The three R-INTERNAL
+# quantities below (mgcv on BOTH sides) are declared ``INDEPENDENT``, which is
+# what ``VERIFICATION_STANDARD.md`` Sec. 5 prescribes — it files the R-side
+# smoothCon/lpmatrix guard the same way — and it is truthful about the
+# PRODUCERS: two genuinely independent ones. But ``evidence_markdown`` derives
+# its headline clause and its "parity evidence" column from
+# ``provenance.is_parity_evidence``, which is True for INDEPENDENT, so the
+# rendered summary lists them under "Parity comparison" and prints "yes" for
+# them, while their own labels say "Polaris absent".
+#
+# The claim SENTENCE says the right thing ("R-INTERNAL quantities ... are
+# evidence about mgcv only"), so a reader of the whole summary is not misled;
+# a reader of the headline alone could be, in the direction of overstating.
+#
+# The fix is a fourth ``ComparisonProvenance`` member (REFERENCE_INTERNAL:
+# is_parity_evidence=False, its own headline clause) in ``core/verification.py``
+# — a CORE CONTRACT change affecting every claim in the epic, so it belongs in
+# its own change with maintainer sign-off, NOT bolted onto a retraction PR.
+# Until then: no acceptance criterion is ticked on any of these three rows, and
+# none may be cited as evidence about this engine.
 PRODUCTION_MI_MODEL_CLAIM = VerificationClaim(
     claim=PRODUCTION_MI_CLAIM_SENTENCE,
     quantities=(

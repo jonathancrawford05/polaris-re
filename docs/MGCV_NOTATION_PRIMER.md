@@ -15,11 +15,18 @@ checked against `mgcv` at the bottom of each section.
 >
 > **Status: tier 3, and on two mgcv versions.** The probe passes locally on
 > **mgcv 1.9.1** (where these numbers were first taken) and on the pinned oracle
-> digest, which runs **mgcv 1.9.4** — run `35346285484`, step *"Assert the
-> notation primer's penalty counts against the pinned mgcv"*. Every counting rule
-> in §3 and §4 is therefore stable across both, which is more than the tier alone
-> would tell you: a rule that held on one version could have been an artifact of
-> it.
+> digest, which runs **mgcv 1.9.4** — step 18, *"Assert the notation primer's
+> penalty counts against the pinned mgcv"*, of the `mgcv reference (R)` job in
+> run [`35371316687`](https://github.com/jonathancrawford05/polaris-re/actions/runs/35371316687/job/105685696207)
+> (whole run green, on `ca8cf04`). Every counting rule in §3 and §4 is therefore
+> stable across both, which is more than the tier alone would tell you: a rule
+> that held on one version could have been an artifact of it.
+>
+> *(This first cited run `35346285484`. That run's step 18 did pass, but a
+> superseding push cancelled the run's downstream job, so its top-level
+> conclusion reads `cancelled` — an auditor opening the link could not tell the
+> citation was sound. Cited to a job URL in a fully green run instead. PR #235
+> review round 2, [P2-4].)*
 >
 > Both sides of that probe are `mgcv`. It is a **reference-behaviour
 > measurement, not parity evidence** — Polaris is absent from it, so under

@@ -81,6 +81,15 @@ it. The citation above is the check.
 Each slice is one PR. A slice is DONE when its coverage row has moved, not when
 its code lands — see §4.
 
+> **There is deliberately no `CONTINUATION_mgcv_capability_ladder.md` yet.** The
+> session that starts **slice 1** creates it, the same way
+> `PLAN_gam_production_wiring.md` §slice-3 states for its own epic and the
+> one-active-epic rule requires. Until then this plan is the whole record: an
+> epic with a plan and no state file has not started, and `ACTIVE EPIC` in
+> `MGCV_FEATURE_COVERAGE.md` §4 means *next*, not *in progress*. (PR #235 review
+> round 2, [P2-5] — the precedent was right but unstated, and an unstated
+> convention is the thing this epic's predecessor lost two weeks to.)
+
 ### Slice 1 — L1 `gaussian(identity)` at fixed `sp`
 
 **Why first.** At Gaussian identity the penalized fit is a **single linear
